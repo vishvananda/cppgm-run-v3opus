@@ -266,6 +266,37 @@ const char* const kRegisterLetters = "xyzt";
 
 }
 
+std::string literal_field_bytes(const Cy86Operand& operand, std::size_t size)
+{
+	const std::size_t kept = operand.data_size < kMaxOperandBytes
+		? operand.data_size : kMaxOperandBytes;
+	const std::size_t copied = kept < size ? kept : size;
+	std::string bytes(reinterpret_cast<const char*>(operand.data), copied);
+	if (operand.data_size >= size)
+	{
+		return bytes;
+	}
+	// Too short widens: by sign for a signed integer, by zero for a string
+	// literal or a floating type, whose bytes an operand narrower than them
+	// would have truncated instead.
+	const bool negative = operand.data_signed && copied != 0 &&
+		(operand.data[copied - 1] & 0x80) != 0;
+	bytes.resize(size, negative ? static_cast<char>(0xFF) : 0);
+	return bytes;
+}
+
+unsigned long long literal_field_value(const Cy86Operand& operand, std::size_t size)
+{
+	const std::string bytes = literal_field_bytes(operand, size);
+	const std::size_t length = bytes.size() < 8 ? bytes.size() : 8;
+	unsigned long long value = 0;
+	for (std::size_t index = length; index-- > 0; )
+	{
+		value = (value << 8) | static_cast<unsigned char>(bytes[index]);
+	}
+	return value;
+}
+
 bool lookup_cy86_register(const std::string& text, Cy86Register& reg, int& width)
 {
 	if (text == "sp" || text == "bp")
@@ -325,11 +356,4 @@ const Cy86OpcodeInfo* Cy86OpcodeTable::find(const std::string& name) const
 	const std::unordered_map<std::string, const Cy86OpcodeInfo*>::const_iterator
 		found = index_.find(name);
 	return found == index_.end() ? 0 : found->second;
-}
-
-bool Cy86OpcodeTable::reserved(const std::string& name) const
-{
-	Cy86Register reg;
-	int width;
-	return find(name) != 0 || lookup_cy86_register(name, reg, width);
 }

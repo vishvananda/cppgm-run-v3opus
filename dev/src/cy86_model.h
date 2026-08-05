@@ -96,27 +96,35 @@ public:
 	// Null when `name` is not an opcode.
 	const Cy86OpcodeInfo* find(const std::string& name) const;
 
-	// Whether `name` is a spelling a label may not take, which the assignment
-	// makes the opcode and register spellings.
-	bool reserved(const std::string& name) const;
-
 private:
 	// The entries keep their addresses, so the index points into them.
 	std::vector<Cy86OpcodeInfo> entries_;
 	std::unordered_map<std::string, const Cy86OpcodeInfo*> index_;
 };
 
+// The most bytes of a literal an encoding can read from an operand, which is
+// what a `long double` occupies.  A literal wider than that - a string literal
+// of any length - is truncated where it is parsed rather than copied whole and
+// truncated later, so an operand costs the same whatever it was written as.
+const std::size_t kMaxOperandBytes = 10;
+
 // One operand.  A register names a CY86 register; an immediate and a memory
 // address share the same value shape, which is either a label plus a constant
-// or the bytes of a literal.
+// or the value of a literal.
 struct Cy86Operand
 {
 	enum Kind { kRegister, kImmediate, kMemory };
 
 	Cy86Operand()
 		: kind(kRegister), reg(CY_SP), width(0), has_base(false)
-		, has_label(false), label(kNoName), addend(0), data_signed(false)
-	{}
+		, has_label(false), label(kNoName), addend(0), data_size(0)
+		, data_signed(false)
+	{
+		for (std::size_t index = 0; index < kMaxOperandBytes; ++index)
+		{
+			data[index] = 0;
+		}
+	}
 
 	Kind kind;
 	Cy86Register reg;   // kRegister, or the base register of a kMemory address
@@ -126,9 +134,27 @@ struct Cy86Operand
 	bool has_label;
 	NameId label;
 	unsigned long long addend;  // has_label or has_base: the constant part
-	std::string data;           // otherwise: the PA2 bytes of the literal
+	// Otherwise the PA2 bytes of the literal, of which the first
+	// `kMaxOperandBytes` are kept.  `data_size` is the width the literal
+	// itself has, which is what decides whether a field truncates it or
+	// widens it.
+	unsigned char data[kMaxOperandBytes];
+	std::uint32_t data_size;
 	bool data_signed;           // whether those bytes widen by sign
 };
+
+// What an operand's literal is worth in a field of `size` bytes, which is
+// never more than `kMaxOperandBytes`: the object representation 2.14 gave it,
+// truncated past the field, or widened by sign for a signed integer and by
+// zero for anything else.  The assignment states that rule for an immediate
+// whose width does not match its operand's, and gives the same one to the
+// literal in a label's `± TT_LITERAL` offset at 64 bits, so one reader answers
+// both and neither can drift from the other.
+std::string literal_field_bytes(const Cy86Operand& operand, std::size_t size);
+
+// The same field read back as a number, which is what an encoding taking an
+// immediate rather than a run of bytes needs.
+unsigned long long literal_field_value(const Cy86Operand& operand, std::size_t size);
 
 // One statement: either a run of literal bytes, or an opcode with operands.
 struct Cy86Statement
@@ -151,8 +177,10 @@ struct Cy86Statement
 // unit, parsed.
 struct Cy86Program
 {
+	Cy86Program() : label_limit(0) {}
+
 	std::vector<Cy86Statement> statements;
-	// Which statement each label names.  A label is a `NameId`, so this
-	// answers a reference without a string compare.
-	std::unordered_map<NameId, std::size_t> labels;
+	// One past the largest `NameId` any statement is labelled with, which is
+	// what a table indexed by label has to be long enough for.
+	NameId label_limit;
 };

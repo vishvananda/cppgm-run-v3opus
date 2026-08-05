@@ -105,14 +105,22 @@ int main(int argc, char** argv)
 		}
 
 		NameTable names;
-		std::vector<SemaToken> tokens;
-		std::vector<LiteralValue> literals;
-		read_sources(srcfiles, names, tokens, literals);
-
+		// A statement names its opcode by pointing into this table, so the
+		// table outlives the program.
 		Cy86OpcodeTable opcodes;
 		Cy86Program program;
-		Cy86Parser parser(tokens, literals, names, opcodes, program);
-		parser.run();
+		{
+			// A parsed operand keeps the value of its literal, so nothing past
+			// this point reads a token or a literal.  Both go away here rather
+			// than at the end of the run, which is most of what a large
+			// program costs to hold.
+			std::vector<SemaToken> tokens;
+			std::vector<LiteralValue> literals;
+			read_sources(srcfiles, names, tokens, literals);
+
+			Cy86Parser parser(tokens, literals, names, opcodes, program);
+			parser.run();
+		}
 
 		Cy86Codegen codegen(program, names);
 		codegen.run();

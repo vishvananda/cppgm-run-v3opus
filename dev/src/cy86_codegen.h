@@ -59,7 +59,14 @@ private:
 
 	// Operands.
 	void check_operands(const Cy86Statement& statement);
+	// The bytes an operand contributes to a field of `size`, which for a label
+	// reference is the constant part its address is still to be added to.
 	std::string immediate_bytes(const Cy86Operand& operand, std::size_t size) const;
+	// A constant into a register, recording the field when a label address has
+	// still to be added into it.  Every constant an instruction reads goes
+	// through here, so a reference is recorded exactly where one is emitted.
+	void emit_immediate(int reg, const Cy86Operand& operand, int width);
+	void emit_immediate80(const Cy86Operand& operand, int low, int high);
 	void emit_address(int reg, const Cy86Operand& operand);
 	void emit_load(int reg, const Cy86Operand& operand, int width);
 	void emit_store(const Cy86Operand& operand, int reg, int width);
@@ -91,9 +98,9 @@ private:
 	std::string image_;
 	x86::Assembler assembler_;
 	std::vector<Relocation> relocations_;
-	// Where each label sits, indexed by `NameId` so a reference costs a load.
+	// Where each label sits, indexed by `NameId` so a reference costs a load,
+	// and long enough for every label the parser found.
 	std::vector<unsigned long long> addresses_;
-	std::vector<bool> defined_;
 	// The statement the program starts at, and the prologue field holding it.
 	unsigned long long entry_;
 	std::size_t entry_field_;

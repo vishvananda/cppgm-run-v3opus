@@ -1,0 +1,55 @@
+// The smallest negative value of a width divided by -1 has no representation
+// at that width.  CY86 arithmetic wraps - `iadd8` of 0x80 and 0x80 is 0 - so
+// this is the quotient with the bits past the width dropped, not a trap.
+
+start:
+	move8 x8 (-128);
+	move8 y8 (-1);
+	sdiv8 z8 x8 y8;
+	move8 [out] z8;
+	syscall3 t64 1 1 out 1u;
+	smod8 z8 x8 y8;
+	move8 [out] z8;
+	syscall3 t64 1 1 out 1u;
+
+	move16 x16 (-32768);
+	move16 y16 (-1);
+	sdiv16 z16 x16 y16;
+	move16 [out] z16;
+	syscall3 t64 1 1 out 2u;
+	smod16 z16 x16 y16;
+	move16 [out] z16;
+	syscall3 t64 1 1 out 2u;
+
+	move32 x32 (-2147483648);
+	move32 y32 (-1);
+	sdiv32 z32 x32 y32;
+	move32 [out] z32;
+	syscall3 t64 1 1 out 4u;
+	smod32 z32 x32 y32;
+	move32 [out] z32;
+	syscall3 t64 1 1 out 4u;
+
+	// An ordinary signed division still truncates toward zero.
+	move32 x32 (-7);
+	move32 y32 2;
+	sdiv32 z32 x32 y32;
+	move32 [out] z32;
+	syscall3 t64 1 1 out 4u;
+	smod32 z32 x32 y32;
+	move32 [out] z32;
+	syscall3 t64 1 1 out 4u;
+
+	// So does an unsigned one at its own width.
+	move8 x8 255u;
+	move8 y8 2u;
+	udiv8 z8 x8 y8;
+	move8 [out] z8;
+	syscall3 t64 1 1 out 1u;
+	umod8 z8 x8 y8;
+	move8 [out] z8;
+	syscall3 t64 1 1 out 1u;
+
+	syscall1 t64 60 0u;
+
+out:	data64 0;

@@ -10,6 +10,10 @@ namespace
 // widest alignment a literal can ask for.
 const unsigned long long kImageAddress = 0x401000;
 
+// The address of a label no statement carries.  No statement can sit there, so
+// one table answers both where a label is and whether it is anywhere.
+const unsigned long long kUnplaced = ~0ULL;
+
 // The x86 registers backing the CY86 ones, in the order `Cy86Register`
 // numbers them.
 const int kRegisterMap[] =
@@ -117,6 +121,10 @@ unsigned long long Cy86Codegen::base() const
 
 void Cy86Codegen::run()
 {
+	// Parsing settled which names label a statement, so the table their
+	// addresses go into is built once at the length it will need.
+	addresses_.assign(program_->label_limit, kUnplaced);
+
 	emit_prologue();
 
 	// Where the program runs from when no `start` labels a statement: the
@@ -138,14 +146,7 @@ void Cy86Codegen::run()
 		}
 		for (std::size_t label = 0; label < statement.labels.size(); ++label)
 		{
-			const NameId name = statement.labels[label];
-			if (name >= addresses_.size())
-			{
-				addresses_.resize(name + 1, 0);
-				defined_.resize(name + 1, false);
-			}
-			addresses_[name] = here;
-			defined_[name] = true;
+			addresses_[statement.labels[label]] = here;
 		}
 		emit_statement(statement);
 	}
@@ -153,7 +154,8 @@ void Cy86Codegen::run()
 	// 3.6.1 has no counterpart here: the program starts at `start` if there is
 	// one, and otherwise at whatever comes first.
 	const NameId start = names_->intern("start");
-	entry_ = start < defined_.size() && defined_[start] ? addresses_[start] : first;
+	entry_ = start < addresses_.size() && addresses_[start] != kUnplaced
+		? addresses_[start] : first;
 	resolve();
 }
 
@@ -203,7 +205,7 @@ void Cy86Codegen::relocate(std::size_t offset, std::size_t size, NameId label)
 
 unsigned long long Cy86Codegen::address_of(NameId label) const
 {
-	if (label >= defined_.size() || !defined_[label])
+	if (label >= addresses_.size() || addresses_[label] == kUnplaced)
 	{
 		throw SourceError(" `" + names_->text(label) + "` labels no statement");
 	}
@@ -259,61 +261,59 @@ void Cy86Codegen::check_operands(const Cy86Statement& statement)
 
 std::string Cy86Codegen::immediate_bytes(const Cy86Operand& operand, std::size_t size) const
 {
+	if (!operand.has_label)
+	{
+		return literal_field_bytes(operand, size);
+	}
+	// A label reference starts as the constant part of its value; the address
+	// is added into the field once every statement has one.
 	std::string bytes;
+	unsigned long long value = operand.addend;
+	for (std::size_t index = 0; index < size; ++index)
+	{
+		bytes.push_back(static_cast<char>(value & 0xFF));
+		value >>= 8;
+	}
+	return bytes;
+}
+
+void Cy86Codegen::emit_immediate(int reg, const Cy86Operand& operand, int width)
+{
+	const std::size_t size = width / 8;
+	const unsigned long long value = operand.has_label
+		? operand.addend
+		: literal_field_value(operand, size);
+	const std::size_t field = assembler_.load_immediate(width, reg, value);
 	if (operand.has_label)
 	{
-		unsigned long long value = operand.addend;
-		for (std::size_t index = 0; index < size; ++index)
-		{
-			bytes.push_back(static_cast<char>(value & 0xFF));
-			value >>= 8;
-		}
-		return bytes;
+		relocate(field, size, operand.label);
 	}
-
-	// Too long is truncated by dropping the bytes past the width; too short
-	// widens by sign for a signed integer and by zero for everything else.
-	bytes = operand.data;
-	if (bytes.size() >= size)
-	{
-		bytes.resize(size);
-		return bytes;
-	}
-	const bool negative = operand.data_signed && !bytes.empty() &&
-		(static_cast<unsigned char>(bytes[bytes.size() - 1]) & 0x80) != 0;
-	bytes.resize(size, negative ? static_cast<char>(0xFF) : 0);
-	return bytes;
 }
 
 void Cy86Codegen::emit_address(int reg, const Cy86Operand& operand)
 {
-	if (operand.has_base)
+	// Without a base register an address is a constant like any other, read at
+	// the 64 bits the assignment gives every address.
+	if (!operand.has_base)
 	{
-		const int base = x86_register(operand.reg);
-		const long long disp = static_cast<long long>(operand.addend);
-		if (disp == 0)
-		{
-			assembler_.load(64, reg, x86::RM::reg(base));
-		}
-		else if (disp >= -2147483648LL && disp <= 2147483647LL)
-		{
-			assembler_.instruction(64, 0x8D, 1, reg, true, x86::RM::mem(base, disp));
-		}
-		else
-		{
-			assembler_.load_immediate(64, reg, operand.addend);
-			assembler_.arithmetic(64, 0x02, reg, x86::RM::reg(base));
-		}
+		emit_immediate(reg, operand, 64);
 		return;
 	}
 
-	const unsigned long long value = operand.has_label
-		? operand.addend
-		: little_endian(immediate_bytes(operand, 8));
-	const std::size_t field = assembler_.load_immediate(64, reg, value);
-	if (operand.has_label)
+	const int base = x86_register(operand.reg);
+	const long long disp = static_cast<long long>(operand.addend);
+	if (disp == 0)
 	{
-		relocate(field, 8, operand.label);
+		assembler_.load(64, reg, x86::RM::reg(base));
+	}
+	else if (disp >= -2147483648LL && disp <= 2147483647LL)
+	{
+		assembler_.instruction(64, 0x8D, 1, reg, true, x86::RM::mem(base, disp));
+	}
+	else
+	{
+		assembler_.load_immediate(64, reg, operand.addend);
+		assembler_.arithmetic(64, 0x02, reg, x86::RM::reg(base));
 	}
 }
 
@@ -330,13 +330,7 @@ void Cy86Codegen::emit_load(int reg, const Cy86Operand& operand, int width)
 		assembler_.load(width, reg, x86::RM::mem(kAddress, 0));
 		return;
 	}
-	const std::size_t size = width / 8;
-	const std::size_t field =
-		assembler_.load_immediate(width, reg, little_endian(immediate_bytes(operand, size)));
-	if (operand.has_label)
-	{
-		relocate(field, size, operand.label);
-	}
+	emit_immediate(reg, operand, width);
 }
 
 void Cy86Codegen::emit_store(const Cy86Operand& operand, int reg, int width)
@@ -473,6 +467,19 @@ void Cy86Codegen::emit_indirect(const Cy86Statement& statement, int digit)
 	assembler_.instruction(0, 0xFF, 1, digit, false, x86::RM::reg(kResult));
 }
 
+void Cy86Codegen::emit_immediate80(const Cy86Operand& operand, int low, int high)
+{
+	// No form takes an 80-bit immediate, so one is read as the eight bytes an
+	// immediate can carry and the two above them.
+	const std::string bytes = immediate_bytes(operand, kMaxOperandBytes);
+	const std::size_t field = assembler_.load_immediate(64, low, little_endian(bytes));
+	if (operand.has_label)
+	{
+		relocate(field, 8, operand.label);
+	}
+	assembler_.load_immediate(16, high, little_endian(bytes.substr(8)));
+}
+
 void Cy86Codegen::emit_move80(const Cy86Statement& statement)
 {
 	// Ten bytes move as eight plus two rather than through the x87 stack,
@@ -486,13 +493,7 @@ void Cy86Codegen::emit_move80(const Cy86Statement& statement)
 	}
 	else
 	{
-		const std::string bytes = immediate_bytes(source, 10);
-		const std::size_t field = assembler_.load_immediate(64, kResult, little_endian(bytes));
-		if (source.has_label)
-		{
-			relocate(field, 8, source.label);
-		}
-		assembler_.load_immediate(16, kRight, little_endian(bytes.substr(8)));
+		emit_immediate80(source, kResult, kRight);
 	}
 
 	emit_address(kAddress, statement.operands[0]);
@@ -546,43 +547,33 @@ void Cy86Codegen::emit_divide(const Cy86Statement& statement)
 	emit_load(kResult, statement.operands[1], width);
 	emit_load(kRight, statement.operands[2], width);
 
+	// Every division is done in 64 bits, whatever width it is written in.  A
+	// division at its own width traps when the quotient does not fit that
+	// width, which the smallest negative value over -1 does not, and CY86
+	// arithmetic wraps rather than traps: `iadd8 x8 x8 x8` of 0x80 is 0x00.  So
+	// both operands widen the way the opcode reads them, one form divides, and
+	// the store takes the low bits back.  Only a 64-bit division can still
+	// trap, and only where no wider form exists to avoid it.
+	if (width != 64)
+	{
+		assembler_.extend(64, width, !is_unsigned, kResult, x86::RM::reg(kResult));
+		assembler_.extend(64, width, !is_unsigned, kRight, x86::RM::reg(kRight));
+	}
 	if (is_unsigned)
 	{
-		if (width == 8)
-		{
-			assembler_.extend(32, 8, false, kResult, x86::RM::reg(kResult));
-		}
-		else
-		{
-			assembler_.arithmetic(32, 0x32, x86::RDX, x86::RM::reg(x86::RDX));
-		}
-		assembler_.unary(width, 6, x86::RM::reg(kRight));
+		assembler_.arithmetic(32, 0x32, x86::RDX, x86::RM::reg(x86::RDX));
 	}
 	else
 	{
-		// CBW, CWD, CDQ and CQO, which widen the dividend into ah or rdx.
-		if (width == 16 || width == 8)
-		{
-			assembler_.byte(0x66);
-		}
-		else if (width == 64)
-		{
-			assembler_.byte(0x48);
-		}
-		assembler_.byte(width == 8 ? 0x98 : 0x99);
-		assembler_.unary(width, 7, x86::RM::reg(kRight));
+		// CQO, which widens the dividend into rdx.
+		assembler_.byte(0x48);
+		assembler_.byte(0x99);
 	}
+	assembler_.unary(64, is_unsigned ? 6 : 7, x86::RM::reg(kRight));
 
-	if (remainder && width == 8)
+	if (remainder)
 	{
-		// The 8-bit forms leave the remainder in ah, which shifting brings
-		// down without naming a high byte register.
-		assembler_.instruction(16, 0xC1, 1, 5, false, x86::RM::reg(kResult));
-		assembler_.byte(8);
-	}
-	else if (remainder)
-	{
-		assembler_.load(width, kResult, x86::RM::reg(x86::RDX));
+		assembler_.load(64, kResult, x86::RM::reg(x86::RDX));
 	}
 	emit_store(statement.operands[0], kResult, width);
 }
@@ -621,15 +612,11 @@ void Cy86Codegen::emit_spill(const Cy86Operand& operand, int width, long long sl
 		assembler_.store(width, x86::RM::mem(x86::RSP, slot), kResult);
 		return;
 	}
-	const std::string bytes = immediate_bytes(operand, 10);
-	const std::size_t field = assembler_.load_immediate(64, kResult, little_endian(bytes));
-	if (operand.has_label)
-	{
-		relocate(field, 8, operand.label);
-	}
+	// Both scratch registers are free here: an x87 form holds what it has
+	// already read on the floating stack rather than in one of them.
+	emit_immediate80(operand, kResult, kRight);
 	assembler_.store(64, x86::RM::mem(x86::RSP, slot), kResult);
-	assembler_.load_immediate(16, kResult, little_endian(bytes.substr(8)));
-	assembler_.store(16, x86::RM::mem(x86::RSP, slot + 8), kResult);
+	assembler_.store(16, x86::RM::mem(x86::RSP, slot + 8), kRight);
 }
 
 void Cy86Codegen::emit_float_push(const Cy86Operand& operand, int width)

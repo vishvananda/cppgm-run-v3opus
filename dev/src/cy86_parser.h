@@ -31,22 +31,32 @@ public:
 
 private:
 	// What an identifier spells, decided once per name rather than once per
-	// use: a register, an opcode, or a label.
+	// use: a register, an opcode, or a label.  A spelling that is a register
+	// or an opcode is one the assignment reserves, so this also answers
+	// whether a label may take it - without looking at the letters again.
 	struct NameFacts
 	{
-		NameFacts() : opcode(0), is_register(false), reg(CY_SP), width(0), known(false) {}
+		NameFacts()
+			: opcode(0), is_register(false), reg(CY_SP), width(0)
+			, known(false), labels_a_statement(false)
+		{}
+
+		bool reserved() const { return is_register || opcode != 0; }
 
 		const Cy86OpcodeInfo* opcode;
 		bool is_register;
 		Cy86Register reg;
 		int width;
 		bool known;
+		// Whether a statement already carries this name as a label, which the
+		// assignment allows only once.
+		bool labels_a_statement;
 	};
 
 	const SemaToken& peek(std::size_t ahead = 0) const;
 	bool at(unsigned type, std::size_t ahead = 0) const;
 	void expect(unsigned type, const char* what);
-	const NameFacts& facts(NameId name);
+	NameFacts& facts(NameId name);
 
 	void parse_statement();
 	void parse_labels(Cy86Statement& statement);
@@ -59,9 +69,9 @@ private:
 	void parse_offset(Cy86Operand& operand);
 
 	const LiteralValue& literal_at(std::size_t index) const;
-	// The bytes of the literal the cursor is on, negated when asked, which the
-	// assignment allows only for an arithmetic type.
-	std::string take_literal_bytes(bool negated, bool& is_signed);
+	// The value of the literal the cursor is on, into `operand`, negated when
+	// asked, which the assignment allows only for an arithmetic type.
+	void take_literal_value(Cy86Operand& operand, bool negated);
 	// The same literal as a 64-bit offset, which the assignment requires be
 	// integral.
 	unsigned long long take_offset(bool negated);

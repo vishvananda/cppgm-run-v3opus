@@ -8,46 +8,30 @@ namespace
 // The two's complement of `bytes`, or the sign flip of a floating value, in
 // place.  2.14 gives a literal its object representation little-endian, so a
 // negation is a carry from the low byte up and a floating sign is the high bit
-// of the last byte the value occupies.
-void negate_bytes(std::string& bytes, EFundamentalType type)
+// of the last byte the value occupies.  A negation of the low `size` bytes is
+// the low `size` bytes of the negation, so this is exact on the prefix of a
+// literal an operand keeps: no arithmetic type has its sign bit past the tenth
+// byte, and `long double` is the only one whose object is wider than its value.
+void negate_bytes(unsigned char* bytes, std::size_t size, EFundamentalType type)
 {
 	if (fundamental_type_class(type) == FundamentalTypeClass::Floating)
 	{
-		// `long double` occupies sixteen bytes but only the low ten hold the
-		// value, so the sign bit is not in the last byte of the object.
-		const std::size_t used = type == FT_LONG_DOUBLE ? 10 : bytes.size();
-		if (used != 0 && used <= bytes.size())
+		const std::size_t used =
+			type == FT_LONG_DOUBLE ? kMaxOperandBytes : fundamental_type_size(type);
+		if (used != 0 && used <= size)
 		{
-			bytes[used - 1] = static_cast<char>(bytes[used - 1] ^ 0x80);
+			bytes[used - 1] = static_cast<unsigned char>(bytes[used - 1] ^ 0x80);
 		}
 		return;
 	}
 
 	unsigned carry = 1;
-	for (std::size_t index = 0; index < bytes.size(); ++index)
+	for (std::size_t index = 0; index < size; ++index)
 	{
-		const unsigned value = (static_cast<unsigned char>(~bytes[index]) & 0xFF) + carry;
-		bytes[index] = static_cast<char>(value & 0xFF);
+		const unsigned value = static_cast<unsigned char>(~bytes[index]) + carry;
+		bytes[index] = static_cast<unsigned char>(value & 0xFF);
 		carry = value >> 8;
 	}
-}
-
-// `bytes` read back as a 64-bit value, widened by sign when the type it came
-// from is a signed integer and by zero otherwise.
-unsigned long long widen(const std::string& bytes, bool is_signed)
-{
-	const std::size_t size = bytes.size() < 8 ? bytes.size() : 8;
-	unsigned long long value = 0;
-	for (std::size_t index = size; index-- > 0; )
-	{
-		value = (value << 8) | static_cast<unsigned char>(bytes[index]);
-	}
-	const std::size_t bits = size * 8;
-	if (bits != 0 && bits < 64 && is_signed && (value >> (bits - 1)) != 0)
-	{
-		value |= ~((1ULL << bits) - 1);
-	}
-	return value;
 }
 
 }
@@ -86,7 +70,7 @@ void Cy86Parser::expect(unsigned type, const char* what)
 	++cursor_;
 }
 
-const Cy86Parser::NameFacts& Cy86Parser::facts(NameId name)
+Cy86Parser::NameFacts& Cy86Parser::facts(NameId name)
 {
 	if (name >= facts_.size())
 	{
@@ -154,14 +138,19 @@ void Cy86Parser::parse_labels(Cy86Statement& statement)
 	while (at(TT_IDENTIFIER) && at(OP_COLON, 1))
 	{
 		const NameId name = peek().name;
-		if (opcodes_->reserved(names_->text(name)))
+		NameFacts& entry = facts(name);
+		if (entry.reserved())
 		{
 			throw SourceError(" a label may not spell an opcode or a register");
 		}
-		const std::size_t index = program_->statements.size() - 1;
-		if (!program_->labels.insert(std::make_pair(name, index)).second)
+		if (entry.labels_a_statement)
 		{
 			throw SourceError(" `" + names_->text(name) + "` labels two statements");
+		}
+		entry.labels_a_statement = true;
+		if (name >= program_->label_limit)
+		{
+			program_->label_limit = name + 1;
 		}
 		statement.labels.push_back(name);
 		cursor_ += 2;
@@ -183,7 +172,8 @@ void Cy86Parser::parse_literal_statement(Cy86Statement& statement, bool negated)
 	statement.data = literal.data;
 	if (negated)
 	{
-		negate_bytes(statement.data, literal.type);
+		negate_bytes(reinterpret_cast<unsigned char*>(&statement.data[0]),
+		             statement.data.size(), literal.type);
 	}
 	// An array is aligned as its elements are, which is what 2.14 gives the
 	// literal's type: for a string literal that type is the element type.
@@ -214,7 +204,7 @@ bool Cy86Parser::parse_operand(Cy86Operand& operand)
 	if (at(TT_LITERAL))
 	{
 		operand.kind = Cy86Operand::kImmediate;
-		operand.data = take_literal_bytes(false, operand.data_signed);
+		take_literal_value(operand, false);
 		return true;
 	}
 	if (at(TT_IDENTIFIER))
@@ -256,12 +246,12 @@ void Cy86Parser::parse_parenthesized(Cy86Operand& operand)
 	if (at(OP_MINUS) && at(TT_LITERAL, 1))
 	{
 		++cursor_;
-		operand.data = take_literal_bytes(true, operand.data_signed);
+		take_literal_value(operand, true);
 		return;
 	}
 	if (at(TT_LITERAL))
 	{
-		operand.data = take_literal_bytes(false, operand.data_signed);
+		take_literal_value(operand, false);
 		return;
 	}
 	set_label_reference(operand);
@@ -272,7 +262,7 @@ void Cy86Parser::parse_memory(Cy86Operand& operand)
 {
 	if (at(TT_LITERAL))
 	{
-		operand.data = take_literal_bytes(false, operand.data_signed);
+		take_literal_value(operand, false);
 		return;
 	}
 	if (!at(TT_IDENTIFIER))
@@ -319,7 +309,7 @@ void Cy86Parser::set_label_reference(Cy86Operand& operand)
 		throw SourceError(" an immediate is a literal or a label");
 	}
 	const NameId name = peek().name;
-	if (opcodes_->reserved(names_->text(name)))
+	if (facts(name).reserved())
 	{
 		throw SourceError(" `" + names_->text(name) + "` is not a label");
 	}
@@ -328,7 +318,7 @@ void Cy86Parser::set_label_reference(Cy86Operand& operand)
 	++cursor_;
 }
 
-std::string Cy86Parser::take_literal_bytes(bool negated, bool& is_signed)
+void Cy86Parser::take_literal_value(Cy86Operand& operand, bool negated)
 {
 	const LiteralValue& literal = literal_at(peek().name);
 	if (literal.type == kFundamentalTypeCount)
@@ -337,18 +327,23 @@ std::string Cy86Parser::take_literal_bytes(bool negated, bool& is_signed)
 	}
 	// An array is not a signed integral type, so a string literal narrower
 	// than its operand widens by zero however its elements are signed.
-	is_signed = !literal.array && fundamental_type_is_signed(literal.type);
-	std::string bytes = literal.data;
+	operand.data_signed = !literal.array && fundamental_type_is_signed(literal.type);
+	operand.data_size = static_cast<std::uint32_t>(literal.data.size());
+	const std::size_t kept = literal.data.size() < kMaxOperandBytes
+		? literal.data.size() : kMaxOperandBytes;
+	for (std::size_t index = 0; index < kept; ++index)
+	{
+		operand.data[index] = static_cast<unsigned char>(literal.data[index]);
+	}
 	if (negated)
 	{
 		if (literal.array)
 		{
 			throw SourceError(" a string literal has no negation");
 		}
-		negate_bytes(bytes, literal.type);
+		negate_bytes(operand.data, kept, literal.type);
 	}
 	++cursor_;
-	return bytes;
 }
 
 unsigned long long Cy86Parser::take_offset(bool negated)
@@ -358,7 +353,9 @@ unsigned long long Cy86Parser::take_offset(bool negated)
 	{
 		throw SourceError(" an offset is an integer");
 	}
-	bool is_signed = false;
-	const std::string bytes = take_literal_bytes(negated, is_signed);
-	return widen(bytes, is_signed);
+	// The assignment sign extends a signed offset to 64 bits and zero extends
+	// an unsigned one, which is what a 64-bit field does to any literal.
+	Cy86Operand value;
+	take_literal_value(value, negated);
+	return literal_field_value(value, 8);
 }
