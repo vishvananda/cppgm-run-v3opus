@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <memory>
 #include <stdexcept>
 #include <string>
 
@@ -15,6 +16,11 @@ public:
 		: std::runtime_error(message)
 	{}
 };
+
+// The bytes of a source file, shared by every reader over them.  A header is
+// lexed once per inclusion but read once per run, so its bytes have one owner
+// and no reader holds a copy of its own.
+typedef std::shared_ptr<const std::string> SourceText;
 
 // Whether the bytes are a source file or text a later phase has produced.
 //
@@ -59,6 +65,8 @@ private:
 	};
 
 public:
+	explicit SourceReader(SourceText text,
+	                      SourceForm form = SourceForm::Physical);
 	explicit SourceReader(std::string bytes,
 	                      SourceForm form = SourceForm::Physical);
 
@@ -145,7 +153,10 @@ private:
 	Fetched decoded_at(std::size_t offset) const;
 	Fetched trigraph_at(std::size_t offset) const;
 
-	std::string bytes_;
+	SourceText text_;
+	// `*text_`, so that the reading below is a member access rather than a
+	// dereference of the owner on every character.
+	const std::string& bytes_;
 	SourceForm form_;
 	std::size_t origin_;
 	std::size_t cursor_;

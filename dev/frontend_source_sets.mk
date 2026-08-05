@@ -14,7 +14,9 @@ FRONTEND_OBJ_BASENAMES_ctrlexpr := source_charset source_reader pptoken_lexer \
 FRONTEND_OBJ_BASENAMES_macro := source_charset source_reader pptoken_lexer \
 	token_model literal_scan string_literal posttokenizer \
 	macro_model macro_expander
-FRONTEND_OBJ_BASENAMES_preproc :=
+FRONTEND_OBJ_BASENAMES_preproc := source_charset source_reader pptoken_lexer \
+	token_model literal_scan string_literal posttokenizer \
+	macro_model macro_expander ctrl_expr source_files preprocessor
 FRONTEND_OBJ_BASENAMES_recog :=
 FRONTEND_OBJ_BASENAMES_nsdecl :=
 FRONTEND_OBJ_BASENAMES_nsinit :=

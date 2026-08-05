@@ -120,7 +120,8 @@ enum class MacroTokenType : std::uint8_t
 	Placemarker,
 	BeginSink,
 	EndArgument,
-	Substitute
+	Substitute,
+	EndLine
 };
 
 // The two share their phase 3 prefix by construction, so converting between
@@ -184,8 +185,27 @@ struct MacroSpellings
 	SpellingId rparen;
 	SpellingId comma;
 	SpellingId ellipsis;
+
+	// 16: the directive names.  The whole list is here rather than split
+	// between the two phase 4 owners, because whether an identifier names a
+	// directive is one fact and the non-directive rule needs all of it.
 	SpellingId define;
 	SpellingId undef;
+	SpellingId if_;
+	SpellingId ifdef;
+	SpellingId ifndef;
+	SpellingId elif;
+	SpellingId else_;
+	SpellingId endif;
+	SpellingId include;
+	SpellingId line;
+	SpellingId error;
+	SpellingId pragma;
+
+	// The two identifiers 16.1 and 16.6 give a meaning of their own.
+	SpellingId defined;
+	SpellingId once;
+	SpellingId pragma_operator;
 };
 
 // One step of the substitution 16.3.3 describes, analysed once at definition
@@ -209,10 +229,22 @@ struct MacroBodyItem
 	bool drop_for_empty_va;    // Token `,` of the `, ## __VA_ARGS__` extension
 };
 
+// A predefined macro whose replacement list is not a fixed sequence of tokens
+// but a fact about where it is used.  The fixed predefined macros are ordinary
+// `#define`s and are not here.
+enum class BuiltinMacro : std::uint8_t
+{
+	None,
+	File,     // `__FILE__`: the presumed name of the current source file
+	Line,     // `__LINE__`: the presumed line of the token that invoked it
+	Counter   // `__COUNTER__`: one more than the last time it was invoked
+};
+
 // One `#define`.  The replacement list is kept as written for the 16.3/2
 // redefinition rule, and as an analysed program for substitution.
 struct MacroDefinition
 {
+	BuiltinMacro builtin;
 	bool function_like;
 	bool variadic;
 	std::vector<SpellingId> parameters;
@@ -227,7 +259,8 @@ struct MacroDefinition
 	bool keeps_raw_arguments;
 
 	MacroDefinition()
-		: function_like(false)
+		: builtin(BuiltinMacro::None)
+		, function_like(false)
 		, variadic(false)
 		, keeps_raw_arguments(false)
 	{}
@@ -251,6 +284,11 @@ public:
 	// identifier.  Throws SourceError when the directive is ill-formed.
 	void define(const MacroToken* begin, const MacroToken* end);
 	void undefine(const MacroToken* begin, const MacroToken* end);
+
+	// Defines `name` as a predefined macro whose replacement is computed where
+	// it is invoked.  It is a macro like any other from here on: `#ifdef` sees
+	// it, and `#undef` removes it.
+	void define_builtin(SpellingId name, BuiltinMacro builtin);
 
 	const MacroDefinition* lookup(SpellingId name) const
 	{

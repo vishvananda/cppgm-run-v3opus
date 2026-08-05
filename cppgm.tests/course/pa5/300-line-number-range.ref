@@ -1,0 +1,5 @@
+preproc 1
+sof course/pa5/300-line-number-range.t
+literal 4294967295 long int FFFFFFFF00000000
+literal 4294967296 long int 0000000001000000
+eof

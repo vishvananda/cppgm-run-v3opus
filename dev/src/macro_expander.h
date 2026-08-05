@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -19,19 +20,87 @@
 // preprocessing-token.  An invocation pops its own tokens off that stack and
 // pushes its replacement back, so a replacement can be re-examined and can
 // form a new invocation with tokens that follow it in the file.  The rescan
-// is also where a function-like macro finds its `(`, which is why an
-// invocation never crosses a directive: the stack and the line both end there.
+// is also where a function-like macro finds its `(`, and a directive ends the
+// text-sequence before it, so a name a directive separates from a `(` is not
+// an invocation.  A directive *inside* an argument list is a different case
+// that 16.3/11 leaves undefined; see `collect_arguments`.
 //
 // Nested work is on the same stack rather than on the C++ stack.  Macro
 // replacing an argument pushes the argument between markers that redirect the
 // rescan's output into a buffer, so the depth an input can reach costs heap
 // and nothing else.
+//
+// PA4 is the whole of phase 4 for one file with two directives.  The rest of
+// phase 4 is above a file rather than inside one - `#include` changes what the
+// source is, `#if` changes whether there is text at all, and `__FILE__` is a
+// fact about a file - so it is a derived class, and what it overrides is what
+// this one leaves open: a directive it does not implement
+// (`run_directive_line`), a source that runs out (`pop_source`), a predefined
+// macro whose value is where it stands (`expand_builtin`), and an identifier
+// the text-sequence answers rather than emits (`run_text_operator`).
 class MacroExpander : public PPTokenSource
 {
 public:
-	explicit MacroExpander(PPTokenSource& source);
+	// `source` may be null, for a derived class that opens its first source
+	// itself; `pop_source` is then asked for one.
+	explicit MacroExpander(PPTokenSource* source);
 
 	bool next(PPToken& token) override;
+
+protected:
+	// Acts on one directive, given the tokens after its `#`, which is an empty
+	// range for the null directive.  PA4 implements `#define` and `#undef` and
+	// rejects the rest.
+	virtual void run_directive_line(const MacroToken* begin, const MacroToken* end);
+
+	// Called when the current source runs out.  True when another one has been
+	// installed with `set_source` and reading should continue.
+	virtual bool pop_source() { return false; }
+
+	// Produces the replacement of a predefined macro whose value depends on
+	// where it was invoked.  Only a derived class defines such a macro.
+	virtual void expand_builtin(const MacroToken& head, BuiltinMacro builtin);
+
+	// Macro replaces `[begin, end)` on its own, leaving the result in `out`.
+	// This is how a directive line that takes preprocessing-tokens - `#if`,
+	// `#include`, `#line` - gets them replaced without the rescan running off
+	// the end of the line into the file.
+	void expand_range(const MacroToken* begin, const MacroToken* end,
+	                  std::vector<MacroToken>& out);
+
+	// Acts on `token`, an identifier equal to `text_operator_` reached in a
+	// text-sequence.  Its operand follows it in the rescan.
+	virtual void run_text_operator(const MacroToken& token);
+
+	// Installs the source the next preprocessing-token is read from.
+	void set_source(PPTokenSource* source);
+	void push_token(const MacroToken& token) { stack_.push_back(token); }
+	SourceError error(const std::string& message) const;
+
+	// The next preprocessing-token of the rescan, and the one after it, which
+	// is what a text operator's operand parse reads.
+	MacroToken take();
+	const MacroToken* peek();
+
+	SpellingPool spellings_;
+	MacroSpellings spelled_;
+	PaintSets paints_;
+	MacroTable macros_;
+
+	// A spelling id no spelling has, for a hook that is not in use.
+	static const SpellingId kNoSpelling = static_cast<SpellingId>(-1);
+
+	// Whether the text-sequence is inside an excluded conditional section.  An
+	// excluded section contributes no text at all, so its tokens are dropped
+	// where they are read rather than replaced and thrown away.
+	bool skipping_;
+	// The spelling that is an operator rather than a token where a
+	// text-sequence produces it, or `kNoSpelling` where there is none.  It is
+	// an id comparison on the emit path rather than a virtual call.
+	SpellingId text_operator_;
+	// The byte offset of the new-line that ended the directive being run,
+	// which is the physical line `#line` counts from.
+	std::uint32_t directive_end_offset_;
 
 private:
 	// One argument of an invocation being built: the tokens as written, and
@@ -67,8 +136,6 @@ private:
 	bool read_source(MacroToken& token);
 	bool fetch();
 	bool ensure_source();
-	MacroToken take();
-	const MacroToken* peek();
 
 	// Directives.
 	void read_directive(const MacroToken& hash);
@@ -95,14 +162,8 @@ private:
 
 	void emit(const MacroToken& token);
 	MacroToken make_marker(MacroTokenType type, std::uint32_t index) const;
-	SourceError error(const std::string& message) const;
 
-	SpellingPool spellings_;
-	MacroSpellings spelled_;
-	PaintSets paints_;
-	MacroTable macros_;
-
-	PPTokenSource& source_;
+	PPTokenSource* source_;
 	PPToken raw_;
 	bool source_done_;
 	bool line_start_;
@@ -132,6 +193,12 @@ private:
 	MacroToken pending_;
 	bool has_pending_;
 	bool seen_token_;
+
+	// Where an `expand_range` in progress leaves its result, and whether its
+	// end marker has been reached.  A directive line cannot occur inside a
+	// directive line, so one of each is enough.
+	std::vector<MacroToken>* line_target_;
+	bool line_done_;
 
 	std::string text_;
 };

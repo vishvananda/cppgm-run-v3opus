@@ -43,7 +43,7 @@ int main(int argc, char** argv)
 		// produced before an ill-formed one are still reported.
 		DebugPostTokenStream output;
 		PPTokenLexer lexer(std::move(source));
-		MacroExpander expander(lexer);
+		MacroExpander expander(&lexer);
 		PostTokenizer tokenizer(expander);
 
 		PostToken token;

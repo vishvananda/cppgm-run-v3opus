@@ -23,6 +23,15 @@ bool PA3Mock_IsDefinedIdentifier(const string& identifier)
 		return identifier[0] % 2;
 }
 
+// The macro table PA3 evaluates against.  PA5 puts the real one here.
+struct PA3MockMacros : CtrlExprMacros
+{
+	bool is_defined(const string& identifier) const override
+	{
+		return PA3Mock_IsDefinedIdentifier(identifier);
+	}
+};
+
 // ctrlexpr: 16.1 Conditional inclusion, on a file of controlling expressions.
 //
 // Reads a C++ source file from standard input, applies translation phases 1 to
@@ -51,7 +60,8 @@ int main(int argc, char** argv)
 
 		CtrlExprResultStream output;
 		PPTokenLexer lexer(std::move(source));
-		CtrlExprEvaluator evaluator(&PA3Mock_IsDefinedIdentifier);
+		PA3MockMacros macros;
+		CtrlExprEvaluator evaluator(macros);
 
 		PPToken token;
 		while (lexer.next(token))

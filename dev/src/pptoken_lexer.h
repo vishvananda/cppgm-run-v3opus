@@ -72,6 +72,8 @@ public:
 class PPTokenLexer : public PPTokenSource
 {
 public:
+	explicit PPTokenLexer(SourceText source,
+	                      SourceForm form = SourceForm::Physical);
 	explicit PPTokenLexer(std::string source,
 	                      SourceForm form = SourceForm::Physical);
 

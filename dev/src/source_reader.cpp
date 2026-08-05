@@ -32,7 +32,12 @@ const std::size_t SourceReader::kMaxRunLength;
 const std::size_t SourceReader::kBufferCapacity;
 
 SourceReader::SourceReader(std::string bytes, SourceForm form)
-	: bytes_(std::move(bytes))
+	: SourceReader(std::make_shared<const std::string>(std::move(bytes)), form)
+{}
+
+SourceReader::SourceReader(SourceText text, SourceForm form)
+	: text_(std::move(text))
+	, bytes_(*text_)
 	, form_(form)
 	, origin_(0)
 	, cursor_(0)

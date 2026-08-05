@@ -254,8 +254,8 @@ bool right_operand_is_live(ETokenType op, bool live, CtrlExprValue left)
 
 } // namespace
 
-CtrlExprEvaluator::CtrlExprEvaluator(CtrlExprIsDefined is_defined)
-	: is_defined_(is_defined)
+CtrlExprEvaluator::CtrlExprEvaluator(const CtrlExprMacros& macros)
+	: macros_(&macros)
 	, has_invalid_(false)
 	, position_(0)
 {}
@@ -638,6 +638,6 @@ bool CtrlExprEvaluator::parse_defined(CtrlExprValue& out)
 	}
 
 	defined_operand_.assign(names_, token->name.begin, token->name.size);
-	out = make_signed(is_defined_(defined_operand_) ? 1 : 0);
+	out = make_signed(macros_->is_defined(defined_operand_) ? 1 : 0);
 	return true;
 }

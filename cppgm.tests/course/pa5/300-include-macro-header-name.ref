@@ -1,0 +1,5 @@
+preproc 1
+sof course/pa5/300-include-macro-header-name.t
+identifier included
+literal "course/pa5/include-macro-header.h" array of 34 char 636F757273652F7061352F696E636C7564652D6D6163726F2D6865616465722E6800
+eof

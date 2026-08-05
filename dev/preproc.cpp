@@ -1,122 +1,113 @@
 // (C) 2013 CPPGM Foundation www.cppgm.org.  All rights reserved.
 
-#include <utility>
+#include <cstddef>
+#include <cstdlib>
+#include <ctime>
+#include <fstream>
 #include <iostream>
+#include <stdexcept>
 #include <string>
 #include <vector>
-#include <stdexcept>
-#include <fstream>
 
-using namespace std;
+#include "DebugPostTokenStream.h"
+#include "post_token.h"
+#include "posttokenizer.h"
+#include "preprocessor.h"
+#include "source_files.h"
 
-#include "exceptions.h"
+// preproc: translation phases 1 to 6 and the tokenization part of phase 7, on
+// a set of source files.
+//
+// The phases live in dev/src, so this file builds the pipeline and writes the
+// outfile: phases 1 to 3 and 4 are the Preprocessor, which feeds the phase 5
+// to 7 driver PA2 already uses.  Each source file is preprocessed on its own,
+// sharing only the build date and time and the bytes of files already read.
 
-// For pragma once implementation:
-// system-wide unique file id type `PA5FileId`
-typedef pair<unsigned long int, unsigned long int> PA5FileId;
-
-// bootstrap system call interface, used by PA5GetFileId
-extern "C" long int syscall(long int n, ...) throw ();
-
-// PA5GetFileId returns true iff file found at path `path`.
-// out parameter `out_fileid` is set to file id
-bool PA5GetFileId(const string& path, PA5FileId& out_fileid)
+namespace
 {
-	struct
+
+// `__CPPGM_AUTHOR__`, as enrolled in the course.
+const char kAuthor[] = "Vishvananda Abrams";
+
+// The build date and time, taken from `std::asctime` once for the whole run.
+// Its format is "Www Mmm dd hh:mm:ss yyyy\n", from which `__DATE__` is the
+// month, day and year and `__TIME__` is the time of day.
+void set_build_time(PreprocessorOptions& options)
+{
+	const std::time_t now = std::time(nullptr);
+	const std::string stamp = std::asctime(std::localtime(&now));
+	if (stamp.size() < 24)
 	{
-			unsigned long int dev;
-			unsigned long int ino;
-			long int unused[16];
-	} data;
-
-	int res = syscall(4, path.c_str(), &data);
-
-	out_fileid = make_pair(data.dev, data.ino);
-
-	return res == 0;
+		return;
+	}
+	options.date = stamp.substr(4, 7) + stamp.substr(20, 4);
+	options.time = stamp.substr(11, 8);
 }
 
-// OPTIONAL: Also search `PA5StdIncPaths` on `--stdinc` command-line switch (not by default)
-vector<string> PA5StdIncPaths =
+// One source file: phases 1 to 7 driven to exhaustion, described on `out`.
+void preprocess(SourceFileTable& files, const PreprocessorOptions& options,
+                const std::string& path, std::ostream& out)
 {
-    "/usr/include/c++/4.7/",
-    "/usr/include/c++/4.7/x86_64-linux-gnu/",
-    "/usr/include/c++/4.7/backward/",
-    "/usr/lib/gcc/x86_64-linux-gnu/4.7/include/",
-    "/usr/local/include/",
-    "/usr/lib/gcc/x86_64-linux-gnu/4.7/include-fixed/",
-    "/usr/include/x86_64-linux-gnu/",
-    "/usr/include/"
-};
+	DebugPostTokenStream stream(out);
+	Preprocessor preprocessor(files, options, path);
+	PostTokenizer tokenizer(preprocessor);
 
-bool HasBatchStdinArg(int argc, char** argv)
-{
-	for (int i = 1; i < argc; i++)
+	PostToken token;
+	while (tokenizer.next(token))
 	{
-		if (string(argv[i]) == "--batch-stdin")
-			return true;
+		if (token.kind == PostTokenKind::Invalid)
+		{
+			throw SourceError(" a token of the file is not a token of C++");
+		}
+		stream.emit(token);
 	}
-	return false;
 }
 
-int RunNotImplementedBatchMode()
-{
-	string line;
-	while (getline(cin, line))
-	{
-		(void)line;
-		cout << "EXIT_NOT_IMPLEMENTED" << endl;
-	}
-	return EXIT_SUCCESS;
 }
 
 int main(int argc, char** argv)
 {
 	try
 	{
-		if (HasBatchStdinArg(argc, argv))
-			return RunNotImplementedBatchMode();
-
-		vector<string> args;
-
-		for (int i = 1; i < argc; i++)
-			args.emplace_back(argv[i]);
+		std::vector<std::string> args;
+		for (int index = 1; index < argc; ++index)
+		{
+			args.emplace_back(argv[index]);
+		}
 
 		if (args.size() < 3 || args[0] != "-o")
-			throw logic_error("invalid usage");
+			throw std::logic_error("invalid usage");
 
-		string outfile = args[1];
-		size_t nsrcfiles = args.size() - 2;
+		const std::string outfile = args[1];
+		const std::size_t nsrcfiles = args.size() - 2;
 
-		throw NotImplementedException();
+		PreprocessorOptions options;
+		options.author = kAuthor;
+		set_build_time(options);
 
-		ofstream out(outfile);
-
-		out << "preproc " << nsrcfiles << endl;
-
-		for (size_t i = 0; i < nsrcfiles; i++)
+		std::ofstream out(outfile);
+		if (!out)
 		{
-			string srcfile = args[i+2];
-
-			out << "sof " << srcfile << endl;
-
-			ifstream in(srcfile);
-
-			// TODO: implement `preproc` as per PA5 description
-			out << "not yet implemented" << endl;
-	
-			out << "eof" << endl;
-
+			throw std::runtime_error("cannot write " + outfile);
 		}
+		out << "preproc " << nsrcfiles << "\n";
+
+		// The bytes of a file are the same whichever source file asks for
+		// them, so the table outlives one translation unit.  Nothing else
+		// does: every semantic fact belongs to one Preprocessor.
+		SourceFileTable files;
+		for (std::size_t index = 0; index < nsrcfiles; ++index)
+		{
+			const std::string& srcfile = args[index + 2];
+			out << "sof " << srcfile << "\n";
+			preprocess(files, options, srcfile, out);
+		}
+
+		return EXIT_SUCCESS;
 	}
-	catch (const NotImplementedException& e)
+	catch (const std::exception& error)
 	{
-		cerr << "ERROR: " << e.what() << endl;
-		return CPPGM_EXIT_NOT_IMPLEMENTED;
-	}
-	catch (exception& e)
-	{
-		cerr << "ERROR: " << e.what() << endl;
+		std::cerr << "ERROR:" << error.what() << std::endl;
 		return EXIT_FAILURE;
 	}
 }

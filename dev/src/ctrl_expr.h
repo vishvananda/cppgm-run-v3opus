@@ -25,7 +25,17 @@ struct CtrlExprValue
 };
 
 // Whether a macro name is defined, which is what the `defined` operator asks.
-typedef bool (*CtrlExprIsDefined)(const std::string& identifier);
+//
+// It is an interface rather than a function because the answer belongs to the
+// macro table of the translation unit being preprocessed; PA3 answers it with
+// a mock and PA5 with the real one.
+class CtrlExprMacros
+{
+public:
+	virtual ~CtrlExprMacros() {}
+
+	virtual bool is_defined(const std::string& identifier) const = 0;
+};
 
 // One logical line at a time: `add` accumulates the preprocessing-tokens of a
 // line, `evaluate` parses and evaluates them.  The caller keeps one evaluator
@@ -34,7 +44,7 @@ typedef bool (*CtrlExprIsDefined)(const std::string& identifier);
 class CtrlExprEvaluator
 {
 public:
-	explicit CtrlExprEvaluator(CtrlExprIsDefined is_defined);
+	explicit CtrlExprEvaluator(const CtrlExprMacros& macros);
 
 	// Discards the accumulated line and starts an empty one.
 	void begin_line();
@@ -138,7 +148,7 @@ private:
 	bool parse_defined(CtrlExprValue& value);
 	Step after_operand(bool& live, CtrlExprValue& value);
 
-	CtrlExprIsDefined is_defined_;
+	const CtrlExprMacros* macros_;
 
 	// The current line.
 	std::vector<Token> tokens_;

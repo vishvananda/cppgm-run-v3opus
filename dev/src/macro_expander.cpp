@@ -15,11 +15,16 @@ bool is_literal_spelling(MacroTokenType type)
 
 }
 
-MacroExpander::MacroExpander(PPTokenSource& source)
+const SpellingId MacroExpander::kNoSpelling;
+
+MacroExpander::MacroExpander(PPTokenSource* source)
 	: spelled_(spellings_)
 	, macros_(spellings_, spelled_)
+	, skipping_(false)
+	, text_operator_(kNoSpelling)
+	, directive_end_offset_(0)
 	, source_(source)
-	, source_done_(false)
+	, source_done_(source == nullptr)
 	, line_start_(true)
 	, whitespace_(false)
 	, directive_pending_(false)
@@ -28,7 +33,19 @@ MacroExpander::MacroExpander(PPTokenSource& source)
 	, has_lookahead_(false)
 	, has_pending_(false)
 	, seen_token_(false)
+	, line_target_(nullptr)
+	, line_done_(false)
 {}
+
+void MacroExpander::set_source(PPTokenSource* source)
+{
+	source_ = source;
+	source_done_ = source == nullptr;
+	// A source begins at the start of a line, and what came before it is
+	// separated from it by at least the new-line that ended the directive.
+	line_start_ = true;
+	whitespace_ = true;
+}
 
 SourceError MacroExpander::error(const std::string& message) const
 {
@@ -79,14 +96,25 @@ void MacroExpander::convert(MacroToken& token)
 // The next preprocessing-token of the file, skipping the white space and the
 // new-lines between tokens.  A new-line is white space once the line it ends
 // is known not to be a directive, which is what 16.3 needs for stringizing.
+//
+// A source that runs out is not the end of the input: `pop_source` decides,
+// which is what makes an `#include` a source of its own rather than a splice.
 bool MacroExpander::read_source(MacroToken& token)
 {
-	while (!source_done_)
+	while (true)
 	{
-		if (!source_.next(raw_) || raw_.type == PPTokenType::EndOfFile)
+		if (source_done_)
+		{
+			if (!pop_source())
+			{
+				return false;
+			}
+			continue;
+		}
+		if (!source_->next(raw_) || raw_.type == PPTokenType::EndOfFile)
 		{
 			source_done_ = true;
-			break;
+			continue;
 		}
 		if (raw_.type == PPTokenType::WhitespaceSequence)
 		{
@@ -102,7 +130,6 @@ bool MacroExpander::read_source(MacroToken& token)
 		convert(token);
 		return true;
 	}
-	return false;
 }
 
 // Fills the look-ahead with the next token of the text-sequence.  Returns
@@ -110,32 +137,42 @@ bool MacroExpander::read_source(MacroToken& token)
 // directive, whose line is read instead.
 bool MacroExpander::fetch()
 {
-	MacroToken token;
-	if (!read_source(token))
+	while (true)
 	{
-		return false;
+		MacroToken token;
+		if (!read_source(token))
+		{
+			return false;
+		}
+		const bool starts_line = line_start_;
+		line_start_ = false;
+		if (starts_line &&
+		    (is_punctuation(token, spelled_.hash) ||
+		     is_punctuation(token, spelled_.alt_hash)))
+		{
+			// The text-sequence ends here: the directive is processed once the
+			// tokens before it have been replaced.
+			read_directive(token);
+			return false;
+		}
+		if (skipping_)
+		{
+			// An excluded section is not text.  Its tokens are read only so
+			// that the directives between them can be found, so nothing here
+			// is interned, replaced or diagnosed.
+			continue;
+		}
+		if (token.type == MacroTokenType::Identifier &&
+		    token.spelling == spelled_.va_args)
+		{
+			// 16.3/5: outside the replacement list of a variadic macro the
+			// identifier is not allowed to appear at all.
+			throw error("__VA_ARGS__ outside a variadic macro");
+		}
+		lookahead_ = token;
+		has_lookahead_ = true;
+		return true;
 	}
-	const bool starts_line = line_start_;
-	line_start_ = false;
-	if (starts_line &&
-	    (is_punctuation(token, spelled_.hash) ||
-	     is_punctuation(token, spelled_.alt_hash)))
-	{
-		// The text-sequence ends here: the directive is processed once the
-		// tokens before it have been replaced.
-		read_directive(token);
-		return false;
-	}
-	if (token.type == MacroTokenType::Identifier &&
-	    token.spelling == spelled_.va_args)
-	{
-		// 16.3/5: outside the replacement list of a variadic macro the
-		// identifier is not allowed to appear at all.
-		throw error("__VA_ARGS__ outside a variadic macro");
-	}
-	lookahead_ = token;
-	has_lookahead_ = true;
-	return true;
 }
 
 bool MacroExpander::ensure_source()
@@ -185,9 +222,10 @@ void MacroExpander::read_directive(const MacroToken& hash)
 	directive_.push_back(hash);
 	while (!source_done_)
 	{
-		if (!source_.next(raw_) || raw_.type == PPTokenType::EndOfFile)
+		if (!source_->next(raw_) || raw_.type == PPTokenType::EndOfFile)
 		{
 			source_done_ = true;
+			directive_end_offset_ = static_cast<std::uint32_t>(raw_.offset);
 			break;
 		}
 		if (raw_.type == PPTokenType::WhitespaceSequence)
@@ -197,6 +235,9 @@ void MacroExpander::read_directive(const MacroToken& hash)
 		}
 		if (raw_.type == PPTokenType::NewLine)
 		{
+			// Where the directive ends physically, which is one line before
+			// the line `#line` renumbers.
+			directive_end_offset_ = static_cast<std::uint32_t>(raw_.offset);
 			break;
 		}
 		MacroToken token;
@@ -213,13 +254,18 @@ void MacroExpander::read_directive(const MacroToken& hash)
 void MacroExpander::run_directive()
 {
 	directive_pending_ = false;
-	if (directive_.size() == 1)
+	run_directive_line(directive_.data() + 1,
+		directive_.data() + directive_.size());
+}
+
+// PA4's directive set.  The null directive is the empty range.
+void MacroExpander::run_directive_line(const MacroToken* begin,
+                                       const MacroToken* end)
+{
+	if (begin == end)
 	{
-		// The null directive.
 		return;
 	}
-	const MacroToken* begin = directive_.data() + 1;
-	const MacroToken* end = directive_.data() + directive_.size();
 	if (begin->type != MacroTokenType::Identifier)
 	{
 		throw error("unknown preprocessing directive");
@@ -236,6 +282,37 @@ void MacroExpander::run_directive()
 	{
 		throw error("PA4 allows only #define and #undef");
 	}
+}
+
+void MacroExpander::expand_builtin(const MacroToken& head, BuiltinMacro builtin)
+{
+	(void)head;
+	(void)builtin;
+	throw error("a predefined macro was defined by no one");
+}
+
+// The rescan of a token sequence that is not the file: one directive line.
+//
+// The end marker keeps the rescan inside the line.  A function-like macro name
+// at its end finds the marker rather than the file's next `(`, so an
+// invocation cannot start on a directive line and finish after it.
+void MacroExpander::expand_range(const MacroToken* begin, const MacroToken* end,
+                                 std::vector<MacroToken>& out)
+{
+	out.clear();
+	line_target_ = &out;
+	line_done_ = false;
+	stack_.push_back(make_marker(MacroTokenType::EndLine, 0));
+	for (const MacroToken* at = end; at-- != begin; )
+	{
+		stack_.push_back(*at);
+	}
+	stack_.push_back(make_marker(MacroTokenType::BeginSink, 0));
+	while (!line_done_)
+	{
+		advance();
+	}
+	line_target_ = nullptr;
 }
 
 bool MacroExpander::advance()
@@ -255,11 +332,26 @@ bool MacroExpander::advance()
 		run_marker(token);
 		return true;
 	}
-	if (!try_expand(token))
+	if (try_expand(token))
 	{
-		emit(token);
+		return true;
 	}
+	if (token.spelling == text_operator_ && sinks_.empty() &&
+	    token.type == MacroTokenType::Identifier)
+	{
+		// 16.6 as the assignment course-defines it: recognised in a
+		// text-sequence, and only after all macro replacement, which is here.
+		run_text_operator(token);
+		return true;
+	}
+	emit(token);
 	return true;
+}
+
+void MacroExpander::run_text_operator(const MacroToken& token)
+{
+	(void)token;
+	throw error("a text operator was declared by no one");
 }
 
 // A placemarker never reaches here: `push_replacement` is the one place that
@@ -305,7 +397,11 @@ bool MacroExpander::try_expand(MacroToken& token)
 		token.unavailable = true;
 		return false;
 	}
-	if (macro->function_like)
+	if (macro->builtin != BuiltinMacro::None)
+	{
+		expand_builtin(token, macro->builtin);
+	}
+	else if (macro->function_like)
 	{
 		expand_function_like(token, *macro);
 	}
@@ -404,6 +500,15 @@ void MacroExpander::collect_arguments(Invocation& invocation, MacroToken& closin
 	while (true)
 	{
 		const MacroToken* ahead = peek();
+		if (ahead == nullptr && directive_pending_)
+		{
+			// 16.3/11 leaves a directive inside an argument list undefined.
+			// The invocation has already started, so the directive is acted on
+			// where it stands and the argument list goes on after it.  This is
+			// what makes the common `#if` inside a call work.
+			run_directive();
+			continue;
+		}
 		if (ahead == nullptr || is_marker(ahead->type))
 		{
 			throw error("macro invocation is not terminated");
@@ -490,6 +595,15 @@ void MacroExpander::run_marker(const MacroToken& marker)
 	if (marker.type == MacroTokenType::BeginSink)
 	{
 		sinks_.push_back(output_.size());
+		return;
+	}
+	if (marker.type == MacroTokenType::EndLine)
+	{
+		const std::size_t begin = sinks_.back();
+		sinks_.pop_back();
+		line_target_->assign(output_.begin() + begin, output_.end());
+		output_.resize(begin);
+		line_done_ = true;
 		return;
 	}
 	if (marker.type == MacroTokenType::EndArgument)

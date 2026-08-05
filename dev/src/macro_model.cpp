@@ -215,6 +215,19 @@ MacroSpellings::MacroSpellings(SpellingPool& spellings)
 	, ellipsis(spellings.intern("..."))
 	, define(spellings.intern("define"))
 	, undef(spellings.intern("undef"))
+	, if_(spellings.intern("if"))
+	, ifdef(spellings.intern("ifdef"))
+	, ifndef(spellings.intern("ifndef"))
+	, elif(spellings.intern("elif"))
+	, else_(spellings.intern("else"))
+	, endif(spellings.intern("endif"))
+	, include(spellings.intern("include"))
+	, line(spellings.intern("line"))
+	, error(spellings.intern("error"))
+	, pragma(spellings.intern("pragma"))
+	, defined(spellings.intern("defined"))
+	, once(spellings.intern("once"))
+	, pragma_operator(spellings.intern("_Pragma"))
 {}
 
 MacroTable::MacroTable(SpellingPool& spellings, const MacroSpellings& spelled)
@@ -447,6 +460,13 @@ void MacroTable::apply_gnu_comma_extension(MacroDefinition& macro) const
 	}
 }
 
+void MacroTable::define_builtin(SpellingId name, BuiltinMacro builtin)
+{
+	MacroDefinition macro;
+	macro.builtin = builtin;
+	install(name, macro);
+}
+
 void MacroTable::undefine(const MacroToken* begin, const MacroToken* end)
 {
 	if (end - begin != 2)
@@ -464,7 +484,8 @@ void MacroTable::undefine(const MacroToken* begin, const MacroToken* end)
 bool MacroTable::same_definition(const MacroDefinition& left,
                                  const MacroDefinition& right) const
 {
-	if (left.function_like != right.function_like ||
+	if (left.builtin != right.builtin ||
+	    left.function_like != right.function_like ||
 	    left.variadic != right.variadic ||
 	    left.parameters != right.parameters ||
 	    left.replacement.size() != right.replacement.size())
