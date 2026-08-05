@@ -3,9 +3,11 @@
 #include <cstddef>
 #include <string>
 
-// The phase 7 token vocabulary shared by every assignment from PA2 on: the
-// fundamental types of 3.9.1 with the sizes the course ABI gives them, and the
-// keyword, operator and punctuator token types the assignments name.
+// The token vocabulary shared by the assignments: the fundamental types of
+// 3.9.1 with the sizes the course ABI gives them, and the keyword, operator and
+// punctuator token types the assignments name.  Phase 7 uses all of it; phase 3
+// takes the identifier-like operators of 2.13 from it, because that is the one
+// fact the two phases share.
 //
 // Each enumeration and its name table are generated from one list, so a type,
 // its spelling and its size cannot drift apart.
@@ -77,6 +79,17 @@ enum ETokenType
 #undef CPPGM_TOKEN_TYPE_ENUMERATOR
 	kTokenTypeCount
 };
+
+// The operators of 2.13 that are spelled the way an identifier is, with the
+// token type each takes.  Phase 3 needs the same list to classify such a
+// spelling as a preprocessing-op-or-punc rather than an identifier, so the list
+// is stated here once and the phase 7 spelling table is built on top of it.
+#define CPPGM_IDENTIFIER_LIKE_OPERATORS(X) \
+	X("and", OP_LAND) X("and_eq", OP_BANDASS) X("bitand", OP_AMP) \
+	X("bitor", OP_BOR) X("compl", OP_COMPL) X("delete", KW_DELETE) \
+	X("new", KW_NEW) X("not", OP_LNOT) X("not_eq", OP_NE) \
+	X("or", OP_LOR) X("or_eq", OP_BORASS) X("xor", OP_XOR) \
+	X("xor_eq", OP_XORASS)
 
 const char* fundamental_type_name(EFundamentalType type);
 

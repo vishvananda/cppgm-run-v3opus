@@ -11,9 +11,8 @@
 //
 // PA5 writes the same lines to an outfile rather than to standard output, so
 // the destination is a constructor argument.  Lines are gathered into a buffer
-// and handed to the stream a block at a time, and a hexdump is written through
-// a byte-pair table, because a literal's object representation can be as large
-// as the literal itself.
+// and handed to the stream a block at a time, so the cost of a token is an
+// append rather than a formatted insertion.
 struct DebugPostTokenStream
 {
 	explicit DebugPostTokenStream(std::ostream& out = std::cout)
@@ -124,16 +123,20 @@ private:
 		}
 	}
 
+	// The buffer is sized for the whole hexdump once and then written in
+	// place, because a literal's object representation can be as large as the
+	// literal and its hexdump is twice that again.
 	void append_hex(const std::string& data)
 	{
 		static const char kDigits[] = "0123456789ABCDEF";
 		const std::size_t start = buffer_.size();
 		buffer_.resize(start + 2 * data.size());
+		char* out = &buffer_[start];
 		for (std::size_t index = 0; index < data.size(); ++index)
 		{
 			const unsigned char byte = static_cast<unsigned char>(data[index]);
-			buffer_[start + 2 * index] = kDigits[byte >> 4];
-			buffer_[start + 2 * index + 1] = kDigits[byte & 0x0F];
+			out[2 * index] = kDigits[byte >> 4];
+			out[2 * index + 1] = kDigits[byte & 0x0F];
 		}
 	}
 

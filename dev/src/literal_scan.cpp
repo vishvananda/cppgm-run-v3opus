@@ -20,19 +20,24 @@ const unsigned long long kMaxUnsignedValue = ~0ULL;
 // outside the range of its type: a current library reports the failure by
 // storing the largest representable value, where the reference implementation
 // and these functions both store an infinity.
-float PA2Decode_float(const std::string& s)
+//
+// The whole spelling is handed over rather than a copy of the part before the
+// floating-suffix: a suffix that reached here is one of `f`, `F`, `l` and `L`,
+// none of which belongs to the C floating constant these functions scan, so
+// each stops on it of its own accord.
+float PA2Decode_float(const char* s)
 {
-	return std::strtof(s.c_str(), 0);
+	return std::strtof(s, 0);
 }
 
-double PA2Decode_double(const std::string& s)
+double PA2Decode_double(const char* s)
 {
-	return std::strtod(s.c_str(), 0);
+	return std::strtod(s, 0);
 }
 
-long double PA2Decode_long_double(const std::string& s)
+long double PA2Decode_long_double(const char* s)
 {
-	return std::strtold(s.c_str(), 0);
+	return std::strtold(s, 0);
 }
 
 // See 2.14.3 Table 7.
@@ -217,11 +222,16 @@ bool compute_integer_value(const std::string& text, const NumericShape& shape,
 {
 	value = 0;
 	const unsigned long long base = shape.base;
+	// The largest value that can still take another digit, and the largest
+	// digit it can take, so that the overflow test is a comparison per digit
+	// rather than a division per digit.
+	const unsigned long long value_limit = kMaxUnsignedValue / base;
+	const unsigned long long digit_limit = kMaxUnsignedValue % base;
 	for (std::size_t index = shape.digits_begin; index < shape.suffix_begin; ++index)
 	{
 		const unsigned long long digit =
 			static_cast<unsigned long long>(hex_digit_value(text[index]));
-		if (value > (kMaxUnsignedValue - digit) / base)
+		if (value > value_limit || (value == value_limit && digit > digit_limit))
 		{
 			return false;
 		}
@@ -298,8 +308,7 @@ bool select_integer_type(unsigned long long value, bool is_unsigned,
 // assignment prints, so it is written as zero rather than left undefined.
 const std::size_t kLongDoubleValueBytes = 10;
 
-void set_floating_value(PostToken& token, EFundamentalType type,
-                        const std::string& text)
+void set_floating_value(PostToken& token, EFundamentalType type, const char* text)
 {
 	token.type = type;
 	token.data.assign(fundamental_type_size(type), '\0');
@@ -352,7 +361,7 @@ void scan_floating_literal(const std::string& spelling, const NumericShape& shap
 		return;
 	}
 	token.kind = PostTokenKind::Literal;
-	set_floating_value(token, type, spelling.substr(0, shape.suffix_begin));
+	set_floating_value(token, type, spelling.c_str());
 }
 
 } // namespace
@@ -377,19 +386,12 @@ std::size_t decode_literal_element(const std::string& text, std::size_t pos,
                                    LiteralElement& element)
 {
 	const std::size_t size = text.size();
-	element.numeric_escape = false;
 	if (text[pos] != '\\')
 	{
-		const Utf8Decoded decoded = decode_utf8(text.data() + pos, size - pos);
-		if (decoded.length == 0)
-		{
-			element.value = static_cast<unsigned char>(text[pos]);
-			return pos + 1;
-		}
-		element.value = static_cast<unsigned long long>(decoded.code_point);
-		return pos + decoded.length;
+		return decode_source_character(text, pos, element);
 	}
 
+	element.numeric_escape = false;
 	++pos;
 	const int lead = pos < size ? static_cast<unsigned char>(text[pos]) : 0;
 	if (is_octal_digit(lead))

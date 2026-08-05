@@ -6,22 +6,23 @@ namespace
 {
 
 // Every spelling that is a simple token, paired with the token type it takes.
-// Alternative tokens (2.5) and the identifier-like operators appear next to the
-// primary spelling they stand for.
+// Alternative tokens (2.5) appear next to the primary spelling they stand for;
+// the ones spelled as identifiers come from the list phase 3 shares.
 #define CPPGM_SIMPLE_TOKEN_SPELLINGS(X) \
+	CPPGM_IDENTIFIER_LIKE_OPERATORS(X) \
 	X("alignas", KW_ALIGNAS) X("alignof", KW_ALIGNOF) X("asm", KW_ASM) \
 	X("auto", KW_AUTO) X("bool", KW_BOOL) X("break", KW_BREAK) \
 	X("case", KW_CASE) X("catch", KW_CATCH) X("char", KW_CHAR) \
 	X("char16_t", KW_CHAR16_T) X("char32_t", KW_CHAR32_T) X("class", KW_CLASS) \
 	X("const", KW_CONST) X("constexpr", KW_CONSTEXPR) X("const_cast", KW_CONST_CAST) \
 	X("continue", KW_CONTINUE) X("decltype", KW_DECLTYPE) X("default", KW_DEFAULT) \
-	X("delete", KW_DELETE) X("do", KW_DO) X("double", KW_DOUBLE) \
+	X("do", KW_DO) X("double", KW_DOUBLE) \
 	X("dynamic_cast", KW_DYNAMIC_CAST) X("else", KW_ELSE) X("enum", KW_ENUM) \
 	X("explicit", KW_EXPLICIT) X("export", KW_EXPORT) X("extern", KW_EXTERN) \
 	X("false", KW_FALSE) X("float", KW_FLOAT) X("for", KW_FOR) \
 	X("friend", KW_FRIEND) X("goto", KW_GOTO) X("if", KW_IF) \
 	X("inline", KW_INLINE) X("int", KW_INT) X("long", KW_LONG) \
-	X("mutable", KW_MUTABLE) X("namespace", KW_NAMESPACE) X("new", KW_NEW) \
+	X("mutable", KW_MUTABLE) X("namespace", KW_NAMESPACE) \
 	X("noexcept", KW_NOEXCEPT) X("nullptr", KW_NULLPTR) X("operator", KW_OPERATOR) \
 	X("private", KW_PRIVATE) X("protected", KW_PROTECTED) X("public", KW_PUBLIC) \
 	X("register", KW_REGISTER) X("reinterpret_cast", KW_REINTERPET_CAST) \
@@ -37,21 +38,18 @@ namespace
 	X("{", OP_LBRACE) X("<%", OP_LBRACE) X("}", OP_RBRACE) X("%>", OP_RBRACE) \
 	X("[", OP_LSQUARE) X("<:", OP_LSQUARE) X("]", OP_RSQUARE) X(":>", OP_RSQUARE) \
 	X("(", OP_LPAREN) X(")", OP_RPAREN) \
-	X("|", OP_BOR) X("bitor", OP_BOR) X("^", OP_XOR) X("xor", OP_XOR) \
-	X("~", OP_COMPL) X("compl", OP_COMPL) X("&", OP_AMP) X("bitand", OP_AMP) \
-	X("!", OP_LNOT) X("not", OP_LNOT) X(";", OP_SEMICOLON) X(":", OP_COLON) \
+	X("|", OP_BOR) X("^", OP_XOR) X("~", OP_COMPL) X("&", OP_AMP) \
+	X("!", OP_LNOT) X(";", OP_SEMICOLON) X(":", OP_COLON) \
 	X("...", OP_DOTS) X("?", OP_QMARK) X("::", OP_COLON2) X(".", OP_DOT) \
 	X(".*", OP_DOTSTAR) X("+", OP_PLUS) X("-", OP_MINUS) X("*", OP_STAR) \
 	X("/", OP_DIV) X("%", OP_MOD) X("=", OP_ASS) X("<", OP_LT) X(">", OP_GT) \
 	X("+=", OP_PLUSASS) X("-=", OP_MINUSASS) X("*=", OP_STARASS) \
 	X("/=", OP_DIVASS) X("%=", OP_MODASS) \
-	X("^=", OP_XORASS) X("xor_eq", OP_XORASS) \
-	X("&=", OP_BANDASS) X("and_eq", OP_BANDASS) \
-	X("|=", OP_BORASS) X("or_eq", OP_BORASS) \
+	X("^=", OP_XORASS) X("&=", OP_BANDASS) X("|=", OP_BORASS) \
 	X("<<", OP_LSHIFT) X(">>", OP_RSHIFT) X(">>=", OP_RSHIFTASS) \
-	X("<<=", OP_LSHIFTASS) X("==", OP_EQ) X("!=", OP_NE) X("not_eq", OP_NE) \
-	X("<=", OP_LE) X(">=", OP_GE) X("&&", OP_LAND) X("and", OP_LAND) \
-	X("||", OP_LOR) X("or", OP_LOR) X("++", OP_INC) X("--", OP_DEC) \
+	X("<<=", OP_LSHIFTASS) X("==", OP_EQ) X("!=", OP_NE) \
+	X("<=", OP_LE) X(">=", OP_GE) X("&&", OP_LAND) X("||", OP_LOR) \
+	X("++", OP_INC) X("--", OP_DEC) \
 	X(",", OP_COMMA) X("->*", OP_ARROWSTAR) X("->", OP_ARROW)
 
 struct SimpleTokenEntry

@@ -4,6 +4,7 @@
 #include <string>
 
 #include "post_token.h"
+#include "source_charset.h"
 
 // Analysis of a single literal spelling: 2.14.2 integer-literals, 2.14.4
 // floating-literals, 2.14.3 character-literals, and the 2.14.8 user-defined
@@ -43,6 +44,25 @@ struct LiteralElement
 // A numeric escape wider than any code unit is saturated to this value, which
 // no code unit can hold, so that its own width never has to be tracked.
 const unsigned long long kOversizedEscapeValue = 0x100000000ULL;
+
+// Decodes the source character at `pos`, which is every element of a
+// raw-string body and every element of any other body that is not an escape
+// sequence.  Phase 1 has already rejected a source file that is not valid
+// UTF-8; a byte that decodes to nothing stands for itself so that this cannot
+// run off the end of a body whatever it was handed.
+inline std::size_t decode_source_character(const std::string& text, std::size_t pos,
+                                           LiteralElement& element)
+{
+	element.numeric_escape = false;
+	const Utf8Decoded decoded = decode_utf8(text.data() + pos, text.size() - pos);
+	if (decoded.length == 0)
+	{
+		element.value = static_cast<unsigned char>(text[pos]);
+		return pos + 1;
+	}
+	element.value = static_cast<unsigned long long>(decoded.code_point);
+	return pos + decoded.length;
+}
 
 // Decodes the element at `pos` and returns the position just past it.  The
 // spelling comes from phase 3, so every escape sequence in it is well formed.

@@ -15,6 +15,11 @@
 // is only in range once that encoding is known.  Every part is appended to one
 // buffer that is also the token's source, so no spelling is copied twice and a
 // sequence of n parts costs the same per part as n sequences of one.
+//
+// The sequence-level facts - its encoding-prefix, its ud-suffix and whether the
+// parts disagree about either - are folded in as each part arrives, so they are
+// held once for the whole sequence rather than once per part, and building the
+// token needs only the pass that encodes the bodies.
 class StringLiteralSequence
 {
 public:
@@ -41,23 +46,31 @@ public:
 	void build_literal_operator_id(PostToken& token, std::string& identifier);
 
 private:
+	// All that is left to do with a part once the sequence has been resolved:
+	// where its body is in `source_`, and whether that body is spelled raw.
 	struct Part
 	{
 		std::size_t body_begin;
 		std::size_t body_end;
-		std::size_t suffix_begin;
-		std::size_t suffix_end;
-		LiteralEncoding encoding;
 		bool raw;
 	};
 
-	bool resolve(LiteralEncoding& encoding, std::size_t& suffix_part) const;
-	bool same_suffix(const Part& left, const Part& right) const;
+	void note_encoding(LiteralEncoding encoding);
+	void note_suffix(std::size_t begin, std::size_t end);
 	bool encode_part(const Part& part, std::size_t unit_size, std::string& data) const;
 	bool encode_narrow_part(const Part& part, std::string& data) const;
 	bool encode_wide_part(const Part& part, std::size_t unit_size, std::string& data) const;
 	void take_source(PostToken& token);
+	void clear();
 
 	std::string source_;
 	std::vector<Part> parts_;
+	// See 2.14.5.13 and 2.14.8.8, as the course defines them: the parts may
+	// name at most one encoding-prefix and at most one ud-suffix between them,
+	// and a ud-suffix that does not start with `_` is reserved.
+	LiteralEncoding encoding_;
+	bool prefixed_;
+	bool conflict_;
+	std::size_t suffix_begin_;
+	std::size_t suffix_end_;
 };

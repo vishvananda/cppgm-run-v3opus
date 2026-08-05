@@ -4,6 +4,7 @@
 #include <utility>
 
 #include "source_charset.h"
+#include "token_model.h"
 
 namespace
 {
@@ -85,9 +86,9 @@ bool is_identifier_like_operator(const std::string& text)
 	}
 	static const std::unordered_set<std::string> kSpellings =
 	{
-		"new", "delete", "and", "and_eq", "bitand",
-		"bitor", "compl", "not", "not_eq", "or",
-		"or_eq", "xor", "xor_eq"
+#define CPPGM_IDENTIFIER_LIKE_OPERATOR_SPELLING(spelling, token_type) spelling,
+		CPPGM_IDENTIFIER_LIKE_OPERATORS(CPPGM_IDENTIFIER_LIKE_OPERATOR_SPELLING)
+#undef CPPGM_IDENTIFIER_LIKE_OPERATOR_SPELLING
 	};
 	return kSpellings.count(text) != 0;
 }
