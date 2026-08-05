@@ -32,7 +32,10 @@ FRONTEND_OBJ_BASENAMES_nsinit := source_charset source_reader pptoken_lexer \
 	macro_model macro_expander ctrl_expr source_files preprocessor \
 	sema_token type_model entity_model program_model init_semantics \
 	decl_parser decl_parser_declarator decl_parser_expression decl_parser_object
-FRONTEND_OBJ_BASENAMES_cy86 :=
+FRONTEND_OBJ_BASENAMES_cy86 := source_charset source_reader pptoken_lexer \
+	token_model literal_scan string_literal posttokenizer \
+	macro_model macro_expander ctrl_expr source_files preprocessor \
+	sema_token cy86_opcodes cy86_parser cy86_codegen x86_asm x86_elf
 FRONTEND_OBJ_BASENAMES_cppgm++ :=
 FRONTEND_OBJ_BASENAMES_lowiropt :=
 FRONTEND_OBJ_BASENAMES_lowir2cy86 :=

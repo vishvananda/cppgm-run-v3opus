@@ -1,0 +1,48 @@
+/* The CY86 machine state a program starts in.
+ *
+ * The suggested design backs `bp` with `rbp`, which Linux starts a process
+ * with at zero, so an implementation has to give it a value before the first
+ * statement runs - and the course tests only ever reach `bp` after assigning
+ * to it, so nothing else notices when that prologue is skipped.
+ */
+
+xv: data64 0;
+yv: data64 0;
+zv: data64 0;
+tv: data64 0;
+bpv: data64 0;
+spv: data64 0;
+
+start:
+	move64 [xv] x64;
+	move64 [yv] y64;
+	move64 [zv] z64;
+	move64 [tv] t64;
+	move64 [bpv] bp;
+	move64 [spv] sp;
+
+	// the four general registers start at zero
+	move64 x64 0;
+	iadd64 x64 x64 [xv];
+	iadd64 x64 x64 [yv];
+	iadd64 x64 x64 [zv];
+	iadd64 x64 x64 [tv];
+
+	// and `bp` starts where `sp` does, so `[bp-8]` addresses the stack
+	move64 y64 0;
+	ine64 y8 [bpv] [spv];
+	iadd64 x64 x64 y64;
+
+	// a value can be written through `bp` and read back
+	move64 [bp-16] 0x1122334455667788;
+	move64 z64 [bp-16];
+	move64 t64 0;
+	ine64 t8 z64 0x1122334455667788;
+	iadd64 x64 x64 t64;
+
+	ieq64 z8 x64 0;
+	jumpif z8 pass;
+	syscall1 t64 60 1;
+
+pass:
+	syscall1 t64 60 0;
