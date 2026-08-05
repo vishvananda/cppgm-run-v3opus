@@ -55,7 +55,9 @@ private:
 	std::vector<std::uint32_t> line_starts_;
 };
 
-// The files read so far, by the path they were named with.
+// The files read so far, by the path they were named with.  This is the one
+// place the operating system is asked about a path, so a path costs one
+// attempt for the whole run whatever asks about it and however often.
 class SourceFileTable
 {
 public:
@@ -65,8 +67,20 @@ public:
 	const SourceFile* open(const std::string& path);
 
 	// The identity of the file at `path`; false when there is no such file.
-	static bool identify(const std::string& path, SourceFileId& out);
+	bool identify(const std::string& path, SourceFileId& out);
 
 private:
+	// What `stat` says about a path, remembered including that it said the
+	// path is not there: an inclusion searches two paths and a repeated
+	// inclusion searches the same two again.
+	struct Identity
+	{
+		bool found;
+		SourceFileId id;
+	};
+
+	static bool stat_identity(const std::string& path, SourceFileId& out);
+
 	std::unordered_map<std::string, std::unique_ptr<SourceFile> > files_;
+	std::unordered_map<std::string, Identity> identities_;
 };

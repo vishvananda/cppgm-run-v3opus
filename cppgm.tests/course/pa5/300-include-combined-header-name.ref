@@ -1,0 +1,5 @@
+preproc 1
+sof course/pa5/300-include-combined-header-name.t
+identifier combined
+literal "course/pa5/combined-header-name.h" array of 34 char 636F757273652F7061352F636F6D62696E65642D6865616465722D6E616D652E6800
+eof

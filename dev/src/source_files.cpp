@@ -82,10 +82,31 @@ const SourceFile* SourceFileTable::open(const std::string& path)
 	return result;
 }
 
-bool SourceFileTable::identify(const std::string& path, SourceFileId& out)
+bool SourceFileTable::stat_identity(const std::string& path, SourceFileId& out)
 {
 	RawFileStatus status;
-	const long int result = syscall(kStatSystemCall, path.c_str(), &status);
+	if (syscall(kStatSystemCall, path.c_str(), &status) != 0)
+	{
+		return false;
+	}
 	out = std::make_pair(status.dev, status.ino);
-	return result == 0;
+	return true;
+}
+
+bool SourceFileTable::identify(const std::string& path, SourceFileId& out)
+{
+	const std::unordered_map<std::string, Identity>::iterator found =
+		identities_.find(path);
+	if (found != identities_.end())
+	{
+		out = found->second.id;
+		return found->second.found;
+	}
+
+	Identity identity;
+	identity.id = SourceFileId();
+	identity.found = stat_identity(path, identity.id);
+	identities_.insert(std::make_pair(path, identity));
+	out = identity.id;
+	return identity.found;
 }

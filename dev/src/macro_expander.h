@@ -72,8 +72,20 @@ protected:
 	// text-sequence.  Its operand follows it in the rescan.
 	virtual void run_text_operator(const MacroToken& token);
 
-	// Installs the source the next preprocessing-token is read from.
+	// Installs the source the next preprocessing-token is read from.  Throws
+	// where an invocation is collecting its arguments; see
+	// `collecting_arguments`.
 	void set_source(PPTokenSource* source);
+
+	// Whether an invocation is between its `(` and its `)`.
+	//
+	// 16.3/11 leaves a directive there undefined and this implementation runs
+	// it, which is what makes the common `#if` inside a call work.  What a
+	// directive must not do there is move the tokens already collected out
+	// from under the source file they were read from: their offsets are
+	// answered against it, so a directive that changes which file that is has
+	// to be refused rather than answered wrongly.
+	bool collecting_arguments() const { return collecting_ != 0; }
 	void push_token(const MacroToken& token) { stack_.push_back(token); }
 	SourceError error(const std::string& message) const;
 
@@ -146,7 +158,8 @@ private:
 	bool try_expand(MacroToken& token);
 	void expand_object_like(const MacroToken& head, const MacroDefinition& macro);
 	void expand_function_like(const MacroToken& head, const MacroDefinition& macro);
-	void collect_arguments(Invocation& invocation, MacroToken& closing);
+	void collect_arguments(const MacroDefinition& macro,
+	                       std::size_t arguments_begin, MacroToken& closing);
 	void request_argument_expansions(const Invocation& invocation);
 	void drop_raw_arguments(const Invocation& invocation);
 	void run_marker(const MacroToken& marker);
@@ -162,6 +175,10 @@ private:
 
 	void emit(const MacroToken& token);
 	MacroToken make_marker(MacroTokenType type, std::uint32_t index) const;
+
+	// How many argument lists are being collected.  A controlling expression
+	// run from inside one can invoke a macro of its own, so this nests.
+	std::size_t collecting_;
 
 	PPTokenSource* source_;
 	PPToken raw_;

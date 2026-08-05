@@ -378,28 +378,48 @@ bool Preprocessor::operand_is_defined(const MacroToken* begin,
 	return macros_.lookup(name) != nullptr;
 }
 
+// 16.2: the operand names a header.  A header-name phase 3 already made one
+// contains no identifier, so macro replacing the operand leaves it alone and
+// the one path answers all three forms it can arrive in.
 void Preprocessor::run_include(const MacroToken* begin, const MacroToken* end)
 {
-	// A header-name is one only where phase 3 already made it one, so it is
-	// used as it stands rather than macro replaced.
-	if (end - begin == 1 && begin->type == MacroTokenType::HeaderName)
-	{
-		include_file(header_name_body(spellings_.text(begin->spelling)));
-		return;
-	}
-
 	expand_range(begin, end, expanded_);
-	if (expanded_.size() == 1 && expanded_[0].type == MacroTokenType::HeaderName)
-	{
-		include_file(header_name_body(spellings_.text(expanded_[0].spelling)));
-		return;
-	}
 	std::string nextf;
-	if (expanded_.size() != 1 || !string_literal_text(expanded_[0], nextf))
+	if (!header_name_of(nextf))
 	{
 		throw error("#include needs a header-name or a string-literal");
 	}
 	include_file(nextf);
+}
+
+// The name the replaced operand denotes: a header-name, an ordinary
+// string-literal, or - 16.2/4 - what is between a `<` and a `>`, which macro
+// replacement can leave spelled as preprocessing-tokens of their own and which
+// an implementation combines into a header-name its own way.  The way here is
+// the one the white space between them does not reach: their spellings, joined.
+bool Preprocessor::header_name_of(std::string& out)
+{
+	const std::size_t count = expanded_.size();
+	if (count == 1 && expanded_[0].type == MacroTokenType::HeaderName)
+	{
+		out = header_name_body(spellings_.text(expanded_[0].spelling));
+		return true;
+	}
+	if (count == 1)
+	{
+		return string_literal_text(expanded_[0], out);
+	}
+	if (count < 2 || !is_punctuation(expanded_[0], spelled_.less) ||
+	    !is_punctuation(expanded_[count - 1], spelled_.greater))
+	{
+		return false;
+	}
+	out.clear();
+	for (std::size_t index = 1; index + 1 < count; ++index)
+	{
+		append_spelling(out, spellings_.text(expanded_[index].spelling));
+	}
+	return true;
 }
 
 // The course-defined search: the directory of the presumed `__FILE__` first,
@@ -414,12 +434,12 @@ void Preprocessor::include_file(const std::string& nextf)
 	if (slash != std::string::npos)
 	{
 		chosen = from.substr(0, slash + 1) + nextf;
-		found = SourceFileTable::identify(chosen, id);
+		found = files_.identify(chosen, id);
 	}
 	if (!found)
 	{
 		chosen = nextf;
-		found = SourceFileTable::identify(chosen, id);
+		found = files_.identify(chosen, id);
 	}
 	if (!found)
 	{
@@ -442,6 +462,13 @@ void Preprocessor::include_file(const std::string& nextf)
 // directive, which is the physical line after the one the directive ended on.
 void Preprocessor::run_line(const MacroToken* begin, const MacroToken* end)
 {
+	if (collecting_arguments())
+	{
+		// The presumed location of a token is the one in force where it was
+		// written, and the tokens of the argument list were written above this
+		// directive; renumbering them from here would answer them wrongly.
+		throw error("#line cannot renumber a macro invocation it is inside of");
+	}
 	expand_range(begin, end, expanded_);
 	if (expanded_.empty() || expanded_[0].type != MacroTokenType::PPNumber)
 	{
@@ -484,7 +511,7 @@ void Preprocessor::apply_pragma(const MacroToken* begin, const MacroToken* end)
 		// which `#line` can have set to a name no file has.  There is then no
 		// identity to remember and the directive cannot be carried out.
 		SourceFileId id;
-		if (!SourceFileTable::identify(current().presumed_name, id))
+		if (!files_.identify(current().presumed_name, id))
 		{
 			throw error("#pragma once in a file that cannot be identified: " +
 				current().presumed_name);
@@ -521,27 +548,33 @@ void Preprocessor::run_text_operator(const MacroToken& token)
 	}
 	take();
 
-	// 16.9: the literal is destringized and the result is read as the tokens
-	// of a `#pragma` directive.
+	// 16.9: the literal is destringized - an `L` prefix, the leading and the
+	// trailing `"` deleted, and `\"` and `\\` unescaped - and the result is
+	// read as the tokens of a `#pragma` directive.  No other prefix is named
+	// there, so no other prefix is deleted and a literal spelled with one is a
+	// pragma this implementation does not have.
 	const Spelling spelling = spellings_.text(literal.spelling);
-	std::size_t at = 0;
-	while (at < spelling.size && spelling.data[at] != '"')
+	const std::size_t begin = spelling.size != 0 && spelling.data[0] == 'L' ? 1 : 0;
+	const std::size_t end = spelling.size - 1;  // the trailing `"`
+	scratch_.clear();
+	bool leading_quote = true;
+	for (std::size_t at = begin; at < end; ++at)
 	{
-		++at;  // the encoding-prefix, which destringizing deletes
-	}
-	text_.clear();
-	for (++at; at + 1 < spelling.size; ++at)
-	{
-		if (spelling.data[at] == '\\' && at + 2 < spelling.size &&
+		if (leading_quote && spelling.data[at] == '"')
+		{
+			leading_quote = false;
+			continue;
+		}
+		if (spelling.data[at] == '\\' && at + 1 < end &&
 		    (spelling.data[at + 1] == '"' || spelling.data[at + 1] == '\\'))
 		{
 			++at;
 		}
-		text_ += spelling.data[at];
+		scratch_ += spelling.data[at];
 	}
 
 	pragma_.clear();
-	PPTokenLexer lexer(text_, SourceForm::Translated);
+	PPTokenLexer lexer(scratch_, SourceForm::Translated);
 	PPToken raw;
 	while (lexer.next(raw))
 	{
@@ -655,12 +688,12 @@ SpellingId Preprocessor::intern_decimal(unsigned long long value)
 	}
 	while (value != 0);
 
-	text_.clear();
+	scratch_.clear();
 	while (length != 0)
 	{
-		text_ += digits[--length];
+		scratch_ += digits[--length];
 	}
-	return spellings_.intern(text_);
+	return spellings_.intern(scratch_);
 }
 
 SpellingId Preprocessor::intern_quoted(const std::string& text)

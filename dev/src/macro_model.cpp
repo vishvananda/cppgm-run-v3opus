@@ -120,62 +120,82 @@ SpellingId SpellingPool::intern(const char* text, std::size_t size)
 
 PaintSets::PaintSets()
 {
-	entries_.push_back(Entry());
-	entries_.back().begin = 0;
-	entries_.back().size = 0;
-	key_.clear();
-	interned_.insert(std::make_pair(key_, static_cast<PaintId>(0)));
+	// Id zero is the empty set, which is its own parent so that a walk over it
+	// ends without a test of its own.
+	Entry root;
+	root.parent = 0;
+	root.name = 0;
+	root.size = 0;
+	entries_.push_back(root);
 }
 
 bool PaintSets::contains(PaintId set, SpellingId name) const
 {
-	const Entry& entry = entries_[set];
-	const SpellingId* begin = names_.data() + entry.begin;
-	return std::binary_search(begin, begin + entry.size, name);
+	while (set != 0)
+	{
+		const Entry& entry = entries_[set];
+		if (entry.name == name)
+		{
+			return true;
+		}
+		set = entry.parent;
+	}
+	return false;
 }
 
-PaintId PaintSets::intern(const std::vector<SpellingId>& names)
+void PaintSets::collect(PaintId set, std::vector<SpellingId>& names) const
 {
-	key_.assign(reinterpret_cast<const char*>(names.data()),
-		names.size() * sizeof(SpellingId));
-	std::pair<std::unordered_map<std::string, PaintId>::iterator, bool> entry =
-		interned_.insert(std::make_pair(key_, static_cast<PaintId>(entries_.size())));
-	if (entry.second)
+	names.clear();
+	names.reserve(entries_[set].size);
+	while (set != 0)
 	{
-		Entry record;
-		record.begin = static_cast<std::uint32_t>(names_.size());
-		record.size = static_cast<std::uint32_t>(names.size());
-		names_.insert(names_.end(), names.begin(), names.end());
-		entries_.push_back(record);
+		names.push_back(entries_[set].name);
+		set = entries_[set].parent;
 	}
-	return entry.first->second;
+	std::sort(names.begin(), names.end());
+}
+
+// A set named by its members rather than by how it was reached, which is what
+// an intersection produces.  Building it back up through `add` in one order
+// gives it the id it would have had if it had been reached that way.
+PaintId PaintSets::build(const std::vector<SpellingId>& names)
+{
+	PaintId set = 0;
+	for (std::size_t index = 0; index < names.size(); ++index)
+	{
+		set = add(set, names[index]);
+	}
+	return set;
 }
 
 PaintId PaintSets::add(PaintId set, SpellingId name)
 {
 	const std::uint64_t key = (static_cast<std::uint64_t>(set) << 32) | name;
-	std::unordered_map<std::uint64_t, PaintId>::iterator found = added_.find(key);
+	const std::unordered_map<std::uint64_t, PaintId>::iterator found =
+		added_.find(key);
 	if (found != added_.end())
 	{
 		return found->second;
 	}
 
-	const Entry entry = entries_[set];
-	scratch_.assign(names_.begin() + entry.begin,
-		names_.begin() + entry.begin + entry.size);
-	std::vector<SpellingId>::iterator at =
-		std::lower_bound(scratch_.begin(), scratch_.end(), name);
-	if (at == scratch_.end() || *at != name)
+	PaintId result = set;
+	if (!contains(set, name))
 	{
-		scratch_.insert(at, name);
+		Entry entry;
+		entry.parent = set;
+		entry.name = name;
+		entry.size = entries_[set].size + 1;
+		result = static_cast<PaintId>(entries_.size());
+		entries_.push_back(entry);
 	}
-	const PaintId result = intern(scratch_);
 	added_.insert(std::make_pair(key, result));
 	return result;
 }
 
 PaintId PaintSets::intersect(PaintId left, PaintId right)
 {
+	// The head and the closing paren of an invocation almost always carry the
+	// same set, because they almost always come from the same place.
 	if (left == right)
 	{
 		return left;
@@ -185,20 +205,19 @@ PaintId PaintSets::intersect(PaintId left, PaintId right)
 		return 0;
 	}
 	const std::uint64_t key = (static_cast<std::uint64_t>(left) << 32) | right;
-	std::unordered_map<std::uint64_t, PaintId>::iterator found = intersected_.find(key);
+	const std::unordered_map<std::uint64_t, PaintId>::iterator found =
+		intersected_.find(key);
 	if (found != intersected_.end())
 	{
 		return found->second;
 	}
 
-	const Entry a = entries_[left];
-	const Entry b = entries_[right];
-	scratch_.clear();
-	std::set_intersection(
-		names_.begin() + a.begin, names_.begin() + a.begin + a.size,
-		names_.begin() + b.begin, names_.begin() + b.begin + b.size,
-		std::back_inserter(scratch_));
-	const PaintId result = intern(scratch_);
+	collect(left, left_);
+	collect(right, right_);
+	common_.clear();
+	std::set_intersection(left_.begin(), left_.end(),
+		right_.begin(), right_.end(), std::back_inserter(common_));
+	const PaintId result = build(common_);
 	intersected_.insert(std::make_pair(key, result));
 	return result;
 }
@@ -213,6 +232,8 @@ MacroSpellings::MacroSpellings(SpellingPool& spellings)
 	, rparen(spellings.intern(")"))
 	, comma(spellings.intern(","))
 	, ellipsis(spellings.intern("..."))
+	, less(spellings.intern("<"))
+	, greater(spellings.intern(">"))
 	, define(spellings.intern("define"))
 	, undef(spellings.intern("undef"))
 	, if_(spellings.intern("if"))

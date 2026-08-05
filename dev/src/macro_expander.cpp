@@ -23,6 +23,7 @@ MacroExpander::MacroExpander(PPTokenSource* source)
 	, skipping_(false)
 	, text_operator_(kNoSpelling)
 	, directive_end_offset_(0)
+	, collecting_(0)
 	, source_(source)
 	, source_done_(source == nullptr)
 	, line_start_(true)
@@ -39,6 +40,13 @@ MacroExpander::MacroExpander(PPTokenSource* source)
 
 void MacroExpander::set_source(PPTokenSource* source)
 {
+	if (collecting_ != 0)
+	{
+		// An `#include` in an argument list, or a file that runs out in one.
+		// The tokens collected so far are located against the file they were
+		// read from, so the invocation has to end in it.
+		throw error("a macro invocation cannot span a source file");
+	}
 	source_ = source;
 	source_done_ = source == nullptr;
 	// A source begins at the start of a line, and what came before it is
@@ -386,8 +394,14 @@ bool MacroExpander::try_expand(MacroToken& token)
 		// 16.3.4: without a `(` next there is no invocation, and the token is
 		// not made unavailable either, which is what lets a macro name that
 		// leaves an argument be invoked by a later `(`.
+		//
+		// A `(` the look-ahead reached by leaving the source file behind is
+		// not one either: an invocation is located against the file it was
+		// read from, so a name at the end of a file is a name and not a head.
+		PPTokenSource* const from = source_;
 		const MacroToken* ahead = peek();
-		if (ahead == nullptr || !is_punctuation(*ahead, spelled_.lparen))
+		if (ahead == nullptr || source_ != from ||
+		    !is_punctuation(*ahead, spelled_.lparen))
 		{
 			return false;
 		}
@@ -428,16 +442,22 @@ void MacroExpander::expand_object_like(const MacroToken& head,
 void MacroExpander::expand_function_like(const MacroToken& head,
                                          const MacroDefinition& macro)
 {
+	// The invocation is held by index rather than by reference: a directive in
+	// the argument list can run an invocation of its own, and that one grows
+	// the stack this one is on.
+	const std::size_t depth = invocations_.size();
 	invocations_.push_back(Invocation());
-	Invocation& invocation = invocations_.back();
-	invocation.macro = &macro;
-	invocation.head = head;
-	invocation.arguments_begin = arguments_.size();
-	invocation.tokens_begin = argument_tokens_.size();
+	invocations_[depth].macro = &macro;
+	invocations_[depth].head = head;
+	invocations_[depth].arguments_begin = arguments_.size();
+	invocations_[depth].tokens_begin = argument_tokens_.size();
 
 	MacroToken closing;
-	collect_arguments(invocation, closing);
+	++collecting_;
+	collect_arguments(macro, invocations_[depth].arguments_begin, closing);
+	--collecting_;
 
+	Invocation& invocation = invocations_[depth];
 	// 16.3.4: what the replacement is hidden from is what the head and the
 	// closing paren agree on, while the invocation nests in the accumulating
 	// set of the head.
@@ -473,10 +493,11 @@ void MacroExpander::drop_raw_arguments(const Invocation& invocation)
 	argument_tokens_.resize(invocation.tokens_begin);
 }
 
-void MacroExpander::collect_arguments(Invocation& invocation, MacroToken& closing)
+void MacroExpander::collect_arguments(const MacroDefinition& macro,
+                                      std::size_t arguments_begin,
+                                      MacroToken& closing)
 {
 	take();  // the `(` the caller has already seen
-	const MacroDefinition& macro = *invocation.macro;
 	const std::size_t count = macro.parameter_count();
 	// The variadic parameter takes the commas that follow it.  So does the
 	// last parameter of a plain macro: the reference accepts extra arguments
@@ -532,9 +553,9 @@ void MacroExpander::collect_arguments(Invocation& invocation, MacroToken& closin
 		{
 			any = true;
 			++current;
-			arguments_[invocation.arguments_begin + current].raw_begin =
+			arguments_[arguments_begin + current].raw_begin =
 				static_cast<std::uint32_t>(argument_tokens_.size());
-			arguments_[invocation.arguments_begin + current].raw_end =
+			arguments_[arguments_begin + current].raw_end =
 				static_cast<std::uint32_t>(argument_tokens_.size());
 			continue;
 		}
@@ -544,7 +565,7 @@ void MacroExpander::collect_arguments(Invocation& invocation, MacroToken& closin
 		}
 		any = true;
 		argument_tokens_.push_back(token);
-		Argument& argument = arguments_[invocation.arguments_begin + current];
+		Argument& argument = arguments_[arguments_begin + current];
 		argument.raw_end = static_cast<std::uint32_t>(argument_tokens_.size());
 		argument.raw_empty = false;
 	}

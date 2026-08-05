@@ -28,10 +28,16 @@ struct PreprocessorOptions
 //
 // What this owns and PA4 does not is the stack of open source files.  Each one
 // carries its own presumed name and line, because `__FILE__` and `__LINE__`
-// are facts about a file rather than about a token: a macro invocation cannot
-// cross a directive, so it cannot cross an `#include` or a `#line` either, and
-// the byte offset PA1 already stores answers both against the file that is
-// open when the token is replaced.
+// are facts about a file rather than about a token: the byte offset PA1
+// already stores answers both against the file that is open when the token is
+// replaced, so a token costs no location of its own.
+//
+// That holds because an invocation is read from one file and is located
+// against it.  A directive ends the text-sequence before it, so an `#include`
+// or a `#line` between two text tokens is between two invocations as well; the
+// two ways one could reach into an invocation - a directive in an argument
+// list, which 16.3/11 leaves undefined, and a file that runs out inside one -
+// are refused rather than answered wrongly.
 class Preprocessor : public MacroExpander
 {
 public:
@@ -109,6 +115,7 @@ private:
 
 	// The other directives.
 	void run_include(const MacroToken* begin, const MacroToken* end);
+	bool header_name_of(std::string& out);
 	void run_line(const MacroToken* begin, const MacroToken* end);
 	void apply_pragma(const MacroToken* begin, const MacroToken* end);
 	void include_file(const std::string& nextf);
@@ -144,7 +151,7 @@ private:
 	std::vector<MacroToken> guarded_;
 	std::vector<MacroToken> expanded_;
 	std::vector<MacroToken> pragma_;
-	std::string text_;
+	std::string scratch_;
 	PPToken converted_;
 	PostToken literal_;
 };

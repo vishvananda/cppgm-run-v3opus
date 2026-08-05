@@ -75,12 +75,18 @@ inline void append_spelling(std::string& text, Spelling spelling)
 	text.append(spelling.data, spelling.size);
 }
 
-// The sets of macro names a token is hidden from, hash-consed so that a set is
-// one integer on a token and set equality is integer equality.
+// The sets of macro names a token is hidden from, so that a set is one integer
+// on a token.
 //
-// 16.3.4 grows these sets one name at a time and intersects them at every
-// function-like invocation, and the same few sets recur throughout a file, so
-// both operations are memoised on their operand ids.
+// 16.3.4 grows these sets one name at a time down a chain of nested
+// invocations, so a set is here the set it extends plus one name: however deep
+// the nesting is, a set costs one node and never a copy of the names below it.
+// The same nesting recurs throughout a file, so extension is memoised on its
+// operand ids and a set that has been built before is the same integer again.
+//
+// A function-like invocation intersects two sets, which is the one operation
+// the chain does not answer by itself; it is memoised too, and its result is
+// built back up in a canonical order so that the same set is one id.
 class PaintSets
 {
 public:
@@ -95,19 +101,20 @@ public:
 private:
 	struct Entry
 	{
-		std::uint32_t begin;
+		PaintId parent;
+		SpellingId name;
 		std::uint32_t size;
 	};
 
-	PaintId intern(const std::vector<SpellingId>& names);
+	void collect(PaintId set, std::vector<SpellingId>& names) const;
+	PaintId build(const std::vector<SpellingId>& names);
 
 	std::vector<Entry> entries_;
-	std::vector<SpellingId> names_;
-	std::unordered_map<std::string, PaintId> interned_;
 	std::unordered_map<std::uint64_t, PaintId> added_;
 	std::unordered_map<std::uint64_t, PaintId> intersected_;
-	std::vector<SpellingId> scratch_;
-	std::string key_;
+	std::vector<SpellingId> left_;
+	std::vector<SpellingId> right_;
+	std::vector<SpellingId> common_;
 };
 
 // The phase 3 token types, plus the ones phase 4 introduces: the placemarker
@@ -185,6 +192,10 @@ struct MacroSpellings
 	SpellingId rparen;
 	SpellingId comma;
 	SpellingId ellipsis;
+	// The two 16.2 combines a header-name out of, where macro replacement left
+	// one spelled as separate preprocessing-tokens.
+	SpellingId less;
+	SpellingId greater;
 
 	// 16: the directive names.  The whole list is here rather than split
 	// between the two phase 4 owners, because whether an identifier names a

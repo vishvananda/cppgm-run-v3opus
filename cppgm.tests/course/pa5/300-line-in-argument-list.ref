@@ -1,0 +1,3 @@
+preproc 1
+sof course/pa5/300-line-in-argument-list.t
+literal 1 int 01000000
