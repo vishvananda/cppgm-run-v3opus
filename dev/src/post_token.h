@@ -90,4 +90,24 @@ struct PostToken
 			value >>= 8;
 		}
 	}
+
+	// The inverse of set_integer_value: the value of an integral literal, sign
+	// extended to 64 bits when its type is signed, as 16.2.4 requires of a
+	// controlling expression.
+	unsigned long long integer_value() const
+	{
+		const std::size_t size = fundamental_type_size(type);
+		unsigned long long value = 0;
+		for (std::size_t index = size; index-- > 0; )
+		{
+			value = (value << 8) | static_cast<unsigned char>(data[index]);
+		}
+		const std::size_t bits = size * 8;
+		if (bits < 64 && fundamental_type_is_signed(type) &&
+		    (value >> (bits - 1)) != 0)
+		{
+			value |= ~((1ULL << bits) - 1);
+		}
+		return value;
+	}
 };

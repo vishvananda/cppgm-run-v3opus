@@ -114,16 +114,23 @@ const SimpleTokenTable& simple_token_table()
 
 const char* const kFundamentalTypeNames[] =
 {
-#define CPPGM_FUNDAMENTAL_TYPE_NAME(name, text, size) text,
+#define CPPGM_FUNDAMENTAL_TYPE_NAME(name, text, size, kind) text,
 	CPPGM_FUNDAMENTAL_TYPES(CPPGM_FUNDAMENTAL_TYPE_NAME)
 #undef CPPGM_FUNDAMENTAL_TYPE_NAME
 };
 
 const unsigned char kFundamentalTypeSizes[] =
 {
-#define CPPGM_FUNDAMENTAL_TYPE_SIZE(name, text, size) size,
+#define CPPGM_FUNDAMENTAL_TYPE_SIZE(name, text, size, kind) size,
 	CPPGM_FUNDAMENTAL_TYPES(CPPGM_FUNDAMENTAL_TYPE_SIZE)
 #undef CPPGM_FUNDAMENTAL_TYPE_SIZE
+};
+
+const FundamentalTypeClass kFundamentalTypeClasses[] =
+{
+#define CPPGM_FUNDAMENTAL_TYPE_CLASS(name, text, size, kind) FundamentalTypeClass::kind,
+	CPPGM_FUNDAMENTAL_TYPES(CPPGM_FUNDAMENTAL_TYPE_CLASS)
+#undef CPPGM_FUNDAMENTAL_TYPE_CLASS
 };
 
 const char* const kTokenTypeNames[] =
@@ -143,6 +150,11 @@ const char* fundamental_type_name(EFundamentalType type)
 std::size_t fundamental_type_size(EFundamentalType type)
 {
 	return kFundamentalTypeSizes[type];
+}
+
+FundamentalTypeClass fundamental_type_class(EFundamentalType type)
+{
+	return kFundamentalTypeClasses[type];
 }
 
 const char* token_type_name(ETokenType type)

@@ -1,0 +1,9 @@
+ERROR:Expected primary expression
+ERROR:Illegal symbol: and_eq
+ERROR:Illegal symbol: or_eq
+ERROR:Illegal symbol: xor_eq
+ERROR:Illegal symbol: new
+ERROR:Illegal symbol: delete
+ERROR:Illegal symbol: new
+ERROR:Expected whitespace or paren after defined.
+ERROR:Expected whitespace or paren after defined.

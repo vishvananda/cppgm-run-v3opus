@@ -4,39 +4,50 @@
 #include <string>
 
 // The token vocabulary shared by the assignments: the fundamental types of
-// 3.9.1 with the sizes the course ABI gives them, and the keyword, operator and
-// punctuator token types the assignments name.  Phase 7 uses all of it; phase 3
-// takes the identifier-like operators of 2.13 from it, because that is the one
-// fact the two phases share.
+// 3.9.1 with the sizes and signedness the course ABI gives them, and the
+// keyword, operator and punctuator token types the assignments name.  Phase 7
+// uses all of it; phase 3 takes the identifier-like operators of 2.13 from it,
+// because that is the one fact the two phases share.
 //
 // Each enumeration and its name table are generated from one list, so a type,
-// its spelling and its size cannot drift apart.
+// its spelling, its size and its signedness cannot drift apart.
+
+// How 3.9.1 classifies a fundamental type.  The course fixes the signedness of
+// the character types by ABI: `char`, `wchar_t` and `bool` are signed, while
+// `char16_t` and `char32_t` are unsigned.
+enum class FundamentalTypeClass
+{
+	SignedIntegral,
+	UnsignedIntegral,
+	Floating,
+	NonArithmetic
+};
 
 #define CPPGM_FUNDAMENTAL_TYPES(X) \
-	X(FT_SIGNED_CHAR, "signed char", 1) \
-	X(FT_SHORT_INT, "short int", 2) \
-	X(FT_INT, "int", 4) \
-	X(FT_LONG_INT, "long int", 8) \
-	X(FT_LONG_LONG_INT, "long long int", 8) \
-	X(FT_UNSIGNED_CHAR, "unsigned char", 1) \
-	X(FT_UNSIGNED_SHORT_INT, "unsigned short int", 2) \
-	X(FT_UNSIGNED_INT, "unsigned int", 4) \
-	X(FT_UNSIGNED_LONG_INT, "unsigned long int", 8) \
-	X(FT_UNSIGNED_LONG_LONG_INT, "unsigned long long int", 8) \
-	X(FT_WCHAR_T, "wchar_t", 4) \
-	X(FT_CHAR, "char", 1) \
-	X(FT_CHAR16_T, "char16_t", 2) \
-	X(FT_CHAR32_T, "char32_t", 4) \
-	X(FT_BOOL, "bool", 1) \
-	X(FT_FLOAT, "float", 4) \
-	X(FT_DOUBLE, "double", 8) \
-	X(FT_LONG_DOUBLE, "long double", 16) \
-	X(FT_VOID, "void", 0) \
-	X(FT_NULLPTR_T, "nullptr_t", 8)
+	X(FT_SIGNED_CHAR, "signed char", 1, SignedIntegral) \
+	X(FT_SHORT_INT, "short int", 2, SignedIntegral) \
+	X(FT_INT, "int", 4, SignedIntegral) \
+	X(FT_LONG_INT, "long int", 8, SignedIntegral) \
+	X(FT_LONG_LONG_INT, "long long int", 8, SignedIntegral) \
+	X(FT_UNSIGNED_CHAR, "unsigned char", 1, UnsignedIntegral) \
+	X(FT_UNSIGNED_SHORT_INT, "unsigned short int", 2, UnsignedIntegral) \
+	X(FT_UNSIGNED_INT, "unsigned int", 4, UnsignedIntegral) \
+	X(FT_UNSIGNED_LONG_INT, "unsigned long int", 8, UnsignedIntegral) \
+	X(FT_UNSIGNED_LONG_LONG_INT, "unsigned long long int", 8, UnsignedIntegral) \
+	X(FT_WCHAR_T, "wchar_t", 4, SignedIntegral) \
+	X(FT_CHAR, "char", 1, SignedIntegral) \
+	X(FT_CHAR16_T, "char16_t", 2, UnsignedIntegral) \
+	X(FT_CHAR32_T, "char32_t", 4, UnsignedIntegral) \
+	X(FT_BOOL, "bool", 1, SignedIntegral) \
+	X(FT_FLOAT, "float", 4, Floating) \
+	X(FT_DOUBLE, "double", 8, Floating) \
+	X(FT_LONG_DOUBLE, "long double", 16, Floating) \
+	X(FT_VOID, "void", 0, NonArithmetic) \
+	X(FT_NULLPTR_T, "nullptr_t", 8, NonArithmetic)
 
 enum EFundamentalType
 {
-#define CPPGM_FUNDAMENTAL_TYPE_ENUMERATOR(name, text, size) name,
+#define CPPGM_FUNDAMENTAL_TYPE_ENUMERATOR(name, text, size, kind) name,
 	CPPGM_FUNDAMENTAL_TYPES(CPPGM_FUNDAMENTAL_TYPE_ENUMERATOR)
 #undef CPPGM_FUNDAMENTAL_TYPE_ENUMERATOR
 	kFundamentalTypeCount
@@ -96,6 +107,24 @@ const char* fundamental_type_name(EFundamentalType type);
 // Size in bytes under the course ABI.  Zero for void, which has no object
 // representation.
 std::size_t fundamental_type_size(EFundamentalType type);
+
+FundamentalTypeClass fundamental_type_class(EFundamentalType type);
+
+// True for the integral types of 3.9.1, which are the only ones a controlling
+// expression accepts.
+inline bool fundamental_type_is_integral(EFundamentalType type)
+{
+	const FundamentalTypeClass kind = fundamental_type_class(type);
+	return kind == FundamentalTypeClass::SignedIntegral ||
+		kind == FundamentalTypeClass::UnsignedIntegral;
+}
+
+// True for the integral types the course ABI defines as signed.  Meaningless
+// for a type that is not integral.
+inline bool fundamental_type_is_signed(EFundamentalType type)
+{
+	return fundamental_type_class(type) == FundamentalTypeClass::SignedIntegral;
+}
 
 const char* token_type_name(ETokenType type);
 
