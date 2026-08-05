@@ -22,7 +22,10 @@ FRONTEND_OBJ_BASENAMES_recog := source_charset source_reader pptoken_lexer \
 	macro_model macro_expander ctrl_expr source_files preprocessor \
 	parse_token memo_table recognizer recognizer_name recognizer_expression \
 	recognizer_declarator recognizer_statement recognizer_member
-FRONTEND_OBJ_BASENAMES_nsdecl :=
+FRONTEND_OBJ_BASENAMES_nsdecl := source_charset source_reader pptoken_lexer \
+	token_model literal_scan string_literal posttokenizer \
+	macro_model macro_expander ctrl_expr source_files preprocessor \
+	sema_token type_model entity_model decl_parser decl_parser_declarator
 FRONTEND_OBJ_BASENAMES_nsinit :=
 FRONTEND_OBJ_BASENAMES_cy86 :=
 FRONTEND_OBJ_BASENAMES_cppgm++ :=
