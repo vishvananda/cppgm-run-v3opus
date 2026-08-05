@@ -8,6 +8,7 @@
 #include "DebugPostTokenStream.h"
 #include "post_token.h"
 #include "posttokenizer.h"
+#include "pptoken_lexer.h"
 
 // posttoken: translation phases 1 to 6 and the tokenization part of phase 7.
 //
@@ -36,7 +37,8 @@ int main(int argc, char** argv)
 		// The output stream is flushed by its destructor, so the tokens
 		// produced before an ill-formed one are still reported.
 		DebugPostTokenStream output;
-		PostTokenizer tokenizer(std::move(source));
+		PPTokenLexer lexer(std::move(source));
+		PostTokenizer tokenizer(lexer);
 
 		PostToken token;
 		while (tokenizer.next(token))

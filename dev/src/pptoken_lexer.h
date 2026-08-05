@@ -37,20 +37,33 @@ struct PPToken
 	{}
 };
 
+// A pull source of preprocessing-tokens, ending with one end of file token.
+//
+// Phase 3 is one implementation and phase 4 is another, which is what lets the
+// phase 5 to 7 driver read a macro replaced file exactly as it reads a plain
+// one.
+class PPTokenSource
+{
+public:
+	virtual ~PPTokenSource() {}
+
+	// Produces the next token; returns false once end of file was reported.
+	// Throws SourceError when the source file is ill-formed.
+	virtual bool next(PPToken& token) = 0;
+};
+
 // Translation phase 3: decomposes a source file into preprocessing-tokens.
 //
 // The lexer is a pull interface so that later phases can drive it directly.
 // It owns the two pieces of state phase 3 carries between tokens: the reader's
 // consumption point, and where the current line stands relative to an
 // `#include` directive, which is what makes a header-name recognizable.
-class PPTokenLexer
+class PPTokenLexer : public PPTokenSource
 {
 public:
 	explicit PPTokenLexer(std::string source);
 
-	// Produces the next token; returns false once end of file was reported.
-	// Throws SourceError when the source file is ill-formed.
-	bool next(PPToken& token);
+	bool next(PPToken& token) override;
 
 private:
 	enum class DirectiveState

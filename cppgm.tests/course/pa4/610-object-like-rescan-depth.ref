@@ -1,0 +1,12 @@
+literal 9 int 09000000
+literal 8 int 08000000
+identifier OBJ
+literal 9 int 09000000
+literal 9 int 09000000
+identifier G
+literal 9 int 09000000
+literal 8 int 08000000
+literal 7 int 07000000
+literal 9 int 09000000
+identifier G
+eof

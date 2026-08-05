@@ -1,0 +1,13 @@
+literal 1 int 01000000
+literal 2 int 02000000
+literal 1 int 01000000
+literal 2 int 02000000
+identifier f
+literal 2 int 02000000
+literal 1 int 01000000
+identifier q
+simple ( OP_LPAREN
+literal 3 int 03000000
+simple ) OP_RPAREN
+identifier A
+eof

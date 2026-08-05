@@ -1,0 +1,19 @@
+identifier target
+simple ( OP_LPAREN
+literal 1 int 01000000
+simple ) OP_RPAREN
+identifier target
+simple ( OP_LPAREN
+literal 1 int 01000000
+simple , OP_COMMA
+literal 9 int 09000000
+simple ) OP_RPAREN
+identifier target
+simple ( OP_LPAREN
+literal 1 int 01000000
+simple , OP_COMMA
+literal 2 int 02000000
+simple , OP_COMMA
+literal 3 int 03000000
+simple ) OP_RPAREN
+eof

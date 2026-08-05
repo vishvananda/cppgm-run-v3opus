@@ -6,8 +6,8 @@
 #include "literal_scan.h"
 #include "token_model.h"
 
-PostTokenizer::PostTokenizer(std::string source)
-	: lexer_(std::move(source))
+PostTokenizer::PostTokenizer(PPTokenSource& source)
+	: source_(source)
 	, has_held_(false)
 	, previous_is_operator_(false)
 	, finished_(false)
@@ -35,7 +35,7 @@ bool PostTokenizer::next(PostToken& token)
 			std::swap(current_, held_);
 			has_held_ = false;
 		}
-		else if (!lexer_.next(current_))
+		else if (!source_.next(current_))
 		{
 			finished_ = true;
 			return false;

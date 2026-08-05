@@ -6,12 +6,11 @@
 #include "pptoken_lexer.h"
 #include "string_literal.h"
 
-// Translation phases 4 to 6 and the tokenization part of phase 7.
+// Translation phases 5 to 6 and the tokenization part of phase 7.
 //
-// The pull interface mirrors PPTokenLexer so that a later assignment can drive
-// tokens the same way phase 3 drives preprocessing-tokens.  Phase 4 is a no-op
-// here: PA2 forbids directives, and PA4 replaces the source of
-// preprocessing-tokens rather than this class.
+// The preprocessing-tokens come from a PPTokenSource, so PA2 drives phase 3
+// straight into this class while PA4 puts phase 4 in between: what reaches
+// here is a macro replaced token sequence either way.
 //
 // Cross-token state is exactly three things: the preprocessing-token that
 // ended a string-literal sequence and has not been analysed yet, the open
@@ -21,7 +20,7 @@
 class PostTokenizer
 {
 public:
-	explicit PostTokenizer(std::string source);
+	explicit PostTokenizer(PPTokenSource& source);
 
 	// Produces the next token; returns false once end of file was reported.
 	// Throws SourceError when the source file is ill-formed in phases 1 to 3.
@@ -31,7 +30,7 @@ private:
 	void convert(PostToken& token);
 	void flush_sequence(PostToken& token);
 
-	PPTokenLexer lexer_;
+	PPTokenSource& source_;
 	PPToken current_;
 	PPToken held_;
 	bool has_held_;
