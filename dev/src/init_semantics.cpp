@@ -54,14 +54,33 @@ bool InitSemantics::is_arithmetic(TypeId type) const
 
 ConstValue InitSemantics::read_object(const ExprValue& source)
 {
-	// 5.19p2: only an object the translation is allowed to read, and only when
-	// the lvalue designates the whole of it.
+	// 5.19p2: an lvalue-to-rvalue conversion may read an object only when it is
+	// `constexpr` or a const non-volatile object of integral type, only when
+	// the initialization that made it constant is one this translation unit has
+	// already seen - a declaration in another unit says nothing about what the
+	// object holds - and only when the lvalue designates the whole of it.  A
+	// temporary bound to a reference is read on the same terms as a named
+	// object, which is what makes `const int& r = 2;` usable in an array bound.
 	if (source.value.kind != ValueKind::Address || source.value.addend != 0)
 	{
 		return ConstValue();
 	}
 	const Symbol& symbol = image_.at(source.value.symbol);
-	if (!symbol.readable || !symbol.initialized || symbol.from_string)
+	if (!symbol.initialized || symbol.from_string || symbol.unit != image_.unit())
+	{
+		return ConstValue();
+	}
+	if (symbol.is_constexpr)
+	{
+		return symbol.value;
+	}
+	const unsigned cv = types_.object_cv(symbol.type);
+	if ((cv & kCvConst) == 0 || (cv & kCvVolatile) != 0)
+	{
+		return ConstValue();
+	}
+	if (types_.kind(symbol.type) != TypeKind::Fundamental ||
+	    !fundamental_type_is_integral(types_.fundamental_type(symbol.type)))
 	{
 		return ConstValue();
 	}
@@ -303,8 +322,7 @@ Initialization InitSemantics::initialize_array(TypeId destination, const ExprVal
 	{
 		throw SemanticError("a string literal is longer than the array it initializes");
 	}
-	result.bytes = literal.bytes;
-	result.from_string = true;
+	result.literal = literal.id;
 	result.constant = true;
 	return result;
 }
@@ -353,6 +371,7 @@ Initialization InitSemantics::bind_reference(TypeId destination, const ExprValue
 	temporary.value = value.value;
 	temporary.initialized = value.constant;
 	temporary.defined = true;
+	temporary.unit = image_.unit();
 	result.value = ConstValue::address(temporary.id, 0);
 	result.constant = true;
 	return result;
@@ -373,30 +392,15 @@ Initialization InitSemantics::initialize(TypeId destination, const ExprValue& so
 
 bool InitSemantics::to_bool(const ExprValue& source)
 {
-	const ExprValue value = to_prvalue(source);
-	const TypeId type = types_.strip_cv(value.type);
-	const bool scalar = is_arithmetic(type) || types_.kind(type) == TypeKind::Pointer ||
-		(types_.kind(type) == TypeKind::Fundamental &&
-		 types_.fundamental_type(type) == FT_NULLPTR_T);
-	if (!scalar)
+	// 4.12 is the same conversion here as in an initialization, so it is asked
+	// for in the same way; what a condition adds is that 5.19 has to have left
+	// the answer known.
+	const ConstValue value = convert(types_.fundamental(FT_BOOL), to_prvalue(source));
+	if (!value.known())
 	{
-		throw SemanticError("a condition is not of a type that converts to bool");
-	}
-
-	switch (value.value.kind)
-	{
-	case ValueKind::Integral:
-		return value.value.integral != 0;
-	case ValueKind::Floating:
-		return value.value.floating != 0;
-	case ValueKind::Address:
-		// The address of an object of the program is never a null pointer.
-		return true;
-	case ValueKind::Null:
-		return false;
-	default:
 		throw SemanticError("a condition is not a constant expression");
 	}
+	return value.integral != 0;
 }
 
 unsigned long long InitSemantics::to_array_bound(const ExprValue& source)

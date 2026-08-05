@@ -111,6 +111,10 @@ public:
 	// gives a prvalue of it.
 	TypeId strip_cv(TypeId type);
 
+	// 3.9.3p5: the cv-qualifiers an object of `type` has, which for an array
+	// are its elements', because an array is as cv-qualified as they are.
+	unsigned object_cv(TypeId type) const;
+
 	// The course ABI size and alignment of an object of `type`, in bytes.  A
 	// reference is an 8 byte pointer and a function is the 4 byte mock stub of
 	// the assignment.  Zero for an incomplete type, which has neither.

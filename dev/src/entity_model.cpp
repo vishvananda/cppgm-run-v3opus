@@ -98,18 +98,30 @@ std::uint64_t TranslationUnitModel::binding_key(const Namespace& where, NameId n
 
 std::size_t TranslationUnitModel::OverloadKeyHash::operator()(const OverloadKey& key) const
 {
-	const std::uint64_t mixed = (key.binding ^ (key.binding >> 29)) * 1099511628211ULL;
+	const std::uint64_t head = static_cast<std::uint64_t>(key.head);
+	const std::uint64_t mixed = (head ^ (head >> 29)) * 1099511628211ULL;
 	const std::uint64_t hash = (mixed ^ key.signature) * 1099511628211ULL;
 	return static_cast<std::size_t>(hash ^ (hash >> 32));
 }
 
-Entity& TranslationUnitModel::create_function(Namespace& where, NameId name, TypeId type)
+Entity& TranslationUnitModel::create_function(Namespace& where, Entity* head, NameId name,
+                                              TypeId type)
 {
 	Entity& entity = create_entity(EntityKind::Function, name, type);
-	const OverloadKey key = {binding_key(where, name), types_.signature(type)};
+	const OverloadKey key = {
+		reinterpret_cast<std::uintptr_t>(head == nullptr ? &entity : head),
+		types_.signature(type)};
 	overloads_.insert(std::make_pair(key, &entity));
 	where.functions_.push_back(&entity);
 	return entity;
+}
+
+Entity* TranslationUnitModel::find_overload(Entity& head, std::uint32_t signature)
+{
+	const OverloadKey key = {reinterpret_cast<std::uintptr_t>(&head), signature};
+	const std::unordered_map<OverloadKey, Entity*, OverloadKeyHash>::iterator found =
+		overloads_.find(key);
+	return found == overloads_.end() ? nullptr : found->second;
 }
 
 Namespace& TranslationUnitModel::open_namespace(Namespace& parent, NameId name,
@@ -229,15 +241,13 @@ Entity& TranslationUnitModel::declare(Namespace& where, EntityKind kind, NameId 
 		// a list only so that an expression can see that it has more than one
 		// member, so a new member goes in behind the binding rather than at
 		// the end of it.
-		const OverloadKey key = {binding_key(where, name), types_.signature(type)};
-		const std::unordered_map<OverloadKey, Entity*, OverloadKeyHash>::iterator found =
-			overloads_.find(key);
-		if (found != overloads_.end())
+		Entity* found = find_overload(*bound, types_.signature(type));
+		if (found != nullptr)
 		{
-			redeclare(*found->second, kind, type);
-			return *found->second;
+			redeclare(*found, kind, type);
+			return *found;
 		}
-		Entity& entity = create_function(where, name, type);
+		Entity& entity = create_function(where, bound, name, type);
 		entity.overload = bound->overload;
 		bound->overload = &entity;
 		return entity;
@@ -250,7 +260,7 @@ Entity& TranslationUnitModel::declare(Namespace& where, EntityKind kind, NameId 
 
 	if (kind == EntityKind::Function)
 	{
-		Entity& entity = create_function(where, name, type);
+		Entity& entity = create_function(where, nullptr, name, type);
 		where.bindings_[name] = &entity;
 		return entity;
 	}
@@ -371,9 +381,11 @@ const std::vector<Namespace*>& TranslationUnitModel::levels(Namespace& from)
 		cached_.push_back(&from);
 	}
 	from.levels_.clear();
+	from.level_starts_.clear();
 	std::size_t level = 0;
 	for (Namespace* context = &from; context != nullptr; context = context->parent())
 	{
+		from.level_starts_.push_back(static_cast<std::uint32_t>(from.levels_.size()));
 		from.levels_.push_back(context);
 		from.levels_.insert(from.levels_.end(), anchored_[level].begin(),
 		                    anchored_[level].end());
@@ -383,29 +395,71 @@ const std::vector<Namespace*>& TranslationUnitModel::levels(Namespace& from)
 	return from.levels_;
 }
 
+// 3.4p1 and 7.3.4p3: two declarations of one name found in one declarative
+// region name one thing, or they are all functions; anything else is a use of
+// the name the program may not make.  A using-declaration and a namespace alias
+// bind an entity that was declared elsewhere, so an entity is compared by
+// identity; a typedef-name names no entity, so two of them are compared by the
+// type they denote.
+Entity* TranslationUnitModel::merge_found(Entity* found, Entity* again)
+{
+	if (found == nullptr || found == again)
+	{
+		return again;
+	}
+	if (found->kind == EntityKind::Function && again->kind == EntityKind::Function)
+	{
+		return found;
+	}
+	if (found->kind == EntityKind::Typedef && again->kind == EntityKind::Typedef &&
+	    found->type == again->type)
+	{
+		return found;
+	}
+	throw SemanticError("a name is declared in two of the namespaces one use of it "
+	                    "looks in");
+}
+
 Entity* TranslationUnitModel::lookup_unqualified(Namespace& from, NameId name,
                                                  LookupFilter filter)
 {
 	// 3.4.1 searches the innermost scope first, and 7.3.4p2 can put what a
-	// using-directive nominates no nearer than that same scope, so a name this
-	// namespace declares is already the answer.  Asking here first is what
-	// keeps a lookup from having to know what else is in scope, which is the
+	// using-directive nominates no nearer than that same scope.  A namespace
+	// that nominates nothing has nothing else at that level, so what it
+	// declares is already the answer.  Asking here first is what keeps the
+	// common lookup from having to know what else is in scope, which is the
 	// expensive question: the set of namespaces a directive makes visible has
 	// to be worked out again every time a new directive is written.
-	Entity* declared = from.find(name);
-	if (declared != nullptr && accepts(filter, *declared))
+	if (from.nominated().empty())
 	{
-		return declared;
+		Entity* declared = from.find(name);
+		if (declared != nullptr && accepts(filter, *declared))
+		{
+			return declared;
+		}
 	}
 
-	// `levels` starts at `from`, which has just been asked.
+	// Otherwise one level at a time, because a name two namespaces of one level
+	// declare is 3.4p1's ambiguity while one a nearer level declares simply
+	// hides what an outer level has.
 	const std::vector<Namespace*>& order = levels(from);
-	for (std::size_t index = 1; index < order.size(); ++index)
+	for (std::size_t level = 0; level < from.level_starts_.size(); ++level)
 	{
-		Entity* entity = order[index]->find(name);
-		if (entity != nullptr && accepts(filter, *entity))
+		const std::size_t end = level + 1 < from.level_starts_.size()
+			? from.level_starts_[level + 1]
+			: order.size();
+		Entity* found = nullptr;
+		for (std::size_t index = from.level_starts_[level]; index < end; ++index)
 		{
-			return entity;
+			Entity* entity = order[index]->find(name);
+			if (entity != nullptr && accepts(filter, *entity))
+			{
+				found = merge_found(found, entity);
+			}
+		}
+		if (found != nullptr)
+		{
+			return found;
 		}
 	}
 	return nullptr;
@@ -446,13 +500,18 @@ Entity* TranslationUnitModel::lookup_qualified(Namespace& in, NameId name,
 		}
 		const std::size_t end = search_.size();
 
+		Entity* found = nullptr;
 		for (std::size_t index = wave; index < end; ++index)
 		{
 			Entity* entity = search_[index]->find(name);
 			if (entity != nullptr && accepts(filter, *entity))
 			{
-				return entity;
+				found = merge_found(found, entity);
 			}
+		}
+		if (found != nullptr)
+		{
+			return found;
 		}
 
 		for (std::size_t index = wave; index < end; ++index)

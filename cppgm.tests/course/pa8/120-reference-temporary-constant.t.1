@@ -1,0 +1,7 @@
+const int& bound_to_temporary = 3;
+
+int sized[bound_to_temporary];
+
+static_assert(bound_to_temporary, "the temporary is a constant");
+
+int main() {}

@@ -42,11 +42,10 @@ struct Symbol
 	std::string bytes;
 	bool from_string;
 	bool initialized;
-	// 5.19p2: an lvalue-to-rvalue conversion in a constant expression may read
-	// this object, because it is `constexpr` or a const integral object with a
-	// constant initializer.
-	bool readable;
 	bool defined;
+	// 3.5p3: the linkage the first declaration of this object gave it, which
+	// 7.1.1p7 makes every later declaration agree with.
+	bool internal;
 	bool is_inline;
 	bool is_thread_local;
 	bool is_constexpr;
@@ -54,7 +53,9 @@ struct Symbol
 	// which is what says whether the next one is the first and so may still
 	// decide what 7.1.1p1 makes every declaration agree on.
 	std::uint32_t declarations;
-	std::uint32_t unit;         // the translation unit that defined it
+	// The translation unit that defined it, which is also the only one whose
+	// declarations 5.19p2 lets read the constant initializer it gave.
+	std::uint32_t unit;
 	unsigned long long offset;  // its place in the image, after layout
 };
 
@@ -131,8 +132,21 @@ private:
 	Scope scope_of(const Namespace& space);
 	std::uint32_t intern_path(std::uint32_t enclosing, NameId name);
 	Symbol& create(SymbolKind kind, TypeId type);
-	unsigned long long size_of(const Symbol& symbol) const;
-	unsigned long long align_of(const Symbol& symbol) const;
+	// The type table is what the assignment's sizes and alignments are written
+	// in, the mock function stub included, so an object of the image asks it
+	// rather than answering for itself.
+	unsigned long long size_of(const Symbol& symbol) const
+	{
+		return types_.object_size(symbol.type);
+	}
+
+	unsigned long long align_of(const Symbol& symbol) const
+	{
+		return types_.object_align(symbol.type);
+	}
+
+	// Places every object the image holds, in block order, and leaves the ids
+	// of the ones it placed in `placed_`.
 	void layout();
 	void write_symbol(std::ostream& out, const Symbol& symbol) const;
 	// The object representation of a scalar object's constant initializer,
@@ -143,10 +157,13 @@ private:
 	std::uint32_t unit_;
 	std::deque<Symbol> symbols_;
 	// The three blocks of the output format, each in the order the assignment
-	// appends it: first declaration, first use, and token order.
+	// appends it: first declaration, first use, and token order.  Block 1 holds
+	// every variable the program declares, but the image holds only the ones it
+	// also defines, so what is written is `placed_` rather than these.
 	std::vector<std::uint32_t> objects_;
 	std::vector<std::uint32_t> temporaries_;
 	std::vector<std::uint32_t> literals_;
+	std::vector<std::uint32_t> placed_;
 	std::unordered_map<LinkKey, std::uint32_t, LinkKeyHash> linkage_;
 	std::unordered_map<const Namespace*, Scope> scopes_;
 	// Interned namespace paths, keyed on the enclosing path and one name, so a

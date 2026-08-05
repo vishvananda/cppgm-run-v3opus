@@ -1,6 +1,6 @@
 #pragma once
 
-#include <string>
+#include <cstdint>
 
 #include "program_model.h"
 #include "type_model.h"
@@ -12,16 +12,18 @@ struct Initialization
 {
 	Initialization()
 		: type(kNoType)
-		, from_string(false)
+		, literal(0)
 		, constant(false)
 	{}
 
 	// The destination type, with an array bound 8.5.2p2 took from the
 	// initializing string literal.
 	TypeId type;
-	ConstValue value;   // scalar and reference objects
-	std::string bytes;  // 8.5.2 character arrays
-	bool from_string;
+	ConstValue value;  // scalar and reference objects
+	// 8.5.2: the string literal object whose characters a character array
+	// copies, or zero.  That object holds them, so an initialization carries
+	// the object rather than a copy of what is in it.
+	std::uint32_t literal;
 	// 3.6.2: the initializer is a constant expression, so the object is
 	// constant initialized rather than zero initialized.
 	bool constant;
@@ -63,8 +65,9 @@ private:
 	Initialization initialize_scalar(TypeId destination, const ExprValue& source);
 
 	// 5.19p2: the value an lvalue-to-rvalue conversion reads from the object
-	// `source` designates, or nothing when the object may not be read during
-	// translation.
+	// `source` designates, or nothing when this translation may not read it.
+	// One place answers that, because "may an object be read" is a question
+	// about the conversion rather than about the declaration that wrote it.
 	ConstValue read_object(const ExprValue& source);
 	// Clause 4: `source`, already a prvalue, as a value of type `destination`.
 	ConstValue convert(TypeId destination, const ExprValue& source);

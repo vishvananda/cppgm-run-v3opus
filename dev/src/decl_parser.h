@@ -80,7 +80,6 @@ struct DeclaratorId
 // answer to "is this program well formed".
 struct ImageContext
 {
-	const std::vector<LiteralValue>* literals;
 	ProgramImage* image;
 	InitSemantics* init;
 };
@@ -98,8 +97,9 @@ struct ImageContext
 class DeclParser
 {
 public:
-	DeclParser(const std::vector<SemaToken>& tokens, TypeTable& types,
-	           TranslationUnitModel& model, const ImageContext* image = nullptr);
+	DeclParser(const std::vector<SemaToken>& tokens, const std::vector<LiteralValue>& literals,
+	           TypeTable& types, TranslationUnitModel& model,
+	           const ImageContext* image = nullptr);
 
 	// Parses `translation-unit`.  Throws SemanticError for a token sequence
 	// the assignment gives no meaning to.
@@ -170,6 +170,9 @@ private:
 	}
 
 	NameId name_at(std::size_t offset = 0) const { return token_at(offset).name; }
+
+	// The literal the token at the cursor stands for.
+	const LiteralValue& literal_at() const { return literals_[name_at()]; }
 
 	void advance() { ++pos_; }
 
@@ -272,12 +275,12 @@ private:
 	TypeId apply(const DeclaratorOperator& op, TypeId type, bool& written_reference);
 
 	const std::vector<SemaToken>& tokens_;
+	const std::vector<LiteralValue>& literals_;
 	std::size_t pos_;
 	TypeTable& types_;
 	TranslationUnitModel& model_;
 	// Null for a tool that only describes declarations; otherwise the program
 	// image being built, which selects `pa8.gram`.
-	const std::vector<LiteralValue>* literals_;
 	ProgramImage* image_;
 	InitSemantics* init_;
 	// 3.4.3p3: the scope a name written after a qualified declarator-id is

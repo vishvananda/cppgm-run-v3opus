@@ -1,5 +1,3 @@
-#include <cstring>
-
 #include "decl_parser.h"
 
 // The expression half of the PA8 parser.
@@ -33,31 +31,6 @@ bool is_integer_literal(EFundamentalType type)
 	}
 }
 
-// The value of a floating literal, read back out of the object representation
-// 2.14.4 gave it.  The course ABI is the host's, so the bytes are the host's
-// too, and `long double` keeps its ten significant bytes of the sixteen an
-// object of it occupies.
-long double floating_literal(const LiteralValue& literal)
-{
-	if (literal.type == FT_FLOAT && literal.data.size() >= sizeof(float))
-	{
-		float value = 0;
-		std::memcpy(&value, literal.data.data(), sizeof(value));
-		return value;
-	}
-	if (literal.type == FT_DOUBLE && literal.data.size() >= sizeof(double))
-	{
-		double value = 0;
-		std::memcpy(&value, literal.data.data(), sizeof(value));
-		return value;
-	}
-	long double value = 0;
-	const std::size_t width = literal.data.size() < sizeof(value) ? literal.data.size()
-	                                                             : sizeof(value);
-	std::memcpy(&value, literal.data.data(), width);
-	return value;
-}
-
 }
 
 ExprValue DeclParser::keyword_expression(unsigned token)
@@ -79,7 +52,7 @@ ExprValue DeclParser::keyword_expression(unsigned token)
 
 ExprValue DeclParser::literal_expression()
 {
-	const LiteralValue& literal = (*literals_)[name_at()];
+	const LiteralValue& literal = literal_at();
 	if (literal.type == kFundamentalTypeCount)
 	{
 		throw SemanticError("a user-defined literal is not an expression of this grammar");
@@ -103,13 +76,14 @@ ExprValue DeclParser::literal_expression()
 	}
 
 	out.type = types_.fundamental(literal.type);
-	if (fundamental_type_is_integral(literal.type))
+	if (literal.integral())
 	{
-		out.value = ConstValue::integer(token_at().value);
-		out.null_constant = token_at().value == 0 && is_integer_literal(literal.type);
+		const unsigned long long value = literal.integer();
+		out.value = ConstValue::integer(value);
+		out.null_constant = value == 0 && is_integer_literal(literal.type);
 		return out;
 	}
-	out.value = ConstValue::real(floating_literal(literal));
+	out.value = ConstValue::real(literal.real());
 	return out;
 }
 

@@ -10,44 +10,6 @@
 // because 3.5 makes two declarations in two units name one entity and 3.2 makes
 // one of them its definition.
 
-namespace
-{
-
-// 3.9.3p5: an array is as cv-qualified as its elements, so the qualifiers an
-// object was declared with are read past however many dimensions there are.
-unsigned object_cv(const TypeTable& types, TypeId type)
-{
-	while (types.kind(type) == TypeKind::Array)
-	{
-		type = types.target(type);
-	}
-	return types.cv(type);
-}
-
-// 5.19p2: an lvalue-to-rvalue conversion may read a `constexpr` object, or a
-// const non-volatile object of integral type whose initializer was a constant
-// expression.
-bool readable_object(const TypeTable& types, const Symbol& symbol)
-{
-	if (!symbol.initialized || symbol.from_string)
-	{
-		return false;
-	}
-	if (symbol.is_constexpr)
-	{
-		return true;
-	}
-	const unsigned cv = object_cv(types, symbol.type);
-	if ((cv & kCvConst) == 0 || (cv & kCvVolatile) != 0)
-	{
-		return false;
-	}
-	return types.kind(symbol.type) == TypeKind::Fundamental &&
-		fundamental_type_is_integral(types.fundamental_type(symbol.type));
-}
-
-}
-
 void DeclParser::parse_static_assert_declaration(Namespace& where)
 {
 	value_scope_ = &where;
@@ -81,17 +43,45 @@ Symbol& DeclParser::link_object(Namespace& home, const Specifiers& specifiers,
 {
 	const SymbolKind kind = entity.kind == EntityKind::Function ? SymbolKind::Function
 	                                                            : SymbolKind::Variable;
+
+	// 7.1.1p4 and 7.1.2p1: `thread_local` names a variable and `inline` names a
+	// function, and a decl-specifier-seq of this grammar can carry either onto
+	// the wrong one.  7.1.5p3 asks a constexpr function for a return type an
+	// object can be made of, which `void` is not.
+	if (specifiers.is_thread_local && kind != SymbolKind::Variable)
+	{
+		throw SemanticError("a function is declared thread_local");
+	}
+	if (specifiers.is_inline && kind != SymbolKind::Function)
+	{
+		throw SemanticError("a variable is declared inline");
+	}
+	if (specifiers.is_constexpr && kind == SymbolKind::Function &&
+	    types_.is_void(types_.target(type)))
+	{
+		throw SemanticError("a constexpr function returns a type no object can have");
+	}
+
 	if (entity.symbol == 0)
 	{
 		// 3.5p3: a name declared `static` has internal linkage, and so does a
 		// non-volatile const variable that is neither declared `extern` nor
 		// already an entity of external linkage - which, within one unit, is
 		// exactly the case where the entity already has an object.
-		const unsigned cv = object_cv(types_, type);
+		const unsigned cv = types_.object_cv(type);
 		const bool internal = specifiers.is_static ||
 			(kind == SymbolKind::Variable && !specifiers.is_extern &&
 			 (cv & kCvConst) != 0 && (cv & kCvVolatile) == 0);
 		entity.symbol = image_->declare(kind, home, name, type, internal).id;
+	}
+	else if (specifiers.is_static && !image_->at(entity.symbol).internal)
+	{
+		// 7.1.1p7: the linkages successive declarations imply shall agree.
+		// `static` is the only specifier that says internal linkage outright;
+		// the const rule of 3.5p3 defers to what the entity already has, so it
+		// is only the first declaration that can decide.
+		throw SemanticError("a declaration declares static an entity another "
+		                    "declaration gave external linkage");
 	}
 
 	Symbol& symbol = image_->at(entity.symbol);
@@ -122,10 +112,6 @@ bool DeclParser::defines_object(const Specifiers& specifiers, TypeId type,
 		// body.
 		return is_function_body;
 	}
-	if (specifiers.is_inline)
-	{
-		throw SemanticError("a variable is declared inline");
-	}
 	// 7.1.5p9: every declaration of a constexpr variable initializes it.
 	if (specifiers.is_constexpr && !has_initializer)
 	{
@@ -145,7 +131,7 @@ bool DeclParser::defines_object(const Specifiers& specifiers, TypeId type,
 		{
 			throw SemanticError("a reference is defined without an initializer");
 		}
-		if ((object_cv(types_, type) & kCvConst) != 0)
+		if ((types_.object_cv(type) & kCvConst) != 0)
 		{
 			throw SemanticError("an object of a const type is defined without "
 			                    "an initializer");
@@ -173,8 +159,13 @@ void DeclParser::set_initial_value(Symbol& symbol, const Specifiers& specifiers,
 	}
 	symbol.initialized = true;
 	symbol.value = result.value;
-	symbol.bytes = result.bytes;
-	symbol.from_string = result.from_string;
+	// 8.5.2p2: the characters of the string literal are copied into the array
+	// being initialized, which is an object of its own.
+	symbol.from_string = result.literal != 0;
+	if (symbol.from_string)
+	{
+		symbol.bytes = image_->at(result.literal).bytes;
+	}
 }
 
 void DeclParser::analyse_object(Namespace& where, const Specifiers& specifiers,
@@ -248,5 +239,4 @@ void DeclParser::analyse_object(Namespace& where, const Specifiers& specifiers,
 	{
 		throw SemanticError("an object is defined with a type that has no size");
 	}
-	symbol.readable = readable_object(types_, symbol);
 }

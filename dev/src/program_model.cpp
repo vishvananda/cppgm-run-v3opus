@@ -44,8 +44,8 @@ Symbol::Symbol()
 	, type(kNoType)
 	, from_string(false)
 	, initialized(false)
-	, readable(false)
 	, defined(false)
+	, internal(false)
 	, is_inline(false)
 	, is_thread_local(false)
 	, is_constexpr(false)
@@ -144,6 +144,7 @@ Symbol& ProgramImage::declare(SymbolKind kind, const Namespace& home, NameId nam
 	if (internal || scope.internal)
 	{
 		Symbol& symbol = create(kind, type);
+		symbol.internal = true;
 		objects_.push_back(symbol.id);
 		return symbol;
 	}
@@ -187,27 +188,27 @@ Symbol& ProgramImage::add_string_literal(TypeId type, const std::string& bytes,
 	return symbol;
 }
 
-unsigned long long ProgramImage::size_of(const Symbol& symbol) const
-{
-	return symbol.kind == SymbolKind::Function ? 4 : types_.object_size(symbol.type);
-}
-
-unsigned long long ProgramImage::align_of(const Symbol& symbol) const
-{
-	return symbol.kind == SymbolKind::Function ? 4 : types_.object_align(symbol.type);
-}
-
 void ProgramImage::layout()
 {
 	// The three blocks in the order the assignment appends them, each object
 	// at the next offset its alignment allows, counting from the magic bytes.
+	//
+	// The image holds "each defined named variable and declared function", so
+	// a variable the whole program only ever declares - `extern int x;` that no
+	// unit defines - is passed over; one that some unit does define keeps the
+	// place its first declaration gave it.
 	const std::vector<std::uint32_t>* blocks[3] = {&objects_, &temporaries_, &literals_};
 	unsigned long long cursor = 4;
+	placed_.clear();
 	for (std::size_t block = 0; block < 3; ++block)
 	{
 		for (std::size_t index = 0; index < blocks[block]->size(); ++index)
 		{
 			Symbol& symbol = at((*blocks[block])[index]);
+			if (symbol.kind == SymbolKind::Variable && !symbol.defined)
+			{
+				continue;
+			}
 			const unsigned long long align = align_of(symbol);
 			if (align != 0 && cursor % align != 0)
 			{
@@ -215,6 +216,7 @@ void ProgramImage::layout()
 			}
 			symbol.offset = cursor;
 			cursor += size_of(symbol);
+			placed_.push_back(symbol.id);
 		}
 	}
 }
@@ -294,16 +296,12 @@ void ProgramImage::write(std::ostream& out)
 	// The magic bytes are the `array of 4 char` string literal "PA8".
 	out.write("PA8\0", 4);
 
-	const std::vector<std::uint32_t>* blocks[3] = {&objects_, &temporaries_, &literals_};
 	unsigned long long cursor = 4;
-	for (std::size_t block = 0; block < 3; ++block)
+	for (std::size_t index = 0; index < placed_.size(); ++index)
 	{
-		for (std::size_t index = 0; index < blocks[block]->size(); ++index)
-		{
-			const Symbol& symbol = at((*blocks[block])[index]);
-			pad(out, symbol.offset - cursor);
-			write_symbol(out, symbol);
-			cursor = symbol.offset + size_of(symbol);
-		}
+		const Symbol& symbol = at(placed_[index]);
+		pad(out, symbol.offset - cursor);
+		write_symbol(out, symbol);
+		cursor = symbol.offset + size_of(symbol);
 	}
 }

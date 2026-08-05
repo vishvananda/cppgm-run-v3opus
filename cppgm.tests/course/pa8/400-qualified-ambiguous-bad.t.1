@@ -1,0 +1,12 @@
+namespace Left { const int which = 1; }
+namespace Right { const int which = 2; }
+
+namespace Both
+{
+	using namespace Left;
+	using namespace Right;
+}
+
+int sized[Both::which];
+
+int main() {}

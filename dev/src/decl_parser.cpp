@@ -19,13 +19,14 @@ DeclParser::Specifiers::Specifiers()
 	}
 }
 
-DeclParser::DeclParser(const std::vector<SemaToken>& tokens, TypeTable& types,
+DeclParser::DeclParser(const std::vector<SemaToken>& tokens,
+                       const std::vector<LiteralValue>& literals, TypeTable& types,
                        TranslationUnitModel& model, const ImageContext* image)
 	: tokens_(tokens)
+	, literals_(literals)
 	, pos_(0)
 	, types_(types)
 	, model_(model)
-	, literals_(image == nullptr ? nullptr : image->literals)
 	, image_(image == nullptr ? nullptr : image->image)
 	, init_(image == nullptr ? nullptr : image->init)
 	, value_scope_(&model.global())
@@ -312,10 +313,10 @@ Entity& DeclParser::declare(Namespace& where, const Specifiers& specifiers,
 	if (entity != nullptr && kind == EntityKind::Function &&
 	    entity->kind == EntityKind::Function)
 	{
-		while (entity != nullptr && types_.signature(entity->type) != types_.signature(type))
-		{
-			entity = entity->overload;
-		}
+		// 13.1: which of the functions the name reaches this redeclares is
+		// decided by the parameter type list, which the overload set is
+		// indexed by rather than searched for.
+		entity = model_.find_overload(*entity, types_.signature(type));
 	}
 	if (entity == nullptr)
 	{

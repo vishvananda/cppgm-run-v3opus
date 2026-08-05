@@ -55,15 +55,14 @@ void analyse_file(SourceFileTable& files, const PreprocessorOptions& options,
 {
 	std::vector<SemaToken> tokens;
 	std::vector<LiteralValue> literals;
-	build_sema_tokens(files, options, path, names, tokens, &literals);
+	build_sema_tokens(files, options, path, names, tokens, literals);
 
 	ImageContext context;
-	context.literals = &literals;
 	context.image = &image;
 	context.init = &init;
 
 	TranslationUnitModel model(types);
-	DeclParser parser(tokens, types, model, &context);
+	DeclParser parser(tokens, literals, types, model, &context);
 	image.begin_unit();
 	parser.run();
 }

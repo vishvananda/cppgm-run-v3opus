@@ -52,10 +52,11 @@ void describe_file(std::ostream& out, SourceFileTable& files,
                    NameTable& names, TypeTable& types)
 {
 	std::vector<SemaToken> tokens;
-	build_sema_tokens(files, options, path, names, tokens);
+	std::vector<LiteralValue> literals;
+	build_sema_tokens(files, options, path, names, tokens, literals);
 
 	TranslationUnitModel model(types);
-	DeclParser parser(tokens, types, model);
+	DeclParser parser(tokens, literals, types, model);
 	parser.run();
 
 	write_namespace(out, model.global(), types, names);

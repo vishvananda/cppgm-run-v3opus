@@ -125,8 +125,12 @@ private:
 	std::vector<Namespace*> inlines_;
 
 	// The namespaces 3.4.1 searches for a name written here, innermost level
-	// first, as of `levels_epoch_`.  See TranslationUnitModel::levels.
+	// first, as of `levels_epoch_`, and where each level begins in it.  A level
+	// is one declarative region as 7.3.4p2 makes it, so 3.4p1 asks whether two
+	// of the namespaces within one level declare the name.  See
+	// TranslationUnitModel::levels.
 	std::vector<Namespace*> levels_;
+	std::vector<std::uint32_t> level_starts_;
 	std::uint64_t levels_epoch_;
 	// Scratch of one walk: `mark_` says this namespace has been reached and
 	// `chain_` that it is one of the scopes the walk started from.
@@ -161,6 +165,13 @@ public:
 	// an entity that must already exist.
 	void redeclare(Entity& entity, EntityKind kind, TypeId type);
 
+	// The member of the overload set `head` heads whose parameter type list is
+	// `signature`, or nothing.  3.5 and 13.1 make the parameter type list the
+	// whole of what tells two functions of one name apart, so the set is
+	// indexed by it rather than walked: a namespace whose name reaches n
+	// functions would otherwise cost n to redeclare any one of them.
+	Entity* find_overload(Entity& head, std::uint32_t signature);
+
 	// 8.3.4p4 and 3.9p7: the one type two declarations of an entity agree on,
 	// which is either the same type twice or an array a bound completed.
 	TypeId merged(TypeId declared, TypeId again);
@@ -180,15 +191,18 @@ public:
 
 private:
 	// What tells two functions of one name in one namespace apart: 3.5 and
-	// 13.1 say it is their parameter type lists, and nothing else.
+	// 13.1 say it is their parameter type lists, and nothing else.  The set is
+	// named by the entity the name is bound to, which stays the head of it
+	// however many members join, so a using-declaration that binds the same
+	// entity elsewhere names the same set.
 	struct OverloadKey
 	{
-		std::uint64_t binding;
+		std::uintptr_t head;
 		std::uint32_t signature;
 
 		bool operator==(const OverloadKey& other) const
 		{
-			return binding == other.binding && signature == other.signature;
+			return head == other.head && signature == other.signature;
 		}
 	};
 
@@ -199,12 +213,17 @@ private:
 
 	Namespace& create(Namespace& parent, NameId name, bool is_inline);
 	Entity& create_entity(EntityKind kind, NameId name, TypeId type);
-	Entity& create_function(Namespace& where, NameId name, TypeId type);
+	// Declares a function in `where` and indexes it under the overload set
+	// `head` heads, which is the function itself when it opens the set.
+	Entity& create_function(Namespace& where, Entity* head, NameId name, TypeId type);
 	// The name in the namespace, as one word, which is how a fact about a
 	// binding rather than about an entity is keyed.
 	static std::uint64_t binding_key(const Namespace& where, NameId name);
 	// Adds every namespace of `edges` not yet reached by this walk to `out`.
 	void reach(const std::vector<Namespace*>& edges, std::vector<Namespace*>& out);
+	// 3.4p1: the one entity a lookup that reached two declarations of a name in
+	// one declarative region found, or the error that it reached two.
+	static Entity* merge_found(Entity* found, Entity* again);
 
 	// The namespaces 3.4.1 searches from `from`, in order.
 	//

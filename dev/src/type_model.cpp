@@ -314,6 +314,17 @@ TypeId TypeTable::strip_cv(TypeId type)
 	return unqualified(type);
 }
 
+unsigned TypeTable::object_cv(TypeId type) const
+{
+	// A declarator may write more dimensions than a machine stack has frames,
+	// so the way to the element type is a loop.
+	while (kind(type) == TypeKind::Array)
+	{
+		type = target(type);
+	}
+	return cv(type);
+}
+
 unsigned long long TypeTable::object_size(TypeId type) const
 {
 	unsigned long long count = 1;
@@ -332,6 +343,9 @@ unsigned long long TypeTable::object_size(TypeId type) const
 		type = target(type);
 	}
 
+	// Every type the assignment gives a size to has it equal to its alignment,
+	// the mock function stub's four bytes included; a fundamental type is the
+	// one whose size the ABI states rather than derives.
 	const unsigned long long unit = object_align(type);
 	if (unit != 0 && count > (~0ULL) / unit)
 	{

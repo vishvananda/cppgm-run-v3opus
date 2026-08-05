@@ -205,14 +205,14 @@ bool DeclParser::parse_array_suffix(DeclaratorOperator& op)
 	{
 		// 8.3.4: the bound is a converted constant expression of type
 		// `std::size_t` whose value is greater than zero.
-		const SemaToken& literal = token_at();
-		if (!literal.integral || literal.value == 0)
+		const LiteralValue& literal = literal_at();
+		if (!literal.integral() || literal.integer() == 0)
 		{
 			reset(saved);
 			return false;
 		}
 		op.bounded = true;
-		op.bound = literal.value;
+		op.bound = literal.integer();
 		advance();
 	}
 	if (!accept(OP_RSQUARE))

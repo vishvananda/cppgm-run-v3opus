@@ -1,5 +1,7 @@
 #include "sema_token.h"
 
+#include <cstring>
+
 #include "post_token.h"
 #include "posttokenizer.h"
 #include "preprocessor.h"
@@ -8,28 +10,23 @@
 namespace
 {
 
-void append(std::vector<SemaToken>& out, unsigned type, NameId name, bool integral,
-            unsigned long long value)
+void append(std::vector<SemaToken>& out, unsigned type, NameId name)
 {
 	SemaToken token;
-	token.type = static_cast<std::uint16_t>(type);
-	token.integral = integral;
+	token.type = type;
 	token.name = name;
-	token.value = value;
 	out.push_back(token);
 }
 
-// The literal's index in the pool, or `kNoName` when no pool was asked for.
-NameId keep_literal(std::vector<LiteralValue>* literals, const PostToken& token,
+// The literal's index in the pool.  A user-defined literal is kept as a hole,
+// because `pa8.gram` gives it no meaning but the token it stands for still has
+// to be counted.
+NameId keep_literal(std::vector<LiteralValue>& literals, const PostToken& token,
                     bool array, bool defined)
 {
-	if (literals == nullptr)
-	{
-		return kNoName;
-	}
-	const NameId index = static_cast<NameId>(literals->size());
-	literals->push_back(LiteralValue());
-	LiteralValue& value = literals->back();
+	const NameId index = static_cast<NameId>(literals.size());
+	literals.push_back(LiteralValue());
+	LiteralValue& value = literals.back();
 	if (defined)
 	{
 		value.type = token.type;
@@ -41,37 +38,28 @@ NameId keep_literal(std::vector<LiteralValue>* literals, const PostToken& token,
 }
 
 void append_token(std::vector<SemaToken>& out, NameTable& names, const PostToken& token,
-                  std::vector<LiteralValue>* literals)
+                  std::vector<LiteralValue>& literals)
 {
 	switch (token.kind)
 	{
 	case PostTokenKind::Simple:
-		append(out, token.simple_type, kNoName, false, 0);
+		append(out, token.simple_type, kNoName);
 		return;
 
 	case PostTokenKind::Literal:
-		// 2.14.2 and 2.14.3 have already decided the value of an integral or
-		// character literal, which is the one an array bound can use and the
-		// only fact PA7 reads back.
-		if (fundamental_type_is_integral(token.type))
-		{
-			append(out, TT_LITERAL, keep_literal(literals, token, false, true), true,
-			       token.integer_value());
-			return;
-		}
-		append(out, TT_LITERAL, keep_literal(literals, token, false, true), false, 0);
+		append(out, TT_LITERAL, keep_literal(literals, token, false, true));
 		return;
 
 	case PostTokenKind::LiteralArray:
-		append(out, TT_LITERAL, keep_literal(literals, token, true, true), false, 0);
+		append(out, TT_LITERAL, keep_literal(literals, token, true, true));
 		return;
 
 	case PostTokenKind::UserDefinedLiteral:
-		append(out, TT_LITERAL, keep_literal(literals, token, false, false), false, 0);
+		append(out, TT_LITERAL, keep_literal(literals, token, false, false));
 		return;
 
 	case PostTokenKind::Identifier:
-		append(out, TT_IDENTIFIER, names.intern(token.source), false, 0);
+		append(out, TT_IDENTIFIER, names.intern(token.source));
 		return;
 
 	default:
@@ -81,9 +69,48 @@ void append_token(std::vector<SemaToken>& out, NameTable& names, const PostToken
 
 }
 
+unsigned long long LiteralValue::integer() const
+{
+	const std::size_t size = data.size() < sizeof(unsigned long long)
+		? data.size()
+		: sizeof(unsigned long long);
+	unsigned long long value = 0;
+	for (std::size_t index = size; index-- > 0; )
+	{
+		value = (value << 8) | static_cast<unsigned char>(data[index]);
+	}
+	const std::size_t bits = size * 8;
+	if (bits != 0 && bits < 64 && fundamental_type_is_signed(type) &&
+	    (value >> (bits - 1)) != 0)
+	{
+		value |= ~((1ULL << bits) - 1);
+	}
+	return value;
+}
+
+long double LiteralValue::real() const
+{
+	if (type == FT_FLOAT && data.size() >= sizeof(float))
+	{
+		float value = 0;
+		std::memcpy(&value, data.data(), sizeof(value));
+		return value;
+	}
+	if (type == FT_DOUBLE && data.size() >= sizeof(double))
+	{
+		double value = 0;
+		std::memcpy(&value, data.data(), sizeof(value));
+		return value;
+	}
+	long double value = 0;
+	const std::size_t width = data.size() < sizeof(value) ? data.size() : sizeof(value);
+	std::memcpy(&value, data.data(), width);
+	return value;
+}
+
 void build_sema_tokens(SourceFileTable& files, const PreprocessorOptions& options,
                        const std::string& path, NameTable& names,
-                       std::vector<SemaToken>& out, std::vector<LiteralValue>* literals)
+                       std::vector<SemaToken>& out, std::vector<LiteralValue>& literals)
 {
 	Preprocessor preprocessor(files, options, path);
 	PostTokenizer tokenizer(preprocessor);
@@ -97,5 +124,5 @@ void build_sema_tokens(SourceFileTable& files, const PreprocessorOptions& option
 		}
 		append_token(out, names, token, literals);
 	}
-	append(out, ST_EOF, kNoName, false, 0);
+	append(out, ST_EOF, kNoName);
 }
