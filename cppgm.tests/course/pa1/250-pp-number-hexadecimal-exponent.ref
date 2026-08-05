@@ -1,0 +1,31 @@
+pp-number 4 0x1e
+preprocessing-op-or-punc 1 +
+pp-number 1 2
+new-line 0 
+pp-number 4 0X1E
+preprocessing-op-or-punc 1 +
+pp-number 1 2
+new-line 0 
+pp-number 6 0x1p+2
+new-line 0 
+pp-number 6 0X1P-2
+new-line 0 
+pp-number 4 1e+2
+new-line 0 
+pp-number 2 1p
+preprocessing-op-or-punc 1 +
+pp-number 1 3
+new-line 0 
+pp-number 6 0b1e+2
+new-line 0 
+pp-number 5 01e+2
+new-line 0 
+pp-number 5 0xz1e
+preprocessing-op-or-punc 1 +
+pp-number 1 2
+new-line 0 
+pp-number 5 0x1.e
+preprocessing-op-or-punc 1 +
+pp-number 1 2
+new-line 0 
+eof

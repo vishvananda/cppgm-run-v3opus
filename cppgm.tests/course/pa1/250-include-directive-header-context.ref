@@ -1,0 +1,44 @@
+preprocessing-op-or-punc 1 #
+identifier 7 include
+whitespace-sequence 0 
+header-name 3 <a>
+whitespace-sequence 0 
+preprocessing-op-or-punc 1 <
+identifier 1 b
+preprocessing-op-or-punc 1 >
+new-line 0 
+preprocessing-op-or-punc 1 #
+identifier 7 include
+whitespace-sequence 0 
+header-name 3 "a"
+whitespace-sequence 0 
+string-literal 3 "b"
+new-line 0 
+preprocessing-op-or-punc 1 #
+identifier 7 include
+whitespace-sequence 0 
+identifier 1 A
+whitespace-sequence 0 
+preprocessing-op-or-punc 1 <
+whitespace-sequence 0 
+identifier 1 B
+new-line 0 
+preprocessing-op-or-punc 1 #
+identifier 7 include
+whitespace-sequence 0 
+header-name 3 <a>
+identifier 1 b
+new-line 0 
+preprocessing-op-or-punc 2 %:
+identifier 7 include
+whitespace-sequence 0 
+header-name 3 <c>
+new-line 0 
+preprocessing-op-or-punc 1 #
+identifier 7 INCLUDE
+whitespace-sequence 0 
+preprocessing-op-or-punc 1 <
+identifier 1 d
+preprocessing-op-or-punc 1 >
+new-line 0 
+eof

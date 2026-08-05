@@ -1,0 +1,7 @@
+character-literal 2 ''
+new-line 0 
+user-defined-character-literal 4 ''_x
+new-line 0 
+character-literal 3 u''
+new-line 0 
+eof

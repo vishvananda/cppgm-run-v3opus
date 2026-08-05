@@ -1,0 +1,16 @@
+string-literal 9 "\\u0041"
+new-line 0 
+non-whitespace-character 1 \
+identifier 3 u03
+non-whitespace-character 1 \
+new-line 0 
+identifier 2 C0
+new-line 0 
+non-whitespace-character 1 \
+non-whitespace-character 1 \
+identifier 5 u0041
+new-line 0 
+non-whitespace-character 1 \
+identifier 2 qy
+new-line 0 
+eof
