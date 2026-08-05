@@ -1,0 +1,13 @@
+invalid 08
+invalid 09
+invalid 0778
+invalid 0x
+invalid 0X
+invalid 019
+literal '\400' int 00010000
+literal '\777' int FF010000
+invalid '\x110000'
+invalid '\xD800'
+invalid U'\xFFFFFFFF'
+invalid L'\x110000'
+eof

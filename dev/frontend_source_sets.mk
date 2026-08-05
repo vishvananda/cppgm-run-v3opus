@@ -7,7 +7,8 @@ FRONTEND_SOURCE_SET_TARGETS := abimangle pptoken posttoken ctrlexpr macro prepro
 
 FRONTEND_OBJ_BASENAMES_abimangle :=
 FRONTEND_OBJ_BASENAMES_pptoken := source_charset source_reader pptoken_lexer
-FRONTEND_OBJ_BASENAMES_posttoken :=
+FRONTEND_OBJ_BASENAMES_posttoken := source_charset source_reader pptoken_lexer \
+	token_model literal_scan string_literal posttokenizer
 FRONTEND_OBJ_BASENAMES_ctrlexpr :=
 FRONTEND_OBJ_BASENAMES_macro :=
 FRONTEND_OBJ_BASENAMES_preproc :=
