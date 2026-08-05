@@ -92,22 +92,9 @@ bool in_ranges(const CodePointRange (&ranges)[N], int code_point)
 	return false;
 }
 
-bool is_nondigit(int code_point)
-{
-	if (code_point >= 'a' && code_point <= 'z')
-	{
-		return true;
-	}
-	if (code_point >= 'A' && code_point <= 'Z')
-	{
-		return true;
-	}
-	return code_point == '_';
-}
-
 } // namespace
 
-Utf8Decoded decode_utf8(const char* bytes, std::size_t size)
+Utf8Decoded decode_utf8_sequence(const char* bytes, std::size_t size)
 {
 	Utf8Decoded result = { 0, 0 };
 	if (size == 0)
@@ -172,7 +159,7 @@ Utf8Decoded decode_utf8(const char* bytes, std::size_t size)
 	return result;
 }
 
-void append_utf8(std::string& out, int code_point)
+void append_utf8_sequence(std::string& out, int code_point)
 {
 	const unsigned int value = static_cast<unsigned int>(code_point);
 	if (value < 0x80)
@@ -199,84 +186,12 @@ void append_utf8(std::string& out, int code_point)
 	out.push_back(static_cast<char>(0x80 | (value & 0x3F)));
 }
 
-bool is_valid_code_point(int code_point)
+bool is_annex_e1(int code_point)
 {
-	if (code_point < 0 || code_point > kMaxCodePoint)
-	{
-		return false;
-	}
-	return code_point < 0xD800 || code_point > 0xDFFF;
-}
-
-bool is_basic_whitespace(int code_point)
-{
-	switch (code_point)
-	{
-	case ' ':
-	case '\t':
-	case '\v':
-	case '\f':
-	case '\r':
-		return true;
-	default:
-		return false;
-	}
-}
-
-bool is_digit(int code_point)
-{
-	return code_point >= '0' && code_point <= '9';
-}
-
-bool is_octal_digit(int code_point)
-{
-	return code_point >= '0' && code_point <= '7';
-}
-
-bool is_hex_digit(int code_point)
-{
-	if (is_digit(code_point))
-	{
-		return true;
-	}
-	if (code_point >= 'a' && code_point <= 'f')
-	{
-		return true;
-	}
-	return code_point >= 'A' && code_point <= 'F';
-}
-
-int hex_digit_value(int code_point)
-{
-	if (is_digit(code_point))
-	{
-		return code_point - '0';
-	}
-	if (code_point >= 'a' && code_point <= 'f')
-	{
-		return code_point - 'a' + 10;
-	}
-	return code_point - 'A' + 10;
-}
-
-bool is_identifier_start(int code_point)
-{
-	if (is_nondigit(code_point))
-	{
-		return true;
-	}
-	if (!in_ranges(kAnnexE1Allowed, code_point))
-	{
-		return false;
-	}
-	return !in_ranges(kAnnexE2DisallowedInitially, code_point);
-}
-
-bool is_identifier_continue(int code_point)
-{
-	if (is_nondigit(code_point) || is_digit(code_point))
-	{
-		return true;
-	}
 	return in_ranges(kAnnexE1Allowed, code_point);
+}
+
+bool is_annex_e2(int code_point)
+{
+	return in_ranges(kAnnexE2DisallowedInitially, code_point);
 }

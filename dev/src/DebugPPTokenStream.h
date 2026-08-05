@@ -2,21 +2,32 @@
 
 #pragma once
 
+#include <cstddef>
 #include <iostream>
 #include <string>
 
 #include "IPPTokenStream.h"
 
+// One line per preprocessing-token, in the format the assignment specifies.
+//
+// Lines are gathered into a buffer and handed to std::cout a block at a time:
+// a token is only a few dozen bytes, and a formatted insertion per token costs
+// more than the tokenizing does.
 struct DebugPPTokenStream : IPPTokenStream
 {
+	~DebugPPTokenStream()
+	{
+		flush();
+	}
+
 	void emit_whitespace_sequence()
 	{
-		std::cout << "whitespace-sequence 0 " << "\n";
+		write_line("whitespace-sequence 0 ");
 	}
 
 	void emit_new_line()
 	{
-		std::cout << "new-line 0 " << "\n";
+		write_line("new-line 0 ");
 	}
 
 	void emit_header_name(const std::string& data)
@@ -66,15 +77,69 @@ struct DebugPPTokenStream : IPPTokenStream
 
 	void emit_eof()
 	{
-		std::cout << "eof" << std::endl;
+		write_line("eof");
+		flush();
+		std::cout.flush();
 	}
 
 private:
 
-	void write_token(const std::string& type, const std::string& data)
+	static const std::size_t kBlockSize = 1 << 16;
+
+	// The token type is always a literal, so its length is known here and the
+	// buffer never has to measure it.
+	template <std::size_t N>
+	void write_line(const char (&text)[N])
 	{
-		std::cout << type << " " << data.size() << " ";
-		std::cout.write(data.data(), data.size());
-		std::cout << "\n";
+		buffer_.append(text, N - 1);
+		buffer_ += '\n';
+		flush_block();
 	}
+
+	template <std::size_t N>
+	void write_token(const char (&type)[N], const std::string& data)
+	{
+		buffer_.append(type, N - 1);
+		buffer_ += ' ';
+		append_decimal(data.size());
+		buffer_ += ' ';
+		buffer_ += data;
+		buffer_ += '\n';
+		flush_block();
+	}
+
+	void append_decimal(std::size_t value)
+	{
+		char digits[24];
+		std::size_t length = 0;
+		do
+		{
+			digits[length++] = static_cast<char>('0' + value % 10);
+			value /= 10;
+		}
+		while (value != 0);
+		while (length != 0)
+		{
+			buffer_ += digits[--length];
+		}
+	}
+
+	void flush_block()
+	{
+		if (buffer_.size() >= kBlockSize)
+		{
+			flush();
+		}
+	}
+
+	void flush()
+	{
+		if (!buffer_.empty())
+		{
+			std::cout.write(buffer_.data(), static_cast<std::streamsize>(buffer_.size()));
+			buffer_.clear();
+		}
+	}
+
+	std::string buffer_;
 };

@@ -1,0 +1,12 @@
+0Exe+2
+08ExE+2
+1e2x3e+4
+8E0e4x0e-7968ecf
+1.0xe+2
+1x.e+2
+1_xe+2
+1p2xe+3
+1e.xp+2
+0x1e2p+3
+.0Xe+1
+1E2x3E-4

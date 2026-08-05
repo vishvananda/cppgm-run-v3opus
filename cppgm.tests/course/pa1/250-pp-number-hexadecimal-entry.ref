@@ -1,0 +1,37 @@
+pp-number 4 0Exe
+preprocessing-op-or-punc 1 +
+pp-number 1 2
+new-line 0 
+pp-number 5 08ExE
+preprocessing-op-or-punc 1 +
+pp-number 1 2
+new-line 0 
+pp-number 8 1e2x3e+4
+new-line 0 
+pp-number 16 8E0e4x0e-7968ecf
+new-line 0 
+pp-number 7 1.0xe+2
+new-line 0 
+pp-number 4 1x.e
+preprocessing-op-or-punc 1 +
+pp-number 1 2
+new-line 0 
+pp-number 4 1_xe
+preprocessing-op-or-punc 1 +
+pp-number 1 2
+new-line 0 
+pp-number 5 1p2xe
+preprocessing-op-or-punc 1 +
+pp-number 1 3
+new-line 0 
+pp-number 5 1e.xp
+preprocessing-op-or-punc 1 +
+pp-number 1 2
+new-line 0 
+pp-number 8 0x1e2p+3
+new-line 0 
+pp-number 6 .0Xe+1
+new-line 0 
+pp-number 8 1E2x3E-4
+new-line 0 
+eof

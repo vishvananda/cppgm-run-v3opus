@@ -33,53 +33,27 @@ const std::size_t SourceReader::kBufferCapacity;
 
 SourceReader::SourceReader(std::string bytes)
 	: bytes_(std::move(bytes))
+	, origin_(0)
 	, cursor_(0)
 	, head_(0)
 	, count_(0)
 	, raw_mode_(false)
 {
 	// A leading UTF-8 byte order mark is an encoding signature rather than a
-	// source character, so it never reaches the token grammar.
+	// source character, so translation starts after it.  It is skipped rather
+	// than erased: the file still counts as non-empty for the terminating
+	// new-line phase 2 adds, and a large file is never moved.
 	static const char kByteOrderMark[] = "\xEF\xBB\xBF";
 	if (bytes_.compare(0, 3, kByteOrderMark, 3) == 0)
 	{
-		bytes_.erase(0, 3);
+		origin_ = 3;
+		cursor_ = 3;
 	}
 }
 
-int SourceReader::peek(std::size_t ahead)
+void SourceReader::throw_invalid_escape_value() const
 {
-	fill(ahead + 1);
-	if (ahead >= count_)
-	{
-		return kEndOfFile;
-	}
-	return lookahead_[(head_ + ahead) % kBufferCapacity].code_point;
-}
-
-void SourceReader::advance()
-{
-	fill(1);
-	if (count_ == 0)
-	{
-		return;
-	}
-	const Fetched& front = lookahead_[head_];
-	if (front.code_point == kEndOfFile)
-	{
-		return;
-	}
-	if (front.invalid_escape_value)
-	{
-		throw SourceError(position_text() + ":Invalid unicode escape value");
-	}
-	head_ = (head_ + 1) % kBufferCapacity;
-	--count_;
-}
-
-std::size_t SourceReader::mark() const
-{
-	return count_ == 0 ? cursor_ : lookahead_[head_].begin;
+	throw SourceError(position_text() + ":Invalid unicode escape value");
 }
 
 void SourceReader::rewind(std::size_t offset)
@@ -87,11 +61,6 @@ void SourceReader::rewind(std::size_t offset)
 	cursor_ = offset;
 	head_ = 0;
 	count_ = 0;
-}
-
-bool SourceReader::raw_mode() const
-{
-	return raw_mode_;
 }
 
 void SourceReader::set_raw_mode(bool raw)
@@ -119,10 +88,23 @@ void SourceReader::fill(std::size_t wanted)
 	{
 		if (count_ > 0)
 		{
-			const std::size_t last = (head_ + count_ - 1) % kBufferCapacity;
+			const std::size_t last = (head_ + count_ - 1) & (kBufferCapacity - 1);
 			if (lookahead_[last].code_point == kEndOfFile)
 			{
 				return;
+			}
+		}
+		// Nearly every character of a source file is a single code unit that no
+		// phase 1 or phase 2 translation looks at, so it is stored directly.
+		if (cursor_ < bytes_.size())
+		{
+			const unsigned char unit = static_cast<unsigned char>(bytes_[cursor_]);
+			const bool translatable = !raw_mode_ && (unit == '?' || unit == '\\');
+			if (unit < 0x80 && !translatable)
+			{
+				const Fetched simple = { static_cast<int>(unit), false, cursor_, cursor_ + 1 };
+				push(simple);
+				continue;
 			}
 		}
 		if (raw_mode_)
@@ -142,7 +124,7 @@ void SourceReader::fill(std::size_t wanted)
 
 void SourceReader::push(const Fetched& fetched)
 {
-	lookahead_[(head_ + count_) % kBufferCapacity] = fetched;
+	lookahead_[(head_ + count_) & (kBufferCapacity - 1)] = fetched;
 	++count_;
 	cursor_ = fetched.end;
 }
@@ -151,7 +133,7 @@ std::string SourceReader::position_text_at(std::size_t offset) const
 {
 	std::size_t line = 1;
 	std::size_t column = 1;
-	std::size_t index = 0;
+	std::size_t index = origin_;
 	while (index < offset && index < bytes_.size())
 	{
 		const Utf8Decoded decoded = decode_utf8(bytes_.data() + index, bytes_.size() - index);
@@ -232,7 +214,7 @@ void SourceReader::push_universal_character_name(const Fetched& backslash, const
 		// A syntactically complete name that designates no Unicode scalar value
 		// is reported when it is consumed, not when it is merely looked at:
 		// lookahead can reach past the start of an untranslated raw string.
-		Fetched name = { '\\', backslash.begin, position, true };
+		Fetched name = { '\\', true, backslash.begin, position };
 		if (value <= static_cast<unsigned long>(kMaxCodePoint) &&
 		    is_valid_code_point(static_cast<int>(value)))
 		{
@@ -256,7 +238,7 @@ void SourceReader::push_universal_character_name(const Fetched& backslash, const
 
 SourceReader::Fetched SourceReader::decoded_at(std::size_t offset) const
 {
-	Fetched result = { kEndOfFile, offset, offset, false };
+	Fetched result = { kEndOfFile, false, offset, offset };
 	if (offset > bytes_.size())
 	{
 		return result;
@@ -299,6 +281,6 @@ SourceReader::Fetched SourceReader::trigraph_at(std::size_t offset) const
 	{
 		return first;
 	}
-	const Fetched result = { replacement, offset, offset + 3, false };
+	const Fetched result = { replacement, false, offset, offset + 3 };
 	return result;
 }

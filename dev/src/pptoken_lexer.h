@@ -71,9 +71,9 @@ private:
 	void scan_identifier_or_literal(PPToken& token);
 	void scan_identifier_text(std::string& text);
 	void scan_pp_number(PPToken& token);
-	void scan_character_literal(PPToken& token, const std::string& prefix);
-	void scan_string_literal(PPToken& token, const std::string& prefix);
-	void scan_raw_string_literal(PPToken& token, const std::string& prefix);
+	void scan_character_literal(PPToken& token);
+	void scan_string_literal(PPToken& token);
+	void scan_raw_string_literal(PPToken& token);
 	void scan_raw_string_delimiter(std::string& delimiter);
 	void scan_escape_sequence(std::string& text);
 	bool scan_ud_suffix(std::string& text);

@@ -11,25 +11,78 @@ namespace
 const std::size_t kMaxOperatorLength = 4;
 const std::size_t kMaxRawStringDelimiterLength = 16;
 
+// Every spelling that has to be matched by look-ahead rather than by the
+// identifier production is at most four ASCII characters, so they are packed
+// into an integer and compared by value.
+typedef unsigned int SpellingId;
+
+constexpr SpellingId spelled(char first)
+{
+	return static_cast<unsigned char>(first);
+}
+
+constexpr SpellingId spelled(char first, char second)
+{
+	return (spelled(first) << 8) | static_cast<unsigned char>(second);
+}
+
+constexpr SpellingId spelled(char first, char second, char third)
+{
+	return (spelled(first, second) << 8) | static_cast<unsigned char>(third);
+}
+
+constexpr SpellingId spelled(char first, char second, char third, char fourth)
+{
+	return (spelled(first, second, third) << 8) | static_cast<unsigned char>(fourth);
+}
+
 // See C++ standard 2.13 Operators and punctuators.  The identifier-like
 // spellings are matched after the identifier production instead, so that
 // maximal munch over an identifier decides between `or` and `orange`.
-bool is_operator_or_punctuator(const std::string& text)
+bool is_operator_or_punctuator(SpellingId id)
 {
-	static const std::unordered_set<std::string> kSpellings =
+	switch (id)
 	{
-		"{", "}", "[", "]", "#", "##", "(", ")",
-		"<:", ":>", "<%", "%>", "%:", "%:%:", ";", ":", "...",
-		"?", "::", ".", ".*", "+", "-", "*", "/", "%", "^", "&", "|",
-		"~", "!", "=", "<", ">", "+=", "-=", "*=", "/=", "%=", "^=",
-		"&=", "|=", "<<", ">>", ">>=", "<<=", "==", "!=", "<=", ">=",
-		"&&", "||", "++", "--", ",", "->*", "->"
-	};
-	return kSpellings.count(text) != 0;
+	case spelled('{'): case spelled('}'): case spelled('['): case spelled(']'):
+	case spelled('#'): case spelled('('): case spelled(')'): case spelled(';'):
+	case spelled(':'): case spelled('?'): case spelled('.'): case spelled('+'):
+	case spelled('-'): case spelled('*'): case spelled('/'): case spelled('%'):
+	case spelled('^'): case spelled('&'): case spelled('|'): case spelled('~'):
+	case spelled('!'): case spelled('='): case spelled('<'): case spelled('>'):
+	case spelled(','):
+	case spelled('#', '#'): case spelled('<', ':'): case spelled(':', '>'):
+	case spelled('<', '%'): case spelled('%', '>'): case spelled('%', ':'):
+	case spelled(':', ':'): case spelled('.', '*'): case spelled('+', '='):
+	case spelled('-', '='): case spelled('*', '='): case spelled('/', '='):
+	case spelled('%', '='): case spelled('^', '='): case spelled('&', '='):
+	case spelled('|', '='): case spelled('<', '<'): case spelled('>', '>'):
+	case spelled('=', '='): case spelled('!', '='): case spelled('<', '='):
+	case spelled('>', '='): case spelled('&', '&'): case spelled('|', '|'):
+	case spelled('+', '+'): case spelled('-', '-'): case spelled('-', '>'):
+	case spelled('.', '.', '.'): case spelled('>', '>', '='):
+	case spelled('<', '<', '='): case spelled('-', '>', '*'):
+	case spelled('%', ':', '%', ':'):
+		return true;
+	default:
+		return false;
+	}
 }
 
 bool is_identifier_like_operator(const std::string& text)
 {
+	// Reject on length and leading character before hashing, which is what
+	// nearly every identifier in a real source file needs.
+	if (text.size() < 2 || text.size() > 6)
+	{
+		return false;
+	}
+	switch (text[0])
+	{
+	case 'a': case 'b': case 'c': case 'd': case 'n': case 'o': case 'x':
+		break;
+	default:
+		return false;
+	}
 	static const std::unordered_set<std::string> kSpellings =
 	{
 		"new", "delete", "and", "and_eq", "bitand",
@@ -39,18 +92,44 @@ bool is_identifier_like_operator(const std::string& text)
 	return kSpellings.count(text) != 0;
 }
 
-bool is_string_literal_prefix(const std::string& text)
+bool is_string_literal_prefix(SpellingId id)
 {
-	static const std::unordered_set<std::string> kPrefixes =
+	switch (id)
 	{
-		"u8", "u", "U", "L", "R", "u8R", "uR", "UR", "LR"
-	};
-	return kPrefixes.count(text) != 0;
+	case spelled('u', '8'): case spelled('u'): case spelled('U'):
+	case spelled('L'): case spelled('R'): case spelled('u', '8', 'R'):
+	case spelled('u', 'R'): case spelled('U', 'R'): case spelled('L', 'R'):
+		return true;
+	default:
+		return false;
+	}
 }
 
-bool is_character_literal_prefix(const std::string& text)
+bool is_character_literal_prefix(SpellingId id)
 {
-	return text == "u" || text == "U" || text == "L";
+	return id == spelled('u') || id == spelled('U') || id == spelled('L');
+}
+
+// The packed form of a spelling, or zero when the text is too long or is not
+// plain ASCII and so cannot be one.  Zero is unambiguous: no spelling that is
+// matched this way is empty or contains a null character.
+SpellingId spelling_id(const std::string& text)
+{
+	if (text.empty() || text.size() > kMaxOperatorLength)
+	{
+		return 0;
+	}
+	SpellingId id = 0;
+	for (std::size_t index = 0; index < text.size(); ++index)
+	{
+		const unsigned char unit = static_cast<unsigned char>(text[index]);
+		if (unit >= 0x80)
+		{
+			return 0;
+		}
+		id = (id << 8) | unit;
+	}
+	return id;
 }
 
 bool is_raw_string_prefix(const std::string& text)
@@ -80,23 +159,43 @@ bool is_simple_escape(int code_point)
 	}
 }
 
+// A d-char-sequence is spelled without space, `\` or the vertical whitespace,
+// but 2.5.2 lets a malformed token be tokenized anyway rather than rejected, so
+// only the characters that would make the delimiter unrecognizable are refused.
+// What ends the sequence is the `(`; what ends the literal is the delimiter.
 bool is_raw_string_delimiter_char(int code_point)
 {
 	return code_point != kEndOfFile && code_point != '(' && code_point != ')';
 }
 
-// A pp-number spelled with a hexadecimal prefix takes its exponent sign after
-// `p`, not after `e`, so that `0x1e+2` is the three tokens real hexadecimal
-// literals need rather than one pp-number.
-bool is_pp_number_exponent(const std::string& text, int code_point)
+// A hexadecimal pp-number takes its exponent sign after `p`, not after `e`,
+// because `e` is one of its digits.  That makes `0x1e+2` the three tokens a
+// real hexadecimal literal needs rather than one pp-number.
+bool is_exponent_letter(int code_point, bool hexadecimal)
 {
-	const bool hexadecimal = text.size() >= 2 && text[0] == '0' &&
-		(text[1] == 'x' || text[1] == 'X');
 	if (hexadecimal)
 	{
 		return code_point == 'p' || code_point == 'P';
 	}
 	return code_point == 'e' || code_point == 'E';
+}
+
+// `x` only introduces hexadecimal digits while the pp-number is still its
+// leading digit-sequence.  A `.` ends that sequence, and so does an `e` that is
+// really an exponent, that is one followed by a sign or by a digit.  So the `x`
+// of `1e2x3e+4` is an ordinary body character and the whole thing is one
+// pp-number, while `0Exe+2` is hexadecimal and stops before the `+`.
+bool ends_leading_digits(int code_point, int next)
+{
+	if (code_point == '.')
+	{
+		return true;
+	}
+	if (code_point != 'e' && code_point != 'E')
+	{
+		return false;
+	}
+	return is_digit(next) || next == '+' || next == '-';
 }
 
 } // namespace
@@ -251,12 +350,12 @@ void PPTokenLexer::scan_token(PPToken& token)
 	}
 	if (code_point == '\'')
 	{
-		scan_character_literal(token, std::string());
+		scan_character_literal(token);
 		return;
 	}
 	if (code_point == '"')
 	{
-		scan_string_literal(token, std::string());
+		scan_string_literal(token);
 		return;
 	}
 	if (scan_op_or_punc(token))
@@ -274,7 +373,7 @@ void PPTokenLexer::scan_header_name(PPToken& token)
 {
 	const int close = reader_.peek() == '<' ? '>' : '"';
 
-	std::string text;
+	std::string& text = token.spelling;
 	take(text);
 	while (true)
 	{
@@ -290,38 +389,42 @@ void PPTokenLexer::scan_header_name(PPToken& token)
 		}
 	}
 
-	token.spelling = std::move(text);
 	token.type = PPTokenType::HeaderName;
 }
 
 void PPTokenLexer::scan_identifier_or_literal(PPToken& token)
 {
-	std::string text;
+	// The identifier is scanned into the token, so an encoding-prefix is
+	// already in place when it turns out to introduce a literal.
+	std::string& text = token.spelling;
 	scan_identifier_text(text);
 
 	const int next = reader_.peek();
-	if (next == '"' && is_string_literal_prefix(text))
+	if (next == '"' || next == '\'')
 	{
-		if (is_raw_string_prefix(text))
+		const SpellingId prefix = spelling_id(text);
+		if (next == '"' && is_string_literal_prefix(prefix))
 		{
-			scan_raw_string_literal(token, text);
+			if (is_raw_string_prefix(text))
+			{
+				scan_raw_string_literal(token);
+			}
+			else
+			{
+				scan_string_literal(token);
+			}
+			return;
 		}
-		else
+		if (next == '\'' && is_character_literal_prefix(prefix))
 		{
-			scan_string_literal(token, text);
+			scan_character_literal(token);
+			return;
 		}
-		return;
-	}
-	if (next == '\'' && is_character_literal_prefix(text))
-	{
-		scan_character_literal(token, text);
-		return;
 	}
 
 	token.type = is_identifier_like_operator(text)
 		? PPTokenType::PreprocessingOpOrPunc
 		: PPTokenType::Identifier;
-	token.spelling = std::move(text);
 }
 
 void PPTokenLexer::scan_identifier_text(std::string& text)
@@ -336,37 +439,51 @@ void PPTokenLexer::scan_identifier_text(std::string& text)
 void PPTokenLexer::scan_pp_number(PPToken& token)
 {
 	std::string& text = token.spelling;
-	if (take(text) == '.')
+	bool leading_digits = take(text) != '.';
+	bool hexadecimal = false;
+	if (!leading_digits)
 	{
 		take(text);
 	}
 	while (true)
 	{
 		const int code_point = reader_.peek();
-		if (is_pp_number_exponent(text, code_point))
+		if (is_exponent_letter(code_point, hexadecimal))
 		{
 			const int sign = reader_.peek(1);
 			if (sign == '+' || sign == '-')
 			{
 				take(text);
 				take(text);
+				leading_digits = false;
 				continue;
 			}
 		}
-		if (code_point == '.' || is_identifier_continue(code_point))
+		if (code_point != '.' && !is_identifier_continue(code_point))
 		{
-			take(text);
-			continue;
+			break;
 		}
-		break;
+		if (leading_digits)
+		{
+			if (code_point == 'x' || code_point == 'X')
+			{
+				hexadecimal = true;
+				leading_digits = false;
+			}
+			else if (ends_leading_digits(code_point, reader_.peek(1)))
+			{
+				leading_digits = false;
+			}
+		}
+		take(text);
 	}
 	token.type = PPTokenType::PPNumber;
 }
 
-void PPTokenLexer::scan_character_literal(PPToken& token, const std::string& prefix)
+void PPTokenLexer::scan_character_literal(PPToken& token)
 {
+	// The spelling already holds the encoding-prefix, if the literal has one.
 	std::string& text = token.spelling;
-	text = prefix;
 	take(text);
 
 	// An empty c-char-sequence is left for phase 7 to reject, so that phase 3
@@ -398,10 +515,10 @@ void PPTokenLexer::scan_character_literal(PPToken& token, const std::string& pre
 		: PPTokenType::CharacterLiteral;
 }
 
-void PPTokenLexer::scan_string_literal(PPToken& token, const std::string& prefix)
+void PPTokenLexer::scan_string_literal(PPToken& token)
 {
+	// The spelling already holds the encoding-prefix, if the literal has one.
 	std::string& text = token.spelling;
-	text = prefix;
 	take(text);
 
 	while (true)
@@ -431,10 +548,10 @@ void PPTokenLexer::scan_string_literal(PPToken& token, const std::string& prefix
 		: PPTokenType::StringLiteral;
 }
 
-void PPTokenLexer::scan_raw_string_literal(PPToken& token, const std::string& prefix)
+void PPTokenLexer::scan_raw_string_literal(PPToken& token)
 {
+	// The spelling already holds the encoding-prefix, if the literal has one.
 	std::string& text = token.spelling;
-	text = prefix;
 
 	// The body of a raw-string-literal is spelled in untranslated characters:
 	// no trigraph replacement, no line splicing, no universal-character-names.
@@ -552,6 +669,7 @@ bool PPTokenLexer::scan_op_or_punc(PPToken& token)
 
 	char candidate[kMaxOperatorLength];
 	std::size_t available = 0;
+	SpellingId id = 0;
 	while (available < kMaxOperatorLength)
 	{
 		const int code_point = reader_.peek(available);
@@ -560,13 +678,15 @@ bool PPTokenLexer::scan_op_or_punc(PPToken& token)
 			break;
 		}
 		candidate[available] = static_cast<char>(code_point);
+		id = (id << 8) | static_cast<unsigned int>(code_point);
 		++available;
 	}
 
-	for (std::size_t length = available; length > 0; --length)
+	// Maximal munch: drop the last character of the candidate until what is
+	// left is a spelling, which is one shift of the packed form.
+	for (std::size_t length = available; length > 0; --length, id >>= 8)
 	{
-		const std::string text(candidate, length);
-		if (!is_operator_or_punctuator(text))
+		if (!is_operator_or_punctuator(id))
 		{
 			continue;
 		}
@@ -574,7 +694,7 @@ bool PPTokenLexer::scan_op_or_punc(PPToken& token)
 		{
 			reader_.advance();
 		}
-		token.spelling = text;
+		token.spelling.assign(candidate, length);
 		token.type = PPTokenType::PreprocessingOpOrPunc;
 		return true;
 	}

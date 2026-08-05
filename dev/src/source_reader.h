@@ -4,6 +4,8 @@
 #include <stdexcept>
 #include <string>
 
+#include "source_charset.h"
+
 // Ill-formed source detected by a translation phase.  The message carries the
 // source position; only the exit status is contractual, the text is for humans.
 class SourceError : public std::runtime_error
@@ -32,21 +34,75 @@ public:
 // exact: lookahead already computed in the other mode is simply recomputed.
 class SourceReader
 {
+private:
+	// One translated code point together with the span of the source file it
+	// was spelled with, which is what makes the consumption point exact.
+	struct Fetched
+	{
+		int code_point;
+		bool invalid_escape_value;
+		std::size_t begin;
+		std::size_t end;
+	};
+
 public:
 	explicit SourceReader(std::string bytes);
 
 	// Translated code point `ahead` positions past the consumption point, or
 	// kEndOfFile.  `ahead` must be less than kLookaheadCapacity.
-	int peek(std::size_t ahead = 0);
+	//
+	// Every phase asks for and consumes one code point at a time, so the buffer
+	// hit is inline here and only refilling it is a call.
+	int peek(std::size_t ahead = 0)
+	{
+		if (ahead >= count_)
+		{
+			fill(ahead + 1);
+			if (ahead >= count_)
+			{
+				return kEndOfFile;
+			}
+		}
+		return lookahead_[(head_ + ahead) & (kBufferCapacity - 1)].code_point;
+	}
 
 	// Consumes the code point at the consumption point.
-	void advance();
+	void advance()
+	{
+		if (count_ == 0)
+		{
+			fill(1);
+			if (count_ == 0)
+			{
+				return;
+			}
+		}
+		const Fetched& front = lookahead_[head_];
+		if (front.code_point == kEndOfFile)
+		{
+			return;
+		}
+		if (front.invalid_escape_value)
+		{
+			throw_invalid_escape_value();
+		}
+		head_ = (head_ + 1) & (kBufferCapacity - 1);
+		--count_;
+	}
 
 	// The consumption point, as a byte offset into the source file.
-	std::size_t mark() const;
+	std::size_t mark() const
+	{
+		return count_ == 0 ? cursor_ : lookahead_[head_].begin;
+	}
+
 	void rewind(std::size_t offset);
 
-	bool raw_mode() const;
+	bool raw_mode() const
+	{
+		return raw_mode_;
+	}
+
 	void set_raw_mode(bool raw);
 
 	// "line:column" of the consumption point, counted in code points.
@@ -55,21 +111,18 @@ public:
 	static const std::size_t kLookaheadCapacity = 8;
 
 private:
-	struct Fetched
-	{
-		int code_point;
-		std::size_t begin;
-		std::size_t end;
-		bool invalid_escape_value;
-	};
-
 	// A universal-character-name that turns out to be malformed contributes the
 	// characters it was spelled with, so one step of the translation can yield
 	// a short run rather than a single code point.
 	static const std::size_t kMaxRunLength = 10;
-	static const std::size_t kBufferCapacity = kLookaheadCapacity + kMaxRunLength;
+	// Rounded up to a power of two: the ring buffer index is on the path of
+	// every character, so it has to be a mask rather than a division.
+	static const std::size_t kBufferCapacity = 32;
+	static_assert(kBufferCapacity >= kLookaheadCapacity + kMaxRunLength,
+		"lookahead plus one translation step must fit in the ring buffer");
 
 	void fill(std::size_t wanted);
+	void throw_invalid_escape_value() const;
 	void push(const Fetched& fetched);
 	void push_backslash_run();
 	void push_universal_character_name(const Fetched& backslash, const Fetched& marker);
@@ -79,6 +132,7 @@ private:
 	Fetched trigraph_at(std::size_t offset) const;
 
 	std::string bytes_;
+	std::size_t origin_;
 	std::size_t cursor_;
 	Fetched lookahead_[kBufferCapacity];
 	std::size_t head_;
