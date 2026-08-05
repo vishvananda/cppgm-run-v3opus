@@ -29,8 +29,8 @@ typedef bool (*CtrlExprIsDefined)(const std::string& identifier);
 
 // One logical line at a time: `add` accumulates the preprocessing-tokens of a
 // line, `evaluate` parses and evaluates them.  The caller keeps one evaluator
-// and calls `begin_line` between lines, so the token vector and the identifier
-// arena are grown once and reused for the whole file.
+// and calls `begin_line` between lines, so the token vector, the identifier
+// arena and the parser stack are grown once and reused for the whole file.
 class CtrlExprEvaluator
 {
 public:
@@ -83,6 +83,40 @@ private:
 		};
 	};
 
+	// One operator the parse has begun and not yet finished.  Parentheses,
+	// prefix operators and `?:` are what this grammar nests without bound, so
+	// they are stacked here rather than in call frames: nesting then costs the
+	// same linear heap the token vector already costs, and no depth an input
+	// can reach is a limit of its own.
+	enum class Frame : unsigned char
+	{
+		Paren,   // a `(` waiting for its `)`
+		Unary,   // a prefix operator waiting for its operand
+		Binary,  // a binary operator waiting for its right operand
+		Then,    // a `?` whose second operand is being parsed
+		Else     // a `?` whose third operand is being parsed
+	};
+
+	struct Pending
+	{
+		Frame frame;
+		unsigned char op;          // ETokenType, for Unary and Binary
+		unsigned char precedence;  // for Binary
+		bool live;                 // the liveness this operator itself sits in
+		bool condition;            // whether the `?` selected its second operand
+		bool value_is_signed;      // the left operand, or a `?`'s second one
+		unsigned long long value;
+	};
+
+	// What the parse needs after one operand: another one, the end of the
+	// line, or nothing because the line does not match the grammar.
+	enum class Step
+	{
+		Error,
+		Operand,
+		Done
+	};
+
 	void add_literal(const std::string& spelling, bool character_literal);
 	Token& push(TokenKind kind);
 
@@ -90,15 +124,19 @@ private:
 	bool take_operator(ETokenType op);
 	bool name_equals(const Token& token, const char* text, std::size_t size) const;
 
-	// Each returns false when the line does not match the grammar.  `live` is
-	// false inside the operand of `?:`, `&&` or `||` that is not evaluated:
-	// such an operand is still parsed and still typed, but the errors of its
-	// operators are not reported.
-	bool parse_conditional(bool live, CtrlExprValue& out);
-	bool parse_binary(int min_precedence, bool live, CtrlExprValue& out);
-	bool parse_unary(bool live, CtrlExprValue& out);
-	bool parse_primary(bool live, CtrlExprValue& out);
-	bool parse_defined(CtrlExprValue& out);
+	// `live` is false inside the operand of `?:`, `&&` or `||` that is not
+	// evaluated: such an operand is still parsed and still typed, but the
+	// errors of its operators are not reported.  It is the parameter every
+	// pending operator restores when it completes.
+	Pending& push_frame(Frame frame, ETokenType op, bool live);
+	bool complete_pending(int min_precedence, bool through_conditional,
+	                      bool& live, CtrlExprValue& value);
+
+	// Each returns false when the line does not match the grammar.
+	bool parse_operand(bool live, CtrlExprValue& value);
+	bool parse_primary(CtrlExprValue& value);
+	bool parse_defined(CtrlExprValue& value);
+	Step after_operand(bool& live, CtrlExprValue& value);
 
 	CtrlExprIsDefined is_defined_;
 
@@ -109,7 +147,7 @@ private:
 
 	// The parse of the current line.
 	std::size_t position_;
-	unsigned depth_;
+	std::vector<Pending> pending_;
 
 	// Reused scratch: the analysed form of one literal, and the operand of one
 	// `defined`, which is the one place a name has to become a `std::string`.

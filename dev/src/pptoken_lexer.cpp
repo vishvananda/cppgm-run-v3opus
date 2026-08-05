@@ -37,6 +37,28 @@ constexpr SpellingId spelled(char first, char second, char third, char fourth)
 	return (spelled(first, second, third) << 8) | static_cast<unsigned char>(fourth);
 }
 
+// The same packing for a spelling written as a string, so that the shared 2.13
+// lists can be read as the case labels below.
+constexpr SpellingId spelled_text(const char* text, SpellingId id = 0)
+{
+	return *text == '\0'
+		? id
+		: spelled_text(text + 1, (id << 8) | static_cast<unsigned char>(*text));
+}
+
+constexpr std::size_t spelling_length(const char* text)
+{
+	return *text == '\0' ? 0 : 1 + spelling_length(text + 1);
+}
+
+// No spelling may outrun the look-ahead maximal munch works in, or packing it
+// would silently drop its first characters.
+#define CPPGM_OPERATOR_LENGTH_CHECK(spelling, token_type) \
+	static_assert(spelling_length(spelling) <= kMaxOperatorLength, \
+		"an operator or punctuator has to fit the maximal munch window");
+CPPGM_PUNCTUATION_OPERATORS(CPPGM_OPERATOR_LENGTH_CHECK)
+#undef CPPGM_OPERATOR_LENGTH_CHECK
+
 // See C++ standard 2.13 Operators and punctuators.  The identifier-like
 // spellings are matched after the identifier production instead, so that
 // maximal munch over an identifier decides between `or` and `orange`.
@@ -44,25 +66,12 @@ bool is_operator_or_punctuator(SpellingId id)
 {
 	switch (id)
 	{
-	case spelled('{'): case spelled('}'): case spelled('['): case spelled(']'):
-	case spelled('#'): case spelled('('): case spelled(')'): case spelled(';'):
-	case spelled(':'): case spelled('?'): case spelled('.'): case spelled('+'):
-	case spelled('-'): case spelled('*'): case spelled('/'): case spelled('%'):
-	case spelled('^'): case spelled('&'): case spelled('|'): case spelled('~'):
-	case spelled('!'): case spelled('='): case spelled('<'): case spelled('>'):
-	case spelled(','):
-	case spelled('#', '#'): case spelled('<', ':'): case spelled(':', '>'):
-	case spelled('<', '%'): case spelled('%', '>'): case spelled('%', ':'):
-	case spelled(':', ':'): case spelled('.', '*'): case spelled('+', '='):
-	case spelled('-', '='): case spelled('*', '='): case spelled('/', '='):
-	case spelled('%', '='): case spelled('^', '='): case spelled('&', '='):
-	case spelled('|', '='): case spelled('<', '<'): case spelled('>', '>'):
-	case spelled('=', '='): case spelled('!', '='): case spelled('<', '='):
-	case spelled('>', '='): case spelled('&', '&'): case spelled('|', '|'):
-	case spelled('+', '+'): case spelled('-', '-'): case spelled('-', '>'):
-	case spelled('.', '.', '.'): case spelled('>', '>', '='):
-	case spelled('<', '<', '='): case spelled('-', '>', '*'):
-	case spelled('%', ':', '%', ':'):
+#define CPPGM_PUNCTUATION_CASE(spelling, token_type) case spelled_text(spelling):
+	CPPGM_PUNCTUATION_OPERATORS(CPPGM_PUNCTUATION_CASE)
+#undef CPPGM_PUNCTUATION_CASE
+#define CPPGM_PREPROCESSING_ONLY_CASE(spelling) case spelled_text(spelling):
+	CPPGM_PREPROCESSING_ONLY_OPERATORS(CPPGM_PREPROCESSING_ONLY_CASE)
+#undef CPPGM_PREPROCESSING_ONLY_CASE
 		return true;
 	default:
 		return false;

@@ -29,14 +29,6 @@ const int kLowestPrecedence = 1;
 // A token holds its operator in one byte, which the vocabulary has to fit in.
 static_assert(kTokenTypeCount <= 255, "a token type has to fit in one byte");
 
-// Parentheses, prefix operators and `?:` are the three things this grammar
-// nests without bound, and they cost a different number of frames each, so the
-// bound counts live parser frames rather than nesting levels.  No frame of the
-// three that recurse measures above 96 bytes (see the Performance Model in
-// pa3/plan.md), so this is a stack budget just under 2 MB.  Past it the line is
-// an error rather than a crash.
-const unsigned kMaxParseDepth = 20000;
-
 // The most negative value of the signed 64-bit type 16.2.4 promotes to.
 const unsigned long long kMostNegativeSigned = 1ULL << 63;
 
@@ -266,7 +258,6 @@ CtrlExprEvaluator::CtrlExprEvaluator(CtrlExprIsDefined is_defined)
 	: is_defined_(is_defined)
 	, has_invalid_(false)
 	, position_(0)
-	, depth_(0)
 {}
 
 void CtrlExprEvaluator::begin_line()
@@ -393,6 +384,21 @@ bool CtrlExprEvaluator::name_equals(const Token& token, const char* text,
 		names_.compare(token.name.begin, size, text, size) == 0;
 }
 
+CtrlExprEvaluator::Pending& CtrlExprEvaluator::push_frame(Frame frame, ETokenType op,
+                                                          bool live)
+{
+	Pending entry;
+	entry.frame = frame;
+	entry.op = static_cast<unsigned char>(op);
+	entry.precedence = 0;
+	entry.live = live;
+	entry.condition = false;
+	entry.value_is_signed = true;
+	entry.value = 0;
+	pending_.push_back(entry);
+	return pending_.back();
+}
+
 bool CtrlExprEvaluator::evaluate(CtrlExprValue& result)
 {
 	if (has_invalid_)
@@ -401,156 +407,218 @@ bool CtrlExprEvaluator::evaluate(CtrlExprValue& result)
 	}
 
 	position_ = 0;
-	depth_ = 0;
+	pending_.clear();
+	bool live = true;
 	CtrlExprValue value;
-	if (!parse_conditional(true, value))
+	for (;;)
 	{
-		return false;
-	}
-	// The whole logical line has to be one controlling expression.
-	if (position_ != tokens_.size())
-	{
-		return false;
+		if (!parse_operand(live, value))
+		{
+			return false;
+		}
+		const Step step = after_operand(live, value);
+		if (step == Step::Error)
+		{
+			return false;
+		}
+		if (step == Step::Done)
+		{
+			break;
+		}
 	}
 	result = value;
 	return true;
 }
 
-bool CtrlExprEvaluator::parse_conditional(bool live, CtrlExprValue& out)
+// Operand position: `(` and a prefix operator only stack more of it, so both
+// are pushed and the next token read, until one primary-expression completes.
+bool CtrlExprEvaluator::parse_operand(bool live, CtrlExprValue& value)
 {
-	if (depth_ >= kMaxParseDepth)
+	for (;;)
 	{
-		return false;
-	}
-	++depth_;
+		const Token* token = peek();
+		if (token == 0)
+		{
+			return false;
+		}
+		if (token->kind != TokenKind::Operator)
+		{
+			return parse_primary(value);
+		}
 
-	bool ok = parse_binary(kLowestPrecedence, live, out);
-	if (ok && take_operator(OP_QMARK))
+		const ETokenType op = static_cast<ETokenType>(token->op);
+		if (op == OP_LPAREN)
+		{
+			++position_;
+			push_frame(Frame::Paren, op, live);
+			continue;
+		}
+		if (!is_unary_operator(op))
+		{
+			return false;
+		}
+		++position_;
+		push_frame(Frame::Unary, op, live);
+	}
+}
+
+// Operator position: what follows a complete operand decides which pending
+// operators it belongs to.  Returns to operand position for every operator
+// that takes one, and reports the end of the line only with nothing pending.
+CtrlExprEvaluator::Step CtrlExprEvaluator::after_operand(bool& live, CtrlExprValue& value)
+{
+	for (;;)
 	{
-		const bool condition = out.bits != 0;
-		CtrlExprValue then_value;
-		CtrlExprValue else_value;
-		ok = parse_conditional(live && condition, then_value) &&
-			take_operator(OP_COLON) &&
-			parse_conditional(live && !condition, else_value);
-		if (ok)
+		// A prefix operator binds tighter than anything a binary operator can
+		// take, so the ones this operand completes apply right away.
+		while (!pending_.empty() && pending_.back().frame == Frame::Unary)
+		{
+			value = apply_unary(static_cast<ETokenType>(pending_.back().op), value);
+			pending_.pop_back();
+		}
+
+		const Token* token = peek();
+		if (token == 0)
+		{
+			// The whole logical line has to be one controlling expression, so
+			// an unclosed `(` or `?` is as much an error as a leftover token.
+			if (!complete_pending(kLowestPrecedence, true, live, value))
+			{
+				return Step::Error;
+			}
+			return pending_.empty() ? Step::Done : Step::Error;
+		}
+		if (token->kind != TokenKind::Operator)
+		{
+			return Step::Error;
+		}
+
+		const ETokenType op = static_cast<ETokenType>(token->op);
+		const int precedence = binary_precedence(op);
+		if (precedence != 0)
+		{
+			// The twelve binary productions are all left recursive, so this
+			// operator takes everything at least as tight as it is.
+			if (!complete_pending(precedence, false, live, value))
+			{
+				return Step::Error;
+			}
+			++position_;
+			Pending& frame = push_frame(Frame::Binary, op, live);
+			frame.precedence = static_cast<unsigned char>(precedence);
+			frame.value = value.bits;
+			frame.value_is_signed = value.is_signed;
+			live = right_operand_is_live(op, live, value);
+			return Step::Operand;
+		}
+		if (op == OP_QMARK)
+		{
+			// `?:` is right associative, so it takes every binary operator but
+			// leaves an enclosing `?:` waiting for its own third operand.
+			if (!complete_pending(kLowestPrecedence, false, live, value))
+			{
+				return Step::Error;
+			}
+			++position_;
+			Pending& frame = push_frame(Frame::Then, op, live);
+			frame.condition = value.bits != 0;
+			live = live && frame.condition;
+			return Step::Operand;
+		}
+		if (op == OP_COLON)
+		{
+			if (!complete_pending(kLowestPrecedence, true, live, value) ||
+			    pending_.empty() || pending_.back().frame != Frame::Then)
+			{
+				return Step::Error;
+			}
+			++position_;
+			Pending& frame = pending_.back();
+			frame.frame = Frame::Else;
+			frame.value = value.bits;
+			frame.value_is_signed = value.is_signed;
+			live = frame.live && !frame.condition;
+			return Step::Operand;
+		}
+		if (op != OP_RPAREN)
+		{
+			return Step::Error;
+		}
+		if (!complete_pending(kLowestPrecedence, true, live, value) ||
+		    pending_.empty() || pending_.back().frame != Frame::Paren)
+		{
+			return Step::Error;
+		}
+		++position_;
+		live = pending_.back().live;
+		pending_.pop_back();
+	}
+}
+
+// Completes every pending operator whose right operand `value` finishes: the
+// binary ones at least as tight as `min_precedence`, and, when what follows
+// can close one, a `?:` whose third operand `value` is.  Each restores the
+// liveness it was pushed in.  False when an operator the line does evaluate is
+// one the assignment course-defines as an error.
+bool CtrlExprEvaluator::complete_pending(int min_precedence, bool through_conditional,
+                                         bool& live, CtrlExprValue& value)
+{
+	while (!pending_.empty())
+	{
+		const Pending frame = pending_.back();
+		if (frame.frame == Frame::Binary && frame.precedence >= min_precedence)
+		{
+			CtrlExprValue left;
+			left.bits = frame.value;
+			left.is_signed = frame.value_is_signed;
+			live = frame.live;
+			pending_.pop_back();
+			if (!apply_binary(static_cast<ETokenType>(frame.op), left, value, live, value))
+			{
+				return false;
+			}
+			continue;
+		}
+		if (through_conditional && frame.frame == Frame::Else)
 		{
 			// 5.16: both branches take part in the usual arithmetic
 			// conversions that give the result its type, whichever one the
 			// condition selects.
-			out.is_signed = then_value.is_signed && else_value.is_signed;
-			out.bits = condition ? then_value.bits : else_value.bits;
+			value.is_signed = frame.value_is_signed && value.is_signed;
+			if (frame.condition)
+			{
+				value.bits = frame.value;
+			}
+			live = frame.live;
+			pending_.pop_back();
+			continue;
 		}
+		break;
 	}
-
-	--depth_;
-	return ok;
+	return true;
 }
 
-bool CtrlExprEvaluator::parse_binary(int min_precedence, bool live, CtrlExprValue& out)
+bool CtrlExprEvaluator::parse_primary(CtrlExprValue& value)
 {
-	if (depth_ >= kMaxParseDepth)
-	{
-		return false;
-	}
-	++depth_;
-
-	// The twelve binary productions of the grammar, iterated instead of
-	// recursed: an operator chain of any length costs one pass and the stack
-	// only grows by the precedence levels an expression actually uses.
-	bool ok = parse_unary(live, out);
-	while (ok)
-	{
-		const Token* token = peek();
-		if (token == 0 || token->kind != TokenKind::Operator)
-		{
-			break;
-		}
-		const int precedence = binary_precedence(static_cast<ETokenType>(token->op));
-		if (precedence < min_precedence)
-		{
-			break;
-		}
-
-		const ETokenType op = static_cast<ETokenType>(token->op);
-		++position_;
-		CtrlExprValue right;
-		// The productions are all left recursive, so the right operand binds
-		// only what is strictly tighter.
-		ok = parse_binary(precedence + 1, right_operand_is_live(op, live, out), right) &&
-			apply_binary(op, out, right, live, out);
-	}
-
-	--depth_;
-	return ok;
-}
-
-bool CtrlExprEvaluator::parse_unary(bool live, CtrlExprValue& out)
-{
-	if (depth_ >= kMaxParseDepth)
-	{
-		return false;
-	}
-	++depth_;
-
-	bool ok;
+	// Operand position has already established that this is neither the end of
+	// the line nor an operator.
 	const Token* token = peek();
-	if (token != 0 && token->kind == TokenKind::Operator &&
-	    is_unary_operator(static_cast<ETokenType>(token->op)))
-	{
-		const ETokenType op = static_cast<ETokenType>(token->op);
-		++position_;
-		ok = parse_unary(live, out);
-		if (ok)
-		{
-			out = apply_unary(op, out);
-		}
-	}
-	else
-	{
-		ok = parse_primary(live, out);
-	}
-
-	--depth_;
-	return ok;
-}
-
-bool CtrlExprEvaluator::parse_primary(bool live, CtrlExprValue& out)
-{
-	const Token* token = peek();
-	if (token == 0)
-	{
-		return false;
-	}
-
+	++position_;
 	if (token->kind == TokenKind::Value)
 	{
-		out.bits = token->bits;
-		out.is_signed = token->is_signed;
-		++position_;
+		value.bits = token->bits;
+		value.is_signed = token->is_signed;
 		return true;
 	}
-
-	if (token->kind == TokenKind::Identifier)
+	if (name_equals(*token, "defined", sizeof("defined") - 1))
 	{
-		++position_;
-		if (name_equals(*token, "defined", sizeof("defined") - 1))
-		{
-			return parse_defined(out);
-		}
-		// Every other identifier or keyword evaluates as 0, except `true`,
-		// which the assignment course-defines as 1.  Both have type bool, so
-		// both are signed.
-		out = make_signed(name_equals(*token, "true", sizeof("true") - 1) ? 1 : 0);
-		return true;
+		return parse_defined(value);
 	}
-
-	if (token->op != OP_LPAREN)
-	{
-		return false;
-	}
-	++position_;
-	return parse_conditional(live, out) && take_operator(OP_RPAREN);
+	// Every other identifier or keyword evaluates as 0, except `true`, which
+	// the assignment course-defines as 1.  Both have type bool, so both are
+	// signed.
+	value = make_signed(name_equals(*token, "true", sizeof("true") - 1) ? 1 : 0);
+	return true;
 }
 
 bool CtrlExprEvaluator::parse_defined(CtrlExprValue& out)

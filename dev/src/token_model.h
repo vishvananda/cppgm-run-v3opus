@@ -102,6 +102,34 @@ enum ETokenType
 	X("or", OP_LOR) X("or_eq", OP_BORASS) X("xor", OP_XOR) \
 	X("xor_eq", OP_XORASS)
 
+// The rest of 2.13, spelled in punctuation, with the token type each takes.
+// An alternative token (2.5) sits next to the primary spelling it stands for,
+// so `<%` is OP_LBRACE just as `{` is.  Phase 3 munches one of these maximally
+// and phase 7 gives it a type, which is why the spellings are stated here
+// rather than once per phase.
+#define CPPGM_PUNCTUATION_OPERATORS(X) \
+	X("{", OP_LBRACE) X("<%", OP_LBRACE) X("}", OP_RBRACE) X("%>", OP_RBRACE) \
+	X("[", OP_LSQUARE) X("<:", OP_LSQUARE) X("]", OP_RSQUARE) X(":>", OP_RSQUARE) \
+	X("(", OP_LPAREN) X(")", OP_RPAREN) \
+	X("|", OP_BOR) X("^", OP_XOR) X("~", OP_COMPL) X("&", OP_AMP) \
+	X("!", OP_LNOT) X(";", OP_SEMICOLON) X(":", OP_COLON) \
+	X("...", OP_DOTS) X("?", OP_QMARK) X("::", OP_COLON2) X(".", OP_DOT) \
+	X(".*", OP_DOTSTAR) X("+", OP_PLUS) X("-", OP_MINUS) X("*", OP_STAR) \
+	X("/", OP_DIV) X("%", OP_MOD) X("=", OP_ASS) X("<", OP_LT) X(">", OP_GT) \
+	X("+=", OP_PLUSASS) X("-=", OP_MINUSASS) X("*=", OP_STARASS) \
+	X("/=", OP_DIVASS) X("%=", OP_MODASS) \
+	X("^=", OP_XORASS) X("&=", OP_BANDASS) X("|=", OP_BORASS) \
+	X("<<", OP_LSHIFT) X(">>", OP_RSHIFT) X(">>=", OP_RSHIFTASS) \
+	X("<<=", OP_LSHIFTASS) X("==", OP_EQ) X("!=", OP_NE) \
+	X("<=", OP_LE) X(">=", OP_GE) X("&&", OP_LAND) X("||", OP_LOR) \
+	X("++", OP_INC) X("--", OP_DEC) \
+	X(",", OP_COMMA) X("->*", OP_ARROWSTAR) X("->", OP_ARROW)
+
+// The four spellings of 2.13 the assignment reserves for preprocessing: phase 3
+// produces each as a preprocessing-op-or-punc, and phase 7 has no token for it.
+#define CPPGM_PREPROCESSING_ONLY_OPERATORS(X) \
+	X("#") X("##") X("%:") X("%:%:")
+
 const char* fundamental_type_name(EFundamentalType type);
 
 // Size in bytes under the course ABI.  Zero for void, which has no object

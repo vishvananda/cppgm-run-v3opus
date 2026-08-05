@@ -5,11 +5,12 @@
 namespace
 {
 
-// Every spelling that is a simple token, paired with the token type it takes.
-// Alternative tokens (2.5) appear next to the primary spelling they stand for;
-// the ones spelled as identifiers come from the list phase 3 shares.
+// Every spelling that is a simple token, paired with the token type it takes:
+// the 2.12 keywords stated here, and the 2.13 operators and punctuators from
+// the two lists phase 3 shares, minus the four it reserves for preprocessing.
 #define CPPGM_SIMPLE_TOKEN_SPELLINGS(X) \
 	CPPGM_IDENTIFIER_LIKE_OPERATORS(X) \
+	CPPGM_PUNCTUATION_OPERATORS(X) \
 	X("alignas", KW_ALIGNAS) X("alignof", KW_ALIGNOF) X("asm", KW_ASM) \
 	X("auto", KW_AUTO) X("bool", KW_BOOL) X("break", KW_BREAK) \
 	X("case", KW_CASE) X("catch", KW_CATCH) X("char", KW_CHAR) \
@@ -34,23 +35,7 @@ namespace
 	X("typedef", KW_TYPEDEF) X("typeid", KW_TYPEID) X("typename", KW_TYPENAME) \
 	X("union", KW_UNION) X("unsigned", KW_UNSIGNED) X("using", KW_USING) \
 	X("virtual", KW_VIRTUAL) X("void", KW_VOID) X("volatile", KW_VOLATILE) \
-	X("wchar_t", KW_WCHAR_T) X("while", KW_WHILE) \
-	X("{", OP_LBRACE) X("<%", OP_LBRACE) X("}", OP_RBRACE) X("%>", OP_RBRACE) \
-	X("[", OP_LSQUARE) X("<:", OP_LSQUARE) X("]", OP_RSQUARE) X(":>", OP_RSQUARE) \
-	X("(", OP_LPAREN) X(")", OP_RPAREN) \
-	X("|", OP_BOR) X("^", OP_XOR) X("~", OP_COMPL) X("&", OP_AMP) \
-	X("!", OP_LNOT) X(";", OP_SEMICOLON) X(":", OP_COLON) \
-	X("...", OP_DOTS) X("?", OP_QMARK) X("::", OP_COLON2) X(".", OP_DOT) \
-	X(".*", OP_DOTSTAR) X("+", OP_PLUS) X("-", OP_MINUS) X("*", OP_STAR) \
-	X("/", OP_DIV) X("%", OP_MOD) X("=", OP_ASS) X("<", OP_LT) X(">", OP_GT) \
-	X("+=", OP_PLUSASS) X("-=", OP_MINUSASS) X("*=", OP_STARASS) \
-	X("/=", OP_DIVASS) X("%=", OP_MODASS) \
-	X("^=", OP_XORASS) X("&=", OP_BANDASS) X("|=", OP_BORASS) \
-	X("<<", OP_LSHIFT) X(">>", OP_RSHIFT) X(">>=", OP_RSHIFTASS) \
-	X("<<=", OP_LSHIFTASS) X("==", OP_EQ) X("!=", OP_NE) \
-	X("<=", OP_LE) X(">=", OP_GE) X("&&", OP_LAND) X("||", OP_LOR) \
-	X("++", OP_INC) X("--", OP_DEC) \
-	X(",", OP_COMMA) X("->*", OP_ARROWSTAR) X("->", OP_ARROW)
+	X("wchar_t", KW_WCHAR_T) X("while", KW_WHILE)
 
 struct SimpleTokenEntry
 {
