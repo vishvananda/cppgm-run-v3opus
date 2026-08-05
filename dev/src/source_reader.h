@@ -16,6 +16,19 @@ public:
 	{}
 };
 
+// Whether the bytes are a source file or text a later phase has produced.
+//
+// The spelling `##` joins in phase 4 is written in the characters phases 1 and
+// 2 have already produced, so re-lexing it must not splice a trailing `\` or
+// read a trigraph a second time.  A universal-character-name is still decoded:
+// after phase 1 a character outside the basic source character set is spelled
+// by one, so phase 3 is the phase that reads it.
+enum class SourceForm
+{
+	Physical,
+	Translated
+};
+
 // Translation phases 1 and 2 as a random access character source.
 //
 // The reader hands out one translated code point at a time, having applied
@@ -46,7 +59,8 @@ private:
 	};
 
 public:
-	explicit SourceReader(std::string bytes);
+	explicit SourceReader(std::string bytes,
+	                      SourceForm form = SourceForm::Physical);
 
 	// Translated code point `ahead` positions past the consumption point, or
 	// kEndOfFile.  `ahead` must be less than kLookaheadCapacity.
@@ -132,6 +146,7 @@ private:
 	Fetched trigraph_at(std::size_t offset) const;
 
 	std::string bytes_;
+	SourceForm form_;
 	std::size_t origin_;
 	std::size_t cursor_;
 	Fetched lookahead_[kBufferCapacity];

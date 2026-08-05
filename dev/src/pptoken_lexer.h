@@ -6,20 +6,28 @@
 #include "IPPTokenStream.h"
 #include "source_reader.h"
 
+// See 2.5 Preprocessing tokens, plus the white space, new-line and end of file
+// the assignments report.  Phase 4 extends this list with token kinds of its
+// own, so it is written once and both enumerations are generated from it.
+#define CPPGM_PP_TOKEN_TYPES(X) \
+	X(WhitespaceSequence) \
+	X(NewLine) \
+	X(HeaderName) \
+	X(Identifier) \
+	X(PPNumber) \
+	X(CharacterLiteral) \
+	X(UserDefinedCharacterLiteral) \
+	X(StringLiteral) \
+	X(UserDefinedStringLiteral) \
+	X(PreprocessingOpOrPunc) \
+	X(NonWhitespaceChar) \
+	X(EndOfFile)
+
 enum class PPTokenType
 {
-	WhitespaceSequence,
-	NewLine,
-	HeaderName,
-	Identifier,
-	PPNumber,
-	CharacterLiteral,
-	UserDefinedCharacterLiteral,
-	StringLiteral,
-	UserDefinedStringLiteral,
-	PreprocessingOpOrPunc,
-	NonWhitespaceChar,
-	EndOfFile
+#define CPPGM_PP_TOKEN_TYPE_ENUMERATOR(name) name,
+	CPPGM_PP_TOKEN_TYPES(CPPGM_PP_TOKEN_TYPE_ENUMERATOR)
+#undef CPPGM_PP_TOKEN_TYPE_ENUMERATOR
 };
 
 // One preprocessing-token, spelled in UTF-8 with translation phases 1 and 2
@@ -54,6 +62,9 @@ public:
 
 // Translation phase 3: decomposes a source file into preprocessing-tokens.
 //
+// `form` says whether the text still needs phases 1 and 2; phase 4 lexes the
+// spelling a `##` produced, which has already been through them.
+//
 // The lexer is a pull interface so that later phases can drive it directly.
 // It owns the two pieces of state phase 3 carries between tokens: the reader's
 // consumption point, and where the current line stands relative to an
@@ -61,7 +72,8 @@ public:
 class PPTokenLexer : public PPTokenSource
 {
 public:
-	explicit PPTokenLexer(std::string source);
+	explicit PPTokenLexer(std::string source,
+	                      SourceForm form = SourceForm::Physical);
 
 	bool next(PPToken& token) override;
 

@@ -16,22 +16,16 @@ bool is_literal_spelling(MacroTokenType type)
 }
 
 MacroExpander::MacroExpander(PPTokenSource& source)
-	: macros_(spellings_)
-	, va_args_(spellings_.intern("__VA_ARGS__"))
-	, hash_(spellings_.intern("#"))
-	, alt_hash_(spellings_.intern("%:"))
-	, lparen_(spellings_.intern("("))
-	, rparen_(spellings_.intern(")"))
-	, comma_(spellings_.intern(","))
-	, define_(spellings_.intern("define"))
-	, undef_(spellings_.intern("undef"))
+	: spelled_(spellings_)
+	, macros_(spellings_, spelled_)
 	, source_(source)
 	, source_done_(false)
-	, line_is_directive_(false)
+	, line_start_(true)
+	, whitespace_(false)
 	, directive_pending_(false)
 	, finished_(false)
 	, offset_(0)
-	, line_position_(0)
+	, has_lookahead_(false)
 	, has_pending_(false)
 	, seen_token_(false)
 {}
@@ -47,8 +41,9 @@ bool MacroExpander::next(PPToken& token)
 	{
 		if (has_pending_)
 		{
+			const Spelling spelling = spellings_.text(pending_.spelling);
 			token.type = static_cast<PPTokenType>(pending_.type);
-			token.spelling = spellings_.text(pending_.spelling);
+			token.spelling.assign(spelling.data, spelling.size);
 			token.offset = pending_.offset;
 			has_pending_ = false;
 			return true;
@@ -68,91 +63,94 @@ bool MacroExpander::next(PPToken& token)
 	}
 }
 
-// One logical line of the file, with white space reduced to the flag each
-// token carries.  A new-line is white space once the line it ends is known not
-// to be a directive, which is what 16.3 needs for stringizing.
-bool MacroExpander::read_line()
+// The phase 3 token in `raw_` as phase 4 sees it, with white space reduced to
+// the flag the token carries.
+void MacroExpander::convert(MacroToken& token)
 {
-	line_.clear();
-	line_position_ = 0;
-	line_is_directive_ = false;
-	bool whitespace = seen_token_;
+	token.spelling = spellings_.intern(raw_.spelling);
+	token.type = macro_token_type(raw_.type);
+	token.offset = static_cast<std::uint32_t>(raw_.offset);
+	token.whitespace_before = whitespace_;
+	whitespace_ = false;
+	offset_ = token.offset;
+	seen_token_ = true;
+}
+
+// The next preprocessing-token of the file, skipping the white space and the
+// new-lines between tokens.  A new-line is white space once the line it ends
+// is known not to be a directive, which is what 16.3 needs for stringizing.
+bool MacroExpander::read_source(MacroToken& token)
+{
 	while (!source_done_)
 	{
-		if (!source_.next(raw_))
-		{
-			source_done_ = true;
-			break;
-		}
-		if (raw_.type == PPTokenType::EndOfFile)
+		if (!source_.next(raw_) || raw_.type == PPTokenType::EndOfFile)
 		{
 			source_done_ = true;
 			break;
 		}
 		if (raw_.type == PPTokenType::WhitespaceSequence)
 		{
-			whitespace = true;
+			whitespace_ = true;
 			continue;
 		}
 		if (raw_.type == PPTokenType::NewLine)
 		{
-			break;
+			line_start_ = true;
+			whitespace_ = whitespace_ || seen_token_;
+			continue;
 		}
-
-		MacroToken token;
-		token.spelling = spellings_.intern(raw_.spelling);
-		token.type = macro_token_type(raw_.type);
-		token.offset = static_cast<std::uint32_t>(raw_.offset);
-		token.whitespace_before = whitespace;
-		whitespace = false;
-		offset_ = token.offset;
-		if (line_.empty())
-		{
-			line_is_directive_ = is_punctuation(token, hash_) ||
-				is_punctuation(token, alt_hash_);
-		}
-		if (!line_is_directive_ && token.type == MacroTokenType::Identifier &&
-		    token.spelling == va_args_)
-		{
-			// 16.3/5: outside the replacement list of a variadic macro the
-			// identifier is not allowed to appear at all.
-			throw error("__VA_ARGS__ outside a variadic macro");
-		}
-		line_.push_back(token);
-		seen_token_ = true;
+		convert(token);
+		return true;
 	}
-	// An empty line is a line all the same: only a file with nothing left in
-	// it ends the sequence.
-	return !line_.empty() || !source_done_;
+	return false;
 }
 
-bool MacroExpander::ensure_line()
+// Fills the look-ahead with the next token of the text-sequence.  Returns
+// false where the sequence ends: at the end of the file, or at the `#` of a
+// directive, whose line is read instead.
+bool MacroExpander::fetch()
 {
-	// The directive line is already read and is not text: the text-sequence
-	// ends before it whether or not the line it ended was exhausted.
+	MacroToken token;
+	if (!read_source(token))
+	{
+		return false;
+	}
+	const bool starts_line = line_start_;
+	line_start_ = false;
+	if (starts_line &&
+	    (is_punctuation(token, spelled_.hash) ||
+	     is_punctuation(token, spelled_.alt_hash)))
+	{
+		// The text-sequence ends here: the directive is processed once the
+		// tokens before it have been replaced.
+		read_directive(token);
+		return false;
+	}
+	if (token.type == MacroTokenType::Identifier &&
+	    token.spelling == spelled_.va_args)
+	{
+		// 16.3/5: outside the replacement list of a variadic macro the
+		// identifier is not allowed to appear at all.
+		throw error("__VA_ARGS__ outside a variadic macro");
+	}
+	lookahead_ = token;
+	has_lookahead_ = true;
+	return true;
+}
+
+bool MacroExpander::ensure_source()
+{
+	if (has_lookahead_)
+	{
+		return true;
+	}
+	// The directive is read and is not text, so the text-sequence has ended
+	// whether or not the line the directive started was reached from one.
 	if (directive_pending_)
 	{
 		return false;
 	}
-	while (line_position_ == line_.size())
-	{
-		if (source_done_)
-		{
-			return false;
-		}
-		if (!read_line())
-		{
-			return false;
-		}
-		if (line_is_directive_)
-		{
-			// The text-sequence ends here: the directive is processed once the
-			// tokens before it have been replaced.
-			directive_pending_ = true;
-			return false;
-		}
-	}
-	return true;
+	return fetch();
 }
 
 MacroToken MacroExpander::take()
@@ -163,7 +161,8 @@ MacroToken MacroExpander::take()
 		stack_.pop_back();
 		return token;
 	}
-	return line_[line_position_++];
+	has_lookahead_ = false;
+	return lookahead_;
 }
 
 const MacroToken* MacroExpander::peek()
@@ -172,33 +171,64 @@ const MacroToken* MacroExpander::peek()
 	{
 		return &stack_.back();
 	}
-	if (!ensure_line())
+	if (!ensure_source())
 	{
 		return nullptr;
 	}
-	return &line_[line_position_];
+	return &lookahead_;
+}
+
+// The rest of the directive line, which the new-line that ends it terminates.
+void MacroExpander::read_directive(const MacroToken& hash)
+{
+	directive_.clear();
+	directive_.push_back(hash);
+	while (!source_done_)
+	{
+		if (!source_.next(raw_) || raw_.type == PPTokenType::EndOfFile)
+		{
+			source_done_ = true;
+			break;
+		}
+		if (raw_.type == PPTokenType::WhitespaceSequence)
+		{
+			whitespace_ = true;
+			continue;
+		}
+		if (raw_.type == PPTokenType::NewLine)
+		{
+			break;
+		}
+		MacroToken token;
+		convert(token);
+		directive_.push_back(token);
+	}
+	// What follows the directive starts a line, and the new-line that ended
+	// the directive separates it from the text before.
+	line_start_ = true;
+	whitespace_ = true;
+	directive_pending_ = true;
 }
 
 void MacroExpander::run_directive()
 {
 	directive_pending_ = false;
-	line_position_ = line_.size();
-	if (line_.size() == 1)
+	if (directive_.size() == 1)
 	{
 		// The null directive.
 		return;
 	}
-	const MacroToken* begin = line_.data() + 1;
-	const MacroToken* end = line_.data() + line_.size();
+	const MacroToken* begin = directive_.data() + 1;
+	const MacroToken* end = directive_.data() + directive_.size();
 	if (begin->type != MacroTokenType::Identifier)
 	{
 		throw error("unknown preprocessing directive");
 	}
-	if (begin->spelling == define_)
+	if (begin->spelling == spelled_.define)
 	{
 		macros_.define(begin, end);
 	}
-	else if (begin->spelling == undef_)
+	else if (begin->spelling == spelled_.undef)
 	{
 		macros_.undefine(begin, end);
 	}
@@ -210,7 +240,7 @@ void MacroExpander::run_directive()
 
 bool MacroExpander::advance()
 {
-	if (stack_.empty() && !ensure_line())
+	if (stack_.empty() && !ensure_source())
 	{
 		if (directive_pending_)
 		{
@@ -232,12 +262,11 @@ bool MacroExpander::advance()
 	return true;
 }
 
+// A placemarker never reaches here: `push_replacement` is the one place that
+// decides a placemarker's fate, and it drops the ones the pastes left over
+// before the replacement is put back on the stack.
 void MacroExpander::emit(const MacroToken& token)
 {
-	if (token.type == MacroTokenType::Placemarker)
-	{
-		return;
-	}
 	if (sinks_.empty())
 	{
 		pending_ = token;
@@ -266,7 +295,7 @@ bool MacroExpander::try_expand(MacroToken& token)
 		// not made unavailable either, which is what lets a macro name that
 		// leaves an argument be invoked by a later `(`.
 		const MacroToken* ahead = peek();
-		if (ahead == nullptr || !is_punctuation(*ahead, lparen_))
+		if (ahead == nullptr || !is_punctuation(*ahead, spelled_.lparen))
 		{
 			return false;
 		}
@@ -322,6 +351,30 @@ void MacroExpander::expand_function_like(const MacroToken& head,
 
 	stack_.push_back(make_marker(MacroTokenType::Substitute, 0));
 	request_argument_expansions(invocation);
+	drop_raw_arguments(invocation);
+}
+
+// The tokens an argument was written with are needed after the prescan only by
+// `#` and `##`.  Where the macro has neither, the prescan the rescan is about
+// to run is their last reader, so they are released as soon as it is queued.
+//
+// This is what keeps nested arguments linear: `f(f(f(...)))` would otherwise
+// hold every enclosing level's argument for as long as the innermost one is
+// being replaced, which is quadratic in the nesting depth.
+void MacroExpander::drop_raw_arguments(const Invocation& invocation)
+{
+	if (invocation.macro->keeps_raw_arguments)
+	{
+		return;
+	}
+	const std::size_t count = invocation.macro->parameter_count();
+	for (std::size_t index = 0; index < count; ++index)
+	{
+		Argument& argument = arguments_[invocation.arguments_begin + index];
+		argument.raw_begin = static_cast<std::uint32_t>(invocation.tokens_begin);
+		argument.raw_end = argument.raw_begin;
+	}
+	argument_tokens_.resize(invocation.tokens_begin);
 }
 
 void MacroExpander::collect_arguments(Invocation& invocation, MacroToken& closing)
@@ -341,6 +394,7 @@ void MacroExpander::collect_arguments(Invocation& invocation, MacroToken& closin
 		argument.raw_end = argument.raw_begin;
 		argument.expanded_begin = 0;
 		argument.expanded_end = 0;
+		argument.raw_empty = true;
 		arguments_.push_back(argument);
 	}
 
@@ -355,7 +409,7 @@ void MacroExpander::collect_arguments(Invocation& invocation, MacroToken& closin
 			throw error("macro invocation is not terminated");
 		}
 		MacroToken token = take();
-		if (is_punctuation(token, rparen_))
+		if (is_punctuation(token, spelled_.rparen))
 		{
 			if (depth == 0)
 			{
@@ -364,11 +418,12 @@ void MacroExpander::collect_arguments(Invocation& invocation, MacroToken& closin
 			}
 			--depth;
 		}
-		else if (is_punctuation(token, lparen_))
+		else if (is_punctuation(token, spelled_.lparen))
 		{
 			++depth;
 		}
-		else if (is_punctuation(token, comma_) && depth == 0 && current < last)
+		else if (is_punctuation(token, spelled_.comma) && depth == 0 &&
+		         current < last)
 		{
 			any = true;
 			++current;
@@ -384,8 +439,9 @@ void MacroExpander::collect_arguments(Invocation& invocation, MacroToken& closin
 		}
 		any = true;
 		argument_tokens_.push_back(token);
-		arguments_[invocation.arguments_begin + current].raw_end =
-			static_cast<std::uint32_t>(argument_tokens_.size());
+		Argument& argument = arguments_[invocation.arguments_begin + current];
+		argument.raw_end = static_cast<std::uint32_t>(argument_tokens_.size());
+		argument.raw_empty = false;
 	}
 
 	const std::size_t supplied = current + 1;
@@ -478,14 +534,11 @@ void MacroExpander::append_item(const MacroBodyItem& item,
 
 	if (item.kind == MacroBodyItem::Token)
 	{
-		if (item.drop_for_empty_va)
+		if (item.drop_for_empty_va &&
+		    arguments_[invocation.arguments_begin +
+		               macro.variadic_index()].raw_empty)
 		{
-			const Argument& variadic =
-				arguments_[invocation.arguments_begin + macro.variadic_index()];
-			if (variadic.raw_begin == variadic.raw_end)
-			{
-				return;
-			}
+			return;
 		}
 		token.spelling = item.spelling;
 		token.type = item.type;
@@ -566,9 +619,12 @@ void MacroExpander::paste_onto_back(const MacroToken& right,
 		return;
 	}
 
-	text_ = spellings_.text(left.spelling);
-	text_ += spellings_.text(right.spelling);
-	PPTokenLexer lexer(text_);
+	text_.clear();
+	append_spelling(text_, spellings_.text(left.spelling));
+	append_spelling(text_, spellings_.text(right.spelling));
+	// The joined spelling is what phases 1 and 2 produced, so it is lexed as
+	// such: a trailing `\` is a token of its own rather than a line splice.
+	PPTokenLexer lexer(text_, SourceForm::Translated);
 	PPToken joined;
 	bool found = false;
 	while (lexer.next(joined))
@@ -610,11 +666,11 @@ void MacroExpander::stringize(const Argument& argument, MacroToken& result)
 		{
 			text_ += ' ';
 		}
-		const std::string& spelling = spellings_.text(token.spelling);
+		const Spelling spelling = spellings_.text(token.spelling);
 		const bool literal = is_literal_spelling(token.type);
-		for (std::size_t index = 0; index < spelling.size(); ++index)
+		for (std::size_t index = 0; index < spelling.size; ++index)
 		{
-			const char character = spelling[index];
+			const char character = spelling.data[index];
 			if (literal && (character == '"' || character == '\\'))
 			{
 				text_ += '\\';

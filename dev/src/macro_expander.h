@@ -9,10 +9,11 @@
 
 // Translation phase 4: preprocessing directives and macro replacement.
 //
-// The expander reads one logical line at a time.  A line whose first token is
-// `#` is a directive and updates the macro table; every other line belongs to
-// the current text-sequence and is macro replaced, so the macros in force are
-// exactly the ones defined above that point in the file.
+// The expander pulls one preprocessing-token at a time.  A `#` that starts a
+// line begins a directive, whose line is read as a whole and updates the macro
+// table; every other token belongs to the current text-sequence and is macro
+// replaced, so the macros in force are exactly the ones defined above that
+// point in the file.
 //
 // Replacement is the rescan of 16.3.4, run on one stack whose top is the next
 // preprocessing-token.  An invocation pops its own tokens off that stack and
@@ -41,6 +42,10 @@ private:
 		std::uint32_t raw_end;
 		std::uint32_t expanded_begin;
 		std::uint32_t expanded_end;
+		// Whether the argument was written empty.  This outlives the raw
+		// tokens: the `, ## __VA_ARGS__` extension asks after they have been
+		// released.
+		bool raw_empty;
 	};
 
 	// One function-like invocation between the point its arguments are known
@@ -58,12 +63,15 @@ private:
 	};
 
 	// Input.
-	bool read_line();
-	bool ensure_line();
+	void convert(MacroToken& token);
+	bool read_source(MacroToken& token);
+	bool fetch();
+	bool ensure_source();
 	MacroToken take();
 	const MacroToken* peek();
 
 	// Directives.
+	void read_directive(const MacroToken& hash);
 	void run_directive();
 
 	// Rescan.
@@ -73,6 +81,7 @@ private:
 	void expand_function_like(const MacroToken& head, const MacroDefinition& macro);
 	void collect_arguments(Invocation& invocation, MacroToken& closing);
 	void request_argument_expansions(const Invocation& invocation);
+	void drop_raw_arguments(const Invocation& invocation);
 	void run_marker(const MacroToken& marker);
 	void substitute(const Invocation& invocation);
 	void append_item(const MacroBodyItem& item, const Invocation& invocation);
@@ -89,28 +98,28 @@ private:
 	SourceError error(const std::string& message) const;
 
 	SpellingPool spellings_;
+	MacroSpellings spelled_;
 	PaintSets paints_;
 	MacroTable macros_;
-
-	SpellingId va_args_;
-	SpellingId hash_;
-	SpellingId alt_hash_;
-	SpellingId lparen_;
-	SpellingId rparen_;
-	SpellingId comma_;
-	SpellingId define_;
-	SpellingId undef_;
 
 	PPTokenSource& source_;
 	PPToken raw_;
 	bool source_done_;
-	bool line_is_directive_;
+	bool line_start_;
+	bool whitespace_;
 	bool directive_pending_;
 	bool finished_;
 	std::uint32_t offset_;
 
-	std::vector<MacroToken> line_;
-	std::size_t line_position_;
+	// One preprocessing-token of look-ahead into the text-sequence: the rescan
+	// asks whether a `(` follows a function-like macro name without consuming
+	// it.  The rest of a text-sequence is never held, so a file written as one
+	// long line costs no more than a file written as many.
+	MacroToken lookahead_;
+	bool has_lookahead_;
+	// The directive line, held from the `#` that starts it until the text
+	// before it has been macro replaced.
+	std::vector<MacroToken> directive_;
 
 	std::vector<MacroToken> stack_;
 	std::vector<MacroToken> output_;

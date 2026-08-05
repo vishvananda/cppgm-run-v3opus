@@ -1,6 +1,7 @@
 #include "macro_model.h"
 
 #include <algorithm>
+#include <cstring>
 #include <utility>
 
 namespace
@@ -19,24 +20,102 @@ bool is_punctuation(const MacroToken& token, SpellingId spelling)
 		token.spelling == spelling;
 }
 
+const std::size_t SpellingPool::kBlockSize;
+
 SpellingPool::SpellingPool()
+	: slots_(1024, 0)
+	, mask_(1023)
+	, used_(kBlockSize)
 {
 	// Id zero is the empty spelling, which is what a marker and a placemarker
 	// carry, so no real token ever has to test for it.
-	intern(std::string());
+	intern("", 0);
 }
 
-SpellingId SpellingPool::intern(const std::string& text)
+std::size_t SpellingPool::hash(const char* text, std::size_t size)
 {
-	std::pair<std::unordered_map<std::string, SpellingId>::iterator, bool> entry =
-		ids_.insert(std::make_pair(text, static_cast<SpellingId>(texts_.size())));
-	if (entry.second)
+	// FNV-1a: a spelling is a handful of bytes, so a byte at a time with no
+	// set-up beats a block hash.
+	std::size_t value = 14695981039346656037ULL;
+	for (std::size_t index = 0; index < size; ++index)
 	{
-		// The map owns the text and never rehashes its nodes, so the pointer
-		// stays valid and the bytes are held once.
-		texts_.push_back(&entry.first->first);
+		value ^= static_cast<unsigned char>(text[index]);
+		value *= 1099511628211ULL;
 	}
-	return entry.first->second;
+	return value;
+}
+
+bool SpellingPool::matches(SpellingId id, const char* text,
+                           std::size_t size) const
+{
+	const Spelling& spelling = spellings_[id];
+	return spelling.size == size &&
+		std::memcmp(spelling.data, text, size) == 0;
+}
+
+std::size_t SpellingPool::slot_of(const char* text, std::size_t size) const
+{
+	std::size_t slot = hash(text, size) & mask_;
+	while (slots_[slot] != 0 && !matches(slots_[slot] - 1, text, size))
+	{
+		slot = (slot + 1) & mask_;
+	}
+	return slot;
+}
+
+const char* SpellingPool::store(const char* text, std::size_t size)
+{
+	if (blocks_.empty() || used_ + size > kBlockSize)
+	{
+		blocks_.push_back(std::vector<char>());
+		blocks_.back().resize(size > kBlockSize ? size : kBlockSize);
+		used_ = 0;
+	}
+	char* at = blocks_.back().data() + used_;
+	if (size != 0)
+	{
+		std::memcpy(at, text, size);
+	}
+	used_ += size;
+	return at;
+}
+
+void SpellingPool::grow()
+{
+	slots_.assign(slots_.size() * 2, 0);
+	mask_ = slots_.size() - 1;
+	for (std::size_t id = 0; id < spellings_.size(); ++id)
+	{
+		const Spelling& spelling = spellings_[id];
+		std::size_t slot = hash(spelling.data, spelling.size) & mask_;
+		while (slots_[slot] != 0)
+		{
+			slot = (slot + 1) & mask_;
+		}
+		slots_[slot] = static_cast<SpellingId>(id + 1);
+	}
+}
+
+SpellingId SpellingPool::intern(const char* text, std::size_t size)
+{
+	std::size_t slot = slot_of(text, size);
+	if (slots_[slot] != 0)
+	{
+		return slots_[slot] - 1;
+	}
+	// Kept under three quarters full: linear probing degrades sharply past
+	// that, and the table is one integer per slot.
+	if ((spellings_.size() + 1) * 4 >= slots_.size() * 3)
+	{
+		grow();
+		slot = slot_of(text, size);
+	}
+	const Spelling spelling = { store(text, size),
+		static_cast<std::uint32_t>(size) };
+	const SpellingId id = static_cast<SpellingId>(spellings_.size());
+	spellings_.push_back(spelling);
+	slots_[slot] = id + 1;
+	return id;
 }
 
 PaintSets::PaintSets()
@@ -124,17 +203,23 @@ PaintId PaintSets::intersect(PaintId left, PaintId right)
 	return result;
 }
 
-MacroTable::MacroTable(SpellingPool& spellings)
+MacroSpellings::MacroSpellings(SpellingPool& spellings)
+	: va_args(spellings.intern("__VA_ARGS__"))
+	, hash(spellings.intern("#"))
+	, alt_hash(spellings.intern("%:"))
+	, hash_hash(spellings.intern("##"))
+	, alt_hash_hash(spellings.intern("%:%:"))
+	, lparen(spellings.intern("("))
+	, rparen(spellings.intern(")"))
+	, comma(spellings.intern(","))
+	, ellipsis(spellings.intern("..."))
+	, define(spellings.intern("define"))
+	, undef(spellings.intern("undef"))
+{}
+
+MacroTable::MacroTable(SpellingPool& spellings, const MacroSpellings& spelled)
 	: spellings_(spellings)
-	, va_args_(spellings.intern("__VA_ARGS__"))
-	, hash_(spellings.intern("#"))
-	, alt_hash_(spellings.intern("%:"))
-	, hash_hash_(spellings.intern("##"))
-	, alt_hash_hash_(spellings.intern("%:%:"))
-	, lparen_(spellings.intern("("))
-	, rparen_(spellings.intern(")"))
-	, comma_(spellings.intern(","))
-	, ellipsis_(spellings.intern("..."))
+	, spelled_(spelled)
 {}
 
 void MacroTable::check_name(const MacroToken& token) const
@@ -143,7 +228,7 @@ void MacroTable::check_name(const MacroToken& token) const
 	{
 		throw macro_error("a macro name has to be an identifier");
 	}
-	if (token.spelling == va_args_)
+	if (token.spelling == spelled_.va_args)
 	{
 		// 16.3/5: `__VA_ARGS__` belongs to the replacement list of a variadic
 		// macro and nowhere else.
@@ -163,7 +248,7 @@ void MacroTable::define(const MacroToken* begin, const MacroToken* end)
 	MacroDefinition macro;
 	const MacroToken* body = begin + 2;
 	if (body != end && body->type == MacroTokenType::PreprocessingOpOrPunc &&
-	    body->spelling == lparen_ && !body->whitespace_before)
+	    body->spelling == spelled_.lparen && !body->whitespace_before)
 	{
 		macro.function_like = true;
 		body = parse_parameters(body + 1, end, macro);
@@ -178,7 +263,7 @@ const MacroToken* MacroTable::parse_parameters(const MacroToken* begin,
                                                MacroDefinition& macro) const
 {
 	const MacroToken* at = begin;
-	if (at != end && is_punctuation(*at, rparen_))
+	if (at != end && is_punctuation(*at, spelled_.rparen))
 	{
 		return at + 1;
 	}
@@ -188,7 +273,7 @@ const MacroToken* MacroTable::parse_parameters(const MacroToken* begin,
 		{
 			throw macro_error("#define parameter list is not terminated");
 		}
-		if (is_punctuation(*at, ellipsis_))
+		if (is_punctuation(*at, spelled_.ellipsis))
 		{
 			macro.variadic = true;
 		}
@@ -208,11 +293,11 @@ const MacroToken* MacroTable::parse_parameters(const MacroToken* begin,
 		{
 			throw macro_error("#define parameter list is not terminated");
 		}
-		if (is_punctuation(*at, rparen_))
+		if (is_punctuation(*at, spelled_.rparen))
 		{
 			return at + 1;
 		}
-		if (!is_punctuation(*at, comma_) || macro.variadic)
+		if (!is_punctuation(*at, spelled_.comma) || macro.variadic)
 		{
 			throw macro_error("#define parameters are a comma separated list");
 		}
@@ -227,7 +312,7 @@ std::uint32_t MacroTable::parameter_index(const MacroDefinition& macro,
 	{
 		return static_cast<std::uint32_t>(-1);
 	}
-	if (token.spelling == va_args_)
+	if (token.spelling == spelled_.va_args)
 	{
 		return macro.variadic
 			? static_cast<std::uint32_t>(macro.variadic_index())
@@ -250,8 +335,8 @@ void MacroTable::analyse_body(const MacroToken* begin, const MacroToken* end,
 	for (const MacroToken* at = begin; at != end; ++at)
 	{
 		const bool is_operator = at->type == MacroTokenType::PreprocessingOpOrPunc;
-		if (is_operator && (at->spelling == hash_hash_ ||
-		                    at->spelling == alt_hash_hash_))
+		if (is_operator && (at->spelling == spelled_.hash_hash ||
+		                    at->spelling == spelled_.alt_hash_hash))
 		{
 			if (macro.body.empty() || paste_pending)
 			{
@@ -273,7 +358,7 @@ void MacroTable::analyse_body(const MacroToken* begin, const MacroToken* end,
 		paste_pending = false;
 
 		if (macro.function_like && is_operator &&
-		    (at->spelling == hash_ || at->spelling == alt_hash_))
+		    (at->spelling == spelled_.hash || at->spelling == spelled_.alt_hash))
 		{
 			// 16.3.2: in a function-like macro `#` stringizes, so it has to
 			// name a parameter.
@@ -298,7 +383,7 @@ void MacroTable::analyse_body(const MacroToken* begin, const MacroToken* end,
 			item.parameter = parameter;
 		}
 		else if (at->type == MacroTokenType::Identifier &&
-		         at->spelling == va_args_)
+		         at->spelling == spelled_.va_args)
 		{
 			throw macro_error("__VA_ARGS__ needs a variadic macro");
 		}
@@ -315,6 +400,11 @@ void MacroTable::analyse_body(const MacroToken* begin, const MacroToken* end,
 	for (std::size_t index = 0; index < macro.body.size(); ++index)
 	{
 		MacroBodyItem& item = macro.body[index];
+		if (item.kind == MacroBodyItem::Stringize)
+		{
+			macro.keeps_raw_arguments = true;
+			continue;
+		}
 		if (item.kind != MacroBodyItem::Parameter)
 		{
 			continue;
@@ -322,7 +412,11 @@ void MacroTable::analyse_body(const MacroToken* begin, const MacroToken* end,
 		const bool pasted = item.paste_before ||
 			(index + 1 < macro.body.size() && macro.body[index + 1].paste_before);
 		item.raw_argument = pasted;
-		if (!pasted)
+		if (pasted)
+		{
+			macro.keeps_raw_arguments = true;
+		}
+		else
 		{
 			macro.expands_argument[item.parameter] = true;
 		}
@@ -342,7 +436,7 @@ void MacroTable::apply_gnu_comma_extension(MacroDefinition& macro) const
 		MacroBodyItem& before = macro.body[index - 1];
 		if (!item.paste_before || item.kind != MacroBodyItem::Parameter ||
 		    item.parameter != va || before.kind != MacroBodyItem::Token ||
-		    before.spelling != comma_)
+		    before.spelling != spelled_.comma)
 		{
 			continue;
 		}

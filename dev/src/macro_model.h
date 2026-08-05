@@ -21,22 +21,59 @@
 typedef std::uint32_t SpellingId;
 typedef std::uint32_t PaintId;
 
+// An interned spelling: the bytes the pool holds, which stay put for as long
+// as the pool does.
+struct Spelling
+{
+	const char* data;
+	std::uint32_t size;
+};
+
 // Interns preprocessing-token spellings.  The pool owns the text; ids are
 // dense, which is what lets the macro table be a vector indexed by name.
+//
+// Interning is on the path of every source token, so the text is packed into
+// blocks rather than allocated a string at a time, and the index is an open
+// addressed table of ids: one lookup touches the table and the bytes, and a
+// new spelling costs an append rather than a node.
 class SpellingPool
 {
 public:
 	SpellingPool();
 
-	SpellingId intern(const std::string& text);
+	SpellingId intern(const char* text, std::size_t size);
+	SpellingId intern(const std::string& text)
+	{
+		return intern(text.data(), text.size());
+	}
 
-	const std::string& text(SpellingId id) const { return *texts_[id]; }
-	std::size_t size() const { return texts_.size(); }
+	Spelling text(SpellingId id) const { return spellings_[id]; }
+	std::size_t size() const { return spellings_.size(); }
 
 private:
-	std::unordered_map<std::string, SpellingId> ids_;
-	std::vector<const std::string*> texts_;
+	static std::size_t hash(const char* text, std::size_t size);
+	bool matches(SpellingId id, const char* text, std::size_t size) const;
+	std::size_t slot_of(const char* text, std::size_t size) const;
+	void grow();
+	const char* store(const char* text, std::size_t size);
+
+	// The block a spelling is copied into is never resized, so a spelling's
+	// bytes have one address for the lifetime of the pool.
+	static const std::size_t kBlockSize = 64 * 1024;
+
+	std::vector<Spelling> spellings_;
+	// Slot contents are `id + 1`, so that zero is the empty slot.
+	std::vector<SpellingId> slots_;
+	std::size_t mask_;
+	std::vector<std::vector<char> > blocks_;
+	std::size_t used_;
 };
+
+// Appends the spelling to `text`.
+inline void append_spelling(std::string& text, Spelling spelling)
+{
+	text.append(spelling.data, spelling.size);
+}
 
 // The sets of macro names a token is hidden from, hash-consed so that a set is
 // one integer on a token and set equality is integer equality.
@@ -77,23 +114,23 @@ private:
 // of 16.3.3, and the control markers the rescan stack carries.
 enum class MacroTokenType : std::uint8_t
 {
-	WhitespaceSequence,
-	NewLine,
-	HeaderName,
-	Identifier,
-	PPNumber,
-	CharacterLiteral,
-	UserDefinedCharacterLiteral,
-	StringLiteral,
-	UserDefinedStringLiteral,
-	PreprocessingOpOrPunc,
-	NonWhitespaceChar,
-	EndOfFile,
+#define CPPGM_MACRO_TOKEN_TYPE_ENUMERATOR(name) name,
+	CPPGM_PP_TOKEN_TYPES(CPPGM_MACRO_TOKEN_TYPE_ENUMERATOR)
+#undef CPPGM_MACRO_TOKEN_TYPE_ENUMERATOR
 	Placemarker,
 	BeginSink,
 	EndArgument,
 	Substitute
 };
+
+// The two share their phase 3 prefix by construction, so converting between
+// them is a cast rather than a table.
+#define CPPGM_MACRO_TOKEN_TYPE_CHECK(name) \
+	static_assert(static_cast<std::uint8_t>(MacroTokenType::name) == \
+		static_cast<std::uint8_t>(PPTokenType::name), \
+		"the phase 3 and phase 4 token types have to agree");
+CPPGM_PP_TOKEN_TYPES(CPPGM_MACRO_TOKEN_TYPE_CHECK)
+#undef CPPGM_MACRO_TOKEN_TYPE_CHECK
 
 inline MacroTokenType macro_token_type(PPTokenType type)
 {
@@ -131,6 +168,26 @@ struct MacroToken
 // Whether `token` is the given operator or punctuator.
 bool is_punctuation(const MacroToken& token, SpellingId spelling);
 
+// The spellings phase 4 has to recognise, interned once so that recognising
+// one is an integer comparison.  The directive parse and the rescan look for
+// overlapping sets of them, so they are held in one place rather than by each.
+struct MacroSpellings
+{
+	explicit MacroSpellings(SpellingPool& spellings);
+
+	SpellingId va_args;
+	SpellingId hash;
+	SpellingId alt_hash;
+	SpellingId hash_hash;
+	SpellingId alt_hash_hash;
+	SpellingId lparen;
+	SpellingId rparen;
+	SpellingId comma;
+	SpellingId ellipsis;
+	SpellingId define;
+	SpellingId undef;
+};
+
 // One step of the substitution 16.3.3 describes, analysed once at definition
 // time so that an invocation is a walk rather than a re-parse.
 struct MacroBodyItem
@@ -165,10 +222,14 @@ struct MacroDefinition
 	// argument.  An argument that is only stringized or pasted is never
 	// expanded, which is what keeps `# x` of an ill-formed invocation legal.
 	std::vector<bool> expands_argument;
+	// Whether any parameter is used as `#` or `##` asks for it, so that the
+	// tokens an argument was written with have a reader after the prescan.
+	bool keeps_raw_arguments;
 
 	MacroDefinition()
 		: function_like(false)
 		, variadic(false)
+		, keeps_raw_arguments(false)
 	{}
 
 	// Named parameters plus the variadic one.
@@ -184,7 +245,7 @@ struct MacroDefinition
 class MacroTable
 {
 public:
-	explicit MacroTable(SpellingPool& spellings);
+	MacroTable(SpellingPool& spellings, const MacroSpellings& spelled);
 
 	// `tokens` is one directive line, starting at the `define` or `undef`
 	// identifier.  Throws SourceError when the directive is ill-formed.
@@ -219,19 +280,10 @@ private:
 	void install(SpellingId name, MacroDefinition& macro);
 
 	SpellingPool& spellings_;
+	const MacroSpellings& spelled_;
 	std::vector<std::int32_t> by_name_;
 	// A definition outlives its table entry, because an `#undef` followed by a
 	// `#define` keeps the old one addressable; a deque is what makes a
 	// definition pointer stable for as long as the expander holds it.
 	std::deque<MacroDefinition> definitions_;
-
-	SpellingId va_args_;
-	SpellingId hash_;
-	SpellingId alt_hash_;
-	SpellingId hash_hash_;
-	SpellingId alt_hash_hash_;
-	SpellingId lparen_;
-	SpellingId rparen_;
-	SpellingId comma_;
-	SpellingId ellipsis_;
 };

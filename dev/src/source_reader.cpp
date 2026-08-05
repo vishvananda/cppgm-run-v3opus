@@ -31,8 +31,9 @@ const std::size_t SourceReader::kLookaheadCapacity;
 const std::size_t SourceReader::kMaxRunLength;
 const std::size_t SourceReader::kBufferCapacity;
 
-SourceReader::SourceReader(std::string bytes)
+SourceReader::SourceReader(std::string bytes, SourceForm form)
 	: bytes_(std::move(bytes))
+	, form_(form)
 	, origin_(0)
 	, cursor_(0)
 	, head_(0)
@@ -99,7 +100,9 @@ void SourceReader::fill(std::size_t wanted)
 		if (cursor_ < bytes_.size())
 		{
 			const unsigned char unit = static_cast<unsigned char>(bytes_[cursor_]);
-			const bool translatable = !raw_mode_ && (unit == '?' || unit == '\\');
+			const bool translatable = !raw_mode_ &&
+				(unit == '\\' ||
+				 (unit == '?' && form_ == SourceForm::Physical));
 			if (unit < 0x80 && !translatable)
 			{
 				const Fetched simple = { static_cast<int>(unit), false, cursor_, cursor_ + 1 };
@@ -163,7 +166,7 @@ void SourceReader::push_backslash_run()
 			return;
 		}
 		const Fetched marker = trigraph_at(backslash.end);
-		if (marker.code_point == '\n')
+		if (marker.code_point == '\n' && form_ == SourceForm::Physical)
 		{
 			offset = marker.end;
 			continue;
@@ -268,6 +271,11 @@ SourceReader::Fetched SourceReader::decoded_at(std::size_t offset) const
 SourceReader::Fetched SourceReader::trigraph_at(std::size_t offset) const
 {
 	const Fetched first = decoded_at(offset);
+	if (form_ == SourceForm::Translated)
+	{
+		// Phase 1 has already run over these bytes; a `?` is a `?`.
+		return first;
+	}
 	if (first.code_point != '?' || offset + 2 >= bytes_.size())
 	{
 		return first;

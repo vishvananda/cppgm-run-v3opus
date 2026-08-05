@@ -210,8 +210,8 @@ bool ends_leading_digits(int code_point, int next)
 
 } // namespace
 
-PPTokenLexer::PPTokenLexer(std::string source)
-	: reader_(std::move(source))
+PPTokenLexer::PPTokenLexer(std::string source, SourceForm form)
+	: reader_(std::move(source), form)
 	, directive_(DirectiveState::LineStart)
 	, finished_(false)
 {}
