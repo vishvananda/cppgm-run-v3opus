@@ -83,6 +83,10 @@ bool DeclParser::parse_declarator_id(Namespace& where, DeclaratorId& id)
 			return false;
 		}
 		id.qualifier = scope;
+		// 3.4.3p3: the names after a qualified declarator-id are looked up in
+		// the namespace it names, which is what lets an array bound and an
+		// initializer of `int A::a[n];` mean `A::n`.
+		value_scope_ = scope;
 	}
 	if (!at(TT_IDENTIFIER))
 	{
@@ -176,11 +180,31 @@ bool DeclParser::parse_array_suffix(DeclaratorOperator& op)
 {
 	const Mark saved = mark();
 	advance();
+
+	// `pa8.gram` spells the bound as a constant-expression, which has to be
+	// analysed and evaluated; `pa7.gram` spells it as a literal, where the
+	// same two questions are the token's own.
+	if (image_ != nullptr)
+	{
+		if (!at(OP_RSQUARE))
+		{
+			ExprValue bound;
+			initializing_ = false;
+			if (!parse_expression(bound))
+			{
+				throw SemanticError("an array bound is not an expression");
+			}
+			op.bounded = true;
+			op.bound = init_->to_array_bound(bound);
+		}
+		expect(OP_RSQUARE);
+		return true;
+	}
+
 	if (at(TT_LITERAL))
 	{
 		// 8.3.4: the bound is a converted constant expression of type
-		// `std::size_t` whose value is greater than zero, and a PA7
-		// constant-expression is a literal, so both are decided here.
+		// `std::size_t` whose value is greater than zero.
 		const SemaToken& literal = token_at();
 		if (!literal.integral || literal.value == 0)
 		{
@@ -290,6 +314,13 @@ bool DeclParser::parse_parameter_clause(Namespace& where, DeclaratorOperator& op
 	op.parameters.reserve(declared.size());
 	for (std::size_t index = 0; index < declared.size(); ++index)
 	{
+		// 8.3.5p4: `void` is the empty parameter list or nothing at all, so a
+		// list that got here with a `void` in it declares a parameter of a
+		// type no object can have.
+		if (types_.is_void(declared[index]))
+		{
+			throw SemanticError("a parameter is declared with type void");
+		}
 		op.parameters.push_back(types_.adjust_parameter(declared[index]));
 	}
 	return true;
@@ -318,7 +349,8 @@ bool DeclParser::parse_parameter(Namespace& where, TypeId& type, bool& named)
 	return at(OP_COMMA) || at(OP_RPAREN) || at(OP_DOTS);
 }
 
-TypeId DeclParser::build_type(const DeclaratorNode& node, TypeId base)
+TypeId DeclParser::build_type(const DeclaratorNode& node, TypeId base,
+                              bool* function_declarator)
 {
 	// 8.3: the ptr-operators of a declarator apply to the type its
 	// decl-specifier-seq gave, the suffixes apply to that from the last one
@@ -326,34 +358,80 @@ TypeId DeclParser::build_type(const DeclaratorNode& node, TypeId base)
 	// result.  Parenthesization nests but does not branch, so one loop walks
 	// however deep it goes.
 	TypeId type = base;
+	bool written_reference = false;
+	DeclaratorOperator::Kind outermost = DeclaratorOperator::kPointer;
+	bool derived = false;
 	for (const DeclaratorNode* current = &node; current != nullptr;
 	     current = current->inner)
 	{
 		for (std::size_t index = 0; index < current->prefix.size(); ++index)
 		{
-			type = apply(current->prefix[index], type);
+			type = apply(current->prefix[index], type, written_reference);
+			outermost = current->prefix[index].kind;
+			derived = true;
 		}
 		for (std::size_t index = current->suffix.size(); index-- > 0; )
 		{
-			type = apply(current->suffix[index], type);
+			type = apply(current->suffix[index], type, written_reference);
+			outermost = current->suffix[index].kind;
+			derived = true;
 		}
+	}
+	if (function_declarator != nullptr)
+	{
+		*function_declarator = derived && outermost == DeclaratorOperator::kFunction;
 	}
 	return type;
 }
 
-TypeId DeclParser::apply(const DeclaratorOperator& op, TypeId type)
+TypeId DeclParser::apply(const DeclaratorOperator& op, TypeId type, bool& written_reference)
 {
+	// 8.3.1p4, 8.3.2p5 and 8.3.4p1 forbid shapes the type table would build
+	// happily, and 8.3.2p6 collapses a reference to a reference only when the
+	// inner one was denoted by a typedef rather than written here.
+	const bool reference = types_.is_reference(type);
+	const bool was_written = written_reference;
+	written_reference = false;
 	switch (op.kind)
 	{
 	case DeclaratorOperator::kPointer:
+		if (reference)
+		{
+			throw SemanticError("a declarator declares a pointer to a reference");
+		}
 		return types_.qualified(types_.pointer_to(type), op.cv);
+
 	case DeclaratorOperator::kLValueReference:
-		return types_.reference_to(type, false);
 	case DeclaratorOperator::kRValueReference:
-		return types_.reference_to(type, true);
+		if (was_written)
+		{
+			throw SemanticError("a declarator declares a reference to a reference");
+		}
+		if (types_.is_void(type))
+		{
+			throw SemanticError("a declarator declares a reference to void");
+		}
+		written_reference = true;
+		return types_.reference_to(type, op.kind == DeclaratorOperator::kRValueReference);
+
 	case DeclaratorOperator::kArray:
+		if (reference || types_.is_void(type) || types_.kind(type) == TypeKind::Function)
+		{
+			throw SemanticError("a declarator declares an array of a type that has no size");
+		}
+		if (types_.kind(type) == TypeKind::Array && !types_.bounded(type))
+		{
+			throw SemanticError("a declarator declares an array of an incomplete type");
+		}
 		return types_.array_of(type, op.bounded, op.bound);
+
 	default:
+		// 8.3.5p8.
+		if (types_.kind(type) == TypeKind::Array || types_.kind(type) == TypeKind::Function)
+		{
+			throw SemanticError("a declarator declares a function returning an array "
+			                    "or a function");
+		}
 		return types_.function_of(type, op.parameters, op.variadic);
 	}
 }

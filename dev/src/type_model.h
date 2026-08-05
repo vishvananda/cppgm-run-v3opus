@@ -93,6 +93,37 @@ public:
 	// parameter of a function.  A cv-qualified `void` is not it.
 	bool is_plain_void(TypeId type) const;
 
+	// True for `void` however it is qualified, which 3.9p5 makes the one
+	// fundamental type an object can never have.
+	bool is_void(TypeId type) const;
+
+	bool is_reference(TypeId type) const
+	{
+		return kind(type) == TypeKind::LValueReference ||
+			kind(type) == TypeKind::RValueReference;
+	}
+
+	// 3.9p6: a type an object cannot be made of, because its size is not
+	// known: `void` and an array whose bound is missing at any dimension.
+	bool is_incomplete(TypeId type) const;
+
+	// `type` with its top level cv-qualifiers removed, which is the type 4p1
+	// gives a prvalue of it.
+	TypeId strip_cv(TypeId type);
+
+	// The course ABI size and alignment of an object of `type`, in bytes.  A
+	// reference is an 8 byte pointer and a function is the 4 byte mock stub of
+	// the assignment.  Zero for an incomplete type, which has neither.
+	unsigned long long object_size(TypeId type) const;
+	unsigned long long object_align(TypeId type) const;
+
+	// What makes two function declarations declare the same function under
+	// 3.5 and 13.1: their parameter type lists, already adjusted by 8.3.5p5.
+	std::uint32_t signature(TypeId type) const
+	{
+		return (nodes_[type].parameters << 1) | (nodes_[type].variadic ? 1u : 0u);
+	}
+
 	// The type in the form PA2 and PA7 print it in.
 	std::string description(TypeId type) const;
 

@@ -45,6 +45,14 @@ struct Entity
 	NameId name;
 	TypeId type;       // Variable, Function and Typedef
 	Namespace* space;  // Namespace
+	// 3.5 and 13.1: two functions of one name in one namespace are two
+	// entities whenever their parameter type lists differ, so the binding of
+	// the name reaches an overload set rather than one declaration.
+	Entity* overload;
+	// PA8: the object of the program image this entity denotes, or zero.  A
+	// typedef-name and a namespace denote no object, and neither does an
+	// entity a tool that only describes declarations ever asks about.
+	std::uint32_t symbol;
 };
 
 // Which entities a lookup accepts.  3.4 gives contexts that see only part of
@@ -153,17 +161,48 @@ public:
 	// an entity that must already exist.
 	void redeclare(Entity& entity, EntityKind kind, TypeId type);
 
+	// 8.3.4p4 and 3.9p7: the one type two declarations of an entity agree on,
+	// which is either the same type twice or an array a bound completed.
+	TypeId merged(TypeId declared, TypeId again);
+
 	// Binds an existing entity to a name in `where`, as a using-declaration
-	// and a namespace-alias-definition do.
+	// does.
 	void bind(Namespace& where, NameId name, Entity& entity);
+
+	// 7.3.2p3: a namespace-alias-definition, which may name what an alias
+	// already declared here names and nothing else.  The alias is remembered
+	// as such because 7.3.1 will not let a namespace-definition reopen a
+	// namespace through one.
+	void bind_alias(Namespace& where, NameId name, Entity& entity);
 
 	Entity* lookup_unqualified(Namespace& from, NameId name, LookupFilter filter);
 	Entity* lookup_qualified(Namespace& in, NameId name, LookupFilter filter);
 
 private:
+	// What tells two functions of one name in one namespace apart: 3.5 and
+	// 13.1 say it is their parameter type lists, and nothing else.
+	struct OverloadKey
+	{
+		std::uint64_t binding;
+		std::uint32_t signature;
+
+		bool operator==(const OverloadKey& other) const
+		{
+			return binding == other.binding && signature == other.signature;
+		}
+	};
+
+	struct OverloadKeyHash
+	{
+		std::size_t operator()(const OverloadKey& key) const;
+	};
+
 	Namespace& create(Namespace& parent, NameId name, bool is_inline);
 	Entity& create_entity(EntityKind kind, NameId name, TypeId type);
-	TypeId merged(TypeId declared, TypeId again);
+	Entity& create_function(Namespace& where, NameId name, TypeId type);
+	// The name in the namespace, as one word, which is how a fact about a
+	// binding rather than about an entity is keyed.
+	static std::uint64_t binding_key(const Namespace& where, NameId name);
 	// Adds every namespace of `edges` not yet reached by this walk to `out`.
 	void reach(const std::vector<Namespace*>& edges, std::vector<Namespace*>& out);
 
@@ -195,6 +234,14 @@ private:
 	// word, so writing the same one twice costs a probe rather than a scan of
 	// everything the namespace already nominates.
 	std::unordered_set<std::uint64_t> nominations_;
+	// The names a namespace-alias-definition introduced, keyed the same way,
+	// so that a namespace which never wrote an alias - almost all of them -
+	// carries nothing for the ones that did.
+	std::unordered_set<std::uint64_t> aliases_;
+	// Every function declared so far, by what makes it its own entity, so that
+	// redeclaring one costs a probe rather than a walk of everything the name
+	// already reaches.
+	std::unordered_map<OverloadKey, Entity*, OverloadKeyHash> overloads_;
 	std::vector<Namespace*> cached_;
 	// Scratch kept between walks so that a walk allocates nothing: the
 	// namespaces reached, the queue of a qualified lookup, and one bucket per
@@ -203,6 +250,11 @@ private:
 	std::vector<Namespace*> search_;
 	std::vector<std::vector<Namespace*> > anchored_;
 };
+
+// 3.3.6: true when `outer` is `inner` or is one of the namespaces enclosing
+// it, which is what 7.3.1.2p2 asks of a declaration written outside the
+// namespace whose member it declares.
+bool encloses(const Namespace& outer, const Namespace& inner);
 
 // Writes the description of `space` and of everything it declares.
 void write_namespace(std::ostream& out, const Namespace& space,

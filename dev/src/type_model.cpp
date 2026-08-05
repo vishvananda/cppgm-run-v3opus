@@ -1,5 +1,6 @@
 #include "type_model.h"
 
+#include <stdexcept>
 #include <utility>
 
 namespace
@@ -286,6 +287,81 @@ bool TypeTable::is_plain_void(TypeId type) const
 {
 	return kind(type) == TypeKind::Fundamental && cv(type) == 0 &&
 		fundamental_type(type) == FT_VOID;
+}
+
+bool TypeTable::is_void(TypeId type) const
+{
+	return kind(type) == TypeKind::Fundamental && fundamental_type(type) == FT_VOID;
+}
+
+bool TypeTable::is_incomplete(TypeId type) const
+{
+	// A declarator may write more dimensions than a machine stack has frames,
+	// so the way to the element type is a loop.
+	while (kind(type) == TypeKind::Array)
+	{
+		if (!bounded(type))
+		{
+			return true;
+		}
+		type = target(type);
+	}
+	return is_void(type);
+}
+
+TypeId TypeTable::strip_cv(TypeId type)
+{
+	return unqualified(type);
+}
+
+unsigned long long TypeTable::object_size(TypeId type) const
+{
+	unsigned long long count = 1;
+	while (kind(type) == TypeKind::Array)
+	{
+		if (!bounded(type))
+		{
+			return 0;
+		}
+		const unsigned long long dimension = bound(type);
+		if (dimension != 0 && count > (~0ULL) / dimension)
+		{
+			throw std::overflow_error("an object of the program is too large");
+		}
+		count *= dimension;
+		type = target(type);
+	}
+
+	const unsigned long long unit = object_align(type);
+	if (unit != 0 && count > (~0ULL) / unit)
+	{
+		throw std::overflow_error("an object of the program is too large");
+	}
+	return count * (kind(type) == TypeKind::Fundamental
+		? fundamental_type_size(fundamental_type(type))
+		: unit);
+}
+
+// The assignment fixes the alignment of every fundamental type at its size, of
+// every pointer and reference at 8, and of the mock function stub at 4; an
+// array takes its element's.
+unsigned long long TypeTable::object_align(TypeId type) const
+{
+	while (kind(type) == TypeKind::Array)
+	{
+		type = target(type);
+	}
+	switch (kind(type))
+	{
+	case TypeKind::Fundamental:
+		return fundamental_type_size(fundamental_type(type));
+
+	case TypeKind::Function:
+		return 4;
+
+	default:
+		return 8;
+	}
 }
 
 std::string TypeTable::description(TypeId type) const

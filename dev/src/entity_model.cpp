@@ -2,11 +2,8 @@
 
 #include <ostream>
 
-namespace
-{
-
-// True when `outer` is `inner` or encloses it.  The depths make the walk one
-// of known length and let a mismatch be rejected before it starts.
+// The depths make the walk one of known length and let a mismatch be rejected
+// before it starts.
 bool encloses(const Namespace& outer, const Namespace& inner)
 {
 	const Namespace* space = &inner;
@@ -20,6 +17,9 @@ bool encloses(const Namespace& outer, const Namespace& inner)
 	}
 	return false;
 }
+
+namespace
+{
 
 bool accepts(LookupFilter filter, const Entity& entity)
 {
@@ -85,8 +85,31 @@ Entity& TranslationUnitModel::create_entity(EntityKind kind, NameId name, TypeId
 	entity.name = name;
 	entity.type = type;
 	entity.space = nullptr;
+	entity.overload = nullptr;
+	entity.symbol = 0;
 	entities_.push_back(entity);
 	return entities_.back();
+}
+
+std::uint64_t TranslationUnitModel::binding_key(const Namespace& where, NameId name)
+{
+	return (static_cast<std::uint64_t>(where.id_) << 32) | name;
+}
+
+std::size_t TranslationUnitModel::OverloadKeyHash::operator()(const OverloadKey& key) const
+{
+	const std::uint64_t mixed = (key.binding ^ (key.binding >> 29)) * 1099511628211ULL;
+	const std::uint64_t hash = (mixed ^ key.signature) * 1099511628211ULL;
+	return static_cast<std::size_t>(hash ^ (hash >> 32));
+}
+
+Entity& TranslationUnitModel::create_function(Namespace& where, NameId name, TypeId type)
+{
+	Entity& entity = create_entity(EntityKind::Function, name, type);
+	const OverloadKey key = {binding_key(where, name), types_.signature(type)};
+	overloads_.insert(std::make_pair(key, &entity));
+	where.functions_.push_back(&entity);
+	return entity;
 }
 
 Namespace& TranslationUnitModel::open_namespace(Namespace& parent, NameId name,
@@ -98,7 +121,8 @@ Namespace& TranslationUnitModel::open_namespace(Namespace& parent, NameId name,
 	// or an alias names an entity that lives elsewhere, and extending it is
 	// not what this definition means.
 	if (bound != nullptr && bound->kind == EntityKind::Namespace &&
-	    bound->space->parent() == &parent)
+	    bound->space->parent() == &parent &&
+	    aliases_.find(binding_key(parent, name)) == aliases_.end())
 	{
 		if (is_inline && !bound->space->is_inline())
 		{
@@ -196,10 +220,39 @@ Entity& TranslationUnitModel::declare(Namespace& where, EntityKind kind, NameId 
                                       TypeId type)
 {
 	Entity* bound = where.find(name);
+	if (bound != nullptr && kind == EntityKind::Function &&
+	    bound->kind == EntityKind::Function)
+	{
+		// 3.5 and 13.1: this declares the function already declared here only
+		// if their parameter type lists are the same; otherwise it adds
+		// another function to the overload set the name reaches.  The set is
+		// a list only so that an expression can see that it has more than one
+		// member, so a new member goes in behind the binding rather than at
+		// the end of it.
+		const OverloadKey key = {binding_key(where, name), types_.signature(type)};
+		const std::unordered_map<OverloadKey, Entity*, OverloadKeyHash>::iterator found =
+			overloads_.find(key);
+		if (found != overloads_.end())
+		{
+			redeclare(*found->second, kind, type);
+			return *found->second;
+		}
+		Entity& entity = create_function(where, name, type);
+		entity.overload = bound->overload;
+		bound->overload = &entity;
+		return entity;
+	}
 	if (bound != nullptr)
 	{
 		redeclare(*bound, kind, type);
 		return *bound;
+	}
+
+	if (kind == EntityKind::Function)
+	{
+		Entity& entity = create_function(where, name, type);
+		where.bindings_[name] = &entity;
+		return entity;
 	}
 
 	Entity& entity = create_entity(kind, name, type);
@@ -207,10 +260,6 @@ Entity& TranslationUnitModel::declare(Namespace& where, EntityKind kind, NameId 
 	if (kind == EntityKind::Variable)
 	{
 		where.variables_.push_back(&entity);
-	}
-	else if (kind == EntityKind::Function)
-	{
-		where.functions_.push_back(&entity);
 	}
 	return entity;
 }
@@ -236,6 +285,24 @@ void TranslationUnitModel::bind(Namespace& where, NameId name, Entity& entity)
 		throw SemanticError("a name is bound to two entities in one namespace");
 	}
 	where.bindings_[name] = &entity;
+}
+
+void TranslationUnitModel::bind_alias(Namespace& where, NameId name, Entity& entity)
+{
+	const std::uint64_t key = binding_key(where, name);
+	Entity* bound = where.find(name);
+	if (bound != nullptr)
+	{
+		// 7.3.2p3: only an alias declared in this region may be written
+		// again, and only for the namespace it already names.
+		if (bound != &entity || aliases_.find(key) == aliases_.end())
+		{
+			throw SemanticError("a namespace alias redeclares a name of this namespace");
+		}
+		return;
+	}
+	where.bindings_[name] = &entity;
+	aliases_.insert(key);
 }
 
 const std::vector<Namespace*>& TranslationUnitModel::levels(Namespace& from)

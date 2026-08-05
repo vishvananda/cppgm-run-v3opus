@@ -25,8 +25,13 @@ FRONTEND_OBJ_BASENAMES_recog := source_charset source_reader pptoken_lexer \
 FRONTEND_OBJ_BASENAMES_nsdecl := source_charset source_reader pptoken_lexer \
 	token_model literal_scan string_literal posttokenizer \
 	macro_model macro_expander ctrl_expr source_files preprocessor \
-	sema_token type_model entity_model decl_parser decl_parser_declarator
-FRONTEND_OBJ_BASENAMES_nsinit :=
+	sema_token type_model entity_model program_model init_semantics \
+	decl_parser decl_parser_declarator decl_parser_expression decl_parser_object
+FRONTEND_OBJ_BASENAMES_nsinit := source_charset source_reader pptoken_lexer \
+	token_model literal_scan string_literal posttokenizer \
+	macro_model macro_expander ctrl_expr source_files preprocessor \
+	sema_token type_model entity_model program_model init_semantics \
+	decl_parser decl_parser_declarator decl_parser_expression decl_parser_object
 FRONTEND_OBJ_BASENAMES_cy86 :=
 FRONTEND_OBJ_BASENAMES_cppgm++ :=
 FRONTEND_OBJ_BASENAMES_lowiropt :=

@@ -2,6 +2,11 @@
 
 DeclParser::Specifiers::Specifiers()
 	: is_typedef(false)
+	, is_static(false)
+	, is_extern(false)
+	, is_thread_local(false)
+	, is_inline(false)
+	, is_constexpr(false)
 	, has_type_name(false)
 	, cv(kCvNone)
 	, type_name(kNoType)
@@ -15,11 +20,16 @@ DeclParser::Specifiers::Specifiers()
 }
 
 DeclParser::DeclParser(const std::vector<SemaToken>& tokens, TypeTable& types,
-                       TranslationUnitModel& model)
+                       TranslationUnitModel& model, const ImageContext* image)
 	: tokens_(tokens)
 	, pos_(0)
 	, types_(types)
 	, model_(model)
+	, literals_(image == nullptr ? nullptr : image->literals)
+	, image_(image == nullptr ? nullptr : image->image)
+	, init_(image == nullptr ? nullptr : image->init)
+	, value_scope_(&model.global())
+	, initializing_(false)
 {}
 
 void DeclParser::expect(unsigned type)
@@ -89,6 +99,11 @@ void DeclParser::parse_declaration(Namespace& where)
 		parse_using_declaration(where);
 		return;
 	}
+	if (image_ != nullptr && at(KW_STATIC_ASSERT))
+	{
+		parse_static_assert_declaration(where);
+		return;
+	}
 	parse_simple_declaration(where);
 }
 
@@ -128,7 +143,7 @@ void DeclParser::parse_namespace_alias_definition(Namespace& where)
 	expect(OP_ASS);
 	Entity& target = resolve_namespace_name(where);
 	expect(OP_SEMICOLON);
-	model_.bind(where, name, target);
+	model_.bind_alias(where, name, target);
 }
 
 void DeclParser::parse_using_directive(Namespace& where)
@@ -161,6 +176,11 @@ void DeclParser::parse_using_declaration(Namespace& where)
 	{
 		throw SemanticError("a using-declaration names an entity that does not exist");
 	}
+	// 7.3.3p8: a using-declaration shall not name a namespace.
+	if (entity->kind == EntityKind::Namespace)
+	{
+		throw SemanticError("a using-declaration names a namespace");
+	}
 	model_.bind(where, name, *entity);
 }
 
@@ -181,22 +201,57 @@ void DeclParser::parse_alias_declaration(Namespace& where)
 
 void DeclParser::parse_simple_declaration(Namespace& where)
 {
+	// 3.4.3p3: a name written here is looked up in this namespace until a
+	// qualified declarator-id says otherwise.
+	value_scope_ = &where;
+
 	Specifiers specifiers;
 	if (!parse_specifier_seq(where, true, specifiers))
 	{
 		throw SemanticError("a declaration has no decl-specifier-seq");
 	}
+	check_storage_class(specifiers);
 	const TypeId base = specifier_type(specifiers);
 
+	bool first = true;
 	for (;;)
 	{
 		DeclaratorId id;
+		bool function_declarator = false;
 		DeclaratorNode* node = parse_declarator(where, true, id);
 		if (node == nullptr || id.name == kNoName)
 		{
 			throw SemanticError("a declarator declares no name");
 		}
-		declare(where, specifiers, id, build_type(*node, base));
+		TypeId type = build_type(*node, base, &function_declarator);
+		if (specifiers.is_constexpr)
+		{
+			// 7.1.5p1: `constexpr` on the declaration of an object declares
+			// the object const, which is what decides its linkage under 3.5p3
+			// and what a redeclaration of it has to say too.
+			type = types_.qualified(type, kCvConst);
+		}
+
+		// `function-definition` and `simple-declaration` share their first two
+		// parts, so which one this is only becomes clear at the body.
+		const bool body = image_ != nullptr && first && at(OP_LBRACE);
+		if (body && (!function_declarator || types_.kind(type) != TypeKind::Function))
+		{
+			// 8.4p1: the declarator of a function-definition shall declare a
+			// function, which a typedef-name for one does not.
+			throw SemanticError("a function definition does not declare a function");
+		}
+
+		Entity& entity = declare(where, specifiers, id, type);
+		if (image_ != nullptr)
+		{
+			analyse_object(where, specifiers, id, entity, type, body);
+		}
+		if (body)
+		{
+			return;
+		}
+		first = false;
 		if (!accept(OP_COMMA))
 		{
 			break;
@@ -205,34 +260,69 @@ void DeclParser::parse_simple_declaration(Namespace& where)
 	expect(OP_SEMICOLON);
 }
 
-void DeclParser::declare(Namespace& where, const Specifiers& specifiers,
-                         const DeclaratorId& id, TypeId type)
+EntityKind DeclParser::declared_kind(const Specifiers& specifiers, TypeId type,
+                                     const TypeTable& types)
 {
-	EntityKind kind = EntityKind::Variable;
 	if (specifiers.is_typedef)
 	{
-		kind = EntityKind::Typedef;
+		return EntityKind::Typedef;
 	}
-	else if (types_.kind(type) == TypeKind::Function)
-	{
-		kind = EntityKind::Function;
-	}
+	return types.kind(type) == TypeKind::Function ? EntityKind::Function
+	                                             : EntityKind::Variable;
+}
 
+// 7.1.1p1: a declaration has at most one storage class specifier, except that
+// `thread_local` may join `static` or `extern`, and `typedef` is a specifier
+// that admits none of the others.
+void DeclParser::check_storage_class(const Specifiers& specifiers)
+{
+	if (specifiers.is_static && specifiers.is_extern)
+	{
+		throw SemanticError("a declaration is both static and extern");
+	}
+	if (specifiers.is_typedef &&
+	    (specifiers.is_static || specifiers.is_extern || specifiers.is_thread_local ||
+	     specifiers.is_inline || specifiers.is_constexpr))
+	{
+		throw SemanticError("a typedef declaration has another specifier");
+	}
+}
+
+Entity& DeclParser::declare(Namespace& where, const Specifiers& specifiers,
+                            const DeclaratorId& id, TypeId type)
+{
+	const EntityKind kind = declared_kind(specifiers, type, types_);
 	if (id.qualifier == nullptr)
 	{
-		model_.declare(where, kind, id.name, type);
-		return;
+		return model_.declare(where, kind, id.name, type);
+	}
+
+	// 7.3.1.2p2: a member may be declared outside its namespace, but only in a
+	// namespace that encloses it.
+	if (!encloses(where, *id.qualifier))
+	{
+		throw SemanticError("a qualified declarator-id names a member of a namespace "
+		                    "this one does not enclose");
 	}
 
 	// 8.3p1: a qualified declarator-id redeclares a member of the namespace it
 	// names, so nothing new is declared and the entity keeps the place it
 	// already has in that namespace.
 	Entity* entity = model_.lookup_qualified(*id.qualifier, id.name, LookupFilter::Any);
+	if (entity != nullptr && kind == EntityKind::Function &&
+	    entity->kind == EntityKind::Function)
+	{
+		while (entity != nullptr && types_.signature(entity->type) != types_.signature(type))
+		{
+			entity = entity->overload;
+		}
+	}
 	if (entity == nullptr)
 	{
 		throw SemanticError("a qualified declarator-id names nothing");
 	}
 	model_.redeclare(*entity, kind, type);
+	return *entity;
 }
 
 bool DeclParser::parse_nested_name_specifier(Namespace& where, Namespace*& out)
@@ -348,16 +438,16 @@ bool DeclParser::parse_specifier_seq(Namespace& where, bool declaration, Specifi
 	{
 		const unsigned token = peek();
 		if (declaration &&
-		    (token == KW_STATIC || token == KW_THREAD_LOCAL || token == KW_EXTERN))
+		    (token == KW_STATIC || token == KW_THREAD_LOCAL || token == KW_EXTERN ||
+		     token == KW_TYPEDEF || token == KW_INLINE || token == KW_CONSTEXPR))
 		{
 			advance();
-			++out.count;
-			continue;
-		}
-		if (declaration && token == KW_TYPEDEF)
-		{
-			advance();
-			out.is_typedef = true;
+			out.is_static |= token == KW_STATIC;
+			out.is_thread_local |= token == KW_THREAD_LOCAL;
+			out.is_extern |= token == KW_EXTERN;
+			out.is_typedef |= token == KW_TYPEDEF;
+			out.is_inline |= token == KW_INLINE;
+			out.is_constexpr |= token == KW_CONSTEXPR;
 			++out.count;
 			continue;
 		}
@@ -410,8 +500,53 @@ TypeId DeclParser::specifier_type(const Specifiers& specifiers)
 	{
 		throw SemanticError("a declaration names no type");
 	}
+	if (!table_10_names_a_type(specifiers.counted))
+	{
+		throw SemanticError("the simple-type-specifiers of a declaration name no type");
+	}
 	return types_.qualified(types_.fundamental(table_10_type(specifiers.counted)),
 	                       specifiers.cv);
+}
+
+// Table 10 pairs a set of simple-type-specifiers with a type, and a set the
+// table does not list names nothing.  `long` is the one specifier that may
+// appear twice, `signed` and `unsigned` exclude each other, and the specifiers
+// that name a type on their own admit no company but a signedness.
+bool DeclParser::table_10_names_a_type(const unsigned* counted)
+{
+	unsigned total = 0;
+	for (std::size_t index = 0; index < kSimpleTypeSpecifierCount; ++index)
+	{
+		if (counted[index] > (index == kSpecLong ? 2u : 1u))
+		{
+			return false;
+		}
+		total += counted[index];
+	}
+	if (counted[kSpecSigned] != 0 && counted[kSpecUnsigned] != 0)
+	{
+		return false;
+	}
+	const unsigned sign = counted[kSpecSigned] + counted[kSpecUnsigned];
+
+	if (counted[kSpecVoid] != 0 || counted[kSpecBool] != 0 || counted[kSpecChar16] != 0 ||
+	    counted[kSpecChar32] != 0 || counted[kSpecWchar] != 0 || counted[kSpecFloat] != 0)
+	{
+		return total == 1;
+	}
+	if (counted[kSpecChar] != 0)
+	{
+		return total == 1 + sign;
+	}
+	if (counted[kSpecDouble] != 0)
+	{
+		return counted[kSpecLong] <= 1 && total == 1 + counted[kSpecLong];
+	}
+	if (counted[kSpecShort] != 0)
+	{
+		return counted[kSpecLong] == 0 && total == 1 + sign + counted[kSpecInt];
+	}
+	return total != 0 && total == sign + counted[kSpecInt] + counted[kSpecLong];
 }
 
 // A specifier that decides the type on its own is asked about first; what is

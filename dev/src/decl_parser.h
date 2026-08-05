@@ -5,10 +5,13 @@
 #include <vector>
 
 #include "entity_model.h"
+#include "init_semantics.h"
 #include "name_table.h"
 #include "parse_depth.h"
+#include "program_model.h"
 #include "sema_token.h"
 #include "type_model.h"
+#include "value_model.h"
 
 // One `ptr-operator` or `noptr-declarator-suffix` of a declarator, as written.
 struct DeclaratorOperator
@@ -69,8 +72,22 @@ struct DeclaratorId
 	NameId name;
 };
 
-// The PA7 parser: `pa7.gram` with the semantic actions that build the object
-// model of one translation unit.
+// What a tool that builds a program image lends the parser.
+//
+// Its presence is what selects `pa8.gram` over `pa7.gram` and the diagnostics
+// that come with it: PA7 leaves an ill-formed program undefined and describes
+// what it can, while PA8 has to refuse one, so the two cannot share a single
+// answer to "is this program well formed".
+struct ImageContext
+{
+	const std::vector<LiteralValue>* literals;
+	ProgramImage* image;
+	InitSemantics* init;
+};
+
+// The declaration parser: `pa7.gram` or `pa8.gram` with the semantic actions
+// that build the object model of one translation unit and, for PA8, the
+// program image the whole run shares.
 //
 // Unlike the PA6 recognizer this parser cannot ask the grammar alone what a
 // name is - `simple-type-specifier` admits an identifier only when a scope
@@ -82,7 +99,7 @@ class DeclParser
 {
 public:
 	DeclParser(const std::vector<SemaToken>& tokens, TypeTable& types,
-	           TranslationUnitModel& model);
+	           TranslationUnitModel& model, const ImageContext* image = nullptr);
 
 	// Parses `translation-unit`.  Throws SemanticError for a token sequence
 	// the assignment gives no meaning to.
@@ -116,6 +133,14 @@ private:
 		Specifiers();
 
 		bool is_typedef;
+		// 7.1.1 storage class, 7.1.2 function and 7.1.5 constexpr specifiers,
+		// which decide linkage, what a declaration defines, and whether its
+		// initializer has to be a constant expression.
+		bool is_static;
+		bool is_extern;
+		bool is_thread_local;
+		bool is_inline;
+		bool is_constexpr;
 		bool has_type_name;
 		unsigned cv;
 		TypeId type_name;
@@ -178,8 +203,35 @@ private:
 	void parse_using_directive(Namespace& where);
 	void parse_alias_declaration(Namespace& where);
 	void parse_simple_declaration(Namespace& where);
-	void declare(Namespace& where, const Specifiers& specifiers, const DeclaratorId& id,
-	             TypeId type);
+	Entity& declare(Namespace& where, const Specifiers& specifiers, const DeclaratorId& id,
+	                TypeId type);
+	static EntityKind declared_kind(const Specifiers& specifiers, TypeId type,
+	                                const TypeTable& types);
+	// 7.1.1p1: the storage class specifiers a declaration may combine.
+	static void check_storage_class(const Specifiers& specifiers);
+
+	// Objects and initialization, which only PA8 has (decl_parser_object.cpp).
+	void parse_static_assert_declaration(Namespace& where);
+	// Gives `entity` its object in the program image, applies what this
+	// declaration says about it, and reads and analyses its initializer.
+	void analyse_object(Namespace& where, const Specifiers& specifiers,
+	                    const DeclaratorId& id, Entity& entity, TypeId type,
+	                    bool is_function_body);
+	Symbol& link_object(Namespace& home, const Specifiers& specifiers, Entity& entity,
+	                    NameId name, TypeId type);
+	// 3.1p2: whether this declaration defines the entity, with the checks
+	// 8.5p6, 8.5.3p3 and 7.1.5p9 make of one that does.
+	bool defines_object(const Specifiers& specifiers, TypeId type, bool has_initializer,
+	                    bool is_function_body);
+	void set_initial_value(Symbol& symbol, const Specifiers& specifiers, TypeId& type,
+	                       const ExprValue& source);
+
+	// Expressions (decl_parser_expression.cpp).
+	bool parse_expression(ExprValue& out);
+	bool parse_id_expression(ExprValue& out);
+	ExprValue literal_expression();
+	ExprValue entity_expression(const Entity& entity);
+	ExprValue keyword_expression(unsigned token);
 
 	// Names.
 	bool parse_nested_name_specifier(Namespace& where, Namespace*& out);
@@ -190,6 +242,8 @@ private:
 	static int builtin_specifier(unsigned token);
 	// Table 10 of 7.1.6.2, read off the simple-type-specifiers that appeared.
 	static EFundamentalType table_10_type(const unsigned* counted);
+	// Whether Table 10 has a row for the specifiers that appeared at all.
+	static bool table_10_names_a_type(const unsigned* counted);
 	bool parse_specifier_seq(Namespace& where, bool declaration, Specifiers& out);
 	TypeId specifier_type(const Specifiers& specifiers);
 	bool parse_type_id(Namespace& where, TypeId& out);
@@ -206,13 +260,33 @@ private:
 	// 8.2p3: at an `(`, whether what follows is a parameter-declaration-clause
 	// rather than a parenthesized declarator.
 	bool starts_parameter_clause(Namespace& where);
-	TypeId build_type(const DeclaratorNode& node, TypeId base);
-	TypeId apply(const DeclaratorOperator& op, TypeId type);
+	// 8.3: the type the declarator derives from `base`.  `function_declarator`
+	// says whether the outermost thing it derived is a function, which 8.4p1
+	// asks of a function-definition and which a typedef-name cannot answer
+	// for.
+	TypeId build_type(const DeclaratorNode& node, TypeId base,
+	                  bool* function_declarator = nullptr);
+	// `written_reference` carries "this operand was made a reference by this
+	// declarator" along the chain, because 8.3.2p6 collapses a reference only
+	// when the inner one was denoted by a typedef.
+	TypeId apply(const DeclaratorOperator& op, TypeId type, bool& written_reference);
 
 	const std::vector<SemaToken>& tokens_;
 	std::size_t pos_;
 	TypeTable& types_;
 	TranslationUnitModel& model_;
+	// Null for a tool that only describes declarations; otherwise the program
+	// image being built, which selects `pa8.gram`.
+	const std::vector<LiteralValue>* literals_;
+	ProgramImage* image_;
+	InitSemantics* init_;
+	// 3.4.3p3: the scope a name written after a qualified declarator-id is
+	// looked up in, which is the namespace that declarator-id named.
+	Namespace* value_scope_;
+	// Whether the expression being analysed initializes an object of the
+	// program.  A `static_assert` condition and an array bound are only
+	// evaluated, so a string literal in one names nothing the image holds.
+	bool initializing_;
 	ParseDepth depth_;
 	// The declarator nodes of the declaration being parsed.  A declaration is
 	// the largest construct a declarator can span, so the nodes are dropped
