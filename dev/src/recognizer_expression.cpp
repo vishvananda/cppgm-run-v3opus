@@ -216,6 +216,15 @@ bool Recognizer::parse_postfix_suffix()
 
 bool Recognizer::parse_unary_expression()
 {
+	// A unary operator, a `sizeof` and a `new`/`delete` each re-enter the
+	// expression rules without passing a memoized rule, so this is one of the
+	// cycles that carries a depth frame of its own.
+	const Frame frame(depth_);
+	if (frame.overflowed())
+	{
+		return false;
+	}
+
 	const Mark start = mark();
 	switch (peek())
 	{
@@ -435,6 +444,12 @@ bool Recognizer::parse_delete_expression()
 
 bool Recognizer::parse_cast_expression()
 {
+	const Frame frame(depth_);
+	if (frame.overflowed())
+	{
+		return false;
+	}
+
 	const Mark start = mark();
 	if (open_bracket(OP_LPAREN) && parse_type_id() && accept(OP_RPAREN))
 	{

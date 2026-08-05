@@ -1,5 +1,7 @@
 #include "recognizer.h"
 
+#include <algorithm>
+
 // Names, template ids and the angle bracket rule of 14.2.3.
 //
 // PA6 mock name lookup is a fact of the spelling, so a `*-name` nonterminal is
@@ -150,12 +152,12 @@ bool Recognizer::parse_id_expression()
 	return parse_unqualified_id();
 }
 
+// TT_IDENTIFIER | operator-id | OP_COMPL (class-name | decltype-specifier)
+// | simple-template-id
+//
+// Every alternative is a token test or a rule that is remembered on its own,
+// so re-entering this one costs a constant and it is not itself remembered.
 bool Recognizer::parse_unqualified_id()
-{
-	return memoize(kMemoUnqualifiedId, &Recognizer::parse_unqualified_id_body);
-}
-
-bool Recognizer::parse_unqualified_id_body()
 {
 	const Mark start = mark();
 	if (accept(OP_COMPL))
@@ -369,64 +371,110 @@ bool Recognizer::parse_decltype_specifier()
 	return true;
 }
 
+// Where every prefix of the nested-name-specifier at the cursor ends, longest
+// first, followed by the cursor itself for the empty prefix.
+//
+// A nested-name-specifier is a greedy loop, but its last step can belong to
+// the name that follows it instead: in `union T1<>::a1` the `T1<>::` qualifies
+// the declarator-id `::a1` rather than the type.  A caller that needs a name
+// right after the qualification therefore has to be able to hand a step back.
+// Every step leaves the angle bracket state as it found it, so a prefix is
+// restored by moving the position alone.
+void Recognizer::nested_name_specifier_ends(std::vector<std::size_t>& ends)
+{
+	const Mark start = mark();
+	if (parse_nested_name_specifier_root())
+	{
+		ends.push_back(pos_);
+		while (parse_nested_name_specifier_suffix())
+		{
+			ends.push_back(pos_);
+		}
+	}
+	reset(start);
+	std::reverse(ends.begin(), ends.end());
+	ends.push_back(start.pos);
+}
+
 // KW_TYPENAME nested-name-specifier (KW_TEMPLATE? simple-template-id
 //                                    | TT_IDENTIFIER)
 bool Recognizer::parse_typename_specifier()
 {
 	const Mark start = mark();
-	if (!accept(KW_TYPENAME) || !parse_nested_name_specifier())
+	if (!accept(KW_TYPENAME))
 	{
-		return fail(start);
+		return false;
 	}
-	const Mark after_names = mark();
-	accept(KW_TEMPLATE);
-	if (parse_simple_template_id())
+
+	std::vector<std::size_t> ends;
+	nested_name_specifier_ends(ends);
+	ends.pop_back();  // the qualification is not optional here
+	for (std::size_t i = 0; i < ends.size(); ++i)
 	{
-		return true;
+		pos_ = ends[i];
+		const Mark after_names = mark();
+		accept(KW_TEMPLATE);
+		if (parse_simple_template_id())
+		{
+			return true;
+		}
+		reset(after_names);
+		if (accept(TT_IDENTIFIER))
+		{
+			return true;
+		}
 	}
-	reset(after_names);
-	if (!accept(TT_IDENTIFIER))
-	{
-		return fail(start);
-	}
-	return true;
+	return fail(start);
 }
 
+// class-key attribute-specifier* nested-name-specifier? TT_IDENTIFIER
+// class-key nested-name-specifier? KW_TEMPLATE? simple-template-id
+// KW_ENUM nested-name-specifier? TT_IDENTIFIER
 bool Recognizer::parse_elaborated_type_specifier()
 {
 	const Mark start = mark();
 	if (accept(KW_ENUM))
 	{
-		parse_nested_name_specifier();
-		if (!accept(TT_IDENTIFIER))
+		std::vector<std::size_t> ends;
+		nested_name_specifier_ends(ends);
+		for (std::size_t i = 0; i < ends.size(); ++i)
 		{
-			return fail(start);
+			pos_ = ends[i];
+			if (accept(TT_IDENTIFIER))
+			{
+				return true;
+			}
 		}
-		return true;
+		return fail(start);
 	}
 	if (!accept(KW_CLASS) && !accept(KW_STRUCT) && !accept(KW_UNION))
 	{
 		return false;
 	}
-
-	// The simple-template-id form is tried first: the identifier form would
-	// otherwise match its template-name and leave the argument list behind.
-	const Mark after_key = mark();
-	parse_nested_name_specifier();
-	accept(KW_TEMPLATE);
-	if (parse_simple_template_id())
-	{
-		return true;
-	}
-
-	reset(after_key);
 	parse_attribute_specifier_seq();
-	parse_nested_name_specifier();
-	if (!accept(TT_IDENTIFIER))
+
+	// At one qualification the simple-template-id form is tried first, because
+	// the identifier form would otherwise match its template-name and leave
+	// the argument list behind.  The whole qualification is tried before any
+	// shorter one, so a name that can read as part of the type keeps doing so.
+	std::vector<std::size_t> ends;
+	nested_name_specifier_ends(ends);
+	for (std::size_t i = 0; i < ends.size(); ++i)
 	{
-		return fail(start);
+		pos_ = ends[i];
+		const Mark after_names = mark();
+		accept(KW_TEMPLATE);
+		if (parse_simple_template_id())
+		{
+			return true;
+		}
+		reset(after_names);
+		if (accept(TT_IDENTIFIER))
+		{
+			return true;
+		}
 	}
-	return true;
+	return fail(start);
 }
 
 // nested-name-specifier? OP_COMPL type-name | OP_COMPL decltype-specifier

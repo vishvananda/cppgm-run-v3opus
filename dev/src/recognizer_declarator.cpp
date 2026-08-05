@@ -92,11 +92,6 @@ bool Recognizer::parse_specifier(SpecifierMode mode, bool& seen_type)
 		break;
 	}
 
-	if (seen_type)
-	{
-		return false;
-	}
-
 	const Mark start = mark();
 	switch (peek())
 	{
@@ -142,6 +137,17 @@ bool Recognizer::parse_specifier(SpecifierMode mode, bool& seen_type)
 		break;
 	}
 
+	// A type-name is the one type-specifier that is spelled the way a
+	// declarator is, so it is the one the handout's rule is about: it joins
+	// the sequence only while no type has been named.  That is what makes the
+	// second name of `C1 C2;` the declarator.  The specifiers that cannot be
+	// mistaken for a declarator -- a class, enum, elaborated or typename
+	// specifier -- are not restricted, because nothing is decided by holding
+	// them out.
+	if (seen_type)
+	{
+		return false;
+	}
 	if (parse_simple_type_specifier())
 	{
 		seen_type = true;
@@ -159,15 +165,26 @@ bool Recognizer::parse_simple_type_specifier()
 	case KW_UNSIGNED: case KW_FLOAT: case KW_DOUBLE: case KW_VOID: case KW_AUTO:
 		++pos_;
 		return true;
-	case KW_DECLTYPE:
-		return parse_decltype_specifier();
 	default:
 		break;
 	}
 
+	// nested-name-specifier? type-name
+	// nested-name-specifier KW_TEMPLATE simple-template-id
+	// decltype-specifier
+	//
+	// A decltype-specifier is both a specifier of its own and a
+	// nested-name-specifier root, so `decltype(x)::Y1` has to be offered to
+	// the qualified form before the bare one takes the `decltype(x)`.  The
+	// qualifications are tried longest first and the unqualified type-name
+	// last, so `::E1::a1` reads as the type `::E1` followed by the declarator
+	// `::a1` when `a1` names nothing.
 	const Mark start = mark();
-	if (parse_nested_name_specifier())
+	std::vector<std::size_t> ends;
+	nested_name_specifier_ends(ends);
+	for (std::size_t i = 0; i < ends.size(); ++i)
 	{
+		pos_ = ends[i];
 		const Mark after_names = mark();
 		if (accept(KW_TEMPLATE) && parse_simple_template_id())
 		{
@@ -178,9 +195,9 @@ bool Recognizer::parse_simple_type_specifier()
 		{
 			return true;
 		}
-		reset(start);
 	}
-	return parse_type_name();
+	reset(start);
+	return parse_decltype_specifier();
 }
 
 bool Recognizer::parse_declarator()
@@ -208,8 +225,16 @@ bool Recognizer::parse_declarator_body()
 	return true;
 }
 
+// A parenthesized declarator nests through here without passing a memoized
+// rule, so this is where that cycle counts its depth.
 bool Recognizer::parse_ptr_declarator()
 {
+	const Frame frame(depth_);
+	if (frame.overflowed())
+	{
+		return false;
+	}
+
 	parse_ptr_operators();
 	return parse_noptr_declarator();
 }
@@ -477,6 +502,12 @@ bool Recognizer::parse_abstract_declarator_body()
 // ptr-operator* noptr-abstract-declarator | ptr-operator+
 bool Recognizer::parse_ptr_abstract_declarator()
 {
+	const Frame frame(depth_);
+	if (frame.overflowed())
+	{
+		return false;
+	}
+
 	const std::size_t operators = parse_ptr_operators();
 	if (parse_noptr_abstract_declarator())
 	{

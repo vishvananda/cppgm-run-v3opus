@@ -20,7 +20,7 @@ FRONTEND_OBJ_BASENAMES_preproc := source_charset source_reader pptoken_lexer \
 FRONTEND_OBJ_BASENAMES_recog := source_charset source_reader pptoken_lexer \
 	token_model literal_scan string_literal posttokenizer \
 	macro_model macro_expander ctrl_expr source_files preprocessor \
-	parse_token recognizer recognizer_name recognizer_expression \
+	parse_token memo_table recognizer recognizer_name recognizer_expression \
 	recognizer_declarator recognizer_statement recognizer_member
 FRONTEND_OBJ_BASENAMES_nsdecl :=
 FRONTEND_OBJ_BASENAMES_nsinit :=

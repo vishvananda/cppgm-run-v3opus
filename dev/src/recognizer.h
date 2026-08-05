@@ -2,23 +2,24 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <unordered_map>
 #include <vector>
 
+#include "memo_table.h"
 #include "parse_cursor.h"
+#include "parse_depth.h"
 #include "parse_token.h"
 
 // The rules whose result is remembered per position.
 //
 // A backtracking recursive descent parser re-enters the same rule at the same
-// position whenever an enclosing rule tries its next alternative.  For most
-// rules that costs a constant; for these it costs another descent, and for the
-// template rules the descents nest, so `N` nested `TC1<` would cost `3^N`
-// without a memo.  A rule belongs here when more than one alternative of some
-// caller can reach it at the same position.
+// position whenever an enclosing rule tries its next alternative.  A rule
+// belongs here when re-entering it costs more than a constant plus other
+// remembered rules; for the template rules the descents nest, so `N` nested
+// `TC1<` would cost `3^N` without a memo.  A rule whose body is a token test
+// and a call to a rule that is already remembered is deliberately absent: the
+// entry would cost more to store than the work it saves.
 enum MemoRule
 {
-	kMemoUnqualifiedId,
 	kMemoNestedNameSpecifier,
 	kMemoSimpleTemplateId,
 	kMemoTemplateArgument,
@@ -32,7 +33,6 @@ enum MemoRule
 	kMemoAssignmentExpression,
 	kMemoConditionalExpression,
 	kMemoInitializerClause,
-	kMemoAttributeSpecifierSeq,
 	kMemoStatement,
 	kMemoDeclaration,
 	kMemoRuleCount
@@ -64,6 +64,7 @@ public:
 
 private:
 	typedef bool (Recognizer::*Rule)();
+	typedef ParseDepth::Frame Frame;
 
 	// The tokens that can follow a parameter-declaration, which is what tells
 	// a declarator apart from an abstract-declarator.  A template parameter
@@ -73,6 +74,15 @@ private:
 	{
 		return at(OP_COMMA) || at(OP_RPAREN) || at(OP_DOTS) || at(OP_GT) ||
 			at(ST_RSHIFT_1) || at(ST_RSHIFT_2);
+	}
+
+	// The tokens that can follow a template-parameter.  Unlike a function
+	// parameter, a template parameter is never followed by `...`, so a
+	// `class T1` that a trailing `...` belongs to is a parameter-declaration
+	// with an abstract-pack-declarator rather than a type-parameter.
+	bool at_template_parameter_end() const
+	{
+		return at(OP_COMMA) || at(OP_GT) || at(ST_RSHIFT_1) || at(ST_RSHIFT_2);
 	}
 
 	bool memoize(MemoRule rule, Rule body);
@@ -97,13 +107,13 @@ private:
 	bool parse_template_argument_body();
 	bool parse_id_expression();
 	bool parse_unqualified_id();
-	bool parse_unqualified_id_body();
 	bool parse_operator_id();
 	bool parse_operator_function_id();
 	bool parse_literal_operator_id();
 	bool parse_conversion_function_id();
 	bool parse_nested_name_specifier();
 	bool parse_nested_name_specifier_body();
+	void nested_name_specifier_ends(std::vector<std::size_t>& ends);
 	bool parse_nested_name_specifier_root();
 	bool parse_nested_name_specifier_suffix();
 	bool parse_decltype_specifier();
@@ -212,7 +222,6 @@ private:
 
 	// Attributes (recognizer.cpp).
 	bool parse_attribute_specifier_seq();
-	bool parse_attribute_specifier_seq_body();
 	bool parse_attribute_specifier();
 	bool parse_alignment_specifier();
 	bool parse_attribute_list();
@@ -250,7 +259,7 @@ private:
 	bool parse_enum_specifier();
 	bool parse_enum_head();
 	bool parse_enum_key();
-	bool parse_enum_base();
+	bool parse_enum_base(unsigned closer);
 	bool parse_enumerator_list();
 	bool parse_opaque_enum_declaration();
 	bool parse_template_declaration();
@@ -260,7 +269,6 @@ private:
 	bool parse_explicit_instantiation();
 	bool parse_explicit_specialization();
 
-	// How many memoized rules are on the stack, which bounds the descent.
-	std::size_t depth_;
-	std::unordered_map<std::uint64_t, std::uint32_t> memo_;
+	ParseDepth depth_;
+	MemoTable memo_;
 };

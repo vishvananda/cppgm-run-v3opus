@@ -122,19 +122,19 @@ bool Recognizer::parse_base_specifier()
 	return true;
 }
 
+// nested-name-specifier? class-name | decltype-specifier
+//
+// A decltype-specifier can also open the nested-name-specifier, as in
+// `decltype(x)::C1`, so the qualified form is tried first.
 bool Recognizer::parse_class_or_decltype()
 {
-	if (at(KW_DECLTYPE))
-	{
-		return parse_decltype_specifier();
-	}
 	const Mark start = mark();
 	if (parse_nested_name_specifier() && parse_class_name())
 	{
 		return true;
 	}
 	reset(start);
-	return parse_class_name();
+	return parse_class_name() || parse_decltype_specifier();
 }
 
 bool Recognizer::parse_member_specification()
@@ -166,8 +166,10 @@ bool Recognizer::parse_member_declaration()
 		break;
 	}
 
+	// As at namespace scope, the definition only stands when a member can
+	// follow it: a comma continues the declarator list of the other reading.
 	const Mark start = mark();
-	if (parse_function_definition())
+	if (parse_function_definition() && !at(OP_COMMA))
 	{
 		accept(OP_SEMICOLON);
 		return true;
@@ -272,7 +274,7 @@ bool Recognizer::parse_enum_head()
 		reset(after_attributes);
 		accept(TT_IDENTIFIER);
 	}
-	parse_enum_base();
+	parse_enum_base(OP_LBRACE);
 	if (!at(OP_LBRACE))
 	{
 		return fail(start);
@@ -293,10 +295,32 @@ bool Recognizer::parse_enum_key()
 	return true;
 }
 
-bool Recognizer::parse_enum_base()
+// OP_COLON type-specifier-seq, where `closer` is the token that has to follow.
+//
+// A type-specifier can define a type, and a definition written here would take
+// the `{` that opens the enumeration with it: in `enum a1 : enum a1 { }` the
+// base is the elaborated `enum a1` and the braces are the body, not an
+// enumeration of its own.  So the defining reading only stands when the
+// declaration can still close after it.
+bool Recognizer::parse_enum_base(unsigned closer)
 {
 	const Mark start = mark();
-	if (!accept(OP_COLON) || !parse_type_specifier_seq())
+	if (!accept(OP_COLON))
+	{
+		return false;
+	}
+	const Mark after_colon = mark();
+	if (parse_type_specifier_seq() && at(closer))
+	{
+		return true;
+	}
+	reset(after_colon);
+	if (parse_trailing_type_specifier_seq() && at(closer))
+	{
+		return true;
+	}
+	reset(after_colon);
+	if (!parse_trailing_type_specifier_seq())
 	{
 		return fail(start);
 	}
@@ -342,7 +366,7 @@ bool Recognizer::parse_opaque_enum_declaration()
 	{
 		return fail(start);
 	}
-	parse_enum_base();
+	parse_enum_base(OP_SEMICOLON);
 	if (!accept(OP_SEMICOLON))
 	{
 		return fail(start);
@@ -371,8 +395,16 @@ bool Recognizer::parse_template_declaration()
 	return true;
 }
 
+// A template template parameter carries a parameter list of its own, which is
+// the one cycle in this file that does not pass a memoized rule.
 bool Recognizer::parse_template_parameter_list()
 {
+	const Frame frame(depth_);
+	if (frame.overflowed())
+	{
+		return false;
+	}
+
 	if (!parse_template_parameter())
 	{
 		return false;
@@ -390,15 +422,26 @@ bool Recognizer::parse_template_parameter_list()
 	return true;
 }
 
+// type-parameter | parameter-declaration
+//
+// The two share their whole prefix -- `class T1` is a type-parameter and also
+// an elaborated-type-specifier -- so the alternative is the one that ends
+// where the list can continue or close.  That is what reads the pack in
+// `template<class T1...>` as an abstract-pack-declarator, since a
+// type-parameter can only carry its `...` before the name.
 bool Recognizer::parse_template_parameter()
 {
 	const Mark start = mark();
-	if (parse_type_parameter() && at_parameter_end())
+	if (parse_type_parameter() && at_template_parameter_end())
 	{
 		return true;
 	}
 	reset(start);
-	return parse_parameter_declaration();
+	if (parse_parameter_declaration() && at_template_parameter_end())
+	{
+		return true;
+	}
+	return fail(start);
 }
 
 // KW_CLASS and KW_TYPENAME introduce a type parameter; KW_TEMPLATE introduces
@@ -438,10 +481,17 @@ bool Recognizer::parse_type_parameter()
 	if (accept(OP_ASS))
 	{
 		// A default argument is a type-id for a type parameter and an
-		// id-expression for a template template parameter.
-		if (!parse_type_id() && !parse_id_expression())
+		// id-expression for a template template parameter.  A type-id is a
+		// prefix of many id-expressions -- `E1` of `E1::a1` -- so each
+		// alternative has to reach the end of the parameter to stand.
+		const Mark after_assign = mark();
+		if (!(parse_type_id() && at_template_parameter_end()))
 		{
-			reset(after_name);
+			reset(after_assign);
+			if (!(parse_id_expression() && at_template_parameter_end()))
+			{
+				reset(after_name);
+			}
 		}
 	}
 	return true;

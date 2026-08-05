@@ -3,21 +3,6 @@
 namespace
 {
 
-// A memo entry for a rule that did not match.  A match stores the position it
-// ended at, which is always a real index, so one reserved value is enough.
-const std::uint32_t kMemoFailed = 0xFFFFFFFFu;
-
-// How many memoized rules may be on the stack at once.
-//
-// The grammar recurses once per bracket pair of the input, and the worst case
-// measured is nested template argument lists at about six memoized rules per
-// level.  Refusing past this turns a stack overflow into a `BAD`, and it is
-// set where the descent still uses well under a third of a default stack:
-// measured, nesting crashes near 12000 levels, so this stops at about 3300,
-// which is more than ten times the nesting depth Annex B recommends
-// supporting.
-const std::size_t kMaxDepth = 20000;
-
 // How many memo entries to keep before dropping them at the next top-level
 // declaration boundary.
 //
@@ -33,7 +18,6 @@ const std::size_t kMemoBudget = 1u << 18;
 
 Recognizer::Recognizer(const std::vector<ParseToken>& tokens)
 	: ParseCursor(tokens)
-	, depth_(0)
 {}
 
 bool Recognizer::recognize()
@@ -46,11 +30,10 @@ bool Recognizer::recognize()
 		}
 		if (memo_.size() > kMemoBudget)
 		{
-			std::unordered_map<std::uint64_t, std::uint32_t> empty;
-			memo_.swap(empty);
+			memo_.clear();
 		}
 	}
-	return true;
+	return !depth_.overflowed();
 }
 
 bool Recognizer::memoize(MemoRule rule, Rule body)
@@ -59,27 +42,32 @@ bool Recognizer::memoize(MemoRule rule, Rule body)
 		(static_cast<std::uint64_t>(pos_) * kMemoRuleCount + rule) * 2 +
 		(angle_ ? 1 : 0);
 
-	const std::unordered_map<std::uint64_t, std::uint32_t>::const_iterator found =
-		memo_.find(key);
-	if (found != memo_.end())
+	std::uint32_t remembered = 0;
+	if (memo_.find(key, remembered))
 	{
-		if (found->second == kMemoFailed)
+		if (remembered == MemoTable::kFailed)
 		{
 			return false;
 		}
-		pos_ = found->second;
+		pos_ = remembered;
 		return true;
 	}
 
-	if (++depth_ > kMaxDepth)
+	const Frame frame(depth_);
+	if (frame.overflowed())
 	{
-		--depth_;
 		return false;
 	}
 	const bool matched = (this->*body)();
-	--depth_;
+	if (frame.overflowed())
+	{
+		// A result reached after the depth limit was hit is not a fact about
+		// this position, so it is not remembered.
+		return false;
+	}
 
-	memo_[key] = matched ? static_cast<std::uint32_t>(pos_) : kMemoFailed;
+	memo_.insert(key, matched ? static_cast<std::uint32_t>(pos_)
+	                          : MemoTable::kFailed);
 	return matched;
 }
 
@@ -144,8 +132,18 @@ bool Recognizer::parse_declaration_body()
 		}
 	}
 
-	return parse_function_definition() || parse_block_declaration() ||
-		parse_attribute_declaration();
+	// A function-definition and a simple-declaration whose declarator carries a
+	// braced initializer are the same tokens -- `float f() -> long { }` is
+	// either -- so the definition only stands when a declaration can follow
+	// it.  A comma never starts one, and is what continues the declarator list
+	// of the other reading.
+	const Mark start = mark();
+	if (parse_function_definition() && !at(OP_COMMA))
+	{
+		return true;
+	}
+	reset(start);
+	return parse_block_declaration() || parse_attribute_declaration();
 }
 
 bool Recognizer::parse_block_declaration()
@@ -520,13 +518,10 @@ bool Recognizer::parse_virt_specifiers()
 	return true;
 }
 
+// attribute-specifier*, which almost always matches nothing: the callers that
+// allow attributes outnumber the declarations that carry any, so this is one
+// token test in the common case and is cheaper to redo than to remember.
 bool Recognizer::parse_attribute_specifier_seq()
-{
-	return memoize(kMemoAttributeSpecifierSeq,
-	               &Recognizer::parse_attribute_specifier_seq_body);
-}
-
-bool Recognizer::parse_attribute_specifier_seq_body()
 {
 	while (parse_attribute_specifier())
 	{
@@ -556,6 +551,9 @@ bool Recognizer::parse_attribute_specifier()
 }
 
 // KW_ALIGNAS OP_LPAREN (type-id | assignment-expression) OP_DOTS? OP_RPAREN
+//
+// A type-id is a prefix of many expressions -- `C1` of `C1 + 1` -- so the
+// type-id alternative only stands when it reaches the end of the clause.
 bool Recognizer::parse_alignment_specifier()
 {
 	const Mark start = mark();
@@ -563,17 +561,27 @@ bool Recognizer::parse_alignment_specifier()
 	{
 		return fail(start);
 	}
-	if (!parse_type_id() && !parse_assignment_expression())
+	const Mark after_paren = mark();
+
+	for (int alternative = 0; alternative < 2; ++alternative)
 	{
-		return fail(start);
+		reset(after_paren);
+		if (alternative == 0 && !parse_type_id())
+		{
+			continue;
+		}
+		if (alternative == 1 && !parse_assignment_expression())
+		{
+			continue;
+		}
+		accept(OP_DOTS);
+		if (accept(OP_RPAREN))
+		{
+			angle_ = start.angle;
+			return true;
+		}
 	}
-	accept(OP_DOTS);
-	if (!accept(OP_RPAREN))
-	{
-		return fail(start);
-	}
-	angle_ = start.angle;
-	return true;
+	return fail(start);
 }
 
 // attribute-part (OP_COMMA attribute-part)*, where a part may be empty.
@@ -624,6 +632,12 @@ bool Recognizer::parse_attribute_argument_clause()
 // bracket or the end of the file is an ST_NONPAREN.
 bool Recognizer::parse_balanced_tokens(unsigned closer)
 {
+	const Frame frame(depth_);
+	if (frame.overflowed())
+	{
+		return false;
+	}
+
 	while (!at(closer))
 	{
 		switch (peek())
