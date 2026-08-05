@@ -6,6 +6,7 @@
 #include <iosfwd>
 #include <stdexcept>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "name_table.h"
@@ -35,15 +36,15 @@ enum class EntityKind
 
 // One entity.  A name is bound to an entity, and several names in several
 // namespaces can be bound to the same one: a using-declaration and a namespace
-// alias both add a binding without declaring anything new, which is why `home`
-// and not the binding decides whose member list an entity appears in.
+// alias both add a binding without declaring anything new, so a namespace's
+// member lists are written where the entity is declared and a later binding
+// does not move it.
 struct Entity
 {
 	EntityKind kind;
 	NameId name;
 	TypeId type;       // Variable, Function and Typedef
 	Namespace* space;  // Namespace
-	Namespace* home;   // the namespace that declared it
 };
 
 // Which entities a lookup accepts.  3.4 gives contexts that see only part of
@@ -67,7 +68,7 @@ enum class LookupFilter
 class Namespace
 {
 public:
-	Namespace(NameId name, bool is_inline, Namespace* parent);
+	Namespace(NameId name, bool is_inline, Namespace* parent, std::uint32_t id);
 
 	NameId name() const { return name_; }
 	bool is_inline() const { return inline_; }
@@ -83,7 +84,17 @@ public:
 	const std::vector<Entity*>& variables() const { return variables_; }
 	const std::vector<Entity*>& functions() const { return functions_; }
 	const std::vector<Namespace*>& members() const { return members_; }
+
+	// The namespaces a using-directive written here nominates, which 7.3.1p8
+	// and 7.3.1.1p1 also write for an inline and for an unnamed member.
 	const std::vector<Namespace*>& nominated() const { return nominated_; }
+
+	// The inline members of 7.3.1p8.  They are also nominated, because for
+	// unqualified lookup an inline namespace is exactly an implicit
+	// using-directive; 3.4.3.2p2 is the one place the two differ, because it
+	// asks what a namespace and its inline members declare before it asks
+	// anything of a using-directive.
+	const std::vector<Namespace*>& inlines() const { return inlines_; }
 
 	// The one unnamed namespace this namespace can hold: 7.3.1.1 gives every
 	// `namespace { }` in one namespace the same unique member.
@@ -96,18 +107,23 @@ private:
 	bool inline_;
 	Namespace* parent_;
 	std::size_t depth_;
+	std::uint32_t id_;
 	Namespace* unnamed_;
 	std::unordered_map<NameId, Entity*> bindings_;
 	std::vector<Entity*> variables_;
 	std::vector<Entity*> functions_;
 	std::vector<Namespace*> members_;
 	std::vector<Namespace*> nominated_;
+	std::vector<Namespace*> inlines_;
 
 	// The namespaces 3.4.1 searches for a name written here, innermost level
 	// first, as of `levels_epoch_`.  See TranslationUnitModel::levels.
 	std::vector<Namespace*> levels_;
 	std::uint64_t levels_epoch_;
+	// Scratch of one walk: `mark_` says this namespace has been reached and
+	// `chain_` that it is one of the scopes the walk started from.
 	std::uint64_t mark_;
+	std::uint64_t chain_;
 };
 
 // The object model of one translation unit: its namespaces, its entities, and
@@ -146,8 +162,10 @@ public:
 
 private:
 	Namespace& create(Namespace& parent, NameId name, bool is_inline);
-	Entity& create_entity(EntityKind kind, NameId name, TypeId type, Namespace* home);
+	Entity& create_entity(EntityKind kind, NameId name, TypeId type);
 	TypeId merged(TypeId declared, TypeId again);
+	// Adds every namespace of `edges` not yet reached by this walk to `out`.
+	void reach(const std::vector<Namespace*>& edges, std::vector<Namespace*>& out);
 
 	// The namespaces 3.4.1 searches from `from`, in order.
 	//
@@ -173,9 +191,17 @@ private:
 	Namespace* global_;
 	std::uint64_t epoch_;
 	std::uint64_t visit_;
+	// The directives written so far, as `where` and `space` identifiers in one
+	// word, so writing the same one twice costs a probe rather than a scan of
+	// everything the namespace already nominates.
+	std::unordered_set<std::uint64_t> nominations_;
 	std::vector<Namespace*> cached_;
+	// Scratch kept between walks so that a walk allocates nothing: the
+	// namespaces reached, the queue of a qualified lookup, and one bucket per
+	// level of the namespace a lookup starts from.
 	std::vector<Namespace*> reachable_;
 	std::vector<Namespace*> search_;
+	std::vector<std::vector<Namespace*> > anchored_;
 };
 
 // Writes the description of `space` and of everything it declares.

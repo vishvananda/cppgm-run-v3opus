@@ -144,6 +144,8 @@ private:
 	void append_parameters(TypeId type, std::string& out) const;
 
 	std::vector<Node> nodes_;
+	// The array types `qualified` is between, innermost last.
+	std::vector<TypeId> dimensions_;
 	std::unordered_map<Key, TypeId, KeyHash> ids_;
 	std::unordered_map<std::vector<TypeId>, std::uint32_t, ListHash> parameter_ids_;
 	std::vector<const std::vector<TypeId>*> parameter_lists_;

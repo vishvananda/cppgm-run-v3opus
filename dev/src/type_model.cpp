@@ -195,6 +195,30 @@ TypeId TypeTable::qualified(TypeId type, unsigned add)
 	{
 		return type;
 	}
+
+	// 8.3.4p1: a cv-qualified array is an array of cv-qualified elements, so
+	// the qualifiers travel to the element type however many dimensions are in
+	// the way and the array is rebuilt around what comes back.  A declarator
+	// may write more dimensions than a machine stack has frames, so the way
+	// down is a loop over a scratch of the dimensions rather than a descent.
+	const std::size_t opened = dimensions_.size();
+	while (kind(type) == TypeKind::Array)
+	{
+		dimensions_.push_back(type);
+		type = target(type);
+	}
+	if (dimensions_.size() != opened)
+	{
+		TypeId element = qualified(type, add);
+		while (dimensions_.size() != opened)
+		{
+			const TypeId array = dimensions_.back();
+			dimensions_.pop_back();
+			element = array_of(element, bounded(array), bound(array));
+		}
+		return element;
+	}
+
 	switch (kind(type))
 	{
 	case TypeKind::LValueReference:
@@ -203,10 +227,6 @@ TypeId TypeTable::qualified(TypeId type, unsigned add)
 		// 8.3.2p1 and 8.3.5p7: cv-qualification introduced through a typedef
 		// is ignored rather than applied.
 		return type;
-
-	case TypeKind::Array:
-		// 8.3.4p1: a cv-qualified array is an array of cv-qualified elements.
-		return array_of(qualified(target(type), add), bounded(type), bound(type));
 
 	default:
 		break;
@@ -296,54 +316,62 @@ void TypeTable::append_parameters(TypeId type, std::string& out) const
 	}
 }
 
+// A type is described from the outside in, and every category but a parameter
+// list has exactly one type inside it, so the description walks that chain as a
+// loop: a declarator may build a chain longer than a machine stack.  Only the
+// parameters of a function branch, and a parameter list can only be as deep as
+// the declarator that wrote it, which the parser bounds.
 void TypeTable::append_description(TypeId type, std::string& out) const
 {
-	const Node& node = nodes_[type];
-	if ((node.cv & kCvConst) != 0)
+	for (;;)
 	{
-		out += "const ";
-	}
-	if ((node.cv & kCvVolatile) != 0)
-	{
-		out += "volatile ";
-	}
-
-	switch (node.kind)
-	{
-	case TypeKind::Fundamental:
-		out += fundamental_type_name(node.fundamental);
-		return;
-
-	case TypeKind::Pointer:
-		out += "pointer to ";
-		break;
-
-	case TypeKind::LValueReference:
-		out += "lvalue-reference to ";
-		break;
-
-	case TypeKind::RValueReference:
-		out += "rvalue-reference to ";
-		break;
-
-	case TypeKind::Array:
-		if (node.bounded)
+		const Node& node = nodes_[type];
+		if ((node.cv & kCvConst) != 0)
 		{
-			out += "array of ";
-			out += decimal(node.bound);
-			out += " ";
+			out += "const ";
 		}
-		else
+		if ((node.cv & kCvVolatile) != 0)
 		{
-			out += "array of unknown bound of ";
+			out += "volatile ";
 		}
-		break;
 
-	case TypeKind::Function:
-		out += "function of (";
-		append_parameters(type, out);
-		out += ") returning ";
-		break;
+		switch (node.kind)
+		{
+		case TypeKind::Fundamental:
+			out += fundamental_type_name(node.fundamental);
+			return;
+
+		case TypeKind::Pointer:
+			out += "pointer to ";
+			break;
+
+		case TypeKind::LValueReference:
+			out += "lvalue-reference to ";
+			break;
+
+		case TypeKind::RValueReference:
+			out += "rvalue-reference to ";
+			break;
+
+		case TypeKind::Array:
+			if (node.bounded)
+			{
+				out += "array of ";
+				out += decimal(node.bound);
+				out += " ";
+			}
+			else
+			{
+				out += "array of unknown bound of ";
+			}
+			break;
+
+		case TypeKind::Function:
+			out += "function of (";
+			append_parameters(type, out);
+			out += ") returning ";
+			break;
+		}
+		type = node.target;
 	}
-	append_description(node.target, out);
 }

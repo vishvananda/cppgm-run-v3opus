@@ -94,6 +94,15 @@ void DeclParser::parse_declaration(Namespace& where)
 
 void DeclParser::parse_namespace_definition(Namespace& where, bool is_inline)
 {
+	// A namespace body is the other place the descent re-enters itself, and a
+	// file can nest one as deeply as it is long, so it shares the declarator's
+	// bound on how much machine stack a file may ask for.
+	const ParseDepth::Frame frame(depth_);
+	if (frame.overflowed())
+	{
+		throw SemanticError("a namespace nests deeper than the tool supports");
+	}
+
 	expect(KW_NAMESPACE);
 	NameId name = kNoName;
 	if (at(TT_IDENTIFIER))

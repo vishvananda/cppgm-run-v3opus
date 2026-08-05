@@ -1,0 +1,30 @@
+1 translation units
+start translation unit course/pa7/280-inline-namespace-lookup-order.t
+start unnamed namespace
+variable v int
+variable u unsigned int
+variable s char
+variable w float
+start namespace A
+start namespace B
+variable q long int
+start namespace S
+end namespace
+end namespace
+start namespace I
+inline namespace
+variable q short int
+start namespace J
+inline namespace
+end namespace
+end namespace
+end namespace
+start namespace C
+start namespace K
+inline namespace
+end namespace
+end namespace
+start namespace D
+end namespace
+end namespace
+end translation unit

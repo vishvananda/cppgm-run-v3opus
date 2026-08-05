@@ -36,14 +36,16 @@ bool accepts(LookupFilter filter, const Entity& entity)
 
 }
 
-Namespace::Namespace(NameId name, bool is_inline, Namespace* parent)
+Namespace::Namespace(NameId name, bool is_inline, Namespace* parent, std::uint32_t id)
 	: name_(name)
 	, inline_(is_inline)
 	, parent_(parent)
 	, depth_(parent == nullptr ? 0 : parent->depth() + 1)
+	, id_(id)
 	, unnamed_(nullptr)
 	, levels_epoch_(0)
 	, mark_(0)
+	, chain_(0)
 {}
 
 Entity* Namespace::find(NameId name) const
@@ -58,31 +60,31 @@ TranslationUnitModel::TranslationUnitModel(TypeTable& types)
 	, epoch_(1)
 	, visit_(0)
 {
-	spaces_.push_back(Namespace(kNoName, false, nullptr));
+	spaces_.push_back(Namespace(kNoName, false, nullptr, 0));
 	global_ = &spaces_.back();
 }
 
 Namespace& TranslationUnitModel::create(Namespace& parent, NameId name, bool is_inline)
 {
-	spaces_.push_back(Namespace(name, is_inline, &parent));
+	const std::uint32_t id = static_cast<std::uint32_t>(spaces_.size());
+	spaces_.push_back(Namespace(name, is_inline, &parent, id));
 	Namespace& space = spaces_.back();
 	parent.members_.push_back(&space);
 	if (is_inline)
 	{
+		parent.inlines_.push_back(&space);
 		nominate(parent, space);
 	}
 	return space;
 }
 
-Entity& TranslationUnitModel::create_entity(EntityKind kind, NameId name, TypeId type,
-                                            Namespace* home)
+Entity& TranslationUnitModel::create_entity(EntityKind kind, NameId name, TypeId type)
 {
 	Entity entity;
 	entity.kind = kind;
 	entity.name = name;
 	entity.type = type;
 	entity.space = nullptr;
-	entity.home = home;
 	entities_.push_back(entity);
 	return entities_.back();
 }
@@ -111,7 +113,7 @@ Namespace& TranslationUnitModel::open_namespace(Namespace& parent, NameId name,
 	}
 
 	Namespace& space = create(parent, name, is_inline);
-	Entity& entity = create_entity(EntityKind::Namespace, name, kNoType, &parent);
+	Entity& entity = create_entity(EntityKind::Namespace, name, kNoType);
 	entity.space = &space;
 	parent.bindings_[name] = &entity;
 	return space;
@@ -143,12 +145,14 @@ Namespace& TranslationUnitModel::open_unnamed_namespace(Namespace& parent, bool 
 
 void TranslationUnitModel::nominate(Namespace& where, Namespace& space)
 {
-	for (std::size_t index = 0; index < where.nominated_.size(); ++index)
+	// Writing a directive that is already there says nothing new, and saying
+	// nothing new must not move the epoch, or a namespace that repeats one
+	// would rebuild every kept level list for no change in the answer.
+	const std::uint64_t edge =
+		(static_cast<std::uint64_t>(where.id_) << 32) | space.id_;
+	if (!nominations_.insert(edge).second)
 	{
-		if (where.nominated_[index] == &space)
-		{
-			return;
-		}
+		return;
 	}
 	where.nominated_.push_back(&space);
 	++epoch_;
@@ -198,7 +202,7 @@ Entity& TranslationUnitModel::declare(Namespace& where, EntityKind kind, NameId 
 		return *bound;
 	}
 
-	Entity& entity = create_entity(kind, name, type, &where);
+	Entity& entity = create_entity(kind, name, type);
 	where.bindings_[name] = &entity;
 	if (kind == EntityKind::Variable)
 	{
@@ -241,21 +245,34 @@ const std::vector<Namespace*>& TranslationUnitModel::levels(Namespace& from)
 		return from.levels_;
 	}
 
-	std::vector<std::vector<Namespace*> > anchored(from.depth() + 1);
+	const std::size_t height = from.depth() + 1;
+	if (anchored_.size() < height)
+	{
+		anchored_.resize(height);
+	}
+	for (std::size_t level = 0; level < height; ++level)
+	{
+		anchored_[level].clear();
+	}
+
 	++visit_;
 	for (Namespace* space = &from; space != nullptr; space = space->parent())
 	{
-		space->mark_ = visit_;
+		space->chain_ = visit_;
 	}
 
 	// One pass per scope in the chain.  A directive is in scope for the whole
-	// chain, so a namespace already reached from an inner scope is not
-	// reached again; a namespace reached first from scope `context` has its
-	// names appear in the nearest namespace enclosing both it and `context`.
+	// chain, so a namespace already reached from an inner scope is not reached
+	// again; a namespace reached first from scope `context` has its names
+	// appear in the nearest namespace enclosing both it and `context`.  A scope
+	// of the chain is already a level of its own, so reaching one adds nothing
+	// - but 7.3.4p4 still makes its directives read from the inner scope that
+	// reached it, which is nearer than reading them from the scope itself.
 	for (Namespace* context = &from; context != nullptr; context = context->parent())
 	{
 		reachable_.clear();
 		reachable_.push_back(context);
+		context->mark_ = visit_;
 		for (std::size_t index = 0; index < reachable_.size(); ++index)
 		{
 			const std::vector<Namespace*>& used = reachable_[index]->nominated();
@@ -267,13 +284,17 @@ const std::vector<Namespace*>& TranslationUnitModel::levels(Namespace& from)
 					continue;
 				}
 				space->mark_ = visit_;
+				reachable_.push_back(space);
+				if (space->chain_ == visit_)
+				{
+					continue;
+				}
 				Namespace* anchor = space;
 				while (!encloses(*anchor, *context))
 				{
 					anchor = anchor->parent();
 				}
-				anchored[from.depth() - anchor->depth()].push_back(space);
-				reachable_.push_back(space);
+				anchored_[from.depth() - anchor->depth()].push_back(space);
 			}
 		}
 	}
@@ -287,8 +308,8 @@ const std::vector<Namespace*>& TranslationUnitModel::levels(Namespace& from)
 	for (Namespace* context = &from; context != nullptr; context = context->parent())
 	{
 		from.levels_.push_back(context);
-		from.levels_.insert(from.levels_.end(), anchored[level].begin(),
-		                    anchored[level].end());
+		from.levels_.insert(from.levels_.end(), anchored_[level].begin(),
+		                    anchored_[level].end());
 		++level;
 	}
 	from.levels_epoch_ = epoch_;
@@ -298,8 +319,21 @@ const std::vector<Namespace*>& TranslationUnitModel::levels(Namespace& from)
 Entity* TranslationUnitModel::lookup_unqualified(Namespace& from, NameId name,
                                                  LookupFilter filter)
 {
+	// 3.4.1 searches the innermost scope first, and 7.3.4p2 can put what a
+	// using-directive nominates no nearer than that same scope, so a name this
+	// namespace declares is already the answer.  Asking here first is what
+	// keeps a lookup from having to know what else is in scope, which is the
+	// expensive question: the set of namespaces a directive makes visible has
+	// to be worked out again every time a new directive is written.
+	Entity* declared = from.find(name);
+	if (declared != nullptr && accepts(filter, *declared))
+	{
+		return declared;
+	}
+
+	// `levels` starts at `from`, which has just been asked.
 	const std::vector<Namespace*>& order = levels(from);
-	for (std::size_t index = 0; index < order.size(); ++index)
+	for (std::size_t index = 1; index < order.size(); ++index)
 	{
 		Entity* entity = order[index]->find(name);
 		if (entity != nullptr && accepts(filter, *entity))
@@ -310,37 +344,64 @@ Entity* TranslationUnitModel::lookup_unqualified(Namespace& from, NameId name,
 	return nullptr;
 }
 
+void TranslationUnitModel::reach(const std::vector<Namespace*>& edges,
+                                 std::vector<Namespace*>& out)
+{
+	for (std::size_t index = 0; index < edges.size(); ++index)
+	{
+		if (edges[index]->mark_ != visit_)
+		{
+			edges[index]->mark_ = visit_;
+			out.push_back(edges[index]);
+		}
+	}
+}
+
 Entity* TranslationUnitModel::lookup_qualified(Namespace& in, NameId name,
                                                LookupFilter filter)
 {
-	// 3.4.3.2p2: what a namespace declares, and only if it declares nothing of
-	// that name, what the namespaces its using-directives nominate declare.
+	// 3.4.3.2p2: what a namespace and its inline namespaces declare, and only
+	// if they declare nothing of that name, the same question again of every
+	// namespace their using-directives nominate.  The two are separate waves
+	// rather than one queue, because an inline member is not merely nominated:
+	// what it declares hides what a using-directive would have reached.
 	++visit_;
 	search_.clear();
 	search_.push_back(&in);
 	in.mark_ = visit_;
-	for (std::size_t index = 0; index < search_.size(); ++index)
+
+	std::size_t wave = 0;
+	while (wave < search_.size())
 	{
-		Entity* entity = search_[index]->find(name);
-		if (entity != nullptr && accepts(filter, *entity))
+		for (std::size_t index = wave; index < search_.size(); ++index)
 		{
-			return entity;
+			reach(search_[index]->inlines(), search_);
 		}
-		const std::vector<Namespace*>& used = search_[index]->nominated();
-		for (std::size_t which = 0; which < used.size(); ++which)
+		const std::size_t end = search_.size();
+
+		for (std::size_t index = wave; index < end; ++index)
 		{
-			if (used[which]->mark_ != visit_)
+			Entity* entity = search_[index]->find(name);
+			if (entity != nullptr && accepts(filter, *entity))
 			{
-				used[which]->mark_ = visit_;
-				search_.push_back(used[which]);
+				return entity;
 			}
 		}
+
+		for (std::size_t index = wave; index < end; ++index)
+		{
+			reach(search_[index]->nominated(), search_);
+		}
+		wave = end;
 	}
 	return nullptr;
 }
 
-void write_namespace(std::ostream& out, const Namespace& space, const TypeTable& types,
-                     const NameTable& names)
+namespace
+{
+
+void write_header(std::ostream& out, const Namespace& space, const TypeTable& types,
+                  const NameTable& names)
 {
 	if (space.name() == kNoName)
 	{
@@ -367,11 +428,40 @@ void write_namespace(std::ostream& out, const Namespace& space, const TypeTable&
 		out << "function " << names.text(functions[index]->name) << " "
 		    << types.description(functions[index]->type) << "\n";
 	}
-	const std::vector<Namespace*>& members = space.members();
-	for (std::size_t index = 0; index < members.size(); ++index)
-	{
-		write_namespace(out, *members[index], types, names);
-	}
+}
 
-	out << "end namespace\n";
+// One namespace being described, and how many of its members already are.
+struct Open
+{
+	const Namespace* space;
+	std::size_t next;
+};
+
+}
+
+void write_namespace(std::ostream& out, const Namespace& space, const TypeTable& types,
+                     const NameTable& names)
+{
+	// A namespace description closes after its members' descriptions, so the
+	// walk keeps the namespaces it is inside on a stack of its own rather than
+	// on the machine stack, which a translation unit could nest past.
+	std::vector<Open> open;
+	write_header(out, space, types, names);
+	const Open root = {&space, 0};
+	open.push_back(root);
+
+	while (!open.empty())
+	{
+		const std::vector<Namespace*>& members = open.back().space->members();
+		if (open.back().next == members.size())
+		{
+			out << "end namespace\n";
+			open.pop_back();
+			continue;
+		}
+		const Namespace& member = *members[open.back().next++];
+		write_header(out, member, types, names);
+		const Open next = {&member, 0};
+		open.push_back(next);
+	}
 }
