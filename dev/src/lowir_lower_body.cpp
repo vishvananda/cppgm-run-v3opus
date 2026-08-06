@@ -763,8 +763,11 @@ void LowirFunctionLowering::member_initialization(const DumpNode& node)
 	{
 		// 8.5.3p5 and 9.2p13: a member of reference type holds the address of
 		// what it was bound to, which is what its storage is written with.
+		// What this names is that storage itself rather than the object the
+		// binding reaches, so the projection is the member's own and not the
+		// `reference_field` a read through the reference makes it.
 		const LowValue bound = expression(written, true);
-		const Operand storage = member_storage(*node.children[0], member);
+		const Operand storage = member_storage(*node.children[0], member, true);
 		store(address_of(bound), storage, type);
 		return;
 	}
@@ -1546,9 +1549,13 @@ LowValue LowirFunctionLowering::id_expression(const DumpNode& node)
 // object itself where `.` did, and its own type is what says which.
 // 9.2p13: where one member of an object begins, which is what the layout of its
 // class settled.  A member of reference type holds a pointer, so this is the
-// storage of that pointer rather than of the object it names.
+// storage of that pointer rather than of the object it names, and the
+// projection says which of the two the address is being taken for: `bound` is
+// the initialization writing the pointer into the member's own storage, and
+// anything else is a use that reads the object through it.
 Operand LowirFunctionLowering::member_storage(const DumpNode& object,
-                                              const SemaEntity& member)
+                                              const SemaEntity& member,
+                                              bool bound)
 {
 	TypeTable& types = unit_.types();
 	const LowValue held = expression(object, true);
@@ -1559,7 +1566,7 @@ Operand LowirFunctionLowering::member_storage(const DumpNode& object,
 	Instruction step;
 	step.kind = Instruction::IK_INDEX;
 	step.type.text = "i8";
-	step.index_projection = types.is_reference(member.type)
+	step.index_projection = types.is_reference(member.type) && !bound
 		? lowir_model::IPK_REFERENCE_FIELD
 		: lowir_model::IPK_FIELD;
 	step.first = base;

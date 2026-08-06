@@ -112,6 +112,7 @@ SemaEntity& SemaModel::create(SemaKind kind, const std::string& name, TypeId typ
 	entity.empty_class = true;
 	entity.special = kOrdinaryFunction;
 	entity.explicit_function = false;
+	entity.complete_object_entry = false;
 	entity.user_provided = false;
 	entity.deleted = false;
 	entity.defaulted = false;

@@ -580,6 +580,7 @@ SemaAnalyzer::Value SemaAnalyzer::member_expression(const AstNode& node,
 		require(model_.lookup_in(region, id.text, LookupKind::Any, &found),
 		        id.text);
 	require_access(member, ctx.scope);
+	require_protected_object(found, member, ctx.scope, &region);
 	if (member.kind != SemaKind::Variable || !member.object_member)
 	{
 		// 9.4p1 and 7.2p10: the member is not part of the object, so the object
@@ -650,6 +651,7 @@ void SemaAnalyzer::member_callee(const AstNode& callee, const Context& ctx,
 		require(model_.lookup_in(region, id.text, LookupKind::Any, &found),
 		        id.text);
 	require_access(member, ctx.scope);
+	require_protected_object(found, member, ctx.scope, &region);
 	if (member.kind == SemaKind::Function)
 	{
 		address_of_object(object, object_line, through_pointer);
@@ -728,7 +730,7 @@ SemaAnalyzer::Value SemaAnalyzer::base_value(const Value& object,
 		through_pointer ? types_.target(object.type) : object.type;
 	if (checked)
 	{
-		require_base_access(model_.type_owner(types_.strip_cv(from)));
+		require_base_access(model_.type_owner(types_.strip_cv(from)), base);
 	}
 	TypeId to = types_.qualified(base.type, types_.object_cv(from));
 	if (through_pointer)
@@ -754,8 +756,10 @@ SemaAnalyzer::Value SemaAnalyzer::base_value(const Value& object,
 
 // 10.2 and 11.2: the subobject a member found through a base class is a member
 // of.  Lookup reached the member through the classes between the object's own
-// and the one that declared it, so the object is converted through the same
-// ones, one node per base subobject the access passes through.
+// and the one that declared it, and what the member belongs to is the one base
+// subobject at the end of that walk - so the walk says which class was reached
+// and 4.10p3 writes the one node every other derived-to-base conversion writes.
+// A member the walk never reaches belongs to the object as it stands.
 SemaAnalyzer::Value SemaAnalyzer::object_in_declaring_class(
 	const Value& object, const SemaEntity& member)
 {
@@ -767,15 +771,17 @@ SemaAnalyzer::Value SemaAnalyzer::object_in_declaring_class(
 	{
 		return object;
 	}
-	Value value = object;
-	SemaEntity* owner = model_.type_owner(types_.strip_cv(value.type));
-	while (owner != nullptr && owner->scope != declaring &&
-	       owner->base != nullptr)
+	SemaEntity* reached = nullptr;
+	for (SemaEntity* at = model_.type_owner(types_.strip_cv(object.type));
+	     at != nullptr && at->scope != declaring; at = at->base)
 	{
-		value = base_value(value, *owner->base);
-		owner = owner->base;
+		reached = at->base;
 	}
-	return value;
+	if (reached == nullptr)
+	{
+		return object;
+	}
+	return base_value(object, *reached);
 }
 
 // 5.2.5p4: the member the object expression holds, which is an lvalue when the
@@ -1094,13 +1100,13 @@ SemaAnalyzer::Value SemaAnalyzer::cast_expression(const AstNode& node,
 	if (types_.kind(types_.strip_cv(target)) == TypeKind::Pointer &&
 	    types_.kind(types_.strip_cv(source.type)) == TypeKind::Pointer)
 	{
+		const TypeId to = types_.target(types_.strip_cv(target));
+		const TypeId from = types_.target(types_.strip_cv(source.type));
 		// 5.2.9p11 and 4.10p3: a cast to a pointer to a base class of the
 		// operand's class is that conversion, so it names the base subobject
 		// rather than reinterpreting the address - and 11.2p4 asks here whether
 		// the base-specifier's access reaches this expression.
-		SemaEntity* const base =
-			derived_from(types_.target(types_.strip_cv(source.type)),
-			             types_.target(types_.strip_cv(target)));
+		SemaEntity* const base = derived_from(from, to);
 		if (base != nullptr)
 		{
 			source = base_value(source, *base);
@@ -1108,6 +1114,17 @@ SemaAnalyzer::Value SemaAnalyzer::cast_expression(const AstNode& node,
 			source.type = source.spelled = target;
 			source.category = ValueCategory::PRValue;
 			return source;
+		}
+		// 5.2.9p11 the other way round: a pointer to a base class casts to a
+		// pointer to a class derived from it, which is well formed only where
+		// that base is accessible.  The subobject begins where the derived object
+		// does, so the address is the one the operand held and the cast writes no
+		// conversion around it - but the access is asked for all the same.
+		SemaEntity* const from_base = derived_from(to, from);
+		if (from_base != nullptr)
+		{
+			require_base_access(model_.type_owner(types_.strip_cv(to)),
+			                    *from_base);
 		}
 	}
 	if (types_.kind(types_.strip_cv(target)) == TypeKind::MemberPointer &&
@@ -1163,6 +1180,39 @@ SemaAnalyzer::Value SemaAnalyzer::cast_to_reference(TypeId target, Value& source
 			respell(source);
 			lift_operand(parent, line);
 			return source;
+		}
+		// 8.5.3p4: reference-related is also the referenced type being a base
+		// class of the operand's, and such a reference binds the base subobject
+		// of the object the operand names rather than a conversion of its value -
+		// which is the one `base-conversion` node 4.10p3 writes everywhere else.
+		SemaEntity* const to_base =
+			source.node != nullptr && source.what != nullptr
+				? derived_from(source.type, referenced)
+				: nullptr;
+		if (to_base != nullptr)
+		{
+			source = base_value(source, *to_base);
+			source.category = value.category;
+			source.type = referenced;
+			source.spelled = target;
+			respell(source);
+			lift_operand(parent, line);
+			return source;
+		}
+		// 5.2.9p11: an lvalue of a base class casts to a reference to a class
+		// derived from it, and what the result names is the object that base
+		// subobject is part of.  The subobject begins where the derived object
+		// does, so the storage the operand named is the storage the cast names,
+		// and 11.2p4 asks here whether the base-specifier's access reaches.
+		SemaEntity* const from_base = derived_from(referenced, source.type);
+		if (from_base != nullptr)
+		{
+			require_base_access(model_.type_owner(types_.strip_cv(referenced)),
+			                    *from_base);
+			value.payload.clear();
+			value.node = &line;
+			respell(value);
+			return value;
 		}
 		// The operand is converted to the referenced type and the reference
 		// binds the temporary that holds it, which is a value of its own.  The
@@ -1923,6 +1973,12 @@ SemaAnalyzer::Value SemaAnalyzer::conditional_expression(const AstNode& node,
 		{
 			throw std::runtime_error("the operands of ?: have no common type");
 		}
+		// 5.16p6 and 4.10p3: the operands are brought to that composite pointer
+		// type, so the one that pointed at a derived class points at its own base
+		// subobject - the same conversion 5.9p2 writes for a comparison of the
+		// two, asked here of the same base-specifier's access.
+		convert_operand_to_base(left, value.type);
+		convert_operand_to_base(right, value.type);
 	}
 	value.spelled = value.type;
 	value.node = &line;

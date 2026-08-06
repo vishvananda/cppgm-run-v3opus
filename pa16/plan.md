@@ -32,7 +32,7 @@ worklist in the unit lowering.
 
 ## Current Failure Map
 
-After C1-C4: 126 / 243. The 117 that remain:
+After C1-C4 and the audit of C4: 126 / 243. The 117 that remain:
 
 | group | count | what is missing |
 | --- | --- | --- |
@@ -61,11 +61,29 @@ Two refusals are not object-model work and were reached only through a base:
 `alignof` is outside the constant subset, and a nested class declared in its
 class and defined outside it is never marked defined.
 
+Three gaps the audit of C4 found and left to the checkpoint that owns them:
+`x.YB::b` — a qualified-id after `.` or `->` — names no member at all, which
+predates inheritance and belongs to the member-access path; `alignas` on a
+member declaration is dropped, which with `alignof` is one pair of tests;
+`static_cast` between unrelated object pointer types is accepted, which is the
+cast rules rather than the object model.
+
 ## Active Checkpoint
 
-Done: **C4 — single inheritance** (10.1, 10.2, 11.2, 11.4, 12.6.2p5, 12.4p8,
-4.10p3, 8.5.3p4, 13.3.3.2p4, 5.9p2, 5.16p3), which took 24 of the 43 base-class
-tests and 6 beyond them.
+Done: **the audit of C4**, whose findings and evidence are in `audit.md`. Mostly
+one shape in seven places - a rule written for the exit in hand and not for the
+exit beside it: one node per link of the chain where the references write one, a
+chain checked at its first link only, a conditional whose composite pointer type
+converted neither operand, 8.5.3p4's base half of reference-related missing,
+5.2.9p11's reference downcast refused and its pointer downcast unchecked, an
+inaccessible destructor called for an object, a member and a base, and 11.4p1's
+additional check absent. The eighth is the ABI entry the output claims: every
+constructor and destructor was named with the complete-object one, where the
+references give a base-only class the base-object entry alone.
+
+Before it: **C4 — single inheritance** (10.1, 10.2, 11.2, 11.4, 12.6.2p5,
+12.4p8, 4.10p3, 8.5.3p4, 13.3.3.2p4, 5.9p2, 5.16p3), which took 24 of the 43
+base-class tests and 6 beyond them.
 
 Next: **C5 — 13.5 operator overloading over the object model**, the largest
 remaining group at 33 tests: an operator written on a class or enumeration
@@ -104,6 +122,19 @@ associated namespaces reach, with 13.6's built-in candidates alongside them.
   rather than its size.
 - 4.10p3 asks whether one class derives from another by walking that same chain,
   so a conversion costs the depth and no search.
+- A derived-to-base conversion is one `base-conversion` node however many
+  classes it spans, because every base subobject of this milestone begins where
+  its derived object does. The walk of the chain says which class was reached
+  and asks 11.2p5 of each link; it writes nothing per link. n accesses to a
+  member d classes up therefore cost n*d to analyse - the depth each of 10.2's
+  lookups walks - and emit n instructions rather than n*d: 4000 accesses 4000
+  deep are 20 007 lines in 2.0 s, where writing a node per link was 16 012 007
+  lines in 54.6 s.
+- Each axis alone is linear. With the depth fixed at 4000, 500/1000/2000/4000
+  accesses take 0.42/0.69/1.09/2.39 s; with 4000 accesses fixed, depth
+  500/1000/2000/4000 takes 0.15/0.23/0.64/2.35 s — the depth each of 10.2's
+  lookups walks, with a per-step cost that grows once the chain of regions no
+  longer fits in cache. That belongs to the scope layer.
 - Demand-driven emission is monotonic: `emitted_functions_` admits each symbol
   once, so a function used n times is lowered once. The worklist is drained at
   the top level, so `program_.functions` never reallocates under a live
@@ -127,12 +158,18 @@ associated namespaces reach, with 13.6's built-in candidates alongside them.
   node for the whole tail of an array no clause reached (`kZeroFillLimit`, 64
   bytes). Measured: a struct holding `char buf[1 << 20]`, initialized `{{0}, 3}`
   at namespace scope and `{{1}, 2}` locally, compiles in under 0.01 s.
-- Measured for this checkpoint, each doubling 2.0x-2.5x: a chain of 100/200/400/
-  800/1600 derived classes, each with its own member and constructor, an object
-  of the last one and a member of the first named on it, 0.00/0.01/0.02/0.05/
-  0.11 s; 500/1000/2000/4000 classes each deriving from one base, constructed
-  and called, 0.06/0.13/0.25/0.54 s; 1000/2000/4000/8000 accesses through a
-  four-deep chain in one body, 0.04/0.08/0.17/0.36 s.
+- Measured after the audit of C4, sizes 500/1000/2000/4000, each doubling
+  2.0x-2.3x: derived-to-base conversions in one body four deep,
+  0.01/0.02/0.03/0.07 s; accesses to a base's member in one body four deep,
+  0.01/0.01/0.03/0.08 s; chain depth with one access to the root member,
+  0.01/0.02/0.04/0.09 s; 11.4p1 protected accesses through a five-deep chain,
+  0.00/0.00/0.01/0.02 s; classes in a chain with nothing used,
+  0.01/0.02/0.04/0.09 s.
+- Re-measured after the audit, each doubling 2.0x-2.3x: a chain of
+  100/200/400/800/1600 derived classes, each with its own member and
+  constructor, an object of the last one and a member of the first named on it,
+  0.00/0.01/0.02/0.05/0.10 s; 500/1000/2000/4000 classes each deriving from one
+  base, constructed and called, 0.04/0.09/0.20/0.43 s.
 - Measured earlier and unchanged, each doubling about 2.1x-2.3x: 4000 default
   member initializers in one class, 0.06 s; 4000 mem-initializers in one
   constructor, 0.07 s; 4000 locals with destructors in one block, 0.09 s; 4000
@@ -158,3 +195,4 @@ associated namespaces reach, with 13.6's built-in candidates alongside them.
 | C3 | 12.1/12.4 user-declared constructors and destructors in a class body, chained on the class; 13.3.1.3/13.3.1.4/8.5.4p3 constructor selection over 8.5's four initializer forms with `explicit`; 12.6.2 member initializations in declaration order, 12.6.2p8 default member initializers, 12.4p8 member destructions; 3.8p1 lifetime at block exit, at `return` and in 3.6.3p1's `@__cppgm_fini`; 8.4.2/8.4.3 `= default` and `= delete`; 12.8p31 copy elision from a value of the object's own type; 5.2.4 explicit destructor calls; C1/C2 and D1/D2 ABI names with the `alias object` line | 70 -> 102 / 243; pa1-pa15 1173/1173; valgrind clean on the new paths; every new axis linear |
 | audit of C3 | six ways out of a region that ended no lifetime - `break`, `continue`, `goto`, the for-init-statement's own region, a static data member at shutdown, an aggregate initialized from braces - with the block-scope `static` written as an automatic object; 9.3.2p1's `this` in a destructor separated from 12.4p12's object parameter; a deleted destructor refused where the object is declared; `= T(...)` no longer refused as copy-list-initialization; a mem-initializer that names nothing refused and one written twice refused; 9.3p2's inline read from where the definition is written, not from the declaration; one `_` per character an identifier cannot hold, so two names never flatten to one; the goto check made a carried count | 102 / 243 held, none newly failing; pa1-pa15 1173/1173; valgrind clean over 273 inputs; every axis linear at 2.1-2.3x; stripped metadata clean against the refs but for `unwind=no`; findings and evidence in `audit.md` |
 | C4 | 10p1's base-clause read before the members and recorded on the class and its region; 9.2p13 layout with the base subobject at offset 0 and no storage for an empty one; 9p2's injected-class-name; 10.2p2/p6 lookup through the base chain, qualified and unqualified, with the derived class hiding the base; 11.2p2's default base access, 11.2p4 on every derived-to-base conversion, 11.4p1's protected member from a derived class; 12.6.2p5's base initialization first, by its own name or an alias of it, and 12.4p8's base destruction last; 12.1p5/12.4p3 triviality through the base, and no node at all for a subobject whose initialization does nothing; 4.10p3, 8.5.3p4 and 5.2.9p11's conversions as one `base-conversion` node, 13.3.3.1.4p1's rank and 13.3.3.2p4's ordering of them; 5.9p2's composite pointer type; 5.2.9p4's discarded class operand; 5.16p3's conditional whose two glvalue operands are a class and a base of it, with 8.5.3p5's reference initializer read for the object it binds rather than for its value; the object model split out into `sema_class.cpp` | 102 -> 126 / 243; pa1-pa15 1173/1173; valgrind clean over 243 inputs and the sweeps; depth, multiplicity and access axes all 2.0x-2.5x per doubling |
+| audit of C4 | one derived-to-base conversion written as one node however many classes it spans, where the walk of the chain per link had emitted n*d instructions for n accesses d deep; 11.2p5 asked of every link rather than the first; 5.16p6's operands brought to the composite pointer type; 8.5.3p4's base half of reference-related, so `static_cast<Base&>` binds the base subobject; 5.2.9p11's reference downcast written and its pointer downcast access-checked; 12.4p11's destructor access asked for an object, a member and a base; 11.4p1's additional check on a protected member named through an object; the ABI entry a constructor or destructor stands under made a fact the analysis records, so a class only ever used as a base carries the base-object entry alone; a reference member's binding no longer claiming `projection=reference_field`; the dead helpers and reordered initializer the split left behind | 126 / 243 held, none newly failing; five `.ref` files now byte for byte identical and the passing fixtures differing from the reference at all down from 39 to 34; pa1-pa15 1173/1173; valgrind clean over 243 fixtures and 88 probes; every axis linear at 2.0-2.3x and the n*d output blow-up gone; stripped metadata - now including `projection=` - clean against the refs but for `unwind=no`; findings and evidence in `audit.md` |

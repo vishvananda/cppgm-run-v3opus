@@ -478,9 +478,10 @@ void SemaAnalyzer::declare_destructor(SemaEntity& entity, Scope& scope)
 }
 
 // 8.5.1p1: whether an object of the class `scope` declares is initialized from
-// a braced-init-list by initializing its members with the clauses.  In the PA16
-// slice a class has no base and no virtual function, so what is left to ask is
-// whether every non-static data member is public, none was written with a
+// a braced-init-list by initializing its members with the clauses.  A class
+// with a base class is no aggregate, which the caller asks before this, and the
+// PA16 slice has no virtual function - so what is left to ask is whether every
+// non-static data member is public, none was written with a
 // brace-or-equal-initializer, and the program provided no constructor - which
 // 12.1p4 does not count `= default` or `= delete` as doing.
 bool SemaAnalyzer::aggregate_class(Scope& scope)
@@ -530,12 +531,9 @@ bool SemaAnalyzer::accessible(const SemaEntity& member, const Scope* from) const
 		{
 			continue;
 		}
-		for (const Scope* base = at->base; base != nullptr; base = base->base)
+		if (at->base != nullptr && derives_from(*at->base, *member.region))
 		{
-			if (base == member.region)
-			{
-				return true;
-			}
+			return true;
 		}
 	}
 	return false;
@@ -582,41 +580,151 @@ Scope* SemaAnalyzer::naming_context(const std::string& written,
 	}
 }
 
-// 11.2p4: a base class is accessible where the access its base-specifier gave
-// it reaches, and 4.10p3's conversion of a pointer or a reference to the
-// derived class is well formed only there.  A public base reaches everywhere,
-// a protected one reaches the classes derived from the one that named it, and a
-// private one reaches that class alone.
-void SemaAnalyzer::require_base_access(const SemaEntity* derived)
+// 11.2p4 and 11.2p5: a base class reached through a chain of classes is
+// accessible only where every base-specifier between the two is, so a
+// conversion that spans the chain asks each link in turn rather than the first
+// one alone.  One inaccessible link makes the whole conversion ill formed.  The
+// caller has already found `base` in the chain, so the walk ends there.
+void SemaAnalyzer::require_base_access(const SemaEntity* derived,
+                                       const SemaEntity& base)
 {
-	if (derived == nullptr || derived->base_access == kPublicAccess)
+	for (const SemaEntity* at = derived; at != nullptr && at != &base;
+	     at = at->base)
+	{
+		require_base_link(*at);
+	}
+}
+
+// 11.2p1: the access one base-specifier gave the base it named, asked of where
+// the conversion through it is written.  A public base reaches everywhere, a
+// protected one reaches the classes derived from the one that named it, and a
+// private one reaches that class alone.
+void SemaAnalyzer::require_base_link(const SemaEntity& derived)
+{
+	if (derived.base_access == kPublicAccess || derived.scope == nullptr)
 	{
 		return;
 	}
 	const Scope* const from = naming_ != nullptr ? naming_ : reading_;
 	for (const Scope* at = from; at != nullptr; at = at->parent)
 	{
-		if (at == derived->scope)
+		if (at == derived.scope)
 		{
 			return;
 		}
-		if (derived->base_access != kProtectedAccess ||
+		if (derived.base_access != kProtectedAccess ||
 		    at->kind != ScopeKind::Class)
 		{
 			continue;
 		}
-		for (const Scope* base = at->base; base != nullptr; base = base->base)
+		if (at->base != nullptr && derives_from(*at->base, *derived.scope))
 		{
-			if (base == derived->scope)
-			{
-				return;
-			}
+			return;
 		}
 	}
 	throw std::runtime_error("a conversion to a base class of " +
-	                         types_.description(derived->type) +
+	                         types_.description(derived.type) +
 	                         " is written where the access its base-specifier "
 	                         "gave it does not reach");
+}
+
+// 12.4p11: an object's lifetime ends in a call of the destructor of its class,
+// and a program that names an inaccessible function is ill formed - so the
+// access 11 gave the destructor is asked for in the region that declares the
+// object, which is where that call is written.  A class type reached through an
+// array is the same question about each element.
+void SemaAnalyzer::require_destruction_access(const SemaEntity& entity,
+                                              const Scope* from)
+{
+	SemaEntity* const destructor = class_destructor(element_of(entity.type));
+	if (destructor == nullptr || accessible(*destructor, from))
+	{
+		return;
+	}
+	throw std::runtime_error("an object of " + types_.description(entity.type) +
+	                         " is declared where the access its class gave the "
+	                         "destructor its lifetime ends with does not reach");
+}
+
+// 11.4p1: the additional check on a protected non-static member named on an
+// object.  Where the access is granted only because the class it occurs in
+// derives from the one that declared the member, that class may reach the
+// member of its own objects and not of the base's - so the object expression
+// has to name a class derived from the one the access occurs in.  A member the
+// declaring class itself reaches is not the case 11.4 adds a check to.
+void SemaAnalyzer::require_protected_object(
+	const std::vector<SemaEntity*>& found, const SemaEntity& member,
+	const Scope* from, const Scope* object_class)
+{
+	if (object_class == nullptr || member.region == nullptr)
+	{
+		return;
+	}
+	if (found.empty())
+	{
+		if (member.access != kProtectedAccess || !member.object_member)
+		{
+			return;
+		}
+	}
+	else
+	{
+		// 13.3 has not chosen between the declarations of an overloaded name
+		// yet, so the question is asked only where every one the lookup reached
+		// answers it the same way: a protected non-static member of the one
+		// class.  A name that reached a public declaration too is one whose
+		// access the choice settles, and the choice is not made here.
+		for (std::size_t index = 0; index < found.size(); ++index)
+		{
+			for (const SemaEntity* at = found[index]; at != nullptr;
+			     at = at->next)
+			{
+				if (at->access != kProtectedAccess || !at->object_member ||
+				    at->region != member.region)
+				{
+					return;
+				}
+			}
+		}
+	}
+	if (naming_ != nullptr)
+	{
+		from = naming_;
+	}
+	for (const Scope* at = from; at != nullptr; at = at->parent)
+	{
+		if (at == member.region)
+		{
+			return;
+		}
+		if (at->kind != ScopeKind::Class || !derives_from(*at, *member.region))
+		{
+			continue;
+		}
+		// `at` is the class the access occurs in, and 11.4p1 lets it reach the
+		// member of that class and of the classes derived from it alone.
+		if (derives_from(*object_class, *at))
+		{
+			return;
+		}
+		throw std::runtime_error(member.name + " is a protected member named on "
+		                         "an object of a class the one the access is "
+		                         "written in does not derive from");
+	}
+}
+
+// 10p1: whether `derived` is `base` or derives from it, which is one walk of
+// the chain the base-clauses left on the regions.
+bool SemaAnalyzer::derives_from(const Scope& derived, const Scope& base) const
+{
+	for (const Scope* at = &derived; at != nullptr; at = at->base)
+	{
+		if (at == &base)
+		{
+			return true;
+		}
+	}
+	return false;
 }
 
 void SemaAnalyzer::require_access(const SemaEntity& member, const Scope* from)
@@ -1058,6 +1166,14 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 		                         types_.description(variable.type) +
 		                         " is what initializes an object of it");
 	}
+	if (where != Placement::Base)
+	{
+		// 12.1 and the ABI: what this action creates is a complete object -
+		// a named one, or the member subobject that is one of its own - so it
+		// runs the complete-object entry of the constructor.  A base class
+		// subobject is the one case that runs the base-object entry instead.
+		constructor.complete_object_entry = true;
+	}
 	const std::vector<TypeId>& parameters = types_.parameters(constructor.type);
 	for (std::size_t index = 0; index < arguments.size(); ++index)
 	{
@@ -1145,6 +1261,13 @@ void SemaAnalyzer::destructor_action(SemaEntity& entity, DumpNode& parent,
 	if (destructor->trivial)
 	{
 		return;
+	}
+	if (where != Placement::Base)
+	{
+		// 12.4 and the ABI: the lifetime this ends is a complete object's, so
+		// the call is of the complete-object entry of the destructor.  Only the
+		// base class subobject of an object runs the base-object entry.
+		destructor->complete_object_entry = true;
 	}
 	if (types_.kind(types_.strip_cv(entity.type)) == TypeKind::Array)
 	{
@@ -1416,12 +1539,17 @@ void SemaAnalyzer::write_member_destructions(Scope& members, DumpNode& line)
 		{
 			continue;
 		}
+		// 12.4p5 and 12.4p11: the destructor of the class is what names the
+		// destructor of each of its members, so that is where the access 11 gave
+		// the member's own is asked for.
+		require_destruction_access(member, &members);
 		destructor_action(member, line, Placement::Member);
 	}
 	if (members.owner != nullptr && members.owner->base != nullptr)
 	{
 		// 12.4p8: the base class subobject is destroyed after every member, in
 		// the reverse of the order 12.6.2p10 constructed them in.
+		require_destruction_access(*members.owner->base, &members);
 		destructor_action(*members.owner->base, line, Placement::Base);
 	}
 }
@@ -1434,6 +1562,10 @@ void SemaAnalyzer::write_member_destructions(Scope& members, DumpNode& line)
 void SemaAnalyzer::record_lifetime(SemaEntity& entity, const Context& target,
                                    bool is_static)
 {
+	// 12.4p11: whichever region ends it, the lifetime ends in a call of the
+	// destructor of the object's class, and the region that declares the object
+	// is where that call is named.
+	require_destruction_access(entity, target.scope);
 	if (target.scope->kind == ScopeKind::Namespace ||
 	    target.scope->kind == ScopeKind::Class)
 	{

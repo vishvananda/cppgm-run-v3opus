@@ -199,6 +199,9 @@ public:
 	// The internal LowIR symbol of a namespace-scope object.
 	const std::string& global_symbol(const SemaEntity& entity);
 	const std::string& function_symbol(const SemaEntity& entity);
+	// 12.1 and 12.4: which of the ABI's two entry points a constructor or a
+	// destructor stands under here, which is what this unit ran it as.
+	unsigned abi_variant(const SemaEntity& entity);
 	// 2.14.5p8: the global holding the code units of a string literal, made
 	// once per distinct literal.  The literal is an array object with static
 	// storage duration and no name a program can write, so the program holds
@@ -381,7 +384,8 @@ private:
 	// reference type, the storage of the pointer it holds rather than of the
 	// object that pointer names.
 	lowir_model::Operand member_storage(const DumpNode& object,
-	                                    const SemaEntity& member);
+	                                    const SemaEntity& member,
+	                                    bool bound = false);
 	// 12.6.2: one member of the object a constructor is initializing.
 	void member_initialization(const DumpNode& node);
 	// 4.10p3 and 10p1: the base class subobject of the object an operand

@@ -144,6 +144,14 @@ struct SemaEntity
 	// 12.3.1p2: a constructor declared `explicit`, which only
 	// direct-initialization may choose.
 	bool explicit_function;
+	// 12.1/12.4 and the ABI: the ABI gives a constructor and a destructor an
+	// entry point for a complete object and one for a base class subobject, and
+	// this says whether anything in this translation unit ever ran it on a
+	// complete object - which is every object but a base subobject, a member
+	// subobject among them.  A special member only a base subobject asked for
+	// is the base-object entry alone; one a complete object asked for is the
+	// complete-object entry, with the base-object name given to the same body.
+	bool complete_object_entry;
 	// 8.5.1p1 and 12.1p4: whether the program itself wrote what this function
 	// does, which `= default` and `= delete` do not.  It is what stops a class
 	// with a constructor from being an aggregate.

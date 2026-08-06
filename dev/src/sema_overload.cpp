@@ -1189,6 +1189,14 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
 			                 object.node != nullptr ? &object : nullptr);
 		name_function(target, chosen, "callee");
 		function = target.type;
+		if (chosen.special != kOrdinaryFunction)
+		{
+			// 5.2.4 and the ABI: a destructor a call names is named on an object
+			// the program wrote, which is a complete object - so this is the
+			// complete-object entry rather than the base-object one a base
+			// subobject's own action runs.
+			chosen.complete_object_entry = true;
+		}
 		if (object.node != nullptr && chosen.object_member)
 		{
 			arguments.insert(arguments.begin(), object);

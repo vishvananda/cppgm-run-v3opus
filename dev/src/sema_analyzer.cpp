@@ -42,24 +42,6 @@ bool has_child(const AstNode& node, AstKind kind)
 	return child_of(node, kind) != nullptr;
 }
 
-// True for the nodes that hold the arguments an initializer wrote rather than
-// one expression: the parenthesised forms an initializer, a call and a
-// mem-initializer each spell, and the braced-init-list 8.5.4 writes.
-bool is_initializer_list(AstKind kind)
-{
-	return kind == AstKind::ParenInitializer ||
-		kind == AstKind::ParenArgumentList || kind == AstKind::ArgumentList ||
-		kind == AstKind::BracedInitList;
-}
-
-// The argument list of a call or of a mem-initializer, in either of the two
-// spellings PA10 writes one as.
-const AstNode* call_arguments(const AstNode& node)
-{
-	const AstNode* list = child_of(node, AstKind::ArgumentList);
-	return list != nullptr ? list : child_of(node, AstKind::ParenArgumentList);
-}
-
 // 9p1: which class-key a class-specifier or elaborated-type-specifier wrote.
 ClassTag tag_of(const AstNode& node)
 {
@@ -105,25 +87,15 @@ bool is_unnamed_namespace(const AstNode& node)
 	return node.text == "<unnamed>";
 }
 
-unsigned long long round_up(unsigned long long value, unsigned long long unit)
-{
-	if (unit == 0)
-	{
-		return value;
-	}
-	const unsigned long long remainder = value % unit;
-	return remainder == 0 ? value : value + (unit - remainder);
-}
-
 }
 
 SemaAnalyzer::SemaAnalyzer(SemaDialect dialect)
-	: dialect_(dialect)
+	: reading_(nullptr)
+	, dialect_(dialect)
 	, anonymous_enums_(0)
 	, local_types_(0)
 	, self_(nullptr)
 	, naming_(nullptr)
-	, reading_(nullptr)
 	, breakable_(0)
 	, continuable_(0)
 	, switches_(0)

@@ -189,12 +189,27 @@ const std::string& LowirUnitLowering::global_symbol(const SemaEntity& entity)
 	return held;
 }
 
+// 12.1 and 12.4: a constructor or a destructor nothing in this unit ran on a
+// complete object is the base-object entry alone, which the internal name says
+// as plainly as the object name does.  Every other function is one entry and
+// keeps the name its declaration flattens to.
+unsigned LowirUnitLowering::abi_variant(const SemaEntity& entity)
+{
+	return entity.special != kOrdinaryFunction && !entity.complete_object_entry
+		? kBaseObjectAbi
+		: kCompleteObjectAbi;
+}
+
 const std::string& LowirUnitLowering::function_symbol(const SemaEntity& entity)
 {
 	std::string& held = entity_symbols_[entity.id];
 	if (held.empty())
 	{
 		held = symbols_.function_symbol(entity, types_.description(entity.type));
+		if (abi_variant(entity) == kBaseObjectAbi)
+		{
+			held += "__base_entry";
+		}
 	}
 	return held;
 }
@@ -220,7 +235,8 @@ void LowirUnitLowering::describe_symbol(const SemaEntity& entity,
 	// 3.5p9: the object file names the entity, and PA14's encoder is what says
 	// how.  The internal LowIR symbol is a spelling of this program alone, so
 	// the object name is carried only where the two differ.
-	const std::string object = abi_symbol_of(entity, types_);
+	const std::string object = abi_symbol_of(entity, types_,
+	                                         abi_variant(entity));
 	if (object != symbol)
 	{
 		metadata.object_symbol = object;
@@ -1015,12 +1031,16 @@ void LowirUnitLowering::function_definition(const DumpNode& node)
 		out.boundary.arity = lowir_model::CAM_VARIADIC;
 	}
 	describe_symbol(entity, out.metadata, symbol);
-	if (entity.special != kOrdinaryFunction)
+	if (entity.special != kOrdinaryFunction &&
+	    abi_variant(entity) == kCompleteObjectAbi)
 	{
 		// 12.1 and 12.4: the ABI gives a constructor and a destructor one entry
 		// point for a complete object and one for a base subobject.  This
-		// milestone has no virtual base, so the two do the same thing, and the
-		// program names one body twice rather than emitting it twice.
+		// milestone has no virtual base, so the two do the same thing, and a
+		// body a complete object asked for is named twice rather than emitted
+		// twice.  A body only a base subobject asked for stands under the
+		// base-object name alone: nothing named the other, and a symbol nothing
+		// asked for is one this unit does not owe the program.
 		lowir_model::ObjectAlias alias;
 		alias.object_symbol = abi_symbol_of(entity, types_, kBaseObjectAbi);
 		alias.target = symbol;

@@ -693,7 +693,22 @@ private:
 	// 11.2p4: a conversion from a derived class to a base class of it is well
 	// formed only where the base-specifier's access reaches, which is what
 	// makes a private base unreachable from outside the class that declared it.
-	void require_base_access(const SemaEntity* derived);
+	// A conversion spanning a chain passes through every base-specifier between
+	// the two classes, so each one is asked in turn.
+	void require_base_access(const SemaEntity* derived, const SemaEntity& base);
+	// 11.2p1: the one base-specifier a class wrote, asked of where it is read.
+	void require_base_link(const SemaEntity& derived);
+	// 11.4p1: the additional check a protected non-static member named on an
+	// object asks, which is that the object is of the class the access occurs
+	// in rather than of the base that declared the member.
+	void require_protected_object(const std::vector<SemaEntity*>& found,
+	                              const SemaEntity& member, const Scope* from,
+	                              const Scope* object_class);
+	// 10p1: whether one class region is another or derives from it.
+	bool derives_from(const Scope& derived, const Scope& base) const;
+	// 12.4p11: the destructor an object's lifetime ends in a call of, which is
+	// named where the object is declared and has to be accessible there.
+	void require_destruction_access(const SemaEntity& entity, const Scope* from);
 	// 11.2: the region the expression being read was written in.
 	Scope* reading_;
 	// 10.2: the object a member found through a base class is a member of,
