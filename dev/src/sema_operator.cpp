@@ -69,6 +69,33 @@ const char* operator_spelling(unsigned token)
 	return nullptr;
 }
 
+// 13.5p1: the operators an operator-function-id may be written with, which is
+// what tells one from the allocation functions of 3.7.4 and the literal
+// operators of 13.5.8, whose names begin the same way.
+bool overloadable_operator(const std::string& name)
+{
+	if (name.compare(0, 8, "operator") != 0)
+	{
+		return false;
+	}
+	static const char* const kOverloadable[] = {
+		"+", "-", "*", "/", "%", "^", "&", "|", "~", "!", "=", "<", ">",
+		"+=", "-=", "*=", "/=", "%=", "^=", "&=", "|=", "<<", ">>", "<<=",
+		">>=", "==", "!=", "<=", ">=", "&&", "||", "++", "--", ",", "->*",
+		"->", "[]", "()"
+	};
+	const std::string written = name.substr(8);
+	for (std::size_t index = 0;
+	     index < sizeof(kOverloadable) / sizeof(kOverloadable[0]); ++index)
+	{
+		if (written == kOverloadable[index])
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
 // Whether `what` is already in `where`, which the sets 3.4.2 gathers are small
 // enough for a scan to answer and which one type reaches by more than one path.
 template <typename T>
@@ -85,6 +112,35 @@ bool held(const std::vector<T*>& where, const T* what)
 }
 
 }  // namespace
+
+// 13.5p6: an operator function that is not a non-static member shall take at
+// least one parameter of class or enumeration type, or a reference to one, so
+// that 13.3.1.2p2 never lets a program give a new meaning to an operator on
+// operands the language already gives one to.
+void SemaAnalyzer::require_operator_operand(const std::string& name,
+                                            TypeId type)
+{
+	if (!overloadable_operator(name))
+	{
+		return;
+	}
+	const std::vector<TypeId>& parameters = types_.parameters(type);
+	for (std::size_t index = 0; index < parameters.size(); ++index)
+	{
+		TypeId at = parameters[index];
+		if (types_.is_reference(at))
+		{
+			at = types_.target(at);
+		}
+		at = types_.strip_cv(at);
+		if (types_.is_class(at) || types_.kind(at) == TypeKind::Enum)
+		{
+			return;
+		}
+	}
+	throw std::runtime_error(name + " is declared outside a class and takes no "
+	                         "operand of class or enumeration type");
+}
 
 // 3.4.2p2: the namespaces and classes one argument type is associated with.
 // A class is associated with itself, its base classes, the class it is a member

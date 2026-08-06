@@ -99,12 +99,33 @@ NameKind DeclaredNames::spelled_kind(const std::string& spelling) const
 	return NameKind::Unknown;
 }
 
+NameKind DeclaredNames::reached_kind(const std::string& spelling) const
+{
+	std::string prefix = prefix_;
+	while (true)
+	{
+		const NameKind kind = spelled_kind(prefix + spelling);
+		if (kind != NameKind::Unknown)
+		{
+			return kind;
+		}
+		if (prefix.empty())
+		{
+			return NameKind::Unknown;
+		}
+		const std::string::size_type at =
+			prefix.rfind("::", prefix.size() - 3);
+		prefix = at == std::string::npos ? std::string()
+		                                 : prefix.substr(0, at + 2);
+	}
+}
+
 NameKind DeclaredNames::kind_of(const std::string& name) const
 {
 	const bool qualified = name.find(':') != std::string::npos;
 	if (qualified)
 	{
-		const NameKind kind = spelled_kind(name);
+		const NameKind kind = reached_kind(name);
 		if (kind != NameKind::Unknown)
 		{
 			return kind;
@@ -131,7 +152,7 @@ NameKind DeclaredNames::kind_of(const std::string& name) const
 		const std::vector<std::string>& nominated = scopes_[index].nominated;
 		for (std::size_t at = 0; at < nominated.size(); ++at)
 		{
-			const NameKind kind = spelled_kind(nominated[at] + name);
+			const NameKind kind = reached_kind(nominated[at] + name);
 			if (kind != NameKind::Unknown)
 			{
 				return kind;

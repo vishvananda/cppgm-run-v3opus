@@ -936,6 +936,9 @@ private:
 	// 3.4.2p3: whether what the ordinary lookup found leaves the
 	// argument-dependent one to be done at all.
 	bool allows_adl(const SemaEntity* named) const;
+	// 13.5p6: an operator function declared outside a class shall take at least
+	// one operand of class or enumeration type.
+	void require_operator_operand(const std::string& name, TypeId type);
 	// 13.3.3.2: which of two conversions of one argument is better, as 1, 0
 	// or -1.
 	int compare_matches(const Match& left, const Match& right);

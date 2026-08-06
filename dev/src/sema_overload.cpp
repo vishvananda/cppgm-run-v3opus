@@ -1189,9 +1189,23 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
 	const std::string& called = callee.kind == AstKind::MemberExpression
 		? callee.children[1]->text
 		: callee.text;
+	// 3.4.2p1: an unqualified callee also names what the types of the arguments
+	// reach, and 3.4.2p3 leaves that search out where the ordinary lookup found
+	// a member of a class, a function declared in a block, or anything that is
+	// not a function at all.
+	const bool adl = callee.kind == AstKind::IdExpression &&
+		!QualifiedName(callee.text).qualified() && allows_adl(named);
+	// Where nothing was found at all, the name is settled once the arguments
+	// are known, and the line the callee will be written on holds its place
+	// before them until then.
+	DumpNode* deferred = nullptr;
 	if (callee.kind == AstKind::MemberExpression)
 	{
 		member_callee(callee, ctx, line, target, object);
+	}
+	else if (named == nullptr && adl)
+	{
+		deferred = &model_.open_node(line, std::string());
 	}
 	else
 	{
@@ -1216,13 +1230,33 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
 	}
 
 	TypeId function = kNoType;
-	if (target.functions != nullptr && target.addressed == nullptr)
+	if (deferred != nullptr || (target.functions != nullptr &&
+	                            target.addressed == nullptr))
 	{
+		// 13.3p1: the candidate set is what the lookups reached, which for an
+		// unqualified call is the ordinary lookup and 3.4.2's together.
+		std::vector<SemaEntity*> candidates;
+		if (target.functions != nullptr)
+		{
+			candidates = *target.functions;
+		}
+		const std::size_t singles =
+			adl ? argument_candidates(called, arguments, candidates) : 0;
+		if (candidates.empty())
+		{
+			throw std::runtime_error("no declaration of " + called +
+			                         " is in scope");
+		}
+		if (deferred != nullptr)
+		{
+			target.node = deferred;
+		}
 		// 13.3: the arguments choose one declaration, which the callee line is
 		// then written from.
 		SemaEntity& chosen =
-			*select_overload(*target.functions, arguments, called,
-			                 object.node != nullptr ? &object : nullptr);
+			*select_overload(candidates, arguments, called,
+			                 object.node != nullptr ? &object : nullptr, false,
+			                 singles);
 		name_function(target, chosen, "callee");
 		function = target.type;
 		if (chosen.special != kOrdinaryFunction)

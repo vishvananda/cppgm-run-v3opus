@@ -1207,6 +1207,10 @@ void SemaAnalyzer::declare_function_declarator(
 		declare_function(name, type, target, false,
 		                 granting != nullptr && !spelled.qualified());
 	function.object_member = type != written_type;
+	if (!function.object_member)
+	{
+		require_operator_operand(name, type);
+	}
 	if (granting != nullptr)
 	{
 		// 11.3p1 and 3.4.2p2: the class grants this declaration its access,
@@ -1551,8 +1555,13 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 
 	std::string ignored;
 	std::vector<Parameter> parameters;
+	// 3.4.1p8 and 3.4.1p9: the rest of a declarator is read where the
+	// declarator-id names it - in the region a qualified one reaches, and
+	// otherwise where the declaration stands, which for a friend declaration is
+	// the class it is written in and not the namespace it declares into.
 	TypeId type = declarator_type(declarator, specifier_type(specifiers),
-	                              target, &ignored, &parameters);
+	                              spelled.qualified() ? target : ctx, &ignored,
+	                              &parameters);
 	if (types_.kind(type) != TypeKind::Function)
 	{
 		throw std::runtime_error("a function definition declares " + name +
@@ -1567,6 +1576,10 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 		declare_function(name, type, target, true,
 		                 granting != nullptr && !spelled.qualified());
 	entity.object_member = type != written_type;
+	if (!entity.object_member)
+	{
+		require_operator_operand(name, type);
+	}
 	if (granting != nullptr)
 	{
 		model_.befriend(*granting, entity);

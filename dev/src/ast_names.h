@@ -145,6 +145,13 @@ private:
 	// What a spelling with a nested-name-specifier names, following the
 	// namespace aliases its prefix was written through.
 	NameKind spelled_kind(const std::string& spelling) const;
+	// 3.4.3: the same question asked from where the name is written.  A member
+	// is remembered under the whole prefix its declaration stood in, while
+	// `nnn::f` written inside `B` spells only the part of that prefix the
+	// region it is written in does not already supply - so the prefixes in
+	// force are tried outward, longest first, which is the order the regions
+	// around the name are searched in.
+	NameKind reached_kind(const std::string& spelling) const;
 
 	std::vector<Region> scopes_;
 	// The names a qualified-id can reach, spelled as they are written.  A
