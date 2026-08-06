@@ -473,8 +473,13 @@ private:
 	                         unsigned long long index);
 	// 11.2: whether a context in `from` may name `member`, and the error that
 	// it may not.
-	bool accessible(const SemaEntity& member, const Scope* from) const;
-	void require_access(const SemaEntity& member, const Scope* from);
+	// `naming_class` is 11.2p5's class the name was written on, whose own
+	// bases may grant what the declaring class does not; null where the name
+	// was not written on an object.
+	bool accessible(const SemaEntity& member, const Scope* from,
+	                const Scope* naming_class = nullptr) const;
+	void require_access(const SemaEntity& member, const Scope* from,
+	                    const Scope* naming_class = nullptr);
 	// 11p6: the class a declaration written outside it names a member of, whose
 	// access every name of that declaration is checked with - the leading return
 	// type of an out-of-class member function and the initializer of a static
@@ -561,6 +566,10 @@ private:
 	// the class the specifiers named, which declares nothing.
 	void grant_class_friendship(const Context& ctx,
 	                            const Specifiers& specifiers);
+	// 3.3.6 and 7.3.1.2p3: the innermost namespace a region is written in,
+	// which is what a friend declaration declares into however deeply the class
+	// it is written in is nested.
+	static Scope& friend_namespace(Scope& scope);
 	// 11.3p1: the innermost class around a friend declaration, which is the one
 	// that grants what the declaration grants.
 	SemaEntity* granting_class(const Context& ctx) const;

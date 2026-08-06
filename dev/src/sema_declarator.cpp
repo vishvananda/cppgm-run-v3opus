@@ -89,7 +89,17 @@ void SemaAnalyzer::read_type_specifier(const AstNode& node, Specifiers& out,
 		}
 		if (entity == nullptr)
 		{
-			entity = &class_declaration(node, ctx, span,
+			// 11.3p11 and 3.3.2p6: a class an elaborated-type-specifier in a
+			// friend declaration reaches nowhere is declared in the innermost
+			// enclosing namespace, not as a member of the class the friend
+			// declaration is written in.
+			Context where = ctx;
+			if (out.is_friend && where.scope != nullptr)
+			{
+				where.scope = &friend_namespace(*where.scope);
+				where.dump = where.scope->dump;
+			}
+			entity = &class_declaration(node, where, span,
 			                            node.kind == AstKind::ClassSpecifier,
 			                            named_by);
 		}

@@ -515,10 +515,7 @@ bool SemaAnalyzer::aggregate_class(Scope& scope)
 // 3.3.6: the innermost namespace a region is written in, which 7.3.1.2p3 makes
 // a friend-declared function a member of however deeply the class that declared
 // it is nested.
-namespace
-{
-
-Scope& enclosing_namespace(Scope& scope)
+Scope& SemaAnalyzer::friend_namespace(Scope& scope)
 {
 	Scope* at = &scope;
 	while (at->kind != ScopeKind::Namespace && at->parent != nullptr)
@@ -526,8 +523,6 @@ Scope& enclosing_namespace(Scope& scope)
 		at = at->parent;
 	}
 	return *at;
-}
-
 }
 
 // 11.3p1: the class a friend declaration written in it grants access to, which
@@ -581,7 +576,7 @@ SemaEntity* SemaAnalyzer::friend_target(const Context& ctx,
 	}
 	if (!spelled.qualified())
 	{
-		target.scope = &enclosing_namespace(*ctx.scope);
+		target.scope = &friend_namespace(*ctx.scope);
 		target.dump = target.scope->dump;
 	}
 	return granting;
@@ -597,7 +592,8 @@ bool SemaAnalyzer::befriended(const Scope& granting, const Scope& from) const
 		model_.befriended(*granting.owner, *from.owner);
 }
 
-bool SemaAnalyzer::accessible(const SemaEntity& member, const Scope* from) const
+bool SemaAnalyzer::accessible(const SemaEntity& member, const Scope* from,
+                              const Scope* naming_class) const
 {
 	if (member.access == kPublicAccess || member.region == nullptr)
 	{
@@ -617,16 +613,30 @@ bool SemaAnalyzer::accessible(const SemaEntity& member, const Scope* from) const
 		{
 			return true;
 		}
-		// 11.4p1: a protected member is also named from a member of a class
-		// derived from the one that declared it, and 11.7 gives that reach to a
-		// class nested in such a class as well.
-		if (member.access != kProtectedAccess || at->kind != ScopeKind::Class)
+		if (member.access != kProtectedAccess)
 		{
 			continue;
 		}
-		if (at->base != nullptr && derives_from(*at->base, *member.region))
+		// 11.4p1: a protected member is also named from a member of a class
+		// derived from the one that declared it, and 11.7 gives that reach to a
+		// class nested in such a class as well.
+		if (at->kind == ScopeKind::Class && at->base != nullptr &&
+		    derives_from(*at->base, *member.region))
 		{
 			return true;
+		}
+		// 11.2p5: where the member is named on an object, the access is also
+		// granted by a base class of that object's class which itself grants
+		// it - so the classes between the one the name was written on and the
+		// one that declared the member are each asked in turn.  A private
+		// member is not one of those: no class but its own ever reaches it.
+		for (const Scope* n = naming_class;
+		     friends && n != nullptr && n != member.region; n = n->base)
+		{
+			if (befriended(*n, *at))
+			{
+				return true;
+			}
 		}
 	}
 	return false;
@@ -828,7 +838,8 @@ bool SemaAnalyzer::derives_from(const Scope& derived, const Scope& base) const
 	return false;
 }
 
-void SemaAnalyzer::require_access(const SemaEntity& member, const Scope* from)
+void SemaAnalyzer::require_access(const SemaEntity& member, const Scope* from,
+                                  const Scope* naming_class)
 {
 	if (naming_ != nullptr)
 	{
@@ -836,7 +847,7 @@ void SemaAnalyzer::require_access(const SemaEntity& member, const Scope* from)
 		// wherever in its declaration the name stands.
 		from = naming_;
 	}
-	if (!accessible(member, from))
+	if (!accessible(member, from, naming_class))
 	{
 		throw std::runtime_error(member.name + " is named where the access its "
 		                         "class gave it does not reach");

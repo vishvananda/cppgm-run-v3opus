@@ -579,7 +579,7 @@ SemaAnalyzer::Value SemaAnalyzer::member_expression(const AstNode& node,
 	SemaEntity& member =
 		require(model_.lookup_in(region, id.text, LookupKind::Any, &found),
 		        id.text);
-	require_access(member, ctx.scope);
+	require_access(member, ctx.scope, &region);
 	require_protected_object(found, member, ctx.scope, &region);
 	if (member.kind != SemaKind::Variable || !member.object_member)
 	{
@@ -650,7 +650,7 @@ void SemaAnalyzer::member_callee(const AstNode& callee, const Context& ctx,
 	SemaEntity& member =
 		require(model_.lookup_in(region, id.text, LookupKind::Any, &found),
 		        id.text);
-	require_access(member, ctx.scope);
+	require_access(member, ctx.scope, &region);
 	require_protected_object(found, member, ctx.scope, &region);
 	if (member.kind == SemaKind::Function)
 	{
