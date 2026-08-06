@@ -81,6 +81,23 @@ private:
 	std::unordered_map<std::string, std::vector<std::string> > overloads_;
 };
 
+// The counters a generated body carries between the translation units that add
+// to it.  3.6.2p2 makes one initialization function of the whole program, so
+// its blocks, temporaries and generated slots keep rising across the units that
+// fill it rather than restarting - and colliding - at each one.
+struct GeneratedBody
+{
+	GeneratedBody()
+		: temps(0)
+		, blocks(0)
+		, slots(0)
+	{}
+
+	unsigned temps;
+	unsigned blocks;
+	unsigned slots;
+};
+
 // The LowIR program built from one or more translation units.
 class LowirProgramBuilder
 {
@@ -105,10 +122,20 @@ private:
 	// translation unit that declares the same entity adds nothing.
 	std::unordered_set<std::string> defined_;
 	std::unordered_set<std::string> declared_;
+	// The top-level entries this program has already written, so a repeated
+	// definition is rejected by one probe rather than by a walk of everything
+	// written so far.
+	std::unordered_set<std::string> emitted_functions_;
+	std::unordered_set<std::string> emitted_globals_;
 	// 3.6.2p2: the actions the objects with no constant initializer need before
 	// the program starts, as the one function that runs them in order.
 	lowir_model::Function startup_;
 	bool has_startup_;
+	GeneratedBody startup_body_;
+	// 2.14.5p8: the global holding the code units of each distinct string
+	// literal.  A literal is one array object of the program however many
+	// translation units write it, so the map outlives any one of them.
+	std::unordered_map<std::string, std::string> strings_;
 
 	friend class LowirFunctionLowering;
 	friend class LowirUnitLowering;
@@ -135,8 +162,8 @@ public:
 	lowir_model::Program& program() { return program_; }
 	LowirSymbolTable& symbols() { return symbols_; }
 	// The internal LowIR symbol of a namespace-scope object.
-	std::string global_symbol(const SemaEntity& entity);
-	std::string function_symbol(const SemaEntity& entity);
+	const std::string& global_symbol(const SemaEntity& entity);
+	const std::string& function_symbol(const SemaEntity& entity);
 	// 2.14.5p8: the global holding the code units of a string literal, made
 	// once per distinct literal.  The literal is an array object with static
 	// storage duration and no name a program can write, so the program holds
@@ -160,7 +187,6 @@ private:
 	void declaration(const DumpNode& node);
 	void global_variable(const DumpNode& node);
 	void function_definition(const DumpNode& node);
-	void function_declaration(const DumpNode& node);
 	// 3.6.2 and 8.5p6: the constant a namespace-scope object is initialized
 	// with, as the data the global definition holds.
 	// False when the initializer names no value or address the translation
@@ -196,8 +222,12 @@ private:
 	// it, so the actions of one unit are emitted into one body in order.
 	LowirFunctionLowering* startup_;
 	// The global each distinct string literal was given, so one literal
-	// written twice is one array object.
-	std::unordered_map<std::string, std::string> strings_;
+	// written twice is one array object.  It belongs to the program, which is
+	// what makes two units that write one literal name one object.
+	std::unordered_map<std::string, std::string>& strings_;
+	// The symbol of every namespace-scope entity this unit has already asked
+	// for, so a name used many times is flattened and signed once.
+	std::unordered_map<std::uint32_t, std::string> entity_symbols_;
 };
 
 // One function body, lowered.
@@ -214,12 +244,14 @@ public:
 	void run(const DumpNode& node, TypeId type);
 
 	// A body with no source declaration behind it: an entry block is opened,
-	// actions are added to it, and the whole is closed as a `void` function.
-	// 3.6.2p2 initialization is the one such body PA15 generates.
-	void open_generated();
+	// or the one a previous translation unit left open is taken up again, and
+	// actions are added to it.  3.6.2p2 initialization is the one such body
+	// PA15 generates, and the program owns it, so `state` carries what one unit
+	// has used to the next.
+	void open_generated(const GeneratedBody& state);
 	void add_initialization(const lowir_model::Operand& storage, TypeId type,
 	                        const DumpNode& node);
-	void close_generated();
+	void suspend_generated(GeneratedBody& state) const;
 
 private:
 	// Statements.

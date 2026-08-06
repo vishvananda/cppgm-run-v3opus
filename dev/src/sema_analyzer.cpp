@@ -198,16 +198,16 @@ bool SemaAnalyzer::accepts_arity(const SemaEntity& function,
 	{
 		return true;
 	}
-	const std::unordered_map<std::uint32_t, Defaults>::const_iterator found =
-		defaults_.find(function.id);
+	const std::unordered_map<std::uint32_t, std::vector<Default> >::const_iterator
+		found = defaults_.find(function.id);
 	if (found == defaults_.end())
 	{
 		return false;
 	}
 	for (std::size_t index = given; index < declared; ++index)
 	{
-		if (index >= found->second.written.size() ||
-		    found->second.written[index] == nullptr)
+		if (index >= found->second.size() ||
+		    found->second[index].written == nullptr)
 		{
 			return false;
 		}
@@ -215,18 +215,42 @@ bool SemaAnalyzer::accepts_arity(const SemaEntity& function,
 	return true;
 }
 
+void SemaAnalyzer::record_default_arguments(
+	const SemaEntity& function, const std::vector<Parameter>& declared,
+	Scope* region)
+{
+	for (std::size_t index = 0; index < declared.size(); ++index)
+	{
+		if (declared[index].initializer == nullptr)
+		{
+			continue;
+		}
+		std::vector<Default>& held = defaults_[function.id];
+		held.resize(declared.size() > held.size() ? declared.size()
+		                                          : held.size());
+		if (held[index].written != nullptr)
+		{
+			// 8.3.6p4: a parameter's default-argument belongs to the
+			// declaration that first gave it, which a later one does not move.
+			continue;
+		}
+		held[index].written = declared[index].initializer;
+		held[index].scope = region;
+	}
+}
+
 void SemaAnalyzer::write_default_argument(const SemaEntity& function,
                                           std::size_t index, DumpNode& parent)
 {
-	const std::unordered_map<std::uint32_t, Defaults>::const_iterator found =
-		defaults_.find(function.id);
-	if (found == defaults_.end() || index >= found->second.written.size() ||
-	    found->second.written[index] == nullptr)
+	const std::unordered_map<std::uint32_t, std::vector<Default> >::const_iterator
+		found = defaults_.find(function.id);
+	if (found == defaults_.end() || index >= found->second.size() ||
+	    found->second[index].written == nullptr)
 	{
 		throw std::runtime_error("a call omits an argument the declaration "
 		                         "gives no default for");
 	}
-	const AstNode& written = *found->second.written[index];
+	const AstNode& written = *found->second[index].written;
 	if (written.children.empty() || written.children[0]->children.empty())
 	{
 		throw std::runtime_error("a default-argument is written with no value");
@@ -234,8 +258,8 @@ void SemaAnalyzer::write_default_argument(const SemaEntity& function,
 	// 8.3.6p9: the default-argument is looked up and read in the region the
 	// declaration that introduced it was written in, not the one the call is.
 	Context where;
-	where.scope = found->second.scope;
-	where.dump = found->second.scope->dump;
+	where.scope = found->second[index].scope;
+	where.dump = where.scope->dump;
 	where.node = &parent;
 	initialize(*written.children[0]->children[0],
 	           types_.parameters(function.type)[index], where, parent);
@@ -1240,14 +1264,13 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 {
 	std::string written;
 	// 14.1: a template's declarator is the pattern its instantiations write
-	// their own parameters from, so the names it spelled are read here, where
-	// the declarator is read anyway.  Every other declaration needs none of
-	// them, and asks for none.
+	// their own parameters from, and 8.3.6p4 makes a function declaration's
+	// default-arguments the function's from that declaration on, whether or not
+	// it is the one with the body.  Both read the parameter clause the
+	// declarator already spelled, so it is captured here rather than read again.
 	std::vector<Parameter> spelled_parameters;
-	const bool parameterised =
-		ctx.scope->kind == ScopeKind::TemplateParameters;
 	TypeId type = declarator_type(node, specifier_type(specifiers), ctx, &written,
-	                              parameterised ? &spelled_parameters : nullptr);
+	                              &spelled_parameters);
 	// 8.3.4p3: an array declared with no bound and initialized from a braced
 	// list has as many elements as the list has clauses.
 	if (types_.kind(type) == TypeKind::Array && !types_.bounded(type) &&
@@ -1298,6 +1321,7 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 		type = with_object_parameter(type, node, target, specifiers.is_static);
 		SemaEntity& function = declare_function(name, type, target, false);
 		function.object_member = type != written_type;
+		record_default_arguments(function, spelled_parameters, target.scope);
 		if (function.template_parameters != nullptr)
 		{
 			templates_[function.id].swap(spelled_parameters);
@@ -1447,6 +1471,14 @@ void SemaAnalyzer::write_initializer(const AstNode& initializer, TypeId type,
 	const TypeId element = types_.kind(type) == TypeKind::Array
 		? types_.target(type)
 		: type;
+	if (types_.kind(type) == TypeKind::Array && types_.bounded(type) &&
+	    initializer.children.size() > types_.bound(type))
+	{
+		// 8.5.1p6: an aggregate has as many elements as it was declared with,
+		// and a list with more clauses than that initializes nothing.
+		throw std::runtime_error("an array initializer has more clauses than "
+		                         "the array has elements");
+	}
 	for (std::size_t index = 0; index < initializer.children.size(); ++index)
 	{
 		initialize(*initializer.children[index], element, ctx, list);
@@ -1526,20 +1558,7 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 
 	SemaEntity& entity = declare_function(name, type, target, true);
 	entity.object_member = type != written_type;
-	// 8.3.6p4: the default-arguments a declaration adds are the function's from
-	// then on, and 8.3.6p9 reads each in the region its declaration was
-	// written in.
-	for (std::size_t index = 0; index < parameters.size(); ++index)
-	{
-		if (parameters[index].initializer == nullptr)
-		{
-			continue;
-		}
-		Defaults& held = defaults_[entity.id];
-		held.scope = target.scope;
-		held.written.resize(parameters.size(), nullptr);
-		held.written[index] = parameters[index].initializer;
-	}
+	record_default_arguments(entity, parameters, target.scope);
 
 	DumpScope& dump = model_.open_dump(*target.dump, "scope function " + name);
 	Context inner;

@@ -441,7 +441,11 @@ Operand LowirFunctionLowering::converted(const LowValue& value, TypeId target)
 	const TypeId bare = types.strip_cv(value.type);
 	if (types.kind(bare) == TypeKind::Array || types.kind(bare) == TypeKind::Function)
 	{
-		return decay(value);
+		// 4p1: clause 4 is a sequence, and 4.2 and 4.3 stand first.  The array
+		// or function is the pointer it converts to, and what the target asks
+		// for is asked of that pointer - which for `bool` is 4.12 and not the
+		// address itself.
+		return converted(as_value(value), target);
 	}
 	const Operand operand = rvalue(value);
 	if (types.strip_cv(value.type) == types.fundamental(FT_NULLPTR_T) &&
@@ -492,11 +496,13 @@ Operand LowirFunctionLowering::truth_for_branch(const LowValue& value)
 {
 	TypeTable& types = unit_.types();
 	const TypeId bare = types.strip_cv(value.type);
-	const Operand operand = rvalue(value);
 	if (types.kind(bare) == TypeKind::Array || types.kind(bare) == TypeKind::Function)
 	{
-		return operand;
+		// 4.2 and 4.3: what a branch tests is the pointer the array or function
+		// became, which 4.12 then compares with zero like any other.
+		return truth_for_branch(as_value(value));
 	}
+	const Operand operand = rvalue(value);
 	const lowir_model::LowType low = unit_.low_type(bare);
 	if (low.text[0] != 'f' && low.text != "ptr")
 	{
@@ -517,6 +523,10 @@ Operand LowirFunctionLowering::truth_value(const LowValue& value)
 {
 	TypeTable& types = unit_.types();
 	const TypeId bare = types.strip_cv(value.type);
+	if (types.kind(bare) == TypeKind::Array || types.kind(bare) == TypeKind::Function)
+	{
+		return truth_value(as_value(value));
+	}
 	const lowir_model::LowType low = unit_.low_type(bare);
 	const bool addressed = low.text == "ptr";
 	Instruction instruction;
@@ -609,10 +619,26 @@ bool LowirFunctionLowering::holds_label(const DumpNode& node)
 	return false;
 }
 
-void LowirFunctionLowering::open_generated()
+void LowirFunctionLowering::open_generated(const GeneratedBody& state)
 {
 	returns_ = kNoType;
-	open_block("entry");
+	temps_ = state.temps;
+	blocks_ = state.blocks;
+	generated_slots_ = state.slots;
+	if (out_.blocks.empty())
+	{
+		open_block("entry");
+		return;
+	}
+	// 3.6.2p2: the program has one initialization function, so a unit that adds
+	// to a body another unit began takes up the block it left open rather than
+	// opening a second entry.
+	for (std::size_t index = 0; index < out_.slots.size(); ++index)
+	{
+		slot_names_.insert(out_.slots[index].first);
+	}
+	current_ = out_.blocks.size() - 1;
+	open_ = true;
 }
 
 void LowirFunctionLowering::add_initialization(const Operand& storage,
@@ -629,16 +655,11 @@ void LowirFunctionLowering::add_initialization(const Operand& storage,
 	initialize(storage, type, node);
 }
 
-void LowirFunctionLowering::close_generated()
+void LowirFunctionLowering::suspend_generated(GeneratedBody& state) const
 {
-	if (terminated())
-	{
-		return;
-	}
-	Instruction instruction;
-	instruction.kind = Instruction::IK_RETURN;
-	instruction.type.text = "void";
-	terminate(instruction);
+	state.temps = temps_;
+	state.blocks = blocks_;
+	state.slots = generated_slots_;
 }
 
 void LowirFunctionLowering::statement(const DumpNode& node)
@@ -1503,12 +1524,16 @@ LowValue LowirFunctionLowering::unary_expression(const DumpNode& node)
 
 	case OP_LNOT:
 	{
+		// 5.3.1p9 and 4.12: the operand is read as a value first, which is
+		// where 4.2 and 4.3 make an array or a function the pointer that is
+		// then compared with zero.
+		const LowValue held = as_value(operand);
 		Instruction instruction;
 		instruction.kind = Instruction::IK_CMP;
 		instruction.op = "eq";
-		instruction.type = unit_.low_type(operand.type);
-		instruction.first = rvalue(operand);
-		instruction.second = literal_operand(operand.type, 0);
+		instruction.type = unit_.low_type(held.type);
+		instruction.first = held.operand;
+		instruction.second = literal_operand(held.type, 0);
 		value.operand = emit(instruction);
 		return value;
 	}

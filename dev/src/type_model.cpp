@@ -493,7 +493,9 @@ bool TypeTable::is_object_pointer(TypeId type) const
 }
 
 // 4.12: every arithmetic, unscoped enumeration and pointer type converts to
-// bool; a scoped enumeration does not.
+// bool; a scoped enumeration does not.  4p1 makes clause 4 a sequence, so 4.2
+// and 4.3 stand first: an array and a function are the pointer they convert to
+// before anything asks what that pointer is worth as a truth value.
 bool TypeTable::contextually_bool(TypeId type) const
 {
 	if (is_scoped_enum(type))
@@ -503,6 +505,7 @@ bool TypeTable::contextually_bool(TypeId type) const
 	return is_arithmetic(type) || kind(type) == TypeKind::Enum ||
 		kind(type) == TypeKind::Pointer ||
 		kind(type) == TypeKind::MemberPointer ||
+		kind(type) == TypeKind::Array || kind(type) == TypeKind::Function ||
 		(kind(type) == TypeKind::Fundamental &&
 		 fundamental_type(type) == FT_NULLPTR_T);
 }

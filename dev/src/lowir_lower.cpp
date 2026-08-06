@@ -94,6 +94,7 @@ LowirUnitLowering::LowirUnitLowering(TypeTable& types,
 	, defined_(builder.defined_)
 	, declared_(builder.declared_)
 	, startup_(nullptr)
+	, strings_(builder.strings_)
 {}
 
 LowirUnitLowering::~LowirUnitLowering()
@@ -176,14 +177,27 @@ lowir_model::LowType LowirUnitLowering::low_type(TypeId type)
 	return low("i64");
 }
 
-std::string LowirUnitLowering::global_symbol(const SemaEntity& entity)
+// A name is used as often as the program writes it, and its symbol is a fact
+// about the declaration rather than about the use, so each declaration is
+// flattened - and a function's signature described and signed - once.
+const std::string& LowirUnitLowering::global_symbol(const SemaEntity& entity)
 {
-	return LowirSymbolTable::object_symbol(entity);
+	std::string& held = entity_symbols_[entity.id];
+	if (held.empty())
+	{
+		held = LowirSymbolTable::object_symbol(entity);
+	}
+	return held;
 }
 
-std::string LowirUnitLowering::function_symbol(const SemaEntity& entity)
+const std::string& LowirUnitLowering::function_symbol(const SemaEntity& entity)
 {
-	return symbols_.function_symbol(entity, types_.description(entity.type));
+	std::string& held = entity_symbols_[entity.id];
+	if (held.empty())
+	{
+		held = symbols_.function_symbol(entity, types_.description(entity.type));
+	}
+	return held;
 }
 
 void LowirUnitLowering::describe_symbol(const SemaEntity& entity,
@@ -210,9 +224,16 @@ void LowirProgramBuilder::finish()
 	{
 		return;
 	}
+	// 3.6.2p2: every unit's actions are in, so the one body that runs them is
+	// closed here rather than by whichever unit happened to add to it last.
+	lowir_model::Instruction leave;
+	leave.kind = lowir_model::Instruction::IK_RETURN;
+	leave.type.text = "void";
+	startup_.blocks.back().instructions.push_back(leave);
 	program_.functions.push_back(startup_);
 	has_startup_ = false;
 	startup_ = lowir_model::Function();
+	startup_body_ = GeneratedBody();
 }
 
 void LowirUnitLowering::run(const DumpNode& unit)
@@ -228,7 +249,7 @@ void LowirUnitLowering::run(const DumpNode& unit)
 	}
 	if (startup_ != nullptr)
 	{
-		startup_->close_generated();
+		startup_->suspend_generated(builder_.startup_body_);
 	}
 }
 
@@ -274,11 +295,10 @@ void LowirUnitLowering::declaration(const DumpNode& node)
 		function_definition(node);
 		return;
 
-	case FactKind::FunctionDeclaration:
-		function_declaration(node);
-		return;
-
 	default:
+		// A declaration of a function this unit also defines names the
+		// definition; only one the program has no body for needs a line of its
+		// own, and it is written where a use of it asks for it.
 		return;
 	}
 }
@@ -408,16 +428,11 @@ void LowirUnitLowering::global_variable(const DumpNode& node)
 		declare_entity(entity);
 		return;
 	}
-	if (!defined_.insert(symbol).second && !declared_.insert(symbol).second)
+	// 3.2p3: one definition in one program, however many units declare it.
+	defined_.insert(symbol);
+	if (!builder_.emitted_globals_.insert(symbol).second)
 	{
-		// One definition in one program, however many units declare it.
-	}
-	for (std::size_t index = 0; index < program_.globals.size(); ++index)
-	{
-		if (program_.globals[index].name == symbol)
-		{
-			return;
-		}
+		return;
 	}
 	lowir_model::GlobalDefinition global;
 	global.name = symbol;
@@ -564,7 +579,7 @@ void LowirUnitLowering::dynamic_initializer(const SemaEntity& entity,
 			builder_.startup_.metadata.binding = lowir_model::SBM_INTERNAL;
 		}
 		startup_ = new LowirFunctionLowering(*this, builder_.startup_);
-		startup_->open_generated();
+		startup_->open_generated(builder_.startup_body_);
 	}
 	lowir_model::Operand storage;
 	storage.kind = lowir_model::Operand::OP_GLOBAL;
@@ -633,17 +648,20 @@ void LowirUnitLowering::global_array_initializer(
 std::string LowirUnitLowering::string_literal(const std::string& data,
                                               TypeId array)
 {
+	const TypeId element = types_.strip_cv(types_.target(types_.strip_cv(array)));
+	// 2.14.5p8: the object a literal is, is its code units read at the width of
+	// its element type, so two literals are one object only when both agree.
+	const std::string key = low_type(element).text + ":" + data;
 	const std::unordered_map<std::string, std::string>::const_iterator found =
-		strings_.find(data);
+		strings_.find(key);
 	if (found != strings_.end())
 	{
 		return found->second;
 	}
-	const TypeId element = types_.strip_cv(types_.target(types_.strip_cv(array)));
 	const unsigned long long stride = types_.object_size(element);
 	const std::string symbol =
 		"__strlit__" + decimal(strings_.size() + 1);
-	strings_[data] = symbol;
+	strings_[key] = symbol;
 	lowir_model::GlobalDefinition global;
 	global.name = symbol;
 	global.structured = true;
@@ -666,6 +684,7 @@ std::string LowirUnitLowering::string_literal(const std::string& data,
 	}
 	program_.globals.push_back(global);
 	defined_.insert(symbol);
+	builder_.emitted_globals_.insert(symbol);
 	return symbol;
 }
 
@@ -726,28 +745,13 @@ void LowirUnitLowering::add_function_declaration(const SemaEntity& entity)
 	program_.function_declarations.push_back(declaration);
 }
 
-void LowirUnitLowering::function_declaration(const DumpNode& node)
-{
-	if (node.fact.entity == nullptr)
-	{
-		return;
-	}
-	// A declaration of a function this unit also defines names the definition;
-	// only one the program has no body for needs a line of its own, and it is
-	// written where a use of it asks for it.
-	(void)node;
-}
-
 void LowirUnitLowering::function_definition(const DumpNode& node)
 {
 	SemaEntity& entity = *node.fact.entity;
 	const std::string symbol = function_symbol(entity);
-	for (std::size_t index = 0; index < program_.functions.size(); ++index)
+	if (!builder_.emitted_functions_.insert(symbol).second)
 	{
-		if (program_.functions[index].name == symbol)
-		{
-			return;
-		}
+		return;
 	}
 	program_.functions.push_back(lowir_model::Function());
 	lowir_model::Function& out = program_.functions.back();

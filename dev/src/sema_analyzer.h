@@ -567,6 +567,12 @@ private:
 	// the declaration that introduced it was written in.
 	void write_default_argument(const SemaEntity& function, std::size_t index,
 	                            DumpNode& parent);
+	// 8.3.6p4: the default-arguments `declared` writes are the function's from
+	// this declaration on, whether or not this one is the definition.  A
+	// parameter already given one keeps the region that introduced it.
+	void record_default_arguments(const SemaEntity& function,
+	                              const std::vector<Parameter>& declared,
+	                              Scope* region);
 	// 13.3.3: the one candidate no other beats, or the error that there is not
 	// one.  `candidates` are the declaration chains the lookup found, walked in
 	// declaration order within each; `arguments` are the analysed argument
@@ -655,21 +661,23 @@ private:
 	// and only a template is ever asked for, so an ordinary declaration adds
 	// nothing to it.
 	std::unordered_map<std::uint32_t, std::vector<Parameter> > templates_;
-	// 8.3.6: the default-arguments each function was declared with, and the
-	// region the declaration that wrote them was written in.  8.3.6p9 reads a
-	// default-argument in that region rather than in the one the call is
-	// written in, so both travel with the declaration.
-	struct Defaults
+	// 8.3.6p4 and 8.3.6p9: the default-arguments each function has been
+	// declared with so far, and for each the region its own declaration was
+	// written in.  Several declarations of one function each add the defaults
+	// they wrote, and p9 reads one in the region that introduced it rather than
+	// in the one the call is written in, so the region travels per parameter.
+	struct Default
 	{
-		Defaults()
-			: scope(nullptr)
+		Default()
+			: written(nullptr)
+			, scope(nullptr)
 		{}
 
+		const AstNode* written;
 		Scope* scope;
-		std::vector<const AstNode*> written;
 	};
 
-	std::unordered_map<std::uint32_t, Defaults> defaults_;
+	std::unordered_map<std::uint32_t, std::vector<Default> > defaults_;
 	// 9.3.2p1: the implicit object parameter of the function whose body is
 	// being read, which is what `this` and a member named with no object
 	// expression denote.  Null outside a member function.
