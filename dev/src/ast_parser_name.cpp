@@ -216,24 +216,33 @@ void AstParser::skip_attributes(std::vector<AstNode*>* alignments)
 		if (at(KW_ALIGNAS) && peek(1) == OP_LPAREN)
 		{
 			const Mark opened = mark();
-			pos_ += 2;
+			++pos_;
 			if (alignments != nullptr)
 			{
 				// 7.6.2p1: the operand is either a type-id or a
-				// constant-expression.  Only the second says a number here; the
-				// first is read as the tokens it is and left to be skipped.
-				const Mark operand = mark();
-				AstNode* const written = parse_conditional_expression();
-				if (written != nullptr && at(OP_RPAREN))
+				// constant-expression, and the type-id form asks for the
+				// alignment `alignof` gives that type.  Writing it as that
+				// `alignof` leaves one expression for the layout to evaluate
+				// rather than two forms for it to tell apart.
+				AstNode* written = parse_parenthesized_operand(true);
+				if (written != nullptr)
 				{
+					if (written->kind == AstKind::TypeId)
+					{
+						AstNode* const asked =
+							make(AstKind::TypeTraitExpression);
+						asked->token = static_cast<std::uint16_t>(KW_ALIGNOF);
+						asked->text = "alignof";
+						asked->add(written);
+						written = asked;
+					}
 					AstNode* const specifier = make(AstKind::AlignmentSpecifier);
 					specifier->add(written);
 					alignments->push_back(specifier);
-					++pos_;
 					continue;
 				}
-				reset(operand);
 			}
+			++pos_;
 			if (!skip_balanced(OP_RPAREN))
 			{
 				reset(opened);
