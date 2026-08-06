@@ -36,7 +36,11 @@ FRONTEND_OBJ_BASENAMES_cy86 := source_charset source_reader pptoken_lexer \
 	token_model literal_scan string_literal posttokenizer \
 	macro_model macro_expander ctrl_expr source_files preprocessor \
 	sema_token cy86_opcodes cy86_parser cy86_codegen x86_asm x86_elf
-FRONTEND_OBJ_BASENAMES_cppgm++ :=
+FRONTEND_OBJ_BASENAMES_cppgm++ := source_charset source_reader pptoken_lexer \
+	token_model literal_scan string_literal posttokenizer \
+	macro_model macro_expander ctrl_expr source_files preprocessor \
+	ast_tokens ast_model ast_parser ast_parser_name ast_parser_class \
+	ast_parser_declarator ast_parser_statement ast_parser_expression ast_emit
 FRONTEND_OBJ_BASENAMES_lowiropt :=
 FRONTEND_OBJ_BASENAMES_lowir2cy86 :=
 FRONTEND_OBJ_BASENAMES_lowir2native :=
