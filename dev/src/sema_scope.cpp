@@ -288,14 +288,35 @@ void SemaModel::nominate(Scope& where, Scope& space)
 	nominees_.push_back(&space);
 }
 
-SemaEntity* SemaModel::merge_found(SemaEntity* found, SemaEntity* again)
+std::vector<SemaEntity*>& SemaModel::open_overloads()
 {
-	if (found == nullptr || found == again)
+	overload_sets_.push_back(std::vector<SemaEntity*>());
+	return overload_sets_.back();
+}
+
+SemaEntity* SemaModel::merge_found(SemaEntity* found, SemaEntity* again,
+                                   std::vector<SemaEntity*>* set)
+{
+	if (again == nullptr || again == found)
 	{
+		return found;
+	}
+	if (found == nullptr)
+	{
+		if (set != nullptr)
+		{
+			set->push_back(again);
+		}
 		return again;
 	}
-	if (again == nullptr)
+	// 3.4p2 and 7.3.4p3: a lookup that reached two regions found two
+	// declarations of the name, which is ill formed unless both of them are
+	// functions - and then what it found is the two chains, which 13.1 makes one
+	// set of overloaded functions for the use of the name to choose from.
+	if (set != nullptr && found->kind == SemaKind::Function &&
+	    again->kind == SemaKind::Function)
 	{
+		set->push_back(again);
 		return found;
 	}
 	throw std::runtime_error("a name is declared in two of the namespaces a "
@@ -456,13 +477,14 @@ bool SemaModel::walk_reached(Scope& in, std::size_t budget)
 
 SemaEntity* SemaModel::search_declarers(Scope& in, const std::string& name,
                                         LookupKind filter,
-                                        const std::vector<Scope*>& regions)
+                                        const std::vector<Scope*>& regions,
+                                        std::vector<SemaEntity*>* found_set)
 {
 	if (in.nominated.empty())
 	{
 		// No using-directive is written here, so the only declarations that
 		// appear here are the ones written here.
-		return find(in, name, filter);
+		return merge_found(nullptr, find(in, name, filter), found_set);
 	}
 	// Several regions declare the name, so 3.4p1 asks which of them the lookup
 	// reaches rather than which one it reaches first.  There are two ways to
@@ -476,7 +498,8 @@ SemaEntity* SemaModel::search_declarers(Scope& in, const std::string& name,
 	{
 		for (std::size_t index = 0; index < reached_.size(); ++index)
 		{
-			found = merge_found(found, find(*reached_[index], name, filter));
+			found = merge_found(found, find(*reached_[index], name, filter),
+			                    found_set);
 		}
 		return found;
 	}
@@ -485,14 +508,15 @@ SemaEntity* SemaModel::search_declarers(Scope& in, const std::string& name,
 		Scope* region = regions[index];
 		if (reaches(in, *region))
 		{
-			found = merge_found(found, find(*region, name, filter));
+			found = merge_found(found, find(*region, name, filter), found_set);
 		}
 	}
 	return found;
 }
 
 SemaEntity* SemaModel::lookup(Scope& from, const std::string& name,
-                              LookupKind filter)
+                              LookupKind filter,
+                              std::vector<SemaEntity*>* found_set)
 {
 	// A name no region declares is answered without touching the region chain,
 	// which is what keeps an unqualified lookup that fails from costing one
@@ -504,11 +528,15 @@ SemaEntity* SemaModel::lookup(Scope& from, const std::string& name,
 	}
 	if (regions->size() == 1)
 	{
-		return lookup_unique(from, nullptr, name, filter, *(*regions)[0]);
+		return merge_found(nullptr,
+		                   lookup_unique(from, nullptr, name, filter,
+		                                 *(*regions)[0]),
+		                   found_set);
 	}
 	for (Scope* scope = &from; scope != nullptr; scope = scope->parent)
 	{
-		SemaEntity* found = search_declarers(*scope, name, filter, *regions);
+		SemaEntity* found = search_declarers(*scope, name, filter, *regions,
+		                                    found_set);
 		if (found != nullptr)
 		{
 			return found;
@@ -518,7 +546,8 @@ SemaEntity* SemaModel::lookup(Scope& from, const std::string& name,
 }
 
 SemaEntity* SemaModel::lookup_in(Scope& in, const std::string& name,
-                                 LookupKind filter)
+                                 LookupKind filter,
+                                 std::vector<SemaEntity*>* found_set)
 {
 	const std::vector<Scope*>* regions = declarers(name);
 	if (regions == nullptr)
@@ -533,13 +562,16 @@ SemaEntity* SemaModel::lookup_in(Scope& in, const std::string& name,
 	SemaEntity* declared_here = find(in, name, filter);
 	if (declared_here != nullptr)
 	{
-		return declared_here;
+		return merge_found(nullptr, declared_here, found_set);
 	}
 	if (regions->size() == 1)
 	{
-		return lookup_unique(in, in.parent, name, filter, *(*regions)[0]);
+		return merge_found(nullptr,
+		                   lookup_unique(in, in.parent, name, filter,
+		                                 *(*regions)[0]),
+		                   found_set);
 	}
-	return search_declarers(in, name, filter, *regions);
+	return search_declarers(in, name, filter, *regions, found_set);
 }
 
 namespace

@@ -1,0 +1,38 @@
+1 translation units
+start translation unit 1
+translation-unit
+  namespace-definition narrow
+    function-declaration narrow::pick function of (int) returning void
+    function-declaration narrow::pick function of (int, int) returning void
+  namespace-definition wide
+    function-declaration wide::pick function of (long int) returning void
+  namespace-definition pointers
+    function-declaration pointers::pick function of (pointer to char) returning void
+  function-declaration take function of (pointer to function of (long int) returning void) returning void
+  function-definition use function of () returning void
+    compound-statement
+      simple-declaration
+        variable text pointer to char
+          literal prvalue pointer to char 0
+      expression-statement
+        call-expression prvalue void
+          callee narrow::pick function of (int) returning void
+          literal prvalue int 1
+      expression-statement
+        call-expression prvalue void
+          callee wide::pick function of (long int) returning void
+          literal prvalue long int 1L
+      expression-statement
+        call-expression prvalue void
+          callee pointers::pick function of (pointer to char) returning void
+          id-expression lvalue pointer to char text
+      expression-statement
+        call-expression prvalue void
+          callee narrow::pick function of (int, int) returning void
+          literal prvalue int 1
+          literal prvalue int 2
+      expression-statement
+        call-expression prvalue void
+          callee take function of (pointer to function of (long int) returning void) returning void
+          id-expression lvalue function of (long int) returning void pick
+end translation unit

@@ -275,17 +275,20 @@ SemaAnalyzer::Value SemaAnalyzer::id_expression(const AstNode& node,
 	// 14.2: a template-id denotes the specializations its argument list makes
 	// rather than a declaration bound to the whole spelling, so the template
 	// layer answers before ordinary lookup is asked.
-	SemaEntity* named = template_specializations(node.text, ctx);
+	std::vector<SemaEntity*>& found = model_.open_overloads();
+	SemaEntity* named = template_specializations(node.text, ctx, found);
 	if (named == nullptr)
 	{
-		named = &require(resolve(node.text, ctx, LookupKind::Any), node.text);
+		named = &require(resolve(node.text, ctx, LookupKind::Any, &found),
+		                 node.text);
 	}
-	return named_value(node, *named, parent);
+	return named_value(node, *named, parent, &found);
 }
 
 SemaAnalyzer::Value SemaAnalyzer::named_value(const AstNode& node,
                                               SemaEntity& entity,
-                                              DumpNode& parent)
+                                              DumpNode& parent,
+                                              const std::vector<SemaEntity*>* found)
 {
 	Value value;
 	if (entity.kind == SemaKind::Enumerator)
@@ -307,11 +310,22 @@ SemaAnalyzer::Value SemaAnalyzer::named_value(const AstNode& node,
 	{
 		// 13.4: the name stands for every declaration of it until a target type
 		// or a call's arguments choose one, so the line is written then.
-		value.functions = &entity;
+		std::vector<SemaEntity*>* set = nullptr;
+		if (found != nullptr && !found->empty())
+		{
+			value.functions = found;
+		}
+		else
+		{
+			set = &model_.open_overloads();
+			set->push_back(&entity);
+			value.functions = set;
+		}
 		value.category = ValueCategory::LValue;
 		value.name = &node;
 		value.node = &model_.open_node(parent, std::string());
-		if (entity.next == nullptr && entity.template_parameters == nullptr)
+		if (value.functions->size() == 1 && entity.next == nullptr &&
+		    entity.template_parameters == nullptr)
 		{
 			// One declaration, so the name already denotes it and the line can
 			// be written where it is read.  14p1 leaves a template denoting no
@@ -928,10 +942,12 @@ SemaAnalyzer::Value SemaAnalyzer::unary_expression(const AstNode& node,
 	// asked for again below.  A name `resolve` reaches nothing for is a
 	// template-id, which the expression layer answers.
 	SemaEntity* named = nullptr;
+	std::vector<SemaEntity*>* found = nullptr;
 	if (node.token == OP_AMP && written.kind == AstKind::IdExpression &&
 	    QualifiedName(written.text).qualified())
 	{
-		named = resolve(written.text, ctx, LookupKind::Any);
+		found = &model_.open_overloads();
+		named = resolve(written.text, ctx, LookupKind::Any, found);
 		if (named != nullptr && named->kind == SemaKind::Variable &&
 		    named->object_member && named->region->owner != nullptr)
 		{
@@ -942,7 +958,7 @@ SemaAnalyzer::Value SemaAnalyzer::unary_expression(const AstNode& node,
 	// A qualified name of anything else - a static member, a variable of a
 	// namespace, a function - is the operand `&` reads it as.
 	const Value operand = named != nullptr
-		? named_value(written, *named, line)
+		? named_value(written, *named, line, found)
 		: expression(written, ctx, line);
 	Value value;
 	value.category = ValueCategory::PRValue;
@@ -968,9 +984,11 @@ SemaAnalyzer::Value SemaAnalyzer::unary_expression(const AstNode& node,
 		{
 			throw std::runtime_error("the operand of unary & is not an lvalue");
 		}
+		// The operand denotes a function whose name resolved where it was read,
+		// which is the one declaration the set then holds.
 		value.type = operand.functions == nullptr
 			? kNoType
-			: member_pointer_of(*operand.functions);
+			: member_pointer_of(*(*operand.functions)[0]);
 		if (value.type == kNoType)
 		{
 			value.type = types_.pointer_to(operand.type);
@@ -1383,11 +1401,21 @@ SemaAnalyzer::Value SemaAnalyzer::conditional_expression(const AstNode& node,
 
 	Value value;
 	value.category = ValueCategory::PRValue;
-	// 5.16p4: two lvalues of the same type make the result an lvalue.
-	if (left.category == ValueCategory::LValue &&
-	    right.category == ValueCategory::LValue && left.type == right.type)
+	// 5.16p3: each operand is converted to an lvalue reference to the other's
+	// type, and the one conversion that binds says what the result denotes.  Two
+	// lvalues of one type both bind, which is 5.16p4; two whose types differ only
+	// in cv-qualification bind one way only, and the result is the lvalue of the
+	// more qualified of the two; anything else binds neither way and the result
+	// is the prvalue the rules below give it.
+	const bool as_left = left.category == ValueCategory::LValue &&
+		right.category == ValueCategory::LValue &&
+		binds_reference(right, types_.reference_to(left.type, false));
+	const bool as_right = left.category == ValueCategory::LValue &&
+		right.category == ValueCategory::LValue &&
+		binds_reference(left, types_.reference_to(right.type, false));
+	if (as_left || as_right)
 	{
-		value.type = left.type;
+		value.type = as_right ? right.type : left.type;
 		value.category = ValueCategory::LValue;
 	}
 	else if (types_.strip_cv(decayed(left)) == types_.strip_cv(decayed(right)))

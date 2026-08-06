@@ -205,7 +205,8 @@ SemaEntity& SemaAnalyzer::specialize(SemaEntity& primary,
 }
 
 SemaEntity* SemaAnalyzer::template_specializations(const std::string& spelling,
-                                                   const Context& ctx)
+                                                   const Context& ctx,
+                                                   std::vector<SemaEntity*>& found)
 {
 	const QualifiedName written(spelling);
 	const std::string component = written.last();
@@ -234,9 +235,9 @@ SemaEntity* SemaAnalyzer::template_specializations(const std::string& spelling,
 
 	// 14.8.1p2 and 13.4p1: the argument list is written once and makes one
 	// specialization of each declaration of the name it fits, which is still an
-	// overload set for a target type or a call to choose from.
-	SemaEntity* head = nullptr;
-	SemaEntity* tail = nullptr;
+	// overload set for a target type or a call to choose from.  Each of them is a
+	// declaration of its own that no region's chain holds, so the set the use
+	// carries is what holds them.
 	for (SemaEntity* at = primary; at != nullptr; at = at->next)
 	{
 		if (at->template_parameters == nullptr ||
@@ -244,24 +245,14 @@ SemaEntity* SemaAnalyzer::template_specializations(const std::string& spelling,
 		{
 			continue;
 		}
-		SemaEntity& made = specialize(*at, arguments);
-		made.next = nullptr;
-		if (tail == nullptr)
-		{
-			head = &made;
-		}
-		else
-		{
-			tail->next = &made;
-		}
-		tail = &made;
+		found.push_back(&specialize(*at, arguments));
 	}
-	if (head == nullptr)
+	if (found.empty())
 	{
 		throw std::runtime_error(spelling + " names no template its argument "
 		                         "list fits");
 	}
-	return head;
+	return found[0];
 }
 
 bool SemaAnalyzer::deduce(TypeId pattern, TypeId argument,

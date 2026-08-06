@@ -109,9 +109,12 @@ private:
 		TypeId spelled;
 		ValueCategory category;
 		DumpNode* node;
-		// 13.4: the declarations an unresolved function name denotes, which a
-		// target type or a call's arguments choose between.
-		SemaEntity* functions;
+		// 13.4 and 3.4p2: the declarations an unresolved function name denotes,
+		// which a target type or a call's arguments choose between.  One region's
+		// declarations of a name are the chain it heads, and 7.3.4p3 lets one
+		// lookup reach the chains of several, so the set is a list of heads and
+		// belongs to the lookup that found it.
+		const std::vector<SemaEntity*>* functions;
 		// 5.3.1p3: the line that name wrote, when `&` was written on it, so
 		// that the target which chooses a declaration writes both the name and
 		// the pointer to it.  Null when the value is the name itself.
@@ -332,9 +335,12 @@ private:
 	// The declarator-id of a declarator, which a nested declarator holds.
 	static const AstNode* declarator_id(const AstNode& node);
 	// 3.4.3: `name`, which may be written with a nested-name-specifier,
-	// resolved from `ctx`.  Null when nothing of the kind is declared.
+	// resolved from `ctx`.  Null when nothing of the kind is declared.  `found`,
+	// when given, takes the declarations the lookup associated with the name,
+	// which 3.4p2 lets be more than one where they are all functions.
 	SemaEntity* resolve(const std::string& name, const Context& ctx,
-	                    LookupKind filter);
+	                    LookupKind filter,
+	                    std::vector<SemaEntity*>* found = nullptr);
 	// The region the nested-name-specifier of `name` reaches, for a declaration
 	// that names an entity of another region.
 	Scope* resolve_prefix(const QualifiedName& name, const Context& ctx);
@@ -395,7 +401,10 @@ private:
 	// What an id-expression already resolved to denotes, which is where a
 	// caller that had to look the name up to know what it was written for -
 	// a call, which 5.2.3 lets name a type - spends the one lookup it takes.
-	Value named_value(const AstNode& node, SemaEntity& entity, DumpNode& parent);
+	// `found` is the set that lookup found, which for a function name is what
+	// 13.3 or 13.4 chooses from.
+	Value named_value(const AstNode& node, SemaEntity& entity, DumpNode& parent,
+	                  const std::vector<SemaEntity*>* found = nullptr);
 	Value literal_expression(const AstNode& node, DumpNode& parent);
 	// 5.2.5: `E1.E2` and `E1->E2`, which name a member of the class the object
 	// expression has.
@@ -458,8 +467,11 @@ private:
 	// 14.2 and 14.8.1: the declarations a template-id names, which are the
 	// specializations its argument list makes of each template of that name,
 	// chained as one overload set for 13.3 or 13.4 to choose from.
+	// The specializations are appended to `found`, each a declaration of its own
+	// that no chain holds, and the first of them is returned.
 	SemaEntity* template_specializations(const std::string& spelling,
-	                                     const Context& ctx);
+	                                     const Context& ctx,
+	                                     std::vector<SemaEntity*>& found);
 	// 14.8.2.1: the specialization of `primary` that the arguments of a call
 	// deduce, or null when they deduce none.
 	SemaEntity* deduce_specialization(SemaEntity& primary,
@@ -492,6 +504,10 @@ private:
 	Match match_argument(const Value& argument, TypeId parameter);
 	Match match_by_value(const Value& argument, TypeId parameter);
 	Match match_reference(const Value& argument, TypeId parameter);
+	// 8.5.3p5: whether a reference of `parameter` binds `argument` itself rather
+	// than a temporary a conversion made, which is what 5.16p3 asks of the two
+	// operands of a conditional expression about each other.
+	bool binds_reference(const Value& argument, TypeId parameter);
 	// 4.4 and 4.10: whether a pointer of `from` converts to one of `to`.
 	bool pointer_convertible(TypeId from, TypeId to, int& rank, bool& exact);
 	bool qualification_convertible(TypeId from, TypeId to);
@@ -499,8 +515,10 @@ private:
 	// through an array to its elements.
 	TypeId bare_type(TypeId type);
 	// 13.3.3: the one candidate no other beats, or the error that there is not
-	// one.  `arguments` are the analysed argument expressions in order.
-	SemaEntity* select_overload(SemaEntity* candidates,
+	// one.  `candidates` are the declaration chains the lookup found, walked in
+	// declaration order within each; `arguments` are the analysed argument
+	// expressions in order.
+	SemaEntity* select_overload(const std::vector<SemaEntity*>& candidates,
 	                            const std::vector<Value>& arguments,
 	                            const std::string& name);
 	// 13.3.3.2: which of two conversions of one argument is better, as 1, 0

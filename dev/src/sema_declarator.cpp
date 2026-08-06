@@ -451,7 +451,8 @@ SemaEntity& SemaAnalyzer::require(SemaEntity* entity, const std::string& name)
 }
 
 SemaEntity* SemaAnalyzer::resolve(const std::string& name, const Context& ctx,
-                                  LookupKind filter)
+                                  LookupKind filter,
+                                  std::vector<SemaEntity*>* found)
 {
 	if (name.empty())
 	{
@@ -460,9 +461,10 @@ SemaEntity* SemaAnalyzer::resolve(const std::string& name, const Context& ctx,
 	const QualifiedName written(name);
 	if (!written.qualified())
 	{
-		return model_.lookup(*ctx.scope, name, filter);
+		return model_.lookup(*ctx.scope, name, filter, found);
 	}
-	return model_.lookup_in(*resolve_prefix(written, ctx), written.last(), filter);
+	return model_.lookup_in(*resolve_prefix(written, ctx), written.last(), filter,
+	                        found);
 }
 
 // 3.4.3: each component of a nested-name-specifier is looked up in the region

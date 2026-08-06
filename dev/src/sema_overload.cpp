@@ -276,6 +276,14 @@ SemaAnalyzer::Match SemaAnalyzer::match_reference(const Value& argument,
 	return match;
 }
 
+// 8.5.3p5: whether a reference of `parameter` binds `argument` itself, rather
+// than a temporary a conversion of it made or nothing at all.
+bool SemaAnalyzer::binds_reference(const Value& argument, TypeId parameter)
+{
+	const Match match = match_reference(argument, parameter);
+	return match.viable && match.materialized == kNoType && match.binds_lvalue;
+}
+
 SemaAnalyzer::Match SemaAnalyzer::match_argument(const Value& argument,
                                                  TypeId parameter)
 {
@@ -325,11 +333,15 @@ SemaEntity* SemaAnalyzer::resolve_target(const Value& value, TypeId target)
 		// declaration, and the declaration it chooses is the member whose
 		// pointer type is the one asked for.
 		wanted = types_.strip_cv(wanted);
-		for (SemaEntity* at = value.functions; at != nullptr; at = at->next)
+		for (std::size_t index = 0; index < value.functions->size(); ++index)
 		{
-			if (member_pointer_of(*at) == wanted)
+			for (SemaEntity* at = (*value.functions)[index]; at != nullptr;
+			     at = at->next)
 			{
-				return at;
+				if (member_pointer_of(*at) == wanted)
+				{
+					return at;
+				}
 			}
 		}
 		return nullptr;
@@ -343,11 +355,15 @@ SemaEntity* SemaAnalyzer::resolve_target(const Value& value, TypeId target)
 	{
 		return nullptr;
 	}
-	for (SemaEntity* at = value.functions; at != nullptr; at = at->next)
+	for (std::size_t index = 0; index < value.functions->size(); ++index)
 	{
-		if (at->type == wanted)
+		for (SemaEntity* at = (*value.functions)[index]; at != nullptr;
+		     at = at->next)
 		{
-			return at;
+			if (at->type == wanted)
+			{
+				return at;
+			}
 		}
 	}
 	return nullptr;
@@ -355,16 +371,18 @@ SemaEntity* SemaAnalyzer::resolve_target(const Value& value, TypeId target)
 
 // 13.3.3p1: one candidate is better than another when its conversion for every
 // argument is at least as good and for one is better.
-SemaEntity* SemaAnalyzer::select_overload(SemaEntity* candidates,
-                                          const std::vector<Value>& arguments,
-                                          const std::string& name)
+SemaEntity* SemaAnalyzer::select_overload(
+	const std::vector<SemaEntity*>& candidates,
+	const std::vector<Value>& arguments, const std::string& name)
 {
 	std::vector<SemaEntity*> viable;
 	// 13.3.3p1: which of the viable candidates is a specialization of a
 	// template, which is what tells two apart whose conversions tie.
 	std::vector<char> templated;
 	std::vector<Match> matches;
-	for (SemaEntity* candidate = candidates; candidate != nullptr;
+	for (std::size_t chain = 0; chain < candidates.size(); ++chain)
+	{
+	for (SemaEntity* candidate = candidates[chain]; candidate != nullptr;
 	     candidate = candidate->next)
 	{
 		SemaEntity* at = candidate;
@@ -411,6 +429,7 @@ SemaEntity* SemaAnalyzer::select_overload(SemaEntity* candidates,
 		}
 		viable.push_back(at);
 		templated.push_back(at->primary != nullptr ? 1 : 0);
+	}
 	}
 	if (viable.empty())
 	{
@@ -564,6 +583,7 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
 {
 	const AstNode& callee = *node.children[0];
 	SemaEntity* named = nullptr;
+	std::vector<SemaEntity*>* found = nullptr;
 	if (callee.kind == AstKind::DecltypeSpecifier)
 	{
 		// 5.2.3 and 7.1.6.2p4: a call written on a decltype-specifier is an
@@ -581,10 +601,11 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
 		}
 		// 14.2: a callee written as a template-id names the specializations its
 		// argument list makes, which 13.3 then chooses among.
-		named = template_specializations(callee.text, ctx);
+		found = &model_.open_overloads();
+		named = template_specializations(callee.text, ctx, *found);
 		if (named == nullptr)
 		{
-			named = resolve(callee.text, ctx, LookupKind::Any);
+			named = resolve(callee.text, ctx, LookupKind::Any, found);
 			if (named != nullptr && names_a_type(*named))
 			{
 				return functional_cast(node, ctx, parent, named->type);
@@ -603,7 +624,7 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
 	// type, so the expression layer is handed the answer rather than asking
 	// for it again.
 	Value target = callee.kind == AstKind::IdExpression
-		? named_value(callee, require(named, callee.text), line)
+		? named_value(callee, require(named, callee.text), line, found)
 		: expression(callee, ctx, line);
 
 	const AstNode* list = arguments_of(node);
@@ -620,7 +641,7 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
 		// 13.3: the arguments choose one declaration, which the callee line is
 		// then written from.
 		SemaEntity& chosen =
-			*select_overload(target.functions, arguments, callee.text);
+			*select_overload(*target.functions, arguments, callee.text);
 		name_function(target, chosen, "callee");
 		function = target.type;
 	}

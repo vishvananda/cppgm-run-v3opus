@@ -293,10 +293,25 @@ public:
 	void declare_in(Scope& where, SemaEntity& entity);
 
 	// 3.4.1: the innermost declaration of `name` visible from `where`.
-	SemaEntity* lookup(Scope& from, const std::string& name, LookupKind filter);
+	//
+	// 3.4p2 lets a lookup that finds a function name associate more than one
+	// declaration with it, and 7.3.4p3 lets it reach the declarations of several
+	// namespaces at once.  `found`, when given, takes the chain each region that
+	// contributed heads, in the order the search reached them; the declaration
+	// returned is the first of them.  A lookup that asks for no set is one whose
+	// caller needs a single declaration, and two regions are the error 3.4p1
+	// makes them for it.
+	SemaEntity* lookup(Scope& from, const std::string& name, LookupKind filter,
+	                   std::vector<SemaEntity*>* found = nullptr);
 	// 3.4.3: the declaration of `name` that `in` and everything its
 	// declarations appear in have.
-	SemaEntity* lookup_in(Scope& in, const std::string& name, LookupKind filter);
+	SemaEntity* lookup_in(Scope& in, const std::string& name, LookupKind filter,
+	                      std::vector<SemaEntity*>* found = nullptr);
+	// A set of declarations for one use of a name to hold.  It belongs to the
+	// lookup that found it rather than to any region, because a declaration's own
+	// chain is a fact about the region that declared it and no lookup may relink
+	// it.
+	std::vector<SemaEntity*>& open_overloads();
 
 	// A using-directive in `where` naming `space`, which an inline namespace
 	// and an unnamed one also write for themselves.
@@ -335,18 +350,22 @@ private:
 	// that 3.4p1 has to ask about each of them.
 	SemaEntity* search_declarers(Scope& in, const std::string& name,
 	                             LookupKind filter,
-	                             const std::vector<Scope*>& regions);
+	                             const std::vector<Scope*>& regions,
+	                             std::vector<SemaEntity*>* found);
 	// Gathers `declaring.searchers`, following only the using-directives
 	// written since the last gathering.
 	void gather_searchers(Scope& declaring);
-	// 3.4p1: the one entity a lookup that reached two declarations found, or
-	// the error that they are two entities.
-	static SemaEntity* merge_found(SemaEntity* found, SemaEntity* again);
+	// 3.4p1 and 3.4p2: the one entity a lookup that reached two declarations
+	// found, the set it found when both of them are functions, or the error that
+	// they are two entities.
+	static SemaEntity* merge_found(SemaEntity* found, SemaEntity* again,
+	                               std::vector<SemaEntity*>* set);
 
 	std::deque<Scope> scopes_;
 	std::deque<SemaEntity> entities_;
 	std::deque<DumpScope> dumps_;
 	std::deque<DumpNode> nodes_;
+	std::deque<std::vector<SemaEntity*> > overload_sets_;
 	Scope* global_;
 	DumpScope* root_;
 	DumpNode* unit_;

@@ -1,0 +1,41 @@
+1 translation units
+start translation unit 1
+translation-unit
+  variable plain int
+  variable qualified const int
+  function-definition use function of (bool) returning int
+    parameter choose bool
+    compound-statement
+      simple-declaration
+        variable same lvalue-reference to int
+          conditional-expression lvalue int
+            id-expression lvalue bool choose
+            id-expression lvalue int plain
+            id-expression lvalue int plain
+      simple-declaration
+        variable more lvalue-reference to const int
+          conditional-expression lvalue const int
+            id-expression lvalue bool choose
+            id-expression lvalue int plain
+            id-expression lvalue const int qualified
+      simple-declaration
+        variable other lvalue-reference to const int
+          conditional-expression lvalue const int
+            id-expression lvalue bool choose
+            id-expression lvalue const int qualified
+            id-expression lvalue int plain
+      simple-declaration
+        variable value int
+          conditional-expression prvalue int
+            id-expression lvalue bool choose
+            id-expression lvalue int plain
+            literal prvalue int 3
+      return-statement
+        binary-expression prvalue int OP_PLUS:+
+          binary-expression prvalue int OP_PLUS:+
+            binary-expression prvalue int OP_PLUS:+
+              id-expression lvalue int same
+              id-expression lvalue const int more
+            id-expression lvalue const int other
+          id-expression lvalue int value
+end translation unit
