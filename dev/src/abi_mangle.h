@@ -3,6 +3,7 @@
 // ABI fact model for the PA14 standalone abimangle tool.
 
 #include <cstddef>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -179,7 +180,6 @@ struct AbiType
 {
   AbiTypeKind kind = ABI_TYPE_NAME_OR_REFERENCE;
   std::string name;
-  std::string substitution;
   std::string standard_substitution;
   std::string expression_ref;
   std::string context_ref;
@@ -189,8 +189,6 @@ struct AbiType
   bool is_const = false;
   bool is_volatile = false;
   bool variadic = false;
-  bool lvalue_ref = false;
-  bool rvalue_ref = false;
   bool substitutable = false;
   bool standard_substitution_includes_arguments = false;
   std::vector<AbiType> types;
@@ -211,7 +209,6 @@ struct AbiTemplateArgument
   std::string symbol;
   long long value = 0;
   std::size_t index = 0;
-  bool has_value_type = false;
   bool address_of = false;
   bool member_is_function = false;
   bool member_function_const = false;
@@ -235,6 +232,7 @@ struct AbiDependentExpression
   std::size_t index = 0;
   bool close_member_owner = false;
   bool address_of = false;
+  bool substitutable = false;
   std::vector<std::string> expression_refs;
   std::vector<std::string> argument_refs;
   std::vector<AbiType> type_arguments;
@@ -342,10 +340,25 @@ struct AbiFactFile
   std::vector<AbiFactCase> cases;
 };
 
+// The definition binders of one case, indexed by their file-local identifier.
+// Later compiler stages build the same map from their own typed facts.
+typedef std::map<std::string, const AbiDefinitionRecord *> AbiDefinitionMap;
+
+AbiDefinitionMap build_definition_map(const AbiFactCase & fact_case);
+
+// Encode one typed ABI target. This is the entry point later stages call with
+// compiler-built facts; the fact-file reader is only one of its producers.
+std::string mangle_target(const AbiTargetRecord & target,
+                          const std::vector<AbiFunctionRecord> & records,
+                          const AbiDefinitionMap & definitions);
+
+std::string mangle_fact_case(const AbiFactCase & fact_case);
+
 AbiFactRecord parse_fact_record_words(const std::vector<std::string> & words);
 AbiFactFile parse_fact_text(const std::string & text);
 std::string serialize_fact_file(const AbiFactFile & file);
 std::string mangle_fact_file(const AbiFactFile & file);
 std::string mangle_fact_files(const std::vector<std::string> & input_paths);
+std::string serialize_fact_files(const std::vector<std::string> & input_paths);
 
 }  // namespace abi_mangle
