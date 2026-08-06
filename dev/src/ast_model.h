@@ -168,6 +168,12 @@ struct AstNode
 	// the one thing about it that is not a name - is what names it.
 	std::uint32_t begin;
 	std::uint32_t end;
+	// 8.5p14 and 8.5p15: whether an initializer was written with `=`, which is
+	// what tells copy-initialization from direct-initialization.  The two are
+	// one shape otherwise, and 13.3.1.4 and 8.5.4p3 give them different
+	// candidate sets, so the fact is kept even though the PA10 dump - like the
+	// alignment-specifier it also keeps - does not spell it.
+	bool copied;
 	std::string text;
 	std::vector<AstNode*> children;
 
@@ -176,6 +182,7 @@ struct AstNode
 		, token(kNoAstToken)
 		, begin(0)
 		, end(0)
+		, copied(false)
 	{}
 
 	// Appends `child`, ignoring a null one so that an optional part of a rule

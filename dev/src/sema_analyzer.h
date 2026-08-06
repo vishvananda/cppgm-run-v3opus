@@ -428,9 +428,11 @@ private:
 	// with none; `member` says the object is a non-static data member of the
 	// one the constructor being written is initializing, so that the action
 	// names it through `this` rather than by a name of its own.
+	// `copied` says the initializer was written with `=`, which 8.5.4p3 makes
+	// an initialization no `explicit` constructor may answer.
 	void construct_object(SemaEntity& variable, DumpNode& line,
 	                      const AstNode* written, const Context& ctx,
-	                      bool member = false);
+	                      bool member = false, bool copied = false);
 	// The object a constructor-action runs on, as the address of it: an object
 	// a declaration named, or a member of the object being constructed.
 	void write_constructed_object(SemaEntity& variable, DumpNode& call,

@@ -312,8 +312,10 @@ std::string abi_symbol_of(const SemaEntity& entity, TypeTable& types,
 		target.function.kind = abi_mangle::ABI_FUNCTION_TARGET_PATH;
 		target.function.qualified_name = entity.dump_name;
 	}
-	if (first != 0)
+	if (first != 0 && entity.special != kDestructorFunction)
 	{
+		// 12.4p1: a destructor writes no cv-qualifier-seq, so the qualifiers
+		// 12.4p12 put on its object parameter are none the name encodes.
 		const unsigned cv = types.cv(types.target(parameters[0]));
 		if ((cv & kCvConst) != 0)
 		{

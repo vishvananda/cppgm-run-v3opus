@@ -991,25 +991,38 @@ void LowirFunctionLowering::return_statement(const DumpNode& node)
 	Instruction instruction;
 	instruction.kind = Instruction::IK_RETURN;
 	instruction.type = out_.return_type;
-	if (node.children.empty())
+	// 3.8p1: the objects of the blocks the return leaves are destroyed after
+	// the value has been read, so the actions stand under the return and after
+	// the expression it carries.
+	const DumpNode* const written =
+		node.children.empty() ||
+		node.children[0]->fact.kind == FactKind::DestructorAction
+			? nullptr
+			: node.children[0];
+	if (written == nullptr)
 	{
 		if (!types.is_void(returns_))
 		{
 			instruction.first = literal_operand(returns_, 0);
 		}
-		terminate(instruction);
-		return;
 	}
-	const LowValue value =
-		expression(*node.children[0], types.is_reference(returns_));
-	if (types.is_void(types.strip_cv(value.type)))
+	else
 	{
-		// 6.6.3p3: the expression was evaluated for what it does, and there is
-		// no value for the return to carry.
-		terminate(instruction);
-		return;
+		const LowValue value = expression(*written, types.is_reference(returns_));
+		// 6.6.3p3: an expression of type void was evaluated for what it does,
+		// and there is no value for the return to carry.
+		if (!types.is_void(types.strip_cv(value.type)))
+		{
+			instruction.first = converted(value, returns_);
+		}
 	}
-	instruction.first = converted(value, returns_);
+	for (std::size_t index = 0; index < node.children.size(); ++index)
+	{
+		if (node.children[index]->fact.kind == FactKind::DestructorAction)
+		{
+			destructor_call(*node.children[index]);
+		}
+	}
 	terminate(instruction);
 }
 

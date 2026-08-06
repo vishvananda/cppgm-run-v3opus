@@ -912,7 +912,11 @@ void SemaAnalyzer::special_member(const AstNode& node, const Context& ctx)
 	std::vector<TypeId> types;
 	// 12.1p1 and 12.4p1: neither has a return type, and both are called on the
 	// object 9.3.1p3 makes the first parameter of a member function's type.
-	types.push_back(types_.pointer_to(owner.type));
+	// 12.4p12 lets a destructor be invoked for any cv-qualified version of its
+	// class, which no cv-qualifier-seq of its own says.
+	types.push_back(types_.pointer_to(
+		destructor ? types_.qualified(owner.type, kCvConst | kCvVolatile)
+		           : owner.type));
 	for (std::size_t index = 0; index < parameters.size(); ++index)
 	{
 		// 8.3.5p5: an array or function parameter contributes a pointer, and
@@ -935,6 +939,7 @@ void SemaAnalyzer::special_member(const AstNode& node, const Context& ctx)
 		entity = &model_.create(SemaKind::Function, written, type);
 		owner.destructor = entity;
 		entity->special = kDestructorFunction;
+		model_.bind(*ctx.scope, written, *entity);
 	}
 	else
 	{
@@ -1056,7 +1061,10 @@ void SemaAnalyzer::declare_constructor(SemaEntity& entity, Scope& scope)
 void SemaAnalyzer::declare_destructor(SemaEntity& entity, Scope& scope)
 {
 	std::vector<TypeId> parameters;
-	parameters.push_back(types_.pointer_to(entity.type));
+	// 12.4p12: a destructor may be invoked for an object of any cv-qualified
+	// version of its class, which the object parameter is what says.
+	parameters.push_back(
+		types_.pointer_to(types_.qualified(entity.type, kCvConst | kCvVolatile)));
 	const std::string spelled =
 		"~" + QualifiedName(types_.user_name(entity.type)).last();
 	SemaEntity& destructor = model_.create(
@@ -1070,6 +1078,9 @@ void SemaAnalyzer::declare_destructor(SemaEntity& entity, Scope& scope)
 	destructor.special = kDestructorFunction;
 	destructor.defaulted = true;
 	model_.declare_in(scope, destructor);
+	// 12.4p12 and 5.2.4: `x.~C()` names the destructor through the class, so
+	// the one name a lookup can reach it by is bound where it is declared.
+	model_.bind(scope, spelled, destructor);
 	entity.destructor = &destructor;
 }
 
@@ -1458,7 +1469,7 @@ void SemaAnalyzer::write_constructed_object(SemaEntity& variable,
 // object, and the definition of the constructor it names is asked for here.
 void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
                                     const AstNode* written, const Context& ctx,
-                                    bool member)
+                                    bool member, bool copied)
 {
 	if (!types_.is_class(types_.strip_cv(variable.type)))
 	{
@@ -1552,6 +1563,15 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 	SemaEntity& constructor = *select_overload(candidates, arguments,
 	                                           head->name, &object, converting);
 	require_access(constructor, ctx.scope);
+	if (copied && constructor.explicit_function)
+	{
+		// 8.5.4p3: copy-list-initialization that chooses an `explicit`
+		// constructor is ill formed, which is not the same as leaving one out
+		// of the candidates: the choice is made and then refused.
+		throw std::runtime_error("a copy-list-initialization of " +
+		                         types_.description(variable.type) +
+		                         " chooses a constructor declared explicit");
+	}
 	if (constructor.deleted)
 	{
 		// 8.4.3p2: a program that names a deleted function is ill formed.
@@ -1670,6 +1690,26 @@ void SemaAnalyzer::write_member_initializations(const Pending& pending,
                                                 const Context& inner)
 {
 	Scope& members = *pending.members;
+	// 12.6.2p10: the members are initialized in declaration order and the
+	// mem-initializers may be written in any, so which one names each member is
+	// asked once per member rather than by a scan of the list per member.
+	std::unordered_map<std::string, const AstNode*> named;
+	for (std::size_t at = 0;
+	     pending.initializers != nullptr &&
+	     at < pending.initializers->children.size(); ++at)
+	{
+		const AstNode& one = *pending.initializers->children[at];
+		const AstNode* const id = child_of(one, AstKind::MemInitializerId);
+		if (id == nullptr)
+		{
+			continue;
+		}
+		// 12.6.2p2: the mem-initializer's arguments are read in the
+		// constructor's own region, where its parameters stand.
+		named.insert(std::make_pair(
+			QualifiedName(id->text).last(),
+			one.children.size() > 1 ? one.children[1] : nullptr));
+	}
 	for (std::size_t index = 0; index < members.declarations.size(); ++index)
 	{
 		SemaEntity& member = *members.declarations[index];
@@ -1680,19 +1720,11 @@ void SemaAnalyzer::write_member_initializations(const Pending& pending,
 		}
 		const AstNode* written = nullptr;
 		Context where = inner;
-		for (std::size_t at = 0;
-		     pending.initializers != nullptr &&
-		     at < pending.initializers->children.size(); ++at)
+		const std::unordered_map<std::string, const AstNode*>::const_iterator
+			wrote = named.find(member.name);
+		if (wrote != named.end())
 		{
-			const AstNode& one = *pending.initializers->children[at];
-			const AstNode* const id = child_of(one, AstKind::MemInitializerId);
-			if (id != nullptr && QualifiedName(id->text).last() == member.name)
-			{
-				// 12.6.2p2: the mem-initializer's arguments are read in the
-				// constructor's own region, where its parameters stand.
-				written = one.children.size() > 1 ? one.children[1] : nullptr;
-				break;
-			}
+			written = wrote->second;
 		}
 		if (written == nullptr && member.default_initializer)
 		{
@@ -1709,7 +1741,10 @@ void SemaAnalyzer::write_member_initializations(const Pending& pending,
 		}
 		where.node = nullptr;
 		const TypeId type = member.type;
-		if (types_.is_class(types_.strip_cv(type)))
+		const bool braced =
+			written != nullptr && written->kind == AstKind::BracedInitList;
+		if (types_.is_class(types_.strip_cv(type)) &&
+		    !(braced && aggregate_type(type)))
 		{
 			// The action names the member through `this`, so it needs no line
 			// of its own to say which subobject is being initialized.
@@ -2402,7 +2437,8 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 		// 8.5.1 makes the class an aggregate initialized from the clauses of a
 		// braced-init-list.  3.8p1 then makes the end of its lifetime an action
 		// of the region that declared it.
-		construct_object(entity, line, value, ctx);
+		construct_object(entity, line, value, ctx, false,
+		                 initializer != nullptr && initializer->copied);
 		if (target.scope->kind == ScopeKind::Namespace)
 		{
 			static_lifetimes_.push_back(&entity);

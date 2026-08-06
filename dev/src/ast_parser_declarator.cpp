@@ -614,6 +614,7 @@ AstNode* AstParser::parse_initializer()
 	if (accept(OP_ASS))
 	{
 		AstNode* node = make(AstKind::Initializer);
+		node->copied = true;
 		if (at(KW_DEFAULT) || at(KW_DELETE))
 		{
 			node->add(make_text(AstKind::SpecialInitializer, spelling()));
