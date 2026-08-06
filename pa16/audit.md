@@ -5,184 +5,177 @@ lay out, resolve, lower.
 
 ## Current Checkpoint Review
 
-**C5 — 13.5 operator overloading, 3.4.2 ADL and 11.3 friends, reviewed at
-`1bd1885f`.** The architecture holds and is the right one. An operator
-expression whose operand has class or enumeration type gathers one candidate
-set, resolves it with the same 13.3 a written call uses, and rewrites its own
-operand nodes into the `call-expression` node the call path already writes — so
-nothing new reaches the lowering, and every question about the call is asked in
-one place. 11.3p6's friend declaration is a member of the region around the
-class that binds no name there, held on the class for 3.4.2p2 and moved into the
-region's own chain when 7.3.1.2p3's matching declaration reveals it; that is one
-fact in one owner rather than a second visibility rule. `sema_operator.cpp` owns
-both halves — which declarations a use of a name reaches, and how an operator
-expression becomes the call it stands for — and is the right size for them.
+**C6 — 9.6's bit-fields, reviewed at `3711103a`.** The architecture is the right
+one and the layer split holds: the four facts a width settles are put on the
+member's own declaration where 9.6p1 writes them, `sema_class.cpp` allocates
+them once where 9.2p2 completes the class, and the lowering reads
+`offset`, `bit_offset`, `bit_width` and `bit_access` and writes a fixed number
+of instructions per access. Nothing walks a class to find a field, no second
+pipeline appeared, and every use of a field — `.`, `->`, an implicit `this`, a
+base's member, a union member, an array element, an operator's operand — reaches
+the one lvalue that carries the field and the one read and the one write beside
+it.
 
-What the review found is two shapes. **The first is a question asked of one
-walk that is really two questions**, and it is both of the ADL findings: the set
-of associated classes was read as if every class in it had had its bases walked,
-and the walk up to the innermost enclosing namespace was read as if every class
-it climbed through were the class the type is a member of. **The second is the
-one this audit has found at every checkpoint: a rule written for the exits it
-had in hand and not for the one beside them.** 13.3.1.2's operator call is the
-third way a member is named on an object and asked neither of the two questions
-`.` and `->` ask about that object; 13.5p6 is one clause with two halves and only
-one was written; 9.4.1p2's `static` is written in one place and was read in
-another; and the arity that tells `-` written for one operand from `-` written
-for two was counted without the operand 9.3.1p3 had already put in the type.
+What the review found is one shape, six times. **The storage unit a field sits
+in was read as the member's own object, where it is really a run of bytes the
+class hands to several members at once.** A unit has a width, an alignment, a
+type the fields sharing it were declared with, and a set of bits that belong to
+the members beside this one — and the checkpoint used the member's declared type
+for each of those in turn. The ten fixtures all write one run of same-typed
+fields in a class with nothing else in it, which is the one shape where the two
+readings agree; every shape off it disagreed with the references. Three more
+findings stand beside the six, each an exit of a rule the bit-field write walks
+through and none of them about bit-fields.
 
-**1. 3.4.2p2's base chain was abandoned wherever the class was already
-associated.** `associate_type` walked the chain while the class was not already
-in the set — but a class also enters that set as *the class a nested type is a
-member of*, and that path associates none of its bases. So
-`g(e, d)` with `e` of type `NS::YDer::E` and `d` of type `NS::YDer` associated
-`YDer` from the enum, stopped at once on the class argument, and never reached
-`YBase` — a hidden friend declared there was not found, while `g(1, d)`, whose
-first argument associates nothing, found it. What stops the walk is
-now having walked that class's chain, which is a different fact from having the
-class in the set, and both are probes: gathering costs the classes the argument
-types reach rather than their square.
+**1. 9.6p2's allocation unit was a bit cursor.** The layout counted bits and put
+each field wherever bits stood open, so a field packed into the bytes of
+whatever came before it: `struct { char c; int x : 3; }` was 4 bytes with `x`
+inside `c`'s storage where the references give `x` a unit of its own at offset 4
+and the class 8 bytes; `char a:3; int b:5; char c:2;` was 4 where they write 12;
+and an ordinary member after a field began at the next free *byte* rather than
+after the unit. The reference allocates a whole storage unit of the field's
+declared type and lets the fields declared with that same type share what is
+left of it — which `struct D : B { int x : 3; }` makes more than a layout
+question: `x`'s unit had covered the base subobject, and because the unit was
+this initialization's to claim, `D`'s constructor stored the whole unit over the
+base after the base's constructor had run. A unit is now opened by the first
+field that cannot share the one before it, and an ordinary member and a field of
+another type each begin after it ends, so no member's storage overlaps another's
+and 12.6.2p10's order cannot write over what it has already written.
 
-**2. Every class around a nested type was associated, not the one it is a member
-of.** 3.4.2p2 associates the class itself, its base classes, and the class it is
-a member of; the classes *that* class is in turn a member of are not
-associated. `associate_region`
-pushed each class scope it climbed through on its way to the namespace, so a
-friend of `YA` was visible to a call whose argument is a `YA::YB::YC` — which
-g++ refuses. Only the innermost is taken now; the walk still climbs past the
-rest, because what it is looking for beyond them is the one namespace they
-stand in.
+**2. The unit was loaded and put back at 4.5p3's promoted type.** 4.5p3 says
+what a *value* read out of a field is worth, which is a question about the
+member; the load, the shift, the mask and the store are a question about the
+unit, and the references write all four at the signed integer of the unit's own
+width. So `unsigned a : 3; a = 1;` wrote `u32` where they write `i32`,
+`unsigned char : 3` wrote `u8` for `i8`, `unsigned short : 5` `u16` for `i16`,
+and `unsigned long : 5` — whose 4.5p3 promotion is `int`, four bytes narrower
+than its unit — was read at a type that does not name its storage at all. What
+the value is worth still keeps the declared type, which is what leaves the
+conversion above a read the one that type asks for.
 
-**3. An operator that names a member on an object asked neither of the two
-questions `.` asks about that object.** The C4 audit wrote 11.2p5's naming class
-and 11.4p1's additional check at the two member-access sites. 13.3.1.2's call is
-the third, and `operator_expression` called `require_access` with no naming
-class and never called `require_protected_object` at all. Both halves were
-wrong in opposite directions:
-`struct YB { protected: int operator+(int) const; }; struct YD : YB { friend int
-q(YD&); }; int q(YD& d) { return d + 1; }` was refused although 11.2p5's naming
-class grants it, and
-`struct YO : YB { int t(YB& o) { return o + 1; } }` was accepted although 11.4p1
-forbids naming the member on an object of the base. Every member operator form —
-`+`, `[]`, `()`, `=` — was affected, and the plain member call beside each was
-already right. 13.3 has chosen by the time the questions are asked, so they are
-asked of the one declaration rather than of everything the lookup reached.
+**3. An initialization joined the unit with raw operations at the member's
+type.** 8.5.1 and 12.6.2 compute the unit as an expression, so a member narrower
+than `int` is masked, shifted and joined at `int` with 4.5's promotion and 4.7's
+conversion back — which is what the references write, down to the `cmp ne` a
+`bool` field's every step converts through. The checkpoint wrote `and u8`,
+`shl u8` and `or u8` instead.
 
-**4. A member `operator-` was encoded with the unary Itanium code.** `-` written
-for one operand and `-` written for two are different terminals, told apart by
-how many operands the declaration takes — and 9.3.1p3 had already made the
-object one of them. `abi_symbol_of` passed the count of *written* parameters, so
-`Date::operator-(const Period&) const` was named `_ZNK4DatengERK6Period` where
-`300-member-vs-nonmember-operator-implicit-object-cv-rank.ref` and g++ write
-`_ZNK4DatemiERK6Period`. `object=` is one of the fields the relaxed comparison
-strips, so that fixture passed while claiming a symbol no other translation unit
-could reach. `+`, `*` and `&` had the same shape. All sixteen unary and binary
-member and non-member forms of the four now agree with g++ symbol for symbol.
+**4. A field that owns every bit of its unit still wrote both masks.** Where the
+width fills the unit there is nothing of the field to mask off and nothing
+beside it to put back, and the references write neither mask nor the `or`: an
+`unsigned a : 32` assignment is the load of the unit and a store of the value.
 
-**5. An out-of-class definition of a static member function declared a second,
-non-static function.** 9.4.1p2 makes `static` a specifier of the declaration
-written in the class and forbids repeating it outside, and
-`with_object_parameter` read only the specifiers this declarator wrote — so
-`int YB::f() {}` for `static int f();` was given an object parameter and became
-a different entity from the one the class declares. The unit then emitted
-`@YB__f(%this : ptr)` and called it with no argument, and where the definition
-was also `inline` it was never emitted at all: the output called a function the
-unit has the definition of and does not define, which is what
-`300-lazy-nested-class-enclosing-alias-lookup` failed LowIR validation on. Which
-kind of member a qualified declarator declares is now read from the declaration
-in the class it redeclares, as a probe on the chain that name heads.
+**5. 3.6.2p2's static data was folded into bytes.** A data item names a whole
+object, and a bit-field owns a share of one, so the references give any
+namespace-scope object whose bit-field a clause reached its value before the
+program runs. The checkpoint gathered the fields' bits into `u8` items instead —
+a different object image and a `zero`/`u8` shape no reference writes. A field no
+clause reached is the zero of its unit, written once for every field in it,
+which is what the references write for `S g = {};`.
 
-**6. 13.5p6 was written for one of its two halves.** A non-member operator
-function with no operand of class or enumeration type was refused; a `static`
-member one — which the clause leaves no room for either — was accepted.
+**6. A clause did not reach an unnamed bit-field.** 8.5.1p1 reads as though it
+does not, and the checkpoint stepped over unnamed fields for that reason — but
+the references count them among the subobjects the clauses reach, so
+`struct { int : 3; int b : 5; }` initialized `{1}` gives the 1 to the unnamed
+field here and to `b` there, and `struct { int : 3; } s = {1};` is a translation
+unit for them and was not for us. The comparison is byte for byte against their
+output, so the clause reaches the field they give it to; a field of width zero
+takes a clause and writes nothing.
 
-**7. A pointer condition was branched on through a comparison the references do
-not write.** `truth_for_branch` wrote `cmp ne ptr %p, 0` before every branch on
-a pointer. Fifteen reference outputs branch on the pointer directly, and the one
-`pa15` reference that writes the comparison writes it for a `!= 0` the source
-spelled. 4.12p1's conversion to `bool` needs no instruction where a terminator
-is the only thing that reads it. A floating value still compares, because its
-zero is not the zero bit pattern the terminator tests.
+**7. An assignment converted its value after naming the object it writes
+into.** `s.n = v` wrote the address of `n` and then the conversion of `v`; the
+references compute the value, conversion and all, and name the place after it.
+This is the assignment path itself rather than the field one — a bit-field write
+only made it visible, because it names the place twice.
+
+**8. A constant initializer was converted by an instruction.** 8.5 gives an
+object the value its initializer is worth *as that object's type*, so
+`unsigned char c = 1;` stores `1` where we wrote `convert trunc u8 i32 1` and
+stored the result. The same holds for every clause of an aggregate and for a
+mem-initializer. An assignment is not an initialization and still converts,
+except where the immediate already spells the value it converts to.
+
+**9. 4.12's conversion to `bool` compared at the wrong width.** It was written
+as 5.14p1's truth value, which LowIR materializes at `i64` whatever it compared;
+the conversion compares at the type of what it converts and reads the result at
+the one byte `bool` is stored in. The two share nothing but the `cmp ne`, and
+pa15's `lhs && rhs` names the difference: its operand is already a truth value
+and is compared at `i64` where a converted `int` is compared at `i32`.
 
 ### Left for a later checkpoint
 
-- **13.5.6's `operator->` is not read as a call.** `q->a` where `q`'s class
-  declares `YB* operator->()` is refused as "`->` is written on an operand that
-  is not a pointer to a class". `[]`, `()` and `=` are each routed to 13.3.1.2
-  from their own expression; `->` is the one member operator that is not, and
-  its rule is the only one that applies itself again to what it returned. No
-  fixture writes one — `300-overloaded-arrow-star-operator` is `->*`, an
-  ordinary non-member binary operator, and passes. Recorded rather than fixed
-  here: it belongs to the member-access path, with `x.YB::b`.
-- **A static and a non-static member of one class can reach the same overload
-  key.** `struct block { void unlink(); static void unlink(block*); };` is well
-  formed — the parameter type lists 13.1 tells the two apart by are `()` and
-  `(block*)` — but 9.3.1p3 put the object parameter in the type, so both reach
-  `(block*)` and the second is refused as a redefinition.
-  `200-static-nonstatic-same-pointer-signature` needs it. The fix is one move:
-  which kind of member a declaration is belongs in the key the chain is indexed
-  by, beside the parameter list. It predates C5 and is the one place the
-  object-parameter decision does not pay for itself.
-- **`x.YB::b` still names no member**, unchanged from the C4 audit, and
-  **`alignas` on a member is still dropped**, which the plan's failure map owns
-  with `alignof`.
+- **The reference refuses `++` and `+=` on a bit-field narrower than `int`.**
+  `unsigned char a : 4; ++a;` ends `cppgm++-ref` with "unsupported
+  storage-to-value materialization in LowIR [source-lowir i8] [semantic-source
+  unsigned char]" — its own unit type reaching a layer that will not read it as
+  the member's. We accept it and write the shape every other width gets. Nothing
+  can be matched here: there is no output to agree with.
+- **A reference and a conditional's arm bind the unit rather than the field.**
+  `const unsigned& r = s.a;` and `(c ? s.a : s.b) = 5` are accepted by the
+  reference, which binds the address of the storage unit and then reads all of
+  it — the wrong value for any field not at bit 0. 8.5.3p5 binds a temporary
+  holding the field's value, which needs the materialization C7 is for, so both
+  are refused here and named as 9.6p3 gives a bit-field no address. The comma
+  operator is the third of these: the reference loses the field through it and
+  stores the whole unit; we keep it.
+- **A namespace-scope array of a class with a bit-field is refused**, where it
+  had been folded into bytes. Its initialization is now the dynamic one the
+  references write, and dynamic initialization of an array of class type is the
+  gap the failure map already owns with the other four.
 
 ### Confirmed intact
 
-- pa1–pa15 hold at 1173 / 1173 from a clean tree. pa16 goes from 161 to
-  163 / 243: no test that passed before fails after, and
-  `200-reference-member-conditional-lvalue` and
-  `300-lazy-nested-class-enclosing-alias-lookup` are new — the first needs
-  finding 7 and the second needs 5 and 7 together. The other five change the
-  verdict on no fixture, because no fixture writes the programs they are about
-  — except the fourth, whose fixture passed while claiming a symbol on a field
-  the comparison strips.
-- Of the 141 passing fixtures with a reference output to compare, 34 differ from
-  it only in the order the top-level definitions are written in, 2 only in the
-  internal symbol name `lowir.md` makes a presentation tie-breaker, and 6 in the
-  `unwind=no` the failure map already owns. Nothing else differs, in any field,
-  stripped or not.
+- pa1–pa15 hold at 1173 / 1173 from a clean tree. pa16 goes from 173 to
+  174 / 243: no test that passed before fails after, and
+  `100-function-pointer-nested-param-name-shadow` is new, which finding 8 fixes.
+  The other findings change the verdict on no fixture, because the ten
+  bit-field fixtures all write the one shape the two readings agreed on — which
+  is what made this checkpoint worth sweeping against the references shape by
+  shape rather than fixture by fixture.
+- Of the 152 passing fixtures with a reference output to compare, 110 are byte
+  for byte identical, 34 differ only in the order the top-level definitions are
+  written in, 2 only in the internal symbol name `lowir.md` makes a presentation
+  tie-breaker, and 6 in the `unwind=no` the failure map already owns. Nothing
+  else differs, in any field, stripped or not.
 - No fallback success path, skipped work, timeout workaround, source-specific
-  gate, dummy output or file-audit bypass. Each refusal this audit added — a
-  protected operator named on an object of the base, a static member declared an
-  operator function — names the construct and the clause. The refusal it removed
-  is one 11.2p5 grants.
-- Demand-driven emission is unchanged and still monotonic: an unused hidden
-  friend operator is not emitted, one reached only from a body no written use
-  asks for is, and a definition a written body asked for still stands where that
-  body asked for it.
-- Valgrind clean (`-q --error-exitcode=99`) over all 243 pa16 fixtures and 47
-  synthesized probes — operator, friend, reveal, ADL association, static-member
-  definition, condition and sweep shapes.
-- The file audit passes with the same two `bad-division` warnings the C1–C2, C3
-  and C4 audits recorded, both the heuristic counting declarations rather than
-  bodies in `sema_analyzer.h` and `lowir_lower.h`.
+  gate, dummy output or file-audit bypass. The one refusal this audit adds names
+  the construct and the clause; the one it removes is a clause the references
+  let reach an unnamed field.
+- Valgrind clean (`-q --error-exitcode=99`) over all 243 pa16 fixtures and 87
+  synthesized inputs — every layout shape, every declared type, the read, the
+  write, the initialization, the static image and the five scaling axes.
+- The file audit passes with the same two `bad-division` warnings the C1–C2, C3,
+  C4 and C5 audits recorded, both the heuristic counting declarations rather
+  than bodies in `sema_analyzer.h` and `lowir_lower.h`.
 
 ### Checked and left alone
 
-- **`operator<<=` and `operator>>=` cannot be declared.** `is_operator_token`
-  leaves both out, so `int operator<<=(const YQ&, int);` is not a translation
-  unit. `pa16.gram`'s `operator-token` leaves them out too, and the README makes
-  the grammar authoritative for source syntax — so the parser is right, and
-  `sema_operator.cpp`'s table simply holds two spellings no declaration reaches.
-- **`x = y` for a class with no user-declared `operator=` is lowered as a whole
-  object load and store.** Copy assignment is out of scope for this milestone.
-  It is the one built-in operator exit that accepts a class operand — `+`, `+=`,
-  `-`, `++`, `[]`, `()`, `==`, `!`, `&&` each refuse one — and what it writes is
-  what a trivially copyable class's implicit copy assignment does. PA17 owns the
-  value semantics that say whether it should be written at all.
-- **13.6's built-in operator candidates are never ranked against the declared
-  ones.** Where nothing in the candidate set is viable, the caller reads the
-  operator as the built-in one it would have been; where something is viable, it
-  wins. Within this milestone that is the same answer 13.3 would reach, because
-  no conversion function can make a built-in candidate the better match.
+- **An anonymous `struct` member declares nothing.** `struct S { struct {
+  unsigned a; unsigned b; }; unsigned c; };` compiles for the reference and
+  `s.a` names nothing here: 9.5p1's injection is written for the anonymous union
+  alone. The plan's failure map owns it with the layout half of the same gap,
+  and `300-anonymous-bitfield-helper-member` passes only because it names no
+  member of one.
+- **A member of an anonymous union is addressed without the union's own step.**
+  The references write `index` for the union subobject and `index` again for the
+  member; we write one. It is the same anonymous-member group and is not about
+  bit-fields — a union of ordinary members shows it too.
+- **An array subscript converts its index and evaluates it twice.**
+  `arr[i].a = 2` writes `convert sext i64 i32` where the references multiply the
+  index as it stands, and the read form loads `i` once for the subscript and
+  once again for nothing. Neither is about bit-fields — a class with no field
+  shows both — and the second is a defect rather than a shape: an index with a
+  side effect would take it twice. It owns
+  `200-reference-indexed-pointer-member-access` and belongs to the subscript
+  path.
+- **A class copy is a whole-object load and store where the references write
+  `copyobj`.** PA17 owns the value semantics; the shape is the same for a class
+  with a bit-field and one without.
 - **One class with n friend operator overloads used n times stays quadratic**, at
-  n calls each ranking n candidates: 250 / 500 / 1000 / 2000 take
-  0.05 / 0.15 / 0.62 / 2.99 s, unchanged by this audit.
-- **Nested namespace depth is super-linear and was before this checkpoint.** 500
-  / 1000 / 2000 / 4000 namespaces deep with one ADL call at the bottom take
-  0.01 / 0.02 / 0.07 / 0.24 s, the same before the audit as after. The cost is
-  the lookup walking enclosing regions; it belongs to the scope layer.
+  n calls each ranking n candidates, unchanged by this audit.
+- **Nested namespace depth is super-linear and was before this checkpoint**, and
+  belongs to the scope layer.
 
 ## Checkpoint Audit Ledger
 
@@ -192,6 +185,7 @@ zero is not the zero bit pattern the terminator tests.
 | C3 | 12.1/12.4 user-declared constructors and destructors chained on the class, 13.3.1.3 selection over 8.5's four initializer forms, 12.6.2 member initializations and 12.4p8 member destructions, 3.8p1 lifetime at block exit / `return` / `@__cppgm_fini`, 8.4.2/8.4.3, 12.8p31, 5.2.4, C1/C2 and D1/D2 ABI names | six ways out of a region that ended no lifetime — `break`, `continue`, `goto`, the for-init-statement's own region, a static data member's shutdown and the block-scope `static` written as an automatic object, and an aggregate whose lifetime was recorded only on the constructor path; `this` in a destructor carrying 12.4p12's `const volatile` so a destructor could not write its own member; a deleted destructor called and declared rather than refused; `= T(…)` refused as copy-list-initialization when the constructor is `explicit`; a mem-initializer that named nothing dropped, and one written twice accepted; a constructor the class only declared bound weakly; `operator+` and `operator-` flattening to one internal symbol; the goto check walking every open block | pa16 102 / 243 held, no test that passed before fails after; pa1–pa15 1173 / 1173; valgrind clean over 273 inputs; every axis linear at 2.1–2.3× per doubling; file audit passes with the two recorded header-weight warnings; the stripped metadata agrees with the refs but for `unwind=no`, whose two owners are now named |
 | C4 | 10p1's base-clause on the class and its region, 9.2p13 layout with the base at offset zero, 10.2p2/p6 lookup through the chain, 11.2p2/p4 and 11.4p1 access, 12.6.2p5 base initialization and 12.4p8 base destruction, 12.1p5/12.4p3 triviality through the base, 4.10p3 / 8.5.3p4 / 5.2.9p11 as one `base-conversion` node with 13.3.3.1.4p1's rank and 13.3.3.2p4's order, 5.9p2 and 5.16p3, the object model split into `sema_class.cpp` | one derived-to-base conversion written as one node per link of the chain where the references write one, at n·d instructions for n accesses d deep; a chain access-checked at its first link only; the conditional's composite pointer type converting neither operand, so a private base was reachable through `?:` and not through `==`; 8.5.3p4's base half of reference-related missing, so `static_cast<Base&>` was refused; 5.2.9p11's reference downcast refused and its pointer downcast unchecked; an inaccessible destructor called for an object, a member and a base; 11.4p1's additional check on a protected member absent; every constructor and destructor named with the complete-object entry, where the references name a base-only one with the base-object entry and no alias; a reference member's binding claiming `projection=reference_field`; a member whose declaring class the walk never reached converted to the last base anyway; three dead helpers and a reordered initializer list left by the split | pa16 126 / 243 held, the same set passing and failing; five `.ref` files now byte for byte identical and the passing fixtures differing from the reference at all down from 39 to 34; pa1–pa15 1173 / 1173; valgrind clean over 243 fixtures and 88 probes; conversion, lifetime, protected-access, chain-depth and access axes all linear at 2.0–2.3× per doubling, and the n·d output blow-up gone (16 012 007 lines in 54.6 s → 20 007 in 2.0 s); file audit passes with the two recorded header-weight warnings; the stripped metadata — now including `projection=` — agrees with the refs but for `unwind=no` |
 | C5 | 13.3.1.2p1 an operator on a class or enumeration operand read as the call it stands for, 13.5.7p1's `x++0`, 13.5.3/13.5.4/13.5.5's member-only `= () []`, 13.5p6's rule on a non-member operator; 11.3p6 a friend declared into the innermost enclosing namespace and revealed by 7.3.1.2p3, 11.3p11's elaborated-type-specifier, 11.3p1/p2's grant and 11.2p5's naming class; 3.4.2p1/p2/p3's associated namespaces and classes and the friend declarations they make visible; 3.4.3's prefixes tried outward; 3.2p3's uses read from the whole resolved tree | 3.4.2p2's base chain abandoned wherever the class was already associated, so a hidden friend of a base went unfound when a nested type of the derived class was named first; every class around a nested type associated where 3.4.2p2 associates the one it is a member of; 11.2p5's naming class and 11.4p1's additional check asked at neither of the operator-call sites, so a protected member operator was refused where a friend of the derived class named it and accepted where the object was of the base; a member `operator- + * &` encoded with the unary Itanium terminal, because the arity counted the written parameters and 9.3.1p3 had already made the object an operand; an out-of-class definition of a static member function given an object parameter and declared a second function, so the unit called `@YB__f()` and defined `@YB__f(%this)` - and, where the definition was `inline`, defined nothing at all; 13.5p6 written for its non-member half and not its static-member one; a pointer condition branched on through a `cmp ne ptr` the references do not write | pa16 161 -> 163 / 243, no test that passed before failing after; pa1-pa15 1173 / 1173; valgrind clean over 243 fixtures and 47 probes; the ADL association axes linear at 2.0-2.4x per doubling and the one quadratic axis unchanged; file audit passes with the two recorded header-weight warnings; the stripped metadata agrees with the refs for all 141 passing fixtures with a reference but for `unwind=no`, and the ABI names of all sixteen unary/binary forms of `+ - * &` agree with g++ |
+| C6 | 9.6p1's width and the four facts it settles on the member's own declaration, 9.6p2's allocation into storage units, the read as a load-shift-mask at the promoted type, the write as a read-modify-write and as a plain store where the initialization owns the unit, 8.5.1's unnamed field, 12.6.2 and 8.5.1's two instruction orders, 5.17 and 5.3.2 over a field, 5.3.1p3 and 5.3.3p1's refusals, 3.6.2p2's static data as the bytes the bits fall in | the allocation unit read as a bit cursor, so a field packed into the bytes of the member before it - `struct { char c; int x : 3; }` 4 bytes where the references write 8, `char a:3; int b:5; char c:2;` 4 where they write 12, and a derived class's field over the base subobject, which its constructor then stored over after the base had run; the unit loaded and put back at 4.5p3's promoted type rather than at the signed integer of its own width, so every `unsigned`, `unsigned char`, `unsigned short`, `bool` and `unsigned long` field wrote a type no reference writes; an initialization joining the unit with raw operations at a member type narrower than `int` where 4.5 promotes each step and 4.7 converts it back; both masks written for a field that owns every bit of its unit; 3.6.2p2's static image folded into `u8` items where a data item names a whole object and the references initialize it before the program runs; an unnamed bit-field stepped over by the clauses where the references let one reach it; an assignment converting its value after naming the object it writes into; a constant initializer converted by an instruction rather than spelled as the value it produces; 4.12's conversion to `bool` compared at 5.14p1's width rather than at the type of what it converts | pa16 173 -> 174 / 243, no test that passed before failing after; pa1-pa15 1173 / 1173; valgrind clean over 243 fixtures and 87 probes; every bit-field shape the reference accepts now agrees with it byte for byte - 17 layout shapes, 15 declared types, the read, the write, the initialization and the static image; layout, field-count, nesting, access and static-object axes linear at 2.0-2.3x per doubling; file audit passes with the two recorded header-weight warnings; of the 152 passing fixtures with a reference 110 are byte for byte identical and the rest differ only in top-level order, the internal symbol name and `unwind=no` |
 
 ## Durable architecture decisions
 
@@ -265,34 +259,72 @@ zero is not the zero bit pattern the terminator tests.
 - 4.12p1's conversion to `bool` writes no instruction where a terminator is the
   only thing that reads the value: an integer or an address is branched on as it
   stands. A floating value is compared, because its zero is not the zero bit
-  pattern the terminator tests.
+  pattern the terminator tests. Where the value is read rather than branched on,
+  it is compared at the type of what it compares and the comparison's own result
+  is read at the byte `bool` is stored in - which is a different question from
+  5.14p1's truth value, whose width is LowIR's and not the operand's.
+- 9.6p2's storage unit is not the member: it is a run of bytes with a width, an
+  alignment and a type of its own, opened by the first field that cannot share
+  the one before it and shared by the fields declared with that same type while
+  their bits fit. An ordinary member and a field of another type each begin
+  after it ends, so one member's storage never overlaps another's and the order
+  9.2p13 laid the members out in is an order no initialization writes backwards
+  over.
+- A bit-field is read and written through its unit and is worth a value of the
+  type the member was declared with. The unit is loaded, shifted, masked and
+  stored at the signed integer of the unit's own width; what the field is worth
+  keeps the declared type, so the conversion above a read is the one that type
+  asks for and nothing is written to read one spelling as the other.
+- An initialization computes the unit it is joining as an expression of the
+  member's own type, so 4.5's promotion and 4.7's conversion stand at each step
+  where the member is narrower than `int`. An assignment computes with the
+  values the source named. The two are different questions and are asked
+  separately.
+- 8.5 gives an object the value its initializer is worth as that object's type,
+  so a constant initializer is spelled as that value and nothing computes it.
+  An assignment is not an initialization: it converts, except where the
+  immediate already spells the value the conversion produces.
+- A data item names a whole object. An object holding a bit-field a clause gave
+  a value to is initialized before the program runs, because there is no item
+  for a share of a storage unit; a field no clause reached is the zero of its
+  unit, written once for every field in it.
 
 ## Performance Evidence
 
 Measured with `cppgm++ --emit-lowir -O0` on synthesized inputs, this host, at the
-end of the audit. Every axis doubles in about 2.0x-2.4x.
+end of the audit. Every axis doubles in about 2.0x-2.3x.
 
 | axis | sizes | times |
 | --- | --- | --- |
-| one call, n arguments of n distinct associated classes | 500 / 1000 / 2000 / 4000 | 0.02 / 0.06 / 0.12 / 0.29 s |
-| base-chain depth, one ADL call with two arguments of the deepest class | 500 / 1000 / 2000 / 4000 | 0.00 / 0.01 / 0.03 / 0.06 s |
-| n ADL calls, each argument four classes above the friend | 500 / 1000 / 2000 / 4000 | 0.01 / 0.02 / 0.05 / 0.10 s |
-| n calls of the shape finding 1 restored: a nested enum, then a class eight deep | 500 / 1000 / 2000 / 4000 | 0.01 / 0.03 / 0.06 / 0.11 s |
-| that shape by chain depth, one call | 500 / 1000 / 2000 / 4000 | 0.00 / 0.01 / 0.03 / 0.08 s |
-| chained `operator<<` | 500 / 1000 / 2000 / 4000 | 0.00 / 0.01 / 0.01 / 0.03 s |
-| operator nesting depth | 500 / 1000 / 2000 / 4000 | 0.01 / 0.01 / 0.03 / 0.06 s |
-| n namespaces each with a class and an ADL free function, one use each | 500 / 1000 / 2000 / 4000 | 0.04 / 0.10 / 0.21 / 0.43 s |
-| n friend declarations of n names revealed by as many namespace-scope definitions | 500 / 1000 / 2000 / 4000 | 0.03 / 0.07 / 0.15 / 0.35 s |
+| n one-bit fields in one class, aggregate-initialized then assigned one by one | 500 / 1000 / 2000 / 4000 | 0.02 / 0.05 / 0.10 / 0.23 s |
+| n fields of four alternating declared types, so every field opens its own unit | 500 / 1000 / 2000 / 4000 | 0.02 / 0.03 / 0.07 / 0.12 s |
+| n classes nested one inside the next, each with two fields | 500 / 1000 / 2000 / 4000 | 0.01 / 0.02 / 0.06 / 0.13 s |
+| n reads of two fields of one class in one body | 500 / 1000 / 2000 / 4000 | 0.02 / 0.04 / 0.08 / 0.16 s |
+| n namespace-scope objects of a class with fields, each dynamically initialized | 500 / 1000 / 2000 / 4000 | 0.02 / 0.04 / 0.10 / 0.20 s |
 
-- The two association findings were correctness rather than cost, and the walk
-  they left is cheaper than the one they replaced: membership in the associated
-  set and "this class's chain has been walked" are two probes where the first was
-  a scan of a vector that grows with the classes the argument types reach. A call
-  with 4000 arguments of 4000 distinct classes gathers its set in 0.29 s.
-- Measured against the pre-audit binary at `1bd1885f`, no axis moved: nested
-  namespace depth 4000 is 0.23 s before and 0.22 s after, 4000 associated
-  namespaces 0.43 s and 0.43 s, chain depth 4000 0.06 s and 0.06 s, 4000 ADL
-  calls four deep 0.09 s and 0.10 s.
+- The layout finding made the walk no more expensive: what it carries is a byte
+  cursor and the open unit's type, start and used bits, so a field costs one
+  comparison and one addition and a class with no bit-field never opens a unit.
+  The alternating-type axis is the worst case - every field opens a unit - and is
+  the fastest of the five.
+- Neither the access type nor the promoted arithmetic adds a walk: both are read
+  off the declaration, and the operations a write emits are a fixed number per
+  written field, at most two more than before where the member is narrower than
+  `int`.
+- Static objects with bit-fields are initialized before the program runs rather
+  than folded, which moves work from the data image to `@__cppgm_init` and is
+  linear in the fields written: 4000 objects of a two-field class, 0.20 s.
+- Measured at the C5 audit and unchanged, each doubling 2.0x-2.4x: one call with
+  n arguments of n distinct associated classes, 0.02 / 0.06 / 0.12 / 0.29 s;
+  base-chain depth with one ADL call two arguments deep,
+  0.00 / 0.01 / 0.03 / 0.06 s; n ADL calls each four classes above the friend,
+  0.01 / 0.02 / 0.05 / 0.10 s; a nested enum then a class eight deep,
+  0.01 / 0.03 / 0.06 / 0.11 s, and that shape by chain depth,
+  0.00 / 0.01 / 0.03 / 0.08 s; a chained `operator<<`,
+  0.00 / 0.01 / 0.01 / 0.03 s; operator nesting depth,
+  0.01 / 0.01 / 0.03 / 0.06 s; n namespaces each with a class and an ADL free
+  function, 0.04 / 0.10 / 0.21 / 0.43 s; n friend declarations revealed by as
+  many definitions, 0.03 / 0.07 / 0.15 / 0.35 s.
 - The one quadratic axis is quadratic because the resolution is: one class with n
   friend `operator<<` overloads used n times, 250 / 500 / 1000 / 2000 at
   0.05 / 0.15 / 0.62 / 2.99 s, the same before this audit and after.
@@ -318,24 +350,27 @@ end of the audit. Every axis doubles in about 2.0x-2.4x.
 
 ## Validation
 
-- `make test-report ACTIVE_TEST_REPORT_PAS='pa16'` — 163 / 243, from 161 before
-  the audit: `200-reference-member-conditional-lvalue` and
-  `300-lazy-nested-class-enclosing-alias-lookup` newly pass and nothing that
-  passed before fails.
+- `make test-report ACTIVE_TEST_REPORT_PAS='pa16'` — 174 / 243, from 173 before
+  the audit: `100-function-pointer-nested-param-name-shadow` newly passes and
+  nothing that passed before fails.
 - `make test-report-through-pa15` — 1173 / 1173.
 - `perl scripts/cppgm_file_audit.pl --stage pa16 --paths dev/src` — passes, with
   the two `bad-division` warnings accounted for above.
-- `valgrind -q --error-exitcode=99` over all 243 pa16 fixtures and 47 synthesized
-  probes — operator, friend, reveal, ADL association, static-member definition,
-  condition and sweep shapes — no error.
-- Scaling: nine single-axis series at four sizes each, one quadratic series at
-  four sizes, and each of four axes measured against the pre-audit binary at
-  `1bd1885f` built from a worktree.
+- `valgrind -q --error-exitcode=99` over all 243 pa16 fixtures and 87
+  synthesized inputs — layout, declared type, read, write, initialization,
+  static image, base, union, enum, array and scaling shapes — no error.
+- Differential against `pa16/cppgm++-ref` on 87 synthesized programs: every one
+  the reference accepts and this unit accepts now agrees with it byte for byte,
+  but for the four shapes named above — the anonymous member, the anonymous
+  union's own step, the array subscript and the class copy — none of which is
+  about bit-fields, and the three the reference and this unit disagree about
+  what a program means: `++` on a narrow field, which the reference refuses; a
+  reference or a conditional bound to a field, which it binds to the unit; and a
+  field named through a comma, which it forgets is one.
+- Scaling: five single-axis series at four sizes each.
 - The whole stripped set — `object=`, `binding=`, `linkage=`, `role=`, `unwind=`,
   `projection=`, `effects=`, `capture=`, `access=`, `alias=`, `return=` and
-  `keep_alias=` — diffed against the reference for all 141 passing fixtures whose
-  reference output is not empty. What is left is the six `unwind=no` fixtures
-  already recorded. The ABI names of every unary and binary member and
-  non-member form of `+ - * &`, and of the twenty-six other overloadable
-  operators the grammar admits, were diffed against g++ on the same source: all
-  agree.
+  `keep_alias=` — diffed against the reference for all 152 passing fixtures whose
+  reference output is not empty. 110 are identical without any stripping; what
+  is left is the six `unwind=no` fixtures already recorded, 34 that differ only
+  in top-level order and 2 in an internal symbol name.
