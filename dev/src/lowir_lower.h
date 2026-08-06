@@ -272,10 +272,14 @@ private:
 	// definition is taken off the deferred map as it is asked for, which makes
 	// one use of a name lower it and every later use cost a probe.
 	void demand_definition(const SemaEntity& entity);
-	// 3.2p2 and 3.2p3: the deferred definitions the resolved tree names
-	// anywhere, which is what odr-uses them - a body this unit does not write
-	// still uses what it calls.
+	void demand_definition_by_id(std::uint32_t entity);
+	// 3.2p2 and 3.2p3: the functions the resolved tree names anywhere, which is
+	// what odr-uses them - a body this unit does not write still uses what it
+	// calls.  They are gathered in the order the tree names them and asked for
+	// once every use the unit itself wrote has been answered, so a definition a
+	// written body asked for still stands where that body asked for it.
 	void demand_referenced(const DumpNode& node);
+	std::vector<std::uint32_t> referenced_;
 	// Lowers the definitions asked for so far, and the ones lowering those asks
 	// for.  It runs between top level declarations and never inside one, so no
 	// `lowir_model::Function&` of a body being lowered is alive when

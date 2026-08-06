@@ -291,8 +291,7 @@ void LowirUnitLowering::run(const DumpNode& unit)
 	// 3.2p3: an inline definition belongs to the program where the program uses
 	// it, and a use written in a body this unit does not write is a use all the
 	// same - a function called only from an unused one is odr-used by it.  So
-	// the uses are read from the whole resolved tree rather than only from the
-	// bodies the unit goes on to emit.
+	// the whole resolved tree is read for uses, in the order it names them.
 	demand_referenced(unit);
 	for (std::size_t index = 0; index < unit.children.size(); ++index)
 	{
@@ -300,6 +299,14 @@ void LowirUnitLowering::run(const DumpNode& unit)
 		drain_demanded();
 	}
 	drain_demanded();
+	// A definition no body this unit wrote asked for stands after them all:
+	// what a written use asks for is written where that use is, so the order
+	// the unit already has is the order its own uses were reached in.
+	for (std::size_t index = 0; index < referenced_.size(); ++index)
+	{
+		demand_definition_by_id(referenced_[index]);
+		drain_demanded();
+	}
 	if (startup_ != nullptr)
 	{
 		startup_->suspend_generated(builder_.startup_body_);
@@ -958,7 +965,7 @@ void LowirUnitLowering::demand_referenced(const DumpNode& node)
 	    node.fact.entity->special == kOrdinaryFunction &&
 	    (node.fact.kind == FactKind::Callee || node.fact.kind == FactKind::Id))
 	{
-		demand_definition(*node.fact.entity);
+		referenced_.push_back(node.fact.entity->id);
 	}
 	for (std::size_t index = 0; index < node.children.size(); ++index)
 	{
@@ -968,8 +975,13 @@ void LowirUnitLowering::demand_referenced(const DumpNode& node)
 
 void LowirUnitLowering::demand_definition(const SemaEntity& entity)
 {
+	demand_definition_by_id(entity.id);
+}
+
+void LowirUnitLowering::demand_definition_by_id(std::uint32_t entity)
+{
 	const std::unordered_map<std::uint32_t, const DumpNode*>::iterator found =
-		deferred_.find(entity.id);
+		deferred_.find(entity);
 	if (found == deferred_.end())
 	{
 		return;

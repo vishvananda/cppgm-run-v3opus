@@ -245,6 +245,13 @@ std::size_t SemaAnalyzer::argument_candidates(
 	const std::string& name, const std::vector<Value>& arguments,
 	std::vector<SemaEntity*>& candidates)
 {
+	// 13.3p1 puts each declaration in the set once, and a class may declare as
+	// many friends of one name as the program writes - so which declarations
+	// the set already holds is a probe rather than a scan of it, and gathering
+	// one call's candidates costs what the declarations there are and not their
+	// square.
+	std::unordered_set<SemaEntity*> gathered(candidates.begin(),
+	                                         candidates.end());
 	std::vector<Scope*> spaces;
 	std::vector<Scope*> classes;
 	for (std::size_t index = 0; index < arguments.size(); ++index)
@@ -261,7 +268,7 @@ std::size_t SemaAnalyzer::argument_candidates(
 		SemaEntity* const head = model_.find(*spaces[index], name,
 		                                     LookupKind::Any);
 		if (head != nullptr && head->kind == SemaKind::Function &&
-		    !held(candidates, head))
+		    gathered.insert(head).second)
 		{
 			candidates.push_back(head);
 		}
@@ -273,7 +280,8 @@ std::size_t SemaAnalyzer::argument_candidates(
 			classes[index]->friend_functions;
 		for (std::size_t at = 0; at < friends.size(); ++at)
 		{
-			if (friends[at]->name == name && !held(candidates, friends[at]))
+			if (friends[at]->name == name &&
+			    gathered.insert(friends[at]).second)
 			{
 				candidates.push_back(friends[at]);
 				++singles;
