@@ -128,9 +128,10 @@ public:
 	// type of exactly one entity, so the entity identifies it: two classes of
 	// the same name in two scopes are two types, and a class named after its
 	// definition is closed is still the same type it was inside it.
-	TypeId class_type(std::uint32_t entity, ClassTag tag, const std::string& name);
+	TypeId class_type(std::uint32_t entity, ClassTag tag, const std::string& name,
+	                  const std::string& qualified);
 	TypeId enum_type(std::uint32_t entity, bool scoped, const std::string& name,
-	                 TypeId underlying);
+	                 const std::string& qualified, TypeId underlying);
 	TypeId template_parameter_type(std::uint32_t entity, bool is_template,
 	                               const std::string& name);
 
@@ -140,6 +141,13 @@ public:
 	void rename(TypeId type, const std::string& name);
 	// That name, which 9.1p2 makes what a member of the type is written after.
 	const std::string& user_name(TypeId type) const { return user_at(type).name; }
+	// 3.4.3: the same type named from outside every region that encloses its
+	// declaration, which is what an object-file name for it is built from.  The
+	// dump spells a type as the declaration wrote it, so the two differ.
+	const std::string& user_qualified_name(TypeId type) const
+	{
+		return user_at(type).qualified;
+	}
 
 	// 9.2p2: the class becomes complete at the end of its member specification,
 	// which is where its size and alignment are first known.
@@ -271,6 +279,7 @@ private:
 	struct UserType
 	{
 		std::string name;
+		std::string qualified;
 		ClassTag tag;
 		bool scoped;
 		bool complete;

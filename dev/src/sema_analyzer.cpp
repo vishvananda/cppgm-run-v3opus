@@ -108,6 +108,7 @@ SemaAnalyzer::SemaAnalyzer(SemaDialect dialect)
 	, continuable_(0)
 	, switches_(0)
 	, returns_(kNoType)
+	, c_linkage_(false)
 {}
 
 SemaAnalyzer::Pending::Pending()
@@ -395,11 +396,18 @@ void SemaAnalyzer::declaration(const AstNode& node, const Context& ctx)
 		return;
 
 	case AstKind::LinkageSpecification:
+	{
+		// 7.5p4: linkage specifications nest, and the innermost one a
+		// declaration is written in is the linkage it has.
+		const bool enclosing = c_linkage_;
+		c_linkage_ = node.text == "C";
 		for (std::size_t index = 0; index < node.children.size(); ++index)
 		{
 			declaration(*node.children[index], ctx);
 		}
+		c_linkage_ = enclosing;
 		return;
+	}
 
 	default:
 		// An access-specifier, an empty declaration and the member forms PA11
@@ -650,8 +658,9 @@ SemaEntity& SemaAnalyzer::class_declaration(const AstNode& node,
 		// The dump spells a class by the named namespaces around it, which is
 		// a fact about the declaration rather than about the use, so the type
 		// carries it.
+		const std::string qualified = dump_name(*ctx.scope, name);
 		const TypeId type = types_.class_type(
-			id, tag, semantics() ? dump_name(*ctx.scope, name) : name);
+			id, tag, semantics() ? qualified : name, qualified);
 		entity = &model_.create(SemaKind::Class, name, type);
 		model_.own_type(type, *entity);
 		if (!name.empty())
@@ -1094,7 +1103,11 @@ SemaEntity& SemaAnalyzer::enum_declaration(const AstNode& node,
 			                         "enumeration fixes no underlying type");
 		}
 		const std::uint32_t id = model_.type_entity_id();
-		const TypeId type = types_.enum_type(id, scoped, name, underlying);
+		// 7.2: the dump spells an enumeration as its declaration wrote it, and
+		// the regions around that declaration are what a name for it outside
+		// them must carry, so the type holds both.
+		const TypeId type = types_.enum_type(
+			id, scoped, name, dump_name(*ctx.scope, name), underlying);
 		entity = &model_.create(SemaKind::Enum, name, type);
 		model_.own_type(type, *entity);
 		model_.bind(*ctx.scope, name, *entity);
@@ -1321,6 +1334,8 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 		type = with_object_parameter(type, node, target, specifiers.is_static);
 		SemaEntity& function = declare_function(name, type, target, false);
 		function.object_member = type != written_type;
+		function.internal_linkage = function.internal_linkage ||
+			(specifiers.is_static && target.scope->kind == ScopeKind::Namespace);
 		record_default_arguments(function, spelled_parameters, target.scope);
 		if (function.template_parameters != nullptr)
 		{
@@ -1383,6 +1398,7 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 	}
 	if (declared == nullptr)
 	{
+		entity.c_linkage = c_linkage_;
 		model_.bind(*target.scope, name, entity);
 		model_.declare_in(*target.scope, entity);
 		// The qualified spelling a use of the name writes, built here as it is
@@ -1400,6 +1416,13 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 	entity.object_definition = entity.object_definition ||
 		!specifiers.is_extern ||
 		(initializer != nullptr && !initializer->children.empty());
+	// 3.5p3: at namespace scope a name declared `static` has internal linkage,
+	// and so does a `const` object no declaration wrote `extern`.
+	entity.internal_linkage = entity.internal_linkage ||
+		(target.scope->kind == ScopeKind::Namespace &&
+		 (specifiers.is_static ||
+		  (!specifiers.is_extern &&
+		   (types_.object_cv(type) & kCvConst) != 0)));
 	// 9.4.2p2: a definition written with a nested-name-specifier declares
 	// nothing where it names, so the line it writes is not one of that region's:
 	// it stands where the definition is written, spelled the way it wrote it.
@@ -1558,6 +1581,10 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 
 	SemaEntity& entity = declare_function(name, type, target, true);
 	entity.object_member = type != written_type;
+	// 3.5p3: one declaration written `static` gives the name internal linkage,
+	// however the others were written.
+	entity.internal_linkage = entity.internal_linkage ||
+		(specifiers.is_static && target.scope->kind == ScopeKind::Namespace);
 	record_default_arguments(entity, parameters, target.scope);
 
 	DumpScope& dump = model_.open_dump(*target.dump, "scope function " + name);
@@ -1701,6 +1728,7 @@ SemaEntity& SemaAnalyzer::declare_function(const std::string& name, TypeId type,
 	SemaEntity& entity = model_.create(SemaKind::Function, name, type);
 	entity.dump_name = dump_name(where, name);
 	entity.defined = define;
+	entity.c_linkage = c_linkage_;
 	entity.tail = &entity;
 	if (target.scope->kind == ScopeKind::TemplateParameters)
 	{

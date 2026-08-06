@@ -172,9 +172,13 @@ public:
 	// Names `entity` in the program as a declaration, for a use of a function
 	// or object this unit does not define.
 	void declare_entity(const SemaEntity& entity);
-	// Records what the metadata of a namespace-scope symbol says.
+	// Records what the metadata of a namespace-scope symbol says: 3.5p3 whose
+	// program may reach it, 7.5p1 what language linkage it was declared with,
+	// and 3.5p9 the name the object file gives it, which is written only where
+	// it differs from the internal LowIR symbol `symbol`.
 	void describe_symbol(const SemaEntity& entity,
-	                     lowir_model::SymbolMetadata& metadata);
+	                     lowir_model::SymbolMetadata& metadata,
+	                     const std::string& symbol);
 	// 5.19 over the resolved tree: the value an initializer is worth, as the
 	// bits an object of its own type holds.  3.6.2 initializes a namespace
 	// scope object with data rather than with code, so the data has to be

@@ -3,6 +3,7 @@
 #include <sstream>
 #include <stdexcept>
 
+#include "lowir_abi.h"
 #include "sema_scope.h"
 #include "token_model.h"
 
@@ -201,15 +202,27 @@ const std::string& LowirUnitLowering::function_symbol(const SemaEntity& entity)
 }
 
 void LowirUnitLowering::describe_symbol(const SemaEntity& entity,
-                                        lowir_model::SymbolMetadata& metadata)
+                                        lowir_model::SymbolMetadata& metadata,
+                                        const std::string& symbol)
 {
-	// 3.5p3: a name declared `const` at namespace scope has internal linkage
-	// unless it is declared `extern`, and a definition of one belongs to the
-	// translation unit that wrote it.
-	const bool internal = entity.kind == SemaKind::Variable &&
-		(types_.object_cv(entity.type) & kCvConst) != 0;
-	metadata.binding = internal ? lowir_model::SBM_INTERNAL
-	                            : lowir_model::SBM_STRONG;
+	// 3.5p3: a definition of a name with internal linkage belongs to the
+	// translation unit that wrote it and no other may reach it.
+	metadata.binding = entity.internal_linkage ? lowir_model::SBM_INTERNAL
+	                                           : lowir_model::SBM_STRONG;
+	// 7.5p1: the language linkage a backend needs is a fact about the
+	// declaration, which no LowIR type says.
+	if (entity.c_linkage)
+	{
+		metadata.linkage = lowir_model::LLM_C;
+	}
+	// 3.5p9: the object file names the entity, and PA14's encoder is what says
+	// how.  The internal LowIR symbol is a spelling of this program alone, so
+	// the object name is carried only where the two differ.
+	const std::string object = abi_symbol_of(entity, types_);
+	if (object != symbol)
+	{
+		metadata.object_symbol = object;
+	}
 }
 
 void LowirProgramBuilder::add_unit(const DumpNode& unit, TypeTable& types)
@@ -438,7 +451,7 @@ void LowirUnitLowering::global_variable(const DumpNode& node)
 	global.name = symbol;
 	const TypeId type = node.fact.type;
 	global.type = low_type(type);
-	describe_symbol(entity, global.metadata);
+	describe_symbol(entity, global.metadata, symbol);
 	const DumpNode* written = node.children.empty() ? nullptr : node.children[0];
 	if (written != nullptr && written->fact.kind == FactKind::BracedInitList &&
 	    types_.kind(types_.strip_cv(type)) != TypeKind::Array)
@@ -711,7 +724,7 @@ void LowirUnitLowering::declare_entity(const SemaEntity& entity)
 	{
 		declaration.type = low_type(entity.type);
 	}
-	describe_symbol(entity, declaration.metadata);
+	describe_symbol(entity, declaration.metadata, symbol);
 	program_.global_declarations.push_back(declaration);
 }
 
@@ -741,7 +754,7 @@ void LowirUnitLowering::add_function_declaration(const SemaEntity& entity)
 	{
 		declaration.boundary.arity = lowir_model::CAM_VARIADIC;
 	}
-	declaration.metadata.binding = lowir_model::SBM_STRONG;
+	describe_symbol(entity, declaration.metadata, symbol);
 	program_.function_declarations.push_back(declaration);
 }
 
@@ -762,7 +775,7 @@ void LowirUnitLowering::function_definition(const DumpNode& node)
 	{
 		out.boundary.arity = lowir_model::CAM_VARIADIC;
 	}
-	out.metadata.binding = lowir_model::SBM_STRONG;
+	describe_symbol(entity, out.metadata, symbol);
 	if (entity.dump_name == "main")
 	{
 		// 3.6.1: `main` is where the program starts, which the backend needs to

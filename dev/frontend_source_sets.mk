@@ -43,8 +43,8 @@ FRONTEND_OBJ_BASENAMES_cppgm++ := source_charset source_reader pptoken_lexer \
 	ast_parser_declarator ast_parser_statement ast_parser_expression ast_emit \
 	type_model sema_name sema_scope sema_analyzer sema_declarator sema_constant \
 	sema_statement sema_expression sema_overload sema_template types_emit \
-	semantics_emit lowir_text lowir_validate lowir_write lowir_lower \
-	lowir_lower_body lowir_emit
+	semantics_emit abi_mangle lowir_abi lowir_text lowir_validate lowir_write \
+	lowir_lower lowir_lower_body lowir_emit
 FRONTEND_OBJ_BASENAMES_lowiropt :=
 FRONTEND_OBJ_BASENAMES_lowir2cy86 := lowir_text lowir_validate lowir_cy86
 FRONTEND_OBJ_BASENAMES_lowir2native :=

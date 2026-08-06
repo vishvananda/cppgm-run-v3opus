@@ -927,8 +927,9 @@ bool parse_target_record(const vector<string> & words, AbiTargetRecord & target)
     target.function = parse_function_target(words, 1);
     return true;
   }
-  if(head == "variable") {
+  if(head == "variable" || head == "internal-variable") {
     target.kind = ABI_TARGET_FACT_VARIABLE;
+    target.internal_linkage = head == "internal-variable";
     target.qualified_name = word_at(words, 1, "variable name");
     return true;
   }
@@ -1613,7 +1614,7 @@ vector<string> serialize_target(const AbiTargetRecord & target)
     append_words(words, serialize_function_target(target.function));
     return words;
   case ABI_TARGET_FACT_VARIABLE:
-    words.push_back("variable");
+    words.push_back(target.internal_linkage ? "internal-variable" : "variable");
     words.push_back(target.qualified_name);
     return words;
   case ABI_TARGET_FACT_TYPEINFO:

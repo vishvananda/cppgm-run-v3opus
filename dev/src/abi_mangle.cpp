@@ -1593,7 +1593,7 @@ void Encoder::encode_target(const AbiTargetRecord & target,
     return;
   case ABI_TARGET_FACT_VARIABLE:
     put("_Z");
-    emit_data_name(target.qualified_name, false);
+    emit_data_name(target.qualified_name, target.internal_linkage);
     return;
   case ABI_TARGET_FACT_TYPEINFO:
     put("_ZTI");

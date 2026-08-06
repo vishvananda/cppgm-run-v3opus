@@ -406,10 +406,12 @@ TypeId TypeTable::user_type(TypeKind category, std::uint32_t entity,
 }
 
 TypeId TypeTable::class_type(std::uint32_t entity, ClassTag tag,
-                             const std::string& name)
+                             const std::string& name,
+                             const std::string& qualified)
 {
 	UserType record;
 	record.name = name;
+	record.qualified = qualified;
 	record.tag = tag;
 	record.scoped = false;
 	record.complete = false;
@@ -419,10 +421,12 @@ TypeId TypeTable::class_type(std::uint32_t entity, ClassTag tag,
 }
 
 TypeId TypeTable::enum_type(std::uint32_t entity, bool scoped,
-                            const std::string& name, TypeId underlying)
+                            const std::string& name,
+                            const std::string& qualified, TypeId underlying)
 {
 	UserType record;
 	record.name = name;
+	record.qualified = qualified;
 	record.tag = ClassTag::Struct;
 	record.scoped = scoped;
 	record.complete = true;
@@ -438,6 +442,7 @@ TypeId TypeTable::template_parameter_type(std::uint32_t entity, bool is_template
 {
 	UserType record;
 	record.name = name;
+	record.qualified = name;
 	record.tag = ClassTag::Struct;
 	record.scoped = is_template;
 	record.complete = false;

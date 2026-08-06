@@ -695,6 +695,9 @@ private:
 	std::vector<std::string> gotos_;
 	// 6.6.3: the return type of the function whose body is being read.
 	TypeId returns_;
+	// 7.5p1 and 7.5p4: the language linkage of the linkage-specification the
+	// declaration being read is written inside, which is the innermost one.
+	bool c_linkage_;
 	// How deep the walk of one expression is.
 	//
 	// 5.6 makes `a + b + c + ...` a tree as deep as it is long while nesting no

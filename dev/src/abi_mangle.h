@@ -288,6 +288,10 @@ struct AbiTargetRecord
 {
   AbiTargetFactKind kind = ABI_TARGET_FACT_TYPE;
   bool c_linkage = false;
+  // Whether the named entity has internal linkage, which a data name carries
+  // as a marker on its last component. `AbiEntityFact` records the same fact
+  // about an entity a template argument refers to.
+  bool internal_linkage = false;
   AbiType type;
   AbiType base_type;
   AbiFunctionTarget function;

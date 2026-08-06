@@ -135,6 +135,18 @@ struct SemaEntity
 	// which is the one thing that tells a use of a name in another translation
 	// unit from the storage this one lays out.
 	bool object_definition;
+	// 7.5p1: whether the declaration was written inside a `"C"` linkage
+	// specification, which is a fact about the declaration and not about its
+	// type.  3.5p9 makes the name of an entity with C language linkage and
+	// external linkage the name the object file carries, so only the analysis
+	// can say what a backend must spell it as.
+	bool c_linkage;
+	// 3.5p3: whether this namespace-scope name has internal linkage, which a
+	// `static` declaration gives it and which a `const` object has unless it
+	// was declared `extern`.  It is what tells a symbol another translation
+	// unit may reach from one that belongs to this one alone, and only the
+	// declaration's own specifiers say it.
+	bool internal_linkage;
 	// The name the PA12 dump spells this entity with: a namespace-scope
 	// declaration is written with the named namespaces around it, and
 	// everything else with the name it was declared with.  It is built where
