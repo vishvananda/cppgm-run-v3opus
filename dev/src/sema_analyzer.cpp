@@ -126,7 +126,6 @@ SemaAnalyzer::Value::Value()
 	, functions(nullptr)
 	, addressed(nullptr)
 	, name(nullptr)
-	, payload(nullptr)
 	, what(nullptr)
 	, null_constant(false)
 	, constant(false)
@@ -835,16 +834,14 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line)
 		model_.open_node(line, "constructor-action " + constructor->dump_name);
 	DumpNode& call = model_.open_node(
 		action, spell("call-expression", ValueCategory::PRValue,
-		              types_.target(constructor->type), nullptr));
+		              types_.target(constructor->type), std::string()));
 	model_.open_node(call, "callee " + constructor->dump_name + " " +
 	                 types_.description(constructor->type));
 	const TypeId object = types_.pointer_to(variable.type);
 	DumpNode& address = model_.open_node(
-		call, "unary-expression " + std::string(category_name(ValueCategory::PRValue)) +
-		" " + types_.description(object) + " OP_AMP:&");
-	model_.open_node(address, "id-expression " +
-	                 std::string(category_name(ValueCategory::LValue)) + " " +
-	                 types_.description(variable.type) + " " + variable.name);
+		call, spell("unary-expression", ValueCategory::PRValue, object, "OP_AMP:&"));
+	model_.open_node(address, spell("id-expression", ValueCategory::LValue,
+	                                variable.type, variable.name));
 }
 
 void SemaAnalyzer::lay_out_class(SemaEntity& entity, Scope& scope, bool is_union)
@@ -1261,18 +1258,25 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 		entity.object_member =
 			target.scope->kind == ScopeKind::Class && !specifiers.is_static;
 	}
+	// 9.4.2p2: a definition written with a nested-name-specifier declares
+	// nothing where it names, so the line it writes is not one of that region's:
+	// it stands where the definition is written, spelled the way it wrote it.
+	// The region it names keeps the one line its own declaration wrote.
+	const bool defines_elsewhere = declared != nullptr;
+	const Context& where = defines_elsewhere ? ctx : target;
+	const std::string& spelling = defines_elsewhere ? written : name;
 	if (!semantics())
 	{
-		write_line(*target.dump, "variable", name, type);
+		write_line(*where.dump, "variable", spelling, type);
 		return;
 	}
-	if (target.node == nullptr)
+	if (where.node == nullptr)
 	{
 		// 9.2p1: a data member declares no object of its own; the object it is
 		// part of is what a declaration of the class type declares.
 		return;
 	}
-	DumpNode& line = model_.open_node(*target.node, "variable " + name + " " +
+	DumpNode& line = model_.open_node(*where.node, "variable " + spelling + " " +
 	                                  types_.description(type));
 	// 5.19p3 and 7.1.5p9: a constexpr object is initialized by a constant
 	// expression, and the dump writes the value it stands for rather than the
@@ -1287,8 +1291,7 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 	if (entity.constant && specifiers.is_constexpr)
 	{
 		model_.open_node(line, spell("literal", ValueCategory::PRValue, type,
-		                             nullptr) + " " +
-		                 spell_value(type, entity.value));
+		                             spell_value(type, entity.value)));
 		return;
 	}
 	write_initializer(*initializer->children[0], type, ctx, line);
@@ -1315,7 +1318,8 @@ void SemaAnalyzer::write_initializer(const AstNode& initializer, TypeId type,
 	// 8.5.1: an aggregate is initialized from the clauses of its list, each
 	// initializing one element.
 	DumpNode& list = model_.open_node(
-		line, spell("braced-init-list", ValueCategory::LValue, type, nullptr));
+		line, spell("braced-init-list", ValueCategory::LValue, type,
+		            std::string()));
 	const TypeId element = types_.kind(type) == TypeKind::Array
 		? types_.target(type)
 		: type;

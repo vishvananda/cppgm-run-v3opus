@@ -311,8 +311,8 @@ void SemaAnalyzer::case_statement(const AstNode& node, const Context& ctx,
 			// converted constant expression of the switch condition's type.
 			const Constant label = evaluate(child, ctx);
 			model_.open_node(line, spell("literal", ValueCategory::PRValue,
-			                             label.type, nullptr) + " " +
-			                 spell_value(label.type, label.bits));
+			                             label.type,
+			                             spell_value(label.type, label.bits)));
 			continue;
 		}
 		semantic_statement(child, ctx, line);

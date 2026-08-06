@@ -124,19 +124,31 @@ std::string SemaAnalyzer::payload_of(const AstNode& node)
 }
 
 std::string SemaAnalyzer::spell(const char* what, ValueCategory category,
-                                TypeId type, const AstNode* payload) const
+                                TypeId type, const std::string& payload) const
 {
 	std::string text = std::string(what) + " " + category_name(category) + " " +
 		types_.description(type);
-	if (payload != nullptr)
+	if (!payload.empty())
 	{
-		const std::string extra = payload_of(*payload);
-		if (!extra.empty())
-		{
-			text += " " + extra;
-		}
+		text += " " + payload;
 	}
 	return text;
+}
+
+std::string SemaAnalyzer::spell(const char* what, ValueCategory category,
+                                TypeId type, const AstNode* payload) const
+{
+	return spell(what, category, type,
+	             payload == nullptr ? std::string() : payload_of(*payload));
+}
+
+void SemaAnalyzer::respell(const Value& value) const
+{
+	// The type the line carries is what the dump writes, which parts company
+	// with the type the operators see wherever a reference is visible in the
+	// result of an expression.
+	value.node->text =
+		spell(value.what, value.category, value.spelled, value.payload);
 }
 
 // 4.5: the type an integral operand is promoted to, which for a floating type
@@ -198,6 +210,12 @@ SemaAnalyzer::Value SemaAnalyzer::expression(const AstNode& node,
                                              const Context& ctx,
                                              DumpNode& parent)
 {
+	const ParseDepth::Frame frame(depth_);
+	if (frame.overflowed())
+	{
+		throw std::runtime_error("an expression nests deeper than the analysis "
+		                         "reads");
+	}
 	switch (node.kind)
 	{
 	case AstKind::ParenthesizedExpression:
@@ -279,9 +297,10 @@ SemaAnalyzer::Value SemaAnalyzer::named_value(const AstNode& node,
 		value.category = ValueCategory::PRValue;
 		value.constant = true;
 		value.value = entity.value;
+		value.what = "literal";
+		value.payload = spell_value(entity.type, entity.value);
 		value.node = &model_.open_node(
-			parent, spell("literal", value.category, value.type, nullptr) + " " +
-			spell_value(entity.type, entity.value));
+			parent, spell(value.what, value.category, value.type, value.payload));
 		return value;
 	}
 	if (entity.kind == SemaKind::Function)
@@ -324,10 +343,10 @@ SemaAnalyzer::Value SemaAnalyzer::named_value(const AstNode& node,
 		value.type = types_.target(value.type);
 	}
 	value.spelled = value.type;
-	value.payload = &node;
 	value.what = "id-expression";
+	value.payload = payload_of(node);
 	value.node = &model_.open_node(
-		parent, spell("id-expression", value.category, value.type, &node));
+		parent, spell(value.what, value.category, value.type, value.payload));
 	return value;
 }
 
@@ -344,16 +363,14 @@ void SemaAnalyzer::name_function(Value& value, SemaEntity& function,
 	// writes the one its declaration has.  The two part company wherever a
 	// lookup crossed a region - a using-directive, a template-id - and a
 	// declaration reached under one name is written under another.
-	const std::string named = std::string(" ") +
-		types_.description(function.type) + " " +
-		(value.name != nullptr ? payload_of(*value.name) : function.dump_name);
+	const std::string named =
+		value.name != nullptr ? payload_of(*value.name) : function.dump_name;
 	if (value.addressed != nullptr)
 	{
 		// 5.3.1p3 and 13.4: `&f` is a pointer to the declaration the target
 		// chose, and the name under it is that declaration.
-		value.addressed->text =
-			std::string("id-expression ") + category_name(ValueCategory::LValue) +
-			named;
+		value.addressed->text = spell("id-expression", ValueCategory::LValue,
+		                              function.type, named);
 		value.type = member_pointer_of(function);
 		if (value.type == kNoType)
 		{
@@ -361,10 +378,10 @@ void SemaAnalyzer::name_function(Value& value, SemaEntity& function,
 		}
 		value.spelled = value.type;
 		value.category = ValueCategory::PRValue;
+		value.what = "unary-expression";
 		if (value.node != nullptr)
 		{
-			value.node->text = spell("unary-expression", value.category,
-			                         value.type, value.payload);
+			respell(value);
 		}
 		return;
 	}
@@ -378,13 +395,15 @@ void SemaAnalyzer::name_function(Value& value, SemaEntity& function,
 	if (std::strcmp(what, "callee") == 0)
 	{
 		// The callee of a call is the one line that names a declaration before
-		// its type rather than after it.
+		// its type rather than after it, so it is the one line `spell` does not
+		// write and the one a conversion is never written around.
 		value.node->text =
 			"callee " + function.dump_name + " " + types_.description(function.type);
 		return;
 	}
-	value.node->text = std::string(what) +
-		" " + category_name(ValueCategory::LValue) + named;
+	value.what = what;
+	value.payload = named;
+	respell(value);
 }
 
 // 5.2.5p1: `E1.E2` and `E1->E2` name a member of the class of the object
@@ -470,8 +489,9 @@ SemaAnalyzer::Value SemaAnalyzer::member_value(SemaEntity& member,
 		? ValueCategory::LValue
 		: ValueCategory::XValue;
 	value.node = &node;
-	node.text = "member-expression " + std::string(category_name(value.category)) +
-		" " + types_.description(value.type) + " " + payload;
+	value.what = "member-expression";
+	value.payload = payload;
+	respell(value);
 	return value;
 }
 
@@ -500,9 +520,10 @@ SemaAnalyzer::Value SemaAnalyzer::implied_object(const SemaEntity& member,
 	object.type = storage.type;
 	object.spelled = object.type;
 	object.category = ValueCategory::LValue;
+	object.what = "id-expression";
+	object.payload = storage.name;
 	object.node = &model_.open_node(
-		line, "id-expression " + std::string(category_name(object.category)) +
-		" " + types_.description(object.type) + " " + storage.name);
+		line, spell(object.what, object.category, object.type, object.payload));
 	return object;
 }
 
@@ -519,10 +540,10 @@ SemaAnalyzer::Value SemaAnalyzer::this_value(DumpNode& parent)
 	value.type = self_->type;
 	value.spelled = value.type;
 	value.category = ValueCategory::PRValue;
+	value.what = "id-expression";
+	value.payload = std::string(ast_token_type_name(KW_THIS)) + ":this";
 	value.node = &model_.open_node(
-		parent, "id-expression " + std::string(category_name(value.category)) +
-		" " + types_.description(value.type) + " " +
-		ast_token_type_name(KW_THIS) + ":this");
+		parent, spell(value.what, value.category, value.type, value.payload));
 	return value;
 }
 
@@ -531,8 +552,8 @@ SemaAnalyzer::Value SemaAnalyzer::literal_expression(const AstNode& node,
 {
 	Value value;
 	value.category = ValueCategory::PRValue;
-	value.payload = &node;
 	value.what = "literal";
+	value.payload = payload_of(node);
 	const std::string& spelling = node.text;
 	if (node.kind == AstKind::KeywordLiteral)
 	{
@@ -554,7 +575,7 @@ SemaAnalyzer::Value SemaAnalyzer::literal_expression(const AstNode& node,
 		}
 		value.spelled = value.type;
 		value.node = &model_.open_node(
-			parent, spell("literal", value.category, value.type, &node));
+			parent, spell(value.what, value.category, value.type, value.payload));
 		return value;
 	}
 
@@ -576,7 +597,7 @@ SemaAnalyzer::Value SemaAnalyzer::literal_expression(const AstNode& node,
 		value.category = ValueCategory::LValue;
 		value.spelled = value.type;
 		value.node = &model_.open_node(
-			parent, spell("literal", value.category, value.type, &node));
+			parent, spell(value.what, value.category, value.type, value.payload));
 		return value;
 	}
 	if (first >= '0' && first <= '9')
@@ -607,7 +628,7 @@ SemaAnalyzer::Value SemaAnalyzer::literal_expression(const AstNode& node,
 		value.null_constant = value.value == 0;
 	}
 	value.node = &model_.open_node(
-		parent, spell("literal", value.category, value.type, &node));
+		parent, spell(value.what, value.category, value.type, value.payload));
 	return value;
 }
 
@@ -637,8 +658,9 @@ SemaAnalyzer::Value SemaAnalyzer::sizeof_expression(const AstNode& node,
 		require_complete_value(read);
 		value.value = size_of(read.type);
 	}
+	value.what = "sizeof-expression";
 	value.node = &model_.open_node(
-		parent, spell("sizeof-expression", value.category, result, nullptr));
+		parent, spell(value.what, value.category, result, value.payload));
 	return value;
 }
 
@@ -678,8 +700,21 @@ SemaAnalyzer::Value SemaAnalyzer::subscript_expression(const AstNode& node,
 	value.spelled = value.type;
 	value.category = ValueCategory::LValue;
 	value.node = &line;
-	line.text = spell("subscript-expression", value.category, value.type, nullptr);
+	value.what = "subscript-expression";
+	respell(value);
 	return value;
+}
+
+// The operand's line takes the place the cast's would have had, in the order
+// the parent already holds: 5.2.9p1 gives the two the same one node wherever
+// the cast converts nothing the output describes.
+void SemaAnalyzer::lift_operand(DumpNode& parent, DumpNode& line)
+{
+	parent.children.pop_back();
+	for (std::size_t index = 0; index < line.children.size(); ++index)
+	{
+		parent.children.push_back(line.children[index]);
+	}
 }
 
 SemaAnalyzer::Value SemaAnalyzer::cast_expression(const AstNode& node,
@@ -695,40 +730,10 @@ SemaAnalyzer::Value SemaAnalyzer::cast_expression(const AstNode& node,
 	DumpNode& line = model_.open_node(parent, std::string());
 	const AstNode& operand = *node.children[node.children.size() - 1];
 	Value source = expression(operand, ctx, line);
-
-	Value value;
-	value.type = target;
-	value.spelled = target;
-	value.category = ValueCategory::PRValue;
-	if (types_.is_reference(target))
-	{
-		// 5.2.9p1: a cast to an lvalue reference is an lvalue and one to an
-		// rvalue reference to an object type is an xvalue, and the operand
-		// itself is what the result names.
-		value.type = types_.target(target);
-		value.category = types_.kind(target) == TypeKind::LValueReference
-			? ValueCategory::LValue
-			: ValueCategory::XValue;
-		value.spelled = target;
-		if (source.node != nullptr && source.what != nullptr)
-		{
-			// 5.2.9p1: the cast names the same object, so the operand's own
-			// line is rewritten with what the cast made of it.
-			source.node->text =
-				spell(source.what, value.category, target, source.payload);
-		}
-		// The cast writes no node of its own: the operand's line already says
-		// what the cast made of it.
-		parent.children.pop_back();
-		for (std::size_t index = 0; index < line.children.size(); ++index)
-		{
-			parent.children.push_back(line.children[index]);
-		}
-		value.node = source.node;
-		return value;
-	}
 	if (source.type == kNoType && source.functions != nullptr)
 	{
+		// 13.4p1: a cast is one of the contexts whose target type chooses one
+		// declaration of an overloaded name, whether or not it is a reference.
 		SemaEntity* chosen = resolve_target(source, target);
 		if (chosen == nullptr)
 		{
@@ -737,21 +742,76 @@ SemaAnalyzer::Value SemaAnalyzer::cast_expression(const AstNode& node,
 		}
 		name_function(source, *chosen, "id-expression");
 	}
+
+	Value value;
+	value.type = target;
+	value.spelled = target;
+	value.category = ValueCategory::PRValue;
+	value.what = "cast-expression";
+	if (node.token != kNoAstToken)
+	{
+		value.payload = payload_of(node);
+	}
+	if (types_.is_reference(target))
+	{
+		// 5.2.9p1: a cast to an lvalue reference is an lvalue and one to an
+		// rvalue reference to an object type is an xvalue.
+		const TypeId referenced = types_.target(target);
+		value.type = referenced;
+		value.category = types_.kind(target) == TypeKind::LValueReference
+			? ValueCategory::LValue
+			: ValueCategory::XValue;
+		// 8.5.3p5: an lvalue reference that is not to a non-volatile const binds
+		// only an lvalue, and 5.4p4 offers a cast no reading that would bind one
+		// to a value naming no object.
+		const bool const_lvalue = (types_.cv(referenced) & kCvConst) != 0 &&
+			(types_.cv(referenced) & kCvVolatile) == 0;
+		if (types_.kind(target) == TypeKind::LValueReference && !const_lvalue &&
+		    source.category != ValueCategory::LValue)
+		{
+			throw std::runtime_error("a cast to a non-const lvalue reference is "
+			                         "written on an operand that names no object");
+		}
+		// 8.5.3p4: reference-related is the referenced type and the operand's
+		// being one type up to cv-qualification, and a related reference binds
+		// the value it was given rather than a conversion of it - which is what
+		// 5.4p4 leaves to const_cast where a static_cast would convert nothing.
+		// So the operand's own line is what says what the cast made of it, and
+		// the cast writes no node.
+		if (bare_type(source.type) == bare_type(referenced) &&
+		    source.node != nullptr && source.what != nullptr)
+		{
+			source.category = value.category;
+			source.type = referenced;
+			source.spelled = target;
+			respell(source);
+			lift_operand(parent, line);
+			return source;
+		}
+		// The operand is converted to the referenced type and the reference
+		// binds the temporary that holds it, which is a value of its own.  The
+		// node stands for that temporary rather than for the terminals the cast
+		// was written from, as the one an argument conversion writes does.
+		if (!match_by_value(source, referenced).viable)
+		{
+			throw std::runtime_error("a cast to a reference type binds neither "
+			                         "the operand nor a conversion of it");
+		}
+		value.payload.clear();
+		value.node = &line;
+		respell(value);
+		return value;
+	}
 	if (types_.kind(types_.strip_cv(target)) == TypeKind::MemberPointer &&
 	    source.type == types_.strip_cv(target))
 	{
 		// 5.2.9p2: a cast to the type the operand has converts nothing, and a
 		// pointer to member holds which member it names rather than an address,
 		// so there is nothing for the output to write around the operand.
-		parent.children.pop_back();
-		for (std::size_t index = 0; index < line.children.size(); ++index)
-		{
-			parent.children.push_back(line.children[index]);
-		}
+		lift_operand(parent, line);
 		return source;
 	}
-	line.text = spell("cast-expression", value.category, target,
-	                  node.token == kNoAstToken ? nullptr : &node);
+	line.text = spell(value.what, value.category, target, value.payload);
 	value.node = &line;
 	return value;
 }
@@ -790,9 +850,10 @@ bool SemaAnalyzer::builtin_call(const std::string& name, const AstNode& node,
 		out.spelled = out.type;
 		out.constant = true;
 		out.value = known ? 1 : 0;
+		out.what = "literal";
+		out.payload = decimal(out.value);
 		out.node = &model_.open_node(
-			parent, spell("literal", ValueCategory::PRValue, out.type, nullptr) +
-			" " + decimal(out.value));
+			parent, spell(out.what, ValueCategory::PRValue, out.type, out.payload));
 		return true;
 	}
 	if (name != "__builtin_abort")
@@ -804,8 +865,9 @@ bool SemaAnalyzer::builtin_call(const std::string& name, const AstNode& node,
 	out = Value();
 	out.type = types_.fundamental(FT_VOID);
 	out.spelled = out.type;
+	out.what = "call-expression";
 	out.node = &model_.open_node(
-		parent, spell("call-expression", ValueCategory::PRValue, out.type, nullptr));
+		parent, spell(out.what, ValueCategory::PRValue, out.type, out.payload));
 	model_.open_node(*out.node,
 	                 "callee __builtin_abort " + types_.description(type));
 	return true;
@@ -836,36 +898,22 @@ TypeId SemaAnalyzer::arithmetic_result(TypeId left, TypeId right)
 // 5.3.1p3: a pointer to a data member is formed only where `&` is written on a
 // qualified-id, which names the member of its class rather than a member of any
 // object - so the operand is not read as the access a name of it stands for.
-// Anything else `&` is written on names an object or a function.
 SemaAnalyzer::Value SemaAnalyzer::member_address(const AstNode& node,
-                                                 const Context& ctx,
+                                                 const SemaEntity& entity,
                                                  DumpNode& parent)
 {
 	Value value;
-	const AstNode& written = *node.children[0];
-	if (written.kind != AstKind::IdExpression ||
-	    !QualifiedName(written.text).qualified())
-	{
-		return value;
-	}
-	SemaEntity* const entity = resolve(written.text, ctx, LookupKind::Any);
-	if (entity == nullptr || entity->kind != SemaKind::Variable ||
-	    !entity->object_member || entity->region->owner == nullptr)
-	{
-		// A qualified name of anything else - a static member, a variable of a
-		// namespace, a function - is the operand `&` reads it as.
-		return value;
-	}
 	DumpNode& line = model_.open_node(parent, std::string());
-	model_.open_node(line, "id-expression " +
-	                 std::string(category_name(ValueCategory::LValue)) + " " +
-	                 types_.description(entity->type) + " " + entity->dump_name);
-	value.type = types_.member_pointer_to(entity->region->owner->type,
-	                                      entity->type);
+	model_.open_node(line, spell("id-expression", ValueCategory::LValue,
+	                             entity.type, entity.dump_name));
+	value.type = types_.member_pointer_to(entity.region->owner->type,
+	                                      entity.type);
 	value.spelled = value.type;
 	value.category = ValueCategory::PRValue;
 	value.node = &line;
-	line.text = spell("unary-expression", value.category, value.type, &node);
+	value.what = "unary-expression";
+	value.payload = payload_of(node);
+	respell(value);
 	return value;
 }
 
@@ -873,16 +921,29 @@ SemaAnalyzer::Value SemaAnalyzer::unary_expression(const AstNode& node,
                                                    const Context& ctx,
                                                    DumpNode& parent)
 {
-	if (node.token == OP_AMP)
+	const AstNode& written = *node.children[0];
+	// 5.3.1p3: whether `&` was written on a qualified-id that names a member of
+	// a class is the one question that decides how its operand is read, so the
+	// one lookup it takes is spent here and its answer handed on rather than
+	// asked for again below.  A name `resolve` reaches nothing for is a
+	// template-id, which the expression layer answers.
+	SemaEntity* named = nullptr;
+	if (node.token == OP_AMP && written.kind == AstKind::IdExpression &&
+	    QualifiedName(written.text).qualified())
 	{
-		const Value member = member_address(node, ctx, parent);
-		if (member.type != kNoType)
+		named = resolve(written.text, ctx, LookupKind::Any);
+		if (named != nullptr && named->kind == SemaKind::Variable &&
+		    named->object_member && named->region->owner != nullptr)
 		{
-			return member;
+			return member_address(node, *named, parent);
 		}
 	}
 	DumpNode& line = model_.open_node(parent, std::string());
-	const Value operand = expression(*node.children[0], ctx, line);
+	// A qualified name of anything else - a static member, a variable of a
+	// namespace, a function - is the operand `&` reads it as.
+	const Value operand = named != nullptr
+		? named_value(written, *named, line)
+		: expression(written, ctx, line);
 	Value value;
 	value.category = ValueCategory::PRValue;
 
@@ -897,7 +958,7 @@ SemaAnalyzer::Value SemaAnalyzer::unary_expression(const AstNode& node,
 			value = operand;
 			value.node = &line;
 			value.addressed = operand.node;
-			value.payload = &node;
+			value.payload = payload_of(node);
 			return value;
 		}
 		// 5.3.1p3: the result is a pointer to the object or function the
@@ -974,7 +1035,9 @@ SemaAnalyzer::Value SemaAnalyzer::unary_expression(const AstNode& node,
 
 	value.spelled = value.type;
 	value.node = &line;
-	line.text = spell("unary-expression", value.category, value.type, &node);
+	value.what = "unary-expression";
+	value.payload = payload_of(node);
+	respell(value);
 	return value;
 }
 
@@ -1011,8 +1074,9 @@ SemaAnalyzer::Value SemaAnalyzer::increment_expression(const AstNode& node,
 	value.spelled = value.type;
 	value.category = postfix ? ValueCategory::PRValue : ValueCategory::LValue;
 	value.node = &line;
-	line.text = spell(postfix ? "postfix-expression" : "unary-expression",
-	                  value.category, value.type, &node);
+	value.what = postfix ? "postfix-expression" : "unary-expression";
+	value.payload = payload_of(node);
+	respell(value);
 	return value;
 }
 
@@ -1095,7 +1159,9 @@ SemaAnalyzer::Value SemaAnalyzer::binary_expression(const AstNode& node,
 		value.spelled = value.type;
 	}
 	value.node = &line;
-	line.text = spell("binary-expression", value.category, value.spelled, &node);
+	value.what = "binary-expression";
+	value.payload = payload_of(node);
+	respell(value);
 	return value;
 }
 
@@ -1273,7 +1339,9 @@ SemaAnalyzer::Value SemaAnalyzer::assignment_expression(const AstNode& node,
 	value.spelled = value.type;
 	value.category = ValueCategory::LValue;
 	value.node = &line;
-	line.text = spell("assignment-expression", value.category, value.type, &node);
+	value.what = "assignment-expression";
+	value.payload = payload_of(node);
+	respell(value);
 	return value;
 }
 
@@ -1345,7 +1413,7 @@ SemaAnalyzer::Value SemaAnalyzer::conditional_expression(const AstNode& node,
 	}
 	value.spelled = value.type;
 	value.node = &line;
-	line.text = spell("conditional-expression", value.category, value.type,
-	                  nullptr);
+	value.what = "conditional-expression";
+	respell(value);
 	return value;
 }

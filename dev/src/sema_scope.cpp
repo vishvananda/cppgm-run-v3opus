@@ -542,25 +542,52 @@ SemaEntity* SemaModel::lookup_in(Scope& in, const std::string& name,
 	return search_declarers(in, name, filter, *regions);
 }
 
-void write_dump(std::ostream& out, const DumpScope& scope, unsigned depth)
+namespace
 {
-	const std::string indent(depth * 2, ' ');
+
+// The indent, carried down the walk rather than built per line.
+//
+// The dump writes one line per node and the depth changes by two spaces at a
+// time, so one string that grows and shrinks with the descent costs each line
+// the two characters it added.  Building it from the depth instead costs each
+// line the whole indent again, which for a tree as deep as it is wide is the
+// output written twice.
+void write_dump_at(std::ostream& out, const DumpScope& scope, std::string& indent)
+{
 	out << indent << scope.header << '\n';
+	indent.append(2, ' ');
 	for (std::size_t index = 0; index < scope.lines.size(); ++index)
 	{
-		out << indent << "  " << scope.lines[index] << '\n';
+		out << indent << scope.lines[index] << '\n';
 	}
 	for (std::size_t index = 0; index < scope.children.size(); ++index)
 	{
-		write_dump(out, *scope.children[index], depth + 1);
+		write_dump_at(out, *scope.children[index], indent);
 	}
+	indent.resize(indent.size() - 2);
+}
+
+void write_nodes_at(std::ostream& out, const DumpNode& node, std::string& indent)
+{
+	out << indent << node.text << '\n';
+	indent.append(2, ' ');
+	for (std::size_t index = 0; index < node.children.size(); ++index)
+	{
+		write_nodes_at(out, *node.children[index], indent);
+	}
+	indent.resize(indent.size() - 2);
+}
+
+}
+
+void write_dump(std::ostream& out, const DumpScope& scope, unsigned depth)
+{
+	std::string indent(depth * 2, ' ');
+	write_dump_at(out, scope, indent);
 }
 
 void write_nodes(std::ostream& out, const DumpNode& node, unsigned depth)
 {
-	out << std::string(depth * 2, ' ') << node.text << '\n';
-	for (std::size_t index = 0; index < node.children.size(); ++index)
-	{
-		write_nodes(out, *node.children[index], depth + 1);
-	}
+	std::string indent(depth * 2, ' ');
+	write_nodes_at(out, node, indent);
 }

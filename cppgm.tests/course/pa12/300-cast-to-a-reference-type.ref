@@ -1,0 +1,73 @@
+1 translation units
+start translation unit 1
+translation-unit
+  variable values array of 4 int
+  variable pointer pointer to int
+    id-expression lvalue array of 4 int values
+  variable wide long int
+  variable one int
+    literal prvalue int 1
+  variable two int
+    literal prvalue int 2
+  function-definition use function of () returning void
+    compound-statement
+      simple-declaration
+        variable related_subscript lvalue-reference to int
+          subscript-expression lvalue lvalue-reference to int
+            id-expression lvalue array of 4 int values
+            literal prvalue int 1
+      simple-declaration
+        variable related_indirection lvalue-reference to int
+          unary-expression lvalue lvalue-reference to int OP_STAR:*
+            id-expression lvalue pointer to int pointer
+      simple-declaration
+        variable related_sum lvalue-reference to const int
+          binary-expression lvalue lvalue-reference to const int OP_PLUS:+
+            id-expression lvalue int one
+            id-expression lvalue int two
+      simple-declaration
+        variable related_assignment lvalue-reference to int
+          assignment-expression lvalue lvalue-reference to int OP_ASS:=
+            id-expression lvalue int one
+            id-expression lvalue int two
+      simple-declaration
+        variable related_condition lvalue-reference to const int
+          conditional-expression lvalue lvalue-reference to const int
+            binary-expression prvalue bool OP_GT:>
+              id-expression lvalue int one
+              id-expression lvalue int two
+            id-expression lvalue int one
+            id-expression lvalue int two
+      simple-declaration
+        variable related_cast lvalue-reference to const int
+          cast-expression lvalue lvalue-reference to const int OP_LPAREN:
+            id-expression lvalue int one
+      simple-declaration
+        variable converted_object lvalue-reference to const int
+          cast-expression lvalue lvalue-reference to const int
+            id-expression lvalue long int wide
+      simple-declaration
+        variable converted_value lvalue-reference to const int
+          cast-expression lvalue lvalue-reference to const int
+            sizeof-expression prvalue unsigned long int
+      expression-statement
+        binary-expression lvalue int OP_COMMA:,
+          binary-expression lvalue const int OP_COMMA:,
+            binary-expression lvalue int OP_COMMA:,
+              binary-expression lvalue int OP_COMMA:,
+                literal prvalue int 0
+                id-expression lvalue int related_subscript
+              id-expression lvalue int related_indirection
+            id-expression lvalue const int related_sum
+          id-expression lvalue int related_assignment
+      expression-statement
+        binary-expression lvalue const int OP_COMMA:,
+          binary-expression lvalue const int OP_COMMA:,
+            binary-expression lvalue const int OP_COMMA:,
+              binary-expression lvalue const int OP_COMMA:,
+                literal prvalue int 0
+                id-expression lvalue const int related_condition
+              id-expression lvalue const int related_cast
+            id-expression lvalue const int converted_object
+          id-expression lvalue const int converted_value
+end translation unit

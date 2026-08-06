@@ -8,6 +8,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "parse_depth.h"
 #include "sema_name.h"
 #include "sema_scope.h"
 #include "type_model.h"
@@ -121,11 +122,14 @@ private:
 		// through a using-directive stays as it stands and a template-id keeps
 		// the arguments it wrote.
 		const AstNode* name;
-		// What the dump writes after the type, and the node kind it writes
-		// before it, so that a cast to a reference can spell the operand's own
-		// line again with the category the cast gave it.
-		const AstNode* payload;
+		// The line this value wrote, as the two parts of it that are not the
+		// category and the type: the node kind the format writes before them,
+		// and the payload it writes after.  Holding them is what lets a
+		// conversion that changes what the value denotes - a cast to a
+		// reference, a null pointer constant - spell that one line again in the
+		// place it stands, rather than the output being built in a second pass.
 		const char* what;
+		std::string payload;
 		// 4.10p1: an integral constant expression prvalue that evaluates to
 		// zero, which is the only integral operand a pointer accepts.
 		bool null_constant;
@@ -405,9 +409,9 @@ private:
 	                   const std::string& payload, DumpNode& node);
 	// The object a member named with no object expression is a member of.
 	Value implied_object(const SemaEntity& member, DumpNode& line);
-	// 5.3.1p3: `&C::x`, which names a member of a class rather than of an
-	// object.  A value of no type where `&` was written on anything else.
-	Value member_address(const AstNode& node, const Context& ctx,
+	// 5.3.1p3: `&C::x`, where `entity` is the member of a class the qualified-id
+	// named, which the caller resolved to learn that it is one.
+	Value member_address(const AstNode& node, const SemaEntity& entity,
 	                     DumpNode& parent);
 	// 5.1.1p3: the object the member function being read was called on.
 	Value this_value(DumpNode& parent);
@@ -440,6 +444,9 @@ private:
 	static unsigned compound_operator(unsigned op);
 	Value cast_expression(const AstNode& node, const Context& ctx,
 	                      DumpNode& parent);
+	// Puts what `line` holds in the place `line` itself has under `parent`, for
+	// the casts 5.2.9 gives the operand's own line to.
+	static void lift_operand(DumpNode& parent, DumpNode& line);
 	Value sizeof_expression(const AstNode& node, const Context& ctx,
 	                        DumpNode& parent);
 	// 5.19 and the course builtins: a call the translation answers itself.
@@ -532,8 +539,17 @@ private:
 	TypeId composite_pointer(const Value& left, const Value& right);
 
 	// The dump.
+	//
+	// One line of a resolved expression: the node kind, what the expression
+	// denotes, its type, and the payload the format writes after it.  Every
+	// line of the PA12 expression output is spelled here, so a conversion that
+	// rewrites one writes the same shape the operand wrote.
+	std::string spell(const char* what, ValueCategory category, TypeId type,
+	                  const std::string& payload) const;
 	std::string spell(const char* what, ValueCategory category, TypeId type,
 	                  const AstNode* payload) const;
+	// Spells `value`'s line again, from the category and type it now has.
+	void respell(const Value& value) const;
 	static std::string payload_of(const AstNode& node);
 	static const char* category_name(ValueCategory category);
 	// The name the PA12 dump gives a declaration of `scope`.
@@ -571,4 +587,13 @@ private:
 	unsigned switches_;
 	// 6.6.3: the return type of the function whose body is being read.
 	TypeId returns_;
+	// How deep the walk of one expression is.
+	//
+	// 5.6 makes `a + b + c + ...` a tree as deep as it is long while nesting no
+	// rule, so the PA10 parse guard does not bound it: a file that writes a long
+	// enough chain asks this walk for a machine stack as deep as the file is.
+	// The same counter bounds it here, and a file that goes deeper is refused
+	// rather than overrunning the stack.  Every other shape the walk recurses on
+	// nests the parse as well, and so is already bounded where it is read.
+	ParseDepth depth_;
 };

@@ -513,11 +513,14 @@ void SemaAnalyzer::apply_conversion(Value& value, TypeId target,
 		// The operand's line moves under the cast that converted it, in the
 		// place the operand already had: an argument is written where the call
 		// passes it however many of the arguments beside it convert.
-		model_.wrap_node(*value.node,
-		                 spell("cast-expression", ValueCategory::PRValue,
-		                       match.materialized, nullptr));
 		value.type = match.materialized;
 		value.spelled = match.materialized;
+		value.category = ValueCategory::PRValue;
+		value.what = "cast-expression";
+		value.payload.clear();
+		model_.wrap_node(*value.node,
+		                 spell(value.what, value.category, value.spelled,
+		                       value.payload));
 		return;
 	}
 	const TypeId wanted = types_.is_reference(target)
@@ -529,10 +532,14 @@ void SemaAnalyzer::apply_conversion(Value& value, TypeId target,
 	if (value.null_constant && wants_pointer && value.node != nullptr &&
 	    value.type != wanted)
 	{
-		value.node->text = spell("literal", ValueCategory::PRValue, wanted,
-		                         nullptr) + " 0";
+		// 4.10p1: the constant is written as the pointer it stands for, and the
+		// value it stands for is the only one it can be.
 		value.type = wanted;
 		value.spelled = wanted;
+		value.category = ValueCategory::PRValue;
+		value.what = "literal";
+		value.payload = "0";
+		respell(value);
 	}
 }
 
@@ -676,7 +683,8 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
 		value.category = ValueCategory::XValue;
 	}
 	value.node = &line;
-	line.text = spell("call-expression", value.category, result, nullptr);
+	value.what = "call-expression";
+	respell(value);
 	return value;
 }
 
@@ -696,8 +704,10 @@ SemaAnalyzer::Value SemaAnalyzer::functional_cast(const AstNode& node,
 		// 5.2.3p2: `T()` is a prvalue of type T that is value-initialized,
 		// which for the PA12 subset is the zero of that type.
 		value.constant = true;
+		value.what = "literal";
+		value.payload = "0";
 		value.node = &model_.open_node(
-			parent, spell("literal", value.category, target, nullptr) + " 0");
+			parent, spell(value.what, value.category, target, value.payload));
 		return value;
 	}
 	if (count != 1)
@@ -717,7 +727,8 @@ SemaAnalyzer::Value SemaAnalyzer::functional_cast(const AstNode& node,
 		}
 		name_function(source, *chosen, "id-expression");
 	}
-	line.text = spell("cast-expression", value.category, target, nullptr);
+	value.what = "cast-expression";
 	value.node = &line;
+	respell(value);
 	return value;
 }
