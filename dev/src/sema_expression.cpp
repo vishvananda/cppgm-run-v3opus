@@ -995,6 +995,15 @@ SemaAnalyzer::Value SemaAnalyzer::sizeof_expression(const AstNode& node,
 		DumpNode scratch;
 		const Value read = expression(operand, ctx, scratch);
 		require_complete_value(read);
+		if (read.node != nullptr && read.node->fact.kind == FactKind::Member &&
+		    read.node->fact.entity != nullptr &&
+		    read.node->fact.entity->bit_field)
+		{
+			// 5.3.3p1: the operand shall not name a bit-field, which occupies
+			// bits rather than the storage a number of bytes would describe.
+			throw std::runtime_error("sizeof is applied to a bit-field, whose "
+			                         "storage 5.3.3p1 does not measure");
+		}
 		value.value = size_of(read.type);
 	}
 	value.what = "sizeof-expression";

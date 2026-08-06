@@ -179,8 +179,26 @@ struct SemaEntity
 	// 9.2p13: where in its class an object of this non-static data member
 	// begins, in bytes.  Layout is settled once, where 9.2p2 completes the
 	// class, so every later use of the member is one read rather than a walk
-	// of the members declared before it.
+	// of the members declared before it.  9.6p2 gives a bit-field no address of
+	// its own, so for one this is where the storage unit holding it begins.
 	unsigned long long offset;
+	// 9.6p1: whether the declaration wrote a width, which makes the member a
+	// run of bits inside a storage unit rather than an object with an address.
+	// The three facts below say nothing about a member no width was written
+	// for, which every other data member is.
+	bool bit_field;
+	// 9.6p1: the width in bits the declaration wrote.  Zero is the unnamed
+	// separator, which allocates nothing and only moves the cursor on.
+	unsigned bit_width;
+	// 9.6p2: where the field's bits begin inside the storage unit `offset`
+	// names.  Layout guarantees the field does not leave that unit, so a read
+	// or a write is one load, one shift and one mask.
+	unsigned bit_offset;
+	// 4.5p3: the type a value read out of the field is promoted to, which is
+	// `int` wherever `int` represents every value the width allows.  It is the
+	// type the storage unit is loaded and masked with, and it is settled here
+	// because only the declaration knows the width.
+	TypeId bit_access;
 	// 7.1.2p2: whether the definition of this function may appear in more than
 	// one translation unit, which 9.3p2 also gives a member function defined in
 	// its class body and 12.1p5 an implicitly declared constructor.  It is what

@@ -55,6 +55,23 @@ const DumpNode* only_child(const DumpNode& node)
 // with a bound the source only wrote a number for.
 const unsigned long long kZeroSpanLimit = 64;
 
+// 9.6p2: the bits of a storage unit the field owns, at the bottom of the unit.
+// A width of 64 is written out rather than shifted, because a shift by the
+// width of the value it shifts is not one.
+unsigned long long field_mask(const SemaEntity& field)
+{
+	return field.bit_width >= 64 ? ~0ull : ((1ull << field.bit_width) - 1);
+}
+
+// The mask a read or a write of the field's own bits is made with, and the mask
+// the bits it leaves alone are kept by, each at the width of the type the unit
+// is accessed at.  Both are spelled unsigned however that type is signed,
+// because a mask is a pattern of bits and not a number.
+std::string mask_bits(unsigned long long bits, unsigned long long size)
+{
+	return decimal(size >= 8 ? bits : (bits & ((1ull << (8 * size)) - 1)));
+}
+
 }  // namespace
 
 LowirFunctionLowering::LowirFunctionLowering(LowirUnitLowering& unit,
@@ -280,6 +297,10 @@ Operand LowirFunctionLowering::rvalue(const LowValue& value)
 	{
 		return value.operand;
 	}
+	if (value.field != nullptr)
+	{
+		return read_bit_field(value);
+	}
 	TypeTable& types = unit_.types();
 	const TypeId bare = types.strip_cv(value.type);
 	if (types.kind(bare) == TypeKind::Array ||
@@ -290,6 +311,174 @@ Operand LowirFunctionLowering::rvalue(const LowValue& value)
 	return load(value.operand, value.type);
 }
 
+// 9.6p2 and 4.5p3: the value a bit-field holds.  The unit it sits in is read at
+// the type 4.5p3 promotes the field to, the field's own bits are brought down
+// to the bottom of it, and everything above the width the declaration wrote is
+// masked away.  What the value is worth keeps the type the member was declared
+// with, so a conversion above this one is the one that type asks for.
+Operand LowirFunctionLowering::read_bit_field(const LowValue& value)
+{
+	const SemaEntity& field = *value.field;
+	const TypeId access = field.bit_access;
+	Operand held = load(value.operand, access);
+	if (field.bit_offset != 0)
+	{
+		Instruction down;
+		down.kind = Instruction::IK_BINARY;
+		down.op = "shr";
+		down.type = unit_.low_type(access);
+		down.first = held;
+		down.second =
+			named_operand(Operand::OP_INTEGER, decimal(field.bit_offset));
+		held = emit(down);
+	}
+	Instruction keep;
+	keep.kind = Instruction::IK_BINARY;
+	keep.op = "and";
+	keep.type = unit_.low_type(access);
+	keep.first = held;
+	keep.second = named_operand(
+		Operand::OP_INTEGER,
+		mask_bits(field_mask(field), unit_.width(access)));
+	return emit(keep);
+}
+
+// 9.6p2: the value `held` masked to the width the field was declared with and
+// moved up to where the field's bits sit in its storage unit, which is what
+// both a write and an initialization put into the unit.  8.5.1's write spells
+// the mask before the value and 5.17's the value before the mask, which is the
+// one difference between the two shapes the references write.
+Operand LowirFunctionLowering::placed_bits(const SemaEntity& field,
+                                           const Operand& held, TypeId type,
+                                           bool initializer)
+{
+	Instruction keep;
+	keep.kind = Instruction::IK_BINARY;
+	keep.op = "and";
+	keep.type = unit_.low_type(type);
+	const Operand mask = named_operand(
+		Operand::OP_INTEGER, mask_bits(field_mask(field), unit_.width(type)));
+	keep.first = initializer ? mask : held;
+	keep.second = initializer ? held : mask;
+	Operand bits = emit(keep);
+	if (field.bit_offset == 0)
+	{
+		return bits;
+	}
+	Instruction up;
+	up.kind = Instruction::IK_BINARY;
+	up.op = "shl";
+	up.type = unit_.low_type(type);
+	up.first = bits;
+	up.second = named_operand(Operand::OP_INTEGER, decimal(field.bit_offset));
+	return emit(up);
+}
+
+// 8.5p7 and 9.6p2: whether the bytes [first, last) of the object being
+// initialized are still the initialization's to give zero to.  An
+// initialization writes the subobjects in the order 9.2p13 laid them out, so
+// what it has already written is everything below one byte, and a bit-field
+// whose storage unit starts at or after that byte owns every bit of the unit -
+// the ones no field of it was given among them.
+bool LowirFunctionLowering::claims_storage(unsigned long long first,
+                                           unsigned long long last)
+{
+	if (written_through_.empty())
+	{
+		written_through_.push_back(0);
+	}
+	const bool owns = first >= written_through_.back();
+	if (last > written_through_.back())
+	{
+		written_through_.back() = last;
+	}
+	return owns;
+}
+
+unsigned long long LowirFunctionLowering::subobject_offset(
+	const std::vector<const DumpNode*>& path) const
+{
+	TypeTable& types = unit_.types();
+	unsigned long long at = 0;
+	for (std::size_t index = 0; index < path.size(); ++index)
+	{
+		const DumpNode& step = *path[index];
+		at += step.fact.entity != nullptr
+			? step.fact.entity->offset
+			: step.fact.value * types.object_size(step.fact.type);
+	}
+	return at;
+}
+
+// 8.5.1 and 12.6.2: `held` written into a bit-field of the object being
+// initialized.  The place is named from the object again for the load and for
+// the store, because that is the one description of where the field is that
+// does not depend on what is being put in it - and it is what the references
+// write.
+void LowirFunctionLowering::initialize_bit_field(
+	const SemaEntity& field, const LowObject& object,
+	const std::vector<const DumpNode*>& path, unsigned long long unit,
+	const Operand& held, TypeId type)
+{
+	TypeTable& types = unit_.types();
+	if (claims_storage(unit, unit + types.object_size(types.strip_cv(type))))
+	{
+		// 8.5p6: every bit of the unit is being initialized here, so the bits
+		// beside the field's take the zero the initialization gives them.
+		const Operand bits = placed_bits(field, held, type, true);
+		store(bits, subobject_address(object, path), type);
+		return;
+	}
+	const Operand at = subobject_address(object, path);
+	Instruction keep;
+	keep.kind = Instruction::IK_BINARY;
+	keep.op = "and";
+	keep.type = unit_.low_type(type);
+	keep.first = load(at, type);
+	keep.second = named_operand(
+		Operand::OP_INTEGER,
+		mask_bits(~(field_mask(field) << field.bit_offset),
+		          unit_.width(type)));
+	const Operand kept = emit(keep);
+	const Operand bits = placed_bits(field, held, type, true);
+	Instruction join;
+	join.kind = Instruction::IK_BINARY;
+	join.op = "or";
+	join.type = unit_.low_type(type);
+	join.first = kept;
+	join.second = bits;
+	// The unit is joined before it is named again, because the value is what
+	// the initialization computes and the place is where it then goes.
+	const Operand whole = emit(join);
+	store(whole, subobject_address(object, path), type);
+}
+
+// 5.17 and 5.3.2: `held` written into the field an lvalue names, whose unit the
+// caller already holds.  9.6p2 leaves the bits beside the field alone, which is
+// what the read-modify-write is for.
+void LowirFunctionLowering::assign_bit_field(const LowValue& target,
+                                             const Operand& held, TypeId type)
+{
+	const SemaEntity& field = *target.field;
+	const Operand bits = placed_bits(field, held, type, false);
+	Instruction keep;
+	keep.kind = Instruction::IK_BINARY;
+	keep.op = "and";
+	keep.type = unit_.low_type(type);
+	keep.first = load(target.operand, type);
+	keep.second = named_operand(
+		Operand::OP_INTEGER,
+		mask_bits(~(field_mask(field) << field.bit_offset),
+		          unit_.width(type)));
+	Instruction join;
+	join.kind = Instruction::IK_BINARY;
+	join.op = "or";
+	join.type = unit_.low_type(type);
+	join.first = emit(keep);
+	join.second = bits;
+	store(emit(join), target.operand, type);
+}
+
 LowValue LowirFunctionLowering::as_value(const LowValue& value)
 {
 	TypeTable& types = unit_.types();
@@ -297,6 +486,9 @@ LowValue LowirFunctionLowering::as_value(const LowValue& value)
 	LowValue out = value;
 	out.lvalue = false;
 	out.has_held = false;
+	// 4.1: what the field held is a value now, and a value is not in any
+	// storage unit, so nothing below reads it as a run of bits again.
+	out.field = nullptr;
 	if (types.kind(bare) == TypeKind::Array)
 	{
 		out.operand = decay(value);
@@ -316,6 +508,14 @@ LowValue LowirFunctionLowering::as_value(const LowValue& value)
 
 Operand LowirFunctionLowering::address_of(const LowValue& value)
 {
+	if (value.field != nullptr)
+	{
+		// 5.3.1p3 and 9.6p3: a bit-field has no address of its own, so there is
+		// nothing for the built-in `&` to produce and nothing for a reference
+		// or a pointer to be bound to.
+		throw std::runtime_error("the address of a bit-field is taken, which "
+		                         "9.6p3 gives no address to");
+	}
 	if (value.operand.kind == Operand::OP_TEMP)
 	{
 		return value.operand;
@@ -761,6 +961,14 @@ void LowirFunctionLowering::member_initialization(const DumpNode& node)
 	{
 		return;
 	}
+	if (!member.bit_field)
+	{
+		// 12.6.2p10 initializes the members in the order 9.2p13 laid them out,
+		// so the storage this one takes is no longer a later bit-field's to
+		// give zero to along with its own bits.
+		claims_storage(member.offset,
+		               member.offset + types.object_size(types.strip_cv(type)));
+	}
 	const DumpNode& written = *node.children[1];
 	if (types.is_reference(type))
 	{
@@ -789,6 +997,17 @@ void LowirFunctionLowering::member_initialization(const DumpNode& node)
 	}
 	const LowValue value = expression(written);
 	const Operand held = converted(value, type);
+	if (member.bit_field)
+	{
+		// 9.6p2: the member is a run of bits inside a unit the class also gave
+		// to the members beside it, so the value goes in where those are.
+		LowObject into;
+		into.written = node.children[0];
+		into.member = &member;
+		const std::vector<const DumpNode*> path;
+		initialize_bit_field(member, into, path, member.offset, held, type);
+		return;
+	}
 	const Operand storage = member_storage(*node.children[0], member);
 	store(held, storage, type);
 }
@@ -1613,6 +1832,14 @@ LowValue LowirFunctionLowering::member_expression(const DumpNode& node)
 	value.lvalue = true;
 	value.named = true;
 	value.operand = member_storage(*node.children[0], member);
+	if (member.bit_field)
+	{
+		// 9.6p2: the member names a run of bits inside the unit just addressed,
+		// so what the lvalue is worth and what a write puts back are the field's
+		// own question rather than the unit's.
+		value.field = &member;
+		return value;
+	}
 	if (types.is_reference(member.type))
 	{
 		// 8.3.2p5: a member of reference type names what it is bound to, so the
@@ -1854,7 +2081,11 @@ LowValue LowirFunctionLowering::increment_expression(const DumpNode& node,
 {
 	TypeTable& types = unit_.types();
 	const LowValue operand = expression(*node.children[0], true);
-	const TypeId bare = types.strip_cv(operand.type);
+	// 5.3.2p1 and 4.5p3: `++x` adds one to the value the operand holds, which
+	// for a bit-field is a value of the type its width promotes it to.
+	const TypeId bare = operand.field != nullptr
+		? operand.field->bit_access
+		: types.strip_cv(operand.type);
 	const Operand before = rvalue(operand);
 	Operand after;
 	if (types.is_object_pointer(bare))
@@ -1878,6 +2109,28 @@ LowValue LowirFunctionLowering::increment_expression(const DumpNode& node,
 		instruction.first = before;
 		instruction.second = literal_operand(bare, 1);
 		after = emit(instruction);
+	}
+	if (operand.field != nullptr)
+	{
+		// 5.2.6p1 and 5.3.2p1: what the operand named is where the new value
+		// goes.  A postfix `++` has already produced its own value and writes
+		// back into the storage it read; a prefix one is the object itself, so
+		// the object is named again for the write, which is what the
+		// references write.
+		if (postfix)
+		{
+			assign_bit_field(operand, after, bare);
+			LowValue held;
+			held.type = bare;
+			held.operand = before;
+			return held;
+		}
+		const LowValue again = expression(*node.children[0], true);
+		assign_bit_field(again, after, bare);
+		LowValue value = again;
+		value.has_held = true;
+		value.held = after;
+		return value;
 	}
 	store(after, operand.operand, bare);
 	LowValue value;
@@ -2150,6 +2403,16 @@ LowValue LowirFunctionLowering::assignment_expression(const DumpNode& node)
 		const LowValue target = expression(*node.children[0], true);
 		const TypeId written_type = types.strip_cv(target.type);
 		const Operand written = converted(right, written_type);
+		if (target.field != nullptr)
+		{
+			// 9.6p2: the object written into is a run of bits, and the bits
+			// beside it in its storage unit are not this assignment's to change.
+			assign_bit_field(target, written, written_type);
+			LowValue assigned = target;
+			assigned.has_held = true;
+			assigned.held = written;
+			return assigned;
+		}
 		store(written, target.operand, written_type);
 		LowValue assigned = target;
 		assigned.has_held = true;
@@ -2157,7 +2420,11 @@ LowValue LowirFunctionLowering::assignment_expression(const DumpNode& node)
 		return assigned;
 	}
 	const LowValue left = expression(*node.children[0], true);
-	const TypeId bare = types.strip_cv(left.type);
+	// 5.17p7 and 4.5p3: the operator acts on the value the left operand holds,
+	// which for a bit-field is a value of the type its width promotes it to.
+	const TypeId bare = left.field != nullptr
+		? left.field->bit_access
+		: types.strip_cv(left.type);
 	LowValue value = left;
 	value.has_held = true;
 	// 5.17p7: a compound assignment is the operator it names followed by an
@@ -2176,6 +2443,12 @@ LowValue LowirFunctionLowering::assignment_expression(const DumpNode& node)
 			types.is_object_pointer(bare)
 		? result
 		: convert_scalar(result, common, bare);
+	if (left.field != nullptr)
+	{
+		assign_bit_field(left, written, bare);
+		value.held = written;
+		return value;
+	}
 	store(written, left.operand, bare);
 	value.held = written;
 	return value;
@@ -2359,11 +2632,17 @@ void LowirFunctionLowering::initialize_aggregate(const LowObject& object,
 	// initialization: the address of a subobject is what its own path through
 	// the object says it is, and building each from the object keeps the
 	// description of one subobject independent of the ones written before it.
+	//
+	// 8.5p7: this is one initialization of one object, so what it has written
+	// is counted from that object; an element of an array and a member with a
+	// constructor each get here again and count from their own.
+	written_through_.push_back(0);
 	std::vector<const DumpNode*> path;
 	for (std::size_t index = 0; index < node.children.size(); ++index)
 	{
 		initialize_subobject(object, *node.children[index], path);
 	}
+	written_through_.pop_back();
 }
 
 // The place a store names, which for a slot or a global is the place itself:
@@ -2441,6 +2720,35 @@ void LowirFunctionLowering::initialize_subobject(
 		path.pop_back();
 		return;
 	}
+	if (node.fact.entity != nullptr && node.fact.entity->bit_field)
+	{
+		// 9.6p2: the clause reached a run of bits inside a unit the class also
+		// gave to the members beside it, so the value goes in where those are
+		// and the place is named after it rather than before.
+		const SemaEntity& field = *node.fact.entity;
+		const unsigned long long unit = subobject_offset(path);
+		Operand held;
+		if (node.children.empty())
+		{
+			// 8.5p7: a member no clause reached is value-initialized, which for
+			// a bit-field is the zero of the type it was declared with.
+			held = literal_operand(node.fact.type, 0);
+		}
+		else
+		{
+			const LowValue value = expression(*node.children[0]);
+			held = converted(value, node.fact.type);
+		}
+		initialize_bit_field(field, object, path, unit, held, node.fact.type);
+		path.pop_back();
+		return;
+	}
+	// 8.5p7: whatever this subobject is, the bytes it occupies are the
+	// initialization's own from here on, so a bit-field of a storage unit that
+	// reaches back into them may not take the unit whole.
+	claims_storage(subobject_offset(path),
+	               subobject_offset(path) +
+	                   unit_.types().object_size(node.fact.type));
 	const Operand at = subobject_address(object, path);
 	path.pop_back();
 	if (node.fact.op != 0)

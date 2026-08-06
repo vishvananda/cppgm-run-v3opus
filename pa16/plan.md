@@ -37,14 +37,13 @@ lowering.
 
 ## Current Failure Map
 
-After C5 and its audit: 163 / 243. The 80 that remain, 44 refusing a program the
-references accept and 36 accepting one and writing a different shape:
+After C6: 173 / 243. The 70 that remain, 34 refusing a program the references
+accept and 36 accepting one and writing a different shape:
 
 | group | count | what is missing |
 | --- | --- | --- |
 | LowIR shape diffs, the program otherwise accepted | 36 | see below |
 | refusals, scattered | 22 | see below |
-| bit-fields | 10 | 9.6 layout and access |
 | class using-declarations, inheriting constructors | 8 | 7.3.3p1 into a class, 12.9 |
 | `alignas` / `alignof` | 4 | 5.3.6 outside the constant subset, `alignas` on a member |
 
@@ -55,17 +54,18 @@ destroyed subobjects (`eh_cleanup` / `eh_try` / `resume`); arrays of class type
 constructed and destroyed element by element; a `declare global` written for an
 `extern` object nothing uses; an aggregate's reference member, whose storage
 this unit addresses before it reads what binds to it; the `_GLOBAL__N_1` name an
-unnamed namespace gives what it declares; and an argument of class type passed
-by value, which the references give a generated `argobj__n` slot and this unit
-writes as a whole-object load — the same class-prvalue gap C6 is for, reached
-from the argument side rather than refused.
+unnamed namespace gives what it declares; `#pragma pack`, which is a phase-4
+fact that has to reach 9.2p13 in phase 7 and owns 2 of them; and an argument of
+class type passed by value, which the references give a generated `argobj__n`
+slot and this unit writes as a whole-object load — the same class-prvalue gap
+C7 is for, reached from the argument side rather than refused.
 
 The 22 scattered refusals are, grouped by what they ask for: a class prvalue
 that has to be materialized — `T(args)` bound to a reference parameter, an
 object of class type passed by value, 13.3.3.1.2's user-defined conversion
 sequence — which is 9 of them; namespace-scope arrays of class type, 5; the
 `__builtin_*` names, 3; placement `new`, 2; a trailing return type on a member
-function, 2; and one of `mutable`. Two more stand alone and are named in the
+function, 2; and one of `mutable`. Two more stand alone and are named in the C5
 audit: 13.5.6's `operator->` is not read as a call, and a static and a
 non-static member function of one class reach the same overload key because
 9.3.1p3 put the object parameter in the type, so
@@ -73,36 +73,33 @@ non-static member function of one class reach the same overload key because
 redefinition — the fix is to put which kind of member a declaration is into the
 key beside the parameter list.
 
+One defect no fixture reaches, found while sweeping C6 against g++ and belonging
+to the anonymous-member group rather than to bit-fields: an anonymous *struct*
+member is given no storage at all, so
+`struct S { struct { unsigned a; unsigned b; }; unsigned c; };` is 4 bytes here
+and 12 in g++. 9.5p1's injection is written for the anonymous union alone, and
+the members of an anonymous struct are laid out in neither region.
+
 15.4p14's `unwind=no` is separate and needs no test result: the relaxed
 comparison strips the field, and emitting nothing is silence rather than a false
-claim. It is the whole difference in 6 of the 163 passing fixtures; 34 more
+claim. It is the whole difference in 6 of the 173 passing fixtures; 34 more
 differ only in top-level order and 2 only in an internal symbol name, both of
 which the README makes a presentation convention.
 
 ## Active Checkpoint
 
-Done: **the audit of C5**, reviewed at `1bd1885f`. 161 -> 163 of 243, with
-pa1-pa15 held at 1173/1173. Seven findings, in two shapes: one walk asked to
-answer two different questions - 3.4.2p2's associated set read as if every class
-in it had had its bases walked, and the climb to the innermost enclosing
-namespace read as if every class it passed were the class the type is a member
-of - and a rule written for the exits it had in hand and not the one beside
-them: 11.2p5 and 11.4p1 asked at `.` and `->` but not where an operator names a
-member on an object, 13.5p6 written for its non-member half and not its
-static-member one, 9.4.1p2's `static` read from the definition's own specifiers
-so that an out-of-class definition of a static member declared a second
-function, `- + * &` given the unary Itanium terminal because the arity left out
-the operand 9.3.1p3 had put in the type, and a pointer condition branched on
-through a comparison the references do not write. See `audit.md`.
+Done: **C6 — 9.6's bit-fields**, 163 -> 173 of 243 with pa1-pa15 held at
+1173/1173. All ten bit-field fixtures are byte-identical to their `.ref`.
 
-Next: **C6 — the class prvalue that has to stand somewhere** (12.2p1, 5.2.3p2,
-8.5.3p5, 13.3.3.1.2), which is what 9 of the remaining refusals ask for and what
-several shape diffs need: `T(args)` is a temporary the unit gives storage to and
-runs a constructor on, a reference parameter binds that storage, and
-13.3.3.1.2's user-defined conversion sequence is the same temporary made by a
-converting constructor. The by-value argument the references write into a
-generated `argobj__n` slot is the same fact reached from the argument side, so
-it is part of this checkpoint rather than of PA17's copy semantics.
+Next: **the audit of C6**, then **C7 — the class prvalue that has to stand
+somewhere** (12.2p1, 5.2.3p2, 8.5.3p5, 13.3.3.1.2), which is what 9 of the
+remaining refusals ask for and what several shape diffs need: `T(args)` is a
+temporary the unit gives storage to and runs a constructor on, a reference
+parameter binds that storage, and 13.3.3.1.2's user-defined conversion sequence
+is the same temporary made by a converting constructor. The by-value argument
+the references write into a generated `argobj__n` slot is the same fact reached
+from the argument side, so it is part of that checkpoint rather than of PA17's
+copy semantics.
 
 - owner: `sema_class.cpp` for the constructor selection, which is
   `construct_object` over an object no declaration named; `lowir_lower_body.cpp`
@@ -127,6 +124,19 @@ it is part of this checkpoint rather than of PA17's copy semantics.
 
 ## Performance Model
 
+- 9.6p2's bit cursor is the same one pass: a bit-field costs one straddle test
+  and one division, and a class with no bit-field never leaves a byte boundary,
+  so its layout is what it was. Each access reads `bit_width`, `bit_offset` and
+  `bit_access` off the member and emits a fixed number of instructions, so n
+  accesses to a field cost n. Measured, each doubling 2.0-2.1x: a class with n
+  one-bit fields, aggregate-initialized and then assigned one by one,
+  0.03/0.05/0.11/0.23 s at 500/1000/2000/4000; 800 classes nested one inside the
+  next, each with two bit-fields, 0.02 s; 800 bit-field members initialized from
+  one braced list, 0.01 s.
+- Which storage units an initialization has already written is one carried byte
+  count per open initialization - a bit-field may take its unit whole exactly
+  when the unit begins at or after it - so a class with n bit-fields is
+  initialized in n steps and not n^2.
 - Class layout is one pass over `Scope::declarations` at 9.2p2 completion and is
   never recomputed; `TypeTable::complete_class` already caches size/alignment.
   A base contributes its own cached size and alignment, so a chain of n derived
@@ -237,3 +247,4 @@ it is part of this checkpoint rather than of PA17's copy semantics.
 | audit of C4 | one derived-to-base conversion written as one node however many classes it spans; 11.2p5 asked of every link; 5.16p6's operands brought to the composite pointer type; 8.5.3p4's base half of reference-related; 5.2.9p11's reference downcast written and its pointer downcast access-checked; 12.4p11's destructor access asked for an object, a member and a base; 11.4p1's additional check on a protected member named through an object; the ABI entry a constructor or destructor stands under made a fact the analysis records | 126 / 243 held; five `.ref` files newly byte-identical; pa1-pa15 1173/1173; valgrind clean over 243 fixtures and 88 probes; the n*d output blow-up gone |
 | C5 | 13.3.1.2p1 an operator on a class or enumeration operand read as the call it stands for - member candidates from 13.3.1.2p3, non-member ones from ordinary lookup with the member functions left out, 13.3.1.2p4's first operand offered to both, and the built-in operator left to the caller where nothing is viable; 13.5.7p1's `x++0`; 13.5.3/13.5.4/13.5.5's member-only `= () []`; 13.5p6's rule on a non-member operator; 11.3p6 a friend declared into the innermost enclosing namespace and bound nowhere, 7.3.1.2p3 revealed by a matching declaration there, 11.3p11's elaborated-type-specifier declared in that namespace too, 11.3p1/p2's grant and 11.2p5's naming class; 3.4.2p1/p2/p3's associated namespaces and classes and the friend declarations they make visible; 3.4.3's prefixes tried outward, without which `nnn::f(a)` parsed as a declaration; 3.2p3's uses read from the whole resolved tree; two operator functions of one region no longer collapsing onto one internal symbol | 126 -> 161 / 243; pa1-pa15 1173/1173; valgrind clean over the 42 operator, friend and ADL fixtures and the sweeps; chain, nesting, namespace-depth, ADL-multiplicity and reveal axes all linear, and the one quadratic axis - n overloads ranked by n calls - made quadratic rather than cubic |
 | audit of C5 | 3.4.2p2's base chain abandoned wherever the class was already associated - which it is, without its bases, whenever it is the class a nested type is a member of; every class around a nested type associated where the clause associates the one it is a member of; 11.2p5's naming class and 11.4p1's additional check asked at neither operator-call site; a member `- + * &` given the unary Itanium terminal because the arity left out the operand 9.3.1p3 put in the type; an out-of-class definition of a static member function given an object parameter, declaring a second function the unit then called with no argument and, where `inline`, never defined; 13.5p6's static-member half; a pointer condition branched on through a `cmp ne ptr` the references do not write | 161 -> 163 / 243, nothing that passed before failing after; pa1-pa15 1173 / 1173; valgrind clean over 243 fixtures and 47 probes; every ADL association axis linear at 2.0-2.4x per doubling and the one quadratic axis unchanged; the stripped metadata agrees with the refs for all 141 passing fixtures with a reference but for `unwind=no`, and the ABI names of every unary and binary form of `+ - * &` agree with g++ |
+| C6 | 9.6p1's width read as a constant expression and the four facts it settles put on the member's own declaration - `bit_field`, `bit_width`, `bit_offset` and 4.5p3's `bit_access`; 9.6p2's allocation into storage units by a layout cursor counted in bits, with the unnamed zero-width separator and the field that would straddle a unit moved on; a read that loads the unit at the promoted type, shifts the field down and masks it, while the value keeps the type the member was declared with; 9.6p2's write as a read-modify-write, and as a plain store where the initialization still owns every byte of the unit; 8.5.1's unnamed field stepped over by the clauses; 12.6.2 and 8.5.1 writing the two instruction orders the references write; 5.17 and 5.3.2 over a field, with 4.5p3's promoted type for the arithmetic; 5.3.1p3 and 5.3.3p1 refusing the address and the size of one; 3.6.2p2's static data written as the bytes the fields' bits fall in rather than as the units they are read through | 163 -> 173 / 243; pa1-pa15 1173/1173; all ten bit-field fixtures byte-identical; valgrind clean over the fixtures and 8 probes; layout and static-data bytes agree with g++ over 17 layout shapes and 9 value shapes; every axis linear |

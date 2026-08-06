@@ -120,6 +120,10 @@ SemaEntity& SemaModel::create(SemaKind kind, const std::string& name, TypeId typ
 	entity.default_initializer = false;
 	entity.aggregate = false;
 	entity.offset = 0;
+	entity.bit_field = false;
+	entity.bit_width = 0;
+	entity.bit_offset = 0;
+	entity.bit_access = kNoType;
 	entity.inline_function = false;
 	entity.trivial = false;
 	entity.object_member = false;

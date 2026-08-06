@@ -803,7 +803,8 @@ SemaEntity& SemaAnalyzer::class_declaration(const AstNode& node,
 			// what it added to the class.
 			continue;
 		}
-		if (semantics() && member.kind == AstKind::BitFieldDeclaration)
+		if (semantics() && !lowering() &&
+		    member.kind == AstKind::BitFieldDeclaration)
 		{
 			// 9.6p1: a bit-field is a member whose width its declaration writes,
 			// which the layout and every use of it read.  PA12 has no rule for
@@ -816,8 +817,16 @@ SemaEntity& SemaAnalyzer::class_declaration(const AstNode& node,
 		// declaration, so it is written onto whatever this member declared.
 		// One declaration declares few names, and each is reached once.
 		const std::size_t before = scope.declarations.size();
-		if (semantics() && (member.kind == AstKind::SpecialMemberDeclaration ||
-		                    member.kind == AstKind::SpecialMemberDefinition))
+		if (lowering() && member.kind == AstKind::BitFieldDeclaration)
+		{
+			// 9.6p1: the width is part of what the declaration declares, so the
+			// declarators are read against it rather than through the ordinary
+			// path, which would leave the member an object with an address.
+			bit_field_declaration(member, inner);
+		}
+		else if (semantics() &&
+		         (member.kind == AstKind::SpecialMemberDeclaration ||
+		          member.kind == AstKind::SpecialMemberDefinition))
 		{
 			// 12.1 and 12.4: a constructor or a destructor is a member whose
 			// declaration writes no decl-specifier-seq and whose name is the

@@ -41,6 +41,7 @@ struct LowValue
 		, value(0)
 		, unnamed(false)
 		, named(false)
+		, field(nullptr)
 	{}
 
 	lowir_model::Operand operand;
@@ -65,6 +66,25 @@ struct LowValue
 	// subobject reached through `.` or `->` is a temporary holding its address
 	// and still a place the source named, which is where 4.2 converts.
 	bool named;
+	// 9.6p2: the bit-field this lvalue names, whose storage is a run of bits
+	// inside the unit `operand` addresses rather than the unit itself.  Null
+	// for every other lvalue, which names whole storage; where it is set, a
+	// read masks what it loads and a write puts the other bits back.
+	const SemaEntity* field;
+};
+
+// The three shapes a value written into a bit-field is put there with.
+//
+// 9.6p2 leaves the bits of a storage unit that the field does not own alone,
+// which costs a read-modify-write - except for the first initialization to
+// reach a unit, which owns every bit of it and may take the whole unit.  The
+// initializer and the assignment forms write the same instructions in the two
+// orders the references write them in.
+enum class BitFieldWrite
+{
+	FirstInitializer,
+	Initializer,
+	Assignment
 };
 
 // The object a subobject is named from.
@@ -257,9 +277,32 @@ private:
 	// object to be initialized by code.
 	bool global_aggregate_initializer(lowir_model::GlobalDefinition& global,
 	                                  const DumpNode& node, TypeId type);
+	// 9.6p2: a run of bytes that bit-fields share.  A bit-field owns bits and
+	// not bytes, so what it puts in the object is the bytes its bits fall in;
+	// two fields whose bytes overlap are one run, which is written out as the
+	// bytes it is.  Open only while the walk is inside such a run, which a
+	// program with no bit-field never is.
+	struct BitRun
+	{
+		BitRun()
+			: open(false)
+			, first(0)
+			, last(0)
+			, bits(0)
+		{}
+
+		bool open;
+		unsigned long long first;
+		unsigned long long last;
+		unsigned long long bits;
+	};
+
 	bool global_subobjects(lowir_model::GlobalDefinition& global,
 	                       const DumpNode& node, unsigned long long base,
-	                       unsigned long long& at);
+	                       unsigned long long& at, BitRun& run);
+	// The run gathered so far, written out as the bytes it holds.
+	void flush_bit_run(lowir_model::GlobalDefinition& global, BitRun& run,
+	                   unsigned long long& at);
 	// `bytes` of zero, added to the items when there are any to add.
 	static void add_zero_item(lowir_model::GlobalDefinition& global,
 	                          unsigned long long bytes);
@@ -400,6 +443,39 @@ private:
 	                                    bool bound = false);
 	// 12.6.2: one member of the object a constructor is initializing.
 	void member_initialization(const DumpNode& node);
+	// 9.6p2 and 4.5p3: the value a bit-field lvalue holds, which is the unit it
+	// sits in read at the field's own promoted type, shifted down to the bottom
+	// and masked to the width the declaration wrote.
+	lowir_model::Operand read_bit_field(const LowValue& value);
+	// 8.5.1 and 12.6.2: `held` written into the bit-field a subobject path
+	// names.  The unit is addressed from the object again for each step the
+	// write takes, which is how the references write it and what keeps the
+	// description of the place independent of the value being put there.
+	void initialize_bit_field(const SemaEntity& field, const LowObject& object,
+	                          const std::vector<const DumpNode*>& path,
+	                          unsigned long long unit,
+	                          const lowir_model::Operand& held, TypeId type);
+	// 5.17 and 5.3.2: `held` written into the field `target` names, whose unit
+	// the caller already holds the address of.
+	void assign_bit_field(const LowValue& target,
+	                      const lowir_model::Operand& held, TypeId type);
+	// The field's bits moved up to where they belong in the unit, which is what
+	// both writes put there.  `first` gives the mask and the value the order
+	// 8.5.1's write writes them in rather than 5.17's.
+	lowir_model::Operand placed_bits(const SemaEntity& field,
+	                                 const lowir_model::Operand& held,
+	                                 TypeId type, bool initializer);
+	// 8.5p7 and 9.6p2: whether an initialization that takes the whole of
+	// [first, last) would be writing over bytes this initialization has already
+	// put something in.  The subobjects of one object are initialized in the
+	// order 9.2p13 laid them out, so how far the initialization has reached is
+	// one number rather than a record of everything it wrote.  Asking moves
+	// that number on, because asking is what a write asks.
+	bool claims_storage(unsigned long long first, unsigned long long last);
+	// 9.2p13: how far into the object being initialized a subobject path has
+	// reached, which is what tells two storage units of one object apart.
+	unsigned long long subobject_offset(
+		const std::vector<const DumpNode*>& path) const;
 	// 4.10p3 and 10p1: the base class subobject of the object an operand
 	// denotes, as the storage of that object at the place its class gave the
 	// base.
@@ -545,6 +621,14 @@ private:
 	std::unordered_set<std::string> taken_;
 	std::vector<std::string> breaks_;
 	std::vector<std::string> continues_;
+	// 8.5p7: how far into the object it is initializing each open
+	// initialization has written, in bytes.  A bit-field whose storage unit is
+	// past that may take the unit whole, because the bits beside its own are
+	// ones the initialization is giving zero to; one whose unit reaches back
+	// into what is already there has to leave those bytes alone.  The frames
+	// nest because an element of an array and a member with a constructor are
+	// each an initialization of an object of their own.
+	std::vector<unsigned long long> written_through_;
 	// 6.4.2: the arms each enclosing switch has found so far, and the type its
 	// condition chose at.  A label can stand anywhere inside the substatement,
 	// so the arms are gathered while it is read and the dispatch is completed
