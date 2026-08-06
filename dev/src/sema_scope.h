@@ -81,6 +81,28 @@ struct SemaEntity
 	// a const object of integral type has when its initializer is constant.
 	bool constant;
 	unsigned long long value;
+	// 13.1: the other declarations of this name in this region, in declaration
+	// order.  A name is bound to the first of them and the rest are reached
+	// from it, so declaring an overload costs one link and collecting the
+	// candidates of a call costs one walk of the ones there are.
+	SemaEntity* next;
+	// The name the PA12 dump spells this entity with: a namespace-scope
+	// declaration is written with the named namespaces around it, and
+	// everything else with the name it was declared with.  It is built where
+	// the declaration is read, so a use of the name costs no walk.
+	std::string dump_name;
+};
+
+// One node of the PA12 semantic dump.
+//
+// PA11 writes a tree of scopes whose lines are all declarations, so a scope
+// holds its lines and its child scopes apart.  PA12 writes resolved statements
+// and expressions, which are ordered against each other and nest to any depth,
+// so its node is the general one: a line, and the nodes written under it.
+struct DumpNode
+{
+	std::string text;
+	std::vector<DumpNode*> children;
 };
 
 // One line-oriented scope of the dump.
@@ -146,6 +168,10 @@ public:
 	// This region among the run's, which is how a fact about a pair of them is
 	// keyed.
 	std::uint32_t id;
+	// The `N::M::` the PA12 dump writes before a declaration of this region.
+	// 7.3.1.1p1 leaves an unnamed namespace with no name to write, so its
+	// members are spelled as the namespace around it spells its own.
+	std::string prefix;
 	// Scratch of one walk: the walk that reached this region, so that one with
 	// several paths into one namespace holds it once.
 	std::uint64_t visit;
@@ -182,10 +208,14 @@ public:
 
 	Scope& global() { return *global_; }
 	const DumpScope& root() const { return *root_; }
+	// The `translation-unit` node the PA12 dump is rooted at.
+	DumpNode& unit() { return *unit_; }
+	const DumpNode& unit() const { return *unit_; }
 
 	// A region enclosed by `parent`, writing its lines to `dump`.
 	Scope& open(ScopeKind kind, Scope& parent, SemaEntity* owner, DumpScope* dump);
 	DumpScope& open_dump(DumpScope& parent, const std::string& header);
+	DumpNode& open_node(DumpNode& parent, const std::string& text);
 	SemaEntity& create(SemaKind kind, const std::string& name, TypeId type);
 
 	// The identifier a user-defined type is interned under, which is the
@@ -255,8 +285,10 @@ private:
 	std::deque<Scope> scopes_;
 	std::deque<SemaEntity> entities_;
 	std::deque<DumpScope> dumps_;
+	std::deque<DumpNode> nodes_;
 	Scope* global_;
 	DumpScope* root_;
+	DumpNode* unit_;
 	std::uint32_t type_entities_;
 	std::unordered_map<TypeId, SemaEntity*> type_owners_;
 	// The regions that bind each name, each once, in the order they first bound
@@ -295,3 +327,4 @@ bool names_a_space(const SemaEntity& entity);
 
 // Writes `scope` and everything under it, indenting two spaces per level.
 void write_dump(std::ostream& out, const DumpScope& scope, unsigned depth);
+void write_nodes(std::ostream& out, const DumpNode& node, unsigned depth);

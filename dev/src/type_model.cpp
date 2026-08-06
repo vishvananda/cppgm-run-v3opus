@@ -344,28 +344,31 @@ TypeId TypeTable::user_type(TypeKind category, std::uint32_t entity,
                             const UserType& record)
 {
 	// The type is named by the entity that declared it rather than by what it
-	// is made of, so the key holds the entity and the record it points at is
-	// shared by every cv-qualified form of the type.
-	Key key;
-	key.shape = static_cast<std::uint32_t>(category) << 8;
-	key.operand = entity;
-	key.extra = kUserTypeKeyExtra;
-	key.bound = 0;
-
-	const std::unordered_map<Key, TypeId, KeyHash>::const_iterator found =
-		ids_.find(key);
-	if (found != ids_.end())
+	// is made of, so the entity is what finds it again.  What it is interned
+	// under is the record it points at, which every cv-qualified form of the
+	// type shares, so that adding and removing a qualifier comes back to the
+	// same type rather than to a second one that spells the same.
+	const std::uint64_t named =
+		(static_cast<std::uint64_t>(category) << 32) | entity;
+	const std::unordered_map<std::uint64_t, TypeId>::const_iterator declared =
+		user_ids_.find(named);
+	if (declared != user_ids_.end())
 	{
-		return found->second;
+		return declared->second;
 	}
 
 	Node node = nodes_[0];
 	node.kind = category;
 	node.user = static_cast<std::uint32_t>(user_types_.size());
 	user_types_.push_back(record);
-	const TypeId id = static_cast<TypeId>(nodes_.size());
-	ids_.insert(std::make_pair(key, id));
-	nodes_.push_back(node);
+
+	Key key;
+	key.shape = static_cast<std::uint32_t>(category) << 8;
+	key.operand = node.user;
+	key.extra = kUserTypeKeyExtra;
+	key.bound = 0;
+	const TypeId id = intern(key, node);
+	user_ids_.insert(std::make_pair(named, id));
 	return id;
 }
 

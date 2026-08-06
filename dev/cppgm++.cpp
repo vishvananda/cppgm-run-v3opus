@@ -2,6 +2,7 @@
 
 #include "ast_emit.h"
 #include "exceptions.h"
+#include "semantics_emit.h"
 #include "types_emit.h"
 #include "tool_help_text.h"
 
@@ -408,8 +409,10 @@ int run_emit_types_mode(const vector<string> & args)
 
 int run_emit_semantics_mode(const vector<string> & args)
 {
-  (void)parse_source_output_invocation(args, false);
-  return run_unimplemented_mode("--emit-semantics", "PA12");
+  const SourceOutputInvocation invocation =
+      parse_source_output_invocation(args, false);
+  emit_semantics(invocation.outfile, invocation.inputs);
+  return EXIT_SUCCESS;
 }
 
 int run_emit_lowir_mode(const vector<string> & args)

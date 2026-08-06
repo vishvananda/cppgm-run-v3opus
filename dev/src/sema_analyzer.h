@@ -30,6 +30,26 @@ public:
 	{}
 };
 
+// Which dump the walk writes.
+//
+// PA11 describes what a translation unit declares; PA12 describes what its
+// function bodies mean.  Both read the same declarations from the same tree, so
+// one walk serves both and the mode says only which tree of lines it fills and
+// which of the two assignments' rules it holds the program to.
+enum class SemaDialect
+{
+	Types,
+	Semantics
+};
+
+// 3.10: what an expression denotes.
+enum class ValueCategory
+{
+	LValue,
+	XValue,
+	PRValue
+};
+
 // The PA11 semantic pass: one walk of a PA10 syntax tree that builds the
 // scopes, declarations and types of a translation unit, and the dump of them.
 //
@@ -40,7 +60,7 @@ public:
 class SemaAnalyzer
 {
 public:
-	SemaAnalyzer();
+	explicit SemaAnalyzer(SemaDialect dialect = SemaDialect::Types);
 
 	// Analyses `unit`, a PA10 `translation-unit`.  Throws for a program the
 	// assignment gives no meaning to.
@@ -58,6 +78,55 @@ private:
 	{
 		Scope* scope;
 		DumpScope* dump;
+		// The PA12 node a declaration read here writes under, which at block
+		// scope is the `simple-declaration` the statement opened.
+		DumpNode* node;
+	};
+
+	// One analysed expression.
+	//
+	// `type` is what the operators see, so a reference is already removed from
+	// it (5p5).  `spelled` is what the dump writes, which parts company with
+	// `type` exactly where the standard makes a reference visible in the
+	// result of an expression: a call of a function returning a reference, and
+	// a cast to one.
+	struct Value
+	{
+		Value();
+
+		TypeId type;
+		TypeId spelled;
+		ValueCategory category;
+		DumpNode* node;
+		// 13.4: the declarations an unresolved function name denotes, which a
+		// target type or a call's arguments choose between.
+		SemaEntity* functions;
+		// 4.10p1: an integral constant expression prvalue that evaluates to
+		// zero, which is the only integral operand a pointer accepts.
+		bool null_constant;
+		bool constant;
+		unsigned long long value;
+	};
+
+	// 13.3.3.1: how good the conversion of one argument is.  The ranks of
+	// Table 12, plus what 13.3.3.2p3 and p4 need to tell two of one rank apart.
+	struct Match
+	{
+		Match();
+
+		bool viable;
+		// 0 exact, 1 promotion, 2 conversion, 3 ellipsis.
+		int rank;
+		// 13.3.3.2p4: a conversion to `bool` from a pointer loses to one that
+		// keeps the pointer.
+		bool to_bool;
+		// 13.3.3.2p3: how a reference parameter bound its argument.
+		bool reference;
+		bool binds_rvalue_ref;
+		bool binds_lvalue;
+		// The temporary a reference parameter had to convert its argument into,
+		// which the dump writes as a cast.
+		TypeId materialized;
 	};
 
 	// The terminals a declaration was written from, which is what names an
@@ -137,6 +206,15 @@ private:
 	void inject_union_members(SemaEntity* entity, const Context& ctx);
 	// 9.2p2 and the course ABI: the size and alignment of a completed class.
 	void lay_out_class(SemaEntity& entity, Scope& scope, bool is_union);
+	// 13.1 and 3.5: the declaration a function declarator makes, which is a
+	// redeclaration of an earlier one in the same region exactly when their
+	// parameter type lists agree.
+	SemaEntity& declare_function(const std::string& name, TypeId type,
+	                             const Context& target, bool define);
+	// The `parameter` lines of a function, and the declarations of them in the
+	// region the definition opened.
+	void declare_parameters(const std::vector<Parameter>& parameters,
+	                        TypeId type, const Context& inner, DumpNode* node);
 	// The entity the declaration of a name reuses, or nothing when the name is
 	// new to the region.
 	SemaEntity* redeclared(const Context& ctx, const std::string& name,
@@ -199,9 +277,146 @@ private:
 	// A value as the dump writes it, signed when its type is.
 	std::string spell_value(TypeId type, unsigned long long bits) const;
 
+	// Statements (sema_statement.cpp).
+	//
+	// A statement writes its node under `parent` and declares into `ctx`.  The
+	// two are separate because 3.3.3 gives a substatement a region of its own
+	// while the dump writes it under the statement that holds it.
+	void semantic_statement(const AstNode& node, const Context& ctx,
+	                        DumpNode& parent);
+	void block_statement(const AstNode& node, const Context& ctx,
+	                     DumpNode& parent);
+	void selection_statement(const AstNode& node, const Context& ctx,
+	                         DumpNode& parent, const char* what);
+	void loop_statement(const AstNode& node, const Context& ctx,
+	                    DumpNode& parent, const char* what);
+	void for_statement(const AstNode& node, const Context& ctx, DumpNode& parent);
+	void case_statement(const AstNode& node, const Context& ctx,
+	                    DumpNode& parent, bool is_default);
+	void return_statement(const AstNode& node, const Context& ctx,
+	                      DumpNode& parent);
+	// 6.4p3 and 6.5p2: the condition of a selection or iteration statement,
+	// which is either an expression or a declaration whose name the statement's
+	// substatements can see.
+	// `integral` for the condition of a switch, which 6.4.2p2 converts to an
+	// integral or enumeration type rather than to bool.
+	void condition(const AstNode& node, const Context& ctx, DumpNode& parent,
+	               bool integral);
+	// The region a substatement that is not a compound-statement opens (6.4p1).
+	Context substatement_scope(const Context& ctx);
+
+	// Expressions (sema_expression.cpp).
+	Value expression(const AstNode& node, const Context& ctx, DumpNode& parent);
+	Value id_expression(const AstNode& node, const Context& ctx, DumpNode& parent);
+	Value literal_expression(const AstNode& node, DumpNode& parent);
+	Value call_expression(const AstNode& node, const Context& ctx,
+	                      DumpNode& parent);
+	Value functional_cast(const AstNode& node, const Context& ctx,
+	                      DumpNode& parent, TypeId target);
+	// 8.5: the initializer written for a declarator, in each of the three forms
+	// 8.5p1 gives it.
+	void write_initializer(const AstNode& initializer, TypeId type,
+	                       const Context& ctx, DumpNode& line);
+	// 7.1.6.2 Table 10: the type a one-token simple-type-specifier names, which
+	// is how a functional cast written with a keyword finds its type.
+	TypeId keyword_type(const std::string& spelling) const;
+	Value unary_expression(const AstNode& node, const Context& ctx,
+	                       DumpNode& parent);
+	Value increment_expression(const AstNode& node, const Context& ctx,
+	                           DumpNode& parent, bool postfix);
+	Value binary_expression(const AstNode& node, const Context& ctx,
+	                        DumpNode& parent);
+	Value assignment_expression(const AstNode& node, const Context& ctx,
+	                            DumpNode& parent);
+	Value conditional_expression(const AstNode& node, const Context& ctx,
+	                             DumpNode& parent);
+	Value subscript_expression(const AstNode& node, const Context& ctx,
+	                           DumpNode& parent);
+	// 5.6 to 5.15: the type a built-in binary operator gives its operands.
+	TypeId binary_result(unsigned op, const Value& left, const Value& right);
+	// 5.17p7: the built-in operator a compound assignment is written from.
+	static unsigned compound_operator(unsigned op);
+	Value cast_expression(const AstNode& node, const Context& ctx,
+	                      DumpNode& parent);
+	Value sizeof_expression(const AstNode& node, const Context& ctx,
+	                        DumpNode& parent);
+	// 5.19 and the course builtins: a call the translation answers itself.
+	bool builtin_call(const std::string& name, const AstNode& node,
+	                  const Context& ctx, DumpNode& parent, Value& out);
+
+	// 8.5: initialising an object of `target` from `node`, which is what a
+	// variable, a condition, a return statement and an argument all do.
+	Value initialize(const AstNode& node, TypeId target, const Context& ctx,
+	                 DumpNode& parent);
+	// 13.3.3.1 over the PA12 conversion subset.
+	Match match_argument(const Value& argument, TypeId parameter);
+	Match match_by_value(const Value& argument, TypeId parameter);
+	Match match_reference(const Value& argument, TypeId parameter);
+	// 4.4 and 4.10: whether a pointer of `from` converts to one of `to`.
+	bool pointer_convertible(TypeId from, TypeId to, int& rank, bool& exact);
+	bool qualification_convertible(TypeId from, TypeId to);
+	// 3.9.3p5: `type` with every top level cv-qualifier removed, reaching
+	// through an array to its elements.
+	TypeId bare_type(TypeId type);
+	// 13.3.3: the one candidate no other beats, or the error that there is not
+	// one.  `arguments` are the analysed argument expressions in order.
+	SemaEntity* select_overload(SemaEntity* candidates,
+	                            const std::vector<Value>& arguments,
+	                            const std::string& name);
+	// 13.3.3.2: which of two conversions of one argument is better, as 1, 0
+	// or -1.
+	int compare_matches(const Match& left, const Match& right);
+	// 13.3.3p1: whether one candidate's conversions beat another's.
+	bool better_candidate(const Match* left, const Match* right,
+	                      std::size_t count);
+	// Rewrites what the dump wrote for `value` where a conversion is visible in
+	// it: a null pointer constant, a resolved function name, and the temporary
+	// a reference binds to.
+	void apply_conversion(Value& value, TypeId target, const Match& match,
+	                      DumpNode& parent);
+	// 13.4: the declaration of an overloaded name a target type asks for.
+	SemaEntity* resolve_target(const Value& value, TypeId target);
+	// Writes the line of an id-expression once its overload set is resolved.
+	void name_function(Value& value, SemaEntity& function, const char* what);
+	// 4.1, 4.2 and 4.3: the type the value of `value` has.
+	TypeId decayed(const Value& value);
+	void require_complete_value(const Value& value);
+	// 4.5: the type one operand of an integral operation is promoted to.
+	TypeId promoted(TypeId type);
+	// 5p9: the type the usual arithmetic conversions bring two operands to.
+	TypeId arithmetic_result(TypeId left, TypeId right);
+	// 5.9p2 and 5.10p1: the composite pointer type two pointer operands are
+	// compared as, or kNoType when they have none.
+	TypeId composite_pointer(const Value& left, const Value& right);
+	bool is_arithmetic(TypeId type) const;
+	bool is_integral(TypeId type) const;
+	bool is_floating(TypeId type) const;
+	bool is_scoped(TypeId type) const;
+	bool is_object_pointer(TypeId type) const;
+	// 4.12: whether `type` has a conversion to `bool`, which every condition
+	// and logical operand needs.
+	bool contextually_bool(TypeId type) const;
+
+	// The dump.
+	std::string spell(const char* what, ValueCategory category, TypeId type,
+	                  const AstNode* payload) const;
+	static std::string payload_of(const AstNode& node);
+	static const char* category_name(ValueCategory category);
+	// The name the PA12 dump gives a declaration of `scope`.
+	std::string dump_name(const Scope& scope, const std::string& name) const;
+	bool semantics() const { return dialect_ == SemaDialect::Semantics; }
+
+	SemaDialect dialect_;
 	TypeTable types_;
 	SemaModel model_;
 	// The unnamed enumerations declared so far, which are numbered rather than
 	// named after a token span because that is the convention the refs use.
 	unsigned anonymous_enums_;
+	// 6.6.1 and 6.6.2: the statements a `break` or a `continue` may leave, and
+	// 6.4.2 the switch a `case` may label, as the counts of the enclosing ones.
+	unsigned breakable_;
+	unsigned continuable_;
+	unsigned switches_;
+	// 6.6.3: the return type of the function whose body is being read.
+	TypeId returns_;
 };

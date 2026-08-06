@@ -530,7 +530,26 @@ TypeId SemaAnalyzer::decltype_type(const AstNode& node, const Context& ctx)
 	}
 	if (expression->kind != AstKind::IdExpression)
 	{
-		throw std::runtime_error("decltype names an expression PA11 does not type");
+		if (!semantics())
+		{
+			throw std::runtime_error("decltype names an expression PA11 does "
+			                         "not type");
+		}
+		// 7.1.6.2p4: for an expression that is not an id-expression, the type
+		// is the expression's, with a reference added for an lvalue or an
+		// xvalue.  PA12 types every expression of its subset, so the question
+		// is the same one the expression layer already answers.
+		DumpNode scratch;
+		const Value value = SemaAnalyzer::expression(*expression, ctx, scratch);
+		if (value.category == ValueCategory::LValue)
+		{
+			return types_.reference_to(value.type, false);
+		}
+		if (value.category == ValueCategory::XValue)
+		{
+			return types_.reference_to(value.type, true);
+		}
+		return value.type;
 	}
 	SemaEntity& entity =
 		require(resolve(expression->text, ctx, LookupKind::Any), expression->text);

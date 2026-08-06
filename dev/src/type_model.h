@@ -279,6 +279,9 @@ private:
 	// The array types `qualified` is between, innermost last.
 	std::vector<TypeId> dimensions_;
 	std::unordered_map<Key, TypeId, KeyHash> ids_;
+	// The unqualified type each declaration of a class, enumeration or template
+	// parameter introduced, keyed by the entity that declared it.
+	std::unordered_map<std::uint64_t, TypeId> user_ids_;
 	std::unordered_map<std::vector<TypeId>, std::uint32_t, ListHash> parameter_ids_;
 	std::vector<const std::vector<TypeId>*> parameter_lists_;
 };

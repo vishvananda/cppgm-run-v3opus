@@ -229,10 +229,18 @@ TypeId SemaAnalyzer::declarator_type(const AstNode& node, TypeId base,
 {
 	std::size_t index = 0;
 	TypeId type = base;
+	// 8.3.1p1: the cv-qualifier-seq of a ptr-operator is written after it, so a
+	// declarator holds the two as siblings and `* const &` is a reference to a
+	// const pointer rather than three unrelated parts.
 	while (index < node.children.size() &&
-	       node.children[index]->kind == AstKind::PtrOperator)
+	       (node.children[index]->kind == AstKind::PtrOperator ||
+	        node.children[index]->kind == AstKind::CvQualifier))
 	{
-		type = apply_pointer(*node.children[index], type);
+		const AstNode& part = *node.children[index];
+		type = part.kind == AstKind::CvQualifier
+			? types_.qualified(type, part.token == KW_CONST ? kCvConst
+			                                               : kCvVolatile)
+			: apply_pointer(part, type);
 		++index;
 	}
 
@@ -318,7 +326,13 @@ TypeId SemaAnalyzer::apply_suffix(const AstNode& node, TypeId type,
 		types.reserve(parameters.size());
 		for (std::size_t index = 0; index < parameters.size(); ++index)
 		{
-			types.push_back(parameters[index].type);
+			// 8.3.5p5: an array or function parameter contributes a pointer,
+			// and top level cv-qualification is dropped, so two declarations
+			// that differ only in those declare one function.  PA11 describes
+			// the declarator as written, so only PA12 asks for it.
+			types.push_back(semantics()
+				? types_.adjust_parameter(parameters[index].type)
+				: parameters[index].type);
 		}
 		return types_.function_of(type, types, variadic);
 	}

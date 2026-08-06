@@ -28,12 +28,16 @@ bool names_a_space(const SemaEntity& entity)
 SemaModel::SemaModel()
 	: global_(nullptr)
 	, root_(nullptr)
+	, unit_(nullptr)
 	, type_entities_(0)
 	, visit_(0)
 {
 	dumps_.push_back(DumpScope());
 	root_ = &dumps_.back();
 	root_->header = "translation-unit";
+	nodes_.push_back(DumpNode());
+	unit_ = &nodes_.back();
+	unit_->text = "translation-unit";
 
 	DumpScope& global_dump = open_dump(*root_, "scope namespace <global>");
 	scopes_.emplace_back(ScopeKind::Namespace, nullptr, nullptr, &global_dump, 0);
@@ -57,6 +61,15 @@ DumpScope& SemaModel::open_dump(DumpScope& parent, const std::string& header)
 	return scope;
 }
 
+DumpNode& SemaModel::open_node(DumpNode& parent, const std::string& text)
+{
+	nodes_.push_back(DumpNode());
+	DumpNode& node = nodes_.back();
+	node.text = text;
+	parent.children.push_back(&node);
+	return node;
+}
+
 SemaEntity& SemaModel::create(SemaKind kind, const std::string& name, TypeId type)
 {
 	entities_.push_back(SemaEntity());
@@ -68,6 +81,8 @@ SemaEntity& SemaModel::create(SemaKind kind, const std::string& name, TypeId typ
 	entity.defined = false;
 	entity.constant = false;
 	entity.value = 0;
+	entity.next = nullptr;
+	entity.dump_name = name;
 	return entity;
 }
 
@@ -427,6 +442,16 @@ SemaEntity* SemaModel::lookup_in(Scope& in, const std::string& name,
 	{
 		return nullptr;
 	}
+	// 3.4.3.2p2: the declarations `in` itself has are the answer, and the
+	// namespaces its using-directives nominate are searched only when it has
+	// none.  A region that declares the name therefore hides what a directive
+	// written in it would otherwise have reached, rather than being ambiguous
+	// with it.
+	SemaEntity* declared_here = find(in, name, filter);
+	if (declared_here != nullptr)
+	{
+		return declared_here;
+	}
 	if (regions->size() == 1)
 	{
 		return lookup_unique(in, in.parent, name, filter, *(*regions)[0]);
@@ -445,5 +470,14 @@ void write_dump(std::ostream& out, const DumpScope& scope, unsigned depth)
 	for (std::size_t index = 0; index < scope.children.size(); ++index)
 	{
 		write_dump(out, *scope.children[index], depth + 1);
+	}
+}
+
+void write_nodes(std::ostream& out, const DumpNode& node, unsigned depth)
+{
+	out << std::string(depth * 2, ' ') << node.text << '\n';
+	for (std::size_t index = 0; index < node.children.size(); ++index)
+	{
+		write_nodes(out, *node.children[index], depth + 1);
 	}
 }

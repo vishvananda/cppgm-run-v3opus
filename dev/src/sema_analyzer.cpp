@@ -67,6 +67,13 @@ const char* tag_text(ClassTag tag)
 	}
 }
 
+// 7.3.1.1p1: the namespace-definition PA10 wrote no name for, which it spells
+// with the placeholder the dump uses.
+bool is_unnamed_namespace(const AstNode& node)
+{
+	return node.text == "<unnamed>";
+}
+
 unsigned long long round_up(unsigned long long value, unsigned long long unit)
 {
 	if (unit == 0)
@@ -79,13 +86,50 @@ unsigned long long round_up(unsigned long long value, unsigned long long unit)
 
 }
 
-SemaAnalyzer::SemaAnalyzer()
-	: anonymous_enums_(0)
+SemaAnalyzer::SemaAnalyzer(SemaDialect dialect)
+	: dialect_(dialect)
+	, anonymous_enums_(0)
+	, breakable_(0)
+	, continuable_(0)
+	, switches_(0)
+	, returns_(kNoType)
+{}
+
+SemaAnalyzer::Value::Value()
+	: type(kNoType)
+	, spelled(kNoType)
+	, category(ValueCategory::PRValue)
+	, node(nullptr)
+	, functions(nullptr)
+	, null_constant(false)
+	, constant(false)
+	, value(0)
+{}
+
+SemaAnalyzer::Match::Match()
+	: viable(false)
+	, rank(0)
+	, to_bool(false)
+	, reference(false)
+	, binds_rvalue_ref(false)
+	, binds_lvalue(false)
+	, materialized(kNoType)
 {}
 
 void SemaAnalyzer::write(std::ostream& out) const
 {
+	if (semantics())
+	{
+		write_nodes(out, model_.unit(), 0);
+		return;
+	}
 	write_dump(out, model_.root(), 0);
+}
+
+std::string SemaAnalyzer::dump_name(const Scope& scope,
+                                    const std::string& name) const
+{
+	return scope.kind == ScopeKind::Namespace ? scope.prefix + name : name;
 }
 
 void SemaAnalyzer::run(const AstNode& unit)
@@ -93,6 +137,17 @@ void SemaAnalyzer::run(const AstNode& unit)
 	Context ctx;
 	ctx.scope = &model_.global();
 	ctx.dump = model_.global().dump;
+	ctx.node = &model_.unit();
+	if (semantics())
+	{
+		// 18.2p9: `std::nullptr_t` is the type of `nullptr`.  The course
+		// declares it in the global namespace, and PA12 overloads on it, so
+		// the name is bound before the unit is read.  It writes no line: the
+		// dump describes what the unit declares.
+		SemaEntity& entity = model_.create(SemaKind::Typedef, "nullptr_t",
+		                                   types_.fundamental(FT_NULLPTR_T));
+		model_.bind(*ctx.scope, entity.name, entity);
+	}
 	for (std::size_t index = 0; index < unit.children.size(); ++index)
 	{
 		declaration(*unit.children[index], ctx);
@@ -187,11 +242,16 @@ void SemaAnalyzer::namespace_definition(const AstNode& node, const Context& ctx)
 			model_.open_dump(*ctx.dump, "scope namespace " + node.text);
 		entity->scope =
 			&model_.open(ScopeKind::Namespace, *ctx.scope, entity, &dump);
+		// 7.3.1.1p1: an unnamed namespace has no name to write before its
+		// members, so they are spelled by the namespace around it.
+		entity->scope->prefix = is_unnamed_namespace(node)
+			? ctx.scope->prefix
+			: ctx.scope->prefix + node.text + "::";
 		model_.bind(*ctx.scope, node.text, *entity);
 		model_.declare_in(*ctx.scope, *entity);
 		// 7.3.1p8 and 7.3.1.1p1: an inline or unnamed member's declarations
 		// are also declarations of the namespace around it.
-		if (has_child(node, AstKind::Inline))
+		if (has_child(node, AstKind::Inline) || is_unnamed_namespace(node))
 		{
 			model_.nominate(*ctx.scope, *entity->scope);
 		}
@@ -204,6 +264,11 @@ void SemaAnalyzer::namespace_definition(const AstNode& node, const Context& ctx)
 	Context inner;
 	inner.scope = entity->scope;
 	inner.dump = entity->scope->dump;
+	// The dump writes one node per namespace-definition, so a namespace opened
+	// twice is two nodes over one region.
+	inner.node = semantics()
+		? &model_.open_node(*ctx.node, "namespace-definition " + node.text)
+		: ctx.node;
 	for (std::size_t index = 0; index < node.children.size(); ++index)
 	{
 		declaration(*node.children[index], inner);
@@ -225,7 +290,15 @@ void SemaAnalyzer::using_directive(const AstNode& node, const Context& ctx)
 	const AstNode* target = child_of(node, AstKind::Target);
 	SemaEntity& space =
 		require(resolve(target->text, ctx, LookupKind::Space), target->text);
-	model_.nominate(*ctx.scope, *model_.region_of(space));
+	// 7.3.4p2: during unqualified lookup the nominated namespace's declarations
+	// appear in the nearest enclosing namespace, not in the block the directive
+	// is written in, so a name that block's namespace declares still hides them.
+	Scope* where = ctx.scope;
+	while (where->kind != ScopeKind::Namespace && where->parent != nullptr)
+	{
+		where = where->parent;
+	}
+	model_.nominate(*where, *model_.region_of(space));
 }
 
 void SemaAnalyzer::using_declaration(const AstNode& node, const Context& ctx)
@@ -252,6 +325,12 @@ void SemaAnalyzer::alias_declaration(const AstNode& node, const Context& ctx)
 	SemaEntity& entity = model_.create(SemaKind::Typedef, node.text, aliased);
 	model_.bind(*ctx.scope, node.text, entity);
 	model_.declare_in(*ctx.scope, entity);
+	if (semantics())
+	{
+		model_.open_node(*ctx.node, "type-alias " + node.text + " " +
+		                 types_.description(aliased));
+		return;
+	}
 	write_line(*ctx.dump, "type-alias", node.text, aliased);
 }
 
@@ -743,18 +822,24 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 		SemaEntity& entity = model_.create(SemaKind::Typedef, name, type);
 		model_.bind(*target.scope, name, entity);
 		model_.declare_in(*target.scope, entity);
+		if (semantics())
+		{
+			model_.open_node(*target.node, "type-alias " + name + " " +
+			                 types_.description(type));
+			return;
+		}
 		write_line(*target.dump, "type-alias", name, type);
 		return;
 	}
 	if (types_.kind(type) == TypeKind::Function)
 	{
-		SemaEntity* prior = model_.find(*target.scope, name, LookupKind::Any);
-		if (prior == nullptr || prior->kind != SemaKind::Function ||
-		    prior->type != type)
+		SemaEntity& function = declare_function(name, type, target, false);
+		if (semantics())
 		{
-			prior = &model_.create(SemaKind::Function, name, type);
-			model_.bind(*target.scope, name, *prior);
-			model_.declare_in(*target.scope, *prior);
+			model_.open_node(*target.node, "function-declaration " +
+			                 function.dump_name + " " +
+			                 types_.description(type));
+			return;
 		}
 		write_line(*target.dump, "function", name, type);
 		return;
@@ -787,7 +872,89 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 	}
 	model_.bind(*target.scope, name, entity);
 	model_.declare_in(*target.scope, entity);
-	write_line(*target.dump, "variable", name, type);
+	if (!semantics())
+	{
+		write_line(*target.dump, "variable", name, type);
+		return;
+	}
+	DumpNode& line = model_.open_node(*target.node, "variable " + name + " " +
+	                                  types_.description(type));
+	// 5.19p3 and 7.1.5p9: a constexpr object is initialized by a constant
+	// expression, and the dump writes the value it stands for rather than the
+	// expression that computed it.
+	if (initializer == nullptr || initializer->children.empty())
+	{
+		return;
+	}
+	if (entity.constant && specifiers.is_constexpr)
+	{
+		model_.open_node(line, spell("literal", ValueCategory::PRValue, type,
+		                             nullptr) + " " +
+		                 spell_value(type, entity.value));
+		return;
+	}
+	write_initializer(*initializer->children[0], type, ctx, line);
+}
+
+void SemaAnalyzer::write_initializer(const AstNode& initializer, TypeId type,
+                                     const Context& ctx, DumpNode& line)
+{
+	if (initializer.kind == AstKind::ParenInitializer)
+	{
+		// 8.5p16: direct-initialization from one expression, which for the PA12
+		// subset is the same conversion copy-initialization asks for.
+		if (!initializer.children.empty())
+		{
+			initialize(*initializer.children[0], type, ctx, line);
+		}
+		return;
+	}
+	if (initializer.kind != AstKind::BracedInitList)
+	{
+		initialize(initializer, type, ctx, line);
+		return;
+	}
+	// 8.5.1: an aggregate is initialized from the clauses of its list, each
+	// initializing one element.
+	DumpNode& list = model_.open_node(
+		line, spell("braced-init-list", ValueCategory::LValue, type, nullptr));
+	const TypeId element = types_.kind(type) == TypeKind::Array
+		? types_.target(type)
+		: type;
+	for (std::size_t index = 0; index < initializer.children.size(); ++index)
+	{
+		initialize(*initializer.children[index], element, ctx, list);
+	}
+}
+
+void SemaAnalyzer::declare_parameters(const std::vector<Parameter>& parameters,
+                                      TypeId type, const Context& inner,
+                                      DumpNode* node)
+{
+	// 8.4.1p1: the parameters the declarator's own parameter-clause declared,
+	// which the type it built already read.  The line writes the adjusted type
+	// 8.3.5p5 put in the function type, while the object keeps the type it was
+	// declared with.
+	const std::vector<TypeId>& adjusted = types_.parameters(type);
+	for (std::size_t index = 0; index < parameters.size(); ++index)
+	{
+		SemaEntity& parameter = model_.create(
+			SemaKind::Parameter, parameters[index].name, parameters[index].type);
+		if (!parameter.name.empty())
+		{
+			model_.bind(*inner.scope, parameter.name, parameter);
+		}
+		model_.declare_in(*inner.scope, parameter);
+		const TypeId written =
+			index < adjusted.size() ? adjusted[index] : parameters[index].type;
+		if (node != nullptr)
+		{
+			model_.open_node(*node, "parameter " + parameter.name + " " +
+			                 types_.description(written));
+			continue;
+		}
+		write_line(*inner.dump, "parameter", parameter.name, parameter.type);
+	}
 }
 
 void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
@@ -822,40 +989,92 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 		                         ", which is not a function");
 	}
 
-	SemaEntity* entity = model_.find(*target.scope, name, LookupKind::Any);
-	if (entity == nullptr || entity->kind != SemaKind::Function ||
-	    entity->type != type)
-	{
-		entity = &model_.create(SemaKind::Function, name, type);
-		model_.bind(*target.scope, name, *entity);
-		model_.declare_in(*target.scope, *entity);
-	}
-	entity->defined = true;
-	write_line(*target.dump, "function", name, type);
+	SemaEntity& entity = declare_function(name, type, target, true);
 
 	DumpScope& dump = model_.open_dump(*target.dump, "scope function " + name);
 	Context inner;
-	inner.scope = &model_.open(ScopeKind::Function, *target.scope, entity, &dump);
+	inner.scope = &model_.open(ScopeKind::Function, *target.scope, &entity, &dump);
 	inner.dump = &dump;
+	inner.node = ctx.node;
 
-	// 8.4.1p1: the parameters the declarator's own parameter-clause declared,
-	// which the type it built already read.
-	for (std::size_t index = 0; index < parameters.size(); ++index)
+	if (!semantics())
 	{
-		SemaEntity& parameter = model_.create(
-			SemaKind::Parameter, parameters[index].name, parameters[index].type);
-		if (!parameter.name.empty())
+		write_line(*target.dump, "function", name, type);
+		declare_parameters(parameters, type, inner, nullptr);
+		for (std::size_t index = 2; index < node.children.size(); ++index)
 		{
-			model_.bind(*inner.scope, parameter.name, parameter);
+			statement(*node.children[index], inner);
 		}
-		model_.declare_in(*inner.scope, parameter);
-		write_line(dump, "parameter", parameter.name, parameter.type);
+		return;
 	}
 
+	DumpNode& line = model_.open_node(*target.node, "function-definition " +
+	                                  entity.dump_name + " " +
+	                                  types_.description(type));
+	declare_parameters(parameters, type, inner, &line);
+
+	// 6.6.3, 6.6.1 and 6.6.2 are facts about the function being read, so the
+	// walk of one body neither sees nor leaves behind what encloses it.
+	const TypeId enclosing_return = returns_;
+	const unsigned breakable = breakable_;
+	const unsigned continuable = continuable_;
+	const unsigned switches = switches_;
+	returns_ = types_.target(type);
+	breakable_ = 0;
+	continuable_ = 0;
+	switches_ = 0;
 	for (std::size_t index = 2; index < node.children.size(); ++index)
 	{
-		statement(*node.children[index], inner);
+		semantic_statement(*node.children[index], inner, line);
 	}
+	returns_ = enclosing_return;
+	breakable_ = breakable;
+	continuable_ = continuable;
+	switches_ = switches;
+}
+
+SemaEntity& SemaAnalyzer::declare_function(const std::string& name, TypeId type,
+                                           const Context& target, bool define)
+{
+	SemaEntity* head = model_.find(*target.scope, name, LookupKind::Any);
+	SemaEntity* tail = nullptr;
+	for (SemaEntity* at = head; at != nullptr && at->kind == SemaKind::Function;
+	     at = at->next)
+	{
+		tail = at;
+		// 1.3.11 and 13.1: two declarations declare the same function exactly
+		// when their parameter type lists agree, which 8.3.5p5 has already
+		// normalised.
+		if (types_.signature(at->type) != types_.signature(type))
+		{
+			continue;
+		}
+		if (at->type != type)
+		{
+			throw std::runtime_error("two declarations of " + name +
+			                         " differ only in their return type");
+		}
+		if (define && at->defined)
+		{
+			throw std::runtime_error(name + " is defined twice");
+		}
+		at->defined = at->defined || define;
+		return *at;
+	}
+
+	SemaEntity& entity = model_.create(SemaKind::Function, name, type);
+	entity.dump_name = dump_name(*target.scope, name);
+	entity.defined = define;
+	if (tail != nullptr)
+	{
+		tail->next = &entity;
+	}
+	else
+	{
+		model_.bind(*target.scope, name, entity);
+	}
+	model_.declare_in(*target.scope, entity);
+	return entity;
 }
 
 void SemaAnalyzer::statement(const AstNode& node, const Context& ctx)
