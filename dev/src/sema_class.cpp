@@ -1375,7 +1375,7 @@ SemaEntity* SemaAnalyzer::class_destructor(TypeId type)
 // argument 9.3.1p3 made the constructor's first parameter.
 void SemaAnalyzer::write_constructed_object(SemaEntity& variable,
                                             DumpNode& call, Placement where,
-                                            Value& object)
+                                            Value& object, TypeId object_type)
 {
 	if (where == Placement::Base)
 	{
@@ -1406,7 +1406,30 @@ void SemaAnalyzer::write_constructed_object(SemaEntity& variable,
 		object.node = &inner;
 		respell(object);
 	}
+	// 12.6p1: what the constructor runs on is one object of its own class,
+	// which for an array of class type is an element rather than the array the
+	// line names.  The line keeps the array it was written from - that is where
+	// the element is - and the object 9.3.1p3 gives the constructor is the
+	// element's.
+	object.type = object.spelled = object_type;
 	address_of_object(object, node, false);
+}
+
+// 12.6p1 and 8.5p7: whether what is declared is an array of class type whose
+// elements are created by constructing each of them, which is what a
+// declaration that wrote no clause for any element asks for - no initializer at
+// all, and the empty `()` or `{}` that value-initializes every element.  A
+// clause of its own initializes the element it reached, which 8.5.1 writes
+// where the clauses are read.
+bool SemaAnalyzer::element_constructed(TypeId type, const AstNode* written)
+{
+	if (types_.kind(types_.strip_cv(type)) != TypeKind::Array ||
+	    !types_.is_class(element_of(type)))
+	{
+		return false;
+	}
+	return written == nullptr ||
+		(is_initializer_list(written->kind) && written->children.empty());
 }
 
 // 8.5, 12.1 and 13.3.1.3: an object of class type is initialized by one of the
@@ -1419,21 +1442,27 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
                                     const Value* given, bool value_init)
 {
 	const bool member = where != Placement::Named;
+	// 12.6p1: an array of class type is initialized element by element, and
+	// each element is one object of the element's class.  The one constructor
+	// every element is given is chosen once, here, from the type of an element;
+	// the action names the array, so how many objects it creates is what the
+	// declared type says rather than a count written beside it.
+	const TypeId object_type = element_of(variable.type);
 
-	if (!types_.is_class(types_.strip_cv(variable.type)))
+	if (!types_.is_class(types_.strip_cv(object_type)))
 	{
 		// 8.5p6: default-initializing an object of any other type performs no
 		// initialization, and there is nothing for the output to describe.
 		return;
 	}
-	SemaEntity* const head = class_constructors(variable.type);
+	SemaEntity* const head = class_constructors(object_type);
 	if (head == nullptr)
 	{
 		// 3.9p6 and 9.2p2: an object needs a complete class, and 12.1p5 gives
 		// every complete one the output describes a constructor, so a class
 		// with none here is one this translation unit never defined.
 		throw std::runtime_error("an object of the incomplete class type " +
-		                         types_.description(variable.type) +
+		                         types_.description(object_type) +
 		                         " is declared");
 	}
 	// 8.5p15 and 8.5p16: which of the arguments the program wrote reach the
@@ -1473,7 +1502,7 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 		SemaEntity* const named =
 			resolve(written->children[0]->text, ctx, LookupKind::Type);
 		if (named != nullptr && names_a_type(*named) &&
-		    types_.strip_cv(named->type) == types_.strip_cv(variable.type))
+		    types_.strip_cv(named->type) == types_.strip_cv(object_type))
 		{
 			list = call_arguments(*written);
 			converting = false;
@@ -1498,7 +1527,7 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 		// initialization, because 12.8p31 lets a value of the object's own type
 		// be what initializes it, with no constructor standing between them.
 		source = expression(*written, ctx, line);
-		if (types_.strip_cv(source.type) == types_.strip_cv(variable.type) &&
+		if (types_.strip_cv(source.type) == types_.strip_cv(object_type) &&
 		    !member)
 		{
 			return;
@@ -1511,7 +1540,7 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 	DumpNode& call = model_.open_node(action, std::string());
 	DumpNode& callee = model_.open_node(call, std::string());
 	Value object;
-	write_constructed_object(variable, call, where, object);
+	write_constructed_object(variable, call, where, object, object_type);
 	std::vector<Value> arguments;
 	if (list != nullptr)
 	{
@@ -1733,19 +1762,19 @@ void SemaAnalyzer::destructor_action(SemaEntity& entity, DumpNode& parent,
 		// base class subobject of an object runs the base-object entry.
 		destructor->complete_object_entry = true;
 	}
-	if (types_.kind(types_.strip_cv(entity.type)) == TypeKind::Array)
-	{
-		// 12.4p12 destroys the elements in reverse order, which this milestone
-		// does not write yet, so the object is left rather than half destroyed.
-		throw std::runtime_error("an array of a class with a destructor is "
-		                         "declared, which this milestone does not end "
-		                         "the lifetime of");
-	}
 	DumpNode& action = model_.open_node(
 		parent, "destructor-action " + destructor->dump_name);
 	action.fact.kind = FactKind::DestructorAction;
 	action.fact.entity = destructor;
 	action.fact.type = entity.type;
+	// 12.4p8: an array of class type is as many objects as it has elements and
+	// the destructor runs on each of them.  The action names the array, which
+	// says how many they are; a member subobject is destroyed in the reverse of
+	// the order 12.6.2p10 created it in, and the elements of one an enclosing
+	// block declared are left in the order the references end them in.
+	action.fact.reverse_elements =
+		where != Placement::Named &&
+		types_.kind(types_.strip_cv(entity.type)) == TypeKind::Array;
 	if (where == Placement::Base)
 	{
 		// 12.4p8: the base class subobject of the object being destroyed, which
@@ -1915,12 +1944,15 @@ void SemaAnalyzer::write_member_initializations(const Pending& pending,
 		const TypeId type = member.type;
 		const bool braced =
 			written != nullptr && written->kind == AstKind::BracedInitList;
-		if (types_.is_class(types_.strip_cv(type)) &&
-		    !(braced && aggregate_type(type)))
+		if ((types_.is_class(types_.strip_cv(type)) &&
+		     !(braced && aggregate_type(type))) ||
+		    element_constructed(type, written))
 		{
 			// 12.6.2p8 and 12.1p5: a member no initializer reaches is
 			// default-initialized, and where that does nothing at all there is
-			// no action to write and no subobject to name.
+			// no action to write and no subobject to name.  An array member is
+			// 12.6p1's elements, each constructed by the one constructor the
+			// action names.
 			if (written == nullptr && trivially_constructed(type))
 			{
 				continue;

@@ -590,7 +590,15 @@ void LowirUnitLowering::global_variable(const DumpNode& node)
 	         types_.kind(types_.strip_cv(type)) == TypeKind::Class)
 	{
 		global.structured = true;
-		global_array_initializer(global, written, type);
+		if (!global_array_initializer(global, written, type))
+		{
+			// 3.6.2p2: a clause names a value this translation does not know,
+			// so the whole object starts as zero and is given what it holds
+			// before the program runs.
+			global.data_items.clear();
+			add_zero_item(global, types_.object_size(types_.strip_cv(type)));
+			dynamic = written;
+		}
 	}
 	else if (written != nullptr && !global_initializer(global, *written, type))
 	{
@@ -872,7 +880,7 @@ void LowirUnitLowering::static_destructor(const DumpNode& node)
 	shutdown_->add_destruction(node);
 }
 
-void LowirUnitLowering::global_array_initializer(
+bool LowirUnitLowering::global_array_initializer(
 	lowir_model::GlobalDefinition& global, const DumpNode* node, TypeId type)
 {
 	const TypeId array = types_.strip_cv(type);
@@ -893,7 +901,27 @@ void LowirUnitLowering::global_array_initializer(
 		{
 			// 8.5.1p3: an element that is itself an aggregate holds what its own
 			// list says, so its items are this one's items in the same order.
-			global_array_initializer(global, node->children[index], element);
+			if (!global_array_initializer(global, node->children[index], element))
+			{
+				return false;
+			}
+			continue;
+		}
+		if (node->children[index]->fact.kind ==
+		    FactKind::AggregateInitialization)
+		{
+			// 8.5.1p1 and 3.6.2p2: an element of class type holds what the
+			// subobjects its own clauses reached hold, at the offsets 9.2p13
+			// gave them inside the element.  What the element does not fill is
+			// the padding of one object rather than of the array.
+			const unsigned long long base =
+				static_cast<unsigned long long>(index) * stride;
+			unsigned long long at = base;
+			if (!global_subobjects(global, *node->children[index], base, at))
+			{
+				return false;
+			}
+			add_zero_item(global, base + stride - at);
 			continue;
 		}
 		lowir_model::GlobalDefinition::DataItem item;
@@ -911,8 +939,10 @@ void LowirUnitLowering::global_array_initializer(
 		unsigned long long bits = 0;
 		if (!folded(*node->children[index], bits))
 		{
-			throw std::runtime_error("an array element is initialized by an "
-			                         "expression PA15 does not lower");
+			// 3.6.2p2: the element's value is not one the translation knows,
+			// so the whole array is given what it holds before the program
+			// runs.
+			return false;
 		}
 		if (addressed)
 		{
@@ -927,15 +957,10 @@ void LowirUnitLowering::global_array_initializer(
 		item.literal_operand.text = spell_value(element, bits);
 		global.data_items.push_back(item);
 	}
-	const unsigned long long left = (bound - clauses) * stride;
-	if (left == 0)
-	{
-		return;
-	}
-	lowir_model::GlobalDefinition::DataItem zero;
-	zero.kind = lowir_model::GlobalDefinition::DataItem::ITEM_ZERO;
-	zero.zero_bytes = static_cast<std::size_t>(left);
-	global.data_items.push_back(zero);
+	// 8.5.1p7: the elements no clause reached are value-initialized, which for
+	// every type this milestone lays out is the zero of them.
+	add_zero_item(global, (bound - clauses) * stride);
+	return true;
 }
 
 std::string LowirUnitLowering::string_literal(const std::string& data,

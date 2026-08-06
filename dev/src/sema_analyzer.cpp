@@ -1465,6 +1465,16 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 		                 initializer != nullptr && initializer->copied);
 		return;
 	}
+	if (entity.object_definition && element_constructed(type, value))
+	{
+		// 12.6p1: an array of class type is initialized by constructing each of
+		// its elements, and where no clause named one the constructor every
+		// element is given is the same one.  The action names the array, so
+		// there is one of it however many elements there are.
+		construct_object(entity, line, value, ctx, Placement::Named,
+		                 initializer != nullptr && initializer->copied);
+		return;
+	}
 	// 5.19p3 and 7.1.5p9: a constexpr object is initialized by a constant
 	// expression, and the dump writes the value it stands for rather than the
 	// expression that computed it.

@@ -120,6 +120,7 @@ struct SemaFact
 		, entity(nullptr)
 		, constant(false)
 		, zero_initialized(false)
+		, reverse_elements(false)
 		, value(0)
 	{}
 
@@ -147,6 +148,13 @@ struct SemaFact
 	// object holds wherever the constructor leaves a member alone, and it is
 	// written even where the constructor itself does nothing.
 	bool zero_initialized;
+	// 12.6p1 and 12.4p8: whether this `constructor-action` or
+	// `destructor-action` acts on the elements of an array from the last one
+	// back to the first.  The action names the array rather than one element,
+	// so how many objects it is, is what the array type says; this is the one
+	// thing left to say about them, and 12.6.2p10's member is the subobject
+	// destroyed in the reverse of the order it was created in.
+	bool reverse_elements;
 	unsigned long long value;
 	// The spelling this node carries that no other fact holds: the tokens a
 	// floating literal was written from, whose value is a value of the

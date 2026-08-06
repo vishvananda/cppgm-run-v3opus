@@ -535,6 +535,10 @@ private:
 	// 8.3.4p1: the type of one element of an array, however many dimensions it
 	// has, and the type itself for anything else.
 	TypeId element_of(TypeId type);
+	// 12.6p1: whether a declaration of an array of class type creates its
+	// elements by constructing each of them, which every form but one that
+	// wrote a clause for an element does.
+	bool element_constructed(TypeId type, const AstNode* written);
 	// 8.5 and 13.3.1.3: the `constructor-action` an object of class type is
 	// initialized by, and the definition of the constructor it calls.
 	// `written` is the initializer the program wrote, or null for an object
@@ -557,7 +561,8 @@ private:
 	// a declaration named, a member of the object being constructed, or that
 	// object's base class subobject.
 	void write_constructed_object(SemaEntity& variable, DumpNode& call,
-	                              Placement where, Value& object);
+	                              Placement where, Value& object,
+	                              TypeId object_type);
 	// 12.2p1 and 5.2.3p2: a prvalue of class type is an object, so the function
 	// it is written in has to hold one.  This declares that object - which no
 	// name reaches - runs the constructor `written` chooses on it, and hands

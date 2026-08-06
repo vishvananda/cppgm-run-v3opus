@@ -101,6 +101,8 @@ struct LowObject
 		: written(nullptr)
 		, member(nullptr)
 		, addressed(false)
+		, element_array(kNoType)
+		, element_index(0)
 	{}
 
 	lowir_model::Operand storage;
@@ -112,6 +114,12 @@ struct LowObject
 	// rather than computing a second one for the same storage.
 	lowir_model::Operand address;
 	bool addressed;
+	// 8.5.1p1: the object is one element of the array the two members above
+	// name, which is what a namespace-scope array whose clauses 3.6.2p2 could
+	// not settle is initialized one of at a time.  `kNoType` where the object
+	// is the whole thing the storage holds.
+	TypeId element_array;
+	unsigned long long element_index;
 };
 
 // The symbols one LowIR program names, which outlive the translation unit that
@@ -273,8 +281,10 @@ private:
 	bool global_address(const DumpNode& node, std::string& symbol,
 	                    long long& addend);
 	// 8.5.1 over a namespace-scope array: the clauses as the items its storage
-	// holds, with the elements no clause reached left zero.
-	void global_array_initializer(lowir_model::GlobalDefinition& global,
+	// holds, with the elements no clause reached left zero.  False where a
+	// clause names no value the translation knows, which 3.6.2p2 makes an
+	// action over the whole array rather than data.
+	bool global_array_initializer(lowir_model::GlobalDefinition& global,
 	                              const DumpNode* node, TypeId type);
 	// 8.5.1 and 3.6.2p2 over a namespace-scope aggregate: the subobjects the
 	// analysis resolved, as the items its storage holds.  One pass in
@@ -484,7 +494,23 @@ private:
 	// is the call it is - which is what a temporary no declaration named needs
 	// and what an object a declaration named does not.
 	void constructor_call(const lowir_model::Operand& address,
-	                      const DumpNode& node, bool always = false);
+	                      const DumpNode& node, bool always = false,
+	                      TypeId zeroed = kNoType);
+	// 12.6p1 and 12.4p8: the action `node` names, run on every element of the
+	// array it names rather than on one object.  The object the action names is
+	// read again for each element, because where the element is, is where the
+	// array is plus the elements before it, and that is one description however
+	// the walk reached the array.
+	void array_lifecycle(const DumpNode& node, bool construct);
+	// 5.2.1p1: one element of the array whose address is `array`, which is the
+	// array read as a pointer to its first element and moved by whole elements.
+	lowir_model::Operand array_element(const lowir_model::Operand& array,
+	                                   TypeId array_type,
+	                                   unsigned long long index);
+	// 8.5p7 over an array: every element value-initialized, written as the
+	// elements they are while there are few enough of them for that to be a
+	// description of the array.
+	void value_initialize_array(const LowObject& object, TypeId type);
 	// 12.2p1: the storage a prvalue of class type stands in, given to it here
 	// and constructed here.  The object is named once however many readers the
 	// temporary has, so the slot is made the first time it is reached.

@@ -76,13 +76,118 @@ void LowirFunctionLowering::add_initialization(const Operand& storage,
 		store(address_of(bound), storage, type);
 		return;
 	}
+	if (types.kind(types.strip_cv(type)) == TypeKind::Array &&
+	    (node.fact.kind == FactKind::BracedInitList ||
+	     node.fact.kind == FactKind::AggregateInitialization))
+	{
+		// 3.6.2p2 and 8.5.1p1: the clauses initialize the elements, and an
+		// element of a namespace-scope array is named the way the program would
+		// name it - the array, moved by whole elements - rather than by a
+		// cursor counting bytes from the front of storage the program image
+		// already holds.
+		const TypeId array = types.strip_cv(type);
+		for (std::size_t index = 0; index < node.children.size(); ++index)
+		{
+			LowObject at;
+			at.storage = storage;
+			at.element_array = array;
+			at.element_index = index;
+			initialize_into(at, types.target(array), *node.children[index]);
+		}
+		return;
+	}
 	initialize(storage, type, node);
+}
+
+// 5.2.1p1 and 8.3.4p6: the address of one element of the array at `array`.
+// The array is read as the pointer to its first element that 4.2 makes it, and
+// the element is that pointer moved by whole elements - which LowIR spells by
+// the width of an element where an element has one, and by the bytes 5.2.1p1
+// counts where it does not.
+Operand LowirFunctionLowering::array_element(const Operand& array,
+                                             TypeId array_type,
+                                             unsigned long long index)
+{
+	TypeTable& types = unit_.types();
+	const TypeId element = types.target(types.strip_cv(array_type));
+	Instruction decayed;
+	decayed.kind = Instruction::IK_UNARY;
+	decayed.op = "decay";
+	decayed.type.text = "ptr";
+	decayed.first = array;
+	Instruction move;
+	move.kind = Instruction::IK_INDEX;
+	move.index_projection = lowir_model::IPK_ARRAY_ELEMENT;
+	move.type = unit_.low_type(element);
+	move.first = emit(decayed);
+	move.second = named_operand(Operand::OP_INTEGER, decimal(index));
+	const unsigned long long stride = types.object_size(types.strip_cv(element));
+	if (move.type.text.compare(0, 4, "obj<") == 0)
+	{
+		move.type.text = "i8";
+		if (stride != 1)
+		{
+			// An element with no register form is not a width LowIR indexes by,
+			// so the step counts the bytes an element occupies.  One byte is
+			// already what `i8` counts.
+			Instruction scale;
+			scale.kind = Instruction::IK_BINARY;
+			scale.op = "mul";
+			scale.type.text = "i64";
+			scale.first = named_operand(Operand::OP_INTEGER, decimal(index));
+			scale.second = named_operand(Operand::OP_INTEGER, decimal(stride));
+			move.second = emit(scale);
+		}
+	}
+	return emit(move);
+}
+
+// 12.6p1 and 12.4p8: the action the array names, run on each of its elements.
+// 12.6p1 creates them in increasing order; a subobject is destroyed in the
+// reverse of the order it was created in, which the action says.
+void LowirFunctionLowering::array_lifecycle(const DumpNode& node,
+                                            bool construct)
+{
+	TypeTable& types = unit_.types();
+	const TypeId array = types.strip_cv(node.fact.type);
+	const TypeId element = types.target(array);
+	const unsigned long long stride = types.object_size(types.strip_cv(element));
+	const unsigned long long bound =
+		stride == 0 ? 0 : types.object_size(array) / stride;
+	const DumpNode& named =
+		construct ? *node.children[0]->children[1] : *node.children[0];
+	for (unsigned long long step = 0; step < bound; ++step)
+	{
+		const unsigned long long index =
+			node.fact.reverse_elements ? bound - 1 - step : step;
+		// The array is named again for each element: the element's address is
+		// the array's plus the elements before it, which is one description of
+		// where it is however many readers the array has.
+		const LowValue object = expression(named, true);
+		const Operand at = array_element(
+			construct ? object.operand : address_of(object), array, index);
+		if (construct)
+		{
+			constructor_call(at, node, false, element);
+			continue;
+		}
+		const SemaEntity& destructor = *node.fact.entity;
+		unit_.declare_entity(destructor);
+		Instruction out;
+		out.kind = Instruction::IK_CALL;
+		out.type = unit_.low_type(types.target(destructor.type));
+		out.first = named_operand(Operand::OP_GLOBAL,
+		                          unit_.function_symbol(destructor));
+		out.args.push_back(at);
+		emit_void(out);
+	}
 }
 
 // 12.1p5 and 8.5p6: constructing the object at `address`, which is one call of
 // its constructor on it.  A constructor that does nothing is no call at all.
 void LowirFunctionLowering::constructor_call(const Operand& address,
-                                             const DumpNode& node, bool always)
+                                             const DumpNode& node, bool always,
+                                             TypeId zeroed)
 {
 	TypeTable& types = unit_.types();
 	const DumpNode& call = *node.children[0];
@@ -92,8 +197,10 @@ void LowirFunctionLowering::constructor_call(const Operand& address,
 		// 8.5p7: the object was value-initialized and its class wrote no
 		// constructor, so its storage is zero before the one the standard gave
 		// it runs - and that zero is the whole initialization where the
-		// constructor is the trivial one.
-		zero_object(address, node.fact.type);
+		// constructor is the trivial one.  What is zeroed is one object, which
+		// for an array of class type is the element being constructed rather
+		// than every byte the array occupies.
+		zero_object(address, zeroed == kNoType ? node.fact.type : zeroed);
 	}
 	if (constructor.trivial && !always)
 	{
@@ -349,6 +456,13 @@ void LowirFunctionLowering::destructor_call(const DumpNode& node)
 	{
 		return;
 	}
+	if (types.kind(types.strip_cv(node.fact.type)) == TypeKind::Array)
+	{
+		// 12.4p8: the object whose lifetime ends is each element of the array,
+		// and the destructor runs on each of them.
+		array_lifecycle(node, false);
+		return;
+	}
 	const LowValue object = expression(*node.children[0], true);
 	unit_.declare_entity(destructor);
 	Instruction out;
@@ -443,6 +557,15 @@ void LowirFunctionLowering::initialize_into(const LowObject& object,
 	}
 	if (types.kind(types.strip_cv(type)) == TypeKind::Array)
 	{
+		if (node.fact.kind == FactKind::Literal && node.fact.spelling.empty() &&
+		    node.children.empty())
+		{
+			// 8.5p7: `m()` names no clause for any element, so every element is
+			// value-initialized - which is one initialization of each element
+			// rather than one of the array's bytes.
+			value_initialize_array(object, type);
+			return;
+		}
 		initialize_array(object, type, node);
 		return;
 	}
@@ -501,6 +624,10 @@ void LowirFunctionLowering::initialize_aggregate(const LowObject& object,
 // nothing has to be emitted to name storage the function already holds.
 Operand LowirFunctionLowering::object_storage(const LowObject& object)
 {
+	if (object.element_array != kNoType)
+	{
+		return object_address(object);
+	}
 	return object.written != nullptr
 		? member_storage(*object.written, *object.member)
 		: object.storage;
@@ -508,14 +635,25 @@ Operand LowirFunctionLowering::object_storage(const LowObject& object)
 
 Operand LowirFunctionLowering::object_address(const LowObject& object)
 {
+	Operand at;
 	if (object.written != nullptr)
 	{
-		return member_storage(*object.written, *object.member);
+		at = member_storage(*object.written, *object.member);
 	}
-	LowValue held;
-	held.lvalue = true;
-	held.operand = object.storage;
-	return address_of(held);
+	else
+	{
+		LowValue held;
+		held.lvalue = true;
+		held.operand = object.storage;
+		at = address_of(held);
+	}
+	if (object.element_array == kNoType)
+	{
+		return at;
+	}
+	// 8.5.1p1: what is being initialized is one element of that array, which is
+	// where the array is plus the elements before it.
+	return array_element(at, object.element_array, object.element_index);
 }
 
 Operand LowirFunctionLowering::subobject_address(
@@ -625,6 +763,23 @@ void LowirFunctionLowering::initialize_subobject(
 		path.pop_back();
 		return;
 	}
+	if (node.children.size() == 1 && node.fact.op == 0 &&
+	    node.children[0]->fact.kind != FactKind::AggregateInitialization &&
+	    node.children[0]->fact.kind != FactKind::BracedInitList &&
+	    unit_.types().kind(unit_.types().strip_cv(node.fact.type)) !=
+		    TypeKind::Array &&
+	    !unit_.types().is_class(unit_.types().strip_cv(node.fact.type)))
+	{
+		// The value is computed before the address of the subobject it is
+		// stored into, because that is the order the references write and 1.9
+		// leaves it open - the same order 12.6.2's mem-initializer writes.
+		const LowValue value = expression(*node.children[0]);
+		const Operand held = initializer_value(value, node.fact.type);
+		const Operand into = subobject_address(object, path);
+		path.pop_back();
+		store(held, into, node.fact.type);
+		return;
+	}
 	const Operand at = subobject_address(object, path);
 	path.pop_back();
 	if (node.fact.op != 0)
@@ -659,6 +814,46 @@ void LowirFunctionLowering::initialize_subobject(
 		return;
 	}
 	initialize(at, node.fact.type, *node.children[0]);
+}
+
+// 8.5p7: every element of the array is value-initialized, which for an element
+// of any type this milestone lays out is the zero of it.  The elements are
+// written as the elements they are - each named from the array again, which is
+// the one description of where an element is - while there are few enough of
+// them for that to be a description of the array; past that the storage is what
+// the initialization is about and the zero is one span.
+void LowirFunctionLowering::value_initialize_array(const LowObject& object,
+                                                   TypeId type)
+{
+	TypeTable& types = unit_.types();
+	const TypeId array = types.strip_cv(type);
+	const TypeId element = types.target(array);
+	const unsigned long long stride = types.object_size(types.strip_cv(element));
+	const unsigned long long size = types.object_size(array);
+	if (size == 0)
+	{
+		return;
+	}
+	if (stride == 0 || size > kZeroSpanLimit)
+	{
+		Instruction zero;
+		zero.kind = Instruction::IK_ZEROINIT;
+		zero.byte_count = static_cast<std::size_t>(size);
+		zero.byte_alignment = static_cast<std::size_t>(types.object_align(array));
+		zero.first = object_address(object);
+		emit_void(zero);
+		return;
+	}
+	for (unsigned long long index = 0; index < size / stride; ++index)
+	{
+		const Operand at = array_element(object_address(object), array, index);
+		if (types.is_class(types.strip_cv(element)))
+		{
+			zero_object(at, element);
+			continue;
+		}
+		store(literal_operand(element, 0), at, element);
+	}
 }
 
 void LowirFunctionLowering::initialize_array(const LowObject& object,

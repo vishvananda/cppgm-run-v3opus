@@ -1128,6 +1128,14 @@ void LowirFunctionLowering::statement(const DumpNode& node)
 
 	case FactKind::ConstructorAction:
 	{
+		if (unit_.types().kind(unit_.types().strip_cv(node.fact.type)) ==
+		    TypeKind::Array)
+		{
+			// 12.6p1: the object being initialized is each element of the
+			// array, and the constructor runs on each of them.
+			array_lifecycle(node, true);
+			return;
+		}
 		// 12.6.2: a subobject of class type is initialized by running its
 		// constructor on it, and the action already names the subobject.
 		const LowValue object = expression(*node.children[0]->children[1]);
@@ -1219,6 +1227,15 @@ void LowirFunctionLowering::local_variable(const DumpNode& node)
 		}
 		opened.address = address;
 		opened.addressed = true;
+	}
+	if (!node.children.empty() &&
+	    node.children[0]->fact.kind == FactKind::ConstructorAction &&
+	    types.kind(types.strip_cv(type)) == TypeKind::Array)
+	{
+		// 12.6p1: the declaration created as many objects as the array has
+		// elements, and the constructor ran on each of them.
+		array_lifecycle(*node.children[0], true);
+		return;
 	}
 	if (node.children.empty())
 	{
