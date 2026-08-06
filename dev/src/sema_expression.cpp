@@ -1012,6 +1012,16 @@ SemaAnalyzer::Value SemaAnalyzer::subscript_expression(const AstNode& node,
 	const Value right = expression(*node.children[1], ctx, line);
 	require_complete_value(left);
 	require_complete_value(right);
+	// 13.5.5p1: a subscript on a class object is a call of a member operator
+	// function, which is the only kind `operator[]` may be declared as.
+	std::vector<Value> operands;
+	operands.push_back(left);
+	operands.push_back(right);
+	Value chosen;
+	if (operator_expression(OP_LSQUARE, ctx, line, operands, true, chosen))
+	{
+		return chosen;
+	}
 	// 5.2.1p1: one operand is a pointer to a completely-defined object type and
 	// the other an unscoped enumeration or integral type; `a[b]` is `*(a + b)`.
 	const TypeId left_type = decayed(left);
@@ -1361,6 +1371,14 @@ SemaAnalyzer::Value SemaAnalyzer::unary_expression(const AstNode& node,
 		? named_value(written, *named, line, found)
 		: expression(written, ctx, line);
 	Value value;
+	// 13.5p1: a unary operator written on an operand of class or enumeration
+	// type is a call, whichever operator it is.
+	std::vector<Value> operands;
+	operands.push_back(operand);
+	if (operator_expression(node.token, ctx, line, operands, false, value))
+	{
+		return value;
+	}
 	value.category = ValueCategory::PRValue;
 
 	switch (node.token)
@@ -1468,6 +1486,35 @@ SemaAnalyzer::Value SemaAnalyzer::increment_expression(const AstNode& node,
 	DumpNode& line = model_.open_node(parent, std::string());
 	const Value operand = expression(*node.children[0], ctx, line);
 	require_complete_value(operand);
+	// 13.5.7p1: `x++` is read as `x++0`, so the candidates of a postfix
+	// increment are gathered over two operands and the second is a zero the
+	// program did not write.
+	std::vector<Value> operands;
+	operands.push_back(operand);
+	if (postfix)
+	{
+		Value zero;
+		zero.type = zero.spelled = types_.fundamental(FT_INT);
+		zero.category = ValueCategory::PRValue;
+		zero.constant = true;
+		zero.what = "literal";
+		zero.payload = "0";
+		zero.node = &model_.open_node(
+			line, spell(zero.what, zero.category, zero.type, zero.payload));
+		record(zero);
+		operands.push_back(zero);
+	}
+	Value chosen;
+	if (operator_expression(node.token, ctx, line, operands, false, chosen))
+	{
+		return chosen;
+	}
+	if (postfix)
+	{
+		// Nothing was chosen, so the operand 13.5.7p1 added is not one the
+		// built-in operator reads and the line it wrote leaves the tree.
+		line.children.pop_back();
+	}
 	// 5.2.6p1 and 5.3.2p1: the operand is a modifiable lvalue of arithmetic or
 	// pointer type, and `--` does not take a `bool`.
 	if (operand.category != ValueCategory::LValue ||
@@ -1569,6 +1616,15 @@ SemaAnalyzer::Value SemaAnalyzer::binary_expression(const AstNode& node,
 	Value right = expression(*node.children[1], ctx, line);
 
 	Value value;
+	// 13.5p1: an operand of class or enumeration type makes the operator a
+	// call, and 13.3 says which function it calls.
+	std::vector<Value> operands;
+	operands.push_back(left);
+	operands.push_back(right);
+	if (operator_expression(node.token, ctx, line, operands, false, value))
+	{
+		return value;
+	}
 	value.category = ValueCategory::PRValue;
 	if (node.token == OP_COMMA)
 	{
@@ -1844,6 +1900,31 @@ SemaAnalyzer::Value SemaAnalyzer::assignment_expression(const AstNode& node,
 	DumpNode& line = model_.open_node(parent, std::string());
 	const Value left = expression(*node.children[0], ctx, line);
 	require_complete_value(left);
+	// 13.5.3p1: `operator=` shall be a non-static member function, so an
+	// assignment to a class object is a call of one where the class has one -
+	// and where it has one, that is what the assignment means, so a right
+	// operand none of them accepts is an error rather than a fall-back.
+	if (node.token == OP_ASS && types_.is_class(types_.strip_cv(left.type)))
+	{
+		SemaEntity* const owner =
+			model_.type_owner(types_.strip_cv(left.type));
+		if (owner != nullptr && owner->scope != nullptr &&
+		    model_.lookup_in(*owner->scope, "operator=",
+		                     LookupKind::Any) != nullptr)
+		{
+			std::vector<Value> operands;
+			operands.push_back(left);
+			operands.push_back(expression(*node.children[1], ctx, line));
+			Value chosen;
+			if (!operator_expression(node.token, ctx, line, operands, true,
+			                         chosen))
+			{
+				throw std::runtime_error("no assignment operator of the class "
+				                         "accepts the right operand");
+			}
+			return chosen;
+		}
+	}
 	// 5.17p1: the left operand is a modifiable lvalue and the result is that
 	// lvalue.
 	if (left.category != ValueCategory::LValue ||
@@ -1862,6 +1943,16 @@ SemaAnalyzer::Value SemaAnalyzer::assignment_expression(const AstNode& node,
 	{
 		const Value right = expression(*node.children[1], ctx, line);
 		require_complete_value(right);
+		// 13.5p1: a compound assignment on a class or enumeration operand is a
+		// call like any other operator, and unlike `=` it may be a non-member.
+		std::vector<Value> operands;
+		operands.push_back(left);
+		operands.push_back(right);
+		Value chosen;
+		if (operator_expression(node.token, ctx, line, operands, false, chosen))
+		{
+			return chosen;
+		}
 		// 5.17p7: a compound assignment behaves as the operator it names
 		// followed by an assignment, so the operator's own rules decide
 		// whether the operands go together.

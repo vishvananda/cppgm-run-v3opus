@@ -1154,6 +1154,13 @@ void SemaAnalyzer::simple_declaration(const AstNode& node, const Context& ctx)
 		read_specifiers(*node.children[0], ctx, span, true, declared);
 	if (list == nullptr)
 	{
+		if (specifiers.is_friend)
+		{
+			// 11.3p2: a friend declaration with no declarator names a class,
+			// and what it does is grant rather than declare.
+			grant_class_friendship(ctx, specifiers);
+			return;
+		}
 		inject_union_members(specifiers.introduced, ctx, span);
 		return;
 	}
@@ -1180,6 +1187,67 @@ void SemaAnalyzer::condition_declaration(const AstNode& node, const Context& ctx
 		init_declarator(*declarator, child_of(node, AstKind::Initializer),
 		                specifiers, ctx);
 	}
+}
+
+// 8.3.5 and 13.1: one declarator that declares a function, from the point its
+// type is known.  A friend declaration reaches here too: 11.3p6 already put
+// `target` on the region around the class, and `granting` is the class whose
+// access the declaration carries.
+void SemaAnalyzer::declare_function_declarator(
+	const AstNode& node, const std::string& name, TypeId type,
+	const QualifiedName& spelled, const Specifiers& specifiers,
+	const Context& target, SemaEntity* granting,
+	std::vector<Parameter>& spelled_parameters)
+{
+	// 9.3.1p3: a member function is called on an object, which is a
+	// parameter of it that the declarator does not write.
+	const TypeId written_type = type;
+	type = with_object_parameter(type, node, target, specifiers.is_static);
+	SemaEntity& function =
+		declare_function(name, type, target, false,
+		                 granting != nullptr && !spelled.qualified());
+	function.object_member = type != written_type;
+	if (granting != nullptr)
+	{
+		// 11.3p1 and 3.4.2p2: the class grants this declaration its access,
+		// and holds it as one of the declarations a lookup that reaches the
+		// class finds even where no lookup written in a region does.
+		model_.befriend(*granting, function);
+		if (!spelled.qualified() && granting->scope != nullptr)
+		{
+			granting->scope->friend_functions.push_back(&function);
+		}
+	}
+	function.internal_linkage = function.internal_linkage ||
+		(specifiers.is_static && target.scope->kind == ScopeKind::Namespace);
+	// 7.1.2p2: one declaration of a function with `inline` makes it inline,
+	// so the fact accumulates over the declarations of one entity.
+	function.inline_function =
+		function.inline_function || specifiers.is_inline;
+	record_default_arguments(function, spelled_parameters, target.scope);
+	if (function.template_parameters != nullptr)
+	{
+		templates_[function.id].swap(spelled_parameters);
+	}
+	if (semantics())
+	{
+		// 14p1: a template is not a function; the unit has the ones its
+		// instantiations declare, and the output describes those.
+		if (target.node != nullptr &&
+		    target.scope->kind != ScopeKind::TemplateParameters)
+		{
+			DumpNode& declared =
+				open_fact(*target.node, "function-declaration " +
+				          function.dump_name + " " +
+				          types_.description(type),
+				          FactKind::FunctionDeclaration);
+			declared.fact.entity = &function;
+			declared.fact.type = type;
+		}
+		return;
+	}
+	write_line(*target.dump, "function", name, type);
+	return;
 }
 
 void SemaAnalyzer::init_declarator(const AstNode& node,
@@ -1220,6 +1288,11 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 		target.scope = resolve_prefix(spelled, ctx);
 		target.dump = target.scope->dump;
 	}
+	// 11.3p6: what a friend declaration declares belongs to the region around
+	// the class, so the declarator is read against that region and the class
+	// gets the grant.
+	SemaEntity* const granting =
+		specifiers.is_friend ? friend_target(ctx, spelled, target) : nullptr;
 
 	if (specifiers.is_typedef)
 	{
@@ -1240,41 +1313,8 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 	}
 	if (types_.kind(type) == TypeKind::Function)
 	{
-		// 9.3.1p3: a member function is called on an object, which is a
-		// parameter of it that the declarator does not write.
-		const TypeId written_type = type;
-		type = with_object_parameter(type, node, target, specifiers.is_static);
-		SemaEntity& function = declare_function(name, type, target, false);
-		function.object_member = type != written_type;
-		function.internal_linkage = function.internal_linkage ||
-			(specifiers.is_static && target.scope->kind == ScopeKind::Namespace);
-		// 7.1.2p2: one declaration of a function with `inline` makes it inline,
-		// so the fact accumulates over the declarations of one entity.
-		function.inline_function =
-			function.inline_function || specifiers.is_inline;
-		record_default_arguments(function, spelled_parameters, target.scope);
-		if (function.template_parameters != nullptr)
-		{
-			templates_[function.id].swap(spelled_parameters);
-		}
-		if (semantics())
-		{
-			// 14p1: a template is not a function; the unit has the ones its
-			// instantiations declare, and the output describes those.
-			if (target.node != nullptr &&
-			    target.scope->kind != ScopeKind::TemplateParameters)
-			{
-				DumpNode& declared =
-					open_fact(*target.node, "function-declaration " +
-					          function.dump_name + " " +
-					          types_.description(type),
-					          FactKind::FunctionDeclaration);
-				declared.fact.entity = &function;
-				declared.fact.type = type;
-			}
-			return;
-		}
-		write_line(*target.dump, "function", name, type);
+		declare_function_declarator(node, name, type, spelled, specifiers,
+		                            target, granting, spelled_parameters);
 		return;
 	}
 
@@ -1501,6 +1541,13 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 		target.scope = resolve_prefix(spelled, ctx);
 		target.dump = target.scope->dump;
 	}
+	// 11.3p6: a friend function defined in a class body is a member of the
+	// region around the class.  3.4.1p9 still reads the names in its body as a
+	// member function's are read, so the region its parameters and body are
+	// written in is enclosed by the class while the declaration is not.
+	Scope* const lexical = ctx.scope;
+	SemaEntity* const granting =
+		specifiers.is_friend ? friend_target(ctx, spelled, target) : nullptr;
 
 	std::string ignored;
 	std::vector<Parameter> parameters;
@@ -1516,8 +1563,18 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 	const TypeId written_type = type;
 	type = with_object_parameter(type, declarator, target, specifiers.is_static);
 
-	SemaEntity& entity = declare_function(name, type, target, true);
+	SemaEntity& entity =
+		declare_function(name, type, target, true,
+		                 granting != nullptr && !spelled.qualified());
 	entity.object_member = type != written_type;
+	if (granting != nullptr)
+	{
+		model_.befriend(*granting, entity);
+		if (!spelled.qualified() && granting->scope != nullptr)
+		{
+			granting->scope->friend_functions.push_back(&entity);
+		}
+	}
 	// 3.5p3: one declaration written `static` gives the name internal linkage,
 	// however the others were written.
 	entity.internal_linkage = entity.internal_linkage ||
@@ -1534,7 +1591,9 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 
 	DumpScope& dump = model_.open_dump(*target.dump, "scope function " + name);
 	Context inner;
-	inner.scope = &model_.open(ScopeKind::Function, *target.scope, &entity, &dump);
+	inner.scope = &model_.open(ScopeKind::Function,
+	                           granting != nullptr ? *lexical : *target.scope,
+	                           &entity, &dump);
 	inner.dump = &dump;
 	inner.node = ctx.node;
 
@@ -1645,7 +1704,8 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 }
 
 SemaEntity& SemaAnalyzer::declare_function(const std::string& name, TypeId type,
-                                           const Context& target, bool define)
+                                           const Context& target, bool define,
+                                           bool hidden)
 {
 	// 14.1p1: the region a template's parameters are declared in encloses only
 	// the declaration they parameterise, so the function that declaration
@@ -1662,8 +1722,24 @@ SemaEntity& SemaAnalyzer::declare_function(const std::string& name, TypeId type,
 	// their parameter type lists agree, which 8.3.5p5 has already normalised.
 	// The chain the name heads is indexed by that list, so the question is a
 	// probe rather than a walk of the declarations already made.
-	SemaEntity* const prior =
+	SemaEntity* prior =
 		head == nullptr ? nullptr : model_.overload_of(*head, signature);
+	// 11.3p6: a friend declaration declared this function into this region
+	// without binding its name, so the chain the name heads is not the only
+	// place a declaration of it can be.
+	const std::unordered_map<std::string, SemaEntity*>::iterator concealed =
+		where.hidden.empty() ? where.hidden.end() : where.hidden.find(name);
+	if (prior == nullptr && concealed != where.hidden.end())
+	{
+		prior = model_.overload_of(*concealed->second, signature);
+		if (prior != nullptr && !hidden)
+		{
+			// 7.3.1.2p3: a matching declaration at namespace scope is what
+			// makes the friend's name visible, and the two declare one
+			// function.
+			reveal_friend(where, name, *prior, signature);
+		}
+	}
 	if (prior != nullptr)
 	{
 		if (prior->type != type)
@@ -1691,6 +1767,25 @@ SemaEntity& SemaAnalyzer::declare_function(const std::string& name, TypeId type,
 		// substitutes arguments for.
 		entity.template_parameters = target.scope;
 	}
+	if (hidden)
+	{
+		// 11.3p6: the declaration is a member of this region whose name no
+		// lookup written in it finds, so it joins the region's hidden chain and
+		// binds nothing.  3.4.2p2 reaches it through the class that wrote it.
+		SemaEntity*& concealed_head = where.hidden[name];
+		if (concealed_head == nullptr)
+		{
+			concealed_head = &entity;
+		}
+		else
+		{
+			concealed_head->tail->next = &entity;
+			concealed_head->tail = &entity;
+		}
+		model_.hold_overload(*concealed_head, signature, entity);
+		model_.declare_in(where, entity);
+		return entity;
+	}
 	if (head != nullptr)
 	{
 		head->tail->next = &entity;
@@ -1704,6 +1799,72 @@ SemaEntity& SemaAnalyzer::declare_function(const std::string& name, TypeId type,
 	model_.hold_overload(*head, signature, entity);
 	model_.declare_in(where, entity);
 	return entity;
+}
+
+// 7.3.1.2p3: a namespace-scope declaration that matches a friend declaration
+// declares the same function, and is what first makes its name visible.  The
+// declaration leaves the hidden chain for the one the name binds; the other
+// friend declarations of that name stay where they are, because each is made
+// visible by a declaration of its own.
+void SemaAnalyzer::reveal_friend(Scope& where, const std::string& name,
+                                 SemaEntity& entity, std::uint32_t signature)
+{
+	const std::unordered_map<std::string, SemaEntity*>::iterator held =
+		where.hidden.find(name);
+	SemaEntity* concealed = held->second;
+	// The chain is indexed by the declaration the name would be bound to, and
+	// that is the declaration that may be leaving, so the whole index of this
+	// chain is dropped and rebuilt.  A chain holds the friend declarations of
+	// one name in one namespace, which is what the source wrote.
+	for (SemaEntity* at = concealed; at != nullptr; at = at->next)
+	{
+		model_.drop_overload(*concealed, types_.signature(at->type));
+	}
+	SemaEntity* before = nullptr;
+	for (SemaEntity* at = concealed; at != &entity; at = at->next)
+	{
+		before = at;
+	}
+	if (before == nullptr)
+	{
+		concealed = entity.next;
+	}
+	else
+	{
+		before->next = entity.next;
+	}
+	entity.next = nullptr;
+	entity.tail = &entity;
+	if (concealed == nullptr)
+	{
+		where.hidden.erase(held);
+	}
+	else
+	{
+		SemaEntity* last = concealed;
+		while (last->next != nullptr)
+		{
+			last = last->next;
+		}
+		concealed->tail = last;
+		held->second = concealed;
+		for (SemaEntity* at = concealed; at != nullptr; at = at->next)
+		{
+			model_.hold_overload(*concealed, types_.signature(at->type), *at);
+		}
+	}
+	SemaEntity* head = model_.find(where, name, LookupKind::Any);
+	if (head != nullptr && head->kind == SemaKind::Function)
+	{
+		head->tail->next = &entity;
+		head->tail = &entity;
+	}
+	else
+	{
+		head = &entity;
+		model_.bind(where, name, entity);
+	}
+	model_.hold_overload(*head, signature, entity);
 }
 
 void SemaAnalyzer::statement(const AstNode& node, const Context& ctx)

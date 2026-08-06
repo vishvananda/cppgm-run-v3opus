@@ -158,6 +158,11 @@ void SemaModel::hold_overload(const SemaEntity& head, std::uint32_t signature,
 	overloads_.insert(std::make_pair(overload_key(head, signature), &entity));
 }
 
+void SemaModel::drop_overload(const SemaEntity& head, std::uint32_t signature)
+{
+	overloads_.erase(overload_key(head, signature));
+}
+
 SemaEntity* SemaModel::specialization_of(const SemaEntity& primary,
                                          std::uint32_t arguments) const
 {
@@ -171,6 +176,19 @@ void SemaModel::hold_specialization(const SemaEntity& primary,
 {
 	specializations_.insert(
 		std::make_pair(overload_key(primary, arguments), &entity));
+}
+
+void SemaModel::befriend(const SemaEntity& granting, const SemaEntity& friendly)
+{
+	friendships_.insert((static_cast<std::uint64_t>(granting.id) << 32) |
+	                    friendly.id);
+}
+
+bool SemaModel::befriended(const SemaEntity& granting,
+                           const SemaEntity& friendly) const
+{
+	return friendships_.find((static_cast<std::uint64_t>(granting.id) << 32) |
+	                         friendly.id) != friendships_.end();
 }
 
 Scope& declaring_region(Scope& scope)

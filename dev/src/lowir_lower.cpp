@@ -59,15 +59,15 @@ std::string flatten_name(const std::string& name)
 }  // namespace
 
 std::string LowirSymbolTable::function_symbol(const SemaEntity& entity,
-                                              const std::string& signature)
+                                              const std::string& identity)
 {
 	const std::string base = flatten_name(entity.dump_name);
 	std::unordered_map<std::string, std::size_t>& seen = overloads_[base];
 	// 13.1 lets one name have as many declarations as the program writes, so
-	// which of them a signature is, is a probe rather than a walk of the ones
+	// which of them a function is, is a probe rather than a walk of the ones
 	// already named.
 	const std::pair<std::unordered_map<std::string, std::size_t>::iterator, bool>
-		found = seen.insert(std::make_pair(signature, seen.size()));
+		found = seen.insert(std::make_pair(identity, seen.size()));
 	const std::size_t index = found.first->second;
 	return index == 0 ? base : base + "__ov" + decimal(index + 1);
 }
@@ -205,7 +205,13 @@ const std::string& LowirUnitLowering::function_symbol(const SemaEntity& entity)
 	std::string& held = entity_symbols_[entity.id];
 	if (held.empty())
 	{
-		held = symbols_.function_symbol(entity, types_.description(entity.type));
+		// 13.5: two operator functions of one region can flatten to one base
+		// name and take the same parameter types, so what tells the internal
+		// symbols apart is the name the object file gives each - which is also
+		// what makes a second unit's declaration of one function reach the
+		// symbol this one named.
+		held = symbols_.function_symbol(
+			entity, abi_symbol_of(entity, types_, kCompleteObjectAbi));
 		if (abi_variant(entity) == kBaseObjectAbi)
 		{
 			held += "__base_entry";
@@ -282,6 +288,12 @@ void LowirUnitLowering::run(const DumpNode& unit)
 	// written before the definition it reaches has to know it is coming.  One
 	// pass over the top level answers that for the whole unit.
 	collect_definitions(unit);
+	// 3.2p3: an inline definition belongs to the program where the program uses
+	// it, and a use written in a body this unit does not write is a use all the
+	// same - a function called only from an unused one is odr-used by it.  So
+	// the uses are read from the whole resolved tree rather than only from the
+	// bodies the unit goes on to emit.
+	demand_referenced(unit);
 	for (std::size_t index = 0; index < unit.children.size(); ++index)
 	{
 		declaration(*unit.children[index]);
@@ -348,10 +360,12 @@ void LowirUnitLowering::declaration(const DumpNode& node)
 		return;
 
 	case FactKind::FunctionDefinition:
-		if (node.fact.entity != nullptr && node.fact.entity->inline_function)
+		if (node.fact.entity != nullptr &&
+		    deferred_.find(node.fact.entity->id) != deferred_.end())
 		{
-			// 7.1.2p4: the definition waits for a use of it, which
-			// `collect_definitions` has already recorded it against.
+			// 9.3p2 and 3.2p3: the definition of a member function written in
+			// its class waits for a use of it, which `collect_definitions` has
+			// already recorded it against.
 			return;
 		}
 		function_definition(node);
@@ -931,6 +945,25 @@ std::string LowirUnitLowering::string_literal(const std::string& data,
 	defined_.insert(symbol);
 	builder_.emitted_globals_.insert(symbol);
 	return symbol;
+}
+
+// 3.2p2: the function names a body reads, which is what odr-uses the function
+// it names.  A constructor or a destructor is left out: 12.1p5 gives a class
+// one whether or not a program ever runs it, and this milestone writes such a
+// helper only where a lifetime the unit lowers asks for it.
+void LowirUnitLowering::demand_referenced(const DumpNode& node)
+{
+	if (node.fact.entity != nullptr &&
+	    node.fact.entity->kind == SemaKind::Function &&
+	    node.fact.entity->special == kOrdinaryFunction &&
+	    (node.fact.kind == FactKind::Callee || node.fact.kind == FactKind::Id))
+	{
+		demand_definition(*node.fact.entity);
+	}
+	for (std::size_t index = 0; index < node.children.size(); ++index)
+	{
+		demand_referenced(*node.children[index]);
+	}
 }
 
 void LowirUnitLowering::demand_definition(const SemaEntity& entity)

@@ -222,6 +222,10 @@ private:
 		// 7.1.2p2: the definition of this function may be written in more than
 		// one translation unit, so no one unit owns the one the program has.
 		bool is_inline;
+		// 11.3p1: the declaration grants this class's access rather than
+		// declaring a member of it, so what it declares belongs to the region
+		// around the class and not to the class.
+		bool is_friend;
 		// The class or enumeration this sequence declared.
 		SemaEntity* introduced;
 	};
@@ -318,6 +322,17 @@ private:
 	// One declarator of a declaration, with the initializer written for it.
 	void init_declarator(const AstNode& node, const AstNode* initializer,
 	                     const Specifiers& specifiers, const Context& ctx);
+	// 8.3.5 and 13.1: one declarator of a declaration that declares a function,
+	// from the point its type is known.  `granting` is the class a friend
+	// declaration gives this declaration the access of, and null for every
+	// other declaration.
+	void declare_function_declarator(const AstNode& node,
+	                                 const std::string& name, TypeId type,
+	                                 const QualifiedName& spelled,
+	                                 const Specifiers& specifiers,
+	                                 const Context& target,
+	                                 SemaEntity* granting,
+	                                 std::vector<Parameter>& spelled_parameters);
 	void function_definition(const AstNode& node, const Context& ctx);
 	void statement(const AstNode& node, const Context& ctx);
 	SemaEntity& class_declaration(const AstNode& node, const Context& ctx,
@@ -527,7 +542,31 @@ private:
 	// redeclaration of an earlier one in the same region exactly when their
 	// parameter type lists agree.
 	SemaEntity& declare_function(const std::string& name, TypeId type,
-	                             const Context& target, bool define);
+	                             const Context& target, bool define,
+	                             bool hidden = false);
+	// 11.3p6: a friend declaration declares its function in the innermost
+	// enclosing namespace, so a declarator written after `friend` is read
+	// against that region rather than against the class it stands in.  Returns
+	// the class the declaration grants access to, and leaves `target` naming
+	// the region the function is declared in.
+	SemaEntity* friend_target(const Context& ctx, const QualifiedName& spelled,
+	                          Context& target);
+	// 11.3p6 and 7.3.1.2p3: the declaration a friend declaration made visible,
+	// which a later namespace-scope declaration of the same function is.  The
+	// entity moves from the region's hidden chain into the one its name binds,
+	// so the program has one function rather than two.
+	void reveal_friend(Scope& where, const std::string& name,
+	                   SemaEntity& entity, std::uint32_t signature);
+	// 11.3p2: `friend C;` and `friend class C;` grant this class's access to
+	// the class the specifiers named, which declares nothing.
+	void grant_class_friendship(const Context& ctx,
+	                            const Specifiers& specifiers);
+	// 11.3p1: the innermost class around a friend declaration, which is the one
+	// that grants what the declaration grants.
+	SemaEntity* granting_class(const Context& ctx) const;
+	// 11.3p1: whether a name read in `from` reaches what `granting` declared
+	// because `granting` befriended what owns `from`.
+	bool befriended(const Scope& granting, const Scope& from) const;
 	// The `parameter` lines of a function, and the declarations of them in the
 	// region the definition opened.  `written` is how many parameters of the
 	// function type the declarator did not write, which is the implicit object
@@ -859,11 +898,44 @@ private:
 	// all where there is none.
 	// `converting` leaves out every candidate declared `explicit`, which
 	// 13.3.1.4 does for copy-initialization.
+	// 5.2.2p4 and 5.2.2p10: the tail of a call once its declaration is known -
+	// the conversions its arguments take, the default-arguments 8.3.6 supplies,
+	// and the value the call is.  A call the program wrote and the call
+	// 13.3.1.2p1 makes of an operator expression end the same way.
+	Value finish_call(DumpNode& line, TypeId function,
+	                  std::vector<Value>& arguments, const SemaEntity* chosen);
 	SemaEntity* select_overload(const std::vector<SemaEntity*>& candidates,
 	                            const std::vector<Value>& arguments,
 	                            const std::string& name,
 	                            const Value* object = nullptr,
-	                            bool converting = false);
+	                            bool converting = false,
+	                            std::size_t singles = 0,
+	                            const Value* operand = nullptr,
+	                            bool* unviable = nullptr);
+
+	// 13.5 and 3.4.2 (sema_operator.cpp).
+	// 13.3.1.2p1: the operator expression `line` holds the operands of, read as
+	// the call of an operator function it stands for.  False - and nothing
+	// written - where no operand has class or enumeration type, where the
+	// candidate set is empty, or where 13.3 finds nothing in it viable, all of
+	// which leave the built-in operator the caller's own to describe.
+	bool operator_expression(unsigned token, const Context& ctx, DumpNode& line,
+	                         std::vector<Value>& operands, bool member_only,
+	                         Value& value);
+	// 3.4.2p2: the namespaces and classes a type is associated with.
+	void associate_type(TypeId type, std::vector<Scope*>& spaces,
+	                    std::vector<Scope*>& classes);
+	void associate_region(Scope* region, std::vector<Scope*>& spaces,
+	                      std::vector<Scope*>& classes);
+	// 3.4.2p2: the declarations of `name` the argument types reach, appended to
+	// `candidates`.  Returns how many of them are the single friend
+	// declarations 11.3p6 made, which stand last.
+	std::size_t argument_candidates(const std::string& name,
+	                                const std::vector<Value>& arguments,
+	                                std::vector<SemaEntity*>& candidates);
+	// 3.4.2p3: whether what the ordinary lookup found leaves the
+	// argument-dependent one to be done at all.
+	bool allows_adl(const SemaEntity* named) const;
 	// 13.3.3.2: which of two conversions of one argument is better, as 1, 0
 	// or -1.
 	int compare_matches(const Match& left, const Match& right);

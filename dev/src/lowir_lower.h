@@ -95,14 +95,18 @@ class LowirSymbolTable
 public:
 	// The internal LowIR symbol of a namespace-scope declaration, which is its
 	// qualified name with `::` written as `__`.  13.1 lets one name have
-	// several declarations, so the second and later signatures of one symbol
-	// are distinguished by a suffix rather than colliding.
+	// several declarations, and 13.5 lets two operator functions of one region
+	// flatten to one name and take the same parameter types, so the second and
+	// later functions of one base name are distinguished by a suffix rather
+	// than colliding.  `identity` is what tells two functions apart: it is the
+	// name the object file gives each, so a declaration of one function in a
+	// second translation unit reaches the symbol the first one named.
 	std::string function_symbol(const SemaEntity& entity,
-	                            const std::string& signature);
+	                            const std::string& identity);
 	static std::string object_symbol(const SemaEntity& entity);
 
 private:
-	// Which signature each base name has already given a symbol to, as the
+	// Which function each base name has already given a symbol to, as the
 	// order it was first named in.
 	std::unordered_map<std::string,
 	                   std::unordered_map<std::string, std::size_t> > overloads_;
@@ -268,6 +272,10 @@ private:
 	// definition is taken off the deferred map as it is asked for, which makes
 	// one use of a name lower it and every later use cost a probe.
 	void demand_definition(const SemaEntity& entity);
+	// 3.2p2 and 3.2p3: the deferred definitions the resolved tree names
+	// anywhere, which is what odr-uses them - a body this unit does not write
+	// still uses what it calls.
+	void demand_referenced(const DumpNode& node);
 	// Lowers the definitions asked for so far, and the ones lowering those asks
 	// for.  It runs between top level declarations and never inside one, so no
 	// `lowir_model::Function&` of a body being lowered is alive when

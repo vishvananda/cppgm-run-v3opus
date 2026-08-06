@@ -450,9 +450,15 @@ SemaEntity* SemaAnalyzer::resolve_target(const Value& value, TypeId target)
 SemaEntity* SemaAnalyzer::select_overload(
 	const std::vector<SemaEntity*>& candidates,
 	const std::vector<Value>& arguments, const std::string& name,
-	const Value* object, bool converting)
+	const Value* object, bool converting, std::size_t singles,
+	const Value* operand, bool* unviable)
 {
 	std::vector<SemaEntity*> viable;
+	// 3.4.2p2 lets one declaration be reached by more than one of the searches
+	// that gathered these candidates, and 13.3p1 puts each declaration in the
+	// set once.  A single chain cannot repeat itself, so the question is asked
+	// only where several were gathered.
+	std::unordered_set<const SemaEntity*> gathered;
 	// 13.3.3p1: which of the viable candidates is a specialization of a
 	// template, which is what tells two apart whose conversions tie.
 	std::vector<char> templated;
@@ -465,9 +471,19 @@ SemaEntity* SemaAnalyzer::select_overload(
 	const std::size_t implicit = object != nullptr ? 1u : 0u;
 	for (std::size_t chain = 0; chain < candidates.size(); ++chain)
 	{
+	// 3.4.2p2: the friend declarations an associated class makes visible are
+	// gathered one at a time, because the chain each stands in is the region's
+	// and holds the friend declarations of every class in it.  They are
+	// gathered last, so how many of the entries are such declarations is all
+	// the set has to say.
+	const bool alone = chain + singles >= candidates.size();
 	for (SemaEntity* candidate = candidates[chain]; candidate != nullptr;
-	     candidate = candidate->next)
+	     candidate = alone ? nullptr : candidate->next)
 	{
+		if (candidates.size() > 1 && !gathered.insert(candidate).second)
+		{
+			continue;
+		}
 		SemaEntity* at = candidate;
 		if (candidate->template_parameters != nullptr)
 		{
@@ -494,8 +510,16 @@ SemaEntity* SemaAnalyzer::select_overload(
 		}
 		const std::vector<TypeId>& parameters = types_.parameters(at->type);
 		// 9.3.1p3 put the object parameter first, so the parameters a written
-		// argument may reach begin after it.
-		const std::size_t written = at->object_member ? 1u : 0u;
+		// argument may reach begin after it.  13.3.1.2p4 gives an operator's
+		// non-member candidate no such parameter and hands it the same first
+		// operand as its own first argument, so for either kind the parameter a
+		// written argument may reach is the second.
+		const std::size_t written =
+			at->object_member || operand != nullptr ? 1u : 0u;
+		if (parameters.size() < written)
+		{
+			continue;
+		}
 		const std::size_t declared = parameters.size() - written;
 		if (!accepts_arity(*at, arguments.size() + written) ||
 		    (arguments.size() > declared && !types_.variadic(at->type)))
@@ -512,6 +536,10 @@ SemaEntity* SemaAnalyzer::select_overload(
 			if (at->object_member)
 			{
 				match = match_argument(*object, parameters[0]);
+			}
+			else if (operand != nullptr)
+			{
+				match = match_argument(*operand, parameters[0]);
 			}
 			ok = match.viable;
 			matches.push_back(match);
@@ -545,6 +573,14 @@ SemaEntity* SemaAnalyzer::select_overload(
 	}
 	if (viable.empty())
 	{
+		if (unviable != nullptr)
+		{
+			// 13.3.1.2p2: an operator whose candidates are none of them viable
+			// is not ill formed - what is left is the built-in operator - so
+			// the caller is told rather than the program refused.
+			*unviable = true;
+			return nullptr;
+		}
 		throw std::runtime_error("no declaration of " + name +
 		                         " accepts the arguments of a call");
 	}
@@ -1220,6 +1256,27 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
 		// 13.4p1 gives a call no target type of its own, so an overloaded name
 		// that reached here through `&` is a callee that means nothing.
 		require_complete_value(target);
+		// 13.5.4p1: a call written on an object of class type is a call of a
+		// member `operator()` of its class, which is the only kind that
+		// operator may be declared as.
+		if (types_.is_class(types_.strip_cv(target.type)))
+		{
+			std::vector<Value> operands;
+			operands.push_back(target);
+			for (std::size_t index = 0; index < arguments.size(); ++index)
+			{
+				operands.push_back(arguments[index]);
+			}
+			Value chosen;
+			if (operator_expression(OP_LPAREN, ctx, line, operands, true,
+			                        chosen))
+			{
+				return chosen;
+			}
+			throw std::runtime_error("an object of class type is called where "
+			                         "its class declares no function call "
+			                         "operator that accepts the arguments");
+		}
 		const TypeId pointer = decayed(target);
 		if (types_.kind(pointer) != TypeKind::Pointer ||
 		    types_.kind(types_.target(pointer)) != TypeKind::Function)
@@ -1230,11 +1287,23 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
 		function = types_.target(pointer);
 	}
 
-	const std::vector<TypeId>& parameters = types_.parameters(function);
 	const SemaEntity* const chosen =
 		target.entity != nullptr && target.entity->kind == SemaKind::Function
 			? target.entity
 			: nullptr;
+	return finish_call(line, function, arguments, chosen);
+}
+
+// 5.2.2p4 and 5.2.2p10: the arguments of a call converted to the types of the
+// parameters they are passed to, the default-arguments 8.3.6 writes for the
+// ones no argument reached, and the value the call is.  13.3 has already chosen
+// the declaration; what is left is the same for a call the program wrote and
+// for the one 13.3.1.2p1 makes of an operator, so both are written here.
+SemaAnalyzer::Value SemaAnalyzer::finish_call(DumpNode& line, TypeId function,
+                                              std::vector<Value>& arguments,
+                                              const SemaEntity* chosen)
+{
+	const std::vector<TypeId>& parameters = types_.parameters(function);
 	if ((arguments.size() < parameters.size() &&
 	     (chosen == nullptr || !accepts_arity(*chosen, arguments.size()))) ||
 	    (arguments.size() > parameters.size() && !types_.variadic(function)))

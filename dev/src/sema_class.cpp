@@ -512,15 +512,108 @@ bool SemaAnalyzer::aggregate_class(Scope& scope)
 // 11.2: whether a context in `from` may name `member`.  A member declared
 // `public` is named from anywhere; any other is named only from inside the
 // class that declared it, which 11.7 also gives to a class nested in it.
+// 3.3.6: the innermost namespace a region is written in, which 7.3.1.2p3 makes
+// a friend-declared function a member of however deeply the class that declared
+// it is nested.
+namespace
+{
+
+Scope& enclosing_namespace(Scope& scope)
+{
+	Scope* at = &scope;
+	while (at->kind != ScopeKind::Namespace && at->parent != nullptr)
+	{
+		at = at->parent;
+	}
+	return *at;
+}
+
+}
+
+// 11.3p1: the class a friend declaration written in it grants access to, which
+// is the innermost class around the declaration.
+SemaEntity* SemaAnalyzer::granting_class(const Context& ctx) const
+{
+	for (Scope* at = ctx.scope; at != nullptr; at = at->parent)
+	{
+		if (at->kind == ScopeKind::Class)
+		{
+			return at->owner;
+		}
+	}
+	return nullptr;
+}
+
+// 11.3p2: `friend C;` and `friend class C;` name a class and declare nothing.
+// The specifiers already found or declared it, so what is left is the grant.
+void SemaAnalyzer::grant_class_friendship(const Context& ctx,
+                                          const Specifiers& specifiers)
+{
+	SemaEntity* const granting = granting_class(ctx);
+	SemaEntity* friendly = specifiers.introduced;
+	if (friendly == nullptr && specifiers.has_type_name)
+	{
+		friendly = model_.type_owner(types_.strip_cv(specifiers.type_name));
+	}
+	if (granting == nullptr || friendly == nullptr ||
+	    friendly->kind != SemaKind::Class)
+	{
+		throw std::runtime_error("a friend declaration with no declarator names "
+		                         "no class");
+	}
+	model_.befriend(*granting, *friendly);
+}
+
+// 11.3p6 and 7.3.1.2p3: a friend declaration declares its function in the
+// innermost enclosing namespace rather than in the class it is written in, and
+// - where the declarator-id is unqualified - binds its name nowhere.  A
+// qualified declarator-id names a function that region already declares, which
+// 11.3p10 is the only thing it may name.
+SemaEntity* SemaAnalyzer::friend_target(const Context& ctx,
+                                        const QualifiedName& spelled,
+                                        Context& target)
+{
+	SemaEntity* const granting = granting_class(ctx);
+	if (granting == nullptr)
+	{
+		throw std::runtime_error("a friend declaration is written outside a "
+		                         "class definition");
+	}
+	if (!spelled.qualified())
+	{
+		target.scope = &enclosing_namespace(*ctx.scope);
+		target.dump = target.scope->dump;
+	}
+	return granting;
+}
+
+// 11.3p1: the class `granting` gave `friendly` the reach its own members have.
+// A friend is a function or a class, and both are entities a region a name is
+// read in is owned by, so the question the access check asks of each region
+// around it is the same one.
+bool SemaAnalyzer::befriended(const Scope& granting, const Scope& from) const
+{
+	return granting.owner != nullptr && from.owner != nullptr &&
+		model_.befriended(*granting.owner, *from.owner);
+}
+
 bool SemaAnalyzer::accessible(const SemaEntity& member, const Scope* from) const
 {
 	if (member.access == kPublicAccess || member.region == nullptr)
 	{
 		return true;
 	}
+	const bool friends = model_.has_friends();
 	for (const Scope* at = from; at != nullptr; at = at->parent)
 	{
 		if (at == member.region)
+		{
+			return true;
+		}
+		// 11.3p1 and 11.3p2: a friend of the class reaches every member of it,
+		// and so does a member of a befriended class, which is the same
+		// question asked of the region that member is read in.
+		if (friends && befriended(*member.region, *at))
 		{
 			return true;
 		}
@@ -606,10 +699,18 @@ void SemaAnalyzer::require_base_link(const SemaEntity& derived)
 		return;
 	}
 	const Scope* const from = naming_ != nullptr ? naming_ : reading_;
+	const bool friends = model_.has_friends();
 	for (const Scope* at = from; at != nullptr; at = at->parent)
 	{
 		if (at == derived.scope)
 		{
+			return;
+		}
+		if (friends && befriended(*derived.scope, *at))
+		{
+			// 11.2p1 and 11.3p1: a friend of the derived class reaches what
+			// the class itself reaches, which is the base its base-specifier
+			// named however it named it.
 			return;
 		}
 		if (derived.base_access != kProtectedAccess ||

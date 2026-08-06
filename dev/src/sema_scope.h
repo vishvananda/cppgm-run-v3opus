@@ -333,6 +333,17 @@ public:
 	// Every other region leaves it null, so a program with no inheritance pays
 	// nothing for the question.
 	Scope* base;
+	// 11.3p6: the functions a friend declaration in this class first declared.
+	// 7.3.1.2p3 makes each a member of the innermost enclosing namespace whose
+	// name no ordinary lookup finds, and 3.4.2p2 makes it visible through the
+	// class that declared it - so the class holds them and the namespace binds
+	// nothing.  Empty for every region but a class one wrote a friend in.
+	std::vector<SemaEntity*> friend_functions;
+	// 11.3p6 again, read from the namespace: the head of the chain of
+	// friend-declared functions of each name this region declares but does not
+	// bind.  It is what a later namespace-scope declaration of the same
+	// function finds, so the two declare one entity rather than two.
+	std::unordered_map<std::string, SemaEntity*> hidden;
 
 	// Every region a lookup written in which reaches this one's declarations,
 	// which is the closure of 7.3.4p2 read from the region that declares rather
@@ -390,6 +401,9 @@ public:
 	SemaEntity* overload_of(const SemaEntity& head, std::uint32_t signature) const;
 	void hold_overload(const SemaEntity& head, std::uint32_t signature,
 	                   SemaEntity& entity);
+	// Forgets that pairing, which 7.3.1.2p3 asks for when a declaration leaves
+	// the chain a friend declaration put it in for the one its name binds.
+	void drop_overload(const SemaEntity& head, std::uint32_t signature);
 
 	// 14.7.1p1: the specialization of `primary` for the template-argument list
 	// `arguments`, or nothing when it has not been made yet.  Naming the same
@@ -448,6 +462,15 @@ public:
 	// typedef-name or a namespace alias to what it names.
 	Scope* region_of(const SemaEntity& entity) const;
 
+	// 11.3p1: `granting` gave `friendly` - a function or a class - the reach
+	// its own members have.  The relation is held here rather than on either
+	// entity because a program with no friend declaration should pay nothing
+	// for it: `has_friends` is what every access check asks first.
+	void befriend(const SemaEntity& granting, const SemaEntity& friendly);
+	bool befriended(const SemaEntity& granting,
+	                const SemaEntity& friendly) const;
+	bool has_friends() const { return !friendships_.empty(); }
+
 private:
 	// The regions that bind `name`, or null when no region does.
 	const std::vector<Scope*>* declarers(const std::string& name) const;
@@ -498,6 +521,10 @@ private:
 	// The specializations made so far, keyed by the template and the
 	// template-argument list they were made from.
 	std::unordered_map<std::uint64_t, SemaEntity*> specializations_;
+	// 11.3p1: the friendships granted so far, as the pair of entity
+	// identifiers in one word, so asking whether one class befriended one
+	// declaration is a probe.
+	std::unordered_set<std::uint64_t> friendships_;
 	// The regions that bind each name, each once, in the order they first bound
 	// it.
 	//

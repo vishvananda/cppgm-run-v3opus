@@ -42,6 +42,7 @@ SemaAnalyzer::Specifiers::Specifiers()
 	, is_extern(false)
 	, is_static(false)
 	, is_inline(false)
+	, is_friend(false)
 	, introduced(nullptr)
 {
 	for (std::size_t index = 0; index < kSimpleTypeSpecifierCount; ++index)
@@ -160,6 +161,13 @@ void SemaAnalyzer::read_type_specifier(const AstNode& node, Specifiers& out,
 		// 7.1.2p2: the definition may be written in more than one translation
 		// unit, so the one the program has is not this unit's to own.
 		out.is_inline = true;
+		return;
+
+	case KW_FRIEND:
+		// 11.3p1: the declaration grants this class's access rather than
+		// declaring a member of it, so what it declares belongs to the region
+		// around the class.
+		out.is_friend = true;
 		return;
 
 	case KW_CONST:
