@@ -353,6 +353,13 @@ SemaAnalyzer::Value SemaAnalyzer::dispatch_expression(const AstNode& node,
 	case AstKind::SizeofExpression:
 		return sizeof_expression(node, ctx, parent);
 
+	case AstKind::TypeTraitExpression:
+		if (node.token == KW_ALIGNOF)
+		{
+			return alignof_expression(node, ctx, parent);
+		}
+		break;
+
 	default:
 		break;
 	}
@@ -1007,6 +1014,40 @@ SemaAnalyzer::Value SemaAnalyzer::sizeof_expression(const AstNode& node,
 		}
 		value.value = size_of(read.type);
 	}
+	value.what = "sizeof-expression";
+	value.node = &model_.open_node(
+		parent, spell(value.what, value.category, result, value.payload));
+	return value;
+}
+
+// 5.3.6p1: `alignof` yields the alignment an object of its operand's type
+// requires, as a prvalue of `std::size_t`.  The operand is a type-id and is
+// unevaluated, so the operator's own line carries nothing under it - which is
+// the one line 5.3.3's `sizeof` writes too, and what the references spell both
+// with.
+SemaAnalyzer::Value SemaAnalyzer::alignof_expression(const AstNode& node,
+                                                     const Context& ctx,
+                                                     DumpNode& parent)
+{
+	const TypeId result = types_.fundamental(FT_UNSIGNED_LONG_INT);
+	if (node.children.empty() || node.children[0]->kind != AstKind::TypeId)
+	{
+		// 5.3.6p1 gives `alignof` a type-id and nothing else.
+		throw std::runtime_error("alignof is applied to something other than a "
+		                         "type-id");
+	}
+	const TypeId type = type_id_type(*node.children[0], ctx);
+	if (types_.is_incomplete(type))
+	{
+		// 5.3.6p3: the type shall be complete, which is what has an alignment.
+		throw std::runtime_error("alignof names an incomplete type");
+	}
+	Value value;
+	value.type = result;
+	value.spelled = result;
+	value.category = ValueCategory::PRValue;
+	value.constant = true;
+	value.value = types_.object_align(type);
 	value.what = "sizeof-expression";
 	value.node = &model_.open_node(
 		parent, spell(value.what, value.category, result, value.payload));

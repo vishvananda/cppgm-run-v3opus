@@ -70,7 +70,7 @@ AstNode* AstParser::parse_declaration(bool in_class)
 		return nullptr;
 	}
 	const Mark start = mark();
-	skip_attributes();
+	skip_attributes(nullptr, true);
 	if (accept(OP_SEMICOLON))
 	{
 		return make(AstKind::EmptyDeclaration);

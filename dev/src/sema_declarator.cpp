@@ -43,6 +43,7 @@ SemaAnalyzer::Specifiers::Specifiers()
 	, is_static(false)
 	, is_inline(false)
 	, is_friend(false)
+	, alignment(0)
 	, introduced(nullptr)
 {
 	for (std::size_t index = 0; index < kSimpleTypeSpecifierCount; ++index)
@@ -62,6 +63,9 @@ SemaAnalyzer::Specifiers SemaAnalyzer::read_specifiers(const AstNode& seq,
 	{
 		read_type_specifier(*seq.children[index], out, ctx, span, named_by);
 	}
+	// 7.6.2p1: the strictest alignment the sequence asked for, which is a fact
+	// about what the declaration declares.
+	out.alignment = requested_alignment(seq, ctx);
 	if (!declaration && out.is_typedef)
 	{
 		throw std::runtime_error("a type-specifier-seq holds a storage class");
@@ -73,6 +77,12 @@ void SemaAnalyzer::read_type_specifier(const AstNode& node, Specifiers& out,
                                        const Context& ctx, const Span& span,
                                        const std::string& named_by)
 {
+	if (node.kind == AstKind::AlignmentSpecifier)
+	{
+		// 7.6.2p1: an alignment-specifier names no type; what it asked for is
+		// read from the sequence as a whole.
+		return;
+	}
 	if (node.kind == AstKind::ClassSpecifier ||
 	    node.kind == AstKind::ClassForwardDeclaration)
 	{

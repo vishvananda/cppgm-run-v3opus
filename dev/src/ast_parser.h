@@ -155,7 +155,8 @@ private:
 	// given, takes an `alignment-specifier` node per `alignas` whose operand
 	// is a constant-expression, because 7.6.2p5 gives that one a meaning the
 	// declaration it is written on has to answer for.
-	void skip_attributes(std::vector<AstNode*>* alignments = nullptr);
+	void skip_attributes(std::vector<AstNode*>* alignments = nullptr,
+	                     bool leave_alignment = false);
 	std::string spelled(const Mark& start) const
 	{
 		return tokens_.flatten(start.pos, pos_);

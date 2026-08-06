@@ -681,10 +681,29 @@ SemaEntity& SemaAnalyzer::class_declaration(const AstNode& node,
 		ctx.scope->kind == ScopeKind::Function;
 	const std::string written =
 		node.text.empty() ? (local ? std::string() : named_by) : node.text;
-	const std::string name = QualifiedName(written).last();
+	const QualifiedName spelled(written);
+	const std::string name = spelled.last();
 
-	SemaEntity* entity = name.empty() ? nullptr
-	                                  : redeclared(ctx, name, SemaKind::Class);
+	SemaEntity* entity = nullptr;
+	if (spelled.qualified())
+	{
+		// 9.1p2 and 3.4.3p3: a class-head-name with a nested-name-specifier
+		// defines the class that region already declared, wherever the
+		// definition is written, rather than declaring a second class of that
+		// name where it stands.
+		entity = &require(model_.lookup_in(*resolve_prefix(spelled, ctx), name,
+		                                   LookupKind::Type),
+		                  written);
+		if (entity->kind != SemaKind::Class)
+		{
+			throw std::runtime_error("a class definition names " + written +
+			                         ", which is not a class");
+		}
+	}
+	else if (!name.empty())
+	{
+		entity = redeclared(ctx, name, SemaKind::Class);
+	}
 	if (entity != nullptr)
 	{
 		// 9p3: two declarations of one class agree exactly when neither or
@@ -1385,6 +1404,9 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 		// that one is a variable the class names.
 		entity.object_member =
 			target.scope->kind == ScopeKind::Class && !specifiers.is_static;
+		// 7.6.2p1: what an alignment-specifier on the declaration asked for is
+		// a fact about what it declares, which 9.2p13's layout reads.
+		entity.requested_align = specifiers.alignment;
 		// 12.6.2p8: a brace-or-equal-initializer on a non-static data member is
 		// what initializes it wherever a constructor does not say otherwise, and
 		// 8.5.1p1 makes a class that has one no aggregate.

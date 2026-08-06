@@ -249,6 +249,9 @@ private:
 		// declaring a member of it, so what it declares belongs to the region
 		// around the class and not to the class.
 		bool is_friend;
+		// 7.6.2p1: the strictest alignment an alignment-specifier of this
+		// sequence asked for, or zero where it wrote none.
+		unsigned long long alignment;
 		// The class or enumeration this sequence declared.
 		SemaEntity* introduced;
 	};
@@ -919,6 +922,9 @@ private:
 	static void lift_operand(DumpNode& parent, DumpNode& line);
 	Value sizeof_expression(const AstNode& node, const Context& ctx,
 	                        DumpNode& parent);
+	// 5.3.6p1: the alignment an object of the operand's type requires.
+	Value alignof_expression(const AstNode& node, const Context& ctx,
+	                         DumpNode& parent);
 	// 5.19 and the course builtins: a call the translation answers itself.
 	bool builtin_call(const std::string& name, const AstNode& node,
 	                  const Context& ctx, DumpNode& parent, Value& out);

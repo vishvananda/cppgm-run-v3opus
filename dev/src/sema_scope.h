@@ -182,6 +182,11 @@ struct SemaEntity
 	// of the members declared before it.  9.6p2 gives a bit-field no address of
 	// its own, so for one this is where the storage unit holding it begins.
 	unsigned long long offset;
+	// 7.6.2p1: the alignment an alignment-specifier on this declaration asked
+	// for, or zero where it wrote none.  9.2p13 allocates the member at the
+	// next address the stricter of this and its type's own alignment allows,
+	// and 7.6.2p5 makes the class's alignment at least as strict.
+	unsigned long long requested_align;
 	// 9.6p1: whether the declaration wrote a width, which makes the member a
 	// run of bits inside a storage unit rather than an object with an address.
 	// The three facts below say nothing about a member no width was written

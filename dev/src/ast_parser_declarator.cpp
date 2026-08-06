@@ -60,7 +60,16 @@ AstNode* AstParser::parse_specifier_seq(SpecifierMode mode)
 
 bool AstParser::parse_specifier(AstNode* seq, SpecifierMode mode, bool& seen_type)
 {
-	skip_attributes();
+	// 7.6.2p1: an alignment-specifier may be written wherever a decl-specifier
+	// may, and 7.6.2p5 makes what it asks for a fact about what the declaration
+	// declares rather than one the syntax may drop.  The PA10 dump writes no
+	// node for it, which is why the sequence may hold one.
+	std::vector<AstNode*> alignments;
+	skip_attributes(&alignments);
+	for (std::size_t index = 0; index < alignments.size(); ++index)
+	{
+		seq->add(alignments[index]);
+	}
 	const unsigned type = peek();
 	if (type == KW_CONST || type == KW_VOLATILE)
 	{

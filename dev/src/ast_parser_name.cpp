@@ -221,7 +221,8 @@ bool AstParser::skip_balanced(unsigned closer)
 // attribute-specifiers of 7.6.1, `alignas`, and the vendor spelling the intake
 // tests use.  None of them reaches the tree, so they are consumed wherever a
 // declaration, a class head or a declarator may carry one.
-void AstParser::skip_attributes(std::vector<AstNode*>* alignments)
+void AstParser::skip_attributes(std::vector<AstNode*>* alignments,
+                                bool leave_alignment)
 {
 	for (;;)
 	{
@@ -236,6 +237,14 @@ void AstParser::skip_attributes(std::vector<AstNode*>* alignments)
 		}
 		if (at(KW_ALIGNAS) && peek(1) == OP_LPAREN)
 		{
+			if (leave_alignment)
+			{
+				// 7.6.2p1: the alignment-specifier belongs to the sequence of
+				// decl-specifiers that follows it, which is where what it asks
+				// for is read from - so it is left where it stands rather than
+				// consumed by the attributes around it.
+				return;
+			}
 			const Mark opened = mark();
 			++pos_;
 			if (alignments != nullptr)

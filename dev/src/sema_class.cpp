@@ -330,7 +330,19 @@ void SemaAnalyzer::lay_out_class(SemaEntity& entity, Scope& scope, bool is_union
 			continue;
 		}
 		const unsigned long long member_size = types_.object_size(member.type);
-		const unsigned long long member_align = types_.object_align(member.type);
+		// 7.6.2p1 and 7.6.2p5: an alignment-specifier on the member asks for an
+		// alignment at least as strict as its type's own, and the member is
+		// allocated at the next address that one allows.
+		const unsigned long long declared_align =
+			types_.object_align(member.type);
+		if (member.requested_align != 0 && member.requested_align < declared_align)
+		{
+			throw std::runtime_error("a member asks for an alignment weaker "
+			                         "than the one its type needs");
+		}
+		const unsigned long long member_align =
+			member.requested_align > declared_align ? member.requested_align
+			                                        : declared_align;
 		if (!types_.is_trivially_copied(member_copy_type(member.type)))
 		{
 			trivially_copied = false;
