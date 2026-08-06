@@ -1,0 +1,27 @@
+1 translation units
+start translation unit 1
+translation-unit
+  function-definition use function of () returning void
+    compound-statement
+      simple-declaration
+        variable a int
+      expression-statement
+        binary-expression prvalue void OP_COMMA:,
+          literal prvalue int 0
+          call-expression prvalue void
+            callee p function of (int, unsigned int) returning void
+            literal prvalue int 1
+            literal prvalue unsigned int 2u
+      expression-statement
+        binary-expression prvalue void OP_COMMA:,
+          literal prvalue int 0
+          call-expression prvalue void
+            callee q function of (pointer to int) returning void
+            unary-expression prvalue pointer to int OP_AMP:&
+              id-expression lvalue int a
+  function-declaration p function of (int, unsigned int) returning void
+    parameter  int
+    parameter  unsigned int
+  function-declaration q function of (pointer to int) returning void
+    parameter  pointer to int
+end translation unit

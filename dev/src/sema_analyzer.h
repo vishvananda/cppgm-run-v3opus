@@ -5,6 +5,7 @@
 #include <iosfwd>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "sema_name.h"
@@ -114,6 +115,12 @@ private:
 		// that the target which chooses a declaration writes both the name and
 		// the pointer to it.  Null when the value is the name itself.
 		DumpNode* addressed;
+		// 3.4 and 13.4: the id-expression a function name was written as.  The
+		// line the output writes for it names the declaration the program
+		// wrote rather than the one the lookup reached, so a name found
+		// through a using-directive stays as it stands and a template-id keeps
+		// the arguments it wrote.
+		const AstNode* name;
 		// What the dump writes after the type, and the node kind it writes
 		// before it, so that a cast to a reference can spell the operand's own
 		// line again with the category the cast gave it.
@@ -202,6 +209,10 @@ private:
 		const AstNode* body;
 		Scope* scope;
 		std::vector<Parameter> parameters;
+		// 14.7.1: a specialization, which is a declaration the program did not
+		// write rather than a definition it did, and which the output writes as
+		// the declaration with the parameters of the template it was made from.
+		bool instantiation;
 	};
 
 	// A value of the 5.19 subset: what it is worth, and the type that says how
@@ -435,6 +446,37 @@ private:
 	bool builtin_call(const std::string& name, const AstNode& node,
 	                  const Context& ctx, DumpNode& parent, Value& out);
 
+	// Templates (sema_template.cpp).
+	//
+	// 14.2 and 14.8.1: the declarations a template-id names, which are the
+	// specializations its argument list makes of each template of that name,
+	// chained as one overload set for 13.3 or 13.4 to choose from.
+	SemaEntity* template_specializations(const std::string& spelling,
+	                                     const Context& ctx);
+	// 14.8.2.1: the specialization of `primary` that the arguments of a call
+	// deduce, or null when they deduce none.
+	SemaEntity* deduce_specialization(SemaEntity& primary,
+	                                  const std::vector<Value>& arguments);
+	// 14.8.2.5: the bindings the argument type `argument` gives the template
+	// parameters `pattern` is written over, added to `bindings`.  False when
+	// the two do not agree, which is a deduction that failed.
+	bool deduce(TypeId pattern, TypeId argument,
+	            std::unordered_map<TypeId, TypeId>& bindings);
+	// 14.7.1: the declaration `arguments` makes of `primary`, made once
+	// however many times it is named.
+	SemaEntity& specialize(SemaEntity& primary,
+	                       const std::vector<TypeId>& arguments);
+	// The type a template-argument names, over the PA12 subset: a fundamental
+	// type or a type name, with cv-qualifiers, pointers and references written
+	// around it.
+	TypeId template_argument_type(const std::string& spelling,
+	                              const Context& ctx);
+	// 14.7.1p1: the declaration a specialization stands for, held for the end
+	// of the translation unit, which is where the output writes it.  Naming
+	// the same specialization again writes nothing more.
+	void instantiate(SemaEntity& function);
+	void write_instantiation(const Pending& pending);
+
 	// 8.5: initialising an object of `target` from `node`, which is what a
 	// variable, a condition, a return statement and an argument all do.
 	Value initialize(const AstNode& node, TypeId target, const Context& ctx,
@@ -457,9 +499,12 @@ private:
 	// 13.3.3.2: which of two conversions of one argument is better, as 1, 0
 	// or -1.
 	int compare_matches(const Match& left, const Match& right);
-	// 13.3.3p1: whether one candidate's conversions beat another's.
+	// 13.3.3p1: whether one candidate beats another, which is its conversions
+	// and, where those tie, whether it is a declaration the program wrote and
+	// the other a specialization a deduction made.
 	bool better_candidate(const Match* left, const Match* right,
-	                      std::size_t count);
+	                      std::size_t count, bool left_written = false,
+	                      bool right_deduced = false);
 	// Rewrites what the dump wrote for `value` where a conversion is visible in
 	// it: a null pointer constant, a resolved function name, and the temporary
 	// a reference binds to.  Each rewrites the line the operand already wrote,
@@ -508,6 +553,13 @@ private:
 	// were asked for.  Writing one may ask for another, so the list grows while
 	// it is being walked and what is being written has to stay where it is.
 	std::deque<Pending> pending_;
+	// 14.1: the parameters each template's declarator wrote, which an
+	// instantiation writes again with their types substituted.  It is keyed by
+	// the entity the template-declaration declared because it is a fact about
+	// how that one declaration was spelled rather than about the type it made,
+	// and only a template is ever asked for, so an ordinary declaration adds
+	// nothing to it.
+	std::unordered_map<std::uint32_t, std::vector<Parameter> > templates_;
 	// 9.3.2p1: the implicit object parameter of the function whose body is
 	// being read, which is what `this` and a member named with no object
 	// expression denote.  Null outside a member function.

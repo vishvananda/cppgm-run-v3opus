@@ -98,6 +98,9 @@ SemaEntity& SemaModel::create(SemaKind kind, const std::string& name, TypeId typ
 	entity.storage = nullptr;
 	entity.constructor = nullptr;
 	entity.object_member = false;
+	entity.template_parameters = nullptr;
+	entity.primary = nullptr;
+	entity.instantiated = false;
 	entity.id = static_cast<std::uint32_t>(entities_.size() - 1);
 	entity.dump_name = name;
 	return entity;
@@ -106,6 +109,9 @@ SemaEntity& SemaModel::create(SemaKind kind, const std::string& name, TypeId typ
 namespace
 {
 
+// One entity and one interned list of types, which is what tells two
+// declarations of one name apart in 13.1 and two specializations of one
+// template apart in 14.7.1.
 std::uint64_t overload_key(const SemaEntity& head, std::uint32_t signature)
 {
 	return (static_cast<std::uint64_t>(head.id) << 32) | signature;
@@ -125,6 +131,34 @@ void SemaModel::hold_overload(const SemaEntity& head, std::uint32_t signature,
                               SemaEntity& entity)
 {
 	overloads_.insert(std::make_pair(overload_key(head, signature), &entity));
+}
+
+SemaEntity* SemaModel::specialization_of(const SemaEntity& primary,
+                                         std::uint32_t arguments) const
+{
+	const std::unordered_map<std::uint64_t, SemaEntity*>::const_iterator found =
+		specializations_.find(overload_key(primary, arguments));
+	return found == specializations_.end() ? nullptr : found->second;
+}
+
+void SemaModel::hold_specialization(const SemaEntity& primary,
+                                    std::uint32_t arguments, SemaEntity& entity)
+{
+	specializations_.insert(
+		std::make_pair(overload_key(primary, arguments), &entity));
+}
+
+Scope& declaring_region(Scope& scope)
+{
+	Scope* where = &scope;
+	// A template-declaration may parameterise another one, so the regions its
+	// parameters are declared in nest and the walk out of them is a loop.
+	while (where->kind == ScopeKind::TemplateParameters &&
+	       where->parent != nullptr)
+	{
+		where = where->parent;
+	}
+	return *where;
 }
 
 void SemaModel::own_type(TypeId type, SemaEntity& entity)

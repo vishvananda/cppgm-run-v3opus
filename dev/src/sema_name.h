@@ -42,3 +42,29 @@ private:
 	// The offset each component starts at, empty for an unqualified name.
 	std::vector<std::string::size_type> starts_;
 };
+
+// 14.2: the template-name and template-argument-list a template-id is written
+// from.
+//
+// A template-id reaches the semantic layer as one spelling for the reason a
+// qualified-id does, so the one place that turns a spelling back into what was
+// written splits this one too: an argument is what a `,` outside every nested
+// list separates, and a `<` inside one belongs to it rather than opening
+// another.
+class TemplateId
+{
+public:
+	// `spelling` is one component of a name, which `QualifiedName::last` is.
+	explicit TemplateId(const std::string& spelling);
+
+	// False when `spelling` is not a template-id, or holds no argument list a
+	// `>` closes.
+	bool valid() const { return valid_; }
+	const std::string& name() const { return name_; }
+	const std::vector<std::string>& arguments() const { return arguments_; }
+
+private:
+	bool valid_;
+	std::string name_;
+	std::vector<std::string> arguments_;
+};

@@ -360,9 +360,25 @@ SemaEntity* SemaAnalyzer::select_overload(SemaEntity* candidates,
                                           const std::string& name)
 {
 	std::vector<SemaEntity*> viable;
+	// 13.3.3p1: which of the viable candidates is a specialization of a
+	// template, which is what tells two apart whose conversions tie.
+	std::vector<char> templated;
 	std::vector<Match> matches;
-	for (SemaEntity* at = candidates; at != nullptr; at = at->next)
+	for (SemaEntity* candidate = candidates; candidate != nullptr;
+	     candidate = candidate->next)
 	{
+		SemaEntity* at = candidate;
+		if (candidate->template_parameters != nullptr)
+		{
+			// 14.8.3p1: a template is a candidate through the specialization
+			// the arguments deduce, and no candidate at all when they deduce
+			// none.
+			at = deduce_specialization(*candidate, arguments);
+			if (at == nullptr)
+			{
+				continue;
+			}
+		}
 		const std::vector<TypeId>& parameters = types_.parameters(at->type);
 		if (arguments.size() < parameters.size() ||
 		    (arguments.size() > parameters.size() && !types_.variadic(at->type)))
@@ -394,6 +410,7 @@ SemaEntity* SemaAnalyzer::select_overload(SemaEntity* candidates,
 			continue;
 		}
 		viable.push_back(at);
+		templated.push_back(at->primary != nullptr ? 1 : 0);
 	}
 	if (viable.empty())
 	{
@@ -409,7 +426,8 @@ SemaEntity* SemaAnalyzer::select_overload(SemaEntity* candidates,
 	const Match* const rows = matches.data();
 	for (std::size_t index = 1; index < viable.size(); ++index)
 	{
-		if (better_candidate(rows + index * count, rows + best * count, count))
+		if (better_candidate(rows + index * count, rows + best * count, count,
+		                     templated[index] == 0, templated[best] != 0))
 		{
 			best = index;
 		}
@@ -417,7 +435,8 @@ SemaEntity* SemaAnalyzer::select_overload(SemaEntity* candidates,
 	for (std::size_t index = 0; index < viable.size(); ++index)
 	{
 		if (index != best &&
-		    !better_candidate(rows + best * count, rows + index * count, count))
+		    !better_candidate(rows + best * count, rows + index * count, count,
+		                      templated[best] == 0, templated[index] != 0))
 		{
 			throw std::runtime_error("a call of " + name +
 			                         " has no best declaration");
@@ -454,7 +473,8 @@ int SemaAnalyzer::compare_matches(const Match& left, const Match& right)
 }
 
 bool SemaAnalyzer::better_candidate(const Match* left, const Match* right,
-                                    std::size_t count)
+                                    std::size_t count, bool left_written,
+                                    bool right_deduced)
 {
 	bool strictly_better = false;
 	for (std::size_t index = 0; index < count; ++index)
@@ -466,7 +486,9 @@ bool SemaAnalyzer::better_candidate(const Match* left, const Match* right,
 		}
 		strictly_better = strictly_better || order > 0;
 	}
-	return strictly_better;
+	// 13.3.3p1: a function the program declared beats a specialization of a
+	// template whose conversions are no better than its own.
+	return strictly_better || (left_written && right_deduced);
 }
 
 // The one place a conversion is visible in the dump: a null pointer constant
@@ -550,16 +572,22 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
 		{
 			return functional_cast(node, ctx, parent, keyword);
 		}
-		named = resolve(callee.text, ctx, LookupKind::Any);
-		if (named != nullptr && names_a_type(*named))
+		// 14.2: a callee written as a template-id names the specializations its
+		// argument list makes, which 13.3 then chooses among.
+		named = template_specializations(callee.text, ctx);
+		if (named == nullptr)
 		{
-			return functional_cast(node, ctx, parent, named->type);
-		}
-		Value builtin;
-		if (named == nullptr &&
-		    builtin_call(callee.text, node, ctx, parent, builtin))
-		{
-			return builtin;
+			named = resolve(callee.text, ctx, LookupKind::Any);
+			if (named != nullptr && names_a_type(*named))
+			{
+				return functional_cast(node, ctx, parent, named->type);
+			}
+			Value builtin;
+			if (named == nullptr &&
+			    builtin_call(callee.text, node, ctx, parent, builtin))
+			{
+				return builtin;
+			}
 		}
 	}
 

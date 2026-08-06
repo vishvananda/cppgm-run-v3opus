@@ -73,6 +73,67 @@ std::string QualifiedName::part(std::size_t index) const
 	return spelling_->substr(start, end - start);
 }
 
+namespace
+{
+
+// `spelling[from, to)` without the spaces the parse left between two terminals
+// that would otherwise have run together.
+std::string trimmed(const std::string& spelling, std::string::size_type from,
+                    std::string::size_type to)
+{
+	while (from < to && spelling[from] == ' ')
+	{
+		++from;
+	}
+	while (to > from && spelling[to - 1] == ' ')
+	{
+		--to;
+	}
+	return spelling.substr(from, to - from);
+}
+
+}
+
+TemplateId::TemplateId(const std::string& spelling)
+	: valid_(false)
+{
+	const std::string::size_type angle = outside_brackets(spelling, 0, '<');
+	if (angle == std::string::npos || spelling.empty() ||
+	    spelling[spelling.size() - 1] != '>')
+	{
+		return;
+	}
+	name_ = trimmed(spelling, 0, angle);
+	if (name_.empty())
+	{
+		return;
+	}
+	// The arguments are what the `,` at the depth of the list itself separate;
+	// the list is scanned from inside the `<`, so every bracket the scan meets
+	// is one an argument opened.
+	const std::string inside =
+		spelling.substr(angle + 1, spelling.size() - angle - 2);
+	std::string::size_type at = 0;
+	for (;;)
+	{
+		const std::string::size_type next = outside_brackets(inside, at, ',');
+		arguments_.push_back(
+			trimmed(inside, at, next == std::string::npos ? inside.size() : next));
+		if (next == std::string::npos)
+		{
+			break;
+		}
+		at = next + 1;
+	}
+	// `f<>` names a template with an empty argument list rather than a
+	// template-id with one empty argument.
+	if (arguments_.size() == 1 && arguments_[0].empty())
+	{
+		arguments_.clear();
+	}
+	valid_ = true;
+}
+
 bool QualifiedName::names_a_template_id() const
 {
 	const std::string name = last();

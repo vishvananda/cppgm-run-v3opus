@@ -108,6 +108,18 @@ struct SemaEntity
 	// not write.  9.4p1 makes a member declared `static` a member of the class
 	// and not of an object, so the region alone does not say.
 	bool object_member;
+	// 14.1p1: the region this declaration's template parameters were declared
+	// in, which is what an instantiation of it substitutes arguments for.  Null
+	// for a declaration no template-declaration parameterises, which every
+	// declaration of the PA12 subset but a template is.
+	Scope* template_parameters;
+	// 14.7p1: the template this declaration is a specialization of, and whether
+	// the output has already written the declaration it stands for.  A
+	// specialization is made by naming it rather than by a declaration the
+	// program wrote, so it is bound to no name and is reached only from the
+	// template-id or the call that asked for it.
+	SemaEntity* primary;
+	bool instantiated;
 	// This entity among the run's, which is how a fact about it is keyed - the
 	// same use `Scope::id` is put to for a region.
 	std::uint32_t id;
@@ -258,6 +270,15 @@ public:
 	void hold_overload(const SemaEntity& head, std::uint32_t signature,
 	                   SemaEntity& entity);
 
+	// 14.7.1p1: the specialization of `primary` for the template-argument list
+	// `arguments`, or nothing when it has not been made yet.  Naming the same
+	// specialization twice names one declaration, so the second naming is a
+	// probe rather than a second substitution.
+	SemaEntity* specialization_of(const SemaEntity& primary,
+	                              std::uint32_t arguments) const;
+	void hold_specialization(const SemaEntity& primary, std::uint32_t arguments,
+	                         SemaEntity& entity);
+
 	// The identifier a user-defined type is interned under, which is the
 	// entity that declared it.
 	std::uint32_t type_entity_id() { return ++type_entities_; }
@@ -334,6 +355,9 @@ private:
 	// The declarations of each overloaded name, keyed by the entity the name is
 	// bound to and the parameter type list 13.1 tells two declarations apart by.
 	std::unordered_map<std::uint64_t, SemaEntity*> overloads_;
+	// The specializations made so far, keyed by the template and the
+	// template-argument list they were made from.
+	std::unordered_map<std::uint64_t, SemaEntity*> specializations_;
 	// The regions that bind each name, each once, in the order they first bound
 	// it.
 	//
@@ -367,6 +391,13 @@ private:
 bool names_a_type(const SemaEntity& entity);
 // True when `entity` names a namespace, which 7.3.1p3 and 7.3.2 ask for.
 bool names_a_space(const SemaEntity& entity);
+
+// 14.1p1: the region a declarator-id written in `scope` declares its name into.
+// The region a template's parameters are declared in encloses only the
+// declaration they parameterise, so the name that declaration introduces
+// belongs to the region the template-declaration was written in, which is where
+// a use of the template looks for it.
+Scope& declaring_region(Scope& scope);
 
 // Writes `scope` and everything under it, indenting two spaces per level.
 void write_dump(std::ostream& out, const DumpScope& scope, unsigned depth);

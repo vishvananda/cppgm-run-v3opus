@@ -1,0 +1,19 @@
+1 translation units
+start translation unit 1
+translation-unit
+  namespace-definition N
+    function-declaration N::f function of (int) returning void
+    function-declaration N::f function of (char) returning void
+  function-declaration take function of (pointer to function of (int) returning void) returning void
+  function-definition use function of () returning void
+    compound-statement
+      expression-statement
+        call-expression prvalue void
+          callee take function of (pointer to function of (int) returning void) returning void
+          unary-expression prvalue pointer to function of (int) returning void OP_AMP:&
+            id-expression lvalue function of (int) returning void f
+      expression-statement
+        call-expression prvalue void
+          callee N::f function of (int) returning void
+          literal prvalue int 1
+end translation unit

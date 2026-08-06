@@ -226,6 +226,24 @@ public:
 		return (nodes_[type].parameters << 1) | (nodes_[type].variadic ? 1u : 0u);
 	}
 
+	// The identifier of a sequence of types, which is what a fact about one is
+	// keyed by: the parameter list 13.1 tells two function declarations apart
+	// by, and the template-argument list 14.7.1 tells two specializations of
+	// one template apart by.
+	std::uint32_t type_list(const std::vector<TypeId>& types)
+	{
+		return intern_parameters(types);
+	}
+
+	// 14.3 and 14.8.2: `type` with every template parameter `bindings` names
+	// replaced by the type bound to it, keeping the qualifiers written around
+	// each.  `memo` holds the answers of one substitution, so a type reached
+	// twice is rebuilt once; a type that holds no template parameter is itself
+	// and interns nothing.
+	TypeId substitute(TypeId type,
+	                  const std::unordered_map<TypeId, TypeId>& bindings,
+	                  std::unordered_map<TypeId, TypeId>& memo);
+
 	// The type in the form PA2 and PA7 print it in.
 	std::string description(TypeId type) const;
 

@@ -1,0 +1,32 @@
+1 translation units
+start translation unit 1
+translation-unit
+  namespace-definition N
+  function-declaration take function of (pointer to function of (struct s) returning void) returning void
+  function-declaration take2 function of (pointer to function of (struct s, int) returning void) returning void
+  function-definition use function of () returning void
+    compound-statement
+      expression-statement
+        call-expression prvalue void
+          callee take function of (pointer to function of (struct s) returning void) returning void
+          cast-expression prvalue pointer to function of (struct s) returning void KW_STATIC_CAST:static_cast
+            unary-expression prvalue pointer to function of (struct s) returning void OP_AMP:&
+              id-expression lvalue function of (struct s) returning void N::f<s>
+      expression-statement
+        call-expression prvalue void
+          callee take2 function of (pointer to function of (struct s, int) returning void) returning void
+          cast-expression prvalue pointer to function of (struct s, int) returning void KW_STATIC_CAST:static_cast
+            unary-expression prvalue pointer to function of (struct s, int) returning void OP_AMP:&
+              id-expression lvalue function of (struct s, int) returning void N::f<s>
+      expression-statement
+        call-expression prvalue void
+          callee take function of (pointer to function of (struct s) returning void) returning void
+          cast-expression prvalue pointer to function of (struct s) returning void KW_STATIC_CAST:static_cast
+            unary-expression prvalue pointer to function of (struct s) returning void OP_AMP:&
+              id-expression lvalue function of (struct s) returning void N::f<s>
+  function-declaration N::f function of (struct s) returning void
+    parameter  struct s
+  function-declaration N::f function of (struct s, int) returning void
+    parameter  struct s
+    parameter  int
+end translation unit

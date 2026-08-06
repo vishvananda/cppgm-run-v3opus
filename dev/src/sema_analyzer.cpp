@@ -115,6 +115,7 @@ SemaAnalyzer::Pending::Pending()
 	, self(nullptr)
 	, body(nullptr)
 	, scope(nullptr)
+	, instantiation(false)
 {}
 
 SemaAnalyzer::Value::Value()
@@ -124,6 +125,7 @@ SemaAnalyzer::Value::Value()
 	, node(nullptr)
 	, functions(nullptr)
 	, addressed(nullptr)
+	, name(nullptr)
 	, payload(nullptr)
 	, what(nullptr)
 	, null_constant(false)
@@ -201,6 +203,11 @@ void SemaAnalyzer::write_pending_definitions()
 void SemaAnalyzer::write_definition(Pending& pending)
 {
 	SemaEntity& function = *pending.function;
+	if (pending.instantiation)
+	{
+		write_instantiation(pending);
+		return;
+	}
 	DumpNode& line = model_.open_node(model_.unit(), "function-definition " +
 	                                  function.dump_name + " " +
 	                                  types_.description(function.type));
@@ -1103,7 +1110,15 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
                                    const Context& ctx)
 {
 	std::string written;
-	TypeId type = declarator_type(node, specifier_type(specifiers), ctx, &written);
+	// 14.1: a template's declarator is the pattern its instantiations write
+	// their own parameters from, so the names it spelled are read here, where
+	// the declarator is read anyway.  Every other declaration needs none of
+	// them, and asks for none.
+	std::vector<Parameter> spelled_parameters;
+	const bool parameterised =
+		ctx.scope->kind == ScopeKind::TemplateParameters;
+	TypeId type = declarator_type(node, specifier_type(specifiers), ctx, &written,
+	                              parameterised ? &spelled_parameters : nullptr);
 	// 8.3.4p3: an array declared with no bound and initialized from a braced
 	// list has as many elements as the list has clauses.
 	if (types_.kind(type) == TypeKind::Array && !types_.bounded(type) &&
@@ -1154,6 +1169,10 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 		type = with_object_parameter(type, node, target, specifiers.is_static);
 		SemaEntity& function = declare_function(name, type, target, false);
 		function.object_member = type != written_type;
+		if (function.template_parameters != nullptr)
+		{
+			templates_[function.id].swap(spelled_parameters);
+		}
 		if (semantics())
 		{
 			// 14p1: a template is not a function; the unit has the ones its
@@ -1441,7 +1460,12 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 SemaEntity& SemaAnalyzer::declare_function(const std::string& name, TypeId type,
                                            const Context& target, bool define)
 {
-	SemaEntity* head = model_.find(*target.scope, name, LookupKind::Any);
+	// 14.1p1: the region a template's parameters are declared in encloses only
+	// the declaration they parameterise, so the function that declaration
+	// declares is declared in the region around it, which is where a call of it
+	// looks and where its other declarations are.
+	Scope& where = declaring_region(*target.scope);
+	SemaEntity* head = model_.find(where, name, LookupKind::Any);
 	if (head != nullptr && head->kind != SemaKind::Function)
 	{
 		head = nullptr;
@@ -1469,9 +1493,16 @@ SemaEntity& SemaAnalyzer::declare_function(const std::string& name, TypeId type,
 	}
 
 	SemaEntity& entity = model_.create(SemaKind::Function, name, type);
-	entity.dump_name = dump_name(*target.scope, name);
+	entity.dump_name = dump_name(where, name);
 	entity.defined = define;
 	entity.tail = &entity;
+	if (target.scope->kind == ScopeKind::TemplateParameters)
+	{
+		// 14p1: this declares a template rather than a function, and the
+		// parameters it is written over are what an instantiation of it
+		// substitutes arguments for.
+		entity.template_parameters = target.scope;
+	}
 	if (head != nullptr)
 	{
 		head->tail->next = &entity;
@@ -1480,10 +1511,10 @@ SemaEntity& SemaAnalyzer::declare_function(const std::string& name, TypeId type,
 	else
 	{
 		head = &entity;
-		model_.bind(*target.scope, name, entity);
+		model_.bind(where, name, entity);
 	}
 	model_.hold_overload(*head, signature, entity);
-	model_.declare_in(*target.scope, entity);
+	model_.declare_in(where, entity);
 	return entity;
 }
 

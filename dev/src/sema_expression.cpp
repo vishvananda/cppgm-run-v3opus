@@ -254,8 +254,15 @@ SemaAnalyzer::Value SemaAnalyzer::id_expression(const AstNode& node,
                                                 const Context& ctx,
                                                 DumpNode& parent)
 {
-	return named_value(node, require(resolve(node.text, ctx, LookupKind::Any),
-	                                 node.text), parent);
+	// 14.2: a template-id denotes the specializations its argument list makes
+	// rather than a declaration bound to the whole spelling, so the template
+	// layer answers before ordinary lookup is asked.
+	SemaEntity* named = template_specializations(node.text, ctx);
+	if (named == nullptr)
+	{
+		named = &require(resolve(node.text, ctx, LookupKind::Any), node.text);
+	}
+	return named_value(node, *named, parent);
 }
 
 SemaAnalyzer::Value SemaAnalyzer::named_value(const AstNode& node,
@@ -283,11 +290,13 @@ SemaAnalyzer::Value SemaAnalyzer::named_value(const AstNode& node,
 		// or a call's arguments choose one, so the line is written then.
 		value.functions = &entity;
 		value.category = ValueCategory::LValue;
+		value.name = &node;
 		value.node = &model_.open_node(parent, std::string());
-		if (entity.next == nullptr)
+		if (entity.next == nullptr && entity.template_parameters == nullptr)
 		{
 			// One declaration, so the name already denotes it and the line can
-			// be written where it is read.
+			// be written where it is read.  14p1 leaves a template denoting no
+			// function until a call deduces one, so its line waits for that.
 			name_function(value, entity, "id-expression");
 		}
 		return value;
@@ -325,8 +334,19 @@ SemaAnalyzer::Value SemaAnalyzer::named_value(const AstNode& node,
 void SemaAnalyzer::name_function(Value& value, SemaEntity& function,
                                  const char* what)
 {
+	if (function.primary != nullptr)
+	{
+		// 14.7.1p1: choosing a specialization is what asks for it, and the
+		// declaration it stands for is written once however often it is named.
+		instantiate(function);
+	}
+	// An id-expression writes the name as the program spelled it; a callee
+	// writes the one its declaration has.  The two part company wherever a
+	// lookup crossed a region - a using-directive, a template-id - and a
+	// declaration reached under one name is written under another.
 	const std::string named = std::string(" ") +
-		types_.description(function.type) + " " + function.dump_name;
+		types_.description(function.type) + " " +
+		(value.name != nullptr ? payload_of(*value.name) : function.dump_name);
 	if (value.addressed != nullptr)
 	{
 		// 5.3.1p3 and 13.4: `&f` is a pointer to the declaration the target

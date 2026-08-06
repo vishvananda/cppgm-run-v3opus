@@ -20,6 +20,7 @@ Owners:
 | statements | `sema_statement.cpp` |
 | expressions and operators | `sema_expression.cpp` |
 | calls, conversions, overloads | `sema_overload.cpp` |
+| template-ids, deduction, specializations | `sema_template.cpp` |
 | driver | `semantics_emit.*`, `dev/cppgm++.cpp` |
 
 One analyzer serves both dumps: `SemaAnalyzer` takes a `SemaDialect`, so a
@@ -56,13 +57,33 @@ The class layer adds three more, each at the declaration that established it:
   class has that no declaration wrote. Both are answers a use needs and the
   declaration already knew, so a use costs a load.
 - `SemaAnalyzer::pending_` — the definitions the end of the translation unit
-  writes: a synthesized constructor, and a member function body 9.2p2 reads
-  where its class is complete. Each is appended once, and the walk of the list
-  lets a body it reads append another, so the list holds its elements still.
+  writes: a synthesized constructor, a member function body 9.2p2 reads where
+  its class is complete, and the declaration an instantiation stands for. Each
+  is appended once, and the walk of the list lets a body it reads append
+  another, so the list holds its elements still.
+
+The template layer adds three, each split so the owner that already answers the
+question answers this one too:
+
+- `SemaEntity::template_parameters` — 14.1p1, the region a declaration's
+  parameters were declared in, which is what says the declaration is a pattern
+  rather than a function and what substitution binds arguments to. The name
+  itself is declared by `declaring_region` in the region around that one, which
+  is where 3.4 looks for it, so a template is an ordinary overload candidate.
+- `SemaEntity::primary` and `SemaModel::specializations_` — 14.7.1p1, one
+  declaration per template and argument list, interned under the argument list
+  `TypeTable::type_list` gives an identifier to. A specialization is bound to no
+  name: it is reached only from the template-id that wrote its arguments or the
+  call that deduced them, so ordinary lookup never finds a declaration the
+  program did not write.
+- `TypeTable::substitute` — 14.3, a type rebuilt with its parameters replaced,
+  memoized within one substitution so a shared subterm is rebuilt once and a
+  type holding no parameter is itself.
 
 ## Current Failure Map
 
-**165/166**. One test is open, and it is the only one that needs templates.
+**170/170**, with no group open.  The four added this turn are the PA-local
+regressions of the template layer, under `cppgm.tests/course/pa12/`.
 
 | Group | Tests | State |
 | --- | --- | --- |
@@ -73,16 +94,17 @@ The class layer adds three more, each at the declaration that established it:
 | E. diagnostics | ~20 | done |
 | F. classes, members and anonymous unions | 4 | done |
 | G. member-pointer types | 3 | done |
-| H. templates: `300-static-cast-overloaded-function-template-argument` | 1 | open |
+| H. function templates | 1 + 3 | done |
 | I. `decltype(x)(1)` functional cast | 1 | done |
-
-The open test is `take(static_cast<void(*)(stream)>(&hello<stream>))` over three
-function templates.  Nothing of it is in place: a template is declared into the
-region 14.1 gives its parameters, so its name is not even bound where a call
-can see it, and the output writes an instantiation rather than a template.
+| J. an overloaded name written as it was found | 1 | done |
 
 Refused rather than described, each named in its diagnostic and none of them a
-fixture: a class that declares a constructor, destructor or conversion function
+fixture: instantiating a function template that has a definition (14.7.1 reads
+the body again against the arguments and PA12 has no rule that does); a
+template-id whose argument list is shorter than the template's parameter list,
+which 14.8.1 leaves the rest of to deduction; a non-type template parameter,
+which PA11 already declared nothing for; a class that declares a constructor,
+destructor or conversion function
 (12.1 chooses among them and PA12 has no rule that does); a call of a member
 function (13.3.1.1.1, which the README also puts outside the slice); and an
 object of an incomplete class.  One name resolution the class layer sits on is
@@ -93,22 +115,9 @@ refused where it used to be accepted quietly.
 
 ## Active Checkpoint
 
-**C5 - function templates, as far as one specialization each.**
-
-- Owner: `SemaModel` for the template-name binding and the specializations
-  declared from it; `TypeTable` for substitution, which rebuilds a type with
-  its template parameters replaced; `sema_overload.cpp` for 14.8.2.1 deduction
-  from one argument.
-- 14.1: a template is declared in the region it is written in, with the region
-  of its parameters between; today `declare_function` puts it in the parameter
-  region, which is what hides the name.
-- 14.2 and 14.8.1: `hello<stream>` names the specializations the explicit
-  argument list makes of each declaration of the name, which is a substitution
-  per candidate and still an overload set for 13.4 to choose from.
-- 14.8.2.1: a call deduces a parameter from the argument it is passed, which
-  for the PA12 slice is the pattern `T` against a decayed argument type.
-- Each specialization is declared once, keyed by template and argument list, and
-  the output writes it among the definitions the end of the unit holds.
+**None open — PA12 passes in full (170/170).**  C5 closed the last group; what
+a later assignment picks up from here is listed under Current Failure Map as
+refused, and the three recorded divergences below.
 
 ## Performance Model
 
@@ -135,6 +144,11 @@ Measured with `cppgm++ --emit-semantics` on synthesized inputs (this host):
 | member-pointer aliases and functions | 2000 | 0.05s |
 | nested class definitions | depth 800 | 0.02s |
 | nested `decltype(...)( )` casts | depth 640 | 0.06s |
+| specializations of one template, each named once | 8000 | 0.33s |
+| calls naming one specialization again | 8000 | 0.07s |
+| templates of one name x calls of each | 600 x 600 | 0.08s |
+| deduction and substitution through a pointer pattern | depth 800 | 0.00s |
+| a template-id whose argument is a deep pointer type | depth 800 | 0.00s |
 
 - The walk is one visit per node; nothing is reparsed and no subtree is read
   twice, so depth costs stack rather than time. Depth itself is bounded by the
@@ -155,12 +169,21 @@ Measured with `cppgm++ --emit-semantics` on synthesized inputs (this host):
 - A `decltype`-specifier written where a call's callee stands is skipped by a
   balanced token scan and then read once as the expression it holds, so nesting
   costs one scan per level rather than a parse per level.
+- A specialization is interned under its template and its argument list, so
+  naming one again is a probe: 8000 calls of one specialization substitute once
+  and write one declaration.  Deduction is one structural walk of the pattern
+  against the argument and costs no interning, so templates of one name against
+  calls of each stays the same N x N shape the non-template row has, at about
+  twice its constant.  Substitution memoizes within one call, so a type reached
+  twice is rebuilt once and a type holding no parameter is returned as it is.
 
-Two divergences from `cppgm++-ref` are recorded rather than matched, because no
-fixture pins either: the order of several synthesized constructor definitions,
-which we write in first-use order and the ref writes in an order that is
-neither declaration nor use order, and member function calls, which the ref
-resolves and which the README puts outside the PA12 slice.
+Three divergences from `cppgm++-ref` are recorded rather than matched, because
+no fixture pins any of them: the order of several synthesized constructor
+definitions, which we write in first-use order and the ref writes in an order
+that is neither declaration nor use order; member function calls, which the ref
+resolves and which the README puts outside the PA12 slice; and the literal type
+the output gives the operand of `static_cast<T*>(0)`, which the ref writes as
+the pointer and we write as the `int` it was.
 
 ## Completed Checkpoints
 
@@ -172,3 +195,4 @@ resolves and which the README puts outside the PA12 slice.
 | C3 | pointers to members: the `MemberPointer` category and one interning key per type, `C::*` declarators, the 8.3.5p7 cv-qualifier-seq, `&C::f`, and 14p1 templates writing no definition | pa12 160 → 164/166; pa1–pa11 672/672; 2000 member-pointer aliases 0.05s; file audit clean |
 | C4 | `decltype(x)(1)`: 7.1.6.2 makes a decltype-specifier a simple-type-specifier, so 5.2.3 reads a call written on one as an explicit type conversion | pa12 164 → 165/166; pa1–pa11 672/672; file audit clean |
 | C2–C4 audit | a pending list that holds its elements still, one fact for what is reached through an object, no line and no crash for a member declaration, `&C::x`, and a diagnostic where a declared constructor or an incomplete class was quietly accepted | pa12 165/166 held; pa1–pa11 672/672; valgrind clean; linear to 8000 members, classes, unions and `&C::m`; file audit passes with one header-weight warning |
+| C5 | function templates: 14.1p1 declares the name in the region around its parameters, `TemplateId` and `TypeTable::substitute` make one specialization per argument list, 14.8.2.1 deduces one from a call, 13.3.3p1 prefers the declaration the program wrote, and an id-expression is written as the program spelled it | pa12 165 → 170/170 (4 tests added); pa1–pa11 672/672; valgrind clean; 8000 specializations 0.33s, 8000 reuses 0.07s, 600 x 600 templates x calls 0.08s; file audit passes with one header-weight warning |

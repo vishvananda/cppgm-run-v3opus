@@ -589,6 +589,82 @@ TypeId TypeTable::adjust_parameter(TypeId type)
 	return unqualified(type);
 }
 
+TypeId TypeTable::substitute(TypeId type,
+                             const std::unordered_map<TypeId, TypeId>& bindings,
+                             std::unordered_map<TypeId, TypeId>& memo)
+{
+	const std::unordered_map<TypeId, TypeId>::const_iterator seen =
+		memo.find(type);
+	if (seen != memo.end())
+	{
+		return seen->second;
+	}
+	const unsigned qualifiers = cv(type);
+	TypeId result = type;
+	switch (kind(type))
+	{
+	case TypeKind::TemplateParameter:
+	{
+		// 14.3p1: an argument is bound to the parameter itself, and the
+		// qualifiers written around the parameter stay around what it names.
+		const std::unordered_map<TypeId, TypeId>::const_iterator bound =
+			bindings.find(unqualified(type));
+		if (bound != bindings.end())
+		{
+			result = qualified(bound->second, qualifiers);
+		}
+		break;
+	}
+
+	case TypeKind::Pointer:
+		result = qualified(pointer_to(substitute(target(type), bindings, memo)),
+		                   qualifiers);
+		break;
+
+	case TypeKind::LValueReference:
+	case TypeKind::RValueReference:
+		// 8.3.2p6 collapses a reference to a reference, which is exactly the
+		// case 14.3p4 leaves to the builder rather than to the substitution.
+		result = reference_to(substitute(target(type), bindings, memo),
+		                      kind(type) == TypeKind::RValueReference);
+		break;
+
+	case TypeKind::Array:
+		result = array_of(substitute(target(type), bindings, memo),
+		                  bounded(type), bound(type));
+		break;
+
+	case TypeKind::MemberPointer:
+		result = qualified(
+			member_pointer_to(substitute(member_class(type), bindings, memo),
+			                  substitute(target(type), bindings, memo)),
+			qualifiers);
+		break;
+
+	case TypeKind::Function:
+	{
+		// The list is a key of `parameter_ids_`, so it stays where it is while
+		// the substitution of one of its elements interns another list.
+		const std::vector<TypeId>& written = parameters(type);
+		std::vector<TypeId> built(written.size());
+		for (std::size_t index = 0; index < written.size(); ++index)
+		{
+			built[index] = substitute(written[index], bindings, memo);
+		}
+		result = qualified_function(
+			function_of(substitute(target(type), bindings, memo), built,
+			            variadic(type)),
+			qualifiers);
+		break;
+	}
+
+	default:
+		break;
+	}
+	memo.insert(std::make_pair(type, result));
+	return result;
+}
+
 bool TypeTable::is_plain_void(TypeId type) const
 {
 	return kind(type) == TypeKind::Fundamental && cv(type) == 0 &&
