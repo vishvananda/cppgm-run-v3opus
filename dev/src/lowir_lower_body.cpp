@@ -1921,7 +1921,8 @@ LowValue LowirFunctionLowering::call_expression(const DumpNode& node)
 		const LowValue argument = expression(*node.children[index], bound);
 		if (at < parameters.size())
 		{
-			call.args.push_back(converted(argument, parameters[at]));
+			call.args.push_back(argument_operand(*node.children[index], argument,
+			                                     parameters[at]));
 			continue;
 		}
 		// 5.2.2p7: an argument matched by the ellipsis goes through the default

@@ -1265,6 +1265,23 @@ bool SemaAnalyzer::declares_static_member(Scope& where, const std::string& name,
 	return prior != nullptr && !prior->object_member;
 }
 
+// 8.4.2p1 and 8.5p7: whether the program wrote a constructor of this class -
+// one that is neither implicitly declared nor explicitly defaulted or deleted
+// on its first declaration.  That is what 8.5p7 asks before it zero-initializes
+// a value-initialized object, and it is one walk of the declarations of the
+// name rather than a search.
+bool SemaAnalyzer::user_provided_constructor(const SemaEntity& head)
+{
+	for (const SemaEntity* at = &head; at != nullptr; at = at->next)
+	{
+		if (!at->defaulted && !at->deleted)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
 SemaEntity* SemaAnalyzer::class_constructors(TypeId type)
 {
 	if (!types_.is_class(types_.strip_cv(type)))
@@ -1338,7 +1355,7 @@ void SemaAnalyzer::write_constructed_object(SemaEntity& variable,
 void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
                                     const AstNode* written, const Context& ctx,
                                     Placement where, bool copied,
-                                    const Value* given)
+                                    const Value* given, bool value_init)
 {
 	const bool member = where != Placement::Named;
 
@@ -1373,6 +1390,9 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 		if (is_initializer_list(written->kind))
 		{
 			list = written;
+			// 8.5p7: `()` and `{}` value-initialize the object rather than
+			// naming an argument for a constructor.
+			value_init = list->children.empty();
 		}
 		else
 		{
@@ -1396,6 +1416,9 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 		{
 			list = call_arguments(*written);
 			converting = false;
+			// 5.2.3p2: `T()` value-initializes what it makes, and the grammar
+			// writes no argument-list node for one that has no arguments.
+			value_init = list == nullptr || list->children.empty();
 		}
 	}
 
@@ -1488,6 +1511,12 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 	}
 	action.text = "constructor-action " + constructor.dump_name;
 	action.fact.entity = &constructor;
+	// 8.5p7: a non-union class with no user-provided constructor is
+	// zero-initialized before its default constructor - which is the one this
+	// initialization chose - runs on it.  The zero is what the object holds
+	// wherever that constructor leaves a member alone, so it is written even
+	// where the constructor itself does nothing at all.
+	action.fact.zero_initialized = value_init && !user_provided_constructor(*head);
 	call.text = spell("call-expression", ValueCategory::PRValue,
 	                  types_.target(constructor.type), std::string());
 	set_fact(call, FactKind::Call, types_.target(constructor.type),
@@ -1531,17 +1560,20 @@ SemaAnalyzer::Value SemaAnalyzer::materialize_temporary(TypeId type,
                                                         const AstNode* written,
                                                         const Context& ctx,
                                                         DumpNode& parent,
-                                                        const char* prefix)
+                                                        const char* prefix,
+                                                        bool value_init)
 {
 	DumpNode& line = model_.open_node(parent, std::string());
-	return build_temporary(type, line, written, nullptr, ctx, prefix);
+	return build_temporary(type, line, written, nullptr, ctx, prefix,
+	                       value_init);
 }
 
 SemaAnalyzer::Value SemaAnalyzer::build_temporary(TypeId type, DumpNode& line,
                                                   const AstNode* written,
                                                   const Value* given,
                                                   const Context& ctx,
-                                                  const char* prefix)
+                                                  const char* prefix,
+                                                  bool value_init)
 {
 	const TypeId object_type = types_.strip_cv(type);
 	SemaEntity& object = model_.create(SemaKind::Variable, std::string(),
@@ -1551,7 +1583,8 @@ SemaAnalyzer::Value SemaAnalyzer::build_temporary(TypeId type, DumpNode& line,
 	         ValueCategory::PRValue);
 	line.fact.entity = &object;
 	line.fact.spelling = prefix;
-	construct_object(object, line, written, ctx, Placement::Named, false, given);
+	construct_object(object, line, written, ctx, Placement::Named, false, given,
+	                 value_init);
 	const SemaEntity* const destructor = class_destructor(object_type);
 	if (destructor != nullptr && !destructor->trivial)
 	{
@@ -1578,12 +1611,13 @@ SemaAnalyzer::Value SemaAnalyzer::build_temporary(TypeId type, DumpNode& line,
 // argument that asked for it.  A temporary something already read as the object
 // it is - a base subobject of it, a member of it - keeps the name it was given
 // where it was written, because the argument is no longer what made it.
-void SemaAnalyzer::name_argument_temporary(const Value& value)
+void SemaAnalyzer::name_argument_temporary(const Value& value,
+                                           const char* prefix)
 {
 	if (value.node != nullptr &&
 	    value.node->fact.kind == FactKind::TemporaryObject)
 	{
-		value.node->fact.spelling = "arg";
+		value.node->fact.spelling = prefix;
 	}
 }
 

@@ -12,7 +12,7 @@ existing layers keep their jobs:
   carries the one edge 10.2's lookup follows.
 - `sema_class.cpp` owns the object model: 10p1's base-clause, 9.2p13 layout, 11
   access, 11.3 friendship, 12.1/12.4/12.6.2 special members and subobject order,
-  and 3.7.1/3.8p1 lifetime. Each is settled from the same one fact - what the
+  12.2p1's temporary, and 3.7.1/3.8p1 lifetime. Each is settled from the same one fact - what the
   class's own region declares, in the order it declares it - and a question
   about a subobject is asked in the same words whether it is a base, a member or
   an object of its own.
@@ -24,7 +24,9 @@ existing layers keep their jobs:
 - `sema_overload.cpp` owns 13.3, including 4.10p3/8.5.3p4's derived-to-base
   sequences and 13.3.3.2p4's ordering of them.
 - `lowir_lower*.cpp` reads only the resolved tree. It never re-resolves a name
-  and never reads syntax.
+  and never reads syntax. `lowir_lower_object.cpp` holds the part of it that is
+  about one object: 12.1/12.4's lifetime calls, 12.2's temporary, 12.6.2's
+  member initializations, 12.8p15's copy, 8.5p5's zero and 8.5.1's aggregate.
 - `lowir_abi.cpp` turns one resolved declaration into its object-file name
   through PA14's encoder.
 
@@ -32,115 +34,137 @@ The object model is added as typed facts at those owners rather than as a second
 pipeline: field offsets on members, a base class on the class, a friendship
 relation between two entities, an implicit-object argument in 13.3,
 `constructor-action` / `destructor-action` / `member-initialization` /
-`base-conversion` nodes, and a demand-driven definition worklist in the unit
-lowering.
+`base-conversion` / `temporary-object` nodes, and a demand-driven definition
+worklist in the unit lowering.
 
 ## Current Failure Map
 
-After the audit of C6: 174 / 243. The 69 that remain, 34 refusing a program the
-references accept and 35 accepting one and writing a different shape:
+After C7: 186 / 243. The 57 that remain, 32 refusing a program the references
+accept and 25 accepting one and writing a different shape:
 
 | group | count | what is missing |
 | --- | --- | --- |
-| LowIR shape diffs, the program otherwise accepted | 35 | see below |
-| refusals, scattered | 22 | see below |
-| class using-declarations, inheriting constructors | 8 | 7.3.3p1 into a class, 12.9 |
+| arrays of class type | 8 | 12.6p1 element-by-element construction and 12.4p8 destruction, an array element initialized by an expression, 3.6.2 dynamic initialization of a namespace-scope one; 2 of them write a shape rather than refuse |
+| class using-declarations, inheriting constructors | 7 | 7.3.3p1 into a class, 12.9; 2 write a shape rather than refuse |
 | `alignas` / `alignof` | 4 | 5.3.6 outside the constant subset, `alignas` on a member |
+| a reference member whose storage is addressed before what binds it | 3 | the two operands in the order the references evaluate them |
+| `thread_local` | 3 | `storage=thread_local` and the accessor function the references write |
+| `__builtin_*` names | 3 | `__builtin_memcpy`, `__builtin_unreachable` |
+| the exception cleanup regions around a partly built object | 2 | `eh_cleanup` / `eh_try` / `resume` in a destructor body |
+| `#pragma pack` | 2 | a phase-4 fact that has to reach 9.2p13 in phase 7 |
+| placement `new` | 2 | 5.3.4's placement form |
+| a trailing return type on a member function | 2 | 8.3.5p2 with `auto` |
+| a program the parser does not read | 2 | a nested braced member initializer, a reference member named after its class |
+| single defects, one fixture each | 24 | listed below |
 
-Of the 35 shape diffs, the named ones are: 8.5p8's zero-initialization of a
-value-initialized class with no user-provided constructor; the exception cleanup
-regions the references write around partially constructed and partially
-destroyed subobjects (`eh_cleanup` / `eh_try` / `resume`); arrays of class type
-constructed and destroyed element by element; a `declare global` written for an
-`extern` object nothing uses; an aggregate's reference member, whose storage
-this unit addresses before it reads what binds to it; the `_GLOBAL__N_1` name an
-unnamed namespace gives what it declares; `#pragma pack`, which is a phase-4
-fact that has to reach 9.2p13 in phase 7 and owns 2 of them; a class copy
-written as a whole-object load and store where the references write `copyobj`;
-an array subscript, which converts its index where the references multiply it
-as it stands and evaluates it twice in the read form, and owns
-`200-reference-indexed-pointer-member-access`; and an argument of class type
-passed by value, which the references give a generated `argobj__n` slot and this
-unit writes as a whole-object load — the same class-prvalue gap C7 is for,
-reached from the argument side rather than refused.
+The 24 singles, each its own fact: an aggregate member of class type no clause
+reaches; `mutable` under a `const` member function; an object of a nested class
+the enclosing class declared privately; `(a.f)(x)`; a static and a non-static
+member function of one class reaching one overload key, because 9.3.1p3 put the
+object parameter in the type; 5.2.4's pseudo-destructor call on a scalar; a
+user-defined string-literal operator; `decltype` in a qualified-id;
+`__builtin_expect` folded where the references keep the definition;
+`store ptr nullptr` spelled `store ptr 0`; an incomplete class as the return
+type of a declared function, written `obj<0x1>` where the references write
+`void`; one dead `addr` before an aggregate initialization that writes nothing;
+a defaulted constructor called where the references elide it; an out-of-class
+constructor definition not matched to its in-class declaration; an array
+subscript, which converts its index where the references multiply it as it
+stands and evaluates it twice in the read form; an explicit destructor call
+through an enclosing namespace's type; `std::nullptr_t` as a parameter type,
+written `i64`; the `_GLOBAL__N_1` name an unnamed namespace gives what it
+declares; a `declare global` for an `extern` object nothing uses; 13.5.6's
+`operator->` not read as a call; and four more that differ only inside one
+function body.
 
-The 22 scattered refusals are, grouped by what they ask for: a class prvalue
-that has to be materialized — `T(args)` bound to a reference parameter, an
-object of class type passed by value, 13.3.3.1.2's user-defined conversion
-sequence — which is 9 of them; namespace-scope arrays of class type, 5, which
-now also owns an array of a class with a bit-field, whose initialization is the
-dynamic one the references write; the `__builtin_*` names, 3; placement `new`,
-2; a trailing return type on a member function, 2; and one of `mutable`. Two
-more stand alone and are named in the C5 audit: 13.5.6's `operator->` is not
-read as a call, and a static and a non-static member function of one class reach
-the same overload key because 9.3.1p3 put the object parameter in the type, so
-`struct block { void unlink(); static void unlink(block*); };` is refused as a
-redefinition — the fix is to put which kind of member a declaration is into the
-key beside the parameter list.
-
-Two defects no fixture reaches, both of the anonymous-member group and neither
-about bit-fields: an anonymous *struct* member declares nothing, so `s.a` for
+Two defects no fixture reaches, both of the anonymous-member group: an anonymous
+*struct* member declares nothing, so `s.a` for
 `struct S { struct { unsigned a; unsigned b; }; unsigned c; };` names nothing
 here and 4 bytes are laid out where the references and g++ lay out 12; and a
 member of an anonymous *union* is addressed without the union's own `index`
-step, which the references write. 9.5p1's injection is written for the anonymous
-union alone and gives the member no subobject of its own to stand in.
+step. 9.5p1's injection is written for the anonymous union alone.
+
+One divergence is deliberate and named in the Performance Model: past 64 bytes
+the zero of a class object is one `zeroinit` where the references write one
+eight-byte store however many there are - 512 of them for a 4 KB object.
 
 15.4p14's `unwind=no` is separate and needs no test result: the relaxed
 comparison strips the field, and emitting nothing is silence rather than a false
-claim. It is the whole difference in 6 of the 174 passing fixtures; 34 more
-differ only in top-level order and 2 only in an internal symbol name, both of
-which the README makes a presentation convention. The other 110 with a
-reference to compare are byte for byte identical.
+claim.
 
 ## Active Checkpoint
 
-Done: **the audit of C6**, 173 -> 174 of 243 with pa1-pa15 held at 1173/1173.
-9.6p2's storage unit is now a run of bytes with its own width, alignment and
-type rather than the member's object: fields share a unit only where they were
-declared with its type and their bits fit, an ordinary member begins after the
-unit ends, the unit is read and put back at the signed integer of its own width,
-an initialization joins it as an expression of the member's type, and a static
-object holding a field a clause reached is initialized before the program runs.
-Every bit-field shape the reference accepts and this unit accepts now agrees
-with it byte for byte.
+Done: **C7 - the class prvalue that has to stand somewhere**, 174 -> 186 of 243
+with pa1-pa15 held at 1173/1173. 12.2p1 now makes a prvalue of class type an
+object the function holds: `T(args)` and `T()` declare a temporary no name
+reaches and run the constructor 8.5/13.3.1.3 chooses on it, and its storage is
+named after what asked for it - `tmpobj__n` where the expression wrote it,
+`arg__n` where an argument's reference binding made it, `argobj__n` where the
+argument is passed by value. 13.3.3.1.2's user-defined conversion sequence is
+the same temporary reached from the argument side, ranked below every standard
+conversion sequence. 5.2.2p4's argument of class type is a copy the call owns,
+which 12.8p31 lets a prvalue be created in rather than copied into, and 12.8p15
+makes memberwise - so a class that holds nothing moves nothing. 8.5p7's
+zero-initialization of a value-initialized class with no user-provided
+constructor is the zero of its bytes, which for such a class is also nothing.
 
-Next: **C7 — the class prvalue that has to stand somewhere** (12.2p1, 5.2.3p2,
-8.5.3p5, 13.3.3.1.2), which is what 9 of the
-remaining refusals ask for and what several shape diffs need: `T(args)` is a
-temporary the unit gives storage to and runs a constructor on, a reference
-parameter binds that storage, and 13.3.3.1.2's user-defined conversion sequence
-is the same temporary made by a converting constructor. The by-value argument
-the references write into a generated `argobj__n` slot is the same fact reached
-from the argument side, so it is part of that checkpoint rather than of PA17's
-copy semantics.
+Next: **C8 - the array of class type**, which is 6 of the remaining refusals and
+2 of the shape diffs.
 
-- owner: `sema_class.cpp` for the constructor selection, which is
-  `construct_object` over an object no declaration named; `lowir_lower_body.cpp`
-  for the slot the temporary stands in.
-- data flow: a `temporary-object` node holding the same `constructor-action` a
-  declaration writes, so the lowering allocates one generated slot and calls
-  what the action names. The refs name that slot three ways and slot names are
-  not canonicalized before comparison: `arg__n` for a temporary a written
-  argument is, `argobj__n` for the storage an argument of class type is passed
-  in, and `tmpobj__n` for one no argument named.
-- expected complexity: one constructor selection per written temporary, which is
-  what a declaration of an object of the same class already costs.
-- beside it: 8.5.3p5's temporary is also what a `const T&` bound to a bit-field
-  and a conditional whose arms are two fields need - both are refused here and
-  named, and both are one materialization of a scalar rather than of a class.
-- what is not in it: 12.2p3's destruction at the end of the full-expression,
-  which needs the full-expression boundary the lowering does not mark yet - so a
-  temporary of a class with a non-trivial destructor is refused rather than
-  silently left alive.
+- owner: `sema_class.cpp` for 12.6p1's per-element construction and 12.4p8's
+  reverse destruction, which are the same `construct_object` and
+  `destructor_action` asked of an element rather than of an object;
+  `lowir_lower_object.cpp` for the element cursor the actions are written over,
+  and `lowir_lower.cpp` for 3.6.2p1's namespace-scope array, whose elements are
+  constructed in `@__cppgm_init` and destroyed in `@__cppgm_fini`.
+- data flow: an `array-lifecycle` node holding one `constructor-action` and one
+  `destructor-action` written against an element index, so the tree names the
+  element rather than the loop, and the lowering decides between writing the n
+  actions out and writing the loop that runs them.
+- expected complexity: one constructor selection per array declaration and not
+  per element; the output is n actions while n is small enough to be a
+  description of the array and one loop past that, which is the same choice
+  `kZeroSpanLimit` already makes for a span of zero bytes.
+- beside it: an array element initialized by an expression PA15 does not lower,
+  which is the same element cursor reached from 8.5.1 rather than from 12.6.
+- what is not in it: 12.6.2's array member of a class with a bit-field, whose
+  dynamic initialization the references write and which needs 3.6.2p2's static
+  image first.
 - validation: `make test-report ACTIVE_TEST_REPORT_PAS='pa16'`,
   `make test-report-through-pa15`,
   `perl scripts/cppgm_file_audit.pl --stage pa16 --paths dev/src`, valgrind over
-  the temporary and by-value fixtures, and a sweep of temporaries per
-  full-expression and of nesting depth.
+  the array fixtures, a sweep of array bound and of element class size, and a
+  differential sweep of both through `cppgm++-ref`.
 
 ## Performance Model
 
+- 12.2p1's temporary costs one slot and one constructor selection, both of which
+  a declaration of an object of the same class already costs, and the object is
+  named once however many readers it has: the slot is made the first time the
+  node is reached and the address it was constructed at is what every later
+  reader uses, so a temporary bound to a reference and then read through it
+  emits one `addr` and not two. Measured at 500/1000/2000/4000, each doubling
+  1.9-2.3x: n written temporaries in one full-expression each bound to a
+  `const T&`, 0.01/0.02/0.04/0.09 s; n by-value class arguments,
+  0.01/0.01/0.03/0.07 s; n arguments reaching a class parameter through
+  13.3.3.1.2's converting constructor, 0.01/0.02/0.03/0.08 s; n statements each
+  calling a temporary functor, 0.01/0.02/0.05/0.11 s; n value-initialized
+  32-byte class objects, 0.02/0.04/0.08/0.17 s. Nesting `f(T(...))` 25 to 200
+  deep - the parser's depth limit - costs two output lines per level.
+- 13.3.3.1.2's search is one walk of the declarations of the class's constructor
+  name, so a class with n constructors costs n per argument that reaches it and
+  a class the argument already has the type of never starts the walk.
+- 12.8p15's copy is one `copyobj` of the class's own span rather than one store
+  per member, and a class that holds nothing is written nothing at all - which
+  is what `TypeTable::is_empty_class` answers in one probe, from the flag 9.2p13
+  layout already computed.
+- 8.5p5's zero of a class object is written as the widest stores that fit while
+  the object is small enough for that to be a description of it, and as one
+  `zeroinit` past `kZeroSpanLimit` (64 bytes). The references have no such
+  limit: they write one eight-byte store per eight bytes however many there are,
+  which is 512 instructions for a 4 KB object and 131072 for a one-megabyte
+  member. No fixture reaches past 64 bytes, and the same limit already governs
+  8.5.1p7's span of value-initialized array elements, so the two agree.
 - 9.6p2's allocation unit is the same one pass: the layout carries a byte cursor
   and the open unit's type, first byte and used bits, so a bit-field costs one
   comparison and one addition and a class with no bit-field never opens a unit.
@@ -272,3 +296,4 @@ copy semantics.
 | audit of C5 | 3.4.2p2's base chain abandoned wherever the class was already associated - which it is, without its bases, whenever it is the class a nested type is a member of; every class around a nested type associated where the clause associates the one it is a member of; 11.2p5's naming class and 11.4p1's additional check asked at neither operator-call site; a member `- + * &` given the unary Itanium terminal because the arity left out the operand 9.3.1p3 put in the type; an out-of-class definition of a static member function given an object parameter, declaring a second function the unit then called with no argument and, where `inline`, never defined; 13.5p6's static-member half; a pointer condition branched on through a `cmp ne ptr` the references do not write | 161 -> 163 / 243, nothing that passed before failing after; pa1-pa15 1173 / 1173; valgrind clean over 243 fixtures and 47 probes; every ADL association axis linear at 2.0-2.4x per doubling and the one quadratic axis unchanged; the stripped metadata agrees with the refs for all 141 passing fixtures with a reference but for `unwind=no`, and the ABI names of every unary and binary form of `+ - * &` agree with g++ |
 | C6 | 9.6p1's width read as a constant expression and the four facts it settles put on the member's own declaration - `bit_field`, `bit_width`, `bit_offset` and 4.5p3's `bit_access`; 9.6p2's allocation into storage units by a layout cursor counted in bits, with the unnamed zero-width separator and the field that would straddle a unit moved on; a read that loads the unit at the promoted type, shifts the field down and masks it, while the value keeps the type the member was declared with; 9.6p2's write as a read-modify-write, and as a plain store where the initialization still owns every byte of the unit; 8.5.1's unnamed field stepped over by the clauses; 12.6.2 and 8.5.1 writing the two instruction orders the references write; 5.17 and 5.3.2 over a field, with 4.5p3's promoted type for the arithmetic; 5.3.1p3 and 5.3.3p1 refusing the address and the size of one; 3.6.2p2's static data written as the bytes the fields' bits fall in rather than as the units they are read through | 163 -> 173 / 243; pa1-pa15 1173/1173; all ten bit-field fixtures byte-identical; valgrind clean over the fixtures and 8 probes; layout and static-data bytes agree with g++ over 17 layout shapes and 9 value shapes; every axis linear |
 | audit of C6 | 9.6p2's storage unit made a run of bytes with its own width, alignment and type, opened by the first field that cannot share the one before it and shared only by fields declared with its type - so a bit-field no longer packs into the bytes of the member before it and a derived class's field no longer covers the base subobject its constructor then stored over; the unit loaded and put back at the signed integer of its own width where 4.5p3's promoted type had named a type narrower or wider than the storage; an initialization joining the unit as an expression of the member's own type, with 4.5's promotion and 4.7's conversion at each step; both masks dropped for a field that owns every bit of its unit; 3.6.2p2's static image given to `@__cppgm_init` where a data item cannot name a share of a unit, and the zero of a unit written once for every field in it; a clause let through to an unnamed bit-field; an assignment converting its value before naming the object it writes into; a constant initializer spelled as the value it produces; 4.12's conversion to `bool` compared at the type of what it converts | 173 -> 174 / 243, nothing that passed before failing after; pa1-pa15 1173/1173; valgrind clean over 243 fixtures and 87 probes; every bit-field shape the reference accepts agrees byte for byte over 17 layout shapes and 15 declared types; every axis linear |
+| C7 | 12.2p1's prvalue of class type made an object the function holds - `T(args)` and `T()` declaring a temporary no name reaches, 8.5/13.3.1.3 choosing its constructor, and the storage named `tmpobj__n`, `arg__n` or `argobj__n` after what asked for it; 8.5.3p5's reference bound to that object; 13.3.3.1.2p1's user-defined conversion sequence as the same temporary made by a converting constructor, ranked below every standard conversion sequence and above the ellipsis, with 12.3.1p2's `explicit` left out and one user-defined conversion per sequence; 5.2.2p4's argument of class type copied into a generated `argobj__n` slot the call is passed, with 12.8p31 creating a prvalue argument in that slot rather than copying into it; 12.8p15's copy made memberwise, so a class that holds nothing moves nothing - at an argument and at a parameter's entry alike; 8.5p7's zero-initialization of a value-initialized class with no user-provided constructor, written as the zero of its bytes; 12.2p3's temporary of a class with a non-trivial destructor refused rather than left alive past the full-expression; the object model of the lowering split out into `lowir_lower_object.cpp` | 174 -> 186 / 243; pa1-pa15 1173/1173; valgrind clean over 243 fixtures and the probes; 18 of 21 synthesized prvalue, by-value, conversion and value-initialization shapes byte-identical to the reference, the other 3 differing only in the `zeroinit` limit; every axis linear at 1.9-2.3x per doubling |

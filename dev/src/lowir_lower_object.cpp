@@ -87,6 +87,14 @@ void LowirFunctionLowering::constructor_call(const Operand& address,
 	TypeTable& types = unit_.types();
 	const DumpNode& call = *node.children[0];
 	const SemaEntity& constructor = *call.children[0]->fact.entity;
+	if (node.fact.zero_initialized)
+	{
+		// 8.5p7: the object was value-initialized and its class wrote no
+		// constructor, so its storage is zero before the one the standard gave
+		// it runs - and that zero is the whole initialization where the
+		// constructor is the trivial one.
+		zero_object(address, node.fact.type);
+	}
 	if (constructor.trivial && !always)
 	{
 		return;
@@ -107,7 +115,8 @@ void LowirFunctionLowering::constructor_call(const Operand& address,
 		const bool bound =
 			at < parameters.size() && types.is_reference(parameters[at]);
 		const LowValue argument = expression(*call.children[index], bound);
-		out.args.push_back(converted(argument, parameters[at]));
+		out.args.push_back(
+			argument_operand(*call.children[index], argument, parameters[at]));
 	}
 	emit_void(out);
 }
@@ -166,6 +175,90 @@ void LowirFunctionLowering::copy_class_object(const Operand& destination,
 	copy.first = source;
 	copy.second = destination;
 	emit_void(copy);
+}
+
+// 5.2.2p4 and 12.8p31: what one argument of a call is passed as.  A prvalue of
+// the parameter's own class was created in storage of its own a moment ago, and
+// that storage is what the call passes: the temporary and the parameter are one
+// object, so no copy stands between them and no second slot holds one.
+Operand LowirFunctionLowering::argument_operand(const DumpNode& node,
+                                                const LowValue& value,
+                                                TypeId parameter)
+{
+	TypeTable& types = unit_.types();
+	if (node.fact.kind == FactKind::TemporaryObject &&
+	    !types.is_reference(parameter) &&
+	    types.is_class(types.strip_cv(parameter)) &&
+	    types.strip_cv(node.fact.type) == types.strip_cv(parameter))
+	{
+		const std::unordered_map<std::uint32_t, std::string>::const_iterator
+			found = slots_.find(node.fact.entity->id);
+		if (found != slots_.end())
+		{
+			return named_operand(Operand::OP_SLOT, found->second);
+		}
+	}
+	return converted(value, parameter);
+}
+
+// 8.5p5: an object of class type is zero-initialized by giving every byte it
+// occupies the value zero.  The bytes are written as the widest stores that fit
+// - which is what the references write, and which is not the same as one store
+// per member, because two members may share one - and as one `zeroinit` where
+// there are more of them than a reader would follow.  A class that holds
+// nothing occupies no bytes a copy or a zero reaches, so it is written nothing
+// and its address is not even computed.
+void LowirFunctionLowering::zero_object(const Operand& address, TypeId type)
+{
+	TypeTable& types = unit_.types();
+	const TypeId bare = types.strip_cv(type);
+	if (types.is_empty_class(bare))
+	{
+		return;
+	}
+	const unsigned long long size = types.object_size(bare);
+	if (size == 0)
+	{
+		return;
+	}
+	if (size > kZeroSpanLimit)
+	{
+		Instruction zero;
+		zero.kind = Instruction::IK_ZEROINIT;
+		zero.byte_count = static_cast<std::size_t>(size);
+		zero.byte_alignment = static_cast<std::size_t>(types.object_align(bare));
+		zero.first = address;
+		emit_void(zero);
+		return;
+	}
+	static const char* const kWidths[] = {"i64", "i32", "i16", "i8"};
+	static const unsigned long long kBytes[] = {8, 4, 2, 1};
+	unsigned long long at = 0;
+	while (at < size)
+	{
+		std::size_t step = 0;
+		while (kBytes[step] > size - at)
+		{
+			++step;
+		}
+		Operand place = address;
+		if (at != 0)
+		{
+			Instruction index;
+			index.kind = Instruction::IK_INDEX;
+			index.type.text = "i8";
+			index.first = address;
+			index.second = named_operand(Operand::OP_INTEGER, decimal(at));
+			place = emit(index);
+		}
+		Instruction write;
+		write.kind = Instruction::IK_STORE;
+		write.type.text = kWidths[step];
+		write.first = named_operand(Operand::OP_INTEGER, "0");
+		write.second = place;
+		emit_void(write);
+		at += kBytes[step];
+	}
 }
 
 void LowirFunctionLowering::add_destruction(const DumpNode& node)
@@ -448,6 +541,16 @@ void LowirFunctionLowering::initialize_subobject(
 	claims_storage(subobject_offset(path),
 	               subobject_offset(path) +
 	                   unit_.types().object_size(node.fact.type));
+	if (node.children.empty() && node.fact.op == 0 &&
+	    unit_.types().is_empty_class(
+		    unit_.types().strip_cv(node.fact.type)))
+	{
+		// 8.5p7 and 9p6: no clause reached a subobject of a class that holds
+		// nothing, so the zero it is value-initialized with has no bytes to be
+		// written into and there is no address to compute for it either.
+		path.pop_back();
+		return;
+	}
 	const Operand at = subobject_address(object, path);
 	path.pop_back();
 	if (node.fact.op != 0)
@@ -470,7 +573,14 @@ void LowirFunctionLowering::initialize_subobject(
 	if (node.children.empty())
 	{
 		// 8.5p7: a subobject no clause reached is value-initialized, which for
-		// every type this milestone lays out is the zero of it.
+		// every type this milestone lays out is the zero of it.  For one of
+		// class type that zero is the zero of the bytes it occupies rather than
+		// a value a store of its own type could hold.
+		if (unit_.types().is_class(unit_.types().strip_cv(node.fact.type)))
+		{
+			zero_object(at, node.fact.type);
+			return;
+		}
 		store(literal_operand(node.fact.type, 0), at, node.fact.type);
 		return;
 	}

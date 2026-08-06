@@ -815,7 +815,8 @@ void SemaAnalyzer::apply_conversion(Value& value, TypeId target,
 		DumpNode& line = model_.wrap_node(*value.node, std::string());
 		source.node = line.children[0];
 		line.children.clear();
-		value = build_temporary(wanted, line, nullptr, &source, ctx, "arg");
+		value = build_temporary(wanted, line, nullptr, &source, ctx, "arg",
+		                        false);
 		return;
 	}
 	if (match.reference && !match.binds_lvalue)
@@ -825,7 +826,15 @@ void SemaAnalyzer::apply_conversion(Value& value, TypeId target,
 		// argument is what asked for its storage.  A base subobject of it was
 		// already read above, which is what leaves that temporary named after
 		// the expression that wrote it rather than after this argument.
-		name_argument_temporary(value);
+		name_argument_temporary(value, "arg");
+	}
+	if (!match.reference && types_.is_class(types_.strip_cv(target)) &&
+	    types_.strip_cv(value.type) == types_.strip_cv(target))
+	{
+		// 12.8p31: the argument is a prvalue of the parameter's own class, so
+		// the temporary it is may be created in the storage the call passes -
+		// and then there is one object rather than an object and a copy of it.
+		name_argument_temporary(value, "argobj");
 	}
 	if (match.materialized != kNoType && value.node != nullptr)
 	{
@@ -1516,7 +1525,8 @@ SemaAnalyzer::Value SemaAnalyzer::functional_cast(const AstNode& node,
 		// one 8.5 and 13.3.1.3 give an object of the class, so the arguments
 		// are the constructor's whatever their number, and the storage the
 		// prvalue stands in is the function's.
-		return materialize_temporary(target, list, ctx, parent, "tmpobj");
+		return materialize_temporary(target, list, ctx, parent, "tmpobj",
+		                             count == 0);
 	}
 	if (count == 0)
 	{

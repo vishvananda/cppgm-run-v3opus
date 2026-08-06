@@ -373,6 +373,10 @@ private:
 	// 13.3.1.3 chooses from, and the destructor 12.4p3 gives it.  Null for
 	// anything that is not a class type this unit completed.
 	SemaEntity* class_constructors(TypeId type);
+	// 8.5p7: whether the program wrote a constructor of the class whose
+	// declarations `head` begins, which is what says a value-initialized object
+	// of it is not zero-initialized first.
+	static bool user_provided_constructor(const SemaEntity& head);
 	// 13.3.3.1.2p1: the converting constructor of `target` that a user-defined
 	// conversion sequence for `argument` calls, or null where none does or
 	// where two do equally well.
@@ -523,10 +527,13 @@ private:
 	// `given` is an initializer already analysed where it was written, which
 	// 13.3.3.1.2's conversion has and no source form does: the value is taken
 	// as it stands and its line moves into the place the call gives it.
+	// `value_init` says the initializer was an empty list the grammar wrote no
+	// node for, which is what 5.2.3p2's `T()` is.
 	void construct_object(SemaEntity& variable, DumpNode& line,
 	                      const AstNode* written, const Context& ctx,
 	                      Placement where = Placement::Named,
-	                      bool copied = false, const Value* given = nullptr);
+	                      bool copied = false, const Value* given = nullptr,
+	                      bool value_init = false);
 	// The object a constructor-action runs on, as the address of it: an object
 	// a declaration named, a member of the object being constructed, or that
 	// object's base class subobject.
@@ -539,18 +546,18 @@ private:
 	// storage it is given, which is what says whether an argument asked for it.
 	Value materialize_temporary(TypeId type, const AstNode* written,
 	                            const Context& ctx, DumpNode& parent,
-	                            const char* prefix);
+	                            const char* prefix, bool value_init = false);
 	// The same, written into a line that already stands where the prvalue does,
 	// which is what an argument conversion needs: the argument keeps the place
 	// it had among the operands of the call and the temporary is written around
 	// it rather than beside it.
 	Value build_temporary(TypeId type, DumpNode& line, const AstNode* written,
 	                      const Value* given, const Context& ctx,
-	                      const char* prefix);
+	                      const char* prefix, bool value_init);
 	// 8.5.3p5 and 13.3.3.1.2: a temporary an argument conversion made is named
 	// after the argument it was made for, unless something already read it as
 	// the object it is.
-	void name_argument_temporary(const Value& value);
+	void name_argument_temporary(const Value& value, const char* prefix);
 	// The typed facts of a node the analysis builds rather than reads out of an
 	// expression the program wrote.
 	static void set_fact(DumpNode& node, FactKind kind, TypeId type,

@@ -119,6 +119,7 @@ struct SemaFact
 		, operands(kNoType)
 		, entity(nullptr)
 		, constant(false)
+		, zero_initialized(false)
 		, value(0)
 	{}
 
@@ -140,6 +141,12 @@ struct SemaFact
 	// 5.19: the value the translation knows, for a literal, an enumerator and
 	// a constant the constant layer folded.
 	bool constant;
+	// 8.5p8: whether this `constructor-action` value-initializes an object of a
+	// class with no user-provided constructor, which zero-initializes its
+	// storage before the constructor is run on it.  That zero is what the
+	// object holds wherever the constructor leaves a member alone, and it is
+	// written even where the constructor itself does nothing.
+	bool zero_initialized;
 	unsigned long long value;
 	// The spelling this node carries that no other fact holds: the tokens a
 	// floating literal was written from, whose value is a value of the

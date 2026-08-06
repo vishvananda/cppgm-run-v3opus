@@ -486,6 +486,18 @@ private:
 	// holds nothing moves nothing at all.
 	void copy_class_object(const lowir_model::Operand& destination,
 	                       const lowir_model::Operand& source, TypeId type);
+	// 5.2.2p4: what the call is passed for one argument.  For every type but a
+	// class this is the conversion the parameter asks for; for a class it is
+	// the storage the copy was made in, and 12.8p31 lets a prvalue argument be
+	// created in that storage rather than copied into it.
+	lowir_model::Operand argument_operand(const DumpNode& node,
+	                                      const LowValue& value,
+	                                      TypeId parameter);
+	// 8.5p5: the zero of an object of class type, which is the zero of the
+	// bytes it occupies.  They are written as the widest stores that fit, and
+	// as one `zeroinit` where there are more of them than a reader wants to
+	// count; a class that holds nothing has none and is written nothing.
+	void zero_object(const lowir_model::Operand& address, TypeId type);
 	// 12.4p3: the destructor call the end of an object's lifetime is.
 	void destructor_call(const DumpNode& node);
 	// 3.8p1: the destructor actions a statement carries for the blocks control
