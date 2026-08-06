@@ -65,16 +65,14 @@ std::string LowirSymbolTable::function_symbol(const SemaEntity& entity,
                                               const std::string& signature)
 {
 	const std::string base = flatten_name(entity.dump_name);
-	std::vector<std::string>& seen = overloads_[base];
-	for (std::size_t index = 0; index < seen.size(); ++index)
-	{
-		if (seen[index] == signature)
-		{
-			return index == 0 ? base : base + "__ov" + decimal(index + 1);
-		}
-	}
-	seen.push_back(signature);
-	return seen.size() == 1 ? base : base + "__ov" + decimal(seen.size());
+	std::unordered_map<std::string, std::size_t>& seen = overloads_[base];
+	// 13.1 lets one name have as many declarations as the program writes, so
+	// which of them a signature is, is a probe rather than a walk of the ones
+	// already named.
+	const std::pair<std::unordered_map<std::string, std::size_t>::iterator, bool>
+		found = seen.insert(std::make_pair(signature, seen.size()));
+	const std::size_t index = found.first->second;
+	return index == 0 ? base : base + "__ov" + decimal(index + 1);
 }
 
 std::string LowirSymbolTable::object_symbol(const SemaEntity& entity)
@@ -316,23 +314,35 @@ void LowirUnitLowering::declaration(const DumpNode& node)
 	}
 }
 
+// 3.9.1p1 and 4.7p2: the bits an object of `type` holds when it is given
+// `bits`, which is all of them at its own width and nothing above it.
+unsigned long long LowirUnitLowering::narrowed(TypeId type,
+                                               unsigned long long bits)
+{
+	const unsigned long long size = width(type);
+	if (size == 0 || size >= 8)
+	{
+		return bits;
+	}
+	const unsigned shift = static_cast<unsigned>(64 - 8 * size);
+	return is_signed(type)
+		? static_cast<unsigned long long>(
+			  static_cast<long long>(bits << shift) >> shift)
+		: (bits << shift) >> shift;
+}
+
 std::string LowirUnitLowering::spell_value(TypeId type,
                                            unsigned long long bits)
 {
 	std::ostringstream text;
-	const unsigned long long size = width(type);
-	if (is_signed(type) && size != 0 && size < 8)
+	const unsigned long long value = narrowed(type, bits);
+	if (is_signed(type))
 	{
-		const unsigned shift = static_cast<unsigned>(64 - 8 * size);
-		text << (static_cast<long long>(bits << shift) >> shift);
-	}
-	else if (is_signed(type))
-	{
-		text << static_cast<long long>(bits);
+		text << static_cast<long long>(value);
 	}
 	else
 	{
-		text << bits;
+		text << value;
 	}
 	return text.str();
 }
@@ -363,7 +373,18 @@ bool LowirUnitLowering::folded(const DumpNode& node, unsigned long long& bits)
 	}
 	if (fact.kind == FactKind::Cast && node.children.size() == 1)
 	{
-		return folded(*node.children[0], bits);
+		if (!folded(*node.children[0], bits))
+		{
+			return false;
+		}
+		// 5.19 over 4.7p2: what the cast is worth is what an object of the type
+		// it names holds, which is what every operator above it then reads.
+		if (types_.is_integral(types_.strip_cv(fact.type)) ||
+		    types_.kind(types_.strip_cv(fact.type)) == TypeKind::Enum)
+		{
+			bits = narrowed(fact.type, bits);
+		}
+		return true;
 	}
 	if (fact.kind == FactKind::BracedInitList)
 	{

@@ -181,20 +181,10 @@ Operand LowirFunctionLowering::literal_operand(TypeId type,
 		operand.text = low == "f32" ? "0.0f" : low == "f80" ? "0.0L" : "0.0";
 		return operand;
 	}
-	const unsigned long long size = unit_.width(type);
-	if (unit_.is_signed(type) && size != 0 && size < 8)
-	{
-		const unsigned shift = static_cast<unsigned>(64 - 8 * size);
-		operand.text = signed_decimal(
-			static_cast<long long>(bits << shift) >> shift);
-		return operand;
-	}
-	if (unit_.is_signed(type))
-	{
-		operand.text = signed_decimal(static_cast<long long>(bits));
-		return operand;
-	}
-	operand.text = decimal(bits);
+	const unsigned long long value = unit_.narrowed(type, bits);
+	operand.text = unit_.is_signed(type)
+		? signed_decimal(static_cast<long long>(value))
+		: decimal(value);
 	return operand;
 }
 
@@ -1398,10 +1388,12 @@ LowValue LowirFunctionLowering::cast_expression(const DumpNode& node,
 	    types.is_integral(types.strip_cv(source.type)))
 	{
 		// 5.2.9 over a constant: the value the cast produces is a value the
-		// translation knows, so it is written as the immediate it is.
+		// translation knows, so it is written as the immediate it is - and it
+		// is the immediate an object of the cast's own type holds, which is
+		// what a conversion above it then widens.
 		value.constant = true;
-		value.value = source.value;
-		value.operand = literal_operand(value.type, source.value);
+		value.value = unit_.narrowed(value.type, source.value);
+		value.operand = literal_operand(value.type, value.value);
 		return value;
 	}
 	value.operand = converted(source, value.type);
@@ -1508,7 +1500,6 @@ LowValue LowirFunctionLowering::call_expression(const DumpNode& node)
 
 LowValue LowirFunctionLowering::unary_expression(const DumpNode& node)
 {
-	TypeTable& types = unit_.types();
 	const LowValue operand =
 		expression(*node.children[0], node.fact.op == OP_AMP);
 	LowValue value;

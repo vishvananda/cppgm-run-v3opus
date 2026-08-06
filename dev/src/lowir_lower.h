@@ -76,9 +76,10 @@ public:
 	static std::string object_symbol(const SemaEntity& entity);
 
 private:
-	// The signatures already given a symbol under each base name, in the order
-	// they were first named.
-	std::unordered_map<std::string, std::vector<std::string> > overloads_;
+	// Which signature each base name has already given a symbol to, as the
+	// order it was first named in.
+	std::unordered_map<std::string,
+	                   std::unordered_map<std::string, std::size_t> > overloads_;
 };
 
 // The counters a generated body carries between the translation units that add
@@ -157,6 +158,9 @@ public:
 	bool is_signed(TypeId type);
 	// The register width of a scalar type, in bytes.
 	unsigned long long width(TypeId type);
+	// 3.9.1p1 and 4.7p2: `bits` as an object of `type` holds them, which is
+	// what a value of that type is worth to everything that reads it.
+	unsigned long long narrowed(TypeId type, unsigned long long bits);
 
 	TypeTable& types() { return types_; }
 	lowir_model::Program& program() { return program_; }
