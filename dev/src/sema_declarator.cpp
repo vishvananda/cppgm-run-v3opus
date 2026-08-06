@@ -39,6 +39,7 @@ SemaAnalyzer::Specifiers::Specifiers()
 	, has_type_name(false)
 	, is_typedef(false)
 	, is_constexpr(false)
+	, is_extern(false)
 	, is_static(false)
 	, introduced(nullptr)
 {
@@ -140,6 +141,12 @@ void SemaAnalyzer::read_type_specifier(const AstNode& node, Specifiers& out,
 
 	case KW_CONSTEXPR:
 		out.is_constexpr = true;
+		return;
+
+	case KW_EXTERN:
+		// 3.1p2: an `extern` declaration with no initializer declares the
+		// object without defining it.
+		out.is_extern = true;
 		return;
 
 	case KW_STATIC:

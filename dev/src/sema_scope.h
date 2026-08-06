@@ -8,6 +8,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "sema_facts.h"
 #include "type_model.h"
 
 // The declarations, scopes and bindings of one translation unit.
@@ -123,6 +124,11 @@ struct SemaEntity
 	// This entity among the run's, which is how a fact about it is keyed - the
 	// same use `Scope::id` is put to for a region.
 	std::uint32_t id;
+	// 3.1p2: whether a declaration of an object also defines it.  An `extern`
+	// declaration with no initializer declares the object without defining it,
+	// which is the one thing that tells a use of a name in another translation
+	// unit from the storage this one lays out.
+	bool object_definition;
 	// The name the PA12 dump spells this entity with: a namespace-scope
 	// declaration is written with the named namespaces around it, and
 	// everything else with the name it was declared with.  It is built where
@@ -140,6 +146,10 @@ struct DumpNode
 {
 	std::string text;
 	std::vector<DumpNode*> children;
+	// What the line stands for, as typed facts rather than as the text it
+	// spells them with.  A later assignment that lowers the resolved program
+	// reads this and never parses `text`.
+	SemaFact fact;
 };
 
 // One line-oriented scope of the dump.

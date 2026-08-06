@@ -2,6 +2,7 @@
 
 #include "ast_emit.h"
 #include "exceptions.h"
+#include "lowir_emit.h"
 #include "semantics_emit.h"
 #include "types_emit.h"
 #include "tool_help_text.h"
@@ -417,8 +418,10 @@ int run_emit_semantics_mode(const vector<string> & args)
 
 int run_emit_lowir_mode(const vector<string> & args)
 {
-  (void)parse_source_output_invocation(args, true);
-  return run_unimplemented_mode("--emit-lowir", "PA14");
+  const SourceOutputInvocation invocation =
+      parse_source_output_invocation(args, true);
+  emit_lowir(invocation.outfile, invocation.inputs);
+  return EXIT_SUCCESS;
 }
 
 int run_driver_mode(const vector<string> & args)

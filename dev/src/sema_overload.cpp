@@ -540,6 +540,7 @@ void SemaAnalyzer::apply_conversion(Value& value, TypeId target,
 		model_.wrap_node(*value.node,
 		                 spell(value.what, value.category, value.spelled,
 		                       value.payload));
+		record(value);
 		return;
 	}
 	const TypeId wanted = types_.is_reference(target)

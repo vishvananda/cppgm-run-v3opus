@@ -149,6 +149,61 @@ void SemaAnalyzer::respell(const Value& value) const
 	// result of an expression.
 	value.node->text =
 		spell(value.what, value.category, value.spelled, value.payload);
+	record(value);
+}
+
+// The line kinds the expression layer spells, as the node kinds the resolved
+// tree names them by.  The spelling is the one fact that says which construct
+// a line stands for, so the two are decided in one place.
+FactKind SemaAnalyzer::fact_kind(const char* what)
+{
+	static const struct { const char* name; FactKind kind; } kKinds[] = {
+		{"literal", FactKind::Literal},
+		{"id-expression", FactKind::Id},
+		{"member-expression", FactKind::Member},
+		{"call-expression", FactKind::Call},
+		{"unary-expression", FactKind::Unary},
+		{"postfix-expression", FactKind::Postfix},
+		{"binary-expression", FactKind::Binary},
+		{"assignment-expression", FactKind::Assignment},
+		{"conditional-expression", FactKind::Conditional},
+		{"subscript-expression", FactKind::Subscript},
+		{"cast-expression", FactKind::Cast},
+		{"sizeof-expression", FactKind::Sizeof}
+	};
+	for (std::size_t index = 0; index < sizeof(kKinds) / sizeof(kKinds[0]);
+	     ++index)
+	{
+		if (std::strcmp(what, kKinds[index].name) == 0)
+		{
+			return kKinds[index].kind;
+		}
+	}
+	return FactKind::None;
+}
+
+void SemaAnalyzer::record(const Value& value) const
+{
+	if (!lowering() || value.node == nullptr || value.what == nullptr)
+	{
+		return;
+	}
+	SemaFact& fact = value.node->fact;
+	fact.kind = fact_kind(value.what);
+	fact.type = value.type;
+	fact.spelled = value.spelled;
+	fact.category = value.category;
+	fact.op = value.op;
+	fact.operands = value.operands;
+	fact.entity = value.entity;
+	fact.constant = value.constant;
+	fact.value = value.value;
+	if (fact.kind == FactKind::Literal &&
+	    types_.is_floating(const_cast<TypeTable&>(types_).strip_cv(value.type)))
+	{
+		fact.constant = true;
+		fact.spelling = value.payload;
+	}
 }
 
 // 4.5: the type an integral operand is promoted to, which for a floating type
@@ -216,6 +271,20 @@ SemaAnalyzer::Value SemaAnalyzer::expression(const AstNode& node,
 		throw std::runtime_error("an expression nests deeper than the analysis "
 		                         "reads");
 	}
+	Value value = dispatch_expression(node, ctx, parent);
+	// Every expression the layer reads leaves here, so this is the one place
+	// the facts of a line that was spelled where it was first written - a
+	// literal, a name - are recorded.  The forms that respell their line have
+	// already recorded it, and recording the same facts again writes the same
+	// ones.
+	record(value);
+	return value;
+}
+
+SemaAnalyzer::Value SemaAnalyzer::dispatch_expression(const AstNode& node,
+                                                      const Context& ctx,
+                                                      DumpNode& parent)
+{
 	switch (node.kind)
 	{
 	case AstKind::ParenthesizedExpression:
@@ -300,6 +369,7 @@ SemaAnalyzer::Value SemaAnalyzer::named_value(const AstNode& node,
 		value.category = ValueCategory::PRValue;
 		value.constant = true;
 		value.value = entity.value;
+		value.entity = &entity;
 		value.what = "literal";
 		value.payload = spell_value(entity.type, entity.value);
 		value.node = &model_.open_node(
@@ -357,10 +427,12 @@ SemaAnalyzer::Value SemaAnalyzer::named_value(const AstNode& node,
 		value.type = types_.target(value.type);
 	}
 	value.spelled = value.type;
+	value.entity = &entity;
 	value.what = "id-expression";
 	value.payload = payload_of(node);
 	value.node = &model_.open_node(
 		parent, spell(value.what, value.category, value.type, value.payload));
+	record(value);
 	return value;
 }
 
@@ -385,6 +457,11 @@ void SemaAnalyzer::name_function(Value& value, SemaEntity& function,
 		// chose, and the name under it is that declaration.
 		value.addressed->text = spell("id-expression", ValueCategory::LValue,
 		                              function.type, named);
+		value.addressed->fact.kind = FactKind::Id;
+		value.addressed->fact.type = function.type;
+		value.addressed->fact.spelled = function.type;
+		value.addressed->fact.category = ValueCategory::LValue;
+		value.addressed->fact.entity = &function;
 		value.type = member_pointer_of(function);
 		if (value.type == kNoType)
 		{
@@ -402,6 +479,7 @@ void SemaAnalyzer::name_function(Value& value, SemaEntity& function,
 	value.type = function.type;
 	value.spelled = function.type;
 	value.category = ValueCategory::LValue;
+	value.entity = &function;
 	if (value.node == nullptr)
 	{
 		return;
@@ -413,6 +491,11 @@ void SemaAnalyzer::name_function(Value& value, SemaEntity& function,
 		// write and the one a conversion is never written around.
 		value.node->text =
 			"callee " + function.dump_name + " " + types_.description(function.type);
+		value.node->fact.kind = FactKind::Callee;
+		value.node->fact.type = function.type;
+		value.node->fact.spelled = function.type;
+		value.node->fact.category = ValueCategory::LValue;
+		value.node->fact.entity = &function;
 		return;
 	}
 	value.what = what;
@@ -504,6 +587,7 @@ SemaAnalyzer::Value SemaAnalyzer::member_value(SemaEntity& member,
 		: ValueCategory::XValue;
 	value.node = &node;
 	value.what = "member-expression";
+	value.entity = &member;
 	value.payload = payload;
 	respell(value);
 	return value;
@@ -535,9 +619,11 @@ SemaAnalyzer::Value SemaAnalyzer::implied_object(const SemaEntity& member,
 	object.spelled = object.type;
 	object.category = ValueCategory::LValue;
 	object.what = "id-expression";
+	object.entity = &storage;
 	object.payload = storage.name;
 	object.node = &model_.open_node(
 		line, spell(object.what, object.category, object.type, object.payload));
+	record(object);
 	return object;
 }
 
@@ -558,6 +644,7 @@ SemaAnalyzer::Value SemaAnalyzer::this_value(DumpNode& parent)
 	value.payload = std::string(ast_token_type_name(KW_THIS)) + ":this";
 	value.node = &model_.open_node(
 		parent, spell(value.what, value.category, value.type, value.payload));
+	record(value);
 	return value;
 }
 
@@ -715,6 +802,7 @@ SemaAnalyzer::Value SemaAnalyzer::subscript_expression(const AstNode& node,
 	value.category = ValueCategory::LValue;
 	value.node = &line;
 	value.what = "subscript-expression";
+	value.op = OP_LSQUARE;
 	respell(value);
 	return value;
 }
@@ -762,6 +850,7 @@ SemaAnalyzer::Value SemaAnalyzer::cast_expression(const AstNode& node,
 	value.spelled = target;
 	value.category = ValueCategory::PRValue;
 	value.what = "cast-expression";
+	value.op = node.token == kNoAstToken ? 0u : node.token;
 	if (node.token != kNoAstToken)
 	{
 		value.payload = payload_of(node);
@@ -827,6 +916,7 @@ SemaAnalyzer::Value SemaAnalyzer::cast_expression(const AstNode& node,
 	}
 	line.text = spell(value.what, value.category, target, value.payload);
 	value.node = &line;
+	record(value);
 	return value;
 }
 
@@ -1054,6 +1144,7 @@ SemaAnalyzer::Value SemaAnalyzer::unary_expression(const AstNode& node,
 	value.spelled = value.type;
 	value.node = &line;
 	value.what = "unary-expression";
+	value.op = node.token;
 	value.payload = payload_of(node);
 	respell(value);
 	return value;
@@ -1093,6 +1184,7 @@ SemaAnalyzer::Value SemaAnalyzer::increment_expression(const AstNode& node,
 	value.category = postfix ? ValueCategory::PRValue : ValueCategory::LValue;
 	value.node = &line;
 	value.what = postfix ? "postfix-expression" : "unary-expression";
+	value.op = node.token;
 	value.payload = payload_of(node);
 	respell(value);
 	return value;
@@ -1178,6 +1270,10 @@ SemaAnalyzer::Value SemaAnalyzer::binary_expression(const AstNode& node,
 	}
 	value.node = &line;
 	value.what = "binary-expression";
+	value.op = node.token;
+	value.operands = node.token == OP_COMMA
+		? value.type
+		: binary_operand_type(node.token, left, right);
 	value.payload = payload_of(node);
 	respell(value);
 	return value;
@@ -1311,6 +1407,76 @@ TypeId SemaAnalyzer::binary_result(unsigned op, const Value& left,
 	throw std::runtime_error("a binary operator is outside the PA12 subset");
 }
 
+// 5p9, 5.7p1 and 5.9p2: what both operands of a built-in binary operator are
+// converted to.  For an arithmetic or bitwise operator that is the result type
+// itself; the operators whose result says nothing about their operands are the
+// comparisons, the shifts, and the pointer forms of `+` and `-`.
+TypeId SemaAnalyzer::binary_operand_type(unsigned op, const Value& left,
+                                         const Value& right)
+{
+	const TypeId a = decayed(left);
+	const TypeId b = decayed(right);
+	switch (op)
+	{
+	case OP_LAND:
+	case OP_LOR:
+		return types_.fundamental(FT_BOOL);
+
+	case OP_LSHIFT:
+	case OP_RSHIFT:
+		// 5.8p1: the operands are promoted separately, so the left one alone
+		// says what the operation is done at.
+		return promoted(a);
+
+	case OP_EQ:
+	case OP_NE:
+	case OP_LT:
+	case OP_GT:
+	case OP_LE:
+	case OP_GE:
+	{
+		if (types_.kind(a) == TypeKind::Enum && a == b)
+		{
+			return a;
+		}
+		const bool arithmetic =
+			(types_.is_arithmetic(a) || types_.kind(a) == TypeKind::Enum) &&
+			(types_.is_arithmetic(b) || types_.kind(b) == TypeKind::Enum) &&
+			!types_.is_scoped_enum(a) && !types_.is_scoped_enum(b);
+		if (arithmetic)
+		{
+			return arithmetic_result(a, b);
+		}
+		const TypeId composite = composite_pointer(left, right);
+		return composite != kNoType ? composite : a;
+	}
+
+	case OP_PLUS:
+	case OP_MINUS:
+	{
+		const bool a_pointer = types_.is_object_pointer(a);
+		const bool b_pointer = types_.is_object_pointer(b);
+		if (a_pointer && b_pointer)
+		{
+			return a;
+		}
+		if (a_pointer)
+		{
+			return a;
+		}
+		if (b_pointer)
+		{
+			return b;
+		}
+		return arithmetic_result(a, b);
+	}
+
+	default:
+		break;
+	}
+	return arithmetic_result(a, b);
+}
+
 SemaAnalyzer::Value SemaAnalyzer::assignment_expression(const AstNode& node,
                                                         const Context& ctx,
                                                         DumpNode& parent)
@@ -1327,6 +1493,7 @@ SemaAnalyzer::Value SemaAnalyzer::assignment_expression(const AstNode& node,
 		                         "modifiable lvalue");
 	}
 
+	TypeId compound_type = kNoType;
 	if (node.token == OP_ASS)
 	{
 		initialize(*node.children[1], types_.strip_cv(left.type), ctx, line);
@@ -1343,6 +1510,8 @@ SemaAnalyzer::Value SemaAnalyzer::assignment_expression(const AstNode& node,
 		Value result;
 		result.type = binary_result(compound_operator(node.token), target, right);
 		result.spelled = result.type;
+		compound_type = binary_operand_type(compound_operator(node.token),
+		                                    target, right);
 		// 5.17p7: the result is then assigned to the left operand, so it has to
 		// be a value the left operand can hold.
 		if (!match_by_value(result, target.type).viable)
@@ -1358,6 +1527,8 @@ SemaAnalyzer::Value SemaAnalyzer::assignment_expression(const AstNode& node,
 	value.category = ValueCategory::LValue;
 	value.node = &line;
 	value.what = "assignment-expression";
+	value.op = node.token;
+	value.operands = compound_type;
 	value.payload = payload_of(node);
 	respell(value);
 	return value;

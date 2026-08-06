@@ -39,18 +39,13 @@ public:
 // function bodies mean.  Both read the same declarations from the same tree, so
 // one walk serves both and the mode says only which tree of lines it fills and
 // which of the two assignments' rules it holds the program to.
+// PA15 adds a third: the same PA12 walk, holding the program to the same
+// rules, but also recording on each line the typed facts a lowering reads.
 enum class SemaDialect
 {
 	Types,
-	Semantics
-};
-
-// 3.10: what an expression denotes.
-enum class ValueCategory
-{
-	LValue,
-	XValue,
-	PRValue
+	Semantics,
+	Lowering
 };
 
 // The PA11 semantic pass: one walk of a PA10 syntax tree that builds the
@@ -70,6 +65,12 @@ public:
 	void run(const AstNode& unit);
 
 	void write(std::ostream& out) const;
+
+	// The resolved program of the unit just analysed, for a caller that lowers
+	// it.  The tree of lines is the resolved procedural tree, each line
+	// carrying the typed facts of `SemaFact`; the table answers what a type is.
+	const DumpNode& resolved() const { return model_.unit(); }
+	TypeTable& types() { return types_; }
 
 private:
 	// Where a declaration is read: the region it declares into, and the dump
@@ -138,6 +139,14 @@ private:
 		bool null_constant;
 		bool constant;
 		unsigned long long value;
+		// The declaration a name stands for, and the token an operator was
+		// written with.  The line spells both; a lowering needs them as the
+		// facts they are, so they travel with the value rather than being
+		// read back out of the text.
+		SemaEntity* entity;
+		unsigned op;
+		// 5p9: the type a built-in binary operator brings both operands to.
+		TypeId operands;
 	};
 
 	// 13.3.3.1: how good the conversion of one argument is.  The ranks of
@@ -181,6 +190,9 @@ private:
 		bool has_type_name;
 		bool is_typedef;
 		bool is_constexpr;
+		// 3.1p2 and 7.1.1: an `extern` declaration with no initializer is not
+		// a definition of the object it declares.
+		bool is_extern;
 		// 9.4p1: a member declared `static` is not a member of an object, so it
 		// has no implicit object parameter and is reached without one.
 		bool is_static;
@@ -305,6 +317,11 @@ private:
 	// new to the region.
 	SemaEntity* redeclared(const Context& ctx, const std::string& name,
 	                       SemaKind kind);
+	// A dump node that also says which construct it stands for, for the
+	// statement and declaration lines whose kind is fixed where they are
+	// written rather than carried up in a `Value`.
+	DumpNode& open_fact(DumpNode& parent, const std::string& text,
+	                    FactKind kind);
 	void write_line(DumpScope& dump, const char* what, const std::string& name,
 	                TypeId type);
 	void write_entity_line(DumpScope& dump, const SemaEntity& entity);
@@ -397,6 +414,11 @@ private:
 
 	// Expressions (sema_expression.cpp).
 	Value expression(const AstNode& node, const Context& ctx, DumpNode& parent);
+	// The one form `node` is, read by the layer that reads that form.  It is
+	// split from `expression` so that the depth guard and the recording of
+	// what a line stands for are each written once.
+	Value dispatch_expression(const AstNode& node, const Context& ctx,
+	                          DumpNode& parent);
 	Value id_expression(const AstNode& node, const Context& ctx, DumpNode& parent);
 	// What an id-expression already resolved to denotes, which is where a
 	// caller that had to look the name up to know what it was written for -
@@ -449,6 +471,11 @@ private:
 	                           DumpNode& parent);
 	// 5.6 to 5.15: the type a built-in binary operator gives its operands.
 	TypeId binary_result(unsigned op, const Value& left, const Value& right);
+	// 5p9, 5.7p1 and 5.9p2: the one type both operands of a built-in binary
+	// operator are converted to.  It is the operator's result type wherever the
+	// two coincide, and is asked for separately because a comparison and a
+	// pointer subtraction have result types their operands do not share.
+	TypeId binary_operand_type(unsigned op, const Value& left, const Value& right);
 	// 5.17p7: the built-in operator a compound assignment is written from.
 	static unsigned compound_operator(unsigned op);
 	Value cast_expression(const AstNode& node, const Context& ctx,
@@ -568,11 +595,19 @@ private:
 	                  const AstNode* payload) const;
 	// Spells `value`'s line again, from the category and type it now has.
 	void respell(const Value& value) const;
+	// Writes what `value` is onto the line it wrote, as typed facts.  Every
+	// path that spells a line runs through `respell` or through the one place
+	// that first spells it, so recording there is what keeps the facts and the
+	// text one description of the same value.
+	void record(const Value& value) const;
+	// The node kind the resolved tree names a line of `what` by.
+	static FactKind fact_kind(const char* what);
 	static std::string payload_of(const AstNode& node);
 	static const char* category_name(ValueCategory category);
 	// The name the PA12 dump gives a declaration of `scope`.
 	std::string dump_name(const Scope& scope, const std::string& name) const;
-	bool semantics() const { return dialect_ == SemaDialect::Semantics; }
+	bool semantics() const { return dialect_ != SemaDialect::Types; }
+	bool lowering() const { return dialect_ == SemaDialect::Lowering; }
 
 	SemaDialect dialect_;
 	TypeTable types_;

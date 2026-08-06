@@ -58,7 +58,8 @@ void SemaAnalyzer::semantic_statement(const AstNode& node, const Context& ctx,
 
 	case AstKind::ExpressionStatement:
 	{
-		DumpNode& line = model_.open_node(parent, "expression-statement");
+		DumpNode& line = open_fact(parent, "expression-statement",
+		                           FactKind::ExpressionStatement);
 		if (!node.children.empty())
 		{
 			// 6.2p1: the value is discarded, which is still no target for
@@ -112,7 +113,7 @@ void SemaAnalyzer::semantic_statement(const AstNode& node, const Context& ctx,
 			throw std::runtime_error("a break statement is outside every loop "
 			                         "and switch statement");
 		}
-		model_.open_node(parent, "break-statement");
+		open_fact(parent, "break-statement", FactKind::Break);
 		return;
 
 	case AstKind::ContinueStatement:
@@ -122,7 +123,7 @@ void SemaAnalyzer::semantic_statement(const AstNode& node, const Context& ctx,
 		{
 			throw std::runtime_error("a continue statement is outside every loop");
 		}
-		model_.open_node(parent, "continue-statement");
+		open_fact(parent, "continue-statement", FactKind::Continue);
 		return;
 
 	default:
@@ -139,7 +140,8 @@ void SemaAnalyzer::semantic_statement(const AstNode& node, const Context& ctx,
 	Context inner = ctx;
 	if (is_simple_declaration(node.kind))
 	{
-		inner.node = &model_.open_node(parent, "simple-declaration");
+		inner.node = &open_fact(parent, "simple-declaration",
+		                        FactKind::SimpleDeclaration);
 	}
 	else
 	{
@@ -151,7 +153,7 @@ void SemaAnalyzer::semantic_statement(const AstNode& node, const Context& ctx,
 void SemaAnalyzer::block_statement(const AstNode& node, const Context& ctx,
                                    DumpNode& parent)
 {
-	DumpNode& line = model_.open_node(parent, "compound-statement");
+	DumpNode& line = open_fact(parent, "compound-statement", FactKind::Compound);
 	Context inner = ctx;
 	inner.scope = &model_.open(ScopeKind::Block, *ctx.scope, nullptr, ctx.dump);
 	for (std::size_t index = 0; index < node.children.size(); ++index)
@@ -163,7 +165,10 @@ void SemaAnalyzer::block_statement(const AstNode& node, const Context& ctx,
 void SemaAnalyzer::selection_statement(const AstNode& node, const Context& ctx,
                                        DumpNode& parent, const char* what)
 {
-	DumpNode& line = model_.open_node(parent, what);
+	DumpNode& line = open_fact(parent, what,
+	                           node.kind == AstKind::SwitchStatement
+	                               ? FactKind::Switch
+	                               : FactKind::If);
 	// 6.4p3: the name a condition declares is declared in a region that
 	// encloses both substatements.
 	Context held = ctx;
@@ -179,8 +184,9 @@ void SemaAnalyzer::selection_statement(const AstNode& node, const Context& ctx,
 		}
 		if (child.kind == AstKind::Then || child.kind == AstKind::Else)
 		{
-			DumpNode& arm =
-				model_.open_node(line, child.kind == AstKind::Then ? "then" : "else");
+			const bool is_then = child.kind == AstKind::Then;
+			DumpNode& arm = open_fact(line, is_then ? "then" : "else",
+			                          is_then ? FactKind::Then : FactKind::Else);
 			const Context inner = substatement_scope(held);
 			for (std::size_t at = 0; at < child.children.size(); ++at)
 			{
@@ -195,7 +201,10 @@ void SemaAnalyzer::selection_statement(const AstNode& node, const Context& ctx,
 void SemaAnalyzer::loop_statement(const AstNode& node, const Context& ctx,
                                   DumpNode& parent, const char* what)
 {
-	DumpNode& line = model_.open_node(parent, what);
+	DumpNode& line = open_fact(parent, what,
+	                           node.kind == AstKind::DoStatement
+	                               ? FactKind::Do
+	                               : FactKind::While);
 	Context held = ctx;
 	held.scope = &model_.open(ScopeKind::Block, *ctx.scope, nullptr, ctx.dump);
 	++breakable_;
@@ -218,7 +227,7 @@ void SemaAnalyzer::loop_statement(const AstNode& node, const Context& ctx,
 void SemaAnalyzer::for_statement(const AstNode& node, const Context& ctx,
                                  DumpNode& parent)
 {
-	DumpNode& line = model_.open_node(parent, "for-statement");
+	DumpNode& line = open_fact(parent, "for-statement", FactKind::For);
 	// 6.5.3p1: the for-init-statement and the condition are in the region the
 	// statement itself opens, which its substatement is enclosed by.
 	Context held = ctx;
@@ -230,7 +239,8 @@ void SemaAnalyzer::for_statement(const AstNode& node, const Context& ctx,
 		const AstNode& child = *node.children[index];
 		if (child.kind == AstKind::ForInitStatement)
 		{
-			DumpNode& init = model_.open_node(line, "for-init-statement");
+			DumpNode& init = open_fact(line, "for-init-statement",
+			                           FactKind::ForInit);
 			for (std::size_t at = 0; at < child.children.size(); ++at)
 			{
 				semantic_statement(*child.children[at], held, init);
@@ -245,7 +255,7 @@ void SemaAnalyzer::for_statement(const AstNode& node, const Context& ctx,
 		}
 		if (child.kind == AstKind::Iteration)
 		{
-			DumpNode& step = model_.open_node(line, "iteration");
+			DumpNode& step = open_fact(line, "iteration", FactKind::Iteration);
 			for (std::size_t at = 0; at < child.children.size(); ++at)
 			{
 				require_complete_value(
@@ -262,7 +272,7 @@ void SemaAnalyzer::for_statement(const AstNode& node, const Context& ctx,
 void SemaAnalyzer::condition(const AstNode& node, const Context& ctx,
                              DumpNode& parent, bool integral)
 {
-	DumpNode& line = model_.open_node(parent, "condition");
+	DumpNode& line = open_fact(parent, "condition", FactKind::Condition);
 	for (std::size_t index = 0; index < node.children.size(); ++index)
 	{
 		const AstNode& child = *node.children[index];
@@ -271,7 +281,8 @@ void SemaAnalyzer::condition(const AstNode& node, const Context& ctx,
 			// 6.4p3: the declaration declares its name in the region the
 			// statement opened, and its value is the condition.
 			Context inner = ctx;
-			inner.node = &model_.open_node(line, "condition-declaration");
+			inner.node = &open_fact(line, "condition-declaration",
+			                        FactKind::ConditionDeclaration);
 			condition_declaration(child, inner);
 			continue;
 		}
@@ -300,8 +311,10 @@ void SemaAnalyzer::case_statement(const AstNode& node, const Context& ctx,
 		throw std::runtime_error("a case or default label is outside every "
 		                         "switch statement");
 	}
-	DumpNode& line =
-		model_.open_node(parent, is_default ? "default-statement" : "case-statement");
+	DumpNode& line = open_fact(parent,
+	                           is_default ? "default-statement"
+	                                     : "case-statement",
+	                           is_default ? FactKind::Default : FactKind::Case);
 	for (std::size_t index = 0; index < node.children.size(); ++index)
 	{
 		const AstNode& child = *node.children[index];
@@ -310,9 +323,15 @@ void SemaAnalyzer::case_statement(const AstNode& node, const Context& ctx,
 			// 6.4.2p2: the constant-expression of a case label shall be a
 			// converted constant expression of the switch condition's type.
 			const Constant label = evaluate(child, ctx);
-			model_.open_node(line, spell("literal", ValueCategory::PRValue,
-			                             label.type,
-			                             spell_value(label.type, label.bits)));
+			DumpNode& written =
+				open_fact(line, spell("literal", ValueCategory::PRValue,
+				                      label.type,
+				                      spell_value(label.type, label.bits)),
+				          FactKind::Literal);
+			written.fact.type = label.type;
+			written.fact.spelled = label.type;
+			written.fact.constant = true;
+			written.fact.value = label.bits;
 			continue;
 		}
 		semantic_statement(child, ctx, line);
@@ -322,7 +341,8 @@ void SemaAnalyzer::case_statement(const AstNode& node, const Context& ctx,
 void SemaAnalyzer::return_statement(const AstNode& node, const Context& ctx,
                                     DumpNode& parent)
 {
-	DumpNode& line = model_.open_node(parent, "return-statement");
+	DumpNode& line = open_fact(parent, "return-statement", FactKind::Return);
+	line.fact.type = returns_;
 	if (node.children.empty())
 	{
 		return;

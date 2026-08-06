@@ -130,6 +130,9 @@ SemaAnalyzer::Value::Value()
 	, null_constant(false)
 	, constant(false)
 	, value(0)
+	, entity(nullptr)
+	, op(0)
+	, operands(kNoType)
 {}
 
 SemaAnalyzer::Match::Match()
@@ -207,13 +210,19 @@ void SemaAnalyzer::write_definition(Pending& pending)
 		write_instantiation(pending);
 		return;
 	}
-	DumpNode& line = model_.open_node(model_.unit(), "function-definition " +
-	                                  function.dump_name + " " +
-	                                  types_.description(function.type));
+	DumpNode& line = open_fact(model_.unit(), "function-definition " +
+	                           function.dump_name + " " +
+	                           types_.description(function.type),
+	                           FactKind::FunctionDefinition);
+	line.fact.entity = &function;
+	line.fact.type = function.type;
 	if (pending.self != nullptr)
 	{
-		model_.open_node(line, "parameter " + pending.self->name + " " +
-		                 types_.description(pending.self->type));
+		DumpNode& self = open_fact(line, "parameter " + pending.self->name + " " +
+		                           types_.description(pending.self->type),
+		                           FactKind::Parameter);
+		self.fact.entity = pending.self;
+		self.fact.type = pending.self->type;
 	}
 	if (pending.body == nullptr)
 	{
@@ -366,7 +375,8 @@ void SemaAnalyzer::namespace_definition(const AstNode& node, const Context& ctx)
 	// The dump writes one node per namespace-definition, so a namespace opened
 	// twice is two nodes over one region.
 	inner.node = semantics()
-		? &model_.open_node(*ctx.node, "namespace-definition " + node.text)
+		? &open_fact(*ctx.node, "namespace-definition " + node.text,
+		             FactKind::Namespace)
 		: ctx.node;
 	for (std::size_t index = 0; index < node.children.size(); ++index)
 	{
@@ -719,8 +729,11 @@ void SemaAnalyzer::inject_union_members(SemaEntity* entity, const Context& ctx,
 		storage->object_member = ctx.scope->kind == ScopeKind::Class;
 		if (ctx.node != nullptr)
 		{
-			DumpNode& line = model_.open_node(*ctx.node, "variable " + name + " " +
-			                                  types_.description(entity->type));
+			DumpNode& line = open_fact(*ctx.node, "variable " + name + " " +
+			                           types_.description(entity->type),
+			                           FactKind::Variable);
+			line.fact.entity = storage;
+			line.fact.type = entity->type;
 			construct_object(*storage, line);
 		}
 		// 9.2p1: a union written in a class declares an object that is a member
@@ -896,6 +909,14 @@ std::string SemaAnalyzer::name_from_declarators(const AstNode& node)
 		}
 	}
 	return std::string();
+}
+
+DumpNode& SemaAnalyzer::open_fact(DumpNode& parent, const std::string& text,
+                                  FactKind kind)
+{
+	DumpNode& node = model_.open_node(parent, text);
+	node.fact.kind = kind;
+	return node;
 }
 
 void SemaAnalyzer::write_line(DumpScope& dump, const char* what,
@@ -1201,9 +1222,13 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 			if (target.node != nullptr &&
 			    target.scope->kind != ScopeKind::TemplateParameters)
 			{
-				model_.open_node(*target.node, "function-declaration " +
-				                 function.dump_name + " " +
-				                 types_.description(type));
+				DumpNode& declared =
+					open_fact(*target.node, "function-declaration " +
+					          function.dump_name + " " +
+					          types_.description(type),
+					          FactKind::FunctionDeclaration);
+				declared.fact.entity = &function;
+				declared.fact.type = type;
 			}
 			return;
 		}
@@ -1258,6 +1283,12 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 		entity.object_member =
 			target.scope->kind == ScopeKind::Class && !specifiers.is_static;
 	}
+	// 3.1p2: an `extern` declaration with no initializer declares the object
+	// and does not define it; every other declaration of one at namespace scope
+	// does, and a later definition of the same object says so once.
+	entity.object_definition = entity.object_definition ||
+		!specifiers.is_extern ||
+		(initializer != nullptr && !initializer->children.empty());
 	// 9.4.2p2: a definition written with a nested-name-specifier declares
 	// nothing where it names, so the line it writes is not one of that region's:
 	// it stands where the definition is written, spelled the way it wrote it.
@@ -1276,8 +1307,10 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 		// part of is what a declaration of the class type declares.
 		return;
 	}
-	DumpNode& line = model_.open_node(*where.node, "variable " + spelling + " " +
-	                                  types_.description(type));
+	DumpNode& line = open_fact(*where.node, "variable " + spelling + " " +
+	                           types_.description(type), FactKind::Variable);
+	line.fact.entity = &entity;
+	line.fact.type = type;
 	// 5.19p3 and 7.1.5p9: a constexpr object is initialized by a constant
 	// expression, and the dump writes the value it stands for rather than the
 	// expression that computed it.
@@ -1317,9 +1350,13 @@ void SemaAnalyzer::write_initializer(const AstNode& initializer, TypeId type,
 	}
 	// 8.5.1: an aggregate is initialized from the clauses of its list, each
 	// initializing one element.
-	DumpNode& list = model_.open_node(
+	DumpNode& list = open_fact(
 		line, spell("braced-init-list", ValueCategory::LValue, type,
-		            std::string()));
+		            std::string()),
+		FactKind::BracedInitList);
+	list.fact.type = type;
+	list.fact.spelled = type;
+	list.fact.category = ValueCategory::LValue;
 	const TypeId element = types_.kind(type) == TypeKind::Array
 		? types_.target(type)
 		: type;
@@ -1353,8 +1390,11 @@ void SemaAnalyzer::declare_parameters(const std::vector<Parameter>& parameters,
 			: parameters[index].type;
 		if (node != nullptr)
 		{
-			model_.open_node(*node, "parameter " + parameter.name + " " +
-			                 types_.description(written));
+			DumpNode& line = open_fact(*node, "parameter " + parameter.name + " " +
+			                           types_.description(written),
+			                           FactKind::Parameter);
+			line.fact.entity = &parameter;
+			line.fact.type = written;
 			continue;
 		}
 		write_line(*inner.dump, "parameter", parameter.name, parameter.type);
@@ -1450,15 +1490,21 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 		return;
 	}
 
-	DumpNode& line = model_.open_node(*target.node, "function-definition " +
-	                                  entity.dump_name + " " +
-	                                  types_.description(type));
+	DumpNode& line = open_fact(*target.node, "function-definition " +
+	                           entity.dump_name + " " +
+	                           types_.description(type),
+	                           FactKind::FunctionDefinition);
+	line.fact.entity = &entity;
+	line.fact.type = type;
 	if (self != nullptr)
 	{
 		// A member function defined after its class is written where it is
 		// written, and the object it is called on is still its first parameter.
-		model_.open_node(line, "parameter " + self->name + " " +
-		                 types_.description(self->type));
+		DumpNode& object = open_fact(line, "parameter " + self->name + " " +
+		                             types_.description(self->type),
+		                             FactKind::Parameter);
+		object.fact.entity = self;
+		object.fact.type = self->type;
 	}
 	declare_parameters(parameters, type, inner, &line, self != nullptr ? 1 : 0);
 

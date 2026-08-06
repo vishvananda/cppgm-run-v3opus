@@ -76,6 +76,11 @@ DumpNode& SemaModel::wrap_node(DumpNode& node, const std::string& text)
 	DumpNode& held = nodes_.back();
 	held.text.swap(node.text);
 	held.children.swap(node.children);
+	// What the wrapped line stood for goes with what it said: the node that
+	// stays in place is the conversion written around it, and the facts of the
+	// operand belong to the one that now holds them.
+	held.fact = node.fact;
+	node.fact = SemaFact();
 	node.text = text;
 	node.children.push_back(&held);
 	return node;
@@ -91,6 +96,7 @@ SemaEntity& SemaModel::create(SemaKind kind, const std::string& name, TypeId typ
 	entity.scope = nullptr;
 	entity.defined = false;
 	entity.constant = false;
+	entity.object_definition = false;
 	entity.value = 0;
 	entity.next = nullptr;
 	entity.tail = nullptr;
