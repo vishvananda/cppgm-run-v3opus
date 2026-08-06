@@ -102,6 +102,10 @@ struct SemaEntity
 	// Class: 12.1p5, the constructor the class has that no declaration wrote,
 	// held on the class because that is what an object of it asks for.
 	SemaEntity* constructor;
+	// Function: 9.3.1p3, whether the first parameter of its type is the object
+	// it is called on rather than one its declarator wrote.  A static member
+	// function is a member and has none, so the region alone does not say.
+	bool implicit_object;
 	// This entity among the run's, which is how a fact about it is keyed - the
 	// same use `Scope::id` is put to for a region.
 	std::uint32_t id;

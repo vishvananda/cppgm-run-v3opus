@@ -97,6 +97,7 @@ SemaEntity& SemaModel::create(SemaKind kind, const std::string& name, TypeId typ
 	entity.region = nullptr;
 	entity.storage = nullptr;
 	entity.constructor = nullptr;
+	entity.implicit_object = false;
 	entity.id = static_cast<std::uint32_t>(entities_.size() - 1);
 	entity.dump_name = name;
 	return entity;

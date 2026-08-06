@@ -154,7 +154,13 @@ void SemaAnalyzer::write(std::ostream& out) const
 std::string SemaAnalyzer::dump_name(const Scope& scope,
                                     const std::string& name) const
 {
-	return scope.kind == ScopeKind::Namespace ? scope.prefix + name : name;
+	// 3.4.3.1 and 3.4.3.2: a declaration of a namespace or of a class is named
+	// from outside it by the regions it is written in, which is what the prefix
+	// of the region holds.  A block has no such name, so a declaration of one
+	// is spelled as it was written.
+	return scope.kind == ScopeKind::Namespace || scope.kind == ScopeKind::Class
+		? scope.prefix + name
+		: name;
 }
 
 void SemaAnalyzer::run(const AstNode& unit)
@@ -639,6 +645,7 @@ void SemaAnalyzer::declare_constructor(SemaEntity& entity, Scope& scope)
 		SemaKind::Function, spelled,
 		types_.function_of(types_.fundamental(FT_VOID), parameters, false));
 	constructor.dump_name = scope.prefix + spelled;
+	constructor.implicit_object = true;
 	constructor.tail = &constructor;
 	model_.declare_in(scope, constructor);
 	entity.constructor = &constructor;
@@ -1108,11 +1115,16 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 	{
 		// 9.3.1p3: a member function is called on an object, which is a
 		// parameter of it that the declarator does not write.
+		const TypeId written_type = type;
 		type = with_object_parameter(type, node, target, specifiers.is_static);
 		SemaEntity& function = declare_function(name, type, target, false);
+		function.implicit_object = type != written_type;
 		if (semantics())
 		{
-			if (target.node != nullptr)
+			// 14p1: a template is not a function; the unit has the ones its
+			// instantiations declare, and the output describes those.
+			if (target.node != nullptr &&
+			    target.scope->kind != ScopeKind::TemplateParameters)
 			{
 				model_.open_node(*target.node, "function-declaration " +
 				                 function.dump_name + " " +
@@ -1280,9 +1292,11 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 	}
 	// 9.3.1p3: a member function is called on an object its declarator does not
 	// write, whether it is defined in its class or after it.
+	const TypeId written_type = type;
 	type = with_object_parameter(type, declarator, target, specifiers.is_static);
 
 	SemaEntity& entity = declare_function(name, type, target, true);
+	entity.implicit_object = type != written_type;
 
 	DumpScope& dump = model_.open_dump(*target.dump, "scope function " + name);
 	Context inner;
@@ -1313,8 +1327,18 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 		model_.bind(*inner.scope, self->name, *self);
 		model_.declare_in(*inner.scope, *self);
 	}
+	if (target.scope->kind == ScopeKind::TemplateParameters)
+	{
+		// 14p1 and 14.6: a template declares no function until it is
+		// instantiated, so the output has no definition to write and the body
+		// is not read against the types it has none of yet.
+		return;
+	}
 	if (target.node == nullptr)
 	{
+		// 9.2p2: a member function defined in its class is read where the class
+		// is complete, which is the end of the translation unit, and the output
+		// writes it there.
 		Pending pending;
 		pending.function = &entity;
 		pending.self = self;

@@ -295,12 +295,44 @@ SemaAnalyzer::Match SemaAnalyzer::match_argument(const Value& argument,
 	return match_by_value(argument, parameter);
 }
 
+TypeId SemaAnalyzer::member_pointer_of(const SemaEntity& function)
+{
+	if (!function.implicit_object || function.region == nullptr ||
+	    function.region->owner == nullptr)
+	{
+		return kNoType;
+	}
+	const std::vector<TypeId>& parameters = types_.parameters(function.type);
+	const TypeId object = types_.target(parameters[0]);
+	const std::vector<TypeId> written(parameters.begin() + 1, parameters.end());
+	const TypeId declared = types_.qualified_function(
+		types_.function_of(types_.target(function.type), written,
+		                   types_.variadic(function.type)),
+		types_.cv(object));
+	return types_.member_pointer_to(types_.strip_cv(object), declared);
+}
+
 SemaEntity* SemaAnalyzer::resolve_target(const Value& value, TypeId target)
 {
 	TypeId wanted = target;
 	if (types_.is_reference(wanted))
 	{
 		wanted = types_.target(wanted);
+	}
+	if (types_.kind(types_.strip_cv(wanted)) == TypeKind::MemberPointer)
+	{
+		// 13.4p1 lists a pointer to member among the targets that choose one
+		// declaration, and the declaration it chooses is the member whose
+		// pointer type is the one asked for.
+		wanted = types_.strip_cv(wanted);
+		for (SemaEntity* at = value.functions; at != nullptr; at = at->next)
+		{
+			if (member_pointer_of(*at) == wanted)
+			{
+				return at;
+			}
+		}
+		return nullptr;
 	}
 	if (types_.kind(wanted) == TypeKind::Pointer)
 	{

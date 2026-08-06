@@ -247,7 +247,7 @@ TypeId SemaAnalyzer::declarator_type(const AstNode& node, TypeId base,
 		type = part.kind == AstKind::CvQualifier
 			? types_.qualified(type, part.token == KW_CONST ? kCvConst
 			                                               : kCvVolatile)
-			: apply_pointer(part, type);
+			: apply_pointer(part, type, ctx);
 		++index;
 	}
 
@@ -260,12 +260,29 @@ TypeId SemaAnalyzer::declarator_type(const AstNode& node, TypeId base,
 		++index;
 	}
 
+	// 8.3.5p7: the cv-qualifier-seq of a function declarator is written after
+	// its parameter-clause, so the walk from the last suffix inwards reaches it
+	// before the clause it qualifies and hands it on.
+	unsigned function_cv = kCvNone;
 	for (std::size_t suffix = node.children.size(); suffix-- > index;)
 	{
 		const AstNode& part = *node.children[suffix];
+		if (part.kind == AstKind::CvQualifier)
+		{
+			function_cv |= part.token == KW_CONST ? kCvConst : kCvVolatile;
+			continue;
+		}
 		type = apply_suffix(part, type, ctx, declared);
 		if (part.kind == AstKind::ParameterClause)
 		{
+			if (semantics())
+			{
+				// PA11 describes the declarator as written, and a
+				// cv-qualifier-seq is part of the type only where 9.3.1p3 gives
+				// it a meaning, which is what PA12 reads it for.
+				type = types_.qualified_function(type, function_cv);
+			}
+			function_cv = kCvNone;
 			declared = nullptr;
 		}
 	}
@@ -286,7 +303,8 @@ TypeId SemaAnalyzer::declarator_type(const AstNode& node, TypeId base,
 		: declarator_type(*core->children[0], type, ctx, name);
 }
 
-TypeId SemaAnalyzer::apply_pointer(const AstNode& node, TypeId type)
+TypeId SemaAnalyzer::apply_pointer(const AstNode& node, TypeId type,
+                                   const Context& ctx)
 {
 	unsigned cv = kCvNone;
 	for (std::size_t index = 0; index < node.children.size(); ++index)
@@ -296,6 +314,27 @@ TypeId SemaAnalyzer::apply_pointer(const AstNode& node, TypeId type)
 		{
 			cv |= child.token == KW_CONST ? kCvConst : kCvVolatile;
 		}
+	}
+	if (node.token == kNoAstToken)
+	{
+		// 8.3.3p1: a `nested-name-specifier *` declares a pointer to a member
+		// of the class that name reaches.  PA10 hands the operator on as it was
+		// written, so the class is what stands before the `*`, and one lookup
+		// where the operator is read is what it takes.  The class need not be
+		// complete: 8.3.3p3 asks only that the name reach one.
+		std::string named = node.text.substr(0, node.text.size() - 1);
+		if (named.size() >= 2 && named.compare(named.size() - 2, 2, "::") == 0)
+		{
+			named.erase(named.size() - 2);
+		}
+		const SemaEntity& owner =
+			require(resolve(named, ctx, LookupKind::Type), named);
+		if (!types_.is_class(owner.type))
+		{
+			throw std::runtime_error(named + " is written before `::*` and does "
+			                         "not name a class");
+		}
+		return types_.qualified(types_.member_pointer_to(owner.type, type), cv);
 	}
 	if (node.token == OP_AMP || node.token == OP_LAND)
 	{

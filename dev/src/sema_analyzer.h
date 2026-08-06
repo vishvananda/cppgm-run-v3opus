@@ -307,7 +307,8 @@ private:
 	TypeId declarator_type(const AstNode& node, TypeId base, const Context& ctx,
 	                       std::string* name,
 	                       std::vector<Parameter>* declared = nullptr);
-	TypeId apply_pointer(const AstNode& node, TypeId type);
+	TypeId apply_pointer(const AstNode& node, TypeId type,
+	                     const Context& ctx);
 	TypeId apply_suffix(const AstNode& node, TypeId type, const Context& ctx,
 	                    std::vector<Parameter>* declared);
 	void read_parameters(const AstNode& clause, const Context& ctx,
@@ -459,6 +460,12 @@ private:
 	void apply_conversion(Value& value, TypeId target, const Match& match);
 	// 13.4: the declaration of an overloaded name a target type asks for.
 	SemaEntity* resolve_target(const Value& value, TypeId target);
+	// 5.3.1p3: the type `&C::f` has, which is a pointer to member of the class
+	// that declared `f`, over the type its declarator wrote: 9.3.1p3 put the
+	// object it is called on in the function's type, and the cv-qualifiers that
+	// parameter carries are the ones written after its parameter-clause.
+	// kNoType for anything but a non-static member function.
+	TypeId member_pointer_of(const SemaEntity& function);
 	// Writes the line of an id-expression once its overload set is resolved.
 	void name_function(Value& value, SemaEntity& function, const char* what);
 	// 4.1, 4.2 and 4.3: the type the value of `value` has.

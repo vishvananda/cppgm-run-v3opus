@@ -350,7 +350,11 @@ void SemaAnalyzer::name_function(Value& value, SemaEntity& function,
 		value.addressed->text =
 			std::string("id-expression ") + category_name(ValueCategory::LValue) +
 			named;
-		value.type = types_.pointer_to(function.type);
+		value.type = member_pointer_of(function);
+		if (value.type == kNoType)
+		{
+			value.type = types_.pointer_to(function.type);
+		}
 		value.spelled = value.type;
 		value.category = ValueCategory::PRValue;
 		if (value.node != nullptr)
@@ -688,6 +692,19 @@ SemaAnalyzer::Value SemaAnalyzer::cast_expression(const AstNode& node,
 		}
 		name_function(source, *chosen, "id-expression");
 	}
+	if (types_.kind(types_.strip_cv(target)) == TypeKind::MemberPointer &&
+	    source.type == types_.strip_cv(target))
+	{
+		// 5.2.9p2: a cast to the type the operand has converts nothing, and a
+		// pointer to member holds which member it names rather than an address,
+		// so there is nothing for the output to write around the operand.
+		parent.children.pop_back();
+		for (std::size_t index = 0; index < line.children.size(); ++index)
+		{
+			parent.children.push_back(line.children[index]);
+		}
+		return source;
+	}
 	line.text = spell("cast-expression", value.category, target,
 	                  node.token == kNoAstToken ? nullptr : &node);
 	value.node = &line;
@@ -801,7 +818,13 @@ SemaAnalyzer::Value SemaAnalyzer::unary_expression(const AstNode& node,
 		{
 			throw std::runtime_error("the operand of unary & is not an lvalue");
 		}
-		value.type = types_.pointer_to(operand.type);
+		value.type = operand.functions == nullptr
+			? kNoType
+			: member_pointer_of(*operand.functions);
+		if (value.type == kNoType)
+		{
+			value.type = types_.pointer_to(operand.type);
+		}
 		break;
 
 	case OP_STAR:

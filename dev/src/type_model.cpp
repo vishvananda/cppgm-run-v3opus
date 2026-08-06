@@ -219,6 +219,47 @@ std::uint32_t TypeTable::operand_of(const Node& node)
 	}
 }
 
+std::uint32_t TypeTable::shape_of(const Node& node)
+{
+	// The category, then the flags that are part of what the type is: its
+	// cv-qualifiers, whether an array wrote a bound, and whether a function
+	// takes further arguments.  Each has a bit of its own, so no two of them
+	// can make one shape.
+	return (static_cast<std::uint32_t>(node.kind) << 8) | node.cv |
+		(node.bounded ? 1u << 4 : 0u) | (node.variadic ? 1u << 5 : 0u);
+}
+
+std::uint32_t TypeTable::extra_of(const Node& node)
+{
+	switch (node.kind)
+	{
+	case TypeKind::Function:
+		// Two function types with one return type are told apart by their
+		// parameters, which are interned as a list.
+		return node.parameters;
+
+	case TypeKind::MemberPointer:
+		// 8.3.3p1: a pointer to member names a member of one class, which is
+		// as much a part of the type as what it points to.
+		return node.user;
+
+	default:
+		return is_user_kind(node.kind) ? kUserTypeKeyExtra : 0;
+	}
+}
+
+// The key a node is interned under, which every builder and every rebuild of a
+// type with its qualifiers changed asks for in the same words.
+TypeTable::Key TypeTable::key_of(const Node& node)
+{
+	Key key;
+	key.shape = shape_of(node);
+	key.operand = operand_of(node);
+	key.extra = extra_of(node);
+	key.bound = node.bound;
+	return key;
+}
+
 std::uint32_t TypeTable::intern_parameters(const std::vector<TypeId>& parameters)
 {
 	const std::pair<std::unordered_map<std::vector<TypeId>, std::uint32_t,
@@ -254,13 +295,8 @@ TypeId TypeTable::fundamental(EFundamentalType type)
 	node.target = kNoType;
 	node.bound = 0;
 	node.parameters = 0;
-
-	Key key;
-	key.shape = static_cast<std::uint32_t>(TypeKind::Fundamental) << 8;
-	key.operand = static_cast<std::uint32_t>(type);
-	key.extra = 0;
-	key.bound = 0;
-	return intern(key, node);
+	node.user = 0;
+	return intern(key_of(node), node);
 }
 
 TypeId TypeTable::pointer_to(TypeId type)
@@ -268,13 +304,35 @@ TypeId TypeTable::pointer_to(TypeId type)
 	Node node = nodes_[0];
 	node.kind = TypeKind::Pointer;
 	node.target = type;
+	return intern(key_of(node), node);
+}
 
-	Key key;
-	key.shape = static_cast<std::uint32_t>(TypeKind::Pointer) << 8;
-	key.operand = type;
-	key.extra = 0;
-	key.bound = 0;
-	return intern(key, node);
+// 8.3.3p3: a pointer to member names a member of one class, and 8.3.3p1 refuses
+// one to a reference or to `void`, neither of which a class has a member of.
+TypeId TypeTable::member_pointer_to(TypeId object_class, TypeId member)
+{
+	if (is_reference(member) || is_void(member))
+	{
+		throw std::runtime_error("a declarator declares a pointer to a member "
+		                         "of reference or void type");
+	}
+	Node node = nodes_[0];
+	node.kind = TypeKind::MemberPointer;
+	node.target = member;
+	node.user = object_class;
+	return intern(key_of(node), node);
+}
+
+TypeId TypeTable::qualified_function(TypeId function, unsigned add)
+{
+	const unsigned merged = cv(function) | add;
+	if (kind(function) != TypeKind::Function || merged == cv(function))
+	{
+		return function;
+	}
+	Node node = nodes_[function];
+	node.cv = static_cast<unsigned char>(merged);
+	return intern(key_of(node), node);
 }
 
 TypeId TypeTable::reference_to(TypeId type, bool rvalue)
@@ -296,13 +354,7 @@ TypeId TypeTable::reference_to(TypeId type, bool rvalue)
 	Node node = nodes_[0];
 	node.kind = category;
 	node.target = type;
-
-	Key key;
-	key.shape = static_cast<std::uint32_t>(category) << 8;
-	key.operand = type;
-	key.extra = 0;
-	key.bound = 0;
-	return intern(key, node);
+	return intern(key_of(node), node);
 }
 
 TypeId TypeTable::array_of(TypeId element, bool bounded, unsigned long long size)
@@ -312,13 +364,7 @@ TypeId TypeTable::array_of(TypeId element, bool bounded, unsigned long long size
 	node.bounded = bounded;
 	node.target = element;
 	node.bound = bounded ? size : 0;
-
-	Key key;
-	key.shape = (static_cast<std::uint32_t>(TypeKind::Array) << 8) | (bounded ? 1u : 0u);
-	key.operand = element;
-	key.extra = 0;
-	key.bound = node.bound;
-	return intern(key, node);
+	return intern(key_of(node), node);
 }
 
 TypeId TypeTable::function_of(TypeId result, const std::vector<TypeId>& parameters,
@@ -330,14 +376,7 @@ TypeId TypeTable::function_of(TypeId result, const std::vector<TypeId>& paramete
 	node.variadic = is_variadic;
 	node.target = result;
 	node.parameters = list;
-
-	Key key;
-	key.shape =
-		(static_cast<std::uint32_t>(TypeKind::Function) << 8) | (is_variadic ? 2u : 0u);
-	key.operand = result;
-	key.extra = list;
-	key.bound = 0;
-	return intern(key, node);
+	return intern(key_of(node), node);
 }
 
 TypeId TypeTable::user_type(TypeKind category, std::uint32_t entity,
@@ -361,13 +400,7 @@ TypeId TypeTable::user_type(TypeKind category, std::uint32_t entity,
 	node.kind = category;
 	node.user = static_cast<std::uint32_t>(user_types_.size());
 	user_types_.push_back(record);
-
-	Key key;
-	key.shape = static_cast<std::uint32_t>(category) << 8;
-	key.operand = node.user;
-	key.extra = kUserTypeKeyExtra;
-	key.bound = 0;
-	const TypeId id = intern(key, node);
+	const TypeId id = intern(key_of(node), node);
 	user_ids_.insert(std::make_pair(named, id));
 	return id;
 }
@@ -469,6 +502,7 @@ bool TypeTable::contextually_bool(TypeId type) const
 	}
 	return is_arithmetic(type) || kind(type) == TypeKind::Enum ||
 		kind(type) == TypeKind::Pointer ||
+		kind(type) == TypeKind::MemberPointer ||
 		(kind(type) == TypeKind::Fundamental &&
 		 fundamental_type(type) == FT_NULLPTR_T);
 }
@@ -528,13 +562,7 @@ TypeId TypeTable::qualified(TypeId type, unsigned add)
 	}
 	Node node = nodes_[type];
 	node.cv = static_cast<unsigned char>(merged);
-
-	Key key;
-	key.shape = (static_cast<std::uint32_t>(node.kind) << 8) | merged;
-	key.operand = operand_of(node);
-	key.extra = is_user_kind(node.kind) ? kUserTypeKeyExtra : 0;
-	key.bound = 0;
-	return intern(key, node);
+	return intern(key_of(node), node);
 }
 
 TypeId TypeTable::unqualified(TypeId type)
@@ -545,13 +573,7 @@ TypeId TypeTable::unqualified(TypeId type)
 	}
 	Node node = nodes_[type];
 	node.cv = 0;
-
-	Key key;
-	key.shape = static_cast<std::uint32_t>(node.kind) << 8;
-	key.operand = operand_of(node);
-	key.extra = is_user_kind(node.kind) ? kUserTypeKeyExtra : 0;
-	key.bound = 0;
-	return intern(key, node);
+	return intern(key_of(node), node);
 }
 
 TypeId TypeTable::adjust_parameter(TypeId type)
@@ -742,13 +764,18 @@ void TypeTable::append_description(TypeId type, std::string& out) const
 	for (;;)
 	{
 		const Node& node = nodes_[type];
-		if ((node.cv & kCvConst) != 0)
+		// 8.3.5p7 writes the cv-qualifier-seq of a function type after its
+		// parameters rather than before it, which is where it was written.
+		if (node.kind != TypeKind::Function)
 		{
-			out += "const ";
-		}
-		if ((node.cv & kCvVolatile) != 0)
-		{
-			out += "volatile ";
+			if ((node.cv & kCvConst) != 0)
+			{
+				out += "const ";
+			}
+			if ((node.cv & kCvVolatile) != 0)
+			{
+				out += "volatile ";
+			}
 		}
 
 		switch (node.kind)
@@ -759,6 +786,12 @@ void TypeTable::append_description(TypeId type, std::string& out) const
 
 		case TypeKind::Pointer:
 			out += "pointer to ";
+			break;
+
+		case TypeKind::MemberPointer:
+			out += "member-pointer of ";
+			append_description(node.user, out);
+			out += " to ";
 			break;
 
 		case TypeKind::LValueReference:
@@ -785,7 +818,16 @@ void TypeTable::append_description(TypeId type, std::string& out) const
 		case TypeKind::Function:
 			out += "function of (";
 			append_parameters(type, out);
-			out += ") returning ";
+			out += ")";
+			if ((node.cv & kCvConst) != 0)
+			{
+				out += " const";
+			}
+			if ((node.cv & kCvVolatile) != 0)
+			{
+				out += " volatile";
+			}
+			out += " returning ";
 			break;
 
 		case TypeKind::Class:

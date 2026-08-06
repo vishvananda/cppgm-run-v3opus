@@ -108,6 +108,8 @@ Measured with `cppgm++ --emit-semantics` on synthesized inputs (this host):
 | members of one class | 4000 | 0.02s |
 | block-scope objects of class type constructed | 4000 | 0.07s |
 | unnamed local classes | 2000 | 0.06s |
+| member-pointer aliases and functions | 2000 | 0.05s |
+| member function declarations of one class | 2000 | 0.01s |
 
 - The walk is one visit per node; nothing is reparsed and no subtree is read
   twice, so depth costs stack rather than time. Depth itself is bounded by the
@@ -138,3 +140,4 @@ resolves and which the README puts outside the PA12 slice.
 | C1 | `--emit-semantics` spine: dump tree, declarations, statements, expressions, conversions, overload resolution, diagnostics | pa12 0 → 156/166; pa1–pa11 672/672; file audit clean |
 | C1 audit | argument conversions in place, 13.4 asked wherever a value is discarded, `&f` resolved, 5.9 enumeration comparisons, indexed overload declaration | pa12 156/166 held; pa1–pa11 672/672; 16000 overloads 3.05s → 0.26s; file audit clean |
 | C2 | classes and members: member regions write no line, local class naming, anonymous-union object and injected members, 12.1p5 constructors and `constructor-action`, 9.3.1p3 object parameter and `this`, 5.2.5 member expressions, 4.4 reference binding | pa12 156 → 160/166; pa1–pa11 672/672; 4000 members 0.02s, 4000 constructed objects 0.07s; file audit clean |
+| C3 | pointers to members: the `MemberPointer` category and one interning key per type, `C::*` declarators, the 8.3.5p7 cv-qualifier-seq, `&C::f`, and 14p1 templates writing no definition | pa12 160 → 164/166; pa1–pa11 672/672; 2000 member-pointer aliases 0.05s; file audit clean |

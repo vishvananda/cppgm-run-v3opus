@@ -30,6 +30,7 @@ enum class TypeKind
 {
 	Fundamental,
 	Pointer,
+	MemberPointer,
 	LValueReference,
 	RValueReference,
 	Array,
@@ -102,6 +103,18 @@ public:
 	TypeId qualified(TypeId type, unsigned cv);
 
 	TypeId pointer_to(TypeId type);
+
+	// 8.3.3p1: a pointer to a member of `object_class`, which is not a pointer
+	// and holds no address: it says which member of a class it names, and needs
+	// an object of that class to name one.
+	TypeId member_pointer_to(TypeId object_class, TypeId member);
+	// The class a pointer to member names a member of.
+	TypeId member_class(TypeId type) const { return nodes_[type].user; }
+
+	// 8.3.5p7: the cv-qualifier-seq written after a parameter-clause, which
+	// qualifies the function type itself.  It is not `qualified`, which 8.3.5p7
+	// makes ignore a qualifier a typedef brought to a function type.
+	TypeId qualified_function(TypeId function, unsigned cv);
 
 	// 8.3.2p6: a reference to a reference collapses, and only two rvalue
 	// references make an rvalue reference.
@@ -279,6 +292,14 @@ private:
 	// What tells two types of one category and one cv-qualification apart.
 	static std::uint32_t operand_of(const Node& node);
 	TypeId user_type(TypeKind kind, std::uint32_t entity, const UserType& record);
+	// What tells two types apart, as the three words of a key: the category
+	// with its flags, the type it is built over, and the second operand a
+	// function and a pointer to member have.  Every builder and every rebuild
+	// of a type with its qualifiers changed goes through these, so a type is
+	// interned under one key however it is reached.
+	static std::uint32_t shape_of(const Node& node);
+	static std::uint32_t extra_of(const Node& node);
+	static Key key_of(const Node& node);
 	const UserType& user_at(TypeId type) const
 	{
 		return user_types_[nodes_[type].user];
