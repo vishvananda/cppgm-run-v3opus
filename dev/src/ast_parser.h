@@ -220,6 +220,7 @@ private:
 	AstNode* parse_statement();
 	AstNode* parse_compound_statement();
 	AstNode* parse_block_item();
+	AstNode* parse_substatement();
 	AstNode* parse_selection_statement();
 	AstNode* parse_iteration_statement();
 	AstNode* parse_for_statement();

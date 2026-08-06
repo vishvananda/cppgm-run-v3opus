@@ -220,29 +220,21 @@ SemaAnalyzer::Match SemaAnalyzer::match_reference(const Value& argument,
 	const TypeId source = argument.type;
 	const bool is_lvalue = argument.category == ValueCategory::LValue;
 
-	// 8.5.3p5: an rvalue reference binds no lvalue, and an lvalue reference
-	// binds an rvalue only when it is a reference to a non-volatile const.
-	if (rvalue_ref)
-	{
-		if (is_lvalue)
-		{
-			return match;
-		}
-	}
-	else if (!is_lvalue &&
-	         ((types_.cv(referenced) & kCvConst) == 0 ||
-	          (types_.cv(referenced) & kCvVolatile) != 0))
-	{
-		return match;
-	}
-
 	// 8.5.3p4: reference-compatible is reference-related plus a referenced type
 	// at least as cv-qualified, and a compatible reference binds what it was
 	// given rather than a conversion of it.
 	const bool related = bare_type(source) == bare_type(referenced);
+	const bool const_lvalue_ref = (types_.cv(referenced) & kCvConst) != 0 &&
+		(types_.cv(referenced) & kCvVolatile) == 0;
 	if (related &&
 	    (types_.object_cv(source) & ~types_.object_cv(referenced)) == 0)
 	{
+		// 8.5.3p5: an rvalue reference binds no lvalue directly, and an lvalue
+		// reference binds an rvalue only through a non-volatile const.
+		if (rvalue_ref ? is_lvalue : (!is_lvalue && !const_lvalue_ref))
+		{
+			return match;
+		}
 		match.viable = true;
 		match.rank = kExactMatch;
 		match.binds_lvalue = is_lvalue;
@@ -254,6 +246,10 @@ SemaAnalyzer::Match SemaAnalyzer::match_reference(const Value& argument,
 		// 8.5.3p5: the temporary a reference-related initializer would be
 		// converted into has to be at least as cv-qualified, so dropping a
 		// qualifier binds nothing.
+		return match;
+	}
+	if (!rvalue_ref && !const_lvalue_ref)
+	{
 		return match;
 	}
 

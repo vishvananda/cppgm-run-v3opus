@@ -67,6 +67,19 @@ const char* tag_text(ClassTag tag)
 	}
 }
 
+// Whether `outer` is `inner` or a region `inner` is written in.
+bool encloses(const Scope& outer, const Scope& inner)
+{
+	for (const Scope* at = &inner; at != nullptr; at = at->parent)
+	{
+		if (at == &outer)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
 // 7.3.1.1p1: the namespace-definition PA10 wrote no name for, which it spells
 // with the placeholder the dump uses.
 bool is_unnamed_namespace(const AstNode& node)
@@ -101,6 +114,8 @@ SemaAnalyzer::Value::Value()
 	, category(ValueCategory::PRValue)
 	, node(nullptr)
 	, functions(nullptr)
+	, payload(nullptr)
+	, what(nullptr)
 	, null_constant(false)
 	, constant(false)
 	, value(0)
@@ -290,15 +305,25 @@ void SemaAnalyzer::using_directive(const AstNode& node, const Context& ctx)
 	const AstNode* target = child_of(node, AstKind::Target);
 	SemaEntity& space =
 		require(resolve(target->text, ctx, LookupKind::Space), target->text);
-	// 7.3.4p2: during unqualified lookup the nominated namespace's declarations
-	// appear in the nearest enclosing namespace, not in the block the directive
-	// is written in, so a name that block's namespace declares still hides them.
+	// 7.3.4p2: the nominated namespace's declarations appear in the nearest
+	// enclosing namespace that holds both it and the directive.  A directive
+	// written in a block therefore does not put them in the block, so a name
+	// an enclosing namespace declares still hides them.
+	Scope* nominated = model_.region_of(space);
 	Scope* where = ctx.scope;
 	while (where->kind != ScopeKind::Namespace && where->parent != nullptr)
 	{
+		// A directive written in a namespace stays there, because 3.4.3.2p2
+		// also looks through it for a qualified name.  One written in a block
+		// is only ever read by unqualified lookup, so it is recorded where
+		// 7.3.4p2 says its names appear.
 		where = where->parent;
+		while (where->parent != nullptr && !encloses(*where, *nominated))
+		{
+			where = where->parent;
+		}
 	}
-	model_.nominate(*where, *model_.region_of(space));
+	model_.nominate(*where, *nominated);
 }
 
 void SemaAnalyzer::using_declaration(const AstNode& node, const Context& ctx)
@@ -441,7 +466,11 @@ SemaEntity& SemaAnalyzer::class_declaration(const AstNode& node,
 	else
 	{
 		const std::uint32_t id = model_.type_entity_id();
-		const TypeId type = types_.class_type(id, tag, name);
+		// The dump spells a class by the named namespaces around it, which is
+		// a fact about the declaration rather than about the use, so the type
+		// carries it.
+		const TypeId type = types_.class_type(
+			id, tag, semantics() ? dump_name(*ctx.scope, name) : name);
 		entity = &model_.create(SemaKind::Class, name, type);
 		model_.own_type(type, *entity);
 		if (!name.empty())
@@ -801,6 +830,15 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 {
 	std::string written;
 	TypeId type = declarator_type(node, specifier_type(specifiers), ctx, &written);
+	// 8.3.4p3: an array declared with no bound and initialized from a braced
+	// list has as many elements as the list has clauses.
+	if (types_.kind(type) == TypeKind::Array && !types_.bounded(type) &&
+	    initializer != nullptr && !initializer->children.empty() &&
+	    initializer->children[0]->kind == AstKind::BracedInitList)
+	{
+		type = types_.array_of(types_.target(type), true,
+		                       initializer->children[0]->children.size());
+	}
 	const QualifiedName spelled(written);
 	const std::string name = spelled.last();
 	if (name.empty())

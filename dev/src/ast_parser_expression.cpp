@@ -583,11 +583,29 @@ AstNode* AstParser::parse_primary_expression()
 		++pos_;
 		return node;
 	}
-	if (is_builtin_type_keyword(type) && peek(1) == OP_LPAREN)
+	if (is_builtin_type_keyword(type))
 	{
+		// 5.2.3p1: an explicit type conversion may be written with any
+		// simple-type-specifier, and Table 10 spells several of them with more
+		// than one keyword, so the whole run of them is the type named.
+		std::size_t words = 0;
+		std::string named;
+		while (is_builtin_type_keyword(peek(words)))
+		{
+			if (!named.empty())
+			{
+				named += " ";
+			}
+			named += spelling(words);
+			++words;
+		}
+		if (peek(words) != OP_LPAREN)
+		{
+			return parse_id_expression();
+		}
 		const Mark start = mark();
-		AstNode* callee = make_text(AstKind::IdExpression, spelling());
-		++pos_;
+		AstNode* callee = make_text(AstKind::IdExpression, named);
+		pos_ += words;
 		AstNode* arguments = parse_argument_suffix(AstKind::ParenArgumentList);
 		if (arguments == nullptr)
 		{

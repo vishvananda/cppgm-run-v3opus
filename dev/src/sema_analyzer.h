@@ -101,6 +101,11 @@ private:
 		// 13.4: the declarations an unresolved function name denotes, which a
 		// target type or a call's arguments choose between.
 		SemaEntity* functions;
+		// What the dump writes after the type, and the node kind it writes
+		// before it, so that a cast to a reference can spell the operand's own
+		// line again with the category the cast gave it.
+		const AstNode* payload;
+		const char* what;
 		// 4.10p1: an integral constant expression prvalue that evaluates to
 		// zero, which is the only integral operand a pointer accepts.
 		bool null_constant;

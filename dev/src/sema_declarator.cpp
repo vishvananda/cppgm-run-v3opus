@@ -375,6 +375,13 @@ void SemaAnalyzer::read_parameters(const AstNode& clause, const Context& ctx,
 		const AstNode* declarator = declarator_of(child);
 		if (declarator != nullptr)
 		{
+			// 8.3.5p3: `f(int...)` writes the ellipsis without a comma, so it
+			// arrives inside the last parameter's declarator rather than beside
+			// it, and it still says the function takes further arguments.
+			if (child_kind(*declarator, AstKind::ParameterPack) != nullptr)
+			{
+				variadic = true;
+			}
 			parameter.type = declarator_type(*declarator, parameter.type, ctx,
 			                                 &parameter.name);
 		}

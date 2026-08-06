@@ -61,22 +61,46 @@ std::string decimal(unsigned long long value)
 // `int(x)` as a call, so the callee's spelling is what says it is a cast.
 TypeId SemaAnalyzer::keyword_type(const std::string& spelling) const
 {
-	static const struct { const char* name; EFundamentalType type; } kNames[] = {
-		{"bool", FT_BOOL}, {"char", FT_CHAR}, {"char16_t", FT_CHAR16_T},
-		{"char32_t", FT_CHAR32_T}, {"wchar_t", FT_WCHAR_T},
-		{"short", FT_SHORT_INT}, {"int", FT_INT}, {"long", FT_LONG_INT},
-		{"signed", FT_INT}, {"unsigned", FT_UNSIGNED_INT}, {"float", FT_FLOAT},
-		{"double", FT_DOUBLE}, {"void", FT_VOID}
+	static const struct { const char* name; SimpleTypeSpecifier which; } kNames[] = {
+		{"char", kSpecChar}, {"char16_t", kSpecChar16},
+		{"char32_t", kSpecChar32}, {"wchar_t", kSpecWchar}, {"bool", kSpecBool},
+		{"short", kSpecShort}, {"int", kSpecInt}, {"long", kSpecLong},
+		{"signed", kSpecSigned}, {"unsigned", kSpecUnsigned},
+		{"float", kSpecFloat}, {"double", kSpecDouble}, {"void", kSpecVoid}
 	};
-	for (std::size_t index = 0; index < sizeof(kNames) / sizeof(kNames[0]);
-	     ++index)
+	unsigned counted[kSimpleTypeSpecifierCount] = {0};
+	std::string::size_type at = 0;
+	while (at <= spelling.size())
 	{
-		if (spelling == kNames[index].name)
+		const std::string::size_type end = spelling.find(' ', at);
+		const std::string word =
+			spelling.substr(at, end == std::string::npos ? end : end - at);
+		bool known = false;
+		for (std::size_t index = 0; index < sizeof(kNames) / sizeof(kNames[0]);
+		     ++index)
 		{
-			return const_cast<TypeTable&>(types_).fundamental(kNames[index].type);
+			if (word == kNames[index].name)
+			{
+				++counted[kNames[index].which];
+				known = true;
+				break;
+			}
 		}
+		if (!known)
+		{
+			return kNoType;
+		}
+		if (end == std::string::npos)
+		{
+			break;
+		}
+		at = end + 1;
 	}
-	return kNoType;
+	if (!table_10_names_a_type(counted))
+	{
+		return kNoType;
+	}
+	return const_cast<TypeTable&>(types_).fundamental(table_10_type(counted));
 }
 
 const char* SemaAnalyzer::category_name(ValueCategory category)
@@ -318,6 +342,8 @@ SemaAnalyzer::Value SemaAnalyzer::id_expression(const AstNode& node,
 		value.type = types_.target(value.type);
 	}
 	value.spelled = value.type;
+	value.payload = &node;
+	value.what = "id-expression";
 	value.node = &model_.open_node(
 		parent, spell("id-expression", value.category, value.type, &node));
 	return value;
@@ -349,6 +375,8 @@ SemaAnalyzer::Value SemaAnalyzer::literal_expression(const AstNode& node,
 {
 	Value value;
 	value.category = ValueCategory::PRValue;
+	value.payload = &node;
+	value.what = "literal";
 	const std::string& spelling = node.text;
 	if (node.kind == AstKind::KeywordLiteral)
 	{
@@ -471,6 +499,15 @@ SemaAnalyzer::Value SemaAnalyzer::subscript_expression(const AstNode& node,
 		throw std::runtime_error("a subscript expression has no pointer and "
 		                         "integral operand");
 	}
+	if (!left_is_pointer && line.children.size() == 2)
+	{
+		// 5.2.1p1: `E1[E2]` is `*((E1)+(E2))`, which is the same expression
+		// however the two operands were written, so the dump writes the
+		// pointer operand first.
+		DumpNode* const held = line.children[0];
+		line.children[0] = line.children[1];
+		line.children[1] = held;
+	}
 	Value value;
 	value.type = types_.target(pointer);
 	value.spelled = value.type;
@@ -508,11 +545,12 @@ SemaAnalyzer::Value SemaAnalyzer::cast_expression(const AstNode& node,
 			? ValueCategory::LValue
 			: ValueCategory::XValue;
 		value.spelled = target;
-		if (source.node != nullptr)
+		if (source.node != nullptr && source.what != nullptr)
 		{
-			source.node->text = spell(source.node->text.substr(
-				0, source.node->text.find(' ')).c_str(), value.category,
-				target, nullptr);
+			// 5.2.9p1: the cast names the same object, so the operand's own
+			// line is rewritten with what the cast made of it.
+			source.node->text =
+				spell(source.what, value.category, target, source.payload);
 		}
 		// The cast writes no node of its own: the operand's line already says
 		// what the cast made of it.
@@ -970,7 +1008,16 @@ SemaAnalyzer::Value SemaAnalyzer::assignment_expression(const AstNode& node,
 		// whether the operands go together.
 		Value target = left;
 		target.type = types_.strip_cv(left.type);
-		binary_result(compound_operator(node.token), target, right);
+		Value result;
+		result.type = binary_result(compound_operator(node.token), target, right);
+		result.spelled = result.type;
+		// 5.17p7: the result is then assigned to the left operand, so it has to
+		// be a value the left operand can hold.
+		if (!match_by_value(result, target.type).viable)
+		{
+			throw std::runtime_error("the result of a compound assignment has "
+			                         "no conversion to the type it assigns to");
+		}
 	}
 
 	Value value;

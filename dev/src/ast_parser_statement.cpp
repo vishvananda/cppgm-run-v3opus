@@ -2,6 +2,28 @@
 
 // Statements, and the block items that are either a declaration or one.
 
+// 6.1: a statement may be a declaration-statement, so a substatement written
+// without braces - the body of a label, of a selection statement, or of an
+// iteration statement - may declare a name, which 6.4p1 and 6.5p2 put in a
+// region of its own.
+//
+// The declaration is the alternative rather than the first reading, because
+// what 6.8 leaves ambiguous is settled by the region the substatement is in:
+// a block item that reads as either is a declaration, while a substatement
+// that reads as a statement is one, and only what no statement can be is read
+// again as a declaration.
+AstNode* AstParser::parse_substatement()
+{
+	const Mark start = mark();
+	AstNode* statement = parse_statement();
+	if (statement != nullptr)
+	{
+		return statement;
+	}
+	reset(start);
+	return parse_declaration(false);
+}
+
 AstNode* AstParser::parse_block_item()
 {
 	const Mark start = mark();
@@ -130,7 +152,7 @@ AstNode* AstParser::parse_labeled_statement()
 	{
 		return fail(start);
 	}
-	AstNode* body = parse_statement();
+	AstNode* body = parse_substatement();
 	if (body == nullptr)
 	{
 		return fail(start);
@@ -151,7 +173,7 @@ AstNode* AstParser::parse_selection_statement()
 	}
 	AstNode* node = make(is_if ? AstKind::IfStatement : AstKind::SwitchStatement);
 	node->add(condition);
-	AstNode* body = parse_statement();
+	AstNode* body = parse_substatement();
 	if (body == nullptr)
 	{
 		return fail(start);
@@ -166,7 +188,7 @@ AstNode* AstParser::parse_selection_statement()
 	node->add(branch);
 	if (accept(KW_ELSE))
 	{
-		AstNode* other = parse_statement();
+		AstNode* other = parse_substatement();
 		if (other == nullptr)
 		{
 			return fail(start);
@@ -190,7 +212,7 @@ AstNode* AstParser::parse_iteration_statement()
 		}
 		AstNode* node = make(AstKind::WhileStatement);
 		node->add(condition);
-		AstNode* body = parse_statement();
+		AstNode* body = parse_substatement();
 		if (body == nullptr)
 		{
 			return fail(start);
@@ -200,7 +222,7 @@ AstNode* AstParser::parse_iteration_statement()
 	}
 	++pos_;
 	AstNode* node = make(AstKind::DoStatement);
-	AstNode* body = parse_statement();
+	AstNode* body = parse_substatement();
 	if (body == nullptr || !accept(KW_WHILE))
 	{
 		return fail(start);
@@ -324,7 +346,7 @@ AstNode* AstParser::parse_for_statement()
 		}
 		++pos_;
 	}
-	AstNode* body = parse_statement();
+	AstNode* body = parse_substatement();
 	if (body == nullptr)
 	{
 		return fail(start);
