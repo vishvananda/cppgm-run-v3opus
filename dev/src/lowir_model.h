@@ -28,6 +28,9 @@ struct LowType
   std::string text;
 };
 
+// An operand names storage or spells a literal. A literal keeps its written
+// spelling and nothing else: LowIR text is the durable form, so a parallel
+// decoded value would only be a second copy that could disagree with it.
 struct Operand
 {
   enum Kind
@@ -41,9 +44,6 @@ struct Operand
   } kind = OP_INTEGER;
 
   std::string text;
-  long long int_value = 0;
-  long double float_value = 0.0L;
-  LowType literal_type;
 };
 
 enum SymbolRole

@@ -14,13 +14,18 @@ namespace lowir_model {
 // Throws `ParseError` describing the first structural violation found.
 void validate_lowir_program(const Program & program);
 
-// Names of the program-wide runtime roles, resolved from `role=` metadata with
-// the legacy `@main` / `@__cppgm_init` / `@__cppgm_fini` spellings as fallback.
+// The program-wide runtime roles, resolved from `role=` metadata with the
+// legacy `@main` / `@__cppgm_init` / `@__cppgm_fini` spellings as fallback.
+// Only definitions can own a role: a backend has to emit the role's label, and
+// a declaration alone gives it nothing to emit.
 struct RuntimeRoles
 {
   const Function * entry = 0;
   const Function * init = 0;
   const Function * fini = 0;
+  const GlobalDefinition * eh_top = 0;
+  const GlobalDefinition * eh_value = 0;
+  const Function * eh_unhandled = 0;
 };
 
 RuntimeRoles resolve_runtime_roles(const Program & program);

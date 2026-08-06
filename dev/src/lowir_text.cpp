@@ -1,16 +1,12 @@
 #include "lowir_text.h"
 
-#include "lowir_validate.h"
-
 #include <cctype>
-#include <cerrno>
 #include <cstddef>
 #include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <sstream>
 #include <string>
-#include <unordered_map>
-#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -30,7 +26,7 @@ struct ScalarTypeEntry
 
 const ScalarTypeEntry kScalarTypes[] = {
   { "void", TypeFacts::TC_VOID, false, 0, 1, 0 },
-  { "i1", TypeFacts::TC_INTEGER, true, 1, 1, 8 },
+  { "i1", TypeFacts::TC_INTEGER, false, 1, 1, 8 },  // a truth value has no sign
   { "i8", TypeFacts::TC_INTEGER, true, 1, 1, 8 },
   { "u8", TypeFacts::TC_INTEGER, false, 1, 1, 8 },
   { "i16", TypeFacts::TC_INTEGER, true, 2, 2, 16 },
@@ -108,6 +104,9 @@ bool is_ident_start(char c)
   return isalpha(static_cast<unsigned char>(c)) || c == '_';
 }
 
+// The lexer hands out one token at a time. The parser needs a two-token window
+// and never looks further back, so the token stream is never materialized: a
+// LowIR program's tokens outweigh its source text several times over.
 class Lexer
 {
 public:
@@ -115,15 +114,15 @@ public:
     : text_(text), source_name_(source_name)
   {}
 
-  std::vector<Token> run();
+  Token next();
 
 private:
   void skip_trivia();
-  void push_sigil(Token::Kind kind);
-  void push_number();
-  void push_ident();
-  void push_debug_location();
-  void push_punct();
+  void scan_sigil(Token & token, Token::Kind kind);
+  void scan_number(Token & token);
+  void scan_ident(Token & token);
+  void scan_debug_location(Token & token);
+  void scan_punct(Token & token);
   long long read_debug_integer();
   void fail(const std::string & message) const;
 
@@ -131,7 +130,6 @@ private:
   const std::string & source_name_;
   std::size_t pos_ = 0;
   std::size_t line_ = 1;
-  std::vector<Token> tokens_;
 };
 
 void Lexer::fail(const std::string & message) const
@@ -160,54 +158,46 @@ void Lexer::skip_trivia()
   }
 }
 
-void Lexer::push_sigil(Token::Kind kind)
+void Lexer::scan_sigil(Token & token, Token::Kind kind)
 {
-  Token token;
   token.kind = kind;
-  token.line = line_;
   ++pos_;
+  const std::size_t begin = pos_;
   while(pos_ < text_.size() && is_name_char(text_[pos_])) {
-    token.text += text_[pos_];
     ++pos_;
   }
-  if(token.text.empty()) {
+  if(pos_ == begin) {
     fail("empty LowIR symbol name");
   }
-  tokens_.push_back(std::move(token));
+  token.text.assign(text_, begin, pos_ - begin);
 }
 
-void Lexer::push_number()
+void Lexer::scan_number(Token & token)
 {
-  Token token;
   token.kind = Token::TK_NUMBER;
-  token.line = line_;
+  const std::size_t begin = pos_;
   while(pos_ < text_.size()) {
     char c = text_[pos_];
-    if(is_name_char(c)) {
-      token.text += c;
-      ++pos_;
-      bool exponent = (c == 'e' || c == 'E' || c == 'p' || c == 'P');
-      if(exponent && pos_ < text_.size() && (text_[pos_] == '+' || text_[pos_] == '-')) {
-        token.text += text_[pos_];
-        ++pos_;
-      }
-    } else {
+    if(!is_name_char(c)) {
       break;
     }
+    ++pos_;
+    bool exponent = (c == 'e' || c == 'E' || c == 'p' || c == 'P');
+    if(exponent && pos_ < text_.size() && (text_[pos_] == '+' || text_[pos_] == '-')) {
+      ++pos_;
+    }
   }
-  tokens_.push_back(std::move(token));
+  token.text.assign(text_, begin, pos_ - begin);
 }
 
-void Lexer::push_ident()
+void Lexer::scan_ident(Token & token)
 {
-  Token token;
   token.kind = Token::TK_IDENT;
-  token.line = line_;
+  const std::size_t begin = pos_;
   while(pos_ < text_.size() && is_name_char(text_[pos_])) {
-    token.text += text_[pos_];
     ++pos_;
   }
-  tokens_.push_back(std::move(token));
+  token.text.assign(text_, begin, pos_ - begin);
 }
 
 long long Lexer::read_debug_integer()
@@ -234,11 +224,9 @@ long long Lexer::read_debug_integer()
   return negative ? -value : value;
 }
 
-void Lexer::push_debug_location()
+void Lexer::scan_debug_location(Token & token)
 {
-  Token token;
   token.kind = Token::TK_DBG;
-  token.line = line_;
   ++pos_;  // '!'
   std::string keyword;
   while(pos_ < text_.size() && is_name_char(text_[pos_])) {
@@ -289,67 +277,55 @@ void Lexer::push_debug_location()
     fail("expected ')' in !dbg location");
   }
   ++pos_;
-  tokens_.push_back(std::move(token));
 }
 
-void Lexer::push_punct()
+void Lexer::scan_punct(Token & token)
 {
-  Token token;
   token.kind = Token::TK_PUNCT;
-  token.line = line_;
   char c = text_[pos_];
   if(c == '-' && pos_ + 1 < text_.size() && text_[pos_ + 1] == '>') {
     token.text = "->";
     pos_ += 2;
-    tokens_.push_back(std::move(token));
     return;
   }
-  const std::string singles = ":,()[]{}=+-<>";
-  if(singles.find(c) == std::string::npos) {
+  static const char kSingles[] = ":,()[]{}=+-<>";
+  if(c == '\0' || strchr(kSingles, c) == 0) {
     fail(std::string("unexpected character '") + c + "' in LowIR text");
   }
-  token.text = std::string(1, c);
+  token.text.assign(1, c);
   ++pos_;
-  tokens_.push_back(std::move(token));
 }
 
-std::vector<Token> Lexer::run()
+Token Lexer::next()
 {
-  // LowIR averages a few source bytes per token; one reservation keeps the
-  // single lexing pass from re-copying the token vector as it grows.
-  tokens_.reserve(text_.size() / 6 + 16);
-  for(;;) {
-    skip_trivia();
-    if(pos_ >= text_.size()) {
-      break;
-    }
-    char c = text_[pos_];
-    if(c == '@') {
-      push_sigil(Token::TK_GLOBAL);
-    } else if(c == '%') {
-      push_sigil(Token::TK_TEMP);
-    } else if(c == '$') {
-      push_sigil(Token::TK_SLOT);
-    } else if(c == '^') {
-      push_sigil(Token::TK_BLOCK);
-    } else if(c == '!') {
-      push_debug_location();
-    } else if(isdigit(static_cast<unsigned char>(c))) {
-      push_number();
-    } else if(c == '.' && pos_ + 1 < text_.size() &&
-              isdigit(static_cast<unsigned char>(text_[pos_ + 1]))) {
-      push_number();
-    } else if(is_ident_start(c)) {
-      push_ident();
-    } else {
-      push_punct();
-    }
+  skip_trivia();
+  Token token;
+  token.line = line_;
+  if(pos_ >= text_.size()) {
+    token.kind = Token::TK_END;
+    return token;
   }
-  Token end;
-  end.kind = Token::TK_END;
-  end.line = line_;
-  tokens_.push_back(end);
-  return tokens_;
+  char c = text_[pos_];
+  if(c == '@') {
+    scan_sigil(token, Token::TK_GLOBAL);
+  } else if(c == '%') {
+    scan_sigil(token, Token::TK_TEMP);
+  } else if(c == '$') {
+    scan_sigil(token, Token::TK_SLOT);
+  } else if(c == '^') {
+    scan_sigil(token, Token::TK_BLOCK);
+  } else if(c == '!') {
+    scan_debug_location(token);
+  } else if(isdigit(static_cast<unsigned char>(c)) ||
+            (c == '.' && pos_ + 1 < text_.size() &&
+             isdigit(static_cast<unsigned char>(text_[pos_ + 1])))) {
+    scan_number(token);
+  } else if(is_ident_start(c)) {
+    scan_ident(token);
+  } else {
+    scan_punct(token);
+  }
+  return token;
 }
 
 // ---------------------------------------------------------------------------
@@ -426,15 +402,24 @@ bool apply_boundary_item(const MetaItem & item, FunctionBoundaryMetadata & bound
   return false;
 }
 
-bool apply_flag_item(const MetaItem & item, SymbolMetadata & metadata)
+bool apply_flag_item(const MetaItem & item, SymbolMetadata & metadata, bool is_function)
 {
   bool * flag = 0;
+  bool functions_only = false;
   if(item.key == "keep_alias") { flag = &metadata.keep_internal_alias; }
   else if(item.key == "prefer_local") { flag = &metadata.prefer_local_object_binding; }
-  else if(item.key == "trivial_lifecycle") { flag = &metadata.object_trivial_lifecycle; }
-  else if(item.key == "force_inline") { flag = &metadata.force_inline; }
+  else if(item.key == "trivial_lifecycle") {
+    flag = &metadata.object_trivial_lifecycle;
+    functions_only = true;
+  } else if(item.key == "force_inline") {
+    flag = &metadata.force_inline;
+    functions_only = true;
+  }
   if(flag == 0) {
     return false;
+  }
+  if(functions_only && !is_function) {
+    throw ParseError("'" + item.key + "' metadata is only valid on functions");
   }
   if(item.value == "yes") { *flag = true; }
   else if(item.value == "no") { *flag = false; }
@@ -442,7 +427,10 @@ bool apply_flag_item(const MetaItem & item, SymbolMetadata & metadata)
   return true;
 }
 
-void apply_symbol_item(const MetaItem & item, SymbolMetadata & metadata, bool is_function)
+void apply_symbol_item(const MetaItem & item,
+                       SymbolMetadata & metadata,
+                       GlobalStorageMode * storage,
+                       bool is_function)
 {
   if(item.key == "role") {
     SymbolRole role = SR_NONE;
@@ -480,9 +468,9 @@ void apply_symbol_item(const MetaItem & item, SymbolMetadata & metadata, bool is
     if(is_function) {
       throw ParseError("'storage' metadata is only valid on globals");
     }
-    if(item.value != "readonly" && item.value != "thread_local") {
-      throw ParseError("invalid storage metadata value '" + item.value + "'");
-    }
+    if(item.value == "readonly") { *storage = GSM_READONLY; }
+    else if(item.value == "thread_local") { *storage = GSM_THREAD_LOCAL; }
+    else { throw ParseError("invalid storage metadata value '" + item.value + "'"); }
     return;
   }
   if(item.key == "tls_for") {
@@ -495,24 +483,10 @@ void apply_symbol_item(const MetaItem & item, SymbolMetadata & metadata, bool is
     metadata.tls_for_symbol = item.value;
     return;
   }
-  if(apply_flag_item(item, metadata)) {
+  if(apply_flag_item(item, metadata, is_function)) {
     return;
   }
   throw ParseError("unknown metadata key '" + item.key + "'");
-}
-
-GlobalStorageMode storage_from_items(const std::vector<MetaItem> & items,
-                                     GlobalStorageMode current)
-{
-  GlobalStorageMode storage = current;
-  for(std::size_t i = 0; i < items.size(); ++i) {
-    if(items[i].key != "storage") {
-      continue;
-    }
-    if(items[i].value == "readonly") { storage = GSM_READONLY; }
-    else if(items[i].value == "thread_local") { storage = GSM_THREAD_LOCAL; }
-  }
-  return storage;
 }
 
 // ---------------------------------------------------------------------------
@@ -522,20 +496,26 @@ GlobalStorageMode storage_from_items(const std::vector<MetaItem> & items,
 class Parser
 {
 public:
-  Parser(const std::vector<Token> & tokens, const std::string & source_name)
-    : tokens_(tokens), source_name_(source_name)
-  {}
+  Parser(Lexer & lexer, const std::string & source_name)
+    : lexer_(lexer), source_name_(source_name)
+  {
+    window_[0] = lexer_.next();
+    window_[1] = lexer_.next();
+  }
 
   void parse_into(Program & program);
 
 private:
-  const Token & cur() const { return tokens_[pos_]; }
-  const Token & peek(std::size_t n) const
+  const Token & cur() const { return window_[0]; }
+  const Token & peek(std::size_t n) const { return window_[n]; }
+  void advance()
   {
-    std::size_t i = pos_ + n;
-    return i < tokens_.size() ? tokens_[i] : tokens_[tokens_.size() - 1];
+    if(window_[0].kind == Token::TK_END) {
+      return;
+    }
+    window_[0] = std::move(window_[1]);
+    window_[1] = lexer_.next();
   }
-  void advance() { if(cur().kind != Token::TK_END) { ++pos_; } }
   bool at_punct(const char * spelling) const
   {
     return cur().kind == Token::TK_PUNCT && cur().text == spelling;
@@ -566,6 +546,7 @@ private:
   std::vector<MetaItem> parse_metadata();
   void apply_metadata(const std::vector<MetaItem> & items,
                       SymbolMetadata & metadata,
+                      GlobalStorageMode * storage,
                       FunctionBoundaryMetadata * boundary,
                       bool is_function);
   std::vector<Parameter> parse_parameters();
@@ -593,9 +574,9 @@ private:
   long long parse_integer_literal();
   void parse_object_span(Instruction & instruction);
 
-  const std::vector<Token> & tokens_;
+  Lexer & lexer_;
   const std::string & source_name_;
-  std::size_t pos_ = 0;
+  Token window_[2];
 };
 
 void Parser::fail(const std::string & message) const
@@ -702,6 +683,7 @@ std::vector<MetaItem> Parser::parse_metadata()
 
 void Parser::apply_metadata(const std::vector<MetaItem> & items,
                             SymbolMetadata & metadata,
+                            GlobalStorageMode * storage,
                             FunctionBoundaryMetadata * boundary,
                             bool is_function)
 {
@@ -710,7 +692,7 @@ void Parser::apply_metadata(const std::vector<MetaItem> & items,
       if(boundary != 0 && apply_boundary_item(items[i], *boundary)) {
         continue;
       }
-      apply_symbol_item(items[i], metadata, is_function);
+      apply_symbol_item(items[i], metadata, storage, is_function);
     } catch(const ParseError & error) {
       std::ostringstream out;
       out << source_name_ << ":" << items[i].line << ": " << error.what();
@@ -801,9 +783,7 @@ void Parser::parse_global_declaration(Program & program)
     declaration.has_type = true;
     declaration.type = parse_type();
   }
-  std::vector<MetaItem> items = parse_metadata();
-  apply_metadata(items, declaration.metadata, 0, false);
-  declaration.storage = storage_from_items(items, declaration.storage);
+  apply_metadata(parse_metadata(), declaration.metadata, &declaration.storage, 0, false);
   program.global_declarations.push_back(std::move(declaration));
 }
 
@@ -814,8 +794,7 @@ void Parser::parse_function_declaration(Program & program)
   declaration.params = parse_parameters();
   expect_punct("->");
   declaration.return_type = parse_type();
-  std::vector<MetaItem> items = parse_metadata();
-  apply_metadata(items, declaration.metadata, &declaration.boundary, true);
+  apply_metadata(parse_metadata(), declaration.metadata, 0, &declaration.boundary, true);
   program.function_declarations.push_back(std::move(declaration));
 }
 
@@ -862,9 +841,7 @@ void Parser::parse_global_definition(Program & program)
   if(has_type) {
     global.type = parse_type();
   }
-  std::vector<MetaItem> items = parse_metadata();
-  apply_metadata(items, global.metadata, 0, false);
-  global.storage = storage_from_items(items, global.storage);
+  apply_metadata(parse_metadata(), global.metadata, &global.storage, 0, false);
   expect_punct("=");
   if(at_punct("{")) {
     global.structured = true;
@@ -909,8 +886,7 @@ void Parser::parse_function_definition(Program & program)
   function.params = parse_parameters();
   expect_punct("->");
   function.return_type = parse_type();
-  std::vector<MetaItem> items = parse_metadata();
-  apply_metadata(items, function.metadata, &function.boundary, true);
+  apply_metadata(parse_metadata(), function.metadata, 0, &function.boundary, true);
   function.debug_location = parse_optional_debug_location();
   expect_punct("{");
   parse_function_body(function);
@@ -974,10 +950,9 @@ long long Parser::parse_integer_literal()
   }
   const std::string text = cur().text;
   advance();
-  errno = 0;
   char * end = 0;
-  long long value = strtoll(text.c_str(), &end, 0);
-  if(end == text.c_str()) {
+  const long long value = strtoll(text.c_str(), &end, 0);
+  if(end == text.c_str() || *end != '\0') {
     fail("invalid integer literal '" + text + "'");
   }
   return negative ? -value : value;
@@ -1491,31 +1466,47 @@ bool is_memory_class_type(const LowType & type)
 LowirProgram parse_lowir_program_text(const std::string & text,
                                       const std::string & source_name)
 {
-  Lexer lexer(text, source_name);
-  const std::vector<Token> tokens = lexer.run();
   Program program;
-  Parser parser(tokens, source_name);
+  Lexer lexer(text, source_name);
+  Parser parser(lexer, source_name);
   parser.parse_into(program);
   return program;
 }
+
+namespace {
+
+std::string read_source_file(const std::string & path)
+{
+  std::ifstream in(path.c_str(), std::ios::binary);
+  if(!in) {
+    throw ParseError("cannot open LowIR source file '" + path + "'");
+  }
+  in.seekg(0, std::ios::end);
+  const std::streamoff size = in.tellg();
+  in.seekg(0, std::ios::beg);
+  if(!in || size < 0) {
+    throw ParseError("cannot read LowIR source file '" + path + "'");
+  }
+  std::string text;
+  text.resize(static_cast<std::size_t>(size));
+  if(size != 0) {
+    in.read(&text[0], size);
+    text.resize(static_cast<std::size_t>(in.gcount()));
+  }
+  return text;
+}
+
+}  // namespace
 
 LowirProgram parse_lowir_program_files(const std::vector<std::string> & paths)
 {
   Program program;
   for(std::size_t i = 0; i < paths.size(); ++i) {
-    std::ifstream in(paths[i].c_str(), std::ios::binary);
-    if(!in) {
-      throw ParseError("cannot open LowIR source file '" + paths[i] + "'");
-    }
-    std::ostringstream buffer;
-    buffer << in.rdbuf();
-    const std::string text = buffer.str();
+    const std::string text = read_source_file(paths[i]);
     Lexer lexer(text, paths[i]);
-    const std::vector<Token> tokens = lexer.run();
-    Parser parser(tokens, paths[i]);
+    Parser parser(lexer, paths[i]);
     parser.parse_into(program);
   }
-  validate_lowir_program(program);
   return program;
 }
 

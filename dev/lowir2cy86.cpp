@@ -2,6 +2,7 @@
 
 #include "lowir_cy86.h"
 #include "lowir_model.h"
+#include "lowir_validate.h"
 #include "tool_help_text.h"
 
 #include <cstdlib>
@@ -57,7 +58,9 @@ int run_lowir2cy86_mode(const vector<string> & args)
   vector<string> srcfiles;
   parse_output_invocation(args, outfile, srcfiles);
 
+  // Read, check, translate: each layer owns one of the three steps.
   const lowir_model::Program program = lowir_model::parse_lowir_program_files(srcfiles);
+  lowir_model::validate_lowir_program(program);
   const string cy86 = lowir_cy86::emit_cy86_program(program);
 
   ofstream out(outfile.c_str(), ios::binary | ios::trunc);

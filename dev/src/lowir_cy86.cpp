@@ -2,10 +2,8 @@
 
 #include <cstdlib>
 #include <cstring>
-#include <sstream>
 #include <string>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 #include "lowir_text.h"
@@ -34,23 +32,52 @@ const char * const kEhTopGlobal = "__cppgm_eh_top";
 const char * const kEhValueGlobal = "__cppgm_eh_value";
 const char * const kEhUnhandledFunction = "__cppgm_eh_unhandled";
 
-std::string num(long long value)
-{
-  std::ostringstream out;
-  out << value;
-  return out.str();
-}
-
+// Every emitted line spells one or more integers, so these stay allocation-thin
+// rather than routing decimal formatting through a stream.
 std::string unum(std::size_t value)
 {
-  std::ostringstream out;
-  out << value;
-  return out.str();
+  char digits[24];
+  char * end = digits + sizeof(digits);
+  char * begin = end;
+  do {
+    *--begin = static_cast<char>('0' + value % 10);
+    value /= 10;
+  } while(value != 0);
+  return std::string(begin, static_cast<std::size_t>(end - begin));
 }
 
-std::string reg(char base, int width)
+std::string num(long long value)
 {
-  return std::string(1, base) + num(width);
+  if(value < 0) {
+    // Negating in unsigned space keeps the most negative value representable.
+    return "-" + unum(0u - static_cast<unsigned long long>(value));
+  }
+  return unum(static_cast<std::size_t>(value));
+}
+
+// The register file is four bases by five widths, so every spelling is a
+// pre-built constant instead of a fresh concatenation per operand.
+const std::string & reg(char base, int width)
+{
+  static const char kBases[] = "xyzt";
+  static const int kWidths[] = { 8, 16, 32, 64, 80 };
+  static const std::string kNames[4][5] = {
+    { "x8", "x16", "x32", "x64", "x80" },
+    { "y8", "y16", "y32", "y64", "y80" },
+    { "z8", "z16", "z32", "z64", "z80" },
+    { "t8", "t16", "t32", "t64", "t80" }
+  };
+  for(int b = 0; b < 4; ++b) {
+    if(kBases[b] != base) {
+      continue;
+    }
+    for(int w = 0; w < 5; ++w) {
+      if(kWidths[w] == width) {
+        return kNames[b][w];
+      }
+    }
+  }
+  throw ParseError("unsupported CY86 register width");
 }
 
 TypeFacts facts_of(const LowType & type)
@@ -93,32 +120,72 @@ LowType make_type(const char * text)
   return type;
 }
 
+// CY86 spells a floating immediate with the width suffix of its operand, so a
+// synthesized zero has to follow the same spelling as a source literal would.
+const char * float_zero_literal(int width)
+{
+  if(width == 32) { return "0.0f"; }
+  if(width == 80) { return "0.0L"; }
+  return "0.0";
+}
+
+// One frame cell. `mem` is the `[bp-<offset>]` spelling, built once at layout
+// time because every operand reference would otherwise re-format it.
 struct FrameEntity
 {
   std::size_t offset = 0;
+  std::string mem;
   LowType type;
   bool memory_class = false;
 };
 
-// Program-wide symbol facts shared by every function emitter.
+// Program-wide symbol facts shared by every function emitter: one entry per
+// top-level name carries everything the emitter asks about that name.
 struct SymbolIndex
 {
-  std::unordered_set<std::string> functions;
-  std::unordered_set<std::string> globals;
-  std::unordered_map<std::string, const Function *> definitions;
-  std::unordered_map<std::string, const FunctionDeclaration *> declarations;
+  struct Entry
+  {
+    bool is_function = false;
+    bool defined = false;
+    const std::vector<Parameter> * params = 0;
+  };
+
+  std::unordered_map<std::string, Entry> entries;
   std::string eh_top_label;
   std::string eh_value_label;
   std::string eh_unhandled_label;
 
-  bool is_function(const std::string & name) const
+  const Entry * find(const std::string & name) const
   {
-    return functions.find(name) != functions.end();
+    std::unordered_map<std::string, Entry>::const_iterator found = entries.find(name);
+    return found == entries.end() ? 0 : &found->second;
   }
 
+  bool is_function(const std::string & name) const
+  {
+    const Entry * entry = find(name);
+    return entry != 0 && entry->is_function;
+  }
+
+  const std::vector<Parameter> * params_for(const std::string & name) const
+  {
+    const Entry * entry = find(name);
+    return entry == 0 ? 0 : entry->params;
+  }
+
+  // CY86 has no linker, so a label the emitter writes must have a definition in
+  // this same program. Naming a declared-but-undefined symbol is a translation
+  // failure rather than an unresolvable output file.
   std::string label_for(const std::string & name) const
   {
-    return is_function(name) ? ("fn__" + name) : ("g__" + name);
+    const Entry * entry = find(name);
+    if(entry == 0) {
+      throw ParseError("undefined top-level symbol '@" + name + "'");
+    }
+    if(!entry->defined) {
+      throw ParseError("symbol '@" + name + "' is declared but never defined");
+    }
+    return (entry->is_function ? "fn__" : "g__") + name;
   }
 };
 
@@ -176,13 +243,18 @@ public:
   FunctionEmitter(const Function & function,
                   const SymbolIndex & symbols,
                   std::string & out,
-                  long long & label_counter)
-    : function_(function), symbols_(symbols), out_(out), label_counter_(label_counter)
+                  long long & label_counter,
+                  bool & uses_exceptions)
+    : function_(function), symbols_(symbols), out_(out), label_counter_(label_counter),
+      uses_exceptions_(uses_exceptions)
   {}
 
   void run();
 
 private:
+  typedef std::unordered_map<std::string, FrameEntity> FrameMap;
+
+  FrameEntity make_cell(const LowType & type, std::size_t & offset) const;
   void build_layout();
   void emit_prologue();
   void emit_incoming_parameter(std::size_t index,
@@ -198,11 +270,12 @@ private:
   std::string frame_mem(std::size_t offset) const;
   std::string scratch_mem(std::size_t index, std::size_t byte_offset) const;
   std::string block_label(const std::string & label) const;
-  std::string dest_mem() const;
+  const std::string & dest_mem() const;
 
   LowType operand_type(const Operand & operand) const;
   bool is_address_form(const LowType & expected, const Operand & operand) const;
   void materialize(char base, const LowType & expected, const Operand & operand);
+  void materialize_wide(char base, const Operand & operand);
   void materialize_address(char base, const Operand & operand);
   void materialize_storage_pointer(char base, const Operand & operand);
   void load_scalar(char base, const std::string & mem, int width);
@@ -244,21 +317,20 @@ private:
   const SymbolIndex & symbols_;
   std::string & out_;
   long long & label_counter_;
+  bool & uses_exceptions_;
 
-  std::unordered_map<std::string, FrameEntity> temps_;
-  std::unordered_map<std::string, FrameEntity> slots_;
+  FrameMap temps_;
+  FrameMap slots_;
   std::vector<FrameEntity> incoming_;
   std::size_t frame_size_ = 0;
   std::size_t scratch_base_ = 0;
-  bool has_scratch_ = false;
-  bool indirect_return_ = false;
   std::size_t return_pointer_offset_ = 0;
   const Instruction * current_ = 0;
 };
 
 const FrameEntity & FunctionEmitter::temp(const std::string & name) const
 {
-  std::unordered_map<std::string, FrameEntity>::const_iterator found = temps_.find(name);
+  FrameMap::const_iterator found = temps_.find(name);
   if(found == temps_.end()) {
     throw ParseError("undefined temporary '%" + name + "'");
   }
@@ -267,7 +339,7 @@ const FrameEntity & FunctionEmitter::temp(const std::string & name) const
 
 const FrameEntity & FunctionEmitter::slot(const std::string & name) const
 {
-  std::unordered_map<std::string, FrameEntity>::const_iterator found = slots_.find(name);
+  FrameMap::const_iterator found = slots_.find(name);
   if(found == slots_.end()) {
     throw ParseError("undefined stack slot '$" + name + "'");
   }
@@ -293,9 +365,9 @@ std::string FunctionEmitter::block_label(const std::string & label) const
   return "fn__" + function_.name + "__" + label;
 }
 
-std::string FunctionEmitter::dest_mem() const
+const std::string & FunctionEmitter::dest_mem() const
 {
-  return frame_mem(temp(current_->dest).offset);
+  return temp(current_->dest).mem;
 }
 
 LowType FunctionEmitter::operand_type(const Operand & operand) const
@@ -333,10 +405,13 @@ void FunctionEmitter::sign_extend_to_64(char base, const LowType & type)
   if(!is_signed_narrow(type)) {
     return;
   }
+  // The shift count needs its own register, so widening a value that already
+  // lives in `t` borrows `z` instead.
+  const char count = base == 't' ? 'z' : 't';
   const int shift = 64 - scalar_width(type);
-  emit("move8 t8 " + num(shift));
-  emit("lshift64 " + reg(base, 64) + " " + reg(base, 64) + " t8");
-  emit("srshift64 " + reg(base, 64) + " " + reg(base, 64) + " t8");
+  emit("move8 " + reg(count, 8) + " " + num(shift));
+  emit("lshift64 " + reg(base, 64) + " " + reg(base, 64) + " " + reg(count, 8));
+  emit("srshift64 " + reg(base, 64) + " " + reg(base, 64) + " " + reg(count, 8));
 }
 
 void FunctionEmitter::store_from_register(char base, const LowType & type, const std::string & mem)
@@ -353,7 +428,7 @@ void FunctionEmitter::materialize_address(char base, const Operand & operand)
       if(entity.memory_class) {
         emit("isub64 " + reg(base, 64) + " bp " + unum(entity.offset));
       } else {
-        emit("move64 " + reg(base, 64) + " " + frame_mem(entity.offset));
+        emit("move64 " + reg(base, 64) + " " + entity.mem);
       }
       return;
     }
@@ -374,7 +449,7 @@ void FunctionEmitter::materialize_address(char base, const Operand & operand)
 void FunctionEmitter::materialize_storage_pointer(char base, const Operand & operand)
 {
   if(operand.kind == Operand::OP_TEMP) {
-    emit("move64 " + reg(base, 64) + " " + frame_mem(temp(operand.text).offset));
+    emit("move64 " + reg(base, 64) + " " + temp(operand.text).mem);
     return;
   }
   materialize_address(base, operand);
@@ -389,7 +464,7 @@ void FunctionEmitter::materialize(char base, const LowType & expected, const Ope
   const int width = scalar_width(expected);
   switch(operand.kind) {
     case Operand::OP_TEMP:
-      load_scalar(base, frame_mem(temp(operand.text).offset), width);
+      load_scalar(base, temp(operand.text).mem, width);
       return;
     case Operand::OP_SLOT:
       emit("isub64 " + reg(base, 64) + " bp " + unum(slot(operand.text).offset));
@@ -403,6 +478,21 @@ void FunctionEmitter::materialize(char base, const LowType & expected, const Ope
       return;
     }
   }
+}
+
+// An index offset, a switch selector and a switch case value sit in positions
+// whose type the instruction does not fix, so each carries its own type. Read
+// the operand at that width and widen it to the i64 those positions compute in;
+// comparing or scaling at the narrow width instead would let an out-of-range
+// value alias an in-range one.
+void FunctionEmitter::materialize_wide(char base, const Operand & operand)
+{
+  LowType type = operand_type(operand);
+  if(lowir_model::is_memory_class_type(type)) {
+    type = make_type("i64");
+  }
+  materialize(base, type, operand);
+  sign_extend_to_64(base, type);
 }
 
 // ---------------------------------------------------------------------------
@@ -484,45 +574,35 @@ void FunctionEmitter::block_copy(std::size_t bytes, char destination, char sourc
 // Frame layout
 // ---------------------------------------------------------------------------
 
+FrameEntity FunctionEmitter::make_cell(const LowType & type, std::size_t & offset) const
+{
+  FrameEntity entity;
+  offset += frame_cell_size(type);
+  entity.offset = offset;
+  entity.mem = frame_mem(offset);
+  entity.type = type;
+  entity.memory_class = lowir_model::is_memory_class_type(type);
+  return entity;
+}
+
 void FunctionEmitter::build_layout()
 {
   std::size_t offset = 0;
-  bool needs_scratch = false;
+  bool needs_scratch = function_.return_type.text == "f80";
   if(lowir_model::is_memory_class_type(function_.return_type)) {
-    indirect_return_ = true;
-    offset += 8;
+    incoming_.push_back(make_cell(make_type("ptr"), offset));
     return_pointer_offset_ = offset;
-    FrameEntity entity;
-    entity.offset = offset;
-    entity.type = make_type("ptr");
-    incoming_.push_back(entity);
-  }
-  if(function_.return_type.text == "f80") {
-    needs_scratch = true;
   }
   for(std::size_t i = 0; i < function_.params.size(); ++i) {
     const Parameter & param = function_.params[i];
-    FrameEntity entity;
-    offset += frame_cell_size(param.type);
-    entity.offset = offset;
-    entity.type = param.type;
-    entity.memory_class = lowir_model::is_memory_class_type(param.type);
+    const FrameEntity entity = make_cell(param.type, offset);
     temps_[param.name] = entity;
     incoming_.push_back(entity);
-    if(param.type.text == "f80") {
-      needs_scratch = true;
-    }
+    needs_scratch = needs_scratch || param.type.text == "f80";
   }
   for(std::size_t i = 0; i < function_.slots.size(); ++i) {
-    FrameEntity entity;
-    offset += frame_cell_size(function_.slots[i].second);
-    entity.offset = offset;
-    entity.type = function_.slots[i].second;
-    entity.memory_class = lowir_model::is_memory_class_type(entity.type);
-    slots_[function_.slots[i].first] = entity;
-    if(entity.type.text == "f80") {
-      needs_scratch = true;
-    }
+    slots_[function_.slots[i].first] = make_cell(function_.slots[i].second, offset);
+    needs_scratch = needs_scratch || function_.slots[i].second.text == "f80";
   }
   for(std::size_t b = 0; b < function_.blocks.size(); ++b) {
     const std::vector<Instruction> & instructions = function_.blocks[b].instructions;
@@ -532,19 +612,19 @@ void FunctionEmitter::build_layout()
          instruction.type.text == "f80" || instruction.source_type.text == "f80") {
         needs_scratch = true;
       }
-      if(instruction.dest.empty() || temps_.find(instruction.dest) != temps_.end()) {
+      if(instruction.dest.empty()) {
         continue;
       }
-      FrameEntity entity;
-      entity.type = destination_type(instruction);
-      offset += frame_cell_size(entity.type);
-      entity.offset = offset;
-      entity.memory_class = lowir_model::is_memory_class_type(entity.type);
-      temps_[instruction.dest] = entity;
+      // One insert per destination: a temporary keeps the cell its first
+      // definition gave it.
+      std::pair<FrameMap::iterator, bool> placed =
+        temps_.insert(std::make_pair(instruction.dest, FrameEntity()));
+      if(placed.second) {
+        placed.first->second = make_cell(destination_type(instruction), offset);
+      }
     }
   }
   scratch_base_ = offset;
-  has_scratch_ = needs_scratch;
   frame_size_ = offset + (needs_scratch ? kScratchSlots * kScratchSlotBytes : 0);
 }
 
@@ -555,7 +635,7 @@ void FunctionEmitter::emit_incoming_parameter(std::size_t index,
   if(index < 4) {
     const char source = kArgRegisters[index];
     if(!entity.memory_class) {
-      emit("move64 " + frame_mem(entity.offset) + " " + reg(source, 64));
+      emit("move64 " + entity.mem + " " + reg(source, 64));
       return;
     }
     emit("move64 x64 " + reg(source, 64));
@@ -564,7 +644,7 @@ void FunctionEmitter::emit_incoming_parameter(std::size_t index,
     ++stack_index;
     emit("move64 x64 [bp+" + unum(displacement) + "]");
     if(!entity.memory_class) {
-      emit("move64 " + frame_mem(entity.offset) + " x64");
+      emit("move64 " + entity.mem + " x64");
       return;
     }
   }
@@ -642,22 +722,23 @@ std::string binary_opcode(const std::string & op, const LowType & type, int widt
   throw ParseError("binary operator '" + op + "' is not available for type '" + type.text + "'");
 }
 
+// Signedness lives in the predicate spelling, never in the operand type: the
+// plain relational predicates are the signed ones for every non-floating type,
+// and the `u...` spellings are the unsigned ones.
 std::string compare_opcode(const std::string & pred, const LowType & type, int width)
 {
-  const TypeFacts type_facts = facts_of(type);
-  const bool fp = type_facts.category == TypeFacts::TC_FLOAT;
-  const bool unsigned_default = type_facts.category == TypeFacts::TC_POINTER;
+  const bool fp = facts_of(type).category == TypeFacts::TC_FLOAT;
   std::string base;
   if(pred == "eq") { base = fp ? "feq" : "ieq"; }
   else if(pred == "ne") { base = fp ? "fne" : "ine"; }
-  else if(pred == "lt") { base = fp ? "flt" : (unsigned_default ? "ult" : "slt"); }
-  else if(pred == "le") { base = fp ? "fle" : (unsigned_default ? "ule" : "sle"); }
-  else if(pred == "gt") { base = fp ? "fgt" : (unsigned_default ? "ugt" : "sgt"); }
-  else if(pred == "ge") { base = fp ? "fge" : (unsigned_default ? "uge" : "sge"); }
-  else if(pred == "ult") { base = fp ? "flt" : "ult"; }
-  else if(pred == "ule") { base = fp ? "fle" : "ule"; }
-  else if(pred == "ugt") { base = fp ? "fgt" : "ugt"; }
-  else if(pred == "uge") { base = fp ? "fge" : "uge"; }
+  else if(pred == "lt") { base = fp ? "flt" : "slt"; }
+  else if(pred == "le") { base = fp ? "fle" : "sle"; }
+  else if(pred == "gt") { base = fp ? "fgt" : "sgt"; }
+  else if(pred == "ge") { base = fp ? "fge" : "sge"; }
+  else if(pred == "ult") { base = "ult"; }
+  else if(pred == "ule") { base = "ule"; }
+  else if(pred == "ugt") { base = "ugt"; }
+  else if(pred == "uge") { base = "uge"; }
   else { throw ParseError("unknown compare predicate '" + pred + "'"); }
   return base + num(width);
 }
@@ -665,6 +746,9 @@ std::string compare_opcode(const std::string & pred, const LowType & type, int w
 void FunctionEmitter::emit_instruction(const Instruction & instruction)
 {
   current_ = &instruction;
+  if(uses_exceptions(instruction)) {
+    uses_exceptions_ = true;
+  }
   switch(instruction.kind) {
     case Instruction::IK_CONST:
     case Instruction::IK_COPY:
@@ -763,20 +847,21 @@ void FunctionEmitter::emit_load(const Instruction & instruction)
     block_copy(facts_of(type).size, 'x', 'y');
     return;
   }
-  std::string mem;
+  // A load through a pointer widens the loaded value before narrowing it back
+  // into the destination cell; a load that names its storage directly does not.
+  // Only the store width is observable either way.
   if(instruction.first.kind == Operand::OP_SLOT) {
-    mem = frame_mem(slot(instruction.first.text).offset);
+    load_scalar('x', slot(instruction.first.text).mem, scalar_width(type));
   } else if(instruction.first.kind == Operand::OP_GLOBAL) {
-    mem = "[" + symbols_.label_for(instruction.first.text) + "]";
+    load_scalar('x', "[" + symbols_.label_for(instruction.first.text) + "]", scalar_width(type));
   } else {
     // A sub-32-bit load zero-extends by clearing the whole destination
     // register first, so an address held in that same register would be lost.
     const char pointer = scalar_width(type) < 32 ? 'y' : 'x';
     materialize_storage_pointer(pointer, instruction.first);
-    mem = "[" + reg(pointer, 64) + "]";
+    load_scalar('x', "[" + reg(pointer, 64) + "]", scalar_width(type));
+    sign_extend_to_64('x', type);
   }
-  load_scalar('x', mem, scalar_width(type));
-  sign_extend_to_64('x', type);
   store_scalar_result(type);
 }
 
@@ -798,7 +883,7 @@ void FunctionEmitter::emit_store(const Instruction & instruction)
   materialize('x', type, instruction.first);
   const int width = scalar_width(type);
   if(instruction.second.kind == Operand::OP_SLOT) {
-    emit("move" + num(width) + " " + frame_mem(slot(instruction.second.text).offset) +
+    emit("move" + num(width) + " " + slot(instruction.second.text).mem +
          " " + reg('x', width));
     return;
   }
@@ -814,7 +899,7 @@ void FunctionEmitter::emit_store(const Instruction & instruction)
 void FunctionEmitter::emit_index(const Instruction & instruction)
 {
   materialize('y', make_type("ptr"), instruction.first);
-  materialize('x', make_type("i64"), instruction.second);
+  materialize_wide('x', instruction.second);
   const std::size_t element = facts_of(instruction.type).size;
   if(element != 1) {
     emit("move64 z64 " + unum(element));
@@ -898,9 +983,10 @@ void FunctionEmitter::emit_unary(const Instruction & instruction)
   }
   const int width = scalar_width(type);
   materialize('x', type, instruction.first);
+  const bool fp = is_float_type(type);
   if(instruction.op == "neg") {
-    if(is_float_type(type)) {
-      emit("move" + num(width) + " " + reg('y', width) + " 0");
+    if(fp) {
+      emit("move" + num(width) + " " + reg('y', width) + " " + float_zero_literal(width));
       emit("fsub" + num(width) + " " + reg('x', width) + " " + reg('y', width) + " " +
            reg('x', width));
     } else {
@@ -909,7 +995,10 @@ void FunctionEmitter::emit_unary(const Instruction & instruction)
            reg('x', width));
     }
   } else if(instruction.op == "not") {
-    emit("ieq" + num(width) + " z8 " + reg('x', width) + " 0");
+    // A floating zero test has to be a floating comparison: the integer form
+    // would read -0.0 as a nonzero bit pattern.
+    emit((fp ? "feq" : "ieq") + num(width) + " z8 " + reg('x', width) + " " +
+         (fp ? float_zero_literal(width) : "0"));
     emit("move64 x64 0");
     emit("move8 x8 z8");
   } else if(instruction.op == "bitnot") {
@@ -1055,22 +1144,9 @@ void FunctionEmitter::emit_call(const Instruction & instruction)
                       symbols_.is_function(instruction.first.text);
   const bool memory_result = !instruction.call_returns_void &&
                              lowir_model::is_memory_class_type(instruction.type);
-  const std::vector<Parameter> * params = 0;
-  if(instruction.has_call_signature) {
-    params = &instruction.call_params;
-  } else if(direct) {
-    std::unordered_map<std::string, const Function *>::const_iterator definition =
-      symbols_.definitions.find(instruction.first.text);
-    if(definition != symbols_.definitions.end()) {
-      params = &definition->second->params;
-    } else {
-      std::unordered_map<std::string, const FunctionDeclaration *>::const_iterator declared =
-        symbols_.declarations.find(instruction.first.text);
-      if(declared != symbols_.declarations.end()) {
-        params = &declared->second->params;
-      }
-    }
-  }
+  const std::vector<Parameter> * params = instruction.has_call_signature
+    ? &instruction.call_params
+    : (direct ? symbols_.params_for(instruction.first.text) : 0);
   const std::size_t total = instruction.args.size() + (memory_result ? 1 : 0);
   const std::size_t stack_args = total > 4 ? total - 4 : 0;
   std::size_t pop = 0;
@@ -1098,7 +1174,7 @@ void FunctionEmitter::emit_call(const Instruction & instruction)
     emit_argument(index, type, instruction.args[i]);
   }
   if(direct) {
-    emit("call fn__" + instruction.first.text);
+    emit("call " + symbols_.label_for(instruction.first.text));
   } else if(stack_args != 0) {
     emit("call [sp+" + unum(8 * stack_args) + "]");
   } else {
@@ -1115,7 +1191,9 @@ void FunctionEmitter::emit_call(const Instruction & instruction)
 void FunctionEmitter::emit_bulk_instruction(const Instruction & instruction)
 {
   if(instruction.kind == Instruction::IK_STACK_ALLOC) {
-    emit("isub64 sp sp " + unum(instruction.byte_count));
+    // Keep the stack pointer 8-byte aligned for the frame accesses and calls
+    // that follow the allocation.
+    emit("isub64 sp sp " + unum((instruction.byte_count + 7) & ~static_cast<std::size_t>(7)));
     emit("move64 x64 sp");
     emit("move64 " + dest_mem() + " x64");
     return;
@@ -1202,15 +1280,10 @@ void FunctionEmitter::emit_unwind()
 
 void FunctionEmitter::emit_switch(const Instruction & instruction)
 {
-  LowType type = operand_type(instruction.first);
-  if(lowir_model::is_memory_class_type(type)) {
-    type = make_type("i64");
-  }
-  const int width = scalar_width(type);
-  materialize('x', type, instruction.first);
+  materialize_wide('x', instruction.first);
   for(std::size_t i = 0; i < instruction.switch_cases.size(); ++i) {
-    materialize('t', type, instruction.switch_cases[i].value);
-    emit("ieq" + num(width) + " z8 " + reg('x', width) + " " + reg('t', width));
+    materialize_wide('t', instruction.switch_cases[i].value);
+    emit("ieq64 z8 x64 t64");
     emit("jumpif z8 " + block_label(instruction.switch_cases[i].label));
   }
   emit("jump " + block_label(instruction.second.text));
@@ -1257,13 +1330,8 @@ void FunctionEmitter::emit_terminator(const Instruction & instruction)
     return;
   }
   if(instruction.kind == Instruction::IK_BRANCH) {
-    LowType type = operand_type(instruction.first);
-    if(lowir_model::is_memory_class_type(type)) {
-      type = make_type("i64");
-    }
-    const int width = scalar_width(type);
-    materialize('x', type, instruction.first);
-    emit("ieq" + num(width) + " z8 " + reg('x', width) + " 0");
+    materialize_wide('x', instruction.first);
+    emit("ieq64 z8 x64 0");
     emit("jumpif z8 " + block_label(instruction.third.text));
     emit("jump " + block_label(instruction.second.text));
     return;
@@ -1400,73 +1468,32 @@ void emit_global_definition(const GlobalDefinition & global,
 SymbolIndex build_symbol_index(const Program & program)
 {
   SymbolIndex symbols;
-  for(std::size_t i = 0; i < program.function_declarations.size(); ++i) {
-    symbols.functions.insert(program.function_declarations[i].name);
-    symbols.declarations[program.function_declarations[i].name] =
-      &program.function_declarations[i];
-  }
-  for(std::size_t i = 0; i < program.functions.size(); ++i) {
-    symbols.functions.insert(program.functions[i].name);
-    symbols.definitions[program.functions[i].name] = &program.functions[i];
-  }
   for(std::size_t i = 0; i < program.global_declarations.size(); ++i) {
-    symbols.globals.insert(program.global_declarations[i].name);
+    symbols.entries[program.global_declarations[i].name] = SymbolIndex::Entry();
+  }
+  for(std::size_t i = 0; i < program.function_declarations.size(); ++i) {
+    SymbolIndex::Entry entry;
+    entry.is_function = true;
+    entry.params = &program.function_declarations[i].params;
+    symbols.entries[program.function_declarations[i].name] = entry;
   }
   for(std::size_t i = 0; i < program.globals.size(); ++i) {
-    symbols.globals.insert(program.globals[i].name);
+    SymbolIndex::Entry entry;
+    entry.defined = true;
+    symbols.entries[program.globals[i].name] = entry;
+  }
+  for(std::size_t i = 0; i < program.functions.size(); ++i) {
+    SymbolIndex::Entry entry;
+    entry.is_function = true;
+    entry.defined = true;
+    entry.params = &program.functions[i].params;
+    symbols.entries[program.functions[i].name] = entry;
   }
   return symbols;
 }
 
-std::string role_owner_global(const Program & program, lowir_model::SymbolRole role)
+void emit_start_block(const lowir_model::RuntimeRoles & roles, std::string & out)
 {
-  for(std::size_t i = 0; i < program.globals.size(); ++i) {
-    if(program.globals[i].metadata.role == role) {
-      return program.globals[i].name;
-    }
-  }
-  for(std::size_t i = 0; i < program.global_declarations.size(); ++i) {
-    if(program.global_declarations[i].metadata.role == role) {
-      return program.global_declarations[i].name;
-    }
-  }
-  return std::string();
-}
-
-std::string role_owner_function(const Program & program, lowir_model::SymbolRole role)
-{
-  for(std::size_t i = 0; i < program.functions.size(); ++i) {
-    if(program.functions[i].metadata.role == role) {
-      return program.functions[i].name;
-    }
-  }
-  for(std::size_t i = 0; i < program.function_declarations.size(); ++i) {
-    if(program.function_declarations[i].metadata.role == role) {
-      return program.function_declarations[i].name;
-    }
-  }
-  return std::string();
-}
-
-bool program_uses_exceptions(const Program & program)
-{
-  for(std::size_t f = 0; f < program.functions.size(); ++f) {
-    const Function & function = program.functions[f];
-    for(std::size_t b = 0; b < function.blocks.size(); ++b) {
-      const std::vector<Instruction> & instructions = function.blocks[b].instructions;
-      for(std::size_t i = 0; i < instructions.size(); ++i) {
-        if(uses_exceptions(instructions[i])) {
-          return true;
-        }
-      }
-    }
-  }
-  return false;
-}
-
-void emit_start_block(const Program & program, std::string & out)
-{
-  const lowir_model::RuntimeRoles roles = lowir_model::resolve_runtime_roles(program);
   out += "start:\n";
   out += "\tmove64 bp sp;\n";
   if(roles.init != 0) {
@@ -1488,27 +1515,25 @@ void emit_start_block(const Program & program, std::string & out)
 std::string emit_cy86_program(const Program & program)
 {
   SymbolIndex symbols = build_symbol_index(program);
-  const bool exceptions = program_uses_exceptions(program);
+  const lowir_model::RuntimeRoles roles = lowir_model::resolve_runtime_roles(program);
 
-  std::string top = role_owner_global(program, lowir_model::SR_EH_TOP);
-  std::string value = role_owner_global(program, lowir_model::SR_EH_VALUE);
-  std::string unhandled = role_owner_function(program, lowir_model::SR_EH_UNHANDLED);
-  const bool synthesize_top = top.empty();
-  const bool synthesize_value = value.empty();
-  const bool synthesize_unhandled = unhandled.empty();
-  if(synthesize_top) { top = kEhTopGlobal; }
-  if(synthesize_value) { value = kEhValueGlobal; }
-  if(synthesize_unhandled) { unhandled = kEhUnhandledFunction; }
-  symbols.eh_top_label = "g__" + top;
-  symbols.eh_value_label = "g__" + value;
-  symbols.eh_unhandled_label = "fn__" + unhandled;
+  const bool synthesize_top = roles.eh_top == 0;
+  const bool synthesize_value = roles.eh_value == 0;
+  const bool synthesize_unhandled = roles.eh_unhandled == 0;
+  symbols.eh_top_label =
+    "g__" + (synthesize_top ? std::string(kEhTopGlobal) : roles.eh_top->name);
+  symbols.eh_value_label =
+    "g__" + (synthesize_value ? std::string(kEhValueGlobal) : roles.eh_value->name);
+  symbols.eh_unhandled_label =
+    "fn__" + (synthesize_unhandled ? std::string(kEhUnhandledFunction) : roles.eh_unhandled->name);
 
   std::string out;
   long long label_counter = 0;
-  emit_start_block(program, out);
+  bool exceptions = false;
+  emit_start_block(roles, out);
   for(std::size_t i = 0; i < program.functions.size(); ++i) {
     out += "\n";
-    FunctionEmitter emitter(program.functions[i], symbols, out, label_counter);
+    FunctionEmitter emitter(program.functions[i], symbols, out, label_counter, exceptions);
     emitter.run();
   }
   if(exceptions && synthesize_unhandled) {

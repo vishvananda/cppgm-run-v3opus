@@ -253,6 +253,22 @@ void check_conversion(const Instruction & instruction, const std::string & where
   }
 }
 
+// Signedness lives in the predicate spelling, so the `u...` predicates only
+// mean something for the types that have a signed/unsigned distinction.
+void check_compare(const Instruction & instruction, const std::string & where)
+{
+  const std::string & pred = instruction.op;
+  const bool unsigned_predicate =
+    pred == "ult" || pred == "ule" || pred == "ugt" || pred == "uge";
+  if(!unsigned_predicate) {
+    return;
+  }
+  TypeFacts facts;
+  if(!describe_low_type(instruction.type, facts) || facts.category == TypeFacts::TC_FLOAT) {
+    fail("compare predicate '" + pred + "' requires an integer or pointer type in " + where);
+  }
+}
+
 class FunctionChecker
 {
 public:
@@ -430,6 +446,9 @@ void FunctionChecker::check_instruction(const Instruction & instruction)
       fail("'unary bswap' requires a 16, 32 or 64 bit integer type in " + where_);
     }
   }
+  if(instruction.kind == Instruction::IK_CMP) {
+    check_compare(instruction, where_);
+  }
   if(instruction.kind == Instruction::IK_CONVERT) {
     check_conversion(instruction, where_);
   }
@@ -477,6 +496,16 @@ const Function * find_function_by_name(const Program & program, const std::strin
   return 0;
 }
 
+const GlobalDefinition * find_global_by_role(const Program & program, SymbolRole role)
+{
+  for(std::size_t i = 0; i < program.globals.size(); ++i) {
+    if(program.globals[i].metadata.role == role) {
+      return &program.globals[i];
+    }
+  }
+  return 0;
+}
+
 }  // namespace
 
 RuntimeRoles resolve_runtime_roles(const Program & program)
@@ -494,6 +523,9 @@ RuntimeRoles resolve_runtime_roles(const Program & program)
   if(roles.fini == 0) {
     roles.fini = find_function_by_name(program, "__cppgm_fini");
   }
+  roles.eh_top = find_global_by_role(program, SR_EH_TOP);
+  roles.eh_value = find_global_by_role(program, SR_EH_VALUE);
+  roles.eh_unhandled = find_function_by_role(program, SR_EH_UNHANDLED);
   return roles;
 }
 

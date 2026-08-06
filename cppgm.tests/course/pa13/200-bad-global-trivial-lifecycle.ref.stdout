@@ -1,0 +1,1 @@
+ERROR: course/pa13/200-bad-global-trivial-lifecycle.t:2: unknown global metadata key 'trivial_lifecycle'

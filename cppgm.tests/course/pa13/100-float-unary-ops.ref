@@ -1,0 +1,56 @@
+start:
+	move64 bp sp;
+	call fn__main;
+	syscall1 t64 60 x64;
+
+fn__main:
+	isub64 sp sp 8;
+	move64 [sp] bp;
+	move64 bp sp;
+	isub64 sp sp 136;
+fn__main__entry:
+	move32 x32 6.5f;
+	move32 [bp-8] x32;
+	move64 x64 6.5;
+	move64 [bp-16] x64;
+	move32 x32 [bp-8];
+	feq32 z8 x32 0.0f;
+	move64 x64 0;
+	move8 x8 z8;
+	move32 [bp-24] x32;
+	move64 x64 [bp-16];
+	feq64 z8 x64 0.0;
+	move64 x64 0;
+	move8 x8 z8;
+	move64 [bp-32] x64;
+	move32 x32 [bp-8];
+	move32 y32 0.0f;
+	fsub32 x32 y32 x32;
+	move32 [bp-40] x32;
+	move64 x64 [bp-16];
+	move64 y64 0.0;
+	fsub64 x64 y64 x64;
+	move64 [bp-48] x64;
+	move32 x32 [bp-40];
+	f32convf80 [bp-88] x32;
+	move64 z64 0;
+	move32 [bp-78] z32;
+	move16 [bp-74] z16;
+	f80convs64 [bp-56] [bp-88];
+	move64 x64 [bp-48];
+	f64convf80 [bp-88] x64;
+	move64 z64 0;
+	move32 [bp-78] z32;
+	move16 [bp-74] z16;
+	f80convs64 [bp-64] [bp-88];
+	move64 y64 [bp-56];
+	move64 x64 [bp-64];
+	iadd64 x64 y64 x64;
+	move64 [bp-72] x64;
+	move64 x64 [bp-72];
+	jump fn__main__epilogue;
+fn__main__epilogue:
+	move64 sp bp;
+	move64 bp [sp];
+	iadd64 sp sp 8;
+	ret;
