@@ -40,6 +40,7 @@ struct LowValue
 		, constant(false)
 		, value(0)
 		, unnamed(false)
+		, named(false)
 	{}
 
 	lowir_model::Operand operand;
@@ -59,6 +60,11 @@ struct LowValue
 	// literal is.  `unary decay` marks where a declared entity becomes a
 	// pointer view of itself, and there is no declaration here to mark.
 	bool unnamed;
+	// Whether the operand is the place a name stands for rather than a pointer
+	// a value already holds.  A slot and a global say so by what they are; a
+	// subobject reached through `.` or `->` is a temporary holding its address
+	// and still a place the source named, which is where 4.2 converts.
+	bool named;
 };
 
 // The symbols one LowIR program names, which outlive the translation unit that
@@ -211,6 +217,20 @@ private:
 	// holds, with the elements no clause reached left zero.
 	void global_array_initializer(lowir_model::GlobalDefinition& global,
 	                              const DumpNode* node, TypeId type);
+	// 8.5.1 and 3.6.2p2 over a namespace-scope aggregate: the subobjects the
+	// analysis resolved, as the items its storage holds.  One pass in
+	// declaration order, which is the order the subobjects are laid out in, so
+	// the padding between two of them is what the offsets say.  False when a
+	// clause names no value the translation knows, which leaves the whole
+	// object to be initialized by code.
+	bool global_aggregate_initializer(lowir_model::GlobalDefinition& global,
+	                                  const DumpNode& node, TypeId type);
+	bool global_subobjects(lowir_model::GlobalDefinition& global,
+	                       const DumpNode& node, unsigned long long base,
+	                       unsigned long long& at);
+	// `bytes` of zero, added to the items when there are any to add.
+	static void add_zero_item(lowir_model::GlobalDefinition& global,
+	                          unsigned long long bytes);
 	// The literal `bits` of `type` is written as, signed when the type is.
 	std::string spell_value(TypeId type, unsigned long long bits);
 	// The declaration of `entity` as a function, without a body.
@@ -323,11 +343,10 @@ private:
 	// 5.2.5p1: `E1.E2`, `E1->E2` and a member named with no object expression,
 	// which all reach the member through the object the operand denotes.
 	LowValue member_expression(const DumpNode& node);
-	// 12.1p5: the constructor call an object of class type is initialized by.
-	// `declared_here` says the object's storage is what its own declaration in
-	// this function gave it, which is where 3.8p1 makes its lifetime begin.
-	void constructor_action(const LowValue& object, const DumpNode& node,
-	                        bool declared_here);
+	// 12.1p5: the constructor call an object of class type is initialized by,
+	// on the address of that object.
+	void constructor_call(const lowir_model::Operand& address,
+	                      const DumpNode& node);
 	LowValue call_expression(const DumpNode& node);
 	LowValue unary_expression(const DumpNode& node);
 	LowValue increment_expression(const DumpNode& node, bool postfix);
@@ -369,6 +388,18 @@ private:
 	                const DumpNode& node);
 	void initialize_array(const lowir_model::Operand& storage, TypeId type,
 	                      const DumpNode& node);
+	// 8.5.1: the subobjects the analysis said each clause reached, written in
+	// order.  Each leaf names its subobject from the object again, because that
+	// is the one description of where the subobject is that does not depend on
+	// how the walk got there.
+	void initialize_aggregate(const lowir_model::Operand& storage, TypeId type,
+	                          const DumpNode& node);
+	void initialize_subobject(const lowir_model::Operand& storage,
+	                          const DumpNode& node,
+	                          std::vector<const DumpNode*>& path);
+	// The address of the subobject `path` names within the object `storage`.
+	lowir_model::Operand subobject_address(const lowir_model::Operand& storage,
+	                                       const std::vector<const DumpNode*>& path);
 
 	// Values.
 	//

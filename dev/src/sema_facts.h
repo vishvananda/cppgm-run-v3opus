@@ -65,6 +65,11 @@ enum class FactKind : unsigned char
 	// 12.1p5 and 8.5p6: the constructor call an object of class type is
 	// initialized by, written under the declaration of the object.
 	ConstructorAction,
+	// 8.5.1: an aggregate initialized from a braced-init-list, as the
+	// subobjects its clauses reached and the value every other one takes.
+	AggregateInitialization,
+	// One of those subobjects: a member of a class, or an element of an array.
+	SubobjectInitialization,
 	// Declarations.
 	Variable,
 	Parameter,

@@ -501,7 +501,25 @@ void LowirUnitLowering::global_variable(const DumpNode& node)
 		written = written->children.empty() ? nullptr : written->children[0];
 	}
 	const DumpNode* dynamic = nullptr;
-	if (written != nullptr && written->fact.kind == FactKind::ConstructorAction)
+	if (written != nullptr &&
+	    written->fact.kind == FactKind::AggregateInitialization)
+	{
+		// 8.5.1 and 3.6.2p1: the subobjects the clauses reached are what the
+		// object's storage holds before the program runs.
+		global.structured = true;
+		if (!global_aggregate_initializer(global, *written, type))
+		{
+			lowir_model::GlobalDefinition::DataItem item;
+			item.kind = lowir_model::GlobalDefinition::DataItem::ITEM_ZERO;
+			item.zero_bytes = static_cast<std::size_t>(
+				types_.object_size(types_.strip_cv(type)));
+			global.data_items.push_back(item);
+			dynamic = written;
+		}
+		written = nullptr;
+	}
+	else if (written != nullptr &&
+	         written->fact.kind == FactKind::ConstructorAction)
 	{
 		// 3.6.2p2 and 12.1p5: an object of class type starts as zero and is
 		// constructed before the program runs, so its storage is data and its
@@ -533,6 +551,105 @@ void LowirUnitLowering::global_variable(const DumpNode& node)
 	{
 		dynamic_initializer(entity, *dynamic, type);
 	}
+}
+
+void LowirUnitLowering::add_zero_item(lowir_model::GlobalDefinition& global,
+                                      unsigned long long bytes)
+{
+	if (bytes == 0)
+	{
+		return;
+	}
+	lowir_model::GlobalDefinition::DataItem item;
+	item.kind = lowir_model::GlobalDefinition::DataItem::ITEM_ZERO;
+	item.zero_bytes = static_cast<std::size_t>(bytes);
+	global.data_items.push_back(item);
+}
+
+bool LowirUnitLowering::global_subobjects(lowir_model::GlobalDefinition& global,
+                                          const DumpNode& node,
+                                          unsigned long long base,
+                                          unsigned long long& at)
+{
+	for (std::size_t index = 0; index < node.children.size(); ++index)
+	{
+		const DumpNode& child = *node.children[index];
+		const unsigned long long stride = types_.object_size(child.fact.type);
+		const unsigned long long offset = base +
+			(child.fact.entity != nullptr ? child.fact.entity->offset
+			                              : child.fact.value * stride);
+		if (child.fact.op != 0)
+		{
+			// 8.5.1p7: the elements from here to the end of the array are zero.
+			const unsigned long long count =
+				types_.bound(types_.strip_cv(child.fact.spelled)) -
+				child.fact.value;
+			add_zero_item(global, offset - at);
+			add_zero_item(global, stride * count);
+			at = offset + stride * count;
+			continue;
+		}
+		if (!child.children.empty() &&
+		    child.children[0]->fact.kind == FactKind::SubobjectInitialization)
+		{
+			if (!global_subobjects(global, child, offset, at))
+			{
+				return false;
+			}
+			continue;
+		}
+		add_zero_item(global, offset - at);
+		lowir_model::GlobalDefinition::DataItem item;
+		item.type = low_type(child.fact.type);
+		if (child.children.empty())
+		{
+			item.kind = lowir_model::GlobalDefinition::DataItem::ITEM_INTEGER;
+			item.literal_operand.kind = lowir_model::Operand::OP_INTEGER;
+			item.literal_operand.text = "0";
+		}
+		else
+		{
+			std::string symbol;
+			long long addend = 0;
+			unsigned long long bits = 0;
+			if (global_address(*child.children[0], symbol, addend))
+			{
+				item.kind = lowir_model::GlobalDefinition::DataItem::ITEM_ADDR;
+				item.symbol = symbol;
+				item.addr_addend = addend;
+			}
+			else if (folded(*child.children[0], bits))
+			{
+				item.kind = lowir_model::GlobalDefinition::DataItem::ITEM_INTEGER;
+				item.literal_operand.kind = lowir_model::Operand::OP_INTEGER;
+				item.literal_operand.text = spell_value(child.fact.type, bits);
+			}
+			else
+			{
+				// 3.6.2p2: the value is not one the translation knows, so the
+				// whole object is given its value before the program runs.
+				return false;
+			}
+		}
+		global.data_items.push_back(item);
+		at = offset + stride;
+	}
+	return true;
+}
+
+bool LowirUnitLowering::global_aggregate_initializer(
+	lowir_model::GlobalDefinition& global, const DumpNode& node, TypeId type)
+{
+	unsigned long long at = 0;
+	if (!global_subobjects(global, node, 0, at))
+	{
+		global.data_items.clear();
+		return false;
+	}
+	// 9.2p13: the object is as large as its class says, whatever its last
+	// member ends at.
+	add_zero_item(global, types_.object_size(types_.strip_cv(type)) - at);
+	return true;
 }
 
 // 3.6.2p2 over the resolved tree: the address a constant initializer names.

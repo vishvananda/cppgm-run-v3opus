@@ -569,6 +569,7 @@ SemaAnalyzer::Value SemaAnalyzer::member_expression(const AstNode& node,
 	SemaEntity& member =
 		require(model_.lookup_in(region, id.text, LookupKind::Any, &found),
 		        id.text);
+	require_access(member, ctx.scope);
 	if (member.kind != SemaKind::Variable || !member.object_member)
 	{
 		// 9.4p1 and 7.2p10: the member is not part of the object, so the object
@@ -636,6 +637,7 @@ void SemaAnalyzer::member_callee(const AstNode& callee, const Context& ctx,
 	SemaEntity& member =
 		require(model_.lookup_in(region, id.text, LookupKind::Any, &found),
 		        id.text);
+	require_access(member, ctx.scope);
 	if (member.kind == SemaKind::Function)
 	{
 		address_of_object(object, object_line, through_pointer);

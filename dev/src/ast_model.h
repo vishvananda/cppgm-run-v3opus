@@ -44,6 +44,7 @@
 	X(AccessSpecifier, "access-specifier") \
 	X(MemberSpecifiers, "member-specifiers") \
 	X(Specifier, "specifier") \
+	X(AlignmentSpecifier, "alignment-specifier") \
 	X(BitFieldDeclaration, "bit-field-declaration") \
 	X(BitFieldDeclarator, "bit-field-declarator") \
 	X(SpecialMemberDeclaration, "special-member-declaration") \

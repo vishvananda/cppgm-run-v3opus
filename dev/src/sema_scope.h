@@ -19,6 +19,11 @@
 // declaration asks the model rather than the tree it was read from.
 
 // What a name denotes (3.3, 3.4, 7.1.3, 7.2, 7.3).
+// 11p1: the access specifier a member was declared under.
+const unsigned char kPublicAccess = 0;
+const unsigned char kProtectedAccess = 1;
+const unsigned char kPrivateAccess = 2;
+
 enum class SemaKind
 {
 	Namespace,
@@ -103,6 +108,18 @@ struct SemaEntity
 	// Class: 12.1p5, the constructor the class has that no declaration wrote,
 	// held on the class because that is what an object of it asks for.
 	SemaEntity* constructor;
+	// 11p1: which of the three access specifiers this member was declared
+	// under, which says who may name it.  A declaration that is not a member
+	// keeps `kPublicAccess`, which every context may name.
+	unsigned char access;
+	// 8.5.1p1 and 12.6.2p8: whether the member declaration wrote a
+	// brace-or-equal-initializer, which is what a constructor that does not
+	// mention the member initializes it with - and what stops the class from
+	// being an aggregate.
+	bool default_initializer;
+	// 8.5.1p1: whether an object of this class is initialized from a
+	// braced-init-list by initializing its members from the clauses.
+	bool aggregate;
 	// 9.2p13: where in its class an object of this non-static data member
 	// begins, in bytes.  Layout is settled once, where 9.2p2 completes the
 	// class, so every later use of the member is one read rather than a walk

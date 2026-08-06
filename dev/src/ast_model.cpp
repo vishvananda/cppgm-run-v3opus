@@ -22,6 +22,15 @@ const char* ast_kind_name(AstKind kind)
 
 void write_ast(std::ostream& out, const AstNode& root, unsigned depth)
 {
+	if (root.kind == AstKind::AlignmentSpecifier)
+	{
+		// 7.6.1 and 7.6.2: the syntax accepts an attribute wherever the grammar
+		// writes one and the PA10 tree describes none of them.  The alignment a
+		// class-head asked for is kept for the layout that has to answer for it
+		// (7.6.2p5), which is a fact about the class and not a node of the
+		// syntax the dump describes.
+		return;
+	}
 	out << std::string(depth * 2, ' ') << ast_kind_name(root.kind);
 	if (root.token != kNoAstToken)
 	{

@@ -200,7 +200,7 @@ bool AstParser::skip_balanced(unsigned closer)
 // attribute-specifiers of 7.6.1, `alignas`, and the vendor spelling the intake
 // tests use.  None of them reaches the tree, so they are consumed wherever a
 // declaration, a class head or a declarator may carry one.
-void AstParser::skip_attributes()
+void AstParser::skip_attributes(std::vector<AstNode*>* alignments)
 {
 	for (;;)
 	{
@@ -215,9 +215,28 @@ void AstParser::skip_attributes()
 		}
 		if (at(KW_ALIGNAS) && peek(1) == OP_LPAREN)
 		{
+			const Mark opened = mark();
 			pos_ += 2;
+			if (alignments != nullptr)
+			{
+				// 7.6.2p1: the operand is either a type-id or a
+				// constant-expression.  Only the second says a number here; the
+				// first is read as the tokens it is and left to be skipped.
+				const Mark operand = mark();
+				AstNode* const written = parse_conditional_expression();
+				if (written != nullptr && at(OP_RPAREN))
+				{
+					AstNode* const specifier = make(AstKind::AlignmentSpecifier);
+					specifier->add(written);
+					alignments->push_back(specifier);
+					++pos_;
+					continue;
+				}
+				reset(operand);
+			}
 			if (!skip_balanced(OP_RPAREN))
 			{
+				reset(opened);
 				return;
 			}
 			continue;

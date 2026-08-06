@@ -478,8 +478,15 @@ SemaEntity* SemaAnalyzer::resolve(const std::string& name, const Context& ctx,
 	{
 		return model_.lookup(*ctx.scope, name, filter, found);
 	}
-	return model_.lookup_in(*resolve_prefix(written, ctx), written.last(), filter,
-	                        found);
+	SemaEntity* const named = model_.lookup_in(
+		*resolve_prefix(written, ctx), written.last(), filter, found);
+	if (named != nullptr)
+	{
+		// 11.2: a qualified name reaches a member of the class it names, which
+		// is where the access that class gave the member is asked about.
+		require_access(*named, ctx.scope);
+	}
+	return named;
 }
 
 // 3.4.3: each component of a nested-name-specifier is looked up in the region

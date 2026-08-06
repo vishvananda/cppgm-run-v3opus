@@ -10,7 +10,11 @@ AstNode* AstParser::parse_class_specifier()
 		return nullptr;
 	}
 	AstNode* key = make_terminal(AstKind::ClassKey);
-	skip_attributes();
+	// 7.6.2p1: an alignment-specifier may be written on either side of the name
+	// in a class-head, and 7.6.2p5 makes what it asks for a fact about the class
+	// rather than one the syntax may drop.
+	std::vector<AstNode*> alignments;
+	skip_attributes(&alignments);
 	std::string name;
 	const Mark named = mark();
 	if (skip_qualified_type_name())
@@ -21,7 +25,7 @@ AstNode* AstParser::parse_class_specifier()
 	{
 		reset(named);
 	}
-	skip_attributes();
+	skip_attributes(&alignments);
 	while (at(TT_IDENTIFIER) && (spelling() == "final" || spelling() == "override"))
 	{
 		++pos_;
@@ -44,6 +48,10 @@ AstNode* AstParser::parse_class_specifier()
 	}
 	AstNode* node = make_text(AstKind::ClassSpecifier, name);
 	node->add(key);
+	for (std::size_t index = 0; index < alignments.size(); ++index)
+	{
+		node->add(alignments[index]);
+	}
 	node->add(bases);
 	names_.declare_member(name, take_declared_kind(NameKind::Type));
 	{

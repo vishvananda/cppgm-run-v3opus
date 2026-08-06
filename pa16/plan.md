@@ -22,40 +22,25 @@ definition worklist in the unit lowering.
 
 ## Current Failure Map
 
-Turn-start baseline: 33 / 243.
+Turn-start baseline: 33 / 243. After C1 + C2: 65 / 243.
 
 | group | count | what is missing |
 | --- | --- | --- |
 | special member declarations (`X::X`, `~X`) | ~48 | 12.1/12.4 user ctors and dtors |
-| base classes | ~28 | 10.1 single inheritance, layout and lookup |
-| member function calls | ~22 | 13.3.1 implicit object argument |
-| LowIR shape only (compiles, output differs) | ~11 | class objects in LowIR |
-| bit-fields | ~9 | 9.6 layout and access |
-| lowering subset rejects | ~15 | `constructor-action`, `member-expression` |
-| operators / misc | rest | later checkpoints |
+| base classes | ~30 | 10.1 single inheritance, layout and lookup |
+| bit-fields | ~11 | 9.6 layout and access |
+| arrays of class type | ~6 | element-wise construction helpers |
+| operator overloading | ~12 | 13.5 over the object model |
+| remaining LowIR shape diffs | rest | later checkpoints |
 
 ## Active Checkpoint
 
-**C1 — the member function call, and the class object in LowIR.**
-
-- Owner
-  - `SemaEntity::offset` — 9.2p13 placement of a non-static data member, set
-    once by `SemaAnalyzer::lay_out_class`.
-  - `SemaEntity::inline_function` / `SemaEntity::trivial` — 7.1.2 and 12.1p5
-    facts about a declaration, set where it is declared.
-  - `SemaAnalyzer::member_call_expression` — 5.2.5 + 13.3.1 resolution.
-  - `LowirUnitLowering::demanded_` — the definitions a use asked for.
-- Data flow: layout writes offsets at class completion -> `member-expression`
-  and `constructor-action` facts carry the member/constructor entity ->
-  `LowirFunctionLowering` reads the offset and emits
-  `index i8 [projection=field]` -> a call to an inline or implicit definition
-  pushes its node onto the worklist -> the worklist is drained between
-  top-level declarations, never while a `Function&` is live.
-- Expected complexity: layout O(members) once per class; member access O(1) per
-  resolved node; overload selection one row per candidate as before; each
-  definition emitted at most once.
-- Validation: `make test-report-through-pa15` clean; `make -C pa16 test` above
-  33.
+Next: **C3 — user-declared constructors and destructors** (12.1, 12.4, 12.6.2),
+which is the largest remaining group and which the aggregate path already
+leaves a place for: `construct_object` chooses a constructor by 13.3 over the
+class's constructor chain, a `ctor-initializer` becomes member-initialization
+actions of the same shape aggregate initialization already produces, and a
+destructor becomes an action at block exit and in `@__cppgm_fini`.
 
 ## Performance Model
 
@@ -66,9 +51,18 @@ Turn-start baseline: 33 / 243.
   once, so a function used n times is lowered once. The worklist is drained at
   the top level, so `program_.functions` never reallocates under a live
   `Function&` reference.
+- Access control is a scope-chain walk from the naming context, bounded by the
+  nesting depth of the use, not by the size of the class.
+- Aggregate initialization is one node per subobject a clause reached, and one
+  node for the whole tail of an array no clause reached (`kZeroFillLimit`, 64
+  bytes). Measured: a struct holding `char buf[1 << 20]`, initialized `{{0}, 3}`
+  at namespace scope and `{{1}, 2}` locally, compiles in 0.004 s to a 33-line
+  program with one `zeroinit 1048575x1` and one `zero 1048575`, so a bound the
+  source wrote as one number costs one node rather than 2^20.
 
 ## Completed Checkpoints
 
 | # | checkpoint | result |
 | --- | --- | --- |
 | C1 | member function call + class object in LowIR: field offsets, `.`/`->`/implicit `this`, implicit object argument in 13.3.1, `constructor-action` lowering with trivial elision, demand-driven inline emission, 9.4.2p3 static-member folding, member-function ABI names | 33 -> 55 / 243; pa1-pa15 clean |
+| C2 | 11 access control (per-member access, checked on `.`/`->`/qualified names), 8.5.1 aggregate initialization (brace elision, string-literal array members, value-initialized tails, static data for namespace-scope aggregates), 8.5.4p7 narrowing, 7.6.2 `alignas` on a class-head | 55 -> 65 / 243; pa1-pa15 clean; valgrind clean on the new paths |

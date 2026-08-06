@@ -301,6 +301,52 @@ private:
 	// 12.1p5: whether default-initializing an object of the class `scope`
 	// declares does nothing, so that no call has to be made for one.
 	bool trivial_default_construction(Scope& scope);
+	// 8.5.1p1: whether the class `scope` declares is an aggregate.
+	static bool aggregate_class(Scope& scope);
+	// 8.5.1p2: the initializer-clauses of one braced-init-list, and how many of
+	// them the subobjects read so far have taken.  8.5.1p11 lets one list
+	// initialize subobjects at several depths, so the cursor is what the walk of
+	// the aggregate carries rather than a list per level.
+	struct Clauses
+	{
+		Clauses(const AstNode& written)
+			: list(&written)
+			, at(0)
+		{}
+
+		const AstNode* list;
+		std::size_t at;
+
+		bool spent() const;
+		const AstNode& next() const;
+	};
+
+	// 8.5.1: `type` initialized from what is left of `clauses`, writing one
+	// `subobject-initialization` per member or element under `parent`.  A
+	// subobject no clause reaches is value-initialized, which 8.5p7 makes the
+	// zero of its type and which the node with no clause under it says.
+	void aggregate_subobject(TypeId type, Clauses& clauses, const Context& ctx,
+	                         DumpNode& node);
+	void aggregate_members(TypeId type, Clauses& clauses, const Context& ctx,
+	                       DumpNode& parent);
+	void aggregate_elements(TypeId array, Clauses& clauses, const Context& ctx,
+	                        DumpNode& parent);
+	// 8.5.2p1: an array of character type initialized by a string literal,
+	// whose elements are the code units the literal holds.
+	bool string_initialized(TypeId array, Clauses& clauses, const Context& ctx,
+	                        DumpNode& parent);
+	// 8.5.1p2: the clauses of a nested braced-init-list, which initialize this
+	// subobject alone and must all be taken by it.
+	void aggregate_from_list(TypeId type, const AstNode& list,
+	                         const Context& ctx, DumpNode& node);
+	// The `subobject-initialization` node of one member or one element.
+	DumpNode& open_subobject(DumpNode& parent, TypeId type,
+	                         const SemaEntity* member,
+	                         unsigned long long index);
+	// 11.2: whether a context in `from` may name `member`, and the error that
+	// it may not.
+	bool accessible(const SemaEntity& member, const Scope* from) const;
+	void require_access(const SemaEntity& member, const Scope* from);
 	// 8.3.4p1: the type of one element of an array, however many dimensions it
 	// has, and the type itself for anything else.
 	TypeId element_of(TypeId type);
@@ -321,8 +367,14 @@ private:
 	// another, so the list is walked rather than iterated.
 	void write_pending_definitions();
 	void write_definition(Pending& pending);
-	// 9.2p2 and the course ABI: the size and alignment of a completed class.
-	void lay_out_class(SemaEntity& entity, Scope& scope, bool is_union);
+	// 9.2p2 and the course ABI: the size and alignment of a completed class,
+	// with `requested` the alignment 7.6.2 asked for, or zero for none.
+	void lay_out_class(SemaEntity& entity, Scope& scope, bool is_union,
+	                   unsigned long long requested);
+	// 7.6.2p1: the strictest alignment the class-head's alignment-specifiers
+	// asked for.
+	unsigned long long requested_alignment(const AstNode& node,
+	                                       const Context& ctx);
 	// 13.1 and 3.5: the declaration a function declarator makes, which is a
 	// redeclaration of an earlier one in the same region exactly when their
 	// parameter type lists agree.
@@ -572,8 +624,13 @@ private:
 
 	// 8.5: initialising an object of `target` from `node`, which is what a
 	// variable, a condition, a return statement and an argument all do.
+	// `listed` says the initializer is a clause of a braced-init-list, which
+	// 8.5.4p7 will not let narrow the value it holds.
 	Value initialize(const AstNode& node, TypeId target, const Context& ctx,
-	                 DumpNode& parent);
+	                 DumpNode& parent, bool listed = false);
+	// 8.5.4p7: the error that a clause narrows to the type it initialises.
+	void require_no_narrowing(const AstNode& written, const Value& value,
+	                          TypeId target, const Context& ctx);
 	// 8.5.4: a braced-init-list written where an expression initializes an
 	// object.  Over the PA12 scalar subset it holds at most one clause, whose
 	// value the object takes, and an empty one value-initializes it.

@@ -21,11 +21,29 @@
 namespace
 {
 
+// 8.5.1p7: how many bytes of value-initialized array elements are still
+// described one element at a time.  Past this the elements stop being what
+// describes the initialization and the storage starts being it - and a bound
+// the source wrote as one number would otherwise cost one node per element.
+const unsigned long long kZeroFillLimit = 64;
+
 // The ranks of 13.3.3.1.1 Table 12.
 const int kExactMatch = 0;
 const int kPromotion = 1;
 const int kConversion = 2;
 const int kEllipsis = 3;
+
+std::string decimal(unsigned long long value)
+{
+	std::string digits;
+	unsigned long long rest = value;
+	while (rest != 0)
+	{
+		digits.insert(digits.begin(), static_cast<char>('0' + (rest % 10)));
+		rest /= 10;
+	}
+	return digits.empty() ? std::string("0") : digits;
+}
 
 const AstNode* child_kind(const AstNode& node, AstKind kind)
 {
@@ -593,6 +611,221 @@ void SemaAnalyzer::apply_conversion(Value& value, TypeId target,
 	}
 }
 
+bool SemaAnalyzer::Clauses::spent() const
+{
+	return at >= list->children.size();
+}
+
+const AstNode& SemaAnalyzer::Clauses::next() const
+{
+	return *list->children[at];
+}
+
+DumpNode& SemaAnalyzer::open_subobject(DumpNode& parent, TypeId type,
+                                       const SemaEntity* member,
+                                       unsigned long long index)
+{
+	DumpNode& node = model_.open_node(
+		parent, "subobject-initialization " + types_.description(type) + " " +
+		(member != nullptr ? member->name : "[" + decimal(index) + "]"));
+	node.fact.kind = FactKind::SubobjectInitialization;
+	node.fact.type = type;
+	node.fact.spelled = type;
+	node.fact.category = ValueCategory::LValue;
+	node.fact.entity = const_cast<SemaEntity*>(member);
+	node.fact.value = index;
+	return node;
+}
+
+void SemaAnalyzer::aggregate_from_list(TypeId type, const AstNode& list,
+                                       const Context& ctx, DumpNode& node)
+{
+	Clauses clauses(list);
+	if (types_.is_class(type))
+	{
+		aggregate_members(type, clauses, ctx, node);
+	}
+	else
+	{
+		aggregate_elements(type, clauses, ctx, node);
+	}
+	if (!clauses.spent())
+	{
+		// 8.5.1p6: a clause that reached no subobject initializes nothing.
+		throw std::runtime_error("an initializer list has more clauses than the "
+		                         "aggregate has subobjects");
+	}
+}
+
+void SemaAnalyzer::aggregate_members(TypeId type, Clauses& clauses,
+                                     const Context& ctx, DumpNode& parent)
+{
+	SemaEntity& owner = *model_.type_owner(type);
+	Scope& region = *owner.scope;
+	const bool is_union = types_.class_tag(type) == ClassTag::Union;
+	for (std::size_t index = 0; index < region.declarations.size(); ++index)
+	{
+		SemaEntity& member = *region.declarations[index];
+		if (member.kind != SemaKind::Variable || !member.object_member ||
+		    member.region != &region)
+		{
+			continue;
+		}
+		DumpNode& node = open_subobject(parent, member.type, &member, 0);
+		aggregate_subobject(member.type, clauses, ctx, node);
+		if (is_union)
+		{
+			// 8.5.1p15: a union is initialized by its first member alone.
+			break;
+		}
+	}
+}
+
+void SemaAnalyzer::aggregate_elements(TypeId array, Clauses& clauses,
+                                      const Context& ctx, DumpNode& parent)
+{
+	const TypeId element = types_.target(array);
+	const unsigned long long bound =
+		types_.bounded(array) ? types_.bound(array) : 0;
+	for (unsigned long long index = 0; index < bound; ++index)
+	{
+		if (clauses.spent() &&
+		    (bound - index) * types_.object_size(element) > kZeroFillLimit)
+		{
+			// 8.5.1p7: every element from here on is value-initialized, and a
+			// bound the source wrote as one number would otherwise describe one
+			// element at a time.  The rest of the array is one fact.
+			DumpNode& rest = open_subobject(parent, element, nullptr, index);
+			rest.fact.op = 1;
+			// The array these are elements of, which with the index this one
+			// starts at is what says how many of them there are.
+			rest.fact.spelled = array;
+			return;
+		}
+		DumpNode& node = open_subobject(parent, element, nullptr, index);
+		aggregate_subobject(element, clauses, ctx, node);
+	}
+}
+
+bool SemaAnalyzer::string_initialized(TypeId array, Clauses& clauses,
+                                      const Context& ctx, DumpNode& parent)
+{
+	if (clauses.spent() || clauses.next().kind != AstKind::Literal)
+	{
+		return false;
+	}
+	const TypeId element = types_.strip_cv(types_.target(array));
+	if (!types_.is_integral(element) || types_.object_size(element) == 0)
+	{
+		return false;
+	}
+	DumpNode scratch;
+	const Value literal = expression(clauses.next(), ctx, scratch);
+	if (types_.kind(types_.strip_cv(literal.type)) != TypeKind::Array ||
+	    literal.node == nullptr || literal.node->fact.spelling.empty())
+	{
+		return false;
+	}
+	// 8.5.2p1: the code units of the literal initialize the elements, and the
+	// elements past them are zero as any other unreached element is.
+	const std::string& data = literal.node->fact.spelling;
+	const unsigned long long width = types_.object_size(element);
+	const unsigned long long bound =
+		types_.bounded(array) ? types_.bound(array) : 0;
+	const unsigned long long written = data.size() / width;
+	if (written > bound)
+	{
+		throw std::runtime_error("a string literal initializes an array that is "
+		                         "too short to hold it");
+	}
+	for (unsigned long long index = 0; index < bound; ++index)
+	{
+		DumpNode& node = open_subobject(parent, element, nullptr, index);
+		if (index >= written)
+		{
+			continue;
+		}
+		unsigned long long bits = 0;
+		for (unsigned long long byte = 0; byte < width; ++byte)
+		{
+			bits |= static_cast<unsigned long long>(
+				static_cast<unsigned char>(data[index * width + byte]))
+				<< (8 * byte);
+		}
+		Value unit;
+		unit.type = element;
+		unit.spelled = element;
+		unit.category = ValueCategory::PRValue;
+		unit.constant = true;
+		unit.value = bits;
+		unit.what = "literal";
+		unit.payload = spell_value(element, bits);
+		unit.node = &model_.open_node(
+			node, spell(unit.what, unit.category, unit.type, unit.payload));
+		record(unit);
+	}
+	++clauses.at;
+	return true;
+}
+
+void SemaAnalyzer::aggregate_subobject(TypeId type, Clauses& clauses,
+                                       const Context& ctx, DumpNode& node)
+{
+	const TypeId bare = types_.strip_cv(type);
+	const bool braced = !clauses.spent() &&
+		clauses.next().kind == AstKind::BracedInitList;
+	if (types_.is_class(bare))
+	{
+		SemaEntity* const owner = model_.type_owner(bare);
+		if (owner == nullptr || owner->scope == nullptr || !owner->aggregate)
+		{
+			throw std::runtime_error(types_.description(bare) + " is a member "
+			                         "that no clause of an aggregate initializer "
+			                         "initializes in this milestone");
+		}
+		if (braced)
+		{
+			aggregate_from_list(bare, clauses.next(), ctx, node);
+			++clauses.at;
+			return;
+		}
+		// 8.5.1p11: the braces around the member's own clauses may be left out,
+		// and then the clauses of the enclosing list initialize it.
+		aggregate_members(bare, clauses, ctx, node);
+		return;
+	}
+	if (types_.kind(bare) == TypeKind::Array)
+	{
+		if (braced)
+		{
+			aggregate_from_list(bare, clauses.next(), ctx, node);
+			++clauses.at;
+			return;
+		}
+		if (string_initialized(bare, clauses, ctx, node))
+		{
+			return;
+		}
+		aggregate_elements(bare, clauses, ctx, node);
+		return;
+	}
+	if (clauses.spent())
+	{
+		// 8.5.1p7: a member no clause reached is value-initialized, which the
+		// node with nothing under it is.
+		return;
+	}
+	if (braced)
+	{
+		// 8.5.1p2: a scalar written with braces takes the one value in them.
+		initialize(clauses.next(), type, ctx, node, true);
+		++clauses.at;
+		return;
+	}
+	initialize(clauses.next(), type, ctx, node, true);
+	++clauses.at;
+}
+
 SemaAnalyzer::Value SemaAnalyzer::list_initialize(const AstNode& node,
                                                   TypeId target,
                                                   const Context& ctx,
@@ -608,7 +841,25 @@ SemaAnalyzer::Value SemaAnalyzer::list_initialize(const AstNode& node,
 	line.fact.type = target;
 	line.fact.spelled = target;
 	line.fact.category = ValueCategory::LValue;
-	if (types_.kind(wanted) == TypeKind::Array)
+	if (types_.is_class(wanted))
+	{
+		// 8.5.1p1: the clauses initialize the members of the aggregate in
+		// declaration order, and the analysis says which clause reached which
+		// subobject so that nothing below has to work it out again.
+		SemaEntity* const owner = model_.type_owner(wanted);
+		if (owner == nullptr || owner->scope == nullptr || !owner->aggregate)
+		{
+			throw std::runtime_error(types_.description(wanted) + " is not an "
+			                         "aggregate and is not initialized by a "
+			                         "braced-init-list in this milestone");
+		}
+		line.text = spell("aggregate-initialization", ValueCategory::PRValue,
+		                  target, std::string());
+		line.fact.kind = FactKind::AggregateInitialization;
+		line.fact.category = ValueCategory::PRValue;
+		aggregate_from_list(wanted, node, ctx, line);
+	}
+	else if (types_.kind(wanted) == TypeKind::Array)
 	{
 		// 8.5.1p2 and 8.5.1p3: the clauses initialize the elements in order,
 		// and an element that is itself an aggregate takes the list written
@@ -621,7 +872,7 @@ SemaAnalyzer::Value SemaAnalyzer::list_initialize(const AstNode& node,
 		const TypeId element = types_.target(wanted);
 		for (std::size_t index = 0; index < node.children.size(); ++index)
 		{
-			initialize(*node.children[index], element, ctx, line);
+			initialize(*node.children[index], element, ctx, line, true);
 		}
 	}
 	else if (node.children.size() > 1)
@@ -631,7 +882,7 @@ SemaAnalyzer::Value SemaAnalyzer::list_initialize(const AstNode& node,
 	}
 	else if (!node.children.empty())
 	{
-		initialize(*node.children[0], wanted, ctx, line);
+		initialize(*node.children[0], wanted, ctx, line, true);
 	}
 	Value value;
 	value.type = wanted;
@@ -641,9 +892,84 @@ SemaAnalyzer::Value SemaAnalyzer::list_initialize(const AstNode& node,
 	return value;
 }
 
+// 8.5.4p7: an implicit conversion that a list-initialization may not make,
+// because it cannot be relied on to keep the value the clause wrote.  A
+// constant the translation knows is judged by that value rather than by the
+// range of the type it was written with.
+void SemaAnalyzer::require_no_narrowing(const AstNode& written,
+                                        const Value& value, TypeId target,
+                                        const Context& ctx)
+{
+	const TypeId from = types_.strip_cv(
+		types_.kind(value.type) == TypeKind::Enum ? types_.target(value.type)
+		                                          : value.type);
+	const TypeId to = types_.strip_cv(target);
+	if (!types_.is_arithmetic(from) || !types_.is_arithmetic(to))
+	{
+		return;
+	}
+	// 8.5.4p7: the exception every bullet but the first carries is a source
+	// that is a constant expression, which is judged by the value it has rather
+	// than by the range of the type it was written with.
+	bool known = value.constant;
+	unsigned long long bits = value.value;
+	if (!known && !types_.is_floating(from))
+	{
+		try
+		{
+			known = true;
+			bits = convert(evaluate(written, ctx), from).bits;
+		}
+		catch (const NotConstant&)
+		{
+			known = false;
+		}
+	}
+	const bool from_float = types_.is_floating(from);
+	const bool to_float = types_.is_floating(to);
+	bool narrows = false;
+	if (from_float && !to_float)
+	{
+		// 8.5.4p7 first bullet: no floating type converts to an integer here.
+		narrows = true;
+	}
+	else if (from_float && to_float)
+	{
+		narrows = types_.object_size(to) < types_.object_size(from) && !known;
+	}
+	else if (!from_float && to_float)
+	{
+		narrows = !known;
+	}
+	else if (!known)
+	{
+		// 8.5.4p7 fourth bullet: the destination has to hold every value the
+		// source type has, which needs its width and, at equal width, its
+		// signedness.
+		const unsigned long long wide = types_.object_size(from);
+		const unsigned long long room = types_.object_size(to);
+		narrows = room < wide ||
+			(room == wide && is_signed(from) != is_signed(to));
+	}
+	else
+	{
+		// The value is known, so the only question is whether the destination
+		// holds it, which is whether it survives the round trip.
+		Constant held;
+		held.type = from;
+		held.bits = bits;
+		narrows = convert(convert(held, to), from).bits != held.bits;
+	}
+	if (narrows)
+	{
+		throw std::runtime_error("a braced-init-list narrows the value of a "
+		                         "clause to the type it initialises");
+	}
+}
+
 SemaAnalyzer::Value SemaAnalyzer::initialize(const AstNode& node, TypeId target,
                                              const Context& ctx,
-                                             DumpNode& parent)
+                                             DumpNode& parent, bool listed)
 {
 	if (node.kind == AstKind::BracedInitList)
 	{
@@ -655,6 +981,10 @@ SemaAnalyzer::Value SemaAnalyzer::initialize(const AstNode& node, TypeId target,
 	{
 		throw std::runtime_error("an expression has no conversion to the type "
 		                         "it initialises");
+	}
+	if (listed)
+	{
+		require_no_narrowing(node, value, target, ctx);
 	}
 	apply_conversion(value, target, match);
 	return value;

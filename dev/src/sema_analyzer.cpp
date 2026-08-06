@@ -718,11 +718,32 @@ SemaEntity& SemaAnalyzer::class_declaration(const AstNode& node,
 	// region it is written in, and the PA12 output describes what a function
 	// body means, so a member declaration writes no line of its own.
 	inner.node = nullptr;
+	// 11p2: what a member with no access-specifier before it is declared under,
+	// which the class-key decides and each access-specifier changes from there.
+	unsigned char access =
+		tag == ClassTag::Class ? kPrivateAccess : kPublicAccess;
 	for (std::size_t index = 0; index < node.children.size(); ++index)
 	{
 		const AstNode& member = *node.children[index];
 		if (member.kind == AstKind::ClassKey)
 		{
+			continue;
+		}
+		if (member.kind == AstKind::AlignmentSpecifier)
+		{
+			// 7.6.2p1: the alignment-specifiers of a class-head are read where
+			// the class is, and 9.2p2 applies the strictest of them when the
+			// class is laid out.
+			continue;
+		}
+		if (member.kind == AstKind::AccessSpecifier)
+		{
+			// 11p1: the specifier holds until the next one or the end of the
+			// class, so it is the state the member declarations are read in.
+			access = member.token == KW_PRIVATE
+				? kPrivateAccess
+				: (member.token == KW_PROTECTED ? kProtectedAccess
+				                                : kPublicAccess);
 			continue;
 		}
 		if (member.kind == AstKind::BaseClause)
@@ -760,9 +781,19 @@ SemaEntity& SemaAnalyzer::class_declaration(const AstNode& node,
 			                         ", which is a special member function PA12 "
 			                         "does not describe");
 		}
+		// 11p1: the access a declaration was written under is a fact about the
+		// declaration, so it is written onto whatever this member declared.
+		// One declaration declares few names, and each is reached once.
+		const std::size_t before = scope.declarations.size();
 		declaration(member, inner);
+		for (std::size_t at = before; at < scope.declarations.size(); ++at)
+		{
+			scope.declarations[at]->access = access;
+		}
 	}
-	lay_out_class(*entity, scope, tag == ClassTag::Union);
+	lay_out_class(*entity, scope, tag == ClassTag::Union,
+	              requested_alignment(node, inner));
+	entity->aggregate = aggregate_class(scope);
 	if (semantics())
 	{
 		// 12.1p5: every class the output describes has the constructor no
@@ -797,6 +828,56 @@ void SemaAnalyzer::declare_constructor(SemaEntity& entity, Scope& scope)
 	constructor.tail = &constructor;
 	model_.declare_in(scope, constructor);
 	entity.constructor = &constructor;
+}
+
+// 8.5.1p1: whether an object of the class `scope` declares is initialized from
+// a braced-init-list by initializing its members with the clauses.  In the PA16
+// slice a class has no base and no virtual function, so what is left to ask is
+// whether every non-static data member is public and none was written with a
+// brace-or-equal-initializer.
+bool SemaAnalyzer::aggregate_class(Scope& scope)
+{
+	for (std::size_t index = 0; index < scope.declarations.size(); ++index)
+	{
+		const SemaEntity& member = *scope.declarations[index];
+		if (member.kind != SemaKind::Variable || !member.object_member)
+		{
+			continue;
+		}
+		if (member.access != kPublicAccess || member.default_initializer)
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+// 11.2: whether a context in `from` may name `member`.  A member declared
+// `public` is named from anywhere; any other is named only from inside the
+// class that declared it, which 11.7 also gives to a class nested in it.
+bool SemaAnalyzer::accessible(const SemaEntity& member, const Scope* from) const
+{
+	if (member.access == kPublicAccess || member.region == nullptr)
+	{
+		return true;
+	}
+	for (const Scope* at = from; at != nullptr; at = at->parent)
+	{
+		if (at == member.region)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+void SemaAnalyzer::require_access(const SemaEntity& member, const Scope* from)
+{
+	if (!accessible(member, from))
+	{
+		throw std::runtime_error(member.name + " is named where the access its "
+		                         "class gave it does not reach");
+	}
 }
 
 // 12.1p5: whether default-initializing an object of the class this region
@@ -1016,7 +1097,32 @@ void SemaAnalyzer::set_fact(DumpNode& node, FactKind kind, TypeId type,
 	node.fact.category = category;
 }
 
-void SemaAnalyzer::lay_out_class(SemaEntity& entity, Scope& scope, bool is_union)
+// 7.6.2p1: the strictest alignment the class-head asked for, or zero when it
+// asked for none.  An alignment-specifier whose operand is not a constant this
+// translation knows asks for nothing it can act on.
+unsigned long long SemaAnalyzer::requested_alignment(const AstNode& node,
+                                                     const Context& ctx)
+{
+	unsigned long long wanted = 0;
+	for (std::size_t index = 0; index < node.children.size(); ++index)
+	{
+		const AstNode& child = *node.children[index];
+		if (child.kind != AstKind::AlignmentSpecifier || child.children.empty())
+		{
+			continue;
+		}
+		const unsigned long long asked =
+			evaluate(*child.children[0], ctx).bits;
+		if (asked > wanted)
+		{
+			wanted = asked;
+		}
+	}
+	return wanted;
+}
+
+void SemaAnalyzer::lay_out_class(SemaEntity& entity, Scope& scope, bool is_union,
+                                 unsigned long long requested)
 {
 	unsigned long long size = 0;
 	unsigned long long align = 1;
@@ -1049,6 +1155,17 @@ void SemaAnalyzer::lay_out_class(SemaEntity& entity, Scope& scope, bool is_union
 		// next address its own alignment allows.
 		member.offset = round_up(size, member_align);
 		size = member.offset + member_size;
+	}
+	if (requested != 0)
+	{
+		// 7.6.2p5: an alignment-specifier may not ask for less than the class
+		// would have had, because the members it holds still need theirs.
+		if (requested < align)
+		{
+			throw std::runtime_error("a class asks for an alignment weaker than "
+			                         "the one its members need");
+		}
+		align = requested;
 	}
 	// 1.8p5: a complete object has a size of at least one byte.
 	size = round_up(size, align);
@@ -1493,6 +1610,11 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 		// that one is a variable the class names.
 		entity.object_member =
 			target.scope->kind == ScopeKind::Class && !specifiers.is_static;
+		// 12.6.2p8: a brace-or-equal-initializer on a non-static data member is
+		// what initializes it wherever a constructor does not say otherwise, and
+		// 8.5.1p1 makes a class that has one no aggregate.
+		entity.default_initializer = entity.object_member &&
+			initializer != nullptr && !initializer->children.empty();
 	}
 	// 3.1p2: an `extern` declaration with no initializer declares the object
 	// and does not define it; every other declaration of one at namespace scope

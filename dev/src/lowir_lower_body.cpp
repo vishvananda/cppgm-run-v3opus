@@ -334,13 +334,13 @@ Operand LowirFunctionLowering::decay(const LowValue& value)
 		// of it became a pointer view of it.
 		return address_of(value);
 	}
-	if (value.operand.kind == Operand::OP_TEMP &&
+	if (value.operand.kind == Operand::OP_TEMP && !value.named &&
 	    types.kind(types.strip_cv(value.type)) != TypeKind::Function)
 	{
-		// The address is already in hand, and the point where the array became
-		// a pointer view of itself is where that address was made.  4.3 is not
-		// the same: a function is not an object, so the pointer view of one is
-		// marked wherever the function is named.
+		// The address is already in hand as a pointer, and no name of the array
+		// stands here, so there is no point at which one became a pointer view
+		// of it.  4.3 is not the same: a function is not an object, so the
+		// pointer view of one is marked wherever the function is named.
 		return value.operand;
 	}
 	Instruction instruction;
@@ -646,11 +646,18 @@ void LowirFunctionLowering::add_initialization(const Operand& storage,
 	{
 		// 3.6.2p2 and 12.1p5: the object is initialized by calling its
 		// constructor on it, which is the one action its initialization is.
+		// The object has a name of the program image, so nothing has to be
+		// emitted to name it and a constructor that does nothing leaves no
+		// action at all.
+		if (node.children[0]->children[0]->fact.entity->trivial)
+		{
+			return;
+		}
 		LowValue object;
 		object.type = type;
 		object.lvalue = true;
 		object.operand = storage;
-		constructor_action(object, node, false);
+		constructor_call(address_of(object), node);
 		return;
 	}
 	if (types.is_reference(type))
@@ -662,23 +669,14 @@ void LowirFunctionLowering::add_initialization(const Operand& storage,
 	initialize(storage, type, node);
 }
 
-// 12.1p5 and 8.5p6: constructing `object`, which is one call of its
-// constructor on the address of it.  A constructor that does nothing is no
-// call at all; the address of the object is still materialized where the
-// declaration that names the object is what gave it its storage, because that
-// is where 3.8p1 begins its lifetime.
-void LowirFunctionLowering::constructor_action(const LowValue& object,
-                                               const DumpNode& node,
-                                               bool declared_here)
+// 12.1p5 and 8.5p6: constructing the object at `address`, which is one call of
+// its constructor on it.  A constructor that does nothing is no call at all.
+void LowirFunctionLowering::constructor_call(const Operand& address,
+                                             const DumpNode& node)
 {
 	TypeTable& types = unit_.types();
 	const DumpNode& call = *node.children[0];
 	const SemaEntity& constructor = *call.children[0]->fact.entity;
-	if (constructor.trivial && !declared_here)
-	{
-		return;
-	}
-	const Operand address = address_of(object);
 	if (constructor.trivial)
 	{
 		return;
@@ -864,21 +862,28 @@ void LowirFunctionLowering::local_variable(const DumpNode& node)
 	const TypeId type = node.fact.type;
 	const std::string slot = add_slot(entity, type);
 	const Operand storage = named_operand(Operand::OP_SLOT, slot);
-	if (node.children.empty())
+	if (types.is_class(types.strip_cv(type)))
 	{
-		// 8.5p6: an object with no initializer holds no value the program may
-		// read, and its storage is all the declaration asks for.
-		return;
-	}
-	if (node.children[0]->fact.kind == FactKind::ConstructorAction)
-	{
-		// 12.1p5: the object's lifetime begins where its declaration is
-		// reached, which is where its constructor runs on it.
+		// 3.8p1: the lifetime of an object of class type begins where its
+		// declaration is reached, and the declaration is what names it, so the
+		// address of its storage is what the declaration is worth.
 		LowValue object;
 		object.type = type;
 		object.lvalue = true;
 		object.operand = storage;
-		constructor_action(object, *node.children[0], true);
+		const Operand address = address_of(object);
+		if (!node.children.empty() &&
+		    node.children[0]->fact.kind == FactKind::ConstructorAction)
+		{
+			// 12.1p5: the constructor runs on that object, there and then.
+			constructor_call(address, *node.children[0]);
+			return;
+		}
+	}
+	if (node.children.empty())
+	{
+		// 8.5p6: an object with no initializer holds no value the program may
+		// read, and its storage is all the declaration asks for.
 		return;
 	}
 	if (types.is_reference(type))
@@ -1429,6 +1434,7 @@ LowValue LowirFunctionLowering::member_expression(const DumpNode& node)
 	LowValue value;
 	value.type = node.fact.type;
 	value.lvalue = true;
+	value.named = true;
 	Instruction step;
 	step.kind = Instruction::IK_INDEX;
 	step.type.text = "i8";
@@ -2103,9 +2109,25 @@ LowValue LowirFunctionLowering::subscript_expression(const DumpNode& node)
 	instruction.type = unit_.low_type(node.fact.type);
 	instruction.first = address;
 	instruction.second = rvalue(offset);
+	if (instruction.type.text.compare(0, 4, "obj<") == 0)
+	{
+		// An element with no register form is not a width LowIR indexes by, so
+		// the subscript counts the bytes 5.2.1p1 says the element occupies.
+		Instruction scale;
+		scale.kind = Instruction::IK_BINARY;
+		scale.op = "mul";
+		scale.type.text = "i64";
+		scale.first = converted(offset, types.fundamental(FT_LONG_INT));
+		scale.second = named_operand(
+			Operand::OP_INTEGER,
+			decimal(types.object_size(types.strip_cv(node.fact.type))));
+		instruction.type.text = "i8";
+		instruction.second = emit(scale);
+	}
 	LowValue value;
 	value.type = node.fact.type;
 	value.lvalue = true;
+	value.named = true;
 	value.operand = emit(instruction);
 	return value;
 }
@@ -2114,6 +2136,11 @@ void LowirFunctionLowering::initialize(const Operand& storage, TypeId type,
                                        const DumpNode& node)
 {
 	TypeTable& types = unit_.types();
+	if (node.fact.kind == FactKind::AggregateInitialization)
+	{
+		initialize_aggregate(storage, type, node);
+		return;
+	}
 	if (types.kind(types.strip_cv(type)) == TypeKind::Array)
 	{
 		initialize_array(storage, type, node);
@@ -2133,6 +2160,107 @@ void LowirFunctionLowering::initialize(const Operand& storage, TypeId type,
 	}
 	const LowValue value = expression(node);
 	store(converted(value, type), storage, type);
+}
+
+void LowirFunctionLowering::initialize_aggregate(const Operand& storage,
+                                                 TypeId type,
+                                                 const DumpNode& node)
+{
+	// The object is named once per subobject rather than once for the whole
+	// initialization: the address of a subobject is what its own path through
+	// the object says it is, and building each from the object keeps the
+	// description of one subobject independent of the ones written before it.
+	std::vector<const DumpNode*> path;
+	for (std::size_t index = 0; index < node.children.size(); ++index)
+	{
+		initialize_subobject(storage, *node.children[index], path);
+	}
+}
+
+Operand LowirFunctionLowering::subobject_address(
+	const Operand& storage, const std::vector<const DumpNode*>& path)
+{
+	TypeTable& types = unit_.types();
+	LowValue object;
+	object.lvalue = true;
+	object.operand = storage;
+	Operand at = address_of(object);
+	for (std::size_t index = 0; index < path.size(); ++index)
+	{
+		const DumpNode& step = *path[index];
+		Instruction move;
+		move.kind = Instruction::IK_INDEX;
+		if (step.fact.entity != nullptr)
+		{
+			// 9.2p13: a member begins where the layout of its class put it.
+			move.type.text = "i8";
+			move.index_projection = lowir_model::IPK_FIELD;
+			move.first = at;
+			move.second = named_operand(Operand::OP_INTEGER,
+			                            decimal(step.fact.entity->offset));
+			at = emit(move);
+			continue;
+		}
+		// 8.3.4p6 and 4.2: an element is reached through the pointer view of
+		// the array, counted in elements rather than in bytes.
+		Instruction decayed;
+		decayed.kind = Instruction::IK_UNARY;
+		decayed.op = "decay";
+		decayed.type.text = "ptr";
+		decayed.first = at;
+		move.type = unit_.low_type(step.fact.type);
+		move.index_projection = lowir_model::IPK_ARRAY_ELEMENT;
+		move.first = emit(decayed);
+		move.second =
+			named_operand(Operand::OP_INTEGER, decimal(step.fact.value));
+		at = emit(move);
+	}
+	(void)types;
+	return at;
+}
+
+void LowirFunctionLowering::initialize_subobject(
+	const Operand& storage, const DumpNode& node,
+	std::vector<const DumpNode*>& path)
+{
+	path.push_back(&node);
+	if (!node.children.empty() &&
+	    node.children[0]->fact.kind == FactKind::SubobjectInitialization)
+	{
+		for (std::size_t index = 0; index < node.children.size(); ++index)
+		{
+			initialize_subobject(storage, *node.children[index], path);
+		}
+		path.pop_back();
+		return;
+	}
+	const Operand at = subobject_address(storage, path);
+	path.pop_back();
+	if (node.fact.op != 0)
+	{
+		// 8.5.1p7: every element from this one on is value-initialized, which
+		// is one span of zero bytes rather than one store per element.
+		TypeTable& types = unit_.types();
+		const unsigned long long stride = types.object_size(node.fact.type);
+		Instruction zero;
+		zero.kind = Instruction::IK_ZEROINIT;
+		zero.byte_count = static_cast<std::size_t>(
+			stride * (types.bound(types.strip_cv(node.fact.spelled)) -
+			          node.fact.value));
+		zero.byte_alignment =
+			static_cast<std::size_t>(types.object_align(node.fact.type));
+		zero.first = at;
+		emit_void(zero);
+		return;
+	}
+	if (node.children.empty())
+	{
+		// 8.5p7: a subobject no clause reached is value-initialized, which for
+		// every type this milestone lays out is the zero of it.
+		store(literal_operand(node.fact.type, 0), at, node.fact.type);
+		return;
+	}
+	initialize(at, node.fact.type, *node.children[0]);
 }
 
 void LowirFunctionLowering::initialize_array(const Operand& storage,

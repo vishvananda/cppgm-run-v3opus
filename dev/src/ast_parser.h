@@ -151,7 +151,11 @@ private:
 	bool skip_operator_id(bool& conversion);
 	bool skip_conversion_type_id();
 	bool skip_balanced(unsigned closer);
-	void skip_attributes();
+	// 7.6.2: the attribute forms the grammar accepts.  `alignments`, when
+	// given, takes an `alignment-specifier` node per `alignas` whose operand
+	// is a constant-expression, because 7.6.2p5 gives that one a meaning the
+	// declaration it is written on has to answer for.
+	void skip_attributes(std::vector<AstNode*>* alignments = nullptr);
 	std::string spelled(const Mark& start) const
 	{
 		return tokens_.flatten(start.pos, pos_);
