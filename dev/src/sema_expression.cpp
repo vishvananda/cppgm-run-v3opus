@@ -1555,6 +1555,21 @@ SemaAnalyzer::Value SemaAnalyzer::binary_expression(const AstNode& node,
 	return value;
 }
 
+// 5.16p3: the operand of a conditional whose result is an lvalue of a base of
+// its own class, which is that operand's base subobject.
+void SemaAnalyzer::convert_arm_to_base(Value& arm, TypeId result)
+{
+	if (arm.node == nullptr)
+	{
+		return;
+	}
+	SemaEntity* const base = derived_from(arm.type, result);
+	if (base != nullptr)
+	{
+		arm = base_value(arm, *base);
+	}
+}
+
 // 5.9p2: an operand brought to the composite pointer type of two pointers to
 // related classes is converted to point at its own base subobject.
 void SemaAnalyzer::convert_operand_to_base(Value& operand, TypeId operands)
@@ -1860,8 +1875,8 @@ SemaAnalyzer::Value SemaAnalyzer::conditional_expression(const AstNode& node,
 	{
 		throw std::runtime_error("the condition of ?: has no conversion to bool");
 	}
-	const Value left = expression(*node.children[1], ctx, line);
-	const Value right = expression(*node.children[2], ctx, line);
+	Value left = expression(*node.children[1], ctx, line);
+	Value right = expression(*node.children[2], ctx, line);
 	require_complete_value(left);
 	require_complete_value(right);
 
@@ -1883,6 +1898,10 @@ SemaAnalyzer::Value SemaAnalyzer::conditional_expression(const AstNode& node,
 	{
 		value.type = as_right ? right.type : left.type;
 		value.category = ValueCategory::LValue;
+		// 5.16p3 and 4.10p3: where the operand that bound is of a class derived
+		// from the other's, what the result denotes is its base subobject, so
+		// the arm that reached it names that subobject.
+		convert_arm_to_base(as_right ? left : right, value.type);
 	}
 	else if (types_.strip_cv(decayed(left)) == types_.strip_cv(decayed(right)))
 	{

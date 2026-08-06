@@ -994,8 +994,9 @@ void LowirFunctionLowering::local_variable(const DumpNode& node)
 	}
 	if (types.is_reference(type))
 	{
-		// 8.5.3p5: a reference binds the object its initializer names.
-		const LowValue bound = expression(*node.children[0]);
+		// 8.5.3p5: a reference binds the object its initializer names, so what
+		// the initializer is read for is that object and not its value.
+		const LowValue bound = expression(*node.children[0], true);
 		store(address_of(bound), storage, type);
 		return;
 	}

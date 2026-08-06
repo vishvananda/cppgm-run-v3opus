@@ -680,6 +680,9 @@ private:
 	// member's name alone when no `.` or `->` was written.
 	Value member_value(SemaEntity& member, const Value& object_written,
 	                   const std::string& payload, DumpNode& node);
+	// 5.16p3: an operand of a conditional whose result is an lvalue of a base
+	// class of that operand's own class.
+	void convert_arm_to_base(Value& arm, TypeId result);
 	// 5.9p2: an operand of a built-in binary operator whose composite pointer
 	// type is a pointer to a base of its own class.
 	void convert_operand_to_base(Value& operand, TypeId operands);

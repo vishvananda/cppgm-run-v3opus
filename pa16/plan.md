@@ -32,24 +32,25 @@ worklist in the unit lowering.
 
 ## Current Failure Map
 
-After C1-C4: 125 / 243. The 118 that remain:
+After C1-C4: 126 / 243. The 117 that remain:
 
 | group | count | what is missing |
 | --- | --- | --- |
 | operator overloading | 33 | 13.5 over the object model, ADL, hidden friends |
-| LowIR shape diffs, the program otherwise accepted | 31 | see below |
+| LowIR shape diffs, the program otherwise accepted | 30 | see below |
 | bit-fields | 10 | 9.6 layout and access |
 | friends | 6 | 11.3, and the access a friend declaration gives |
 | class using-declarations, inheriting constructors | 7 | 7.3.3p1 into a class, 12.9 |
 | other refusals | 31 | scattered, mostly downstream of the above |
 
-Of the 31 shape diffs, the named ones are: 8.5p8's zero-initialization of a
+Of the 30 shape diffs, the named ones are: 8.5p8's zero-initialization of a
 value-initialized class with no user-provided constructor; the exception cleanup
 regions the references write around partially constructed and partially
 destroyed subobjects (`eh_cleanup` / `eh_try` / `resume`); arrays of class type
-constructed and destroyed element by element; 5.16p3's conditional whose two
-glvalue operands are a class and a base of it; and a `declare global` written
-for an `extern` object nothing uses.
+constructed and destroyed element by element; a `declare global` written for an
+`extern` object nothing uses; a pointer condition tested against zero where the
+references branch on the pointer; and an aggregate's reference member, whose
+storage this unit addresses before it reads what binds to it.
 
 15.4p14's `unwind=no` is separate and needs no test result: the relaxed
 comparison strips the field, and emitting nothing is silence rather than a false
@@ -63,8 +64,8 @@ class and defined outside it is never marked defined.
 ## Active Checkpoint
 
 Done: **C4 — single inheritance** (10.1, 10.2, 11.2, 11.4, 12.6.2p5, 12.4p8,
-4.10p3, 8.5.3p4, 13.3.3.2p4, 5.9p2), which took 24 of the 43 base-class tests
-and 4 beyond them.
+4.10p3, 8.5.3p4, 13.3.3.2p4, 5.9p2, 5.16p3), which took 24 of the 43 base-class
+tests and 6 beyond them.
 
 Next: **C5 — 13.5 operator overloading over the object model**, the largest
 remaining group at 33 tests: an operator written on a class or enumeration
@@ -156,4 +157,4 @@ associated namespaces reach, with 13.6's built-in candidates alongside them.
 | audit of C1-C2 | 9.4.2p2's definition told from its declaration by the declarator-id; 12.6.2p8 refused rather than dropped; 7.6.2p1's type-id form; 5.2.5p1's object expression kept or refused, never dropped; 13.3.3.2p3 ordering two sequences that differ only in qualifiers; 11p6's naming context; 9.3p2 read from where the definition is written; O(n^2) slot naming | 65 -> 70 / 243; pa1-pa15 1173/1173; valgrind clean over 249 inputs; every axis linear; stripped metadata diffed against the refs; findings and evidence in `audit.md` |
 | C3 | 12.1/12.4 user-declared constructors and destructors in a class body, chained on the class; 13.3.1.3/13.3.1.4/8.5.4p3 constructor selection over 8.5's four initializer forms with `explicit`; 12.6.2 member initializations in declaration order, 12.6.2p8 default member initializers, 12.4p8 member destructions; 3.8p1 lifetime at block exit, at `return` and in 3.6.3p1's `@__cppgm_fini`; 8.4.2/8.4.3 `= default` and `= delete`; 12.8p31 copy elision from a value of the object's own type; 5.2.4 explicit destructor calls; C1/C2 and D1/D2 ABI names with the `alias object` line | 70 -> 102 / 243; pa1-pa15 1173/1173; valgrind clean on the new paths; every new axis linear |
 | audit of C3 | six ways out of a region that ended no lifetime - `break`, `continue`, `goto`, the for-init-statement's own region, a static data member at shutdown, an aggregate initialized from braces - with the block-scope `static` written as an automatic object; 9.3.2p1's `this` in a destructor separated from 12.4p12's object parameter; a deleted destructor refused where the object is declared; `= T(...)` no longer refused as copy-list-initialization; a mem-initializer that names nothing refused and one written twice refused; 9.3p2's inline read from where the definition is written, not from the declaration; one `_` per character an identifier cannot hold, so two names never flatten to one; the goto check made a carried count | 102 / 243 held, none newly failing; pa1-pa15 1173/1173; valgrind clean over 273 inputs; every axis linear at 2.1-2.3x; stripped metadata clean against the refs but for `unwind=no`; findings and evidence in `audit.md` |
-| C4 | 10p1's base-clause read before the members and recorded on the class and its region; 9.2p13 layout with the base subobject at offset 0 and no storage for an empty one; 9p2's injected-class-name; 10.2p2/p6 lookup through the base chain, qualified and unqualified, with the derived class hiding the base; 11.2p2's default base access, 11.2p4 on every derived-to-base conversion, 11.4p1's protected member from a derived class; 12.6.2p5's base initialization first, by its own name or an alias of it, and 12.4p8's base destruction last; 12.1p5/12.4p3 triviality through the base, and no node at all for a subobject whose initialization does nothing; 4.10p3, 8.5.3p4 and 5.2.9p11's conversions as one `base-conversion` node, 13.3.3.1.4p1's rank and 13.3.3.2p4's ordering of them; 5.9p2's composite pointer type; 5.2.9p4's discarded class operand; the object model split out into `sema_class.cpp` | 102 -> 125 / 243; pa1-pa15 1173/1173; valgrind clean over 243 inputs and the sweeps; depth, multiplicity and access axes all 2.0x-2.5x per doubling |
+| C4 | 10p1's base-clause read before the members and recorded on the class and its region; 9.2p13 layout with the base subobject at offset 0 and no storage for an empty one; 9p2's injected-class-name; 10.2p2/p6 lookup through the base chain, qualified and unqualified, with the derived class hiding the base; 11.2p2's default base access, 11.2p4 on every derived-to-base conversion, 11.4p1's protected member from a derived class; 12.6.2p5's base initialization first, by its own name or an alias of it, and 12.4p8's base destruction last; 12.1p5/12.4p3 triviality through the base, and no node at all for a subobject whose initialization does nothing; 4.10p3, 8.5.3p4 and 5.2.9p11's conversions as one `base-conversion` node, 13.3.3.1.4p1's rank and 13.3.3.2p4's ordering of them; 5.9p2's composite pointer type; 5.2.9p4's discarded class operand; 5.16p3's conditional whose two glvalue operands are a class and a base of it, with 8.5.3p5's reference initializer read for the object it binds rather than for its value; the object model split out into `sema_class.cpp` | 102 -> 126 / 243; pa1-pa15 1173/1173; valgrind clean over 243 inputs and the sweeps; depth, multiplicity and access axes all 2.0x-2.5x per doubling |
