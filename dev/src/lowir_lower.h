@@ -390,6 +390,10 @@ private:
 	                      const DumpNode& node);
 	// 12.4p3: the destructor call the end of an object's lifetime is.
 	void destructor_call(const DumpNode& node);
+	// 3.8p1: the destructor actions a statement carries for the blocks control
+	// leaves through it - the jump out of them, or the end of the region the
+	// statement itself opened.
+	void leave_blocks(const DumpNode& node);
 	LowValue call_expression(const DumpNode& node);
 	LowValue unary_expression(const DumpNode& node);
 	LowValue increment_expression(const DumpNode& node, bool postfix);

@@ -30,38 +30,28 @@ std::string decimal(unsigned long long value)
 }
 
 // The internal LowIR symbol of a namespace-scope name: the regions it is
-// declared in, written with `__` where the source writes `::`, and every
-// character an identifier cannot hold dropped, so an `operator` name is still
-// one symbol.  12.4p1's `~` is written as `_`, because a destructor and the
-// constructor of the same class are two functions of one type and one
-// qualified name, and dropping it would leave them one symbol.
+// declared in, written with `__` where the source writes `::`, and every other
+// character an identifier cannot hold written as one `_`.  Dropping those
+// characters instead would leave two names one symbol: 12.4p1's `~C` and 12.1's
+// `C` are two functions of one class with one qualified name, and 13.5's
+// `operator+` and `operator-` are two of one arity and one parameter list.  One
+// `_` per character is also what the references write.
 std::string flatten_name(const std::string& name)
 {
 	std::string symbol;
 	for (std::size_t index = 0; index < name.size(); ++index)
 	{
 		const char written = name[index];
-		if (written == '~')
+		if (written == ':' && index + 1 < name.size() && name[index + 1] == ':')
 		{
-			symbol += '_';
-			continue;
-		}
-		if (written == ':')
-		{
-			if (index + 1 < name.size() && name[index + 1] == ':')
-			{
-				symbol += "__";
-				++index;
-			}
+			symbol += "__";
+			++index;
 			continue;
 		}
 		const bool ordinary = (written >= 'a' && written <= 'z') ||
 			(written >= 'A' && written <= 'Z') ||
 			(written >= '0' && written <= '9') || written == '_';
-		if (ordinary)
-		{
-			symbol += written;
-		}
+		symbol += ordinary ? written : '_';
 	}
 	return symbol;
 }

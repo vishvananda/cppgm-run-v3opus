@@ -258,6 +258,22 @@ private:
 		bool instantiation;
 	};
 
+	// 12.6.2: one mem-initializer of a ctor-initializer, indexed by the name
+	// its mem-initializer-id ends in.  `used` says a member of that name was
+	// reached, which 12.6.2p2 is what makes the mem-initializer-id name
+	// something; `spelled` is what the diagnostic names when it does not.
+	struct MemInitializer
+	{
+		MemInitializer()
+			: written(nullptr)
+			, used(false)
+		{}
+
+		const AstNode* written;
+		std::string spelled;
+		bool used;
+	};
+
 	// A value of the 5.19 subset: what it is worth, and the type that says how
 	// wide it is and whether it is signed.
 	struct Constant
@@ -339,6 +355,13 @@ private:
 	// run.  `member` says the object is a member of the one being destroyed
 	// rather than an object a declaration named.
 	void destructor_action(SemaEntity& entity, DumpNode& parent, bool member);
+	// 9.3.2p1: the type of `this` in the body of the member function `function`.
+	TypeId this_type(const SemaEntity& function);
+	// 3.7.1: records the object a definition declares with whichever region
+	// 3.8p1 makes the end of its lifetime an action of, which its storage
+	// duration is what says.
+	void record_lifetime(SemaEntity& entity, const Context& target,
+	                     bool is_static);
 	// The objects an open block has declared whose destructors run when control
 	// leaves it, innermost frame last.
 	std::vector<std::vector<SemaEntity*> > lifetimes_;
@@ -346,9 +369,20 @@ private:
 	// where the block ends.
 	void open_lifetimes();
 	void close_lifetimes(DumpNode& line);
-	// 6.6.3p2: a return leaves every block between it and the function, so it
-	// runs the destructors of all of them, innermost first.
+	// 6.6p2 and 3.8p1: a jump leaves every block it jumps out of, so it runs
+	// the destructors of the objects all of them declared, innermost first.
+	// `depth` is the first frame the jump does not leave: 0 for a return, which
+	// leaves the whole function, and the frame the statement itself opened for
+	// a break or a continue.
+	void leave_lifetimes(std::size_t depth, DumpNode& line);
+	// 6.6.3p2: a return leaves every block between it and the function.
 	void unwind_lifetimes(DumpNode& line);
+	// 3.8p1: whether any block still open holds an object whose lifetime ends
+	// with a call, which is what a jump this milestone cannot place those calls
+	// for has to be refused for.
+	bool lifetimes_pending() const;
+	// 12.4p3: whether the end of this object's lifetime is a call.
+	bool ends_in_call(const SemaEntity& entity);
 	// 3.6.3p1: the namespace-scope objects this unit constructed, whose
 	// destructors run in reverse order when the program ends.
 	std::vector<SemaEntity*> static_lifetimes_;
@@ -879,6 +913,16 @@ private:
 	unsigned breakable_;
 	unsigned continuable_;
 	unsigned switches_;
+	// 3.8p1 with 6.6.1p1 and 6.6.2p1: how deep the lifetime frames were when
+	// each of those statements was entered, so that a jump out of one knows
+	// which blocks it leaves.  The statement's own frame is not one of them:
+	// control lands where that frame is closed.
+	std::vector<std::size_t> breakable_frames_;
+	std::vector<std::size_t> continuable_frames_;
+	// 3.8p1: how many objects the open blocks hold whose lifetimes end in a
+	// call, carried so that a jump asking whether any does costs nothing per
+	// block around it.
+	std::size_t live_destructions_;
 	// 6.1p1 and 6.6.4p1: the labels the function being read has written, and
 	// the ones its goto statements name.  A label may be written after the
 	// goto that names it, so the two are gathered and matched once the body

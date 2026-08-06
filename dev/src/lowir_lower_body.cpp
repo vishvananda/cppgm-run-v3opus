@@ -711,6 +711,19 @@ void LowirFunctionLowering::add_destruction(const DumpNode& node)
 	destructor_call(node);
 }
 
+// 3.8p1: the destructor actions a statement carries for the blocks control
+// leaves through it, written where control leaves them.
+void LowirFunctionLowering::leave_blocks(const DumpNode& node)
+{
+	for (std::size_t index = 0; index < node.children.size(); ++index)
+	{
+		if (node.children[index]->fact.kind == FactKind::DestructorAction)
+		{
+			destructor_call(*node.children[index]);
+		}
+	}
+}
+
 // 12.4p3 and 3.8p1: the end of an object's lifetime, which is one call of the
 // destructor of its class on the object the action names.
 void LowirFunctionLowering::destructor_call(const DumpNode& node)
@@ -835,6 +848,9 @@ void LowirFunctionLowering::statement(const DumpNode& node)
 		{
 			throw std::runtime_error("a break statement leaves no statement");
 		}
+		// 3.8p1: the objects of the blocks the jump leaves are destroyed before
+		// control reaches the statement it jumps to.
+		leave_blocks(node);
 		jump(breaks_.back());
 		return;
 
@@ -843,6 +859,7 @@ void LowirFunctionLowering::statement(const DumpNode& node)
 		{
 			throw std::runtime_error("a continue statement leaves no loop");
 		}
+		leave_blocks(node);
 		jump(continues_.back());
 		return;
 
@@ -1016,13 +1033,7 @@ void LowirFunctionLowering::return_statement(const DumpNode& node)
 			instruction.first = converted(value, returns_);
 		}
 	}
-	for (std::size_t index = 0; index < node.children.size(); ++index)
-	{
-		if (node.children[index]->fact.kind == FactKind::DestructorAction)
-		{
-			destructor_call(*node.children[index]);
-		}
-	}
+	leave_blocks(node);
 	terminate(instruction);
 }
 
@@ -1207,6 +1218,11 @@ void LowirFunctionLowering::for_statement(const DumpNode& node)
 		case FactKind::Iteration:
 			iteration = &child;
 			break;
+		case FactKind::DestructorAction:
+			// 6.5.3p1: an object the for-init-statement declared is destroyed
+			// where the loop ends, which is after the substatement rather than
+			// inside it.
+			break;
 		default:
 			body = &child;
 			break;
@@ -1245,6 +1261,7 @@ void LowirFunctionLowering::for_statement(const DumpNode& node)
 	}
 	jump(cond_label);
 	open_block(end_label);
+	leave_blocks(node);
 }
 
 void LowirFunctionLowering::switch_statement(const DumpNode& node)

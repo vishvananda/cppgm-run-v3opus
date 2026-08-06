@@ -80,7 +80,10 @@ void SemaAnalyzer::semantic_statement(const AstNode& node, const Context& ctx,
 	case AstKind::SwitchStatement:
 		++switches_;
 		++breakable_;
+		// 6.6.1p1: a break leaves every block opened inside the switch.
+		breakable_frames_.push_back(lifetimes_.size());
 		selection_statement(node, ctx, parent, "switch-statement");
+		breakable_frames_.pop_back();
 		--breakable_;
 		--switches_;
 		return;
@@ -128,10 +131,23 @@ void SemaAnalyzer::semantic_statement(const AstNode& node, const Context& ctx,
 		                           FactKind::Goto);
 		line.fact.spelling = node.text;
 		gotos_.push_back(node.text);
+		if (lifetimes_pending())
+		{
+			// 6.6.4p2 and 3.8p1: a goto that leaves a block destroys the
+			// objects that block declared, and which blocks it leaves is what
+			// the label says - a label this walk may not have reached yet.
+			// The jump is refused rather than written as one that ends no
+			// lifetime, which is not the program the source wrote.
+			throw std::runtime_error("a goto statement is written where an "
+			                         "object with a destructor is alive, which "
+			                         "this milestone does not end the lifetime "
+			                         "of");
+		}
 		return;
 	}
 
 	case AstKind::BreakStatement:
+	{
 		// 6.6.1p1: a break statement shall occur only in an iteration statement
 		// or a switch statement.
 		if (breakable_ == 0)
@@ -139,18 +155,29 @@ void SemaAnalyzer::semantic_statement(const AstNode& node, const Context& ctx,
 			throw std::runtime_error("a break statement is outside every loop "
 			                         "and switch statement");
 		}
-		open_fact(parent, "break-statement", FactKind::Break);
+		DumpNode& line = open_fact(parent, "break-statement", FactKind::Break);
+		// 6.6.1p1 and 3.8p1: control passes to the statement after the one the
+		// break leaves, so every block between the two is left and the objects
+		// they declared are destroyed here.
+		leave_lifetimes(breakable_frames_.back(), line);
 		return;
+	}
 
 	case AstKind::ContinueStatement:
+	{
 		// 6.6.2p1: a continue statement shall occur only in an iteration
 		// statement.
 		if (continuable_ == 0)
 		{
 			throw std::runtime_error("a continue statement is outside every loop");
 		}
-		open_fact(parent, "continue-statement", FactKind::Continue);
+		DumpNode& line =
+			open_fact(parent, "continue-statement", FactKind::Continue);
+		// 6.6.2p1: control passes to the loop-continuation portion, which is
+		// inside the loop, so the blocks left are the ones the body opened.
+		leave_lifetimes(continuable_frames_.back(), line);
 		return;
+	}
 
 	default:
 		break;
@@ -239,6 +266,11 @@ void SemaAnalyzer::loop_statement(const AstNode& node, const Context& ctx,
 	held.scope = &model_.open(ScopeKind::Block, *ctx.scope, nullptr, ctx.dump);
 	++breakable_;
 	++continuable_;
+	// 6.6.1p1 and 6.6.2p1: both jumps leave every block opened inside the loop.
+	// 6.5.2p1 makes the condition's own declaration one the loop re-runs, so it
+	// is not a block either of them leaves.
+	breakable_frames_.push_back(lifetimes_.size());
+	continuable_frames_.push_back(lifetimes_.size());
 	for (std::size_t index = 0; index < node.children.size(); ++index)
 	{
 		const AstNode& child = *node.children[index];
@@ -250,6 +282,8 @@ void SemaAnalyzer::loop_statement(const AstNode& node, const Context& ctx,
 		}
 		semantic_statement(child, substatement_scope(held), line);
 	}
+	continuable_frames_.pop_back();
+	breakable_frames_.pop_back();
 	--continuable_;
 	--breakable_;
 }
@@ -262,8 +296,16 @@ void SemaAnalyzer::for_statement(const AstNode& node, const Context& ctx,
 	// statement itself opens, which its substatement is enclosed by.
 	Context held = ctx;
 	held.scope = &model_.open(ScopeKind::Block, *ctx.scope, nullptr, ctx.dump);
+	// 6.5.3p1 and 3.8p1: an object the for-init-statement declares belongs to
+	// the region the for statement itself opens, so its lifetime ends where the
+	// loop does rather than where the block around the loop does.
+	open_lifetimes();
 	++breakable_;
 	++continuable_;
+	// 6.6.1p1 and 6.6.2p1: neither jump leaves the for statement's own region -
+	// a break lands where that region is closed and a continue stays inside it.
+	breakable_frames_.push_back(lifetimes_.size());
+	continuable_frames_.push_back(lifetimes_.size());
 	for (std::size_t index = 0; index < node.children.size(); ++index)
 	{
 		const AstNode& child = *node.children[index];
@@ -295,8 +337,11 @@ void SemaAnalyzer::for_statement(const AstNode& node, const Context& ctx,
 		}
 		semantic_statement(child, substatement_scope(held), line);
 	}
+	continuable_frames_.pop_back();
+	breakable_frames_.pop_back();
 	--continuable_;
 	--breakable_;
+	close_lifetimes(line);
 }
 
 void SemaAnalyzer::condition(const AstNode& node, const Context& ctx,
