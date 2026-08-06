@@ -31,7 +31,10 @@ const unsigned long long kZeroFillLimit = 64;
 const int kExactMatch = 0;
 const int kPromotion = 1;
 const int kConversion = 2;
-const int kEllipsis = 3;
+// 13.3.3.2p2: a user-defined conversion sequence is worse than every standard
+// conversion sequence and better than the ellipsis, so it stands between them.
+const int kUserConversion = 3;
+const int kEllipsis = 4;
 
 std::string decimal(unsigned long long value)
 {
@@ -189,6 +192,20 @@ SemaAnalyzer::Match SemaAnalyzer::match_by_value(const Value& argument,
 			: kNoType;
 		return match;
 	}
+	if (types_.is_class(target))
+	{
+		// 13.3.3.1.2p1: the argument reaches a parameter of class type through
+		// a converting constructor of that class, and the sequence that calls
+		// one is worse than every sequence that calls none.
+		SemaEntity* const constructor = converting_constructor(argument, target);
+		if (constructor != nullptr)
+		{
+			match.viable = true;
+			match.rank = kUserConversion;
+			match.converting = constructor;
+		}
+		return match;
+	}
 	// 4.10p1: a null pointer constant converts to any pointer type and to
 	// `std::nullptr_t`.
 	const bool source_null = argument.null_constant ||
@@ -261,6 +278,69 @@ SemaAnalyzer::Match SemaAnalyzer::match_by_value(const Value& argument,
 	match.viable = true;
 	match.rank = kConversion;
 	return match;
+}
+
+// 13.3.3.1.2p1: the converting constructor of `target` a user-defined conversion
+// sequence would call on `argument`, or null where no one constructor answers.
+//
+// 12.3.1p2 makes a constructor declared `explicit` no converting constructor, so
+// it is not a candidate here at all.  13.3.3.1.2p1 also stops the sequence at
+// one user-defined conversion, which is what leaves the constructor's own
+// parameter to be reached by a standard conversion sequence alone - so a
+// candidate whose parameter is itself of class type is left out unless the
+// argument already is that class.  The search is one pass over the declarations
+// of the name, so a class with n constructors costs n.
+SemaEntity* SemaAnalyzer::converting_constructor(const Value& argument,
+                                                 TypeId target)
+{
+	SemaEntity* const head = class_constructors(target);
+	if (head == nullptr)
+	{
+		return nullptr;
+	}
+	SemaEntity* best = nullptr;
+	Match chosen;
+	bool tied = false;
+	for (SemaEntity* at = head; at != nullptr; at = at->next)
+	{
+		const std::vector<TypeId>& parameters = types_.parameters(at->type);
+		// 9.3.1p3 put the object 12.1 constructs in the type, so a constructor
+		// that converts takes exactly one argument beside it.
+		if (at->explicit_function || at->deleted || parameters.size() < 2 ||
+		    !accepts_arity(*at, 2))
+		{
+			continue;
+		}
+		const TypeId wanted = parameters[1];
+		const TypeId bare = types_.strip_cv(
+			types_.is_reference(wanted) ? types_.target(wanted) : wanted);
+		if (types_.is_class(bare) && types_.strip_cv(argument.type) != bare &&
+		    derived_from(argument.type, bare) == nullptr)
+		{
+			// 13.3.3.1.2p1: the argument reaches this parameter only through a
+			// second user-defined conversion, and one sequence holds one.
+			continue;
+		}
+		const Match match = match_argument(argument, wanted);
+		if (!match.viable || match.converting != nullptr)
+		{
+			continue;
+		}
+		if (best == nullptr || compare_matches(match, chosen) > 0)
+		{
+			best = at;
+			chosen = match;
+			tied = false;
+			continue;
+		}
+		if (compare_matches(match, chosen) == 0)
+		{
+			tied = true;
+		}
+	}
+	// 13.3.3p1: two constructors neither of which is better than the other
+	// leave the conversion ambiguous, which is no viable sequence at all.
+	return tied ? nullptr : best;
 }
 
 // 3.9.3p5 and 8.3.4p1: the type with every top level qualifier removed, which
@@ -344,7 +424,11 @@ SemaAnalyzer::Match SemaAnalyzer::match_reference(const Value& argument,
 	// type, so the temporary 8.5.3p5 binds holds the value the argument already
 	// had.  The output writes the conversions that change what an operand is,
 	// and this one changes nothing an operand of it could tell apart.
-	if (!(types_.kind(source) == TypeKind::Pointer &&
+	// 13.3.3.1.2p1's temporary is the object a constructor made rather than a
+	// value a cast produced, so it is written where the conversion is applied
+	// and not as one more cast around the argument.
+	if (match.converting == nullptr &&
+	    !(types_.kind(source) == TypeKind::Pointer &&
 	      qualification_convertible(source, types_.strip_cv(referenced))))
 	{
 		match.materialized = referenced;
@@ -697,7 +781,7 @@ bool SemaAnalyzer::better_candidate(const Match* left, const Match* right,
 // takes the pointer type it is used as, and a reference that binds a converted
 // temporary writes the cast that made it.
 void SemaAnalyzer::apply_conversion(Value& value, TypeId target,
-                                    const Match& match)
+                                    const Match& match, const Context& ctx)
 {
 	if (value.type == kNoType && value.functions != nullptr)
 	{
@@ -717,6 +801,31 @@ void SemaAnalyzer::apply_conversion(Value& value, TypeId target,
 		// names that subobject rather than leaving the address to be adjusted
 		// by whoever reads the call.
 		value = base_value(value, *match.to_base);
+	}
+	if (match.converting != nullptr && value.node != nullptr)
+	{
+		// 13.3.3.1.2p1: the argument reaches the parameter's class through a
+		// converting constructor of it, and what the parameter is given is the
+		// temporary that constructor made.  The argument keeps the place it had
+		// among the operands of the call, so the temporary is written around it
+		// rather than beside it, and the argument becomes what constructs it.
+		const TypeId wanted = types_.strip_cv(
+			types_.is_reference(target) ? types_.target(target) : target);
+		Value source = value;
+		DumpNode& line = model_.wrap_node(*value.node, std::string());
+		source.node = line.children[0];
+		line.children.clear();
+		value = build_temporary(wanted, line, nullptr, &source, ctx, "arg");
+		return;
+	}
+	if (match.reference && !match.binds_lvalue)
+	{
+		// 8.5.3p5: the reference binds a temporary rather than an object the
+		// argument named, and where that temporary is the prvalue itself the
+		// argument is what asked for its storage.  A base subobject of it was
+		// already read above, which is what leaves that temporary named after
+		// the expression that wrote it rather than after this argument.
+		name_argument_temporary(value);
 	}
 	if (match.materialized != kNoType && value.node != nullptr)
 	{
@@ -1129,7 +1238,7 @@ SemaAnalyzer::Value SemaAnalyzer::initialize(const AstNode& node, TypeId target,
 	{
 		require_no_narrowing(node, value, target, ctx);
 	}
-	apply_conversion(value, target, match);
+	apply_conversion(value, target, match, ctx);
 	return value;
 }
 
@@ -1325,7 +1434,7 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
 		target.entity != nullptr && target.entity->kind == SemaKind::Function
 			? target.entity
 			: nullptr;
-	return finish_call(line, function, arguments, chosen);
+	return finish_call(line, function, arguments, chosen, ctx);
 }
 
 // 5.2.2p4 and 5.2.2p10: the arguments of a call converted to the types of the
@@ -1335,7 +1444,8 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
 // for the one 13.3.1.2p1 makes of an operator, so both are written here.
 SemaAnalyzer::Value SemaAnalyzer::finish_call(DumpNode& line, TypeId function,
                                               std::vector<Value>& arguments,
-                                              const SemaEntity* chosen)
+                                              const SemaEntity* chosen,
+                                              const Context& ctx)
 {
 	const std::vector<TypeId>& parameters = types_.parameters(function);
 	if ((arguments.size() < parameters.size() &&
@@ -1358,7 +1468,7 @@ SemaAnalyzer::Value SemaAnalyzer::finish_call(DumpNode& line, TypeId function,
 			throw std::runtime_error("an argument has no conversion to the type "
 			                         "of the parameter it is passed to");
 		}
-		apply_conversion(arguments[index], parameters[index], match);
+		apply_conversion(arguments[index], parameters[index], match, ctx);
 	}
 	for (std::size_t index = arguments.size(); index < parameters.size(); ++index)
 	{
@@ -1399,6 +1509,15 @@ SemaAnalyzer::Value SemaAnalyzer::functional_cast(const AstNode& node,
 	value.type = target;
 	value.spelled = target;
 	value.category = ValueCategory::PRValue;
+	if (types_.is_class(types_.strip_cv(target)))
+	{
+		// 5.2.3p1/p2 over a class: `T(a...)` and `T()` are both a prvalue of
+		// class type, which 12.2p1 makes an object.  The initialization is the
+		// one 8.5 and 13.3.1.3 give an object of the class, so the arguments
+		// are the constructor's whatever their number, and the storage the
+		// prvalue stands in is the function's.
+		return materialize_temporary(target, list, ctx, parent, "tmpobj");
+	}
 	if (count == 0)
 	{
 		// 5.2.3p2: `T()` is a prvalue of type T that is value-initialized,

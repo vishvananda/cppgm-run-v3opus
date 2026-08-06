@@ -70,6 +70,14 @@ enum class FactKind : unsigned char
 	// 12.1p5 and 8.5p6: the constructor call an object of class type is
 	// initialized by, written under the declaration of the object.
 	ConstructorAction,
+	// 12.2p1 and 5.2.3p2: a prvalue of class type, which is an object no
+	// declaration named.  The function it stands in gives it storage, the
+	// `constructor-action` under it runs on that storage, and everything that
+	// reads the prvalue - a reference bound to it, a member named in it, a base
+	// subobject of it - reads that object.  `entity` is the object, so two
+	// readers of one temporary reach one piece of storage; `spelling` is the
+	// name its storage takes, which says what asked for the object.
+	TemporaryObject,
 	// 12.4p3 and 3.8p1: the destructor call the end of an object's lifetime is,
 	// written where that end is - at the end of the block that declared it, on
 	// the return that leaves it, and in the shutdown of the program.

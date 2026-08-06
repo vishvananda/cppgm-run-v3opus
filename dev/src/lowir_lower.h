@@ -472,9 +472,20 @@ private:
 	// base.
 	LowValue base_conversion(const DumpNode& node);
 	// 12.1p5: the constructor call an object of class type is initialized by,
-	// on the address of that object.
+	// on the address of that object.  `always` says the object has no other
+	// mark of its lifetime beginning, so even a constructor that does nothing
+	// is the call it is - which is what a temporary no declaration named needs
+	// and what an object a declaration named does not.
 	void constructor_call(const lowir_model::Operand& address,
-	                      const DumpNode& node);
+	                      const DumpNode& node, bool always = false);
+	// 12.2p1: the storage a prvalue of class type stands in, given to it here
+	// and constructed here.  The object is named once however many readers the
+	// temporary has, so the slot is made the first time it is reached.
+	LowValue temporary_object(const DumpNode& node);
+	// 12.8p15: one class object copied into another, which for a class that
+	// holds nothing moves nothing at all.
+	void copy_class_object(const lowir_model::Operand& destination,
+	                       const lowir_model::Operand& source, TypeId type);
 	// 12.4p3: the destructor call the end of an object's lifetime is.
 	void destructor_call(const DumpNode& node);
 	// 3.8p1: the destructor actions a statement carries for the blocks control

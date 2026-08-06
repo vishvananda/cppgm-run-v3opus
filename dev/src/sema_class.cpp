@@ -317,7 +317,7 @@ void SemaAnalyzer::lay_out_class(SemaEntity& entity, Scope& scope, bool is_union
 	entity.empty_class = empty;
 	// 1.8p5: a complete object has a size of at least one byte.
 	size = round_up(size, align);
-	types_.complete_class(entity.type, size == 0 ? 1 : size, align);
+	types_.complete_class(entity.type, size == 0 ? 1 : size, align, empty);
 }
 // 10p1: the base-clause of a class definition, which says what every object of
 // the class holds a subobject of.  The base is recorded on the class and on the
@@ -1337,7 +1337,8 @@ void SemaAnalyzer::write_constructed_object(SemaEntity& variable,
 // object, and the definition of the constructor it names is asked for here.
 void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
                                     const AstNode* written, const Context& ctx,
-                                    Placement where, bool copied)
+                                    Placement where, bool copied,
+                                    const Value* given)
 {
 	const bool member = where != Placement::Named;
 
@@ -1399,7 +1400,15 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 	}
 
 	Value source;
-	if (converting)
+	if (given != nullptr)
+	{
+		// 13.3.3.1.2p1: the one argument was analysed where the program wrote
+		// it, so it is taken as it stands.  Its line is not held by this one
+		// yet, so nothing is taken back out of what this line already holds.
+		source = *given;
+		converting = true;
+	}
+	else if (converting)
 	{
 		// 8.5p14: the initializer is read before anything is written for the
 		// initialization, because 12.8p31 lets a value of the object's own type
@@ -1468,7 +1477,7 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 	{
 		const Match match = match_argument(arguments[index],
 		                                   parameters[index + 1]);
-		apply_conversion(arguments[index], parameters[index + 1], match);
+		apply_conversion(arguments[index], parameters[index + 1], match, ctx);
 	}
 	for (std::size_t index = arguments.size() + 1; index < parameters.size();
 	     ++index)
@@ -1506,6 +1515,76 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 	pending.self = &model_.create(SemaKind::Parameter, "this", parameters[0]);
 	pending.members = constructor.region;
 	pending_.push_back(pending);
+}
+
+// 12.2p1: a prvalue of class type denotes an object, and no declaration named
+// it, so the function it was written in has to give it storage.  The object is
+// declared here, the constructor 8.5/13.3.1.3 chooses runs on it exactly as it
+// would on one a declaration named, and what the expression is worth from then
+// on is that object.
+//
+// 12.2p3's destruction at the end of the full-expression is not written here:
+// the lowering marks no full-expression boundary yet, so a temporary of a class
+// whose destructor does something is refused rather than left alive past the
+// point 12.2p3 ends it.
+SemaAnalyzer::Value SemaAnalyzer::materialize_temporary(TypeId type,
+                                                        const AstNode* written,
+                                                        const Context& ctx,
+                                                        DumpNode& parent,
+                                                        const char* prefix)
+{
+	DumpNode& line = model_.open_node(parent, std::string());
+	return build_temporary(type, line, written, nullptr, ctx, prefix);
+}
+
+SemaAnalyzer::Value SemaAnalyzer::build_temporary(TypeId type, DumpNode& line,
+                                                  const AstNode* written,
+                                                  const Value* given,
+                                                  const Context& ctx,
+                                                  const char* prefix)
+{
+	const TypeId object_type = types_.strip_cv(type);
+	SemaEntity& object = model_.create(SemaKind::Variable, std::string(),
+	                                   object_type);
+	object.object_member = false;
+	set_fact(line, FactKind::TemporaryObject, object_type,
+	         ValueCategory::PRValue);
+	line.fact.entity = &object;
+	line.fact.spelling = prefix;
+	construct_object(object, line, written, ctx, Placement::Named, false, given);
+	const SemaEntity* const destructor = class_destructor(object_type);
+	if (destructor != nullptr && !destructor->trivial)
+	{
+		// 12.2p3 ends the temporary's lifetime at the end of the
+		// full-expression, which is a place this milestone does not mark.
+		throw std::runtime_error(
+			"a temporary of the class type " + types_.description(object_type) +
+			" is created, whose destructor 12.2p3 runs at a point this "
+			"milestone does not mark");
+	}
+	line.text = spell("temporary-object", ValueCategory::PRValue, object_type,
+	                  std::string());
+	Value value;
+	value.type = object_type;
+	value.spelled = object_type;
+	value.category = ValueCategory::PRValue;
+	value.what = "temporary-object";
+	value.entity = &object;
+	value.node = &line;
+	return value;
+}
+
+// 8.5.3p5 and 13.3.3.1.2: the storage a temporary takes is named after the
+// argument that asked for it.  A temporary something already read as the object
+// it is - a base subobject of it, a member of it - keeps the name it was given
+// where it was written, because the argument is no longer what made it.
+void SemaAnalyzer::name_argument_temporary(const Value& value)
+{
+	if (value.node != nullptr &&
+	    value.node->fact.kind == FactKind::TemporaryObject)
+	{
+		value.node->fact.spelling = "arg";
+	}
 }
 
 // 9.3.2p1: the type `this` has in the body of a member function, which is a

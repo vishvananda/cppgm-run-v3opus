@@ -141,6 +141,7 @@ SemaAnalyzer::Match::Match()
 	, qualified(kNoType)
 	, materialized(kNoType)
 	, to_base(nullptr)
+	, converting(nullptr)
 {}
 
 void SemaAnalyzer::write(std::ostream& out) const

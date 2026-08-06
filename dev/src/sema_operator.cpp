@@ -489,6 +489,6 @@ bool SemaAnalyzer::operator_expression(unsigned token, const Context& ctx,
 	Value callee;
 	callee.node = &named;
 	name_function(callee, *chosen, "callee");
-	value = finish_call(line, chosen->type, arguments, chosen);
+	value = finish_call(line, chosen->type, arguments, chosen, ctx);
 	return true;
 }

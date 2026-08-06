@@ -170,6 +170,7 @@ FactKind SemaAnalyzer::fact_kind(const char* what)
 		{"subscript-expression", FactKind::Subscript},
 		{"cast-expression", FactKind::Cast},
 		{"base-conversion", FactKind::BaseConversion},
+		{"temporary-object", FactKind::TemporaryObject},
 		{"sizeof-expression", FactKind::Sizeof}
 	};
 	for (std::size_t index = 0; index < sizeof(kKinds) / sizeof(kKinds[0]);

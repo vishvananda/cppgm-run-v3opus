@@ -179,6 +179,10 @@ private:
 		// argument to, which is what the tree has to name the subobject of and
 		// what 13.3.3.2p4 orders two such sequences by.
 		SemaEntity* to_base;
+		// 13.3.3.1.2p1: the converting constructor this sequence calls, when
+		// the argument reaches the parameter's class only through one.  The
+		// temporary it makes is what the parameter is given.
+		SemaEntity* converting;
 	};
 
 	// Where the object an initialization or a destruction acts on stands.
@@ -369,6 +373,10 @@ private:
 	// 13.3.1.3 chooses from, and the destructor 12.4p3 gives it.  Null for
 	// anything that is not a class type this unit completed.
 	SemaEntity* class_constructors(TypeId type);
+	// 13.3.3.1.2p1: the converting constructor of `target` that a user-defined
+	// conversion sequence for `argument` calls, or null where none does or
+	// where two do equally well.
+	SemaEntity* converting_constructor(const Value& argument, TypeId target);
 	SemaEntity* class_destructor(TypeId type);
 	// 8.5.1p1: whether an object of `type` is initialized from a
 	// braced-init-list by initializing its members with the clauses.
@@ -512,15 +520,37 @@ private:
 	// names it through `this` rather than by a name of its own.
 	// `copied` says the initializer was written with `=`, which 8.5.4p3 makes
 	// an initialization no `explicit` constructor may answer.
+	// `given` is an initializer already analysed where it was written, which
+	// 13.3.3.1.2's conversion has and no source form does: the value is taken
+	// as it stands and its line moves into the place the call gives it.
 	void construct_object(SemaEntity& variable, DumpNode& line,
 	                      const AstNode* written, const Context& ctx,
 	                      Placement where = Placement::Named,
-	                      bool copied = false);
+	                      bool copied = false, const Value* given = nullptr);
 	// The object a constructor-action runs on, as the address of it: an object
 	// a declaration named, a member of the object being constructed, or that
 	// object's base class subobject.
 	void write_constructed_object(SemaEntity& variable, DumpNode& call,
 	                              Placement where, Value& object);
+	// 12.2p1 and 5.2.3p2: a prvalue of class type is an object, so the function
+	// it is written in has to hold one.  This declares that object - which no
+	// name reaches - runs the constructor `written` chooses on it, and hands
+	// back the prvalue as the object it now stands for.  `prefix` names the
+	// storage it is given, which is what says whether an argument asked for it.
+	Value materialize_temporary(TypeId type, const AstNode* written,
+	                            const Context& ctx, DumpNode& parent,
+	                            const char* prefix);
+	// The same, written into a line that already stands where the prvalue does,
+	// which is what an argument conversion needs: the argument keeps the place
+	// it had among the operands of the call and the temporary is written around
+	// it rather than beside it.
+	Value build_temporary(TypeId type, DumpNode& line, const AstNode* written,
+	                      const Value* given, const Context& ctx,
+	                      const char* prefix);
+	// 8.5.3p5 and 13.3.3.1.2: a temporary an argument conversion made is named
+	// after the argument it was made for, unless something already read it as
+	// the object it is.
+	void name_argument_temporary(const Value& value);
 	// The typed facts of a node the analysis builds rather than reads out of an
 	// expression the program wrote.
 	static void set_fact(DumpNode& node, FactKind kind, TypeId type,
@@ -948,7 +978,8 @@ private:
 	// and the value the call is.  A call the program wrote and the call
 	// 13.3.1.2p1 makes of an operator expression end the same way.
 	Value finish_call(DumpNode& line, TypeId function,
-	                  std::vector<Value>& arguments, const SemaEntity* chosen);
+	                  std::vector<Value>& arguments, const SemaEntity* chosen,
+	                  const Context& ctx);
 	SemaEntity* select_overload(const std::vector<SemaEntity*>& candidates,
 	                            const std::vector<Value>& arguments,
 	                            const std::string& name,
@@ -1014,7 +1045,8 @@ private:
 	// it: a null pointer constant, a resolved function name, and the temporary
 	// a reference binds to.  Each rewrites the line the operand already wrote,
 	// in the place it wrote it.
-	void apply_conversion(Value& value, TypeId target, const Match& match);
+	void apply_conversion(Value& value, TypeId target, const Match& match,
+	                      const Context& ctx);
 	// 13.4: the declaration of an overloaded name a target type asks for.
 	SemaEntity* resolve_target(const Value& value, TypeId target);
 	// 5.3.1p3: the type `&C::f` has, which is a pointer to member of the class

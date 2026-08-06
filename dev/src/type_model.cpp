@@ -417,6 +417,7 @@ TypeId TypeTable::class_type(std::uint32_t entity, ClassTag tag,
 	record.complete = false;
 	record.size = 0;
 	record.align = 1;
+	record.empty = false;
 	return user_type(TypeKind::Class, entity, record);
 }
 
@@ -432,6 +433,7 @@ TypeId TypeTable::enum_type(std::uint32_t entity, bool scoped,
 	record.complete = true;
 	record.size = 0;
 	record.align = 0;
+	record.empty = false;
 	const TypeId id = user_type(TypeKind::Enum, entity, record);
 	nodes_[id].target = underlying;
 	return id;
@@ -448,6 +450,7 @@ TypeId TypeTable::template_parameter_type(std::uint32_t entity, bool is_template
 	record.complete = false;
 	record.size = 0;
 	record.align = 1;
+	record.empty = false;
 	return user_type(TypeKind::TemplateParameter, entity, record);
 }
 
@@ -457,12 +460,18 @@ void TypeTable::rename(TypeId type, const std::string& name)
 }
 
 void TypeTable::complete_class(TypeId type, unsigned long long size,
-                               unsigned long long align)
+                               unsigned long long align, bool empty)
 {
 	UserType& record = user_types_[nodes_[type].user];
 	record.complete = true;
 	record.size = size;
 	record.align = align;
+	record.empty = empty;
+}
+
+bool TypeTable::is_empty_class(TypeId type) const
+{
+	return kind(type) == TypeKind::Class && user_at(type).empty;
 }
 
 bool TypeTable::is_scoped_enum(TypeId type) const
