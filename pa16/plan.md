@@ -6,15 +6,19 @@ PA16 gives the PA11/PA12 class syntax semantic and lowering meaning. The
 existing layers keep their jobs:
 
 - `sema_scope.*` owns declarations, regions and lookup. Where a member sits in
-  its object, which special member function a declaration declares, and which
-  class a class derives from are facts about the declaration, so they live on
-  its own `SemaEntity`; the region it declares carries the one edge 10.2's
-  lookup follows.
+  its object, which special member function a declaration declares, which class
+  a class derives from and which class befriended it are facts about the
+  declaration, so they live on its own `SemaEntity`; the region it declares
+  carries the one edge 10.2's lookup follows.
 - `sema_class.cpp` owns the object model: 10p1's base-clause, 9.2p13 layout, 11
-  access, 12.1/12.4/12.6.2 special members and subobject order, and 3.7.1/3.8p1
-  lifetime. Each is settled from the same one fact - what the class's own region
-  declares, in the order it declares it - and a question about a subobject is
-  asked in the same words whether it is a base, a member or an object of its own.
+  access, 11.3 friendship, 12.1/12.4/12.6.2 special members and subobject order,
+  and 3.7.1/3.8p1 lifetime. Each is settled from the same one fact - what the
+  class's own region declares, in the order it declares it - and a question
+  about a subobject is asked in the same words whether it is a base, a member or
+  an object of its own.
+- `sema_operator.cpp` owns the calls ordinary lookup does not name: 13.3.1.2's
+  candidate set for an operator expression, 13.5p6's rule on a non-member
+  operator, and 3.4.2's associated namespaces and classes.
 - `sema_analyzer.cpp` walks the syntax, resolves names and types, and hands each
   class to that owner once, where 9.2p2 makes it complete.
 - `sema_overload.cpp` owns 13.3, including 4.10p3/8.5.3p4's derived-to-base
@@ -25,89 +29,92 @@ existing layers keep their jobs:
   through PA14's encoder.
 
 The object model is added as typed facts at those owners rather than as a second
-pipeline: field offsets on members, a base class on the class, an
-implicit-object argument in 13.3, `constructor-action` / `destructor-action` /
-`member-initialization` / `base-conversion` nodes, and a demand-driven definition
-worklist in the unit lowering.
+pipeline: field offsets on members, a base class on the class, a friendship
+relation between two entities, an implicit-object argument in 13.3,
+`constructor-action` / `destructor-action` / `member-initialization` /
+`base-conversion` nodes, and a demand-driven definition worklist in the unit
+lowering.
 
 ## Current Failure Map
 
-After C1-C4 and the audit of C4: 126 / 243. The 117 that remain:
+After C1-C5: 161 / 243. The 82 that remain:
 
 | group | count | what is missing |
 | --- | --- | --- |
-| operator overloading | 33 | 13.5 over the object model, ADL, hidden friends |
-| LowIR shape diffs, the program otherwise accepted | 30 | see below |
+| LowIR shape diffs, the program otherwise accepted | 35 | see below |
+| refusals, scattered | 25 | see below |
 | bit-fields | 10 | 9.6 layout and access |
-| friends | 6 | 11.3, and the access a friend declaration gives |
-| class using-declarations, inheriting constructors | 7 | 7.3.3p1 into a class, 12.9 |
-| other refusals | 31 | scattered, mostly downstream of the above |
+| class using-declarations, inheriting constructors | 8 | 7.3.3p1 into a class, 12.9 |
+| `alignas` / `alignof` | 4 | 5.3.6 outside the constant subset, `alignas` on a member |
 
-Of the 30 shape diffs, the named ones are: 8.5p8's zero-initialization of a
+Of the 35 shape diffs, the named ones are: 8.5p8's zero-initialization of a
 value-initialized class with no user-provided constructor; the exception cleanup
 regions the references write around partially constructed and partially
 destroyed subobjects (`eh_cleanup` / `eh_try` / `resume`); arrays of class type
 constructed and destroyed element by element; a `declare global` written for an
-`extern` object nothing uses; a pointer condition tested against zero where the
-references branch on the pointer; and an aggregate's reference member, whose
-storage this unit addresses before it reads what binds to it.
+`extern` object nothing uses; an aggregate's reference member, whose storage
+this unit addresses before it reads what binds to it; and the `_GLOBAL__N_1`
+name an unnamed namespace gives what it declares.
+
+The 25 scattered refusals are, grouped by what they ask for: a class prvalue
+that has to be materialized - `T(args)` bound to a reference parameter, an
+object of class type passed by value, 13.3.3.1.2's user-defined conversion
+sequence - which is 9 of them and the last of the operator/friend group;
+namespace-scope arrays of class type, 5 of them; the `__builtin_*` names, 4;
+placement `new`, 2; a trailing return type on a member function, 2; and one each
+of pseudo-destructor on a scalar, a user-defined string literal, `mutable`, and
+a nested class defined outside the class that declared it.
 
 15.4p14's `unwind=no` is separate and needs no test result: the relaxed
 comparison strips the field, and emitting nothing is silence rather than a false
-claim. The direct `noexcept` on a declarator is its other half and needs a fact
-carried out of the shared PA11 declarator reader.
-
-Two refusals are not object-model work and were reached only through a base:
-`alignof` is outside the constant subset, and a nested class declared in its
-class and defined outside it is never marked defined.
-
-Three gaps the audit of C4 found and left to the checkpoint that owns them:
-`x.YB::b` — a qualified-id after `.` or `->` — names no member at all, which
-predates inheritance and belongs to the member-access path; `alignas` on a
-member declaration is dropped, which with `alignof` is one pair of tests;
-`static_cast` between unrelated object pointer types is accepted, which is the
-cast rules rather than the object model.
+claim. It is the whole difference in 6 of the 161 passing fixtures; 43 more
+differ in something the comparison canonicalizes, which is top-level order.
 
 ## Active Checkpoint
 
-Done: **the audit of C4**, whose findings and evidence are in `audit.md`. Mostly
-one shape in seven places - a rule written for the exit in hand and not for the
-exit beside it: one node per link of the chain where the references write one, a
-chain checked at its first link only, a conditional whose composite pointer type
-converted neither operand, 8.5.3p4's base half of reference-related missing,
-5.2.9p11's reference downcast refused and its pointer downcast unchecked, an
-inaccessible destructor called for an object, a member and a base, and 11.4p1's
-additional check absent. The eighth is the ABI entry the output claims: every
-constructor and destructor was named with the complete-object one, where the
-references give a base-only class the base-object entry alone.
+Done: **C5 — 13.5 operator overloading, 3.4.2 ADL and 11.3 friends**, the three
+parts of one thing: a call whose function the lookup written where the call
+stands did not name. 126 -> 161 of 243.
 
-Before it: **C4 — single inheritance** (10.1, 10.2, 11.2, 11.4, 12.6.2p5,
-12.4p8, 4.10p3, 8.5.3p4, 13.3.3.2p4, 5.9p2, 5.16p3), which took 24 of the 43
-base-class tests and 6 beyond them.
-
-Next: **C5 — 13.5 operator overloading over the object model**, the largest
-remaining group at 33 tests: an operator written on a class or enumeration
-operand is a call, whose candidates are the member operator functions 13.3.1.2p3
-gathers from the class and the non-member ones ordinary lookup and 3.4.2's
-associated namespaces reach, with 13.6's built-in candidates alongside them.
-
-- owner: `sema_expression.cpp` for the operand types that turn an operator into
-  a call, `sema_overload.cpp` for 13.3.1.2's candidate set and 13.6's built-ins,
-  `sema_scope.cpp` for 3.4.2's associated namespaces and 11.3's friend
-  declarations, which are what a hidden friend is found through.
+- owner: `sema_operator.cpp` for 13.3.1.2's candidate set and 3.4.2's
+  associated namespaces and classes; `sema_class.cpp` for 11.3's grant and
+  11.2p5's naming class; `sema_analyzer.cpp` for what a friend declaration
+  declares and where.
 - data flow: an operator expression whose operand has class or enumeration type
-  builds one candidate set, resolves it exactly as a call does, and writes the
-  same `call-expression` node the call path already lowers - so nothing new
-  reaches the lowering.
+  gathers one candidate set, resolves it exactly as a call does, and rewrites
+  its own operand nodes into the `call-expression` node the call path already
+  writes - so nothing new reaches the lowering.
 - expected complexity: one candidate gathering per operator expression, over the
   declarations of the operand's class and of its associated namespaces, which is
   what a call of a named function already costs.
-- what C4 leaves ready: a member operator is found through a base by the same
-  10.2 walk, and its implicit object argument converts through the same
-  `base-conversion` node every other derived-to-base conversion writes.
 - validation: `make test-report ACTIVE_TEST_REPORT_PAS='pa16'`,
-  `make test-report-through-pa15`, valgrind over the corpus, and a sweep of one
-  chained operator expression at growing length.
+  `make test-report-through-pa15`, valgrind over the operator, friend and ADL
+  fixtures and the sweeps, and sweeps of chain length, operator nesting depth,
+  namespace depth, friend multiplicity and associated-namespace multiplicity.
+
+Next: **C6 — the class prvalue that has to stand somewhere** (12.2p1, 5.2.3p2,
+8.5.3p5, 13.3.3.1.2), which is what the last 9 refusals of the operator/friend
+group ask for and what several shape diffs need: `T(args)` is a temporary the
+unit gives storage to and runs a constructor on, a reference parameter binds
+that storage, and 13.3.3.1.2's user-defined conversion sequence is the same
+temporary made by a converting constructor.
+
+- owner: `sema_class.cpp` for the constructor selection, which is
+  `construct_object` over an object no declaration named; `lowir_lower_body.cpp`
+  for the slot the temporary stands in.
+- data flow: a `temporary-object` node holding the same `constructor-action` a
+  declaration writes, so the lowering allocates one generated slot and calls
+  what the action names. The refs name that slot `arg__n` where the temporary is
+  a written argument and `tmpobj__n` otherwise, and slot names are not
+  canonicalized before comparison.
+- expected complexity: one constructor selection per written temporary, which is
+  what a declaration of an object of the same class already costs.
+- what is not in it: 12.2p3's destruction at the end of the full-expression,
+  which needs the full-expression boundary the lowering does not mark yet - so a
+  temporary of a class with a non-trivial destructor is refused rather than
+  silently left alive.
+- validation: the same four commands, plus a sweep of temporaries per
+  full-expression and of nesting depth.
 
 ## Performance Model
 
@@ -120,30 +127,33 @@ associated namespaces reach, with 13.6's built-in candidates alongside them.
   one: a lookup in a program with no inheritance pays one null test per
   enclosing region, and one with inheritance pays the depth of the hierarchy
   rather than its size.
-- 4.10p3 asks whether one class derives from another by walking that same chain,
-  so a conversion costs the depth and no search.
+- 11.3's friendship is a set of entity pairs held by the model, and every access
+  check asks `has_friends` first, so a program with no friend declaration pays
+  one test per region it walks and nothing else. 11.2p5's naming class adds a
+  walk of the object's base chain, taken only for a protected member the
+  declaring class did not already grant.
+- 13.3.1.2's candidate set is gathered once per operator expression: one lookup
+  in the operand's class, one unqualified lookup, and one pass over the
+  associated namespaces and classes the operand types reach. Which declarations
+  the set already holds is a probe, so gathering costs the declarations there
+  are and not their square.
+- 3.4.2's association follows the type rather than searching: the depth of the
+  type and of the base chain, both of which the source wrote.
 - A derived-to-base conversion is one `base-conversion` node however many
-  classes it spans, because every base subobject of this milestone begins where
-  its derived object does. The walk of the chain says which class was reached
-  and asks 11.2p5 of each link; it writes nothing per link. n accesses to a
-  member d classes up therefore cost n*d to analyse - the depth each of 10.2's
-  lookups walks - and emit n instructions rather than n*d: 4000 accesses 4000
-  deep are 20 007 lines in 2.0 s, where writing a node per link was 16 012 007
-  lines in 54.6 s.
-- Each axis alone is linear. With the depth fixed at 4000, 500/1000/2000/4000
-  accesses take 0.42/0.69/1.09/2.39 s; with 4000 accesses fixed, depth
-  500/1000/2000/4000 takes 0.15/0.23/0.64/2.35 s — the depth each of 10.2's
-  lookups walks, with a per-step cost that grows once the chain of regions no
-  longer fits in cache. That belongs to the scope layer.
+  classes it spans. n accesses to a member d classes up cost n*d to analyse and
+  emit n instructions rather than n*d: 4000 accesses 4000 deep are 20 007 lines
+  in 2.0 s, where writing a node per link was 16 012 007 lines in 54.6 s.
 - Demand-driven emission is monotonic: `emitted_functions_` admits each symbol
-  once, so a function used n times is lowered once. The worklist is drained at
-  the top level, so `program_.functions` never reallocates under a live
-  `Function&` reference.
+  once, and 3.2p3's uses are read from the whole resolved tree in one walk, so a
+  function used n times is lowered once and a body no written body asked for is
+  asked for once, after them.
+- The internal LowIR symbol of a function is indexed by the name the object file
+  gives it, which is one probe and is what keeps two operator functions of one
+  region that flatten to one base name with the same parameter types from
+  collapsing onto one symbol.
 - 12.6.2's mem-initializers are indexed by member name once per constructor, so
   a class with n members each named in the ctor-initializer costs n lookups
-  rather than n^2 comparisons. The base is asked for by its own name first, so
-  only a ctor-initializer that spelled it through an alias costs one lookup per
-  mem-initializer it wrote.
+  rather than n^2 comparisons.
 - 12.6.2p10's order is `Scope::declarations` with the base before it, so one pass
   writes every subobject initialization, and 12.4p8 walks the same list backwards
   with the base after it.
@@ -158,18 +168,28 @@ associated namespaces reach, with 13.6's built-in candidates alongside them.
   node for the whole tail of an array no clause reached (`kZeroFillLimit`, 64
   bytes). Measured: a struct holding `char buf[1 << 20]`, initialized `{{0}, 3}`
   at namespace scope and `{{1}, 2}` locally, compiles in under 0.01 s.
+- Measured for C5, sizes doubling: a chained `operator<<` of length
+  500/1000/2000/4000, 0.00/0.01/0.02/0.04 s; 1000/2000/4000/8000 member
+  `operator[]` calls, 0.02/0.05/0.10/0.21 s; 250/500/1000/2000 namespaces each
+  with a class and an ADL free operator, one use each, 0.10/0.10/0.20/0.40 s;
+  operator nesting depth 200/400/800/1600, 0.10 s throughout; namespace depth
+  250/500/1000/2000 with one qualified call at the bottom, 0.10 s throughout;
+  250/500/1000/2000 friend declarations of one name revealed by as many
+  namespace-scope definitions, 0.10/0.10/0.20/0.50 s.
+- One class with n friend `operator<<` overloads used n times is quadratic and
+  is meant to be - n calls each ranking n candidates: 250/500/1000/2000 take
+  0.10/0.30/0.90/3.51 s, 3.9x per doubling. Scanning the candidates already
+  gathered had made it cubic, at 4.7 s and 4.7x.
 - Measured after the audit of C4, sizes 500/1000/2000/4000, each doubling
   2.0x-2.3x: derived-to-base conversions in one body four deep,
   0.01/0.02/0.03/0.07 s; accesses to a base's member in one body four deep,
   0.01/0.01/0.03/0.08 s; chain depth with one access to the root member,
   0.01/0.02/0.04/0.09 s; 11.4p1 protected accesses through a five-deep chain,
   0.00/0.00/0.01/0.02 s; classes in a chain with nothing used,
-  0.01/0.02/0.04/0.09 s.
-- Re-measured after the audit, each doubling 2.0x-2.3x: a chain of
-  100/200/400/800/1600 derived classes, each with its own member and
-  constructor, an object of the last one and a member of the first named on it,
-  0.00/0.01/0.02/0.05/0.10 s; 500/1000/2000/4000 classes each deriving from one
-  base, constructed and called, 0.04/0.09/0.20/0.43 s.
+  0.01/0.02/0.04/0.09 s; a chain of 100/200/400/800/1600 derived classes each
+  with its own member and constructor, 0.00/0.01/0.02/0.05/0.10 s;
+  500/1000/2000/4000 classes each deriving from one base, constructed and
+  called, 0.04/0.09/0.20/0.43 s.
 - Measured earlier and unchanged, each doubling about 2.1x-2.3x: 4000 default
   member initializers in one class, 0.06 s; 4000 mem-initializers in one
   constructor, 0.07 s; 4000 locals with destructors in one block, 0.09 s; 4000
@@ -191,8 +211,9 @@ associated namespaces reach, with 13.6's built-in candidates alongside them.
 | --- | --- | --- |
 | C1 | member function call + class object in LowIR: field offsets, `.`/`->`/implicit `this`, implicit object argument in 13.3.1, `constructor-action` lowering with trivial elision, demand-driven inline emission, 9.4.2p3 static-member folding, member-function ABI names | 33 -> 55 / 243; pa1-pa15 clean |
 | C2 | 11 access control (per-member access, checked on `.`/`->`/qualified names), 8.5.1 aggregate initialization (brace elision, string-literal array members, value-initialized tails, static data for namespace-scope aggregates), 8.5.4p7 narrowing, 7.6.2 `alignas` on a class-head | 55 -> 65 / 243; pa1-pa15 clean; valgrind clean on the new paths |
-| audit of C1-C2 | 9.4.2p2's definition told from its declaration by the declarator-id; 12.6.2p8 refused rather than dropped; 7.6.2p1's type-id form; 5.2.5p1's object expression kept or refused, never dropped; 13.3.3.2p3 ordering two sequences that differ only in qualifiers; 11p6's naming context; 9.3p2 read from where the definition is written; O(n^2) slot naming | 65 -> 70 / 243; pa1-pa15 1173/1173; valgrind clean over 249 inputs; every axis linear; stripped metadata diffed against the refs; findings and evidence in `audit.md` |
-| C3 | 12.1/12.4 user-declared constructors and destructors in a class body, chained on the class; 13.3.1.3/13.3.1.4/8.5.4p3 constructor selection over 8.5's four initializer forms with `explicit`; 12.6.2 member initializations in declaration order, 12.6.2p8 default member initializers, 12.4p8 member destructions; 3.8p1 lifetime at block exit, at `return` and in 3.6.3p1's `@__cppgm_fini`; 8.4.2/8.4.3 `= default` and `= delete`; 12.8p31 copy elision from a value of the object's own type; 5.2.4 explicit destructor calls; C1/C2 and D1/D2 ABI names with the `alias object` line | 70 -> 102 / 243; pa1-pa15 1173/1173; valgrind clean on the new paths; every new axis linear |
-| audit of C3 | six ways out of a region that ended no lifetime - `break`, `continue`, `goto`, the for-init-statement's own region, a static data member at shutdown, an aggregate initialized from braces - with the block-scope `static` written as an automatic object; 9.3.2p1's `this` in a destructor separated from 12.4p12's object parameter; a deleted destructor refused where the object is declared; `= T(...)` no longer refused as copy-list-initialization; a mem-initializer that names nothing refused and one written twice refused; 9.3p2's inline read from where the definition is written, not from the declaration; one `_` per character an identifier cannot hold, so two names never flatten to one; the goto check made a carried count | 102 / 243 held, none newly failing; pa1-pa15 1173/1173; valgrind clean over 273 inputs; every axis linear at 2.1-2.3x; stripped metadata clean against the refs but for `unwind=no`; findings and evidence in `audit.md` |
-| C4 | 10p1's base-clause read before the members and recorded on the class and its region; 9.2p13 layout with the base subobject at offset 0 and no storage for an empty one; 9p2's injected-class-name; 10.2p2/p6 lookup through the base chain, qualified and unqualified, with the derived class hiding the base; 11.2p2's default base access, 11.2p4 on every derived-to-base conversion, 11.4p1's protected member from a derived class; 12.6.2p5's base initialization first, by its own name or an alias of it, and 12.4p8's base destruction last; 12.1p5/12.4p3 triviality through the base, and no node at all for a subobject whose initialization does nothing; 4.10p3, 8.5.3p4 and 5.2.9p11's conversions as one `base-conversion` node, 13.3.3.1.4p1's rank and 13.3.3.2p4's ordering of them; 5.9p2's composite pointer type; 5.2.9p4's discarded class operand; 5.16p3's conditional whose two glvalue operands are a class and a base of it, with 8.5.3p5's reference initializer read for the object it binds rather than for its value; the object model split out into `sema_class.cpp` | 102 -> 126 / 243; pa1-pa15 1173/1173; valgrind clean over 243 inputs and the sweeps; depth, multiplicity and access axes all 2.0x-2.5x per doubling |
-| audit of C4 | one derived-to-base conversion written as one node however many classes it spans, where the walk of the chain per link had emitted n*d instructions for n accesses d deep; 11.2p5 asked of every link rather than the first; 5.16p6's operands brought to the composite pointer type; 8.5.3p4's base half of reference-related, so `static_cast<Base&>` binds the base subobject; 5.2.9p11's reference downcast written and its pointer downcast access-checked; 12.4p11's destructor access asked for an object, a member and a base; 11.4p1's additional check on a protected member named through an object; the ABI entry a constructor or destructor stands under made a fact the analysis records, so a class only ever used as a base carries the base-object entry alone; a reference member's binding no longer claiming `projection=reference_field`; the dead helpers and reordered initializer the split left behind | 126 / 243 held, none newly failing; five `.ref` files now byte for byte identical and the passing fixtures differing from the reference at all down from 39 to 34; pa1-pa15 1173/1173; valgrind clean over 243 fixtures and 88 probes; every axis linear at 2.0-2.3x and the n*d output blow-up gone; stripped metadata - now including `projection=` - clean against the refs but for `unwind=no`; findings and evidence in `audit.md` |
+| audit of C1-C2 | 9.4.2p2's definition told from its declaration by the declarator-id; 12.6.2p8 refused rather than dropped; 7.6.2p1's type-id form; 5.2.5p1's object expression kept or refused, never dropped; 13.3.3.2p3 ordering two sequences that differ only in qualifiers; 11p6's naming context; 9.3p2 read from where the definition is written; O(n^2) slot naming | 65 -> 70 / 243; pa1-pa15 1173/1173; valgrind clean over 249 inputs; every axis linear |
+| C3 | 12.1/12.4 user-declared constructors and destructors in a class body, chained on the class; 13.3.1.3/13.3.1.4/8.5.4p3 constructor selection over 8.5's four initializer forms with `explicit`; 12.6.2 member initializations in declaration order, 12.6.2p8 default member initializers, 12.4p8 member destructions; 3.8p1 lifetime at block exit, at `return` and in 3.6.3p1's `@__cppgm_fini`; 8.4.2/8.4.3 `= default` and `= delete`; 12.8p31 copy elision from a value of the object's own type; 5.2.4 explicit destructor calls; C1/C2 and D1/D2 ABI names with the `alias object` line | 70 -> 102 / 243; pa1-pa15 1173/1173; valgrind clean on the new paths |
+| audit of C3 | six ways out of a region that ended no lifetime - `break`, `continue`, `goto`, the for-init-statement's own region, a static data member at shutdown, an aggregate initialized from braces; 9.3.2p1's `this` in a destructor separated from 12.4p12's object parameter; a deleted destructor refused where the object is declared; `= T(...)` no longer refused; a mem-initializer that names nothing or is written twice refused; 9.3p2's inline read from where the definition is written; one `_` per character an identifier cannot hold; the goto check made a carried count | 102 / 243 held; pa1-pa15 1173/1173; valgrind clean over 273 inputs; every axis linear |
+| C4 | 10p1's base-clause recorded on the class and its region; 9.2p13 layout with the base subobject at offset 0; 9p2's injected-class-name; 10.2p2/p6 lookup through the base chain; 11.2p2/p4 and 11.4p1's access; 12.6.2p5's base initialization first and 12.4p8's base destruction last; 12.1p5/12.4p3 triviality through the base; 4.10p3, 8.5.3p4 and 5.2.9p11's conversions as one `base-conversion` node with 13.3.3.1.4p1's rank; 5.9p2's composite pointer type; 5.16p3's conditional over a class and a base of it; the object model split out into `sema_class.cpp` | 102 -> 126 / 243; pa1-pa15 1173/1173; valgrind clean over 243 inputs and the sweeps |
+| audit of C4 | one derived-to-base conversion written as one node however many classes it spans; 11.2p5 asked of every link; 5.16p6's operands brought to the composite pointer type; 8.5.3p4's base half of reference-related; 5.2.9p11's reference downcast written and its pointer downcast access-checked; 12.4p11's destructor access asked for an object, a member and a base; 11.4p1's additional check on a protected member named through an object; the ABI entry a constructor or destructor stands under made a fact the analysis records | 126 / 243 held; five `.ref` files newly byte-identical; pa1-pa15 1173/1173; valgrind clean over 243 fixtures and 88 probes; the n*d output blow-up gone |
+| C5 | 13.3.1.2p1 an operator on a class or enumeration operand read as the call it stands for - member candidates from 13.3.1.2p3, non-member ones from ordinary lookup with the member functions left out, 13.3.1.2p4's first operand offered to both, and the built-in operator left to the caller where nothing is viable; 13.5.7p1's `x++0`; 13.5.3/13.5.4/13.5.5's member-only `= () []`; 13.5p6's rule on a non-member operator; 11.3p6 a friend declared into the innermost enclosing namespace and bound nowhere, 7.3.1.2p3 revealed by a matching declaration there, 11.3p11's elaborated-type-specifier declared in that namespace too, 11.3p1/p2's grant and 11.2p5's naming class; 3.4.2p1/p2/p3's associated namespaces and classes and the friend declarations they make visible; 3.4.3's prefixes tried outward, without which `nnn::f(a)` parsed as a declaration; 3.2p3's uses read from the whole resolved tree; two operator functions of one region no longer collapsing onto one internal symbol | 126 -> 161 / 243; pa1-pa15 1173/1173; valgrind clean over the 42 operator, friend and ADL fixtures and the sweeps; chain, nesting, namespace-depth, ADL-multiplicity and reveal axes all linear, and the one quadratic axis - n overloads ranked by n calls - made quadratic rather than cubic |
