@@ -571,18 +571,35 @@ SemaAnalyzer::Value SemaAnalyzer::list_initialize(const AstNode& node,
 	const TypeId wanted = types_.is_reference(target)
 		? types_.target(target)
 		: types_.strip_cv(target);
-	if (node.children.size() > 1)
-	{
-		throw std::runtime_error("a braced-init-list initializes a scalar with "
-		                         "more than one value");
-	}
 	DumpNode& line = open_fact(
 		parent, spell("braced-init-list", ValueCategory::LValue, target,
 		              std::string()),
 		FactKind::BracedInitList);
 	line.fact.type = target;
 	line.fact.spelled = target;
-	if (!node.children.empty())
+	line.fact.category = ValueCategory::LValue;
+	if (types_.kind(wanted) == TypeKind::Array)
+	{
+		// 8.5.1p2 and 8.5.1p3: the clauses initialize the elements in order,
+		// and an element that is itself an aggregate takes the list written
+		// for it.  8.5.1p6 leaves no element for a clause beyond the last.
+		if (types_.bounded(wanted) && node.children.size() > types_.bound(wanted))
+		{
+			throw std::runtime_error("an array initializer has more clauses "
+			                         "than the array has elements");
+		}
+		const TypeId element = types_.target(wanted);
+		for (std::size_t index = 0; index < node.children.size(); ++index)
+		{
+			initialize(*node.children[index], element, ctx, line);
+		}
+	}
+	else if (node.children.size() > 1)
+	{
+		throw std::runtime_error("a braced-init-list initializes a scalar with "
+		                         "more than one value");
+	}
+	else if (!node.children.empty())
 	{
 		initialize(*node.children[0], wanted, ctx, line);
 	}

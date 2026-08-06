@@ -49,6 +49,12 @@ const DumpNode* only_child(const DumpNode& node)
 	return node.children.empty() ? nullptr : node.children[0];
 }
 
+// How many bytes of value-initialization are still written as the elements
+// they are.  Beyond this the elements stop being what the reader wants to see
+// and the storage starts being it, and a span written by hand would also grow
+// with a bound the source only wrote a number for.
+const unsigned long long kZeroSpanLimit = 64;
+
 }  // namespace
 
 LowirFunctionLowering::LowirFunctionLowering(LowirUnitLowering& unit,
@@ -2055,7 +2061,19 @@ void LowirFunctionLowering::initialize_array(const Operand& storage,
 	base.lvalue = true;
 	base.operand = storage;
 	const Operand address = address_of(base);
-	for (unsigned long long index = 0; index < bound; ++index)
+	// 8.5p7: the elements no clause reached are value-initialized, which is one
+	// span of zero bytes.  A scalar element is still written one store at a
+	// time while there are few enough for that to be a description of the
+	// elements; past that, and for an element no single store can hold, the
+	// span is what the initialization is, and `zeroinit` is how LowIR spells
+	// one.
+	const unsigned long long left = (bound - node.children.size()) * stride;
+	const bool spelled_elementwise =
+		unit_.low_type(element).text.compare(0, 4, "obj<") != 0 &&
+		left <= kZeroSpanLimit;
+	const unsigned long long written =
+		spelled_elementwise ? bound : node.children.size();
+	for (unsigned long long index = 0; index < written; ++index)
 	{
 		Operand at = address;
 		if (index != 0)
@@ -2075,4 +2093,25 @@ void LowirFunctionLowering::initialize_array(const Operand& storage,
 		}
 		store(literal_operand(element, 0), at, element);
 	}
+	if (spelled_elementwise || left == 0)
+	{
+		return;
+	}
+	Operand at = address;
+	if (written != 0)
+	{
+		Instruction step;
+		step.kind = Instruction::IK_INDEX;
+		step.type.text = "i8";
+		step.first = address;
+		step.second =
+			named_operand(Operand::OP_INTEGER, decimal(written * stride));
+		at = emit(step);
+	}
+	Instruction zero;
+	zero.kind = Instruction::IK_ZEROINIT;
+	zero.byte_count = left;
+	zero.byte_alignment = types.object_align(types.strip_cv(element));
+	zero.first = at;
+	emit_void(zero);
 }

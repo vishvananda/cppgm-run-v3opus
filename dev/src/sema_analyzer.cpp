@@ -1477,35 +1477,10 @@ void SemaAnalyzer::write_initializer(const AstNode& initializer, TypeId type,
 		}
 		return;
 	}
-	if (initializer.kind != AstKind::BracedInitList)
-	{
-		initialize(initializer, type, ctx, line);
-		return;
-	}
 	// 8.5.1: an aggregate is initialized from the clauses of its list, each
-	// initializing one element.
-	DumpNode& list = open_fact(
-		line, spell("braced-init-list", ValueCategory::LValue, type,
-		            std::string()),
-		FactKind::BracedInitList);
-	list.fact.type = type;
-	list.fact.spelled = type;
-	list.fact.category = ValueCategory::LValue;
-	const TypeId element = types_.kind(type) == TypeKind::Array
-		? types_.target(type)
-		: type;
-	if (types_.kind(type) == TypeKind::Array && types_.bounded(type) &&
-	    initializer.children.size() > types_.bound(type))
-	{
-		// 8.5.1p6: an aggregate has as many elements as it was declared with,
-		// and a list with more clauses than that initializes nothing.
-		throw std::runtime_error("an array initializer has more clauses than "
-		                         "the array has elements");
-	}
-	for (std::size_t index = 0; index < initializer.children.size(); ++index)
-	{
-		initialize(*initializer.children[index], element, ctx, list);
-	}
+	// initializing one element, which is the same reading a list standing
+	// where an expression initializes an object gets.
+	initialize(initializer, type, ctx, line);
 }
 
 void SemaAnalyzer::declare_parameters(const std::vector<Parameter>& parameters,

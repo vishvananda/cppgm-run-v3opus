@@ -614,8 +614,16 @@ void LowirUnitLowering::global_array_initializer(
 		                         "the array has elements");
 	}
 	const bool addressed = types_.kind(types_.strip_cv(element)) == TypeKind::Pointer;
+	const bool aggregate = types_.kind(types_.strip_cv(element)) == TypeKind::Array;
 	for (std::size_t index = 0; index < clauses; ++index)
 	{
+		if (aggregate)
+		{
+			// 8.5.1p3: an element that is itself an aggregate holds what its own
+			// list says, so its items are this one's items in the same order.
+			global_array_initializer(global, node->children[index], element);
+			continue;
+		}
 		lowir_model::GlobalDefinition::DataItem item;
 		item.type = low_type(element);
 		std::string symbol;
