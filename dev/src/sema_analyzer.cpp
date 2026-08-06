@@ -1067,6 +1067,8 @@ void SemaAnalyzer::enumerators(const AstNode& node, SemaEntity& entity,
 	Scope& scope = *entity.scope;
 	const bool scoped = types_.is_scoped_enum(entity.type);
 	unsigned long long next = 0;
+	unsigned long long widest = 0;
+	bool signed_values = false;
 	for (std::size_t index = 0; index < node.children.size(); ++index)
 	{
 		const AstNode& child = *node.children[index];
@@ -1075,15 +1077,29 @@ void SemaAnalyzer::enumerators(const AstNode& node, SemaEntity& entity,
 			continue;
 		}
 		unsigned long long value = next;
+		bool negative = false;
 		if (!child.children.empty())
 		{
 			// 7.2p1: the constant-expression of an enumerator-definition.
 			Context inner;
 			inner.scope = &scope;
 			inner.dump = &dump;
-			value = evaluate(*child.children[0], inner).bits;
+			const Constant written = evaluate(*child.children[0], inner);
+			value = written.bits;
+			negative = is_signed(written.type) &&
+				(value >> (width_of(written.type) - 1)) != 0;
 		}
 		next = value + 1;
+		// 7.2p5: the range of the enumeration is the values its enumerators
+		// have, which is what says which type represents them all.
+		if (negative)
+		{
+			signed_values = true;
+		}
+		else if (value > widest)
+		{
+			widest = value;
+		}
 
 		SemaEntity& enumerator =
 			model_.create(SemaKind::Enumerator, child.text, entity.type);
@@ -1104,6 +1120,26 @@ void SemaAnalyzer::enumerators(const AstNode& node, SemaEntity& entity,
 		dump.lines.push_back("enumerator " + child.text + " " + spelling + " " +
 		                     spell_value(entity.type, value));
 	}
+	// 4.5p3 and 7.2p5: the first of `int`, `unsigned int`, `long` and
+	// `unsigned long` that represents every value the enumeration has, which is
+	// what an operand of it is promoted to.
+	EFundamentalType promotion = FT_INT;
+	if (widest > 0x7FFFFFFFull)
+	{
+		if (widest <= 0xFFFFFFFFull && !signed_values)
+		{
+			promotion = FT_UNSIGNED_INT;
+		}
+		else if (widest <= 0x7FFFFFFFFFFFFFFFull)
+		{
+			promotion = FT_LONG_INT;
+		}
+		else
+		{
+			promotion = FT_UNSIGNED_LONG_INT;
+		}
+	}
+	entity.promotion = types_.fundamental(promotion);
 }
 
 void SemaAnalyzer::simple_declaration(const AstNode& node, const Context& ctx)

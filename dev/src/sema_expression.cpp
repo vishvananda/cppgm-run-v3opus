@@ -215,7 +215,18 @@ TypeId SemaAnalyzer::promoted(TypeId type)
 	{
 		return bare;
 	}
-	// 4.5p3: an unscoped enumeration is promoted through its underlying type.
+	// 4.5p3: an unscoped enumeration is promoted to the first type that
+	// represents every value it has, which its declaration worked out once the
+	// enumerators were read.  An enumeration whose values all fit in `int` is
+	// promoted through its underlying type, as every other integral type is.
+	if (types_.kind(bare) == TypeKind::Enum)
+	{
+		const SemaEntity* const declared = model_.type_owner(bare);
+		if (declared != nullptr && declared->promotion != kNoType)
+		{
+			return declared->promotion;
+		}
+	}
 	const TypeId arithmetic =
 		types_.kind(bare) == TypeKind::Enum ? types_.target(bare) : bare;
 	if (!types_.is_integral(arithmetic))

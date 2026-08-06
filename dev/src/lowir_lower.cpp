@@ -81,17 +81,25 @@ std::string LowirSymbolTable::object_symbol(const SemaEntity& entity)
 	return flatten_name(entity.dump_name);
 }
 
-LowirUnitLowering::LowirUnitLowering(TypeTable& types,
-                                     lowir_model::Program& program,
-                                     LowirSymbolTable& symbols,
-                                     std::unordered_set<std::string>& defined,
-                                     std::unordered_set<std::string>& declared)
-	: types_(types)
-	, program_(program)
-	, symbols_(symbols)
-	, defined_(defined)
-	, declared_(declared)
+LowirProgramBuilder::LowirProgramBuilder()
+	: has_startup_(false)
 {}
+
+LowirUnitLowering::LowirUnitLowering(TypeTable& types,
+                                     LowirProgramBuilder& builder)
+	: types_(types)
+	, builder_(builder)
+	, program_(builder.program_)
+	, symbols_(builder.symbols_)
+	, defined_(builder.defined_)
+	, declared_(builder.declared_)
+	, startup_(nullptr)
+{}
+
+LowirUnitLowering::~LowirUnitLowering()
+{
+	delete startup_;
+}
 
 bool LowirUnitLowering::is_signed(TypeId type)
 {
@@ -192,8 +200,19 @@ void LowirUnitLowering::describe_symbol(const SemaEntity& entity,
 
 void LowirProgramBuilder::add_unit(const DumpNode& unit, TypeTable& types)
 {
-	LowirUnitLowering lowering(types, program_, symbols_, defined_, declared_);
+	LowirUnitLowering lowering(types, *this);
 	lowering.run(unit);
+}
+
+void LowirProgramBuilder::finish()
+{
+	if (!has_startup_)
+	{
+		return;
+	}
+	program_.functions.push_back(startup_);
+	has_startup_ = false;
+	startup_ = lowir_model::Function();
 }
 
 void LowirUnitLowering::run(const DumpNode& unit)
@@ -206,6 +225,10 @@ void LowirUnitLowering::run(const DumpNode& unit)
 	for (std::size_t index = 0; index < unit.children.size(); ++index)
 	{
 		declaration(*unit.children[index]);
+	}
+	if (startup_ != nullptr)
+	{
+		startup_->close_generated();
 	}
 }
 
@@ -387,17 +410,25 @@ void LowirUnitLowering::global_variable(const DumpNode& node)
 		// says, or zero when the list is empty.
 		written = written->children.empty() ? nullptr : written->children[0];
 	}
+	const DumpNode* dynamic = nullptr;
 	if (types_.kind(types_.strip_cv(type)) == TypeKind::Array ||
 	    types_.kind(types_.strip_cv(type)) == TypeKind::Class)
 	{
 		global.structured = true;
 		global_array_initializer(global, written, type);
 	}
-	else if (written != nullptr)
+	else if (written != nullptr && !global_initializer(global, *written, type))
 	{
-		global_initializer(global, *written, type);
+		// 3.6.2p2: an object whose initializer is not a constant starts as
+		// zero and is given its value before the program runs.
+		global.init_kind = lowir_model::GlobalDefinition::INIT_ZERO;
+		dynamic = written;
 	}
 	program_.globals.push_back(global);
+	if (dynamic != nullptr)
+	{
+		dynamic_initializer(entity, *dynamic, type);
+	}
 }
 
 // 3.6.2p2 over the resolved tree: the address a constant initializer names.
@@ -463,7 +494,7 @@ bool LowirUnitLowering::global_address(const DumpNode& node,
 	return true;
 }
 
-void LowirUnitLowering::global_initializer(lowir_model::GlobalDefinition& global,
+bool LowirUnitLowering::global_initializer(lowir_model::GlobalDefinition& global,
                                            const DumpNode& node, TypeId type)
 {
 	// 3.6.2p2: a namespace-scope object with a constant initializer holds that
@@ -478,17 +509,39 @@ void LowirUnitLowering::global_initializer(lowir_model::GlobalDefinition& global
 		global.init_operand.kind = lowir_model::Operand::OP_GLOBAL;
 		global.init_operand.text = symbol;
 		global.addr_addend = addend;
-		return;
+		return true;
 	}
 	unsigned long long bits = 0;
 	if (!folded(node, bits))
 	{
-		throw std::runtime_error("a namespace-scope object is initialized by an "
-		                         "expression PA15 does not lower");
+		return false;
 	}
 	global.init_kind = lowir_model::GlobalDefinition::INIT_INTEGER;
 	global.init_operand.kind = lowir_model::Operand::OP_INTEGER;
 	global.init_operand.text = spell_value(type, bits);
+	return true;
+}
+
+void LowirUnitLowering::dynamic_initializer(const SemaEntity& entity,
+                                            const DumpNode& node, TypeId type)
+{
+	if (startup_ == nullptr)
+	{
+		if (!builder_.has_startup_)
+		{
+			builder_.has_startup_ = true;
+			builder_.startup_.name = "__cppgm_init";
+			builder_.startup_.return_type = low("void");
+			builder_.startup_.metadata.role = lowir_model::SR_INIT;
+			builder_.startup_.metadata.binding = lowir_model::SBM_INTERNAL;
+		}
+		startup_ = new LowirFunctionLowering(*this, builder_.startup_);
+		startup_->open_generated();
+	}
+	lowir_model::Operand storage;
+	storage.kind = lowir_model::Operand::OP_GLOBAL;
+	storage.text = global_symbol(entity);
+	startup_->add_initialization(storage, type, node);
 }
 
 void LowirUnitLowering::global_array_initializer(

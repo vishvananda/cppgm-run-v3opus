@@ -347,12 +347,17 @@ void SemaAnalyzer::return_statement(const AstNode& node, const Context& ctx,
 	{
 		return;
 	}
-	// 6.6.3p2: a return statement with an expression can be used only in a
-	// function returning a value.
 	if (types_.is_void(returns_))
 	{
-		throw std::runtime_error("a value is returned from a function that "
-		                         "returns void");
+		// 6.6.3p3: a function returning `void` may still return an expression,
+		// as long as that expression is itself of type `void`.
+		const Value value = expression(*node.children[0], ctx, line);
+		if (!types_.is_void(value.type))
+		{
+			throw std::runtime_error("a value is returned from a function that "
+			                         "returns void");
+		}
+		return;
 	}
 	initialize(*node.children[0], returns_, ctx, line);
 }

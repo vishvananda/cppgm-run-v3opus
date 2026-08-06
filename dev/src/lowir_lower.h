@@ -11,6 +11,7 @@
 
 struct DumpNode;
 struct SemaEntity;
+class LowirFunctionLowering;
 
 // The PA15 source-to-LowIR lowering.
 //
@@ -79,10 +80,16 @@ private:
 class LowirProgramBuilder
 {
 public:
+	LowirProgramBuilder();
+
 	// Lowers one analysed translation unit into the program being built.
 	// `types` answers what a type is; both belong to the analysis that
 	// produced `unit` and are read, never changed.
 	void add_unit(const DumpNode& unit, TypeTable& types);
+
+	// Closes what the program as a whole owns, which is the initialization
+	// 3.6.2 gives the objects no constant initializes.
+	void finish();
 
 	const lowir_model::Program& program() const { return program_; }
 
@@ -93,6 +100,10 @@ private:
 	// translation unit that declares the same entity adds nothing.
 	std::unordered_set<std::string> defined_;
 	std::unordered_set<std::string> declared_;
+	// 3.6.2p2: the actions the objects with no constant initializer need before
+	// the program starts, as the one function that runs them in order.
+	lowir_model::Function startup_;
+	bool has_startup_;
 
 	friend class LowirFunctionLowering;
 	friend class LowirUnitLowering;
@@ -102,10 +113,8 @@ private:
 class LowirUnitLowering
 {
 public:
-	LowirUnitLowering(TypeTable& types, lowir_model::Program& program,
-	                  LowirSymbolTable& symbols,
-	                  std::unordered_set<std::string>& defined,
-	                  std::unordered_set<std::string>& declared);
+	LowirUnitLowering(TypeTable& types, LowirProgramBuilder& builder);
+	~LowirUnitLowering();
 
 	void run(const DumpNode& unit);
 
@@ -144,7 +153,9 @@ private:
 	void function_declaration(const DumpNode& node);
 	// 3.6.2 and 8.5p6: the constant a namespace-scope object is initialized
 	// with, as the data the global definition holds.
-	void global_initializer(lowir_model::GlobalDefinition& global,
+	// False when the initializer names no value or address the translation
+	// knows, which 3.6.2p2 makes an action rather than data.
+	bool global_initializer(lowir_model::GlobalDefinition& global,
 	                        const DumpNode& node, TypeId type);
 	// 3.6.2 and 5.19: the address a constant initializer names, as the symbol
 	// it is an address in and the byte offset into it.  False when the
@@ -160,11 +171,20 @@ private:
 	// The declaration of `entity` as a function, without a body.
 	void add_function_declaration(const SemaEntity& entity);
 
+	// 3.6.2p2: the action a namespace-scope object with no constant initializer
+	// needs, added to the program's one startup function.
+	void dynamic_initializer(const SemaEntity& entity, const DumpNode& node,
+	                         TypeId type);
+
 	TypeTable& types_;
+	LowirProgramBuilder& builder_;
 	lowir_model::Program& program_;
 	LowirSymbolTable& symbols_;
 	std::unordered_set<std::string>& defined_;
 	std::unordered_set<std::string>& declared_;
+	// The walk of the startup function, opened by the first object that needs
+	// it, so the actions of one unit are emitted into one body in order.
+	LowirFunctionLowering* startup_;
 };
 
 // One function body, lowered.
@@ -179,6 +199,14 @@ public:
 	// Lowers the parameters and body written under `node`, which is a
 	// `function-definition` of the resolved tree.
 	void run(const DumpNode& node, TypeId type);
+
+	// A body with no source declaration behind it: an entry block is opened,
+	// actions are added to it, and the whole is closed as a `void` function.
+	// 3.6.2p2 initialization is the one such body PA15 generates.
+	void open_generated();
+	void add_initialization(const lowir_model::Operand& storage, TypeId type,
+	                        const DumpNode& node);
+	void close_generated();
 
 private:
 	// Statements.
@@ -223,6 +251,13 @@ private:
 	LowValue logical_expression(const DumpNode& node);
 	LowValue assignment_expression(const DumpNode& node);
 	LowValue conditional_expression(const DumpNode& node, bool as_object);
+	// 5.16 where the value is thrown away: the arms are still alternatives and
+	// still run, but neither has a value for a slot to hold.
+	void discarded_conditional(const DumpNode& node);
+	// 5.14p1 and 5.15p1: whether the left operand alone decides a short
+	// circuit, which is what keeps the right one - and every symbol it names -
+	// out of the program entirely.
+	static bool decided_logical(const DumpNode& node, unsigned long long& value);
 	LowValue subscript_expression(const DumpNode& node);
 	LowValue cast_expression(const DumpNode& node, bool as_object);
 	// 5.6 to 5.13: the value a built-in binary operator computes from two

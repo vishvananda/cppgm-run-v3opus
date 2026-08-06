@@ -97,6 +97,7 @@ SemaEntity& SemaModel::create(SemaKind kind, const std::string& name, TypeId typ
 	entity.defined = false;
 	entity.constant = false;
 	entity.object_definition = false;
+	entity.promotion = kNoType;
 	entity.value = 0;
 	entity.next = nullptr;
 	entity.tail = nullptr;

@@ -64,6 +64,7 @@ void emit_lowir(const std::string& outfile,
 		analyzer.run(*root);
 		builder.add_unit(analyzer.resolved(), analyzer.types());
 	}
+	builder.finish();
 	// The PA13 validator also holds a program to the runtime roles a linked
 	// program has.  What this mode writes is the LowIR of the translation units
 	// on the command line, which need not be a whole program, so the structural

@@ -124,6 +124,12 @@ struct SemaEntity
 	// This entity among the run's, which is how a fact about it is keyed - the
 	// same use `Scope::id` is put to for a region.
 	std::uint32_t id;
+	// 4.5p3: the type an unscoped enumeration is promoted to, which 7.2p5
+	// makes the first of `int`, `unsigned int`, `long` and `unsigned long`
+	// that represents every value the enumeration has.  It is known only once
+	// the enumerators have been read, so it is held on the declaration rather
+	// than in the type the declaration made.
+	TypeId promotion;
 	// 3.1p2: whether a declaration of an object also defines it.  An `extern`
 	// declaration with no initializer declares the object without defining it,
 	// which is the one thing that tells a use of a name in another translation

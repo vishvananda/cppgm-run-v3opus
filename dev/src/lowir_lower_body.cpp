@@ -441,6 +441,13 @@ Operand LowirFunctionLowering::converted(const LowValue& value, TypeId target)
 	{
 		return operand;
 	}
+	if (value.constant && types.kind(wanted) == TypeKind::Pointer &&
+	    types.is_integral(types.strip_cv(value.type)))
+	{
+		// 4.10p1: the constant is the null pointer value it stands for, and
+		// nothing computes it.
+		return named_operand(Operand::OP_INTEGER, "0");
+	}
 	if (value.constant && types.is_integral(wanted) &&
 	    types.is_integral(types.strip_cv(value.type)) &&
 	    (unit_.is_signed(wanted) ||
@@ -583,6 +590,38 @@ bool LowirFunctionLowering::holds_label(const DumpNode& node)
 	return false;
 }
 
+void LowirFunctionLowering::open_generated()
+{
+	returns_ = kNoType;
+	open_block("entry");
+}
+
+void LowirFunctionLowering::add_initialization(const Operand& storage,
+                                               TypeId type,
+                                               const DumpNode& node)
+{
+	TypeTable& types = unit_.types();
+	if (types.is_reference(type))
+	{
+		const LowValue bound = expression(node, true);
+		store(address_of(bound), storage, type);
+		return;
+	}
+	initialize(storage, type, node);
+}
+
+void LowirFunctionLowering::close_generated()
+{
+	if (terminated())
+	{
+		return;
+	}
+	Instruction instruction;
+	instruction.kind = Instruction::IK_RETURN;
+	instruction.type.text = "void";
+	terminate(instruction);
+}
+
 void LowirFunctionLowering::statement(const DumpNode& node)
 {
 	if (terminated() && !holds_label(node))
@@ -693,11 +732,19 @@ void LowirFunctionLowering::arm(const DumpNode& node)
 void LowirFunctionLowering::expression_statement(const DumpNode& node)
 {
 	const DumpNode* const written = only_child(node);
-	if (written != nullptr)
+	if (written == nullptr)
 	{
-		// 6.2p1: the value is computed and discarded.
-		expression(*written);
+		return;
 	}
+	if (written->fact.kind == FactKind::Conditional)
+	{
+		// 6.2p1 and 5.16: both arms still run, and neither has a value the
+		// statement keeps.
+		discarded_conditional(*written);
+		return;
+	}
+	// 6.2p1: the value is computed and discarded.
+	expression(*written);
 }
 
 void LowirFunctionLowering::local_variable(const DumpNode& node)
@@ -738,7 +785,15 @@ void LowirFunctionLowering::return_statement(const DumpNode& node)
 		terminate(instruction);
 		return;
 	}
-	const LowValue value = expression(*node.children[0]);
+	const LowValue value =
+		expression(*node.children[0], types.is_reference(returns_));
+	if (types.is_void(types.strip_cv(value.type)))
+	{
+		// 6.6.3p3: the expression was evaluated for what it does, and there is
+		// no value for the return to carry.
+		terminate(instruction);
+		return;
+	}
 	instruction.first = converted(value, returns_);
 	terminate(instruction);
 }
@@ -1215,6 +1270,18 @@ LowValue LowirFunctionLowering::cast_expression(const DumpNode& node,
 		rvalue(source);
 		return value;
 	}
+	if (types.kind(types.strip_cv(value.type)) == TypeKind::Pointer &&
+	    types.is_integral(types.strip_cv(source.type)))
+	{
+		// 5.2.10p5: the cast reads the integer as an address, which is the same
+		// bits under another type.
+		Instruction instruction;
+		instruction.kind = Instruction::IK_COPY;
+		instruction.type.text = "ptr";
+		instruction.first = rvalue(source);
+		value.operand = emit(instruction);
+		return value;
+	}
 	if (source.constant && types.is_integral(types.strip_cv(value.type)) &&
 	    types.is_integral(types.strip_cv(source.type)))
 	{
@@ -1614,6 +1681,18 @@ LowValue LowirFunctionLowering::logical_expression(const DumpNode& node)
 	// integer, so a slot holds what each side decided and the uses of the
 	// expression read it once.
 	const bool conjunction = node.fact.op == OP_LAND;
+	unsigned long long decided = 0;
+	if (decided_logical(node, decided))
+	{
+		// 5.14p1: the right operand is not evaluated, so nothing it names is
+		// part of the program.
+		LowValue value;
+		value.type = node.fact.type;
+		value.constant = true;
+		value.value = decided;
+		value.operand = literal_operand(value.type, decided);
+		return value;
+	}
 	lowir_model::LowType held;
 	held.text = "i64";
 	const std::string slot =
@@ -1670,7 +1749,7 @@ LowValue LowirFunctionLowering::assignment_expression(const DumpNode& node)
 		// written into, and the result is that object.  The value is what the
 		// assignment computes, so it is computed before the object it is
 		// written into is named.
-		const LowValue right = expression(*node.children[1]);
+		const LowValue right = as_value(expression(*node.children[1]));
 		const LowValue target = expression(*node.children[0], true);
 		const TypeId written_type = types.strip_cv(target.type);
 		const Operand written = converted(right, written_type);
@@ -1758,6 +1837,43 @@ LowValue LowirFunctionLowering::conditional_expression(const DumpNode& node,
 	value.operand = emit(read);
 	value.lvalue = addressed;
 	return value;
+}
+
+void LowirFunctionLowering::discarded_conditional(const DumpNode& node)
+{
+	const std::string then_label = reserve_block("discard_cond_then");
+	const std::string else_label = reserve_block("discard_cond_else");
+	const std::string end_label = reserve_block("discard_cond_end");
+	const LowValue condition = expression(*node.children[0]);
+	branch(truth_for_branch(condition), then_label, else_label);
+	for (unsigned arm = 0; arm < 2; ++arm)
+	{
+		open_block(arm == 0 ? then_label : else_label);
+		expression(*node.children[arm + 1]);
+		if (!terminated())
+		{
+			jump(end_label);
+		}
+	}
+	open_block(end_label);
+}
+
+bool LowirFunctionLowering::decided_logical(const DumpNode& node,
+                                            unsigned long long& value)
+{
+	if (node.children.empty() || !node.children[0]->fact.constant ||
+	    !node.children[0]->fact.spelling.empty())
+	{
+		return false;
+	}
+	const bool conjunction = node.fact.op == OP_LAND;
+	const bool truth = node.children[0]->fact.value != 0;
+	if (conjunction == truth)
+	{
+		return false;
+	}
+	value = truth ? 1 : 0;
+	return true;
 }
 
 LowValue LowirFunctionLowering::subscript_expression(const DumpNode& node)
