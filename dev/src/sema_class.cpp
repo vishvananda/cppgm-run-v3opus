@@ -1053,11 +1053,21 @@ void SemaAnalyzer::inject_union_members(SemaEntity* entity, const Context& ctx,
 // parameters.
 TypeId SemaAnalyzer::with_object_parameter(TypeId type,
                                            const AstNode& declarator,
-                                           const Context& target, bool is_static)
+                                           const Context& target, bool is_static,
+                                           const std::string& name,
+                                           bool qualified)
 {
 	if (!semantics() || target.scope->kind != ScopeKind::Class || is_static ||
 	    target.scope->owner == nullptr)
 	{
+		return type;
+	}
+	if (qualified && declares_static_member(*target.scope, name, type))
+	{
+		// 9.4.1p2: the definition of a static member function written outside
+		// its class shall not repeat `static`, so which kind of member a
+		// qualified declarator declares is a fact of the declaration in the
+		// class it redeclares rather than of its own specifiers.
 		return type;
 	}
 	// 8.3.5p5: the cv-qualifier-seq of a member function is written after its
@@ -1086,6 +1096,26 @@ TypeId SemaAnalyzer::with_object_parameter(TypeId type,
 	parameters.insert(parameters.end(), written.begin(), written.end());
 	return types_.function_of(types_.target(type), parameters,
 	                          types_.variadic(type));
+}
+
+// 9.4p1: whether `where` declares `name` as a static member function whose
+// declarator wrote `type`.  That declaration is the one a definition written
+// outside the class redeclares, and 9.4.1p2 makes it the only place `static` is
+// written - so without this question the definition declares a second,
+// non-static function of the same name, which the call the program wrote does
+// not name.  The chain the name heads is indexed by the parameter type list, so
+// the question is a probe rather than a walk of the declarations already made.
+bool SemaAnalyzer::declares_static_member(Scope& where, const std::string& name,
+                                          TypeId type)
+{
+	SemaEntity* const head = model_.find(where, name, LookupKind::Any);
+	if (head == nullptr || head->kind != SemaKind::Function)
+	{
+		return false;
+	}
+	const SemaEntity* const prior =
+		model_.overload_of(*head, types_.signature(type));
+	return prior != nullptr && !prior->object_member;
 }
 
 SemaEntity* SemaAnalyzer::class_constructors(TypeId type)

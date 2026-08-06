@@ -528,8 +528,17 @@ private:
 	// 9.3.1p3: the type of a member function, which is called on an object that
 	// its declarator does not write and that the dump writes as its first
 	// parameter.  Any other function is its own type.
+	// 9.4.1p2: `static` stands on the declaration written in the class and is
+	// not repeated on a definition written outside it, so a qualified
+	// declarator is told which kind of member it declares by the declaration it
+	// redeclares.
 	TypeId with_object_parameter(TypeId type, const AstNode& declarator,
-	                             const Context& target, bool is_static);
+	                             const Context& target, bool is_static,
+	                             const std::string& name, bool qualified);
+	// 9.4p1: whether `where` declares `name` as a static member function whose
+	// declarator wrote `type`.
+	bool declares_static_member(Scope& where, const std::string& name,
+	                            TypeId type);
 	// The definitions the output writes at the end of the translation unit,
 	// which are read in the order they were asked for.  Reading one may ask for
 	// another, so the list is walked rather than iterated.
@@ -931,11 +940,25 @@ private:
 	bool operator_expression(unsigned token, const Context& ctx, DumpNode& line,
 	                         std::vector<Value>& operands, bool member_only,
 	                         Value& value);
+	// 3.4.2p2: the namespaces and classes the argument types of one call are
+	// associated with, each once and in the order they were reached.
+	struct Associated
+	{
+		std::vector<Scope*> spaces;
+		std::vector<Scope*> classes;
+		// Which regions the two lists already hold.  A namespace and a class
+		// are never one region, so one probe answers for both, and gathering
+		// costs the regions the types reach rather than their square.
+		std::unordered_set<const Scope*> held;
+		// The classes whose own base chain the walk has already followed, which
+		// is what lets a second argument of one type stop at once.  It is not
+		// the same question as `held`: 3.4.2p2 also associates the class a
+		// nested type is a member of, and associates none of its bases.
+		std::unordered_set<const SemaEntity*> walked;
+	};
 	// 3.4.2p2: the namespaces and classes a type is associated with.
-	void associate_type(TypeId type, std::vector<Scope*>& spaces,
-	                    std::vector<Scope*>& classes);
-	void associate_region(Scope* region, std::vector<Scope*>& spaces,
-	                      std::vector<Scope*>& classes);
+	void associate_type(TypeId type, Associated& out);
+	void associate_region(Scope* region, Associated& out);
 	// 3.4.2p2: the declarations of `name` the argument types reach, appended to
 	// `candidates`.  Returns how many of them are the single friend
 	// declarations 11.3p6 made, which stand last.
@@ -945,9 +968,12 @@ private:
 	// 3.4.2p3: whether what the ordinary lookup found leaves the
 	// argument-dependent one to be done at all.
 	bool allows_adl(const SemaEntity* named) const;
-	// 13.5p6: an operator function declared outside a class shall take at least
-	// one operand of class or enumeration type.
-	void require_operator_operand(const std::string& name, TypeId type);
+	// 13.5p6: an operator function is a non-static member function, or else a
+	// non-member one taking at least one operand of class or enumeration type.
+	// `member` is whether the declaration is written in a class and has no
+	// object parameter, which is the static member neither half allows.
+	void require_operator_operand(const std::string& name, TypeId type,
+	                              bool member);
 	// 13.3.3.2: which of two conversions of one argument is better, as 1, 0
 	// or -1.
 	int compare_matches(const Match& left, const Match& right);

@@ -258,10 +258,14 @@ std::string abi_symbol_of(const SemaEntity& entity, TypeTable& types,
 	// rather than by a source name, and `abi_variant` says which of the
 	// entry points of one this symbol is.
 	const bool special = entity.special != kOrdinaryFunction;
+	// 13.5p1: what tells `-` written for one operand from `-` written for two
+	// is how many operands the declaration takes, and 9.3.1p3 made the object
+	// one of them - so a member `operator-(const T&)` is the binary operator
+	// however few parameters its declarator wrote.  This is the one question
+	// the object parameter is counted in; the encoding still leaves it out.
 	if (special ||
 	    (entity.name.compare(0, 8, "operator") == 0 &&
-	     operator_terminal(entity.name.substr(8), parameters.size() - first,
-	                       terminal)))
+	     operator_terminal(entity.name.substr(8), parameters.size(), terminal)))
 	{
 		// 13.5: an operator function is named by the operator it overloads,
 		// which the encoding spells as its own terminal rather than as a source

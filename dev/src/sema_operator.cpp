@@ -96,8 +96,8 @@ bool overloadable_operator(const std::string& name)
 	return false;
 }
 
-// Whether `what` is already in `where`, which the sets 3.4.2 gathers are small
-// enough for a scan to answer and which one type reaches by more than one path.
+// Whether `what` is already in `where`, which a candidate set holds few enough
+// of for a scan to answer.
 template <typename T>
 bool held(const std::vector<T*>& where, const T* what)
 {
@@ -113,16 +113,24 @@ bool held(const std::vector<T*>& where, const T* what)
 
 }  // namespace
 
-// 13.5p6: an operator function that is not a non-static member shall take at
-// least one parameter of class or enumeration type, or a reference to one, so
-// that 13.3.1.2p2 never lets a program give a new meaning to an operator on
-// operands the language already gives one to.
+// 13.5p6: an operator function shall be a non-static member function, or else a
+// non-member function taking at least one parameter of class or enumeration
+// type or a reference to one - so that 13.3.1.2p2 never lets a program give a
+// new meaning to an operator on operands the language already gives one to.
+// `member` says the declaration is written in a class and has no object
+// parameter, which is the static member the clause leaves no room for.
 void SemaAnalyzer::require_operator_operand(const std::string& name,
-                                            TypeId type)
+                                            TypeId type, bool member)
 {
 	if (!overloadable_operator(name))
 	{
 		return;
+	}
+	if (member)
+	{
+		throw std::runtime_error(name + " is declared a static member, and an "
+		                         "operator function is a non-static member or "
+		                         "a non-member");
 	}
 	const std::vector<TypeId>& parameters = types_.parameters(type);
 	for (std::size_t index = 0; index < parameters.size(); ++index)
@@ -149,8 +157,7 @@ void SemaAnalyzer::require_operator_operand(const std::string& name,
 // reference or a function with the types it is written over.  The walk follows
 // the type rather than searching, so it costs the depth of the type and the
 // depth of the base chain, both of which the source wrote.
-void SemaAnalyzer::associate_type(TypeId type, std::vector<Scope*>& spaces,
-                                  std::vector<Scope*>& classes)
+void SemaAnalyzer::associate_type(TypeId type, Associated& out)
 {
 	const TypeId bare = types_.strip_cv(type);
 	switch (types_.kind(bare))
@@ -159,23 +166,23 @@ void SemaAnalyzer::associate_type(TypeId type, std::vector<Scope*>& spaces,
 	case TypeKind::Array:
 	case TypeKind::LValueReference:
 	case TypeKind::RValueReference:
-		associate_type(types_.target(bare), spaces, classes);
+		associate_type(types_.target(bare), out);
 		return;
 
 	case TypeKind::Function:
 	{
-		associate_type(types_.target(bare), spaces, classes);
+		associate_type(types_.target(bare), out);
 		const std::vector<TypeId>& parameters = types_.parameters(bare);
 		for (std::size_t index = 0; index < parameters.size(); ++index)
 		{
-			associate_type(parameters[index], spaces, classes);
+			associate_type(parameters[index], out);
 		}
 		return;
 	}
 
 	case TypeKind::MemberPointer:
-		associate_type(types_.member_class(bare), spaces, classes);
-		associate_type(types_.target(bare), spaces, classes);
+		associate_type(types_.member_class(bare), out);
+		associate_type(types_.target(bare), out);
 		return;
 
 	default:
@@ -190,7 +197,7 @@ void SemaAnalyzer::associate_type(TypeId type, std::vector<Scope*>& spaces,
 	{
 		// 3.4.2p2: an enumeration associates the region that declares it, which
 		// is its class where a class declares it and its namespace otherwise.
-		associate_region(owner->region, spaces, classes);
+		associate_region(owner->region, out);
 		return;
 	}
 	if (owner->kind != SemaKind::Class)
@@ -198,38 +205,53 @@ void SemaAnalyzer::associate_type(TypeId type, std::vector<Scope*>& spaces,
 		return;
 	}
 	// 10p1: the base classes of the class are associated with it, and so are
-	// their own, which the chain the base-clauses left is one walk of.
+	// their own, which the chain the base-clauses left is one walk of.  What
+	// stops the walk is having walked this class's chain before, not having the
+	// class in the set: 3.4.2p2 also associates the class a nested type is a
+	// member of, and puts that class in without its bases - so a set that holds
+	// it says nothing about them.
 	for (SemaEntity* at = owner; at != nullptr; at = at->base)
 	{
-		if (at->scope == nullptr || held(classes, at->scope))
+		if (at->scope == nullptr || !out.walked.insert(at).second)
 		{
 			break;
 		}
-		classes.push_back(at->scope);
-		associate_region(at->region, spaces, classes);
+		if (out.held.insert(at->scope).second)
+		{
+			out.classes.push_back(at->scope);
+		}
+		associate_region(at->region, out);
 	}
 }
 
 // 3.4.2p2: the region a class or enumeration is a member of, which associates
 // that class where a class declares it and, either way, the innermost
 // enclosing namespace.
-void SemaAnalyzer::associate_region(Scope* region, std::vector<Scope*>& spaces,
-                                    std::vector<Scope*>& classes)
+void SemaAnalyzer::associate_region(Scope* region, Associated& out)
 {
+	// 3.4.2p2 associates the class the type is a member of, and not the classes
+	// that class is in turn a member of - so only the innermost is taken.  The
+	// walk still climbs past them, because what it is looking for beyond that
+	// is the one namespace they all stand in.
+	bool member_class = true;
 	for (Scope* at = region; at != nullptr; at = at->parent)
 	{
-		if (at->kind == ScopeKind::Class && !held(classes, at))
+		if (at->kind == ScopeKind::Class)
 		{
-			classes.push_back(at);
+			if (member_class && out.held.insert(at).second)
+			{
+				out.classes.push_back(at);
+			}
+			member_class = false;
 			continue;
 		}
 		if (at->kind != ScopeKind::Namespace)
 		{
 			continue;
 		}
-		if (!held(spaces, at))
+		if (out.held.insert(at).second)
 		{
-			spaces.push_back(at);
+			out.spaces.push_back(at);
 		}
 		return;
 	}
@@ -252,17 +274,18 @@ std::size_t SemaAnalyzer::argument_candidates(
 	// square.
 	std::unordered_set<SemaEntity*> gathered(candidates.begin(),
 	                                         candidates.end());
-	std::vector<Scope*> spaces;
-	std::vector<Scope*> classes;
+	Associated associated;
 	for (std::size_t index = 0; index < arguments.size(); ++index)
 	{
 		if (arguments[index].type != kNoType)
 		{
 			associate_type(arguments[index].spelled != kNoType
 			               ? arguments[index].spelled
-			               : arguments[index].type, spaces, classes);
+			               : arguments[index].type, associated);
 		}
 	}
+	const std::vector<Scope*>& spaces = associated.spaces;
+	const std::vector<Scope*>& classes = associated.classes;
 	for (std::size_t index = 0; index < spaces.size(); ++index)
 	{
 		SemaEntity* const head = model_.find(*spaces[index], name,
@@ -424,7 +447,20 @@ bool SemaAnalyzer::operator_expression(unsigned token, const Context& ctx,
 		// left is the built-in operator the caller describes.
 		return false;
 	}
-	require_access(*chosen, ctx.scope);
+	// 11.2p5 and 11.4p1: a member operator function is a member named on an
+	// object, so the object asks the same two questions here that it asks at
+	// `.` and `->` - which class the name was written on, and, for a protected
+	// member the access reaches only through a derived class, whether the
+	// object is of that class rather than of the base that declared it.  13.3
+	// has chosen by now, so the question is asked of the one declaration.
+	Scope* const naming =
+		chosen->object_member && owner != nullptr ? owner->scope : nullptr;
+	require_access(*chosen, ctx.scope, naming);
+	if (naming != nullptr)
+	{
+		const std::vector<SemaEntity*> settled;
+		require_protected_object(settled, *chosen, ctx.scope, naming);
+	}
 
 	std::vector<Value> arguments;
 	if (chosen->object_member)

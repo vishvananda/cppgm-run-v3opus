@@ -504,10 +504,13 @@ Operand LowirFunctionLowering::truth_for_branch(const LowValue& value)
 	}
 	const Operand operand = rvalue(value);
 	const lowir_model::LowType low = unit_.low_type(bare);
-	if (low.text[0] != 'f' && low.text != "ptr")
+	if (low.text[0] != 'f')
 	{
-		// A branch tests an integer for being other than zero, which is what
-		// the value already is.
+		// A branch tests its operand for being other than zero, which for an
+		// integer or an address is what the value already is - 4.12p1's
+		// conversion to `bool` writes no instruction where the terminator is
+		// the only thing that reads it.  A floating value is compared, because
+		// its zero is not the zero bit pattern the terminator would test.
 		return operand;
 	}
 	Instruction instruction;

@@ -5,201 +5,184 @@ lay out, resolve, lower.
 
 ## Current Checkpoint Review
 
-**C4 — single inheritance, reviewed at `cc855b17`.** The architecture holds, and
-it is the right one. What a class derives from is one fact on the declaration:
-`SemaEntity::base` for layout, construction, destruction and conversion, and
-`Scope::base` for the one edge 10.2's lookup follows. Every question reads that
-fact rather than the base-clause syntax, so the base subobject is asked about in
-the same words as a member or an object of its own. The object model moved into
-`sema_class.cpp` and the split is clean: `sema_scope` owns lookup, `sema_class`
-owns what a class is and what its objects hold, `sema_expression` writes one
-`base-conversion` node, and the lowering reads only that node. Layout is one
-pass at 9.2p2 completion, and a program with no inheritance pays one null test
-per region for all of it.
+**C5 — 13.5 operator overloading, 3.4.2 ADL and 11.3 friends, reviewed at
+`1bd1885f`.** The architecture holds and is the right one. An operator
+expression whose operand has class or enumeration type gathers one candidate
+set, resolves it with the same 13.3 a written call uses, and rewrites its own
+operand nodes into the `call-expression` node the call path already writes — so
+nothing new reaches the lowering, and every question about the call is asked in
+one place. 11.3p6's friend declaration is a member of the region around the
+class that binds no name there, held on the class for 3.4.2p2 and moved into the
+region's own chain when 7.3.1.2p3's matching declaration reveals it; that is one
+fact in one owner rather than a second visibility rule. `sema_operator.cpp` owns
+both halves — which declarations a use of a name reaches, and how an operator
+expression becomes the call it stands for — and is the right size for them.
 
-What the review found is mostly one shape, in seven places: **a rule the
-checkpoint wrote for the exit it had in hand was not written for the exit beside
-it.** Five of the seven are the derived-to-base conversion itself — not written,
-written once per link of the chain, or written without the check 11.2 asks for —
-and two are the access checks around it. The eighth is what the output *claims*
-about the ABI entry a body stands under, which the relaxed comparison strips and
-which therefore no test result had ever said anything about.
+What the review found is two shapes. **The first is a question asked of one
+walk that is really two questions**, and it is both of the ADL findings: the set
+of associated classes was read as if every class in it had had its bases walked,
+and the walk up to the innermost enclosing namespace was read as if every class
+it climbed through were the class the type is a member of. **The second is the
+one this audit has found at every checkpoint: a rule written for the exits it
+had in hand and not for the one beside them.** 13.3.1.2's operator call is the
+third way a member is named on an object and asked neither of the two questions
+`.` and `->` ask about that object; 13.5p6 is one clause with two halves and only
+one was written; 9.4.1p2's `static` is written in one place and was read in
+another; and the arity that tells `-` written for one operand from `-` written
+for two was counted without the operand 9.3.1p3 had already put in the type.
 
-**1. The chain was walked one node per link where the references write one.**
-10.2 reaches a member declared in a grandparent through the classes between, and
-`object_in_declaring_class` wrote a `base-conversion` for each of them, so
-`x.v` at depth d emitted d `index [projection=base_subobject]` instructions.
-The references write one:
-`200-friend-intermediate-derived-protected-base-method.ref` reaches
-`archive_base` from `archive` through `archive_impl` with a single
-index, and no reference anywhere writes two in a row. A base subobject begins
-where its derived object does, so the whole conversion is one node. The walk now
-says which class was reached and 4.10p3 writes the one node every other
-derived-to-base conversion writes. That was also an output-size blow-up: at
-depth 4000 with 4000 accesses the old binary emitted 16 012 007 lines in 54.6 s
-and the new one 20 007 lines in 2.0 s, with no test covering the shape because
-no fixture names a member of a grandparent.
+**1. 3.4.2p2's base chain was abandoned wherever the class was already
+associated.** `associate_type` walked the chain while the class was not already
+in the set — but a class also enters that set as *the class a nested type is a
+member of*, and that path associates none of its bases. So
+`g(e, d)` with `e` of type `NS::YDer::E` and `d` of type `NS::YDer` associated
+`YDer` from the enum, stopped at once on the class argument, and never reached
+`YBase` — a hidden friend declared there was not found, while `g(1, d)`, whose
+first argument associates nothing, found it. What stops the walk is
+now having walked that class's chain, which is a different fact from having the
+class in the set, and both are probes: gathering costs the classes the argument
+types reach rather than their square.
 
-**2. A conversion through more than one link was access-checked at the first
-link only.** 11.2p5 makes a base accessible only where every base-specifier
-between the two classes is, and `require_base_access` asked the derived class's
-own `base_access` and stopped. `struct YA{}; struct YB : private YA{}; struct
-YC : YB{}; YA* g(YC* p){ return p; }` converted through a private base from
-outside every class that could reach it. The question is now one walk from the
-derived class to the base, asking each link, which is the same walk the
-conversion itself is.
+**2. Every class around a nested type was associated, not the one it is a member
+of.** 3.4.2p2 associates the class itself, its base classes, and the class it is
+a member of; the classes *that* class is in turn a member of are not
+associated. `associate_region`
+pushed each class scope it climbed through on its way to the namespace, so a
+friend of `YA` was visible to a call whose argument is a `YA::YB::YC` — which
+g++ refuses. Only the innermost is taken now; the walk still climbs past the
+rest, because what it is looking for beyond them is the one namespace they
+stand in.
 
-**3. The conditional's composite pointer type converted neither operand.**
-5.16p6 brings both operands to that type, and 5.9p2's binary operators did it
-while `?:` only computed the type: `c ? &d : pb` produced a `YB*` holding the
-address of a `YD` with no conversion node and no 11.2p4 check, so a private base
-was reachable through a conditional that a comparison of the same two operands
-refused. Both operands are now converted by the same `convert_operand_to_base`
-the comparison uses.
+**3. An operator that names a member on an object asked neither of the two
+questions `.` asks about that object.** The C4 audit wrote 11.2p5's naming class
+and 11.4p1's additional check at the two member-access sites. 13.3.1.2's call is
+the third, and `operator_expression` called `require_access` with no naming
+class and never called `require_protected_object` at all. Both halves were
+wrong in opposite directions:
+`struct YB { protected: int operator+(int) const; }; struct YD : YB { friend int
+q(YD&); }; int q(YD& d) { return d + 1; }` was refused although 11.2p5's naming
+class grants it, and
+`struct YO : YB { int t(YB& o) { return o + 1; } }` was accepted although 11.4p1
+forbids naming the member on an object of the base. Every member operator form —
+`+`, `[]`, `()`, `=` — was affected, and the plain member call beside each was
+already right. 13.3 has chosen by the time the questions are asked, so they are
+asked of the one declaration rather than of everything the lookup reached.
 
-**4. `static_cast<Base&>(derived)` was refused.** 8.5.3p4 makes a reference
-reference-related to its initializer when the referenced type is the operand's
-own type *or a base class of it*, and `cast_to_reference` implemented only the
-first half — so the base case fell through to "bind a temporary", which needs
-the copy constructor PA17 owns, and the cast was refused. Every other context
-that binds a base reference to a derived lvalue — an initializer, a parameter, a
-return — already worked, which is what made the cast the odd one out. It now
-writes the same `base-conversion` node they do.
+**4. A member `operator-` was encoded with the unary Itanium code.** `-` written
+for one operand and `-` written for two are different terminals, told apart by
+how many operands the declaration takes — and 9.3.1p3 had already made the
+object one of them. `abi_symbol_of` passed the count of *written* parameters, so
+`Date::operator-(const Period&) const` was named `_ZNK4DatengERK6Period` where
+`300-member-vs-nonmember-operator-implicit-object-cv-rank.ref` and g++ write
+`_ZNK4DatemiERK6Period`. `object=` is one of the fields the relaxed comparison
+strips, so that fixture passed while claiming a symbol no other translation unit
+could reach. `+`, `*` and `&` had the same shape. All sixteen unary and binary
+member and non-member forms of the four now agree with g++ symbol for symbol.
 
-**5. `static_cast<Derived&>(base)` was refused, and `static_cast<Derived*>(pb)`
-was unchecked.** 5.2.9p11's downcast is one rule with two spellings. The pointer
-spelling was accepted and the reference one refused; and the pointer one was
-accepted without asking whether the base is accessible, which p11 requires. The
-reference spelling now names the storage the operand named — the base subobject
-begins where the derived object does, so there is nothing to write around it —
-and both spellings ask 11.2p4 first.
+**5. An out-of-class definition of a static member function declared a second,
+non-static function.** 9.4.1p2 makes `static` a specifier of the declaration
+written in the class and forbids repeating it outside, and
+`with_object_parameter` read only the specifiers this declarator wrote — so
+`int YB::f() {}` for `static int f();` was given an object parameter and became
+a different entity from the one the class declares. The unit then emitted
+`@YB__f(%this : ptr)` and called it with no argument, and where the definition
+was also `inline` it was never emitted at all: the output called a function the
+unit has the definition of and does not define, which is what
+`300-lazy-nested-class-enclosing-alias-lookup` failed LowIR validation on. Which
+kind of member a qualified declarator declares is now read from the declaration
+in the class it redeclares, as a probe on the chain that name heads.
 
-**6. An inaccessible destructor was called anyway.** 12.4p11 makes a program
-that names an inaccessible destructor ill formed, and C3 checked only the
-deleted case: `struct YB { private: ~YB() {} }; YB b;` emitted a call of a
-destructor no context could name, and so did a member of such a class and — new
-in C4 — a base subobject of one. The access is now asked where the object is
-declared, and for a member or a base in the class whose destructor names it,
-which is the same rule with the same one owner.
+**6. 13.5p6 was written for one of its two halves.** A non-member operator
+function with no operand of class or enumeration type was refused; a `static`
+member one — which the clause leaves no room for either — was accepted.
 
-**7. 11.4p1's additional check was missing.** A protected member is reachable
-from a class derived from the one that declared it, and 11.4p1 then requires the
-object to be of that derived class rather than of the base:
-`struct YB { protected: int p; }; struct YD : YB { void n(YB& o) { o.p = 2; } };`
-was accepted. The check is now asked at the two member-access sites, against the
-class the object expression named.
-
-**8. A class only ever used as a base carried the complete-object entry.** The
-ABI gives a constructor and a destructor an entry point for a complete object
-and one for a base subobject, and the lowering named every body with the
-complete-object symbol and aliased the base-object one to it. The references do
-not: `200-single-inheritance.ref` emits `YA`'s constructor as
-`object=_ZN2YAC2Ev` with no alias, because nothing in that program constructs a
-`YA` as anything but a base subobject, and `YB`'s as `object=_ZN2YBC1Ev` with
-`alias object _ZN2YBC2Ev`. A member subobject counts as a complete object, which
-`200-member-object-lifetime.ref` shows. Which entry a special member was run as
-is now a fact the analysis records on the declaration, so the demand order
-cannot change the answer, and the lowering names the body after it. Four
-reference outputs that differed only here are now byte for byte identical.
-
-### Also found, and fixed with them
-
-- **A reference member's binding claimed to be a read through it.** `lowir.md`
-  makes `projection=` a claim about what an address is for, and
-  `member_storage` wrote `reference_field` for a member of reference type
-  wherever it was named — including the store that binds it, where what is being
-  addressed is the member's own storage. `200-reference-member-class-init.ref`
-  writes `field` there and `reference_field` for the read, and the file is now
-  identical. `projection` is one of the keys the relaxed comparison strips, so
-  no test said anything about it; it is added to the fields this audit diffs.
-- **A member whose declaring class the walk never reached was converted anyway.**
-  The old loop ran while the class had a base, so a declaring region that is not
-  in the chain left the object converted to the last base of it. It now returns
-  the object as it stands.
-- **The C4 split left three dead helpers and a reordered initializer list.**
-  `round_up`, `call_arguments` and `is_initializer_list` moved to
-  `sema_class.cpp` and stayed behind in `sema_analyzer.cpp`, and `reading_` was
-  initialized out of declaration order. Each was a compiler warning on every
-  build. The tree now builds clean.
-- **`aggregate_class` still said a PA16 class has no base.** The caller asks
-  8.5.1p1's base question before it, so the code was right and the comment was a
-  checkpoint out of date.
+**7. A pointer condition was branched on through a comparison the references do
+not write.** `truth_for_branch` wrote `cmp ne ptr %p, 0` before every branch on
+a pointer. Fifteen reference outputs branch on the pointer directly, and the one
+`pa15` reference that writes the comparison writes it for a `!= 0` the source
+spelled. 4.12p1's conversion to `bool` needs no instruction where a terminator
+is the only thing that reads it. A floating value still compares, because its
+zero is not the zero bit pattern the terminator tests.
 
 ### Left for a later checkpoint
 
-- **`x.YB::b` names no member.** A qualified-id after `.` or `->` is not read at
-  all — `x.YB::b` fails with "no declaration of YB::b is in scope", and so does
-  `x.YB::m()` and even `x.YB::b` where `x` is a `YB`. It predates C4: it fails
-  with no inheritance anywhere. C4 is what makes it matter, because 10.2p2's
-  hiding leaves it the only way to name a base's member the derived class
-  redeclared. No fixture writes one. Recorded rather than fixed here: it belongs
-  to the member-access path, not to the base-clause.
-- **`alignas` on a member is dropped.** `struct X { alignas(8) char v; };` lays
-  out as if the specifier were absent, which is a silent wrong size rather than
-  a refusal. `requested_alignment` is read for a class-head and for nothing
-  else. `300-member-alignas-layout.t` needs it and `alignof` both, and `alignof`
-  is the constant-expression gap the plan already records; one checkpoint owns
-  the pair.
-- **`static_cast` between unrelated object pointer types is accepted.** 5.2.9
-  reaches an unrelated pointer only through `void*`, and `static_cast<YU*>(pb)`
-  for unrelated `YU` and `YB` compiles. It is a gap in the cast rules rather
-  than in the object model, and predates C4.
-- **11's access is checked against the first declaration of an overloaded name,
-  not the one 13.3 chooses.** `struct YB { private: void f(int); public: void
-  f(); };` refuses `o.f()`, and writing the two declarations the other way round
-  accepts it — the answer depends on the order they were written in. It predates
-  C4 and belongs to the call path, where the choice is made; 11.4p1's new check
-  is asked only where every declaration the name reached answers it the same
-  way, so it adds nothing to this.
+- **13.5.6's `operator->` is not read as a call.** `q->a` where `q`'s class
+  declares `YB* operator->()` is refused as "`->` is written on an operand that
+  is not a pointer to a class". `[]`, `()` and `=` are each routed to 13.3.1.2
+  from their own expression; `->` is the one member operator that is not, and
+  its rule is the only one that applies itself again to what it returned. No
+  fixture writes one — `300-overloaded-arrow-star-operator` is `->*`, an
+  ordinary non-member binary operator, and passes. Recorded rather than fixed
+  here: it belongs to the member-access path, with `x.YB::b`.
+- **A static and a non-static member of one class can reach the same overload
+  key.** `struct block { void unlink(); static void unlink(block*); };` is well
+  formed — the parameter type lists 13.1 tells the two apart by are `()` and
+  `(block*)` — but 9.3.1p3 put the object parameter in the type, so both reach
+  `(block*)` and the second is refused as a redefinition.
+  `200-static-nonstatic-same-pointer-signature` needs it. The fix is one move:
+  which kind of member a declaration is belongs in the key the chain is indexed
+  by, beside the parameter list. It predates C5 and is the one place the
+  object-parameter decision does not pay for itself.
+- **`x.YB::b` still names no member**, unchanged from the C4 audit, and
+  **`alignas` on a member is still dropped**, which the plan's failure map owns
+  with `alignof`.
 
 ### Confirmed intact
 
-- pa1–pa15 hold at 1173 / 1173 from a clean tree. pa16 holds at 126 / 243 with
-  the same set of tests passing and the same set failing: no fixture writes a
-  program any of the twelve findings changes the verdict on, which is why the
-  count does not move — the two that fixtures do reach are in fields the relaxed
-  comparison strips.
-  Five `.ref` files the relaxed comparison had been forgiving are now matched
-  byte for byte, and the passing fixtures whose output differs from the
-  reference at all fall from 39 to 34 — of which 23 differ only in the order the
-  top-level definitions are written in, which the README makes a presentation
-  convention.
+- pa1–pa15 hold at 1173 / 1173 from a clean tree. pa16 goes from 161 to
+  163 / 243: no test that passed before fails after, and
+  `200-reference-member-conditional-lvalue` and
+  `300-lazy-nested-class-enclosing-alias-lookup` are new — the first needs
+  finding 7 and the second needs 5 and 7 together. The other five change the
+  verdict on no fixture, because no fixture writes the programs they are about
+  — except the fourth, whose fixture passed while claiming a symbol on a field
+  the comparison strips.
+- Of the 141 passing fixtures with a reference output to compare, 34 differ from
+  it only in the order the top-level definitions are written in, 2 only in the
+  internal symbol name `lowir.md` makes a presentation tie-breaker, and 6 in the
+  `unwind=no` the failure map already owns. Nothing else differs, in any field,
+  stripped or not.
 - No fallback success path, skipped work, timeout workaround, source-specific
-  gate, dummy output or file-audit bypass. The refusals this audit added — a
-  conversion through an inaccessible link of a chain, a downcast to an
-  inaccessible base, an object whose destructor is inaccessible, a protected
-  member named on the wrong object — each name the construct and the clause, and
-  each replaces output that described a program the source did not write.
-- Demand-driven emission is unchanged and still monotonic: a translation unit
-  that defines classes and uses none emits nothing but `@main`, and a base's
-  helpers are reached only through the derived class's own.
-- Valgrind clean (`-q --error-exitcode=99`) over all 243 pa16 fixtures and 88
-  synthesized probes — conversion, access, chain-depth, lifetime and cast
-  shapes.
-- The file audit passes with the same two `bad-division` warnings recorded by
-  the C1–C2 and C3 audits, both the heuristic counting declarations rather than
-  bodies in `sema_analyzer.h` and `lowir_lower.h`. Neither grew a body this
-  checkpoint; C4's split moved 1212 lines out of `sema_analyzer.cpp` into the
-  new `sema_class.cpp`.
+  gate, dummy output or file-audit bypass. Each refusal this audit added — a
+  protected operator named on an object of the base, a static member declared an
+  operator function — names the construct and the clause. The refusal it removed
+  is one 11.2p5 grants.
+- Demand-driven emission is unchanged and still monotonic: an unused hidden
+  friend operator is not emitted, one reached only from a body no written use
+  asks for is, and a definition a written body asked for still stands where that
+  body asked for it.
+- Valgrind clean (`-q --error-exitcode=99`) over all 243 pa16 fixtures and 47
+  synthesized probes — operator, friend, reveal, ADL association, static-member
+  definition, condition and sweep shapes.
+- The file audit passes with the same two `bad-division` warnings the C1–C2, C3
+  and C4 audits recorded, both the heuristic counting declarations rather than
+  bodies in `sema_analyzer.h` and `lowir_lower.h`.
 
 ### Checked and left alone
 
-- One `base-conversion` node carries offset zero because 9.2p13 puts every base
-  subobject of this milestone at offset zero. The node carries the offset rather
-  than assuming it, so PA18's multiple inheritance changes what is written into
-  it and not who writes it.
-- The `eh_cleanup` / `eh_try` / `resume` regions the references write around a
-  partially constructed object are still absent, including the one
-  `200-destructor-body-local-before-base-destruction.ref` writes around a base
-  subobject. That is the 15.4 exception model the failure map already owns.
-- Analysing a member of a class d deep from an object of the derived class costs
-  d, and n such accesses cost n·d: three walks of the chain — 10.2's lookup,
-  the walk to the declaring class, and 11.2p5's access — none of which is
-  avoidable without caching a fact whose owner is the scope layer. Each axis
-  alone is linear; the product is not, and the per-step cost grows with the
-  chain because a 4000-long chain of regions does not fit in cache. Recorded
-  rather than changed: a 4000-deep single-inheritance hierarchy is not a shape
-  the milestone is for, and the output it produces is now linear either way.
+- **`operator<<=` and `operator>>=` cannot be declared.** `is_operator_token`
+  leaves both out, so `int operator<<=(const YQ&, int);` is not a translation
+  unit. `pa16.gram`'s `operator-token` leaves them out too, and the README makes
+  the grammar authoritative for source syntax — so the parser is right, and
+  `sema_operator.cpp`'s table simply holds two spellings no declaration reaches.
+- **`x = y` for a class with no user-declared `operator=` is lowered as a whole
+  object load and store.** Copy assignment is out of scope for this milestone.
+  It is the one built-in operator exit that accepts a class operand — `+`, `+=`,
+  `-`, `++`, `[]`, `()`, `==`, `!`, `&&` each refuse one — and what it writes is
+  what a trivially copyable class's implicit copy assignment does. PA17 owns the
+  value semantics that say whether it should be written at all.
+- **13.6's built-in operator candidates are never ranked against the declared
+  ones.** Where nothing in the candidate set is viable, the caller reads the
+  operator as the built-in one it would have been; where something is viable, it
+  wins. Within this milestone that is the same answer 13.3 would reach, because
+  no conversion function can make a built-in candidate the better match.
+- **One class with n friend operator overloads used n times stays quadratic**, at
+  n calls each ranking n candidates: 250 / 500 / 1000 / 2000 take
+  0.05 / 0.15 / 0.62 / 2.99 s, unchanged by this audit.
+- **Nested namespace depth is super-linear and was before this checkpoint.** 500
+  / 1000 / 2000 / 4000 namespaces deep with one ADL call at the bottom take
+  0.01 / 0.02 / 0.07 / 0.24 s, the same before the audit as after. The cost is
+  the lookup walking enclosing regions; it belongs to the scope layer.
 
 ## Checkpoint Audit Ledger
 
@@ -208,6 +191,7 @@ reference outputs that differed only here are now byte for byte identical.
 | C1–C2 | field offsets, `.`/`->`/implicit `this`, the implicit object argument in 13.3.1, demand-driven inline emission, member-function ABI names; 11 access control, 8.5.1 aggregate initialization, 8.5.4p7 narrowing, 7.6.2 `alignas` | `int C::s;` defining nothing, so a static data member had no storage; a brace-or-equal-initializer read and then dropped; `alignas(type-id)` asking for nothing; a member access dropping an object expression that calls; `f()` and `f() const` unordered by 13.3.3.2p3, and `f(T&)` against `f(const T&)` with it; a member call named `.` in its diagnostics; O(n²) slot naming over n blocks; 11p6 read as 11p2, refusing a member defined outside its class the names its class gave it; 9.3p2 read as "declares into a class", so a member defined outside it bound weakly and was emitted only where used | pa16 65 → 70 / 243; pa1–pa15 1173 / 1173; valgrind clean over 249 inputs; every axis linear, 4000 blocks 2.10 s → 0.11 s; file audit passes, two header-weight warnings recorded; the stripped metadata agrees with the refs but for `unwind=no` |
 | C3 | 12.1/12.4 user-declared constructors and destructors chained on the class, 13.3.1.3 selection over 8.5's four initializer forms, 12.6.2 member initializations and 12.4p8 member destructions, 3.8p1 lifetime at block exit / `return` / `@__cppgm_fini`, 8.4.2/8.4.3, 12.8p31, 5.2.4, C1/C2 and D1/D2 ABI names | six ways out of a region that ended no lifetime — `break`, `continue`, `goto`, the for-init-statement's own region, a static data member's shutdown and the block-scope `static` written as an automatic object, and an aggregate whose lifetime was recorded only on the constructor path; `this` in a destructor carrying 12.4p12's `const volatile` so a destructor could not write its own member; a deleted destructor called and declared rather than refused; `= T(…)` refused as copy-list-initialization when the constructor is `explicit`; a mem-initializer that named nothing dropped, and one written twice accepted; a constructor the class only declared bound weakly; `operator+` and `operator-` flattening to one internal symbol; the goto check walking every open block | pa16 102 / 243 held, no test that passed before fails after; pa1–pa15 1173 / 1173; valgrind clean over 273 inputs; every axis linear at 2.1–2.3× per doubling; file audit passes with the two recorded header-weight warnings; the stripped metadata agrees with the refs but for `unwind=no`, whose two owners are now named |
 | C4 | 10p1's base-clause on the class and its region, 9.2p13 layout with the base at offset zero, 10.2p2/p6 lookup through the chain, 11.2p2/p4 and 11.4p1 access, 12.6.2p5 base initialization and 12.4p8 base destruction, 12.1p5/12.4p3 triviality through the base, 4.10p3 / 8.5.3p4 / 5.2.9p11 as one `base-conversion` node with 13.3.3.1.4p1's rank and 13.3.3.2p4's order, 5.9p2 and 5.16p3, the object model split into `sema_class.cpp` | one derived-to-base conversion written as one node per link of the chain where the references write one, at n·d instructions for n accesses d deep; a chain access-checked at its first link only; the conditional's composite pointer type converting neither operand, so a private base was reachable through `?:` and not through `==`; 8.5.3p4's base half of reference-related missing, so `static_cast<Base&>` was refused; 5.2.9p11's reference downcast refused and its pointer downcast unchecked; an inaccessible destructor called for an object, a member and a base; 11.4p1's additional check on a protected member absent; every constructor and destructor named with the complete-object entry, where the references name a base-only one with the base-object entry and no alias; a reference member's binding claiming `projection=reference_field`; a member whose declaring class the walk never reached converted to the last base anyway; three dead helpers and a reordered initializer list left by the split | pa16 126 / 243 held, the same set passing and failing; five `.ref` files now byte for byte identical and the passing fixtures differing from the reference at all down from 39 to 34; pa1–pa15 1173 / 1173; valgrind clean over 243 fixtures and 88 probes; conversion, lifetime, protected-access, chain-depth and access axes all linear at 2.0–2.3× per doubling, and the n·d output blow-up gone (16 012 007 lines in 54.6 s → 20 007 in 2.0 s); file audit passes with the two recorded header-weight warnings; the stripped metadata — now including `projection=` — agrees with the refs but for `unwind=no` |
+| C5 | 13.3.1.2p1 an operator on a class or enumeration operand read as the call it stands for, 13.5.7p1's `x++0`, 13.5.3/13.5.4/13.5.5's member-only `= () []`, 13.5p6's rule on a non-member operator; 11.3p6 a friend declared into the innermost enclosing namespace and revealed by 7.3.1.2p3, 11.3p11's elaborated-type-specifier, 11.3p1/p2's grant and 11.2p5's naming class; 3.4.2p1/p2/p3's associated namespaces and classes and the friend declarations they make visible; 3.4.3's prefixes tried outward; 3.2p3's uses read from the whole resolved tree | 3.4.2p2's base chain abandoned wherever the class was already associated, so a hidden friend of a base went unfound when a nested type of the derived class was named first; every class around a nested type associated where 3.4.2p2 associates the one it is a member of; 11.2p5's naming class and 11.4p1's additional check asked at neither of the operator-call sites, so a protected member operator was refused where a friend of the derived class named it and accepted where the object was of the base; a member `operator- + * &` encoded with the unary Itanium terminal, because the arity counted the written parameters and 9.3.1p3 had already made the object an operand; an out-of-class definition of a static member function given an object parameter and declared a second function, so the unit called `@YB__f()` and defined `@YB__f(%this)` - and, where the definition was `inline`, defined nothing at all; 13.5p6 written for its non-member half and not its static-member one; a pointer condition branched on through a `cmp ne ptr` the references do not write | pa16 161 -> 163 / 243, no test that passed before failing after; pa1-pa15 1173 / 1173; valgrind clean over 243 fixtures and 47 probes; the ADL association axes linear at 2.0-2.4x per doubling and the one quadratic axis unchanged; file audit passes with the two recorded header-weight warnings; the stripped metadata agrees with the refs for all 141 passing fixtures with a reference but for `unwind=no`, and the ABI names of all sixteen unary/binary forms of `+ - * &` agree with g++ |
 
 ## Durable architecture decisions
 
@@ -258,43 +242,72 @@ reference outputs that differed only here are now byte for byte identical.
   it on. The lowering reads it, so the order the demand-driven worklist happens
   to reach a definition in cannot change the symbol it is emitted under, and a
   unit does not owe the program an entry point nothing named.
+- An operator expression on a class or enumeration operand is the call 13.3.1.2
+  says it is, written as the `call-expression` node a written call writes. What
+  is left where nothing is viable is the built-in operator, which the caller
+  describes; the operator path adds no node kind of its own.
+- 3.4.2p2's associated set is gathered once per call, and the two questions it
+  is asked - whether a region is already in it, and whether a class's base chain
+  has already been walked - are different questions and separate probes. A class
+  enters the set without its bases whenever it is the class a nested type is a
+  member of.
+- A member named on an object asks the same two questions wherever it is named -
+  11.2p5's naming class and 11.4p1's additional check - and an operator is one of
+  the places it is named. 13.3 has chosen by then, so both are asked of the one
+  declaration rather than of everything the lookup reached.
+- 9.4.1p2 writes `static` on the declaration inside the class and nowhere else,
+  so which kind of member a qualified declarator declares is read from the
+  declaration it redeclares. A definition that reads its own specifiers instead
+  declares a second function the program does not have.
+- 13.5's `+ - * &` name two operators each, told apart by how many operands the
+  declaration takes. 9.3.1p3 put the object among them, so it is counted for
+  that one question and left out of the encoding for every other.
+- 4.12p1's conversion to `bool` writes no instruction where a terminator is the
+  only thing that reads the value: an integer or an address is branched on as it
+  stands. A floating value is compared, because its zero is not the zero bit
+  pattern the terminator tests.
 
 ## Performance Evidence
 
 Measured with `cppgm++ --emit-lowir -O0` on synthesized inputs, this host, at the
-end of the audit. Every axis doubles in about 2.0x-2.3x.
+end of the audit. Every axis doubles in about 2.0x-2.4x.
 
 | axis | sizes | times |
 | --- | --- | --- |
-| derived-to-base conversions in one body, four deep | 500 / 1000 / 2000 / 4000 | 0.01 / 0.02 / 0.03 / 0.07 s |
-| accesses to a base's member in one body, four deep | 500 / 1000 / 2000 / 4000 | 0.01 / 0.01 / 0.03 / 0.08 s |
-| chain depth, one access to the root member | 500 / 1000 / 2000 / 4000 | 0.01 / 0.02 / 0.04 / 0.09 s |
-| 11.4p1 protected accesses through a five-deep chain | 500 / 1000 / 2000 / 4000 | 0.00 / 0.00 / 0.01 / 0.02 s |
-| locals with destructors in one block | 500 / 1000 / 2000 / 4000 | 0.01 / 0.02 / 0.04 / 0.08 s |
-| classes in a chain, nothing used | 500 / 1000 / 2000 / 4000 | 0.01 / 0.02 / 0.04 / 0.09 s |
+| one call, n arguments of n distinct associated classes | 500 / 1000 / 2000 / 4000 | 0.02 / 0.06 / 0.12 / 0.29 s |
+| base-chain depth, one ADL call with two arguments of the deepest class | 500 / 1000 / 2000 / 4000 | 0.00 / 0.01 / 0.03 / 0.06 s |
+| n ADL calls, each argument four classes above the friend | 500 / 1000 / 2000 / 4000 | 0.01 / 0.02 / 0.05 / 0.10 s |
+| n calls of the shape finding 1 restored: a nested enum, then a class eight deep | 500 / 1000 / 2000 / 4000 | 0.01 / 0.03 / 0.06 / 0.11 s |
+| that shape by chain depth, one call | 500 / 1000 / 2000 / 4000 | 0.00 / 0.01 / 0.03 / 0.08 s |
+| chained `operator<<` | 500 / 1000 / 2000 / 4000 | 0.00 / 0.01 / 0.01 / 0.03 s |
+| operator nesting depth | 500 / 1000 / 2000 / 4000 | 0.01 / 0.01 / 0.03 / 0.06 s |
+| n namespaces each with a class and an ADL free function, one use each | 500 / 1000 / 2000 / 4000 | 0.04 / 0.10 / 0.21 / 0.43 s |
+| n friend declarations of n names revealed by as many namespace-scope definitions | 500 / 1000 / 2000 / 4000 | 0.03 / 0.07 / 0.15 / 0.35 s |
 
-- The finding that mattered is the one the table cannot show, because it was an
-  output size rather than an analysis cost. A chain d deep with n accesses to the
-  root member emitted one `index [projection=base_subobject]` per link per
-  access. Measured against the pre-audit binary at `cc855b17`, n = d:
-
-  | n = d | pre lines | pre time | post lines | post time |
-  | --- | --- | --- | --- | --- |
-  | 500 | 251 507 | 0.72 s | 2 507 | 0.02 s |
-  | 1000 | 1 003 007 | 2.86 s | 5 007 | 0.07 s |
-  | 2000 | 4 006 007 | 12.42 s | 10 007 | 0.37 s |
-  | 4000 | 16 012 007 | 54.55 s | 20 007 | 2.03 s |
-
-- What is left on that shape is analysis, not output: with the depth fixed at
-  4000, 500 / 1000 / 2000 / 4000 accesses take 0.42 / 0.69 / 1.09 / 2.39 s, which
-  is linear in the accesses; with 4000 accesses fixed, depth 500 / 1000 / 2000 /
-  4000 takes 0.15 / 0.23 / 0.64 / 2.35 s, which is the depth each of 10.2's
-  lookups walks, with a per-step cost that grows once the chain of regions no
-  longer fits in cache. n accesses d deep cost n*d, which is what 10.2 asks for.
-- Nested block scopes are super-linear in their depth and were before this
-  checkpoint: 1000 / 2000 / 4000 nested blocks holding one scalar each take
-  0.02 / 0.06 / 0.23 s. The cost is the lookup walking enclosing regions, not the
-  object model, and is recorded rather than changed.
+- The two association findings were correctness rather than cost, and the walk
+  they left is cheaper than the one they replaced: membership in the associated
+  set and "this class's chain has been walked" are two probes where the first was
+  a scan of a vector that grows with the classes the argument types reach. A call
+  with 4000 arguments of 4000 distinct classes gathers its set in 0.29 s.
+- Measured against the pre-audit binary at `1bd1885f`, no axis moved: nested
+  namespace depth 4000 is 0.23 s before and 0.22 s after, 4000 associated
+  namespaces 0.43 s and 0.43 s, chain depth 4000 0.06 s and 0.06 s, 4000 ADL
+  calls four deep 0.09 s and 0.10 s.
+- The one quadratic axis is quadratic because the resolution is: one class with n
+  friend `operator<<` overloads used n times, 250 / 500 / 1000 / 2000 at
+  0.05 / 0.15 / 0.62 / 2.99 s, the same before this audit and after.
+- Nested namespace depth is super-linear and belongs to the scope layer, not to
+  the operator or friend paths: 500 / 1000 / 2000 / 4000 deep with one ADL call
+  at the bottom take 0.01 / 0.02 / 0.07 / 0.24 s, unchanged by this audit.
+- Measured at the C4 audit and unchanged, each doubling 2.0x-2.3x:
+  derived-to-base conversions in one body four deep, 500 / 1000 / 2000 / 4000 at
+  0.01 / 0.02 / 0.03 / 0.07 s; accesses to a base's member four deep,
+  0.01 / 0.01 / 0.03 / 0.08 s; chain depth with one access to the root member,
+  0.01 / 0.02 / 0.04 / 0.09 s; 11.4p1 protected accesses through a five-deep
+  chain, 0.00 / 0.00 / 0.01 / 0.02 s; classes in a chain with nothing used,
+  0.01 / 0.02 / 0.04 / 0.09 s. The n*d output blow-up that audit removed stays
+  removed: a 4000-deep chain with 4000 accesses is 20 007 lines in 2.0 s where it
+  had been 16 012 007 in 54.6 s.
 - Measured earlier and unchanged: 4000 mem-initializers in one constructor,
   0.07 s; 4000 default member initializers in one class, 0.06 s; 4000
   namespace-scope objects constructed and destroyed, 0.09 s; 4000 loops each with
@@ -305,19 +318,24 @@ end of the audit. Every axis doubles in about 2.0x-2.3x.
 
 ## Validation
 
-- `make test-report ACTIVE_TEST_REPORT_PAS='pa16'` — 126 / 243, the same set of
-  tests as before the audit: none newly failing, none newly passing.
+- `make test-report ACTIVE_TEST_REPORT_PAS='pa16'` — 163 / 243, from 161 before
+  the audit: `200-reference-member-conditional-lvalue` and
+  `300-lazy-nested-class-enclosing-alias-lookup` newly pass and nothing that
+  passed before fails.
 - `make test-report-through-pa15` — 1173 / 1173.
 - `perl scripts/cppgm_file_audit.pl --stage pa16 --paths dev/src` — passes, with
   the two `bad-division` warnings accounted for above.
-- `valgrind -q --error-exitcode=99` over 243 pa16 fixtures and 88 synthesized
-  probes — conversion, access, chain-depth, lifetime and cast shapes — no error.
-- Scaling: six single-axis series at four sizes each, two axis-separation series
-  at depth 4000, and one series measured against the pre-audit binary at
-  `cc855b17` built from a worktree.
-- The whole stripped set — `object=`, `binding=`, `linkage=`, `role=`,
-  `unwind=`, `projection=`, `keep_alias=` and the `alias object` lines — diffed
-  against the reference for all 126 passing fixtures. What is left is the six
-  `unwind=no` fixtures already recorded, and the `*-bad` fixtures whose
-  reference output is empty because the run is required to fail rather than to
-  write anything meaningful.
+- `valgrind -q --error-exitcode=99` over all 243 pa16 fixtures and 47 synthesized
+  probes — operator, friend, reveal, ADL association, static-member definition,
+  condition and sweep shapes — no error.
+- Scaling: nine single-axis series at four sizes each, one quadratic series at
+  four sizes, and each of four axes measured against the pre-audit binary at
+  `1bd1885f` built from a worktree.
+- The whole stripped set — `object=`, `binding=`, `linkage=`, `role=`, `unwind=`,
+  `projection=`, `effects=`, `capture=`, `access=`, `alias=`, `return=` and
+  `keep_alias=` — diffed against the reference for all 141 passing fixtures whose
+  reference output is not empty. What is left is the six `unwind=no` fixtures
+  already recorded. The ABI names of every unary and binary member and
+  non-member form of `+ - * &`, and of the twenty-six other overloadable
+  operators the grammar admits, were diffed against g++ on the same source: all
+  agree.

@@ -37,83 +37,92 @@ lowering.
 
 ## Current Failure Map
 
-After C1-C5: 161 / 243. The 82 that remain:
+After C5 and its audit: 163 / 243. The 80 that remain, 44 refusing a program the
+references accept and 36 accepting one and writing a different shape:
 
 | group | count | what is missing |
 | --- | --- | --- |
-| LowIR shape diffs, the program otherwise accepted | 35 | see below |
-| refusals, scattered | 25 | see below |
+| LowIR shape diffs, the program otherwise accepted | 36 | see below |
+| refusals, scattered | 22 | see below |
 | bit-fields | 10 | 9.6 layout and access |
 | class using-declarations, inheriting constructors | 8 | 7.3.3p1 into a class, 12.9 |
 | `alignas` / `alignof` | 4 | 5.3.6 outside the constant subset, `alignas` on a member |
 
-Of the 35 shape diffs, the named ones are: 8.5p8's zero-initialization of a
+Of the 36 shape diffs, the named ones are: 8.5p8's zero-initialization of a
 value-initialized class with no user-provided constructor; the exception cleanup
 regions the references write around partially constructed and partially
 destroyed subobjects (`eh_cleanup` / `eh_try` / `resume`); arrays of class type
 constructed and destroyed element by element; a `declare global` written for an
 `extern` object nothing uses; an aggregate's reference member, whose storage
-this unit addresses before it reads what binds to it; and the `_GLOBAL__N_1`
-name an unnamed namespace gives what it declares.
+this unit addresses before it reads what binds to it; the `_GLOBAL__N_1` name an
+unnamed namespace gives what it declares; and an argument of class type passed
+by value, which the references give a generated `argobj__n` slot and this unit
+writes as a whole-object load — the same class-prvalue gap C6 is for, reached
+from the argument side rather than refused.
 
-The 25 scattered refusals are, grouped by what they ask for: a class prvalue
-that has to be materialized - `T(args)` bound to a reference parameter, an
+The 22 scattered refusals are, grouped by what they ask for: a class prvalue
+that has to be materialized — `T(args)` bound to a reference parameter, an
 object of class type passed by value, 13.3.3.1.2's user-defined conversion
-sequence - which is 9 of them and the last of the operator/friend group;
-namespace-scope arrays of class type, 5 of them; the `__builtin_*` names, 4;
-placement `new`, 2; a trailing return type on a member function, 2; and one each
-of pseudo-destructor on a scalar, a user-defined string literal, `mutable`, and
-a nested class defined outside the class that declared it.
+sequence — which is 9 of them; namespace-scope arrays of class type, 5; the
+`__builtin_*` names, 3; placement `new`, 2; a trailing return type on a member
+function, 2; and one of `mutable`. Two more stand alone and are named in the
+audit: 13.5.6's `operator->` is not read as a call, and a static and a
+non-static member function of one class reach the same overload key because
+9.3.1p3 put the object parameter in the type, so
+`struct block { void unlink(); static void unlink(block*); };` is refused as a
+redefinition — the fix is to put which kind of member a declaration is into the
+key beside the parameter list.
 
 15.4p14's `unwind=no` is separate and needs no test result: the relaxed
 comparison strips the field, and emitting nothing is silence rather than a false
-claim. It is the whole difference in 6 of the 161 passing fixtures; 43 more
-differ in something the comparison canonicalizes, which is top-level order.
+claim. It is the whole difference in 6 of the 163 passing fixtures; 34 more
+differ only in top-level order and 2 only in an internal symbol name, both of
+which the README makes a presentation convention.
 
 ## Active Checkpoint
 
-Done: **C5 — 13.5 operator overloading, 3.4.2 ADL and 11.3 friends**, the three
-parts of one thing: a call whose function the lookup written where the call
-stands did not name. 126 -> 161 of 243.
-
-- owner: `sema_operator.cpp` for 13.3.1.2's candidate set and 3.4.2's
-  associated namespaces and classes; `sema_class.cpp` for 11.3's grant and
-  11.2p5's naming class; `sema_analyzer.cpp` for what a friend declaration
-  declares and where.
-- data flow: an operator expression whose operand has class or enumeration type
-  gathers one candidate set, resolves it exactly as a call does, and rewrites
-  its own operand nodes into the `call-expression` node the call path already
-  writes - so nothing new reaches the lowering.
-- expected complexity: one candidate gathering per operator expression, over the
-  declarations of the operand's class and of its associated namespaces, which is
-  what a call of a named function already costs.
-- validation: `make test-report ACTIVE_TEST_REPORT_PAS='pa16'`,
-  `make test-report-through-pa15`, valgrind over the operator, friend and ADL
-  fixtures and the sweeps, and sweeps of chain length, operator nesting depth,
-  namespace depth, friend multiplicity and associated-namespace multiplicity.
+Done: **the audit of C5**, reviewed at `1bd1885f`. 161 -> 163 of 243, with
+pa1-pa15 held at 1173/1173. Seven findings, in two shapes: one walk asked to
+answer two different questions - 3.4.2p2's associated set read as if every class
+in it had had its bases walked, and the climb to the innermost enclosing
+namespace read as if every class it passed were the class the type is a member
+of - and a rule written for the exits it had in hand and not the one beside
+them: 11.2p5 and 11.4p1 asked at `.` and `->` but not where an operator names a
+member on an object, 13.5p6 written for its non-member half and not its
+static-member one, 9.4.1p2's `static` read from the definition's own specifiers
+so that an out-of-class definition of a static member declared a second
+function, `- + * &` given the unary Itanium terminal because the arity left out
+the operand 9.3.1p3 had put in the type, and a pointer condition branched on
+through a comparison the references do not write. See `audit.md`.
 
 Next: **C6 — the class prvalue that has to stand somewhere** (12.2p1, 5.2.3p2,
-8.5.3p5, 13.3.3.1.2), which is what the last 9 refusals of the operator/friend
-group ask for and what several shape diffs need: `T(args)` is a temporary the
-unit gives storage to and runs a constructor on, a reference parameter binds
-that storage, and 13.3.3.1.2's user-defined conversion sequence is the same
-temporary made by a converting constructor.
+8.5.3p5, 13.3.3.1.2), which is what 9 of the remaining refusals ask for and what
+several shape diffs need: `T(args)` is a temporary the unit gives storage to and
+runs a constructor on, a reference parameter binds that storage, and
+13.3.3.1.2's user-defined conversion sequence is the same temporary made by a
+converting constructor. The by-value argument the references write into a
+generated `argobj__n` slot is the same fact reached from the argument side, so
+it is part of this checkpoint rather than of PA17's copy semantics.
 
 - owner: `sema_class.cpp` for the constructor selection, which is
   `construct_object` over an object no declaration named; `lowir_lower_body.cpp`
   for the slot the temporary stands in.
 - data flow: a `temporary-object` node holding the same `constructor-action` a
   declaration writes, so the lowering allocates one generated slot and calls
-  what the action names. The refs name that slot `arg__n` where the temporary is
-  a written argument and `tmpobj__n` otherwise, and slot names are not
-  canonicalized before comparison.
+  what the action names. The refs name that slot three ways and slot names are
+  not canonicalized before comparison: `arg__n` for a temporary a written
+  argument is, `argobj__n` for the storage an argument of class type is passed
+  in, and `tmpobj__n` for one no argument named.
 - expected complexity: one constructor selection per written temporary, which is
   what a declaration of an object of the same class already costs.
 - what is not in it: 12.2p3's destruction at the end of the full-expression,
   which needs the full-expression boundary the lowering does not mark yet - so a
   temporary of a class with a non-trivial destructor is refused rather than
   silently left alive.
-- validation: the same four commands, plus a sweep of temporaries per
+- validation: `make test-report ACTIVE_TEST_REPORT_PAS='pa16'`,
+  `make test-report-through-pa15`,
+  `perl scripts/cppgm_file_audit.pl --stage pa16 --paths dev/src`, valgrind over
+  the temporary and by-value fixtures, and a sweep of temporaries per
   full-expression and of nesting depth.
 
 ## Performance Model
@@ -138,7 +147,11 @@ temporary made by a converting constructor.
   the set already holds is a probe, so gathering costs the declarations there
   are and not their square.
 - 3.4.2's association follows the type rather than searching: the depth of the
-  type and of the base chain, both of which the source wrote.
+  type and of the base chain, both of which the source wrote. Whether a region is
+  already in the set and whether a class's base chain has been walked are two
+  separate probes, so a second argument of one type stops at once while a class
+  the set holds without its bases does not stop the walk. One call with 4000
+  arguments of 4000 distinct associated classes gathers its set in 0.29 s.
 - A derived-to-base conversion is one `base-conversion` node however many
   classes it spans. n accesses to a member d classes up cost n*d to analyse and
   emit n instructions rather than n*d: 4000 accesses 4000 deep are 20 007 lines
@@ -168,18 +181,24 @@ temporary made by a converting constructor.
   node for the whole tail of an array no clause reached (`kZeroFillLimit`, 64
   bytes). Measured: a struct holding `char buf[1 << 20]`, initialized `{{0}, 3}`
   at namespace scope and `{{1}, 2}` locally, compiles in under 0.01 s.
-- Measured for C5, sizes doubling: a chained `operator<<` of length
-  500/1000/2000/4000, 0.00/0.01/0.02/0.04 s; 1000/2000/4000/8000 member
-  `operator[]` calls, 0.02/0.05/0.10/0.21 s; 250/500/1000/2000 namespaces each
-  with a class and an ADL free operator, one use each, 0.10/0.10/0.20/0.40 s;
-  operator nesting depth 200/400/800/1600, 0.10 s throughout; namespace depth
-  250/500/1000/2000 with one qualified call at the bottom, 0.10 s throughout;
-  250/500/1000/2000 friend declarations of one name revealed by as many
-  namespace-scope definitions, 0.10/0.10/0.20/0.50 s.
+- Measured after the audit of C5, sizes 500/1000/2000/4000, each doubling
+  2.0x-2.4x: one call with n arguments of n distinct associated classes,
+  0.02/0.06/0.12/0.29 s; base-chain depth with one ADL call two arguments deep,
+  0.00/0.01/0.03/0.06 s; n ADL calls each four classes above the friend,
+  0.01/0.02/0.05/0.10 s; n calls whose first argument is a nested enum and whose
+  second is a class eight deep, 0.01/0.03/0.06/0.11 s, and that shape by chain
+  depth with one call, 0.00/0.01/0.03/0.08 s; a chained `operator<<`,
+  0.00/0.01/0.01/0.03 s; operator nesting depth, 0.01/0.01/0.03/0.06 s; n
+  namespaces each with a class and an ADL free function, one use each,
+  0.04/0.10/0.21/0.43 s; n friend declarations revealed by as many
+  namespace-scope definitions, 0.03/0.07/0.15/0.35 s.
 - One class with n friend `operator<<` overloads used n times is quadratic and
   is meant to be - n calls each ranking n candidates: 250/500/1000/2000 take
-  0.10/0.30/0.90/3.51 s, 3.9x per doubling. Scanning the candidates already
-  gathered had made it cubic, at 4.7 s and 4.7x.
+  0.05/0.15/0.62/2.99 s. Scanning the candidates already gathered had made it
+  cubic.
+- Nested namespace depth is super-linear and belongs to the scope layer: 500 to
+  4000 namespaces deep with one ADL call at the bottom take 0.01/0.02/0.07/0.24 s,
+  unchanged by the object model.
 - Measured after the audit of C4, sizes 500/1000/2000/4000, each doubling
   2.0x-2.3x: derived-to-base conversions in one body four deep,
   0.01/0.02/0.03/0.07 s; accesses to a base's member in one body four deep,
@@ -217,3 +236,4 @@ temporary made by a converting constructor.
 | C4 | 10p1's base-clause recorded on the class and its region; 9.2p13 layout with the base subobject at offset 0; 9p2's injected-class-name; 10.2p2/p6 lookup through the base chain; 11.2p2/p4 and 11.4p1's access; 12.6.2p5's base initialization first and 12.4p8's base destruction last; 12.1p5/12.4p3 triviality through the base; 4.10p3, 8.5.3p4 and 5.2.9p11's conversions as one `base-conversion` node with 13.3.3.1.4p1's rank; 5.9p2's composite pointer type; 5.16p3's conditional over a class and a base of it; the object model split out into `sema_class.cpp` | 102 -> 126 / 243; pa1-pa15 1173/1173; valgrind clean over 243 inputs and the sweeps |
 | audit of C4 | one derived-to-base conversion written as one node however many classes it spans; 11.2p5 asked of every link; 5.16p6's operands brought to the composite pointer type; 8.5.3p4's base half of reference-related; 5.2.9p11's reference downcast written and its pointer downcast access-checked; 12.4p11's destructor access asked for an object, a member and a base; 11.4p1's additional check on a protected member named through an object; the ABI entry a constructor or destructor stands under made a fact the analysis records | 126 / 243 held; five `.ref` files newly byte-identical; pa1-pa15 1173/1173; valgrind clean over 243 fixtures and 88 probes; the n*d output blow-up gone |
 | C5 | 13.3.1.2p1 an operator on a class or enumeration operand read as the call it stands for - member candidates from 13.3.1.2p3, non-member ones from ordinary lookup with the member functions left out, 13.3.1.2p4's first operand offered to both, and the built-in operator left to the caller where nothing is viable; 13.5.7p1's `x++0`; 13.5.3/13.5.4/13.5.5's member-only `= () []`; 13.5p6's rule on a non-member operator; 11.3p6 a friend declared into the innermost enclosing namespace and bound nowhere, 7.3.1.2p3 revealed by a matching declaration there, 11.3p11's elaborated-type-specifier declared in that namespace too, 11.3p1/p2's grant and 11.2p5's naming class; 3.4.2p1/p2/p3's associated namespaces and classes and the friend declarations they make visible; 3.4.3's prefixes tried outward, without which `nnn::f(a)` parsed as a declaration; 3.2p3's uses read from the whole resolved tree; two operator functions of one region no longer collapsing onto one internal symbol | 126 -> 161 / 243; pa1-pa15 1173/1173; valgrind clean over the 42 operator, friend and ADL fixtures and the sweeps; chain, nesting, namespace-depth, ADL-multiplicity and reveal axes all linear, and the one quadratic axis - n overloads ranked by n calls - made quadratic rather than cubic |
+| audit of C5 | 3.4.2p2's base chain abandoned wherever the class was already associated - which it is, without its bases, whenever it is the class a nested type is a member of; every class around a nested type associated where the clause associates the one it is a member of; 11.2p5's naming class and 11.4p1's additional check asked at neither operator-call site; a member `- + * &` given the unary Itanium terminal because the arity left out the operand 9.3.1p3 put in the type; an out-of-class definition of a static member function given an object parameter, declaring a second function the unit then called with no argument and, where `inline`, never defined; 13.5p6's static-member half; a pointer condition branched on through a `cmp ne ptr` the references do not write | 161 -> 163 / 243, nothing that passed before failing after; pa1-pa15 1173 / 1173; valgrind clean over 243 fixtures and 47 probes; every ADL association axis linear at 2.0-2.4x per doubling and the one quadratic axis unchanged; the stripped metadata agrees with the refs for all 141 passing fixtures with a reference but for `unwind=no`, and the ABI names of every unary and binary form of `+ - * &` agree with g++ |

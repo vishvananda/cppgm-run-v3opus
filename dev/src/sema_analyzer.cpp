@@ -1202,14 +1202,16 @@ void SemaAnalyzer::declare_function_declarator(
 	// 9.3.1p3: a member function is called on an object, which is a
 	// parameter of it that the declarator does not write.
 	const TypeId written_type = type;
-	type = with_object_parameter(type, node, target, specifiers.is_static);
+	type = with_object_parameter(type, node, target, specifiers.is_static, name,
+	                             spelled.qualified());
 	SemaEntity& function =
 		declare_function(name, type, target, false,
 		                 granting != nullptr && !spelled.qualified());
 	function.object_member = type != written_type;
 	if (!function.object_member)
 	{
-		require_operator_operand(name, type);
+		require_operator_operand(name, type,
+		                         target.scope->kind == ScopeKind::Class);
 	}
 	if (granting != nullptr)
 	{
@@ -1570,7 +1572,8 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 	// 9.3.1p3: a member function is called on an object its declarator does not
 	// write, whether it is defined in its class or after it.
 	const TypeId written_type = type;
-	type = with_object_parameter(type, declarator, target, specifiers.is_static);
+	type = with_object_parameter(type, declarator, target, specifiers.is_static,
+	                             name, spelled.qualified());
 
 	SemaEntity& entity =
 		declare_function(name, type, target, true,
@@ -1578,7 +1581,8 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 	entity.object_member = type != written_type;
 	if (!entity.object_member)
 	{
-		require_operator_operand(name, type);
+		require_operator_operand(name, type,
+		                         target.scope->kind == ScopeKind::Class);
 	}
 	if (granting != nullptr)
 	{
