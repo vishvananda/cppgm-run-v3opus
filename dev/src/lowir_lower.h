@@ -277,32 +277,9 @@ private:
 	// object to be initialized by code.
 	bool global_aggregate_initializer(lowir_model::GlobalDefinition& global,
 	                                  const DumpNode& node, TypeId type);
-	// 9.6p2: a run of bytes that bit-fields share.  A bit-field owns bits and
-	// not bytes, so what it puts in the object is the bytes its bits fall in;
-	// two fields whose bytes overlap are one run, which is written out as the
-	// bytes it is.  Open only while the walk is inside such a run, which a
-	// program with no bit-field never is.
-	struct BitRun
-	{
-		BitRun()
-			: open(false)
-			, first(0)
-			, last(0)
-			, bits(0)
-		{}
-
-		bool open;
-		unsigned long long first;
-		unsigned long long last;
-		unsigned long long bits;
-	};
-
 	bool global_subobjects(lowir_model::GlobalDefinition& global,
 	                       const DumpNode& node, unsigned long long base,
-	                       unsigned long long& at, BitRun& run);
-	// The run gathered so far, written out as the bytes it holds.
-	void flush_bit_run(lowir_model::GlobalDefinition& global, BitRun& run,
-	                   unsigned long long& at);
+	                       unsigned long long& at);
 	// `bytes` of zero, added to the items when there are any to add.
 	static void add_zero_item(lowir_model::GlobalDefinition& global,
 	                          unsigned long long bytes);
@@ -465,6 +442,20 @@ private:
 	lowir_model::Operand placed_bits(const SemaEntity& field,
 	                                 const lowir_model::Operand& held,
 	                                 TypeId type, bool initializer);
+	// 9.6p2: whether the field owns every bit of the unit read at `type`, which
+	// leaves both of the masks nothing to say.
+	bool fills_unit(const SemaEntity& field, TypeId type);
+	// 4.5p1: one operation on values of `type` written as the source would have
+	// written it, at the type 4.5 promotes the operands to.
+	lowir_model::Operand field_binary(const char* op, TypeId type,
+	                                  const lowir_model::Operand& left,
+	                                  const lowir_model::Operand& right);
+	// 4.5p1: one operand of such an operation, at the promoted type.
+	lowir_model::Operand promoted_operand(const lowir_model::Operand& held,
+	                                      TypeId from, TypeId to);
+	// 8.5p14: the value an initializer gives the object it initializes, which
+	// for a constant is the value it produces at that object's own type.
+	lowir_model::Operand initializer_value(const LowValue& value, TypeId target);
 	// 8.5p7 and 9.6p2: whether an initialization that takes the whole of
 	// [first, last) would be writing over bytes this initialization has already
 	// put something in.  The subobjects of one object are initialized in the

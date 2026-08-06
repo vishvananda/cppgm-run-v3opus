@@ -548,14 +548,33 @@ private:
 	// with `requested` the alignment 7.6.2 asked for, or zero for none.
 	void lay_out_class(SemaEntity& entity, Scope& scope, bool is_union,
 	                   unsigned long long requested);
-	// 9.6p2: the bits one bit-field takes out of the class, from the bit the
-	// layout has reached, which the field advances past its own width.
-	void lay_out_bit_field(SemaEntity& member, unsigned long long& bits);
+	// 9.6p2: the storage unit the bit-fields of a class are being allocated
+	// into while it is laid out.  A unit is opened by the first field that
+	// cannot share the one before it, and the fields declared with its own type
+	// share it while their bits fit; anything else closes it.
+	struct BitUnit
+	{
+		BitUnit()
+			: open(false)
+			, type(kNoType)
+			, at(0)
+			, used(0)
+		{}
+
+		bool open;
+		TypeId type;
+		unsigned long long at;
+		unsigned long long used;
+	};
+	// 9.6p2: the share of a storage unit one bit-field takes, from the byte the
+	// layout has reached and the unit it is filling.
+	void lay_out_bit_field(SemaEntity& member, unsigned long long& at,
+	                       BitUnit& unit);
 	// 9.6p1: the members one member-declaration that wrote widths declares.
 	void bit_field_declaration(const AstNode& node, const Context& ctx);
-	// 4.5p3: the type a value read out of a bit-field of this type and width
-	// is promoted to, which is what the storage unit is read with.
-	TypeId bit_field_access_type(TypeId declared, unsigned width);
+	// 9.6p2: the type the storage unit of a bit-field of this type is read and
+	// written at, which is the signed integer of the unit's own width.
+	TypeId bit_field_access_type(TypeId declared);
 	// 7.6.2p1: the strictest alignment the class-head's alignment-specifiers
 	// asked for.
 	unsigned long long requested_alignment(const AstNode& node,

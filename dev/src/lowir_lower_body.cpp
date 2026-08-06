@@ -311,11 +311,20 @@ Operand LowirFunctionLowering::rvalue(const LowValue& value)
 	return load(value.operand, value.type);
 }
 
-// 9.6p2 and 4.5p3: the value a bit-field holds.  The unit it sits in is read at
-// the type 4.5p3 promotes the field to, the field's own bits are brought down
-// to the bottom of it, and everything above the width the declaration wrote is
-// masked away.  What the value is worth keeps the type the member was declared
-// with, so a conversion above this one is the one that type asks for.
+// 9.6p2: whether the field owns every bit of its storage unit, in which case
+// the mask that keeps its own bits keeps all of them and the mask that keeps
+// the others keeps none - so neither is written.
+bool LowirFunctionLowering::fills_unit(const SemaEntity& field, TypeId type)
+{
+	return field.bit_offset == 0 &&
+		field.bit_width >= 8 * unit_.width(type);
+}
+
+// 9.6p2: the value a bit-field holds.  The unit it sits in is loaded at the
+// type the unit is read with, the field's own bits are brought down to the
+// bottom of it, and everything above the width the declaration wrote is masked
+// away.  What the value is worth keeps the type the member was declared with,
+// so a conversion above this one is the one that type asks for.
 Operand LowirFunctionLowering::read_bit_field(const LowValue& value)
 {
 	const SemaEntity& field = *value.field;
@@ -332,6 +341,10 @@ Operand LowirFunctionLowering::read_bit_field(const LowValue& value)
 			named_operand(Operand::OP_INTEGER, decimal(field.bit_offset));
 		held = emit(down);
 	}
+	if (fills_unit(field, access))
+	{
+		return held;
+	}
 	Instruction keep;
 	keep.kind = Instruction::IK_BINARY;
 	keep.op = "and";
@@ -343,6 +356,50 @@ Operand LowirFunctionLowering::read_bit_field(const LowValue& value)
 	return emit(keep);
 }
 
+// 4.5p1 and 5p9: one operation on values of `type`, written the way the source
+// would have written it - each operand promoted, the operation at the promoted
+// type, and 4.7p3 converting the result back.  An initialization computes the
+// unit as an expression of the member's own type, so a member narrower than
+// `int` is joined together at `int` like any other operand would be; a constant
+// is the same value at either width and needs nothing to reach it.
+Operand LowirFunctionLowering::field_binary(const char* op, TypeId type,
+                                            const Operand& left,
+                                            const Operand& right)
+{
+	TypeTable& types = unit_.types();
+	const TypeId wide = unit_.width(type) < unit_.width(types.fundamental(FT_INT))
+		? types.fundamental(FT_INT)
+		: type;
+	Instruction instruction;
+	instruction.kind = Instruction::IK_BINARY;
+	instruction.op = op;
+	instruction.type = unit_.low_type(wide);
+	instruction.first = promoted_operand(left, type, wide);
+	instruction.second = promoted_operand(right, type, wide);
+	const Operand held = emit(instruction);
+	if (wide == type)
+	{
+		return held;
+	}
+	LowValue value;
+	value.type = wide;
+	value.operand = held;
+	return converted(value, type);
+}
+
+Operand LowirFunctionLowering::promoted_operand(const Operand& held, TypeId from,
+                                                TypeId to)
+{
+	if (from == to || held.kind == Operand::OP_INTEGER)
+	{
+		return held;
+	}
+	LowValue value;
+	value.type = from;
+	value.operand = held;
+	return converted(value, to);
+}
+
 // 9.6p2: the value `held` masked to the width the field was declared with and
 // moved up to where the field's bits sit in its storage unit, which is what
 // both a write and an initialization put into the unit.  8.5.1's write spells
@@ -352,26 +409,44 @@ Operand LowirFunctionLowering::placed_bits(const SemaEntity& field,
                                            const Operand& held, TypeId type,
                                            bool initializer)
 {
-	Instruction keep;
-	keep.kind = Instruction::IK_BINARY;
-	keep.op = "and";
-	keep.type = unit_.low_type(type);
-	const Operand mask = named_operand(
-		Operand::OP_INTEGER, mask_bits(field_mask(field), unit_.width(type)));
-	keep.first = initializer ? mask : held;
-	keep.second = initializer ? held : mask;
-	Operand bits = emit(keep);
+	Operand bits = held;
+	if (!fills_unit(field, type))
+	{
+		const Operand mask = named_operand(
+			Operand::OP_INTEGER,
+			mask_bits(field_mask(field), unit_.width(type)));
+		if (initializer)
+		{
+			bits = field_binary("and", type, mask, held);
+		}
+		else
+		{
+			Instruction keep;
+			keep.kind = Instruction::IK_BINARY;
+			keep.op = "and";
+			keep.type = unit_.low_type(type);
+			keep.first = held;
+			keep.second = mask;
+			bits = emit(keep);
+		}
+	}
 	if (field.bit_offset == 0)
 	{
 		return bits;
 	}
-	Instruction up;
-	up.kind = Instruction::IK_BINARY;
-	up.op = "shl";
-	up.type = unit_.low_type(type);
-	up.first = bits;
-	up.second = named_operand(Operand::OP_INTEGER, decimal(field.bit_offset));
-	return emit(up);
+	const Operand up =
+		named_operand(Operand::OP_INTEGER, decimal(field.bit_offset));
+	if (initializer)
+	{
+		return field_binary("shl", type, bits, up);
+	}
+	Instruction shift;
+	shift.kind = Instruction::IK_BINARY;
+	shift.op = "shl";
+	shift.type = unit_.low_type(type);
+	shift.first = bits;
+	shift.second = up;
+	return emit(shift);
 }
 
 // 8.5p7 and 9.6p2: whether the bytes [first, last) of the object being
@@ -421,7 +496,8 @@ void LowirFunctionLowering::initialize_bit_field(
 	const Operand& held, TypeId type)
 {
 	TypeTable& types = unit_.types();
-	if (claims_storage(unit, unit + types.object_size(types.strip_cv(type))))
+	if (claims_storage(unit, unit + types.object_size(types.strip_cv(type))) ||
+	    fills_unit(field, type))
 	{
 		// 8.5p6: every bit of the unit is being initialized here, so the bits
 		// beside the field's take the zero the initialization gives them.
@@ -430,26 +506,15 @@ void LowirFunctionLowering::initialize_bit_field(
 		return;
 	}
 	const Operand at = subobject_address(object, path);
-	Instruction keep;
-	keep.kind = Instruction::IK_BINARY;
-	keep.op = "and";
-	keep.type = unit_.low_type(type);
-	keep.first = load(at, type);
-	keep.second = named_operand(
-		Operand::OP_INTEGER,
-		mask_bits(~(field_mask(field) << field.bit_offset),
-		          unit_.width(type)));
-	const Operand kept = emit(keep);
+	const Operand kept = field_binary(
+		"and", type, load(at, type),
+		named_operand(Operand::OP_INTEGER,
+		              mask_bits(~(field_mask(field) << field.bit_offset),
+		                        unit_.width(type))));
 	const Operand bits = placed_bits(field, held, type, true);
-	Instruction join;
-	join.kind = Instruction::IK_BINARY;
-	join.op = "or";
-	join.type = unit_.low_type(type);
-	join.first = kept;
-	join.second = bits;
 	// The unit is joined before it is named again, because the value is what
 	// the initialization computes and the place is where it then goes.
-	const Operand whole = emit(join);
+	const Operand whole = field_binary("or", type, kept, bits);
 	store(whole, subobject_address(object, path), type);
 }
 
@@ -466,6 +531,13 @@ void LowirFunctionLowering::assign_bit_field(const LowValue& target,
 	keep.op = "and";
 	keep.type = unit_.low_type(type);
 	keep.first = load(target.operand, type);
+	if (fills_unit(field, type))
+	{
+		// 9.6p2: the unit holds nothing beside the field's own bits, so there
+		// is nothing to put back and the value is the whole of what it holds.
+		store(bits, target.operand, type);
+		return;
+	}
 	keep.second = named_operand(
 		Operand::OP_INTEGER,
 		mask_bits(~(field_mask(field) << field.bit_offset),
@@ -672,24 +744,63 @@ Operand LowirFunctionLowering::converted(const LowValue& value, TypeId target)
 	}
 	if (value.constant && types.is_integral(wanted) &&
 	    types.is_integral(types.strip_cv(value.type)) &&
+	    !(types.kind(wanted) == TypeKind::Fundamental &&
+	      types.fundamental_type(wanted) == FT_BOOL) &&
 	    (unit_.is_signed(wanted) ||
-	     unit_.width(wanted) == unit_.width(value.type)))
+	     unit_.width(wanted) <= unit_.width(value.type)))
 	{
-		// A widening of an immediate is the immediate it widens to, so the
-		// conversion is spelled as the value it produces rather than as the
-		// operation that would produce it.
+		// An immediate read at another width is the immediate it reads as, so
+		// the conversion is spelled as the value it produces rather than as the
+		// operation that would produce it.  A widening to an unsigned type is
+		// not one of those: what a negative immediate widens to is a value the
+		// decimal it was spelled with does not name, and 4.12's conversion to
+		// `bool` is a comparison rather than the same value at another width.
 		return literal_operand(wanted, value.value);
 	}
 	if (types.kind(wanted) == TypeKind::Fundamental &&
 	    types.fundamental_type(wanted) == FT_BOOL)
 	{
-		// 4.12: a value converts to `bool` by comparing it with zero.
-		LowValue held = value;
-		held.has_held = true;
-		held.held = operand;
-		return truth_value(held);
+		// 4.12: a value converts to `bool` by comparing it with zero.  The
+		// comparison is written at the type of what it compares - which is
+		// what this conversion has and 5.14p1's operand, already a truth
+		// value, does not - and `bool` holds the one byte its object is stored
+		// in, so what the comparison produced is read at that width.
+		const lowir_model::LowType low = unit_.low_type(bare);
+		Instruction test;
+		test.kind = Instruction::IK_CMP;
+		test.op = "ne";
+		test.type = low;
+		test.first = operand;
+		test.second = low.text == "ptr" || low.text[0] == 'f'
+			? literal_operand(bare, 0)
+			: named_operand(Operand::OP_INTEGER, "0");
+		Instruction narrow;
+		narrow.kind = Instruction::IK_COPY;
+		narrow.type = unit_.low_type(wanted);
+		narrow.first = emit(test);
+		return emit(narrow);
 	}
 	return convert_scalar(operand, value.type, wanted);
+}
+
+// 8.5p14 and 5.19: the value an initializer gives the object it initializes.
+// An initialization writes what the initializer is worth as the type the object
+// holds, so where that is a constant the conversion is the value it produces
+// and nothing computes it; 4.12's conversion to `bool` is a comparison rather
+// than a value read at another width, and is written where it stands.
+Operand LowirFunctionLowering::initializer_value(const LowValue& value,
+                                                 TypeId target)
+{
+	TypeTable& types = unit_.types();
+	const TypeId wanted = types.strip_cv(target);
+	if (value.constant && types.is_integral(wanted) &&
+	    types.kind(wanted) == TypeKind::Fundamental &&
+	    types.fundamental_type(wanted) != FT_BOOL &&
+	    types.is_integral(types.strip_cv(value.type)))
+	{
+		return literal_operand(wanted, value.value);
+	}
+	return converted(value, target);
 }
 
 Operand LowirFunctionLowering::truth_for_branch(const LowValue& value)
@@ -735,6 +846,10 @@ Operand LowirFunctionLowering::truth_value(const LowValue& value)
 	Instruction instruction;
 	instruction.kind = Instruction::IK_CMP;
 	instruction.op = "ne";
+	// A comparison is written at the type of what it compares.  5.14p1's truth
+	// value is materialized at the width LowIR gives one rather than at the
+	// width `bool` is stored at, so an operand that is already one is compared
+	// at that width and every other at its own.
 	// 5.14p1: the truth of an operand is one canonical integer value, which
 	// LowIR materializes at its own width rather than at the width the operand
 	// was stored at.  A pointer and a floating value are compared as they are.
@@ -996,7 +1111,7 @@ void LowirFunctionLowering::member_initialization(const DumpNode& node)
 		return;
 	}
 	const LowValue value = expression(written);
-	const Operand held = converted(value, type);
+	const Operand held = initializer_value(value, type);
 	if (member.bit_field)
 	{
 		// 9.6p2: the member is a run of bits inside a unit the class also gave
@@ -2400,14 +2515,23 @@ LowValue LowirFunctionLowering::assignment_expression(const DumpNode& node)
 		// assignment computes, so it is computed before the object it is
 		// written into is named.
 		const LowValue right = as_value(expression(*node.children[1]));
-		const LowValue target = expression(*node.children[0], true);
-		const TypeId written_type = types.strip_cv(target.type);
+		const TypeId spelled = types.strip_cv(node.children[0]->fact.type);
+		const TypeId written_type = types.is_reference(spelled)
+			? types.strip_cv(types.target(spelled))
+			: spelled;
+		// 5.17p1: the value is converted where it is computed, which is before
+		// the object it is written into is named - the type it is converted to
+		// is what the left operand was declared with, and reading it needs
+		// nothing of the storage that operand will name.
 		const Operand written = converted(right, written_type);
+		const LowValue target = expression(*node.children[0], true);
 		if (target.field != nullptr)
 		{
 			// 9.6p2: the object written into is a run of bits, and the bits
 			// beside it in its storage unit are not this assignment's to change.
-			assign_bit_field(target, written, written_type);
+			// What is written is a value of the member's own type; the unit it
+			// goes into is read and put back at the unit's own.
+			assign_bit_field(target, written, target.field->bit_access);
 			LowValue assigned = target;
 			assigned.has_held = true;
 			assigned.held = written;
@@ -2420,11 +2544,11 @@ LowValue LowirFunctionLowering::assignment_expression(const DumpNode& node)
 		return assigned;
 	}
 	const LowValue left = expression(*node.children[0], true);
-	// 5.17p7 and 4.5p3: the operator acts on the value the left operand holds,
-	// which for a bit-field is a value of the type its width promotes it to.
-	const TypeId bare = left.field != nullptr
-		? left.field->bit_access
-		: types.strip_cv(left.type);
+	// 5.17p7: the operator acts on the value the left operand holds, which for
+	// a bit-field is a value of the type the member was declared with - the
+	// unit it was read out of is as wide as that type, so nothing is written to
+	// read what the load produced as one.
+	const TypeId bare = types.strip_cv(left.type);
 	LowValue value = left;
 	value.has_held = true;
 	// 5.17p7: a compound assignment is the operator it names followed by an
@@ -2445,7 +2569,9 @@ LowValue LowirFunctionLowering::assignment_expression(const DumpNode& node)
 		: convert_scalar(result, common, bare);
 	if (left.field != nullptr)
 	{
-		assign_bit_field(left, written, bare);
+		// 9.6p2: what the operator computed is a value of the member's type,
+		// and the unit it goes back into is read and put back at the unit's.
+		assign_bit_field(left, written, left.field->bit_access);
 		value.held = written;
 		return value;
 	}
@@ -2621,7 +2747,7 @@ void LowirFunctionLowering::initialize_into(const LowObject& object,
 		return;
 	}
 	const LowValue value = expression(node);
-	store(converted(value, type), object_storage(object), type);
+	store(initializer_value(value, type), object_storage(object), type);
 }
 
 void LowirFunctionLowering::initialize_aggregate(const LowObject& object,
@@ -2727,18 +2853,32 @@ void LowirFunctionLowering::initialize_subobject(
 		// and the place is named after it rather than before.
 		const SemaEntity& field = *node.fact.entity;
 		const unsigned long long unit = subobject_offset(path);
-		Operand held;
+		if (field.bit_width == 0)
+		{
+			// 9.6p2: a field of width zero holds no bits, so there is nothing
+			// for a clause to reach it with and nothing to write.
+			path.pop_back();
+			return;
+		}
+		const unsigned long long size =
+			unit_.types().object_size(unit_.types().strip_cv(node.fact.type));
 		if (node.children.empty())
 		{
-			// 8.5p7: a member no clause reached is value-initialized, which for
-			// a bit-field is the zero of the type it was declared with.
-			held = literal_operand(node.fact.type, 0);
+			// 8.5p7: a member no clause reached is value-initialized.  Where
+			// this initialization still owns the unit, the zero it gives the
+			// field is the zero of the whole unit; where an earlier field of
+			// the same unit was written, that write already gave these bits
+			// their zero and there is nothing left to do.
+			if (claims_storage(unit, unit + size))
+			{
+				store(literal_operand(node.fact.type, 0),
+				      subobject_address(object, path), node.fact.type);
+			}
+			path.pop_back();
+			return;
 		}
-		else
-		{
-			const LowValue value = expression(*node.children[0]);
-			held = converted(value, node.fact.type);
-		}
+		const LowValue value = expression(*node.children[0]);
+		const Operand held = initializer_value(value, node.fact.type);
 		initialize_bit_field(field, object, path, unit, held, node.fact.type);
 		path.pop_back();
 		return;

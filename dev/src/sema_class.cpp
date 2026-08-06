@@ -104,30 +104,25 @@ unsigned long long SemaAnalyzer::requested_alignment(const AstNode& node,
 	return wanted;
 }
 
-// 4.5p3: the type a value read out of a bit-field is promoted to.  `int` holds
-// every value a field narrower than `int` can have, whatever the signedness of
-// the type it was declared with, and a wider field is promoted as its declared
-// type is.  The unit is loaded and masked at that type, so a promotion that
-// would read past the end of the declared type's storage is left alone.
-TypeId SemaAnalyzer::bit_field_access_type(TypeId declared, unsigned width)
+// 9.6p2: the type the storage unit holding a bit-field is read and written at.
+// The unit is a run of bytes rather than an object, so what names it is its
+// width - the width the declared type gave it - and not what the member was
+// declared with: the bits it holds beside the field's own belong to the other
+// members of the unit, and shifting and masking them is arithmetic on a pattern
+// of bits.  It is spelled signed at that width, and what the field is worth
+// keeps the type the member was declared with, which is what leaves the
+// conversion above a read the one that type asks for.
+TypeId SemaAnalyzer::bit_field_access_type(TypeId declared)
 {
 	const TypeId bare = types_.strip_cv(declared);
-	TypeId access = promoted(bare);
-	if (types_.kind(bare) != TypeKind::Enum && types_.is_integral(bare))
+	switch (types_.object_size(bare))
 	{
-		const unsigned room = static_cast<unsigned>(
-			8 * types_.object_size(types_.fundamental(FT_INT)));
-		if (width < room || (width == room && is_signed(bare)))
-		{
-			access = types_.fundamental(FT_INT);
-		}
-		else if (width == room)
-		{
-			access = types_.fundamental(FT_UNSIGNED_INT);
-		}
+	case 1: return types_.fundamental(FT_SIGNED_CHAR);
+	case 2: return types_.fundamental(FT_SHORT_INT);
+	case 4: return types_.fundamental(FT_INT);
+	default: break;
 	}
-	return types_.object_size(access) == types_.object_size(bare) ? access
-	                                                              : bare;
+	return types_.fundamental(FT_LONG_INT);
 }
 
 // 9.6p1: a member declaration that writes a width declares a bit-field, whose
@@ -199,45 +194,58 @@ void SemaAnalyzer::bit_field_declaration(const AstNode& node,
 		}
 		member.bit_field = true;
 		member.bit_width = static_cast<unsigned>(value.bits);
-		member.bit_access = bit_field_access_type(member.type, member.bit_width);
+		member.bit_access = bit_field_access_type(member.type);
 	}
 }
 
-// 9.6p2: where one bit-field's bits go, given the bit the class has reached.
-// The field is allocated into a storage unit of its declared type, and a field
-// that would cross the end of one is moved to the start of the next rather than
-// split across two - which is what leaves every access one load and one mask.
-// An unnamed field of width zero allocates nothing and only moves the cursor to
-// the next unit, which is what 9.6p2's separator is for.
+// 9.6p2: where one bit-field's bits go, given the byte the class has reached
+// and the storage unit it is filling.  A bit-field is allocated into a whole
+// storage unit of its declared type - the unit is what the object gives it, and
+// the field owns a run of bits inside it - and the fields that follow share that
+// unit while they were declared with the same type and their bits still fit.
+// Anything else, a field of another type or an ordinary member, begins after the
+// unit ends rather than inside it, which is what keeps one member's storage out
+// of another's and every access one load and one mask.  An unnamed field of
+// width zero allocates nothing: it ends the open unit, which is what 9.6p2's
+// separator is for.
 void SemaAnalyzer::lay_out_bit_field(SemaEntity& member,
-                                     unsigned long long& bits)
+                                     unsigned long long& at, BitUnit& unit)
 {
-	const unsigned long long unit = 8 * types_.object_size(member.type);
-	const unsigned long long boundary = 8 * types_.object_align(member.type);
+	const TypeId bare = types_.strip_cv(member.type);
+	const unsigned long long size = types_.object_size(bare);
+	const unsigned long long boundary = types_.object_align(bare);
 	if (member.bit_width == 0)
 	{
-		bits = round_up(bits, boundary);
-		member.offset = bits / 8;
+		unit.open = false;
+		at = round_up(at, boundary);
+		member.offset = at;
 		member.bit_offset = 0;
 		return;
 	}
-	if (unit != 0 && bits / unit != (bits + member.bit_width - 1) / unit)
+	if (!unit.open || unit.type != bare ||
+	    unit.used + member.bit_width > 8 * size)
 	{
-		bits = round_up(bits, boundary);
+		unit.open = true;
+		unit.type = bare;
+		unit.at = round_up(at, boundary);
+		unit.used = 0;
+		at = unit.at + size;
 	}
-	member.offset = unit == 0 ? 0 : (bits / unit) * (unit / 8);
-	member.bit_offset = static_cast<unsigned>(bits - 8 * member.offset);
-	bits += member.bit_width;
+	member.offset = unit.at;
+	member.bit_offset = static_cast<unsigned>(unit.used);
+	unit.used += member.bit_width;
 }
 
 void SemaAnalyzer::lay_out_class(SemaEntity& entity, Scope& scope, bool is_union,
                                  unsigned long long requested)
 {
-	// 9.6p2 allocates a bit-field into a run of bits rather than at an address,
-	// so the cursor this walk carries is in bits and an ordinary member rounds
-	// it to the byte its own alignment allows.  A class with no bit-field never
-	// leaves a byte boundary, so it is laid out exactly as it was before.
-	unsigned long long bits = 0;
+	// 9.2p13 allocates each member at the next address its alignment allows,
+	// and 9.6p2 gives a bit-field a share of a storage unit instead.  The walk
+	// carries both: how far into the object it has reached, and the unit the
+	// bit-fields declared so far are filling.  A class with no bit-field never
+	// opens one, so it is laid out exactly as it was before.
+	unsigned long long size = 0;
+	BitUnit unit;
 	unsigned long long align = 1;
 	bool empty = true;
 	if (entity.base != nullptr)
@@ -249,7 +257,7 @@ void SemaAnalyzer::lay_out_class(SemaEntity& entity, Scope& scope, bool is_union
 		align = types_.object_align(entity.base->type);
 		if (!entity.base->empty_class)
 		{
-			bits = 8 * types_.object_size(entity.base->type);
+			size = types_.object_size(entity.base->type);
 			empty = false;
 		}
 	}
@@ -279,20 +287,22 @@ void SemaAnalyzer::lay_out_class(SemaEntity& entity, Scope& scope, bool is_union
 			// 9.5p1: every member of a union begins where the union does.
 			member.offset = 0;
 			member.bit_offset = 0;
-			bits = member_size * 8 > bits ? member_size * 8 : bits;
+			size = member_size > size ? member_size : size;
 			continue;
 		}
 		if (member.bit_field)
 		{
-			lay_out_bit_field(member, bits);
+			lay_out_bit_field(member, size, unit);
 			continue;
 		}
 		// 9.2p13: the members are allocated in declaration order, each at the
-		// next address its own alignment allows.
-		member.offset = round_up((bits + 7) / 8, member_align);
-		bits = 8 * (member.offset + member_size);
+		// next address its own alignment allows, and a member that is not a
+		// bit-field takes storage of its own rather than a share of the unit
+		// the fields before it were given.
+		unit.open = false;
+		member.offset = round_up(size, member_align);
+		size = member.offset + member_size;
 	}
-	unsigned long long size = (bits + 7) / 8;
 	if (requested != 0)
 	{
 		// 7.6.2p5: an alignment-specifier may not ask for less than the class

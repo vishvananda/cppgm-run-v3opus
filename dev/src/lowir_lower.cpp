@@ -619,38 +619,10 @@ void LowirUnitLowering::add_zero_item(lowir_model::GlobalDefinition& global,
 	global.data_items.push_back(item);
 }
 
-// 9.6p2: the run of bytes the bit-fields gathered so far fall in, written out
-// as the bytes it is.  A byte is what a bit-field puts in the object: the
-// storage unit it is read through is wider than the bits it owns, and the bytes
-// of that unit past its own bits belong to whatever the class put there.
-void LowirUnitLowering::flush_bit_run(lowir_model::GlobalDefinition& global,
-                                      BitRun& run, unsigned long long& at)
-{
-	if (!run.open)
-	{
-		return;
-	}
-	add_zero_item(global, run.first - at);
-	for (unsigned long long byte = run.first; byte < run.last; ++byte)
-	{
-		lowir_model::GlobalDefinition::DataItem item;
-		item.type = low_type(types_.fundamental(FT_UNSIGNED_CHAR));
-		item.kind = lowir_model::GlobalDefinition::DataItem::ITEM_INTEGER;
-		item.literal_operand.kind = lowir_model::Operand::OP_INTEGER;
-		item.literal_operand.text =
-			spell_value(types_.fundamental(FT_UNSIGNED_CHAR),
-			            run.bits >> (8 * (byte - run.first)));
-		global.data_items.push_back(item);
-	}
-	at = run.last;
-	run.open = false;
-}
-
 bool LowirUnitLowering::global_subobjects(lowir_model::GlobalDefinition& global,
                                           const DumpNode& node,
                                           unsigned long long base,
-                                          unsigned long long& at,
-                                          BitRun& run)
+                                          unsigned long long& at)
 {
 	for (std::size_t index = 0; index < node.children.size(); ++index)
 	{
@@ -659,54 +631,33 @@ bool LowirUnitLowering::global_subobjects(lowir_model::GlobalDefinition& global,
 		const unsigned long long offset = base +
 			(child.fact.entity != nullptr ? child.fact.entity->offset
 			                              : child.fact.value * stride);
-		const SemaEntity* const field =
-			child.fact.entity != nullptr && child.fact.entity->bit_field
-				? child.fact.entity
-				: nullptr;
-		if (field != nullptr)
+		if (child.fact.entity != nullptr && child.fact.entity->bit_field)
 		{
-			// 9.6p2: the field's bits go where its class put them, which is
-			// somewhere inside the storage unit at `offset`.  The bytes those
-			// bits fall in are what the object holds for the field.
-			const unsigned long long begin = 8 * offset + field->bit_offset;
-			const unsigned long long first = begin / 8;
-			const unsigned long long last =
-				(begin + field->bit_width + 7) / 8;
-			if (run.open && first >= run.last)
+			// 9.6p2: a bit-field owns a run of bits inside a storage unit that
+			// the members beside it own the rest of, and a data item names a
+			// whole object rather than a share of one.  A field a clause gave a
+			// value to is written by the code that joins the unit together, so
+			// the object is given its value before the program runs; a field no
+			// clause reached is the zero of its unit, which the first field of
+			// the unit writes for all of them.
+			if (!child.children.empty())
 			{
-				// The field shares no byte with the run, so the run is done.
-				flush_bit_run(global, run, at);
-			}
-			if (!run.open)
-			{
-				run.open = true;
-				run.first = first;
-				run.last = first;
-				run.bits = 0;
-			}
-			if (last - run.first > 8)
-			{
-				// A run this wide cannot be gathered into one value, and its
-				// bytes overlap what is already there, so the object is given
-				// its value before the program runs instead.
 				return false;
 			}
-			unsigned long long bits = 0;
-			if (!child.children.empty() && !folded(*child.children[0], bits))
+			if (child.fact.entity->bit_width == 0 || offset < at)
 			{
-				// 3.6.2p2: the value is not one the translation knows.
-				return false;
+				continue;
 			}
-			const unsigned long long mask = field->bit_width >= 64
-				? ~0ull
-				: ((1ull << field->bit_width) - 1);
-			run.bits |= (bits & mask) << (begin - 8 * run.first);
-			run.last = last > run.last ? last : run.last;
+			add_zero_item(global, offset - at);
+			lowir_model::GlobalDefinition::DataItem zero;
+			zero.type = low_type(child.fact.type);
+			zero.kind = lowir_model::GlobalDefinition::DataItem::ITEM_INTEGER;
+			zero.literal_operand.kind = lowir_model::Operand::OP_INTEGER;
+			zero.literal_operand.text = "0";
+			global.data_items.push_back(zero);
+			at = offset + stride;
 			continue;
 		}
-		// The walk has left the bytes it was gathering, so what it gathered is
-		// what the object holds there.
-		flush_bit_run(global, run, at);
 		if (child.fact.op != 0)
 		{
 			// 8.5.1p7: the elements from here to the end of the array are zero.
@@ -721,7 +672,7 @@ bool LowirUnitLowering::global_subobjects(lowir_model::GlobalDefinition& global,
 		if (!child.children.empty() &&
 		    child.children[0]->fact.kind == FactKind::SubobjectInitialization)
 		{
-			if (!global_subobjects(global, child, offset, at, run))
+			if (!global_subobjects(global, child, offset, at))
 			{
 				return false;
 			}
@@ -770,14 +721,11 @@ bool LowirUnitLowering::global_aggregate_initializer(
 	lowir_model::GlobalDefinition& global, const DumpNode& node, TypeId type)
 {
 	unsigned long long at = 0;
-	BitRun run;
-	if (!global_subobjects(global, node, 0, at, run))
+	if (!global_subobjects(global, node, 0, at))
 	{
 		global.data_items.clear();
 		return false;
 	}
-	// 9.6p2: the last storage unit the walk was inside is written out too.
-	flush_bit_run(global, run, at);
 	// 9.2p13: the object is as large as its class says, whatever its last
 	// member ends at.
 	add_zero_item(global, types_.object_size(types_.strip_cv(type)) - at);

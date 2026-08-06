@@ -814,12 +814,6 @@ void SemaAnalyzer::aggregate_members(TypeId type, Clauses& clauses,
 		{
 			continue;
 		}
-		if (member.bit_field && member.name.empty())
-		{
-			// 8.5.1p1: an unnamed bit-field is not a member the clauses reach,
-			// so no clause initializes it and it is stepped over.
-			continue;
-		}
 		DumpNode& node = open_subobject(parent, member.type, &member, 0);
 		aggregate_subobject(member.type, clauses, ctx, node);
 		if (is_union)
