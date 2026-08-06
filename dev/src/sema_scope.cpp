@@ -94,6 +94,9 @@ SemaEntity& SemaModel::create(SemaKind kind, const std::string& name, TypeId typ
 	entity.value = 0;
 	entity.next = nullptr;
 	entity.tail = nullptr;
+	entity.region = nullptr;
+	entity.storage = nullptr;
+	entity.constructor = nullptr;
 	entity.id = static_cast<std::uint32_t>(entities_.size() - 1);
 	entity.dump_name = name;
 	return entity;
@@ -225,6 +228,14 @@ void SemaModel::bind(Scope& where, const std::string& name, SemaEntity& entity)
 void SemaModel::declare_in(Scope& where, SemaEntity& entity)
 {
 	where.declarations.push_back(&entity);
+	if (entity.region == nullptr)
+	{
+		// The region the declaration was written in is the first one it is
+		// recorded in; 9.5p1 records an anonymous union's member a second time,
+		// in the region the union was declared in, and that is a binding rather
+		// than another declaration of it.
+		entity.region = &where;
+	}
 }
 
 void SemaModel::nominate(Scope& where, Scope& space)

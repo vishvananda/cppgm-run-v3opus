@@ -125,6 +125,8 @@ public:
 	// declaration name an unnamed class after it has been read, so the name can
 	// arrive after the type.
 	void rename(TypeId type, const std::string& name);
+	// That name, which 9.1p2 makes what a member of the type is written after.
+	const std::string& user_name(TypeId type) const { return user_at(type).name; }
 
 	// 9.2p2: the class becomes complete at the end of its member specification,
 	// which is where its size and alignment are first known.

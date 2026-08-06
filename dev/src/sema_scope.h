@@ -89,6 +89,19 @@ struct SemaEntity
 	// The last of that chain, held on the first, so a declaration joins it
 	// without walking what is already there.
 	SemaEntity* tail;
+	// The region this declaration was made in, which is what tells a member of
+	// a class from a variable of a block: 9.2p1 makes the first reachable only
+	// through an object, and the region it was declared in is the one fact
+	// about it that says so.  It is the region of the declaration rather than
+	// of a binding, so a using-declaration or 9.5p1 injection leaves it alone.
+	Scope* region;
+	// 9.5p1: the object an anonymous union's member is a member of.  The union
+	// has no name, so its members are reached through the object the union
+	// declared rather than through one the program named.
+	SemaEntity* storage;
+	// Class: 12.1p5, the constructor the class has that no declaration wrote,
+	// held on the class because that is what an object of it asks for.
+	SemaEntity* constructor;
 	// This entity among the run's, which is how a fact about it is keyed - the
 	// same use `Scope::id` is put to for a region.
 	std::uint32_t id;

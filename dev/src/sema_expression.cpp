@@ -218,6 +218,9 @@ SemaAnalyzer::Value SemaAnalyzer::expression(const AstNode& node,
 	case AstKind::SubscriptExpression:
 		return subscript_expression(node, ctx, parent);
 
+	case AstKind::MemberExpression:
+		return member_expression(node, ctx, parent);
+
 	case AstKind::UnaryExpression:
 		return node.token == OP_INC || node.token == OP_DEC
 			? increment_expression(node, ctx, parent, false)
@@ -294,6 +297,31 @@ SemaAnalyzer::Value SemaAnalyzer::named_value(const AstNode& node,
 		throw std::runtime_error(node.text + " does not name an object or a "
 		                         "function");
 	}
+	if (entity.kind == SemaKind::Variable && entity.region != nullptr &&
+	    entity.region->kind == ScopeKind::Class)
+	{
+		// 9.3.1p3 and 9.5p1: a member named with no object expression is a
+		// member of the object `this` points to, or of the object an anonymous
+		// union declared, and the output writes the access it stands for.
+		DumpNode& line = model_.open_node(parent, std::string());
+		Value object;
+		if (entity.storage != nullptr)
+		{
+			object.type = entity.storage->type;
+			object.category = ValueCategory::LValue;
+			object.node = &model_.open_node(
+				line, "id-expression " +
+				std::string(category_name(ValueCategory::LValue)) + " " +
+				types_.description(object.type) + " " + entity.storage->name);
+		}
+		else
+		{
+			object = this_value(line);
+			object.type = types_.target(object.type);
+			object.category = ValueCategory::LValue;
+		}
+		return member_value(entity, object, entity.name, line);
+	}
 	value.type = entity.type;
 	value.category = ValueCategory::LValue;
 	if (types_.is_reference(value.type))
@@ -351,6 +379,104 @@ void SemaAnalyzer::name_function(Value& value, SemaEntity& function,
 		" " + category_name(ValueCategory::LValue) + named;
 }
 
+// 5.2.5p1: `E1.E2` and `E1->E2` name a member of the class of the object
+// expression, which is one lookup in the region that class declares.  The
+// member is not looked up in the region the expression is written in: 3.4.5
+// makes the object expression say where to look.
+SemaAnalyzer::Value SemaAnalyzer::member_expression(const AstNode& node,
+                                                    const Context& ctx,
+                                                    DumpNode& parent)
+{
+	// The line the member writes holds the object expression, and what it says
+	// is known only once the member is found, so the node is opened for the
+	// operand to write under and spelled afterwards.
+	DumpNode& line = model_.open_node(parent, std::string());
+	Value object = expression(*node.children[0], ctx, line);
+	require_complete_value(object);
+	if (node.token == OP_ARROW)
+	{
+		// 5.2.5p2: `E1->E2` is `(*E1).E2`, and the dump writes the one node the
+		// arrow was written as.
+		if (types_.kind(object.type) != TypeKind::Pointer)
+		{
+			throw std::runtime_error("`->` is written on an operand that is not "
+			                         "a pointer to a class");
+		}
+		object.type = types_.target(object.type);
+		object.category = ValueCategory::LValue;
+	}
+	if (!types_.is_class(types_.strip_cv(object.type)))
+	{
+		throw std::runtime_error("a member is named of an operand that is not "
+		                         "of class type");
+	}
+	SemaEntity* const owner = model_.type_owner(types_.strip_cv(object.type));
+	if (owner == nullptr || owner->scope == nullptr)
+	{
+		throw std::runtime_error("a member is named of an incomplete class");
+	}
+	const AstNode& id = *node.children[1];
+	SemaEntity& member = require(
+		model_.lookup_in(*owner->scope, id.text, LookupKind::Any), id.text);
+	return member_value(member, object,
+	                    std::string(ast_token_type_name(node.token)) + ":" +
+	                    id.text, line);
+}
+
+// 5.2.5p4: the member the object expression holds, which is an lvalue when the
+// object is one and is as cv-qualified as the object it is part of.
+SemaAnalyzer::Value SemaAnalyzer::member_value(SemaEntity& member,
+                                               const Value& object,
+                                               const std::string& payload,
+                                               DumpNode& node)
+{
+	if (member.kind != SemaKind::Variable)
+	{
+		// 5.2.5p4 gives a member function the meaning only a call of it has,
+		// which is outside the PA12 subset.
+		throw std::runtime_error("a member that is not a data member is named "
+		                         "outside a call");
+	}
+	Value value;
+	value.type = types_.qualified(member.type, types_.object_cv(object.type));
+	if (types_.is_reference(member.type))
+	{
+		// 8.3.2p5: a member of reference type names what it is bound to, which
+		// the object it is part of does not qualify.
+		value.type = types_.target(member.type);
+	}
+	value.spelled = value.type;
+	// 5.2.5p4: the member of a prvalue object is an xvalue; PA12 reaches a
+	// member of an object the program named, which is an lvalue.
+	value.category = object.category == ValueCategory::LValue
+		? ValueCategory::LValue
+		: ValueCategory::XValue;
+	value.node = &node;
+	node.text = "member-expression " + std::string(category_name(value.category)) +
+		" " + types_.description(value.type) + " " + payload;
+	return value;
+}
+
+// 9.3.2p1: `this` is a prvalue pointer to the object the member function being
+// read was called on.  A member named with no object expression denotes the
+// same object, and the output spells it the same way, so both write this line.
+SemaAnalyzer::Value SemaAnalyzer::this_value(DumpNode& parent)
+{
+	if (self_ == nullptr)
+	{
+		throw std::runtime_error("`this` is written outside a member function");
+	}
+	Value value;
+	value.type = self_->type;
+	value.spelled = value.type;
+	value.category = ValueCategory::PRValue;
+	value.node = &model_.open_node(
+		parent, "id-expression " + std::string(category_name(value.category)) +
+		" " + types_.description(value.type) + " " +
+		ast_token_type_name(KW_THIS) + ":this");
+	return value;
+}
+
 SemaAnalyzer::Value SemaAnalyzer::literal_expression(const AstNode& node,
                                                      DumpNode& parent)
 {
@@ -361,6 +487,12 @@ SemaAnalyzer::Value SemaAnalyzer::literal_expression(const AstNode& node,
 	const std::string& spelling = node.text;
 	if (node.kind == AstKind::KeywordLiteral)
 	{
+		if (node.token == KW_THIS)
+		{
+			// 9.3.2p1: `this` is not a literal; the grammar reads it where a
+			// primary-expression is written, and it denotes an object.
+			return this_value(parent);
+		}
 		if (node.token == KW_NULLPTR)
 		{
 			value.type = types_.fundamental(FT_NULLPTR_T);

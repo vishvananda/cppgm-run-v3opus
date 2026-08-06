@@ -264,7 +264,15 @@ SemaAnalyzer::Match SemaAnalyzer::match_reference(const Value& argument,
 	match.reference = true;
 	match.binds_lvalue = false;
 	match.binds_rvalue_ref = rvalue_ref;
-	match.materialized = referenced;
+	// 4.4p4: a qualification conversion is between two pointers to the same
+	// type, so the temporary 8.5.3p5 binds holds the value the argument already
+	// had.  The output writes the conversions that change what an operand is,
+	// and this one changes nothing an operand of it could tell apart.
+	if (!(types_.kind(source) == TypeKind::Pointer &&
+	      qualification_convertible(source, types_.strip_cv(referenced))))
+	{
+		match.materialized = referenced;
+	}
 	return match;
 }
 

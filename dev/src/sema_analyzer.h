@@ -76,10 +76,18 @@ private:
 	// defined outside its class writes its lines where it is written.
 	struct Context
 	{
+		Context()
+			: scope(nullptr)
+			, dump(nullptr)
+			, node(nullptr)
+		{}
+
 		Scope* scope;
 		DumpScope* dump;
 		// The PA12 node a declaration read here writes under, which at block
-		// scope is the `simple-declaration` the statement opened.
+		// scope is the `simple-declaration` the statement opened.  Null where
+		// the output has no line for what a declaration declares, which is
+		// every member of a class.
 		DumpNode* node;
 	};
 
@@ -158,6 +166,9 @@ private:
 		bool has_type_name;
 		bool is_typedef;
 		bool is_constexpr;
+		// 9.4p1: a member declared `static` is not a member of an object, so it
+		// has no implicit object parameter and is reached without one.
+		bool is_static;
 		// The class or enumeration this sequence declared.
 		SemaEntity* introduced;
 	};
@@ -167,6 +178,29 @@ private:
 	{
 		std::string name;
 		TypeId type;
+	};
+
+	// A definition the dump writes at the end of the translation unit.
+	//
+	// 12.1p5 gives a class a constructor no declaration wrote, and 9.2p2 makes
+	// a member function's body a complete-class context, which is read after
+	// the class it is written in is closed.  Both are definitions the program
+	// has that the place they are written cannot hold, so they are held here
+	// and written where the output puts them.
+	struct Pending
+	{
+		Pending();
+
+		SemaEntity* function;
+		// The implicit object parameter of 9.3.1p3, which the dump writes as
+		// the first parameter of a member function.
+		SemaEntity* self;
+		// A member function's declarator and body, and the region its
+		// parameters were declared in.  Null for a constructor no declaration
+		// wrote, whose body is empty.
+		const AstNode* body;
+		Scope* scope;
+		std::vector<Parameter> parameters;
 	};
 
 	// A value of the 5.19 subset: what it is worth, and the type that says how
@@ -210,9 +244,30 @@ private:
 	// enumeration its specifiers left unnamed.
 	static std::string name_from_declarators(const AstNode& node);
 	// 9.5p1: the members of an anonymous union are declared in the region the
-	// union is declared in.  Anything else `entity` may be declares nothing
-	// there, so every declaration that introduces a class asks.
-	void inject_union_members(SemaEntity* entity, const Context& ctx);
+	// union is declared in, and are members of the object the union declared.
+	// Anything else `entity` may be declares nothing there, so every
+	// declaration that introduces a class asks.
+	void inject_union_members(SemaEntity* entity, const Context& ctx,
+	                          const Span& span);
+	// 12.1p5: the constructor a class with no declared one has, declared into
+	// the class where its definition ends.
+	void declare_constructor(SemaEntity& entity, Scope& scope);
+	// 12.1p5 and 8.5p6: the constructor that default-initializes an object of
+	// `type`, which the definition of the object is what asks for.
+	SemaEntity* default_constructor(TypeId type);
+	// The `constructor-action` an object of class type is initialized by, and
+	// the definition of the constructor it calls.
+	void construct_object(SemaEntity& variable, DumpNode& line);
+	// 9.3.1p3: the type of a member function, which is called on an object that
+	// its declarator does not write and that the dump writes as its first
+	// parameter.  Any other function is its own type.
+	TypeId with_object_parameter(TypeId type, const AstNode& declarator,
+	                             const Context& target, bool is_static);
+	// The definitions the output writes at the end of the translation unit,
+	// which are read in the order they were asked for.  Reading one may ask for
+	// another, so the list is walked rather than iterated.
+	void write_pending_definitions();
+	void write_definition(Pending& pending);
 	// 9.2p2 and the course ABI: the size and alignment of a completed class.
 	void lay_out_class(SemaEntity& entity, Scope& scope, bool is_union);
 	// 13.1 and 3.5: the declaration a function declarator makes, which is a
@@ -221,9 +276,12 @@ private:
 	SemaEntity& declare_function(const std::string& name, TypeId type,
 	                             const Context& target, bool define);
 	// The `parameter` lines of a function, and the declarations of them in the
-	// region the definition opened.
+	// region the definition opened.  `written` is how many parameters of the
+	// function type the declarator did not write, which is the implicit object
+	// parameter of a member function.
 	void declare_parameters(const std::vector<Parameter>& parameters,
-	                        TypeId type, const Context& inner, DumpNode* node);
+	                        TypeId type, const Context& inner, DumpNode* node,
+	                        std::size_t implicit = 0);
 	// The entity the declaration of a name reuses, or nothing when the name is
 	// new to the region.
 	SemaEntity* redeclared(const Context& ctx, const std::string& name,
@@ -322,6 +380,18 @@ private:
 	// a call, which 5.2.3 lets name a type - spends the one lookup it takes.
 	Value named_value(const AstNode& node, SemaEntity& entity, DumpNode& parent);
 	Value literal_expression(const AstNode& node, DumpNode& parent);
+	// 5.2.5: `E1.E2` and `E1->E2`, which name a member of the class the object
+	// expression has.
+	Value member_expression(const AstNode& node, const Context& ctx,
+	                        DumpNode& parent);
+	// 9.3.1p3 and 9.5p1: a member named with no object expression, which is a
+	// member of the object `this` points to or of the one an anonymous union
+	// declared.  `payload` is what the dump writes after the type, which is the
+	// member's name alone when no `.` or `->` was written.
+	Value member_value(SemaEntity& member, const Value& object,
+	                   const std::string& payload, DumpNode& node);
+	// 5.1.1p3: the object the member function being read was called on.
+	Value this_value(DumpNode& parent);
 	Value call_expression(const AstNode& node, const Context& ctx,
 	                      DumpNode& parent);
 	Value functional_cast(const AstNode& node, const Context& ctx,
@@ -417,6 +487,16 @@ private:
 	// The unnamed enumerations declared so far, which are numbered rather than
 	// named after a token span because that is the convention the refs use.
 	unsigned anonymous_enums_;
+	// The unnamed classes defined in a function so far, which 9p1 leaves with
+	// no name of their own and which the convention numbers.
+	unsigned local_types_;
+	// The definitions the end of the translation unit writes, in the order they
+	// were asked for.
+	std::vector<Pending> pending_;
+	// 9.3.2p1: the implicit object parameter of the function whose body is
+	// being read, which is what `this` and a member named with no object
+	// expression denote.  Null outside a member function.
+	SemaEntity* self_;
 	// 6.6.1 and 6.6.2: the statements a `break` or a `continue` may leave, and
 	// 6.4.2 the switch a `case` may label, as the counts of the enclosing ones.
 	unsigned breakable_;

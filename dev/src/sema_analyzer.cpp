@@ -102,10 +102,19 @@ unsigned long long round_up(unsigned long long value, unsigned long long unit)
 SemaAnalyzer::SemaAnalyzer(SemaDialect dialect)
 	: dialect_(dialect)
 	, anonymous_enums_(0)
+	, local_types_(0)
+	, self_(nullptr)
 	, breakable_(0)
 	, continuable_(0)
 	, switches_(0)
 	, returns_(kNoType)
+{}
+
+SemaAnalyzer::Pending::Pending()
+	: function(nullptr)
+	, self(nullptr)
+	, body(nullptr)
+	, scope(nullptr)
 {}
 
 SemaAnalyzer::Value::Value()
@@ -168,6 +177,68 @@ void SemaAnalyzer::run(const AstNode& unit)
 	{
 		declaration(*unit.children[index], ctx);
 	}
+	write_pending_definitions();
+}
+
+void SemaAnalyzer::write_pending_definitions()
+{
+	// A body read here may itself default-initialize an object, and so ask for
+	// a definition that is not in the list yet.  Walking by index is what lets
+	// the list grow while it is being written, and each definition is added
+	// once, so the walk ends.
+	for (std::size_t index = 0; index < pending_.size(); ++index)
+	{
+		write_definition(pending_[index]);
+	}
+}
+
+void SemaAnalyzer::write_definition(Pending& pending)
+{
+	SemaEntity& function = *pending.function;
+	DumpNode& line = model_.open_node(model_.unit(), "function-definition " +
+	                                  function.dump_name + " " +
+	                                  types_.description(function.type));
+	if (pending.self != nullptr)
+	{
+		model_.open_node(line, "parameter " + pending.self->name + " " +
+		                 types_.description(pending.self->type));
+	}
+	if (pending.body == nullptr)
+	{
+		// 12.1p5: the constructor a class has that no declaration wrote does
+		// nothing the output describes.
+		model_.open_node(line, "compound-statement");
+		return;
+	}
+
+	Context inner;
+	inner.scope = pending.scope;
+	inner.dump = pending.scope->dump;
+	inner.node = &model_.unit();
+	declare_parameters(pending.parameters, function.type, inner, &line,
+	                   pending.self != nullptr ? 1 : 0);
+
+	// 9.2p2: the body is read where the class is complete, which is here, so
+	// what the walk of the class left behind is put back for it.
+	SemaEntity* const enclosing_self = self_;
+	const TypeId enclosing_return = returns_;
+	const unsigned breakable = breakable_;
+	const unsigned continuable = continuable_;
+	const unsigned switches = switches_;
+	self_ = pending.self;
+	returns_ = types_.target(function.type);
+	breakable_ = 0;
+	continuable_ = 0;
+	switches_ = 0;
+	for (std::size_t index = 2; index < pending.body->children.size(); ++index)
+	{
+		semantic_statement(*pending.body->children[index], inner, line);
+	}
+	self_ = enclosing_self;
+	returns_ = enclosing_return;
+	breakable_ = breakable;
+	continuable_ = continuable;
+	switches_ = switches;
 }
 
 void SemaAnalyzer::declaration(const AstNode& node, const Context& ctx)
@@ -212,7 +283,7 @@ void SemaAnalyzer::declaration(const AstNode& node, const Context& ctx)
 			&class_declaration(node, ctx, span,
 			                   node.kind == AstKind::ClassSpecifier,
 			                   std::string()),
-			ctx);
+			ctx, span);
 		return;
 
 	case AstKind::EnumSpecifier:
@@ -379,6 +450,7 @@ void SemaAnalyzer::template_declaration(const AstNode& node, const Context& ctx)
 	inner.scope =
 		&model_.open(ScopeKind::TemplateParameters, *ctx.scope, nullptr, &dump);
 	inner.dump = &dump;
+	inner.node = ctx.node;
 
 	for (std::size_t index = 0; index < node.children.size(); ++index)
 	{
@@ -443,8 +515,14 @@ SemaEntity& SemaAnalyzer::class_declaration(const AstNode& node,
 	const ClassTag tag = tag_of(node);
 	// 7.1.3p2: a class its specifiers left unnamed is named by the first
 	// declarator of the declaration it belongs to, before its body is read, so
-	// every line the body writes spells it the way the program will.
-	const std::string written = node.text.empty() ? named_by : node.text;
+	// every line the body writes spells it the way the program will.  A class
+	// defined in a function is named by the convention instead: 3.5p8 gives a
+	// local class no linkage, so no other translation unit can name it and the
+	// name a declarator would lend it says nothing about it.
+	const bool local = ctx.scope->kind == ScopeKind::Block ||
+		ctx.scope->kind == ScopeKind::Function;
+	const std::string written =
+		node.text.empty() ? (local ? std::string() : named_by) : node.text;
 	const std::string name = QualifiedName(written).last();
 
 	SemaEntity* entity = name.empty() ? nullptr
@@ -493,24 +571,37 @@ SemaEntity& SemaAnalyzer::class_declaration(const AstNode& node,
 	}
 
 	// 9.5p2 and the shared convention: an unnamed class no declarator names is
-	// named after the terminals its declaration was written from.
-	const std::string header = name.empty()
-		? std::string("__anonymous_") +
-			(tag == ClassTag::Union ? "union" : "class") + "_type__" +
-			decimal(span.begin, false) + "_" + decimal(span.end, false)
-		: written;
+	// named after the terminals its declaration was written from, and one a
+	// declarator in a function names is numbered among the classes the
+	// translation unit defines in a function.
+	std::string header = written;
 	if (name.empty())
 	{
+		header = named_by.empty()
+			? std::string("__anonymous_") +
+				(tag == ClassTag::Union ? "union" : "class") + "_type__" +
+				decimal(span.begin, false) + "_" + decimal(span.end, false)
+			: "__local_type" + decimal(++local_types_, false);
 		types_.rename(entity->type, header);
 	}
 	DumpScope& dump = model_.open_dump(*ctx.dump, "scope class " + header);
 	Scope& scope = model_.open(ScopeKind::Class, *ctx.scope, entity, &dump);
 	entity->scope = &scope;
 	entity->defined = true;
+	// 9.1p2: a member is named through its class, so the dump spells a member
+	// declaration with the class before it, and the class with the named
+	// namespaces around it, which is what its type already carries.
+	scope.prefix = types_.user_name(entity->type) + "::";
 
 	Context inner;
 	inner.scope = &scope;
 	inner.dump = &dump;
+	// 9.2p2: the members of a class are declarations of it rather than of the
+	// region it is written in, and the PA12 output describes what a function
+	// body means, so a member declaration writes no line of its own.
+	inner.node = nullptr;
+	// 12.1p5: a class with a declared constructor has no implicit one.
+	bool declared_constructor = false;
 	for (std::size_t index = 0; index < node.children.size(); ++index)
 	{
 		const AstNode& member = *node.children[index];
@@ -518,13 +609,43 @@ SemaEntity& SemaAnalyzer::class_declaration(const AstNode& node,
 		{
 			continue;
 		}
+		declared_constructor = declared_constructor ||
+			((member.kind == AstKind::SpecialMemberDeclaration ||
+			  member.kind == AstKind::SpecialMemberDefinition) &&
+			 member.text == header);
 		declaration(member, inner);
 	}
 	lay_out_class(*entity, scope, tag == ClassTag::Union);
+	if (semantics() && !declared_constructor)
+	{
+		declare_constructor(*entity, scope);
+	}
 	return *entity;
 }
 
-void SemaAnalyzer::inject_union_members(SemaEntity* entity, const Context& ctx)
+// 12.1p5: a class with no declared constructor has a default one, which the
+// course ABI gives the object it initializes as its only parameter.  It is
+// declared where the definition of the class ends, because that is where 9.2p2
+// makes the class complete and where every member it would initialize is known.
+void SemaAnalyzer::declare_constructor(SemaEntity& entity, Scope& scope)
+{
+	std::vector<TypeId> parameters;
+	parameters.push_back(types_.pointer_to(entity.type));
+	// 9p1: a class is named by its own name wherever it is declared, so the
+	// constructor of `N::C` is `N::C::C` and the constructor of a class no
+	// declaration named is named after the name the convention gave it.
+	const std::string spelled = QualifiedName(types_.user_name(entity.type)).last();
+	SemaEntity& constructor = model_.create(
+		SemaKind::Function, spelled,
+		types_.function_of(types_.fundamental(FT_VOID), parameters, false));
+	constructor.dump_name = scope.prefix + spelled;
+	constructor.tail = &constructor;
+	model_.declare_in(scope, constructor);
+	entity.constructor = &constructor;
+}
+
+void SemaAnalyzer::inject_union_members(SemaEntity* entity, const Context& ctx,
+                                        const Span& span)
 {
 	// 9.5p1: a union with no name and no declarator declares its members in the
 	// region it is written in rather than a region of its own.
@@ -534,6 +655,22 @@ void SemaAnalyzer::inject_union_members(SemaEntity* entity, const Context& ctx)
 	{
 		return;
 	}
+	// 9.5p1: the union declares an object of itself that has no name either, so
+	// a member is still a member of an object, and the convention names that
+	// object after the terminals the declaration was written from, as it names
+	// the union.
+	SemaEntity* storage = nullptr;
+	if (semantics())
+	{
+		const std::string name = "__anonymous_union_storage__" +
+			decimal(span.begin, false) + "_" + decimal(span.end, false);
+		storage = &model_.create(SemaKind::Variable, name, entity->type);
+		model_.bind(*ctx.scope, name, *storage);
+		model_.declare_in(*ctx.scope, *storage);
+		DumpNode& line = model_.open_node(*ctx.node, "variable " + name + " " +
+		                                  types_.description(entity->type));
+		construct_object(*storage, line);
+	}
 	Scope& members = *entity->scope;
 	for (std::size_t index = 0; index < members.declarations.size(); ++index)
 	{
@@ -542,10 +679,104 @@ void SemaAnalyzer::inject_union_members(SemaEntity* entity, const Context& ctx)
 		{
 			continue;
 		}
+		member.storage = storage;
 		model_.bind(*ctx.scope, member.name, member);
 		model_.declare_in(*ctx.scope, member);
-		write_line(*ctx.dump, "variable", member.name, member.type);
+		if (!semantics())
+		{
+			write_line(*ctx.dump, "variable", member.name, member.type);
+		}
 	}
+}
+
+// 9.3.1p3: a non-static member function is called on an object of its class,
+// which is a parameter of it no declarator writes, cv-qualified as the
+// cv-qualifier-seq written after its parameter-clause says.  Holding it in the
+// type is what lets everything above read a member function as the function it
+// is: its declaration, its definition and a pointer to it all see the same
+// parameters.
+TypeId SemaAnalyzer::with_object_parameter(TypeId type,
+                                           const AstNode& declarator,
+                                           const Context& target, bool is_static)
+{
+	if (!semantics() || target.scope->kind != ScopeKind::Class || is_static ||
+	    target.scope->owner == nullptr)
+	{
+		return type;
+	}
+	// 8.3.5p5: the cv-qualifier-seq of a member function is written after its
+	// parameter-clause, so it is a suffix of the declarator rather than one of
+	// the qualifiers its specifiers wrote.
+	unsigned cv = kCvNone;
+	bool after_id = false;
+	for (std::size_t index = 0; index < declarator.children.size(); ++index)
+	{
+		const AstNode& part = *declarator.children[index];
+		if (part.kind == AstKind::Identifier ||
+		    part.kind == AstKind::NestedDeclarator)
+		{
+			after_id = true;
+			continue;
+		}
+		if (after_id && part.kind == AstKind::CvQualifier)
+		{
+			cv |= part.token == KW_CONST ? kCvConst : kCvVolatile;
+		}
+	}
+	std::vector<TypeId> parameters;
+	parameters.push_back(
+		types_.pointer_to(types_.qualified(target.scope->owner->type, cv)));
+	const std::vector<TypeId>& written = types_.parameters(type);
+	parameters.insert(parameters.end(), written.begin(), written.end());
+	return types_.function_of(types_.target(type), parameters,
+	                          types_.variadic(type));
+}
+
+SemaEntity* SemaAnalyzer::default_constructor(TypeId type)
+{
+	if (!types_.is_class(types_.strip_cv(type)))
+	{
+		return nullptr;
+	}
+	SemaEntity* const owner = model_.type_owner(types_.strip_cv(type));
+	return owner == nullptr ? nullptr : owner->constructor;
+}
+
+// 8.5p6 and 12.1p5: an object of class type with no initializer is initialized
+// by calling the default constructor of its class on it, which is one call like
+// any other and which the dump writes under the declaration of the object.
+void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line)
+{
+	SemaEntity* const constructor = default_constructor(variable.type);
+	if (constructor == nullptr)
+	{
+		return;
+	}
+	if (!constructor->defined)
+	{
+		// 12.1p5: the definition is what odr-using the constructor asks for,
+		// and one use is what asks for it.
+		constructor->defined = true;
+		Pending pending;
+		pending.function = constructor;
+		pending.self = &model_.create(
+			SemaKind::Parameter, "this", types_.parameters(constructor->type)[0]);
+		pending_.push_back(pending);
+	}
+	DumpNode& action =
+		model_.open_node(line, "constructor-action " + constructor->dump_name);
+	DumpNode& call = model_.open_node(
+		action, spell("call-expression", ValueCategory::PRValue,
+		              types_.target(constructor->type), nullptr));
+	model_.open_node(call, "callee " + constructor->dump_name + " " +
+	                 types_.description(constructor->type));
+	const TypeId object = types_.pointer_to(variable.type);
+	DumpNode& address = model_.open_node(
+		call, "unary-expression " + std::string(category_name(ValueCategory::PRValue)) +
+		" " + types_.description(object) + " OP_AMP:&");
+	model_.open_node(address, "id-expression " +
+	                 std::string(category_name(ValueCategory::LValue)) + " " +
+	                 types_.description(variable.type) + " " + variable.name);
 }
 
 void SemaAnalyzer::lay_out_class(SemaEntity& entity, Scope& scope, bool is_union)
@@ -796,7 +1027,7 @@ void SemaAnalyzer::simple_declaration(const AstNode& node, const Context& ctx)
 	                                            : name_from_declarators(*list));
 	if (list == nullptr)
 	{
-		inject_union_members(specifiers.introduced, ctx);
+		inject_union_members(specifiers.introduced, ctx, span);
 		return;
 	}
 	for (std::size_t index = 0; index < list->children.size(); ++index)
@@ -863,8 +1094,11 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 		model_.declare_in(*target.scope, entity);
 		if (semantics())
 		{
-			model_.open_node(*target.node, "type-alias " + name + " " +
-			                 types_.description(type));
+			if (target.node != nullptr)
+			{
+				model_.open_node(*target.node, "type-alias " + name + " " +
+				                 types_.description(type));
+			}
 			return;
 		}
 		write_line(*target.dump, "type-alias", name, type);
@@ -872,12 +1106,18 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 	}
 	if (types_.kind(type) == TypeKind::Function)
 	{
+		// 9.3.1p3: a member function is called on an object, which is a
+		// parameter of it that the declarator does not write.
+		type = with_object_parameter(type, node, target, specifiers.is_static);
 		SemaEntity& function = declare_function(name, type, target, false);
 		if (semantics())
 		{
-			model_.open_node(*target.node, "function-declaration " +
-			                 function.dump_name + " " +
-			                 types_.description(type));
+			if (target.node != nullptr)
+			{
+				model_.open_node(*target.node, "function-declaration " +
+				                 function.dump_name + " " +
+				                 types_.description(type));
+			}
 			return;
 		}
 		write_line(*target.dump, "function", name, type);
@@ -916,6 +1156,12 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 		write_line(*target.dump, "variable", name, type);
 		return;
 	}
+	if (target.node == nullptr)
+	{
+		// 9.2p1: a data member declares no object of its own; the object it is
+		// part of is what a declaration of the class type declares.
+		return;
+	}
 	DumpNode& line = model_.open_node(*target.node, "variable " + name + " " +
 	                                  types_.description(type));
 	// 5.19p3 and 7.1.5p9: a constexpr object is initialized by a constant
@@ -923,6 +1169,9 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 	// expression that computed it.
 	if (initializer == nullptr || initializer->children.empty())
 	{
+		// 8.5p6: an object with no initializer is default-initialized, which
+		// for a class type is a call of its default constructor.
+		construct_object(entity, line);
 		return;
 	}
 	if (entity.constant && specifiers.is_constexpr)
@@ -968,12 +1217,13 @@ void SemaAnalyzer::write_initializer(const AstNode& initializer, TypeId type,
 
 void SemaAnalyzer::declare_parameters(const std::vector<Parameter>& parameters,
                                       TypeId type, const Context& inner,
-                                      DumpNode* node)
+                                      DumpNode* node, std::size_t implicit)
 {
 	// 8.4.1p1: the parameters the declarator's own parameter-clause declared,
 	// which the type it built already read.  The line writes the adjusted type
 	// 8.3.5p5 put in the function type, while the object keeps the type it was
-	// declared with.
+	// declared with.  9.3.1p3 put the implicit object parameter before them, so
+	// the two lists start apart.
 	const std::vector<TypeId>& adjusted = types_.parameters(type);
 	for (std::size_t index = 0; index < parameters.size(); ++index)
 	{
@@ -984,8 +1234,9 @@ void SemaAnalyzer::declare_parameters(const std::vector<Parameter>& parameters,
 			model_.bind(*inner.scope, parameter.name, parameter);
 		}
 		model_.declare_in(*inner.scope, parameter);
-		const TypeId written =
-			index < adjusted.size() ? adjusted[index] : parameters[index].type;
+		const TypeId written = index + implicit < adjusted.size()
+			? adjusted[index + implicit]
+			: parameters[index].type;
 		if (node != nullptr)
 		{
 			model_.open_node(*node, "parameter " + parameter.name + " " +
@@ -1020,13 +1271,16 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 
 	std::string ignored;
 	std::vector<Parameter> parameters;
-	const TypeId type = declarator_type(declarator, specifier_type(specifiers),
-	                                    target, &ignored, &parameters);
+	TypeId type = declarator_type(declarator, specifier_type(specifiers),
+	                              target, &ignored, &parameters);
 	if (types_.kind(type) != TypeKind::Function)
 	{
 		throw std::runtime_error("a function definition declares " + name +
 		                         ", which is not a function");
 	}
+	// 9.3.1p3: a member function is called on an object its declarator does not
+	// write, whether it is defined in its class or after it.
+	type = with_object_parameter(type, declarator, target, specifiers.is_static);
 
 	SemaEntity& entity = declare_function(name, type, target, true);
 
@@ -1047,13 +1301,46 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 		return;
 	}
 
+	// 9.3.1p3 and 9.2p2: a member function is called on an object, which is
+	// declared in the region its body reads names in, and its body is read
+	// where the class is complete rather than where it is written.
+	SemaEntity* self = nullptr;
+	if (!types_.parameters(type).empty() &&
+	    types_.parameters(type).size() != parameters.size())
+	{
+		self = &model_.create(SemaKind::Parameter, "this",
+		                      types_.parameters(type)[0]);
+		model_.bind(*inner.scope, self->name, *self);
+		model_.declare_in(*inner.scope, *self);
+	}
+	if (target.node == nullptr)
+	{
+		Pending pending;
+		pending.function = &entity;
+		pending.self = self;
+		pending.body = &node;
+		pending.scope = inner.scope;
+		pending.parameters = parameters;
+		pending_.push_back(pending);
+		return;
+	}
+
 	DumpNode& line = model_.open_node(*target.node, "function-definition " +
 	                                  entity.dump_name + " " +
 	                                  types_.description(type));
-	declare_parameters(parameters, type, inner, &line);
+	if (self != nullptr)
+	{
+		// A member function defined after its class is written where it is
+		// written, and the object it is called on is still its first parameter.
+		model_.open_node(line, "parameter " + self->name + " " +
+		                 types_.description(self->type));
+	}
+	declare_parameters(parameters, type, inner, &line, self != nullptr ? 1 : 0);
 
 	// 6.6.3, 6.6.1 and 6.6.2 are facts about the function being read, so the
 	// walk of one body neither sees nor leaves behind what encloses it.
+	SemaEntity* const enclosing_self = self_;
+	self_ = self;
 	const TypeId enclosing_return = returns_;
 	const unsigned breakable = breakable_;
 	const unsigned continuable = continuable_;
@@ -1066,6 +1353,7 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 	{
 		semantic_statement(*node.children[index], inner, line);
 	}
+	self_ = enclosing_self;
 	returns_ = enclosing_return;
 	breakable_ = breakable;
 	continuable_ = continuable;

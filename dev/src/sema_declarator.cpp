@@ -39,6 +39,7 @@ SemaAnalyzer::Specifiers::Specifiers()
 	, has_type_name(false)
 	, is_typedef(false)
 	, is_constexpr(false)
+	, is_static(false)
 	, introduced(nullptr)
 {
 	for (std::size_t index = 0; index < kSimpleTypeSpecifierCount; ++index)
@@ -139,6 +140,12 @@ void SemaAnalyzer::read_type_specifier(const AstNode& node, Specifiers& out,
 
 	case KW_CONSTEXPR:
 		out.is_constexpr = true;
+		return;
+
+	case KW_STATIC:
+		// 9.4p1: a static member is a member of the class rather than of an
+		// object of it, which is the one storage class a type depends on.
+		out.is_static = true;
 		return;
 
 	case KW_CONST:
