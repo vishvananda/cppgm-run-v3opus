@@ -13,12 +13,19 @@
 // is a template-id when `a` names a template and two comparisons when it names
 // an object.  Both resolutions need only this much about a name; lookup proper
 // is a later assignment.
+//
+// A template-name is two kinds rather than one, because the two resolutions
+// disagree about it.  `a < b > c` is a template-id for either, so both are
+// template-names.  But 14.2p3 makes a template-id of a class or alias template
+// a type, while one of a function template names an overload set, so `f(x)` and
+// `f<int>(x)` are declarations of `x` for the first and calls for the second.
 enum class NameKind
 {
 	Unknown,
 	Type,
 	Value,
-	Template
+	Template,
+	FunctionTemplate
 };
 
 // Every name fact the parse of one translation unit establishes.
@@ -50,6 +57,15 @@ public:
 	// A name a nested-name-specifier can also reach, which is remembered by
 	// the spelling the prefix in force gives it.
 	void declare_member(const std::string& name, NameKind kind);
+
+	// 7.3.2p1: a namespace alias names the namespace its target names, so a
+	// name written behind the alias is the name written behind that namespace.
+	void alias(const std::string& name, const std::string& target);
+
+	// 7.3.4p2: the declarations of the nominated namespace appear in the scope
+	// the directive was written in, so a name that scope does not declare may
+	// still be one of theirs.
+	void nominate(const std::string& target);
 
 	// What the innermost declaration of `name` declared, or `Unknown` when no
 	// declaration in scope names it.  A name written with a `::` in it is a
@@ -115,12 +131,30 @@ public:
 	};
 
 private:
-	std::vector<std::unordered_map<std::string, NameKind> > scopes_;
+	// One scope: the names declared in it, and the namespaces 7.3.4p2 makes the
+	// declarations of appear in it as well.
+	struct Region
+	{
+		std::unordered_map<std::string, NameKind> names;
+		// The `N::` each using-directive written here reaches, which is how a
+		// name that is declared in the nominated namespace and written without
+		// its prefix is answered.
+		std::vector<std::string> nominated;
+	};
+
+	// What a spelling with a nested-name-specifier names, following the
+	// namespace aliases its prefix was written through.
+	NameKind spelled_kind(const std::string& spelling) const;
+
+	std::vector<Region> scopes_;
 	// The names a qualified-id can reach, spelled as they are written.  A
 	// nested-name-specifier names a scope the parser does not model, so the
 	// spelling is the key: `ns::f` is what the source asks about, whatever
 	// scope declared it.
 	std::unordered_map<std::string, NameKind> qualified_;
+	// The namespace each alias names, which is what turns a spelling written
+	// through an alias into the one the declarations were remembered under.
+	std::unordered_map<std::string, std::string> aliases_;
 	std::string prefix_;
 	unsigned long version_;
 };

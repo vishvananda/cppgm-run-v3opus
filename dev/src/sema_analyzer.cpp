@@ -621,9 +621,33 @@ SemaEntity& SemaAnalyzer::class_declaration(const AstNode& node,
 	for (std::size_t index = 0; index < node.children.size(); ++index)
 	{
 		const AstNode& member = *node.children[index];
-		if (member.kind == AstKind::ClassKey || member.kind == AstKind::BaseClause)
+		if (member.kind == AstKind::ClassKey)
 		{
 			continue;
+		}
+		if (member.kind == AstKind::BaseClause)
+		{
+			// 10p1 and 12.6.2p5: a base class is a subobject of every object of
+			// this one, which its layout counts, a member name reaches through
+			// and its constructor initializes.  PA12 models none of the three,
+			// so a class with a base is refused rather than described as the
+			// class it would be if the base-clause were not there.  PA11 only
+			// spells the declaration and needs none of them.
+			if (semantics())
+			{
+				throw std::runtime_error(header + " has a base class, which PA12 "
+				                         "does not describe");
+			}
+			continue;
+		}
+		if (semantics() && member.kind == AstKind::BitFieldDeclaration)
+		{
+			// 9.6p1: a bit-field is a member whose width its declaration writes,
+			// which the layout and every use of it read.  PA12 has no rule for
+			// either, so the member would be missing from the class the output
+			// describes.
+			throw std::runtime_error(header + " declares a bit-field, which PA12 "
+			                         "does not describe");
 		}
 		if (semantics() && (member.kind == AstKind::SpecialMemberDeclaration ||
 		                    member.kind == AstKind::SpecialMemberDefinition))

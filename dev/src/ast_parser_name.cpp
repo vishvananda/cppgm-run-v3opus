@@ -36,7 +36,7 @@ void DeclaredNames::declare(const std::string& name, NameKind kind)
 {
 	if (!name.empty())
 	{
-		scopes_.back()[name] = kind;
+		scopes_.back().names[name] = kind;
 		++version_;
 	}
 }
@@ -51,28 +51,101 @@ void DeclaredNames::declare_member(const std::string& name, NameKind kind)
 	}
 }
 
-NameKind DeclaredNames::kind_of(const std::string& name) const
+void DeclaredNames::alias(const std::string& name, const std::string& target)
 {
-	if (name.find(':') != std::string::npos)
+	if (!name.empty() && !target.empty())
 	{
-		const std::unordered_map<std::string, NameKind>::const_iterator found =
-			qualified_.find(name);
-		return found == qualified_.end() ? NameKind::Unknown : found->second;
+		aliases_[name] = target;
+		++version_;
 	}
-	for (std::size_t index = scopes_.size(); index-- > 0; )
+}
+
+void DeclaredNames::nominate(const std::string& target)
+{
+	if (!target.empty())
+	{
+		scopes_.back().nominated.push_back(target + "::");
+		++version_;
+	}
+}
+
+NameKind DeclaredNames::spelled_kind(const std::string& spelling) const
+{
+	// 7.3.2p1 lets an alias name a namespace that is itself named by one, so
+	// the rewrite is a walk, bounded by the aliases there are so that a
+	// spelling written through a cycle is answered rather than followed.
+	std::string written = spelling;
+	for (std::size_t step = 0; step <= aliases_.size(); ++step)
 	{
 		const std::unordered_map<std::string, NameKind>::const_iterator found =
-			scopes_[index].find(name);
-		if (found != scopes_[index].end())
+			qualified_.find(written);
+		if (found != qualified_.end())
 		{
 			return found->second;
+		}
+		const std::string::size_type colons = written.find("::");
+		if (colons == std::string::npos)
+		{
+			return NameKind::Unknown;
+		}
+		const std::unordered_map<std::string, std::string>::const_iterator named =
+			aliases_.find(written.substr(0, colons));
+		if (named == aliases_.end())
+		{
+			return NameKind::Unknown;
+		}
+		written = named->second + written.substr(colons);
+	}
+	return NameKind::Unknown;
+}
+
+NameKind DeclaredNames::kind_of(const std::string& name) const
+{
+	const bool qualified = name.find(':') != std::string::npos;
+	if (qualified)
+	{
+		const NameKind kind = spelled_kind(name);
+		if (kind != NameKind::Unknown)
+		{
+			return kind;
+		}
+	}
+	else
+	{
+		for (std::size_t index = scopes_.size(); index-- > 0; )
+		{
+			const std::unordered_map<std::string, NameKind>::const_iterator found =
+				scopes_[index].names.find(name);
+			if (found != scopes_[index].names.end())
+			{
+				return found->second;
+			}
+		}
+	}
+	// 7.3.4p2: a name no scope declares may still be one the using-directives
+	// in scope reach.  That question is asked only once every scope has been
+	// asked the cheap one, so a name that is declared costs no probe of a
+	// directive however many are written.
+	for (std::size_t index = scopes_.size(); index-- > 0; )
+	{
+		const std::vector<std::string>& nominated = scopes_[index].nominated;
+		for (std::size_t at = 0; at < nominated.size(); ++at)
+		{
+			const NameKind kind = spelled_kind(nominated[at] + name);
+			if (kind != NameKind::Unknown)
+			{
+				return kind;
+			}
 		}
 	}
 	return NameKind::Unknown;
 }
 
 // The kind a declaration introduces, which is a template-name when the
-// declaration is the one a template-declaration wraps.
+// declaration is the one a template-declaration wraps.  Which of the two
+// template-names it is follows from what the declaration would otherwise have
+// declared: 14p1 lets a template-declaration declare a class, an alias or a
+// function, and only the last of those names no type.
 NameKind AstParser::take_declared_kind(NameKind fallback)
 {
 	if (!template_pending_)
@@ -80,7 +153,8 @@ NameKind AstParser::take_declared_kind(NameKind fallback)
 		return fallback;
 	}
 	template_pending_ = false;
-	return NameKind::Template;
+	return fallback == NameKind::Value ? NameKind::FunctionTemplate
+	                                  : NameKind::Template;
 }
 
 bool AstParser::at_close_angle() const
@@ -406,20 +480,33 @@ bool AstParser::skip_unqualified_id(bool qualified)
 
 // `qualified-type-name`, which is where the grammar names a type without
 // deciding what it denotes.
-bool AstParser::skip_qualified_type_name()
+bool AstParser::skip_qualified_type_name(std::string* template_name)
 {
 	const Mark start = mark();
+	Mark component = start;
 	if (skip_nested_name_specifier())
 	{
 		accept(KW_TEMPLATE);
-		if (skip_type_name(true))
+		component = mark();
+		if (!skip_type_name(true))
 		{
-			return true;
+			reset(start);
+			return false;
 		}
-		reset(start);
+	}
+	else if (!skip_type_name())
+	{
 		return false;
 	}
-	return skip_type_name();
+	// 14.2p1: a template-id is a template-name and an argument list, and the
+	// list belongs to the use rather than to the name a declaration made.  So
+	// what the names in scope are asked about is the name up to the identifier
+	// the last component starts with, which is the whole of an ordinary name.
+	if (template_name != nullptr && tokens_.type(component.pos) == TT_IDENTIFIER)
+	{
+		*template_name = tokens_.flatten(start.pos, component.pos + 1);
+	}
+	return true;
 }
 
 AstNode* AstParser::parse_id_expression()

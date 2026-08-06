@@ -1,0 +1,39 @@
+1 translation units
+start translation unit 1
+translation-unit
+  namespace-definition outer
+    function-declaration outer::plain function of (int) returning void
+    namespace-definition inner
+      function-declaration outer::inner::nested function of (int) returning void
+  function-definition use function of () returning void
+    compound-statement
+      simple-declaration
+        variable a int
+          literal prvalue int 1
+      expression-statement
+        binary-expression prvalue void OP_COMMA:,
+          literal prvalue int 0
+          call-expression prvalue void
+            callee outer::plain function of (int) returning void
+            id-expression lvalue int a
+      expression-statement
+        binary-expression prvalue int OP_COMMA:,
+          literal prvalue int 0
+          call-expression prvalue int
+            callee outer::pattern function of (int) returning int
+            id-expression lvalue int a
+      expression-statement
+        binary-expression prvalue void OP_COMMA:,
+          literal prvalue int 0
+          call-expression prvalue void
+            callee outer::inner::nested function of (int) returning void
+            id-expression lvalue int a
+      expression-statement
+        binary-expression prvalue void OP_COMMA:,
+          literal prvalue int 0
+          call-expression prvalue void
+            callee outer::inner::nested function of (int) returning void
+            id-expression lvalue int a
+  function-declaration outer::pattern function of (int) returning int
+    parameter  int
+end translation unit

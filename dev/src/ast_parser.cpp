@@ -146,13 +146,15 @@ AstNode* AstParser::parse_namespace()
 				return fail(start);
 			}
 		}
+		const std::string named = spelled(target);
 		AstNode* node = make_text(AstKind::NamespaceAliasDefinition, name);
-		node->add(make_text(AstKind::Target, spelled(target)));
+		node->add(make_text(AstKind::Target, named));
 		if (!accept(OP_SEMICOLON))
 		{
 			return fail(start);
 		}
 		names_.declare_member(name, NameKind::Type);
+		names_.alias(name, named);
 		return node;
 	}
 	if (!at(OP_LBRACE))
@@ -192,12 +194,14 @@ AstNode* AstParser::parse_using()
 		{
 			return fail(start);
 		}
+		const std::string named = spelled(target);
 		AstNode* node = make(AstKind::UsingDirective);
-		node->add(make_text(AstKind::Target, spelled(target)));
+		node->add(make_text(AstKind::Target, named));
 		if (!accept(OP_SEMICOLON))
 		{
 			return fail(start);
 		}
+		names_.nominate(named);
 		return node;
 	}
 	if (at(TT_IDENTIFIER) && peek(1) == OP_ASS)
@@ -217,15 +221,27 @@ AstNode* AstParser::parse_using()
 	const Mark target = mark();
 	accept(KW_TYPENAME);
 	skip_nested_name_specifier();
+	const Mark introduced = mark();
 	if (!skip_unqualified_id())
 	{
 		return fail(start);
 	}
+	const std::string named = spelled(target);
+	const std::string declared = tokens_.flatten(introduced.pos, pos_);
 	AstNode* node = make(AstKind::UsingDeclaration);
-	node->add(make_text(AstKind::Target, spelled(target)));
+	node->add(make_text(AstKind::Target, named));
 	if (!accept(OP_SEMICOLON))
 	{
 		return fail(start);
+	}
+	// 7.3.3p1: the using-declaration binds its name to the declaration the
+	// target names, so a use of the name reads as that declaration does.  A
+	// target the parse knows nothing about leaves the name as it was rather
+	// than hiding what an enclosing scope declared with a guess.
+	const NameKind kind = names_.kind_of(named);
+	if (kind != NameKind::Unknown)
+	{
+		names_.declare_member(declared, kind);
 	}
 	return node;
 }

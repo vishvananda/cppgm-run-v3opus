@@ -141,7 +141,8 @@ bool AstParser::parse_name_specifier(AstNode* seq, SpecifierMode mode,
 		return true;
 	}
 	reset(spelled_from);
-	if (!skip_qualified_type_name())
+	std::string template_name;
+	if (!skip_qualified_type_name(&template_name))
 	{
 		reset(start);
 		return false;
@@ -149,7 +150,14 @@ bool AstParser::parse_name_specifier(AstNode* seq, SpecifierMode mode,
 	const std::string text = spelled(spelled_from);
 	const bool plain = !introduced && pos_ == spelled_from.pos + 1;
 	const NameKind kind = names_.kind_of(text);
-	if (kind == NameKind::Value || (!plain && kind == NameKind::Template))
+	// 14.2p3: a template-id of a function template names an overload set rather
+	// than a type, however its argument list is written, so the name it was
+	// written on is what says whether this reading is a type at all.
+	const NameKind named = template_name.empty()
+		? NameKind::Unknown
+		: names_.kind_of(template_name);
+	if (kind == NameKind::Value || named == NameKind::FunctionTemplate ||
+	    (!plain && kind == NameKind::Template))
 	{
 		reset(start);
 		return false;
@@ -739,12 +747,14 @@ void AstParser::declare_template_name(const AstNode* declaration)
 	for (std::size_t index = 1; index < declaration->children.size(); ++index)
 	{
 		const AstNode* child = declaration->children[index];
+		// 14p1: a template-declaration over a simple-declaration or a function
+		// definition declares a function template, whose name names no type.
 		if (child->kind == AstKind::Declarator)
 		{
 			const AstNode* id = declarator_identifier(child);
 			if (id != nullptr)
 			{
-				names_.declare_member(id->text, NameKind::Template);
+				names_.declare_member(id->text, NameKind::FunctionTemplate);
 			}
 		}
 		if (child->kind != AstKind::InitDeclaratorList)
@@ -759,7 +769,7 @@ void AstParser::declare_template_name(const AstNode* declaration)
 				: declarator_identifier(declarator->children[0]);
 			if (id != nullptr)
 			{
-				names_.declare_member(id->text, NameKind::Template);
+				names_.declare_member(id->text, NameKind::FunctionTemplate);
 			}
 		}
 	}

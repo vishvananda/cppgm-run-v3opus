@@ -144,7 +144,10 @@ private:
 	bool skip_unqualified_id(bool qualified = false);
 	bool skip_decltype_specifier();
 	bool skip_type_name(bool qualified = false);
-	bool skip_qualified_type_name();
+	// `template_name` takes the name a template-id was written on, with its
+	// nested-name-specifier and without its argument list, which is the
+	// spelling the names in scope are keyed by.
+	bool skip_qualified_type_name(std::string* template_name = nullptr);
 	bool skip_operator_id(bool& conversion);
 	bool skip_conversion_type_id();
 	bool skip_balanced(unsigned closer);
