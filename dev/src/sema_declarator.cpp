@@ -438,6 +438,7 @@ void SemaAnalyzer::read_parameters(const AstNode& clause, const Context& ctx,
 			parameter.type = declarator_type(*declarator, parameter.type, ctx,
 			                                 &parameter.name);
 		}
+		parameter.initializer = child_kind(child, AstKind::DefaultArgument);
 		out.push_back(parameter);
 	}
 	// 8.3.5p4: a parameter list of one unnamed `void` parameter is an empty

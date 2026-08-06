@@ -398,7 +398,7 @@ SemaEntity* SemaAnalyzer::select_overload(
 			}
 		}
 		const std::vector<TypeId>& parameters = types_.parameters(at->type);
-		if (arguments.size() < parameters.size() ||
+		if (!accepts_arity(*at, arguments.size()) ||
 		    (arguments.size() > parameters.size() && !types_.variadic(at->type)))
 		{
 			continue;
@@ -702,7 +702,12 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
 	}
 
 	const std::vector<TypeId>& parameters = types_.parameters(function);
-	if (arguments.size() < parameters.size() ||
+	const SemaEntity* const chosen =
+		target.entity != nullptr && target.entity->kind == SemaKind::Function
+			? target.entity
+			: nullptr;
+	if ((arguments.size() < parameters.size() &&
+	     (chosen == nullptr || !accepts_arity(*chosen, arguments.size()))) ||
 	    (arguments.size() > parameters.size() && !types_.variadic(function)))
 	{
 		throw std::runtime_error("a call passes the wrong number of arguments");
@@ -722,6 +727,12 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
 			                         "of the parameter it is passed to");
 		}
 		apply_conversion(arguments[index], parameters[index], match);
+	}
+	for (std::size_t index = arguments.size(); index < parameters.size(); ++index)
+	{
+		// 8.3.6p1: the call is read as if the default-argument had been
+		// written where the argument is missing.
+		write_default_argument(*chosen, index, line);
 	}
 
 	// 5.2.2p10: the result is a prvalue unless the function returns a
@@ -785,6 +796,12 @@ SemaAnalyzer::Value SemaAnalyzer::functional_cast(const AstNode& node,
 		name_function(source, *chosen, "id-expression");
 	}
 	value.what = "cast-expression";
+	if (types_.is_reference(target))
+	{
+		// 5.2.3p1: `T(x)` is the cast `(T)x`, which for a reference type is
+		// what 5.2.9p1 and 5.4p4 make of the operand.
+		return cast_to_reference(target, source, parent, line, value);
+	}
 	value.node = &line;
 	respell(value);
 	return value;

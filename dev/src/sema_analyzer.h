@@ -203,8 +203,16 @@ private:
 	// One parameter of a parameter-clause, before 8.3.5p4 drops a lone `void`.
 	struct Parameter
 	{
+		Parameter()
+			: type(kNoType)
+			, initializer(nullptr)
+		{}
+
 		std::string name;
 		TypeId type;
+		// 8.3.6p1: the default-argument this parameter was written with, which
+		// a call that omits the argument uses in its place.
+		const AstNode* initializer;
 	};
 
 	// A definition the dump writes at the end of the translation unit.
@@ -480,6 +488,11 @@ private:
 	static unsigned compound_operator(unsigned op);
 	Value cast_expression(const AstNode& node, const Context& ctx,
 	                      DumpNode& parent);
+	// 5.2.9p1 and 5.4p4: what a cast to a reference type makes of its operand,
+	// which is the same whether the cast named its type with a type-id or with
+	// the name of the type.
+	Value cast_to_reference(TypeId target, Value& source, DumpNode& parent,
+	                        DumpNode& line, Value value);
 	// Puts what `line` holds in the place `line` itself has under `parent`, for
 	// the casts 5.2.9 gives the operand's own line to.
 	static void lift_operand(DumpNode& parent, DumpNode& line);
@@ -546,6 +559,13 @@ private:
 	// 3.9.3p5: `type` with every top level cv-qualifier removed, reaching
 	// through an array to its elements.
 	TypeId bare_type(TypeId type);
+	// 8.3.6p4: whether a call that gives `given` arguments can reach `function`,
+	// which it can when every parameter beyond them was written with a default.
+	bool accepts_arity(const SemaEntity& function, std::size_t given) const;
+	// 8.3.6p9: the default-argument of one parameter, analysed in the region
+	// the declaration that introduced it was written in.
+	void write_default_argument(const SemaEntity& function, std::size_t index,
+	                            DumpNode& parent);
 	// 13.3.3: the one candidate no other beats, or the error that there is not
 	// one.  `candidates` are the declaration chains the lookup found, walked in
 	// declaration order within each; `arguments` are the analysed argument
@@ -634,6 +654,21 @@ private:
 	// and only a template is ever asked for, so an ordinary declaration adds
 	// nothing to it.
 	std::unordered_map<std::uint32_t, std::vector<Parameter> > templates_;
+	// 8.3.6: the default-arguments each function was declared with, and the
+	// region the declaration that wrote them was written in.  8.3.6p9 reads a
+	// default-argument in that region rather than in the one the call is
+	// written in, so both travel with the declaration.
+	struct Defaults
+	{
+		Defaults()
+			: scope(nullptr)
+		{}
+
+		Scope* scope;
+		std::vector<const AstNode*> written;
+	};
+
+	std::unordered_map<std::uint32_t, Defaults> defaults_;
 	// 9.3.2p1: the implicit object parameter of the function whose body is
 	// being read, which is what `this` and a member named with no object
 	// expression denote.  Null outside a member function.

@@ -872,6 +872,28 @@ SemaAnalyzer::Value SemaAnalyzer::cast_expression(const AstNode& node,
 	}
 	if (types_.is_reference(target))
 	{
+		return cast_to_reference(target, source, parent, line, value);
+	}
+	if (types_.kind(types_.strip_cv(target)) == TypeKind::MemberPointer &&
+	    source.type == types_.strip_cv(target))
+	{
+		// 5.2.9p2: a cast to the type the operand has converts nothing, and a
+		// pointer to member holds which member it names rather than an address,
+		// so there is nothing for the output to write around the operand.
+		lift_operand(parent, line);
+		return source;
+	}
+	line.text = spell(value.what, value.category, target, value.payload);
+	value.node = &line;
+	record(value);
+	return value;
+}
+
+SemaAnalyzer::Value SemaAnalyzer::cast_to_reference(TypeId target, Value& source,
+                                                    DumpNode& parent,
+                                                    DumpNode& line, Value value)
+{
+	{
 		// 5.2.9p1: a cast to an lvalue reference is an lvalue and one to an
 		// rvalue reference to an object type is an xvalue.
 		const TypeId referenced = types_.target(target);
@@ -920,19 +942,6 @@ SemaAnalyzer::Value SemaAnalyzer::cast_expression(const AstNode& node,
 		respell(value);
 		return value;
 	}
-	if (types_.kind(types_.strip_cv(target)) == TypeKind::MemberPointer &&
-	    source.type == types_.strip_cv(target))
-	{
-		// 5.2.9p2: a cast to the type the operand has converts nothing, and a
-		// pointer to member holds which member it names rather than an address,
-		// so there is nothing for the output to write around the operand.
-		lift_operand(parent, line);
-		return source;
-	}
-	line.text = spell(value.what, value.category, target, value.payload);
-	value.node = &line;
-	record(value);
-	return value;
 }
 
 // 5.19 and the course builtins: `__builtin_constant_p` answers whether its

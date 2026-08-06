@@ -190,6 +190,57 @@ void SemaAnalyzer::run(const AstNode& unit)
 	write_pending_definitions();
 }
 
+bool SemaAnalyzer::accepts_arity(const SemaEntity& function,
+                                 std::size_t given) const
+{
+	const std::size_t declared = types_.parameters(function.type).size();
+	if (given >= declared)
+	{
+		return true;
+	}
+	const std::unordered_map<std::uint32_t, Defaults>::const_iterator found =
+		defaults_.find(function.id);
+	if (found == defaults_.end())
+	{
+		return false;
+	}
+	for (std::size_t index = given; index < declared; ++index)
+	{
+		if (index >= found->second.written.size() ||
+		    found->second.written[index] == nullptr)
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+void SemaAnalyzer::write_default_argument(const SemaEntity& function,
+                                          std::size_t index, DumpNode& parent)
+{
+	const std::unordered_map<std::uint32_t, Defaults>::const_iterator found =
+		defaults_.find(function.id);
+	if (found == defaults_.end() || index >= found->second.written.size() ||
+	    found->second.written[index] == nullptr)
+	{
+		throw std::runtime_error("a call omits an argument the declaration "
+		                         "gives no default for");
+	}
+	const AstNode& written = *found->second.written[index];
+	if (written.children.empty() || written.children[0]->children.empty())
+	{
+		throw std::runtime_error("a default-argument is written with no value");
+	}
+	// 8.3.6p9: the default-argument is looked up and read in the region the
+	// declaration that introduced it was written in, not the one the call is.
+	Context where;
+	where.scope = found->second.scope;
+	where.dump = found->second.scope->dump;
+	where.node = &parent;
+	initialize(*written.children[0]->children[0],
+	           types_.parameters(function.type)[index], where, parent);
+}
+
 void SemaAnalyzer::write_pending_definitions()
 {
 	// A body read here may itself default-initialize an object, and so ask for
@@ -450,8 +501,8 @@ void SemaAnalyzer::alias_declaration(const AstNode& node, const Context& ctx)
 		// declaration writes no line of its own.
 		if (ctx.node != nullptr)
 		{
-			model_.open_node(*ctx.node, "type-alias " + node.text + " " +
-			                 types_.description(aliased));
+			open_fact(*ctx.node, "type-alias " + node.text + " " +
+			          types_.description(aliased), FactKind::TypeAlias);
 		}
 		return;
 	}
@@ -1231,8 +1282,8 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 		{
 			if (target.node != nullptr)
 			{
-				model_.open_node(*target.node, "type-alias " + name + " " +
-				                 types_.description(type));
+				open_fact(*target.node, "type-alias " + name + " " +
+				          types_.description(type), FactKind::TypeAlias);
 			}
 			return;
 		}
@@ -1475,6 +1526,20 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 
 	SemaEntity& entity = declare_function(name, type, target, true);
 	entity.object_member = type != written_type;
+	// 8.3.6p4: the default-arguments a declaration adds are the function's from
+	// then on, and 8.3.6p9 reads each in the region its declaration was
+	// written in.
+	for (std::size_t index = 0; index < parameters.size(); ++index)
+	{
+		if (parameters[index].initializer == nullptr)
+		{
+			continue;
+		}
+		Defaults& held = defaults_[entity.id];
+		held.scope = target.scope;
+		held.written.resize(parameters.size(), nullptr);
+		held.written[index] = parameters[index].initializer;
+	}
 
 	DumpScope& dump = model_.open_dump(*target.dump, "scope function " + name);
 	Context inner;
