@@ -202,11 +202,15 @@ std::string LowirFunctionLowering::add_slot(const SemaEntity& entity,
 	{
 		name = "__param" + decimal(out_.params.size());
 	}
+	// The suffix already given to that identifier is where the next one starts,
+	// so a function that declares one name in n blocks names n slots in n
+	// steps rather than in n^2: without it the k-th `x` walks every suffix
+	// before it before finding the one that is free.
 	std::string chosen = name;
-	unsigned shadow = 1;
+	unsigned& shadow = slot_shadows_[name];
 	while (!slot_names_.insert(chosen).second)
 	{
-		++shadow;
+		shadow = shadow < 2 ? 2 : shadow + 1;
 		chosen = name + "__shadow" + decimal(shadow);
 	}
 	out_.slots.push_back(std::make_pair(chosen, unit_.low_type(type)));

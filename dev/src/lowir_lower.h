@@ -466,6 +466,9 @@ private:
 	TypeId returns_;
 	std::unordered_map<std::uint32_t, std::string> slots_;
 	std::unordered_set<std::string> slot_names_;
+	// 3.3.3p4: the suffix the last slot named after one identifier took, so the
+	// next one starts from there rather than from the first suffix again.
+	std::unordered_map<std::string, unsigned> slot_shadows_;
 	// The names the function's own declarations already use, which a generated
 	// temporary must not take.
 	std::unordered_set<std::string> taken_;
