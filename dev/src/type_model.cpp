@@ -28,6 +28,135 @@ std::string decimal(unsigned long long value)
 	return text;
 }
 
+// A user-defined type is keyed by the entity that declared it, which is a
+// small integer like the type identifier an 8.3 category is keyed by, so its
+// keys are held apart from theirs by a field neither of them uses otherwise.
+const std::uint32_t kUserTypeKeyExtra = 0xFFFFFFFFu;
+
+bool is_user_kind(TypeKind kind)
+{
+	return kind == TypeKind::Class || kind == TypeKind::Enum ||
+		kind == TypeKind::TemplateParameter;
+}
+
+}
+
+int builtin_specifier(unsigned token)
+{
+	switch (token)
+	{
+	case KW_CHAR: return kSpecChar;
+	case KW_CHAR16_T: return kSpecChar16;
+	case KW_CHAR32_T: return kSpecChar32;
+	case KW_WCHAR_T: return kSpecWchar;
+	case KW_BOOL: return kSpecBool;
+	case KW_SHORT: return kSpecShort;
+	case KW_INT: return kSpecInt;
+	case KW_LONG: return kSpecLong;
+	case KW_SIGNED: return kSpecSigned;
+	case KW_UNSIGNED: return kSpecUnsigned;
+	case KW_FLOAT: return kSpecFloat;
+	case KW_DOUBLE: return kSpecDouble;
+	case KW_VOID: return kSpecVoid;
+	default: return -1;
+	}
+}
+
+// `long` is the one specifier that may appear twice, `signed` and `unsigned`
+// exclude each other, and the specifiers that name a type on their own admit
+// no company but a signedness.
+bool table_10_names_a_type(const unsigned* counted)
+{
+	unsigned total = 0;
+	for (std::size_t index = 0; index < kSimpleTypeSpecifierCount; ++index)
+	{
+		if (counted[index] > (index == kSpecLong ? 2u : 1u))
+		{
+			return false;
+		}
+		total += counted[index];
+	}
+	if (counted[kSpecSigned] != 0 && counted[kSpecUnsigned] != 0)
+	{
+		return false;
+	}
+	const unsigned sign = counted[kSpecSigned] + counted[kSpecUnsigned];
+
+	if (counted[kSpecVoid] != 0 || counted[kSpecBool] != 0 || counted[kSpecChar16] != 0 ||
+	    counted[kSpecChar32] != 0 || counted[kSpecWchar] != 0 || counted[kSpecFloat] != 0)
+	{
+		return total == 1;
+	}
+	if (counted[kSpecChar] != 0)
+	{
+		return total == 1 + sign;
+	}
+	if (counted[kSpecDouble] != 0)
+	{
+		return counted[kSpecLong] <= 1 && total == 1 + counted[kSpecLong];
+	}
+	if (counted[kSpecShort] != 0)
+	{
+		return counted[kSpecLong] == 0 && total == 1 + sign + counted[kSpecInt];
+	}
+	return total != 0 && total == sign + counted[kSpecInt] + counted[kSpecLong];
+}
+
+// A specifier that decides the type on its own is asked about first; what is
+// left is the integer types, which `signed`, `unsigned`, `short` and `long`
+// choose between.
+EFundamentalType table_10_type(const unsigned* counted)
+{
+	const bool is_unsigned = counted[kSpecUnsigned] != 0;
+	if (counted[kSpecVoid] != 0)
+	{
+		return FT_VOID;
+	}
+	if (counted[kSpecBool] != 0)
+	{
+		return FT_BOOL;
+	}
+	if (counted[kSpecChar] != 0)
+	{
+		if (is_unsigned)
+		{
+			return FT_UNSIGNED_CHAR;
+		}
+		return counted[kSpecSigned] != 0 ? FT_SIGNED_CHAR : FT_CHAR;
+	}
+	if (counted[kSpecChar16] != 0)
+	{
+		return FT_CHAR16_T;
+	}
+	if (counted[kSpecChar32] != 0)
+	{
+		return FT_CHAR32_T;
+	}
+	if (counted[kSpecWchar] != 0)
+	{
+		return FT_WCHAR_T;
+	}
+	if (counted[kSpecFloat] != 0)
+	{
+		return FT_FLOAT;
+	}
+	if (counted[kSpecDouble] != 0)
+	{
+		return counted[kSpecLong] != 0 ? FT_LONG_DOUBLE : FT_DOUBLE;
+	}
+	if (counted[kSpecShort] != 0)
+	{
+		return is_unsigned ? FT_UNSIGNED_SHORT_INT : FT_SHORT_INT;
+	}
+	if (counted[kSpecLong] >= 2)
+	{
+		return is_unsigned ? FT_UNSIGNED_LONG_LONG_INT : FT_LONG_LONG_INT;
+	}
+	if (counted[kSpecLong] == 1)
+	{
+		return is_unsigned ? FT_UNSIGNED_LONG_INT : FT_LONG_INT;
+	}
+	return is_unsigned ? FT_UNSIGNED_INT : FT_INT;
 }
 
 std::size_t TypeTable::KeyHash::operator()(const Key& key) const
@@ -65,8 +194,29 @@ TypeTable::TypeTable()
 	none.target = kNoType;
 	none.bound = 0;
 	none.parameters = 0;
+	none.user = 0;
 	nodes_.push_back(none);
 	intern_parameters(std::vector<TypeId>());
+}
+
+std::uint32_t TypeTable::operand_of(const Node& node)
+{
+	switch (node.kind)
+	{
+	case TypeKind::Fundamental:
+		return static_cast<std::uint32_t>(node.fundamental);
+
+	case TypeKind::Class:
+	case TypeKind::Enum:
+	case TypeKind::TemplateParameter:
+		// The record identifies the entity that declared the type, which is
+		// what tells two of them apart; the underlying type of an enumeration
+		// is not, because 7.2p5 lets it be fixed after the name is known.
+		return node.user;
+
+	default:
+		return node.target;
+	}
 }
 
 std::uint32_t TypeTable::intern_parameters(const std::vector<TypeId>& parameters)
@@ -190,6 +340,110 @@ TypeId TypeTable::function_of(TypeId result, const std::vector<TypeId>& paramete
 	return intern(key, node);
 }
 
+TypeId TypeTable::user_type(TypeKind category, std::uint32_t entity,
+                            const UserType& record)
+{
+	// The type is named by the entity that declared it rather than by what it
+	// is made of, so the key holds the entity and the record it points at is
+	// shared by every cv-qualified form of the type.
+	Key key;
+	key.shape = static_cast<std::uint32_t>(category) << 8;
+	key.operand = entity;
+	key.extra = kUserTypeKeyExtra;
+	key.bound = 0;
+
+	const std::unordered_map<Key, TypeId, KeyHash>::const_iterator found =
+		ids_.find(key);
+	if (found != ids_.end())
+	{
+		return found->second;
+	}
+
+	Node node = nodes_[0];
+	node.kind = category;
+	node.user = static_cast<std::uint32_t>(user_types_.size());
+	user_types_.push_back(record);
+	const TypeId id = static_cast<TypeId>(nodes_.size());
+	ids_.insert(std::make_pair(key, id));
+	nodes_.push_back(node);
+	return id;
+}
+
+TypeId TypeTable::class_type(std::uint32_t entity, ClassTag tag,
+                             const std::string& name)
+{
+	UserType record;
+	record.name = name;
+	record.tag = tag;
+	record.scoped = false;
+	record.complete = false;
+	record.size = 0;
+	record.align = 1;
+	return user_type(TypeKind::Class, entity, record);
+}
+
+TypeId TypeTable::enum_type(std::uint32_t entity, bool scoped,
+                            const std::string& name, TypeId underlying)
+{
+	UserType record;
+	record.name = name;
+	record.tag = ClassTag::Struct;
+	record.scoped = scoped;
+	record.complete = true;
+	record.size = 0;
+	record.align = 0;
+	const TypeId id = user_type(TypeKind::Enum, entity, record);
+	nodes_[id].target = underlying;
+	return id;
+}
+
+TypeId TypeTable::template_parameter_type(std::uint32_t entity, bool is_template,
+                                          const std::string& name)
+{
+	UserType record;
+	record.name = name;
+	record.tag = ClassTag::Struct;
+	record.scoped = is_template;
+	record.complete = false;
+	record.size = 0;
+	record.align = 1;
+	return user_type(TypeKind::TemplateParameter, entity, record);
+}
+
+void TypeTable::rename(TypeId type, const std::string& name)
+{
+	user_types_[nodes_[type].user].name = name;
+}
+
+const std::string& TypeTable::user_name(TypeId type) const
+{
+	return user_at(type).name;
+}
+
+void TypeTable::complete_class(TypeId type, unsigned long long size,
+                               unsigned long long align)
+{
+	UserType& record = user_types_[nodes_[type].user];
+	record.complete = true;
+	record.size = size;
+	record.align = align;
+}
+
+void TypeTable::set_underlying(TypeId type, TypeId underlying)
+{
+	nodes_[type].target = underlying;
+}
+
+bool TypeTable::is_scoped_enum(TypeId type) const
+{
+	return kind(type) == TypeKind::Enum && user_at(type).scoped;
+}
+
+ClassTag TypeTable::class_tag(TypeId type) const
+{
+	return user_at(type).tag;
+}
+
 TypeId TypeTable::qualified(TypeId type, unsigned add)
 {
 	if (add == 0)
@@ -243,10 +497,8 @@ TypeId TypeTable::qualified(TypeId type, unsigned add)
 
 	Key key;
 	key.shape = (static_cast<std::uint32_t>(node.kind) << 8) | merged;
-	key.operand = node.kind == TypeKind::Fundamental
-		? static_cast<std::uint32_t>(node.fundamental)
-		: node.target;
-	key.extra = 0;
+	key.operand = operand_of(node);
+	key.extra = is_user_kind(node.kind) ? kUserTypeKeyExtra : 0;
 	key.bound = 0;
 	return intern(key, node);
 }
@@ -262,10 +514,8 @@ TypeId TypeTable::unqualified(TypeId type)
 
 	Key key;
 	key.shape = static_cast<std::uint32_t>(node.kind) << 8;
-	key.operand = node.kind == TypeKind::Fundamental
-		? static_cast<std::uint32_t>(node.fundamental)
-		: node.target;
-	key.extra = 0;
+	key.operand = operand_of(node);
+	key.extra = is_user_kind(node.kind) ? kUserTypeKeyExtra : 0;
 	key.bound = 0;
 	return intern(key, node);
 }
@@ -306,6 +556,16 @@ bool TypeTable::is_incomplete(TypeId type) const
 		}
 		type = target(type);
 	}
+	if (kind(type) == TypeKind::Class)
+	{
+		// 9.2p2: a class is incomplete until its member specification closes,
+		// and a class only ever declared is incomplete for the whole unit.
+		return !user_at(type).complete;
+	}
+	if (kind(type) == TypeKind::TemplateParameter)
+	{
+		return true;
+	}
 	return is_void(type);
 }
 
@@ -343,17 +603,40 @@ unsigned long long TypeTable::object_size(TypeId type) const
 		type = target(type);
 	}
 
-	// Every type the assignment gives a size to has it equal to its alignment,
-	// the mock function stub's four bytes included; a fundamental type is the
-	// one whose size the ABI states rather than derives.
-	const unsigned long long unit = object_align(type);
+	const unsigned long long unit = element_size(type);
 	if (unit != 0 && count > (~0ULL) / unit)
 	{
 		throw std::overflow_error("an object of the program is too large");
 	}
-	return count * (kind(type) == TypeKind::Fundamental
-		? fundamental_type_size(fundamental_type(type))
-		: unit);
+	return count * unit;
+}
+
+// Every type the assignment gives a size to has it equal to its alignment, the
+// mock function stub's four bytes included, apart from the two a declaration
+// lays out: a class takes what its definition made of it, and an enumeration
+// takes its underlying type's.
+unsigned long long TypeTable::element_size(TypeId type) const
+{
+	switch (kind(type))
+	{
+	case TypeKind::Fundamental:
+		return fundamental_type_size(fundamental_type(type));
+
+	case TypeKind::Class:
+		return user_at(type).size;
+
+	case TypeKind::Enum:
+		return element_size(target(type));
+
+	case TypeKind::TemplateParameter:
+		return 0;
+
+	case TypeKind::Function:
+		return 4;
+
+	default:
+		return 8;
+	}
 }
 
 // The assignment fixes the alignment of every fundamental type at its size, of
@@ -369,6 +652,15 @@ unsigned long long TypeTable::object_align(TypeId type) const
 	{
 	case TypeKind::Fundamental:
 		return fundamental_type_size(fundamental_type(type));
+
+	case TypeKind::Class:
+		return user_at(type).align;
+
+	case TypeKind::Enum:
+		return object_align(target(type));
+
+	case TypeKind::TemplateParameter:
+		return 0;
 
 	case TypeKind::Function:
 		return 4;
@@ -461,6 +753,28 @@ void TypeTable::append_description(TypeId type, std::string& out) const
 			append_parameters(type, out);
 			out += ") returning ";
 			break;
+
+		case TypeKind::Class:
+			switch (user_at(type).tag)
+			{
+			case ClassTag::Struct: out += "struct "; break;
+			case ClassTag::Class: out += "class "; break;
+			case ClassTag::Union: out += "union "; break;
+			}
+			out += user_at(type).name;
+			return;
+
+		case TypeKind::Enum:
+			out += user_at(type).scoped ? "enum class " : "enum ";
+			out += user_at(type).name;
+			return;
+
+		case TypeKind::TemplateParameter:
+			// 14.1p2: a parameter declared with `template` names a template
+			// rather than a type, which the dump spells apart from one.
+			out += user_at(type).scoped ? "template-parameter " : "typename ";
+			out += user_at(type).name;
+			return;
 		}
 		type = node.target;
 	}

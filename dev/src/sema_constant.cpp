@@ -1,0 +1,555 @@
+#include "sema_analyzer.h"
+
+#include <stdexcept>
+
+#include "ast_model.h"
+#include "literal_scan.h"
+#include "post_token.h"
+
+// The 5.19 subset PA11 needs: what an array bound, an enumerator and a
+// static_assert may be written with, plus the 7.1.6.2 decltype forms.
+//
+// A value is carried as its bits and the type that says how wide it is and
+// whether it is signed, sign extended to 64 bits when signed, which is the one
+// form every conversion here starts from.
+
+namespace
+{
+
+// 2.14: the bytes 2.14.2 and 2.14.3 give a literal, read back as one value.
+unsigned long long integer_of(const std::string& data)
+{
+	unsigned long long value = 0;
+	for (std::size_t index = data.size(); index-- > 0;)
+	{
+		value = (value << 8) | static_cast<unsigned char>(data[index]);
+	}
+	return value;
+}
+
+bool add_overflows(long long left, long long right, long long& out)
+{
+	const unsigned long long sum = static_cast<unsigned long long>(left) +
+		static_cast<unsigned long long>(right);
+	out = static_cast<long long>(sum);
+	return ((left ^ out) & (right ^ out)) < 0;
+}
+
+bool subtract_overflows(long long left, long long right, long long& out)
+{
+	const unsigned long long difference = static_cast<unsigned long long>(left) -
+		static_cast<unsigned long long>(right);
+	out = static_cast<long long>(difference);
+	return ((left ^ right) & (left ^ out)) < 0;
+}
+
+bool multiply_overflows(long long left, long long right, long long& out)
+{
+	out = static_cast<long long>(static_cast<unsigned long long>(left) *
+	                             static_cast<unsigned long long>(right));
+	if (left == 0 || right == 0)
+	{
+		out = 0;
+		return false;
+	}
+	const long long lowest = -1 - 0x7FFFFFFFFFFFFFFFLL;
+	if (left == -1)
+	{
+		return right == lowest;
+	}
+	if (right == -1)
+	{
+		return left == lowest;
+	}
+	return out / left != right;
+}
+
+}
+
+bool SemaAnalyzer::is_signed(TypeId type) const
+{
+	const TypeId arithmetic = arithmetic_type(type);
+	if (arithmetic == kNoType)
+	{
+		return true;
+	}
+	return fundamental_type_class(types_.fundamental_type(arithmetic)) ==
+		FundamentalTypeClass::SignedIntegral;
+}
+
+unsigned SemaAnalyzer::width_of(TypeId type) const
+{
+	const TypeId arithmetic = arithmetic_type(type);
+	if (arithmetic == kNoType)
+	{
+		return 64;
+	}
+	return static_cast<unsigned>(
+		fundamental_type_size(types_.fundamental_type(arithmetic)) * 8);
+}
+
+// 4.5 and 7.2p9: the integral type a value of `type` is read as, which for an
+// enumeration is its underlying type and for anything else is itself.
+TypeId SemaAnalyzer::arithmetic_type(TypeId type) const
+{
+	TypeId current = type;
+	if (types_.kind(current) == TypeKind::Enum)
+	{
+		current = types_.target(current);
+	}
+	if (types_.kind(current) != TypeKind::Fundamental ||
+	    !fundamental_type_is_integral(types_.fundamental_type(current)))
+	{
+		return kNoType;
+	}
+	return current;
+}
+
+std::string SemaAnalyzer::spell_value(TypeId type, unsigned long long bits) const
+{
+	std::string digits;
+	unsigned long long magnitude = bits;
+	const bool negative = is_signed(type) && (bits >> 63) != 0;
+	if (negative)
+	{
+		magnitude = 0ULL - bits;
+	}
+	while (magnitude != 0)
+	{
+		digits.insert(digits.begin(), static_cast<char>('0' + (magnitude % 10)));
+		magnitude /= 10;
+	}
+	if (digits.empty())
+	{
+		digits = "0";
+	}
+	return negative ? "-" + digits : digits;
+}
+
+SemaAnalyzer::Constant SemaAnalyzer::convert(const Constant& value,
+                                             TypeId type) const
+{
+	Constant out;
+	out.type = type;
+	const unsigned width = width_of(type);
+	if (width >= 64)
+	{
+		out.bits = value.bits;
+		return out;
+	}
+	// 4.7p2 and 4.7p3: a value converted to a narrower type keeps its low
+	// bits, and is read back signed or unsigned as the type says.
+	const unsigned long long mask = (1ULL << width) - 1;
+	unsigned long long bits = value.bits & mask;
+	if (is_signed(type) && (bits & (1ULL << (width - 1))) != 0)
+	{
+		bits |= ~mask;
+	}
+	out.bits = bits;
+	return out;
+}
+
+// 4.5: a value of a type whose rank is below `int` is read as an `int`.
+SemaAnalyzer::Constant SemaAnalyzer::promote(const Constant& value)
+{
+	const TypeId arithmetic = arithmetic_type(value.type);
+	if (arithmetic == kNoType)
+	{
+		throw std::runtime_error("a constant expression has a type that is not "
+		                         "integral");
+	}
+	if (width_of(arithmetic) >= 32)
+	{
+		Constant out = value;
+		out.type = arithmetic;
+		return out;
+	}
+	return convert(value, types_.fundamental(FT_INT));
+}
+
+// 5p10: the usual arithmetic conversions over the integral types.
+TypeId SemaAnalyzer::common_type(TypeId left, TypeId right)
+{
+	if (left == right)
+	{
+		return left;
+	}
+	const unsigned left_width = width_of(left);
+	const unsigned right_width = width_of(right);
+	const bool left_signed = is_signed(left);
+	const bool right_signed = is_signed(right);
+	if (left_signed == right_signed)
+	{
+		return left_width >= right_width ? left : right;
+	}
+	const TypeId unsigned_type = left_signed ? right : left;
+	const TypeId signed_type = left_signed ? left : right;
+	// An unsigned operand at least as wide as the signed one wins; otherwise
+	// the signed type holds every value of the unsigned one.
+	return width_of(unsigned_type) >= width_of(signed_type) ? unsigned_type
+	                                                        : signed_type;
+}
+
+SemaAnalyzer::Constant SemaAnalyzer::literal_constant(const std::string& spelling)
+{
+	PostToken token;
+	const char first = spelling.empty() ? '\0' : spelling[0];
+	const std::string::size_type quote = spelling.find('\'');
+	if (first >= '0' && first <= '9')
+	{
+		scan_pp_number(spelling, token);
+	}
+	else if (quote != std::string::npos && spelling.find('"') == std::string::npos)
+	{
+		scan_character_literal(spelling, token);
+	}
+	else
+	{
+		throw std::runtime_error("a constant expression holds a literal that has "
+		                         "no integral value");
+	}
+	if (token.kind != PostTokenKind::Literal ||
+	    !fundamental_type_is_integral(token.type))
+	{
+		throw std::runtime_error("a constant expression holds a literal that has "
+		                         "no integral value");
+	}
+
+	Constant out;
+	out.type = types_.fundamental(token.type);
+	out.bits = integer_of(token.data);
+	return convert(out, out.type);
+}
+
+SemaAnalyzer::Constant SemaAnalyzer::id_constant(const AstNode& node,
+                                                 const Context& ctx)
+{
+	SemaEntity& entity = require(resolve(node.text, ctx, LookupKind::Any), node.text);
+	if (!entity.constant)
+	{
+		throw std::runtime_error(node.text + " is not a constant expression");
+	}
+	Constant out;
+	out.type = entity.type;
+	out.bits = entity.value;
+	return out;
+}
+
+SemaAnalyzer::Constant SemaAnalyzer::unary_constant(const AstNode& node,
+                                                    const Context& ctx)
+{
+	const Constant operand = promote(evaluate(*node.children[0], ctx));
+	Constant out;
+	out.type = operand.type;
+	switch (node.token)
+	{
+	case OP_PLUS:
+		out.bits = operand.bits;
+		break;
+
+	case OP_MINUS:
+	{
+		if (is_signed(out.type) && width_of(out.type) == 64 &&
+		    operand.bits == (1ULL << 63))
+		{
+			throw std::runtime_error("a constant expression overflows");
+		}
+		out.bits = 0ULL - operand.bits;
+		break;
+	}
+
+	case OP_COMPL:
+		out.bits = ~operand.bits;
+		break;
+
+	case OP_LNOT:
+		out.type = types_.fundamental(FT_BOOL);
+		out.bits = operand.bits == 0 ? 1 : 0;
+		return out;
+
+	default:
+		throw std::runtime_error("a constant expression holds an operator PA11 "
+		                         "does not evaluate");
+	}
+	return convert(out, out.type);
+}
+
+SemaAnalyzer::Constant SemaAnalyzer::binary_constant(const AstNode& node,
+                                                     const Context& ctx)
+{
+	// 5.14p1 and 5.15p1: the right operand of `&&` and `||` is evaluated only
+	// when the left one does not decide the answer.
+	if (node.token == OP_LAND || node.token == OP_LOR)
+	{
+		const bool left = evaluate(*node.children[0], ctx).bits != 0;
+		Constant out;
+		out.type = types_.fundamental(FT_BOOL);
+		if (left == (node.token == OP_LOR))
+		{
+			out.bits = left ? 1 : 0;
+			return out;
+		}
+		out.bits = evaluate(*node.children[1], ctx).bits != 0 ? 1 : 0;
+		return out;
+	}
+
+	const Constant left = promote(evaluate(*node.children[0], ctx));
+	const Constant right = promote(evaluate(*node.children[1], ctx));
+	const bool comparison = node.token == OP_LT || node.token == OP_GT ||
+		node.token == OP_LE || node.token == OP_GE || node.token == OP_EQ ||
+		node.token == OP_NE;
+	const TypeId type = common_type(left.type, right.type);
+	const unsigned long long lhs = convert(left, type).bits;
+	const unsigned long long rhs = convert(right, type).bits;
+	const bool sign = is_signed(type);
+	const long long signed_lhs = static_cast<long long>(lhs);
+	const long long signed_rhs = static_cast<long long>(rhs);
+
+	if (comparison)
+	{
+		bool answer = false;
+		switch (node.token)
+		{
+		case OP_LT: answer = sign ? signed_lhs < signed_rhs : lhs < rhs; break;
+		case OP_GT: answer = sign ? signed_lhs > signed_rhs : lhs > rhs; break;
+		case OP_LE: answer = sign ? signed_lhs <= signed_rhs : lhs <= rhs; break;
+		case OP_GE: answer = sign ? signed_lhs >= signed_rhs : lhs >= rhs; break;
+		case OP_EQ: answer = lhs == rhs; break;
+		default: answer = lhs != rhs; break;
+		}
+		Constant out;
+		out.type = types_.fundamental(FT_BOOL);
+		out.bits = answer ? 1 : 0;
+		return out;
+	}
+
+	Constant out;
+	out.type = type;
+	long long result = 0;
+	bool overflowed = false;
+	switch (node.token)
+	{
+	case OP_PLUS:
+		overflowed = add_overflows(signed_lhs, signed_rhs, result);
+		out.bits = lhs + rhs;
+		break;
+
+	case OP_MINUS:
+		overflowed = subtract_overflows(signed_lhs, signed_rhs, result);
+		out.bits = lhs - rhs;
+		break;
+
+	case OP_STAR:
+		overflowed = multiply_overflows(signed_lhs, signed_rhs, result);
+		out.bits = lhs * rhs;
+		break;
+
+	case OP_DIV:
+	case OP_MOD:
+		if (rhs == 0)
+		{
+			throw std::runtime_error("a constant expression divides by zero");
+		}
+		if (sign)
+		{
+			overflowed = signed_lhs == (-1 - 0x7FFFFFFFFFFFFFFFLL) && signed_rhs == -1;
+			result = node.token == OP_DIV ? signed_lhs / signed_rhs
+			                              : signed_lhs % signed_rhs;
+			out.bits = static_cast<unsigned long long>(result);
+			break;
+		}
+		out.bits = node.token == OP_DIV ? lhs / rhs : lhs % rhs;
+		break;
+
+	case OP_LSHIFT:
+	case OP_RSHIFT:
+	{
+		const unsigned long long count = sign && signed_rhs < 0
+			? static_cast<unsigned long long>(width_of(type))
+			: rhs;
+		if (count >= width_of(type))
+		{
+			throw std::runtime_error("a constant expression shifts by more than "
+			                         "the width of its type");
+		}
+		if (node.token == OP_LSHIFT)
+		{
+			out.bits = lhs << count;
+			result = static_cast<long long>(out.bits);
+			overflowed = sign && (signed_lhs < 0 || (result >> count) != signed_lhs);
+			break;
+		}
+		out.bits = sign ? static_cast<unsigned long long>(signed_lhs >> count)
+		                : lhs >> count;
+		break;
+	}
+
+	case OP_AMP: out.bits = lhs & rhs; break;
+	case OP_BOR: out.bits = lhs | rhs; break;
+	case OP_XOR: out.bits = lhs ^ rhs; break;
+
+	default:
+		throw std::runtime_error("a constant expression holds an operator PA11 "
+		                         "does not evaluate");
+	}
+
+	// 5p4: an operation whose result its type cannot represent has undefined
+	// behaviour, so it is not a constant expression.
+	const Constant narrowed = convert(out, type);
+	if (sign && (overflowed || narrowed.bits != out.bits))
+	{
+		throw std::runtime_error("a constant expression overflows");
+	}
+	return narrowed;
+}
+
+SemaAnalyzer::Constant SemaAnalyzer::evaluate(const AstNode& node,
+                                              const Context& ctx)
+{
+	switch (node.kind)
+	{
+	case AstKind::Literal:
+		return literal_constant(node.text);
+
+	case AstKind::KeywordLiteral:
+	{
+		if (node.token != KW_TRUE && node.token != KW_FALSE)
+		{
+			throw std::runtime_error("a constant expression names no value");
+		}
+		Constant out;
+		out.type = types_.fundamental(FT_BOOL);
+		out.bits = node.token == KW_TRUE ? 1 : 0;
+		return out;
+	}
+
+	case AstKind::ParenthesizedExpression:
+		return evaluate(*node.children[0], ctx);
+
+	case AstKind::IdExpression:
+		return id_constant(node, ctx);
+
+	case AstKind::UnaryExpression:
+		return unary_constant(node, ctx);
+
+	case AstKind::BinaryExpression:
+		return binary_constant(node, ctx);
+
+	case AstKind::ConditionalExpression:
+	{
+		const bool condition = evaluate(*node.children[0], ctx).bits != 0;
+		return evaluate(*node.children[condition ? 1 : 2], ctx);
+	}
+
+	case AstKind::CastExpression:
+	{
+		if (node.children.size() != 2 ||
+		    node.children[0]->kind != AstKind::TypeId)
+		{
+			throw std::runtime_error("a constant expression holds a cast PA11 "
+			                         "does not evaluate");
+		}
+		const TypeId type = type_id_type(*node.children[0], ctx);
+		if (arithmetic_type(type) == kNoType)
+		{
+			throw std::runtime_error("a constant expression casts to a type that "
+			                         "is not integral");
+		}
+		const Constant value = evaluate(*node.children[1], ctx);
+		Constant out = convert(value, type);
+		out.type = type;
+		return out;
+	}
+
+	case AstKind::SizeofExpression:
+	case AstKind::TypeTraitExpression:
+	{
+		if (node.kind == AstKind::TypeTraitExpression && node.token != KW_ALIGNOF)
+		{
+			throw std::runtime_error("a constant expression holds an operator "
+			                         "PA11 does not evaluate");
+		}
+		if (node.children.empty() || node.children[0]->kind != AstKind::TypeId)
+		{
+			// 5.3.3p1: PA11 evaluates `sizeof` and `alignof` over a type-id.
+			throw std::runtime_error("sizeof and alignof are evaluated over a "
+			                         "type-id");
+		}
+		const TypeId type = type_id_type(*node.children[0], ctx);
+		Constant out;
+		out.type = types_.fundamental(FT_UNSIGNED_LONG_INT);
+		out.bits = node.kind == AstKind::SizeofExpression
+			? size_of(type)
+			: types_.object_align(type);
+		return out;
+	}
+
+	default:
+		throw std::runtime_error("a constant expression holds a construct PA11 "
+		                         "does not evaluate");
+	}
+}
+
+unsigned long long SemaAnalyzer::size_of(TypeId type) const
+{
+	if (types_.is_incomplete(type))
+	{
+		// 5.3.3p1: `sizeof` shall not be applied to an incomplete type.
+		throw std::runtime_error("sizeof names an incomplete type");
+	}
+	return types_.object_size(type);
+}
+
+unsigned long long SemaAnalyzer::array_bound(const AstNode& node,
+                                             const Context& ctx)
+{
+	const Constant value = evaluate(node, ctx);
+	if (is_signed(value.type) && (value.bits >> 63) != 0)
+	{
+		throw std::runtime_error("an array bound is negative");
+	}
+	if (value.bits == 0)
+	{
+		// 8.3.4p1: the bound shall be greater than zero.
+		throw std::runtime_error("an array bound is zero");
+	}
+	return value.bits;
+}
+
+TypeId SemaAnalyzer::decltype_type(const AstNode& node, const Context& ctx)
+{
+	const AstNode* expression = node.children[0];
+	bool parenthesized = false;
+	while (expression->kind == AstKind::ParenthesizedExpression &&
+	       !expression->children.empty())
+	{
+		// 7.1.6.2p4: a parenthesized id-expression is an unparenthesized
+		// expression again, and its value category decides the type.
+		parenthesized = true;
+		expression = expression->children[0];
+	}
+	if (expression->kind != AstKind::IdExpression)
+	{
+		throw std::runtime_error("decltype names an expression PA11 does not type");
+	}
+	SemaEntity& entity =
+		require(resolve(expression->text, ctx, LookupKind::Any), expression->text);
+	switch (entity.kind)
+	{
+	case SemaKind::Variable:
+	case SemaKind::Parameter:
+	case SemaKind::Function:
+		// 3.10p1: an id-expression naming an object or a function is an lvalue.
+		return parenthesized ? types_.reference_to(entity.type, false)
+		                     : entity.type;
+
+	case SemaKind::Enumerator:
+		// 3.10p1: an enumerator is a prvalue, parenthesized or not.
+		return entity.type;
+
+	default:
+		break;
+	}
+	throw std::runtime_error("decltype names " + expression->text +
+	                         ", which is not an object, function or enumerator");
+}

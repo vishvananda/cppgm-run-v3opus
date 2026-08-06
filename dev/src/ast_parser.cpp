@@ -108,6 +108,12 @@ AstNode* AstParser::parse_declaration(bool in_class)
 	{
 		return fail(start);
 	}
+	// The declaration owns the terminals it was written from.  A declaration
+	// whose specifiers are its whole content hands its specifier node back as
+	// itself, so the span reaches past the `;` that the specifier rule did not
+	// read - which is the whole declaration, and what names an unnamed one.
+	node->begin = static_cast<std::uint32_t>(start.pos);
+	node->end = static_cast<std::uint32_t>(pos_);
 	return node;
 }
 

@@ -160,12 +160,21 @@ struct AstNode
 {
 	AstKind kind;
 	std::uint16_t token;
+	// The terminals a declaration was written from, as `[begin, end)` in the
+	// stream the parse read.  9.5p2 leaves an anonymous union with no name of
+	// its own, and a later assignment has to give the same one to the same
+	// union however the unit is read, so the span the declaration occupies -
+	// the one thing about it that is not a name - is what names it.
+	std::uint32_t begin;
+	std::uint32_t end;
 	std::string text;
 	std::vector<AstNode*> children;
 
 	explicit AstNode(AstKind node_kind)
 		: kind(node_kind)
 		, token(kNoAstToken)
+		, begin(0)
+		, end(0)
 	{}
 
 	// Appends `child`, ignoring a null one so that an optional part of a rule

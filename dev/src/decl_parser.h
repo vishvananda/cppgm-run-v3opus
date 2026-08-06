@@ -106,27 +106,6 @@ public:
 	void run();
 
 private:
-	// The simple-type-specifiers of 7.1.6.2, counted rather than remembered in
-	// order, because Table 10 names a type by which of them appear and `long`
-	// is the only one that may appear twice.
-	enum SimpleTypeSpecifier
-	{
-		kSpecChar,
-		kSpecChar16,
-		kSpecChar32,
-		kSpecWchar,
-		kSpecBool,
-		kSpecShort,
-		kSpecInt,
-		kSpecLong,
-		kSpecSigned,
-		kSpecUnsigned,
-		kSpecFloat,
-		kSpecDouble,
-		kSpecVoid,
-		kSimpleTypeSpecifierCount
-	};
-
 	// A `decl-specifier-seq` or `type-specifier-seq` as read.
 	struct Specifiers
 	{
@@ -241,12 +220,8 @@ private:
 	bool parse_type_name(Namespace& where, TypeId& out);
 	Entity& resolve_namespace_name(Namespace& where);
 
-	// Specifiers and types.
-	static int builtin_specifier(unsigned token);
-	// Table 10 of 7.1.6.2, read off the simple-type-specifiers that appeared.
-	static EFundamentalType table_10_type(const unsigned* counted);
-	// Whether Table 10 has a row for the specifiers that appeared at all.
-	static bool table_10_names_a_type(const unsigned* counted);
+	// Specifiers and types.  Table 10 of 7.1.6.2 is read off the
+	// simple-type-specifiers that appeared, by the type table that owns it.
 	bool parse_specifier_seq(Namespace& where, bool declaration, Specifiers& out);
 	TypeId specifier_type(const Specifiers& specifiers);
 	bool parse_type_id(Namespace& where, TypeId& out);

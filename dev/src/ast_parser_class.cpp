@@ -186,10 +186,16 @@ AstNode* AstParser::parse_enum_specifier()
 		: nullptr;
 	skip_attributes();
 	std::string name;
-	if (at(TT_IDENTIFIER))
+	const Mark named = mark();
+	// 7.2p1 and 9.1p2: a member enumeration may be defined outside its class,
+	// where its name is written with the nested-name-specifier that reaches it.
+	if (skip_qualified_type_name())
 	{
-		name = spelling();
-		++pos_;
+		name = spelled(named);
+	}
+	else
+	{
+		reset(named);
 	}
 	AstNode* base = nullptr;
 	if (accept(OP_COLON))
@@ -202,12 +208,16 @@ AstNode* AstParser::parse_enum_specifier()
 	}
 	if (!at(OP_LBRACE))
 	{
-		if (name.empty() || base != nullptr)
+		// 7.2p2: an opaque-enum-declaration, which names an enumeration whose
+		// underlying type is fixed - by an enum-base, or by the enum-key that
+		// makes it a scoped enumeration.
+		if (name.empty())
 		{
 			return fail(start);
 		}
 		AstNode* node = make_text(AstKind::EnumSpecifier, name);
 		node->add(key);
+		node->add(base);
 		names_.declare_member(name, take_declared_kind(NameKind::Type));
 		return node;
 	}

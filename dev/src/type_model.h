@@ -23,7 +23,9 @@ enum CvQualifiers
 };
 
 // The type categories 8.3 can build out of another type, plus the fundamental
-// types of 3.9.1 that every type bottoms out in.
+// types of 3.9.1 that every type bottoms out in and the categories a
+// declaration introduces a name for: a class (9), an enumeration (7.2) and a
+// template parameter (14.1).
 enum class TypeKind
 {
 	Fundamental,
@@ -31,8 +33,49 @@ enum class TypeKind
 	LValueReference,
 	RValueReference,
 	Array,
-	Function
+	Function,
+	Class,
+	Enum,
+	TemplateParameter
 };
+
+// The class-key of 9p1, which is also how the dump spells the type.  Two
+// declarations of one class agree exactly when neither or both wrote `union`.
+enum class ClassTag
+{
+	Struct,
+	Class,
+	Union
+};
+
+// The simple-type-specifiers of 7.1.6.2, counted rather than remembered in
+// order, because Table 10 names a type by which of them appear and `long` is
+// the only one that may appear twice.
+enum SimpleTypeSpecifier
+{
+	kSpecChar,
+	kSpecChar16,
+	kSpecChar32,
+	kSpecWchar,
+	kSpecBool,
+	kSpecShort,
+	kSpecInt,
+	kSpecLong,
+	kSpecSigned,
+	kSpecUnsigned,
+	kSpecFloat,
+	kSpecDouble,
+	kSpecVoid,
+	kSimpleTypeSpecifierCount
+};
+
+// Which counter a token increments, or -1 when it is not one of them.
+int builtin_specifier(unsigned token);
+
+// Table 10 pairs a set of simple-type-specifiers with a type, and a set the
+// table does not list names nothing.
+bool table_10_names_a_type(const unsigned* counted);
+EFundamentalType table_10_type(const unsigned* counted);
 
 // Every distinct type of a run, stored once.
 //
@@ -67,6 +110,36 @@ public:
 	TypeId array_of(TypeId element, bool bounded, unsigned long long bound);
 	TypeId function_of(TypeId result, const std::vector<TypeId>& parameters,
 	                   bool variadic);
+
+	// The three categories a declaration introduces a name for.  Each is the
+	// type of exactly one entity, so the entity identifies it: two classes of
+	// the same name in two scopes are two types, and a class named after its
+	// definition is closed is still the same type it was inside it.
+	TypeId class_type(std::uint32_t entity, ClassTag tag, const std::string& name);
+	TypeId enum_type(std::uint32_t entity, bool scoped, const std::string& name,
+	                 TypeId underlying);
+	TypeId template_parameter_type(std::uint32_t entity, bool is_template,
+	                               const std::string& name);
+
+	// The name the dump spells a user-defined type with.  7.1.3p2 lets a
+	// declaration name an unnamed class after it has been read, and 9.1p2 lets
+	// a class be named where it is defined, so the name arrives after the type.
+	void rename(TypeId type, const std::string& name);
+	const std::string& user_name(TypeId type) const;
+
+	// 9.2p2: the class becomes complete at the end of its member specification,
+	// which is where its size and alignment are first known.
+	void complete_class(TypeId type, unsigned long long size,
+	                    unsigned long long align);
+	// 7.2p5: the underlying type an enum-base or the default fixes.
+	void set_underlying(TypeId type, TypeId underlying);
+
+	bool is_class(TypeId type) const { return kind(type) == TypeKind::Class; }
+	bool is_enum(TypeId type) const { return kind(type) == TypeKind::Enum; }
+	// 7.2p2: an enumeration written `enum class` or `enum struct`, whose
+	// enumerators are reached only through its own scope.
+	bool is_scoped_enum(TypeId type) const;
+	ClassTag class_tag(TypeId type) const;
 
 	// 8.3.5p5: the type a parameter declared with `type` contributes to the
 	// function type.  An array becomes a pointer to its element, a function
@@ -144,6 +217,22 @@ private:
 		TypeId target;
 		unsigned long long bound;
 		std::uint32_t parameters;
+		// Class, Enum and TemplateParameter: the record in `user_types_` that
+		// holds what the declaration said, shared by every cv-qualified form
+		// of the type so that completing or naming one names them all.
+		std::uint32_t user;
+	};
+
+	// What a user-defined type carries beyond its category: how it is spelled,
+	// and, for a class, whether it is complete and what an object of it costs.
+	struct UserType
+	{
+		std::string name;
+		ClassTag tag;
+		bool scoped;
+		bool complete;
+		unsigned long long size;
+		unsigned long long align;
 	};
 
 	// What makes two types the same type.
@@ -175,10 +264,21 @@ private:
 	std::uint32_t intern_parameters(const std::vector<TypeId>& parameters);
 	// `type` with its top level cv-qualifiers removed.
 	TypeId unqualified(TypeId type);
+	// What tells two types of one category and one cv-qualification apart.
+	static std::uint32_t operand_of(const Node& node);
+	TypeId user_type(TypeKind kind, std::uint32_t entity, const UserType& record);
+	const UserType& user_at(TypeId type) const
+	{
+		return user_types_[nodes_[type].user];
+	}
+	// The bytes one object of `type` occupies, which for an array is one
+	// element and for a class is what its definition laid out.
+	unsigned long long element_size(TypeId type) const;
 	void append_description(TypeId type, std::string& out) const;
 	void append_parameters(TypeId type, std::string& out) const;
 
 	std::vector<Node> nodes_;
+	std::vector<UserType> user_types_;
 	// The array types `qualified` is between, innermost last.
 	std::vector<TypeId> dimensions_;
 	std::unordered_map<Key, TypeId, KeyHash> ids_;

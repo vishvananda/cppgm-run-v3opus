@@ -411,27 +411,6 @@ bool DeclParser::parse_type_name(Namespace& where, TypeId& out)
 	return true;
 }
 
-int DeclParser::builtin_specifier(unsigned token)
-{
-	switch (token)
-	{
-	case KW_CHAR: return kSpecChar;
-	case KW_CHAR16_T: return kSpecChar16;
-	case KW_CHAR32_T: return kSpecChar32;
-	case KW_WCHAR_T: return kSpecWchar;
-	case KW_BOOL: return kSpecBool;
-	case KW_SHORT: return kSpecShort;
-	case KW_INT: return kSpecInt;
-	case KW_LONG: return kSpecLong;
-	case KW_SIGNED: return kSpecSigned;
-	case KW_UNSIGNED: return kSpecUnsigned;
-	case KW_FLOAT: return kSpecFloat;
-	case KW_DOUBLE: return kSpecDouble;
-	case KW_VOID: return kSpecVoid;
-	default: return -1;
-	}
-}
-
 bool DeclParser::parse_specifier_seq(Namespace& where, bool declaration, Specifiers& out)
 {
 	out = Specifiers();
@@ -507,104 +486,6 @@ TypeId DeclParser::specifier_type(const Specifiers& specifiers)
 	}
 	return types_.qualified(types_.fundamental(table_10_type(specifiers.counted)),
 	                       specifiers.cv);
-}
-
-// Table 10 pairs a set of simple-type-specifiers with a type, and a set the
-// table does not list names nothing.  `long` is the one specifier that may
-// appear twice, `signed` and `unsigned` exclude each other, and the specifiers
-// that name a type on their own admit no company but a signedness.
-bool DeclParser::table_10_names_a_type(const unsigned* counted)
-{
-	unsigned total = 0;
-	for (std::size_t index = 0; index < kSimpleTypeSpecifierCount; ++index)
-	{
-		if (counted[index] > (index == kSpecLong ? 2u : 1u))
-		{
-			return false;
-		}
-		total += counted[index];
-	}
-	if (counted[kSpecSigned] != 0 && counted[kSpecUnsigned] != 0)
-	{
-		return false;
-	}
-	const unsigned sign = counted[kSpecSigned] + counted[kSpecUnsigned];
-
-	if (counted[kSpecVoid] != 0 || counted[kSpecBool] != 0 || counted[kSpecChar16] != 0 ||
-	    counted[kSpecChar32] != 0 || counted[kSpecWchar] != 0 || counted[kSpecFloat] != 0)
-	{
-		return total == 1;
-	}
-	if (counted[kSpecChar] != 0)
-	{
-		return total == 1 + sign;
-	}
-	if (counted[kSpecDouble] != 0)
-	{
-		return counted[kSpecLong] <= 1 && total == 1 + counted[kSpecLong];
-	}
-	if (counted[kSpecShort] != 0)
-	{
-		return counted[kSpecLong] == 0 && total == 1 + sign + counted[kSpecInt];
-	}
-	return total != 0 && total == sign + counted[kSpecInt] + counted[kSpecLong];
-}
-
-// A specifier that decides the type on its own is asked about first; what is
-// left is the integer types, which `signed`, `unsigned`, `short` and `long`
-// choose between.
-EFundamentalType DeclParser::table_10_type(const unsigned* counted)
-{
-	const bool is_unsigned = counted[kSpecUnsigned] != 0;
-	if (counted[kSpecVoid] != 0)
-	{
-		return FT_VOID;
-	}
-	if (counted[kSpecBool] != 0)
-	{
-		return FT_BOOL;
-	}
-	if (counted[kSpecChar] != 0)
-	{
-		if (is_unsigned)
-		{
-			return FT_UNSIGNED_CHAR;
-		}
-		return counted[kSpecSigned] != 0 ? FT_SIGNED_CHAR : FT_CHAR;
-	}
-	if (counted[kSpecChar16] != 0)
-	{
-		return FT_CHAR16_T;
-	}
-	if (counted[kSpecChar32] != 0)
-	{
-		return FT_CHAR32_T;
-	}
-	if (counted[kSpecWchar] != 0)
-	{
-		return FT_WCHAR_T;
-	}
-	if (counted[kSpecFloat] != 0)
-	{
-		return FT_FLOAT;
-	}
-	if (counted[kSpecDouble] != 0)
-	{
-		return counted[kSpecLong] != 0 ? FT_LONG_DOUBLE : FT_DOUBLE;
-	}
-	if (counted[kSpecShort] != 0)
-	{
-		return is_unsigned ? FT_UNSIGNED_SHORT_INT : FT_SHORT_INT;
-	}
-	if (counted[kSpecLong] >= 2)
-	{
-		return is_unsigned ? FT_UNSIGNED_LONG_LONG_INT : FT_LONG_LONG_INT;
-	}
-	if (counted[kSpecLong] == 1)
-	{
-		return is_unsigned ? FT_UNSIGNED_LONG_INT : FT_LONG_INT;
-	}
-	return is_unsigned ? FT_UNSIGNED_INT : FT_INT;
 }
 
 bool DeclParser::parse_type_id(Namespace& where, TypeId& out)
