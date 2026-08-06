@@ -52,6 +52,14 @@ void LowirFunctionLowering::add_initialization(const Operand& storage,
                                                const DumpNode& node)
 {
 	TypeTable& types = unit_.types();
+	if (node.fact.kind == FactKind::ConstructorAction &&
+	    types.kind(types.strip_cv(type)) == TypeKind::Array)
+	{
+		// 12.6p1: the object with static storage duration is an array, so what
+		// runs before the program is the constructor of each of its elements.
+		array_lifecycle(node, true);
+		return;
+	}
 	if (node.fact.kind == FactKind::ConstructorAction)
 	{
 		// 3.6.2p2 and 12.1p5: the object is initialized by calling its
@@ -108,18 +116,29 @@ Operand LowirFunctionLowering::array_element(const Operand& array,
                                              TypeId array_type,
                                              unsigned long long index)
 {
-	TypeTable& types = unit_.types();
-	const TypeId element = types.target(types.strip_cv(array_type));
 	Instruction decayed;
 	decayed.kind = Instruction::IK_UNARY;
 	decayed.op = "decay";
 	decayed.type.text = "ptr";
 	decayed.first = array;
+	return element_step(emit(decayed), array_type, index);
+}
+
+// One dimension of that walk: the pointer already stands at the first element
+// of `array_type`, and this moves it to the one `index` names.  A dimension of
+// a multi-dimensional array is one such step, taken from the outermost in, the
+// way 5.2.1p1 reads the subscripts the source would write.
+Operand LowirFunctionLowering::element_step(const Operand& cursor,
+                                            TypeId array_type,
+                                            unsigned long long index)
+{
+	TypeTable& types = unit_.types();
+	const TypeId element = types.target(types.strip_cv(array_type));
 	Instruction move;
 	move.kind = Instruction::IK_INDEX;
 	move.index_projection = lowir_model::IPK_ARRAY_ELEMENT;
 	move.type = unit_.low_type(element);
-	move.first = emit(decayed);
+	move.first = cursor;
 	move.second = named_operand(Operand::OP_INTEGER, decimal(index));
 	const unsigned long long stride = types.object_size(types.strip_cv(element));
 	if (move.type.text.compare(0, 4, "obj<") == 0)
@@ -142,6 +161,56 @@ Operand LowirFunctionLowering::array_element(const Operand& array,
 	return emit(move);
 }
 
+// 8.3.4p1: the dimensions of an array type, outermost first, and how many
+// objects it holds altogether.  An element of a multi-dimensional array is
+// reached one dimension at a time, the way the subscripts the source would
+// write read it, so the walk is the same one for every place that names one.
+unsigned long long LowirFunctionLowering::array_dimensions(
+	TypeId type, std::vector<TypeId>& dimensions,
+	std::vector<unsigned long long>& bounds)
+{
+	TypeTable& types = unit_.types();
+	unsigned long long total = 1;
+	for (TypeId at = types.strip_cv(type); types.kind(at) == TypeKind::Array;
+	     at = types.strip_cv(types.target(at)))
+	{
+		const unsigned long long stride =
+			types.object_size(types.strip_cv(types.target(at)));
+		const unsigned long long bound =
+			stride == 0 ? 0 : types.object_size(at) / stride;
+		dimensions.push_back(at);
+		bounds.push_back(bound);
+		total *= bound;
+	}
+	return total;
+}
+
+// The address of the `flat`th object those dimensions hold, counted the way the
+// storage lays them out: the last dimension moves fastest.
+Operand LowirFunctionLowering::element_at(
+	const Operand& array, const std::vector<TypeId>& dimensions,
+	const std::vector<unsigned long long>& bounds, unsigned long long flat)
+{
+	Instruction decayed;
+	decayed.kind = Instruction::IK_UNARY;
+	decayed.op = "decay";
+	decayed.type.text = "ptr";
+	decayed.first = array;
+	Operand at = emit(decayed);
+	unsigned long long left = flat;
+	for (std::size_t depth = 0; depth < dimensions.size(); ++depth)
+	{
+		unsigned long long below = 1;
+		for (std::size_t inner = depth + 1; inner < bounds.size(); ++inner)
+		{
+			below *= bounds[inner];
+		}
+		at = element_step(at, dimensions[depth], below == 0 ? 0 : left / below);
+		left = below == 0 ? 0 : left % below;
+	}
+	return at;
+}
+
 // 12.6p1 and 12.4p8: the action the array names, run on each of its elements.
 // 12.6p1 creates them in increasing order; a subobject is destroyed in the
 // reverse of the order it was created in, which the action says.
@@ -149,23 +218,34 @@ void LowirFunctionLowering::array_lifecycle(const DumpNode& node,
                                             bool construct)
 {
 	TypeTable& types = unit_.types();
-	const TypeId array = types.strip_cv(node.fact.type);
-	const TypeId element = types.target(array);
-	const unsigned long long stride = types.object_size(types.strip_cv(element));
-	const unsigned long long bound =
-		stride == 0 ? 0 : types.object_size(array) / stride;
+	std::vector<TypeId> dimensions;
+	std::vector<unsigned long long> bounds;
+	const unsigned long long total =
+		array_dimensions(node.fact.type, dimensions, bounds);
+	const TypeId element = dimensions.empty()
+		? node.fact.type
+		: types.strip_cv(types.target(dimensions.back()));
+	if (construct && !node.fact.zero_initialized &&
+	    node.children[0]->children[0]->fact.entity->trivial)
+	{
+		// 12.1p5: the constructor of every element does nothing, so no element
+		// has anything written for it - and the address of one is not computed
+		// for a call that is not made.
+		return;
+	}
 	const DumpNode& named =
 		construct ? *node.children[0]->children[1] : *node.children[0];
-	for (unsigned long long step = 0; step < bound; ++step)
+	for (unsigned long long step = 0; step < total; ++step)
 	{
 		const unsigned long long index =
-			node.fact.reverse_elements ? bound - 1 - step : step;
+			node.fact.reverse_elements ? total - 1 - step : step;
 		// The array is named again for each element: the element's address is
 		// the array's plus the elements before it, which is one description of
 		// where it is however many readers the array has.
 		const LowValue object = expression(named, true);
-		const Operand at = array_element(
-			construct ? object.operand : address_of(object), array, index);
+		const Operand at = element_at(
+			construct ? object.operand : address_of(object), dimensions, bounds,
+			index);
 		if (construct)
 		{
 			constructor_call(at, node, false, element);
@@ -827,14 +907,15 @@ void LowirFunctionLowering::value_initialize_array(const LowObject& object,
 {
 	TypeTable& types = unit_.types();
 	const TypeId array = types.strip_cv(type);
-	const TypeId element = types.target(array);
-	const unsigned long long stride = types.object_size(types.strip_cv(element));
 	const unsigned long long size = types.object_size(array);
 	if (size == 0)
 	{
 		return;
 	}
-	if (stride == 0 || size > kZeroSpanLimit)
+	std::vector<TypeId> dimensions;
+	std::vector<unsigned long long> bounds;
+	const unsigned long long total = array_dimensions(array, dimensions, bounds);
+	if (total == 0 || size > kZeroSpanLimit)
 	{
 		Instruction zero;
 		zero.kind = Instruction::IK_ZEROINIT;
@@ -844,10 +925,12 @@ void LowirFunctionLowering::value_initialize_array(const LowObject& object,
 		emit_void(zero);
 		return;
 	}
-	for (unsigned long long index = 0; index < size / stride; ++index)
+	const TypeId element = types.strip_cv(types.target(dimensions.back()));
+	for (unsigned long long index = 0; index < total; ++index)
 	{
-		const Operand at = array_element(object_address(object), array, index);
-		if (types.is_class(types.strip_cv(element)))
+		const Operand at =
+			element_at(object_address(object), dimensions, bounds, index);
+		if (types.is_class(element))
 		{
 			zero_object(at, element);
 			continue;

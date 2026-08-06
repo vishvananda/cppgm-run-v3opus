@@ -507,6 +507,22 @@ private:
 	lowir_model::Operand array_element(const lowir_model::Operand& array,
 	                                   TypeId array_type,
 	                                   unsigned long long index);
+	// One dimension of that walk, from a pointer already standing at the first
+	// element of `array_type`.
+	lowir_model::Operand element_step(const lowir_model::Operand& cursor,
+	                                  TypeId array_type,
+	                                  unsigned long long index);
+	// 8.3.4p1: the dimensions of an array type, outermost first, and how many
+	// objects it holds altogether.
+	unsigned long long array_dimensions(TypeId type,
+	                                    std::vector<TypeId>& dimensions,
+	                                    std::vector<unsigned long long>& bounds);
+	// The address of the object at `flat` among them, with the last dimension
+	// moving fastest - which is the order the storage lays them out in.
+	lowir_model::Operand element_at(
+		const lowir_model::Operand& array,
+		const std::vector<TypeId>& dimensions,
+		const std::vector<unsigned long long>& bounds, unsigned long long flat);
 	// 8.5p7 over an array: every element value-initialized, written as the
 	// elements they are while there are few enough of them for that to be a
 	// description of the array.

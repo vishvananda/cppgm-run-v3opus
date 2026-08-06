@@ -583,7 +583,15 @@ void LowirUnitLowering::global_variable(const DumpNode& node)
 		item.zero_bytes = static_cast<std::size_t>(
 			types_.object_size(types_.strip_cv(type)));
 		global.data_items.push_back(item);
-		dynamic = written;
+		// 12.6p1: an array of class type is constructed one element at a time,
+		// so where the constructor of an element does nothing there is no
+		// action at all - not one that runs before the program and writes
+		// nothing.
+		const bool nothing_to_do =
+			types_.kind(types_.strip_cv(type)) == TypeKind::Array &&
+			!written->fact.zero_initialized &&
+			written->children[0]->children[0]->fact.entity->trivial;
+		dynamic = nothing_to_do ? nullptr : written;
 		written = nullptr;
 	}
 	else if (types_.kind(types_.strip_cv(type)) == TypeKind::Array ||
