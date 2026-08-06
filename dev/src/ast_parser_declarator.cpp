@@ -60,13 +60,17 @@ AstNode* AstParser::parse_specifier_seq(SpecifierMode mode)
 
 bool AstParser::parse_specifier(AstNode* seq, SpecifierMode mode, bool& seen_type)
 {
-	// 7.6.2p1: an alignment-specifier may be written wherever a decl-specifier
-	// may, and 7.6.2p5 makes what it asks for a fact about what the declaration
-	// declares rather than one the syntax may drop.  The PA10 dump writes no
-	// node for it, which is why the sequence may hold one.
+	// 7.6.2p1 and 7p1: an alignment-specifier written before the decl-specifiers
+	// appertains to what the declaration declares, and 7.6.2p5 makes what that
+	// one asks for a fact about it rather than one the syntax may drop - the
+	// PA10 dump writes no node for it, which is why the sequence may hold one.
+	// One written after a decl-specifier appertains to the type those specifiers
+	// named, which is not an entity an alignment-specifier says anything about,
+	// so it asks for nothing.
+	const bool leading = seq->children.empty();
 	std::vector<AstNode*> alignments;
 	skip_attributes(&alignments);
-	for (std::size_t index = 0; index < alignments.size(); ++index)
+	for (std::size_t index = 0; leading && index < alignments.size(); ++index)
 	{
 		seq->add(alignments[index]);
 	}

@@ -80,9 +80,10 @@ unsigned long long round_up(unsigned long long value, unsigned long long unit)
 // `sema_analyzer.cpp` reads the syntax and hands each class to this file once,
 // where the class is complete.
 
-// 7.6.2p1: the strictest alignment the class-head asked for, or zero when it
-// asked for none.  An alignment-specifier whose operand is not a constant this
-// translation knows asks for nothing it can act on.
+// 7.6.2p1: the strictest alignment the class-head or the decl-specifier-seq
+// asked for, or zero when it asked for none.  An alignment-specifier whose
+// operand is not a constant this translation knows asks for nothing it can act
+// on.
 unsigned long long SemaAnalyzer::requested_alignment(const AstNode& node,
                                                      const Context& ctx)
 {
@@ -94,8 +95,23 @@ unsigned long long SemaAnalyzer::requested_alignment(const AstNode& node,
 		{
 			continue;
 		}
-		const unsigned long long asked =
-			evaluate(*child.children[0], ctx).bits;
+		const Constant value = evaluate(*child.children[0], ctx);
+		const unsigned long long asked = value.bits;
+		// 7.6.2p3: what an alignment-specifier asks for is a fundamental
+		// alignment - a power of two no greater than the widest one the
+		// implementation gives an object - and zero, which asks for nothing.
+		// Anything else is no alignment at all, so it is refused here rather
+		// than laid out as though a class could begin every sixth byte.
+		if (is_signed(value.type) && (asked >> 63) != 0)
+		{
+			throw std::runtime_error("an alignment-specifier asks for a "
+			                         "negative alignment");
+		}
+		if (asked != 0 && (asked & (asked - 1)) != 0)
+		{
+			throw std::runtime_error("an alignment-specifier asks for an "
+			                         "alignment that is not a power of two");
+		}
 		if (asked > wanted)
 		{
 			wanted = asked;

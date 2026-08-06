@@ -39,37 +39,36 @@ worklist in the unit lowering.
 
 ## Current Failure Map
 
-After C8: 199 / 243. The 44 that remain, 24 refusing a program the references
-accept and 20 accepting one and writing a different shape:
+After C8 and its audit: 199 / 243. The 44 that remain, 24 refusing a program the
+references accept and 20 accepting one and writing a different shape:
 
 | group | count | what is missing |
 | --- | --- | --- |
 | class using-declarations, inheriting constructors | 7 | 7.3.3p1 into a class, 12.9; 2 write a shape rather than refuse |
 | `thread_local` | 3 | `storage=thread_local` and the accessor function the references write |
-| `__builtin_*` names | 3 | `__builtin_memcpy`, `__builtin_unreachable` |
+| `__builtin_*` names | 3 | `__builtin_memcpy`, `__builtin_memmove`, `__builtin_strlen`, `__builtin_unreachable` |
 | an aggregate an array element is, written as a constructor | 3 | the reference synthesizes a constructor per aggregate reached as an array clause, taking its members as parameters, and calls it per element |
+| a subobject of class type an aggregate clause initializes | 2 | 8.5.1p2 copy-initializes it from its clause, which for a class needs 13.3.1.7's list-initialization or 12.8p31's construction in place: `Entry table[] = {{"a", 1}}` and `Tok tok{1, 2}` are both refused |
 | placement `new` | 2 | 5.3.4's placement form |
 | a trailing return type on a member function | 2 | 8.3.5p2 with `auto` |
 | `#pragma pack` | 2 | a phase-4 fact that has to reach 9.2p13 in phase 7 |
 | the exception cleanup regions around a partly built object | 2 | `eh_cleanup` / `eh_try` / `resume` around each element of a member array and in a destructor body |
 | a program the parser does not read | 2 | a nested braced member initializer, a reference member named after its class |
-| single defects, one fixture each | 18 | listed below |
+| single defects, one fixture each | 16 | listed below |
 
-The 18 singles, each its own fact: an aggregate member of class type no clause
-reaches; `mutable` under a `const` member function; `(a.f)(x)`; a static and a
-non-static member function of one class reaching one overload key, because
-9.3.1p3 put the object parameter in the type; 5.2.4's pseudo-destructor call on
-a scalar; a user-defined string-literal operator; `decltype` in a qualified-id;
-`__builtin_expect` folded where the references keep the definition;
-`store ptr nullptr` spelled `store ptr 0`; an incomplete class as the return
-type of a declared function, written `obj<0x1>` where the references write
-`void`; a defaulted constructor called where the references elide it; an
-out-of-class constructor definition not matched to its in-class declaration; an
-explicit destructor call through an enclosing namespace's type;
+The 16 singles, each its own fact: `mutable` under a `const` member function;
+`(a.f)(x)`; a static and a non-static member function of one class reaching one
+overload key, because 9.3.1p3 put the object parameter in the type; 5.2.4's
+pseudo-destructor call on a scalar; a user-defined string-literal operator;
+`decltype` in a qualified-id; `__builtin_expect` folded where the references
+keep the definition; `store ptr nullptr` spelled `store ptr 0`; an incomplete
+class as the return type of a declared function, written `obj<0x1>` where the
+references write `void`; a defaulted constructor called where the references
+elide it; an out-of-class constructor definition not matched to its in-class
+declaration; an explicit destructor call through an enclosing namespace's type;
 `std::nullptr_t` as a parameter type, written `i64`; the `_GLOBAL__N_1` name an
 unnamed namespace gives what it declares; a `declare global` for an `extern`
-object nothing uses; 13.5.6's `operator->` not read as a call; and one more
-that differs only inside one function body.
+object nothing uses; and 13.5.6's `operator->` not read as a call.
 
 Defects no fixture reaches, kept here because a sweep found them and not a test:
 
@@ -90,16 +89,23 @@ Defects no fixture reaches, kept here because a sweep found them and not a test:
   rather than before it: the same three instructions in the other order, because
   the storage is decided in the lowering and not in the tree.
 - A conditional over two lvalues of class type is an lvalue here and an object
-  for the references; `static_cast<const YA&>(YA(4))` names its temporary
-  `tmpobj` where they name it `arg`; and `YA g = YA();` gets an empty
-  `@__cppgm_init` here and none there, where `YA g;` gets one from both.
+  for the references, and `static_cast<const YA&>(YA(4))` names its temporary
+  `tmpobj` where they name it `arg`.
 - A subscript of a multi-dimensional array decays the row it reached, so
   `w[0][0]` writes one `unary decay ptr` the references do not.
 - An array whose elements a braced list value-initializes - `E a[3] = {}` - is
   written here as 12.6p1's per-element construction reached through the
   subscript the source would write, and by the references as the byte cursor an
   aggregate initialization already carries, holding a call of the synthesized
-  aggregate constructor above. The elements are given the same values.
+  aggregate constructor above. The elements are given the same values, and at
+  namespace scope neither writes anything at all.
+- 3.6.2p2's constant initializer is not modelled for a constructor, so
+  `struct YA { int a; YA() : a(1) {} }; YA g[3] = {};` is a startup call per
+  element here and the folded image `i32 1` three times there - while `YA g;` of
+  the same class is a startup call for both.
+- A clause of an aggregate is evaluated before the storage unit a bit-field
+  joins it into is loaded, where the references load and then evaluate. 1.9
+  leaves the order open; it is 9.6p2's initialization path and predates C8.
 
 Three shapes the references and this unit disagree about what a program means,
 each resolved for the standard: 8.5p7 zero-initializes a value-initialized
@@ -107,16 +113,18 @@ object whose class wrote no constructor *before* the non-trivial one it was
 given runs, which the references do not write, so
 `struct YA { int a = 7; int b; }; YA()` leaves their `b` holding what the
 storage held; 12.4 destroys an object a class prvalue initialized, whose
-lifetime the references lose through the elision; and the references pass a
-class holding a bit-field by address where they pass every other class of the
-same size by value.
+lifetime the references lose through the elision, and destroys one whose
+destructor has an empty body, which they write neither a call nor a definition
+for; and the references pass a class holding a bit-field by address where they
+pass every other class of the same size by value.
 
-Two divergences are deliberate and named in the Performance Model: past 64 bytes
-the zero of a class object is one `zeroinit` where the references write one
-eight-byte store however many there are - 512 of them for a 4 KB object - and an
-array of a class whose constructor does nothing opens no `@__cppgm_init` at all,
-where the references open an empty one whenever the element's destructor is not
-trivial either.
+Three divergences are deliberate and named in the Performance Model: past 64
+bytes the zero of a class object is one `zeroinit` where the references write
+one eight-byte store however many there are - 512 of them for a 4 KB object; the
+tail of a namespace-scope array no clause reached is one `zero` item where they
+write one per element - 1 048 575 of them for a 1 MB array; and an array of a
+class whose constructor does nothing, or whose whole initialization is 3.6.2p1's
+zero, opens no `@__cppgm_init` at all.
 
 15.4p14's `unwind=no` is separate and needs no test result: the relaxed
 comparison strips the field, and emitting nothing is silence rather than a false
@@ -124,8 +132,8 @@ claim.
 
 ## Active Checkpoint
 
-Done: **C8 - the array element as a subobject**, 186 -> 199 / 243 with pa1-pa15
-at 1173/1173.
+Done: **C8 - the array element as a subobject**, audited, 186 -> 199 / 243 with
+pa1-pa15 at 1173/1173.
 
 12.6p1 makes an array of class type as many objects as it has elements and
 12.4p8 ends each of their lifetimes. The action names the array rather than one
@@ -158,8 +166,19 @@ reach, each fixed here: the address of an element computed for a constructor
 that is never called, a multi-dimensional array constructing one object per row
 rather than one per element, a namespace-scope array calling its constructor
 once on the array rather than once per element, and a multi-dimensional array
-member value-initialized with a `store` of an object type. What the sweep leaves
-is the two groups above and the empty-`@__cppgm_init` divergence.
+member value-initialized with a `store` of an object type.
+
+The audit swept the rest of that boundary against the references and against
+g++ and found three more, each fixed: an alignment-specifier read from wherever
+it stood among the decl-specifiers, where 7p1 gives one written after them to
+the type rather than to the declaration, so `int alignas(8) x;` made its class
+16 bytes where both write 8; 7.6.2p3's fundamental alignment never asked for, so
+`alignas(6)` allocated a member at every sixth byte and `alignas(-4)` made a
+class one byte; and 8.5p7's zero of an object with static storage duration
+written into a startup body 3.6.2p1 had already made unnecessary, one store per
+element - `YA g[4000] = {};` at 20 018 lines for storage the image holds zero,
+now 14 at every size. What the sweeps leave is the groups above and the three
+deliberate divergences.
 
 Next: **C9 - the using-declaration into a class**, which is 7 of the remaining
 fixtures and the largest group left.
@@ -207,6 +226,24 @@ fixtures and the largest group left.
   675 lines in 0.005 s.
 - A class with n elements of a class whose constructor does nothing is written
   nothing at all - not the address of an element for a call that is not made.
+- An object with static storage duration whose whole initialization is 3.6.2p1's
+  zero opens no startup body: a namespace-scope array value-initialized by `{}`
+  is 14 output lines at 500 elements and at 4000, where it had been 5 n + 18 -
+  20 018 of them at 4000, each writing zero into storage the program image
+  already holds.
+- The tail of a namespace-scope array no clause reached is one `zero` item
+  whatever it holds, so `char buf[1 << 20] = {1};` is 6 lines here and 1 048 580
+  from the references. The object image is the same either way.
+- 7.6.2's alignment is one constant evaluation and one comparison per
+  alignment-specifier in the one 9.2p13 pass, so a class with n of them is laid
+  out in n steps: 4000 costs 0.03 s and 23 lines of output. The alignment a
+  declaration asks for is read from the specifiers written before the type -
+  which is where 7p1 puts a fact about what is declared - so the sequence is
+  walked once and nothing is re-read.
+- An array of 2^d elements d dimensions deep costs one step per dimension per
+  element, which is the elements it has times the subscripts one of them would
+  be written with: 982 output lines at d = 6 and 110 614 at d = 12, 0.00 s and
+  0.26 s.
 
 - A copy of one object of class type is one `copyobj`, written where the object
   it goes into is known: an initialization writes into the storage the
@@ -389,3 +426,4 @@ fixtures and the largest group left.
 | C7 | 12.2p1's prvalue of class type made an object the function holds - `T(args)` and `T()` declaring a temporary no name reaches, 8.5/13.3.1.3 choosing its constructor, and the storage named `tmpobj__n`, `arg__n` or `argobj__n` after what asked for it; 8.5.3p5's reference bound to that object; 13.3.3.1.2p1's user-defined conversion sequence as the same temporary made by a converting constructor, ranked below every standard conversion sequence and above the ellipsis, with 12.3.1p2's `explicit` left out and one user-defined conversion per sequence; 5.2.2p4's argument of class type copied into a generated `argobj__n` slot the call is passed, with 12.8p31 creating a prvalue argument in that slot rather than copying into it; 12.8p15's copy made memberwise, so a class that holds nothing moves nothing - at an argument and at a parameter's entry alike; 8.5p7's zero-initialization of a value-initialized class with no user-provided constructor, written as the zero of its bytes; 12.2p3's temporary of a class with a non-trivial destructor refused rather than left alive past the full-expression; the object model of the lowering split out into `lowir_lower_object.cpp` | 174 -> 186 / 243; pa1-pa15 1173/1173; valgrind clean over 243 fixtures and the probes; 18 of 21 synthesized prvalue, by-value, conversion and value-initialization shapes byte-identical to the reference, the other 3 differing only in the `zeroinit` limit; every axis linear at 1.9-2.3x per doubling |
 | audit of C7 | 5.2.2p4's copy owned by the call taken out of `converted`, which every initialization, assignment, return, conditional arm and cast reaches, and written at each of those places instead - one `copyobj` into the object already known, and no call's slot allocated for a copy that place already owns storage for; the storage a temporary takes named by what asked for it, which only a call's argument and a return's value do, so a reference a declaration binds keeps `tmpobj__n` and 13.3.3.1.2's temporary reaching a by-value class parameter is the `argobj__n` 12.8p31 makes it; 12.2p1 given to the other prvalue of class type, so a call that returns one by value no longer hands back a value where `this` or a reference needs an object; 12.8p25 made a fact the class carries and asked at the one place a class object is copied, so a copy the program wrote is refused rather than written as the copy of the bytes; a declaration and the initialization under it naming one address rather than two | 186 / 243 held, the same set passing and failing; pa1-pa15 1173/1173; byte-identical passing fixtures 110 -> 116 of 164; valgrind clean over 243 fixtures and 130 probes; eight axes linear and the per-copy slot and instruction growth gone |
 | C8 | 12.6p1's array of class type constructed element by element and 12.4p8's destroyed the same way, as one action naming the array that the lowering writes the calls of; an element addressed the way the source would name it, a dimension at a time, which 8.5p7's value-initialized array member, 3.6.2p2's dynamic initialization of a namespace-scope array and both lifecycle calls share; 3.6.2p2's static image of an array of class type, with an element's own padding and a fallback to `@__cppgm_init` for a clause the translation does not know; an aggregate clause's value computed before the address it is stored into; 7.6.2p1's alignment-specifier kept where a decl-specifier stands and read by 9.2p13's layout; 5.3.6p1's `alignof` as an expression; 9.1p2's qualified class-head-name defining the class that region declared | 186 -> 199 / 243; pa1-pa15 1173/1173; valgrind clean over the new fixtures and the probes; a 70-shape differential sweep against `cppgm++-ref` found and closed four defects no fixture reaches; every axis linear at 1.9-2.1x per doubling |
+| audit of C8 | an alignment-specifier read from wherever it stood among the decl-specifiers, where 7p1 gives one written before them to what the declaration declares and one written after them to the type those specifiers named, so `struct S { char c; int alignas(8) x; };` laid `x` at 8 and made its class 16 where g++ and the references write 4 and 8; 7.6.2p3's fundamental alignment never asked for, so `alignas(6)` allocated a member at every sixth byte, `alignas(6)` on a class-head made the class six and `alignas(-4)` made it one, all three refused by g++ and by the references; 8.5p7's zero of an object with static storage duration written into a startup body 3.6.2p1 had already made unnecessary, one store per element - `YA g[4000] = {};` at 20 018 lines writing zero into storage the program image holds zero, and the empty `@__cppgm_init` for `YA g = YA();` with it | 199 / 243 held, the same set passing and failing; pa1-pa15 1173 / 1173; byte-identical passing fixtures 127 of 177, the rest differing only in top-level order, the internal symbol name and `unwind` / `trivial_lifecycle`, with `pass=` agreeing on every one; valgrind clean over 243 fixtures and 116 probes; nine axes linear at 2.0-2.2x per doubling and the per-element startup work gone - 14 lines at 500 elements and at 4000; file audit passes with the two recorded header-weight warnings |

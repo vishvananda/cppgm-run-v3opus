@@ -586,11 +586,15 @@ void LowirUnitLowering::global_variable(const DumpNode& node)
 		// 12.6p1: an array of class type is constructed one element at a time,
 		// so where the constructor of an element does nothing there is no
 		// action at all - not one that runs before the program and writes
-		// nothing.
-		const bool nothing_to_do =
-			types_.kind(types_.strip_cv(type)) == TypeKind::Array &&
-			!written->fact.zero_initialized &&
+		// nothing.  8.5p7's zero is the same zero 3.6.2p1 already gave the
+		// storage, so where that zero is the whole initialization there is
+		// nothing left for the startup body to do either, however many elements
+		// it would have written it into.
+		const bool trivial =
 			written->children[0]->children[0]->fact.entity->trivial;
+		const bool nothing_to_do = trivial &&
+			(written->fact.zero_initialized ||
+			 types_.kind(types_.strip_cv(type)) == TypeKind::Array);
 		dynamic = nothing_to_do ? nullptr : written;
 		written = nullptr;
 	}
