@@ -147,6 +147,11 @@ SemaAnalyzer::Match SemaAnalyzer::match_by_value(const Value& argument,
 	{
 		match.viable = true;
 		match.rank = kExactMatch;
+		// 13.3.3.2p3: the identity is the sequence that qualified the argument
+		// least, which is what it is ordered against another sequence by.
+		match.qualified = types_.kind(target) == TypeKind::Pointer
+			? target
+			: kNoType;
 		return match;
 	}
 	// 4.10p1: a null pointer constant converts to any pointer type and to
@@ -177,6 +182,10 @@ SemaAnalyzer::Match SemaAnalyzer::match_by_value(const Value& argument,
 		{
 			match.viable = true;
 			match.rank = rank;
+			// 4.4 and 13.3.3.2p3: a qualification conversion changes nothing
+			// but the qualifiers, so the pointer it produced is what orders it
+			// against another sequence that did the same.
+			match.qualified = exact ? target : kNoType;
 			return match;
 		}
 		return match;
@@ -257,6 +266,9 @@ SemaAnalyzer::Match SemaAnalyzer::match_reference(const Value& argument,
 		match.rank = kExactMatch;
 		match.binds_lvalue = is_lvalue;
 		match.binds_rvalue_ref = rvalue_ref;
+		// 13.3.3.2p3: two references that bound the same object differ only in
+		// how qualified they made it, which is what orders them.
+		match.qualified = referenced;
 		return match;
 	}
 	if (related)
@@ -523,6 +535,22 @@ int SemaAnalyzer::compare_matches(const Match& left, const Match& right)
 	if (left.to_bool != right.to_bool)
 	{
 		return left.to_bool ? -1 : 1;
+	}
+	// 13.3.3.2p3: where two sequences differ only in the qualifiers they gave
+	// the argument, the one whose qualifiers are a proper subset of the other's
+	// is better - which is what 13.3.1.1.1 orders `f()` above `f() const` by on
+	// an object that is not const, and what orders `f(T&)` above `f(const T&)`.
+	if (left.qualified != kNoType && right.qualified != kNoType &&
+	    left.qualified != right.qualified)
+	{
+		if (qualification_convertible(left.qualified, right.qualified))
+		{
+			return 1;
+		}
+		if (qualification_convertible(right.qualified, left.qualified))
+		{
+			return -1;
+		}
 	}
 	if (!left.reference || !right.reference)
 	{
@@ -1040,6 +1068,12 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
 	// the declaration chosen turns out to be a static member.
 	Value object;
 	Value target;
+	// 5.2.5p1: a call whose callee names a member is a call of that member, so
+	// what every question about the call names is the member rather than the
+	// access that reached it.
+	const std::string& called = callee.kind == AstKind::MemberExpression
+		? callee.children[1]->text
+		: callee.text;
 	if (callee.kind == AstKind::MemberExpression)
 	{
 		member_callee(callee, ctx, line, target, object);
@@ -1072,7 +1106,7 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
 		// 13.3: the arguments choose one declaration, which the callee line is
 		// then written from.
 		SemaEntity& chosen =
-			*select_overload(*target.functions, arguments, callee.text,
+			*select_overload(*target.functions, arguments, called,
 			                 object.node != nullptr ? &object : nullptr);
 		name_function(target, chosen, "callee");
 		function = target.type;
@@ -1083,7 +1117,9 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
 		else if (object.node != nullptr)
 		{
 			// 9.4p1: a static member is reached without an object, so the one
-			// the call named is no argument of it.
+			// the call named is no argument of it - and 5.2.5p1 evaluates the
+			// expression that named it either way.
+			require_droppable(*object.node, called);
 			line.children.erase(line.children.begin() + 1);
 		}
 	}

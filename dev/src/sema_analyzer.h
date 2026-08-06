@@ -166,6 +166,12 @@ private:
 		bool reference;
 		bool binds_rvalue_ref;
 		bool binds_lvalue;
+		// 13.3.3.2p3: the type the sequence produced where all it did to the
+		// argument was qualify it - the pointer a qualification conversion made
+		// of it, or the type a reference bound it as.  Two sequences that differ
+		// only in this are ordered by whose qualifiers are the fewer, which is
+		// what tells `f()` from `f() const` apart on an object of either.
+		TypeId qualified;
 		// The temporary a reference parameter had to convert its argument into,
 		// which the dump writes as a cast.
 		TypeId materialized;
@@ -347,6 +353,27 @@ private:
 	// it may not.
 	bool accessible(const SemaEntity& member, const Scope* from) const;
 	void require_access(const SemaEntity& member, const Scope* from);
+	// 11p6: the class a declaration written outside it names a member of, whose
+	// access every name of that declaration is checked with - the leading return
+	// type of an out-of-class member function and the initializer of a static
+	// data member alike.  Null for a declaration that names no member.
+	Scope* naming_context(const std::string& written, const Context& ctx);
+	// Holds one while a declaration is read, and puts back the one that was
+	// there, because a declaration may be read while another is.
+	struct Naming
+	{
+		Naming(SemaAnalyzer& owner, Scope* region);
+		~Naming();
+
+		SemaAnalyzer& owner;
+		Scope* held;
+	};
+	// 5.2.5p1: whether evaluating an analysed expression does nothing a program
+	// can observe, so that a member access which turns out to name no subobject
+	// may leave the object expression out of the resolved tree, and the error
+	// that it may not.
+	bool observable(const DumpNode& node) const;
+	void require_droppable(const DumpNode& object, const std::string& member);
 	// 8.3.4p1: the type of one element of an array, however many dimensions it
 	// has, and the type itself for anything else.
 	TypeId element_of(TypeId type);
@@ -777,6 +804,10 @@ private:
 	// being read, which is what `this` and a member named with no object
 	// expression denote.  Null outside a member function.
 	SemaEntity* self_;
+	// 11p6: the class the declaration being read names a member of, which is
+	// the context its names are access-checked in.  Null while the declaration
+	// names no member of a class.
+	Scope* naming_;
 	// 6.6.1 and 6.6.2: the statements a `break` or a `continue` may leave, and
 	// 6.4.2 the switch a `case` may label, as the counts of the enclosing ones.
 	unsigned breakable_;

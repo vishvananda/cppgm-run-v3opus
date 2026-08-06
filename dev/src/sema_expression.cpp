@@ -574,8 +574,10 @@ SemaAnalyzer::Value SemaAnalyzer::member_expression(const AstNode& node,
 	{
 		// 9.4p1 and 7.2p10: the member is not part of the object, so the object
 		// expression only said where to look and the name denotes what it would
-		// have denoted with the class written before it.  The PA16 slice writes
-		// an object expression here that names an object and does nothing else.
+		// have denoted with the class written before it.  5.2.5p1 still
+		// evaluates that expression, so it is dropped only where doing so is
+		// what evaluating it comes to.
+		require_droppable(*object.node, id.text);
 		parent.children.pop_back();
 		return named_value(id, member, parent, &found);
 	}
@@ -654,6 +656,10 @@ void SemaAnalyzer::member_callee(const AstNode& callee, const Context& ctx,
 	line.children.pop_back();
 	if (member.kind != SemaKind::Variable || !member.object_member)
 	{
+		// 5.2.5p1: the object expression is evaluated even where the member is
+		// reached without one, so it is left out only where that is what
+		// evaluating it comes to.
+		require_droppable(*object.node, id.text);
 		target = named_value(id, member, line, &found);
 		object = Value();
 		return;

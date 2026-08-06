@@ -104,6 +104,7 @@ SemaAnalyzer::SemaAnalyzer(SemaDialect dialect)
 	, anonymous_enums_(0)
 	, local_types_(0)
 	, self_(nullptr)
+	, naming_(nullptr)
 	, breakable_(0)
 	, continuable_(0)
 	, switches_(0)
@@ -143,6 +144,7 @@ SemaAnalyzer::Match::Match()
 	, reference(false)
 	, binds_rvalue_ref(false)
 	, binds_lvalue(false)
+	, qualified(kNoType)
 	, materialized(kNoType)
 {}
 
@@ -789,6 +791,21 @@ SemaEntity& SemaAnalyzer::class_declaration(const AstNode& node,
 		for (std::size_t at = before; at < scope.declarations.size(); ++at)
 		{
 			scope.declarations[at]->access = access;
+			if (semantics() && scope.declarations[at]->default_initializer)
+			{
+				// 12.6.2p8: a brace-or-equal-initializer on a non-static data
+				// member is an action of every constructor that does not name
+				// the member, and this milestone writes no action into the
+				// constructor 12.1p5 gives a class.  The member is refused
+				// where it is declared rather than described as the member it
+				// would be without the initializer.  The fact itself stays
+				// recorded, because 8.5.1p1 reads it and the checkpoint that
+				// writes constructor bodies is what lifts this.
+				throw std::runtime_error(
+					header + " declares " + scope.declarations[at]->name +
+					" with a brace-or-equal-initializer, which is part of a "
+					"constructor this milestone does not write");
+			}
 		}
 	}
 	lay_out_class(*entity, scope, tag == ClassTag::Union,
@@ -871,8 +888,55 @@ bool SemaAnalyzer::accessible(const SemaEntity& member, const Scope* from) const
 	return false;
 }
 
+SemaAnalyzer::Naming::Naming(SemaAnalyzer& owner, Scope* region)
+	: owner(owner)
+	, held(owner.naming_)
+{
+	if (region != nullptr)
+	{
+		owner.naming_ = region;
+	}
+}
+
+SemaAnalyzer::Naming::~Naming()
+{
+	owner.naming_ = held;
+}
+
+// 11p6: a declaration written outside the class it names a member of checks
+// every one of its names with the access that class gives, which is what lets
+// the return type of `A::I A::f()` and the initializer of `A::I A::x` name a
+// private nested type.  The class is the region the declarator-id's
+// nested-name-specifier reached; a spelling that reaches none names no member,
+// and the declaration that wrote it fails on its own where it is read.
+Scope* SemaAnalyzer::naming_context(const std::string& written,
+                                    const Context& ctx)
+{
+	const QualifiedName spelled(written);
+	if (!spelled.qualified())
+	{
+		return nullptr;
+	}
+	try
+	{
+		Scope* const region = resolve_prefix(spelled, ctx);
+		return region != nullptr && region->kind == ScopeKind::Class ? region
+		                                                            : nullptr;
+	}
+	catch (const std::runtime_error&)
+	{
+		return nullptr;
+	}
+}
+
 void SemaAnalyzer::require_access(const SemaEntity& member, const Scope* from)
 {
+	if (naming_ != nullptr)
+	{
+		// 11p6: the entity being declared is what the access is checked for,
+		// wherever in its declaration the name stands.
+		from = naming_;
+	}
 	if (!accessible(member, from))
 	{
 		throw std::runtime_error(member.name + " is named where the access its "
@@ -880,11 +944,66 @@ void SemaAnalyzer::require_access(const SemaEntity& member, const Scope* from)
 	}
 }
 
+// 5.2.5p1: whether evaluating this expression is something the program can
+// observe.  A name, a constant and the operators that only read them are not;
+// anything that calls, assigns or constructs is, and so is any expression
+// holding one.  5.3.3p1 leaves the operand of `sizeof` and `alignof`
+// unevaluated, so what is written there is never observed.
+bool SemaAnalyzer::observable(const DumpNode& node) const
+{
+	switch (node.fact.kind)
+	{
+	case FactKind::Sizeof:
+		return false;
+
+	case FactKind::Literal:
+	case FactKind::Id:
+	case FactKind::Member:
+	case FactKind::Unary:
+	case FactKind::Binary:
+	case FactKind::Conditional:
+	case FactKind::Subscript:
+	case FactKind::Cast:
+		break;
+
+	default:
+		return true;
+	}
+	for (std::size_t index = 0; index < node.children.size(); ++index)
+	{
+		if (observable(*node.children[index]))
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+// 5.2.5p1: the object expression of a member access is evaluated whatever the
+// member turns out to be.  Where the member is not part of the object the
+// access denotes what the member alone does, and the object expression is left
+// with nothing to do - which is only true where evaluating it does nothing.
+// This milestone has no node that sequences a discarded operand before the
+// member, so an object expression that does something is refused rather than
+// dropped from the program the output describes.
+void SemaAnalyzer::require_droppable(const DumpNode& object,
+                                     const std::string& member)
+{
+	if (observable(object))
+	{
+		throw std::runtime_error("the object expression of " + member +
+		                         " does something, and " + member +
+		                         " is not a member of the object it names");
+	}
+}
+
 // 12.1p5: whether default-initializing an object of the class this region
 // declares does nothing at all.  It does nothing when no member asks for
-// anything: a member with a default member initializer is one action, and a
-// member of class type is whatever its own constructor is.  Layout has already
-// run, so the class's members are exactly the declarations of this region.
+// anything, which for a member of class type is whatever its own constructor
+// is.  12.6.2p8's other reason to ask for something, a member with a
+// brace-or-equal-initializer, is refused where it is declared until a
+// constructor has a body to put the action in.  Layout has already run, so the
+// class's members are exactly the declarations of this region.
 bool SemaAnalyzer::trivial_default_construction(Scope& scope)
 {
 	for (std::size_t index = 0; index < scope.declarations.size(); ++index)
@@ -1433,10 +1552,14 @@ void SemaAnalyzer::simple_declaration(const AstNode& node, const Context& ctx)
 	span.begin = node.begin;
 	span.end = node.end;
 	const AstNode* list = child_of(node, AstKind::InitDeclaratorList);
-	Specifiers specifiers = read_specifiers(*node.children[0], ctx, span, true,
-	                                        list == nullptr
-	                                            ? std::string()
-	                                            : name_from_declarators(*list));
+	const std::string declared =
+		list == nullptr ? std::string() : name_from_declarators(*list);
+	// 11p6: the access every name here is checked with is the one the entity
+	// being declared has, which for a static data member defined outside its
+	// class reaches what the class declared private.
+	const Naming naming(*this, naming_context(declared, ctx));
+	Specifiers specifiers =
+		read_specifiers(*node.children[0], ctx, span, true, declared);
 	if (list == nullptr)
 	{
 		inject_union_members(specifiers.introduced, ctx, span);
@@ -1620,9 +1743,11 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 	// and does not define it; every other declaration of one at namespace scope
 	// does, and a later definition of the same object says so once.  9.4.2p2
 	// makes the declaration a static data member's class writes no definition
-	// of it however it was written, so only one outside the class defines it.
+	// of it however it was written, so the one that defines it is the one
+	// written outside the class, which is the one whose declarator-id carries
+	// the nested-name-specifier that named the class.
 	entity.object_definition = entity.object_definition ||
-		(target.scope->kind != ScopeKind::Class &&
+		((target.scope->kind != ScopeKind::Class || spelled.qualified()) &&
 		 (!specifiers.is_extern ||
 		  (initializer != nullptr && !initializer->children.empty())));
 	// 3.5p3: at namespace scope a name declared `static` has internal linkage,
@@ -1732,11 +1857,14 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 	Span span;
 	span.begin = node.begin;
 	span.end = node.end;
-	Specifiers specifiers =
-		read_specifiers(*node.children[0], ctx, span, true, std::string());
 	const AstNode& declarator = *node.children[1];
 	const AstNode* id = declarator_id(declarator);
 	const std::string written = id == nullptr ? std::string() : id->text;
+	// 11p6: a member function defined outside its class names, in its leading
+	// return type as much as in its body, what that class gave itself.
+	const Naming naming(*this, naming_context(written, ctx));
+	Specifiers specifiers =
+		read_specifiers(*node.children[0], ctx, span, true, std::string());
 	const QualifiedName spelled(written);
 	const std::string name = spelled.last();
 
@@ -1770,9 +1898,13 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 	entity.internal_linkage = entity.internal_linkage ||
 		(specifiers.is_static && target.scope->kind == ScopeKind::Namespace);
 	// 7.1.2p2 and 9.3p2: `inline` says so, and so does defining a member
-	// function inside the class that declares it.
+	// function inside the class definition - which is where the definition is
+	// written, not the region it declares into.  A member defined outside its
+	// class declares into that class and is a definition this unit owns like
+	// any other: it binds strongly and is emitted whether or not this unit uses
+	// it.
 	entity.inline_function = entity.inline_function || specifiers.is_inline ||
-		target.scope->kind == ScopeKind::Class;
+		ctx.scope->kind == ScopeKind::Class;
 	record_default_arguments(entity, parameters, target.scope);
 
 	DumpScope& dump = model_.open_dump(*target.dump, "scope function " + name);
