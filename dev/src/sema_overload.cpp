@@ -99,6 +99,31 @@ bool SemaAnalyzer::qualification_convertible(TypeId from, TypeId to)
 	}
 }
 
+// 10p1: the class `derived` derives from that `base` names, or null when it
+// derives from no such class.  Single inheritance makes the answer one walk of
+// the chain, whose length is the depth of the hierarchy and not its size.
+SemaEntity* SemaAnalyzer::derived_from(TypeId derived, TypeId base)
+{
+	const TypeId wanted = types_.strip_cv(base);
+	if (!types_.is_class(wanted) || !types_.is_class(types_.strip_cv(derived)))
+	{
+		return nullptr;
+	}
+	SemaEntity* owner = model_.type_owner(types_.strip_cv(derived));
+	if (owner == nullptr || types_.strip_cv(owner->type) == wanted)
+	{
+		return nullptr;
+	}
+	for (SemaEntity* at = owner->base; at != nullptr; at = at->base)
+	{
+		if (types_.strip_cv(at->type) == wanted)
+		{
+			return at;
+		}
+	}
+	return nullptr;
+}
+
 // 4.10 and 4.4: whether a prvalue of pointer type `from` converts to `to`.
 bool SemaAnalyzer::pointer_convertible(TypeId from, TypeId to, int& rank,
                                        bool& exact)
@@ -120,10 +145,20 @@ bool SemaAnalyzer::pointer_convertible(TypeId from, TypeId to, int& rank,
 		exact = true;
 		return true;
 	}
-	// 4.10p2: a pointer to a cv-qualified object type converts to a pointer to
-	// the same cv-qualified `void`.
 	const TypeId source = types_.target(from);
 	const TypeId target = types_.target(to);
+	// 4.10p3: a pointer to a derived class converts to a pointer to a base
+	// class of it, as long as the conversion adds no qualifier the target does
+	// not already carry.
+	if ((types_.cv(source) & ~types_.cv(target)) == 0 &&
+	    derived_from(source, target) != nullptr)
+	{
+		rank = kConversion;
+		exact = false;
+		return true;
+	}
+	// 4.10p2: a pointer to a cv-qualified object type converts to a pointer to
+	// the same cv-qualified `void`.
 	if (!types_.is_void(target) || types_.kind(source) == TypeKind::Function)
 	{
 		return false;
@@ -182,6 +217,11 @@ SemaAnalyzer::Match SemaAnalyzer::match_by_value(const Value& argument,
 		{
 			match.viable = true;
 			match.rank = rank;
+			// 4.10p3: the pointer's value is the base subobject's address, so
+			// the sequence has to say which base it reached.
+			match.to_base = exact ? nullptr
+			                      : derived_from(types_.target(source),
+			                                     types_.target(target));
 			// 4.4 and 13.3.3.2p3: a qualification conversion changes nothing
 			// but the qualifiers, so the pointer it produced is what orders it
 			// against another sequence that did the same.
@@ -250,7 +290,12 @@ SemaAnalyzer::Match SemaAnalyzer::match_reference(const Value& argument,
 	// 8.5.3p4: reference-compatible is reference-related plus a referenced type
 	// at least as cv-qualified, and a compatible reference binds what it was
 	// given rather than a conversion of it.
-	const bool related = bare_type(source) == bare_type(referenced);
+	// 8.5.3p4: reference-related also holds where the referenced type is a base
+	// class of the argument's, and 13.3.3.1.4p1 makes binding such a reference
+	// a derived-to-base conversion rather than an identity.
+	SemaEntity* const to_base = derived_from(source, referenced);
+	const bool related =
+		bare_type(source) == bare_type(referenced) || to_base != nullptr;
 	const bool const_lvalue_ref = (types_.cv(referenced) & kCvConst) != 0 &&
 		(types_.cv(referenced) & kCvVolatile) == 0;
 	if (related &&
@@ -263,12 +308,13 @@ SemaAnalyzer::Match SemaAnalyzer::match_reference(const Value& argument,
 			return match;
 		}
 		match.viable = true;
-		match.rank = kExactMatch;
+		match.rank = to_base != nullptr ? kConversion : kExactMatch;
 		match.binds_lvalue = is_lvalue;
 		match.binds_rvalue_ref = rvalue_ref;
+		match.to_base = to_base;
 		// 13.3.3.2p3: two references that bound the same object differ only in
 		// how qualified they made it, which is what orders them.
-		match.qualified = referenced;
+		match.qualified = to_base != nullptr ? kNoType : referenced;
 		return match;
 	}
 	if (related)
@@ -542,6 +588,25 @@ int SemaAnalyzer::compare_matches(const Match& left, const Match& right)
 	{
 		return left.to_bool ? -1 : 1;
 	}
+	// 13.3.3.2p4: converting a pointer to a base of its class beats converting
+	// it to `void*`, and reaching a nearer base beats reaching a further one -
+	// the class between them is derived from the further and not from the
+	// nearer.
+	if (left.to_base != right.to_base)
+	{
+		if (left.to_base == nullptr || right.to_base == nullptr)
+		{
+			return left.to_base != nullptr ? 1 : -1;
+		}
+		if (derived_from(left.to_base->type, right.to_base->type) != nullptr)
+		{
+			return 1;
+		}
+		if (derived_from(right.to_base->type, left.to_base->type) != nullptr)
+		{
+			return -1;
+		}
+	}
 	// 13.3.3.2p3: where two sequences differ only in the qualifiers they gave
 	// the argument, the one whose qualifiers are a proper subset of the other's
 	// is better - which is what 13.3.1.1.1 orders `f()` above `f() const` by on
@@ -608,6 +673,14 @@ void SemaAnalyzer::apply_conversion(Value& value, TypeId target,
 		}
 		name_function(value, *chosen, "id-expression");
 		return;
+	}
+	if (match.to_base != nullptr && value.node != nullptr)
+	{
+		// 4.10p3 and 8.5.3p4: what the argument became is the base class
+		// subobject of the object it named, or a pointer to it, and the tree
+		// names that subobject rather than leaving the address to be adjusted
+		// by whoever reads the call.
+		value = base_value(value, *match.to_base);
 	}
 	if (match.materialized != kNoType && value.node != nullptr)
 	{

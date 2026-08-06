@@ -169,6 +169,7 @@ FactKind SemaAnalyzer::fact_kind(const char* what)
 		{"conditional-expression", FactKind::Conditional},
 		{"subscript-expression", FactKind::Subscript},
 		{"cast-expression", FactKind::Cast},
+		{"base-conversion", FactKind::BaseConversion},
 		{"sizeof-expression", FactKind::Sizeof}
 	};
 	for (std::size_t index = 0; index < sizeof(kKinds) / sizeof(kKinds[0]);
@@ -282,7 +283,16 @@ SemaAnalyzer::Value SemaAnalyzer::expression(const AstNode& node,
 		throw std::runtime_error("an expression nests deeper than the analysis "
 		                         "reads");
 	}
+	// 11.2: the region this expression was written in, which is where the
+	// access a class gave a member or a base class is asked about.  Every
+	// expression is read against one region, so it is carried here rather than
+	// threaded through the conversions and accesses that ask.  A subexpression
+	// read against another region - a default member initializer, a default
+	// argument - restores this one when it is done.
+	Scope* const enclosing = reading_;
+	reading_ = ctx.scope;
 	Value value = dispatch_expression(node, ctx, parent);
+	reading_ = enclosing;
 	// Every expression the layer reads leaves here, so this is the one place
 	// the facts of a line that was spelled where it was first written - a
 	// literal, a name - are recorded.  The forms that respell their line have
@@ -702,13 +712,82 @@ void SemaAnalyzer::implicit_object_argument(
 	}
 }
 
+// 10p1 and 4.10p3: the base class subobject of the object the operand denotes.
+// The operand's line moves under the conversion, in the place it already had,
+// so the tree names the subobject and nothing below it has to be re-read.  An
+// operand of pointer type converts to a pointer to the base; an object converts
+// to the base subobject itself, which is as cv-qualified as the object it is
+// part of and is an lvalue exactly where the object was one.
+SemaAnalyzer::Value SemaAnalyzer::base_value(const Value& object,
+                                             SemaEntity& base, bool checked)
+{
+	Value value = object;
+	const bool through_pointer =
+		types_.kind(types_.strip_cv(object.type)) == TypeKind::Pointer;
+	const TypeId from =
+		through_pointer ? types_.target(object.type) : object.type;
+	if (checked)
+	{
+		require_base_access(model_.type_owner(types_.strip_cv(from)));
+	}
+	TypeId to = types_.qualified(base.type, types_.object_cv(from));
+	if (through_pointer)
+	{
+		to = types_.pointer_to(to);
+		value.category = ValueCategory::PRValue;
+	}
+	value.type = value.spelled = to;
+	value.entity = &base;
+	value.functions = nullptr;
+	value.addressed = nullptr;
+	value.name = nullptr;
+	value.constant = false;
+	value.null_constant = false;
+	value.value = 0;
+	value.op = 0;
+	value.what = "base-conversion";
+	value.payload.clear();
+	value.node = &model_.wrap_node(*object.node, std::string());
+	respell(value);
+	return value;
+}
+
+// 10.2 and 11.2: the subobject a member found through a base class is a member
+// of.  Lookup reached the member through the classes between the object's own
+// and the one that declared it, so the object is converted through the same
+// ones, one node per base subobject the access passes through.
+SemaAnalyzer::Value SemaAnalyzer::object_in_declaring_class(
+	const Value& object, const SemaEntity& member)
+{
+	const SemaEntity* const named =
+		member.storage != nullptr ? member.storage : &member;
+	const Scope* const declaring = named->region;
+	if (declaring == nullptr || declaring->kind != ScopeKind::Class ||
+	    object.node == nullptr)
+	{
+		return object;
+	}
+	Value value = object;
+	SemaEntity* owner = model_.type_owner(types_.strip_cv(value.type));
+	while (owner != nullptr && owner->scope != declaring &&
+	       owner->base != nullptr)
+	{
+		value = base_value(value, *owner->base);
+		owner = owner->base;
+	}
+	return value;
+}
+
 // 5.2.5p4: the member the object expression holds, which is an lvalue when the
 // object is one and is as cv-qualified as the object it is part of.
 SemaAnalyzer::Value SemaAnalyzer::member_value(SemaEntity& member,
-                                               const Value& object,
+                                               const Value& object_written,
                                                const std::string& payload,
                                                DumpNode& node)
 {
+	// 10.2: the member may have been declared in a base of the object's class,
+	// and what it is a member of is that class's base subobject.
+	const Value object = object_in_declaring_class(object_written, member);
 	if (member.kind != SemaKind::Variable)
 	{
 		// 5.2.5p4 gives a member function the meaning only a call of it has, and
@@ -1011,6 +1090,25 @@ SemaAnalyzer::Value SemaAnalyzer::cast_expression(const AstNode& node,
 	if (types_.is_reference(target))
 	{
 		return cast_to_reference(target, source, parent, line, value);
+	}
+	if (types_.kind(types_.strip_cv(target)) == TypeKind::Pointer &&
+	    types_.kind(types_.strip_cv(source.type)) == TypeKind::Pointer)
+	{
+		// 5.2.9p11 and 4.10p3: a cast to a pointer to a base class of the
+		// operand's class is that conversion, so it names the base subobject
+		// rather than reinterpreting the address - and 11.2p4 asks here whether
+		// the base-specifier's access reaches this expression.
+		SemaEntity* const base =
+			derived_from(types_.target(types_.strip_cv(source.type)),
+			             types_.target(types_.strip_cv(target)));
+		if (base != nullptr)
+		{
+			source = base_value(source, *base);
+			lift_operand(parent, line);
+			source.type = source.spelled = target;
+			source.category = ValueCategory::PRValue;
+			return source;
+		}
 	}
 	if (types_.kind(types_.strip_cv(target)) == TypeKind::MemberPointer &&
 	    source.type == types_.strip_cv(target))
@@ -1389,6 +1487,16 @@ TypeId SemaAnalyzer::composite_pointer(const Value& left, const Value& right)
 	{
 		return types_.pointer_to(types_.qualified(left_pointee, cv));
 	}
+	// 5.9p2 and 4.10p3: where one class derives from the other, the two meet at
+	// a pointer to the base, which the derived one converts to.
+	if (derived_from(left_pointee, right_pointee) != nullptr)
+	{
+		return types_.pointer_to(types_.qualified(right_pointee, cv));
+	}
+	if (derived_from(right_pointee, left_pointee) != nullptr)
+	{
+		return types_.pointer_to(types_.qualified(left_pointee, cv));
+	}
 	// 4.10p2: an object pointer converts to `cv void*`, which is where two
 	// pointers to unrelated object types meet.
 	if (types_.is_void(left_pointee) && types_.is_object_pointer(b))
@@ -1407,8 +1515,8 @@ SemaAnalyzer::Value SemaAnalyzer::binary_expression(const AstNode& node,
                                                     DumpNode& parent)
 {
 	DumpNode& line = model_.open_node(parent, std::string());
-	const Value left = expression(*node.children[0], ctx, line);
-	const Value right = expression(*node.children[1], ctx, line);
+	Value left = expression(*node.children[0], ctx, line);
+	Value right = expression(*node.children[1], ctx, line);
 
 	Value value;
 	value.category = ValueCategory::PRValue;
@@ -1436,9 +1544,34 @@ SemaAnalyzer::Value SemaAnalyzer::binary_expression(const AstNode& node,
 	value.operands = node.token == OP_COMMA
 		? value.type
 		: binary_operand_type(node.token, left, right);
+	// 5.9p2 and 4.10p3: where the one type both operands are brought to is a
+	// pointer to a base of an operand's class, that operand becomes a pointer
+	// to its base subobject, which the tree names rather than leaving the
+	// address to be adjusted by whoever reads the comparison.
+	convert_operand_to_base(left, value.operands);
+	convert_operand_to_base(right, value.operands);
 	value.payload = payload_of(node);
 	respell(value);
 	return value;
+}
+
+// 5.9p2: an operand brought to the composite pointer type of two pointers to
+// related classes is converted to point at its own base subobject.
+void SemaAnalyzer::convert_operand_to_base(Value& operand, TypeId operands)
+{
+	if (operands == kNoType || operand.node == nullptr ||
+	    types_.kind(types_.strip_cv(operands)) != TypeKind::Pointer ||
+	    types_.kind(types_.strip_cv(operand.type)) != TypeKind::Pointer)
+	{
+		return;
+	}
+	SemaEntity* const base =
+		derived_from(types_.target(types_.strip_cv(operand.type)),
+		             types_.target(types_.strip_cv(operands)));
+	if (base != nullptr)
+	{
+		operand = base_value(operand, *base);
+	}
 }
 
 // 5.6 to 5.15: the type each built-in binary operator gives its operands.

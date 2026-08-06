@@ -107,6 +107,9 @@ SemaEntity& SemaModel::create(SemaKind kind, const std::string& name, TypeId typ
 	entity.storage = nullptr;
 	entity.constructor = nullptr;
 	entity.destructor = nullptr;
+	entity.base = nullptr;
+	entity.base_access = kPublicAccess;
+	entity.empty_class = true;
 	entity.special = kOrdinaryFunction;
 	entity.explicit_function = false;
 	entity.user_provided = false;
@@ -458,6 +461,17 @@ SemaEntity* SemaModel::lookup_unique(Scope& from, const Scope* stop,
 		{
 			return found;
 		}
+		// 10.2p2: a class also sees what its base classes declare, which is
+		// searched after the class itself and before the region around it.  A
+		// region with no base-clause leaves the chain empty, so this costs one
+		// probe per enclosing region in a program with no inheritance.
+		for (Scope* at = scope->base; at != nullptr; at = at->base)
+		{
+			if (at == &declarer)
+			{
+				return found;
+			}
+		}
 	}
 	for (Scope* scope = &from; scope != stop; scope = scope->parent)
 	{
@@ -562,6 +576,17 @@ SemaEntity* SemaModel::lookup(Scope& from, const std::string& name,
 		{
 			return found;
 		}
+		// 10.2p2 and 3.4.1p8: what a base class declares is found from a member
+		// of the derived class, and hides what the region around the class
+		// declares rather than being hidden by it.
+		for (Scope* at = scope->base; at != nullptr; at = at->base)
+		{
+			found = search_declarers(*at, name, filter, *regions, found_set);
+			if (found != nullptr)
+			{
+				return found;
+			}
+		}
 	}
 	return nullptr;
 }
@@ -584,6 +609,18 @@ SemaEntity* SemaModel::lookup_in(Scope& in, const std::string& name,
 	if (declared_here != nullptr)
 	{
 		return merge_found(nullptr, declared_here, found_set);
+	}
+	// 10.2p2 and 10.2p6: a name the class itself does not declare is looked for
+	// in the classes it derives from, nearest first, and what a class declares
+	// hides what its bases do - so the first base that declares it is the one
+	// the name denotes.
+	for (Scope* at = in.base; at != nullptr; at = at->base)
+	{
+		SemaEntity* const inherited = find(*at, name, filter);
+		if (inherited != nullptr)
+		{
+			return merge_found(nullptr, inherited, found_set);
+		}
 	}
 	if (regions->size() == 1)
 	{

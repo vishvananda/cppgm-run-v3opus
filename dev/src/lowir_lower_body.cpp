@@ -1441,6 +1441,9 @@ LowValue LowirFunctionLowering::expression(const DumpNode& node,
 	case FactKind::Cast:
 		return cast_expression(node, as_object);
 
+	case FactKind::BaseConversion:
+		return base_conversion(node);
+
 	case FactKind::BracedInitList:
 	{
 		// 8.5.4 over a scalar: the value is what its one clause says, and an
@@ -1563,6 +1566,33 @@ Operand LowirFunctionLowering::member_storage(const DumpNode& object,
 	return emit(step);
 }
 
+// 4.10p3 and 10p1: the base class subobject of the object the operand denotes,
+// which is that object's storage at the place its class gave the base.  The
+// operand is a pointer where a pointer converted and the object itself where an
+// lvalue did, and the node's own type says which of the two the result is.
+LowValue LowirFunctionLowering::base_conversion(const DumpNode& node)
+{
+	TypeTable& types = unit_.types();
+	const LowValue held = expression(*node.children[0], true);
+	const Operand from =
+		types.kind(types.strip_cv(held.type)) == TypeKind::Pointer
+			? rvalue(held)
+			: address_of(held);
+	Instruction step;
+	step.kind = Instruction::IK_INDEX;
+	step.type.text = "i8";
+	step.index_projection = lowir_model::IPK_BASE_SUBOBJECT;
+	step.first = from;
+	step.second = named_operand(Operand::OP_INTEGER, decimal(node.fact.value));
+	LowValue value;
+	value.type = node.fact.type;
+	value.operand = emit(step);
+	value.named = true;
+	value.lvalue =
+		types.kind(types.strip_cv(value.type)) != TypeKind::Pointer;
+	return value;
+}
+
 LowValue LowirFunctionLowering::member_expression(const DumpNode& node)
 {
 	TypeTable& types = unit_.types();
@@ -1593,7 +1623,8 @@ LowValue LowirFunctionLowering::cast_expression(const DumpNode& node,
 		value.operand = literal_operand(value.type, node.fact.value);
 		return value;
 	}
-	const bool object_result = as_object ||
+	const bool to_void = types.is_void(types.strip_cv(value.type));
+	const bool object_result = as_object || to_void ||
 		node.fact.category != ValueCategory::PRValue;
 	const LowValue source = expression(*node.children[0], object_result);
 	if (node.fact.category != ValueCategory::PRValue)
@@ -1604,9 +1635,20 @@ LowValue LowirFunctionLowering::cast_expression(const DumpNode& node,
 		value.operand = source.operand;
 		return value;
 	}
-	if (types.is_void(types.strip_cv(value.type)))
+	if (to_void)
 	{
-		rvalue(source);
+		// 5.2.9p4 and 5p11: the operand of a cast to `void` is evaluated and
+		// its value discarded.  An object of class type has no value the
+		// discarding reads, so nothing loads it out of the storage it stands in.
+		const TypeId bare = types.strip_cv(source.type);
+		if (!types.is_class(bare) && types.kind(bare) != TypeKind::Array)
+		{
+			rvalue(source);
+			return value;
+		}
+		// An object of class or array type has no value the discarding reads,
+		// so the storage it stands in is what the operand comes to.
+		address_of(source);
 		return value;
 	}
 	if (types.kind(types.strip_cv(value.type)) == TypeKind::Pointer &&

@@ -175,6 +175,22 @@ private:
 		// The temporary a reference parameter had to convert its argument into,
 		// which the dump writes as a cast.
 		TypeId materialized;
+		// 4.10p3 and 13.3.3.1.4p1: the base class this sequence converted the
+		// argument to, which is what the tree has to name the subobject of and
+		// what 13.3.3.2p4 orders two such sequences by.
+		SemaEntity* to_base;
+	};
+
+	// Where the object an initialization or a destruction acts on stands.
+	// 8.5 initializes an object a declaration named; 12.6.2 initializes a
+	// non-static data member of the object the constructor is running on, and
+	// 12.6.2p5 that object's base class subobject.  The three differ only in how
+	// the action names the object, so one path writes all three.
+	enum class Placement
+	{
+		Named,
+		Member,
+		Base
 	};
 
 	// The terminals a declaration was written from, which is what names an
@@ -326,6 +342,10 @@ private:
 	// leaves the definition for the end of the translation unit as 9.2p2 does
 	// for every member function defined in its class.
 	void special_member(const AstNode& node, const Context& ctx);
+	// 10p1: the base-clause of a class definition, read before its members
+	// because they are read against what its base declares.
+	void read_base_clause(const AstNode& node, SemaEntity& entity, Scope& scope,
+	                      const Context& ctx, const std::string& header);
 	// 12.1p5 and 12.4p3: the constructor and the destructor a class with no
 	// declared one has, declared into the class where its definition ends.
 	void declare_constructor(SemaEntity& entity, Scope& scope);
@@ -347,6 +367,10 @@ private:
 	// written in.  Each is written under the constructor's own definition.
 	void write_member_initializations(const Pending& pending, DumpNode& line,
 	                                  const Context& inner);
+	// 12.6.2p2: whether a mem-initializer-id names the base class rather than a
+	// non-static data member.
+	bool names_the_base(const std::string& written, const SemaEntity& base,
+	                    const Context& ctx);
 	// 12.4p8: the destructor calls for the members of the class a destructor
 	// belongs to, in reverse declaration order, written after its body.
 	void write_member_destructions(Scope& members, DumpNode& line);
@@ -354,7 +378,8 @@ private:
 	// object `entity` names, or nothing where its class has no destructor to
 	// run.  `member` says the object is a member of the one being destroyed
 	// rather than an object a declaration named.
-	void destructor_action(SemaEntity& entity, DumpNode& parent, bool member);
+	void destructor_action(SemaEntity& entity, DumpNode& parent,
+	                       Placement where);
 	// 9.3.2p1: the type of `this` in the body of the member function `function`.
 	TypeId this_type(const SemaEntity& function);
 	// 3.7.1: records the object a definition declares with whichever region
@@ -383,6 +408,9 @@ private:
 	bool lifetimes_pending() const;
 	// 12.4p3: whether the end of this object's lifetime is a call.
 	bool ends_in_call(const SemaEntity& entity);
+	// 12.1p5: whether default-initializing an object of `type` does nothing at
+	// all, so that a subobject of it needs no action written.
+	bool trivially_constructed(TypeId type);
 	// 3.6.3p1: the namespace-scope objects this unit constructed, whose
 	// destructors run in reverse order when the program ends.
 	std::vector<SemaEntity*> static_lifetimes_;
@@ -466,11 +494,13 @@ private:
 	// an initialization no `explicit` constructor may answer.
 	void construct_object(SemaEntity& variable, DumpNode& line,
 	                      const AstNode* written, const Context& ctx,
-	                      bool member = false, bool copied = false);
+	                      Placement where = Placement::Named,
+	                      bool copied = false);
 	// The object a constructor-action runs on, as the address of it: an object
-	// a declaration named, or a member of the object being constructed.
+	// a declaration named, a member of the object being constructed, or that
+	// object's base class subobject.
 	void write_constructed_object(SemaEntity& variable, DumpNode& call,
-	                              bool member, Value& object);
+	                              Placement where, Value& object);
 	// The typed facts of a node the analysis builds rather than reads out of an
 	// expression the program wrote.
 	static void set_fact(DumpNode& node, FactKind kind, TypeId type,
@@ -648,8 +678,25 @@ private:
 	// member of the object `this` points to or of the one an anonymous union
 	// declared.  `payload` is what the dump writes after the type, which is the
 	// member's name alone when no `.` or `->` was written.
-	Value member_value(SemaEntity& member, const Value& object,
+	Value member_value(SemaEntity& member, const Value& object_written,
 	                   const std::string& payload, DumpNode& node);
+	// 5.9p2: an operand of a built-in binary operator whose composite pointer
+	// type is a pointer to a base of its own class.
+	void convert_operand_to_base(Value& operand, TypeId operands);
+	// 4.10p3 and 10p1: the base class subobject of the object an operand
+	// denotes, written as one node holding the operand's own line.
+	Value base_value(const Value& object, SemaEntity& base,
+	                 bool checked = true);
+	// 11.2p4: a conversion from a derived class to a base class of it is well
+	// formed only where the base-specifier's access reaches, which is what
+	// makes a private base unreachable from outside the class that declared it.
+	void require_base_access(const SemaEntity* derived);
+	// 11.2: the region the expression being read was written in.
+	Scope* reading_;
+	// 10.2: the object a member found through a base class is a member of,
+	// which is the base subobject of the class that declared it.
+	Value object_in_declaring_class(const Value& object,
+	                                const SemaEntity& member);
 	// The object a member named with no object expression is a member of.
 	Value implied_object(const SemaEntity& member, DumpNode& line);
 	// 5.3.1p3: `&C::x`, where `entity` is the member of a class the qualified-id
@@ -763,6 +810,9 @@ private:
 	// operands of a conditional expression about each other.
 	bool binds_reference(const Value& argument, TypeId parameter);
 	// 4.4 and 4.10: whether a pointer of `from` converts to one of `to`.
+	// 10p1: the base class of `derived` that `base` names, or null where
+	// `derived` derives from no such class.
+	SemaEntity* derived_from(TypeId derived, TypeId base);
 	bool pointer_convertible(TypeId from, TypeId to, int& rank, bool& exact);
 	bool qualification_convertible(TypeId from, TypeId to);
 	// 3.9.3p5: `type` with every top level cv-qualifier removed, reaching

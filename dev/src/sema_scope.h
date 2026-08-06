@@ -123,6 +123,21 @@ struct SemaEntity
 	// Class: 12.4p1, the destructor of the class, held here for the same
 	// reason: the end of an object's lifetime asks the class for it.
 	SemaEntity* destructor;
+	// Class: 10p1, the direct base class, which every object of this class
+	// holds a subobject of.  It is the one fact the base-clause establishes,
+	// and layout, 10.2 lookup, 11.2 access, 12.6.2 construction, 12.4
+	// destruction and 4.10p3 conversion each read it rather than the syntax.
+	// Null for a class no base-clause was written for.
+	SemaEntity* base;
+	// Class: 11.2p1, the access the base-specifier gave the base, which is what
+	// caps how far a member inherited through it may be named from.
+	unsigned char base_access;
+	// Class: whether an object of this class holds nothing - no non-static data
+	// member, and a base that is itself empty.  1.8p5 still gives it a size of
+	// one byte on its own, and the ABI puts such a base subobject at offset
+	// zero without giving the derived class any storage for it, so this is what
+	// 9.2p13 asks about a base before it lays the members out after it.
+	bool empty_class;
 	// 12.1 and 12.4: which special member function this declaration declares,
 	// as one of the `kOrdinaryFunction` constants.
 	unsigned char special;
@@ -276,6 +291,7 @@ public:
 		, dump(scope_dump)
 		, id(scope_id)
 		, visit(0)
+		, base(nullptr)
 		, searchers_at(0)
 	{}
 
@@ -304,6 +320,11 @@ public:
 	// Scratch of one walk: the walk that reached this region, so that one with
 	// several paths into one namespace holds it once.
 	std::uint64_t visit;
+	// 10.2p2: the region searched after this one and before the one around it,
+	// which for a class with a base-clause is the region its base declares.
+	// Every other region leaves it null, so a program with no inheritance pays
+	// nothing for the question.
+	Scope* base;
 
 	// Every region a lookup written in which reaches this one's declarations,
 	// which is the closure of 7.3.4p2 read from the region that declares rather

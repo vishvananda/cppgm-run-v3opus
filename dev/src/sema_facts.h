@@ -38,6 +38,11 @@ enum class FactKind : unsigned char
 	Conditional,
 	Subscript,
 	Cast,
+	// 4.10p3 and 10p1: the base class subobject of the object the operand
+	// denotes, which is that object's storage at the place its class gave the
+	// base.  The operand is a pointer where a pointer converted and the object
+	// itself where an lvalue did, and this node's own type says which.
+	BaseConversion,
 	Sizeof,
 	BracedInitList,
 	Label,

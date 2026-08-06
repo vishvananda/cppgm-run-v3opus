@@ -384,6 +384,10 @@ private:
 	                                    const SemaEntity& member);
 	// 12.6.2: one member of the object a constructor is initializing.
 	void member_initialization(const DumpNode& node);
+	// 4.10p3 and 10p1: the base class subobject of the object an operand
+	// denotes, as the storage of that object at the place its class gave the
+	// base.
+	LowValue base_conversion(const DumpNode& node);
 	// 12.1p5: the constructor call an object of class type is initialized by,
 	// on the address of that object.
 	void constructor_call(const lowir_model::Operand& address,
