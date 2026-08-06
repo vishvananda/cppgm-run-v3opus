@@ -156,14 +156,30 @@ LowValue LowirFunctionLowering::temporary_object(const DumpNode& node)
 
 // 12.8p15: a copy of a class object copies what the object holds, which for a
 // class with no base subobject and no non-static data member is nothing at all.
-// Everything this milestone copies is trivially copyable, so the bytes move as
-// one span rather than one member at a time.
+// The bytes move as one span rather than one member at a time, which is what
+// the copy is exactly while every member's own copy is the copy of its bytes.
+//
+// This is the one place an object of class type is copied - an initialization,
+// an argument, a returned object, an arm of a conditional and a parameter's
+// entry all reach it - so it is where 12.8p25 is asked whether the copy the
+// program wrote is the copy of the bytes.
 void LowirFunctionLowering::copy_class_object(const Operand& destination,
                                               const Operand& source,
                                               TypeId type)
 {
 	TypeTable& types = unit_.types();
 	const TypeId bare = types.strip_cv(type);
+	if (!types.is_trivially_copied(bare))
+	{
+		// 12.8p1: the copy is a call of the copy constructor the program wrote,
+		// which this milestone does not select or pass an object to.  Writing
+		// the bytes instead would be a different program, so the copy is
+		// refused where it is asked for.
+		throw std::runtime_error(
+			"an object of the class type " + types.description(bare) +
+			" is copied, which 12.8p1 makes a call of the copy constructor its "
+			"program wrote and this milestone does not write");
+	}
 	if (types.is_empty_class(bare))
 	{
 		return;
@@ -186,10 +202,30 @@ Operand LowirFunctionLowering::argument_operand(const DumpNode& node,
                                                 TypeId parameter)
 {
 	TypeTable& types = unit_.types();
+	if (!types.is_reference(parameter) &&
+	    types.is_class(types.strip_cv(parameter)))
+	{
+		return class_value_slot(node, value, types.strip_cv(parameter),
+		                        "argobj");
+	}
+	return converted(value, parameter);
+}
+
+// 12.8p15 and 12.8p31: storage of the function's own holding a copy of one
+// object of class type, which is what a place that needs a value of the class
+// rather than the object the source named is given - a call's argument, a
+// return's value.  A prvalue of that same class was created in storage of its
+// own a moment ago, so that storage is the copy: the temporary and the place
+// asking are one object, and no copy stands between them.
+Operand LowirFunctionLowering::class_value_slot(const DumpNode& node,
+                                                const LowValue& value,
+                                                TypeId type,
+                                                const char* prefix)
+{
+	TypeTable& types = unit_.types();
 	if (node.fact.kind == FactKind::TemporaryObject &&
-	    !types.is_reference(parameter) &&
-	    types.is_class(types.strip_cv(parameter)) &&
-	    types.strip_cv(node.fact.type) == types.strip_cv(parameter))
+	    node.fact.entity != nullptr &&
+	    types.strip_cv(node.fact.type) == type)
 	{
 		const std::unordered_map<std::uint32_t, std::string>::const_iterator
 			found = slots_.find(node.fact.entity->id);
@@ -198,7 +234,31 @@ Operand LowirFunctionLowering::argument_operand(const DumpNode& node,
 			return named_operand(Operand::OP_SLOT, found->second);
 		}
 	}
-	return converted(value, parameter);
+	const std::string slot = add_generated_slot(prefix, type);
+	const Operand storage = named_operand(Operand::OP_SLOT, slot);
+	LowValue held;
+	held.type = type;
+	held.lvalue = true;
+	held.operand = storage;
+	// The storage the copy is made in is named before the object it is made
+	// from: the place asking is what this instruction is about.
+	const Operand into = address_of(held);
+	copy_class_object(into, class_copy_source(value), type);
+	return storage;
+}
+
+// 12.8p15: what a copy of a class object is made from.  Where the value stands
+// in storage that is its address; where a call handed it back holding no
+// storage of its own it is the value itself, which is one object either way -
+// and giving it storage first would be one copy more than the copy asked for.
+Operand LowirFunctionLowering::class_copy_source(const LowValue& value)
+{
+	if (!value.lvalue && value.operand.kind == Operand::OP_TEMP &&
+	    unit_.types().is_class(unit_.types().strip_cv(value.type)))
+	{
+		return value.operand;
+	}
+	return address_of(value);
 }
 
 // 8.5p5: an object of class type is zero-initialized by giving every byte it
@@ -399,6 +459,20 @@ void LowirFunctionLowering::initialize_into(const LowObject& object,
 		return;
 	}
 	const LowValue value = expression(node);
+	if (types.is_class(types.strip_cv(type)))
+	{
+		// 12.8p15: the object holds what the initializer's object holds, which
+		// is one copy of its bytes into the storage this initialization already
+		// owns - not a value read out of one object and written into another.
+		// The declaration of an object of class type already named its address,
+		// and one piece of storage has one address however many readers it
+		// has, so the copy is written into the address that declaration
+		// computed rather than into a second one for the same storage.
+		const Operand into =
+			object.addressed ? object.address : object_address(object);
+		copy_class_object(into, class_copy_source(value), types.strip_cv(type));
+		return;
+	}
 	store(initializer_value(value, type), object_storage(object), type);
 }
 

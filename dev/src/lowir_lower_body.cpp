@@ -584,12 +584,43 @@ Operand LowirFunctionLowering::address_of(const LowValue& value)
 	}
 	if (value.operand.kind == Operand::OP_TEMP)
 	{
+		if (!value.lvalue &&
+		    unit_.types().is_class(unit_.types().strip_cv(value.type)))
+		{
+			// 12.2p1: a prvalue of class type is an object, and a call that
+			// returns one by value hands back what it holds rather than
+			// storage holding it.  No declaration named that object, so the
+			// function gives it storage here - and everything that reads the
+			// prvalue as an object reads that storage.
+			return materialized_class_value(value);
+		}
 		return value.operand;
 	}
 	Instruction instruction;
 	instruction.kind = Instruction::IK_ADDR;
 	instruction.first = value.operand;
 	return emit(instruction);
+}
+
+// 12.2p1: the storage a class prvalue no declaration named is given, which is
+// one slot of the function with the value copied into it.  The slot is named
+// after the expression that wrote the prvalue, because nothing else asked for
+// it: a place that needs a copy of its own - an argument, a return - names its
+// own storage and copies the value straight into that.
+Operand LowirFunctionLowering::materialized_class_value(const LowValue& value)
+{
+	const TypeId type = unit_.types().strip_cv(value.type);
+	const std::string slot = add_generated_slot("tmpobj", type);
+	LowValue held;
+	held.type = type;
+	held.lvalue = true;
+	held.operand = named_operand(Operand::OP_SLOT, slot);
+	Instruction instruction;
+	instruction.kind = Instruction::IK_ADDR;
+	instruction.first = held.operand;
+	const Operand at = emit(instruction);
+	copy_class_object(at, value.operand, type);
+	return at;
 }
 
 Operand LowirFunctionLowering::decay(const LowValue& value)
@@ -706,19 +737,16 @@ Operand LowirFunctionLowering::converted(const LowValue& value, TypeId target)
 	}
 	if (types.is_class(wanted))
 	{
-		// 5.2.2p4 and 12.8p15: an argument of class type is a copy of the
-		// object the caller named, made in storage the call owns rather than
-		// read out of the caller's object as a value.  The call is passed that
-		// storage, which is where the callee's parameter stands.
-		const std::string slot = add_generated_slot("argobj", wanted);
-		const Operand storage = named_operand(Operand::OP_SLOT, slot);
-		LowValue held;
-		held.type = wanted;
-		held.lvalue = true;
-		held.operand = storage;
-		const Operand destination = address_of(held);
-		copy_class_object(destination, address_of(value), wanted);
-		return storage;
+		// 12.8p15: an object of class type is not a value a conversion can
+		// produce - it is storage, and a copy of it is written into storage the
+		// place that asked for the copy owns.  Every such place names its own:
+		// 5.2.2p4's argument, 6.6.3p2's returned object, 5.16's arm and the
+		// object an initialization or an assignment writes into.  Reaching here
+		// means a place read a class as a value without owning one.
+		throw std::runtime_error(
+			"a value of the class type " + types.description(wanted) +
+			" is read where this milestone has no object to hold the copy "
+			"12.8p15 makes of it");
 	}
 	const TypeId bare = types.strip_cv(value.type);
 	if (types.kind(bare) == TypeKind::Array || types.kind(bare) == TypeKind::Function)
@@ -1170,6 +1198,8 @@ void LowirFunctionLowering::local_variable(const DumpNode& node)
 	const TypeId type = node.fact.type;
 	const std::string slot = add_slot(entity, type);
 	const Operand storage = named_operand(Operand::OP_SLOT, slot);
+	LowObject opened;
+	opened.storage = storage;
 	if (types.is_class(types.strip_cv(type)))
 	{
 		// 3.8p1: the lifetime of an object of class type begins where its
@@ -1187,6 +1217,8 @@ void LowirFunctionLowering::local_variable(const DumpNode& node)
 			constructor_call(address, *node.children[0]);
 			return;
 		}
+		opened.address = address;
+		opened.addressed = true;
 	}
 	if (node.children.empty())
 	{
@@ -1202,7 +1234,7 @@ void LowirFunctionLowering::local_variable(const DumpNode& node)
 		store(address_of(bound), storage, type);
 		return;
 	}
-	initialize(storage, type, *node.children[0]);
+	initialize_into(opened, type, *node.children[0]);
 }
 
 void LowirFunctionLowering::return_statement(const DumpNode& node)
@@ -1233,7 +1265,15 @@ void LowirFunctionLowering::return_statement(const DumpNode& node)
 		// and there is no value for the return to carry.
 		if (!types.is_void(types.strip_cv(value.type)))
 		{
-			instruction.first = converted(value, returns_);
+			// 6.6.3p2 and 12.8p15: a returned object of class type is a copy
+			// the function makes in storage of its own, which 12.8p31 lets a
+			// prvalue be created in rather than copied into.
+			instruction.first =
+				!types.is_reference(returns_) &&
+					types.is_class(types.strip_cv(returns_))
+					? class_value_slot(*written, value,
+					                   types.strip_cv(returns_), "retobj")
+					: converted(value, returns_);
 		}
 	}
 	leave_blocks(node);
@@ -1893,6 +1933,25 @@ LowValue LowirFunctionLowering::cast_expression(const DumpNode& node,
 		value.operand = literal_operand(value.type, value.value);
 		return value;
 	}
+	if (types.is_class(types.strip_cv(value.type)))
+	{
+		// 5.2.9p4 and 12.2p1: a cast to a class type direct-initializes a
+		// temporary of it, which is an object the function holds.  The cast is
+		// worth that object, so whoever reads it reads storage rather than a
+		// value of the class.
+		LowValue held;
+		held.type = types.strip_cv(value.type);
+		held.lvalue = true;
+		held.named = true;
+		held.operand = named_operand(
+			Operand::OP_SLOT,
+			add_generated_slot("tmpobj", types.strip_cv(value.type)));
+		const Operand into = address_of(held);
+		copy_class_object(into, class_copy_source(source),
+		                  types.strip_cv(value.type));
+		held.operand = into;
+		return held;
+	}
 	value.operand = converted(source, value.type);
 	return value;
 }
@@ -2385,6 +2444,16 @@ LowValue LowirFunctionLowering::assignment_expression(const DumpNode& node)
 		const TypeId written_type = types.is_reference(spelled)
 			? types.strip_cv(types.target(spelled))
 			: spelled;
+		if (types.is_class(written_type))
+		{
+			// 12.8p15 over 5.17: the object written into holds what the right
+			// operand's object holds, which is one copy of its bytes into the
+			// storage that operand already names.
+			const LowValue into = expression(*node.children[0], true);
+			copy_class_object(address_of(into), address_of(right),
+			                  written_type);
+			return into;
+		}
 		// 5.17p1: the value is converted where it is computed, which is before
 		// the object it is written into is named - the type it is converted to
 		// is what the left operand was declared with, and reading it needs
@@ -2454,9 +2523,19 @@ LowValue LowirFunctionLowering::conditional_expression(const DumpNode& node,
 	// Which of the two the slot holds - the value, or the object it names - is
 	// what the use of the expression asks for.
 	TypeTable& types = unit_.types();
+	// 12.8p15: an object of class type is storage rather than a value a slot
+	// can hold as one, so an arm of it is read as the object it names where the
+	// conditional is an lvalue, and copied into an object of the conditional's
+	// own where it is a prvalue.
+	const bool class_typed = types.is_class(types.strip_cv(node.fact.type));
 	const bool addressed =
 		node.fact.category != ValueCategory::PRValue &&
-		(as_object || types.kind(types.strip_cv(node.fact.type)) == TypeKind::Array);
+		(as_object || class_typed ||
+		 types.kind(types.strip_cv(node.fact.type)) == TypeKind::Array);
+	if (class_typed && !addressed)
+	{
+		return conditional_object(node);
+	}
 	lowir_model::LowType held = addressed ? lowir_model::LowType()
 	                                      : unit_.low_type(node.fact.type);
 	if (addressed)
@@ -2499,6 +2578,35 @@ LowValue LowirFunctionLowering::conditional_expression(const DumpNode& node,
 	value.operand = emit(read);
 	value.lvalue = addressed;
 	return value;
+}
+
+// 5.16 over a prvalue of class type: 12.2p1 makes the result an object, so the
+// function holds one and each arm writes its own into it.  Only the arm control
+// reached is written, which is what the two blocks say.
+LowValue LowirFunctionLowering::conditional_object(const DumpNode& node)
+{
+	const TypeId type = unit_.types().strip_cv(node.fact.type);
+	const std::string slot = add_generated_slot("condobj", type);
+	const Operand storage = named_operand(Operand::OP_SLOT, slot);
+	const std::string then_label = reserve_block("condobj_then");
+	const std::string else_label = reserve_block("condobj_else");
+	const std::string end_label = reserve_block("condobj_end");
+	LowValue held;
+	held.type = type;
+	held.lvalue = true;
+	held.operand = storage;
+	const Operand into = address_of(held);
+	const LowValue condition = expression(*node.children[0]);
+	branch(truth_for_branch(condition), then_label, else_label);
+	for (unsigned arm = 0; arm < 2; ++arm)
+	{
+		open_block(arm == 0 ? then_label : else_label);
+		const LowValue written = expression(*node.children[arm + 1]);
+		copy_class_object(into, address_of(written), type);
+		jump(end_label);
+	}
+	open_block(end_label);
+	return held;
 }
 
 void LowirFunctionLowering::discarded_conditional(const DumpNode& node)

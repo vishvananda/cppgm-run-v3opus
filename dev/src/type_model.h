@@ -152,11 +152,18 @@ public:
 	// 9.2p2: the class becomes complete at the end of its member specification,
 	// which is where its size and alignment are first known.
 	void complete_class(TypeId type, unsigned long long size,
-	                    unsigned long long align, bool empty);
+	                    unsigned long long align, bool empty,
+	                    bool trivially_copied);
 
 	// 9p6: whether an object of the class holds nothing, which is what says a
 	// copy of one moves no bytes.  False for every type that is not a class.
 	bool is_empty_class(TypeId type) const;
+
+	// 12.8p25: whether a copy of an object of the class is the copy of its
+	// bytes, which it is until the program writes a copy constructor of its own
+	// or holds a subobject whose copy is not.  True for every type that is not
+	// a class.
+	bool is_trivially_copied(TypeId type) const;
 
 	bool is_class(TypeId type) const { return kind(type) == TypeKind::Class; }
 	bool is_enum(TypeId type) const { return kind(type) == TypeKind::Enum; }
@@ -294,6 +301,10 @@ private:
 		// still gives it a byte, so its size does not say so, and a memberwise
 		// copy of it moves nothing at all.
 		bool empty;
+		// 12.8p25: whether 12.8p15's memberwise copy of an object of the class
+		// is the copy of its bytes, which the program writing a copy
+		// constructor of its own - here or in a subobject - makes it not.
+		bool trivially_copied;
 	};
 
 	// What makes two types the same type.

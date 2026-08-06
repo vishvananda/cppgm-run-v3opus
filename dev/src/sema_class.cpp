@@ -236,6 +236,53 @@ void SemaAnalyzer::lay_out_bit_field(SemaEntity& member,
 	unit.used += member.bit_width;
 }
 
+// 12.8p2: the class a member is copied as, which for an array of class type is
+// its element - 12.8p15 copies an array member element by element.
+TypeId SemaAnalyzer::member_copy_type(TypeId type)
+{
+	TypeId at = types_.strip_cv(type);
+	while (types_.kind(at) == TypeKind::Array)
+	{
+		at = types_.strip_cv(types_.target(at));
+	}
+	return at;
+}
+
+// 12.8p1 and 12.8p6: whether the program wrote a copy constructor of this
+// class - a constructor taking one argument beside the object, of the class
+// itself or of a reference to it, that is neither implicitly declared nor
+// defaulted or deleted.  That is what says a copy of an object of the class is
+// what the program wrote rather than the copy of its bytes.
+bool SemaAnalyzer::declares_copy_constructor(const SemaEntity& entity,
+                                             Scope& scope)
+{
+	for (std::size_t index = 0; index < scope.declarations.size(); ++index)
+	{
+		const SemaEntity& declared = *scope.declarations[index];
+		if (declared.kind != SemaKind::Function || declared.region != &scope ||
+		    declared.name != entity.name || declared.defaulted ||
+		    declared.deleted)
+		{
+			continue;
+		}
+		const std::vector<TypeId>& parameters = types_.parameters(declared.type);
+		// 9.3.1p3 put the object 12.1 constructs in the type, so a constructor
+		// that copies takes exactly one argument beside it.
+		if (parameters.size() != 2)
+		{
+			continue;
+		}
+		const TypeId wanted = parameters[1];
+		const TypeId bare = types_.strip_cv(
+			types_.is_reference(wanted) ? types_.target(wanted) : wanted);
+		if (bare == types_.strip_cv(entity.type))
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
 void SemaAnalyzer::lay_out_class(SemaEntity& entity, Scope& scope, bool is_union,
                                  unsigned long long requested)
 {
@@ -248,6 +295,11 @@ void SemaAnalyzer::lay_out_class(SemaEntity& entity, Scope& scope, bool is_union
 	BitUnit unit;
 	unsigned long long align = 1;
 	bool empty = true;
+	// 12.8p25 and 9p6: whether a copy of an object of this class is the copy of
+	// its bytes.  It is not where the program wrote a copy constructor of its
+	// own, nor where any subobject's copy is not, because 12.8p15 makes the
+	// copy memberwise and each member's own copy constructor is what copies it.
+	bool trivially_copied = !declares_copy_constructor(entity, scope);
 	if (entity.base != nullptr)
 	{
 		// 10p1 and the course ABI: the direct base subobject begins where the
@@ -255,6 +307,10 @@ void SemaAnalyzer::lay_out_class(SemaEntity& entity, Scope& scope, bool is_union
 		// that holds nothing is given no storage of its own, so the derived
 		// class starts its members where the base did.
 		align = types_.object_align(entity.base->type);
+		if (!types_.is_trivially_copied(types_.strip_cv(entity.base->type)))
+		{
+			trivially_copied = false;
+		}
 		if (!entity.base->empty_class)
 		{
 			size = types_.object_size(entity.base->type);
@@ -275,6 +331,10 @@ void SemaAnalyzer::lay_out_class(SemaEntity& entity, Scope& scope, bool is_union
 		}
 		const unsigned long long member_size = types_.object_size(member.type);
 		const unsigned long long member_align = types_.object_align(member.type);
+		if (!types_.is_trivially_copied(member_copy_type(member.type)))
+		{
+			trivially_copied = false;
+		}
 		if (member_align > align)
 		{
 			align = member_align;
@@ -317,7 +377,8 @@ void SemaAnalyzer::lay_out_class(SemaEntity& entity, Scope& scope, bool is_union
 	entity.empty_class = empty;
 	// 1.8p5: a complete object has a size of at least one byte.
 	size = round_up(size, align);
-	types_.complete_class(entity.type, size == 0 ? 1 : size, align, empty);
+	types_.complete_class(entity.type, size == 0 ? 1 : size, align, empty,
+	                      trivially_copied);
 }
 // 10p1: the base-clause of a class definition, which says what every object of
 // the class holds a subobject of.  The base is recorded on the class and on the
@@ -1500,7 +1561,8 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 	{
 		const Match match = match_argument(arguments[index],
 		                                   parameters[index + 1]);
-		apply_conversion(arguments[index], parameters[index + 1], match, ctx);
+		apply_conversion(arguments[index], parameters[index + 1], match, ctx,
+		                 Requested::Argument);
 	}
 	for (std::size_t index = arguments.size() + 1; index < parameters.size();
 	     ++index)

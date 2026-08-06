@@ -100,11 +100,18 @@ struct LowObject
 	LowObject()
 		: written(nullptr)
 		, member(nullptr)
+		, addressed(false)
 	{}
 
 	lowir_model::Operand storage;
 	const DumpNode* written;
 	const SemaEntity* member;
+	// The address of the object where whoever opened it already had to name
+	// one - the declaration of an object of class type is worth its address, so
+	// the initialization writes into the address the declaration computed
+	// rather than computing a second one for the same storage.
+	lowir_model::Operand address;
+	bool addressed;
 };
 
 // The symbols one LowIR program names, which outlive the translation unit that
@@ -493,6 +500,19 @@ private:
 	lowir_model::Operand argument_operand(const DumpNode& node,
 	                                      const LowValue& value,
 	                                      TypeId parameter);
+	// 12.8p15 and 12.8p31: the storage a copy of one class object is made in
+	// where the place that asked for the copy owns storage of its own, and the
+	// storage a prvalue already stands in where 12.8p31 lets the two be one
+	// object.  `prefix` is what asked: an argument, a return.
+	lowir_model::Operand class_value_slot(const DumpNode& node,
+	                                      const LowValue& value, TypeId type,
+	                                      const char* prefix);
+	// 12.2p1: the storage a class prvalue that stands in none of its own is
+	// given, which is one slot of the function holding a copy of it.
+	lowir_model::Operand materialized_class_value(const LowValue& value);
+	// The object a copy of a class value is made from: the storage it stands
+	// in, or the value itself where a call handed it back without any.
+	lowir_model::Operand class_copy_source(const LowValue& value);
 	// 8.5p5: the zero of an object of class type, which is the zero of the
 	// bytes it occupies.  They are written as the widest stores that fit, and
 	// as one `zeroinit` where there are more of them than a reader wants to
@@ -511,6 +531,9 @@ private:
 	LowValue logical_expression(const DumpNode& node);
 	LowValue assignment_expression(const DumpNode& node);
 	LowValue conditional_expression(const DumpNode& node, bool as_object);
+	// 5.16 and 12.2p1: a conditional whose result is a prvalue of class type,
+	// which is an object the function holds and each arm writes its own into.
+	LowValue conditional_object(const DumpNode& node);
 	// 5.16 where the value is thrown away: the arms are still alternatives and
 	// still run, but neither has a value for a slot to hold.
 	void discarded_conditional(const DumpNode& node);

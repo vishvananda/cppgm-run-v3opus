@@ -197,6 +197,25 @@ private:
 		Base
 	};
 
+	// 12.2p1: what asked a conversion for the temporary it made, which is what
+	// names the storage the function gives that temporary.  An argument of
+	// class type is a copy the call owns (5.2.2p4) and a returned prvalue is
+	// the object the caller reads (6.6.3p2), so each names its own storage;
+	// every other place reads the object the expression already wrote, which
+	// keeps the name it was given where it was written.
+	enum class Requested
+	{
+		Written,
+		Argument,
+		Returned
+	};
+
+	// The prefix `Requested` gives a temporary an argument conversion made.
+	// `reference` says the place binds a reference to it rather than holding
+	// the object itself, which 8.5.3p5 makes storage of the argument and not an
+	// object the call is passed.
+	static const char* requested_prefix(Requested by, bool reference);
+
 	// The terminals a declaration was written from, which is what names an
 	// unnamed class that no declarator names (9.5p2).
 	struct Span
@@ -576,6 +595,13 @@ private:
 	// declarator wrote `type`.
 	bool declares_static_member(Scope& where, const std::string& name,
 	                            TypeId type);
+	// 12.8p1: whether the program wrote a copy constructor of the class
+	// `entity` whose members `scope` declares, which is what says a copy of an
+	// object of it is not the copy of its bytes.
+	bool declares_copy_constructor(const SemaEntity& entity, Scope& scope);
+	// 12.8p2: the class one member is copied as, which for an array member is
+	// its element type.
+	TypeId member_copy_type(TypeId type);
 	// The definitions the output writes at the end of the translation unit,
 	// which are read in the order they were asked for.  Reading one may ask for
 	// another, so the list is walked rather than iterated.
@@ -931,7 +957,8 @@ private:
 	// `listed` says the initializer is a clause of a braced-init-list, which
 	// 8.5.4p7 will not let narrow the value it holds.
 	Value initialize(const AstNode& node, TypeId target, const Context& ctx,
-	                 DumpNode& parent, bool listed = false);
+	                 DumpNode& parent, bool listed = false,
+	                 Requested by = Requested::Written);
 	// 8.5.4p7: the error that a clause narrows to the type it initialises.
 	void require_no_narrowing(const AstNode& written, const Value& value,
 	                          TypeId target, const Context& ctx);
@@ -1053,7 +1080,8 @@ private:
 	// a reference binds to.  Each rewrites the line the operand already wrote,
 	// in the place it wrote it.
 	void apply_conversion(Value& value, TypeId target, const Match& match,
-	                      const Context& ctx);
+	                      const Context& ctx,
+	                      Requested by = Requested::Written);
 	// 13.4: the declaration of an overloaded name a target type asks for.
 	SemaEntity* resolve_target(const Value& value, TypeId target);
 	// 5.3.1p3: the type `&C::f` has, which is a pointer to member of the class

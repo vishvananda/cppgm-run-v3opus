@@ -77,12 +77,38 @@ declares; a `declare global` for an `extern` object nothing uses; 13.5.6's
 `operator->` not read as a call; and four more that differ only inside one
 function body.
 
-Two defects no fixture reaches, both of the anonymous-member group: an anonymous
-*struct* member declares nothing, so `s.a` for
-`struct S { struct { unsigned a; unsigned b; }; unsigned c; };` names nothing
-here and 4 bytes are laid out where the references and g++ lay out 12; and a
-member of an anonymous *union* is addressed without the union's own `index`
-step. 9.5p1's injection is written for the anonymous union alone.
+Defects no fixture reaches, kept here because a sweep found them and not a test:
+
+- An anonymous *struct* member declares nothing, so `s.a` for
+  `struct S { struct { unsigned a; unsigned b; }; unsigned c; };` names nothing
+  here and 4 bytes are laid out where the references and g++ lay out 12; and a
+  member of an anonymous *union* is addressed without the union's own `index`
+  step. 9.5p1's injection is written for the anonymous union alone.
+- 12.8p7's implicit copy constructor is declared by no class, so
+  direct-initialization from an object of the class's own type is refused -
+  `YA q(p);`, a mem-initializer `: m(v)`, `YB(YB(2))` - and so is 4.10p3's
+  derived object passed to a base parameter by value. Copy-initialization
+  reaches the same object through 12.8p31's elision, which is why only the
+  direct forms show it.
+- The parser reads no braced functional cast, `int{}` as well as `YA{}`, so
+  `YA v = YA{};` is refused where the references accept it.
+- A returned prvalue of class type is copied into its storage after the call
+  rather than before it: the same three instructions in the other order, because
+  the storage is decided in the lowering and not in the tree.
+- A conditional over two lvalues of class type is an lvalue here and an object
+  for the references; `static_cast<const YA&>(YA(4))` names its temporary
+  `tmpobj` where they name it `arg`; and `YA g = YA();` gets an empty
+  `@__cppgm_init` here and none there, where `YA g;` gets one from both.
+
+Three shapes the references and this unit disagree about what a program means,
+each resolved for the standard: 8.5p7 zero-initializes a value-initialized
+object whose class wrote no constructor *before* the non-trivial one it was
+given runs, which the references do not write, so
+`struct YA { int a = 7; int b; }; YA()` leaves their `b` holding what the
+storage held; 12.4 destroys an object a class prvalue initialized, whose
+lifetime the references lose through the elision; and the references pass a
+class holding a bit-field by address where they pass every other class of the
+same size by value.
 
 One divergence is deliberate and named in the Performance Model: past 64 bytes
 the zero of a class object is one `zeroinit` where the references write one
@@ -94,19 +120,28 @@ claim.
 
 ## Active Checkpoint
 
-Done: **C7 - the class prvalue that has to stand somewhere**, 174 -> 186 of 243
-with pa1-pa15 held at 1173/1173. 12.2p1 now makes a prvalue of class type an
-object the function holds: `T(args)` and `T()` declare a temporary no name
-reaches and run the constructor 8.5/13.3.1.3 chooses on it, and its storage is
-named after what asked for it - `tmpobj__n` where the expression wrote it,
-`arg__n` where an argument's reference binding made it, `argobj__n` where the
-argument is passed by value. 13.3.3.1.2's user-defined conversion sequence is
-the same temporary reached from the argument side, ranked below every standard
-conversion sequence. 5.2.2p4's argument of class type is a copy the call owns,
-which 12.8p31 lets a prvalue be created in rather than copied into, and 12.8p15
-makes memberwise - so a class that holds nothing moves nothing. 8.5p7's
-zero-initialization of a value-initialized class with no user-provided
-constructor is the zero of its bytes, which for such a class is also nothing.
+Done: **the audit of C7**, 186 / 243 held with pa1-pa15 at 1173/1173. What it
+found was one shape at six exits: a rule about one place a class object is
+needed, written at the junction every place goes through. 5.2.2p4's "an argument
+of class type is a copy the call owns" stood in `converted`, so an
+initialization, an assignment, a return and each arm of a conditional all
+allocated a call's `argobj__n` slot and copied twice - 4000 `YA q = p;` were
+52 010 output lines and 8002 slots where the source asks for 40 010 and 4002.
+8.5.3p5's "named after the argument that asked" stood in `apply_conversion`, so
+`const YA& r = YA(5);` named its storage `arg__1` and `return YA(6);` named it
+`argobj__1`; and 13.3.3.1.2's temporary was named `arg` even where 12.8p31 makes
+it the argument object. Beside those: a call returning a class by value handed
+back a value where an object was needed, so `make().get()` passed an `obj<4x4>`
+where the callee's `this` is a `ptr`; a copy of a class whose copy constructor
+the program wrote was written as the copy of its bytes, so `YA q = p;` computed
+a different program without a word; and a declaration named its object's address
+twice.
+
+Every class copy is now one `copyobj` written where the object it goes into is
+known, `converted` refuses to read a class as a value at all, the storage a
+temporary takes is named by the place that asked - argument, return, or the
+expression that wrote it - and 12.8p25 is a fact the class carries from 9.2p2
+completion, checked at the one place a class object is copied.
 
 Next: **C8 - the array of class type**, which is 6 of the remaining refusals and
 2 of the shape diffs.
@@ -129,7 +164,8 @@ Next: **C8 - the array of class type**, which is 6 of the remaining refusals and
   which is the same element cursor reached from 8.5.1 rather than from 12.6.
 - what is not in it: 12.6.2's array member of a class with a bit-field, whose
   dynamic initialization the references write and which needs 3.6.2p2's static
-  image first.
+  image first; and 12.8p7's implicit copy constructor, which is what would let
+  `YA q(p);` and a mem-initializer `: m(v)` be written rather than refused.
 - validation: `make test-report ACTIVE_TEST_REPORT_PAS='pa16'`,
   `make test-report-through-pa15`,
   `perl scripts/cppgm_file_audit.pl --stage pa16 --paths dev/src`, valgrind over
@@ -138,6 +174,26 @@ Next: **C8 - the array of class type**, which is 6 of the remaining refusals and
 
 ## Performance Model
 
+- A copy of one object of class type is one `copyobj`, written where the object
+  it goes into is known: an initialization writes into the storage the
+  declaration already named, an assignment into the one the left operand names,
+  an argument into `argobj__n` - written or defaulted - a return into
+  `retobj__n`, an arm of a conditional into the object the conditional is, and
+  5.2.9p4's cast into the temporary it makes. Nothing allocates a slot for a
+  copy the place asking already owns storage for, so the frame of a function with
+  n class copies holds n fewer slots than the checkpoint gave it: 4000
+  `YA q = p;` are 40 010 lines and 4002 slots where they had been 52 010 and
+  8002, and 4000 conditionals 100 012 and 8003 where they had been 136 012 and
+  20 003. Measured at 500/1000/2000/4000: copies 0.04/0.06/0.10/0.17 s;
+  by-value arguments 0.04/0.05/0.07/0.12 s; written temporaries passed by value
+  0.04/0.06/0.09/0.15 s; 13.3.3.1.2 conversions 0.04/0.05/0.09/0.15 s; returned
+  temporaries 0.05/0.09/0.16/0.29 s; value-initializations 0.04/0.07/0.11/0.21 s;
+  conditionals 0.05/0.09/0.15/0.27 s; class nesting depth 0.03/0.05/0.07/0.13 s.
+  Every one writes output exactly linear in its size.
+- 12.8p25 - whether a copy of a class is the copy of its bytes - is one flag on
+  the class, settled in the pass 9.2p13's layout already makes over
+  `Scope::declarations`, from the class's own constructors, its base's flag and
+  its members'. A copy costs one probe of it.
 - 12.2p1's temporary costs one slot and one constructor selection, both of which
   a declaration of an object of the same class already costs, and the object is
   named once however many readers it has: the slot is made the first time the
@@ -297,3 +353,4 @@ Next: **C8 - the array of class type**, which is 6 of the remaining refusals and
 | C6 | 9.6p1's width read as a constant expression and the four facts it settles put on the member's own declaration - `bit_field`, `bit_width`, `bit_offset` and 4.5p3's `bit_access`; 9.6p2's allocation into storage units by a layout cursor counted in bits, with the unnamed zero-width separator and the field that would straddle a unit moved on; a read that loads the unit at the promoted type, shifts the field down and masks it, while the value keeps the type the member was declared with; 9.6p2's write as a read-modify-write, and as a plain store where the initialization still owns every byte of the unit; 8.5.1's unnamed field stepped over by the clauses; 12.6.2 and 8.5.1 writing the two instruction orders the references write; 5.17 and 5.3.2 over a field, with 4.5p3's promoted type for the arithmetic; 5.3.1p3 and 5.3.3p1 refusing the address and the size of one; 3.6.2p2's static data written as the bytes the fields' bits fall in rather than as the units they are read through | 163 -> 173 / 243; pa1-pa15 1173/1173; all ten bit-field fixtures byte-identical; valgrind clean over the fixtures and 8 probes; layout and static-data bytes agree with g++ over 17 layout shapes and 9 value shapes; every axis linear |
 | audit of C6 | 9.6p2's storage unit made a run of bytes with its own width, alignment and type, opened by the first field that cannot share the one before it and shared only by fields declared with its type - so a bit-field no longer packs into the bytes of the member before it and a derived class's field no longer covers the base subobject its constructor then stored over; the unit loaded and put back at the signed integer of its own width where 4.5p3's promoted type had named a type narrower or wider than the storage; an initialization joining the unit as an expression of the member's own type, with 4.5's promotion and 4.7's conversion at each step; both masks dropped for a field that owns every bit of its unit; 3.6.2p2's static image given to `@__cppgm_init` where a data item cannot name a share of a unit, and the zero of a unit written once for every field in it; a clause let through to an unnamed bit-field; an assignment converting its value before naming the object it writes into; a constant initializer spelled as the value it produces; 4.12's conversion to `bool` compared at the type of what it converts | 173 -> 174 / 243, nothing that passed before failing after; pa1-pa15 1173/1173; valgrind clean over 243 fixtures and 87 probes; every bit-field shape the reference accepts agrees byte for byte over 17 layout shapes and 15 declared types; every axis linear |
 | C7 | 12.2p1's prvalue of class type made an object the function holds - `T(args)` and `T()` declaring a temporary no name reaches, 8.5/13.3.1.3 choosing its constructor, and the storage named `tmpobj__n`, `arg__n` or `argobj__n` after what asked for it; 8.5.3p5's reference bound to that object; 13.3.3.1.2p1's user-defined conversion sequence as the same temporary made by a converting constructor, ranked below every standard conversion sequence and above the ellipsis, with 12.3.1p2's `explicit` left out and one user-defined conversion per sequence; 5.2.2p4's argument of class type copied into a generated `argobj__n` slot the call is passed, with 12.8p31 creating a prvalue argument in that slot rather than copying into it; 12.8p15's copy made memberwise, so a class that holds nothing moves nothing - at an argument and at a parameter's entry alike; 8.5p7's zero-initialization of a value-initialized class with no user-provided constructor, written as the zero of its bytes; 12.2p3's temporary of a class with a non-trivial destructor refused rather than left alive past the full-expression; the object model of the lowering split out into `lowir_lower_object.cpp` | 174 -> 186 / 243; pa1-pa15 1173/1173; valgrind clean over 243 fixtures and the probes; 18 of 21 synthesized prvalue, by-value, conversion and value-initialization shapes byte-identical to the reference, the other 3 differing only in the `zeroinit` limit; every axis linear at 1.9-2.3x per doubling |
+| audit of C7 | 5.2.2p4's copy owned by the call taken out of `converted`, which every initialization, assignment, return, conditional arm and cast reaches, and written at each of those places instead - one `copyobj` into the object already known, and no call's slot allocated for a copy that place already owns storage for; the storage a temporary takes named by what asked for it, which only a call's argument and a return's value do, so a reference a declaration binds keeps `tmpobj__n` and 13.3.3.1.2's temporary reaching a by-value class parameter is the `argobj__n` 12.8p31 makes it; 12.2p1 given to the other prvalue of class type, so a call that returns one by value no longer hands back a value where `this` or a reference needs an object; 12.8p25 made a fact the class carries and asked at the one place a class object is copied, so a copy the program wrote is refused rather than written as the copy of the bytes; a declaration and the initialization under it naming one address rather than two | 186 / 243 held, the same set passing and failing; pa1-pa15 1173/1173; byte-identical passing fixtures 110 -> 116 of 164; valgrind clean over 243 fixtures and 130 probes; eight axes linear and the per-copy slot and instruction growth gone |

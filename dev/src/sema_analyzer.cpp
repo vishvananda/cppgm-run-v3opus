@@ -275,8 +275,12 @@ void SemaAnalyzer::write_default_argument(const SemaEntity& function,
 	where.scope = found->second[index].scope;
 	where.dump = where.scope->dump;
 	where.node = &parent;
+	// 8.3.6p1: the call is made as if the default-argument stood where the
+	// argument is missing, so a temporary it makes is storage that argument
+	// asked for, named like every other argument's.
 	initialize(*written.children[0]->children[0],
-	           types_.parameters(function.type)[index], where, parent);
+	           types_.parameters(function.type)[index], where, parent, false,
+	           Requested::Argument);
 }
 
 void SemaAnalyzer::write_pending_definitions()

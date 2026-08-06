@@ -777,11 +777,36 @@ bool SemaAnalyzer::better_candidate(const Match* left, const Match* right,
 	return strictly_better || (left_written && right_deduced);
 }
 
+// 12.2p1: the storage a temporary is given is named after what asked for it,
+// and only a call's argument and a return's value ask.  Everywhere else the
+// prvalue is read as the object the expression already wrote, so the name it
+// was given where it was written is the one it keeps: a reference bound to a
+// temporary by a declaration names no argument, and neither does one an
+// aggregate clause or an assignment reads.
+const char* SemaAnalyzer::requested_prefix(Requested by, bool reference)
+{
+	switch (by)
+	{
+	case Requested::Argument:
+		// 8.5.3p5 and 5.2.2p4: a reference parameter binds the temporary the
+		// argument made, and a parameter of class type is passed the object
+		// itself, which 12.8p31 lets the temporary be.
+		return reference ? "arg" : "argobj";
+	case Requested::Returned:
+		return "retobj";
+	case Requested::Written:
+		break;
+	}
+	return "tmpobj";
+}
+
 // The one place a conversion is visible in the dump: a null pointer constant
 // takes the pointer type it is used as, and a reference that binds a converted
-// temporary writes the cast that made it.
+// temporary writes the cast that made it.  `by` is what asked for the
+// conversion, which is what names any storage it has to give a temporary.
 void SemaAnalyzer::apply_conversion(Value& value, TypeId target,
-                                    const Match& match, const Context& ctx)
+                                    const Match& match, const Context& ctx,
+                                    Requested by)
 {
 	if (value.type == kNoType && value.functions != nullptr)
 	{
@@ -815,26 +840,28 @@ void SemaAnalyzer::apply_conversion(Value& value, TypeId target,
 		DumpNode& line = model_.wrap_node(*value.node, std::string());
 		source.node = line.children[0];
 		line.children.clear();
-		value = build_temporary(wanted, line, nullptr, &source, ctx, "arg",
-		                        false);
+		value = build_temporary(wanted, line, nullptr, &source, ctx,
+		                        requested_prefix(by, match.reference), false);
 		return;
 	}
-	if (match.reference && !match.binds_lvalue)
+	if (by != Requested::Written && match.reference && !match.binds_lvalue)
 	{
 		// 8.5.3p5: the reference binds a temporary rather than an object the
 		// argument named, and where that temporary is the prvalue itself the
 		// argument is what asked for its storage.  A base subobject of it was
 		// already read above, which is what leaves that temporary named after
 		// the expression that wrote it rather than after this argument.
-		name_argument_temporary(value, "arg");
+		name_argument_temporary(value, requested_prefix(by, true));
 	}
-	if (!match.reference && types_.is_class(types_.strip_cv(target)) &&
+	if (by != Requested::Written && !match.reference &&
+	    types_.is_class(types_.strip_cv(target)) &&
 	    types_.strip_cv(value.type) == types_.strip_cv(target))
 	{
 		// 12.8p31: the argument is a prvalue of the parameter's own class, so
 		// the temporary it is may be created in the storage the call passes -
 		// and then there is one object rather than an object and a copy of it.
-		name_argument_temporary(value, "argobj");
+		// A returned prvalue is the same rule read at the other end.
+		name_argument_temporary(value, requested_prefix(by, false));
 	}
 	if (match.materialized != kNoType && value.node != nullptr)
 	{
@@ -1230,7 +1257,8 @@ void SemaAnalyzer::require_no_narrowing(const AstNode& written,
 
 SemaAnalyzer::Value SemaAnalyzer::initialize(const AstNode& node, TypeId target,
                                              const Context& ctx,
-                                             DumpNode& parent, bool listed)
+                                             DumpNode& parent, bool listed,
+                                             Requested by)
 {
 	if (node.kind == AstKind::BracedInitList)
 	{
@@ -1247,7 +1275,7 @@ SemaAnalyzer::Value SemaAnalyzer::initialize(const AstNode& node, TypeId target,
 	{
 		require_no_narrowing(node, value, target, ctx);
 	}
-	apply_conversion(value, target, match, ctx);
+	apply_conversion(value, target, match, ctx, by);
 	return value;
 }
 
@@ -1477,7 +1505,8 @@ SemaAnalyzer::Value SemaAnalyzer::finish_call(DumpNode& line, TypeId function,
 			throw std::runtime_error("an argument has no conversion to the type "
 			                         "of the parameter it is passed to");
 		}
-		apply_conversion(arguments[index], parameters[index], match, ctx);
+		apply_conversion(arguments[index], parameters[index], match, ctx,
+		                 Requested::Argument);
 	}
 	for (std::size_t index = arguments.size(); index < parameters.size(); ++index)
 	{

@@ -433,7 +433,11 @@ void SemaAnalyzer::return_statement(const AstNode& node, const Context& ctx,
 		}
 		else
 		{
-			initialize(*node.children[0], returns_, ctx, line);
+			// 6.6.3p2 and 12.2p1: the returned prvalue is the object the caller
+			// reads, so a temporary the conversion makes for it is storage the
+			// return asked for rather than the expression.
+			initialize(*node.children[0], returns_, ctx, line, false,
+			           Requested::Returned);
 		}
 	}
 	// 6.6p2: a return leaves every block between it and the function, and
