@@ -5,100 +5,102 @@ parse, name, region, type, value, dump.
 
 ## Current Checkpoint Review
 
-**C1 — the `--emit-semantics` spine (groups A–E), landed at `066751b6` /
-`fa4e6875`.**
+**C2–C4 — the class layer: classes and members at `c6c3694a`, pointers to
+members at `2ecd225e`, the `decltype(x)(1)` functional cast at `d90ed4f3`.**
 
-The spine is a sound base for the class and template layers above it. One walk
-of the PA10 tree serves both dumps, an expression is analysed bottom up in one
-visit, and the three facts PA11 did not carry — the declarations of one function
-name, the qualified spelling a declaration is dumped under, and the analysed
-`Value` — are each held at one owner. What the review changed is below; nothing
-in it moved a boundary.
+The layer is a sound base for the template checkpoint above it. A member
+function is the function 9.3.1p3 says it is — its declaration, its definition
+and a pointer to it all read the same object parameter out of one type — a
+member is found by one probe in the region its class declares, and a definition
+the place it is written cannot hold is appended once to a list the end of the
+unit walks. What the review changed is below; nothing in it moved a boundary.
 
-### Value and dump
+### Ownership and lifetime
 
-- **An argument that converted was written in the wrong place.** A reference
-  parameter that binds a converted temporary writes the conversion as a
-  `cast-expression` around the operand. It was opened as a new last line of the
-  call and the operand was then erased from where it had been, so with
-  `f(const long long&, int, int)` the call `f(u, 1, 2)` wrote `1`, `2` and only
-  then the converted `u`. Every argument after the first converted one was out
-  of order, and the erase cost a scan of the arguments already written.
-  `SemaModel::wrap_node` now puts what a line said under a new line in the place
-  that line already had, in constant time, which is what a conversion written
-  around an operand needs. The three conversions the dump makes visible — the
-  materialized temporary, the null pointer constant, and the resolved overload
-  set — now all rewrite in place.
+- **A definition was written through a reference into a list that grew under
+  it.** `write_pending_definitions` walked `pending_` by index but handed
+  `write_definition` a reference to the element, and reading that body may
+  default-initialize an object and append the constructor it asks for. On
+  `struct A{}; struct B{ void g(){ A a; } }; void h(){ B b; }` the append
+  reallocated the vector and the loop then read `pending.body->children` out of
+  freed memory — valgrind reports the invalid read at the reallocating
+  `push_back`. The list is now a `std::deque`, which is what the model already
+  uses for the entities and dump nodes it hands out references to while they
+  grow. Valgrind is clean over the class fixtures and the probes.
 
-- **An overloaded name with no target was accepted and wrote a blank line.**
-  13.4p1 gives an overloaded function name no type until something chooses
-  between its declarations, and the name's line is written when it is chosen. In
-  the positions that discard a value — an expression-statement, a `for`
-  iteration expression, the left operand of a comma — and in the operands of
-  `decltype` and `sizeof`, nothing chose and nothing refused, so `f;` and
-  `(f, 1)` were accepted and wrote a line with no text into a dump the format
-  calls deterministic. Each of those five now asks.
+- **`Context::node` says a member declaration writes no line, and two writers
+  did not ask.** `struct C { union { int a; }; };` and
+  `struct C { using X = int; };` both dereferenced a null node and crashed.
+  9.5p1's injection now declares the union's object as the member it is and
+  writes no line for it, and an alias-declaration writes none either. Every
+  writer of a top-level line now honours the invariant its own comment states.
 
-- **`&f` refused what 13.4p1 resolves.** Taking the address of an overloaded
-  name is one of the contexts a target type chooses in, and it threw. The set
-  now travels up through `&` as it does through the name itself, and the target
-  writes both the pointer's line and the name's under it.
+### Name and region
 
-### Type
+- **9.4p2: a static data member was read as a member of an object.** `s` in a
+  member function of `struct C { static int s; }` wrote `member-expression` over
+  `this`, and `sizeof(C)` counted the member's storage. Whether a declaration is
+  reached through an object of its class is now one fact, `object_member`, set
+  where the declaration is read and asked by the name that uses it, by the class
+  layout, and by 5.3.1p3; 9.5p1's injected members are counted where the union's
+  object is, not twice.
 
-- **An enumeration could only be compared with itself.** `A == i` and `A < i`
-  for an unscoped enumeration and an integer were rejected, as were two
-  different unscoped enumerations, while two operands of one scoped enumeration
-  type were rejected as well. 5.9p2 and 5.10p1 are now one rule: two operands of
-  one enumeration type compare as they are, and otherwise the usual arithmetic
-  conversions bring two arithmetic or unscoped enumeration operands together.
+- **9.4.2p2: `int C::s;` declared a second variable in the class** rather than
+  defining the one it names, which left two entities for one object and rebound
+  the name to the one that knew nothing about itself. A declarator-id with a
+  nested-name-specifier now defines the object that region already declares,
+  as a function declarator already did.
 
-- **`--` on a `bool`** was written in the comment and not in the code (5.2.6p1,
-  5.3.2p1).
+- **5.3.1p3: `&C::x` threw `this` is written outside a member function.** The
+  type existed and `&C::f` formed one, but the data member half of the same
+  clause went through the implicit object access and failed there. `&` written
+  on a qualified-id now names the member of the class, which is what forms a
+  pointer to a data member, and writes the operand's line the way the fixture
+  pins `&A::f`.
 
-- **The analyzer held its own copies of five facts about a type.**
-  `is_arithmetic`, `is_integral`, `is_floating`, `is_object_pointer` and
-  `contextually_bool` ask nothing of the analysis, and `is_scoped` was a second
-  spelling of `TypeTable::is_scoped_enum`. They are now asked of the table that
-  holds types, which is also what brought `sema_analyzer.h` back under the file
-  audit's weight limit.
+- **9.5p1 disagreed with itself.** A member of an anonymous union reached
+  through an object expression was written directly on that object, while the
+  same member named with no object expression was written through the object the
+  union declared. Both now go through it, which is the one rule and the one the
+  block-scope fixture pins.
 
-### Name and complexity
+### Boundaries the output used to keep quiet about
 
-- **Declaring the nth overload of a name cost a walk of the n−1 before it.**
-  13.1 tells two declarations apart by their parameter type list, and the
-  question was asked by walking the chain the name heads, so a name with N
-  declarations cost O(N²): 16000 declarations of one name took 3.05 s against
-  0.35 s for 16000 distinct names. The chain is now indexed by that list on the
-  entity the name is bound to, and holds its own last link, so declaring is a
-  probe and a link: **3.05 s → 0.26 s** at 16000, **0.58 s → 0.13 s** at 8000.
-  Resolution still walks the chain, which is the O(candidates) 13.3 asks for.
+- **12.1p5: a class that declared its own constructor lost it.** The constructor
+  was neither declared nor written, and an object of the class was default
+  initialized by nothing, so the dump silently described a program the source
+  does not have. PA12 chooses no constructor, so a class that declares a special
+  member function is now refused where the semantics dump reads it, and PA11,
+  which only spells the declaration, is unchanged.
 
-- **A call's callee name was looked up twice**, once to learn it did not name a
-  type (5.2.3 makes `T(x)` a cast the grammar cannot tell from a call) and again
-  by the expression layer. `named_value` is handed the answer.
-
-- `select_overload` addressed its per-candidate match rows through
-  `&matches[0]`, which for a call with no arguments indexes an empty vector.
+- **8.5p6 and 3.9p6: an object of an incomplete class was accepted** and
+  constructed by nothing. Default-initializing an object of class type now
+  requires the constructor 12.1p5 gives a complete class.
 
 ### Confirmed intact
 
-- 672 / 672 through PA11, and PA12 held at its 156 / 166 turn-start baseline
-  with the same ten open tests. File audit clean, no warnings.
+- 672 / 672 through PA11, and PA12 held at its 165 / 166 turn-start baseline
+  with the same one open test. The file audit passes; its one warning, that
+  `sema_analyzer.h` carries 201 body lines against a limit of 180, arrived with
+  C2–C4 (199 at the checkpoint) and is the class's whole private API rather than
+  implementation in a header. Splitting the analyzer belongs to the assignment
+  that next grows it, not to this audit.
 - No fallback success path, skipped work, timeout workaround, source-specific
-  gate or file-audit bypass. The two `catch` sites both catch `NotConstant`
-  alone, which separates "this is not a constant" from a fact about the program.
-- The `SemaDialect` gate on 8.3.5p5 parameter adjustment is a difference between
-  two output contracts — PA11 spells a declarator as written — not a behavioural
-  shortcut.
-- Depth is bounded by the PA10 parse guard, so it costs stack rather than time:
-  500 nested parenthesized operands in 0.00 s, 1000 refused; 800 nested unbraced
-  `if` substatements ending in a declaration in 0.00 s, the new
-  `parse_substatement` retry costing one failed statement parse per level rather
-  than a doubling.
-- The ten open tests are all group F, G, H and I features — implicit constructor
-  synthesis and `member-expression`, a `MemberPointer` type category, template
-  argument substitution, and one PA10 parse gap — not shortcuts in the spine.
+  gate or file-audit bypass. What PA12 does not model — a declared constructor,
+  a member function call, a class-scope name a later assignment resolves — is
+  refused where it is read and named in the diagnostic.
+- Two spellings the refs pin and the code follows rather than derives: a class
+  type is written with the regions around it (`struct n::S`) and an enumeration
+  is not (`enum role`); and a cast to the member-pointer type an operand already
+  has writes no `cast-expression` line while the same cast to a function pointer
+  does.
+- Scaling is linear in every axis the class layer added, measured on this host:
+  8000 member functions defined in one class 0.11 s, 8000 classes each
+  constructed 0.25 s, 8000 anonymous unions 0.31 s, 8000 member accesses through
+  `this` 0.13 s, 8000 `&C::m` 0.15 s, each about 2.2x its half. Depth costs the
+  PA10 parse guard rather than time: 800 nested class definitions 0.02 s, 640
+  nested `decltype(...)( )` casts 0.06 s, where the specifier is skipped by a
+  balanced token scan rather than a parse.
 
 ### Durable architecture decisions
 
@@ -111,10 +113,18 @@ in it moved a boundary.
   including the dump line it wrote, so a conversion rewrites that line in place
   rather than the output being built in a second pass.
 - A fact about a type alone belongs to `TypeTable`; a fact about a declaration
-  belongs to `SemaEntity`, built where the declaration is read.
+  belongs to `SemaEntity`, built where the declaration is read. One of them
+  answers one question: `object_member` is asked by the name, the layout and the
+  pointer to member alike.
+- 9.3.1p3's object parameter lives in the function's type, so everything above
+  reads a member function as the function it is.
+- A definition the place it is written cannot hold is appended once to
+  `pending_`, which the end of the unit walks and which a body it reads may
+  append to, so it holds its elements still.
 
 ## Checkpoint Audit Ledger
 
 | # | Checkpoint | Findings | Result |
 | --- | --- | --- | --- |
 | C1 | `--emit-semantics` spine: dump tree, declarations, statements, expressions, conversions, overload resolution, diagnostics | argument conversions written out of order; an unresolved overload set accepted in five discarding contexts; `&f` refused; enumeration comparisons rejected; `--` on `bool` accepted; O(N²) overload declaration; callee looked up twice; two type-fact owners | pa12 156/166 held; pa1–pa11 672/672; 16000 overloads 3.05 s → 0.26 s; file audit clean |
+| C2–C4 | classes and members, pointers to members, `decltype(x)(1)` | a pending definition written through a reference into a reallocating list; a null node dereferenced by an anonymous union and by an alias in a class; a static data member read through `this` and counted in the layout; `int C::s;` declaring a second object; `&C::x` refused; an anonymous union member written two ways; a declared constructor and an incomplete class silently accepted | pa12 165/166 held; pa1–pa11 672/672; valgrind clean; linear to 8000 members, classes, unions and `&C::m`; file audit passes, one header-weight warning |

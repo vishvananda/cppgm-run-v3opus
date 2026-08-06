@@ -297,30 +297,14 @@ SemaAnalyzer::Value SemaAnalyzer::named_value(const AstNode& node,
 		throw std::runtime_error(node.text + " does not name an object or a "
 		                         "function");
 	}
-	if (entity.kind == SemaKind::Variable && entity.region != nullptr &&
-	    entity.region->kind == ScopeKind::Class)
+	if (entity.kind == SemaKind::Variable && entity.object_member)
 	{
 		// 9.3.1p3 and 9.5p1: a member named with no object expression is a
 		// member of the object `this` points to, or of the object an anonymous
 		// union declared, and the output writes the access it stands for.
 		DumpNode& line = model_.open_node(parent, std::string());
-		Value object;
-		if (entity.storage != nullptr)
-		{
-			object.type = entity.storage->type;
-			object.category = ValueCategory::LValue;
-			object.node = &model_.open_node(
-				line, "id-expression " +
-				std::string(category_name(ValueCategory::LValue)) + " " +
-				types_.description(object.type) + " " + entity.storage->name);
-		}
-		else
-		{
-			object = this_value(line);
-			object.type = types_.target(object.type);
-			object.category = ValueCategory::LValue;
-		}
-		return member_value(entity, object, entity.name, line);
+		return member_value(entity, implied_object(entity, line), entity.name,
+		                    line);
 	}
 	value.type = entity.type;
 	value.category = ValueCategory::LValue;
@@ -422,6 +406,15 @@ SemaAnalyzer::Value SemaAnalyzer::member_expression(const AstNode& node,
 	const AstNode& id = *node.children[1];
 	SemaEntity& member = require(
 		model_.lookup_in(*owner->scope, id.text, LookupKind::Any), id.text);
+	if (member.storage != nullptr)
+	{
+		// 9.5p1: the member belongs to the object the anonymous union declared,
+		// which is itself a member of the class named here, so the access the
+		// object expression wrote holds one more - the same object a member
+		// named with no object expression is reached through.
+		object = member_value(*member.storage, object, member.storage->name,
+		                      model_.wrap_node(*object.node, std::string()));
+	}
 	return member_value(member, object,
 	                    std::string(ast_token_type_name(node.token)) + ":" +
 	                    id.text, line);
@@ -437,9 +430,10 @@ SemaAnalyzer::Value SemaAnalyzer::member_value(SemaEntity& member,
 	if (member.kind != SemaKind::Variable)
 	{
 		// 5.2.5p4 gives a member function the meaning only a call of it has,
-		// which is outside the PA12 subset.
-		throw std::runtime_error("a member that is not a data member is named "
-		                         "outside a call");
+		// and 13.3.1.1.1 chooses that call among the member's declarations
+		// against the object it is named on, which is outside the PA12 subset.
+		throw std::runtime_error(member.name + " names a member that is not a "
+		                         "data member, which PA12 does not read");
 	}
 	Value value;
 	value.type = types_.qualified(member.type, types_.object_cv(object.type));
@@ -459,6 +453,37 @@ SemaAnalyzer::Value SemaAnalyzer::member_value(SemaEntity& member,
 	node.text = "member-expression " + std::string(category_name(value.category)) +
 		" " + types_.description(value.type) + " " + payload;
 	return value;
+}
+
+// 9.3.1p3 and 9.5p1: the object a member named with no object expression is a
+// member of, which is the one `this` points to, or the one an anonymous union
+// declared - and that object is itself a member wherever the union was written
+// in a class, so the same question is asked of it.
+SemaAnalyzer::Value SemaAnalyzer::implied_object(const SemaEntity& member,
+                                                 DumpNode& line)
+{
+	if (member.storage == nullptr)
+	{
+		Value object = this_value(line);
+		object.type = types_.target(object.type);
+		object.category = ValueCategory::LValue;
+		return object;
+	}
+	SemaEntity& storage = *member.storage;
+	if (storage.object_member)
+	{
+		DumpNode& inner = model_.open_node(line, std::string());
+		return member_value(storage, implied_object(storage, inner),
+		                    storage.name, inner);
+	}
+	Value object;
+	object.type = storage.type;
+	object.spelled = object.type;
+	object.category = ValueCategory::LValue;
+	object.node = &model_.open_node(
+		line, "id-expression " + std::string(category_name(object.category)) +
+		" " + types_.description(object.type) + " " + storage.name);
+	return object;
 }
 
 // 9.3.2p1: `this` is a prvalue pointer to the object the member function being
@@ -788,10 +813,54 @@ TypeId SemaAnalyzer::arithmetic_result(TypeId left, TypeId right)
 	return common_type(a, b);
 }
 
+// 5.3.1p3: a pointer to a data member is formed only where `&` is written on a
+// qualified-id, which names the member of its class rather than a member of any
+// object - so the operand is not read as the access a name of it stands for.
+// Anything else `&` is written on names an object or a function.
+SemaAnalyzer::Value SemaAnalyzer::member_address(const AstNode& node,
+                                                 const Context& ctx,
+                                                 DumpNode& parent)
+{
+	Value value;
+	const AstNode& written = *node.children[0];
+	if (written.kind != AstKind::IdExpression ||
+	    !QualifiedName(written.text).qualified())
+	{
+		return value;
+	}
+	SemaEntity* const entity = resolve(written.text, ctx, LookupKind::Any);
+	if (entity == nullptr || entity->kind != SemaKind::Variable ||
+	    !entity->object_member || entity->region->owner == nullptr)
+	{
+		// A qualified name of anything else - a static member, a variable of a
+		// namespace, a function - is the operand `&` reads it as.
+		return value;
+	}
+	DumpNode& line = model_.open_node(parent, std::string());
+	model_.open_node(line, "id-expression " +
+	                 std::string(category_name(ValueCategory::LValue)) + " " +
+	                 types_.description(entity->type) + " " + entity->dump_name);
+	value.type = types_.member_pointer_to(entity->region->owner->type,
+	                                      entity->type);
+	value.spelled = value.type;
+	value.category = ValueCategory::PRValue;
+	value.node = &line;
+	line.text = spell("unary-expression", value.category, value.type, &node);
+	return value;
+}
+
 SemaAnalyzer::Value SemaAnalyzer::unary_expression(const AstNode& node,
                                                    const Context& ctx,
                                                    DumpNode& parent)
 {
+	if (node.token == OP_AMP)
+	{
+		const Value member = member_address(node, ctx, parent);
+		if (member.type != kNoType)
+		{
+			return member;
+		}
+	}
 	DumpNode& line = model_.open_node(parent, std::string());
 	const Value operand = expression(*node.children[0], ctx, line);
 	Value value;

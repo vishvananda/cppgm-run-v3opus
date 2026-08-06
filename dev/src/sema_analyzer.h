@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <deque>
 #include <iosfwd>
 #include <stdexcept>
 #include <string>
@@ -391,6 +392,12 @@ private:
 	// member's name alone when no `.` or `->` was written.
 	Value member_value(SemaEntity& member, const Value& object,
 	                   const std::string& payload, DumpNode& node);
+	// The object a member named with no object expression is a member of.
+	Value implied_object(const SemaEntity& member, DumpNode& line);
+	// 5.3.1p3: `&C::x`, which names a member of a class rather than of an
+	// object.  A value of no type where `&` was written on anything else.
+	Value member_address(const AstNode& node, const Context& ctx,
+	                     DumpNode& parent);
 	// 5.1.1p3: the object the member function being read was called on.
 	Value this_value(DumpNode& parent);
 	Value call_expression(const AstNode& node, const Context& ctx,
@@ -498,8 +505,9 @@ private:
 	// no name of their own and which the convention numbers.
 	unsigned local_types_;
 	// The definitions the end of the translation unit writes, in the order they
-	// were asked for.
-	std::vector<Pending> pending_;
+	// were asked for.  Writing one may ask for another, so the list grows while
+	// it is being walked and what is being written has to stay where it is.
+	std::deque<Pending> pending_;
 	// 9.3.2p1: the implicit object parameter of the function whose body is
 	// being read, which is what `this` and a member named with no object
 	// expression denote.  Null outside a member function.

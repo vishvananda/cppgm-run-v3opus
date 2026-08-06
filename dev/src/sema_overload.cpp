@@ -297,7 +297,7 @@ SemaAnalyzer::Match SemaAnalyzer::match_argument(const Value& argument,
 
 TypeId SemaAnalyzer::member_pointer_of(const SemaEntity& function)
 {
-	if (!function.implicit_object || function.region == nullptr ||
+	if (!function.object_member || function.region == nullptr ||
 	    function.region->owner == nullptr)
 	{
 		return kNoType;

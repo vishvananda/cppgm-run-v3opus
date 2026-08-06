@@ -430,8 +430,13 @@ void SemaAnalyzer::alias_declaration(const AstNode& node, const Context& ctx)
 	model_.declare_in(*ctx.scope, entity);
 	if (semantics())
 	{
-		model_.open_node(*ctx.node, "type-alias " + node.text + " " +
-		                 types_.description(aliased));
+		// 9.2p1: an alias a class declares is a member of it, and a member
+		// declaration writes no line of its own.
+		if (ctx.node != nullptr)
+		{
+			model_.open_node(*ctx.node, "type-alias " + node.text + " " +
+			                 types_.description(aliased));
+		}
 		return;
 	}
 	write_line(*ctx.dump, "type-alias", node.text, aliased);
@@ -606,8 +611,6 @@ SemaEntity& SemaAnalyzer::class_declaration(const AstNode& node,
 	// region it is written in, and the PA12 output describes what a function
 	// body means, so a member declaration writes no line of its own.
 	inner.node = nullptr;
-	// 12.1p5: a class with a declared constructor has no implicit one.
-	bool declared_constructor = false;
 	for (std::size_t index = 0; index < node.children.size(); ++index)
 	{
 		const AstNode& member = *node.children[index];
@@ -615,15 +618,24 @@ SemaEntity& SemaAnalyzer::class_declaration(const AstNode& node,
 		{
 			continue;
 		}
-		declared_constructor = declared_constructor ||
-			((member.kind == AstKind::SpecialMemberDeclaration ||
-			  member.kind == AstKind::SpecialMemberDefinition) &&
-			 member.text == header);
+		if (semantics() && (member.kind == AstKind::SpecialMemberDeclaration ||
+		                    member.kind == AstKind::SpecialMemberDefinition))
+		{
+			// 12.1 and 12.4: a constructor, destructor or conversion function a
+			// class declares is chosen by rules PA12 does not have, so the
+			// output would describe neither the function nor the initialization
+			// that calls it.  PA11 spells the declaration and needs neither.
+			throw std::runtime_error(header + " declares " + member.text +
+			                         ", which is a special member function PA12 "
+			                         "does not describe");
+		}
 		declaration(member, inner);
 	}
 	lay_out_class(*entity, scope, tag == ClassTag::Union);
-	if (semantics() && !declared_constructor)
+	if (semantics())
 	{
+		// 12.1p5: every class the output describes has the constructor no
+		// declaration wrote, because a class that writes one is refused above.
 		declare_constructor(*entity, scope);
 	}
 	return *entity;
@@ -645,7 +657,7 @@ void SemaAnalyzer::declare_constructor(SemaEntity& entity, Scope& scope)
 		SemaKind::Function, spelled,
 		types_.function_of(types_.fundamental(FT_VOID), parameters, false));
 	constructor.dump_name = scope.prefix + spelled;
-	constructor.implicit_object = true;
+	constructor.object_member = true;
 	constructor.tail = &constructor;
 	model_.declare_in(scope, constructor);
 	entity.constructor = &constructor;
@@ -674,9 +686,16 @@ void SemaAnalyzer::inject_union_members(SemaEntity* entity, const Context& ctx,
 		storage = &model_.create(SemaKind::Variable, name, entity->type);
 		model_.bind(*ctx.scope, name, *storage);
 		model_.declare_in(*ctx.scope, *storage);
-		DumpNode& line = model_.open_node(*ctx.node, "variable " + name + " " +
-		                                  types_.description(entity->type));
-		construct_object(*storage, line);
+		storage->object_member = ctx.scope->kind == ScopeKind::Class;
+		if (ctx.node != nullptr)
+		{
+			DumpNode& line = model_.open_node(*ctx.node, "variable " + name + " " +
+			                                  types_.description(entity->type));
+			construct_object(*storage, line);
+		}
+		// 9.2p1: a union written in a class declares an object that is a member
+		// of it, which the enclosing class initializes and which no line of its
+		// own describes, as no other data member has one.
 	}
 	Scope& members = *entity->scope;
 	for (std::size_t index = 0; index < members.declarations.size(); ++index)
@@ -754,10 +773,21 @@ SemaEntity* SemaAnalyzer::default_constructor(TypeId type)
 // any other and which the dump writes under the declaration of the object.
 void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line)
 {
+	if (!types_.is_class(types_.strip_cv(variable.type)))
+	{
+		// 8.5p6: default-initializing an object of any other type performs no
+		// initialization, and there is nothing for the output to describe.
+		return;
+	}
 	SemaEntity* const constructor = default_constructor(variable.type);
 	if (constructor == nullptr)
 	{
-		return;
+		// 3.9p6 and 9.2p2: an object needs a complete class, and 12.1p5 gives
+		// every complete one the output describes a constructor, so a class
+		// with none here is one this translation unit never defined.
+		throw std::runtime_error("an object of the incomplete class type " +
+		                         types_.description(variable.type) +
+		                         " is declared");
 	}
 	if (!constructor->defined)
 	{
@@ -793,7 +823,12 @@ void SemaAnalyzer::lay_out_class(SemaEntity& entity, Scope& scope, bool is_union
 	for (std::size_t index = 0; index < scope.declarations.size(); ++index)
 	{
 		const SemaEntity& member = *scope.declarations[index];
-		if (member.kind != SemaKind::Variable)
+		// 9.4p2 makes a static data member a variable rather than part of an
+		// object, and 9.5p1 records an anonymous union's members in this region
+		// as well as in the union's; the object they are part of is the one the
+		// union declared, which is counted here in their place.
+		if (member.kind != SemaKind::Variable || !member.object_member ||
+		    member.region != &scope)
 		{
 			continue;
 		}
@@ -1118,7 +1153,7 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 		const TypeId written_type = type;
 		type = with_object_parameter(type, node, target, specifiers.is_static);
 		SemaEntity& function = declare_function(name, type, target, false);
-		function.implicit_object = type != written_type;
+		function.object_member = type != written_type;
 		if (semantics())
 		{
 			// 14p1: a template is not a function; the unit has the ones its
@@ -1141,7 +1176,16 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 	{
 		type = types_.qualified(type, kCvConst);
 	}
-	SemaEntity& entity = model_.create(SemaKind::Variable, name, type);
+	// 3.3.2 and 9.4.2p2: a declarator-id with a nested-name-specifier defines
+	// the object that region already declares - a static data member is
+	// declared in its class and defined outside it - rather than declaring a
+	// second one there, so what its first declaration said about it stands.
+	SemaEntity* const declared = spelled.qualified()
+		? redeclared(target, name, SemaKind::Variable)
+		: nullptr;
+	SemaEntity& entity = declared != nullptr
+		? *declared
+		: model_.create(SemaKind::Variable, name, type);
 	if (initializer != nullptr && !initializer->children.empty() &&
 	    (types_.cv(type) & kCvConst) != 0 && arithmetic_type(type) != kNoType)
 	{
@@ -1161,8 +1205,19 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 			entity.constant = false;
 		}
 	}
-	model_.bind(*target.scope, name, entity);
-	model_.declare_in(*target.scope, entity);
+	if (declared == nullptr)
+	{
+		model_.bind(*target.scope, name, entity);
+		model_.declare_in(*target.scope, entity);
+		// The qualified spelling a use of the name writes, built here as it is
+		// for a function, because that is where the regions around it are known.
+		entity.dump_name = dump_name(*target.scope, name);
+		// 9.2p1: a data member is part of an object of its class and is reached
+		// through one, which 9.4p2 makes untrue of a member declared `static`:
+		// that one is a variable the class names.
+		entity.object_member =
+			target.scope->kind == ScopeKind::Class && !specifiers.is_static;
+	}
 	if (!semantics())
 	{
 		write_line(*target.dump, "variable", name, type);
@@ -1296,7 +1351,7 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 	type = with_object_parameter(type, declarator, target, specifiers.is_static);
 
 	SemaEntity& entity = declare_function(name, type, target, true);
-	entity.implicit_object = type != written_type;
+	entity.object_member = type != written_type;
 
 	DumpScope& dump = model_.open_dump(*target.dump, "scope function " + name);
 	Context inner;
@@ -1319,8 +1374,7 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 	// declared in the region its body reads names in, and its body is read
 	// where the class is complete rather than where it is written.
 	SemaEntity* self = nullptr;
-	if (!types_.parameters(type).empty() &&
-	    types_.parameters(type).size() != parameters.size())
+	if (entity.object_member)
 	{
 		self = &model_.create(SemaKind::Parameter, "this",
 		                      types_.parameters(type)[0]);
