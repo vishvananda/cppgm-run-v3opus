@@ -1,8 +1,10 @@
-// Student-facing scaffold for the PA13 `lowir2cy86` binary.
+// PA13 `lowir2cy86`: read LowIR source text and write equivalent PA9 CY86 text.
 
-#include "exceptions.h"
+#include "lowir_cy86.h"
+#include "lowir_model.h"
 #include "tool_help_text.h"
 
+#include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
@@ -32,26 +34,6 @@ bool has_help_arg(const vector<string> & args)
   return false;
 }
 
-bool has_batch_stdin_arg(const vector<string> & args)
-{
-  for(size_t i = 0; i < args.size(); ++i) {
-    if(args[i] == "--batch-stdin") {
-      return true;
-    }
-  }
-  return false;
-}
-
-int run_not_implemented_batch_mode()
-{
-  string line;
-  while(getline(cin, line)) {
-    (void)line;
-    cout << "EXIT_NOT_IMPLEMENTED" << endl;
-  }
-  return EXIT_SUCCESS;
-}
-
 void parse_output_invocation(const vector<string> & args,
                              string & outfile,
                              vector<string> & srcfiles)
@@ -66,10 +48,6 @@ void parse_output_invocation(const vector<string> & args,
 
 int run_lowir2cy86_mode(const vector<string> & args)
 {
-  if(has_batch_stdin_arg(args)) {
-    return run_not_implemented_batch_mode();
-  }
-
   if(has_help_arg(args)) {
     cout << lowir2cy86_help_text();
     return EXIT_SUCCESS;
@@ -79,10 +57,19 @@ int run_lowir2cy86_mode(const vector<string> & args)
   vector<string> srcfiles;
   parse_output_invocation(args, outfile, srcfiles);
 
-  (void) outfile;
-  (void) srcfiles;
+  const lowir_model::Program program = lowir_model::parse_lowir_program_files(srcfiles);
+  const string cy86 = lowir_cy86::emit_cy86_program(program);
 
-  throw NotImplementedException();
+  ofstream out(outfile.c_str(), ios::binary | ios::trunc);
+  if(!out) {
+    throw runtime_error("cannot open output file '" + outfile + "'");
+  }
+  out.write(cy86.data(), static_cast<streamsize>(cy86.size()));
+  out.flush();
+  if(!out) {
+    throw runtime_error("cannot write output file '" + outfile + "'");
+  }
+  return EXIT_SUCCESS;
 }
 
 }  // namespace
@@ -92,11 +79,6 @@ int main(int argc, char ** argv)
   try
   {
     return run_lowir2cy86_mode(collect_args(argc, argv));
-  }
-  catch(const NotImplementedException & e)
-  {
-    cerr << "ERROR: " << e.what() << endl;
-    return CPPGM_EXIT_NOT_IMPLEMENTED;
   }
   catch(const exception & e)
   {

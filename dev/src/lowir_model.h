@@ -253,6 +253,13 @@ struct GlobalDefinition
   SymbolMetadata metadata;
 };
 
+// One `<case-value>:^case` arm of a `switch` terminator.
+struct SwitchCase
+{
+  Operand value;
+  std::string label;
+};
+
 struct Instruction
 {
   enum Kind
@@ -310,12 +317,19 @@ struct Instruction
   Operand second;
   Operand third;
   std::vector<Operand> args;
+  std::vector<SwitchCase> switch_cases;
   bool call_returns_void = false;
   bool has_call_signature = false;
   std::vector<Parameter> call_params;
   LowType call_return_type;
   FunctionBoundaryMetadata call_boundary;
   InstructionDebugLocation debug_location;
+
+  // Atomic memory-order operands, in the GNU/Clang encoding. Kept as typed
+  // program state even though the PA13 CY86 adapter uses the course-defined
+  // single-threaded interpretation.
+  long long atomic_order = 0;
+  long long atomic_failure_order = 0;
 };
 
 struct Block
