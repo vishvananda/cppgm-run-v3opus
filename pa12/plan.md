@@ -13,7 +13,7 @@ Owners:
 | --- | --- |
 | syntax | `AstNode` / `ast_parser*` (PA10) |
 | scopes, bindings, lookup | `SemaModel` / `Scope` (`sema_scope.*`) |
-| types | `TypeTable` (`type_model.*`) |
+| types, and what a type is | `TypeTable` (`type_model.*`) |
 | declarations, declarators, constants | `SemaAnalyzer` (`sema_analyzer.cpp`, `sema_declarator.cpp`, `sema_constant.cpp`) |
 | PA11 dump | `DumpScope` |
 | PA12 dump | `DumpNode` (`sema_scope.*`) |
@@ -30,18 +30,23 @@ second declaration reader that has to be kept in step.
 Three facts the PA11 model did not carry are held at their owner:
 
 - `SemaEntity::next` — the declarations of one function name in one region, in
-  declaration order. A name binds the head; overload resolution walks the
-  chain. O(1) to declare, O(candidates) to resolve, no per-lookup rescan.
+  declaration order. A name binds the head, which holds the last link and is
+  what `SemaModel::overloads_` indexes the chain by parameter type list under.
+  Declaring is a probe and a link; overload resolution walks the chain, which is
+  the O(candidates) 13.3 asks for. No per-lookup rescan.
 - `SemaEntity::dump_name` and `Scope::prefix` — the qualified spelling the dump
   gives a function, built once where the declaration is read.
 - `Value` — one analysed expression: type, value category, node, the overload
   set an unresolved name denotes, and whether it is a constant. It travels up
-  from operand to operator, so no subtree is read twice and the one place a
-  conversion is visible in the output rewrites the line the operand wrote.
+  from operand to operator, so no subtree is read twice, and each of the three
+  conversions the output makes visible — the materialized temporary, the null
+  pointer constant, the resolved overload set — rewrites the line the operand
+  wrote, in the place it wrote it.
 
 ## Current Failure Map
 
-Turn-start baseline: 0/166. Now: **156/166**.
+**156/166**, held across the C1 audit. All ten open tests are class, member
+pointer, template or PA10 parse work; none is a gap in the spine.
 
 | Group | Tests | State |
 | --- | --- | --- |
@@ -63,20 +68,17 @@ template-argument substitution deep enough to declare an instantiation.
 
 ## Active Checkpoint
 
-**C1 — the `--emit-semantics` spine (groups A–E). Complete.**
+**C2 — classes in the PA12 subset (groups F and G).**
 
-- Owner: `SemaAnalyzer` in `SemaDialect::Semantics`, with the expression layer
-  in `sema_expression.cpp`, calls and conversions in `sema_overload.cpp`, and
-  statements in `sema_statement.cpp`.
-- Data flow: source → PA10 `AstNode` → one source-order walk that declares into
-  `Scope` and appends to `DumpNode` → `write_nodes`.
-- Complexity: one visit per syntax node; expression analysis is bottom-up with
-  no re-walks; overload resolution is O(candidates x arguments) over the
-  declaration chain of one name.
-- Validation: `make -C pa12 test`, root `make test-report-through-pa11`, root
-  `make test-report ACTIVE_TEST_REPORT_PAS='pa12'`, and the file audit.
-
-**C2 — next: classes in the PA12 subset (groups F and G).**
+- Owner: `SemaAnalyzer` for the synthesized constructor and `member-expression`,
+  `TypeTable` for the `MemberPointer` category and its spelling.
+- 12.1 and 12.8: a class with no written constructor gets one where the class is
+  completed, declared into the class region like any other member function, so
+  the declaration layer stays the one place a function is declared.
+- 5.2.5: a member expression names a member of the class the object expression
+  has, which is a lookup in that class's region rather than a second name owner.
+- Scope: the dump for a local class definition, `constructor-action`, the
+  implicit `this` parameter, member access on unions and anonymous unions.
 
 ## Performance Model
 
@@ -84,23 +86,30 @@ Measured with `cppgm++ --emit-semantics` on synthesized inputs (this host):
 
 | Case | Size | Time |
 | --- | --- | --- |
-| nested parenthesized binary expression | depth 400 | 0.00s |
-| block-scope declarations and initializers | 20000 statements | 0.28s |
+| nested parenthesized binary expression | depth 500 | 0.00s |
+| nested unbraced `if` substatements | depth 800 | 0.00s |
+| block-scope declarations and initializers | 20000 statements | 0.24s |
 | using-directives and unqualified lookups | 600 x 600 | 0.01s |
-| overloads of one name x calls | 300 x 300 | 0.01s |
+| calls of one function | 20000 | 0.13s |
+| overloads of one name | 16000 | 0.26s |
+| overloads of one name x calls | 600 x 600 | 0.04s |
+| arguments converting to a reference parameter | 4000 | 0.02s |
 
 - The walk is one visit per node; nothing is reparsed and no subtree is read
-  twice, so depth costs stack rather than time.
+  twice, so depth costs stack rather than time. Depth itself is bounded by the
+  PA10 parse guard, which refuses about 1000 levels.
 - Lookup keeps the PA11 `declarers_` index and demand-gathered searchers.
   A block-scope using-directive is recorded in the namespace 7.3.4p2 puts its
-  names in, so it adds no edge a block lookup has to walk.
-- Overloads are one chain per name per region, appended at declaration;
-  resolution never rescans a scope.
-- Dump nodes are arena-allocated and linked once; the one rewrite a conversion
-  performs is O(1) on the node it already wrote.
+  names in, so it adds no edge a block lookup has to walk. A call's callee name
+  is looked up once, by the reader that had to know whether it named a type.
+- Overloads are one chain per name per region, indexed by parameter type list
+  for declaring and walked in order for resolving, so neither costs a rescan.
+- Dump nodes are arena-allocated and linked once; every rewrite a conversion
+  performs is O(1) on the node it already wrote, in the place it wrote it.
 
 ## Completed Checkpoints
 
 | # | Checkpoint | Result |
 | --- | --- | --- |
 | C1 | `--emit-semantics` spine: dump tree, declarations, statements, expressions, conversions, overload resolution, diagnostics | pa12 0 → 156/166; pa1–pa11 672/672; file audit clean |
+| C1 audit | argument conversions in place, 13.4 asked wherever a value is discarded, `&f` resolved, 5.9 enumeration comparisons, indexed overload declaration | pa12 156/166 held; pa1–pa11 672/672; 16000 overloads 3.05s → 0.26s; file audit clean |

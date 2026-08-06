@@ -163,7 +163,7 @@ SemaAnalyzer::Match SemaAnalyzer::match_by_value(const Value& argument,
 		}
 		return match;
 	}
-	if (!is_arithmetic(source) && types_.kind(source) != TypeKind::Enum)
+	if (!types_.is_arithmetic(source) && types_.kind(source) != TypeKind::Enum)
 	{
 		return match;
 	}
@@ -173,19 +173,19 @@ SemaAnalyzer::Match SemaAnalyzer::match_by_value(const Value& argument,
 		match.rank = kConversion;
 		return match;
 	}
-	if (!is_arithmetic(target))
+	if (!types_.is_arithmetic(target))
 	{
 		return match;
 	}
 	// 4.13 and 13.3.3.1.1: a promotion is a better conversion than any of the
 	// conversions that change the value.
-	if (promoted(source) == target && !is_scoped(source))
+	if (promoted(source) == target && !types_.is_scoped_enum(source))
 	{
 		match.viable = true;
 		match.rank = kPromotion;
 		return match;
 	}
-	if (is_scoped(source))
+	if (types_.is_scoped_enum(source))
 	{
 		// 7.2p9: a scoped enumeration has no implicit conversion to an
 		// integral type.
@@ -363,10 +363,13 @@ SemaEntity* SemaAnalyzer::select_overload(SemaEntity* candidates,
 
 	std::size_t best = 0;
 	const std::size_t count = arguments.size();
+	// One row of `count` matches per viable candidate, which for a call with no
+	// arguments is no row at all, so the rows are addressed from the buffer
+	// rather than from an element of it.
+	const Match* const rows = matches.data();
 	for (std::size_t index = 1; index < viable.size(); ++index)
 	{
-		if (better_candidate(&matches[index * count], &matches[best * count],
-		                     count))
+		if (better_candidate(rows + index * count, rows + best * count, count))
 		{
 			best = index;
 		}
@@ -374,8 +377,7 @@ SemaEntity* SemaAnalyzer::select_overload(SemaEntity* candidates,
 	for (std::size_t index = 0; index < viable.size(); ++index)
 	{
 		if (index != best &&
-		    !better_candidate(&matches[best * count], &matches[index * count],
-		                      count))
+		    !better_candidate(rows + best * count, rows + index * count, count))
 		{
 			throw std::runtime_error("a call of " + name +
 			                         " has no best declaration");
@@ -431,7 +433,7 @@ bool SemaAnalyzer::better_candidate(const Match* left, const Match* right,
 // takes the pointer type it is used as, and a reference that binds a converted
 // temporary writes the cast that made it.
 void SemaAnalyzer::apply_conversion(Value& value, TypeId target,
-                                    const Match& match, DumpNode& parent)
+                                    const Match& match)
 {
 	if (value.type == kNoType && value.functions != nullptr)
 	{
@@ -446,21 +448,12 @@ void SemaAnalyzer::apply_conversion(Value& value, TypeId target,
 	}
 	if (match.materialized != kNoType && value.node != nullptr)
 	{
-		DumpNode& cast = model_.open_node(
-			parent, spell("cast-expression", ValueCategory::PRValue,
-			              match.materialized, nullptr));
-		cast.children.push_back(value.node);
-		// The operand's line moves under the cast that converted it, which is
-		// where the argument now is.
-		for (std::size_t index = parent.children.size(); index-- > 0;)
-		{
-			if (parent.children[index] == value.node)
-			{
-				parent.children.erase(parent.children.begin() + index);
-				break;
-			}
-		}
-		value.node = &cast;
+		// The operand's line moves under the cast that converted it, in the
+		// place the operand already had: an argument is written where the call
+		// passes it however many of the arguments beside it convert.
+		model_.wrap_node(*value.node,
+		                 spell("cast-expression", ValueCategory::PRValue,
+		                       match.materialized, nullptr));
 		value.type = match.materialized;
 		value.spelled = match.materialized;
 		return;
@@ -492,7 +485,7 @@ SemaAnalyzer::Value SemaAnalyzer::initialize(const AstNode& node, TypeId target,
 		throw std::runtime_error("an expression has no conversion to the type "
 		                         "it initialises");
 	}
-	apply_conversion(value, target, match, parent);
+	apply_conversion(value, target, match);
 	return value;
 }
 
@@ -501,6 +494,7 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
                                                   DumpNode& parent)
 {
 	const AstNode& callee = *node.children[0];
+	SemaEntity* named = nullptr;
 	if (callee.kind == AstKind::IdExpression)
 	{
 		// 5.2.3: a call whose callee names a type is an explicit type
@@ -510,7 +504,7 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
 		{
 			return functional_cast(node, ctx, parent, keyword);
 		}
-		SemaEntity* named = resolve(callee.text, ctx, LookupKind::Any);
+		named = resolve(callee.text, ctx, LookupKind::Any);
 		if (named != nullptr && names_a_type(*named))
 		{
 			return functional_cast(node, ctx, parent, named->type);
@@ -524,7 +518,12 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
 	}
 
 	DumpNode& line = model_.open_node(parent, std::string());
-	Value target = expression(callee, ctx, line);
+	// 3.4: what the callee names was looked up above to learn that it is not a
+	// type, so the expression layer is handed the answer rather than asking
+	// for it again.
+	Value target = callee.kind == AstKind::IdExpression
+		? named_value(callee, require(named, callee.text), line)
+		: expression(callee, ctx, line);
 
 	const AstNode* list = arguments_of(node);
 	std::vector<Value> arguments;
@@ -535,7 +534,7 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
 	}
 
 	TypeId function = kNoType;
-	if (target.functions != nullptr)
+	if (target.functions != nullptr && target.addressed == nullptr)
 	{
 		// 13.3: the arguments choose one declaration, which the callee line is
 		// then written from.
@@ -551,6 +550,9 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
 	else
 	{
 		// 5.2.2p1: a call through a pointer to function calls what it points to.
+		// 13.4p1 gives a call no target type of its own, so an overloaded name
+		// that reached here through `&` is a callee that means nothing.
+		require_complete_value(target);
 		const TypeId pointer = decayed(target);
 		if (types_.kind(pointer) != TypeKind::Pointer ||
 		    types_.kind(types_.target(pointer)) != TypeKind::Function)
@@ -581,7 +583,7 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
 			throw std::runtime_error("an argument has no conversion to the type "
 			                         "of the parameter it is passed to");
 		}
-		apply_conversion(arguments[index], parameters[index], match, line);
+		apply_conversion(arguments[index], parameters[index], match);
 	}
 
 	// 5.2.2p10: the result is a prvalue unless the function returns a

@@ -61,7 +61,9 @@ void SemaAnalyzer::semantic_statement(const AstNode& node, const Context& ctx,
 		DumpNode& line = model_.open_node(parent, "expression-statement");
 		if (!node.children.empty())
 		{
-			expression(*node.children[0], ctx, line);
+			// 6.2p1: the value is discarded, which is still no target for
+			// 13.4 to resolve an overloaded name against.
+			require_complete_value(expression(*node.children[0], ctx, line));
 		}
 		return;
 	}
@@ -246,7 +248,8 @@ void SemaAnalyzer::for_statement(const AstNode& node, const Context& ctx,
 			DumpNode& step = model_.open_node(line, "iteration");
 			for (std::size_t at = 0; at < child.children.size(); ++at)
 			{
-				expression(*child.children[at], held, step);
+				require_complete_value(
+					expression(*child.children[at], held, step));
 			}
 			continue;
 		}
@@ -278,8 +281,8 @@ void SemaAnalyzer::condition(const AstNode& node, const Context& ctx,
 		// converted to bool, and a switch condition to an integral or
 		// enumeration type.
 		const bool ok = integral
-			? is_integral(value.type)
-			: contextually_bool(value.type);
+			? types_.is_integral(value.type)
+			: types_.contextually_bool(value.type);
 		if (!ok)
 		{
 			throw std::runtime_error("a condition has no conversion to the type "

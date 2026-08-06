@@ -114,6 +114,7 @@ SemaAnalyzer::Value::Value()
 	, category(ValueCategory::PRValue)
 	, node(nullptr)
 	, functions(nullptr)
+	, addressed(nullptr)
 	, payload(nullptr)
 	, what(nullptr)
 	, null_constant(false)
@@ -1075,42 +1076,47 @@ SemaEntity& SemaAnalyzer::declare_function(const std::string& name, TypeId type,
                                            const Context& target, bool define)
 {
 	SemaEntity* head = model_.find(*target.scope, name, LookupKind::Any);
-	SemaEntity* tail = nullptr;
-	for (SemaEntity* at = head; at != nullptr && at->kind == SemaKind::Function;
-	     at = at->next)
+	if (head != nullptr && head->kind != SemaKind::Function)
 	{
-		tail = at;
-		// 1.3.11 and 13.1: two declarations declare the same function exactly
-		// when their parameter type lists agree, which 8.3.5p5 has already
-		// normalised.
-		if (types_.signature(at->type) != types_.signature(type))
-		{
-			continue;
-		}
-		if (at->type != type)
+		head = nullptr;
+	}
+	const std::uint32_t signature = types_.signature(type);
+	// 1.3.11 and 13.1: two declarations declare the same function exactly when
+	// their parameter type lists agree, which 8.3.5p5 has already normalised.
+	// The chain the name heads is indexed by that list, so the question is a
+	// probe rather than a walk of the declarations already made.
+	SemaEntity* const prior =
+		head == nullptr ? nullptr : model_.overload_of(*head, signature);
+	if (prior != nullptr)
+	{
+		if (prior->type != type)
 		{
 			throw std::runtime_error("two declarations of " + name +
 			                         " differ only in their return type");
 		}
-		if (define && at->defined)
+		if (define && prior->defined)
 		{
 			throw std::runtime_error(name + " is defined twice");
 		}
-		at->defined = at->defined || define;
-		return *at;
+		prior->defined = prior->defined || define;
+		return *prior;
 	}
 
 	SemaEntity& entity = model_.create(SemaKind::Function, name, type);
 	entity.dump_name = dump_name(*target.scope, name);
 	entity.defined = define;
-	if (tail != nullptr)
+	entity.tail = &entity;
+	if (head != nullptr)
 	{
-		tail->next = &entity;
+		head->tail->next = &entity;
+		head->tail = &entity;
 	}
 	else
 	{
+		head = &entity;
 		model_.bind(*target.scope, name, entity);
 	}
+	model_.hold_overload(*head, signature, entity);
 	model_.declare_in(*target.scope, entity);
 	return entity;
 }

@@ -136,6 +136,19 @@ public:
 	// 7.2p2: an enumeration written `enum class` or `enum struct`, whose
 	// enumerators are reached only through its own scope.
 	bool is_scoped_enum(TypeId type) const;
+
+	// 3.9.1: what a type is made of, which is what every layer above asks about
+	// an operand before it says what an operator does with one.  Each is a fact
+	// about the type alone, so the table that holds types answers it.
+	bool is_arithmetic(TypeId type) const;
+	// An enumeration counts, because 3.9.1p7 makes its values integral.
+	bool is_integral(TypeId type) const;
+	bool is_floating(TypeId type) const;
+	// 3.9.2: a pointer to an object type rather than to a function.
+	bool is_object_pointer(TypeId type) const;
+	// 4.12: whether a prvalue of `type` converts to bool, which every condition
+	// and logical operand needs.
+	bool contextually_bool(TypeId type) const;
 	ClassTag class_tag(TypeId type) const;
 
 	// 8.3.5p5: the type a parameter declared with `type` contributes to the

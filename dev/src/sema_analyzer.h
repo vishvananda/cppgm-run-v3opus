@@ -101,6 +101,10 @@ private:
 		// 13.4: the declarations an unresolved function name denotes, which a
 		// target type or a call's arguments choose between.
 		SemaEntity* functions;
+		// 5.3.1p3: the line that name wrote, when `&` was written on it, so
+		// that the target which chooses a declaration writes both the name and
+		// the pointer to it.  Null when the value is the name itself.
+		DumpNode* addressed;
 		// What the dump writes after the type, and the node kind it writes
 		// before it, so that a cast to a reference can spell the operand's own
 		// line again with the category the cast gave it.
@@ -313,6 +317,10 @@ private:
 	// Expressions (sema_expression.cpp).
 	Value expression(const AstNode& node, const Context& ctx, DumpNode& parent);
 	Value id_expression(const AstNode& node, const Context& ctx, DumpNode& parent);
+	// What an id-expression already resolved to denotes, which is where a
+	// caller that had to look the name up to know what it was written for -
+	// a call, which 5.2.3 lets name a type - spends the one lookup it takes.
+	Value named_value(const AstNode& node, SemaEntity& entity, DumpNode& parent);
 	Value literal_expression(const AstNode& node, DumpNode& parent);
 	Value call_expression(const AstNode& node, const Context& ctx,
 	                      DumpNode& parent);
@@ -376,9 +384,9 @@ private:
 	                      std::size_t count);
 	// Rewrites what the dump wrote for `value` where a conversion is visible in
 	// it: a null pointer constant, a resolved function name, and the temporary
-	// a reference binds to.
-	void apply_conversion(Value& value, TypeId target, const Match& match,
-	                      DumpNode& parent);
+	// a reference binds to.  Each rewrites the line the operand already wrote,
+	// in the place it wrote it.
+	void apply_conversion(Value& value, TypeId target, const Match& match);
 	// 13.4: the declaration of an overloaded name a target type asks for.
 	SemaEntity* resolve_target(const Value& value, TypeId target);
 	// Writes the line of an id-expression once its overload set is resolved.
@@ -393,14 +401,6 @@ private:
 	// 5.9p2 and 5.10p1: the composite pointer type two pointer operands are
 	// compared as, or kNoType when they have none.
 	TypeId composite_pointer(const Value& left, const Value& right);
-	bool is_arithmetic(TypeId type) const;
-	bool is_integral(TypeId type) const;
-	bool is_floating(TypeId type) const;
-	bool is_scoped(TypeId type) const;
-	bool is_object_pointer(TypeId type) const;
-	// 4.12: whether `type` has a conversion to `bool`, which every condition
-	// and logical operand needs.
-	bool contextually_bool(TypeId type) const;
 
 	// The dump.
 	std::string spell(const char* what, ValueCategory category, TypeId type,

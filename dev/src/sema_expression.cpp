@@ -1,5 +1,6 @@
 #include "sema_analyzer.h"
 
+#include <cstring>
 #include <stdexcept>
 
 #include "ast_model.h"
@@ -138,65 +139,19 @@ std::string SemaAnalyzer::spell(const char* what, ValueCategory category,
 	return text;
 }
 
-bool SemaAnalyzer::is_arithmetic(TypeId type) const
-{
-	return types_.kind(type) == TypeKind::Fundamental &&
-		fundamental_type_class(types_.fundamental_type(type)) !=
-			FundamentalTypeClass::NonArithmetic;
-}
-
-bool SemaAnalyzer::is_integral(TypeId type) const
-{
-	return types_.kind(type) == TypeKind::Enum ||
-		(types_.kind(type) == TypeKind::Fundamental &&
-		 fundamental_type_is_integral(types_.fundamental_type(type)));
-}
-
-bool SemaAnalyzer::is_floating(TypeId type) const
-{
-	return types_.kind(type) == TypeKind::Fundamental &&
-		fundamental_type_class(types_.fundamental_type(type)) ==
-			FundamentalTypeClass::Floating;
-}
-
-bool SemaAnalyzer::is_scoped(TypeId type) const
-{
-	return types_.kind(type) == TypeKind::Enum && types_.is_scoped_enum(type);
-}
-
-bool SemaAnalyzer::is_object_pointer(TypeId type) const
-{
-	return types_.kind(type) == TypeKind::Pointer &&
-		types_.kind(types_.target(type)) != TypeKind::Function;
-}
-
-// 4.12: every arithmetic, unscoped enumeration and pointer type converts to
-// bool; a scoped enumeration does not.
-bool SemaAnalyzer::contextually_bool(TypeId type) const
-{
-	if (is_scoped(type))
-	{
-		return false;
-	}
-	return is_arithmetic(type) || types_.kind(type) == TypeKind::Enum ||
-		types_.kind(type) == TypeKind::Pointer ||
-		(types_.kind(type) == TypeKind::Fundamental &&
-		 types_.fundamental_type(type) == FT_NULLPTR_T);
-}
-
 // 4.5: the type an integral operand is promoted to, which for a floating type
 // and for a type already at least as wide as `int` is the type itself.
 TypeId SemaAnalyzer::promoted(TypeId type)
 {
 	const TypeId bare = types_.strip_cv(type);
-	if (is_floating(bare))
+	if (types_.is_floating(bare))
 	{
 		return bare;
 	}
 	// 4.5p3: an unscoped enumeration is promoted through its underlying type.
 	const TypeId arithmetic =
 		types_.kind(bare) == TypeKind::Enum ? types_.target(bare) : bare;
-	if (!is_integral(arithmetic))
+	if (!types_.is_integral(arithmetic))
 	{
 		return bare;
 	}
@@ -296,8 +251,14 @@ SemaAnalyzer::Value SemaAnalyzer::id_expression(const AstNode& node,
                                                 const Context& ctx,
                                                 DumpNode& parent)
 {
-	SemaEntity& entity = require(resolve(node.text, ctx, LookupKind::Any),
-	                             node.text);
+	return named_value(node, require(resolve(node.text, ctx, LookupKind::Any),
+	                                 node.text), parent);
+}
+
+SemaAnalyzer::Value SemaAnalyzer::named_value(const AstNode& node,
+                                              SemaEntity& entity,
+                                              DumpNode& parent)
+{
 	Value value;
 	if (entity.kind == SemaKind::Enumerator)
 	{
@@ -352,6 +313,25 @@ SemaAnalyzer::Value SemaAnalyzer::id_expression(const AstNode& node,
 void SemaAnalyzer::name_function(Value& value, SemaEntity& function,
                                  const char* what)
 {
+	const std::string named = std::string(" ") +
+		types_.description(function.type) + " " + function.dump_name;
+	if (value.addressed != nullptr)
+	{
+		// 5.3.1p3 and 13.4: `&f` is a pointer to the declaration the target
+		// chose, and the name under it is that declaration.
+		value.addressed->text =
+			std::string("id-expression ") + category_name(ValueCategory::LValue) +
+			named;
+		value.type = types_.pointer_to(function.type);
+		value.spelled = value.type;
+		value.category = ValueCategory::PRValue;
+		if (value.node != nullptr)
+		{
+			value.node->text = spell("unary-expression", value.category,
+			                         value.type, value.payload);
+		}
+		return;
+	}
 	value.type = function.type;
 	value.spelled = function.type;
 	value.category = ValueCategory::LValue;
@@ -359,15 +339,16 @@ void SemaAnalyzer::name_function(Value& value, SemaEntity& function,
 	{
 		return;
 	}
-	if (std::string(what) == "callee")
+	if (std::strcmp(what, "callee") == 0)
 	{
+		// The callee of a call is the one line that names a declaration before
+		// its type rather than after it.
 		value.node->text =
 			"callee " + function.dump_name + " " + types_.description(function.type);
 		return;
 	}
-	value.node->text = std::string(what) + " " +
-		category_name(ValueCategory::LValue) + " " +
-		types_.description(function.type) + " " + function.dump_name;
+	value.node->text = std::string(what) +
+		" " + category_name(ValueCategory::LValue) + named;
 }
 
 SemaAnalyzer::Value SemaAnalyzer::literal_expression(const AstNode& node,
@@ -471,7 +452,9 @@ SemaAnalyzer::Value SemaAnalyzer::sizeof_expression(const AstNode& node,
 		// The operand is unevaluated, so nothing it names is written, but it is
 		// still looked up: 5.3.3p1 needs its type.
 		DumpNode scratch;
-		value.value = size_of(expression(operand, ctx, scratch).type);
+		const Value read = expression(operand, ctx, scratch);
+		require_complete_value(read);
+		value.value = size_of(read.type);
 	}
 	value.node = &model_.open_node(
 		parent, spell("sizeof-expression", value.category, result, nullptr));
@@ -491,10 +474,11 @@ SemaAnalyzer::Value SemaAnalyzer::subscript_expression(const AstNode& node,
 	// the other an unscoped enumeration or integral type; `a[b]` is `*(a + b)`.
 	const TypeId left_type = decayed(left);
 	const TypeId right_type = decayed(right);
-	const bool left_is_pointer = is_object_pointer(left_type);
+	const bool left_is_pointer = types_.is_object_pointer(left_type);
 	const TypeId pointer = left_is_pointer ? left_type : right_type;
 	const TypeId index = left_is_pointer ? right_type : left_type;
-	if (!is_object_pointer(pointer) || !is_integral(index) || is_scoped(index))
+	if (!types_.is_object_pointer(pointer) || !types_.is_integral(index) ||
+	    types_.is_scoped_enum(index))
 	{
 		throw std::runtime_error("a subscript expression has no pointer and "
 		                         "integral operand");
@@ -640,13 +624,13 @@ TypeId SemaAnalyzer::arithmetic_result(TypeId left, TypeId right)
 {
 	const TypeId a = promoted(left);
 	const TypeId b = promoted(right);
-	if (is_floating(a) || is_floating(b))
+	if (types_.is_floating(a) || types_.is_floating(b))
 	{
-		if (!is_floating(a))
+		if (!types_.is_floating(a))
 		{
 			return b;
 		}
-		if (!is_floating(b))
+		if (!types_.is_floating(b))
 		{
 			return a;
 		}
@@ -667,6 +651,17 @@ SemaAnalyzer::Value SemaAnalyzer::unary_expression(const AstNode& node,
 	switch (node.token)
 	{
 	case OP_AMP:
+		if (operand.type == kNoType && operand.functions != nullptr)
+		{
+			// 13.4p1: `&f` is one of the contexts a target type resolves an
+			// overloaded name in, so the set travels up as it does through the
+			// name itself and both lines are written where it is chosen.
+			value = operand;
+			value.node = &line;
+			value.addressed = operand.node;
+			value.payload = &node;
+			return value;
+		}
 		// 5.3.1p3: the result is a pointer to the object or function the
 		// operand names, so the operand has to name one.
 		require_complete_value(operand);
@@ -694,7 +689,7 @@ SemaAnalyzer::Value SemaAnalyzer::unary_expression(const AstNode& node,
 
 	case OP_LNOT:
 		require_complete_value(operand);
-		if (!contextually_bool(operand.type))
+		if (!types_.contextually_bool(operand.type))
 		{
 			throw std::runtime_error("the operand of ! has no conversion to bool");
 		}
@@ -703,7 +698,8 @@ SemaAnalyzer::Value SemaAnalyzer::unary_expression(const AstNode& node,
 
 	case OP_COMPL:
 		require_complete_value(operand);
-		if (!is_integral(operand.type) || is_scoped(operand.type))
+		if (!types_.is_integral(operand.type) ||
+		    types_.is_scoped_enum(operand.type))
 		{
 			throw std::runtime_error("the operand of ~ is not integral");
 		}
@@ -713,14 +709,14 @@ SemaAnalyzer::Value SemaAnalyzer::unary_expression(const AstNode& node,
 	case OP_PLUS:
 	case OP_MINUS:
 		require_complete_value(operand);
-		if (node.token == OP_PLUS && is_object_pointer(decayed(operand)))
+		if (node.token == OP_PLUS && types_.is_object_pointer(decayed(operand)))
 		{
 			value.type = decayed(operand);
 			break;
 		}
-		if (!is_arithmetic(types_.strip_cv(operand.type)) &&
+		if (!types_.is_arithmetic(types_.strip_cv(operand.type)) &&
 		    !(types_.kind(operand.type) == TypeKind::Enum &&
-		      !is_scoped(operand.type)))
+		      !types_.is_scoped_enum(operand.type)))
 		{
 			throw std::runtime_error("the operand of unary + or - is not "
 			                         "arithmetic");
@@ -755,10 +751,16 @@ SemaAnalyzer::Value SemaAnalyzer::increment_expression(const AstNode& node,
 		                         "lvalue");
 	}
 	const TypeId bare = types_.strip_cv(operand.type);
-	if (!is_arithmetic(bare) && !is_object_pointer(bare))
+	if (!types_.is_arithmetic(bare) && !types_.is_object_pointer(bare))
 	{
 		throw std::runtime_error("the operand of ++ or -- is neither arithmetic "
 		                         "nor a pointer");
+	}
+	// 5.2.6p1 and 5.3.2p1: the operand of `--` shall not be of type bool.
+	if (node.token == OP_DEC && types_.fundamental_type(bare) == FT_BOOL &&
+	    types_.kind(bare) == TypeKind::Fundamental)
+	{
+		throw std::runtime_error("the operand of -- is a bool");
 	}
 	Value value;
 	value.type = postfix ? bare : operand.type;
@@ -809,11 +811,11 @@ TypeId SemaAnalyzer::composite_pointer(const Value& left, const Value& right)
 	}
 	// 4.10p2: an object pointer converts to `cv void*`, which is where two
 	// pointers to unrelated object types meet.
-	if (types_.is_void(left_pointee) && is_object_pointer(b))
+	if (types_.is_void(left_pointee) && types_.is_object_pointer(b))
 	{
 		return types_.pointer_to(types_.qualified(left_pointee, cv));
 	}
-	if (types_.is_void(right_pointee) && is_object_pointer(a))
+	if (types_.is_void(right_pointee) && types_.is_object_pointer(a))
 	{
 		return types_.pointer_to(types_.qualified(right_pointee, cv));
 	}
@@ -833,6 +835,9 @@ SemaAnalyzer::Value SemaAnalyzer::binary_expression(const AstNode& node,
 	if (node.token == OP_COMMA)
 	{
 		// 5.18p1: the result is the right operand, and it keeps its category.
+		// The left one is discarded, which is still no target for 13.4 to
+		// resolve an overloaded name against.
+		require_complete_value(left);
 		require_complete_value(right);
 		value.type = right.type;
 		value.category = right.category;
@@ -857,16 +862,16 @@ TypeId SemaAnalyzer::binary_result(unsigned op, const Value& left,
 	const TypeId a = decayed(left);
 	const TypeId b = decayed(right);
 	const bool arithmetic_operands =
-		(is_arithmetic(a) || types_.kind(a) == TypeKind::Enum) &&
-		(is_arithmetic(b) || types_.kind(b) == TypeKind::Enum) &&
-		!is_scoped(a) && !is_scoped(b);
+		(types_.is_arithmetic(a) || types_.kind(a) == TypeKind::Enum) &&
+		(types_.is_arithmetic(b) || types_.kind(b) == TypeKind::Enum) &&
+		!types_.is_scoped_enum(a) && !types_.is_scoped_enum(b);
 
 	switch (op)
 	{
 	case OP_LAND:
 	case OP_LOR:
 		// 5.14 and 5.15: both operands are contextually converted to bool.
-		if (!contextually_bool(a) || !contextually_bool(b))
+		if (!types_.contextually_bool(a) || !types_.contextually_bool(b))
 		{
 			throw std::runtime_error("an operand of && or || has no conversion "
 			                         "to bool");
@@ -880,20 +885,16 @@ TypeId SemaAnalyzer::binary_result(unsigned op, const Value& left,
 	case OP_LE:
 	case OP_GE:
 	{
-		// 5.9 and 5.10: two arithmetic or enumeration operands are compared
-		// after the usual arithmetic conversions, and two pointers after
-		// conversion to their composite pointer type.
-		if (arithmetic_operands && types_.kind(a) == types_.kind(b))
+		// 5.9p2 and 5.10p1: two operands of one enumeration type are compared
+		// as they are, which is the only way a scoped enumeration is compared
+		// at all; otherwise the usual arithmetic conversions bring two
+		// arithmetic or unscoped enumeration operands to one type.  Two
+		// pointers are compared after conversion to their composite type.
+		if (types_.kind(a) == TypeKind::Enum && a == b)
 		{
-			if (types_.kind(a) == TypeKind::Enum && a != b)
-			{
-				throw std::runtime_error("two enumerations of different types "
-				                         "are compared");
-			}
 			return types_.fundamental(FT_BOOL);
 		}
-		if (arithmetic_operands && types_.kind(a) != TypeKind::Enum &&
-		    types_.kind(b) != TypeKind::Enum)
+		if (arithmetic_operands)
 		{
 			return types_.fundamental(FT_BOOL);
 		}
@@ -916,8 +917,8 @@ TypeId SemaAnalyzer::binary_result(unsigned op, const Value& left,
 	{
 		// 5.7p1: a pointer and an integral operand, or two pointers to the same
 		// object type for `-`.
-		const bool a_pointer = is_object_pointer(a);
-		const bool b_pointer = is_object_pointer(b);
+		const bool a_pointer = types_.is_object_pointer(a);
+		const bool b_pointer = types_.is_object_pointer(b);
 		if (a_pointer && b_pointer && op == OP_MINUS)
 		{
 			if (types_.strip_cv(types_.target(a)) !=
@@ -928,11 +929,12 @@ TypeId SemaAnalyzer::binary_result(unsigned op, const Value& left,
 			}
 			return types_.fundamental(FT_LONG_INT);
 		}
-		if (a_pointer && is_integral(b) && !is_scoped(b))
+		if (a_pointer && types_.is_integral(b) && !types_.is_scoped_enum(b))
 		{
 			return a;
 		}
-		if (b_pointer && is_integral(a) && !is_scoped(a) && op == OP_PLUS)
+		if (b_pointer && types_.is_integral(a) && !types_.is_scoped_enum(a) &&
+		    op == OP_PLUS)
 		{
 			return b;
 		}
@@ -956,7 +958,8 @@ TypeId SemaAnalyzer::binary_result(unsigned op, const Value& left,
 	case OP_AMP:
 	case OP_BOR:
 	case OP_XOR:
-		if (!arithmetic_operands || !is_integral(a) || !is_integral(b))
+		if (!arithmetic_operands || !types_.is_integral(a) ||
+		    !types_.is_integral(b))
 		{
 			throw std::runtime_error("an operand of an integral operator is not "
 			                         "integral");
@@ -967,7 +970,8 @@ TypeId SemaAnalyzer::binary_result(unsigned op, const Value& left,
 	case OP_RSHIFT:
 		// 5.8p1: the operands are promoted separately and the result has the
 		// type of the promoted left operand.
-		if (!arithmetic_operands || !is_integral(a) || !is_integral(b))
+		if (!arithmetic_operands || !types_.is_integral(a) ||
+		    !types_.is_integral(b))
 		{
 			throw std::runtime_error("an operand of a shift is not integral");
 		}
@@ -1056,7 +1060,7 @@ SemaAnalyzer::Value SemaAnalyzer::conditional_expression(const AstNode& node,
 	DumpNode& line = model_.open_node(parent, std::string());
 	const Value condition_value = expression(*node.children[0], ctx, line);
 	require_complete_value(condition_value);
-	if (!contextually_bool(condition_value.type))
+	if (!types_.contextually_bool(condition_value.type))
 	{
 		throw std::runtime_error("the condition of ?: has no conversion to bool");
 	}
@@ -1078,9 +1082,9 @@ SemaAnalyzer::Value SemaAnalyzer::conditional_expression(const AstNode& node,
 	{
 		value.type = types_.strip_cv(decayed(left));
 	}
-	else if ((is_arithmetic(decayed(left)) ||
+	else if ((types_.is_arithmetic(decayed(left)) ||
 	          types_.kind(decayed(left)) == TypeKind::Enum) &&
-	         (is_arithmetic(decayed(right)) ||
+	         (types_.is_arithmetic(decayed(right)) ||
 	          types_.kind(decayed(right)) == TypeKind::Enum))
 	{
 		// 5.16p5: the usual arithmetic conversions bring two arithmetic

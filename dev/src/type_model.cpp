@@ -432,6 +432,47 @@ bool TypeTable::is_scoped_enum(TypeId type) const
 	return kind(type) == TypeKind::Enum && user_at(type).scoped;
 }
 
+bool TypeTable::is_arithmetic(TypeId type) const
+{
+	return kind(type) == TypeKind::Fundamental &&
+		fundamental_type_class(fundamental_type(type)) !=
+			FundamentalTypeClass::NonArithmetic;
+}
+
+bool TypeTable::is_integral(TypeId type) const
+{
+	return kind(type) == TypeKind::Enum ||
+		(kind(type) == TypeKind::Fundamental &&
+		 fundamental_type_is_integral(fundamental_type(type)));
+}
+
+bool TypeTable::is_floating(TypeId type) const
+{
+	return kind(type) == TypeKind::Fundamental &&
+		fundamental_type_class(fundamental_type(type)) ==
+			FundamentalTypeClass::Floating;
+}
+
+bool TypeTable::is_object_pointer(TypeId type) const
+{
+	return kind(type) == TypeKind::Pointer &&
+		kind(target(type)) != TypeKind::Function;
+}
+
+// 4.12: every arithmetic, unscoped enumeration and pointer type converts to
+// bool; a scoped enumeration does not.
+bool TypeTable::contextually_bool(TypeId type) const
+{
+	if (is_scoped_enum(type))
+	{
+		return false;
+	}
+	return is_arithmetic(type) || kind(type) == TypeKind::Enum ||
+		kind(type) == TypeKind::Pointer ||
+		(kind(type) == TypeKind::Fundamental &&
+		 fundamental_type(type) == FT_NULLPTR_T);
+}
+
 ClassTag TypeTable::class_tag(TypeId type) const
 {
 	return user_at(type).tag;

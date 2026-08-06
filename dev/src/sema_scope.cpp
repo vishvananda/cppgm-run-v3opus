@@ -70,6 +70,17 @@ DumpNode& SemaModel::open_node(DumpNode& parent, const std::string& text)
 	return node;
 }
 
+DumpNode& SemaModel::wrap_node(DumpNode& node, const std::string& text)
+{
+	nodes_.push_back(DumpNode());
+	DumpNode& held = nodes_.back();
+	held.text.swap(node.text);
+	held.children.swap(node.children);
+	node.text = text;
+	node.children.push_back(&held);
+	return node;
+}
+
 SemaEntity& SemaModel::create(SemaKind kind, const std::string& name, TypeId type)
 {
 	entities_.push_back(SemaEntity());
@@ -82,8 +93,34 @@ SemaEntity& SemaModel::create(SemaKind kind, const std::string& name, TypeId typ
 	entity.constant = false;
 	entity.value = 0;
 	entity.next = nullptr;
+	entity.tail = nullptr;
+	entity.id = static_cast<std::uint32_t>(entities_.size() - 1);
 	entity.dump_name = name;
 	return entity;
+}
+
+namespace
+{
+
+std::uint64_t overload_key(const SemaEntity& head, std::uint32_t signature)
+{
+	return (static_cast<std::uint64_t>(head.id) << 32) | signature;
+}
+
+}
+
+SemaEntity* SemaModel::overload_of(const SemaEntity& head,
+                                   std::uint32_t signature) const
+{
+	const std::unordered_map<std::uint64_t, SemaEntity*>::const_iterator found =
+		overloads_.find(overload_key(head, signature));
+	return found == overloads_.end() ? nullptr : found->second;
+}
+
+void SemaModel::hold_overload(const SemaEntity& head, std::uint32_t signature,
+                              SemaEntity& entity)
+{
+	overloads_.insert(std::make_pair(overload_key(head, signature), &entity));
 }
 
 void SemaModel::own_type(TypeId type, SemaEntity& entity)

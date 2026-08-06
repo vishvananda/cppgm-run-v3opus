@@ -541,6 +541,7 @@ TypeId SemaAnalyzer::decltype_type(const AstNode& node, const Context& ctx)
 		// is the same one the expression layer already answers.
 		DumpNode scratch;
 		const Value value = SemaAnalyzer::expression(*expression, ctx, scratch);
+		require_complete_value(value);
 		if (value.category == ValueCategory::LValue)
 		{
 			return types_.reference_to(value.type, false);

@@ -83,9 +83,15 @@ struct SemaEntity
 	unsigned long long value;
 	// 13.1: the other declarations of this name in this region, in declaration
 	// order.  A name is bound to the first of them and the rest are reached
-	// from it, so declaring an overload costs one link and collecting the
-	// candidates of a call costs one walk of the ones there are.
+	// from it, so collecting the candidates of a call costs one walk of the
+	// ones there are.
 	SemaEntity* next;
+	// The last of that chain, held on the first, so a declaration joins it
+	// without walking what is already there.
+	SemaEntity* tail;
+	// This entity among the run's, which is how a fact about it is keyed - the
+	// same use `Scope::id` is put to for a region.
+	std::uint32_t id;
 	// The name the PA12 dump spells this entity with: a namespace-scope
 	// declaration is written with the named namespaces around it, and
 	// everything else with the name it was declared with.  It is built where
@@ -216,7 +222,22 @@ public:
 	Scope& open(ScopeKind kind, Scope& parent, SemaEntity* owner, DumpScope* dump);
 	DumpScope& open_dump(DumpScope& parent, const std::string& header);
 	DumpNode& open_node(DumpNode& parent, const std::string& text);
+	// Puts what `node` holds under a new line of its own, in place: `node` keeps
+	// the place it already has among the lines its parent wrote, and what it
+	// said moves into the one node it now holds.  That is what a conversion
+	// written around an operand needs, and it costs neither a search of the
+	// parent nor a second ordering of what it holds.
+	DumpNode& wrap_node(DumpNode& node, const std::string& text);
 	SemaEntity& create(SemaKind kind, const std::string& name, TypeId type);
+
+	// 13.1: the declaration of one function name in one region whose parameter
+	// type list is `signature`, or nothing when that region has none.  `head` is
+	// the entity the name is bound to, so a redeclaration is found rather than
+	// searched for and declaring the nth overload of a name costs what declaring
+	// the first does.
+	SemaEntity* overload_of(const SemaEntity& head, std::uint32_t signature) const;
+	void hold_overload(const SemaEntity& head, std::uint32_t signature,
+	                   SemaEntity& entity);
 
 	// The identifier a user-defined type is interned under, which is the
 	// entity that declared it.
@@ -291,6 +312,9 @@ private:
 	DumpNode* unit_;
 	std::uint32_t type_entities_;
 	std::unordered_map<TypeId, SemaEntity*> type_owners_;
+	// The declarations of each overloaded name, keyed by the entity the name is
+	// bound to and the parameter type list 13.1 tells two declarations apart by.
+	std::unordered_map<std::uint64_t, SemaEntity*> overloads_;
 	// The regions that bind each name, each once, in the order they first bound
 	// it.
 	//
