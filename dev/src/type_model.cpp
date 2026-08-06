@@ -415,11 +415,6 @@ void TypeTable::rename(TypeId type, const std::string& name)
 	user_types_[nodes_[type].user].name = name;
 }
 
-const std::string& TypeTable::user_name(TypeId type) const
-{
-	return user_at(type).name;
-}
-
 void TypeTable::complete_class(TypeId type, unsigned long long size,
                                unsigned long long align)
 {
@@ -427,11 +422,6 @@ void TypeTable::complete_class(TypeId type, unsigned long long size,
 	record.complete = true;
 	record.size = size;
 	record.align = align;
-}
-
-void TypeTable::set_underlying(TypeId type, TypeId underlying)
-{
-	nodes_[type].target = underlying;
 }
 
 bool TypeTable::is_scoped_enum(TypeId type) const

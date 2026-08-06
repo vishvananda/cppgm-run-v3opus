@@ -2,6 +2,7 @@
 
 #include <ostream>
 #include <stdexcept>
+#include <utility>
 
 bool names_a_type(const SemaEntity& entity)
 {
@@ -140,12 +141,13 @@ SemaEntity* SemaModel::find(const Scope& where, const std::string& name,
 
 void SemaModel::bind(Scope& where, const std::string& name, SemaEntity& entity)
 {
-	std::vector<Scope*>& declarers = declarers_[name];
-	if (declarers.empty() || declarers.back() != &where)
+	const std::pair<std::unordered_map<std::string, Binding>::iterator, bool>
+		placed = where.names.insert(std::make_pair(name, Binding()));
+	if (placed.second)
 	{
-		declarers.push_back(&where);
+		declarers_[name].push_back(&where);
 	}
-	Binding& binding = where.names[name];
+	Binding& binding = placed.first->second;
 	const bool is_tag =
 		entity.kind == SemaKind::Class || entity.kind == SemaKind::Enum;
 	if (is_tag)
@@ -182,6 +184,10 @@ void SemaModel::nominate(Scope& where, Scope& space)
 		return;
 	}
 	where.nominated.push_back(&space);
+	space.nominated_by.push_back(&where);
+	// A gathered set of searchers may have grown, and the namespace the
+	// directive named is what says whose.
+	nominees_.push_back(&space);
 }
 
 SemaEntity* SemaModel::merge_found(SemaEntity* found, SemaEntity* again)
@@ -198,50 +204,190 @@ SemaEntity* SemaModel::merge_found(SemaEntity* found, SemaEntity* again)
 	                         "lookup reached");
 }
 
-SemaEntity* SemaModel::search_closure(Scope& in, const std::string& name,
-                                      LookupKind filter)
+const std::vector<Scope*>* SemaModel::declarers(const std::string& name) const
 {
-	if (in.nominated.empty())
-	{
-		return find(in, name, filter);
-	}
-
 	const std::unordered_map<std::string, std::vector<Scope*> >::const_iterator
-		declared = declarers_.find(name);
-	if (declared == declarers_.end())
+		found = declarers_.find(name);
+	return found == declarers_.end() ? nullptr : &found->second;
+}
+
+// 7.3.4p2: the declarations of a nominated namespace appear where the directive
+// is, and a directive reached through another counts as well, so the regions a
+// declaration of `declaring` can be looked up from are `declaring` and the
+// closure of the directives that reach it.
+//
+// The set is gathered once and then kept up with the directives: a walk that has
+// already followed a region's directives follows only the ones written since, so
+// a unit that writes one directive between each pair of lookups costs each
+// lookup the one edge it added rather than the whole set again.
+void SemaModel::gather_searchers(Scope& declaring)
+{
+	if (declaring.searchers_at == nominees_.size())
 	{
+		return;
+	}
+	pending_.clear();
+	if (declaring.searchers.size() <=
+	    nominees_.size() - static_cast<std::size_t>(declaring.searchers_at))
+	{
+		// More directives have been written than this set holds regions, so
+		// walking it again costs less than asking of each directive whether it
+		// touched one.  Either way a gathering costs no more than deriving the
+		// answer from nothing.
+		declaring.searchers.clear();
+		declaring.expanded.clear();
+		declaring.searcher_at.clear();
+	}
+	if (declaring.searchers.empty())
+	{
+		declaring.searchers.push_back(&declaring);
+		declaring.expanded.push_back(0);
+		declaring.searcher_at.insert(std::make_pair(&declaring, 0u));
+		pending_.push_back(0);
+	}
+	else
+	{
+		for (std::size_t written = static_cast<std::size_t>(declaring.searchers_at);
+		     written < nominees_.size(); ++written)
+		{
+			const std::unordered_map<Scope*, std::uint32_t>::const_iterator place =
+				declaring.searcher_at.find(nominees_[written]);
+			if (place != declaring.searcher_at.end())
+			{
+				pending_.push_back(place->second);
+			}
+		}
+	}
+	declaring.searchers_at = nominees_.size();
+
+	for (std::size_t index = 0; index < pending_.size(); ++index)
+	{
+		const std::uint32_t place = pending_[index];
+		const Scope& scope = *declaring.searchers[place];
+		for (std::size_t edge = declaring.expanded[place];
+		     edge < scope.nominated_by.size(); ++edge)
+		{
+			Scope* next = scope.nominated_by[edge];
+			const std::uint32_t added =
+				static_cast<std::uint32_t>(declaring.searchers.size());
+			if (declaring.searcher_at.insert(std::make_pair(next, added)).second)
+			{
+				declaring.searchers.push_back(next);
+				declaring.expanded.push_back(0);
+				pending_.push_back(added);
+			}
+		}
+		declaring.expanded[place] =
+			static_cast<std::uint32_t>(scope.nominated_by.size());
+	}
+}
+
+bool SemaModel::reaches(Scope& in, Scope& declaring)
+{
+	if (&in == &declaring)
+	{
+		return true;
+	}
+	if (declaring.nominated_by.empty())
+	{
+		return false;
+	}
+	gather_searchers(declaring);
+	return declaring.searcher_at.find(&in) != declaring.searcher_at.end();
+}
+
+SemaEntity* SemaModel::lookup_unique(Scope& from, const Scope* stop,
+                                     const std::string& name, LookupKind filter,
+                                     Scope& declarer)
+{
+	SemaEntity* found = find(declarer, name, filter);
+	if (found == nullptr)
+	{
+		// One region declares the name and this is what it declared, so no
+		// region the search could reach has anything else to say.
 		return nullptr;
 	}
-	// One declaration of the name in the whole unit cannot be two declarations
-	// of it in one declarative region, so the first one reached is the answer.
-	const bool unique = declared->second.size() == 1;
-
-	// 7.3.4p2: the declarations of a nominated namespace appear where the
-	// directive is, and a directive reached through another counts as well, so
-	// the search is the closure of the nomination edges.  Each region carries
-	// the stamp of the walk that reached it, so a closure with several paths
-	// into one namespace probes it once.
-	++visit_;
-	search_.clear();
-	search_.push_back(&in);
-	in.visit = visit_;
-	SemaEntity* found = nullptr;
-	for (std::size_t index = 0; index < search_.size(); ++index)
+	// Which enclosing region reaches the declaration does not matter, because
+	// one region declares the name and every route to it is a route to the same
+	// declaration.  So the cheap question is asked of all of them first: the
+	// region that declared it encloses the lookup far more often than a
+	// using-directive nominates it.
+	for (Scope* scope = &from; scope != stop; scope = scope->parent)
 	{
-		Scope& scope = *search_[index];
-		found = merge_found(found, find(scope, name, filter));
-		if (found != nullptr && unique)
+		if (scope == &declarer)
 		{
 			return found;
 		}
+	}
+	for (Scope* scope = &from; scope != stop; scope = scope->parent)
+	{
+		if (reaches(*scope, declarer))
+		{
+			return found;
+		}
+	}
+	return nullptr;
+}
+
+bool SemaModel::walk_reached(Scope& in, std::size_t budget)
+{
+	++visit_;
+	reached_.clear();
+	reached_.push_back(&in);
+	in.visit = visit_;
+	for (std::size_t index = 0; index < reached_.size(); ++index)
+	{
+		const Scope& scope = *reached_[index];
 		for (std::size_t edge = 0; edge < scope.nominated.size(); ++edge)
 		{
 			Scope* next = scope.nominated[edge];
-			if (next->visit != visit_)
+			if (next->visit == visit_)
 			{
-				next->visit = visit_;
-				search_.push_back(next);
+				continue;
 			}
+			if (reached_.size() >= budget)
+			{
+				return false;
+			}
+			next->visit = visit_;
+			reached_.push_back(next);
+		}
+	}
+	return true;
+}
+
+SemaEntity* SemaModel::search_declarers(Scope& in, const std::string& name,
+                                        LookupKind filter,
+                                        const std::vector<Scope*>& regions)
+{
+	if (in.nominated.empty())
+	{
+		// No using-directive is written here, so the only declarations that
+		// appear here are the ones written here.
+		return find(in, name, filter);
+	}
+	// Several regions declare the name, so 3.4p1 asks which of them the lookup
+	// reaches rather than which one it reaches first.  There are two ways to
+	// ask, and the cheaper one is whichever set is smaller: the regions this
+	// lookup reaches, or the regions that declare the name.  So the walk of the
+	// first runs on a budget of the second's size and gives up when it is the
+	// larger, which makes a lookup cost the smaller of the two however lopsided
+	// they are.
+	SemaEntity* found = nullptr;
+	if (walk_reached(in, regions.size()))
+	{
+		for (std::size_t index = 0; index < reached_.size(); ++index)
+		{
+			found = merge_found(found, find(*reached_[index], name, filter));
+		}
+		return found;
+	}
+	for (std::size_t index = 0; index < regions.size(); ++index)
+	{
+		Scope* region = regions[index];
+		if (reaches(in, *region))
+		{
+			found = merge_found(found, find(*region, name, filter));
 		}
 	}
 	return found;
@@ -250,9 +396,21 @@ SemaEntity* SemaModel::search_closure(Scope& in, const std::string& name,
 SemaEntity* SemaModel::lookup(Scope& from, const std::string& name,
                               LookupKind filter)
 {
+	// A name no region declares is answered without touching the region chain,
+	// which is what keeps an unqualified lookup that fails from costing one
+	// probe per enclosing region.
+	const std::vector<Scope*>* regions = declarers(name);
+	if (regions == nullptr)
+	{
+		return nullptr;
+	}
+	if (regions->size() == 1)
+	{
+		return lookup_unique(from, nullptr, name, filter, *(*regions)[0]);
+	}
 	for (Scope* scope = &from; scope != nullptr; scope = scope->parent)
 	{
-		SemaEntity* found = search_closure(*scope, name, filter);
+		SemaEntity* found = search_declarers(*scope, name, filter, *regions);
 		if (found != nullptr)
 		{
 			return found;
@@ -264,7 +422,16 @@ SemaEntity* SemaModel::lookup(Scope& from, const std::string& name,
 SemaEntity* SemaModel::lookup_in(Scope& in, const std::string& name,
                                  LookupKind filter)
 {
-	return search_closure(in, name, filter);
+	const std::vector<Scope*>* regions = declarers(name);
+	if (regions == nullptr)
+	{
+		return nullptr;
+	}
+	if (regions->size() == 1)
+	{
+		return lookup_unique(in, in.parent, name, filter, *(*regions)[0]);
+	}
+	return search_declarers(in, name, filter, *regions);
 }
 
 void write_dump(std::ostream& out, const DumpScope& scope, unsigned depth)

@@ -155,7 +155,7 @@ SemaAnalyzer::Constant SemaAnalyzer::promote(const Constant& value)
 	const TypeId arithmetic = arithmetic_type(value.type);
 	if (arithmetic == kNoType)
 	{
-		throw std::runtime_error("a constant expression has a type that is not "
+		throw NotConstant("a constant expression has a type that is not "
 		                         "integral");
 	}
 	if (width_of(arithmetic) >= 32)
@@ -205,13 +205,13 @@ SemaAnalyzer::Constant SemaAnalyzer::literal_constant(const std::string& spellin
 	}
 	else
 	{
-		throw std::runtime_error("a constant expression holds a literal that has "
+		throw NotConstant("a constant expression holds a literal that has "
 		                         "no integral value");
 	}
 	if (token.kind != PostTokenKind::Literal ||
 	    !fundamental_type_is_integral(token.type))
 	{
-		throw std::runtime_error("a constant expression holds a literal that has "
+		throw NotConstant("a constant expression holds a literal that has "
 		                         "no integral value");
 	}
 
@@ -227,7 +227,7 @@ SemaAnalyzer::Constant SemaAnalyzer::id_constant(const AstNode& node,
 	SemaEntity& entity = require(resolve(node.text, ctx, LookupKind::Any), node.text);
 	if (!entity.constant)
 	{
-		throw std::runtime_error(node.text + " is not a constant expression");
+		throw NotConstant(node.text + " is not a constant expression");
 	}
 	Constant out;
 	out.type = entity.type;
@@ -252,7 +252,7 @@ SemaAnalyzer::Constant SemaAnalyzer::unary_constant(const AstNode& node,
 		if (is_signed(out.type) && width_of(out.type) == 64 &&
 		    operand.bits == (1ULL << 63))
 		{
-			throw std::runtime_error("a constant expression overflows");
+			throw NotConstant("a constant expression overflows");
 		}
 		out.bits = 0ULL - operand.bits;
 		break;
@@ -268,7 +268,7 @@ SemaAnalyzer::Constant SemaAnalyzer::unary_constant(const AstNode& node,
 		return out;
 
 	default:
-		throw std::runtime_error("a constant expression holds an operator PA11 "
+		throw NotConstant("a constant expression holds an operator PA11 "
 		                         "does not evaluate");
 	}
 	return convert(out, out.type);
@@ -348,7 +348,7 @@ SemaAnalyzer::Constant SemaAnalyzer::binary_constant(const AstNode& node,
 	case OP_MOD:
 		if (rhs == 0)
 		{
-			throw std::runtime_error("a constant expression divides by zero");
+			throw NotConstant("a constant expression divides by zero");
 		}
 		if (sign)
 		{
@@ -369,7 +369,7 @@ SemaAnalyzer::Constant SemaAnalyzer::binary_constant(const AstNode& node,
 			: rhs;
 		if (count >= width_of(type))
 		{
-			throw std::runtime_error("a constant expression shifts by more than "
+			throw NotConstant("a constant expression shifts by more than "
 			                         "the width of its type");
 		}
 		if (node.token == OP_LSHIFT)
@@ -389,7 +389,7 @@ SemaAnalyzer::Constant SemaAnalyzer::binary_constant(const AstNode& node,
 	case OP_XOR: out.bits = lhs ^ rhs; break;
 
 	default:
-		throw std::runtime_error("a constant expression holds an operator PA11 "
+		throw NotConstant("a constant expression holds an operator PA11 "
 		                         "does not evaluate");
 	}
 
@@ -398,7 +398,7 @@ SemaAnalyzer::Constant SemaAnalyzer::binary_constant(const AstNode& node,
 	const Constant narrowed = convert(out, type);
 	if (sign && (overflowed || narrowed.bits != out.bits))
 	{
-		throw std::runtime_error("a constant expression overflows");
+		throw NotConstant("a constant expression overflows");
 	}
 	return narrowed;
 }
@@ -415,7 +415,7 @@ SemaAnalyzer::Constant SemaAnalyzer::evaluate(const AstNode& node,
 	{
 		if (node.token != KW_TRUE && node.token != KW_FALSE)
 		{
-			throw std::runtime_error("a constant expression names no value");
+			throw NotConstant("a constant expression names no value");
 		}
 		Constant out;
 		out.type = types_.fundamental(FT_BOOL);
@@ -446,13 +446,13 @@ SemaAnalyzer::Constant SemaAnalyzer::evaluate(const AstNode& node,
 		if (node.children.size() != 2 ||
 		    node.children[0]->kind != AstKind::TypeId)
 		{
-			throw std::runtime_error("a constant expression holds a cast PA11 "
+			throw NotConstant("a constant expression holds a cast PA11 "
 			                         "does not evaluate");
 		}
 		const TypeId type = type_id_type(*node.children[0], ctx);
 		if (arithmetic_type(type) == kNoType)
 		{
-			throw std::runtime_error("a constant expression casts to a type that "
+			throw NotConstant("a constant expression casts to a type that "
 			                         "is not integral");
 		}
 		const Constant value = evaluate(*node.children[1], ctx);
@@ -466,13 +466,13 @@ SemaAnalyzer::Constant SemaAnalyzer::evaluate(const AstNode& node,
 	{
 		if (node.kind == AstKind::TypeTraitExpression && node.token != KW_ALIGNOF)
 		{
-			throw std::runtime_error("a constant expression holds an operator "
+			throw NotConstant("a constant expression holds an operator "
 			                         "PA11 does not evaluate");
 		}
 		if (node.children.empty() || node.children[0]->kind != AstKind::TypeId)
 		{
 			// 5.3.3p1: PA11 evaluates `sizeof` and `alignof` over a type-id.
-			throw std::runtime_error("sizeof and alignof are evaluated over a "
+			throw NotConstant("sizeof and alignof are evaluated over a "
 			                         "type-id");
 		}
 		const TypeId type = type_id_type(*node.children[0], ctx);
@@ -485,7 +485,7 @@ SemaAnalyzer::Constant SemaAnalyzer::evaluate(const AstNode& node,
 	}
 
 	default:
-		throw std::runtime_error("a constant expression holds a construct PA11 "
+		throw NotConstant("a constant expression holds a construct PA11 "
 		                         "does not evaluate");
 	}
 }

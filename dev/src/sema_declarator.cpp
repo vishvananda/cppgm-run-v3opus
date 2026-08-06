@@ -30,22 +30,6 @@ const AstNode* declarator_of(const AstNode& node)
 	return found != nullptr ? found : child_kind(node, AstKind::AbstractDeclarator);
 }
 
-void split_name(const std::string& name, std::vector<std::string>& out)
-{
-	std::string::size_type at = 0;
-	for (;;)
-	{
-		const std::string::size_type next = name.find("::", at);
-		if (next == std::string::npos)
-		{
-			out.push_back(name.substr(at));
-			return;
-		}
-		out.push_back(name.substr(at, next - at));
-		at = next + 2;
-	}
-}
-
 }
 
 SemaAnalyzer::Specifiers::Specifiers()
@@ -240,7 +224,8 @@ const AstNode* SemaAnalyzer::declarator_id(const AstNode& node)
 // suffixes written after it apply to that from the last one inwards, and a
 // nested declarator is then read against the type that comes out.
 TypeId SemaAnalyzer::declarator_type(const AstNode& node, TypeId base,
-                                     const Context& ctx, std::string* name)
+                                     const Context& ctx, std::string* name,
+                                     std::vector<Parameter>* declared)
 {
 	std::size_t index = 0;
 	TypeId type = base;
@@ -262,7 +247,12 @@ TypeId SemaAnalyzer::declarator_type(const AstNode& node, TypeId base,
 
 	for (std::size_t suffix = node.children.size(); suffix-- > index;)
 	{
-		type = apply_suffix(*node.children[suffix], type, ctx);
+		const AstNode& part = *node.children[suffix];
+		type = apply_suffix(part, type, ctx, declared);
+		if (part.kind == AstKind::ParameterClause)
+		{
+			declared = nullptr;
+		}
 	}
 
 	if (core == nullptr)
@@ -274,6 +264,8 @@ TypeId SemaAnalyzer::declarator_type(const AstNode& node, TypeId base,
 		*name = core->text;
 		return type;
 	}
+	// 8.4.1p1: the parameter-clause of a function definition is written on the
+	// declarator itself, so a nested one names nothing the definition binds.
 	return core->children.empty()
 		? type
 		: declarator_type(*core->children[0], type, ctx, name);
@@ -305,7 +297,8 @@ TypeId SemaAnalyzer::apply_pointer(const AstNode& node, TypeId type)
 }
 
 TypeId SemaAnalyzer::apply_suffix(const AstNode& node, TypeId type,
-                                  const Context& ctx)
+                                  const Context& ctx,
+                                  std::vector<Parameter>* declared)
 {
 	if (node.kind == AstKind::ArraySuffix)
 	{
@@ -317,7 +310,8 @@ TypeId SemaAnalyzer::apply_suffix(const AstNode& node, TypeId type,
 	}
 	if (node.kind == AstKind::ParameterClause)
 	{
-		std::vector<Parameter> parameters;
+		std::vector<Parameter> read;
+		std::vector<Parameter>& parameters = declared != nullptr ? *declared : read;
 		bool variadic = false;
 		read_parameters(node, ctx, parameters, variadic);
 		std::vector<TypeId> types;
@@ -396,53 +390,41 @@ SemaEntity* SemaAnalyzer::resolve(const std::string& name, const Context& ctx,
 	{
 		return nullptr;
 	}
-	if (name.find("::") == std::string::npos)
+	const QualifiedName written(name);
+	if (!written.qualified())
 	{
 		return model_.lookup(*ctx.scope, name, filter);
 	}
-	std::string last;
-	Scope* region = resolve_prefix(name, ctx, last);
-	return model_.lookup_in(*region, last, filter);
+	return model_.lookup_in(*resolve_prefix(written, ctx), written.last(), filter);
 }
 
 // 3.4.3: each component of a nested-name-specifier is looked up in the region
 // the one before it named, the first in the scopes around the declaration.
-Scope* SemaAnalyzer::resolve_prefix(const std::string& name, const Context& ctx,
-                                    std::string& last)
+Scope* SemaAnalyzer::resolve_prefix(const QualifiedName& name,
+                                    const Context& ctx)
 {
-	std::vector<std::string> parts;
-	split_name(name, parts);
+	// 3.4.3p1: a name written `::x` is looked up in the global namespace.
+	const std::string first = name.part(0);
+	Scope* region = first.empty()
+		? &model_.global()
+		: model_.region_of(
+			require(model_.lookup(*ctx.scope, first, LookupKind::Region), first));
 
-	Scope* region = nullptr;
-	std::size_t index = 0;
-	if (parts[0].empty())
+	for (std::size_t index = 1; index + 1 < name.size(); ++index)
 	{
-		// 3.4.3p1: a name written `::x` is looked up in the global namespace.
-		region = &model_.global();
-		index = 1;
-	}
-	else
-	{
-		SemaEntity* first = model_.lookup(*ctx.scope, parts[0], LookupKind::Region);
-		region = model_.region_of(require(first, parts[0]));
-		index = 1;
-	}
-
-	for (; index + 1 < parts.size(); ++index)
-	{
+		const std::string part = name.part(index);
 		if (region == nullptr)
 		{
-			throw std::runtime_error(parts[index - 1] + " names no region");
+			throw std::runtime_error(name.part(index - 1) + " names no region");
 		}
-		SemaEntity* next =
-			model_.lookup_in(*region, parts[index], LookupKind::Region);
-		region = model_.region_of(require(next, parts[index]));
+		SemaEntity* next = model_.lookup_in(*region, part, LookupKind::Region);
+		region = model_.region_of(require(next, part));
 	}
 	if (region == nullptr)
 	{
-		throw std::runtime_error(name + " is written after a name that is not a "
-		                                "namespace, class or enumeration");
+		throw std::runtime_error(name.last() + " is written after a name that is "
+		                                       "not a namespace, class or "
+		                                       "enumeration");
 	}
-	last = parts.back();
 	return region;
 }

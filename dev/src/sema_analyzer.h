@@ -2,13 +2,33 @@
 
 #include <cstdint>
 #include <iosfwd>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
+#include "sema_name.h"
 #include "sema_scope.h"
 #include "type_model.h"
 
 struct AstNode;
+
+// An expression that is not one of the constant expressions 5.19 defines, or
+// not one of the subset of them PA11 evaluates.
+//
+// This is not by itself a program the assignment refuses: 5.19p3 makes a const
+// object of integral type a constant only when its initializer is one, and a
+// declaration whose initializer is an ordinary expression is well formed and
+// declares an object that is not a constant.  It is what separates that from
+// the errors an expression can also hold - a name that is declared nowhere, a
+// type-id that names no type - which are facts about the program rather than
+// about the value, and which every caller lets through.
+class NotConstant : public std::runtime_error
+{
+public:
+	explicit NotConstant(const std::string& what)
+		: std::runtime_error(what)
+	{}
+};
 
 // The PA11 semantic pass: one walk of a PA10 syntax tree that builds the
 // scopes, declarations and types of a translation unit, and the dump of them.
@@ -95,8 +115,10 @@ private:
 	void template_declaration(const AstNode& node, const Context& ctx);
 	void template_parameter(const AstNode& node, const Context& ctx);
 	void simple_declaration(const AstNode& node, const Context& ctx);
-	void init_declarator(const AstNode& node, const Specifiers& specifiers,
-	                     const Context& ctx);
+	void condition_declaration(const AstNode& node, const Context& ctx);
+	// One declarator of a declaration, with the initializer written for it.
+	void init_declarator(const AstNode& node, const AstNode* initializer,
+	                     const Specifiers& specifiers, const Context& ctx);
 	void function_definition(const AstNode& node, const Context& ctx);
 	void statement(const AstNode& node, const Context& ctx);
 	SemaEntity& class_declaration(const AstNode& node, const Context& ctx,
@@ -105,14 +127,14 @@ private:
 	SemaEntity& enum_declaration(const AstNode& node, const Context& ctx,
 	                             bool elaborated, const std::string& named_by);
 	void enumerators(const AstNode& node, SemaEntity& entity,
-	                 const std::string& spelling, DumpScope& dump,
-	                 const Context& ctx);
+	                 const std::string& spelling, DumpScope& dump);
 	// 7.1.3p2: the name the first declarator of a declaration gives a class or
 	// enumeration its specifiers left unnamed.
 	static std::string name_from_declarators(const AstNode& node);
-	// 9.5p2: the members of an anonymous union are declared in the region the
-	// union is declared in.
-	void inject_union_members(SemaEntity& entity, const Context& ctx);
+	// 9.5p1: the members of an anonymous union are declared in the region the
+	// union is declared in.  Anything else `entity` may be declares nothing
+	// there, so every declaration that introduces a class asks.
+	void inject_union_members(SemaEntity* entity, const Context& ctx);
 	// 9.2p2 and the course ABI: the size and alignment of a completed class.
 	void lay_out_class(SemaEntity& entity, Scope& scope, bool is_union);
 	// The entity the declaration of a name reuses, or nothing when the name is
@@ -132,10 +154,17 @@ private:
 	                         const std::string& named_by);
 	TypeId specifier_type(const Specifiers& specifiers);
 	TypeId type_id_type(const AstNode& node, const Context& ctx);
+	// 8.3: the type `node` derives from `base`, the name it declares, and - for
+	// a caller that goes on to open the region of a function definition - the
+	// parameters of its outermost parameter-clause, which 8.4.1p1 makes the one
+	// that clause declares.  Reading them here is what keeps a parameter
+	// clause read once rather than once for the type and again for the names.
 	TypeId declarator_type(const AstNode& node, TypeId base, const Context& ctx,
-	                       std::string* name);
+	                       std::string* name,
+	                       std::vector<Parameter>* declared = nullptr);
 	TypeId apply_pointer(const AstNode& node, TypeId type);
-	TypeId apply_suffix(const AstNode& node, TypeId type, const Context& ctx);
+	TypeId apply_suffix(const AstNode& node, TypeId type, const Context& ctx,
+	                    std::vector<Parameter>* declared);
 	void read_parameters(const AstNode& clause, const Context& ctx,
 	                     std::vector<Parameter>& out, bool& variadic);
 	// The declarator-id of a declarator, which a nested declarator holds.
@@ -144,11 +173,9 @@ private:
 	// resolved from `ctx`.  Null when nothing of the kind is declared.
 	SemaEntity* resolve(const std::string& name, const Context& ctx,
 	                    LookupKind filter);
-	// The region the nested-name-specifier of `name` reaches, and the last
-	// component of it, for a declaration that names an entity of another
-	// region.
-	Scope* resolve_prefix(const std::string& name, const Context& ctx,
-	                      std::string& last);
+	// The region the nested-name-specifier of `name` reaches, for a declaration
+	// that names an entity of another region.
+	Scope* resolve_prefix(const QualifiedName& name, const Context& ctx);
 	SemaEntity& require(SemaEntity* entity, const std::string& name);
 
 	// Constant expressions and decltype (sema_constant.cpp).

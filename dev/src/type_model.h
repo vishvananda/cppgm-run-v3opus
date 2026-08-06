@@ -122,17 +122,14 @@ public:
 	                               const std::string& name);
 
 	// The name the dump spells a user-defined type with.  7.1.3p2 lets a
-	// declaration name an unnamed class after it has been read, and 9.1p2 lets
-	// a class be named where it is defined, so the name arrives after the type.
+	// declaration name an unnamed class after it has been read, so the name can
+	// arrive after the type.
 	void rename(TypeId type, const std::string& name);
-	const std::string& user_name(TypeId type) const;
 
 	// 9.2p2: the class becomes complete at the end of its member specification,
 	// which is where its size and alignment are first known.
 	void complete_class(TypeId type, unsigned long long size,
 	                    unsigned long long align);
-	// 7.2p5: the underlying type an enum-base or the default fixes.
-	void set_underlying(TypeId type, TypeId underlying);
 
 	bool is_class(TypeId type) const { return kind(type) == TypeKind::Class; }
 	bool is_enum(TypeId type) const { return kind(type) == TypeKind::Enum; }

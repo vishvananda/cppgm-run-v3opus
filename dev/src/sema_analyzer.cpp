@@ -67,14 +67,6 @@ const char* tag_text(ClassTag tag)
 	}
 }
 
-// The last component of a name written with a nested-name-specifier, which is
-// the name the declaration introduces.
-std::string last_component(const std::string& name)
-{
-	const std::string::size_type at = name.rfind("::");
-	return at == std::string::npos ? name : name.substr(at + 2);
-}
-
 unsigned long long round_up(unsigned long long value, unsigned long long unit)
 {
 	if (unit == 0)
@@ -145,17 +137,12 @@ void SemaAnalyzer::declaration(const AstNode& node, const Context& ctx)
 
 	case AstKind::ClassSpecifier:
 	case AstKind::ClassForwardDeclaration:
-	{
-		SemaEntity& entity = class_declaration(
-			node, ctx, span, node.kind == AstKind::ClassSpecifier, std::string());
-		if (entity.name.empty() &&
-		    types_.class_tag(entity.type) == ClassTag::Union)
-		{
-			// 9.5p1: an anonymous union declares its members where it is.
-			inject_union_members(entity, ctx);
-		}
+		inject_union_members(
+			&class_declaration(node, ctx, span,
+			                   node.kind == AstKind::ClassSpecifier,
+			                   std::string()),
+			ctx);
 		return;
-	}
 
 	case AstKind::EnumSpecifier:
 		enum_declaration(node, ctx, false, std::string());
@@ -244,14 +231,15 @@ void SemaAnalyzer::using_directive(const AstNode& node, const Context& ctx)
 void SemaAnalyzer::using_declaration(const AstNode& node, const Context& ctx)
 {
 	const AstNode* target = child_of(node, AstKind::Target);
-	if (target->text.find('<') != std::string::npos)
+	const QualifiedName written(target->text);
+	if (written.names_a_template_id())
 	{
 		// 7.3.3p5: a using-declaration shall not name a template-id.
 		throw std::runtime_error("a using-declaration names a template-id");
 	}
 	SemaEntity& entity =
 		require(resolve(target->text, ctx, LookupKind::Any), target->text);
-	const std::string name = last_component(target->text);
+	const std::string name = written.last();
 	model_.bind(*ctx.scope, name, entity);
 	model_.declare_in(*ctx.scope, entity);
 	write_entity_line(*ctx.dump, entity);
@@ -352,7 +340,7 @@ SemaEntity& SemaAnalyzer::class_declaration(const AstNode& node,
 	// declarator of the declaration it belongs to, before its body is read, so
 	// every line the body writes spells it the way the program will.
 	const std::string written = node.text.empty() ? named_by : node.text;
-	const std::string name = last_component(written);
+	const std::string name = QualifiedName(written).last();
 
 	SemaEntity* entity = name.empty() ? nullptr
 	                                  : redeclared(ctx, name, SemaKind::Class);
@@ -427,13 +415,17 @@ SemaEntity& SemaAnalyzer::class_declaration(const AstNode& node,
 	return *entity;
 }
 
-void SemaAnalyzer::inject_union_members(SemaEntity& entity, const Context& ctx)
+void SemaAnalyzer::inject_union_members(SemaEntity* entity, const Context& ctx)
 {
-	if (entity.scope == nullptr)
+	// 9.5p1: a union with no name and no declarator declares its members in the
+	// region it is written in rather than a region of its own.
+	if (entity == nullptr || entity->scope == nullptr || !entity->name.empty() ||
+	    !types_.is_class(entity->type) ||
+	    types_.class_tag(entity->type) != ClassTag::Union)
 	{
 		return;
 	}
-	Scope& members = *entity.scope;
+	Scope& members = *entity->scope;
 	for (std::size_t index = 0; index < members.declarations.size(); ++index)
 	{
 		SemaEntity& member = *members.declarations[index];
@@ -554,8 +546,9 @@ SemaEntity& SemaAnalyzer::enum_declaration(const AstNode& node,
 	const std::string written = unnamed
 		? "__anonymous_enum" + decimal(++anonymous_enums_, false)
 		: (node.text.empty() ? named_by : node.text);
-	std::string name = last_component(written);
-	const bool qualified = written.size() != name.size();
+	const QualifiedName spelled(written);
+	const std::string name = spelled.last();
+	const bool qualified = spelled.qualified();
 
 	SemaEntity* entity = nullptr;
 	if (elaborated || qualified)
@@ -563,7 +556,7 @@ SemaEntity& SemaAnalyzer::enum_declaration(const AstNode& node,
 		// 3.4.4p2 and 7.2p5: an elaborated-type-specifier and an out-of-class
 		// definition both name an enumeration that is already declared.
 		SemaEntity* found = qualified
-			? model_.lookup_in(*resolve_prefix(written, ctx, name), name,
+			? model_.lookup_in(*resolve_prefix(spelled, ctx), name,
 			                   LookupKind::Type)
 			: resolve(written, ctx, LookupKind::Type);
 		entity = &require(found, written);
@@ -633,13 +626,12 @@ SemaEntity& SemaAnalyzer::enum_declaration(const AstNode& node,
 		}
 		entity->defined = true;
 	}
-	enumerators(node, *entity, spelling, *dump, ctx);
+	enumerators(node, *entity, spelling, *dump);
 	return *entity;
 }
 
 void SemaAnalyzer::enumerators(const AstNode& node, SemaEntity& entity,
-                               const std::string& spelling, DumpScope& dump,
-                               const Context& ctx)
+                               const std::string& spelling, DumpScope& dump)
 {
 	Scope& scope = *entity.scope;
 	const bool scoped = types_.is_scoped_enum(entity.type);
@@ -668,12 +660,13 @@ void SemaAnalyzer::enumerators(const AstNode& node, SemaEntity& entity,
 		enumerator.value = value;
 		model_.bind(scope, child.text, enumerator);
 		model_.declare_in(scope, enumerator);
-		if (!scoped)
+		if (!scoped && scope.parent != nullptr)
 		{
 			// 7.2p10: an unscoped enumeration's enumerators are declared in the
-			// region the enumeration is declared in.
-			model_.bind(*ctx.scope, child.text, enumerator);
-			model_.declare_in(*ctx.scope, enumerator);
+			// region the enumeration is declared in, which is not where the
+			// definition is written when 7.2p1 writes it outside its class.
+			model_.bind(*scope.parent, child.text, enumerator);
+			model_.declare_in(*scope.parent, enumerator);
 		}
 		// The enumeration is spelled as this declaration spells it, which for
 		// a definition written outside its class is the qualified name.
@@ -694,29 +687,43 @@ void SemaAnalyzer::simple_declaration(const AstNode& node, const Context& ctx)
 	                                            : name_from_declarators(*list));
 	if (list == nullptr)
 	{
-		if (specifiers.introduced != nullptr &&
-		    types_.is_class(specifiers.introduced->type) &&
-		    types_.class_tag(specifiers.introduced->type) == ClassTag::Union &&
-		    specifiers.introduced->name.empty())
-		{
-			inject_union_members(*specifiers.introduced, ctx);
-		}
+		inject_union_members(specifiers.introduced, ctx);
 		return;
 	}
 	for (std::size_t index = 0; index < list->children.size(); ++index)
 	{
-		init_declarator(*list->children[index], specifiers, ctx);
+		const AstNode& init = *list->children[index];
+		init_declarator(*init.children[0], child_of(init, AstKind::Initializer),
+		                specifiers, ctx);
+	}
+}
+
+// 6.4p3: a condition declares its name in a region that encloses the statement's
+// substatements, which is the region the statement itself is written in.
+void SemaAnalyzer::condition_declaration(const AstNode& node, const Context& ctx)
+{
+	Span span;
+	span.begin = node.begin;
+	span.end = node.end;
+	const Specifiers specifiers =
+		read_specifiers(*node.children[0], ctx, span, true, std::string());
+	const AstNode* declarator = child_of(node, AstKind::Declarator);
+	if (declarator != nullptr)
+	{
+		init_declarator(*declarator, child_of(node, AstKind::Initializer),
+		                specifiers, ctx);
 	}
 }
 
 void SemaAnalyzer::init_declarator(const AstNode& node,
+                                   const AstNode* initializer,
                                    const Specifiers& specifiers,
                                    const Context& ctx)
 {
 	std::string written;
-	TypeId type = declarator_type(*node.children[0], specifier_type(specifiers),
-	                              ctx, &written);
-	const std::string name = last_component(written);
+	TypeId type = declarator_type(node, specifier_type(specifiers), ctx, &written);
+	const QualifiedName spelled(written);
+	const std::string name = spelled.last();
 	if (name.empty())
 	{
 		return;
@@ -725,10 +732,9 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 	// 3.4.3p3: a declarator-id with a nested-name-specifier declares into the
 	// region that names, wherever the declaration is written.
 	Context target = ctx;
-	if (written.size() != name.size())
+	if (spelled.qualified())
 	{
-		std::string last;
-		target.scope = resolve_prefix(written, ctx, last);
+		target.scope = resolve_prefix(spelled, ctx);
 		target.dump = target.scope->dump;
 	}
 
@@ -760,19 +766,21 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 		type = types_.qualified(type, kCvConst);
 	}
 	SemaEntity& entity = model_.create(SemaKind::Variable, name, type);
-	const AstNode* initializer = child_of(node, AstKind::Initializer);
 	if (initializer != nullptr && !initializer->children.empty() &&
 	    (types_.cv(type) & kCvConst) != 0 && arithmetic_type(type) != kNoType)
 	{
 		// 5.19p3: a const object of integral type initialized by a constant
 		// expression is one, and is what an array bound may be written with.
+		// An initializer that is an ordinary expression leaves it an object
+		// like any other; an initializer that is ill formed is still ill
+		// formed, so only the one failure is caught.
 		try
 		{
 			entity.value = convert(evaluate(*initializer->children[0], ctx),
 			                       type).bits;
 			entity.constant = true;
 		}
-		catch (const std::runtime_error&)
+		catch (const NotConstant&)
 		{
 			entity.constant = false;
 		}
@@ -792,21 +800,22 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 	const AstNode& declarator = *node.children[1];
 	const AstNode* id = declarator_id(declarator);
 	const std::string written = id == nullptr ? std::string() : id->text;
-	const std::string name = last_component(written);
+	const QualifiedName spelled(written);
+	const std::string name = spelled.last();
 
 	// 3.4.1p8: the rest of a declarator whose declarator-id is qualified is
 	// looked up in the region that name reaches.
 	Context target = ctx;
-	if (written.size() != name.size())
+	if (spelled.qualified())
 	{
-		std::string last;
-		target.scope = resolve_prefix(written, ctx, last);
+		target.scope = resolve_prefix(spelled, ctx);
 		target.dump = target.scope->dump;
 	}
 
 	std::string ignored;
+	std::vector<Parameter> parameters;
 	const TypeId type = declarator_type(declarator, specifier_type(specifiers),
-	                                    target, &ignored);
+	                                    target, &ignored, &parameters);
 	if (types_.kind(type) != TypeKind::Function)
 	{
 		throw std::runtime_error("a function definition declares " + name +
@@ -829,31 +838,18 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 	inner.scope = &model_.open(ScopeKind::Function, *target.scope, entity, &dump);
 	inner.dump = &dump;
 
-	const AstNode* clause = nullptr;
-	for (const AstNode* level = &declarator; level != nullptr && clause == nullptr;)
+	// 8.4.1p1: the parameters the declarator's own parameter-clause declared,
+	// which the type it built already read.
+	for (std::size_t index = 0; index < parameters.size(); ++index)
 	{
-		clause = child_of(*level, AstKind::ParameterClause);
-		const AstNode* nested = child_of(*level, AstKind::NestedDeclarator);
-		level = nested == nullptr || nested->children.empty()
-			? nullptr
-			: nested->children[0];
-	}
-	if (clause != nullptr)
-	{
-		std::vector<Parameter> parameters;
-		bool variadic = false;
-		read_parameters(*clause, target, parameters, variadic);
-		for (std::size_t index = 0; index < parameters.size(); ++index)
+		SemaEntity& parameter = model_.create(
+			SemaKind::Parameter, parameters[index].name, parameters[index].type);
+		if (!parameter.name.empty())
 		{
-			SemaEntity& parameter = model_.create(
-				SemaKind::Parameter, parameters[index].name, parameters[index].type);
-			if (!parameter.name.empty())
-			{
-				model_.bind(*inner.scope, parameter.name, parameter);
-			}
-			model_.declare_in(*inner.scope, parameter);
-			write_line(dump, "parameter", parameter.name, parameter.type);
+			model_.bind(*inner.scope, parameter.name, parameter);
 		}
+		model_.declare_in(*inner.scope, parameter);
+		write_line(dump, "parameter", parameter.name, parameter.type);
 	}
 
 	for (std::size_t index = 2; index < node.children.size(); ++index)
@@ -891,6 +887,10 @@ void SemaAnalyzer::statement(const AstNode& node, const Context& ctx)
 		declaration(node, ctx);
 		return;
 
+	case AstKind::ConditionDeclaration:
+		condition_declaration(node, ctx);
+		return;
+
 	case AstKind::IfStatement:
 	case AstKind::SwitchStatement:
 	case AstKind::WhileStatement:
@@ -905,6 +905,7 @@ void SemaAnalyzer::statement(const AstNode& node, const Context& ctx)
 	case AstKind::Else:
 	case AstKind::Iteration:
 	case AstKind::ForInitStatement:
+	case AstKind::Condition:
 		// 3.3.3: a statement with a substatement encloses it, and PA11 models
 		// of a statement only the regions it opens.
 		for (std::size_t index = 0; index < node.children.size(); ++index)
