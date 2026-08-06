@@ -535,6 +535,12 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
 {
 	const AstNode& callee = *node.children[0];
 	SemaEntity* named = nullptr;
+	if (callee.kind == AstKind::DecltypeSpecifier)
+	{
+		// 5.2.3 and 7.1.6.2p4: a call written on a decltype-specifier is an
+		// explicit type conversion to the type the specifier names.
+		return functional_cast(node, ctx, parent, decltype_type(callee, ctx));
+	}
 	if (callee.kind == AstKind::IdExpression)
 	{
 		// 5.2.3: a call whose callee names a type is an explicit type

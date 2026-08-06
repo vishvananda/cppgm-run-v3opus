@@ -58,8 +58,7 @@ The class layer adds three more, each at the declaration that established it:
 
 ## Current Failure Map
 
-**160/166**. The class layer landed; every open test is member-pointer,
-template or PA10 parse work.
+**165/166**. One test is open, and it is the only one that needs templates.
 
 | Group | Tests | State |
 | --- | --- | --- |
@@ -69,27 +68,33 @@ template or PA10 parse work.
 | D. calls, conversions, overloads | ~45 | done |
 | E. diagnostics | ~20 | done |
 | F. classes, members and anonymous unions | 4 | done |
-| G. member-pointer types (`C::*`, `C::* ()const`) | 3 | open |
-| H. templates (`&hello<stream>`, member template overload) | 2 | open |
-| I. `decltype(x)(1)` functional cast (PA10 parse gap) | 1 | open |
+| G. member-pointer types | 3 | done |
+| H. templates: `300-static-cast-overloaded-function-template-argument` | 1 | open |
+| I. `decltype(x)(1)` functional cast | 1 | done |
 
-Group G needs a `MemberPointer` type category in `TypeTable`, the `C::*`
-ptr-operator in the declarator reader, and the cv-qualified function type
-`function of () const returning T` the spelling of a member function pointer
-uses.  Group H needs template-argument substitution deep enough to declare an
-instantiation; one of its two tests also needs group G.
+The open test is `take(static_cast<void(*)(stream)>(&hello<stream>))` over three
+function templates.  Nothing of it is in place: a template is declared into the
+region 14.1 gives its parameters, so its name is not even bound where a call
+can see it, and the output writes an instantiation rather than a template.
 
 ## Active Checkpoint
 
-**C3 - member pointers (group G).**
+**C5 - function templates, as far as one specialization each.**
 
-- Owner: `TypeTable` for the `MemberPointer` category, its interning and its
-  spelling; `SemaAnalyzer::apply_pointer` for the `C::*` ptr-operator.
-- 8.3.3: a `nested-name-specifier *` in a declarator makes a pointer to member
-  of the class that name reaches, which is one lookup where the operator is
-  read.
-- 5.3.1p3: `&C::f` is a pointer to member, which is what the qualified name of
-  a member function under `&` denotes.
+- Owner: `SemaModel` for the template-name binding and the specializations
+  declared from it; `TypeTable` for substitution, which rebuilds a type with
+  its template parameters replaced; `sema_overload.cpp` for 14.8.2.1 deduction
+  from one argument.
+- 14.1: a template is declared in the region it is written in, with the region
+  of its parameters between; today `declare_function` puts it in the parameter
+  region, which is what hides the name.
+- 14.2 and 14.8.1: `hello<stream>` names the specializations the explicit
+  argument list makes of each declaration of the name, which is a substitution
+  per candidate and still an overload set for 13.4 to choose from.
+- 14.8.2.1: a call deduces a parameter from the argument it is passed, which
+  for the PA12 slice is the pattern `T` against a decayed argument type.
+- Each specialization is declared once, keyed by template and argument list, and
+  the output writes it among the definitions the end of the unit holds.
 
 ## Performance Model
 
@@ -141,3 +146,4 @@ resolves and which the README puts outside the PA12 slice.
 | C1 audit | argument conversions in place, 13.4 asked wherever a value is discarded, `&f` resolved, 5.9 enumeration comparisons, indexed overload declaration | pa12 156/166 held; pa1–pa11 672/672; 16000 overloads 3.05s → 0.26s; file audit clean |
 | C2 | classes and members: member regions write no line, local class naming, anonymous-union object and injected members, 12.1p5 constructors and `constructor-action`, 9.3.1p3 object parameter and `this`, 5.2.5 member expressions, 4.4 reference binding | pa12 156 → 160/166; pa1–pa11 672/672; 4000 members 0.02s, 4000 constructed objects 0.07s; file audit clean |
 | C3 | pointers to members: the `MemberPointer` category and one interning key per type, `C::*` declarators, the 8.3.5p7 cv-qualifier-seq, `&C::f`, and 14p1 templates writing no definition | pa12 160 → 164/166; pa1–pa11 672/672; 2000 member-pointer aliases 0.05s; file audit clean |
+| C4 | `decltype(x)(1)`: 7.1.6.2 makes a decltype-specifier a simple-type-specifier, so 5.2.3 reads a call written on one as an explicit type conversion | pa12 164 → 165/166; pa1–pa11 672/672; file audit clean |

@@ -616,6 +616,43 @@ AstNode* AstParser::parse_primary_expression()
 		node->add(arguments);
 		return node;
 	}
+	if (type == KW_DECLTYPE)
+	{
+		// 5.2.3p1: an explicit type conversion may be written with any
+		// simple-type-specifier, and 7.1.6.2 counts a decltype-specifier among
+		// them.  The grammar reads the conversion as the call it is written as,
+		// so the type stands where a callee does.  A decltype-specifier written
+		// anywhere else in an expression is a name, and is read as one.
+		const Mark start = mark();
+		if (skip_decltype_specifier() && at(OP_LPAREN))
+		{
+			const std::string named = spelled(start);
+			reset(start);
+			pos_ += 2;
+			AstNode* operand = nullptr;
+			{
+				BracketGuard brackets(*this, false);
+				operand = parse_expression();
+				if (operand == nullptr || !at(OP_RPAREN))
+				{
+					return fail(start);
+				}
+				++pos_;
+			}
+			AstNode* callee = make_text(AstKind::DecltypeSpecifier, named);
+			callee->add(operand);
+			AstNode* arguments = parse_argument_suffix(AstKind::ParenArgumentList);
+			if (arguments == nullptr)
+			{
+				return fail(start);
+			}
+			AstNode* node = make(AstKind::CallExpression);
+			node->add(callee);
+			node->add(arguments);
+			return node;
+		}
+		reset(start);
+	}
 	if (type == OP_LSQUARE)
 	{
 		return parse_lambda_expression();
