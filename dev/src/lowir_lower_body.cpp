@@ -301,6 +301,7 @@ LowValue LowirFunctionLowering::as_value(const LowValue& value)
 	{
 		out.operand = decay(value);
 		out.type = types.pointer_to(types.target(bare));
+		out.unnamed = false;
 		return out;
 	}
 	if (types.kind(bare) == TypeKind::Function)
@@ -331,6 +332,12 @@ Operand LowirFunctionLowering::decay(const LowValue& value)
 	// of it is the address of its storage.  `unary decay` is what marks that
 	// point for a later pass instead of leaving it to be reconstructed.
 	TypeTable& types = unit_.types();
+	if (value.unnamed)
+	{
+		// No declaration named this object, so there is no point where a name
+		// of it became a pointer view of it.
+		return address_of(value);
+	}
 	if (value.operand.kind == Operand::OP_TEMP &&
 	    types.kind(types.strip_cv(value.type)) != TypeKind::Function)
 	{
@@ -437,6 +444,17 @@ Operand LowirFunctionLowering::converted(const LowValue& value, TypeId target)
 		return decay(value);
 	}
 	const Operand operand = rvalue(value);
+	if (types.strip_cv(value.type) == types.fundamental(FT_NULLPTR_T) &&
+	    types.kind(wanted) == TypeKind::Pointer)
+	{
+		// 4.10p1: the null pointer value of `std::nullptr_t` read as a pointer
+		// of the type it is converted to.
+		Instruction instruction;
+		instruction.kind = Instruction::IK_COPY;
+		instruction.type.text = "ptr";
+		instruction.first = operand;
+		return emit(instruction);
+	}
 	if (types.strip_cv(value.type) == wanted)
 	{
 		return operand;
@@ -1183,6 +1201,21 @@ LowValue LowirFunctionLowering::expression(const DumpNode& node,
 	case FactKind::Cast:
 		return cast_expression(node, as_object);
 
+	case FactKind::BracedInitList:
+	{
+		// 8.5.4 over a scalar: the value is what its one clause says, and an
+		// empty list is the zero of the type it initializes.
+		if (!node.children.empty())
+		{
+			return expression(*node.children[0], as_object);
+		}
+		LowValue value;
+		value.type = node.fact.type;
+		value.constant = true;
+		value.operand = literal_operand(value.type, 0);
+		return value;
+	}
+
 	default:
 		break;
 	}
@@ -1191,8 +1224,28 @@ LowValue LowirFunctionLowering::expression(const DumpNode& node,
 
 LowValue LowirFunctionLowering::literal(const DumpNode& node)
 {
+	TypeTable& types = unit_.types();
 	LowValue value;
 	value.type = node.fact.type;
+	if (!node.fact.spelling.empty() &&
+	    types.kind(types.strip_cv(value.type)) == TypeKind::Array)
+	{
+		// 2.14.5p8: the literal is an array object of static storage duration,
+		// which the program holds under a name of its own.
+		value.lvalue = true;
+		value.unnamed = true;
+		value.operand.kind = Operand::OP_GLOBAL;
+		value.operand.text =
+			unit_.string_literal(node.fact.spelling, value.type);
+		return value;
+	}
+	if (types.strip_cv(value.type) == types.fundamental(FT_NULLPTR_T))
+	{
+		// 2.14.7 and 4.10p1: `nullptr` is a value of its own type, which every
+		// pointer type converts from and which LowIR spells as it is written.
+		value.operand = named_operand(Operand::OP_INTEGER, "nullptr");
+		return value;
+	}
 	if (!node.fact.constant)
 	{
 		throw std::runtime_error("a literal is outside the PA15 lowering subset");

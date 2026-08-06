@@ -710,6 +710,10 @@ SemaAnalyzer::Value SemaAnalyzer::literal_expression(const AstNode& node,
 		value.spelled = value.type;
 		value.node = &model_.open_node(
 			parent, spell(value.what, value.category, value.type, value.payload));
+		// 2.14.5p8: the array the literal is holds the code units the
+		// translation read out of it, which no later layer can read back out
+		// of the spelling on its own.
+		value.node->fact.spelling = token.data;
 		return value;
 	}
 	if (first >= '0' && first <= '9')

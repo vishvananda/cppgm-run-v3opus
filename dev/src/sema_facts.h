@@ -109,8 +109,9 @@ struct SemaFact
 	// a constant the constant layer folded.
 	bool constant;
 	unsigned long long value;
-	// 2.14.4: the tokens a floating literal was written from.  Its value is a
-	// value of the target's floating type, which no integer holds, so what the
-	// program wrote is what a lowering writes again.
+	// What a literal holds that one integer cannot: the tokens a floating
+	// literal was written from, whose value is a value of the target's
+	// floating type, and the code units a string literal holds, which 2.14.5
+	// makes an array object rather than a value.
 	std::string spelling;
 };

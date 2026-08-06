@@ -527,6 +527,11 @@ private:
 	// variable, a condition, a return statement and an argument all do.
 	Value initialize(const AstNode& node, TypeId target, const Context& ctx,
 	                 DumpNode& parent);
+	// 8.5.4: a braced-init-list written where an expression initializes an
+	// object.  Over the PA12 scalar subset it holds at most one clause, whose
+	// value the object takes, and an empty one value-initializes it.
+	Value list_initialize(const AstNode& node, TypeId target, const Context& ctx,
+	                      DumpNode& parent);
 	// 13.3.3.1 over the PA12 conversion subset.
 	Match match_argument(const Value& argument, TypeId parameter);
 	Match match_by_value(const Value& argument, TypeId parameter);

@@ -39,6 +39,7 @@ struct LowValue
 		, has_held(false)
 		, constant(false)
 		, value(0)
+		, unnamed(false)
 	{}
 
 	lowir_model::Operand operand;
@@ -54,6 +55,10 @@ struct LowValue
 	// an immediate be written as the immediate it widens to.
 	bool constant;
 	unsigned long long value;
+	// 2.14.5p8: an array object no declaration named, which is what a string
+	// literal is.  `unary decay` marks where a declared entity becomes a
+	// pointer view of itself, and there is no declaration here to mark.
+	bool unnamed;
 };
 
 // The symbols one LowIR program names, which outlive the translation unit that
@@ -132,6 +137,11 @@ public:
 	// The internal LowIR symbol of a namespace-scope object.
 	std::string global_symbol(const SemaEntity& entity);
 	std::string function_symbol(const SemaEntity& entity);
+	// 2.14.5p8: the global holding the code units of a string literal, made
+	// once per distinct literal.  The literal is an array object with static
+	// storage duration and no name a program can write, so the program holds
+	// it under one of its own.
+	std::string string_literal(const std::string& data, TypeId array);
 	// Names `entity` in the program as a declaration, for a use of a function
 	// or object this unit does not define.
 	void declare_entity(const SemaEntity& entity);
@@ -185,6 +195,9 @@ private:
 	// The walk of the startup function, opened by the first object that needs
 	// it, so the actions of one unit are emitted into one body in order.
 	LowirFunctionLowering* startup_;
+	// The global each distinct string literal was given, so one literal
+	// written twice is one array object.
+	std::unordered_map<std::string, std::string> strings_;
 };
 
 // One function body, lowered.

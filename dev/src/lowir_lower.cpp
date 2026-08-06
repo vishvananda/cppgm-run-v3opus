@@ -316,6 +316,12 @@ bool LowirUnitLowering::folded(const DumpNode& node, unsigned long long& bits)
 		bits = fact.value;
 		return true;
 	}
+	if (types_.strip_cv(fact.type) == types_.fundamental(FT_NULLPTR_T))
+	{
+		// 4.10p1: `nullptr` is the null pointer value, which holds no address.
+		bits = 0;
+		return true;
+	}
 	if (fact.kind == FactKind::Id && fact.entity != nullptr &&
 	    fact.entity->constant)
 	{
@@ -325,6 +331,22 @@ bool LowirUnitLowering::folded(const DumpNode& node, unsigned long long& bits)
 	if (fact.kind == FactKind::Cast && node.children.size() == 1)
 	{
 		return folded(*node.children[0], bits);
+	}
+	if (fact.kind == FactKind::BracedInitList)
+	{
+		bits = 0;
+		return node.children.empty() ? true : folded(*node.children[0], bits);
+	}
+	if (fact.kind == FactKind::Conditional && node.children.size() == 3)
+	{
+		// 5.16p1: the condition chooses which of the two the value is, and a
+		// constant condition chooses at translation time.
+		unsigned long long chosen = 0;
+		if (!folded(*node.children[0], chosen))
+		{
+			return false;
+		}
+		return folded(*node.children[chosen != 0 ? 1 : 2], bits);
 	}
 	if (fact.kind == FactKind::Unary && node.children.size() == 1)
 	{
@@ -442,6 +464,12 @@ bool LowirUnitLowering::global_address(const DumpNode& node,
 	{
 		return global_address(*node.children[0], symbol, addend);
 	}
+	if (fact.kind == FactKind::Literal && !fact.spelling.empty() &&
+	    types_.kind(types_.strip_cv(fact.type)) == TypeKind::Array)
+	{
+		symbol = string_literal(fact.spelling, fact.type);
+		return true;
+	}
 	if (fact.kind == FactKind::Id && fact.entity != nullptr)
 	{
 		const SemaEntity& entity = *fact.entity;
@@ -557,15 +585,35 @@ void LowirUnitLowering::global_array_initializer(
 		throw std::runtime_error("an array initializer has more clauses than "
 		                         "the array has elements");
 	}
+	const bool addressed = types_.kind(types_.strip_cv(element)) == TypeKind::Pointer;
 	for (std::size_t index = 0; index < clauses; ++index)
 	{
 		lowir_model::GlobalDefinition::DataItem item;
 		item.type = low_type(element);
+		std::string symbol;
+		long long addend = 0;
+		if (addressed && global_address(*node->children[index], symbol, addend))
+		{
+			item.kind = lowir_model::GlobalDefinition::DataItem::ITEM_ADDR;
+			item.symbol = symbol;
+			item.addr_addend = addend;
+			global.data_items.push_back(item);
+			continue;
+		}
 		unsigned long long bits = 0;
 		if (!folded(*node->children[index], bits))
 		{
 			throw std::runtime_error("an array element is initialized by an "
 			                         "expression PA15 does not lower");
+		}
+		if (addressed)
+		{
+			// 4.10p1: a null pointer element holds no address at all, which
+			// its storage says by being zero.
+			item.kind = lowir_model::GlobalDefinition::DataItem::ITEM_ZERO;
+			item.zero_bytes = static_cast<std::size_t>(stride);
+			global.data_items.push_back(item);
+			continue;
 		}
 		item.literal_operand.kind = lowir_model::Operand::OP_INTEGER;
 		item.literal_operand.text = spell_value(element, bits);
@@ -580,6 +628,45 @@ void LowirUnitLowering::global_array_initializer(
 	zero.kind = lowir_model::GlobalDefinition::DataItem::ITEM_ZERO;
 	zero.zero_bytes = static_cast<std::size_t>(left);
 	global.data_items.push_back(zero);
+}
+
+std::string LowirUnitLowering::string_literal(const std::string& data,
+                                              TypeId array)
+{
+	const std::unordered_map<std::string, std::string>::const_iterator found =
+		strings_.find(data);
+	if (found != strings_.end())
+	{
+		return found->second;
+	}
+	const TypeId element = types_.strip_cv(types_.target(types_.strip_cv(array)));
+	const unsigned long long stride = types_.object_size(element);
+	const std::string symbol =
+		"__strlit__" + decimal(strings_.size() + 1);
+	strings_[data] = symbol;
+	lowir_model::GlobalDefinition global;
+	global.name = symbol;
+	global.structured = true;
+	global.metadata.binding = lowir_model::SBM_INTERNAL;
+	for (std::size_t at = 0; at + stride <= data.size(); at += stride)
+	{
+		unsigned long long bits = 0;
+		for (std::size_t byte = stride; byte-- > 0;)
+		{
+			bits = (bits << 8) |
+				static_cast<unsigned char>(data[at + byte]);
+		}
+		lowir_model::GlobalDefinition::DataItem item;
+		item.type = low_type(element);
+		item.literal_operand.kind = lowir_model::Operand::OP_INTEGER;
+		// 2.14.5: the array holds code units, which are the values the
+		// execution character set gives them and not a signed reading of them.
+		item.literal_operand.text = decimal(bits);
+		global.data_items.push_back(item);
+	}
+	program_.globals.push_back(global);
+	defined_.insert(symbol);
+	return symbol;
 }
 
 void LowirUnitLowering::declare_entity(const SemaEntity& entity)

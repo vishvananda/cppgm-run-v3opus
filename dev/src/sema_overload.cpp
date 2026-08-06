@@ -563,10 +563,45 @@ void SemaAnalyzer::apply_conversion(Value& value, TypeId target,
 	}
 }
 
+SemaAnalyzer::Value SemaAnalyzer::list_initialize(const AstNode& node,
+                                                  TypeId target,
+                                                  const Context& ctx,
+                                                  DumpNode& parent)
+{
+	const TypeId wanted = types_.is_reference(target)
+		? types_.target(target)
+		: types_.strip_cv(target);
+	if (node.children.size() > 1)
+	{
+		throw std::runtime_error("a braced-init-list initializes a scalar with "
+		                         "more than one value");
+	}
+	DumpNode& line = open_fact(
+		parent, spell("braced-init-list", ValueCategory::LValue, target,
+		              std::string()),
+		FactKind::BracedInitList);
+	line.fact.type = target;
+	line.fact.spelled = target;
+	if (!node.children.empty())
+	{
+		initialize(*node.children[0], wanted, ctx, line);
+	}
+	Value value;
+	value.type = wanted;
+	value.spelled = target;
+	value.category = ValueCategory::PRValue;
+	value.node = &line;
+	return value;
+}
+
 SemaAnalyzer::Value SemaAnalyzer::initialize(const AstNode& node, TypeId target,
                                              const Context& ctx,
                                              DumpNode& parent)
 {
+	if (node.kind == AstKind::BracedInitList)
+	{
+		return list_initialize(node, target, ctx, parent);
+	}
 	Value value = expression(node, ctx, parent);
 	const Match match = match_argument(value, target);
 	if (!match.viable)
