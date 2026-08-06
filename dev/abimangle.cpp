@@ -124,6 +124,24 @@ bool parse_flag(const string & word)
   return false;
 }
 
+// An array bound is a decimal extent, or `expr:<reference>` for a dependent
+// one. The compact spelling has no room for the expression form because `:`
+// already separates the bound from the element type.
+AbiArrayBound parse_array_bound(const string & word, bool allow_expression)
+{
+  AbiArrayBound bound;
+  if(allow_expression && word.compare(0, 5, "expr:") == 0) {
+    bound.kind = ABI_ARRAY_BOUND_EXPRESSION;
+    bound.value = word.substr(5);
+    if(bound.value.empty()) { fail("array bound expression has no reference"); }
+    return bound;
+  }
+  bound.kind = ABI_ARRAY_BOUND_VALUE;
+  parse_index(word);
+  bound.value = word;
+  return bound;
+}
+
 AbiType builtin_or_named(const string & word)
 {
   AbiType type;
@@ -181,8 +199,7 @@ AbiType parse_compact_type(const string & word)
     if(bound_end == string::npos) { fail("array type has no element type"); }
     AbiType type;
     type.kind = ABI_TYPE_ARRAY;
-    type.array_bound.kind = ABI_ARRAY_BOUND_VALUE;
-    type.array_bound.value = rest.substr(0, bound_end);
+    type.array_bound = parse_array_bound(rest.substr(0, bound_end), false);
     type.types.push_back(parse_compact_type(rest.substr(bound_end + 1)));
     return type;
   }
@@ -330,8 +347,8 @@ AbiType parse_type_words(const vector<string> & words, size_t position)
   if(head == "array") {
     AbiType type;
     type.kind = ABI_TYPE_ARRAY;
-    type.array_bound.kind = ABI_ARRAY_BOUND_VALUE;
-    type.array_bound.value = word_at(words, position + 1, "array bound");
+    type.array_bound =
+      parse_array_bound(word_at(words, position + 1, "array bound"), true);
     type.types.push_back(parse_type_words(words, position + 2));
     return type;
   }
@@ -404,6 +421,9 @@ AbiTemplateArgument parse_entity_argument(const vector<string> & words,
   }
   argument.kind = ABI_TEMPLATE_ARGUMENT_MEMBER_EXTERNAL_ENTITY;
   argument.address_of = true;
+  // The fact file's own label for the member. The encoder builds the ABI name
+  // from the typed owner, member name, qualifiers and parameters that follow,
+  // so this spelling is carried for serialization only.
   argument.symbol = word_at(words, position, "external symbol");
   argument.owner_type =
     parse_compact_type(word_at(words, position + 1, "member owner"));
@@ -914,9 +934,12 @@ bool parse_target_record(const vector<string> & words, AbiTargetRecord & target)
   }
   if(head == "typeinfo" || head == "typeinfo-name" || head == "vtable" ||
      head == "vtt") {
-    target.kind = head == "vtable" ? ABI_TARGET_FACT_VTABLE
-                                   : (head == "vtt" ? ABI_TARGET_FACT_VTT
-                                                    : ABI_TARGET_FACT_TYPEINFO);
+    target.kind = head == "vtable"
+                    ? ABI_TARGET_FACT_VTABLE
+                    : (head == "vtt" ? ABI_TARGET_FACT_VTT
+                                     : (head == "typeinfo-name"
+                                          ? ABI_TARGET_FACT_TYPEINFO_NAME
+                                          : ABI_TARGET_FACT_TYPEINFO));
     target.type = parse_type_words(words, 1);
     return true;
   }
@@ -990,6 +1013,12 @@ bool parse_definition_record(const vector<string> & words,
 string serialize_compact_type(const AbiType & type);
 vector<string> serialize_type(const AbiType & type);
 
+string serialize_array_bound(const AbiArrayBound & bound)
+{
+  if(bound.kind == ABI_ARRAY_BOUND_EXPRESSION) { return "expr:" + bound.value; }
+  return bound.value;
+}
+
 string join_words(const vector<string> & words)
 {
   string text;
@@ -1031,6 +1060,7 @@ string serialize_compact_type(const AbiType & type)
     return text + serialize_compact_type(type.types.at(0));
   }
   case ABI_TYPE_ARRAY:
+    if(type.array_bound.kind == ABI_ARRAY_BOUND_EXPRESSION) { break; }
     return "array:" + type.array_bound.value + ":" +
            serialize_compact_type(type.types.at(0));
   case ABI_TYPE_MEMBER_POINTER:
@@ -1166,7 +1196,7 @@ vector<string> serialize_type(const AbiType & type)
     return words;
   case ABI_TYPE_ARRAY:
     words.push_back("array");
-    words.push_back(type.array_bound.value);
+    words.push_back(serialize_array_bound(type.array_bound));
     append_words(words, serialize_type(type.types.at(0)));
     return words;
   case ABI_TYPE_MEMBER_POINTER:
@@ -1236,7 +1266,6 @@ vector<string> serialize_argument(const AbiTemplateArgument & argument)
     words.push_back(argument.address_of ? "entity-address" : "entity");
     words.push_back(argument.entity_ref);
     return words;
-  case ABI_TEMPLATE_ARGUMENT_EXTERNAL_ENTITY:
   case ABI_TEMPLATE_ARGUMENT_MEMBER_EXTERNAL_ENTITY:
     words.push_back("member-external-address");
     words.push_back(argument.symbol);
@@ -1588,11 +1617,16 @@ vector<string> serialize_target(const AbiTargetRecord & target)
     words.push_back(target.qualified_name);
     return words;
   case ABI_TARGET_FACT_TYPEINFO:
+  case ABI_TARGET_FACT_TYPEINFO_NAME:
   case ABI_TARGET_FACT_VTABLE:
   case ABI_TARGET_FACT_VTT:
-    words.push_back(target.kind == ABI_TARGET_FACT_VTABLE
-                      ? "vtable"
-                      : (target.kind == ABI_TARGET_FACT_VTT ? "vtt" : "typeinfo"));
+    words.push_back(
+      target.kind == ABI_TARGET_FACT_VTABLE
+        ? "vtable"
+        : (target.kind == ABI_TARGET_FACT_VTT
+             ? "vtt"
+             : (target.kind == ABI_TARGET_FACT_TYPEINFO_NAME ? "typeinfo-name"
+                                                             : "typeinfo")));
     append_words(words, serialize_type(target.type));
     return words;
   case ABI_TARGET_FACT_CONSTRUCTION_VTABLE:

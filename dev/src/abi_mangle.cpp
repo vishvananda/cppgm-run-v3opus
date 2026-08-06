@@ -46,9 +46,8 @@ const WordCode BUILTIN_TYPE_CODES[] = {
 
 const WordCode CTOR_DTOR_CODES[] = {
   {"constructor-complete", "C1"}, {"constructor-base", "C2"},
-  {"constructor-allocating", "C3"}, {"constructor-inheriting", "C4"},
-  {"destructor-deleting", "D0"}, {"destructor-complete", "D1"},
-  {"destructor-base", "D2"},
+  {"constructor-allocating", "C3"}, {"destructor-deleting", "D0"},
+  {"destructor-complete", "D1"}, {"destructor-base", "D2"},
 };
 
 // Operators whose Itanium terminal does not depend on unary/binary use.
@@ -56,21 +55,19 @@ const WordCode FIXED_OPERATOR_CODES[] = {
   {"new", "nw"}, {"new-array", "na"}, {"delete", "dl"},
   {"delete-array", "da"}, {"unary-plus", "ps"}, {"unary-minus", "ng"},
   {"address-of", "ad"}, {"deref", "de"}, {"bit-not", "co"},
-  {"complement", "co"}, {"binary-plus", "pl"}, {"binary-minus", "mi"},
-  {"multiply", "ml"}, {"bit-and", "an"}, {"divide", "dv"},
-  {"remainder", "rm"}, {"bit-or", "or"}, {"bit-xor", "eo"},
-  {"assign", "aS"}, {"plus-assign", "pL"}, {"minus-assign", "mI"},
-  {"multiply-assign", "mL"}, {"divide-assign", "dV"},
-  {"remainder-assign", "rM"}, {"and-assign", "aN"}, {"or-assign", "oR"},
-  {"xor-assign", "eO"}, {"lshift", "ls"}, {"rshift", "rs"},
-  {"lshift-assign", "lS"}, {"rshift-assign", "rS"}, {"eq", "eq"},
-  {"equal", "eq"}, {"ne", "ne"}, {"not-equal", "ne"}, {"lt", "lt"},
-  {"gt", "gt"}, {"le", "le"}, {"ge", "ge"}, {"logical-and", "aa"},
-  {"logical-or", "oo"}, {"logical-not", "nt"}, {"increment", "pp"},
-  {"decrement", "mm"}, {"comma", "cm"}, {"member-pointer", "pm"},
-  {"arrow-star", "pm"}, {"arrow", "pt"}, {"call", "cl"}, {"index", "ix"},
-  {"subscript", "ix"}, {"conditional", "qu"}, {"sizeof", "sz"},
-  {"alignof", "az"},
+  {"binary-plus", "pl"}, {"binary-minus", "mi"}, {"multiply", "ml"},
+  {"bit-and", "an"}, {"divide", "dv"}, {"remainder", "rm"},
+  {"bit-or", "or"}, {"bit-xor", "eo"}, {"assign", "aS"},
+  {"plus-assign", "pL"}, {"minus-assign", "mI"}, {"multiply-assign", "mL"},
+  {"divide-assign", "dV"}, {"remainder-assign", "rM"},
+  {"bit-and-assign", "aN"}, {"bit-or-assign", "oR"}, {"bit-xor-assign", "eO"},
+  {"shift-left", "ls"}, {"shift-right", "rs"}, {"shift-left-assign", "lS"},
+  {"shift-right-assign", "rS"}, {"equal", "eq"}, {"not-equal", "ne"},
+  {"less", "lt"}, {"greater", "gt"}, {"less-equal", "le"},
+  {"greater-equal", "ge"}, {"logical-and", "aa"}, {"logical-or", "oo"},
+  {"logical-not", "nt"}, {"increment", "pp"}, {"decrement", "mm"},
+  {"comma", "cm"}, {"member-pointer", "pm"}, {"arrow", "pt"},
+  {"call", "cl"}, {"index", "ix"},
 };
 
 bool lookup_code(const WordCode * table, size_t count, const string & word,
@@ -91,11 +88,20 @@ bool builtin_type_code(const string & word, string & code)
   return lookup_code(BUILTIN_TYPE_CODES, count, word, code);
 }
 
+// A GNU complex word names the composite type `C <type>` rather than one
+// builtin code, so unlike every other builtin it is a substitution candidate.
+bool is_complex_builtin(const string & word)
+{
+  return word == "complex-float" || word == "complex-double" ||
+         word == "complex-longdouble";
+}
+
 // Bit width of a normalized unsigned builtin word, or 0 when the word does not
-// name an unsigned builtin type.
+// name an unsigned builtin type. `bool` is not one of them: its ABI literals
+// are the stored value, not an eight-bit pattern.
 unsigned unsigned_builtin_width(const string & word)
 {
-  if(word == "uchar" || word == "bool") { return 8; }
+  if(word == "uchar") { return 8; }
   if(word == "ushort") { return 16; }
   if(word == "uint") { return 32; }
   if(word == "ulong" || word == "ulonglong") { return 64; }
@@ -114,7 +120,7 @@ string decimal(unsigned long long value)
 string integral_literal_digits(const string & type_word, long long value)
 {
   const unsigned width = unsigned_builtin_width(type_word);
-  if(width != 0) {
+  if(value < 0 && width != 0) {
     unsigned long long bits = (unsigned long long)value;
     if(width < 64) { bits &= ((unsigned long long)1 << width) - 1; }
     return decimal(bits);
@@ -174,6 +180,36 @@ string abi_tag_suffix(const vector<string> & tags)
   return text;
 }
 
+// The cv- and ref-qualifiers of a member function, in Itanium order.
+string function_qualifier_codes(const vector<AbiFunctionQualifier> & quals)
+{
+  bool is_const = false;
+  bool is_volatile = false;
+  string reference;
+  for(size_t i = 0; i < quals.size(); ++i) {
+    switch(quals[i]) {
+    case ABI_FUNCTION_QUALIFIER_CONST: is_const = true; break;
+    case ABI_FUNCTION_QUALIFIER_VOLATILE: is_volatile = true; break;
+    case ABI_FUNCTION_QUALIFIER_LVALUE_REFERENCE: reference = "R"; break;
+    case ABI_FUNCTION_QUALIFIER_RVALUE_REFERENCE: reference = "O"; break;
+    }
+  }
+  string text;
+  if(is_volatile) { text += "V"; }
+  if(is_const) { text += "K"; }
+  return text + reference;
+}
+
+// `<discriminator>`: a local name carries one only from its second occurrence
+// on, spelled `_ <number>` below ten and `__ <number> _` from ten up.
+string local_discriminator(const string & occurrence)
+{
+  if(occurrence.empty() || occurrence == "0") { return ""; }
+  const unsigned long long number = strtoull(occurrence.c_str(), 0, 10) - 1;
+  if(number < 10) { return "_" + decimal(number); }
+  return "__" + decimal(number) + "_";
+}
+
 // `<call-offset>`: `h <offset> _` for a fixed adjustment, `v <offset> _
 // <vcall-offset> _` when the adjustment is loaded from the vtable.
 string call_offset(bool virtual_offset, long long fixed, long long vcall)
@@ -190,9 +226,31 @@ string call_offset(bool virtual_offset, long long fixed, long long vcall)
 
 namespace {
 
+// The canonical spelling of an already-registered substitution slot. A
+// candidate's key names its registered children by slot instead of expanding
+// them again, so one key stays proportional to that node's own structure.
+string slot_token(size_t slot)
+{
+  return "\x01" + decimal(slot) + "\x02";
+}
+
+// True when `key` is exactly one slot token, which means the candidate encoded
+// to nothing more than a component that is already registered.
+bool token_slot(const string & key, size_t & slot)
+{
+  if(key.size() < 3 || key[0] != '\x01' || key[key.size() - 1] != '\x02') {
+    return false;
+  }
+  for(size_t i = 1; i + 1 < key.size(); ++i) {
+    if(key[i] < '0' || key[i] > '9') { return false; }
+  }
+  slot = (size_t)strtoull(key.c_str() + 1, 0, 10);
+  return true;
+}
+
 // One mangled name's encoding state. Substitution slots are keyed on the
-// canonical expansion of the candidate, so equivalent spellings of the same
-// fact share a slot while encoding-significant differences do not.
+// canonical form of the candidate, so equivalent spellings of the same fact
+// share a slot while encoding-significant differences do not.
 class Encoder
 {
 public:
@@ -236,7 +294,7 @@ private:
   // --- substitution table ------------------------------------------------
   Mark mark() const;
   void rollback(const Mark & point);
-  void close_candidate(const Mark & point);
+  size_t close_candidate(const Mark & point);
   void put(const string & fragment) { out += fragment; canon += fragment; }
   void put_out(const string & fragment) { out += fragment; }
   void put_substitution(size_t slot);
@@ -264,17 +322,19 @@ private:
   void emit_template_arguments(const vector<string> & argument_refs);
   void emit_array(const AbiType & type);
   void emit_local_type(const AbiType & type);
-  size_t class_component_count(const AbiType & type) const;
+  bool is_nested_name(const AbiType & type) const;
 
   // --- template arguments and expressions --------------------------------
   void emit_argument(const string & id);
   void emit_argument_fact(const AbiTemplateArgument & argument);
+  void emit_integral_literal(const AbiType & value_type, long long value);
   void emit_member_template_entity(const AbiTemplateArgument & argument);
   void emit_expression_ref(const string & id);
   void emit_expression(const AbiDependentExpression & expression);
   void emit_expression_operands(const AbiDependentExpression & expression);
   void emit_entity_symbol(const string & id);
   string entity_symbol(const AbiEntityFact & entity) const;
+  void emit_member_entity(const AbiTemplateArgument & argument);
 
   // --- names and functions -----------------------------------------------
   void push_name_components(const string & name, FunctionShape & shape) const;
@@ -292,12 +352,14 @@ private:
   void emit_unqualified_terminal(const FunctionShape & shape);
   void emit_context_prefix(const FunctionShape & shape);
   void emit_bare_function_type(const FunctionShape & shape);
+  void emit_parameter_types(const vector<AbiType> & types, size_t first,
+                            bool variadic);
   void emit_context(const string & id);
-  void emit_lambda_signature(const vector<AbiType> & types);
+  void emit_closure_name(const vector<AbiType> & signature,
+                         const string & number);
   void emit_data_name(const string & qualified_name, bool internal_linkage);
 
   bool reuse_known_slot(const AbiDefinitionRecord * binder);
-  void remember_key(const AbiDefinitionRecord * binder, const Mark & point);
 
   const AbiDefinitionMap & defs;
   string out;
@@ -359,25 +421,41 @@ void Encoder::put_substitution(size_t slot)
     out += digits;
   }
   out += "_";
-  canon += table[slot];
+  canon += slot_token(slot);
 }
 
 // Close a speculatively encoded candidate: reuse an earlier slot when the
-// canonical expansion repeats, otherwise register a new slot.
-void Encoder::close_candidate(const Mark & point)
+// canonical form repeats, otherwise register a new slot. The candidate's
+// canonical span collapses to its slot token either way, and the settled slot
+// is returned.
+size_t Encoder::close_candidate(const Mark & point)
 {
   const string key = canon.substr(point.canon);
+  size_t settled = 0;
+  // The candidate is nothing but an already-registered component, so it has
+  // no key of its own to register.
+  if(token_slot(key, settled)) {
+    if(settled < point.table) {
+      rollback(point);
+      put_substitution(settled);
+    }
+    return settled;
+  }
   const unordered_map<string, size_t>::const_iterator found = index.find(key);
   if(found != index.end()) {
-    if(found->second < point.table) {
-      const size_t slot = found->second;
+    settled = found->second;
+    if(settled < point.table) {
       rollback(point);
-      put_substitution(slot);
+      put_substitution(settled);
     }
-    return;
+    return settled;
   }
-  index[key] = table.size();
+  settled = table.size();
+  index[key] = settled;
   table.push_back(key);
+  canon.resize(point.canon);
+  canon += slot_token(settled);
+  return settled;
 }
 
 // A node encoded earlier in this name already has a canonical key, so its
@@ -392,12 +470,6 @@ bool Encoder::reuse_known_slot(const AbiDefinitionRecord * binder)
   if(found == index.end()) { return false; }
   put_substitution(found->second);
   return true;
-}
-
-void Encoder::remember_key(const AbiDefinitionRecord * binder,
-                           const Mark & point)
-{
-  known_keys[binder] = canon.substr(point.canon);
 }
 
 // --- fact resolution -----------------------------------------------------
@@ -498,27 +570,24 @@ bool is_class_like(AbiTypeKind kind)
   }
 }
 
-size_t Encoder::class_component_count(const AbiType & type) const
+// A class-like name is wrapped in `N`/`E` exactly when it has more than one
+// component. A member name always does, so its owner needs no second walk.
+bool Encoder::is_nested_name(const AbiType & node) const
 {
-  AbiType storage;
-  const AbiType & node = resolve_type(type, storage);
   switch(node.kind) {
   case ABI_TYPE_NAMED:
   case ABI_TYPE_TEMPLATE_SPECIALIZATION: {
-    vector<string> parts = split_qualified_name(node.name);
-    if(parts.front() == "std") { parts.erase(parts.begin()); }
-    return parts.empty() ? 1 : parts.size();
+    const vector<string> parts = split_qualified_name(node.name);
+    return parts.size() > (parts.front() == "std" ? (size_t)2 : (size_t)1);
   }
   case ABI_TYPE_MEMBER:
   case ABI_TYPE_MEMBER_TEMPLATE_SPECIALIZATION:
     if(node.types.empty()) { fail("member type without an owner"); }
-    return class_component_count(node.types[0]) + 1;
+    return true;
   case ABI_TYPE_NAMESPACE_LAMBDA:
-    return node.namespace_qualifiers.size() + 1;
-  case ABI_TYPE_TEMPLATE_PARAMETER:
-    return 1;
+    return !node.namespace_qualifiers.empty();
   default:
-    return 1;
+    return false;
   }
 }
 
@@ -533,7 +602,13 @@ void Encoder::emit_type(const AbiType & type)
     if(!builtin_type_code(node.name, code)) {
       fail("unknown builtin type '" + node.name + "'");
     }
+    if(!is_complex_builtin(node.name)) {
+      put(code);
+      return;
+    }
+    const Mark complex_point = mark();
     put(code);
+    close_candidate(complex_point);
     return;
   }
   if(node.kind == ABI_TYPE_TEMPLATE_PARAMETER && !node.substitutable) {
@@ -550,7 +625,7 @@ void Encoder::emit_type(const AbiType & type)
   const bool shared = binder != 0 && &node != &storage;
   if(shared && reuse_known_slot(binder)) { return; }
   const Mark point = mark();
-  const bool nested = is_class_like(node.kind) && class_component_count(node) > 1;
+  const bool nested = is_nested_name(node);
   if(nested) { put_out("N"); }
   if(is_class_like(node.kind)) {
     emit_class_prefix_content(node);
@@ -558,8 +633,8 @@ void Encoder::emit_type(const AbiType & type)
     emit_type_body(node);
   }
   if(nested) { put_out("E"); }
-  if(shared) { remember_key(binder, point); }
-  close_candidate(point);
+  const size_t slot = close_candidate(point);
+  if(shared) { known_keys[binder] = table[slot]; }
 }
 
 void Encoder::emit_type_body(const AbiType & type)
@@ -613,23 +688,23 @@ void Encoder::emit_cv_type(const AbiType & type)
 {
   bool is_const = false;
   bool is_volatile = false;
+  // The walk holds only pointers: a resolved node is usually the operand of the
+  // node just visited, so writing it into that node's own storage would free
+  // the object being read. Two scratch nodes keep the source and destination of
+  // every `resolve_type` distinct, and neither is written unless it is used.
+  AbiType scratch[2];
+  size_t free_scratch = 0;
   const AbiType * node = &type;
-  AbiType storage;
   size_t hops = 0;
   while(node->kind == ABI_TYPE_CV) {
     is_const = is_const || node->is_const;
     is_volatile = is_volatile || node->is_volatile;
     if(node->types.empty()) { fail("cv type without an operand"); }
     if(++hops > MAX_ENCODE_DEPTH) { fail("cyclic cv type"); }
-    AbiType inner;
-    const AbiType & next = resolve_type(node->types[0], inner);
-    if(next.kind != ABI_TYPE_CV) {
-      storage = next;
-      node = &storage;
-      break;
-    }
-    storage = next;
-    node = &storage;
+    AbiType & target = scratch[free_scratch];
+    const AbiType & resolved = resolve_type(node->types[0], target);
+    node = &resolved;
+    if(&resolved == &target) { free_scratch = 1 - free_scratch; }
   }
   if(is_volatile) { put("V"); }
   if(is_const) { put("K"); }
@@ -651,17 +726,23 @@ void Encoder::emit_array(const AbiType & type)
   emit_type(type.types.at(0));
 }
 
+// The parameter list of a bare function type, from `first` on: the `v` marker
+// stands for an empty parameter list, and a lone ellipsis is spelled by `z`
+// alone.
+void Encoder::emit_parameter_types(const vector<AbiType> & types, size_t first,
+                                   bool variadic)
+{
+  if(types.size() == first && !variadic) { put("v"); }
+  for(size_t i = first; i < types.size(); ++i) { emit_type(types[i]); }
+  if(variadic) { put("z"); }
+}
+
 void Encoder::emit_function_type(const AbiType & type)
 {
   put("F");
   if(type.types.empty()) { fail("function type without a result"); }
   emit_type(type.types[0]);
-  if(type.types.size() == 1) {
-    put("v");
-  } else {
-    for(size_t i = 1; i < type.types.size(); ++i) { emit_type(type.types[i]); }
-  }
-  if(type.variadic) { put("z"); }
+  emit_parameter_types(type.types, 1, type.variadic);
   put("E");
 }
 
@@ -738,26 +819,25 @@ void Encoder::emit_local_type(const AbiType & type)
 {
   emit_context(type.context_ref);
   if(type.kind == ABI_TYPE_LAMBDA_CLOSURE) {
-    put("Ul");
-    emit_lambda_signature(type.types);
-    put("E");
-    put(type.discriminator + "_");
+    emit_closure_name(type.types, type.discriminator);
     return;
   }
   put(source_name(type.name) + abi_tag_suffix(type.abi_tags));
-  if(!type.discriminator.empty() && type.discriminator != "0") {
-    const long long value = atoll(type.discriminator.c_str());
-    put("_" + decimal((unsigned long long)(value - 1)));
-  }
+  put(local_discriminator(type.discriminator));
 }
 
-void Encoder::emit_lambda_signature(const vector<AbiType> & types)
+// `<closure-type-name>`: the lambda's signature, then its own number.
+void Encoder::emit_closure_name(const vector<AbiType> & signature,
+                                const string & number)
 {
-  if(types.empty()) {
+  put("Ul");
+  if(signature.empty()) {
     put("v");
-    return;
+  } else {
+    for(size_t i = 0; i < signature.size(); ++i) { emit_type(signature[i]); }
   }
-  for(size_t i = 0; i < types.size(); ++i) { emit_type(types[i]); }
+  put("E");
+  put(number + "_");
 }
 
 void Encoder::emit_qualified_name(const string & name,
@@ -809,11 +889,21 @@ void Encoder::emit_class_prefix(const AbiType & type)
   if(shared && reuse_known_slot(binder)) { return; }
   const Mark point = mark();
   emit_class_prefix_content(node);
-  if(shared) { remember_key(binder, point); }
-  close_candidate(point);
+  const size_t slot = close_candidate(point);
+  if(shared) { known_keys[binder] = table[slot]; }
 }
 
 // --- template arguments --------------------------------------------------
+
+// `<expr-primary> ::= L <type> <value number> E`, the one spelling shared by
+// value arguments and by integral literals inside dependent expressions.
+void Encoder::emit_integral_literal(const AbiType & value_type, long long value)
+{
+  put("L");
+  emit_type(value_type);
+  put(integral_literal_digits(value_type.name, value));
+  put("E");
+}
 
 void Encoder::emit_argument(const string & id)
 {
@@ -828,18 +918,12 @@ void Encoder::emit_argument_fact(const AbiTemplateArgument & argument)
     emit_type(argument.type);
     return;
   case ABI_TEMPLATE_ARGUMENT_VALUE:
-    put("L");
-    emit_type(argument.value_type);
-    put(integral_literal_digits(argument.value_type.name, argument.value));
-    put("E");
+    emit_integral_literal(argument.value_type, argument.value);
     return;
   case ABI_TEMPLATE_ARGUMENT_DEPENDENT_VALUE:
     put("Tn");
     emit_type(argument.type);
-    put("L");
-    emit_type(argument.value_type);
-    put(integral_literal_digits(argument.value_type.name, argument.value));
-    put("E");
+    emit_integral_literal(argument.value_type, argument.value);
     return;
   case ABI_TEMPLATE_ARGUMENT_UNTYPED_VALUE:
     put("L");
@@ -869,11 +953,10 @@ void Encoder::emit_argument_fact(const AbiTemplateArgument & argument)
     put(indexed_code("T", argument.index));
     emit_template_arguments(argument.argument_refs);
     return;
-  case ABI_TEMPLATE_ARGUMENT_EXTERNAL_ENTITY:
   case ABI_TEMPLATE_ARGUMENT_MEMBER_EXTERNAL_ENTITY:
     put("X");
     if(argument.address_of) { put("ad"); }
-    put("L" + argument.symbol + "E");
+    emit_member_entity(argument);
     put("E");
     return;
   case ABI_TEMPLATE_ARGUMENT_ENTITY:
@@ -933,16 +1016,8 @@ void Encoder::emit_expression(const AbiDependentExpression & expression)
     put(indexed_code("fp", expression.index));
     return;
   case ABI_EXPRESSION_LITERAL:
-    put("L");
-    emit_type(expression.value_type);
-    put(integral_literal_digits(expression.value_type.name, expression.value));
-    put("E");
-    return;
   case ABI_EXPRESSION_INTEGRAL_VALUE:
-    put("L");
-    emit_type(expression.value_type);
-    put(integral_literal_digits(expression.value_type.name, expression.value));
-    put("E");
+    emit_integral_literal(expression.value_type, expression.value);
     return;
   case ABI_EXPRESSION_EXTERNAL_ENTITY:
     put("L" + expression.text + "E");
@@ -1037,17 +1112,44 @@ string Encoder::entity_symbol(const AbiEntityFact & entity) const
   nested.put("_Z");
   nested.emit_data_name(entity.qualified_name, entity.internal_linkage);
   if(entity.kind == ABI_ENTITY_FACT_FUNCTION) {
-    const vector<AbiFunctionPathOperand> & operands =
-      entity.function.path_operands;
-    if(operands.empty()) {
-      nested.put("v");
-    } else {
-      for(size_t i = 0; i < operands.size(); ++i) {
-        nested.emit_type(operands[i].type);
-      }
+    vector<AbiType> parameters;
+    for(size_t i = 0; i < entity.function.path_operands.size(); ++i) {
+      parameters.push_back(entity.function.path_operands[i].type);
     }
+    nested.emit_parameter_types(parameters, 0, false);
   }
   return nested.text();
+}
+
+// A member named by a template argument is built from the typed owner, member
+// name, cv/ref qualifiers and parameter types rather than from a supplied
+// mangled spelling. Unlike a `let-entity` symbol it is constructed in place, so
+// its components join this name's substitution stream.
+void Encoder::emit_member_entity(const AbiTemplateArgument & argument)
+{
+  vector<AbiFunctionQualifier> qualifiers;
+  if(argument.member_function_volatile) {
+    qualifiers.push_back(ABI_FUNCTION_QUALIFIER_VOLATILE);
+  }
+  if(argument.member_function_const) {
+    qualifiers.push_back(ABI_FUNCTION_QUALIFIER_CONST);
+  }
+  if(argument.member_function_lvalue_ref) {
+    qualifiers.push_back(ABI_FUNCTION_QUALIFIER_LVALUE_REFERENCE);
+  }
+  if(argument.member_function_rvalue_ref) {
+    qualifiers.push_back(ABI_FUNCTION_QUALIFIER_RVALUE_REFERENCE);
+  }
+  put("L_ZN");
+  put(function_qualifier_codes(qualifiers));
+  emit_class_prefix(argument.owner_type);
+  put(source_name(argument.name));
+  put("E");
+  if(argument.member_is_function) {
+    emit_parameter_types(argument.parameter_types, 0,
+                         argument.member_function_variadic);
+  }
+  put("E");
 }
 
 // A data name: `<name>`, with the internal-linkage marker on the final
@@ -1328,25 +1430,6 @@ void Encoder::emit_function(const AbiFunctionTarget & target,
   emit_bare_function_type(shape);
 }
 
-string function_qualifier_codes(const vector<AbiFunctionQualifier> & quals)
-{
-  bool is_const = false;
-  bool is_volatile = false;
-  string reference;
-  for(size_t i = 0; i < quals.size(); ++i) {
-    switch(quals[i]) {
-    case ABI_FUNCTION_QUALIFIER_CONST: is_const = true; break;
-    case ABI_FUNCTION_QUALIFIER_VOLATILE: is_volatile = true; break;
-    case ABI_FUNCTION_QUALIFIER_LVALUE_REFERENCE: reference = "R"; break;
-    case ABI_FUNCTION_QUALIFIER_RVALUE_REFERENCE: reference = "O"; break;
-    }
-  }
-  string text;
-  if(is_volatile) { text += "V"; }
-  if(is_const) { text += "K"; }
-  return text + reference;
-}
-
 void Encoder::emit_function_name(const FunctionShape & shape)
 {
   if(shape.local_wrapper) { emit_context(shape.context_ref); }
@@ -1395,17 +1478,11 @@ void Encoder::emit_component_chain(const FunctionShape & shape)
       }
       break;
     case COMPONENT_CLOSURE:
-      put("Ul");
-      emit_lambda_signature(component.lambda_signature);
-      put("E");
-      put(component.discriminator + "_");
+      emit_closure_name(component.lambda_signature, component.discriminator);
       break;
     case COMPONENT_LOCAL_CLASS:
       put(source_name(component.name));
-      if(!component.discriminator.empty() && component.discriminator != "0") {
-        const long long value = atoll(component.discriminator.c_str());
-        put("_" + decimal((unsigned long long)(value - 1)));
-      }
+      put(local_discriminator(component.discriminator));
       break;
     }
     close_candidate(base);
@@ -1444,8 +1521,6 @@ string operator_terminal_code(const string & name, bool member, size_t params)
   const size_t arity = member ? params + 1 : params;
   if(name == "plus") { return arity >= 2 ? "pl" : "ps"; }
   if(name == "minus") { return arity >= 2 ? "mi" : "ng"; }
-  if(name == "star") { return arity >= 2 ? "ml" : "de"; }
-  if(name == "ampersand") { return arity >= 2 ? "an" : "ad"; }
   fail("unknown operator terminal '" + name + "'");
   return code;
 }
@@ -1496,14 +1571,7 @@ void Encoder::emit_bare_function_type(const FunctionShape & shape)
   if(shape.has_result && shape.terminal_kind != TERMINAL_CONVERSION) {
     emit_type(shape.result);
   }
-  if(shape.parameters.empty()) {
-    put("v");
-  } else {
-    for(size_t i = 0; i < shape.parameters.size(); ++i) {
-      emit_type(shape.parameters[i]);
-    }
-  }
-  if(shape.variadic) { put("z"); }
+  emit_parameter_types(shape.parameters, 0, shape.variadic);
 }
 
 // --- targets -------------------------------------------------------------
@@ -1529,6 +1597,10 @@ void Encoder::encode_target(const AbiTargetRecord & target,
     return;
   case ABI_TARGET_FACT_TYPEINFO:
     put("_ZTI");
+    emit_type(target.type);
+    return;
+  case ABI_TARGET_FACT_TYPEINFO_NAME:
+    put("_ZTS");
     emit_type(target.type);
     return;
   case ABI_TARGET_FACT_VTABLE:
