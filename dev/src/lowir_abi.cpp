@@ -247,9 +247,15 @@ std::string abi_symbol_of(const SemaEntity& entity, TypeTable& types)
 	}
 	target.kind = abi_mangle::ABI_TARGET_FACT_FUNCTION;
 	const std::vector<TypeId>& parameters = types.parameters(entity.type);
+	// 9.3.1p3: the object parameter is not one the declarator wrote, so it is
+	// not one the name encodes; 8.3.5p7's cv-qualifier-seq on the function is
+	// what the object it points to carries, and the encoding writes that as a
+	// qualifier of the name rather than as a parameter.
+	const std::size_t first = entity.object_member ? 1u : 0u;
 	std::string terminal;
 	if (entity.name.compare(0, 8, "operator") == 0 &&
-	    operator_terminal(entity.name.substr(8), parameters.size(), terminal))
+	    operator_terminal(entity.name.substr(8), parameters.size() - first,
+	                      terminal))
 	{
 		// 13.5: an operator function is named by the operator it overloads,
 		// which the encoding spells as its own terminal rather than as a source
@@ -288,7 +294,26 @@ std::string abi_symbol_of(const SemaEntity& entity, TypeTable& types)
 		target.function.kind = abi_mangle::ABI_FUNCTION_TARGET_PATH;
 		target.function.qualified_name = entity.dump_name;
 	}
-	for (std::size_t index = 0; index < parameters.size(); ++index)
+	if (first != 0)
+	{
+		const unsigned cv = types.cv(types.target(parameters[0]));
+		if ((cv & kCvConst) != 0)
+		{
+			abi_mangle::AbiFunctionRecord qualifier;
+			qualifier.kind = abi_mangle::ABI_FUNCTION_RECORD_QUALIFIER;
+			qualifier.qualifiers.push_back(abi_mangle::ABI_FUNCTION_QUALIFIER_CONST);
+			records.push_back(qualifier);
+		}
+		if ((cv & kCvVolatile) != 0)
+		{
+			abi_mangle::AbiFunctionRecord qualifier;
+			qualifier.kind = abi_mangle::ABI_FUNCTION_RECORD_QUALIFIER;
+			qualifier.qualifiers.push_back(
+				abi_mangle::ABI_FUNCTION_QUALIFIER_VOLATILE);
+			records.push_back(qualifier);
+		}
+	}
+	for (std::size_t index = first; index < parameters.size(); ++index)
 	{
 		abi_mangle::AbiFunctionRecord parameter;
 		parameter.kind = abi_mangle::ABI_FUNCTION_RECORD_PARAMETER;

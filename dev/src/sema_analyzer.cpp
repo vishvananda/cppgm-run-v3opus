@@ -220,23 +220,30 @@ void SemaAnalyzer::record_default_arguments(
 	const SemaEntity& function, const std::vector<Parameter>& declared,
 	Scope* region)
 {
+	// 9.3.1p3: a member function's declarator does not write the object
+	// parameter, so the parameters it did write begin after it.  The defaults
+	// are held at the place the function type gives each parameter, which is
+	// what every arity question asks about.
+	const std::size_t total = types_.parameters(function.type).size();
+	const std::size_t implicit =
+		total > declared.size() ? total - declared.size() : 0;
 	for (std::size_t index = 0; index < declared.size(); ++index)
 	{
 		if (declared[index].initializer == nullptr)
 		{
 			continue;
 		}
+		const std::size_t at = index + implicit;
 		std::vector<Default>& held = defaults_[function.id];
-		held.resize(declared.size() > held.size() ? declared.size()
-		                                          : held.size());
-		if (held[index].written != nullptr)
+		held.resize(at + 1 > held.size() ? at + 1 : held.size());
+		if (held[at].written != nullptr)
 		{
 			// 8.3.6p4: a parameter's default-argument belongs to the
 			// declaration that first gave it, which a later one does not move.
 			continue;
 		}
-		held[index].written = declared[index].initializer;
-		held[index].scope = region;
+		held[at].written = declared[index].initializer;
+		held[at].scope = region;
 	}
 }
 
@@ -782,9 +789,51 @@ void SemaAnalyzer::declare_constructor(SemaEntity& entity, Scope& scope)
 		types_.function_of(types_.fundamental(FT_VOID), parameters, false));
 	constructor.dump_name = scope.prefix + spelled;
 	constructor.object_member = true;
+	// 7.1.2p3 and 12.1p5: a constructor no declaration wrote is inline, so the
+	// definition it is given belongs to every translation unit that needs one
+	// rather than to the one that happened to write the class.
+	constructor.inline_function = true;
+	constructor.trivial = trivial_default_construction(scope);
 	constructor.tail = &constructor;
 	model_.declare_in(scope, constructor);
 	entity.constructor = &constructor;
+}
+
+// 12.1p5: whether default-initializing an object of the class this region
+// declares does nothing at all.  It does nothing when no member asks for
+// anything: a member with a default member initializer is one action, and a
+// member of class type is whatever its own constructor is.  Layout has already
+// run, so the class's members are exactly the declarations of this region.
+bool SemaAnalyzer::trivial_default_construction(Scope& scope)
+{
+	for (std::size_t index = 0; index < scope.declarations.size(); ++index)
+	{
+		const SemaEntity& member = *scope.declarations[index];
+		if (member.kind != SemaKind::Variable || !member.object_member ||
+		    member.region != &scope)
+		{
+			continue;
+		}
+		const SemaEntity* const constructor =
+			default_constructor(element_of(member.type));
+		if (constructor != nullptr && !constructor->trivial)
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+// 8.3.4p1: the type one element of an array is, however many dimensions it
+// has, which is the type whose construction the array's own asks for.
+TypeId SemaAnalyzer::element_of(TypeId type)
+{
+	TypeId at = types_.strip_cv(type);
+	while (types_.kind(at) == TypeKind::Array)
+	{
+		at = types_.strip_cv(types_.target(at));
+	}
+	return at;
 }
 
 void SemaAnalyzer::inject_union_members(SemaEntity* entity, const Context& ctx,
@@ -929,16 +978,42 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line)
 	}
 	DumpNode& action =
 		model_.open_node(line, "constructor-action " + constructor->dump_name);
+	action.fact.kind = FactKind::ConstructorAction;
+	action.fact.entity = constructor;
+	action.fact.type = variable.type;
 	DumpNode& call = model_.open_node(
 		action, spell("call-expression", ValueCategory::PRValue,
 		              types_.target(constructor->type), std::string()));
-	model_.open_node(call, "callee " + constructor->dump_name + " " +
-	                 types_.description(constructor->type));
+	set_fact(call, FactKind::Call, types_.target(constructor->type),
+	         ValueCategory::PRValue);
+	DumpNode& callee =
+		model_.open_node(call, "callee " + constructor->dump_name + " " +
+		                 types_.description(constructor->type));
+	set_fact(callee, FactKind::Callee, constructor->type,
+	         ValueCategory::LValue);
+	callee.fact.entity = constructor;
 	const TypeId object = types_.pointer_to(variable.type);
 	DumpNode& address = model_.open_node(
 		call, spell("unary-expression", ValueCategory::PRValue, object, "OP_AMP:&"));
-	model_.open_node(address, spell("id-expression", ValueCategory::LValue,
-	                                variable.type, variable.name));
+	set_fact(address, FactKind::Unary, object, ValueCategory::PRValue);
+	address.fact.op = OP_AMP;
+	DumpNode& named =
+		model_.open_node(address, spell("id-expression", ValueCategory::LValue,
+		                                variable.type, variable.name));
+	set_fact(named, FactKind::Id, variable.type, ValueCategory::LValue);
+	named.fact.entity = &variable;
+}
+
+// The typed facts of a node the analysis builds rather than reads: a
+// constructor call has no expression in the source to be spelled from, and the
+// lowering reads facts and never text.
+void SemaAnalyzer::set_fact(DumpNode& node, FactKind kind, TypeId type,
+                            ValueCategory category)
+{
+	node.fact.kind = kind;
+	node.fact.type = type;
+	node.fact.spelled = type;
+	node.fact.category = category;
 }
 
 void SemaAnalyzer::lay_out_class(SemaEntity& entity, Scope& scope, bool is_union)
@@ -947,7 +1022,7 @@ void SemaAnalyzer::lay_out_class(SemaEntity& entity, Scope& scope, bool is_union
 	unsigned long long align = 1;
 	for (std::size_t index = 0; index < scope.declarations.size(); ++index)
 	{
-		const SemaEntity& member = *scope.declarations[index];
+		SemaEntity& member = *scope.declarations[index];
 		// 9.4p2 makes a static data member a variable rather than part of an
 		// object, and 9.5p1 records an anonymous union's members in this region
 		// as well as in the union's; the object they are part of is the one the
@@ -965,10 +1040,15 @@ void SemaAnalyzer::lay_out_class(SemaEntity& entity, Scope& scope, bool is_union
 		}
 		if (is_union)
 		{
+			// 9.5p1: every member of a union begins where the union does.
+			member.offset = 0;
 			size = member_size > size ? member_size : size;
 			continue;
 		}
-		size = round_up(size, member_align) + member_size;
+		// 9.2p13: the members are allocated in declaration order, each at the
+		// next address its own alignment allows.
+		member.offset = round_up(size, member_align);
+		size = member.offset + member_size;
 	}
 	// 1.8p5: a complete object has a size of at least one byte.
 	size = round_up(size, align);
@@ -1336,6 +1416,10 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 		function.object_member = type != written_type;
 		function.internal_linkage = function.internal_linkage ||
 			(specifiers.is_static && target.scope->kind == ScopeKind::Namespace);
+		// 7.1.2p2: one declaration of a function with `inline` makes it inline,
+		// so the fact accumulates over the declarations of one entity.
+		function.inline_function =
+			function.inline_function || specifiers.is_inline;
 		record_default_arguments(function, spelled_parameters, target.scope);
 		if (function.template_parameters != nullptr)
 		{
@@ -1412,10 +1496,13 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 	}
 	// 3.1p2: an `extern` declaration with no initializer declares the object
 	// and does not define it; every other declaration of one at namespace scope
-	// does, and a later definition of the same object says so once.
+	// does, and a later definition of the same object says so once.  9.4.2p2
+	// makes the declaration a static data member's class writes no definition
+	// of it however it was written, so only one outside the class defines it.
 	entity.object_definition = entity.object_definition ||
-		!specifiers.is_extern ||
-		(initializer != nullptr && !initializer->children.empty());
+		(target.scope->kind != ScopeKind::Class &&
+		 (!specifiers.is_extern ||
+		  (initializer != nullptr && !initializer->children.empty())));
 	// 3.5p3: at namespace scope a name declared `static` has internal linkage,
 	// and so does a `const` object no declaration wrote `extern`.
 	entity.internal_linkage = entity.internal_linkage ||
@@ -1560,6 +1647,10 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 	// however the others were written.
 	entity.internal_linkage = entity.internal_linkage ||
 		(specifiers.is_static && target.scope->kind == ScopeKind::Namespace);
+	// 7.1.2p2 and 9.3p2: `inline` says so, and so does defining a member
+	// function inside the class that declares it.
+	entity.inline_function = entity.inline_function || specifiers.is_inline ||
+		target.scope->kind == ScopeKind::Class;
 	record_default_arguments(entity, parameters, target.scope);
 
 	DumpScope& dump = model_.open_dump(*target.dump, "scope function " + name);

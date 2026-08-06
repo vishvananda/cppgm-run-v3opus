@@ -174,7 +174,8 @@ public:
 	// it under one of its own.
 	std::string string_literal(const std::string& data, TypeId array);
 	// Names `entity` in the program as a declaration, for a use of a function
-	// or object this unit does not define.
+	// or object this unit does not define.  A use of a function whose definition
+	// belongs to every unit that needs one also asks for that definition here.
 	void declare_entity(const SemaEntity& entity);
 	// Records what the metadata of a namespace-scope symbol says: 3.5p3 whose
 	// program may reach it, 7.5p1 what language linkage it was declared with,
@@ -214,6 +215,16 @@ private:
 	std::string spell_value(TypeId type, unsigned long long bits);
 	// The declaration of `entity` as a function, without a body.
 	void add_function_declaration(const SemaEntity& entity);
+	// 7.1.2p4 and 12.1p5: a definition no one translation unit owns is in the
+	// program only where the program uses it, so a use asks for it here.  The
+	// definition is taken off the deferred map as it is asked for, which makes
+	// one use of a name lower it and every later use cost a probe.
+	void demand_definition(const SemaEntity& entity);
+	// Lowers the definitions asked for so far, and the ones lowering those asks
+	// for.  It runs between top level declarations and never inside one, so no
+	// `lowir_model::Function&` of a body being lowered is alive when
+	// `program_.functions` grows.
+	void drain_demanded();
 
 	// 3.6.2p2: the action a namespace-scope object with no constant initializer
 	// needs, added to the program's one startup function.
@@ -236,6 +247,14 @@ private:
 	// The symbol of every namespace-scope entity this unit has already asked
 	// for, so a name used many times is flattened and signed once.
 	std::unordered_map<std::uint32_t, std::string> entity_symbols_;
+	// 3.2p3 and 7.1.2p4: the definitions this unit holds that belong to every
+	// unit needing one rather than to this one - an inline function, a member
+	// function defined in its class, and the constructor 12.1p5 gives a class -
+	// keyed by the entity each defines.  A definition the program never uses is
+	// not part of the program, so none of these is lowered until a use asks.
+	std::unordered_map<std::uint32_t, const DumpNode*> deferred_;
+	// Those a use has asked for and that are not lowered yet.
+	std::vector<const DumpNode*> demanded_;
 };
 
 // One function body, lowered.
@@ -301,6 +320,14 @@ private:
 	LowValue expression(const DumpNode& node, bool as_object = false);
 	LowValue literal(const DumpNode& node);
 	LowValue id_expression(const DumpNode& node);
+	// 5.2.5p1: `E1.E2`, `E1->E2` and a member named with no object expression,
+	// which all reach the member through the object the operand denotes.
+	LowValue member_expression(const DumpNode& node);
+	// 12.1p5: the constructor call an object of class type is initialized by.
+	// `declared_here` says the object's storage is what its own declaration in
+	// this function gave it, which is where 3.8p1 makes its lifetime begin.
+	void constructor_action(const LowValue& object, const DumpNode& node,
+	                        bool declared_here);
 	LowValue call_expression(const DumpNode& node);
 	LowValue unary_expression(const DumpNode& node);
 	LowValue increment_expression(const DumpNode& node, bool postfix);

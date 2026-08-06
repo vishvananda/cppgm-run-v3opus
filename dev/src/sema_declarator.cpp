@@ -41,6 +41,7 @@ SemaAnalyzer::Specifiers::Specifiers()
 	, is_constexpr(false)
 	, is_extern(false)
 	, is_static(false)
+	, is_inline(false)
 	, introduced(nullptr)
 {
 	for (std::size_t index = 0; index < kSimpleTypeSpecifierCount; ++index)
@@ -153,6 +154,12 @@ void SemaAnalyzer::read_type_specifier(const AstNode& node, Specifiers& out,
 		// 9.4p1: a static member is a member of the class rather than of an
 		// object of it, which is the one storage class a type depends on.
 		out.is_static = true;
+		return;
+
+	case KW_INLINE:
+		// 7.1.2p2: the definition may be written in more than one translation
+		// unit, so the one the program has is not this unit's to own.
+		out.is_inline = true;
 		return;
 
 	case KW_CONST:

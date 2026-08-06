@@ -373,13 +373,20 @@ SemaEntity* SemaAnalyzer::resolve_target(const Value& value, TypeId target)
 // argument is at least as good and for one is better.
 SemaEntity* SemaAnalyzer::select_overload(
 	const std::vector<SemaEntity*>& candidates,
-	const std::vector<Value>& arguments, const std::string& name)
+	const std::vector<Value>& arguments, const std::string& name,
+	const Value* object)
 {
 	std::vector<SemaEntity*> viable;
 	// 13.3.3p1: which of the viable candidates is a specialization of a
 	// template, which is what tells two apart whose conversions tie.
 	std::vector<char> templated;
 	std::vector<Match> matches;
+	// 13.3.1p3: every candidate is compared over the same argument list, so the
+	// implicit object argument holds a place in it whether or not a candidate is
+	// a non-static member.  13.3.1p4 makes that place an exact match for a
+	// candidate with no implicit object parameter, so it never decides between
+	// two candidates on its own.
+	const std::size_t implicit = object != nullptr ? 1u : 0u;
 	for (std::size_t chain = 0; chain < candidates.size(); ++chain)
 	{
 	for (SemaEntity* candidate = candidates[chain]; candidate != nullptr;
@@ -397,18 +404,40 @@ SemaEntity* SemaAnalyzer::select_overload(
 				continue;
 			}
 		}
+		if (at->object_member && object == nullptr)
+		{
+			// 13.3.1p4: a non-static member function called with no object has
+			// nothing for its implicit object parameter to bind.
+			continue;
+		}
 		const std::vector<TypeId>& parameters = types_.parameters(at->type);
-		if (!accepts_arity(*at, arguments.size()) ||
-		    (arguments.size() > parameters.size() && !types_.variadic(at->type)))
+		// 9.3.1p3 put the object parameter first, so the parameters a written
+		// argument may reach begin after it.
+		const std::size_t written = at->object_member ? 1u : 0u;
+		const std::size_t declared = parameters.size() - written;
+		if (!accepts_arity(*at, arguments.size() + written) ||
+		    (arguments.size() > declared && !types_.variadic(at->type)))
 		{
 			continue;
 		}
 		bool ok = true;
 		const std::size_t base = matches.size();
+		if (implicit != 0)
+		{
+			Match match;
+			match.viable = true;
+			match.rank = kExactMatch;
+			if (at->object_member)
+			{
+				match = match_argument(*object, parameters[0]);
+			}
+			ok = match.viable;
+			matches.push_back(match);
+		}
 		for (std::size_t index = 0; ok && index < arguments.size(); ++index)
 		{
 			Match match;
-			if (index >= parameters.size())
+			if (index >= declared)
 			{
 				// 13.3.3.1.3: an argument matched by the ellipsis converts with
 				// the worst rank there is.
@@ -417,7 +446,8 @@ SemaEntity* SemaAnalyzer::select_overload(
 			}
 			else
 			{
-				match = match_argument(arguments[index], parameters[index]);
+				match = match_argument(arguments[index],
+				                       parameters[index + written]);
 			}
 			ok = match.viable;
 			matches.push_back(match);
@@ -438,7 +468,7 @@ SemaEntity* SemaAnalyzer::select_overload(
 	}
 
 	std::size_t best = 0;
-	const std::size_t count = arguments.size();
+	const std::size_t count = arguments.size() + implicit;
 	// One row of `count` matches per viable candidate, which for a call with no
 	// arguments is no row at all, so the rows are addressed from the buffer
 	// rather than from an element of it.
@@ -673,12 +703,30 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
 	}
 
 	DumpNode& line = model_.open_node(parent, std::string());
-	// 3.4: what the callee names was looked up above to learn that it is not a
-	// type, so the expression layer is handed the answer rather than asking
-	// for it again.
-	Value target = callee.kind == AstKind::IdExpression
-		? named_value(callee, require(named, callee.text), line, found)
-		: expression(callee, ctx, line);
+	// 13.3.1p3: the object a member function is called on is an argument of the
+	// call like any other, and 9.3.1p3 already made it the first parameter of
+	// the member's type, so the resolved tree writes it as the first argument.
+	// Its node stands before the written arguments and is dropped again where
+	// the declaration chosen turns out to be a static member.
+	Value object;
+	Value target;
+	if (callee.kind == AstKind::MemberExpression)
+	{
+		member_callee(callee, ctx, line, target, object);
+	}
+	else
+	{
+		// 3.4: what the callee names was looked up above to learn that it is not
+		// a type, so the expression layer is handed the answer rather than
+		// asking for it again.
+		target = callee.kind == AstKind::IdExpression
+			? named_value(callee, require(named, callee.text), line, found)
+			: expression(callee, ctx, line);
+		if (target.functions != nullptr && target.addressed == nullptr)
+		{
+			implicit_object_argument(*target.functions, line, object);
+		}
+	}
 
 	const AstNode* list = arguments_of(node);
 	std::vector<Value> arguments;
@@ -694,9 +742,20 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
 		// 13.3: the arguments choose one declaration, which the callee line is
 		// then written from.
 		SemaEntity& chosen =
-			*select_overload(*target.functions, arguments, callee.text);
+			*select_overload(*target.functions, arguments, callee.text,
+			                 object.node != nullptr ? &object : nullptr);
 		name_function(target, chosen, "callee");
 		function = target.type;
+		if (object.node != nullptr && chosen.object_member)
+		{
+			arguments.insert(arguments.begin(), object);
+		}
+		else if (object.node != nullptr)
+		{
+			// 9.4p1: a static member is reached without an object, so the one
+			// the call named is no argument of it.
+			line.children.erase(line.children.begin() + 1);
+		}
 	}
 	else if (types_.kind(target.type) == TypeKind::Function)
 	{

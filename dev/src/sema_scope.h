@@ -103,6 +103,20 @@ struct SemaEntity
 	// Class: 12.1p5, the constructor the class has that no declaration wrote,
 	// held on the class because that is what an object of it asks for.
 	SemaEntity* constructor;
+	// 9.2p13: where in its class an object of this non-static data member
+	// begins, in bytes.  Layout is settled once, where 9.2p2 completes the
+	// class, so every later use of the member is one read rather than a walk
+	// of the members declared before it.
+	unsigned long long offset;
+	// 7.1.2p2: whether the definition of this function may appear in more than
+	// one translation unit, which 9.3p2 also gives a member function defined in
+	// its class body and 12.1p5 an implicitly declared constructor.  It is what
+	// says the definition binds weakly and is emitted only where it is used.
+	bool inline_function;
+	// 12.1p5: whether this constructor does nothing, so that an object it
+	// initializes needs no call at all.  A constructor the program wrote, or one
+	// with a member to initialize, is not one of these.
+	bool trivial;
 	// Whether this declaration is reached through an object of the class that
 	// declares it: 9.2p1 for a data member, and 9.3.1p3 for a member function,
 	// whose type carries that object as the first parameter its declarator did

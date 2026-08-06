@@ -62,6 +62,9 @@ enum class FactKind : unsigned char
 	Break,
 	Continue,
 	SimpleDeclaration,
+	// 12.1p5 and 8.5p6: the constructor call an object of class type is
+	// initialized by, written under the declaration of the object.
+	ConstructorAction,
 	// Declarations.
 	Variable,
 	Parameter,

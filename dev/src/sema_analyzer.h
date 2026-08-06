@@ -197,6 +197,9 @@ private:
 		// 9.4p1: a member declared `static` is not a member of an object, so it
 		// has no implicit object parameter and is reached without one.
 		bool is_static;
+		// 7.1.2p2: the definition of this function may be written in more than
+		// one translation unit, so no one unit owns the one the program has.
+		bool is_inline;
 		// The class or enumeration this sequence declared.
 		SemaEntity* introduced;
 	};
@@ -295,9 +298,19 @@ private:
 	// 12.1p5 and 8.5p6: the constructor that default-initializes an object of
 	// `type`, which the definition of the object is what asks for.
 	SemaEntity* default_constructor(TypeId type);
+	// 12.1p5: whether default-initializing an object of the class `scope`
+	// declares does nothing, so that no call has to be made for one.
+	bool trivial_default_construction(Scope& scope);
+	// 8.3.4p1: the type of one element of an array, however many dimensions it
+	// has, and the type itself for anything else.
+	TypeId element_of(TypeId type);
 	// The `constructor-action` an object of class type is initialized by, and
 	// the definition of the constructor it calls.
 	void construct_object(SemaEntity& variable, DumpNode& line);
+	// The typed facts of a node the analysis builds rather than reads out of an
+	// expression the program wrote.
+	static void set_fact(DumpNode& node, FactKind kind, TypeId type,
+	                     ValueCategory category);
 	// 9.3.1p3: the type of a member function, which is called on an object that
 	// its declarator does not write and that the dump writes as its first
 	// parameter.  Any other function is its own type.
@@ -441,6 +454,26 @@ private:
 	// expression has.
 	Value member_expression(const AstNode& node, const Context& ctx,
 	                        DumpNode& parent);
+	// 5.2.5p2: the region a member written after `.` or `->` is looked up in,
+	// with `object` left denoting the object rather than a pointer to it.
+	Scope& object_region(const AstNode& node, Value& object);
+	// 5.2.5 and 13.3.1.1.1: a call whose callee names a member.  `line` is the
+	// call's own node; the object the member is named on is written as the
+	// call's first argument, because 9.3.1p3 already made the object parameter
+	// the first parameter of a non-static member function's type.  A member that
+	// is not a function leaves `object` denoting nothing and `target` denoting
+	// whatever the member holds, which the call then reads as an ordinary one.
+	void member_callee(const AstNode& callee, const Context& ctx, DumpNode& line,
+	                   Value& target, Value& object);
+	// 9.3.2p1: the `this` a member function named with no object expression is
+	// called on, written as the call's first argument.  `object` denotes nothing
+	// outside a member function, where 13.3.1p4 leaves a non-static member no
+	// candidate at all.
+	void implicit_object_argument(const std::vector<SemaEntity*>& candidates,
+	                              DumpNode& line, Value& object);
+	// 5.3.1p3: the address of the object a member call is made on, written into
+	// `node` in place of the object expression already under it.
+	void address_of_object(Value& object, DumpNode& node, bool through_pointer);
 	// 9.3.1p3 and 9.5p1: a member named with no object expression, which is a
 	// member of the object `this` points to or of the one an anonymous union
 	// declared.  `payload` is what the dump writes after the type, which is the
@@ -577,9 +610,14 @@ private:
 	// one.  `candidates` are the declaration chains the lookup found, walked in
 	// declaration order within each; `arguments` are the analysed argument
 	// expressions in order.
+	// `object`, when given, is 13.3.1p3's implicit object argument: it is matched
+	// against the first parameter of every non-static member candidate and left
+	// out of every other, and 13.3.1p4 makes a non-static member no candidate at
+	// all where there is none.
 	SemaEntity* select_overload(const std::vector<SemaEntity*>& candidates,
 	                            const std::vector<Value>& arguments,
-	                            const std::string& name);
+	                            const std::string& name,
+	                            const Value* object = nullptr);
 	// 13.3.3.2: which of two conversions of one argument is better, as 1, 0
 	// or -1.
 	int compare_matches(const Match& left, const Match& right);

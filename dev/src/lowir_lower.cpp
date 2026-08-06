@@ -204,9 +204,13 @@ void LowirUnitLowering::describe_symbol(const SemaEntity& entity,
                                         const std::string& symbol)
 {
 	// 3.5p3: a definition of a name with internal linkage belongs to the
-	// translation unit that wrote it and no other may reach it.
-	metadata.binding = entity.internal_linkage ? lowir_model::SBM_INTERNAL
-	                                           : lowir_model::SBM_STRONG;
+	// translation unit that wrote it and no other may reach it.  7.1.2p4 makes
+	// an inline definition one the whole program shares, so every unit that
+	// holds one holds the same definition and none of them owns it.
+	metadata.binding = entity.internal_linkage
+		? lowir_model::SBM_INTERNAL
+		: (entity.inline_function ? lowir_model::SBM_WEAK
+		                          : lowir_model::SBM_STRONG);
 	// 7.5p1: the language linkage a backend needs is a fact about the
 	// declaration, which no LowIR type says.
 	if (entity.c_linkage)
@@ -257,7 +261,9 @@ void LowirUnitLowering::run(const DumpNode& unit)
 	for (std::size_t index = 0; index < unit.children.size(); ++index)
 	{
 		declaration(*unit.children[index]);
+		drain_demanded();
 	}
+	drain_demanded();
 	if (startup_ != nullptr)
 	{
 		startup_->suspend_generated(builder_.startup_body_);
@@ -273,6 +279,13 @@ void LowirUnitLowering::collect_definitions(const DumpNode& node)
 		    child.fact.entity != nullptr)
 		{
 			defined_.insert(function_symbol(*child.fact.entity));
+			if (child.fact.entity->inline_function)
+			{
+				// 7.1.2p4: the definition is the program's rather than this
+				// unit's, and 3.2p3 puts it in the program only where a use
+				// asks for it.
+				deferred_[child.fact.entity->id] = &child;
+			}
 		}
 		else if (child.fact.kind == FactKind::Variable &&
 		         child.fact.entity != nullptr &&
@@ -303,6 +316,12 @@ void LowirUnitLowering::declaration(const DumpNode& node)
 		return;
 
 	case FactKind::FunctionDefinition:
+		if (node.fact.entity != nullptr && node.fact.entity->inline_function)
+		{
+			// 7.1.2p4: the definition waits for a use of it, which
+			// `collect_definitions` has already recorded it against.
+			return;
+		}
 		function_definition(node);
 		return;
 
@@ -482,8 +501,22 @@ void LowirUnitLowering::global_variable(const DumpNode& node)
 		written = written->children.empty() ? nullptr : written->children[0];
 	}
 	const DumpNode* dynamic = nullptr;
-	if (types_.kind(types_.strip_cv(type)) == TypeKind::Array ||
-	    types_.kind(types_.strip_cv(type)) == TypeKind::Class)
+	if (written != nullptr && written->fact.kind == FactKind::ConstructorAction)
+	{
+		// 3.6.2p2 and 12.1p5: an object of class type starts as zero and is
+		// constructed before the program runs, so its storage is data and its
+		// constructor is an action.
+		global.structured = true;
+		lowir_model::GlobalDefinition::DataItem item;
+		item.kind = lowir_model::GlobalDefinition::DataItem::ITEM_ZERO;
+		item.zero_bytes = static_cast<std::size_t>(
+			types_.object_size(types_.strip_cv(type)));
+		global.data_items.push_back(item);
+		dynamic = written;
+		written = nullptr;
+	}
+	else if (types_.kind(types_.strip_cv(type)) == TypeKind::Array ||
+	         types_.kind(types_.strip_cv(type)) == TypeKind::Class)
 	{
 		global.structured = true;
 		global_array_initializer(global, written, type);
@@ -730,10 +763,33 @@ std::string LowirUnitLowering::string_literal(const std::string& data,
 	return symbol;
 }
 
+void LowirUnitLowering::demand_definition(const SemaEntity& entity)
+{
+	const std::unordered_map<std::uint32_t, const DumpNode*>::iterator found =
+		deferred_.find(entity.id);
+	if (found == deferred_.end())
+	{
+		return;
+	}
+	demanded_.push_back(found->second);
+	deferred_.erase(found);
+}
+
+void LowirUnitLowering::drain_demanded()
+{
+	while (!demanded_.empty())
+	{
+		const DumpNode& node = *demanded_.back();
+		demanded_.pop_back();
+		function_definition(node);
+	}
+}
+
 void LowirUnitLowering::declare_entity(const SemaEntity& entity)
 {
 	if (entity.kind == SemaKind::Function)
 	{
+		demand_definition(entity);
 		add_function_declaration(entity);
 		return;
 	}

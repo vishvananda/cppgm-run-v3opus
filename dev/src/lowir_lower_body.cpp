@@ -642,6 +642,17 @@ void LowirFunctionLowering::add_initialization(const Operand& storage,
                                                const DumpNode& node)
 {
 	TypeTable& types = unit_.types();
+	if (node.fact.kind == FactKind::ConstructorAction)
+	{
+		// 3.6.2p2 and 12.1p5: the object is initialized by calling its
+		// constructor on it, which is the one action its initialization is.
+		LowValue object;
+		object.type = type;
+		object.lvalue = true;
+		object.operand = storage;
+		constructor_action(object, node, false);
+		return;
+	}
 	if (types.is_reference(type))
 	{
 		const LowValue bound = expression(node, true);
@@ -649,6 +660,48 @@ void LowirFunctionLowering::add_initialization(const Operand& storage,
 		return;
 	}
 	initialize(storage, type, node);
+}
+
+// 12.1p5 and 8.5p6: constructing `object`, which is one call of its
+// constructor on the address of it.  A constructor that does nothing is no
+// call at all; the address of the object is still materialized where the
+// declaration that names the object is what gave it its storage, because that
+// is where 3.8p1 begins its lifetime.
+void LowirFunctionLowering::constructor_action(const LowValue& object,
+                                               const DumpNode& node,
+                                               bool declared_here)
+{
+	TypeTable& types = unit_.types();
+	const DumpNode& call = *node.children[0];
+	const SemaEntity& constructor = *call.children[0]->fact.entity;
+	if (constructor.trivial && !declared_here)
+	{
+		return;
+	}
+	const Operand address = address_of(object);
+	if (constructor.trivial)
+	{
+		return;
+	}
+	unit_.declare_entity(constructor);
+	Instruction out;
+	out.kind = Instruction::IK_CALL;
+	out.type = unit_.low_type(types.target(constructor.type));
+	out.first =
+		named_operand(Operand::OP_GLOBAL, unit_.function_symbol(constructor));
+	out.args.push_back(address);
+	// 12.6.2: whatever else the constructor was chosen with is passed after the
+	// object, in the order the resolved call wrote them.
+	const std::vector<TypeId>& parameters = types.parameters(constructor.type);
+	for (std::size_t index = 2; index < call.children.size(); ++index)
+	{
+		const std::size_t at = index - 1;
+		const bool bound =
+			at < parameters.size() && types.is_reference(parameters[at]);
+		const LowValue argument = expression(*call.children[index], bound);
+		out.args.push_back(converted(argument, parameters[at]));
+	}
+	emit_void(out);
 }
 
 void LowirFunctionLowering::suspend_generated(GeneratedBody& state) const
@@ -815,6 +868,17 @@ void LowirFunctionLowering::local_variable(const DumpNode& node)
 	{
 		// 8.5p6: an object with no initializer holds no value the program may
 		// read, and its storage is all the declaration asks for.
+		return;
+	}
+	if (node.children[0]->fact.kind == FactKind::ConstructorAction)
+	{
+		// 12.1p5: the object's lifetime begins where its declaration is
+		// reached, which is where its constructor runs on it.
+		LowValue object;
+		object.type = type;
+		object.lvalue = true;
+		object.operand = storage;
+		constructor_action(object, *node.children[0], true);
 		return;
 	}
 	if (types.is_reference(type))
@@ -1224,6 +1288,9 @@ LowValue LowirFunctionLowering::expression(const DumpNode& node,
 	case FactKind::Id:
 		return id_expression(node);
 
+	case FactKind::Member:
+		return member_expression(node);
+
 	case FactKind::Call:
 		return call_expression(node);
 
@@ -1268,7 +1335,8 @@ LowValue LowirFunctionLowering::expression(const DumpNode& node,
 	default:
 		break;
 	}
-	throw std::runtime_error("an expression is outside the PA15 lowering subset");
+	throw std::runtime_error("an expression is outside the PA15 lowering subset: "
+	                         + node.text);
 }
 
 LowValue LowirFunctionLowering::literal(const DumpNode& node)
@@ -1342,6 +1410,41 @@ LowValue LowirFunctionLowering::id_expression(const DumpNode& node)
 		return value;
 	}
 	return storage_of(entity);
+}
+
+// 5.2.5p1 and 9.2p13: the member of the object the operand denotes, which is
+// that object's storage advanced by the place its class gave the member.  The
+// operand is a pointer where `->` or an implicit `this` wrote one and the
+// object itself where `.` did, and its own type is what says which.
+LowValue LowirFunctionLowering::member_expression(const DumpNode& node)
+{
+	TypeTable& types = unit_.types();
+	const DumpNode& written = *node.children[0];
+	const LowValue object = expression(written, true);
+	const Operand base =
+		types.kind(types.strip_cv(object.type)) == TypeKind::Pointer
+			? rvalue(object)
+			: address_of(object);
+	const SemaEntity& member = *node.fact.entity;
+	LowValue value;
+	value.type = node.fact.type;
+	value.lvalue = true;
+	Instruction step;
+	step.kind = Instruction::IK_INDEX;
+	step.type.text = "i8";
+	step.index_projection = types.is_reference(member.type)
+		? lowir_model::IPK_REFERENCE_FIELD
+		: lowir_model::IPK_FIELD;
+	step.first = base;
+	step.second = named_operand(Operand::OP_INTEGER, decimal(member.offset));
+	value.operand = emit(step);
+	if (types.is_reference(member.type))
+	{
+		// 8.3.2p5: a member of reference type names what it is bound to, so the
+		// object the member holds is reached through the pointer it stores.
+		value.operand = load(value.operand, member.type);
+	}
+	return value;
 }
 
 LowValue LowirFunctionLowering::cast_expression(const DumpNode& node,

@@ -371,10 +371,16 @@ SemaAnalyzer::Value SemaAnalyzer::named_value(const AstNode& node,
                                               const std::vector<SemaEntity*>* found)
 {
 	Value value;
-	if (entity.kind == SemaKind::Enumerator)
+	if (entity.kind == SemaKind::Enumerator ||
+	    (entity.kind == SemaKind::Variable && entity.constant &&
+	     !entity.object_definition && entity.region != nullptr &&
+	     entity.region->kind == ScopeKind::Class))
 	{
 		// 7.2p10 and 5.19: an enumerator is a constant, and the dump writes the
-		// value it stands for rather than the name it was written with.
+		// value it stands for rather than the name it was written with.  9.4.2p3
+		// gives a static data member of const integral type initialized in its
+		// class the same meaning: the class declared it and defined nothing, so
+		// the program has its value and no object holding it.
 		value.type = entity.type;
 		value.spelled = entity.type;
 		value.category = ValueCategory::PRValue;
@@ -518,15 +524,10 @@ void SemaAnalyzer::name_function(Value& value, SemaEntity& function,
 // expression, which is one lookup in the region that class declares.  The
 // member is not looked up in the region the expression is written in: 3.4.5
 // makes the object expression say where to look.
-SemaAnalyzer::Value SemaAnalyzer::member_expression(const AstNode& node,
-                                                    const Context& ctx,
-                                                    DumpNode& parent)
+// 5.2.5p2: the class whose members `E1.` or `E1->` names, which for the arrow
+// is what the pointer addresses.  `object` is left denoting that object.
+Scope& SemaAnalyzer::object_region(const AstNode& node, Value& object)
 {
-	// The line the member writes holds the object expression, and what it says
-	// is known only once the member is found, so the node is opened for the
-	// operand to write under and spelled afterwards.
-	DumpNode& line = model_.open_node(parent, std::string());
-	Value object = expression(*node.children[0], ctx, line);
 	require_complete_value(object);
 	if (node.token == OP_ARROW)
 	{
@@ -550,9 +551,33 @@ SemaAnalyzer::Value SemaAnalyzer::member_expression(const AstNode& node,
 	{
 		throw std::runtime_error("a member is named of an incomplete class");
 	}
+	return *owner->scope;
+}
+
+SemaAnalyzer::Value SemaAnalyzer::member_expression(const AstNode& node,
+                                                    const Context& ctx,
+                                                    DumpNode& parent)
+{
+	// The line the member writes holds the object expression, and what it says
+	// is known only once the member is found, so the node is opened for the
+	// operand to write under and spelled afterwards.
+	DumpNode& line = model_.open_node(parent, std::string());
+	Value object = expression(*node.children[0], ctx, line);
+	Scope& region = object_region(node, object);
 	const AstNode& id = *node.children[1];
-	SemaEntity& member = require(
-		model_.lookup_in(*owner->scope, id.text, LookupKind::Any), id.text);
+	std::vector<SemaEntity*>& found = model_.open_overloads();
+	SemaEntity& member =
+		require(model_.lookup_in(region, id.text, LookupKind::Any, &found),
+		        id.text);
+	if (member.kind != SemaKind::Variable || !member.object_member)
+	{
+		// 9.4p1 and 7.2p10: the member is not part of the object, so the object
+		// expression only said where to look and the name denotes what it would
+		// have denoted with the class written before it.  The PA16 slice writes
+		// an object expression here that names an object and does nothing else.
+		parent.children.pop_back();
+		return named_value(id, member, parent, &found);
+	}
 	if (member.storage != nullptr)
 	{
 		// 9.5p1: the member belongs to the object the anonymous union declared,
@@ -567,6 +592,108 @@ SemaAnalyzer::Value SemaAnalyzer::member_expression(const AstNode& node,
 	                    id.text, line);
 }
 
+// 5.3.1p3: the address of the object a member function is called on, written
+// into the node the object expression was read into.  `E1->f()` already has the
+// address, and `E1.f()` takes one.
+void SemaAnalyzer::address_of_object(Value& object, DumpNode& node,
+                                     bool through_pointer)
+{
+	if (through_pointer)
+	{
+		// The pointer the program wrote is the argument, so the node the call
+		// passes is the one that expression already wrote.
+		DumpNode& written = *node.children[0];
+		node.text = written.text;
+		node.fact = written.fact;
+		node.children.swap(written.children);
+		object.type = object.spelled = node.fact.type;
+		object.node = &node;
+		object.category = ValueCategory::PRValue;
+		return;
+	}
+	object.type = object.spelled = types_.pointer_to(object.type);
+	object.category = ValueCategory::PRValue;
+	object.entity = nullptr;
+	object.what = "unary-expression";
+	object.op = OP_AMP;
+	object.payload = std::string(ast_token_type_name(OP_AMP)) + ":&";
+	object.node = &node;
+	respell(object);
+}
+
+void SemaAnalyzer::member_callee(const AstNode& callee, const Context& ctx,
+                                 DumpNode& line, Value& target, Value& object)
+{
+	// The callee's own line is opened first so that it keeps its place among the
+	// call's children while 13.3 works out which declaration it names.
+	DumpNode& named = model_.open_node(line, std::string());
+	DumpNode& object_line = model_.open_node(line, std::string());
+	object = expression(*callee.children[0], ctx, object_line);
+	const bool through_pointer = callee.token == OP_ARROW;
+	Scope& region = object_region(callee, object);
+	const AstNode& id = *callee.children[1];
+	std::vector<SemaEntity*>& found = model_.open_overloads();
+	SemaEntity& member =
+		require(model_.lookup_in(region, id.text, LookupKind::Any, &found),
+		        id.text);
+	if (member.kind == SemaKind::Function)
+	{
+		address_of_object(object, object_line, through_pointer);
+		target.functions = &found;
+		target.category = ValueCategory::LValue;
+		target.node = &named;
+		return;
+	}
+	// 5.2.5p4: the member is not a function, so the call reads whatever the
+	// member holds.  The object expression belongs under the member access
+	// rather than beside it, and the two nodes the call opened collapse into
+	// the one the access writes.
+	line.children.pop_back();
+	line.children.pop_back();
+	if (member.kind != SemaKind::Variable || !member.object_member)
+	{
+		target = named_value(id, member, line, &found);
+		object = Value();
+		return;
+	}
+	DumpNode& access = model_.open_node(line, std::string());
+	access.children.push_back(object_line.children[0]);
+	object.node = access.children[0];
+	if (member.storage != nullptr)
+	{
+		object = member_value(*member.storage, object, member.storage->name,
+		                      model_.wrap_node(*object.node, std::string()));
+	}
+	target = member_value(member, object,
+	                      std::string(ast_token_type_name(callee.token)) + ":" +
+	                      id.text, access);
+	object = Value();
+}
+
+// 9.3.2p1: a non-static member function named with no object expression is
+// called on the object `this` points to, and the call passes it as its first
+// argument like any other.
+void SemaAnalyzer::implicit_object_argument(
+	const std::vector<SemaEntity*>& candidates, DumpNode& line, Value& object)
+{
+	if (self_ == nullptr)
+	{
+		return;
+	}
+	for (std::size_t index = 0; index < candidates.size(); ++index)
+	{
+		for (const SemaEntity* at = candidates[index]; at != nullptr;
+		     at = at->next)
+		{
+			if (at->object_member)
+			{
+				object = this_value(line);
+				return;
+			}
+		}
+	}
+}
+
 // 5.2.5p4: the member the object expression holds, which is an lvalue when the
 // object is one and is as cv-qualified as the object it is part of.
 SemaAnalyzer::Value SemaAnalyzer::member_value(SemaEntity& member,
@@ -576,11 +703,11 @@ SemaAnalyzer::Value SemaAnalyzer::member_value(SemaEntity& member,
 {
 	if (member.kind != SemaKind::Variable)
 	{
-		// 5.2.5p4 gives a member function the meaning only a call of it has,
-		// and 13.3.1.1.1 chooses that call among the member's declarations
-		// against the object it is named on, which is outside the PA12 subset.
-		throw std::runtime_error(member.name + " names a member that is not a "
-		                         "data member, which PA12 does not read");
+		// 5.2.5p4 gives a member function the meaning only a call of it has, and
+		// a call is what reads it: `member_call` is where the object it is named
+		// on becomes the implicit object argument of 13.3.1.1.1.
+		throw std::runtime_error(member.name + " names a member function that is "
+		                         "used other than in a call of it");
 	}
 	Value value;
 	value.type = types_.qualified(member.type, types_.object_cv(object.type));
@@ -652,6 +779,9 @@ SemaAnalyzer::Value SemaAnalyzer::this_value(DumpNode& parent)
 	value.spelled = value.type;
 	value.category = ValueCategory::PRValue;
 	value.what = "id-expression";
+	// 9.3.2p1: `this` is the object parameter 9.3.1p3 gave the function, which
+	// is the declaration a use of it names.
+	value.entity = self_;
 	value.payload = std::string(ast_token_type_name(KW_THIS)) + ":this";
 	value.node = &model_.open_node(
 		parent, spell(value.what, value.category, value.type, value.payload));
