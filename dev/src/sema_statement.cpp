@@ -105,6 +105,32 @@ void SemaAnalyzer::semantic_statement(const AstNode& node, const Context& ctx,
 		case_statement(node, ctx, parent, true);
 		return;
 
+	case AstKind::LabeledStatement:
+	{
+		// 6.1p1: a label is in the scope of the whole function it is written
+		// in, and it labels the statement written after it.
+		DumpNode& line = open_fact(parent, "labeled-statement " + node.text,
+		                           FactKind::Label);
+		line.fact.spelling = node.text;
+		labels_.insert(node.text);
+		for (std::size_t index = 0; index < node.children.size(); ++index)
+		{
+			semantic_statement(*node.children[index], ctx, line);
+		}
+		return;
+	}
+
+	case AstKind::GotoStatement:
+	{
+		// 6.6.4p1: the goto transfers control to the labeled statement of the
+		// name it writes, which 6.1p1 lets stand anywhere in the function.
+		DumpNode& line = open_fact(parent, "goto-statement " + node.text,
+		                           FactKind::Goto);
+		line.fact.spelling = node.text;
+		gotos_.push_back(node.text);
+		return;
+	}
+
 	case AstKind::BreakStatement:
 		// 6.6.1p1: a break statement shall occur only in an iteration statement
 		// or a switch statement.

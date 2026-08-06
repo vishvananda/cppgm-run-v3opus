@@ -6,6 +6,7 @@
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "parse_depth.h"
@@ -678,6 +679,12 @@ private:
 	unsigned breakable_;
 	unsigned continuable_;
 	unsigned switches_;
+	// 6.1p1 and 6.6.4p1: the labels the function being read has written, and
+	// the ones its goto statements name.  A label may be written after the
+	// goto that names it, so the two are gathered and matched once the body
+	// has been read.
+	std::unordered_set<std::string> labels_;
+	std::vector<std::string> gotos_;
 	// 6.6.3: the return type of the function whose body is being read.
 	TypeId returns_;
 	// How deep the walk of one expression is.

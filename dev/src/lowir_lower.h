@@ -233,6 +233,10 @@ private:
 	void for_statement(const DumpNode& node);
 	void switch_statement(const DumpNode& node);
 	void case_statement(const DumpNode& node);
+	// 6.1p1 and 6.6.4p1: the block a label names, which is one block of the
+	// function however many places name it and whether the label was written
+	// before or after them.
+	const std::string& goto_label(const std::string& name);
 	// Whether the enclosing switch can reach a label written inside `node`.
 	static bool holds_label(const DumpNode& node);
 	void declaration_statement(const DumpNode& node);
@@ -394,4 +398,6 @@ private:
 	void reserve_case_labels(const DumpNode& node, SwitchArms& arms);
 
 	std::vector<SwitchArms> switches_;
+	// The block each label of this function names.
+	std::unordered_map<std::string, std::string> labels_;
 };

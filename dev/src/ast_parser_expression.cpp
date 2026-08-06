@@ -372,7 +372,9 @@ AstNode* AstParser::parse_unary_expression()
 			++pos_;
 		}
 		node->add(operand);
-		return node;
+		// 5.2p1: a named cast is a postfix-expression, so a call, a subscript,
+		// a member access or an increment may be written on what it produces.
+		return parse_postfix_suffixes(node);
 	}
 	if (at(KW_NEW) || (at(OP_COLON2) && peek(1) == KW_NEW))
 	{

@@ -590,7 +590,8 @@ void LowirFunctionLowering::run(const DumpNode& node, TypeId type)
 // this one, so the walk does not enter one.
 bool LowirFunctionLowering::holds_label(const DumpNode& node)
 {
-	if (node.fact.kind == FactKind::Case || node.fact.kind == FactKind::Default)
+	if (node.fact.kind == FactKind::Case || node.fact.kind == FactKind::Default ||
+	    node.fact.kind == FactKind::Label)
 	{
 		return true;
 	}
@@ -703,6 +704,27 @@ void LowirFunctionLowering::statement(const DumpNode& node)
 			throw std::runtime_error("a continue statement leaves no loop");
 		}
 		jump(continues_.back());
+		return;
+
+	case FactKind::Label:
+	{
+		// 6.1p1: the labeled statement is a place control can arrive at from
+		// somewhere other than the statement before it, which is a block.
+		const std::string label = goto_label(node.fact.spelling);
+		if (!terminated())
+		{
+			jump(label);
+		}
+		open_block(label);
+		for (std::size_t index = 0; index < node.children.size(); ++index)
+		{
+			statement(*node.children[index]);
+		}
+		return;
+	}
+
+	case FactKind::Goto:
+		jump(goto_label(node.fact.spelling));
 		return;
 
 	case FactKind::SimpleDeclaration:
@@ -1124,6 +1146,16 @@ void LowirFunctionLowering::reserve_case_labels(const DumpNode& node,
 	{
 		reserve_case_labels(*node.children[index], arms);
 	}
+}
+
+const std::string& LowirFunctionLowering::goto_label(const std::string& name)
+{
+	std::string& label = labels_[name];
+	if (label.empty())
+	{
+		label = reserve_block("goto");
+	}
+	return label;
 }
 
 void LowirFunctionLowering::case_statement(const DumpNode& node)

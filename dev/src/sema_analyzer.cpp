@@ -1621,9 +1621,21 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 	breakable_ = 0;
 	continuable_ = 0;
 	switches_ = 0;
+	labels_.clear();
+	gotos_.clear();
 	for (std::size_t index = 2; index < node.children.size(); ++index)
 	{
 		semantic_statement(*node.children[index], inner, line);
+	}
+	// 6.6.4p1: every label a goto names is one the function writes.
+	for (std::size_t index = 0; index < gotos_.size(); ++index)
+	{
+		if (labels_.count(gotos_[index]) == 0)
+		{
+			throw std::runtime_error("a goto statement names " + gotos_[index] +
+			                         ", which labels no statement of the "
+			                         "function");
+		}
 	}
 	self_ = enclosing_self;
 	returns_ = enclosing_return;

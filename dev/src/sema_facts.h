@@ -40,6 +40,8 @@ enum class FactKind : unsigned char
 	Cast,
 	Sizeof,
 	BracedInitList,
+	Label,
+	Goto,
 	// Statements.
 	Compound,
 	ExpressionStatement,
@@ -109,9 +111,10 @@ struct SemaFact
 	// a constant the constant layer folded.
 	bool constant;
 	unsigned long long value;
-	// What a literal holds that one integer cannot: the tokens a floating
-	// literal was written from, whose value is a value of the target's
-	// floating type, and the code units a string literal holds, which 2.14.5
-	// makes an array object rather than a value.
+	// The spelling this node carries that no other fact holds: the tokens a
+	// floating literal was written from, whose value is a value of the
+	// target's floating type; the code units a string literal holds, which
+	// 2.14.5 makes an array object rather than a value; and the identifier
+	// 6.1 gives a label, which names a place in the function and no entity.
 	std::string spelling;
 };
