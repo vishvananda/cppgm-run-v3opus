@@ -181,7 +181,7 @@ scope, recorded under Stage Design above.
 | # | Checkpoint | Result |
 | --- | --- | --- |
 | 1 | Whole `abimangle` encoder: typed fact reader, canonical substitution table, types/names/template args/dependent expressions/special names, canonical serializer | 2/111 -> 111/111; through-pa13 954/954; audit clean |
-| 2 | PA14 audit: interned substitution keys, structural member entities, eight ABI corrections, one rule per shape | 111/111; through-pa14 1065/1065; audit clean; 8000-case differential sweep with no unexplained divergence |
+| 2 | PA14 audit: a cv-fold use-after-free, interned substitution keys, structural member entities, seven ABI corrections, one rule per shape | 111/111; through-pa14 1065/1065; audit clean; 8586-case differential sweep with no unexplained divergence; valgrind clean |
 
 ## Audit Findings
 
