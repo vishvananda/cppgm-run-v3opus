@@ -10,6 +10,7 @@ AstParser::AstParser(const AstTokenStream& tokens, AstArena& arena)
 	, bracket_depth_(0)
 	, template_id_veto_depth_(-1)
 	, template_pending_(false)
+	, template_id_memo_version_(names_.version())
 {
 }
 
@@ -32,7 +33,10 @@ AstNode* AstParser::make_text(AstKind kind, const std::string& text)
 AstNode* AstParser::run()
 {
 	AstNode* root = make(AstKind::TranslationUnit);
-	if (!parse_declaration_seq(root, ST_EOF) || !at(ST_EOF))
+	// A rule that stopped at the depth limit reports no more than that it did
+	// not match, and a caller that only wanted an optional part would take
+	// that for an answer, so the whole descent is asked once at the end.
+	if (!parse_declaration_seq(root, ST_EOF) || !at(ST_EOF) || depth_.overflowed())
 	{
 		return nullptr;
 	}
@@ -41,6 +45,11 @@ AstNode* AstParser::run()
 
 AstNode* AstParser::parse_declaration_seq(AstNode* parent, unsigned closer)
 {
+	const Frame frame(depth_);
+	if (frame.overflowed())
+	{
+		return nullptr;
+	}
 	while (!at(closer) && !at(ST_EOF))
 	{
 		AstNode* declaration = parse_declaration(false);
@@ -55,6 +64,11 @@ AstNode* AstParser::parse_declaration_seq(AstNode* parent, unsigned closer)
 
 AstNode* AstParser::parse_declaration(bool in_class)
 {
+	const Frame frame(depth_);
+	if (frame.overflowed())
+	{
+		return nullptr;
+	}
 	const Mark start = mark();
 	skip_attributes();
 	if (accept(OP_SEMICOLON))
@@ -132,7 +146,7 @@ AstNode* AstParser::parse_namespace()
 		{
 			return fail(start);
 		}
-		declare_name(name, NameKind::Type);
+		names_.declare_member(name, NameKind::Type);
 		return node;
 	}
 	if (!at(OP_LBRACE))
@@ -142,16 +156,13 @@ AstNode* AstParser::parse_namespace()
 	AstNode* node = make_text(AstKind::NamespaceDefinition,
 	                          name.empty() ? std::string("<unnamed>") : name);
 	node->add(inline_marker);
-	declare_name(name, NameKind::Type);
+	names_.declare_member(name, NameKind::Type);
 	{
 		BracketGuard brackets(*this, false);
 		ScopeGuard scope(names_);
-		const std::string outer = prefix_;
-		prefix_ += name.empty() ? std::string() : name + "::";
+		PrefixGuard prefix(names_, name);
 		++pos_;
-		const AstNode* body = parse_declaration_seq(node, OP_RBRACE);
-		prefix_ = outer;
-		if (body == nullptr)
+		if (parse_declaration_seq(node, OP_RBRACE) == nullptr)
 		{
 			return fail(start);
 		}
@@ -194,7 +205,7 @@ AstNode* AstParser::parse_using()
 		}
 		AstNode* node = make_text(AstKind::AliasDeclaration, name);
 		node->add(type);
-		declare_name(name, NameKind::Type);
+		names_.declare_member(name, NameKind::Type);
 		return node;
 	}
 	const Mark target = mark();
@@ -217,13 +228,13 @@ AstNode* AstParser::parse_linkage_specification()
 {
 	const Mark start = mark();
 	accept(KW_EXTERN);
-	std::string text = spelling();
-	if (text.size() >= 2 && text[0] == '"')
+	std::string language;
+	if (!tokens_.string_value(pos_, language))
 	{
-		text = text.substr(1, text.size() - 2);
+		return fail(start);
 	}
 	++pos_;
-	AstNode* node = make_text(AstKind::LinkageSpecification, text);
+	AstNode* node = make_text(AstKind::LinkageSpecification, language);
 	if (at(OP_LBRACE))
 	{
 		{
@@ -380,14 +391,26 @@ AstNode* AstParser::parse_simple_or_function_declaration(AstNode* specifiers,
 		return node;
 	}
 	AstNode* list = parse_init_declarator_list();
-	if (list == nullptr || !accept(OP_SEMICOLON))
+	if (list != nullptr && accept(OP_SEMICOLON))
 	{
-		return fail(start);
+		node->add(list);
+		declare_init_declarators(specifiers, list);
+		return node;
 	}
-	node->add(list);
-	declare_init_declarators(specifiers, list);
-	(void)in_class;
-	return node;
+	// A bit-field is the same declaration with `: width` where an initializer
+	// would go, so it reads the declarators again but never the specifiers:
+	// they may hold a class definition, and reading that twice per class would
+	// cost `2^N` for `N` nested ones.
+	reset(after_specifiers);
+	if (in_class)
+	{
+		AstNode* fields = parse_bit_field_declaration(specifiers);
+		if (fields != nullptr)
+		{
+			return fields;
+		}
+	}
+	return fail(start);
 }
 
 AstNode* AstParser::parse_member_specifiers()

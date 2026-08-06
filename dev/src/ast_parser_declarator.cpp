@@ -38,6 +38,11 @@ bool is_declaration_keyword(unsigned type)
 
 AstNode* AstParser::parse_specifier_seq(SpecifierMode mode)
 {
+	const Frame frame(depth_);
+	if (frame.overflowed())
+	{
+		return nullptr;
+	}
 	const Mark start = mark();
 	AstNode* seq = make(mode == SpecifierMode::Decl
 		? AstKind::DeclSpecifierSeq
@@ -143,7 +148,7 @@ bool AstParser::parse_name_specifier(AstNode* seq, SpecifierMode mode,
 	}
 	const std::string text = spelled(spelled_from);
 	const bool plain = !introduced && pos_ == spelled_from.pos + 1;
-	const NameKind kind = kind_of_name(text);
+	const NameKind kind = names_.kind_of(text);
 	if (kind == NameKind::Value || (!plain && kind == NameKind::Template))
 	{
 		reset(start);
@@ -198,7 +203,7 @@ bool AstParser::is_definite_type_id(const AstNode* type_id) const
 			definite = true;
 			continue;
 		}
-		const NameKind kind = kind_of_name(specifier->text);
+		const NameKind kind = names_.kind_of(specifier->text);
 		if (kind == NameKind::Type ||
 		    (kind == NameKind::Unknown &&
 		     specifier->text.find_first_of(":<") != std::string::npos))
@@ -249,6 +254,11 @@ AstNode* AstParser::parse_ptr_operator()
 
 AstNode* AstParser::parse_declarator(DeclaratorForm form)
 {
+	const Frame frame(depth_);
+	if (frame.overflowed())
+	{
+		return nullptr;
+	}
 	const Mark start = mark();
 	AstNode* node = make(form == DeclaratorForm::Abstract
 		? AstKind::AbstractDeclarator
@@ -679,7 +689,7 @@ void AstParser::declare_init_declarators(const AstNode* specifiers,
 		const AstNode* id = declarator_identifier(declarators);
 		if (id != nullptr)
 		{
-			declare_name(id->text, kind);
+			names_.declare_member(id->text, kind);
 		}
 		return;
 	}
@@ -693,7 +703,7 @@ void AstParser::declare_init_declarators(const AstNode* specifiers,
 		const AstNode* id = declarator_identifier(item->children[0]);
 		if (id != nullptr)
 		{
-			declare_name(id->text, kind);
+			names_.declare_member(id->text, kind);
 		}
 	}
 }
@@ -716,7 +726,7 @@ void AstParser::declare_template_name(const AstNode* declaration)
 	case AstKind::ClassForwardDeclaration:
 	case AstKind::EnumSpecifier:
 	case AstKind::AliasDeclaration:
-		declare_name(declaration->text, NameKind::Template);
+		names_.declare_member(declaration->text, NameKind::Template);
 		return;
 
 	case AstKind::FunctionDefinition:
@@ -734,7 +744,7 @@ void AstParser::declare_template_name(const AstNode* declaration)
 			const AstNode* id = declarator_identifier(child);
 			if (id != nullptr)
 			{
-				declare_name(id->text, NameKind::Template);
+				names_.declare_member(id->text, NameKind::Template);
 			}
 		}
 		if (child->kind != AstKind::InitDeclaratorList)
@@ -749,7 +759,7 @@ void AstParser::declare_template_name(const AstNode* declaration)
 				: declarator_identifier(declarator->children[0]);
 			if (id != nullptr)
 			{
-				declare_name(id->text, NameKind::Template);
+				names_.declare_member(id->text, NameKind::Template);
 			}
 		}
 	}

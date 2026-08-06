@@ -147,6 +147,11 @@ AstNode* AstParser::parse_conditional_expression()
 
 AstNode* AstParser::parse_binary_expression(int level)
 {
+	const Frame frame(depth_);
+	if (frame.overflowed())
+	{
+		return nullptr;
+	}
 	if (level == kBinaryLevelCount)
 	{
 		return parse_cast_expression();
@@ -201,6 +206,11 @@ AstNode* AstParser::parse_binary_expression(int level)
 // A parenthesized C style cast, or the unary expression that is not one.
 AstNode* AstParser::parse_cast_expression()
 {
+	const Frame frame(depth_);
+	if (frame.overflowed())
+	{
+		return nullptr;
+	}
 	const Mark start = mark();
 	if (at(OP_LPAREN))
 	{
@@ -274,6 +284,11 @@ AstNode* AstParser::parse_parenthesized_operand(bool prefer_type)
 
 AstNode* AstParser::parse_unary_expression()
 {
+	const Frame frame(depth_);
+	if (frame.overflowed())
+	{
+		return nullptr;
+	}
 	const Mark start = mark();
 	if (is_unary_operator(peek()))
 	{
@@ -638,6 +653,11 @@ AstNode* AstParser::parse_argument_suffix(AstKind kind)
 
 AstNode* AstParser::parse_braced_init_list()
 {
+	const Frame frame(depth_);
+	if (frame.overflowed())
+	{
+		return nullptr;
+	}
 	const Mark start = mark();
 	if (!at(OP_LBRACE))
 	{
@@ -750,6 +770,14 @@ AstNode* AstParser::parse_lambda_expression()
 			declarator->add(trailing);
 		}
 		node->add(declarator);
+	}
+	// A lambda's parameters name objects in its body just as a function's do,
+	// which is what makes `x<1>(2)` two comparisons there rather than a call
+	// through a template-id.
+	ScopeGuard scope(names_);
+	if (!node->children.empty())
+	{
+		declare_parameters(node->children.back());
 	}
 	AstNode* body = parse_compound_statement();
 	if (body == nullptr)

@@ -39,32 +39,29 @@ AstNode* AstParser::parse_class_specifier()
 		}
 		AstNode* node = make_text(AstKind::ClassForwardDeclaration, name);
 		node->add(key);
-		declare_name(name, take_declared_kind(NameKind::Type));
+		names_.declare_member(name, take_declared_kind(NameKind::Type));
 		return node;
 	}
 	AstNode* node = make_text(AstKind::ClassSpecifier, name);
 	node->add(key);
 	node->add(bases);
-	declare_name(name, take_declared_kind(NameKind::Type));
+	names_.declare_member(name, take_declared_kind(NameKind::Type));
 	{
 		// A class body declares into the scope around it as well as into
 		// itself: PA10 has no lookup to reach a member from outside, so the
 		// facts an unqualified member name carries have to stay reachable.
 		BracketGuard brackets(*this, false);
-		const std::string outer = prefix_;
-		prefix_ += name.empty() ? std::string() : name + "::";
+		PrefixGuard prefix(names_, name);
 		++pos_;
 		while (!at(OP_RBRACE) && !at(ST_EOF))
 		{
 			AstNode* member = parse_class_member();
 			if (member == nullptr)
 			{
-				prefix_ = outer;
 				return fail(start);
 			}
 			node->add(member);
 		}
-		prefix_ = outer;
 	}
 	if (!accept(OP_RBRACE))
 	{
@@ -134,28 +131,14 @@ AstNode* AstParser::parse_class_member()
 		return node;
 	}
 	reset(start);
-	AstNode* declaration = parse_declaration(true);
-	if (declaration != nullptr)
-	{
-		return declaration;
-	}
-	reset(start);
-	AstNode* field = parse_bit_field_declaration();
-	if (field != nullptr)
-	{
-		return field;
-	}
-	return fail(start);
+	return parse_declaration(true);
 }
 
-AstNode* AstParser::parse_bit_field_declaration()
+// The bit-field readings of a member's declarators, against the
+// decl-specifier-seq its declaration already read.
+AstNode* AstParser::parse_bit_field_declaration(AstNode* specifiers)
 {
 	const Mark start = mark();
-	AstNode* specifiers = parse_specifier_seq(SpecifierMode::Decl);
-	if (specifiers == nullptr)
-	{
-		return nullptr;
-	}
 	AstNode* node = make(AstKind::BitFieldDeclaration);
 	node->add(specifiers);
 	do
@@ -225,19 +208,19 @@ AstNode* AstParser::parse_enum_specifier()
 		}
 		AstNode* node = make_text(AstKind::EnumSpecifier, name);
 		node->add(key);
-		declare_name(name, take_declared_kind(NameKind::Type));
+		names_.declare_member(name, take_declared_kind(NameKind::Type));
 		return node;
 	}
 	AstNode* node = make_text(AstKind::EnumSpecifier, name);
 	node->add(key);
 	node->add(base);
-	declare_name(name, NameKind::Type);
+	names_.declare_member(name, NameKind::Type);
 	BracketGuard brackets(*this, false);
 	++pos_;
 	while (at(TT_IDENTIFIER))
 	{
 		AstNode* enumerator = make_text(AstKind::Enumerator, spelling());
-		declare_name(spelling(), NameKind::Value);
+		names_.declare_member(spelling(), NameKind::Value);
 		++pos_;
 		if (accept(OP_ASS))
 		{

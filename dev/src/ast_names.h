@@ -21,25 +21,39 @@ enum class NameKind
 	Template
 };
 
-// The names a translation unit has declared so far, by scope.
+// Every name fact the parse of one translation unit establishes.
+//
+// A name reaches a rule either as it was written in the scope that declared it
+// or behind a nested-name-specifier.  PA10 models no scope to look into, so
+// the second reading is answered by spelling: a member declared while the
+// prefix names `ns` is remembered under `ns::f` as well as under `f`.  Both
+// readings are the same fact, so one owner answers both.
+//
+// Every answer is a function of what has been declared, so a caller that
+// remembers one has to know when it stopped being true.  The table counts its
+// own changes rather than leaving each mutation to tell whoever cached an
+// answer, because a name enters or leaves through several rules and only the
+// table sees all of them.
 class DeclaredNames
 {
 public:
-	DeclaredNames() { push(); }
-
-	void push() { scopes_.resize(scopes_.size() + 1); }
-	void pop() { scopes_.pop_back(); }
-
-	void declare(const std::string& name, NameKind kind)
+	DeclaredNames()
+		: version_(0)
 	{
-		if (!name.empty())
-		{
-			scopes_.back()[name] = kind;
-		}
+		scopes_.resize(1);
 	}
 
+	// A name the innermost scope alone declares: a parameter, a template
+	// parameter, or the name a handler catches.  No qualified name reaches one.
+	void declare(const std::string& name, NameKind kind);
+
+	// A name a nested-name-specifier can also reach, which is remembered by
+	// the spelling the prefix in force gives it.
+	void declare_member(const std::string& name, NameKind kind);
+
 	// What the innermost declaration of `name` declared, or `Unknown` when no
-	// declaration in scope names it.
+	// declaration in scope names it.  A name written with a `::` in it is a
+	// spelling rather than a name in a scope, so it is answered as one.
 	NameKind kind_of(const std::string& name) const;
 
 	bool is_value(const std::string& name) const
@@ -47,6 +61,66 @@ public:
 		return kind_of(name) == NameKind::Value;
 	}
 
+	// How many times the scopes have changed.  Two answers taken at the same
+	// version are the same answer.
+	unsigned long version() const { return version_; }
+
+	// The scope an alternative opens for as long as it runs, so one that fails
+	// leaves the names it declared behind however it leaves.
+	class Scope
+	{
+	public:
+		explicit Scope(DeclaredNames& names)
+			: names_(names)
+		{
+			names_.scopes_.resize(names_.scopes_.size() + 1);
+			++names_.version_;
+		}
+
+		~Scope()
+		{
+			names_.scopes_.pop_back();
+			++names_.version_;
+		}
+
+	private:
+		Scope(const Scope&);
+		Scope& operator=(const Scope&);
+		DeclaredNames& names_;
+	};
+
+	// The scope name that members are spelled against, held for as long as the
+	// body that opened it is being read.  It changes no answer, only how the
+	// next member is remembered, so it is not a version of its own.
+	class Prefix
+	{
+	public:
+		Prefix(DeclaredNames& names, const std::string& name)
+			: names_(names)
+			, saved_(names.prefix_)
+		{
+			if (!name.empty())
+			{
+				names_.prefix_ += name + "::";
+			}
+		}
+
+		~Prefix() { names_.prefix_ = saved_; }
+
+	private:
+		Prefix(const Prefix&);
+		Prefix& operator=(const Prefix&);
+		DeclaredNames& names_;
+		std::string saved_;
+	};
+
 private:
 	std::vector<std::unordered_map<std::string, NameKind> > scopes_;
+	// The names a qualified-id can reach, spelled as they are written.  A
+	// nested-name-specifier names a scope the parser does not model, so the
+	// spelling is the key: `ns::f` is what the source asks about, whatever
+	// scope declared it.
+	std::unordered_map<std::string, NameKind> qualified_;
+	std::string prefix_;
+	unsigned long version_;
 };

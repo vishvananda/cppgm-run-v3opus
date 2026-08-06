@@ -68,10 +68,16 @@ public:
 	}
 
 	// The tokens of `[begin, end)` written back out, separated only where two
-	// of them would otherwise run together into one word.  This is how the
+	// of them would otherwise read back as one longer token.  This is how the
 	// dump spells every name the grammar leaves for a later assignment to
 	// resolve, so `TC1 < TC2 < 1 >>` comes back as `TC1<TC2<1>>`.
 	std::string flatten(std::size_t begin, std::size_t end) const;
+
+	// The characters of a narrow string literal, as phase 7 decoded them.
+	// False for every other token.  One rule - the language a
+	// linkage-specification names - wants a literal's value rather than its
+	// spelling, and the value is a fact the tokenizer has already established.
+	bool string_value(std::size_t index, std::string& out) const;
 
 private:
 	std::uint32_t intern(const std::string& text);
@@ -80,4 +86,7 @@ private:
 	std::vector<AstToken> tokens_;
 	std::vector<std::string> pool_;
 	std::unordered_map<std::string, std::uint32_t> interned_;
+	// By token index, for the string literals only: most tokens have no value
+	// and every token would otherwise pay for the few that do.
+	std::unordered_map<std::size_t, std::string> string_values_;
 };

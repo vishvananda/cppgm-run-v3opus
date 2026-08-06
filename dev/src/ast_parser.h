@@ -8,6 +8,7 @@
 #include "ast_model.h"
 #include "ast_names.h"
 #include "ast_tokens.h"
+#include "parse_depth.h"
 
 // The PA10 parser: the token sequence of one translation unit as a syntax tree.
 //
@@ -23,10 +24,15 @@ public:
 	AstParser(const AstTokenStream& tokens, AstArena& arena);
 
 	// The whole token sequence as a `translation-unit`, or null when it is not
-	// one.
+	// one, which includes a file that nests deeper than the descent goes.
 	AstNode* run();
 
 private:
+	// One level of the descent.  Every rule that can re-enter itself opens one,
+	// so that a file which nests deeper than the machine stack allows is
+	// refused rather than crashing.
+	typedef ParseDepth::Frame Frame;
+
 	// The parser state a failed alternative has to undo: the position, and the
 	// one piece of bracket state 14.2.3 reads back, namely whether the
 	// innermost open bracket pair is an angle bracket pair, which decides
@@ -81,19 +87,8 @@ private:
 		bool saved_;
 	};
 
-	// Pushes a name scope for as long as the alternative that opened it runs,
-	// so an alternative that fails leaves the names it declared behind.
-	class ScopeGuard
-	{
-	public:
-		explicit ScopeGuard(DeclaredNames& names) : names_(names) { names_.push(); }
-		~ScopeGuard() { names_.pop(); }
-
-	private:
-		ScopeGuard(const ScopeGuard&);
-		ScopeGuard& operator=(const ScopeGuard&);
-		DeclaredNames& names_;
-	};
+	typedef DeclaredNames::Scope ScopeGuard;
+	typedef DeclaredNames::Prefix PrefixGuard;
 
 	// Cursor (ast_parser.cpp).
 	unsigned peek(std::size_t offset = 0) const { return tokens_.type(pos_ + offset); }
@@ -139,6 +134,7 @@ private:
 	bool accept_close_angle();
 	bool at_template_argument_end() const;
 	bool parse_template_argument();
+	std::size_t template_id_memo_key(const Mark& start, bool qualified) const;
 
 	// Names (ast_parser_name.cpp).  Each spells the span it matched, because
 	// every name the grammar leaves unresolved is dumped as it was written.
@@ -163,10 +159,8 @@ private:
 	std::string parse_special_member_name();
 
 	// Declared names (ast_parser_name.cpp).
-	void declare_name(const std::string& name, NameKind kind);
 	void declare_template_name(const AstNode* declaration);
 	NameKind take_declared_kind(NameKind fallback);
-	NameKind kind_of_name(const std::string& name) const;
 
 	// Declarations (ast_parser.cpp).
 	AstNode* parse_declaration(bool in_class);
@@ -190,7 +184,7 @@ private:
 	AstNode* parse_base_clause();
 	AstNode* parse_base_specifier();
 	AstNode* parse_class_member();
-	AstNode* parse_bit_field_declaration();
+	AstNode* parse_bit_field_declaration(AstNode* specifiers);
 	AstNode* parse_enum_specifier();
 	AstNode* parse_template_declaration(bool in_class);
 	AstNode* parse_template_parameter_clause();
@@ -260,12 +254,6 @@ private:
 	std::size_t pos_;
 	bool angle_;
 	DeclaredNames names_;
-	// The names a qualified-id can reach, spelled as they are written.  A
-	// nested-name-specifier names a scope the parser does not model, so the
-	// spelling is the key: `ns::f` is what the source asks about, whatever
-	// scope declared it.
-	std::unordered_map<std::string, NameKind> qualified_;
-	std::string prefix_;
 	// The bracket nesting a template-argument may not open a template-id at.
 	// A template-argument that cannot be completed with `<` read as the start
 	// of a template-id is read again with the outermost `<` as the relational
@@ -277,10 +265,14 @@ private:
 	// body: `template<class T> int f(T) { return f<int>(1); }` reads the
 	// second `f` against the first.
 	bool template_pending_;
-	// What `simple-template-id` matched at a position, so that the two
-	// readings of a template-argument - a type-id and an expression - descend
-	// into a nested template-id once between them rather than once each.
-	// Without it `TC1<TC2<...<int>...>>` costs `2^N`.  A position's answer only
-	// changes when a declaration adds a name, which is when it is dropped.
+	// What `simple-template-id` matched at a position, so that the readings of
+	// a template-argument - a type-id, an expression, and an expression with
+	// the veto above - descend into a nested template-id once between them
+	// rather than once each.  Without it `TC1<TC2<...<int>...>>` costs `2^N`.
+	// The key carries everything besides the position that the answer turns
+	// on; the names in scope are the rest of it, and the version they were
+	// read at says when the whole table stopped being true.
 	std::unordered_map<std::size_t, std::size_t> template_id_memo_;
+	unsigned long template_id_memo_version_;
+	ParseDepth depth_;
 };

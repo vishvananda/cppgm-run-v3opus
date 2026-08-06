@@ -193,8 +193,6 @@ public:
 		return &nodes_.back();
 	}
 
-	std::size_t size() const { return nodes_.size(); }
-
 private:
 	std::deque<AstNode> nodes_;
 };

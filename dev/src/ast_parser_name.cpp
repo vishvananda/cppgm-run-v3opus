@@ -32,8 +32,33 @@ bool is_operator_token(unsigned type)
 
 }
 
+void DeclaredNames::declare(const std::string& name, NameKind kind)
+{
+	if (!name.empty())
+	{
+		scopes_.back()[name] = kind;
+		++version_;
+	}
+}
+
+void DeclaredNames::declare_member(const std::string& name, NameKind kind)
+{
+	declare(name, kind);
+	if (!prefix_.empty() && !name.empty())
+	{
+		qualified_[prefix_ + name] = kind;
+		++version_;
+	}
+}
+
 NameKind DeclaredNames::kind_of(const std::string& name) const
 {
+	if (name.find(':') != std::string::npos)
+	{
+		const std::unordered_map<std::string, NameKind>::const_iterator found =
+			qualified_.find(name);
+		return found == qualified_.end() ? NameKind::Unknown : found->second;
+	}
 	for (std::size_t index = scopes_.size(); index-- > 0; )
 	{
 		const std::unordered_map<std::string, NameKind>::const_iterator found =
@@ -46,16 +71,6 @@ NameKind DeclaredNames::kind_of(const std::string& name) const
 	return NameKind::Unknown;
 }
 
-void AstParser::declare_name(const std::string& name, NameKind kind)
-{
-	template_id_memo_.clear();
-	names_.declare(name, kind);
-	if (!prefix_.empty() && !name.empty())
-	{
-		qualified_[prefix_ + name] = kind;
-	}
-}
-
 // The kind a declaration introduces, which is a template-name when the
 // declaration is the one a template-declaration wraps.
 NameKind AstParser::take_declared_kind(NameKind fallback)
@@ -66,18 +81,6 @@ NameKind AstParser::take_declared_kind(NameKind fallback)
 	}
 	template_pending_ = false;
 	return NameKind::Template;
-}
-
-// What a name denotes, whether it is written plain or qualified.
-NameKind AstParser::kind_of_name(const std::string& name) const
-{
-	if (name.find(':') == std::string::npos)
-	{
-		return names_.kind_of(name);
-	}
-	const std::unordered_map<std::string, NameKind>::const_iterator found =
-		qualified_.find(name);
-	return found == qualified_.end() ? NameKind::Unknown : found->second;
 }
 
 bool AstParser::at_close_angle() const
@@ -175,27 +178,50 @@ bool AstParser::skip_decltype_specifier()
 	return true;
 }
 
+// Everything besides the names in scope that a position's answer turns on.
+//
+// A veto forbids a template-id at the one bracket depth the template-argument
+// that set it is being read at, and every rule the reading descends into runs
+// deeper than that, so `veto == depth` is the whole of its effect here: a
+// nested position sees no veto and shares its answer with an unvetoed reading.
+std::size_t AstParser::template_id_memo_key(const Mark& start, bool qualified) const
+{
+	return start.pos * 8 + (start.angle ? 4u : 0u) +
+		(template_id_veto_depth_ == bracket_depth_ ? 2u : 0u) +
+		(qualified ? 1u : 0u);
+}
+
 bool AstParser::skip_simple_template_id(bool qualified)
 {
 	const Mark start = mark();
-	const bool memoized = template_id_veto_depth_ < 0;
-	const std::size_t key = start.pos * 2 + (start.angle ? 1 : 0);
-	if (memoized)
+	if (template_id_memo_version_ != names_.version())
 	{
-		const std::unordered_map<std::size_t, std::size_t>::const_iterator found =
-			template_id_memo_.find(key);
-		if (found != template_id_memo_.end())
+		template_id_memo_.clear();
+		template_id_memo_version_ = names_.version();
+	}
+	const std::size_t key = template_id_memo_key(start, qualified);
+	const std::unordered_map<std::size_t, std::size_t>::const_iterator found =
+		template_id_memo_.find(key);
+	if (found != template_id_memo_.end())
+	{
+		if (found->second == 0)
 		{
-			if (found->second == 0)
-			{
-				return false;
-			}
-			pos_ = found->second - 1;
-			return true;
+			return false;
 		}
+		pos_ = found->second - 1;
+		return true;
+	}
+	const Frame frame(depth_);
+	if (frame.overflowed())
+	{
+		return false;
 	}
 	const bool matched = skip_simple_template_id_body(qualified);
-	if (memoized)
+	// A template-argument may hold a lambda, whose body declares names, so the
+	// reading just taken can be the thing that made the table out of date.  A
+	// reading the depth limit cut short is not a fact about the position
+	// either, so neither is remembered.
+	if (template_id_memo_version_ == names_.version() && !frame.overflowed())
 	{
 		template_id_memo_[key] = matched ? pos_ + 1 : 0;
 	}

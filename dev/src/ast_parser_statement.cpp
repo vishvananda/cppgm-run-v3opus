@@ -16,6 +16,11 @@ AstNode* AstParser::parse_block_item()
 
 AstNode* AstParser::parse_compound_statement()
 {
+	const Frame frame(depth_);
+	if (frame.overflowed())
+	{
+		return nullptr;
+	}
 	const Mark start = mark();
 	if (!at(OP_LBRACE))
 	{
@@ -45,6 +50,11 @@ AstNode* AstParser::parse_compound_statement()
 
 AstNode* AstParser::parse_statement()
 {
+	const Frame frame(depth_);
+	if (frame.overflowed())
+	{
+		return nullptr;
+	}
 	switch (peek())
 	{
 	case OP_LBRACE:
