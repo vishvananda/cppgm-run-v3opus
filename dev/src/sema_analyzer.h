@@ -246,6 +246,12 @@ private:
 		const AstNode* body;
 		Scope* scope;
 		std::vector<Parameter> parameters;
+		// 12.6.2: the ctor-initializer this constructor was written with, and
+		// the class whose members it initializes.  Both are null for a function
+		// that is not a constructor; `members` alone is set for the constructor
+		// 12.1p5 gives a class, whose initializations are all implied.
+		const AstNode* initializers;
+		Scope* members;
 		// 14.7.1: a specialization, which is a declaration the program did not
 		// write rather than a definition it did, and which the output writes as
 		// the declaration with the parameters of the template it was made from.
@@ -298,15 +304,54 @@ private:
 	// declaration that introduces a class asks.
 	void inject_union_members(SemaEntity* entity, const Context& ctx,
 	                          const Span& span);
-	// 12.1p5: the constructor a class with no declared one has, declared into
-	// the class where its definition ends.
+	// 12.1 and 12.4: a constructor or destructor a class body declares, which
+	// is a member declaration with no decl-specifier-seq whose name is the
+	// class's own.  It declares into the class and, where a body is written,
+	// leaves the definition for the end of the translation unit as 9.2p2 does
+	// for every member function defined in its class.
+	void special_member(const AstNode& node, const Context& ctx);
+	// 12.1p5 and 12.4p3: the constructor and the destructor a class with no
+	// declared one has, declared into the class where its definition ends.
 	void declare_constructor(SemaEntity& entity, Scope& scope);
-	// 12.1p5 and 8.5p6: the constructor that default-initializes an object of
-	// `type`, which the definition of the object is what asks for.
-	SemaEntity* default_constructor(TypeId type);
-	// 12.1p5: whether default-initializing an object of the class `scope`
-	// declares does nothing, so that no call has to be made for one.
+	void declare_destructor(SemaEntity& entity, Scope& scope);
+	// 12.1p5 and 8.5p6: the constructors of the class `type`, as the chain
+	// 13.3.1.3 chooses from, and the destructor 12.4p3 gives it.  Null for
+	// anything that is not a class type this unit completed.
+	SemaEntity* class_constructors(TypeId type);
+	SemaEntity* class_destructor(TypeId type);
+	// 8.5.1p1: whether an object of `type` is initialized from a
+	// braced-init-list by initializing its members with the clauses.
+	bool aggregate_type(TypeId type);
+	// 12.1p5: whether default-initializing or destroying an object of the class
+	// `scope` declares does nothing, so that no call has to be made for one.
 	bool trivial_default_construction(Scope& scope);
+	bool trivial_destruction(Scope& scope);
+	// 12.6.2: the member initializations of one constructor, in the declaration
+	// order 12.6.2p10 gives them whatever order the mem-initializers were
+	// written in.  Each is written under the constructor's own definition.
+	void write_member_initializations(const Pending& pending, DumpNode& line,
+	                                  const Context& inner);
+	// 12.4p8: the destructor calls for the members of the class a destructor
+	// belongs to, in reverse declaration order, written after its body.
+	void write_member_destructions(Scope& members, DumpNode& line);
+	// 3.8p1 and 12.4p3: the destructor call that ends the lifetime of the
+	// object `entity` names, or nothing where its class has no destructor to
+	// run.  `member` says the object is a member of the one being destroyed
+	// rather than an object a declaration named.
+	void destructor_action(SemaEntity& entity, DumpNode& parent, bool member);
+	// The objects an open block has declared whose destructors run when control
+	// leaves it, innermost frame last.
+	std::vector<std::vector<SemaEntity*> > lifetimes_;
+	// Holds one frame while a block is read, and writes its destructor actions
+	// where the block ends.
+	void open_lifetimes();
+	void close_lifetimes(DumpNode& line);
+	// 6.6.3p2: a return leaves every block between it and the function, so it
+	// runs the destructors of all of them, innermost first.
+	void unwind_lifetimes(DumpNode& line);
+	// 3.6.3p1: the namespace-scope objects this unit constructed, whose
+	// destructors run in reverse order when the program ends.
+	std::vector<SemaEntity*> static_lifetimes_;
 	// 8.5.1p1: whether the class `scope` declares is an aggregate.
 	static bool aggregate_class(Scope& scope);
 	// 8.5.1p2: the initializer-clauses of one braced-init-list, and how many of
@@ -377,9 +422,19 @@ private:
 	// 8.3.4p1: the type of one element of an array, however many dimensions it
 	// has, and the type itself for anything else.
 	TypeId element_of(TypeId type);
-	// The `constructor-action` an object of class type is initialized by, and
-	// the definition of the constructor it calls.
-	void construct_object(SemaEntity& variable, DumpNode& line);
+	// 8.5 and 13.3.1.3: the `constructor-action` an object of class type is
+	// initialized by, and the definition of the constructor it calls.
+	// `written` is the initializer the program wrote, or null for an object
+	// with none; `member` says the object is a non-static data member of the
+	// one the constructor being written is initializing, so that the action
+	// names it through `this` rather than by a name of its own.
+	void construct_object(SemaEntity& variable, DumpNode& line,
+	                      const AstNode* written, const Context& ctx,
+	                      bool member = false);
+	// The object a constructor-action runs on, as the address of it: an object
+	// a declaration named, or a member of the object being constructed.
+	void write_constructed_object(SemaEntity& variable, DumpNode& call,
+	                              bool member, Value& object);
 	// The typed facts of a node the analysis builds rather than reads out of an
 	// expression the program wrote.
 	static void set_fact(DumpNode& node, FactKind kind, TypeId type,
@@ -698,10 +753,13 @@ private:
 	// against the first parameter of every non-static member candidate and left
 	// out of every other, and 13.3.1p4 makes a non-static member no candidate at
 	// all where there is none.
+	// `converting` leaves out every candidate declared `explicit`, which
+	// 13.3.1.4 does for copy-initialization.
 	SemaEntity* select_overload(const std::vector<SemaEntity*>& candidates,
 	                            const std::vector<Value>& arguments,
 	                            const std::string& name,
-	                            const Value* object = nullptr);
+	                            const Value* object = nullptr,
+	                            bool converting = false);
 	// 13.3.3.2: which of two conversions of one argument is better, as 1, 0
 	// or -1.
 	int compare_matches(const Match& left, const Match& right);
@@ -800,6 +858,12 @@ private:
 	};
 
 	std::unordered_map<std::uint32_t, std::vector<Default> > defaults_;
+	// 12.6.2p8: the brace-or-equal-initializer each non-static data member was
+	// declared with, and the region it was written in, which 9.2p2 makes the
+	// complete-class context it is read in.  It is keyed by the member because
+	// it is a fact about that one declaration, and it is read once by every
+	// constructor whose mem-initializers do not name the member.
+	std::unordered_map<std::uint32_t, Default> member_initializers_;
 	// 9.3.2p1: the implicit object parameter of the function whose body is
 	// being read, which is what `this` and a member named with no object
 	// expression denote.  Null outside a member function.

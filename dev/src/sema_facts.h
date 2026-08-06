@@ -65,6 +65,15 @@ enum class FactKind : unsigned char
 	// 12.1p5 and 8.5p6: the constructor call an object of class type is
 	// initialized by, written under the declaration of the object.
 	ConstructorAction,
+	// 12.4p3 and 3.8p1: the destructor call the end of an object's lifetime is,
+	// written where that end is - at the end of the block that declared it, on
+	// the return that leaves it, and in the shutdown of the program.
+	DestructorAction,
+	// 12.6.2: one subobject of the object a constructor is initializing, as the
+	// member it names and what initializes it.  The constructor's own body
+	// holds one per member in declaration order, whatever order the
+	// mem-initializers were written in.
+	MemberInitialization,
 	// 8.5.1: an aggregate initialized from a braced-init-list, as the
 	// subobjects its clauses reached and the value every other one takes.
 	AggregateInitialization,

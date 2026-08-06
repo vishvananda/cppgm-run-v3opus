@@ -24,6 +24,15 @@ const unsigned char kPublicAccess = 0;
 const unsigned char kProtectedAccess = 1;
 const unsigned char kPrivateAccess = 2;
 
+// 12.1 and 12.4: which special member function a declaration declares.  A
+// constructor and a destructor have no name of their own that a lookup finds,
+// they are reached from the class rather than through a binding, and the object
+// file names them by what they are, so what they are is a fact the declaration
+// carries.
+const unsigned char kOrdinaryFunction = 0;
+const unsigned char kConstructorFunction = 1;
+const unsigned char kDestructorFunction = 2;
+
 enum class SemaKind
 {
 	Namespace,
@@ -105,9 +114,33 @@ struct SemaEntity
 	// has no name, so its members are reached through the object the union
 	// declared rather than through one the program named.
 	SemaEntity* storage;
-	// Class: 12.1p5, the constructor the class has that no declaration wrote,
-	// held on the class because that is what an object of it asks for.
+	// Class: 12.1, the constructors of the class, as the chain a declaration of
+	// an object chooses from by 13.3.1.3.  It is held on the class because a
+	// constructor has no name a lookup reaches, and the chain is in declaration
+	// order, with 12.1p5's implicit one the only member when no declaration
+	// wrote any.
 	SemaEntity* constructor;
+	// Class: 12.4p1, the destructor of the class, held here for the same
+	// reason: the end of an object's lifetime asks the class for it.
+	SemaEntity* destructor;
+	// 12.1 and 12.4: which special member function this declaration declares,
+	// as one of the `kOrdinaryFunction` constants.
+	unsigned char special;
+	// 12.3.1p2: a constructor declared `explicit`, which only
+	// direct-initialization may choose.
+	bool explicit_function;
+	// 8.5.1p1 and 12.1p4: whether the program itself wrote what this function
+	// does, which `= default` and `= delete` do not.  It is what stops a class
+	// with a constructor from being an aggregate.
+	bool user_provided;
+	// 8.4.3p1: a function definition written `= delete`, which every use of is
+	// ill formed.
+	bool deleted;
+	// 8.4.2p1: whether the definition of this function is the one the standard
+	// gives it rather than one the program wrote, which is true of an implicitly
+	// declared special member and of one written `= default`.  It is what says
+	// the definition is this translation unit's to generate on demand.
+	bool defaulted;
 	// 11p1: which of the three access specifiers this member was declared
 	// under, which says who may name it.  A declaration that is not a member
 	// keeps `kPublicAccess`, which every context may name.

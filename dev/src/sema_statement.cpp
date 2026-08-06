@@ -182,10 +182,14 @@ void SemaAnalyzer::block_statement(const AstNode& node, const Context& ctx,
 	DumpNode& line = open_fact(parent, "compound-statement", FactKind::Compound);
 	Context inner = ctx;
 	inner.scope = &model_.open(ScopeKind::Block, *ctx.scope, nullptr, ctx.dump);
+	// 6.7p2 and 3.8p1: the objects this block declares are destroyed where
+	// control leaves it, so the block is what holds them while it is read.
+	open_lifetimes();
 	for (std::size_t index = 0; index < node.children.size(); ++index)
 	{
 		semantic_statement(*node.children[index], inner, line);
 	}
+	close_lifetimes(line);
 }
 
 void SemaAnalyzer::selection_statement(const AstNode& node, const Context& ctx,
@@ -369,21 +373,27 @@ void SemaAnalyzer::return_statement(const AstNode& node, const Context& ctx,
 {
 	DumpNode& line = open_fact(parent, "return-statement", FactKind::Return);
 	line.fact.type = returns_;
-	if (node.children.empty())
+	if (!node.children.empty())
 	{
-		return;
-	}
-	if (types_.is_void(returns_))
-	{
-		// 6.6.3p3: a function returning `void` may still return an expression,
-		// as long as that expression is itself of type `void`.
-		const Value value = expression(*node.children[0], ctx, line);
-		if (!types_.is_void(value.type))
+		if (types_.is_void(returns_))
 		{
-			throw std::runtime_error("a value is returned from a function that "
-			                         "returns void");
+			// 6.6.3p3: a function returning `void` may still return an
+			// expression, as long as that expression is itself of type `void`.
+			const Value value = expression(*node.children[0], ctx, line);
+			if (!types_.is_void(value.type))
+			{
+				throw std::runtime_error("a value is returned from a function "
+				                         "that returns void");
+			}
 		}
-		return;
+		else
+		{
+			initialize(*node.children[0], returns_, ctx, line);
+		}
 	}
-	initialize(*node.children[0], returns_, ctx, line);
+	// 6.6p2: a return leaves every block between it and the function, and
+	// 3.8p1 ends the lifetime of every object those blocks declared - after the
+	// returned value has been read, which is why the actions stand under the
+	// return rather than before it.
+	unwind_lifetimes(line);
 }

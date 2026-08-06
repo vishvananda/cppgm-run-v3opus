@@ -706,6 +706,74 @@ void LowirFunctionLowering::constructor_call(const Operand& address,
 	emit_void(out);
 }
 
+void LowirFunctionLowering::add_destruction(const DumpNode& node)
+{
+	destructor_call(node);
+}
+
+// 12.4p3 and 3.8p1: the end of an object's lifetime, which is one call of the
+// destructor of its class on the object the action names.
+void LowirFunctionLowering::destructor_call(const DumpNode& node)
+{
+	TypeTable& types = unit_.types();
+	const SemaEntity& destructor = *node.fact.entity;
+	if (destructor.trivial)
+	{
+		return;
+	}
+	const LowValue object = expression(*node.children[0], true);
+	unit_.declare_entity(destructor);
+	Instruction out;
+	out.kind = Instruction::IK_CALL;
+	out.type = unit_.low_type(types.target(destructor.type));
+	out.first =
+		named_operand(Operand::OP_GLOBAL, unit_.function_symbol(destructor));
+	out.args.push_back(address_of(object));
+	emit_void(out);
+}
+
+// 12.6.2: one member of the object a constructor is initializing, given what
+// its mem-initializer or its own declaration said to initialize it with.  The
+// value is computed before the address of the subobject it is stored into,
+// because that is the order the references write and 1.9 leaves it open.
+void LowirFunctionLowering::member_initialization(const DumpNode& node)
+{
+	TypeTable& types = unit_.types();
+	const SemaEntity& member = *node.fact.entity;
+	const TypeId type = node.fact.type;
+	if (node.children.size() < 2)
+	{
+		return;
+	}
+	const DumpNode& written = *node.children[1];
+	if (types.is_reference(type))
+	{
+		// 8.5.3p5 and 9.2p13: a member of reference type holds the address of
+		// what it was bound to, which is what its storage is written with.
+		const LowValue bound = expression(written, true);
+		const Operand storage = member_storage(*node.children[0], member);
+		store(address_of(bound), storage, type);
+		return;
+	}
+	if (written.fact.kind == FactKind::AggregateInitialization ||
+	    written.fact.kind == FactKind::BracedInitList ||
+	    types.kind(types.strip_cv(type)) == TypeKind::Array)
+	{
+		// 8.5.1: the subobjects the clauses reached are each named from the
+		// object again, which is what the aggregate path already does; the
+		// object here is the member rather than a place the function holds.
+		LowObject base;
+		base.written = node.children[0];
+		base.member = &member;
+		initialize_into(base, type, written);
+		return;
+	}
+	const LowValue value = expression(written);
+	const Operand held = converted(value, type);
+	const Operand storage = member_storage(*node.children[0], member);
+	store(held, storage, type);
+}
+
 void LowirFunctionLowering::suspend_generated(GeneratedBody& state) const
 {
 	state.temps = temps_;
@@ -805,6 +873,23 @@ void LowirFunctionLowering::statement(const DumpNode& node)
 
 	case FactKind::Variable:
 		local_variable(node);
+		return;
+
+	case FactKind::MemberInitialization:
+		member_initialization(node);
+		return;
+
+	case FactKind::ConstructorAction:
+	{
+		// 12.6.2: a subobject of class type is initialized by running its
+		// constructor on it, and the action already names the subobject.
+		const LowValue object = expression(*node.children[0]->children[1]);
+		constructor_call(object.operand, node);
+		return;
+	}
+
+	case FactKind::DestructorAction:
+		destructor_call(node);
 		return;
 
 	case FactKind::TypeAlias:
@@ -1425,20 +1510,18 @@ LowValue LowirFunctionLowering::id_expression(const DumpNode& node)
 // that object's storage advanced by the place its class gave the member.  The
 // operand is a pointer where `->` or an implicit `this` wrote one and the
 // object itself where `.` did, and its own type is what says which.
-LowValue LowirFunctionLowering::member_expression(const DumpNode& node)
+// 9.2p13: where one member of an object begins, which is what the layout of its
+// class settled.  A member of reference type holds a pointer, so this is the
+// storage of that pointer rather than of the object it names.
+Operand LowirFunctionLowering::member_storage(const DumpNode& object,
+                                              const SemaEntity& member)
 {
 	TypeTable& types = unit_.types();
-	const DumpNode& written = *node.children[0];
-	const LowValue object = expression(written, true);
+	const LowValue held = expression(object, true);
 	const Operand base =
-		types.kind(types.strip_cv(object.type)) == TypeKind::Pointer
-			? rvalue(object)
-			: address_of(object);
-	const SemaEntity& member = *node.fact.entity;
-	LowValue value;
-	value.type = node.fact.type;
-	value.lvalue = true;
-	value.named = true;
+		types.kind(types.strip_cv(held.type)) == TypeKind::Pointer
+			? rvalue(held)
+			: address_of(held);
 	Instruction step;
 	step.kind = Instruction::IK_INDEX;
 	step.type.text = "i8";
@@ -1447,7 +1530,18 @@ LowValue LowirFunctionLowering::member_expression(const DumpNode& node)
 		: lowir_model::IPK_FIELD;
 	step.first = base;
 	step.second = named_operand(Operand::OP_INTEGER, decimal(member.offset));
-	value.operand = emit(step);
+	return emit(step);
+}
+
+LowValue LowirFunctionLowering::member_expression(const DumpNode& node)
+{
+	TypeTable& types = unit_.types();
+	const SemaEntity& member = *node.fact.entity;
+	LowValue value;
+	value.type = node.fact.type;
+	value.lvalue = true;
+	value.named = true;
+	value.operand = member_storage(*node.children[0], member);
 	if (types.is_reference(member.type))
 	{
 		// 8.3.2p5: a member of reference type names what it is bound to, so the
@@ -2139,15 +2233,23 @@ LowValue LowirFunctionLowering::subscript_expression(const DumpNode& node)
 void LowirFunctionLowering::initialize(const Operand& storage, TypeId type,
                                        const DumpNode& node)
 {
+	LowObject object;
+	object.storage = storage;
+	initialize_into(object, type, node);
+}
+
+void LowirFunctionLowering::initialize_into(const LowObject& object,
+                                            TypeId type, const DumpNode& node)
+{
 	TypeTable& types = unit_.types();
 	if (node.fact.kind == FactKind::AggregateInitialization)
 	{
-		initialize_aggregate(storage, type, node);
+		initialize_aggregate(object, type, node);
 		return;
 	}
 	if (types.kind(types.strip_cv(type)) == TypeKind::Array)
 	{
-		initialize_array(storage, type, node);
+		initialize_array(object, type, node);
 		return;
 	}
 	if (node.fact.kind == FactKind::BracedInitList)
@@ -2156,17 +2258,17 @@ void LowirFunctionLowering::initialize(const Operand& storage, TypeId type,
 		// an empty list value-initializes it.
 		if (node.children.empty())
 		{
-			store(literal_operand(type, 0), storage, type);
+			store(literal_operand(type, 0), object_storage(object), type);
 			return;
 		}
-		initialize(storage, type, *node.children[0]);
+		initialize_into(object, type, *node.children[0]);
 		return;
 	}
 	const LowValue value = expression(node);
-	store(converted(value, type), storage, type);
+	store(converted(value, type), object_storage(object), type);
 }
 
-void LowirFunctionLowering::initialize_aggregate(const Operand& storage,
+void LowirFunctionLowering::initialize_aggregate(const LowObject& object,
                                                  TypeId type,
                                                  const DumpNode& node)
 {
@@ -2177,18 +2279,36 @@ void LowirFunctionLowering::initialize_aggregate(const Operand& storage,
 	std::vector<const DumpNode*> path;
 	for (std::size_t index = 0; index < node.children.size(); ++index)
 	{
-		initialize_subobject(storage, *node.children[index], path);
+		initialize_subobject(object, *node.children[index], path);
 	}
 }
 
+// The place a store names, which for a slot or a global is the place itself:
+// nothing has to be emitted to name storage the function already holds.
+Operand LowirFunctionLowering::object_storage(const LowObject& object)
+{
+	return object.written != nullptr
+		? member_storage(*object.written, *object.member)
+		: object.storage;
+}
+
+Operand LowirFunctionLowering::object_address(const LowObject& object)
+{
+	if (object.written != nullptr)
+	{
+		return member_storage(*object.written, *object.member);
+	}
+	LowValue held;
+	held.lvalue = true;
+	held.operand = object.storage;
+	return address_of(held);
+}
+
 Operand LowirFunctionLowering::subobject_address(
-	const Operand& storage, const std::vector<const DumpNode*>& path)
+	const LowObject& object, const std::vector<const DumpNode*>& path)
 {
 	TypeTable& types = unit_.types();
-	LowValue object;
-	object.lvalue = true;
-	object.operand = storage;
-	Operand at = address_of(object);
+	Operand at = object_address(object);
 	for (std::size_t index = 0; index < path.size(); ++index)
 	{
 		const DumpNode& step = *path[index];
@@ -2224,7 +2344,7 @@ Operand LowirFunctionLowering::subobject_address(
 }
 
 void LowirFunctionLowering::initialize_subobject(
-	const Operand& storage, const DumpNode& node,
+	const LowObject& object, const DumpNode& node,
 	std::vector<const DumpNode*>& path)
 {
 	path.push_back(&node);
@@ -2233,12 +2353,12 @@ void LowirFunctionLowering::initialize_subobject(
 	{
 		for (std::size_t index = 0; index < node.children.size(); ++index)
 		{
-			initialize_subobject(storage, *node.children[index], path);
+			initialize_subobject(object, *node.children[index], path);
 		}
 		path.pop_back();
 		return;
 	}
-	const Operand at = subobject_address(storage, path);
+	const Operand at = subobject_address(object, path);
 	path.pop_back();
 	if (node.fact.op != 0)
 	{
@@ -2267,7 +2387,7 @@ void LowirFunctionLowering::initialize_subobject(
 	initialize(at, node.fact.type, *node.children[0]);
 }
 
-void LowirFunctionLowering::initialize_array(const Operand& storage,
+void LowirFunctionLowering::initialize_array(const LowObject& object,
                                              TypeId type, const DumpNode& node)
 {
 	// 8.5.1: the clauses initialize the elements in order and the elements no
@@ -2282,11 +2402,7 @@ void LowirFunctionLowering::initialize_array(const Operand& storage,
 		throw std::runtime_error("an array initializer has more clauses than "
 		                         "the array has elements");
 	}
-	LowValue base;
-	base.type = type;
-	base.lvalue = true;
-	base.operand = storage;
-	const Operand address = address_of(base);
+	const Operand address = object_address(object);
 	// 8.5p7: the elements no clause reached are value-initialized, which is one
 	// span of zero bytes.  A scalar element is still written one store at a
 	// time while there are few enough for that to be a description of the

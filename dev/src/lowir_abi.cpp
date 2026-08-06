@@ -225,7 +225,8 @@ bool operator_terminal(const std::string& written, std::size_t arity,
 
 }  // namespace
 
-std::string abi_symbol_of(const SemaEntity& entity, TypeTable& types)
+std::string abi_symbol_of(const SemaEntity& entity, TypeTable& types,
+                          unsigned variant)
 {
 	// 7.5p6 and 3.6.1p1: a name another translation unit reaches by its C
 	// spelling is that spelling, and `main` is the one C++ function every
@@ -253,9 +254,14 @@ std::string abi_symbol_of(const SemaEntity& entity, TypeTable& types)
 	// qualifier of the name rather than as a parameter.
 	const std::size_t first = entity.object_member ? 1u : 0u;
 	std::string terminal;
-	if (entity.name.compare(0, 8, "operator") == 0 &&
-	    operator_terminal(entity.name.substr(8), parameters.size() - first,
-	                      terminal))
+	// 12.1 and 12.4: a constructor and a destructor are named by what they are
+	// rather than by a source name, and `abi_variant` says which of the
+	// entry points of one this symbol is.
+	const bool special = entity.special != kOrdinaryFunction;
+	if (special ||
+	    (entity.name.compare(0, 8, "operator") == 0 &&
+	     operator_terminal(entity.name.substr(8), parameters.size() - first,
+	                       terminal)))
 	{
 		// 13.5: an operator function is named by the operator it overloads,
 		// which the encoding spells as its own terminal rather than as a source
@@ -285,8 +291,20 @@ std::string abi_symbol_of(const SemaEntity& entity, TypeTable& types)
 			records.push_back(placeholder);
 		}
 		abi_mangle::AbiFunctionRecord written;
-		written.kind = abi_mangle::ABI_FUNCTION_RECORD_OPERATOR_TERMINAL;
-		written.terminal = terminal;
+		if (special)
+		{
+			written.kind = abi_mangle::ABI_FUNCTION_RECORD_TERMINAL;
+			written.terminal = entity.special == kConstructorFunction
+				? (variant == kBaseObjectAbi ? "constructor-base"
+				                             : "constructor-complete")
+				: (variant == kBaseObjectAbi ? "destructor-base"
+				                             : "destructor-complete");
+		}
+		else
+		{
+			written.kind = abi_mangle::ABI_FUNCTION_RECORD_OPERATOR_TERMINAL;
+			written.terminal = terminal;
+		}
 		records.push_back(written);
 	}
 	else

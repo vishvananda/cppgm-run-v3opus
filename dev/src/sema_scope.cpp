@@ -106,6 +106,12 @@ SemaEntity& SemaModel::create(SemaKind kind, const std::string& name, TypeId typ
 	entity.region = nullptr;
 	entity.storage = nullptr;
 	entity.constructor = nullptr;
+	entity.destructor = nullptr;
+	entity.special = kOrdinaryFunction;
+	entity.explicit_function = false;
+	entity.user_provided = false;
+	entity.deleted = false;
+	entity.defaulted = false;
 	entity.access = kPublicAccess;
 	entity.default_initializer = false;
 	entity.aggregate = false;

@@ -518,8 +518,10 @@ std::string serialize_lowir_program(const Program & program)
 	}
 	for (std::size_t index = 0; index < program.object_aliases.size(); ++index)
 	{
+		// The alias names an object-file symbol on the left and a symbol of this
+		// program on the right, which the sigil is what says.
 		out << "alias object " << program.object_aliases[index].object_symbol
-		    << " = " << program.object_aliases[index].target << "\n";
+		    << " = @" << program.object_aliases[index].target << "\n";
 	}
 	return out.str();
 }

@@ -32,13 +32,20 @@ std::string decimal(unsigned long long value)
 // The internal LowIR symbol of a namespace-scope name: the regions it is
 // declared in, written with `__` where the source writes `::`, and every
 // character an identifier cannot hold dropped, so an `operator` name is still
-// one symbol.
+// one symbol.  12.4p1's `~` is written as `_`, because a destructor and the
+// constructor of the same class are two functions of one type and one
+// qualified name, and dropping it would leave them one symbol.
 std::string flatten_name(const std::string& name)
 {
 	std::string symbol;
 	for (std::size_t index = 0; index < name.size(); ++index)
 	{
 		const char written = name[index];
+		if (written == '~')
+		{
+			symbol += '_';
+			continue;
+		}
 		if (written == ':')
 		{
 			if (index + 1 < name.size() && name[index + 1] == ':')
@@ -82,6 +89,7 @@ std::string LowirSymbolTable::object_symbol(const SemaEntity& entity)
 
 LowirProgramBuilder::LowirProgramBuilder()
 	: has_startup_(false)
+	, has_shutdown_(false)
 {}
 
 LowirUnitLowering::LowirUnitLowering(TypeTable& types,
@@ -93,12 +101,14 @@ LowirUnitLowering::LowirUnitLowering(TypeTable& types,
 	, defined_(builder.defined_)
 	, declared_(builder.declared_)
 	, startup_(nullptr)
+	, shutdown_(nullptr)
 	, strings_(builder.strings_)
 {}
 
 LowirUnitLowering::~LowirUnitLowering()
 {
 	delete startup_;
+	delete shutdown_;
 }
 
 bool LowirUnitLowering::is_signed(TypeId type)
@@ -235,20 +245,28 @@ void LowirProgramBuilder::add_unit(const DumpNode& unit, TypeTable& types)
 
 void LowirProgramBuilder::finish()
 {
-	if (!has_startup_)
-	{
-		return;
-	}
-	// 3.6.2p2: every unit's actions are in, so the one body that runs them is
-	// closed here rather than by whichever unit happened to add to it last.
+	// 3.6.2p2 and 3.6.3p1: every unit's actions are in, so the two bodies that
+	// run them are closed here rather than by whichever unit happened to add to
+	// one last.
 	lowir_model::Instruction leave;
 	leave.kind = lowir_model::Instruction::IK_RETURN;
 	leave.type.text = "void";
-	startup_.blocks.back().instructions.push_back(leave);
-	program_.functions.push_back(startup_);
-	has_startup_ = false;
-	startup_ = lowir_model::Function();
-	startup_body_ = GeneratedBody();
+	if (has_startup_)
+	{
+		startup_.blocks.back().instructions.push_back(leave);
+		program_.functions.push_back(startup_);
+		has_startup_ = false;
+		startup_ = lowir_model::Function();
+		startup_body_ = GeneratedBody();
+	}
+	if (has_shutdown_)
+	{
+		shutdown_.blocks.back().instructions.push_back(leave);
+		program_.functions.push_back(shutdown_);
+		has_shutdown_ = false;
+		shutdown_ = lowir_model::Function();
+		shutdown_body_ = GeneratedBody();
+	}
 }
 
 void LowirUnitLowering::run(const DumpNode& unit)
@@ -267,6 +285,10 @@ void LowirUnitLowering::run(const DumpNode& unit)
 	if (startup_ != nullptr)
 	{
 		startup_->suspend_generated(builder_.startup_body_);
+	}
+	if (shutdown_ != nullptr)
+	{
+		shutdown_->suspend_generated(builder_.shutdown_body_);
 	}
 }
 
@@ -313,6 +335,10 @@ void LowirUnitLowering::declaration(const DumpNode& node)
 
 	case FactKind::Variable:
 		global_variable(node);
+		return;
+
+	case FactKind::DestructorAction:
+		static_destructor(node);
 		return;
 
 	case FactKind::FunctionDefinition:
@@ -771,6 +797,27 @@ void LowirUnitLowering::dynamic_initializer(const SemaEntity& entity,
 	startup_->add_initialization(storage, type, node);
 }
 
+// 3.6.3p1: the destructor of an object with static storage duration runs when
+// the program ends, which is one body of the program however many units add to
+// it.
+void LowirUnitLowering::static_destructor(const DumpNode& node)
+{
+	if (shutdown_ == nullptr)
+	{
+		if (!builder_.has_shutdown_)
+		{
+			builder_.has_shutdown_ = true;
+			builder_.shutdown_.name = "__cppgm_fini";
+			builder_.shutdown_.return_type = low("void");
+			builder_.shutdown_.metadata.role = lowir_model::SR_FINI;
+			builder_.shutdown_.metadata.binding = lowir_model::SBM_INTERNAL;
+		}
+		shutdown_ = new LowirFunctionLowering(*this, builder_.shutdown_);
+		shutdown_->open_generated(builder_.shutdown_body_);
+	}
+	shutdown_->add_destruction(node);
+}
+
 void LowirUnitLowering::global_array_initializer(
 	lowir_model::GlobalDefinition& global, const DumpNode* node, TypeId type)
 {
@@ -978,6 +1025,17 @@ void LowirUnitLowering::function_definition(const DumpNode& node)
 		out.boundary.arity = lowir_model::CAM_VARIADIC;
 	}
 	describe_symbol(entity, out.metadata, symbol);
+	if (entity.special != kOrdinaryFunction)
+	{
+		// 12.1 and 12.4: the ABI gives a constructor and a destructor one entry
+		// point for a complete object and one for a base subobject.  This
+		// milestone has no virtual base, so the two do the same thing, and the
+		// program names one body twice rather than emitting it twice.
+		lowir_model::ObjectAlias alias;
+		alias.object_symbol = abi_symbol_of(entity, types_, kBaseObjectAbi);
+		alias.target = symbol;
+		program_.object_aliases.push_back(alias);
+	}
 	if (entity.dump_name == "main")
 	{
 		// 3.6.1: `main` is where the program starts, which the backend needs to

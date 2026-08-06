@@ -67,6 +67,26 @@ struct LowValue
 	bool named;
 };
 
+// The object a subobject is named from.
+//
+// It is either a place the function already holds - a slot, a global, a pointer
+// temporary - or the resolved expression that names the object a member is part
+// of, together with that member.  The second form is read again for each
+// subobject, because naming a subobject from the object is the one description
+// of where it is that does not depend on how the walk reached it, and a member
+// of the object being constructed is reached through `this` every time.
+struct LowObject
+{
+	LowObject()
+		: written(nullptr)
+		, member(nullptr)
+	{}
+
+	lowir_model::Operand storage;
+	const DumpNode* written;
+	const SemaEntity* member;
+};
+
 // The symbols one LowIR program names, which outlive the translation unit that
 // first named them: 3.5 makes a name with external linkage one entity across
 // units, so a second unit that declares it again must reach the same symbol.
@@ -139,6 +159,11 @@ private:
 	lowir_model::Function startup_;
 	bool has_startup_;
 	GeneratedBody startup_body_;
+	// 3.6.3p1: the destructors of the objects with static storage duration, as
+	// the one function that runs them when the program ends.
+	lowir_model::Function shutdown_;
+	bool has_shutdown_;
+	GeneratedBody shutdown_body_;
 	// 2.14.5p8: the global holding the code units of each distinct string
 	// literal.  A literal is one array object of the program however many
 	// translation units write it, so the map outlives any one of them.
@@ -250,6 +275,9 @@ private:
 	// needs, added to the program's one startup function.
 	void dynamic_initializer(const SemaEntity& entity, const DumpNode& node,
 	                         TypeId type);
+	// 3.6.3p1: the destructor of an object with static storage duration, added
+	// to the program's one shutdown function.
+	void static_destructor(const DumpNode& node);
 
 	TypeTable& types_;
 	LowirProgramBuilder& builder_;
@@ -260,6 +288,9 @@ private:
 	// The walk of the startup function, opened by the first object that needs
 	// it, so the actions of one unit are emitted into one body in order.
 	LowirFunctionLowering* startup_;
+	// The walk of the shutdown function, opened by the first object that needs
+	// one, for the same reason.
+	LowirFunctionLowering* shutdown_;
 	// The global each distinct string literal was given, so one literal
 	// written twice is one array object.  It belongs to the program, which is
 	// what makes two units that write one literal name one object.
@@ -298,6 +329,8 @@ public:
 	void open_generated(const GeneratedBody& state);
 	void add_initialization(const lowir_model::Operand& storage, TypeId type,
 	                        const DumpNode& node);
+	// 3.6.3p1: one object's destruction, added to the generated body.
+	void add_destruction(const DumpNode& node);
 	void suspend_generated(GeneratedBody& state) const;
 
 private:
@@ -343,10 +376,20 @@ private:
 	// 5.2.5p1: `E1.E2`, `E1->E2` and a member named with no object expression,
 	// which all reach the member through the object the operand denotes.
 	LowValue member_expression(const DumpNode& node);
+	// 9.2p13: where one member of the object `object` names begins, which is
+	// the storage a use of the member reads through - and, for a member of
+	// reference type, the storage of the pointer it holds rather than of the
+	// object that pointer names.
+	lowir_model::Operand member_storage(const DumpNode& object,
+	                                    const SemaEntity& member);
+	// 12.6.2: one member of the object a constructor is initializing.
+	void member_initialization(const DumpNode& node);
 	// 12.1p5: the constructor call an object of class type is initialized by,
 	// on the address of that object.
 	void constructor_call(const lowir_model::Operand& address,
 	                      const DumpNode& node);
+	// 12.4p3: the destructor call the end of an object's lifetime is.
+	void destructor_call(const DumpNode& node);
 	LowValue call_expression(const DumpNode& node);
 	LowValue unary_expression(const DumpNode& node);
 	LowValue increment_expression(const DumpNode& node, bool postfix);
@@ -386,19 +429,23 @@ private:
 	// assignment all do.
 	void initialize(const lowir_model::Operand& storage, TypeId type,
 	                const DumpNode& node);
-	void initialize_array(const lowir_model::Operand& storage, TypeId type,
+	void initialize_into(const LowObject& object, TypeId type,
+	                     const DumpNode& node);
+	void initialize_array(const LowObject& object, TypeId type,
 	                      const DumpNode& node);
 	// 8.5.1: the subobjects the analysis said each clause reached, written in
 	// order.  Each leaf names its subobject from the object again, because that
 	// is the one description of where the subobject is that does not depend on
 	// how the walk got there.
-	void initialize_aggregate(const lowir_model::Operand& storage, TypeId type,
+	void initialize_aggregate(const LowObject& object, TypeId type,
 	                          const DumpNode& node);
-	void initialize_subobject(const lowir_model::Operand& storage,
-	                          const DumpNode& node,
+	void initialize_subobject(const LowObject& object, const DumpNode& node,
 	                          std::vector<const DumpNode*>& path);
-	// The address of the subobject `path` names within the object `storage`.
-	lowir_model::Operand subobject_address(const lowir_model::Operand& storage,
+	// The place a store into the object itself names, the address of that
+	// object, and the address of the subobject `path` names within it.
+	lowir_model::Operand object_storage(const LowObject& object);
+	lowir_model::Operand object_address(const LowObject& object);
+	lowir_model::Operand subobject_address(const LowObject& object,
 	                                       const std::vector<const DumpNode*>& path);
 
 	// Values.

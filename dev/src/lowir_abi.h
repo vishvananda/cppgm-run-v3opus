@@ -17,4 +17,12 @@ struct SemaEntity;
 //
 // Nothing here reads syntax or text: a `SemaEntity` and a `TypeId` say
 // everything the encoder is given.
-std::string abi_symbol_of(const SemaEntity& entity, TypeTable& types);
+// 12.1 and 12.4: one constructor or destructor has more than one object-file
+// name, because the ABI gives a complete object and a base subobject an entry
+// point each.  This milestone has no virtual base, so the two are one body
+// under two names, and a caller asks for whichever of them it is naming.
+const unsigned kCompleteObjectAbi = 0;
+const unsigned kBaseObjectAbi = 1;
+
+std::string abi_symbol_of(const SemaEntity& entity, TypeTable& types,
+                          unsigned variant = kCompleteObjectAbi);

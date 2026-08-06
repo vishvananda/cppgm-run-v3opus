@@ -42,6 +42,24 @@ bool has_child(const AstNode& node, AstKind kind)
 	return child_of(node, kind) != nullptr;
 }
 
+// True for the nodes that hold the arguments an initializer wrote rather than
+// one expression: the parenthesised forms an initializer, a call and a
+// mem-initializer each spell, and the braced-init-list 8.5.4 writes.
+bool is_initializer_list(AstKind kind)
+{
+	return kind == AstKind::ParenInitializer ||
+		kind == AstKind::ParenArgumentList || kind == AstKind::ArgumentList ||
+		kind == AstKind::BracedInitList;
+}
+
+// The argument list of a call or of a mem-initializer, in either of the two
+// spellings PA10 writes one as.
+const AstNode* call_arguments(const AstNode& node)
+{
+	const AstNode* list = child_of(node, AstKind::ArgumentList);
+	return list != nullptr ? list : child_of(node, AstKind::ParenArgumentList);
+}
+
 // 9p1: which class-key a class-specifier or elaborated-type-specifier wrote.
 ClassTag tag_of(const AstNode& node)
 {
@@ -117,6 +135,8 @@ SemaAnalyzer::Pending::Pending()
 	, self(nullptr)
 	, body(nullptr)
 	, scope(nullptr)
+	, initializers(nullptr)
+	, members(nullptr)
 	, instantiation(false)
 {}
 
@@ -189,6 +209,14 @@ void SemaAnalyzer::run(const AstNode& unit)
 	for (std::size_t index = 0; index < unit.children.size(); ++index)
 	{
 		declaration(*unit.children[index], ctx);
+	}
+	// 3.6.3p1: the objects with static storage duration this unit constructed
+	// are destroyed when the program ends, in the reverse order of their
+	// construction.  Asking for the destructors here is what makes their
+	// definitions part of the run of pending ones written below.
+	for (std::size_t index = static_lifetimes_.size(); index-- > 0;)
+	{
+		destructor_action(*static_lifetimes_[index], *ctx.node, false);
 	}
 	write_pending_definitions();
 }
@@ -309,20 +337,21 @@ void SemaAnalyzer::write_definition(Pending& pending)
 		self.fact.entity = pending.self;
 		self.fact.type = pending.self->type;
 	}
-	if (pending.body == nullptr)
-	{
-		// 12.1p5: the constructor a class has that no declaration wrote does
-		// nothing the output describes.
-		model_.open_node(line, "compound-statement");
-		return;
-	}
-
 	Context inner;
-	inner.scope = pending.scope;
-	inner.dump = pending.scope->dump;
-	inner.node = &model_.unit();
-	declare_parameters(pending.parameters, function.type, inner, &line,
-	                   pending.self != nullptr ? 1 : 0);
+	// 12.1p5: a definition no declaration wrote has no region of its own that
+	// its names are read in, and the class it belongs to is what its member
+	// initializations are read against.
+	inner.scope = pending.scope != nullptr ? pending.scope : pending.members;
+	if (inner.scope != nullptr)
+	{
+		inner.dump = inner.scope->dump;
+		inner.node = &model_.unit();
+	}
+	if (pending.scope != nullptr)
+	{
+		declare_parameters(pending.parameters, function.type, inner, &line,
+		                   pending.self != nullptr ? 1 : 0);
+	}
 
 	// 9.2p2: the body is read where the class is complete, which is here, so
 	// what the walk of the class left behind is put back for it.
@@ -331,20 +360,39 @@ void SemaAnalyzer::write_definition(Pending& pending)
 	const unsigned breakable = breakable_;
 	const unsigned continuable = continuable_;
 	const unsigned switches = switches_;
+	std::vector<std::vector<SemaEntity*> > enclosing_lifetimes;
+	enclosing_lifetimes.swap(lifetimes_);
 	self_ = pending.self;
 	returns_ = types_.target(function.type);
 	breakable_ = 0;
 	continuable_ = 0;
 	switches_ = 0;
-	for (std::size_t index = 2; index < pending.body->children.size(); ++index)
+	if (function.special == kConstructorFunction && pending.members != nullptr)
 	{
-		semantic_statement(*pending.body->children[index], inner, line);
+		// 12.6.2p10: the members are initialized before the body runs.
+		write_member_initializations(pending, line, inner);
+	}
+	if (pending.body != nullptr)
+	{
+		semantic_statement(*pending.body->children.back(), inner, line);
+	}
+	else
+	{
+		// 12.1p5 and 12.4p3: a definition no declaration wrote has a body that
+		// does nothing beyond what the standard already said it does.
+		open_fact(line, "compound-statement", FactKind::Compound);
+	}
+	if (function.special == kDestructorFunction && pending.members != nullptr)
+	{
+		// 12.4p8: after the body, the members are destroyed.
+		write_member_destructions(*pending.members, line);
 	}
 	self_ = enclosing_self;
 	returns_ = enclosing_return;
 	breakable_ = breakable;
 	continuable_ = continuable;
 	switches_ = switches;
+	lifetimes_.swap(enclosing_lifetimes);
 }
 
 void SemaAnalyzer::declaration(const AstNode& node, const Context& ctx)
@@ -772,40 +820,26 @@ SemaEntity& SemaAnalyzer::class_declaration(const AstNode& node,
 			throw std::runtime_error(header + " declares a bit-field, which PA12 "
 			                         "does not describe");
 		}
-		if (semantics() && (member.kind == AstKind::SpecialMemberDeclaration ||
-		                    member.kind == AstKind::SpecialMemberDefinition))
-		{
-			// 12.1 and 12.4: a constructor, destructor or conversion function a
-			// class declares is chosen by rules PA12 does not have, so the
-			// output would describe neither the function nor the initialization
-			// that calls it.  PA11 spells the declaration and needs neither.
-			throw std::runtime_error(header + " declares " + member.text +
-			                         ", which is a special member function PA12 "
-			                         "does not describe");
-		}
 		// 11p1: the access a declaration was written under is a fact about the
 		// declaration, so it is written onto whatever this member declared.
 		// One declaration declares few names, and each is reached once.
 		const std::size_t before = scope.declarations.size();
-		declaration(member, inner);
+		if (semantics() && (member.kind == AstKind::SpecialMemberDeclaration ||
+		                    member.kind == AstKind::SpecialMemberDefinition))
+		{
+			// 12.1 and 12.4: a constructor or a destructor is a member whose
+			// declaration writes no decl-specifier-seq and whose name is the
+			// class's own, so it is read here rather than through the ordinary
+			// declaration path, which would look that name up as a type.
+			special_member(member, inner);
+		}
+		else
+		{
+			declaration(member, inner);
+		}
 		for (std::size_t at = before; at < scope.declarations.size(); ++at)
 		{
 			scope.declarations[at]->access = access;
-			if (semantics() && scope.declarations[at]->default_initializer)
-			{
-				// 12.6.2p8: a brace-or-equal-initializer on a non-static data
-				// member is an action of every constructor that does not name
-				// the member, and this milestone writes no action into the
-				// constructor 12.1p5 gives a class.  The member is refused
-				// where it is declared rather than described as the member it
-				// would be without the initializer.  The fact itself stays
-				// recorded, because 8.5.1p1 reads it and the checkpoint that
-				// writes constructor bodies is what lifts this.
-				throw std::runtime_error(
-					header + " declares " + scope.declarations[at]->name +
-					" with a brace-or-equal-initializer, which is part of a "
-					"constructor this milestone does not write");
-			}
 		}
 	}
 	lay_out_class(*entity, scope, tag == ClassTag::Union,
@@ -813,11 +847,178 @@ SemaEntity& SemaAnalyzer::class_declaration(const AstNode& node,
 	entity->aggregate = aggregate_class(scope);
 	if (semantics())
 	{
-		// 12.1p5: every class the output describes has the constructor no
-		// declaration wrote, because a class that writes one is refused above.
-		declare_constructor(*entity, scope);
+		// 12.1p5 and 12.4p3: a class with no declared constructor has one, and
+		// so does a class with no declared destructor.  Both are declared where
+		// the definition of the class ends, because that is where 9.2p2 makes
+		// it complete and where every member they act on is known.
+		if (entity->constructor == nullptr)
+		{
+			declare_constructor(*entity, scope);
+		}
+		if (entity->destructor == nullptr)
+		{
+			declare_destructor(*entity, scope);
+		}
+		// 12.1p5 and 8.4.2p1: a special member written `= default` does what
+		// the implicitly declared one would, and what that is, is known only
+		// here, where the class is complete.
+		for (SemaEntity* at = entity->constructor; at != nullptr; at = at->next)
+		{
+			if (at->defaulted && types_.parameters(at->type).size() == 1)
+			{
+				at->trivial = trivial_default_construction(scope);
+			}
+		}
+		if (entity->destructor->defaulted)
+		{
+			entity->destructor->trivial = trivial_destruction(scope);
+		}
 	}
 	return *entity;
+}
+
+// 12.1 and 12.4: a constructor or a destructor declared in a class body.  Both
+// are functions of the class whose name no lookup reaches: an object of the
+// class asks the class for them, so they are chained on the class rather than
+// bound to a name in it.
+void SemaAnalyzer::special_member(const AstNode& node, const Context& ctx)
+{
+	SemaEntity& owner = *ctx.scope->owner;
+	const std::string written = node.text;
+	const std::string spelled =
+		QualifiedName(types_.user_name(owner.type)).last();
+	const bool destructor = !written.empty() && written[0] == '~';
+	const std::string named = destructor ? written.substr(1) : written;
+	if (QualifiedName(named).last() != spelled)
+	{
+		// 12.3.2: a conversion function, and 13.5 an operator function written
+		// with no return type.  Neither is part of this milestone's slice, and
+		// what the output would describe without it is not the class the
+		// program wrote.
+		throw std::runtime_error(spelled + " declares " + written +
+		                         ", which is a special member function this "
+		                         "milestone does not describe");
+	}
+	const AstNode* const declarator = child_of(node, AstKind::Declarator);
+	std::vector<Parameter> parameters;
+	bool variadic = false;
+	const AstNode* const clause =
+		declarator == nullptr ? nullptr
+		                      : child_of(*declarator, AstKind::ParameterClause);
+	if (clause != nullptr)
+	{
+		read_parameters(*clause, ctx, parameters, variadic);
+	}
+	std::vector<TypeId> types;
+	// 12.1p1 and 12.4p1: neither has a return type, and both are called on the
+	// object 9.3.1p3 makes the first parameter of a member function's type.
+	types.push_back(types_.pointer_to(owner.type));
+	for (std::size_t index = 0; index < parameters.size(); ++index)
+	{
+		// 8.3.5p5: an array or function parameter contributes a pointer, and
+		// top level cv-qualification is dropped.
+		types.push_back(types_.adjust_parameter(parameters[index].type));
+	}
+	if (destructor && parameters.size() != 0)
+	{
+		throw std::runtime_error("a destructor is declared with parameters");
+	}
+	const TypeId type =
+		types_.function_of(types_.fundamental(FT_VOID), types, variadic);
+	SemaEntity* entity = nullptr;
+	if (destructor)
+	{
+		if (owner.destructor != nullptr)
+		{
+			throw std::runtime_error(spelled + " declares two destructors");
+		}
+		entity = &model_.create(SemaKind::Function, written, type);
+		owner.destructor = entity;
+		entity->special = kDestructorFunction;
+	}
+	else
+	{
+		// 13.1: the constructors of a class are its declarations of one name,
+		// so a second one joins the chain the first heads and 13.3.1.3 walks it.
+		for (SemaEntity* at = owner.constructor; at != nullptr; at = at->next)
+		{
+			if (at->type == type)
+			{
+				throw std::runtime_error(spelled +
+				                         " declares one constructor twice");
+			}
+		}
+		entity = &model_.create(SemaKind::Function, written, type);
+		entity->special = kConstructorFunction;
+		if (owner.constructor == nullptr)
+		{
+			owner.constructor = entity;
+		}
+		else
+		{
+			owner.constructor->tail->next = entity;
+		}
+		owner.constructor->tail = entity;
+	}
+	entity->tail = entity;
+	entity->dump_name = ctx.scope->prefix + written;
+	entity->object_member = true;
+	// 7.1.2p3 and 9.3p2: a special member function defined in its class body is
+	// inline, so its definition belongs to every translation unit that needs
+	// one; one that is only declared here has none in this unit at all.
+	entity->inline_function = true;
+	const AstNode* const specifiers = child_of(node, AstKind::MemberSpecifiers);
+	for (std::size_t index = 0;
+	     specifiers != nullptr && index < specifiers->children.size(); ++index)
+	{
+		// 12.3.1p2: `explicit` says which initializations may choose this
+		// constructor, which is a fact about the declaration.
+		if (specifiers->children[index]->text == "explicit")
+		{
+			entity->explicit_function = true;
+		}
+	}
+	record_default_arguments(*entity, parameters, ctx.scope);
+	model_.declare_in(*ctx.scope, *entity);
+
+	const AstNode* const initializer = child_of(node, AstKind::Initializer);
+	if (initializer != nullptr && !initializer->children.empty())
+	{
+		// 8.4.2 and 8.4.3: `= default` asks for the definition 12.1p5 or
+		// 12.4p3 would have given, and `= delete` for a declaration every use
+		// of is ill formed.  Neither is a definition the program wrote, so
+		// 8.5.1p1 leaves the class an aggregate.
+		entity->deleted = initializer->children[0]->text == "delete";
+		entity->defaulted = !entity->deleted;
+		entity->defined = false;
+		return;
+	}
+	if (node.kind != AstKind::SpecialMemberDefinition)
+	{
+		return;
+	}
+	// 12.1p4 and 8.5.1p1: a body the program wrote is what makes the function
+	// user-provided, which stops the class from being an aggregate.
+	entity->user_provided = true;
+	entity->defined = true;
+
+	DumpScope& dump = model_.open_dump(*ctx.dump, "scope function " + written);
+	Scope& inner = model_.open(ScopeKind::Function, *ctx.scope, entity, &dump);
+	SemaEntity& self =
+		model_.create(SemaKind::Parameter, "this", types_.parameters(type)[0]);
+	model_.bind(inner, self.name, self);
+	model_.declare_in(inner, self);
+	// 9.2p2: the body and the mem-initializers are read where the class is
+	// complete, which is the end of the translation unit.
+	Pending pending;
+	pending.function = entity;
+	pending.self = &self;
+	pending.body = &node;
+	pending.scope = &inner;
+	pending.parameters = parameters;
+	pending.initializers = child_of(node, AstKind::CtorInitializer);
+	pending.members = ctx.scope;
+	pending_.push_back(pending);
 }
 
 // 12.1p5: a class with no declared constructor has a default one, which the
@@ -843,20 +1044,54 @@ void SemaAnalyzer::declare_constructor(SemaEntity& entity, Scope& scope)
 	constructor.inline_function = true;
 	constructor.trivial = trivial_default_construction(scope);
 	constructor.tail = &constructor;
+	constructor.special = kConstructorFunction;
+	constructor.defaulted = true;
 	model_.declare_in(scope, constructor);
 	entity.constructor = &constructor;
+}
+
+// 12.4p3: a class with no declared destructor has one, declared where the
+// definition of the class ends and taking the object it destroys as the only
+// parameter 9.3.1p3 gives a member function.
+void SemaAnalyzer::declare_destructor(SemaEntity& entity, Scope& scope)
+{
+	std::vector<TypeId> parameters;
+	parameters.push_back(types_.pointer_to(entity.type));
+	const std::string spelled =
+		"~" + QualifiedName(types_.user_name(entity.type)).last();
+	SemaEntity& destructor = model_.create(
+		SemaKind::Function, spelled,
+		types_.function_of(types_.fundamental(FT_VOID), parameters, false));
+	destructor.dump_name = scope.prefix + spelled;
+	destructor.object_member = true;
+	destructor.inline_function = true;
+	destructor.trivial = trivial_destruction(scope);
+	destructor.tail = &destructor;
+	destructor.special = kDestructorFunction;
+	destructor.defaulted = true;
+	model_.declare_in(scope, destructor);
+	entity.destructor = &destructor;
 }
 
 // 8.5.1p1: whether an object of the class `scope` declares is initialized from
 // a braced-init-list by initializing its members with the clauses.  In the PA16
 // slice a class has no base and no virtual function, so what is left to ask is
-// whether every non-static data member is public and none was written with a
-// brace-or-equal-initializer.
+// whether every non-static data member is public, none was written with a
+// brace-or-equal-initializer, and the program provided no constructor - which
+// 12.1p4 does not count `= default` or `= delete` as doing.
 bool SemaAnalyzer::aggregate_class(Scope& scope)
 {
 	for (std::size_t index = 0; index < scope.declarations.size(); ++index)
 	{
 		const SemaEntity& member = *scope.declarations[index];
+		if (member.kind == SemaKind::Function)
+		{
+			if (member.special == kConstructorFunction && member.user_provided)
+			{
+				return false;
+			}
+			continue;
+		}
 		if (member.kind != SemaKind::Variable || !member.object_member)
 		{
 			continue;
@@ -999,11 +1234,10 @@ void SemaAnalyzer::require_droppable(const DumpNode& object,
 
 // 12.1p5: whether default-initializing an object of the class this region
 // declares does nothing at all.  It does nothing when no member asks for
-// anything, which for a member of class type is whatever its own constructor
-// is.  12.6.2p8's other reason to ask for something, a member with a
-// brace-or-equal-initializer, is refused where it is declared until a
-// constructor has a body to put the action in.  Layout has already run, so the
-// class's members are exactly the declarations of this region.
+// anything: a member with a brace-or-equal-initializer asks for what 12.6.2p8
+// makes it, and a member of class type asks for whatever its own constructor
+// is.  Layout has already run, so the class's members are exactly the
+// declarations of this region.
 bool SemaAnalyzer::trivial_default_construction(Scope& scope)
 {
 	for (std::size_t index = 0; index < scope.declarations.size(); ++index)
@@ -1014,9 +1248,35 @@ bool SemaAnalyzer::trivial_default_construction(Scope& scope)
 		{
 			continue;
 		}
+		if (member.default_initializer)
+		{
+			return false;
+		}
 		const SemaEntity* const constructor =
-			default_constructor(element_of(member.type));
+			class_constructors(element_of(member.type));
 		if (constructor != nullptr && !constructor->trivial)
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+// 12.4p3: whether destroying an object of the class this region declares does
+// nothing at all, which it does when every member's own destruction does.
+bool SemaAnalyzer::trivial_destruction(Scope& scope)
+{
+	for (std::size_t index = 0; index < scope.declarations.size(); ++index)
+	{
+		const SemaEntity& member = *scope.declarations[index];
+		if (member.kind != SemaKind::Variable || !member.object_member ||
+		    member.region != &scope)
+		{
+			continue;
+		}
+		const SemaEntity* const destructor =
+			class_destructor(element_of(member.type));
+		if (destructor != nullptr && !destructor->trivial)
 		{
 			return false;
 		}
@@ -1067,7 +1327,7 @@ void SemaAnalyzer::inject_union_members(SemaEntity* entity, const Context& ctx,
 			                           FactKind::Variable);
 			line.fact.entity = storage;
 			line.fact.type = entity->type;
-			construct_object(*storage, line);
+			construct_object(*storage, line, nullptr, ctx);
 		}
 		// 9.2p1: a union written in a class declares an object that is a member
 		// of it, which the enclosing class initializes and which no line of its
@@ -1134,7 +1394,7 @@ TypeId SemaAnalyzer::with_object_parameter(TypeId type,
 	                          types_.variadic(type));
 }
 
-SemaEntity* SemaAnalyzer::default_constructor(TypeId type)
+SemaEntity* SemaAnalyzer::class_constructors(TypeId type)
 {
 	if (!types_.is_class(types_.strip_cv(type)))
 	{
@@ -1144,10 +1404,61 @@ SemaEntity* SemaAnalyzer::default_constructor(TypeId type)
 	return owner == nullptr ? nullptr : owner->constructor;
 }
 
-// 8.5p6 and 12.1p5: an object of class type with no initializer is initialized
-// by calling the default constructor of its class on it, which is one call like
-// any other and which the dump writes under the declaration of the object.
-void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line)
+// 8.5.1p1: whether an object of `type` is initialized from a braced-init-list
+// by initializing its members with the clauses rather than by a constructor.
+bool SemaAnalyzer::aggregate_type(TypeId type)
+{
+	SemaEntity* const owner = model_.type_owner(types_.strip_cv(type));
+	return owner != nullptr && owner->aggregate;
+}
+
+SemaEntity* SemaAnalyzer::class_destructor(TypeId type)
+{
+	if (!types_.is_class(types_.strip_cv(type)))
+	{
+		return nullptr;
+	}
+	SemaEntity* const owner = model_.type_owner(types_.strip_cv(type));
+	return owner == nullptr ? nullptr : owner->destructor;
+}
+
+// The object a constructor-action runs on, written as its address, which is the
+// argument 9.3.1p3 made the constructor's first parameter.
+void SemaAnalyzer::write_constructed_object(SemaEntity& variable,
+                                            DumpNode& call, bool member,
+                                            Value& object)
+{
+	// 5.3.1p3 writes the address around the object, so the object's own line
+	// stands under the one the address takes rather than in place of it.
+	DumpNode& node = model_.open_node(call, std::string());
+	DumpNode& inner = model_.open_node(node, std::string());
+	if (member)
+	{
+		// 12.6.2: the subobject is a member of the object the constructor being
+		// written was called on, so it is named through `this`.
+		object = member_value(variable, implied_object(variable, inner),
+		                      variable.name, inner);
+	}
+	else
+	{
+		object.type = object.spelled = variable.type;
+		object.category = ValueCategory::LValue;
+		object.what = "id-expression";
+		object.entity = &variable;
+		object.payload = variable.name;
+		object.node = &inner;
+		respell(object);
+	}
+	address_of_object(object, node, false);
+}
+
+// 8.5, 12.1 and 13.3.1.3: an object of class type is initialized by one of the
+// constructors of its class, chosen from the arguments its initializer wrote.
+// The action is one call like any other, written under the declaration of the
+// object, and the definition of the constructor it names is asked for here.
+void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
+                                    const AstNode* written, const Context& ctx,
+                                    bool member)
 {
 	if (!types_.is_class(types_.strip_cv(variable.type)))
 	{
@@ -1155,8 +1466,8 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line)
 		// initialization, and there is nothing for the output to describe.
 		return;
 	}
-	SemaEntity* const constructor = default_constructor(variable.type);
-	if (constructor == nullptr)
+	SemaEntity* const head = class_constructors(variable.type);
+	if (head == nullptr)
 	{
 		// 3.9p6 and 9.2p2: an object needs a complete class, and 12.1p5 gives
 		// every complete one the output describes a constructor, so a class
@@ -1165,43 +1476,333 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line)
 		                         types_.description(variable.type) +
 		                         " is declared");
 	}
-	if (!constructor->defined)
+	// 8.5p15 and 8.5p16: which of the arguments the program wrote reach the
+	// constructor, and whether 13.3.1.4 leaves out the ones declared `explicit`.
+	const AstNode* list = nullptr;
+	bool converting = false;
+	if (written != nullptr)
 	{
-		// 12.1p5: the definition is what odr-using the constructor asks for,
-		// and one use is what asks for it.
-		constructor->defined = true;
-		Pending pending;
-		pending.function = constructor;
-		pending.self = &model_.create(
-			SemaKind::Parameter, "this", types_.parameters(constructor->type)[0]);
-		pending_.push_back(pending);
+		if (is_initializer_list(written->kind))
+		{
+			list = written;
+		}
+		else
+		{
+			// 8.5p14: copy-initialization from one expression, which only a
+			// converting constructor may answer.
+			converting = true;
+		}
 	}
-	DumpNode& action =
-		model_.open_node(line, "constructor-action " + constructor->dump_name);
+	if (converting && written->kind == AstKind::CallExpression &&
+	    !written->children.empty() &&
+	    written->children[0]->kind == AstKind::IdExpression)
+	{
+		// 12.8p31 and 5.2.3p1: a class object copy-initialized from a prvalue
+		// of its own type is initialized by whatever makes that prvalue, so the
+		// arguments of `T(...)` are the constructor's and no object of the type
+		// stands between them.
+		SemaEntity* const named =
+			resolve(written->children[0]->text, ctx, LookupKind::Type);
+		if (named != nullptr && names_a_type(*named) &&
+		    types_.strip_cv(named->type) == types_.strip_cv(variable.type))
+		{
+			list = call_arguments(*written);
+			converting = false;
+		}
+	}
+
+	Value source;
+	if (converting)
+	{
+		// 8.5p14: the initializer is read before anything is written for the
+		// initialization, because 12.8p31 lets a value of the object's own type
+		// be what initializes it, with no constructor standing between them.
+		source = expression(*written, ctx, line);
+		if (types_.strip_cv(source.type) == types_.strip_cv(variable.type) &&
+		    !member)
+		{
+			return;
+		}
+		line.children.pop_back();
+	}
+	DumpNode& action = model_.open_node(line, std::string());
 	action.fact.kind = FactKind::ConstructorAction;
-	action.fact.entity = constructor;
 	action.fact.type = variable.type;
-	DumpNode& call = model_.open_node(
-		action, spell("call-expression", ValueCategory::PRValue,
-		              types_.target(constructor->type), std::string()));
-	set_fact(call, FactKind::Call, types_.target(constructor->type),
+	DumpNode& call = model_.open_node(action, std::string());
+	DumpNode& callee = model_.open_node(call, std::string());
+	Value object;
+	write_constructed_object(variable, call, member, object);
+	std::vector<Value> arguments;
+	if (list != nullptr)
+	{
+		for (std::size_t index = 0; index < list->children.size(); ++index)
+		{
+			arguments.push_back(expression(*list->children[index], ctx, call));
+		}
+	}
+	if (source.node != nullptr)
+	{
+		// The one argument of a copy-initialization was read before the action
+		// was opened, so its line moves into the place the call gives it.
+		call.children.push_back(source.node);
+		arguments.push_back(source);
+	}
+
+	std::vector<SemaEntity*> candidates(1, head);
+	SemaEntity& constructor = *select_overload(candidates, arguments,
+	                                           head->name, &object, converting);
+	require_access(constructor, ctx.scope);
+	if (constructor.deleted)
+	{
+		// 8.4.3p2: a program that names a deleted function is ill formed.
+		throw std::runtime_error("a deleted constructor of " +
+		                         types_.description(variable.type) +
+		                         " is what initializes an object of it");
+	}
+	const std::vector<TypeId>& parameters = types_.parameters(constructor.type);
+	for (std::size_t index = 0; index < arguments.size(); ++index)
+	{
+		const Match match = match_argument(arguments[index],
+		                                   parameters[index + 1]);
+		apply_conversion(arguments[index], parameters[index + 1], match);
+	}
+	for (std::size_t index = arguments.size() + 1; index < parameters.size();
+	     ++index)
+	{
+		// 8.3.6p1: the constructor is called as if the default-argument had
+		// been written where the argument is missing.
+		write_default_argument(constructor, index, call);
+	}
+	action.text = "constructor-action " + constructor.dump_name;
+	action.fact.entity = &constructor;
+	call.text = spell("call-expression", ValueCategory::PRValue,
+	                  types_.target(constructor.type), std::string());
+	set_fact(call, FactKind::Call, types_.target(constructor.type),
 	         ValueCategory::PRValue);
-	DumpNode& callee =
-		model_.open_node(call, "callee " + constructor->dump_name + " " +
-		                 types_.description(constructor->type));
-	set_fact(callee, FactKind::Callee, constructor->type,
-	         ValueCategory::LValue);
-	callee.fact.entity = constructor;
-	const TypeId object = types_.pointer_to(variable.type);
-	DumpNode& address = model_.open_node(
-		call, spell("unary-expression", ValueCategory::PRValue, object, "OP_AMP:&"));
-	set_fact(address, FactKind::Unary, object, ValueCategory::PRValue);
-	address.fact.op = OP_AMP;
-	DumpNode& named =
-		model_.open_node(address, spell("id-expression", ValueCategory::LValue,
-		                                variable.type, variable.name));
-	set_fact(named, FactKind::Id, variable.type, ValueCategory::LValue);
-	named.fact.entity = &variable;
+	callee.text = "callee " + constructor.dump_name + " " +
+		types_.description(constructor.type);
+	set_fact(callee, FactKind::Callee, constructor.type, ValueCategory::LValue);
+	callee.fact.entity = &constructor;
+	if (constructor.defined || constructor.deleted)
+	{
+		return;
+	}
+	// 12.1p5: the definition is what odr-using the constructor asks for, and
+	// one use is what asks for it.  A constructor the program declared without
+	// defining is one this unit has no body for, and nothing asks for one.
+	if (!constructor.defaulted)
+	{
+		// A constructor the program declared without defining is one this unit
+		// has no body for, so a use of it is a call of a definition elsewhere.
+		return;
+	}
+	constructor.defined = true;
+	Pending pending;
+	pending.function = &constructor;
+	pending.self = &model_.create(SemaKind::Parameter, "this", parameters[0]);
+	pending.members = constructor.region;
+	pending_.push_back(pending);
+}
+
+// 12.4p3 and 3.8p1: the end of the lifetime of an object of class type is one
+// call of the destructor of its class on it.  A destructor that does nothing is
+// no action at all, so nothing is written for one.
+void SemaAnalyzer::destructor_action(SemaEntity& entity, DumpNode& parent,
+                                     bool member)
+{
+	SemaEntity* const destructor = class_destructor(element_of(entity.type));
+	if (destructor == nullptr || destructor->trivial)
+	{
+		return;
+	}
+	if (types_.kind(types_.strip_cv(entity.type)) == TypeKind::Array)
+	{
+		// 12.4p12 destroys the elements in reverse order, which this milestone
+		// does not write yet, so the object is left rather than half destroyed.
+		throw std::runtime_error("an array of a class with a destructor is "
+		                         "declared, which this milestone does not end "
+		                         "the lifetime of");
+	}
+	DumpNode& action = model_.open_node(
+		parent, "destructor-action " + destructor->dump_name);
+	action.fact.kind = FactKind::DestructorAction;
+	action.fact.entity = destructor;
+	action.fact.type = entity.type;
+	DumpNode& node = model_.open_node(action, std::string());
+	if (member)
+	{
+		member_value(entity, implied_object(entity, node), entity.name, node);
+	}
+	else
+	{
+		Value object;
+		object.type = object.spelled = entity.type;
+		object.category = ValueCategory::LValue;
+		object.what = "id-expression";
+		object.entity = &entity;
+		object.payload = entity.name;
+		object.node = &node;
+		respell(object);
+	}
+	if (destructor->defined || !destructor->defaulted)
+	{
+		return;
+	}
+	// 12.4p6: the definition of an implicitly declared destructor is what
+	// odr-using it asks for.
+	destructor->defined = true;
+	Pending pending;
+	pending.function = destructor;
+	pending.self = &model_.create(SemaKind::Parameter, "this",
+	                              types_.parameters(destructor->type)[0]);
+	pending.members = destructor->region;
+	pending_.push_back(pending);
+}
+
+// 12.6.2: what a constructor initializes before its body runs.  Every non-static
+// data member of the class is initialized, in the declaration order 12.6.2p10
+// gives them whatever order the mem-initializers were written in: by the
+// mem-initializer that names it, else by the brace-or-equal-initializer its own
+// declaration wrote (12.6.2p8), else by default-initialization, which for
+// anything but a class type leaves it holding no value the program may read.
+void SemaAnalyzer::write_member_initializations(const Pending& pending,
+                                                DumpNode& line,
+                                                const Context& inner)
+{
+	Scope& members = *pending.members;
+	for (std::size_t index = 0; index < members.declarations.size(); ++index)
+	{
+		SemaEntity& member = *members.declarations[index];
+		if (member.kind != SemaKind::Variable || !member.object_member ||
+		    member.region != &members)
+		{
+			continue;
+		}
+		const AstNode* written = nullptr;
+		Context where = inner;
+		for (std::size_t at = 0;
+		     pending.initializers != nullptr &&
+		     at < pending.initializers->children.size(); ++at)
+		{
+			const AstNode& one = *pending.initializers->children[at];
+			const AstNode* const id = child_of(one, AstKind::MemInitializerId);
+			if (id != nullptr && QualifiedName(id->text).last() == member.name)
+			{
+				// 12.6.2p2: the mem-initializer's arguments are read in the
+				// constructor's own region, where its parameters stand.
+				written = one.children.size() > 1 ? one.children[1] : nullptr;
+				break;
+			}
+		}
+		if (written == nullptr && member.default_initializer)
+		{
+			// 12.6.2p8 and 9.2p2: a brace-or-equal-initializer is read in the
+			// class it was written in, which is a complete-class context.
+			const std::unordered_map<std::uint32_t, Default>::const_iterator
+				found = member_initializers_.find(member.id);
+			if (found != member_initializers_.end())
+			{
+				written = found->second.written;
+				where.scope = found->second.scope;
+				where.dump = where.scope->dump;
+			}
+		}
+		where.node = nullptr;
+		const TypeId type = member.type;
+		if (types_.is_class(types_.strip_cv(type)))
+		{
+			// The action names the member through `this`, so it needs no line
+			// of its own to say which subobject is being initialized.
+			construct_object(member, line, written, where, true);
+			continue;
+		}
+		if (written == nullptr)
+		{
+			// 8.5p6 and 12.6.2p8: a member of any other type that no
+			// initializer reaches is default-initialized, which does nothing.
+			continue;
+		}
+		DumpNode& node = open_fact(line, "member-initialization " + member.name +
+		                           " " + types_.description(type),
+		                           FactKind::MemberInitialization);
+		node.fact.entity = &member;
+		node.fact.type = type;
+		node.fact.spelled = type;
+		// 9.2p13: where the member is, is where its class put it, so the tree
+		// names the object it is part of and the member it is, and nothing
+		// below has to read a member access to learn either.
+		implied_object(member, node);
+		if (written->kind != AstKind::BracedInitList &&
+		    is_initializer_list(written->kind))
+		{
+			// 8.5p16: direct-initialization of a member of non-class type takes
+			// the one expression written in the parentheses.
+			if (written->children.empty())
+			{
+				// 8.5p10: `m()` value-initializes the member, which for these
+				// types is the zero of it.
+				DumpNode& zero = model_.open_node(
+					node, spell("literal", ValueCategory::PRValue, type, "0"));
+				set_fact(zero, FactKind::Literal, type, ValueCategory::PRValue);
+				zero.fact.constant = true;
+				continue;
+			}
+			if (written->children.size() != 1)
+			{
+				throw std::runtime_error("a mem-initializer of " + member.name +
+				                         " passes more than one argument to a "
+				                         "member of non-class type");
+			}
+			initialize(*written->children[0], type, where, node);
+			continue;
+		}
+		initialize(*written, type, where, node);
+	}
+}
+
+// 12.4p8: after a destructor's body has run, the destructors of the class's
+// members run, in the reverse of the order the members were constructed in.
+void SemaAnalyzer::write_member_destructions(Scope& members, DumpNode& line)
+{
+	for (std::size_t index = members.declarations.size(); index-- > 0;)
+	{
+		SemaEntity& member = *members.declarations[index];
+		if (member.kind != SemaKind::Variable || !member.object_member ||
+		    member.region != &members)
+		{
+			continue;
+		}
+		destructor_action(member, line, true);
+	}
+}
+
+void SemaAnalyzer::open_lifetimes()
+{
+	lifetimes_.push_back(std::vector<SemaEntity*>());
+}
+
+void SemaAnalyzer::close_lifetimes(DumpNode& line)
+{
+	// 3.8p1 and 6.7p2: the objects a block declared are destroyed where control
+	// leaves it, in reverse order of construction.
+	std::vector<SemaEntity*>& frame = lifetimes_.back();
+	for (std::size_t index = frame.size(); index-- > 0;)
+	{
+		destructor_action(*frame[index], line, false);
+	}
+	lifetimes_.pop_back();
+}
+
+void SemaAnalyzer::unwind_lifetimes(DumpNode& line)
+{
+	for (std::size_t depth = lifetimes_.size(); depth-- > 0;)
+	{
+		const std::vector<SemaEntity*>& frame = lifetimes_[depth];
+		for (std::size_t index = frame.size(); index-- > 0;)
+		{
+			destructor_action(*frame[index], line, false);
+		}
+	}
 }
 
 // The typed facts of a node the analysis builds rather than reads: a
@@ -1738,6 +2339,15 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 		// 8.5.1p1 makes a class that has one no aggregate.
 		entity.default_initializer = entity.object_member &&
 			initializer != nullptr && !initializer->children.empty();
+		if (entity.default_initializer)
+		{
+			// 12.6.2p8 and 9.2p2: the initializer is read by every constructor
+			// that does not name the member, in the complete-class context the
+			// member was declared in rather than where the constructor is.
+			Default& held = member_initializers_[entity.id];
+			held.written = initializer->children[0];
+			held.scope = target.scope;
+		}
 	}
 	// 3.1p2: an `extern` declaration with no initializer declares the object
 	// and does not define it; every other declaration of one at namespace scope
@@ -1779,14 +2389,37 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 	                           types_.description(type), FactKind::Variable);
 	line.fact.entity = &entity;
 	line.fact.type = type;
+	const AstNode* const value =
+		initializer == nullptr || initializer->children.empty()
+			? nullptr
+			: initializer->children[0];
+	if (types_.is_class(types_.strip_cv(type)) && entity.object_definition &&
+	    !(value != nullptr && value->kind == AstKind::BracedInitList &&
+	      aggregate_type(type)))
+	{
+		// 8.5 and 12.1: an object of class type is initialized by one of the
+		// constructors of its class, whatever form the initializer took, unless
+		// 8.5.1 makes the class an aggregate initialized from the clauses of a
+		// braced-init-list.  3.8p1 then makes the end of its lifetime an action
+		// of the region that declared it.
+		construct_object(entity, line, value, ctx);
+		if (target.scope->kind == ScopeKind::Namespace)
+		{
+			static_lifetimes_.push_back(&entity);
+		}
+		else if (!lifetimes_.empty())
+		{
+			lifetimes_.back().push_back(&entity);
+		}
+		return;
+	}
 	// 5.19p3 and 7.1.5p9: a constexpr object is initialized by a constant
 	// expression, and the dump writes the value it stands for rather than the
 	// expression that computed it.
-	if (initializer == nullptr || initializer->children.empty())
+	if (value == nullptr)
 	{
-		// 8.5p6: an object with no initializer is default-initialized, which
-		// for a class type is a call of its default constructor.
-		construct_object(entity, line);
+		// 8.5p6: an object of any other type with no initializer holds no value
+		// the program may read, and there is nothing to describe.
 		return;
 	}
 	if (entity.constant && specifiers.is_constexpr)

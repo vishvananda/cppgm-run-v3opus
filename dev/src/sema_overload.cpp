@@ -404,7 +404,7 @@ SemaEntity* SemaAnalyzer::resolve_target(const Value& value, TypeId target)
 SemaEntity* SemaAnalyzer::select_overload(
 	const std::vector<SemaEntity*>& candidates,
 	const std::vector<Value>& arguments, const std::string& name,
-	const Value* object)
+	const Value* object, bool converting)
 {
 	std::vector<SemaEntity*> viable;
 	// 13.3.3p1: which of the viable candidates is a specialization of a
@@ -433,6 +433,12 @@ SemaEntity* SemaAnalyzer::select_overload(
 			{
 				continue;
 			}
+		}
+		if (converting && at->explicit_function)
+		{
+			// 13.3.1.4p1: copy-initialization chooses among the converting
+			// constructors alone, which the ones declared `explicit` are not.
+			continue;
 		}
 		if (at->object_member && object == nullptr)
 		{
