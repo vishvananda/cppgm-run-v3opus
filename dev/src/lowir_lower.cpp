@@ -389,6 +389,11 @@ void LowirUnitLowering::collect_definitions(const DumpNode& node)
 				// the program no declaration of it.
 				defined_.insert(function_symbol(*child.fact.entity, true));
 			}
+			// 3.6.2p2 folds a call of a constructor into the image of the
+			// object it initializes, which is what the constructor's own
+			// definition says, so every definition is indexed by what it
+			// defines whether or not a use has asked for it yet.
+			bodies_[child.fact.entity->id] = &child;
 			if (child.fact.entity->inline_function)
 			{
 				// 7.1.2p4: the definition is the program's rather than this
@@ -940,6 +945,142 @@ bool LowirUnitLowering::global_subobjects(lowir_model::GlobalDefinition& global,
 	return true;
 }
 
+// 3.6.2p2: the value an object with static storage duration holds before the
+// program runs, where a constructor is what initializes it.  A constructor
+// whose whole definition is 12.6.2's member initializations, each of a value
+// the translation knows once the parameters hold the arguments the call passed,
+// leaves the object holding one image - so the object holds it and no startup
+// body writes it.  The definition is read once per call, and only the calls a
+// constant initializer holds ever ask.
+bool LowirUnitLowering::global_constructed(
+	lowir_model::GlobalDefinition& global, const DumpNode& action,
+	unsigned long long base, unsigned long long& at)
+{
+	const DumpNode& call = *action.children[0];
+	const SemaEntity& constructor = *call.children[0]->fact.entity;
+	const std::unordered_map<std::uint32_t, const DumpNode*>::const_iterator
+		found = bodies_.find(constructor.id);
+	if (found == bodies_.end())
+	{
+		// 3.2p2: this unit holds no body for the constructor, so what it does
+		// is not something the translation knows.
+		return false;
+	}
+	const DumpNode& definition = *found->second;
+	// 8.3.6p1 and 5.2.2p4: the arguments stand where the parameters do, in the
+	// order both were written, so each parameter is bound to one argument node
+	// once and every value read below is one probe of that map.
+	std::unordered_map<std::uint32_t, const DumpNode*> bound;
+	std::size_t argument = 2;
+	bool self = true;
+	for (std::size_t index = 0; index < definition.children.size(); ++index)
+	{
+		const DumpNode& child = *definition.children[index];
+		if (child.fact.kind != FactKind::Parameter)
+		{
+			continue;
+		}
+		if (self)
+		{
+			// 9.3.1p3's object parameter is the storage this is folding into.
+			self = false;
+			continue;
+		}
+		if (argument >= call.children.size() || child.fact.entity == nullptr)
+		{
+			return false;
+		}
+		bound[child.fact.entity->id] = call.children[argument];
+		++argument;
+	}
+	for (std::size_t index = 0; index < definition.children.size(); ++index)
+	{
+		const DumpNode& child = *definition.children[index];
+		if (child.fact.kind == FactKind::Parameter)
+		{
+			continue;
+		}
+		if (child.fact.kind == FactKind::Compound)
+		{
+			// 12.6.2p10: the body runs after the members are initialized, and
+			// one that does anything at all is something the translation has to
+			// run rather than fold.
+			if (!child.children.empty())
+			{
+				return false;
+			}
+			continue;
+		}
+		if (child.fact.kind != FactKind::MemberInitialization ||
+		    child.fact.entity == nullptr || child.children.size() < 2)
+		{
+			// 12.6.2p5's base subobject, an array member's per-element
+			// construction, and a member left default-initialized are each a
+			// shape this does not fold.
+			return false;
+		}
+		const SemaEntity& member = *child.fact.entity;
+		const TypeId type = child.fact.type;
+		if (member.bit_field || types_.is_reference(type) ||
+		    types_.kind(types_.strip_cv(type)) == TypeKind::Array ||
+		    types_.is_class(types_.strip_cv(type)))
+		{
+			return false;
+		}
+		const DumpNode* value = child.children[1];
+		if (value->fact.entity != nullptr)
+		{
+			const std::unordered_map<std::uint32_t, const DumpNode*>::const_iterator
+				passed = bound.find(value->fact.entity->id);
+			if (passed != bound.end())
+			{
+				value = passed->second;
+			}
+		}
+		const unsigned long long offset = base + member.offset;
+		if (offset < at)
+		{
+			return false;
+		}
+		add_zero_item(global, offset - at);
+		lowir_model::GlobalDefinition::DataItem item;
+		item.type = low_type(type);
+		std::string symbol;
+		long long addend = 0;
+		unsigned long long bits = 0;
+		if (global_address(*value, symbol, addend))
+		{
+			item.kind = lowir_model::GlobalDefinition::DataItem::ITEM_ADDR;
+			item.symbol = symbol;
+			item.addr_addend = addend;
+		}
+		else if (folded(*value, bits))
+		{
+			item.kind = lowir_model::GlobalDefinition::DataItem::ITEM_INTEGER;
+			item.literal_operand.kind = lowir_model::Operand::OP_INTEGER;
+			item.literal_operand.text = spell_value(type, bits);
+		}
+		else
+		{
+			// 3.6.2p2: the value is not one the translation knows, so what the
+			// constructor does is what the program runs.
+			return false;
+		}
+		global.data_items.push_back(item);
+		at = offset + types_.object_size(types_.strip_cv(type));
+	}
+	if (!constructor.member_entry)
+	{
+		// 3.2p2: the initialization named the constructor the program wrote,
+		// which odr-uses it however the translation then works out what it
+		// leaves the object holding.  The one 8.5.1 gave an aggregate is named
+		// by nothing the program wrote, so folding its call leaves no use of it
+		// at all.
+		demand_definition(constructor);
+	}
+	return true;
+}
+
 bool LowirUnitLowering::global_aggregate_initializer(
 	lowir_model::GlobalDefinition& global, const DumpNode& node, TypeId type)
 {
@@ -1120,6 +1261,21 @@ bool LowirUnitLowering::global_array_initializer(
 			{
 				return false;
 			}
+			continue;
+		}
+		if (node->children[index]->fact.kind == FactKind::ConstructorAction)
+		{
+			// 3.6.2p2: the element is built by a constructor, and where what
+			// that constructor does is one image the translation knows, the
+			// element holds it rather than being built before the program runs.
+			const unsigned long long base =
+				static_cast<unsigned long long>(index) * stride;
+			unsigned long long at = base;
+			if (!global_constructed(global, *node->children[index], base, at))
+			{
+				return false;
+			}
+			add_zero_item(global, base + stride - at);
 			continue;
 		}
 		if (node->children[index]->fact.kind ==

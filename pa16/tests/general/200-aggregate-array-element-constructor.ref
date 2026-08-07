@@ -1,0 +1,136 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $pairs : obj<24x4>
+  slot $cond__1 : i32
+  slot $land__2 : i64
+  slot $land__3 : i64
+  slot $land__4 : i64
+  slot $land__5 : i64
+
+  block ^entry:
+    %t1 = addr $pairs
+    call void @Pair__Pair__ov2(%t1, 1, 2)
+    %t2 = index i8 %t1, 8
+    call void @Pair__Pair__ov2(%t2, 3, 0)
+    %t3 = index i8 %t1, 16
+    call void @Pair__Pair__ov2(%t3, 5, 6)
+    %t4 = addr $pairs
+    %t5 = unary decay ptr %t4
+    %t6 = binary mul i64 0, 8
+    %t7 = index i8 [projection=array_element] %t5, %t6
+    %t8 = index i8 [projection=field] %t7, 0
+    %t9 = load i32 %t8
+    %t10 = cmp eq i32 %t9, 1
+    branch %t10, ^land_rhs_13, ^land_short_14
+
+  block ^land_rhs_13:
+    %t11 = addr $pairs
+    %t12 = unary decay ptr %t11
+    %t13 = binary mul i64 0, 8
+    %t14 = index i8 [projection=array_element] %t12, %t13
+    %t15 = index i8 [projection=field] %t14, 4
+    %t16 = load i32 %t15
+    %t17 = cmp eq i32 %t16, 2
+    %t18 = cmp ne i64 %t17, 0
+    store i64 %t18, $land__5
+    jump ^land_end_15
+
+  block ^land_short_14:
+    store i64 0, $land__5
+    jump ^land_end_15
+
+  block ^land_end_15:
+    %t19 = load i64 $land__5
+    branch %t19, ^land_rhs_10, ^land_short_11
+
+  block ^land_rhs_10:
+    %t20 = addr $pairs
+    %t21 = unary decay ptr %t20
+    %t22 = binary mul i64 1, 8
+    %t23 = index i8 [projection=array_element] %t21, %t22
+    %t24 = index i8 [projection=field] %t23, 0
+    %t25 = load i32 %t24
+    %t26 = cmp eq i32 %t25, 3
+    %t27 = cmp ne i64 %t26, 0
+    store i64 %t27, $land__4
+    jump ^land_end_12
+
+  block ^land_short_11:
+    store i64 0, $land__4
+    jump ^land_end_12
+
+  block ^land_end_12:
+    %t28 = load i64 $land__4
+    branch %t28, ^land_rhs_7, ^land_short_8
+
+  block ^land_rhs_7:
+    %t29 = addr $pairs
+    %t30 = unary decay ptr %t29
+    %t31 = binary mul i64 1, 8
+    %t32 = index i8 [projection=array_element] %t30, %t31
+    %t33 = index i8 [projection=field] %t32, 4
+    %t34 = load i32 %t33
+    %t35 = cmp eq i32 %t34, 0
+    %t36 = cmp ne i64 %t35, 0
+    store i64 %t36, $land__3
+    jump ^land_end_9
+
+  block ^land_short_8:
+    store i64 0, $land__3
+    jump ^land_end_9
+
+  block ^land_end_9:
+    %t37 = load i64 $land__3
+    branch %t37, ^land_rhs_4, ^land_short_5
+
+  block ^land_rhs_4:
+    %t38 = addr $pairs
+    %t39 = unary decay ptr %t38
+    %t40 = binary mul i64 2, 8
+    %t41 = index i8 [projection=array_element] %t39, %t40
+    %t42 = index i8 [projection=field] %t41, 4
+    %t43 = load i32 %t42
+    %t44 = cmp eq i32 %t43, 6
+    %t45 = cmp ne i64 %t44, 0
+    store i64 %t45, $land__2
+    jump ^land_end_6
+
+  block ^land_short_5:
+    store i64 0, $land__2
+    jump ^land_end_6
+
+  block ^land_end_6:
+    %t46 = load i64 $land__2
+    branch %t46, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t47 = load i32 $cond__1
+    return i32 %t47
+}
+function @Pair__Pair__ov2(%this : ptr, %first : i32, %second : i32) -> void [unwind=no, binding=weak, object=_ZN4PairC1Eii] {
+  slot $this : ptr
+  slot $first : i32
+  slot $second : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %first, $first
+    store i32 %second, $second
+    %t1 = load i32 $first
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 %t1, %t3
+    %t4 = load i32 $second
+    %t5 = load ptr $this
+    %t6 = index i8 [projection=field] %t5, 4
+    store i32 %t4, %t6
+    return void
+}
+alias object _ZN4PairC2Eii = @Pair__Pair__ov2

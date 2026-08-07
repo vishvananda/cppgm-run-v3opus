@@ -2675,6 +2675,8 @@ LowValue LowirFunctionLowering::subscript_expression(const DumpNode& node)
 	instruction.index_projection = lowir_model::IPK_ARRAY_ELEMENT;
 	instruction.type = unit_.low_type(node.fact.type);
 	instruction.first = address;
+	// 5.2.1p1: the subscript is one expression however the element is reached,
+	// so it is read once here and the byte count below counts what it holds.
 	instruction.second = rvalue(offset);
 	if (instruction.type.text.compare(0, 4, "obj<") == 0)
 	{
@@ -2684,7 +2686,7 @@ LowValue LowirFunctionLowering::subscript_expression(const DumpNode& node)
 		scale.kind = Instruction::IK_BINARY;
 		scale.op = "mul";
 		scale.type.text = "i64";
-		scale.first = converted(offset, types.fundamental(FT_LONG_INT));
+		scale.first = instruction.second;
 		scale.second = named_operand(
 			Operand::OP_INTEGER,
 			decimal(types.object_size(types.strip_cv(node.fact.type))));

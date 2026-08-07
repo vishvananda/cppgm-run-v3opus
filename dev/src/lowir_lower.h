@@ -336,6 +336,14 @@ private:
 	bool global_subobjects(lowir_model::GlobalDefinition& global,
 	                       const DumpNode& node, unsigned long long base,
 	                       unsigned long long& at);
+	// 3.6.2p2: the image a `constructor-action` leaves the object holding,
+	// where the constructor's own definition is nothing but 12.6.2's member
+	// initializations of values the translation knows once its parameters hold
+	// the call's arguments.  False for every other constructor, which leaves
+	// the object to be built before the program runs.
+	bool global_constructed(lowir_model::GlobalDefinition& global,
+	                        const DumpNode& action, unsigned long long base,
+	                        unsigned long long& at);
 	// `bytes` of zero, added to the items when there are any to add.
 	static void add_zero_item(lowir_model::GlobalDefinition& global,
 	                          unsigned long long bytes);
@@ -451,6 +459,12 @@ private:
 	// keyed by the entity each defines.  A definition the program never uses is
 	// not part of the program, so none of these is lowered until a use asks.
 	std::unordered_map<std::uint32_t, const DumpNode*> deferred_;
+	// Every definition this unit holds, keyed by the entity it defines, kept
+	// whether or not the definition has been lowered yet.  3.6.2p2 reads what a
+	// constructor does to fold one call of it into the image of an object, and
+	// n objects built by one constructor ask n times, so the index outlives the
+	// one-shot walk `deferred_` is.
+	std::unordered_map<std::uint32_t, const DumpNode*> bodies_;
 	// Those a use has asked for and that are not lowered yet.
 	std::vector<const DumpNode*> demanded_;
 };

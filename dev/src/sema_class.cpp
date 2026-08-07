@@ -635,13 +635,17 @@ void SemaAnalyzer::special_member(const AstNode& node, const Context& ctx)
 		entity->inline_function = true;
 		return;
 	}
+	// 8.4.2p4 and 12.1p4: a special member the program declared and did not
+	// default or delete on that declaration is user-provided, wherever the body
+	// it is given is written - which is what stops the class from being an
+	// aggregate, and what 8.5p7 asks before it zeroes a value-initialized
+	// object.  The declaration says it, so a constructor defined outside the
+	// class says it too.
+	entity->user_provided = true;
 	if (node.kind != AstKind::SpecialMemberDefinition)
 	{
 		return;
 	}
-	// 12.1p4 and 8.5.1p1: a body the program wrote is what makes the function
-	// user-provided, which stops the class from being an aggregate.
-	entity->user_provided = true;
 	entity->defined = true;
 
 	DumpScope& dump = model_.open_dump(*ctx.dump, "scope function " + written);
@@ -858,12 +862,49 @@ void SemaAnalyzer::declare_special_members(SemaEntity& entity, Scope& scope)
 		if (at->defaulted && types_.parameters(at->type).size() == 1)
 		{
 			at->trivial = trivial_default_construction(scope);
+			// 12.1p5: a default constructor the standard writes has nothing to
+			// initialize a member of const-qualified or reference type with, so
+			// the class has none - which is what 8.5p6's default-initialization
+			// of an object of the class then names.
+			at->deleted = at->deleted || undefinable_default(scope);
 		}
 	}
 	if (entity.destructor->defaulted)
 	{
 		entity.destructor->trivial = trivial_destruction(scope);
 	}
+}
+
+// 12.1p5: whether the definition the standard would give a default constructor
+// of this class is one it cannot write - a non-static data member of
+// const-qualified or reference type that no brace-or-equal-initializer reaches
+// is a subobject 8.5p6 leaves holding nothing and 8.5.3p1 leaves bound to
+// nothing, and the constructor that would have to initialize it is deleted.
+bool SemaAnalyzer::undefinable_default(Scope& scope)
+{
+	for (std::size_t index = 0; index < scope.declarations.size(); ++index)
+	{
+		const SemaEntity& member = *scope.declarations[index];
+		if (!declares_subobject(member, scope) || member.default_initializer)
+		{
+			continue;
+		}
+		// 8.3.4p1: an array of const elements is const in each of them, so the
+		// element type is what says whether a member can be left alone - and
+		// its own cv-qualification is exactly what the question is about.
+		TypeId type = member.type;
+		while (types_.kind(types_.strip_cv(type)) == TypeKind::Array)
+		{
+			type = types_.target(types_.strip_cv(type));
+		}
+		if (types_.is_reference(type) ||
+		    (!types_.is_class(types_.strip_cv(type)) &&
+		     (types_.cv(type) & kCvConst) != 0))
+		{
+			return true;
+		}
+	}
+	return false;
 }
 
 // 12.1p5: a class with no declared constructor has a default one, which the
@@ -888,6 +929,9 @@ void SemaAnalyzer::declare_constructor(SemaEntity& entity, Scope& scope)
 	// rather than to the one that happened to write the class.
 	constructor.inline_function = true;
 	constructor.trivial = trivial_default_construction(scope);
+	// 12.1p5: a member of const-qualified or reference type that nothing
+	// initializes leaves the standard no definition to give this constructor.
+	constructor.deleted = undefinable_default(scope);
 	constructor.tail = &constructor;
 	constructor.special = kConstructorFunction;
 	constructor.defaulted = true;
@@ -1837,9 +1881,12 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 		                         types_.description(variable.type) +
 		                         " chooses a constructor declared explicit");
 	}
-	if (constructor.deleted)
+	if (constructor.deleted && !(value_init && constructor.trivial))
 	{
 		// 8.4.3p2: a program that names a deleted function is ill formed.
+		// 8.5p7 names none: a class with no user-provided constructor is
+		// value-initialized by the zero of its storage, and where the default
+		// constructor is trivial that zero is the whole initialization.
 		throw std::runtime_error("a deleted constructor of " +
 		                         types_.description(variable.type) +
 		                         " is what initializes an object of it");
@@ -1897,6 +1944,197 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 	demand_constructor_definition(constructor);
 }
 
+// 8.5.1p2 and 13.3.1.7: the constructor an object of an aggregate class is
+// built by where it is an object of its own - an element of an array of the
+// class, a temporary, an argument - rather than a subobject the enclosing
+// list's clauses reach into.  The class declared no constructor that could take
+// the clauses, so the one it is given takes its non-static data members: each
+// by value, in the order 9.2p13 laid them out, under the name its declaration
+// wrote.  The class owns it and it is declared once, so n elements of an array
+// are n calls of one function rather than n copies of the same stores.
+SemaEntity* SemaAnalyzer::member_constructor(TypeId type)
+{
+	SemaEntity* const owner = model_.type_owner(types_.strip_cv(type));
+	if (owner == nullptr || owner->scope == nullptr || !owner->aggregate)
+	{
+		return nullptr;
+	}
+	if (owner->member_constructor != nullptr)
+	{
+		return owner->member_constructor;
+	}
+	Scope& scope = *owner->scope;
+	std::vector<TypeId> types;
+	types.push_back(types_.pointer_to(owner->type));
+	std::vector<Parameter> named;
+	for (std::size_t index = 0; index < scope.declarations.size(); ++index)
+	{
+		SemaEntity& member = *scope.declarations[index];
+		if (!declares_subobject(member, scope))
+		{
+			continue;
+		}
+		const TypeId bare = types_.strip_cv(member.type);
+		if (member.bit_field || types_.is_reference(member.type) ||
+		    types_.kind(bare) == TypeKind::Array || types_.is_class(bare))
+		{
+			// 9.6p1, 8.3.2p4 and 8.3.5p5: none of these is a member a by-value
+			// parameter carries what the member holds - a bit-field and a
+			// reference are no object of their own, and an array parameter is
+			// the pointer 8.3.5p5 adjusts it to.  A class member would be one
+			// object built to be copied into another, which is a second object
+			// this milestone does not write, so the class is given no such
+			// constructor and 8.5.1 initializes its subobjects where they are.
+			return nullptr;
+		}
+		Parameter one;
+		// 8.3.5p5: the parameter is what a declaration of it with the member's
+		// own type would be, so an array member contributes a pointer and the
+		// member's own cv-qualification is dropped.
+		one.type = types_.adjust_parameter(member.type);
+		one.name = member.name;
+		named.push_back(one);
+		types.push_back(one.type);
+	}
+	const std::string spelled =
+		QualifiedName(types_.user_name(owner->type)).last();
+	SemaEntity& constructor = model_.create(
+		SemaKind::Function, spelled,
+		types_.function_of(types_.fundamental(FT_VOID), types, false));
+	constructor.dump_name = scope.prefix + spelled;
+	constructor.object_member = true;
+	// 7.1.2p3: the definition is one the standard rather than the program
+	// writes, so it belongs to every unit that needs one.
+	constructor.inline_function = true;
+	constructor.tail = &constructor;
+	constructor.special = kConstructorFunction;
+	constructor.defaulted = true;
+	constructor.member_entry = true;
+	constructor.region = &scope;
+	constructor_parameters_[constructor.id] = named;
+	owner->member_constructor = &constructor;
+	return &constructor;
+}
+
+// 8.5.1p11: whether the clause initializes the whole subaggregate rather than
+// the first of its members.  8.5.1p2 copy-initializes the member from the
+// clause, so a value of the member's own class type - or of a class derived
+// from it, which 12.8p31 and 4.10p3 reach the same object through - is what
+// initializes it on its own; anything else is a clause of the enclosing list
+// that 8.5.1p11's elided braces left standing for the subaggregate's first
+// member.  The clause is read into a line nothing keeps, because which subobject
+// it belongs under is exactly what this answers.
+bool SemaAnalyzer::clause_initializes_class(TypeId type, const AstNode& clause,
+                                            const Context& ctx)
+{
+	if (clause.kind == AstKind::BracedInitList)
+	{
+		return true;
+	}
+	DumpNode scratch;
+	Value value;
+	try
+	{
+		value = expression(clause, ctx, scratch);
+	}
+	catch (const std::runtime_error&)
+	{
+		// A clause that is no expression of its own here is one the members
+		// below read; whatever is wrong with it is reported where it is read.
+		return false;
+	}
+	const TypeId from = types_.strip_cv(value.type);
+	return from == types_.strip_cv(type) || derived_from(from, type) != nullptr;
+}
+
+// 8.5.1p2: the object an aggregate class's own constructor builds, whose
+// arguments are what the clauses initialize its members with.  Which clause
+// reaches which member is 8.5.1's walk of the list rather than 13.3's matching,
+// and there is one candidate, so the call is written here rather than chosen.
+// 8.5.1p7 gives a member no clause reached the value-initialization every other
+// subobject of an aggregate gets.
+void SemaAnalyzer::construct_from_members(SemaEntity& constructor,
+                                          const AstNode& list,
+                                          const Context& ctx, DumpNode& parent)
+{
+	Scope& scope = *constructor.region;
+	const std::vector<TypeId>& parameters = types_.parameters(constructor.type);
+	DumpNode& action = model_.open_node(
+		parent, "constructor-action " + constructor.dump_name);
+	action.fact.kind = FactKind::ConstructorAction;
+	action.fact.type = types_.target(parameters[0]);
+	action.fact.entity = &constructor;
+	DumpNode& call = model_.open_node(
+		action,
+		spell("call-expression", ValueCategory::PRValue,
+		      types_.target(constructor.type), std::string()));
+	set_fact(call, FactKind::Call, types_.target(constructor.type),
+	         ValueCategory::PRValue);
+	DumpNode& callee = model_.open_node(
+		call, "callee " + constructor.dump_name + " " +
+		types_.description(constructor.type));
+	set_fact(callee, FactKind::Callee, constructor.type, ValueCategory::LValue);
+	callee.fact.entity = &constructor;
+	// The object the call runs on is named by the place asking for it - the
+	// element of the array, the storage a temporary took - so the call holds
+	// the place that argument stands in and nothing else.
+	model_.open_node(call, std::string());
+	Clauses clauses(list);
+	std::size_t at = 1;
+	for (std::size_t index = 0; index < scope.declarations.size(); ++index)
+	{
+		SemaEntity& member = *scope.declarations[index];
+		if (!declares_subobject(member, scope))
+		{
+			continue;
+		}
+		if (clauses.spent())
+		{
+			// 8.5.1p7: no clause reached the member, so what the constructor is
+			// passed for it is the value-initialization of its own type.
+			DumpNode& zero = model_.open_node(
+				call, spell("literal", ValueCategory::PRValue, parameters[at],
+				            "0"));
+			set_fact(zero, FactKind::Literal, parameters[at],
+			         ValueCategory::PRValue);
+			zero.fact.constant = true;
+			++at;
+			continue;
+		}
+		initialize(clauses.next(), parameters[at], ctx, call, true,
+		           Requested::Argument);
+		++clauses.at;
+		++at;
+	}
+	if (!clauses.spent())
+	{
+		// 8.5.1p6: a clause that reached no member initializes nothing.
+		throw std::runtime_error("an initializer list has more clauses than the "
+		                         "aggregate has subobjects");
+	}
+	// 12.1 and the ABI: what the action creates is a complete object, so it
+	// runs the complete-object entry of the constructor.
+	constructor.complete_object_entry = true;
+	demand_constructor_definition(constructor);
+}
+
+// 8.5.1p2 and 8.5.1p7: one subobject of an aggregate whose type is a class the
+// clauses do not reach into - a class with a constructor of its own, or one a
+// clause of its own class type initializes.  The subobject is an object like
+// any other: 8.5 chooses what initializes it, and what the node carries is the
+// `constructor-action` a declaration of the same object would carry.  It is
+// named by the path the aggregate initialization already walks rather than by a
+// declaration, so the object this creates is one no name reaches.
+void SemaAnalyzer::construct_subobject(TypeId type, const AstNode* written,
+                                       const Context& ctx, DumpNode& node,
+                                       bool value_init)
+{
+	SemaEntity& object = model_.create(SemaKind::Variable, std::string(), type);
+	object.object_member = false;
+	construct_object(object, node, written, ctx, Placement::Named, true, nullptr,
+	                 value_init);
+}
+
 // 12.1p5, 12.9p6 and 3.2p3: a constructor the standard gives a class rather
 // than the program has the definition the standard describes, and one use of it
 // is what asks this unit to write one.  A constructor the program declared and
@@ -1914,11 +2152,12 @@ void SemaAnalyzer::demand_constructor_definition(SemaEntity& constructor)
 	pending.function = &constructor;
 	pending.self = &model_.create(SemaKind::Parameter, "this", parameters[0]);
 	pending.members = constructor.region;
-	if (constructor.inherited != nullptr)
+	if (constructor.inherited != nullptr || constructor.member_entry)
 	{
-		// 12.9p8: the definition writes the parameters it inherited and names
-		// them in the call it makes on the base subobject, so unlike 12.1p5's
-		// it has a region of its own for them to be declared in.
+		// 12.9p8 and 8.5.1p2: the definition writes parameters of its own and
+		// names them in what it initializes - the base subobject for one, each
+		// member for the other - so unlike 12.1p5's it has a region of its own
+		// for them to be declared in.
 		DumpScope& dump = model_.open_dump(*constructor.region->dump,
 		                                   "scope function " + constructor.name);
 		pending.scope = &model_.open(ScopeKind::Function, *constructor.region,
@@ -2160,6 +2399,14 @@ void SemaAnalyzer::write_member_initializations(const Pending& pending,
                                                 const Context& inner)
 {
 	Scope& members = *pending.members;
+	if (pending.function->member_entry)
+	{
+		// 8.5.1p2: the constructor an aggregate was given initializes each of
+		// its members with the parameter of the same name, in the one order
+		// 12.6.2p10 and 9.2p13 share.
+		write_member_parameters(pending, line);
+		return;
+	}
 	// 12.6.2p10: the members are initialized in declaration order and the
 	// mem-initializers may be written in any, so which one names each member is
 	// asked once per member rather than by a scan of the list per member.
@@ -2354,6 +2601,44 @@ void SemaAnalyzer::write_member_initializations(const Pending& pending,
 			                         ", which names neither a base class nor a "
 			                         "non-static data member of the class");
 		}
+	}
+}
+
+// 8.5.1p2: what the constructor an aggregate class was given does - each of its
+// non-static data members initialized with the parameter of the same name.  The
+// parameters were declared in that same order, so the two walks step together
+// and neither looks the other up.
+void SemaAnalyzer::write_member_parameters(const Pending& pending,
+                                           DumpNode& line)
+{
+	Scope& members = *pending.members;
+	std::vector<SemaEntity*> parameters;
+	for (std::size_t index = 0; index < pending.scope->declarations.size();
+	     ++index)
+	{
+		SemaEntity& declared = *pending.scope->declarations[index];
+		if (declared.kind == SemaKind::Parameter)
+		{
+			parameters.push_back(&declared);
+		}
+	}
+	std::size_t at = 0;
+	for (std::size_t index = 0; index < members.declarations.size(); ++index)
+	{
+		SemaEntity& member = *members.declarations[index];
+		if (!declares_subobject(member, members) || at >= parameters.size())
+		{
+			continue;
+		}
+		DumpNode& node = open_fact(line, "member-initialization " + member.name +
+		                           " " + types_.description(member.type),
+		                           FactKind::MemberInitialization);
+		node.fact.entity = &member;
+		node.fact.type = member.type;
+		node.fact.spelled = member.type;
+		implied_object(member, node);
+		parameter_value(*parameters[at], node);
+		++at;
 	}
 }
 

@@ -1812,11 +1812,18 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 		                             spell_value(type, entity.value)));
 		return;
 	}
-	write_initializer(*initializer->children[0], type, ctx, line);
+	// 3.6.2p2 and 3.7.1p1: an object at namespace scope, and the static data
+	// member 9.4.2p2 defines there, is given its value by the program image
+	// rather than built where its declaration stands.
+	write_initializer(*initializer->children[0], type, ctx, line,
+	                  entity.object_definition &&
+	                  (target.scope->kind == ScopeKind::Namespace ||
+	                   target.scope->kind == ScopeKind::Class));
 }
 
 void SemaAnalyzer::write_initializer(const AstNode& initializer, TypeId type,
-                                     const Context& ctx, DumpNode& line)
+                                     const Context& ctx, DumpNode& line,
+                                     bool image)
 {
 	if (initializer.kind == AstKind::ParenInitializer)
 	{
@@ -1828,9 +1835,17 @@ void SemaAnalyzer::write_initializer(const AstNode& initializer, TypeId type,
 		}
 		return;
 	}
-	// 8.5.1: an aggregate is initialized from the clauses of its list, each
-	// initializing one element, which is the same reading a list standing
-	// where an expression initializes an object gets.
+	if (initializer.kind == AstKind::BracedInitList)
+	{
+		// 8.5.1: an aggregate is initialized from the clauses of its list, each
+		// initializing one subobject.  3.6.2p2 makes that initialization the
+		// value of the object's own storage where the object has static storage
+		// duration, so no element of it is an object a function builds.
+		list_initialize(initializer, type, ctx, line, image);
+		return;
+	}
+	// The same reading a list standing where an expression initializes an
+	// object gets.
 	initialize(initializer, type, ctx, line);
 }
 

@@ -1074,21 +1074,47 @@ void SemaAnalyzer::aggregate_subobject(TypeId type, Clauses& clauses,
 	if (types_.is_class(bare))
 	{
 		SemaEntity* const owner = model_.type_owner(bare);
-		if (owner == nullptr || owner->scope == nullptr || !owner->aggregate)
+		if (owner == nullptr || owner->scope == nullptr)
 		{
-			throw std::runtime_error(types_.description(bare) + " is a member "
-			                         "that no clause of an aggregate initializer "
-			                         "initializes in this milestone");
+			throw std::runtime_error("a subobject of the incomplete class type " +
+			                         types_.description(bare) +
+			                         " is initialized by a clause of an "
+			                         "aggregate initializer");
 		}
-		if (braced)
+		if (braced && owner->aggregate)
 		{
 			aggregate_from_list(bare, clauses.next(), ctx, node);
 			++clauses.at;
 			return;
 		}
-		// 8.5.1p11: the braces around the member's own clauses may be left out,
-		// and then the clauses of the enclosing list initialize it.
-		aggregate_members(bare, clauses, ctx, node);
+		if (owner->aggregate && !clauses.spent() &&
+		    !clause_initializes_class(bare, clauses.next(), ctx))
+		{
+			// 8.5.1p11: the braces around the member's own clauses may be left
+			// out, and then the clauses of the enclosing list initialize it.
+			// Only a clause that cannot initialize the whole subaggregate is
+			// one of them: a value of its own class type initializes it, which
+			// 8.5.1p2 copy-initializes it from.
+			aggregate_members(bare, clauses, ctx, node);
+			return;
+		}
+		if (owner->aggregate && clauses.spent())
+		{
+			// 8.5.1p7: no clause reached the subaggregate, so every member of
+			// it is value-initialized - which is what the walk of its own
+			// members with nothing left to take writes.
+			aggregate_members(bare, clauses, ctx, node);
+			return;
+		}
+		// 8.5.1p2 and 8.5.1p7: the subobject is one object of its class, and
+		// what the clause initializes it with is what a declaration of it would
+		// be initialized with.
+		const AstNode* const written = clauses.spent() ? nullptr : &clauses.next();
+		construct_subobject(bare, written, ctx, node, written == nullptr);
+		if (written != nullptr)
+		{
+			++clauses.at;
+		}
 		return;
 	}
 	if (types_.kind(bare) == TypeKind::Array)
@@ -1126,7 +1152,7 @@ void SemaAnalyzer::aggregate_subobject(TypeId type, Clauses& clauses,
 SemaAnalyzer::Value SemaAnalyzer::list_initialize(const AstNode& node,
                                                   TypeId target,
                                                   const Context& ctx,
-                                                  DumpNode& parent)
+                                                  DumpNode& parent, bool image)
 {
 	const TypeId wanted = types_.is_reference(target)
 		? types_.target(target)
@@ -1167,9 +1193,51 @@ SemaAnalyzer::Value SemaAnalyzer::list_initialize(const AstNode& node,
 			                         "than the array has elements");
 		}
 		const TypeId element = types_.target(wanted);
+		SemaEntity* const from_members =
+			types_.is_class(types_.strip_cv(element))
+				? member_constructor(element)
+				: nullptr;
 		for (std::size_t index = 0; index < node.children.size(); ++index)
 		{
-			initialize(*node.children[index], element, ctx, line, true);
+			const AstNode& clause = *node.children[index];
+			const bool braced = clause.kind == AstKind::BracedInitList;
+			if (types_.is_class(types_.strip_cv(element)))
+			{
+				if (braced && aggregate_type(element))
+				{
+					if (from_members != nullptr && !image)
+					{
+						// 8.5.1p2 and 13.3.1.7: the class declared no
+						// constructor the clauses could reach, so the element
+						// is one object built by the one its members give it.
+						construct_from_members(*from_members, clause, ctx, line);
+						continue;
+					}
+					// 8.5.1p1: the clauses initialize the element's subobjects
+					// where they are - which is what 3.6.2 gives an object with
+					// static storage duration, and what a class no by-value
+					// parameter list describes asks for.
+					list_initialize(clause, element, ctx, line, image);
+					continue;
+				}
+				// 12.6p1 and 8.5.1p2: the element is an object of its class, so
+				// what initializes it is what would initialize a declared one -
+				// a constructor its class declared, or 12.8p31's copy of a value
+				// of its own type.  3.6.2p2 folds that call where the object
+				// holds what it writes before the program runs.
+				construct_subobject(element, &clause, ctx, line, false);
+				continue;
+			}
+			if (braced &&
+			    types_.kind(types_.strip_cv(element)) == TypeKind::Array)
+			{
+				// 8.5.1p3: an element that is itself an array takes the list
+				// written for it, and what 3.6.2 says about the whole object
+				// says the same about every element of it.
+				list_initialize(clause, element, ctx, line, image);
+				continue;
+			}
+			initialize(clause, element, ctx, line, true);
 		}
 	}
 	else if (node.children.size() > 1)

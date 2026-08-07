@@ -1,0 +1,115 @@
+global @cells [binding=strong, object=_Z5cells] = {
+  i32 1
+  i32 10
+  i32 2
+  i32 20
+}
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $cond__1 : i32
+  slot $land__2 : i64
+  slot $land__3 : i64
+  slot $land__4 : i64
+
+  block ^entry:
+    %t1 = addr @cells
+    %t2 = unary decay ptr %t1
+    %t3 = binary mul i64 0, 8
+    %t4 = index i8 [projection=array_element] %t2, %t3
+    %t5 = index i8 [projection=field] %t4, 0
+    %t6 = load i32 %t5
+    %t7 = cmp eq i32 %t6, 1
+    branch %t7, ^land_rhs_10, ^land_short_11
+
+  block ^land_rhs_10:
+    %t8 = addr @cells
+    %t9 = unary decay ptr %t8
+    %t10 = binary mul i64 0, 8
+    %t11 = index i8 [projection=array_element] %t9, %t10
+    %t12 = index i8 [projection=field] %t11, 4
+    %t13 = load i32 %t12
+    %t14 = cmp eq i32 %t13, 10
+    %t15 = cmp ne i64 %t14, 0
+    store i64 %t15, $land__4
+    jump ^land_end_12
+
+  block ^land_short_11:
+    store i64 0, $land__4
+    jump ^land_end_12
+
+  block ^land_end_12:
+    %t16 = load i64 $land__4
+    branch %t16, ^land_rhs_7, ^land_short_8
+
+  block ^land_rhs_7:
+    %t17 = addr @cells
+    %t18 = unary decay ptr %t17
+    %t19 = binary mul i64 1, 8
+    %t20 = index i8 [projection=array_element] %t18, %t19
+    %t21 = index i8 [projection=field] %t20, 0
+    %t22 = load i32 %t21
+    %t23 = cmp eq i32 %t22, 2
+    %t24 = cmp ne i64 %t23, 0
+    store i64 %t24, $land__3
+    jump ^land_end_9
+
+  block ^land_short_8:
+    store i64 0, $land__3
+    jump ^land_end_9
+
+  block ^land_end_9:
+    %t25 = load i64 $land__3
+    branch %t25, ^land_rhs_4, ^land_short_5
+
+  block ^land_rhs_4:
+    %t26 = addr @cells
+    %t27 = unary decay ptr %t26
+    %t28 = binary mul i64 1, 8
+    %t29 = index i8 [projection=array_element] %t27, %t28
+    %t30 = index i8 [projection=field] %t29, 4
+    %t31 = load i32 %t30
+    %t32 = cmp eq i32 %t31, 20
+    %t33 = cmp ne i64 %t32, 0
+    store i64 %t33, $land__2
+    jump ^land_end_6
+
+  block ^land_short_5:
+    store i64 0, $land__2
+    jump ^land_end_6
+
+  block ^land_end_6:
+    %t34 = load i64 $land__2
+    branch %t34, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t35 = load i32 $cond__1
+    return i32 %t35
+}
+function @Cell__Cell(%this : ptr, %t : i32, %w : i32) -> void [binding=weak, object=_ZN4CellC1Eii] {
+  slot $this : ptr
+  slot $t : i32
+  slot $w : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %t, $t
+    store i32 %w, $w
+    %t1 = load i32 $t
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 %t1, %t3
+    %t4 = load i32 $w
+    %t5 = load ptr $this
+    %t6 = index i8 [projection=field] %t5, 4
+    store i32 %t4, %t6
+    return void
+}
+alias object _ZN4CellC2Eii = @Cell__Cell

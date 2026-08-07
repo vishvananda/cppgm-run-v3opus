@@ -100,6 +100,13 @@ void LowirFunctionLowering::add_initialization(const Operand& storage,
 			at.storage = storage;
 			at.element_array = array;
 			at.element_index = index;
+			if (node.children[index]->fact.kind == FactKind::ConstructorAction)
+			{
+				// 12.6p1: the element is one object of its class, built by the
+				// constructor 8.5 chose for it before the program runs.
+				constructor_call(object_address(at), *node.children[index]);
+				continue;
+			}
 			initialize_into(at, types.target(array), *node.children[index]);
 		}
 		return;
@@ -964,6 +971,15 @@ void LowirFunctionLowering::initialize_subobject(
 	}
 	const Operand at = subobject_address(object, path);
 	path.pop_back();
+	if (!node.children.empty() &&
+	    node.children[0]->fact.kind == FactKind::ConstructorAction)
+	{
+		// 8.5.1p2: the clause reached a subobject of class type, which is one
+		// object built where it stands - the constructor 8.5 chose runs on the
+		// storage this path names, exactly as it would on a declared object.
+		constructor_call(at, *node.children[0]);
+		return;
+	}
 	if (node.fact.op != 0)
 	{
 		// 8.5.1p7: every element from this one on is value-initialized, which
@@ -1084,6 +1100,13 @@ void LowirFunctionLowering::initialize_array(const LowObject& object,
 		}
 		if (index < node.children.size())
 		{
+			if (node.children[index]->fact.kind == FactKind::ConstructorAction)
+			{
+				// 12.6p1: the element is one object of its class, built where
+				// it stands by the constructor 8.5 chose for it.
+				constructor_call(at, *node.children[index]);
+				continue;
+			}
 			initialize(at, element, *node.children[index]);
 			continue;
 		}

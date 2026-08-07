@@ -1,0 +1,13 @@
+declare function @Late__Late(%arg0 : ptr) -> void [binding=strong, object=_ZN4LateC1Ev]
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $late : obj<4x4>
+
+  block ^entry:
+    %t1 = addr $late
+    call void @Late__Late(%t1)
+    %t2 = addr $late
+    %t3 = index i8 [projection=field] %t2, 0
+    %t4 = load i32 %t3
+    return i32 %t4
+}

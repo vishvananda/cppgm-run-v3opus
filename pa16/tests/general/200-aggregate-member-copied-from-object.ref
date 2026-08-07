@@ -1,0 +1,74 @@
+global @origin [binding=strong, object=_Z6origin] = {
+  i32 3
+  i32 4
+}
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $line : obj<12x4>
+  slot $cond__1 : i32
+  slot $land__2 : i64
+  slot $land__3 : i64
+
+  block ^entry:
+    %t1 = addr $line
+    %t2 = addr $line
+    %t3 = index i8 [projection=field] %t2, 0
+    %t4 = addr @origin
+    copyobj 8x4 %t4, %t3
+    %t5 = addr $line
+    %t6 = index i8 [projection=field] %t5, 8
+    store i32 5, %t6
+    %t7 = addr $line
+    %t8 = index i8 [projection=field] %t7, 0
+    %t9 = index i8 [projection=field] %t8, 0
+    %t10 = load i32 %t9
+    %t11 = cmp eq i32 %t10, 3
+    branch %t11, ^land_rhs_7, ^land_short_8
+
+  block ^land_rhs_7:
+    %t12 = addr $line
+    %t13 = index i8 [projection=field] %t12, 0
+    %t14 = index i8 [projection=field] %t13, 4
+    %t15 = load i32 %t14
+    %t16 = cmp eq i32 %t15, 4
+    %t17 = cmp ne i64 %t16, 0
+    store i64 %t17, $land__3
+    jump ^land_end_9
+
+  block ^land_short_8:
+    store i64 0, $land__3
+    jump ^land_end_9
+
+  block ^land_end_9:
+    %t18 = load i64 $land__3
+    branch %t18, ^land_rhs_4, ^land_short_5
+
+  block ^land_rhs_4:
+    %t19 = addr $line
+    %t20 = index i8 [projection=field] %t19, 8
+    %t21 = load i32 %t20
+    %t22 = cmp eq i32 %t21, 5
+    %t23 = cmp ne i64 %t22, 0
+    store i64 %t23, $land__2
+    jump ^land_end_6
+
+  block ^land_short_5:
+    store i64 0, $land__2
+    jump ^land_end_6
+
+  block ^land_end_6:
+    %t24 = load i64 $land__2
+    branch %t24, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t25 = load i32 $cond__1
+    return i32 %t25
+}

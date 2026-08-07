@@ -135,6 +135,18 @@ struct SemaEntity
 	// Class: 12.4p1, the destructor of the class, held here for the same
 	// reason: the end of an object's lifetime asks the class for it.
 	SemaEntity* destructor;
+	// Class: 8.5.1p2 and 13.3.1.7, the constructor an object of this aggregate
+	// class is built by where it is an object of its own rather than a
+	// subobject the clauses reach into - an element of an array of it, a
+	// temporary, an argument.  It takes the non-static data members of the
+	// class, in the order 9.2p13 laid them out and under the names they were
+	// declared with, and initializes each with the one of the same name.  No
+	// lookup reaches it and 13.3.1.3 does not walk it, so it is held apart from
+	// the chain `constructor` heads; null until the first use asks for one.
+	SemaEntity* member_constructor;
+	// Function: whether this is that constructor, which is what says its
+	// definition initializes each member from the parameter of the same name.
+	bool member_entry;
 	// Class: 10p1, the direct base class, which every object of this class
 	// holds a subobject of.  It is the one fact the base-clause establishes,
 	// and layout, 10.2 lookup, 11.2 access, 12.6.2 construction, 12.4

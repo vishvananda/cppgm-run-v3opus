@@ -1,0 +1,62 @@
+function @pick(%cells : ptr, %at : i32) -> i32 [binding=strong, object=_Z4pickP4Celli] {
+  slot $cells : ptr
+  slot $at : i32
+
+  block ^entry:
+    store ptr %cells, $cells
+    store i32 %at, $at
+    %t1 = load ptr $cells
+    %t2 = load i32 $at
+    %t3 = binary mul i64 %t2, 8
+    %t4 = index i8 [projection=array_element] %t1, %t3
+    %t5 = index i8 [projection=field] %t4, 4
+    %t6 = load i32 %t5
+    return i32 %t6
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $cells : obj<16x4>
+  slot $cond__1 : i32
+
+  block ^entry:
+    %t1 = addr $cells
+    call void @Cell__Cell__ov2(%t1, 1, 2)
+    %t2 = index i8 %t1, 8
+    call void @Cell__Cell__ov2(%t2, 3, 4)
+    %t3 = addr $cells
+    %t4 = unary decay ptr %t3
+    %t5 = call i32 @pick(%t4, 1)
+    %t6 = cmp eq i32 %t5, 4
+    branch %t6, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t7 = load i32 $cond__1
+    return i32 %t7
+}
+function @Cell__Cell__ov2(%this : ptr, %first : i32, %second : i32) -> void [unwind=no, binding=weak, object=_ZN4CellC1Eii] {
+  slot $this : ptr
+  slot $first : i32
+  slot $second : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %first, $first
+    store i32 %second, $second
+    %t1 = load i32 $first
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 %t1, %t3
+    %t4 = load i32 $second
+    %t5 = load ptr $this
+    %t6 = index i8 [projection=field] %t5, 4
+    store i32 %t4, %t6
+    return void
+}
+alias object _ZN4CellC2Eii = @Cell__Cell__ov2

@@ -476,6 +476,13 @@ private:
 	// written in.  Each is written under the constructor's own definition.
 	void write_member_initializations(const Pending& pending, DumpNode& line,
 	                                  const Context& inner);
+	// 8.5.1p2: what the constructor an aggregate class was given does - each
+	// member initialized with the parameter of the same name.
+	void write_member_parameters(const Pending& pending, DumpNode& line);
+	// 12.1p5: whether the definition the standard would give this class's
+	// default constructor is one it cannot write, which deletes the
+	// constructor.
+	bool undefinable_default(Scope& scope);
 	// 12.6.2p2: whether a mem-initializer-id names the base class rather than a
 	// non-static data member.
 	bool names_the_base(const std::string& written, const SemaEntity& base,
@@ -571,6 +578,30 @@ private:
 	                       DumpNode& parent);
 	void aggregate_elements(TypeId array, Clauses& clauses, const Context& ctx,
 	                        DumpNode& parent);
+	// 8.5.1p2 and 8.5.1p7: a subobject of class type is copy-initialized from
+	// the clause that reached it, and value-initialized where none did.  Either
+	// is one object built where it stands, so what the node carries is the
+	// `constructor-action` a declaration of the same object would carry - or,
+	// where 12.8p31 elides it, the value it holds a copy of.
+	void construct_subobject(TypeId type, const AstNode* written,
+	                         const Context& ctx, DumpNode& node,
+	                         bool value_init);
+	// 8.5.1p2 and 13.3.1.7: the constructor an object of the aggregate class
+	// `type` is built by where it is an object of its own, declared once and
+	// held on the class.  Null where the class is no aggregate, and where a
+	// member of it is no object a by-value parameter can hold - which leaves
+	// the initialization to the clauses themselves.
+	SemaEntity* member_constructor(TypeId type);
+	// 8.5.1p2: one call of that constructor, whose arguments are what the
+	// clauses of `list` initialize the members with.
+	void construct_from_members(SemaEntity& constructor, const AstNode& list,
+	                            const Context& ctx, DumpNode& parent);
+	// 8.5.1p11: whether the clause initializes the whole subaggregate rather
+	// than the first of its members, which is what says the braces around it
+	// were left out.  Only a value of the subaggregate's own class type - or of
+	// one derived from it - initializes it on its own.
+	bool clause_initializes_class(TypeId type, const AstNode& clause,
+	                              const Context& ctx);
 	// 8.5.2p1: an array of character type initialized by a string literal,
 	// whose elements are the code units the literal holds.
 	bool string_initialized(TypeId array, Clauses& clauses, const Context& ctx,
@@ -987,9 +1018,12 @@ private:
 	Value functional_cast(const AstNode& node, const Context& ctx,
 	                      DumpNode& parent, TypeId target);
 	// 8.5: the initializer written for a declarator, in each of the three forms
-	// 8.5p1 gives it.
+	// 8.5p1 gives it.  `image` says 3.6.2 gives the object its value rather than
+	// a function building it, which is what an object with static storage
+	// duration asks for.
 	void write_initializer(const AstNode& initializer, TypeId type,
-	                       const Context& ctx, DumpNode& line);
+	                       const Context& ctx, DumpNode& line,
+	                       bool image = false);
 	// 7.1.6.2 Table 10: the type a one-token simple-type-specifier names, which
 	// is how a functional cast written with a keyword finds its type.
 	TypeId keyword_type(const std::string& spelling) const;
@@ -1088,7 +1122,7 @@ private:
 	// object.  Over the PA12 scalar subset it holds at most one clause, whose
 	// value the object takes, and an empty one value-initializes it.
 	Value list_initialize(const AstNode& node, TypeId target, const Context& ctx,
-	                      DumpNode& parent);
+	                      DumpNode& parent, bool image = false);
 	// 13.3.3.1 over the PA12 conversion subset.
 	Match match_argument(const Value& argument, TypeId parameter);
 	Match match_by_value(const Value& argument, TypeId parameter);
