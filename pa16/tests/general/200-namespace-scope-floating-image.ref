@@ -1,0 +1,57 @@
+global @a : f32 [binding=strong, object=_Z1a] = 1.5f
+global @b : f64 [binding=strong, object=_Z1b] = 2.25
+global @c : f80 [binding=strong, object=_Z1c] = 3.5L
+global @d : f32 [binding=strong, object=_Z1d] = 4f
+global @e : f64 [binding=strong, object=_Z1e] = 1.5
+global @f : f32 [binding=strong, object=_Z1f] = 2.25f
+global @p [binding=strong, object=_Z1p] = {
+  f32 5.5f
+  zero 4
+  f64 6.25
+}
+global @row [binding=strong, object=_Z3row] = {
+  f32 7.5f
+  f32 8.5f
+  f32 9.5f
+}
+global @Held__m : f32 [binding=strong, object=_ZN4Held1mE] = 0.75f
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    %t1 = load f32 @a
+    %t2 = load f64 @b
+    %t3 = convert fpext f64 f32 %t1
+    %t4 = binary add f64 %t3, %t2
+    %t5 = load f80 @c
+    %t6 = convert fptrunc f64 f80 %t5
+    %t7 = binary add f64 %t4, %t6
+    %t8 = load f32 @d
+    %t9 = convert fpext f64 f32 %t8
+    %t10 = binary add f64 %t7, %t9
+    %t11 = load f64 @e
+    %t12 = binary add f64 %t10, %t11
+    %t13 = load f32 @f
+    %t14 = convert fpext f64 f32 %t13
+    %t15 = binary add f64 %t12, %t14
+    %t16 = addr @p
+    %t17 = index i8 [projection=field] %t16, 0
+    %t18 = load f32 %t17
+    %t19 = convert fpext f64 f32 %t18
+    %t20 = binary add f64 %t15, %t19
+    %t21 = addr @p
+    %t22 = index i8 [projection=field] %t21, 8
+    %t23 = load f64 %t22
+    %t24 = binary add f64 %t20, %t23
+    %t25 = addr @row
+    %t26 = unary decay ptr %t25
+    %t27 = index f32 [projection=array_element] %t26, 0
+    %t28 = load f32 %t27
+    %t29 = convert fpext f64 f32 %t28
+    %t30 = binary add f64 %t24, %t29
+    %t31 = load f32 @Held__m
+    %t32 = convert fpext f64 f32 %t31
+    %t33 = binary add f64 %t30, %t32
+    %t34 = convert fptosi i32 f64 %t33
+    %t35 = binary sub i32 %t34, 39
+    return i32 %t35
+}

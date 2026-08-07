@@ -503,6 +503,108 @@ std::string LowirUnitLowering::spell_value(TypeId type,
 	return text.str();
 }
 
+// 2.14.4 and `lowir.md`: one floating value spelled at the width of the object
+// that holds it.  The digits are the ones the program wrote - a floating value
+// is not one this translation computes with - and the suffix is the one the
+// storage asks for, which is what says at which width those bytes are laid
+// down.  A spelling that carries the suffix of another width would be a value
+// of that width, so the written one is dropped before this one is added.
+std::string LowirUnitLowering::spell_floating(TypeId type,
+                                              const std::string& written)
+{
+	std::string digits = written;
+	if (!digits.empty())
+	{
+		// 2.14.4p1: a floating-literal carries at most one floating-suffix.
+		const char last = digits[digits.size() - 1];
+		if (last == 'f' || last == 'F' || last == 'l' || last == 'L')
+		{
+			digits.erase(digits.size() - 1);
+		}
+	}
+	if (digits.empty())
+	{
+		digits = "0";
+	}
+	const std::string low = low_type(type).text;
+	return low == "f32" ? digits + "f" : low == "f80" ? digits + "L" : digits;
+}
+
+// 2.14.4: the digits of the floating constant this initializer is worth, which
+// the analysis kept from what the program wrote because no integer of the
+// translation holds one.  An integer constant written for a floating object is
+// the one value that reaches here through the fold.  False for anything else,
+// which leaves 3.6.2p2's dynamic initialization to write it.
+bool LowirUnitLowering::floating_image(const DumpNode& node, std::string& text)
+{
+	const SemaFact& fact = node.fact;
+	if (fact.kind == FactKind::Literal && !fact.spelling.empty())
+	{
+		text = fact.spelling;
+		return true;
+	}
+	if (node.children.size() == 1 &&
+	    (fact.kind == FactKind::Cast || fact.kind == FactKind::BracedInitList))
+	{
+		// 5.19 over 4.7p2 and 8.5.4: what the cast, and what the one clause of
+		// a braced-init-list, is worth is what stands under it.
+		return floating_image(*node.children[0], text);
+	}
+	if (fact.kind == FactKind::BracedInitList && node.children.empty())
+	{
+		// 8.5.4p3: `{}` value-initializes the object, which for a floating type
+		// is its zero.
+		text = "0";
+		return true;
+	}
+	if (fact.kind == FactKind::Unary && node.children.size() == 1 &&
+	    (fact.op == OP_PLUS || fact.op == OP_MINUS))
+	{
+		std::string operand;
+		if (!floating_image(*node.children[0], operand))
+		{
+			return false;
+		}
+		text = fact.op == OP_MINUS ? "-" + operand : operand;
+		return true;
+	}
+	unsigned long long bits = 0;
+	if (!folded(node, bits))
+	{
+		return false;
+	}
+	// 4.9p2: an integer constant initializing an object of floating type is
+	// converted to it, and the value it converts to is the one it names.
+	text = spell_value(fact.type, bits);
+	return true;
+}
+
+// 3.6.2p2: the constant an item of the program image holds, spelled at the type
+// the storage has.  An integral value is the one 5.19's fold works out; a
+// floating one is the spelling 2.14.4 gave it, because there is no integer of
+// this translation that is that value.
+bool LowirUnitLowering::image_value(const DumpNode& node, TypeId type,
+                                    std::string& text)
+{
+	if (types_.is_floating(types_.strip_cv(type)))
+	{
+		std::string written;
+		if (!floating_image(node, written))
+		{
+			return false;
+		}
+		text = spell_floating(type, written);
+		return true;
+	}
+	unsigned long long bits = 0;
+	if (!folded(node, bits))
+	{
+		return false;
+	}
+	text = spell_value(type, bits);
+	return true;
+}
+
 // 5.19 over the resolved tree.  Every operand a namespace-scope initializer of
 // the PA15 subset is written from is a value the analysis already knows or an
 // operator over ones that are, so the fold is one walk of what is written and
@@ -510,6 +612,15 @@ std::string LowirUnitLowering::spell_value(TypeId type,
 bool LowirUnitLowering::folded(const DumpNode& node, unsigned long long& bits)
 {
 	const SemaFact& fact = node.fact;
+	if (fact.type != kNoType && types_.is_floating(types_.strip_cv(fact.type)))
+	{
+		// 2.14.4: no integer of this translation holds a floating value - the
+		// program spelled it and the analysis kept the spelling - so a fold
+		// that answered here would answer with the value's zero and not with
+		// the value.  `image_value` is what a floating constant reaches the
+		// image through.
+		return false;
+	}
 	if (fact.constant)
 	{
 		bits = fact.value;
@@ -922,6 +1033,20 @@ bool LowirUnitLowering::global_subobjects(lowir_model::GlobalDefinition& global,
 			}
 			continue;
 		}
+		if (types_.is_empty_class(types_.strip_cv(child.fact.type)) &&
+		    (child.children.empty() ||
+		     (child.children[0]->fact.kind == FactKind::ConstructorAction &&
+		      (child.children[0]->fact.elided_prvalue ||
+		       child.children[0]->children[0]->children[0]->fact.entity->trivial))))
+		{
+			// 9p6 and 3.6.2p2: a subobject of a class that holds nothing has no
+			// bytes for the image to carry, and neither 12.1p5's trivial
+			// constructor nor the prvalue 12.8p31 elided into it puts anything
+			// there.  What it occupies is padding, which the zero the next item
+			// is preceded by covers - so the fold goes on rather than handing
+			// the whole object to a startup body.
+			continue;
+		}
 		add_zero_item(global, offset - at);
 		lowir_model::GlobalDefinition::DataItem item;
 		item.type = low_type(child.fact.type);
@@ -929,24 +1054,26 @@ bool LowirUnitLowering::global_subobjects(lowir_model::GlobalDefinition& global,
 		{
 			item.kind = lowir_model::GlobalDefinition::DataItem::ITEM_INTEGER;
 			item.literal_operand.kind = lowir_model::Operand::OP_INTEGER;
-			item.literal_operand.text = "0";
+			item.literal_operand.text =
+				types_.is_floating(types_.strip_cv(child.fact.type))
+					? spell_floating(child.fact.type, "0")
+					: "0";
 		}
 		else
 		{
 			std::string symbol;
 			long long addend = 0;
-			unsigned long long bits = 0;
 			if (global_address(*child.children[0], symbol, addend))
 			{
 				item.kind = lowir_model::GlobalDefinition::DataItem::ITEM_ADDR;
 				item.symbol = symbol;
 				item.addr_addend = addend;
 			}
-			else if (folded(*child.children[0], bits))
+			else if (image_value(*child.children[0], child.fact.type,
+			                     item.literal_operand.text))
 			{
 				item.kind = lowir_model::GlobalDefinition::DataItem::ITEM_INTEGER;
 				item.literal_operand.kind = lowir_model::Operand::OP_INTEGER;
-				item.literal_operand.text = spell_value(child.fact.type, bits);
 			}
 			else
 			{
@@ -1063,18 +1190,16 @@ bool LowirUnitLowering::global_constructed(
 		item.type = low_type(type);
 		std::string symbol;
 		long long addend = 0;
-		unsigned long long bits = 0;
 		if (global_address(*value, symbol, addend))
 		{
 			item.kind = lowir_model::GlobalDefinition::DataItem::ITEM_ADDR;
 			item.symbol = symbol;
 			item.addr_addend = addend;
 		}
-		else if (folded(*value, bits))
+		else if (image_value(*value, type, item.literal_operand.text))
 		{
 			item.kind = lowir_model::GlobalDefinition::DataItem::ITEM_INTEGER;
 			item.literal_operand.kind = lowir_model::Operand::OP_INTEGER;
-			item.literal_operand.text = spell_value(type, bits);
 		}
 		else
 		{
@@ -1198,14 +1323,12 @@ bool LowirUnitLowering::global_initializer(lowir_model::GlobalDefinition& global
 		global.addr_addend = addend;
 		return true;
 	}
-	unsigned long long bits = 0;
-	if (!folded(node, bits))
+	if (!image_value(node, type, global.init_operand.text))
 	{
 		return false;
 	}
 	global.init_kind = lowir_model::GlobalDefinition::INIT_INTEGER;
 	global.init_operand.kind = lowir_model::Operand::OP_INTEGER;
-	global.init_operand.text = spell_value(type, bits);
 	return true;
 }
 
@@ -1323,8 +1446,8 @@ bool LowirUnitLowering::global_array_initializer(
 			global.data_items.push_back(item);
 			continue;
 		}
-		unsigned long long bits = 0;
-		if (!folded(*node->children[index], bits))
+		if (!image_value(*node->children[index], element,
+		                 item.literal_operand.text))
 		{
 			// 3.6.2p2: the element's value is not one the translation knows,
 			// so the whole array is given what it holds before the program
@@ -1341,7 +1464,6 @@ bool LowirUnitLowering::global_array_initializer(
 			continue;
 		}
 		item.literal_operand.kind = lowir_model::Operand::OP_INTEGER;
-		item.literal_operand.text = spell_value(element, bits);
 		global.data_items.push_back(item);
 	}
 	// 8.5.1p7: the elements no clause reached are value-initialized, which for

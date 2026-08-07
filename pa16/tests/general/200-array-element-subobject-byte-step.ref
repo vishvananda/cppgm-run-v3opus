@@ -1,0 +1,58 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $g : obj<20x4>
+
+  block ^entry:
+    %t1 = addr $g
+    %t2 = addr $g
+    %t3 = index i8 [projection=field] %t2, 0
+    %t4 = unary decay ptr %t3
+    %t5 = binary mul i64 0, 8
+    %t6 = index i8 [projection=array_element] %t4, %t5
+    %t7 = index i8 [projection=field] %t6, 0
+    store i32 1, %t7
+    %t8 = addr $g
+    %t9 = index i8 [projection=field] %t8, 0
+    %t10 = unary decay ptr %t9
+    %t11 = binary mul i64 0, 8
+    %t12 = index i8 [projection=array_element] %t10, %t11
+    %t13 = index i8 [projection=field] %t12, 4
+    store i32 2, %t13
+    %t14 = addr $g
+    %t15 = index i8 [projection=field] %t14, 0
+    %t16 = unary decay ptr %t15
+    %t17 = binary mul i64 1, 8
+    %t18 = index i8 [projection=array_element] %t16, %t17
+    %t19 = index i8 [projection=field] %t18, 0
+    store i32 3, %t19
+    %t20 = addr $g
+    %t21 = index i8 [projection=field] %t20, 0
+    %t22 = unary decay ptr %t21
+    %t23 = binary mul i64 1, 8
+    %t24 = index i8 [projection=array_element] %t22, %t23
+    %t25 = index i8 [projection=field] %t24, 4
+    store i32 4, %t25
+    %t26 = addr $g
+    %t27 = index i8 [projection=field] %t26, 16
+    store i32 5, %t27
+    %t28 = addr $g
+    %t29 = index i8 [projection=field] %t28, 0
+    %t30 = unary decay ptr %t29
+    %t31 = binary mul i64 0, 8
+    %t32 = index i8 [projection=array_element] %t30, %t31
+    %t33 = index i8 [projection=field] %t32, 0
+    %t34 = load i32 %t33
+    %t35 = addr $g
+    %t36 = index i8 [projection=field] %t35, 0
+    %t37 = unary decay ptr %t36
+    %t38 = binary mul i64 1, 8
+    %t39 = index i8 [projection=array_element] %t37, %t38
+    %t40 = index i8 [projection=field] %t39, 4
+    %t41 = load i32 %t40
+    %t42 = binary add i32 %t34, %t41
+    %t43 = addr $g
+    %t44 = index i8 [projection=field] %t43, 16
+    %t45 = load i32 %t44
+    %t46 = binary add i32 %t42, %t45
+    %t47 = binary sub i32 %t46, 10
+    return i32 %t47
+}

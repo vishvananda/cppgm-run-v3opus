@@ -827,10 +827,18 @@ AstNode* AstParser::parse_declarator_id()
 	{
 		return fail(start);
 	}
-	if (!qualified && tokens_.type(unqualified.pos) == KW_OPERATOR)
+	if (tokens_.type(unqualified.pos) == KW_OPERATOR)
 	{
-		return make_text(AstKind::Identifier,
-		                 "operator" + tokens_.flatten(unqualified.pos + 1, pos_));
+		// 13.5p1 and 3.7.4p2: an operator-function-id is one name however the
+		// tokens after `operator` are spelled apart, so the name a qualified
+		// declarator declares is the same one the class bound - which for
+		// `operator new` and `operator delete` is the difference between
+		// defining the declaration the class made and declaring a second
+		// function of a name no lookup asks for.
+		return make_text(
+			AstKind::Identifier,
+			tokens_.flatten(start.pos, unqualified.pos) + "operator" +
+				tokens_.flatten(unqualified.pos + 1, pos_));
 	}
 	return make_text(AstKind::Identifier, spelled(start));
 }

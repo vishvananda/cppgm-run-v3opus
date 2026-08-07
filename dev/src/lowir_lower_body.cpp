@@ -185,11 +185,15 @@ Operand LowirFunctionLowering::literal_operand(TypeId type,
 	TypeTable& types = unit_.types();
 	if (types.is_floating(types.strip_cv(type)))
 	{
-		// A floating zero is spelled at the width it is written for, which is
-		// what the suffix of a LowIR floating literal says.
+		// 2.14.4: a floating zero is spelled at the width it is written for,
+		// which is what the suffix of a LowIR floating literal says - the same
+		// three spellings 5.2.3p2's `T()` gives the zero of a floating type.
+		// Every floating value that is not this zero was spelled by the program
+		// and reaches the output as `fact.spelling`, so no other one is asked
+		// for here.
 		const std::string low = unit_.low_type(type).text;
 		operand.kind = Operand::OP_FLOAT;
-		operand.text = low == "f32" ? "0.0f" : low == "f80" ? "0.0L" : "0.0";
+		operand.text = low == "f32" ? "0.0F" : low == "f80" ? "0.0L" : "0.0";
 		return operand;
 	}
 	const unsigned long long value = unit_.narrowed(type, bits);
@@ -197,6 +201,23 @@ Operand LowirFunctionLowering::literal_operand(TypeId type,
 		? signed_decimal(static_cast<long long>(value))
 		: decimal(value);
 	return operand;
+}
+
+// 8.5p7: the value an object of scalar type is value-initialized with, which is
+// the zero of its type.  For a pointer that zero is 4.10p1's null pointer value
+// and LowIR spells it `nullptr`, which is not the same operand as the `0` a
+// program writing the null pointer constant wrote: the one is a value of the
+// object's own type and the other is the integer 4.10p1 converts from, and the
+// references write each where it belongs.  Every other type shares the literal
+// its own zero is.
+Operand LowirFunctionLowering::zero_operand(TypeId type)
+{
+	TypeTable& types = unit_.types();
+	if (types.kind(types.strip_cv(type)) == TypeKind::Pointer)
+	{
+		return named_operand(Operand::OP_INTEGER, "nullptr");
+	}
+	return literal_operand(type, 0);
 }
 
 // ------------------------------------------------------------------- slots
@@ -1735,7 +1756,7 @@ LowValue LowirFunctionLowering::expression(const DumpNode& node,
 		LowValue value;
 		value.type = node.fact.type;
 		value.constant = true;
-		value.operand = literal_operand(value.type, 0);
+		value.operand = zero_operand(value.type);
 		return value;
 	}
 
@@ -1797,7 +1818,12 @@ LowValue LowirFunctionLowering::literal(const DumpNode& node)
 		value.constant = false;
 		return value;
 	}
-	value.operand = literal_operand(value.type, node.fact.value);
+	// 8.5p7: a zero the initialization is rather than a literal the program
+	// wrote is a value of the object's own type, which for a pointer is 4.10p1's
+	// null pointer value and not the integer a null pointer constant is.
+	value.operand = node.fact.zero_initialized
+		? zero_operand(value.type)
+		: literal_operand(value.type, node.fact.value);
 	return value;
 }
 

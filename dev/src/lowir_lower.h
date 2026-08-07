@@ -297,8 +297,18 @@ public:
 	// scope object with data rather than with code, so the data has to be
 	// known here; the same fold answers a constant an initializer clause is.
 	bool folded(const DumpNode& node, unsigned long long& bits);
+	// 3.6.2p2: the constant one item of the program image holds, spelled at the
+	// type of the storage.  An integral value is what the fold above works out;
+	// 2.14.4's floating one is a value no integer of this translation holds, so
+	// it reaches the image as the digits the program wrote and the suffix the
+	// storage asks for.
+	bool image_value(const DumpNode& node, TypeId type, std::string& text);
 
 private:
+	// 2.14.4: the digits of the floating constant an initializer is worth, and
+	// one floating value spelled at the width the storage has.
+	bool floating_image(const DumpNode& node, std::string& text);
+	std::string spell_floating(TypeId type, const std::string& written);
 	// The definitions of this unit, gathered before any of it is lowered.
 	void collect_definitions(const DumpNode& node);
 	// 3.7.2p2: the definitions with thread storage duration, lowered before any
@@ -633,6 +643,11 @@ private:
 	lowir_model::Operand element_step(const lowir_model::Operand& cursor,
 	                                  TypeId array_type,
 	                                  unsigned long long index);
+	// The same step named by the element's own type, which is what a subobject
+	// path holds where 8.5.1p1 says which element a clause reached.
+	lowir_model::Operand element_of_step(const lowir_model::Operand& cursor,
+	                                     TypeId element,
+	                                     unsigned long long index);
 	// 8.3.4p1: the dimensions of an array type, outermost first, and how many
 	// objects it holds altogether.
 	unsigned long long array_dimensions(TypeId type,
@@ -797,6 +812,10 @@ private:
 	void store(const lowir_model::Operand& value, const lowir_model::Operand& storage,
 	           TypeId type);
 	lowir_model::Operand literal_operand(TypeId type, unsigned long long bits);
+	// 8.5p7: the value an object of scalar type is value-initialized with, which
+	// for a pointer is 4.10p1's null pointer value and not the `0` a program
+	// writing the null pointer constant wrote.
+	lowir_model::Operand zero_operand(TypeId type);
 	// A block of the function, opened and made current.  The label is reserved
 	// where the construct that owns it starts, which is what makes the numbers
 	// of a nested construct follow those of the one that holds it.

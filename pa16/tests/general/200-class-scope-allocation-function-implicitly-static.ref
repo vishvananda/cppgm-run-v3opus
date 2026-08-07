@@ -1,0 +1,124 @@
+global @buf [binding=strong, object=_Z3buf] = {
+  zero 32
+}
+
+function @operatornew(%__param0 : i64, %p : ptr) -> ptr [unwind=no, binding=strong, object=_ZnwmPv] {
+  slot $__param0 : i64
+  slot $p : ptr
+
+  block ^entry:
+    store i64 %__param0, $__param0
+    store ptr %p, $p
+    %t1 = load ptr $p
+    return ptr %t1
+}
+function @Apart__operatornew(%__param0 : i64, %p : ptr) -> ptr [unwind=no, binding=strong, object=_ZN5ApartnwEmPv] {
+  slot $__param0 : i64
+  slot $p : ptr
+
+  block ^entry:
+    store i64 %__param0, $__param0
+    store ptr %p, $p
+    %t1 = load ptr $p
+    return ptr %t1
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $a : ptr
+  slot $b : ptr
+  slot $c : ptr
+
+  block ^entry:
+    %t1 = convert sext i64 i32 4
+    %t2 = addr @buf
+    %t3 = unary decay ptr %t2
+    %t4 = call ptr @Held__operatornew(%t1, %t3)
+    call void @Held__Held(%t4, 1)
+    store ptr %t4, $a
+    %t5 = convert sext i64 i32 4
+    %t6 = addr @buf
+    %t7 = unary decay ptr %t6
+    %t8 = call ptr @Base__operatornew(%t5, %t7)
+    call void @Derived__Derived(%t8, 2)
+    store ptr %t8, $b
+    %t9 = convert sext i64 i32 4
+    %t10 = addr @buf
+    %t11 = unary decay ptr %t10
+    %t12 = call ptr @Apart__operatornew(%t9, %t11)
+    call void @Apart__Apart(%t12, 3)
+    store ptr %t12, $c
+    %t13 = load ptr $a
+    %t14 = index i8 [projection=field] %t13, 0
+    %t15 = load i32 %t14
+    %t16 = load ptr $b
+    %t17 = index i8 [projection=field] %t16, 0
+    %t18 = load i32 %t17
+    %t19 = binary add i32 %t15, %t18
+    %t20 = load ptr $c
+    %t21 = index i8 [projection=field] %t20, 0
+    %t22 = load i32 %t21
+    %t23 = binary add i32 %t19, %t22
+    %t24 = binary sub i32 %t23, 6
+    return i32 %t24
+}
+function @Held__Held(%this : ptr, %v : i32) -> void [binding=weak, object=_ZN4HeldC1Ei] {
+  slot $this : ptr
+  slot $v : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %v, $v
+    %t1 = load i32 $v
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 %t1, %t3
+    return void
+}
+function @Held__operatornew(%__param0 : i64, %p : ptr) -> ptr [unwind=no, binding=weak, object=_ZN4HeldnwEmPv] {
+  slot $__param0 : i64
+  slot $p : ptr
+
+  block ^entry:
+    store i64 %__param0, $__param0
+    store ptr %p, $p
+    %t1 = load ptr $p
+    return ptr %t1
+}
+function @Base__operatornew(%__param0 : i64, %p : ptr) -> ptr [unwind=no, binding=weak, object=_ZN4BasenwEmPv] {
+  slot $__param0 : i64
+  slot $p : ptr
+
+  block ^entry:
+    store i64 %__param0, $__param0
+    store ptr %p, $p
+    %t1 = load ptr $p
+    return ptr %t1
+}
+function @Derived__Derived(%this : ptr, %v : i32) -> void [binding=weak, object=_ZN7DerivedC1Ei] {
+  slot $this : ptr
+  slot $v : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %v, $v
+    %t1 = load i32 $v
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 %t1, %t3
+    return void
+}
+function @Apart__Apart(%this : ptr, %v : i32) -> void [binding=weak, object=_ZN5ApartC1Ei] {
+  slot $this : ptr
+  slot $v : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %v, $v
+    %t1 = load i32 $v
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 %t1, %t3
+    return void
+}
+alias object _ZN4HeldC2Ei = @Held__Held
+alias object _ZN7DerivedC2Ei = @Derived__Derived
+alias object _ZN5ApartC2Ei = @Apart__Apart

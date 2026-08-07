@@ -1676,6 +1676,14 @@ TypeId SemaAnalyzer::with_object_parameter(TypeId type,
 	{
 		return type;
 	}
+	if (allocation_function_name(name))
+	{
+		// 12.5p1: an allocation or deallocation function a class declares is a
+		// static member of it even where `static` was not written.  The storage
+		// it is asked for is what an object of the class would stand in, so
+		// there is no object for 9.3.1p3's implicit parameter to name.
+		return type;
+	}
 	if (qualified && declares_static_member(*target.scope, name, type))
 	{
 		// 9.4.1p2: the definition of a static member function written outside
@@ -1879,6 +1887,10 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 	// constructor, and whether 13.3.1.4 leaves out the ones declared `explicit`.
 	const AstNode* list = nullptr;
 	bool converting = false;
+	// 12.8p31 and 5.2.3p1: whether the initializer is a prvalue written
+	// `T(a, b)` or `T{...}` that this object is created by rather than copied
+	// from.
+	bool elided_prvalue = false;
 	// 8.5p14 and 8.5p16: only `= { ... }` is copy-list-initialization.  `= e`
 	// is copy-initialization, which 13.3.1.4 answers by leaving the `explicit`
 	// constructors out of the candidates rather than by refusing one, and
@@ -1924,6 +1936,13 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 				// 8.5.1 gives its clauses to the members of an aggregate.
 				list = list->children[0];
 			}
+			// 5.2.3p2 leaves `T()` the value-initialization 8.5p7 writes where
+			// it stands rather than an object something was built into, so it
+			// is the one spelling of the prvalue this is not: `T(a, b)` names
+			// arguments and `T{...}` names braces, and either of them is what
+			// the object was created by.
+			elided_prvalue = list != nullptr &&
+				(list->kind == AstKind::BracedInitList || !list->children.empty());
 			converting = false;
 			// 5.2.3p2: `T()` value-initializes what it makes, and the grammar
 			// writes no argument-list node for one that has no arguments.
@@ -1956,6 +1975,7 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 	DumpNode& action = model_.open_node(line, std::string());
 	action.fact.kind = FactKind::ConstructorAction;
 	action.fact.type = variable.type;
+	action.fact.elided_prvalue = elided_prvalue;
 	action.fact.base_subobject = where == Placement::Base;
 	DumpNode& call = model_.open_node(action, std::string());
 	DumpNode& callee = model_.open_node(call, std::string());
@@ -2736,11 +2756,15 @@ void SemaAnalyzer::write_member_initializations(const Pending& pending,
 			if (written->children.empty())
 			{
 				// 8.5p10: `m()` value-initializes the member, which for these
-				// types is the zero of it.
+				// types is the zero of it.  It is the zero of an object rather
+				// than a literal the program wrote, which is what says a
+				// pointer takes 4.10p1's null pointer value and not the `0` a
+				// null pointer constant is spelled with.
 				DumpNode& zero = model_.open_node(
 					node, spell("literal", ValueCategory::PRValue, type, "0"));
 				set_fact(zero, FactKind::Literal, type, ValueCategory::PRValue);
 				zero.fact.constant = true;
+				zero.fact.zero_initialized = true;
 				continue;
 			}
 			if (written->children.size() != 1)

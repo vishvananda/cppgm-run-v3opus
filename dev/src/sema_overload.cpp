@@ -1,5 +1,7 @@
 #include "sema_analyzer.h"
 
+#include <cstdlib>
+#include <cstring>
 #include <stdexcept>
 #include <vector>
 
@@ -1269,6 +1271,32 @@ SemaAnalyzer::Value SemaAnalyzer::list_initialize(const AstNode& node,
 	return value;
 }
 
+// 2.14.4 and 8.5.4p7: whether the value the program spelled is the value it
+// still has once an object of `to` holds it.  A floating value is not one this
+// translation carries - every other place it reaches writes the digits the
+// program wrote and lets the object file hold them - so this one question is
+// answered by decoding those digits the way phase 7 would, and only where
+// 8.5.4p7's exception asks it.  A clause that is not a literal the program
+// wrote is no constant expression here, and narrows.
+bool SemaAnalyzer::floating_round_trips(const Value& value, TypeId to)
+{
+	if (value.what == nullptr || std::strcmp(value.what, "literal") != 0 ||
+	    value.payload.empty())
+	{
+		return false;
+	}
+	const long double held = std::strtold(value.payload.c_str(), 0);
+	switch (types_.fundamental_type(types_.strip_cv(to)))
+	{
+	case FT_FLOAT:
+		return static_cast<long double>(static_cast<float>(held)) == held;
+	case FT_DOUBLE:
+		return static_cast<long double>(static_cast<double>(held)) == held;
+	default:
+		return true;
+	}
+}
+
 // 8.5.4p7: an implicit conversion that a list-initialization may not make,
 // because it cannot be relied on to keep the value the clause wrote.  A
 // constant the translation knows is judged by that value rather than by the
@@ -1312,7 +1340,14 @@ void SemaAnalyzer::require_no_narrowing(const AstNode& written,
 	}
 	else if (from_float && to_float)
 	{
-		narrows = types_.object_size(to) < types_.object_size(from) && !known;
+		// 8.5.4p7 second bullet: a wider floating type narrows a narrower one,
+		// unless the source is a constant expression whose value after the
+		// conversion is the value it had.  2.14.4's value is not one this
+		// translation carries in an integer, so the question is asked of the
+		// spelling the analysis kept - which is the same decode phase 7 would
+		// do to write the value, and the only place the object model needs one.
+		narrows = types_.object_size(to) < types_.object_size(from) &&
+			!floating_round_trips(value, to);
 	}
 	else if (!from_float && to_float)
 	{
@@ -1705,12 +1740,12 @@ SemaAnalyzer::Value SemaAnalyzer::functional_cast(const AstNode& node,
 	{
 		// 5.2.3p2: `T()` is a prvalue of type T that is value-initialized,
 		// which for the PA12 subset is the zero of that type - and 2.14.4
-		// spells the zero of a floating type as a value of that type rather
+		// spells the zero of a floating type as a value of that type, with the
+		// suffix that says which of the three widths it is a value of, rather
 		// than as the integer the other types share.
 		value.constant = true;
 		value.what = "literal";
-		value.payload =
-			types_.is_floating(types_.strip_cv(target)) ? "0.0" : "0";
+		value.payload = floating_zero(types_.strip_cv(target));
 		value.node = &model_.open_node(
 			parent, spell(value.what, value.category, target, value.payload));
 		return value;
@@ -1959,10 +1994,16 @@ SemaAnalyzer::Value SemaAnalyzer::new_expression(const AstNode& node,
 		}
 		if (written_init->children.empty())
 		{
+			// 8.5p7: `()` and `{}` value-initialize the object, which for a
+			// scalar is the zero of its type.  It is the zero of an object
+			// rather than a literal the program wrote, which is what says a
+			// pointer takes 4.10p1's null pointer value and not the `0` a null
+			// pointer constant is spelled with.
 			DumpNode& zero = model_.open_node(
 				line, spell("literal", ValueCategory::PRValue, created, "0"));
 			set_fact(zero, FactKind::Literal, created, ValueCategory::PRValue);
 			zero.fact.constant = true;
+			zero.fact.zero_initialized = true;
 		}
 		else
 		{

@@ -761,6 +761,10 @@ private:
 	// declarator wrote `type`.
 	bool declares_static_member(Scope& where, const std::string& name,
 	                            TypeId type);
+	// 3.7.4p2 and 12.5p1: whether the name is one of the allocation and
+	// deallocation functions, which a class declares as a static member of
+	// itself whether or not `static` was written.
+	static bool allocation_function_name(const std::string& name);
 	// 12.8p1: whether the program wrote a copy constructor of the class
 	// `entity` whose members `scope` declares, which is what says a copy of an
 	// object of it is not the copy of its bytes.
@@ -1199,6 +1203,11 @@ private:
 	// 8.5.4p7: the error that a clause narrows to the type it initialises.
 	void require_no_narrowing(const AstNode& written, const Value& value,
 	                          TypeId target, const Context& ctx);
+	// 2.14.4 and 8.5.4p7: whether the floating value the program spelled is
+	// still that value once an object of `to` holds it, which is the one
+	// question this milestone asks about a floating value rather than about
+	// its digits.
+	bool floating_round_trips(const Value& value, TypeId to);
 	// 8.5.4: a braced-init-list written where an expression initializes an
 	// object.  Over the PA12 scalar subset it holds at most one clause, whose
 	// value the object takes, and an empty one value-initializes it.
@@ -1357,6 +1366,9 @@ private:
 	// that first spells it, so recording there is what keeps the facts and the
 	// text one description of the same value.
 	void record(const Value& value) const;
+	// 2.14.4p1: the zero of a floating type, spelled as a literal of that type
+	// so that the suffix says which of the three widths it is a value of.
+	const char* floating_zero(TypeId type) const;
 	// The node kind the resolved tree names a line of `what` by.
 	static FactKind fact_kind(const char* what);
 	static std::string payload_of(const AstNode& node);

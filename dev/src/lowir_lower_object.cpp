@@ -140,7 +140,19 @@ Operand LowirFunctionLowering::element_step(const Operand& cursor,
                                             unsigned long long index)
 {
 	TypeTable& types = unit_.types();
-	const TypeId element = types.target(types.strip_cv(array_type));
+	return element_of_step(cursor, types.target(types.strip_cv(array_type)),
+	                       index);
+}
+
+// The same step named by what an element is rather than by what the array is,
+// which is what a subobject path holds: 8.5.1p1 says which element of the array
+// a clause reached, and the element's own type is what says how wide the step
+// to it is.
+Operand LowirFunctionLowering::element_of_step(const Operand& cursor,
+                                               TypeId element,
+                                               unsigned long long index)
+{
+	TypeTable& types = unit_.types();
 	Instruction move;
 	move.kind = Instruction::IK_INDEX;
 	move.index_projection = lowir_model::IPK_ARRAY_ELEMENT;
@@ -811,7 +823,7 @@ void LowirFunctionLowering::initialize_into(const LowObject& object,
 		// an empty list value-initializes it.
 		if (node.children.empty())
 		{
-			store(literal_operand(type, 0), object_storage(object), type);
+			store(zero_operand(type), object_storage(object), type);
 			return;
 		}
 		initialize_into(object, type, *node.children[0]);
@@ -900,11 +912,11 @@ Operand LowirFunctionLowering::subobject_address(
 	for (std::size_t index = 0; index < path.size(); ++index)
 	{
 		const DumpNode& step = *path[index];
-		Instruction move;
-		move.kind = Instruction::IK_INDEX;
 		if (step.fact.entity != nullptr)
 		{
 			// 9.2p13: a member begins where the layout of its class put it.
+			Instruction move;
+			move.kind = Instruction::IK_INDEX;
 			move.type.text = "i8";
 			move.index_projection = lowir_model::IPK_FIELD;
 			move.first = at;
@@ -914,18 +926,16 @@ Operand LowirFunctionLowering::subobject_address(
 			continue;
 		}
 		// 8.3.4p6 and 4.2: an element is reached through the pointer view of
-		// the array, counted in elements rather than in bytes.
+		// the array, counted the one way every other element of an array of
+		// this milestone is counted - which for an element with no register
+		// width is the bytes 5.2.1p1 counts rather than the object type, and is
+		// what the element step already says.
 		Instruction decayed;
 		decayed.kind = Instruction::IK_UNARY;
 		decayed.op = "decay";
 		decayed.type.text = "ptr";
 		decayed.first = at;
-		move.type = unit_.low_type(step.fact.type);
-		move.index_projection = lowir_model::IPK_ARRAY_ELEMENT;
-		move.first = emit(decayed);
-		move.second =
-			named_operand(Operand::OP_INTEGER, decimal(step.fact.value));
-		at = emit(move);
+		at = element_of_step(emit(decayed), step.fact.type, step.fact.value);
 	}
 	(void)types;
 	return at;
@@ -971,7 +981,7 @@ void LowirFunctionLowering::initialize_subobject(
 			// their zero and there is nothing left to do.
 			if (claims_storage(unit, unit + size))
 			{
-				store(literal_operand(node.fact.type, 0),
+				store(zero_operand(node.fact.type),
 				      subobject_address(object, path), node.fact.type);
 			}
 			path.pop_back();
@@ -989,13 +999,20 @@ void LowirFunctionLowering::initialize_subobject(
 	claims_storage(subobject_offset(path),
 	               subobject_offset(path) +
 	                   unit_.types().object_size(node.fact.type));
-	if (node.children.empty() && node.fact.op == 0 &&
+	if (node.fact.op == 0 &&
 	    unit_.types().is_empty_class(
-		    unit_.types().strip_cv(node.fact.type)))
+		    unit_.types().strip_cv(node.fact.type)) &&
+	    (node.children.empty() ||
+	     (node.children[0]->fact.kind == FactKind::ConstructorAction &&
+	      node.children[0]->children[0]->children[0]->fact.entity->trivial)))
 	{
-		// 8.5p7 and 9p6: no clause reached a subobject of a class that holds
-		// nothing, so the zero it is value-initialized with has no bytes to be
-		// written into and there is no address to compute for it either.
+		// 8.5p7 and 9p6: a subobject of a class that holds nothing, whose
+		// initialization is the zero of storage it has none of and a
+		// constructor 12.1p5 makes trivial.  Neither writes anything, so there
+		// is no address to compute for it either - which is what the references
+		// write for a member no clause reached and for one whose clause chose
+		// that same trivial constructor, an element of an array of the class
+		// included.
 		path.pop_back();
 		return;
 	}
@@ -1018,24 +1035,26 @@ void LowirFunctionLowering::initialize_subobject(
 	}
 	const Operand at = subobject_address(object, path);
 	path.pop_back();
-	if (unit_.types().is_empty_class(unit_.types().strip_cv(node.fact.type)))
+	if (!node.children.empty() &&
+	    node.children[0]->fact.kind == FactKind::ConstructorAction &&
+	    node.children[0]->fact.elided_prvalue &&
+	    unit_.types().is_empty_class(unit_.types().strip_cv(node.fact.type)))
 	{
 		// 8.5.1p2 copy-initializes the subobject from the clause that reached
-		// it, and 12.8p15's copy of a class with no non-static data member and
-		// no base subobject copies nothing: the checked-in LowIR writes no
-		// action for such a subobject at all, not even the object 12.8p31 would
-		// have elided that copy into.  The address is still named, because
-		// 8.5.1p1 reached the subobject, and the constructor the analysis chose
-		// is still a use of it, so its definition is still written.  This is
-		// the one initialization whose clause the output does not evaluate, and
-		// it is 8.5.1's member alone: an element of an array a declaration
-		// names, an argument and a mem-initializer each write their call.
-		if (!node.children.empty() &&
-		    node.children[0]->fact.kind == FactKind::ConstructorAction)
-		{
-			unit_.declare_entity(
-				*node.children[0]->children[0]->children[0]->fact.entity);
-		}
+		// it; where that clause is a prvalue of its own class, 12.8p31 makes
+		// the two one object and 12.8p15's copy of a class with no non-static
+		// data member and no base subobject copies nothing.  The checked-in
+		// LowIR writes no action for that subobject at all - the construction
+		// of the prvalue goes with the copy it was elided into.  The address is
+		// still named, because 8.5.1p1 reached the subobject, and the
+		// constructor the analysis chose is still a use of it, so its
+		// definition is still written.  This is the one initialization whose
+		// clause the output does not evaluate, and it is that prvalue alone:
+		// 5.2.3p2's `T()`, a braced clause 13.3.1.7 hands to a constructor, an
+		// element of an array, an argument and a mem-initializer each write
+		// their call.
+		unit_.declare_entity(
+			*node.children[0]->children[0]->children[0]->fact.entity);
 		return;
 	}
 	if (!node.children.empty() &&
@@ -1075,7 +1094,7 @@ void LowirFunctionLowering::initialize_subobject(
 			zero_object(at, node.fact.type);
 			return;
 		}
-		store(literal_operand(node.fact.type, 0), at, node.fact.type);
+		store(zero_operand(node.fact.type), at, node.fact.type);
 		return;
 	}
 	initialize(at, node.fact.type, *node.children[0]);
@@ -1120,7 +1139,7 @@ void LowirFunctionLowering::value_initialize_array(const LowObject& object,
 			zero_object(at, element);
 			continue;
 		}
-		store(literal_operand(element, 0), at, element);
+		store(zero_operand(element), at, element);
 	}
 }
 
@@ -1177,7 +1196,7 @@ void LowirFunctionLowering::initialize_array(const LowObject& object,
 			initialize(at, element, *node.children[index]);
 			continue;
 		}
-		store(literal_operand(element, 0), at, element);
+		store(zero_operand(element), at, element);
 	}
 	if (spelled_elementwise || left == 0)
 	{

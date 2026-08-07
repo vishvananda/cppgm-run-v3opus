@@ -96,6 +96,28 @@ bool overloadable_operator(const std::string& name)
 	return false;
 }
 
+} // namespace
+
+// 3.7.4p2 and 12.5p1: whether the name is one of the allocation and
+// deallocation functions, which 13.5p1 leaves out of the operators a program
+// may give a meaning to.  Written in a class they are static members of it
+// whether or not `static` was written, because 12.5p1 says so and because there
+// is no object for an implicit object argument to name: the storage this
+// function is being asked for is what an object of the class would stand in.
+bool SemaAnalyzer::allocation_function_name(const std::string& name)
+{
+	if (name.compare(0, 8, "operator") != 0)
+	{
+		return false;
+	}
+	const std::string written = name.substr(8);
+	return written == "new" || written == "new[]" || written == "delete" ||
+		written == "delete[]";
+}
+
+namespace
+{
+
 // Whether `what` is already in `where`, which a candidate set holds few enough
 // of for a scan to answer.
 template <typename T>

@@ -185,6 +185,26 @@ FactKind SemaAnalyzer::fact_kind(const char* what)
 	return FactKind::None;
 }
 
+// 2.14.4p1: the zero of a floating type, spelled as a literal of that type.
+// The suffix is what says which of the three widths the value is one of, and a
+// value-initialization that left it off would be a value of `double` wherever
+// it was written - which is what the object file would then carry.  It is the
+// one floating value this translation spells for itself; every other one is the
+// digits the program wrote, kept on the node beside the fact.
+const char* SemaAnalyzer::floating_zero(TypeId type) const
+{
+	if (!types_.is_floating(type))
+	{
+		return "0";
+	}
+	switch (types_.fundamental_type(type))
+	{
+	case FT_FLOAT: return "0.0F";
+	case FT_LONG_DOUBLE: return "0.0L";
+	default: return "0.0";
+	}
+}
+
 void SemaAnalyzer::record(const Value& value) const
 {
 	if (!lowering() || value.node == nullptr || value.what == nullptr)

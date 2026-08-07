@@ -127,6 +127,7 @@ struct SemaFact
 		, constant(false)
 		, zero_initialized(false)
 		, reverse_elements(false)
+		, elided_prvalue(false)
 		, base_subobject(false)
 		, value(0)
 	{}
@@ -154,6 +155,10 @@ struct SemaFact
 	// storage before the constructor is run on it.  That zero is what the
 	// object holds wherever the constructor leaves a member alone, and it is
 	// written even where the constructor itself does nothing.
+	// 8.5p7: on a `literal`, whether the value is the zero an object of the type
+	// is value-initialized with rather than a constant the program wrote.  Which
+	// of the two it is is what says a pointer takes 4.10p1's null pointer value
+	// where a written null pointer constant is the integer it was spelled as.
 	bool zero_initialized;
 	// 12.6p1 and 12.4p8: whether this `constructor-action` or
 	// `destructor-action` acts on the elements of an array from the last one
@@ -162,6 +167,16 @@ struct SemaFact
 	// thing left to say about them, and 12.6.2p10's member is the subobject
 	// destroyed in the reverse of the order it was created in.
 	bool reverse_elements;
+	// 12.8p31 and 5.2.3p1: whether this `constructor-action` is what a prvalue
+	// written `T(...)` or `T{...}` was elided into - the object and the prvalue
+	// are one, so what was written reached the object directly and no copy
+	// stands between them.  5.2.3p2's `T()` is not one of them: it names no
+	// argument, so it is the value-initialization written where it stands.
+	// It is the one initialization of a subobject of a class that holds nothing
+	// whose call the checked-in LowIR does not write, because the copy 8.5.1p2
+	// asks for copies nothing and the reference elides the construction of the
+	// prvalue with it.
+	bool elided_prvalue;
 	// 12.6.2p5 and 12.4p8: whether this `constructor-action` or
 	// `destructor-action` acts on the base class subobject of the object the
 	// function it stands in was called on.  The ABI gives a constructor and a

@@ -1,0 +1,134 @@
+global @buf [binding=strong, object=_Z3buf] = {
+  zero 16
+}
+
+function @operatornew(%__param0 : i64, %p : ptr) -> ptr [unwind=no, binding=strong, object=_ZnwmPv] {
+  slot $__param0 : i64
+  slot $p : ptr
+
+  block ^entry:
+    store i64 %__param0, $__param0
+    store ptr %p, $p
+    %t1 = load ptr $p
+    return ptr %t1
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $s : obj<24x8>
+  slot $made : ptr
+  slot $local : ptr
+  slot $cond__1 : i32
+  slot $land__2 : i64
+  slot $land__3 : i64
+  slot $land__4 : i64
+  slot $land__5 : i64
+
+  block ^entry:
+    %t1 = addr $s
+    call void @Slots__Slots(%t1)
+    %t2 = convert sext i64 i32 8
+    %t3 = addr @buf
+    %t4 = unary decay ptr %t3
+    %t5 = call ptr @operatornew(%t2, %t4)
+    store ptr nullptr, %t5
+    store ptr %t5, $made
+    store ptr nullptr, $local
+    %t6 = addr $s
+    %t7 = index i8 [projection=field] %t6, 0
+    %t8 = load ptr %t7
+    %t9 = cmp eq ptr %t8, 0
+    branch %t9, ^land_rhs_13, ^land_short_14
+
+  block ^land_rhs_13:
+    %t10 = addr $s
+    %t11 = index i8 [projection=field] %t10, 8
+    %t12 = load ptr %t11
+    %t13 = cmp eq ptr %t12, 0
+    %t14 = cmp ne i64 %t13, 0
+    store i64 %t14, $land__5
+    jump ^land_end_15
+
+  block ^land_short_14:
+    store i64 0, $land__5
+    jump ^land_end_15
+
+  block ^land_end_15:
+    %t15 = load i64 $land__5
+    branch %t15, ^land_rhs_10, ^land_short_11
+
+  block ^land_rhs_10:
+    %t16 = addr $s
+    %t17 = index i8 [projection=field] %t16, 16
+    %t18 = load ptr %t17
+    %t19 = cmp eq ptr %t18, 0
+    %t20 = cmp ne i64 %t19, 0
+    store i64 %t20, $land__4
+    jump ^land_end_12
+
+  block ^land_short_11:
+    store i64 0, $land__4
+    jump ^land_end_12
+
+  block ^land_end_12:
+    %t21 = load i64 $land__4
+    branch %t21, ^land_rhs_7, ^land_short_8
+
+  block ^land_rhs_7:
+    %t22 = load ptr $made
+    %t23 = load ptr %t22
+    %t24 = cmp eq ptr %t23, 0
+    %t25 = cmp ne i64 %t24, 0
+    store i64 %t25, $land__3
+    jump ^land_end_9
+
+  block ^land_short_8:
+    store i64 0, $land__3
+    jump ^land_end_9
+
+  block ^land_end_9:
+    %t26 = load i64 $land__3
+    branch %t26, ^land_rhs_4, ^land_short_5
+
+  block ^land_rhs_4:
+    %t27 = load ptr $local
+    %t28 = cmp eq ptr %t27, 0
+    %t29 = cmp ne i64 %t28, 0
+    store i64 %t29, $land__2
+    jump ^land_end_6
+
+  block ^land_short_5:
+    store i64 0, $land__2
+    jump ^land_end_6
+
+  block ^land_end_6:
+    %t30 = load i64 $land__2
+    branch %t30, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t31 = load i32 $cond__1
+    return i32 %t31
+}
+function @Slots__Slots(%this : ptr) -> void [binding=weak, object=_ZN5SlotsC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    store ptr nullptr, %t2
+    %t3 = load ptr $this
+    %t4 = index i8 [projection=field] %t3, 8
+    store ptr 0, %t4
+    %t5 = load ptr $this
+    %t6 = index i8 [projection=field] %t5, 16
+    store ptr nullptr, %t6
+    return void
+}
+alias object _ZN5SlotsC2Ev = @Slots__Slots
