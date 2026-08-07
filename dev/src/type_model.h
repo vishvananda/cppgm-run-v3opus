@@ -160,7 +160,22 @@ public:
 	// copy of one moves no bytes.  False for every type that is not a class.
 	bool is_empty_class(TypeId type) const;
 
-	// 12.8p25: whether a copy of an object of the class is the copy of its
+	// 12.8p11 and p12: what the class's copy constructor is - whether a copy of
+	// an object of it is the copy of its bytes, and whether 8.4.3p2 leaves the
+	// program no copy of one at all.  The layout writes a first answer to the
+	// first of them from the declarations the class holds; both are settled
+	// where the class's copy constructor is settled, which is one step later
+	// than the layout and is the answer every reader wants.
+	void settle_copy_facts(TypeId type, bool trivially_copied,
+	                       bool copy_deleted);
+
+	// 8.4.3p2 and 12.8p11: whether the copy constructor of the class is one no
+	// program may name, which is what says a transfer of an object of it is the
+	// member the program declared for it rather than its bytes.  False for
+	// every type that is not a class.
+	bool is_copy_deleted(TypeId type) const;
+
+	// 12.8p12: whether a copy of an object of the class is the copy of its
 	// bytes, which it is until the program writes a copy constructor of its own
 	// or holds a subobject whose copy is not.  True for every type that is not
 	// a class.
@@ -310,6 +325,10 @@ private:
 		// is the copy of its bytes, which the program writing a copy
 		// constructor of its own - here or in a subobject - makes it not.
 		bool trivially_copied;
+		// 12.8p11: whether the class's copy constructor is one 8.4.3p2 leaves
+		// no program able to name, which is what says an object of it is
+		// carried by the member the program declared and not by its bytes.
+		bool copy_deleted;
 	};
 
 	// What makes two types the same type.

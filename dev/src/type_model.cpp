@@ -419,6 +419,7 @@ TypeId TypeTable::class_type(std::uint32_t entity, ClassTag tag,
 	record.align = 1;
 	record.empty = false;
 	record.trivially_copied = true;
+	record.copy_deleted = false;
 	return user_type(TypeKind::Class, entity, record);
 }
 
@@ -436,6 +437,7 @@ TypeId TypeTable::enum_type(std::uint32_t entity, bool scoped,
 	record.align = 0;
 	record.empty = false;
 	record.trivially_copied = true;
+	record.copy_deleted = false;
 	const TypeId id = user_type(TypeKind::Enum, entity, record);
 	nodes_[id].target = underlying;
 	return id;
@@ -454,6 +456,7 @@ TypeId TypeTable::template_parameter_type(std::uint32_t entity, bool is_template
 	record.align = 1;
 	record.empty = false;
 	record.trivially_copied = true;
+	record.copy_deleted = false;
 	return user_type(TypeKind::TemplateParameter, entity, record);
 }
 
@@ -478,6 +481,19 @@ void TypeTable::complete_class(TypeId type, unsigned long long size,
 	record.align = align;
 	record.empty = empty;
 	record.trivially_copied = trivially_copied;
+}
+
+void TypeTable::settle_copy_facts(TypeId type, bool trivially_copied,
+                                  bool copy_deleted)
+{
+	UserType& record = user_types_[nodes_[type].user];
+	record.trivially_copied = trivially_copied;
+	record.copy_deleted = copy_deleted;
+}
+
+bool TypeTable::is_copy_deleted(TypeId type) const
+{
+	return kind(type) == TypeKind::Class && user_at(type).copy_deleted;
 }
 
 bool TypeTable::is_trivially_copied(TypeId type) const

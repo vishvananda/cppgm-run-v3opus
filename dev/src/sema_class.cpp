@@ -1178,15 +1178,24 @@ void SemaAnalyzer::note_transfers(SemaEntity& entity, Scope& scope)
 	{
 		note_transfer(entity, *at);
 	}
-	SemaEntity* const assignment =
-		model_.lookup_in(scope, "operator=", LookupKind::Any);
-	for (SemaEntity* at = assignment; at != nullptr; at = at->next)
+	for (SemaEntity* at = own_assignments(scope); at != nullptr; at = at->next)
 	{
 		if (at->kind == SemaKind::Function)
 		{
 			note_transfer(entity, *at);
 		}
 	}
+}
+
+// 13.5.3p1: the declarations of `operator=` this class's own region holds.
+//
+// 12.8 asks about the declarations of one class, so what answers it is the
+// binding that class's region has and not 3.4's lookup for the name: 10.2 would
+// reach a base's `operator=` and 3.4.1 an enclosing class's, and both of those
+// are declarations of another class, whose facts belong to that class alone.
+SemaEntity* SemaAnalyzer::own_assignments(Scope& scope)
+{
+	return model_.find(scope, "operator=", LookupKind::Any);
 }
 
 void SemaAnalyzer::note_transfer(SemaEntity& entity, SemaEntity& function)
@@ -1301,9 +1310,10 @@ void SemaAnalyzer::declare_transfer_member(SemaEntity& entity, Scope& scope,
 		return;
 	}
 	// 13.5.3p1: `operator=` is a name an ordinary lookup in the class reaches,
-	// so the declaration is bound there as well as chained.
-	SemaEntity* const head =
-		model_.lookup_in(scope, "operator=", LookupKind::Any);
+	// so the declaration is bound in this class's own region as well as chained.
+	// A base's or an enclosing class's declaration of the name is another
+	// class's member, which this one neither joins nor hides.
+	SemaEntity* const head = own_assignments(scope);
 	if (head == nullptr)
 	{
 		model_.bind(scope, "operator=", member);
@@ -1431,6 +1441,17 @@ void SemaAnalyzer::settle_transfers(SemaEntity& entity, Scope& scope)
 		member->trivial = trivial && !deleted;
 		member->deleted = deleted;
 	}
+	// 12.8p11 and p12: what an object of this class is carried by is what its
+	// copy constructor is, and the layout wrote a first answer for it before
+	// this class had one.  Both halves are settled here so that the layout of a
+	// class holding one of these, 5.2.2p4's argument and the lowering's copy of
+	// an object all read the one fact rather than each asking the declarations
+	// again: whether the bytes stand for the copy, and whether the program has
+	// a copy of an object of this class at all.
+	const SemaEntity* const copy = entity.transfers[kCopyConstructorTransfer - 1];
+	const bool deleted_copy = copy == nullptr || copy->deleted;
+	types_.settle_copy_facts(types_.strip_cv(entity.type),
+	                         !deleted_copy && copy->trivial, deleted_copy);
 }
 
 // 11.2p1: whether a member of another class may be named from inside `scope`,
@@ -1442,6 +1463,20 @@ bool SemaAnalyzer::accessible(const SemaEntity& member, Scope& scope)
 		return true;
 	}
 	for (Scope* at = &scope; at != nullptr; at = at->parent)
+	{
+		if (at == member.region)
+		{
+			return true;
+		}
+	}
+	if (member.access != kProtectedAccess)
+	{
+		return false;
+	}
+	// 11.4p1: a protected member of a base class is one a class derived from it
+	// may name, and 12.8p11's subobject is exactly the base subobject of the
+	// class asking - so the derivation this class already holds is the answer.
+	for (Scope* at = scope.base; at != nullptr; at = at->base)
 	{
 		if (at == member.region)
 		{

@@ -502,6 +502,10 @@ private:
 	                            const SemaEntity& owner);
 	void note_transfers(SemaEntity& entity, Scope& scope);
 	void note_transfer(SemaEntity& entity, SemaEntity& function);
+	// 13.5.3p1: the declarations of `operator=` one class's own region holds,
+	// which is what 12.8 asks about - a base's or an enclosing class's are
+	// another class's members.
+	SemaEntity* own_assignments(Scope& scope);
 	// 12.8p7/p9/p18/p20: the value-transfer members the standard rather than
 	// the program declares, added where 9.2p2 completes the class.
 	void declare_transfer_members(SemaEntity& entity, Scope& scope,
