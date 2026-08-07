@@ -315,6 +315,13 @@ struct SemaEntity
 	// its class body and 12.1p5 an implicitly declared constructor.  It is what
 	// says the definition binds weakly and is emitted only where it is used.
 	bool inline_function;
+	// 12.4p8: whether the definition this declaration was given in this
+	// translation unit writes no statement at all.  Every definition is read
+	// before any body is, so the fact stands wherever a use of the function is
+	// later read - which is what lets 3.8p1 ask whether the end of an object's
+	// lifetime comes to anything before the destructor's own body has been
+	// analysed.  False for a declaration this unit defines nowhere.
+	bool empty_body;
 	// 12.1p5: whether this constructor does nothing, so that an object it
 	// initializes needs no call at all.  A constructor the program wrote, or one
 	// with a member to initialize, is not one of these.

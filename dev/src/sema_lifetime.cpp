@@ -802,8 +802,7 @@ SemaAnalyzer::Value SemaAnalyzer::build_temporary(TypeId type, DumpNode& line,
 		construct_object(object, line, written, ctx, Placement::Named, false,
 		                 given, value_init);
 	}
-	const SemaEntity* const destructor = class_destructor(object_type);
-	if (destructor != nullptr && !destructor->trivial)
+	if (!vacuous_destruction(object_type))
 	{
 		// 12.2p3 ends the temporary's lifetime at the end of the
 		// full-expression, which is a place this milestone does not mark.
@@ -890,7 +889,7 @@ void SemaAnalyzer::destructor_action(SemaEntity& entity, DumpNode& parent,
 		                         " is declared, and the destructor its lifetime "
 		                         "ends with is deleted");
 	}
-	if (destructor->trivial)
+	if (vacuous_destruction(entity.type))
 	{
 		return;
 	}
@@ -1628,9 +1627,54 @@ bool SemaAnalyzer::trivially_constructed(TypeId type)
 // nothing at all, which is the one question every count of live objects asks.
 bool SemaAnalyzer::ends_in_call(const SemaEntity& entity)
 {
-	const SemaEntity* const destructor =
-		class_destructor(element_of(entity.type));
-	return destructor != nullptr && !destructor->trivial;
+	return !vacuous_destruction(entity.type);
+}
+
+// 12.4p8 and 3.8p1: whether destroying an object of this type comes to nothing.
+//
+// 12.4p5 makes a destructor trivial where the program wrote none and no
+// subobject needs one, and running that one is nothing.  A destructor the
+// program *did* write whose body has no statement is the same nothing wherever
+// its class holds no subobject whose own destruction does something - the
+// clause that says the destructor exists is not the clause that says running it
+// does anything.  So this is the one question the end of a lifetime asks, and
+// every action - a local going out of scope, a temporary, a subobject of a
+// destructor the standard defines - asks it here.
+//
+// The walk is the subobject tree, and its answer is held per type: a class n
+// members deep is walked once however many objects of it a function declares.
+bool SemaAnalyzer::vacuous_destruction(TypeId type)
+{
+	const TypeId bare = element_of(type);
+	const std::unordered_map<TypeId, unsigned char>::const_iterator held =
+		vacuous_.find(bare);
+	if (held != vacuous_.end())
+	{
+		return held->second != 0;
+	}
+	const SemaEntity* const destructor = class_destructor(bare);
+	bool nothing = destructor == nullptr || destructor->trivial;
+	if (!nothing && !destructor->deleted && destructor->empty_body)
+	{
+		SemaEntity* const owner = model_.type_owner(bare);
+		nothing = owner != nullptr && owner->scope != nullptr;
+		if (nothing && owner->base != nullptr)
+		{
+			// 12.4p8: the base class subobject is destroyed too.
+			nothing = vacuous_destruction(owner->base->type);
+		}
+		for (std::size_t index = 0;
+		     nothing && owner != nullptr && owner->scope != nullptr &&
+		     index < owner->scope->declarations.size(); ++index)
+		{
+			const SemaEntity& member = *owner->scope->declarations[index];
+			nothing = !declares_subobject(member, *owner->scope) ||
+				types_.is_reference(member.type) ||
+				vacuous_destruction(member.type);
+		}
+	}
+	vacuous_[bare] = nothing ? 1u : 0u;
+	return nothing;
 }
 
 bool SemaAnalyzer::lifetimes_pending() const

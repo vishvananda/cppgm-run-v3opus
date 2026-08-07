@@ -725,6 +725,13 @@ private:
 	bool lifetimes_pending() const;
 	// 12.4p3: whether the end of this object's lifetime is a call.
 	bool ends_in_call(const SemaEntity& entity);
+	// 12.4p8 and 3.8p1: whether the end of the lifetime of an object of this
+	// type comes to nothing at all.  12.4p5's trivial destructor is one; so is a
+	// destructor the program wrote whose definition writes no statement and
+	// whose class holds no subobject whose own destruction does something.  The
+	// two differ in which clause said so and not in what running them comes to,
+	// and the output writes an action only where there is one to write.
+	bool vacuous_destruction(TypeId type);
 	// 12.1p5: whether default-initializing an object of `type` does nothing at
 	// all, so that a subobject of it needs no action written.
 	bool trivially_constructed(TypeId type);
@@ -1717,6 +1724,10 @@ private:
 	std::vector<std::string> gotos_;
 	// 6.6.3: the return type of the function whose body is being read.
 	TypeId returns_;
+	// 12.4p8: the answer `vacuous_destruction` gave for a type, so a class whose
+	// subobjects are n deep is walked once and not once per object of it whose
+	// lifetime ends.
+	std::unordered_map<TypeId, unsigned char> vacuous_;
 	// 13.3.3.1.2p1: whether the sequence being measured is the second, standard
 	// conversion sequence of a user-defined one, which holds no user-defined
 	// conversion of its own.  One flag says it for both directions - a

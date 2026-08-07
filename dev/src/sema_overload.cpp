@@ -442,6 +442,15 @@ SemaAnalyzer::Match SemaAnalyzer::conversion_match(const Value& argument,
 		{
 			continue;
 		}
+		if (at->explicit_function && result.rank != kExactMatch)
+		{
+			// 13.3.1.5p1: a direct-initialization adds the `explicit`
+			// conversion functions that yield the destination type or one a
+			// *qualification* conversion reaches it from - and no further, so
+			// `char c(x)` on a class with `explicit operator bool` reaches
+			// nothing rather than reaching `bool` and converting it.
+			continue;
+		}
 		const int order = best == nullptr
 			? 1
 			: (compare_matches(reached, chosen_object) != 0
@@ -578,7 +587,17 @@ TypeId SemaAnalyzer::builtin_conversion_type(const Value& value)
 	{
 		return kNoType;
 	}
+	// 13.3.1p3: what tells two of these candidates apart is how the operand
+	// reaches each conversion function's object parameter, which is the one
+	// argument they are ranked over - so `operator T*()` and
+	// `operator const T*() const` are two built-in candidates and the object's
+	// own cv-qualification says which.
+	Value object;
+	object.type = object.spelled = types_.pointer_to(value.type);
+	object.category = ValueCategory::PRValue;
 	TypeId found = kNoType;
+	Match chosen;
+	bool tied = false;
 	for (std::size_t index = 0; index < owner->conversions.size(); ++index)
 	{
 		SemaEntity* const at = owner->conversions[index];
@@ -598,13 +617,27 @@ TypeId SemaAnalyzer::builtin_conversion_type(const Value& value)
 		{
 			continue;
 		}
-		if (found != kNoType && found != result)
+		const Match reached =
+			match_argument(object, types_.parameters(at->type)[0]);
+		if (!reached.viable)
 		{
-			return kNoType;
+			continue;
 		}
-		found = result;
+		const int order =
+			found == kNoType ? 1 : compare_matches(reached, chosen);
+		if (order > 0)
+		{
+			found = result;
+			chosen = reached;
+			tied = false;
+			continue;
+		}
+		if (order == 0 && found != result)
+		{
+			tied = true;
+		}
 	}
-	return found;
+	return tied ? kNoType : found;
 }
 
 // 13.3.1.2p2 and 13.6: the operands the built-in operator reads, where the
