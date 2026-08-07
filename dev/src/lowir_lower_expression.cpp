@@ -503,7 +503,10 @@ LowValue LowirFunctionLowering::call_expression(const DumpNode& node,
 		// the storage already or the function is giving it some of its own.
 		destination = into != nullptr
 			? *into
-			: open_object_slot(types.strip_cv(result), "tmpobj");
+			: open_object_slot(types.strip_cv(result),
+			                   node.fact.spelling.empty()
+			                       ? "tmpobj"
+			                       : node.fact.spelling.c_str());
 		call.args.push_back(destination);
 	}
 	for (std::size_t index = 1; index < node.children.size(); ++index)

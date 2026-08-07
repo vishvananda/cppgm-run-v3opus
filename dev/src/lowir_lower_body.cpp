@@ -1459,15 +1459,15 @@ void LowirFunctionLowering::expression_statement(const DumpNode& node)
 	{
 		return;
 	}
+	if (discarded_class_object(*written))
+	{
+		return;
+	}
 	if (written->fact.kind == FactKind::Conditional)
 	{
 		// 6.2p1 and 5.16: both arms still run, and neither has a value the
 		// statement keeps.
 		discarded_conditional(*written);
-		return;
-	}
-	if (discarded_class_object(*written))
-	{
 		return;
 	}
 	// 6.2p1: the value is computed and discarded.
@@ -1490,15 +1490,19 @@ bool LowirFunctionLowering::discarded_class_object(const DumpNode& node)
 }
 
 // 12.2p1: whether the expression is worth an object of class type that stands
-// in no storage of the function's yet.  A temporary the analysis named, a
-// subobject of one and a conditional over them each already stand somewhere;
-// what a call hands back is the object itself, which needs storage before it
-// can be read as one - and a call returning its object indirectly needs the
-// storage before it runs, because it is what creates the object there.
+// in no storage of the function's yet.  A temporary the analysis named and a
+// subobject of one each already stand somewhere; what a call hands back is the
+// object itself, which needs storage before it can be read as one - and a call
+// returning its object indirectly needs the storage before it runs, because it
+// is what creates the object there.  5.16p3's result object is the same: the
+// conditional owns no storage, its arms fill whatever place it is given, and
+// where nothing gave it one the function does - once, before the arms run,
+// rather than once per arm.
 bool LowirFunctionLowering::stands_in_no_storage(const DumpNode& node)
 {
 	TypeTable& types = unit_.types();
-	return node.fact.kind == FactKind::Call &&
+	return (node.fact.kind == FactKind::Call ||
+	        node.fact.kind == FactKind::Conditional) &&
 		node.fact.category == ValueCategory::PRValue &&
 		types.is_class(types.strip_cv(node.fact.type));
 }

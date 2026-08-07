@@ -1302,8 +1302,14 @@ LowValue LowirFunctionLowering::class_object_slot(const DumpNode& node,
 {
 	// 12.2p1: no declaration named this object, so the function gives it
 	// storage - and names it before the initializer runs, because the
-	// initializer creates its object in it.
-	return place_class_object(open_object_slot(type, prefix), type, node);
+	// initializer creates its object in it.  8.5.3p5's name for that storage is
+	// what asked for the object, which is the name the analysis wrote on it
+	// where an argument or a binding asked, and this place otherwise.
+	return place_class_object(
+		open_object_slot(type, node.fact.spelling.empty()
+		                           ? prefix
+		                           : node.fact.spelling.c_str()),
+		type, node);
 }
 
 Operand LowirFunctionLowering::class_argument(const DumpNode& node, TypeId type)

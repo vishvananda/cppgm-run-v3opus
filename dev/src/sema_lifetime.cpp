@@ -829,17 +829,23 @@ SemaAnalyzer::Value SemaAnalyzer::build_temporary(TypeId type, DumpNode& line,
 // it is - a base subobject of it, a member of it - keeps the name it was given
 // where it was written, because the argument is no longer what made it.
 //
-// 5.16p3's result object is a temporary the program wrote no `T(...)` for, and
-// it takes its name the same way: what asked for the object is what its storage
-// is named after, wherever the object came from.
+// 6.6.3p2's returned object and 5.16p3's result object are temporaries the
+// program wrote no `T(...)` for, and each takes its name the same way: what
+// asked for the object is what its storage is named after, wherever the object
+// came from.
 void SemaAnalyzer::name_argument_temporary(const Value& value,
                                            const char* prefix)
 {
-	if (value.node != nullptr &&
-	    (value.node->fact.kind == FactKind::TemporaryObject ||
-	     (value.node->fact.kind == FactKind::Conditional &&
-	      value.category == ValueCategory::PRValue &&
-	      types_.is_class(types_.strip_cv(value.type)))))
+	if (value.node == nullptr)
+	{
+		return;
+	}
+	const bool prvalue_object =
+		(value.node->fact.kind == FactKind::Call ||
+		 value.node->fact.kind == FactKind::Conditional) &&
+		value.category == ValueCategory::PRValue &&
+		types_.is_class(types_.strip_cv(value.type));
+	if (value.node->fact.kind == FactKind::TemporaryObject || prvalue_object)
 	{
 		value.node->fact.spelling = prefix;
 	}
