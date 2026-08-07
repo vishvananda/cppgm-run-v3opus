@@ -72,15 +72,10 @@ writes the same naming again.
 
 ## Current Failure Map
 
-After C16: 313 / 314 of the fixtures that were checked in at the turn's start,
-and 317 / 318 with the four it adds. C16 closed four of the five shapes that
-accepted the program and wrote a different one - the incomplete return type, the
-`std::nullptr_t` parameter, the address an empty list asked for, and the whole
-unnamed-namespace group - so one fixture is left:
-
-| fixture | what differs |
-| --- | --- |
-| `200-friend-derived-private-base-defaulted-constructor` | a defaulted constructor called where the references elide it, which is the transitive empty-construction elision named below |
+After C16 and C17: **314 / 314** of the fixtures that were checked in at the
+turn's start, and 319 / 319 with the five they add. Every construct PA16 has a
+fixture for now has a path and writes the shape the references write, so what is
+left below is what a sweep found rather than what a test asks for.
 
 Defects no fixture reaches, kept here because a sweep found them and not a test:
 
@@ -91,16 +86,14 @@ Defects no fixture reaches, kept here because a sweep found them and not a test:
   the class's friends, so what is missing is the same set for a call the program
   wrote a name for. 12 of the 264 linkage sweep programs are this, and it is the
   one shape of that sweep this unit refuses.
-- The references do not write the *whole* elision of a constructor that is not
-  user-provided and whose construction comes to nothing. `struct B { B() {} };
-  struct D : B { D() = default; }; D d;` is a call of `D::D` here and no call at
-  all there, and so is a defaulted constructor whose member's own constructor has
-  an empty body - while a *user-provided* constructor with an empty body is
-  called by both, and a defaulted one whose subobject writes anything is called
-  by both. It is the transitive "does this construction write an instruction"
-  question asked through a user-provided empty body, which 12.1p5's triviality
-  does not ask, and the references still emit the definitions that elided body
-  named. It is the one checked-in fixture left.
+- 9.2p13 puts a non-static data member of the same class as an empty base
+  subobject at the same address as that base: `struct Q { Q() {} };
+  struct T : Q { Q q; };` is one byte with `q` at 0 here, and two with `q` at 1
+  for the references and for g++, which agree against us. The ABI gives an empty
+  base offset zero and then forbids a subobject of its type from standing there
+  too, and this layout asks only the first half. 24 of the 116 construction
+  sweep programs are this, and it is the only shape of that sweep the references
+  and this unit disagree about beyond the stripped `unwind=no`.
 
 - 15.2p1 and 15.2p2's region around a whole *full-expression* is not written.
   This milestone puts a region around the call that builds a subobject; the
@@ -230,12 +223,12 @@ which is what g++ does; 10.1p2 asks a base class to be complete, so
 `struct B; struct D : B {};` is refused here and accepted there, which is again
 what g++ does; 8.5p7 zero-initializes a value-initialized object whose class
 wrote no constructor *before* the non-trivial one it was given runs, which the
-references do not write; 12.1/12.4 run a constructor and a destructor whose body
-is empty, which the references elide along with the object's whole lifetime -
-including 3.7.2p2's per-thread pair and 12.4p8's destruction of a class-typed
-member of an aggregate; the references emit the constructor of an empty-class
-subobject whose construction they then do not write, and at namespace scope open
-an `@__cppgm_init` that computes its address and nothing else, where 3.2p3's
+references do not write; 12.4 runs a destructor whose body is empty, which the
+references elide along with the object's whole lifetime - including 3.7.2p2's
+per-thread pair and 12.4p8's destruction of a class-typed member of an
+aggregate; the references emit the constructor of an empty-class subobject whose
+construction they then do not write, and at namespace scope open an
+`@__cppgm_init` that computes its address and nothing else, where 3.2p3's
 closure writes neither; 8.5.1p11's braces are elided for a member that is an
 array of aggregates, which the references refuse and g++ accepts; 8.5.1p2
 copy-initializes a subobject from its clause, so a constructor declared
@@ -386,29 +379,55 @@ judged against **g++**, which writes the same nested component. Valgrind clean
 over 134 programs of the sweep. Two scaling axes at 500/1000/2000/4000, both
 linear at 2.0-2.2x per doubling.
 
-Next: **C17 - the transitive empty construction**, the one fixture left and the
-last shape of the object model the references write differently.
+Done after it in the same turn: **C17 - the transitive empty construction**,
+314 / 314 held and 319 / 319 with five regression tests, at pa1-pa15 1174 / 1174.
 
-- owner: `lowir_lower_object.cpp` for the call it does not write and the
-  definitions the unwritten body still owes; the question itself is one about a
-  constructor's own definition node, so it is memoized on the unit lowering
-  beside `bodies_`.
-- data flow: a constructor's definition node is already indexed by what it
-  defines. "Does constructing an object of this class write an instruction" is
-  that node read once - a member-initialization whose constructor writes nothing
-  writes nothing, a user-provided body that is empty writes nothing, anything
-  else writes something - and the elision applies only where the constructor
-  being called is not the one the program wrote. The subobject constructors the
-  elided body named are still demanded, which is what keeps `_ZN1BC2Ev` emitted
-  with nothing calling it.
-- expected complexity: one memoized answer per constructor, over the definition
-  node the unit already holds, so a chain n classes deep is n readings and not
-  n^2; nothing is re-walked and the elision removes calls rather than adding any.
+12.1p5 asks what a class *wrote*; a call has to answer what running the
+constructor *does*, and those are not the same question. A constructor the
+program wrote is its body - `B() {}` does nothing however non-trivial 12.1p5
+calls it - and one the standard gave the class is the steps 12.6.2 gives it, so
+it does nothing when each of its bases and members does nothing. That is one
+question asked of the definition the unit already indexes and answered once per
+constructor, and the elision applies only where the constructor being called is
+not the one the program wrote: `H h;` for `struct H { H() {} };` is still a call,
+and `D d;` for `struct D : B { D() = default; };` is not.
+
+Two things keep it honest. A step written with *arguments* carries values the
+program named, so it does something whatever its callee comes to - which is what
+tells 12.9's inherited constructor, forwarding its parameter to the base, from a
+default constructor whose steps carry nothing. And 3.2p2 makes the elided body
+still owe what it would have called, so `_ZN1BC2Ev` is emitted with nothing
+calling it and the walk passes through each subobject whose own construction is
+elided in turn.
+
+Evidence. A 116-program construction sweep against `cppgm++-ref` - 7 subobject
+shapes x 4 base shapes x 5 constructor forms - at 88 byte-identical and 28
+differing, all 28 in the two families named in the failure map: 24 the empty-base
+layout and 4 the stripped `unwind=no`. Valgrind clean over all 116. Two scaling
+axes: a chain of n classes each defaulted over the last is 0.00/0.01/0.03/0.07 s
+at 250/500/1000/2000, and a class with n members of one class built 20 times is
+0.00/0.00/0.01/0.02 s, because the answer is kept per constructor and not per
+object.
+
+Next: **C18 - 3.4.2's associated classes for an ordinary call**, the one shape
+the linkage sweep refuses and the last defect either sweep found that is this
+milestone's own.
+
+- owner: `sema_operator.cpp`, which already owns 3.4.2's associated namespaces
+  and classes for 13.3.1.2's operator expression, with `sema_expression.cpp`
+  asking it where an unqualified call's postfix-expression named nothing.
+- data flow: 11.3p1 already holds a class's friends as declarations the class
+  carries, and 3.4.2p2 already walks the argument types to their associated
+  classes. What is missing is the same set gathered for a call the program wrote
+  a name for, so the candidate set of `f(c)` is what ordinary lookup found plus
+  what the arguments' associated regions declare.
+- expected complexity: one walk of the argument types per call whose ordinary
+  lookup found nothing, over the association probes that already stop at a
+  region in the set - so it is the cost 13.3.1.2 already pays and no scan of
+  the unit.
 - validation: `make test-report ACTIVE_TEST_REPORT_PAS='pa16'`,
-  `make test-report-through-pa15`, the file audit, valgrind, and a differential
-  sweep against `cppgm++-ref` over user-provided x defaulted x implicit
-  constructors crossed with what their bases and members do, with g++ judging
-  every disagreement.
+  `make test-report-through-pa15`, the file audit, valgrind, and the 264-program
+  linkage sweep, whose 12 refusals are what it has to turn into agreement.
 
 `sema_class.cpp` is 2 990 lines against the audit's 3 000, so the next
 checkpoint that adds to the object model has to split it first - 12.6.2/12.4p8's
@@ -670,6 +689,13 @@ Invariants, one line each, and the measurements that hold them.
   initialization wrote nothing after it, which is one comparison of the block's
   instruction count per declaration written from a list and no bookkeeping at
   all for any other form.
+- "Does running this constructor write an instruction" is one reading of the
+  definition the unit already indexes, kept per constructor, so a class asks it
+  of each base and member once however many objects are built: a chain of n
+  classes each defaulted over the last is 0.00/0.01/0.03/0.07 s at
+  250/500/1000/2000, and a class with n members of one class built 20 times is
+  0.00/0.00/0.01/0.02 s. It is asked only where a call would otherwise be
+  written and it removes calls and definitions rather than adding either.
 
 ## Completed Checkpoints
 
@@ -704,3 +730,4 @@ Invariants, one line each, and the measurements that hold them.
 | C15 | the three constructs of the PA16 subset that had no path at all, each a fact a phase before 7 establishes and phase 7 was never handed: 16.6's `#pragma pack` carried from the directive to 9.2p13 as the positions in the token stream the value changes at, with a width, a reset, a labelled or bare push and a matching pop, and the value read where the definition ends because that is where 9.2p2 completes the class; 2.14.8's user-defined literal made the call p2 says it is, chosen by the one written parameter-type-list p3 to p6 name per form rather than by 13.3, with p3's raw fallback and 13.5.8's `li` terminal in the object-file name; 5.2.4's pseudo-destructor call on a scalar settled from the name after the `~` before the object expression is read, and written as the operand's value discarded, which is what p1 says the call comes to; and three defects no fixture reaches - a concatenated string-literal re-scanned from the joined spelling of its parts, so `"ab" "cd"` was the 8 characters `ab" "cd`; 12.4p12's destructor named through a typedef-name for its class reaching nothing, because 12.4p1 binds only `~` and the class's own name; and 5.2.4p2's scalar type never asked for, so `p->~I()` for `typedef int I[3]` was accepted | 301 / 306 from a 297 / 306 baseline, the same set passing and the four C15 fixtures with it, and 307 / 312 with six regression tests added; pa1-pa15 1174 / 1174; four differential sweeps of 761 programs against `cppgm++-ref` with every disagreement judged against g++, which this unit agrees with on all 363 layout and directive-form programs where the references act only on `pack(push, n)`, on 2.14.8p3's raw operator and on 5.2.4p2's scalar type; 102 push/pop programs byte-identical to the references; valgrind clean over 581 programs; four new axes linear at 2.0-2.2x per doubling; file audit passes with the two recorded header-weight warnings |
 | audit of C15 | 16.6's alignment carried as a `(position, alignment)` table the layout binary-searches where 9.2p2 completes the class; 2.14.8's literal as the call p2 says it is, chosen by the one written parameter-type-list p3 to p6 name per form; 5.2.4's pseudo-destructor call settled from the name after the `~`; 2.14.5p12's sequence rebuilt from its parts | a literal's form guessed from the characters of its spelling, in `literal_expression` and again in `literal_constant`, so a character-literal whose c-char is a quote was a string - `char c = '"';` refused and `const char* p = '"';` accepted with a `@__strlit__1` no program wrote - and a floating-literal with no integer part was no literal at all, `.5` / `.5f` / `.5e2` outside the subset and `char row['"' - 30];` with them; 16.6's position asked of `AstNode::end`, which `parse_declaration` widens past the `;` for a class-specifier that is a whole declaration, so a directive written between a class's `}` and its `;` packed a class 9.2p2 had already completed while the same directive after `} g` did not; a `pop` with an empty stack resetting the alignment to the default rather than leaving what a `pack` before it asked for, and a labelled `pop` naming a label nothing pushed unwinding nothing where g++ drops the innermost frame | one owner for 2.14p1's form in `string_literal.cpp`, asked by both callers; `AstNode::completed` as the class-specifier's own `}`, one writer, in the padding the node already had; a pop that restores what one frame saved and nothing where there is no frame. pa16 307 / 312 held and 309 / 314 with two regression tests; pa1-pa15 1174 / 1174; 179 of 277 passing fixtures byte-identical; a 462-program layout sweep against g++ with 393 exact and all 69 others in the pre-existing bit-field and `alignas` families, the same 462 against `cppgm++-ref` unchanged by the fixes; nine push/pop shapes against g++, all agreeing where three did not; 108 placement, literal-operator, pseudo-destructor and literal-form programs against the references; valgrind clean over 650 programs; seven scaling axes linear or flat and none above 0.07 s |
 | C16 | 3.9p5's incomplete return type written `void`; 3.9.1p10's `std::nullptr_t` stored as `i64` with 4.10p1's two null pointer constants each keeping the spelling the program wrote; 8.5.1p1's destination dropped where the list writes nothing; 7.3.1.1p1's `_GLOBAL__N_1` as a second prefix on the region and a second name on the declaration, with 3.5p4's internal linkage and what 3.5p3 then makes the object file owe | pa16 309 -> 313 / 314, and 317 / 318 with four regression tests; pa1-pa15 1174 / 1174; a 264-program linkage sweep against `cppgm++-ref` at 98 identical, 154 differing only in the `L` marker g++ agrees with us on, and 12 refused here which is the pre-existing hidden-friend ADL gap; valgrind clean over 134 programs; two scaling axes linear at 2.0-2.2x |
+| C17 | 12.1p5 read as what running a constructor *does* rather than what the class wrote: a body the program wrote is its own answer and one the standard gave is its 12.6.2 steps, memoized per constructor; a step carrying arguments always writes; 3.2p2's odr-uses of the body that is not written still owed | pa16 313 -> **314 / 314**, and 319 / 319 with five regression tests; pa1-pa15 1174 / 1174; a 116-program construction sweep against `cppgm++-ref` at 88 identical and all 28 others in the empty-base layout and stripped `unwind=no` families; valgrind clean over 116 programs; two scaling axes linear |

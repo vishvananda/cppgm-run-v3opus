@@ -302,6 +302,18 @@ public:
 	// unit's alone, so the object file holds it wherever an initialization
 	// named it.
 	void owe_internal_definition(const SemaEntity& entity);
+	// 12.1p5: whether running `constructor` on an object writes an instruction.
+	// A constructor whose definition the program wrote is answered by that
+	// definition alone - an empty body writes nothing - and one the standard
+	// gave it by what its bases and members come to, which is the same question
+	// asked of each of them.
+	bool construction_writes_nothing(const SemaEntity& constructor);
+	// 3.2p2: the definitions a construction this lowering did not write still
+	// named.  An elided body would have built each of its subobjects, so what
+	// it would have called is owed even though no call of it is written; a
+	// subobject whose own construction is elided passes the question on.
+	void owe_elided_construction(const SemaEntity& constructor,
+	                             unsigned depth = 0);
 	// The same for a call that names one of the ABI's two entry points and not
 	// the other.  `declare_entity` owes both wherever the analysis saw a
 	// complete object and a base subobject each ask for the function; a call
@@ -500,6 +512,13 @@ private:
 	// n objects built by one constructor ask n times, so the index outlives the
 	// one-shot walk `deferred_` is.
 	std::unordered_map<std::uint32_t, const DumpNode*> bodies_;
+	// 12.1p5 read as a question about what runs rather than about what was
+	// written: whether constructing an object by this constructor writes an
+	// instruction at all.  It is asked of the definition the unit already
+	// holds, and one class asks it of its bases and members, so the answer is
+	// kept - `kEmptyUnknown` until the first reader, `kEmptyOpen` while the
+	// walk that is answering it stands inside.
+	std::unordered_map<std::uint32_t, unsigned char> empty_construction_;
 	// Those a use has asked for and that are not lowered yet.
 	std::vector<const DumpNode*> demanded_;
 };

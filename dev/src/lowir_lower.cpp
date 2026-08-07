@@ -1590,6 +1590,134 @@ void LowirUnitLowering::demand_referenced(const DumpNode& node)
 	}
 }
 
+namespace
+{
+
+const unsigned char kEmptyUnknown = 0;
+const unsigned char kEmptyOpen = 1;
+const unsigned char kEmptyYes = 2;
+const unsigned char kEmptyNo = 3;
+
+// 12.6.2: the constructor one step of a constructor's body runs, which is the
+// callee of the call that step is written as.  Null for a step that is not one.
+const SemaEntity* step_constructor(const DumpNode& step)
+{
+	if (step.fact.kind != FactKind::ConstructorAction || step.children.empty() ||
+	    step.children[0]->children.empty())
+	{
+		return nullptr;
+	}
+	return step.children[0]->children[0]->fact.entity;
+}
+
+}  // namespace
+
+// 12.1p5 asks what a class *wrote*; this asks what running the constructor
+// *does*, which is the question a call of it has to answer.  A constructor the
+// program wrote is its body: an empty one does nothing however non-trivial
+// 12.1p5 calls it, and anything written in it does something.  One the standard
+// gave the class is the steps 12.6.2 gives it, so it does nothing when each of
+// its bases and members does nothing - which is this same question asked one
+// class further in, and answered once per constructor.
+bool LowirUnitLowering::construction_writes_nothing(const SemaEntity& constructor)
+{
+	unsigned char& held = empty_construction_[constructor.id];
+	if (held != kEmptyUnknown)
+	{
+		// A class holds no subobject of its own type, so the walk cannot come
+		// back to a constructor it is already answering; if it ever did, the
+		// answer that keeps a call written is the safe one.
+		return held == kEmptyYes;
+	}
+	held = kEmptyOpen;
+	const std::unordered_map<std::uint32_t, const DumpNode*>::const_iterator
+		found = bodies_.find(constructor.id);
+	bool nothing = found != bodies_.end();
+	if (nothing)
+	{
+		const DumpNode& body = *found->second;
+		for (std::size_t index = 0; index < body.children.size() && nothing;
+		     ++index)
+		{
+			const DumpNode& child = *body.children[index];
+			switch (child.fact.kind)
+			{
+			case FactKind::Parameter:
+				break;
+
+			case FactKind::Compound:
+				// 12.6.2p10: the body runs after the subobjects are built, and
+				// a body the program wrote nothing in runs nothing.
+				nothing = child.children.empty();
+				break;
+
+			case FactKind::ConstructorAction:
+			{
+				// 12.6.2p2: a step written with arguments carries values the
+				// program named into the subobject, so it is a step that does
+				// something whatever the constructor it names comes to - which
+				// is what tells 12.9's inherited constructor, forwarding its
+				// parameters to the base, from a default constructor whose
+				// steps carry nothing.
+				const SemaEntity* const built = step_constructor(child);
+				nothing = built != nullptr && !child.fact.zero_initialized &&
+					child.children[0]->children.size() <= 2 &&
+					(built->trivial || construction_writes_nothing(*built));
+				break;
+			}
+
+			default:
+				// 12.6.2p8's member initialization, 8.5.1's clauses and every
+				// other step store something into the object.
+				nothing = false;
+				break;
+			}
+		}
+	}
+	// The map may have grown while this was being answered, so the entry is
+	// found again rather than held across the recursion.
+	empty_construction_[constructor.id] = nothing ? kEmptyYes : kEmptyNo;
+	return nothing;
+}
+
+void LowirUnitLowering::owe_elided_construction(const SemaEntity& constructor,
+                                                unsigned depth)
+{
+	const std::unordered_map<std::uint32_t, const DumpNode*>::const_iterator
+		found = bodies_.find(constructor.id);
+	if (found == bodies_.end() || depth > 64)
+	{
+		return;
+	}
+	const DumpNode& body = *found->second;
+	for (std::size_t index = 0; index < body.children.size(); ++index)
+	{
+		const DumpNode& child = *body.children[index];
+		const SemaEntity* const built = step_constructor(child);
+		if (built == nullptr)
+		{
+			continue;
+		}
+		if (built->trivial)
+		{
+			// 12.1p5: nothing at all was ever going to run, so no other unit
+			// is owed a definition either - unless 3.5p4 leaves this one no
+			// other unit may hold.
+			owe_internal_definition(*built);
+			continue;
+		}
+		if (!built->user_provided && construction_writes_nothing(*built))
+		{
+			owe_internal_definition(*built);
+			owe_elided_construction(*built, depth + 1);
+			continue;
+		}
+		// 3.2p2: the elided body would have called this one, which is a use of
+		// it however the call came to be left out.
+		declare_call_target(*built, child.fact.base_subobject);
+	}
+}
+
 void LowirUnitLowering::owe_internal_definition(const SemaEntity& entity)
 {
 	if (entity.internal_linkage)

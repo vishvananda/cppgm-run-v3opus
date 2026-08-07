@@ -376,12 +376,25 @@ void LowirFunctionLowering::constructor_call(const Operand& address,
 		// than every byte the array occupies.
 		zero_object(address, zeroed == kNoType ? node.fact.type : zeroed);
 	}
-	if (constructor.trivial && !always)
+	if (!always && (constructor.trivial ||
+	                (!constructor.user_provided &&
+	                 unit_.construction_writes_nothing(constructor))))
 	{
-		// 3.2p2: the initialization named this constructor whether or not
-		// there was anything for a call of it to do, and 3.5p4's internal
-		// linkage makes the definition one no other unit may hold.
+		// 12.1p5: there is nothing for a call of this constructor to do.  A
+		// constructor the program wrote is called wherever the program says
+		// so, however empty its body; one the standard gave the class is the
+		// steps 12.6.2 gives it, and where each of those comes to nothing the
+		// whole construction does.
+		//
+		// 3.2p2: the initialization named it whether or not a call of it is
+		// written, and 3.5p4's internal linkage makes the definition one no
+		// other unit may hold - while the body that is not written still owes
+		// what it would have called.
 		unit_.owe_internal_definition(constructor);
+		if (!constructor.trivial)
+		{
+			unit_.owe_elided_construction(constructor);
+		}
 		return;
 	}
 	// 15.2p2: an exception out of this step leaves the subobjects the steps
