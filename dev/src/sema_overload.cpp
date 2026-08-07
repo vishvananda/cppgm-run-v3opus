@@ -1394,7 +1394,19 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
 		// 14.2: a callee written as a template-id names the specializations its
 		// argument list makes, which 13.3 then chooses among.
 		found = &model_.open_overloads();
-		named = template_specializations(callee.text, ctx, *found);
+		if (child_kind(callee, AstKind::CarriedExpression) != nullptr)
+		{
+			// 7.1.6.2p1: the callee's nested-name-specifier begins with a
+			// decltype-specifier, so the region it is looked up in is the one
+			// the type of that expression names.
+			named = &require(
+				decltype_qualified_name(callee, ctx, LookupKind::Any, found),
+				callee.text);
+		}
+		else
+		{
+			named = template_specializations(callee.text, ctx, *found);
+		}
 		if (named == nullptr)
 		{
 			named = resolve(callee.text, ctx, LookupKind::Any, found);

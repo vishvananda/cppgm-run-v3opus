@@ -450,6 +450,28 @@ private:
 	// leaves the definition for the end of the translation unit as 9.2p2 does
 	// for every member function defined in its class.
 	void special_member(const AstNode& node, const Context& ctx);
+	// 9.3p2 and 3.4.3p3: a constructor or destructor defined outside its class,
+	// whose declarator-id names the class the definition belongs to.  It
+	// defines the declaration that class already made rather than declaring a
+	// second one.
+	void special_member_definition(const AstNode& node, const Context& ctx);
+	// 12.1p1 and 12.4p1: the type a special member declarator writes, read
+	// against the class it belongs to wherever the declarator was written.
+	TypeId special_member_type(const AstNode& node, const Context& ctx,
+	                           const SemaEntity& owner, bool destructor,
+	                           std::vector<Parameter>& parameters,
+	                           bool& variadic);
+	// 12.1p1: the class name a special member declarator wrote, checked against
+	// the class it belongs to.
+	std::string special_member_name(const std::string& written,
+	                                const SemaEntity& owner);
+	// 9.2p2: the body a special member's definition gives it, left for the end
+	// of the translation unit whether the definition was written in the class
+	// body or outside it.
+	void open_special_member_body(const AstNode& node, SemaEntity& entity,
+	                              const Context& ctx,
+	                              const std::string& written,
+	                              const std::vector<Parameter>& parameters);
 	// 10p1: the base-clause of a class definition, read before its members
 	// because they are read against what its base declares.
 	void read_base_clause(const AstNode& node, SemaEntity& entity, Scope& scope,
@@ -799,6 +821,12 @@ private:
 	// only because one carries the object parameter are two declarations.
 	std::uint32_t declaration_signature(const Scope& where, TypeId type,
 	                                    bool object_member);
+	// 7.1.1p10: `mutable` says the const of the object holding a member stops
+	// at it, which is a fact about a non-static data member and about nothing
+	// else the declaration could declare.
+	void require_mutable_data_member(const Specifiers& specifiers,
+	                                 const Context& target,
+	                                 const std::string& name, TypeId type);
 	// 7.3.3p14: a member function this class declares hides the one a
 	// using-declaration brought in from a base with the same name and
 	// parameter-type-list rather than conflicting with it, so what was brought
@@ -891,9 +919,14 @@ private:
 	// that names an entity of another region.
 	Scope* resolve_prefix(const QualifiedName& name, const Context& ctx,
 	                      Scope* first_region = nullptr);
-	// 7.1.6.2p1: the type a name whose nested-name-specifier begins with a
-	// decltype-specifier reaches.  The expression the parser kept beside the
-	// spelling is what says which region the rest of the name is looked up in.
+	// 7.1.6.2p1: the declaration a name whose nested-name-specifier begins with
+	// a decltype-specifier reaches.  The expression the parser kept beside the
+	// spelling is what says which region the rest of the name is looked up in,
+	// which is the one thing no spelling can hold - so the type a declaration
+	// writes and the id-expression a body writes ask it the same way.
+	SemaEntity* decltype_qualified_name(const AstNode& node, const Context& ctx,
+	                                    LookupKind filter,
+	                                    std::vector<SemaEntity*>* found = nullptr);
 	TypeId decltype_qualified_type(const AstNode& node, const Context& ctx);
 	SemaEntity& require(SemaEntity* entity, const std::string& name);
 

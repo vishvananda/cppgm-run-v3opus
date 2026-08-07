@@ -5,187 +5,172 @@ lay out, resolve, lower.
 
 ## Current Checkpoint Review
 
-**C10 — 3.7.2's thread storage duration, 1.4p8's reserved functions and 3.2p3's
-emission as a closure, reviewed at `ec1a8978`.** Two of the three are the right
-architecture and land clean. 1.4p8's reserved function is an ordinary
-declaration in the global namespace carrying which reserved function it is, so
-13.3, 4.10's conversions and the lowering read it the way they read anything
-else and the object name and the boundary facts are stated once at the
-declaration rather than worked out again at each call. 3.2p3's emission as a
-closure from the roots is right and measurably so: the walk stops at a deferred
-body, a name written inside a definition the program never reaches is not a use,
-and 4000 unused inline functions are 4 output lines. The sweep found nothing
-wrong with either shape.
+**C12 — 3.3.7p1's member name, 3.4.1p8's region, 10.2p2's base, 8.3.5p2's
+trailing-return-type, 13.1's index, 7.1.1p10's `mutable`, 7.1.6.2p1's
+decltype-specifier and 5.1.1p6's parenthesized callee, reviewed at `686e4de2`.**
+Five of the eight are the right architecture and land clean. A member name is a
+fact of the class that declares it, and what the class declared stays reachable
+through the prefix its name gives it. 10.2p2's base is one entry per
+base-specifier, resolved where the base-clause is read and walked only where a
+name misses, so a class with no base pays one test. 13.1's index is keyed by the
+parameter-type-list a declarator wrote wherever a class declares the name, which
+is the same key 7.3.3p14's hiding already asks with. 8.3.5p2 gives a function the
+type written after its declarator-id, with 7.1.6.4's `auto` standing for it and
+nothing else. And 5.1.1p6's parentheses change what a callee names in exactly one
+way, which is 3.4.2p1. Sweeps over the base chain, the nested region, the
+declared type, the source order and the static/non-static pair found nothing
+wrong with any of them.
 
-3.7.2 is the right shape too — a fact of the variable, a `_ZTW` wrapper over the
-object's own encoding, a guarded body of the object's own where 3.6.2p2 does not
-settle the initializer, and 12.4p11 handed to `__cxa_thread_atexit`. **What the
-review found is that the checkpoint wrote it as a property of the one
-initialization it happened to lower, rather than as a fact of the declaration
-the object was declared by.** Every sibling of the three conditions its fixtures
-share — a definition at namespace scope, lowered before every use of it, whose
-initializer needs code — was wrong: at block scope the object was silently
-automatic, a use written before the definition ran nothing, and an object whose
-value the image already holds lost its destruction. The same one-exit pattern
-shows once more in 1.4p8, where a written call declared the reserved function
-and no other use of the name did.
+**What the review found is that the other three were written for the one exit the
+checkpoint had a reader for.** 3.4.1p8's region was put in force for the body of
+a special member defined outside its class - and the analysis has no path at all
+for such a definition, so what the parser had just read was dropped where
+`declaration` gives an unknown member form no meaning. 7.1.6.2p1's
+decltype-specifier before `::` was written for the type a declaration names and
+for nothing else, so the same name written in an expression was refused. And the
+expression that specifier carries was hung on the syntax tree, which is PA10's
+own output rather than a place to keep a fact.
 
-**1. A block-scope object with static or thread storage duration was written as
-an object of its block.** `void f() { thread_local int x = 0; x = x + 1; }`
-lowered `x` to a slot: one object per call where 3.7.2p1 asks for one per
-thread, silently, with no diagnostic. The refusal 3.7.1p3 already had for a
-block-scope `static` lived in `record_lifetime`, which only an object of class
-type reaches, so `static int count = 0;` in a block went the same way — one
-object of the program written as an automatic one. Both oracles give each of
-them storage of its own: g++ lays the thread-local one in `.tbss` behind a
-`_ZGVZ`-named guard and the `static` one in `.data`, and `cppgm++-ref` writes
-the `__local_static__` symbol family for both. Storage duration is a fact of the
-declaration, not of a lifetime a class ends, so both are refused now where the
-declaration is read and for every type. The README scopes this milestone's
-per-thread initialization to namespace-scope objects; a refusal is that
-boundary, and writing a different program was not.
+**1. A constructor or a destructor defined outside its class declared nothing,
+defined nothing and said nothing.** `struct YA { int n; YA(int); }; YA::YA(int v)
+{ n = v; } int main() { YA a(3); return a.n; }` wrote `declare function
+@YA__YA(...)` and no body: the unit calls a symbol nothing in the program
+defines, which is not a program. The node reaches `declaration` as a
+`SpecialMemberDefinition`, which only a class body reads, and the `default:` arm
+- written for an access-specifier and an empty declaration - returned. Every
+sibling went the same way: a destructor, a nested class's constructor, one
+written `inline`, one in a namespace, one with a mem-initializer, one whose
+object has static storage duration. Two ill-formed shapes went with them:
+`YA::YA() {}` for a class that declares no constructor, and one constructor
+defined twice, were both accepted here and refused by the references. 12.1p1 and
+9.3p2 say what it is - 3.4.3p3 makes the declarator-id name the class the
+definition belongs to, and what it defines is the declaration that class already
+made rather than a second one - so the class is now resolved from the
+declarator-id, 13.1's index of its chain is what says which declaration this
+defines, and the body is left for 9.2p2's end of the translation unit exactly as
+a definition written in the class body is. One description opens both.
 
-**2. A use written before the definition ran nothing.** `extern thread_local A
-t; int f() { return t.n; } thread_local A t;` read `@t` with no call of what
-initializes it, because the map that turns a use into that call was filled as
-each definition was lowered. It is the same source-order dependence
-`collect_definitions` was written to remove — "a call written before the
-definition it reaches has to know it is coming" — and 3.6.2p4 asks for the
-initialization before the first odr-use of anything the unit defines. The
-thread-local definitions of the unit are lowered before any body is now.
-`cppgm++-ref` writes the same hole; g++ reaches every use through `_ZTW1t`,
-which calls `_ZTH1t`, and this unit now agrees with g++.
+**2. The region 3.4.1p8 gives that definition was opened after the parameter
+clause and the mem-initializers had been read.** `parse_special_member` builds
+its declarator by hand, so the guard C12c added stood after
+`parse_parameter_clause` and after `parse_ctor_initializer` while its comment
+said the mem-initializers were covered. `YA::YA(int v) : n((held)v) { }` for a
+member `typedef int held;` was "not a translation unit", and
+`Outer::Buffer::Buffer(Token) {}` - the whole of
+`200-nested-out-of-class-constructor-enclosing-type` - could not name the type
+its enclosing class declares. 3.4.1p8 puts the region in force from the
+declarator-id onward, which is where the guard now stands.
 
-**3. That map was keyed by the declaration and not by the object.** 3.1p2 lets a
-program declare one variable as often as it likes, and every unqualified
-declaration of one makes its own `SemaEntity` here, so a use bound to the
-`extern` declaration and the body written from the definition were two ids and
-never met. What identifies the object is the name the object file gives it,
-which `defined_` and `emitted_globals_` were already keyed by; the map is now
-too.
+**3. The ABI's two entry points were keyed on which of them a use named.** That
+is right for a definition every unit that needs one may hold and wrong for one
+only this unit holds: a definition written outside its class without `inline` is
+the program's one definition, so the object file owes both of the ABI's names
+whichever of them the calls here happened to write. The references write both,
+and the branch had been unreachable because no such definition was ever read.
+`writes_base_entry` now asks 9.3p2's question - who may hold this body - rather
+than counting the uses, and an inline definition still writes the second entry
+only where this unit named it.
 
-**4. One thread-local's body did not reach another object of the same thread.**
-The name was registered after the body was written — deliberately, so that an
-initialization would not call itself — which left `thread_local int seen =
-tally.n;` reading `@tally` before anything ran `@__cppgm_tls_init__tally`. The
-names are recorded as the definitions are read and the bodies written after them
-all, with the one object a body must not call named while that body is written.
-That is the whole rule: filling an object's storage is not a use of the name
-that has to fill it first.
+**4. 7.1.6.2p1's decltype-specifier before `::` was written for the type path and
+for nothing else.** `decltype(a)::held` naming a static data member, an
+enumerator, the address of one or a static member function was "no declaration of
+decltype(a) is in scope", which the references and g++ both accept. Which region
+a name reaches is one question; a type-specifier, an id-expression, a callee and
+the operand of `&` all ask it, so it is answered once and each of the four asks
+it the same way. What the specifier names is still checked - a `decltype` that
+evaluates to a reference names no class, which is the refusal g++ writes for
+`decltype(r)::held` and for `decltype(*this)::held`.
 
-**5. The end of a lifetime was conditioned on the initializer needing code.**
-`struct Slot { int held; ~Slot(); }; thread_local Slot cell = {5};` registered
-nothing with `__cxa_thread_atexit`, because 12.4p11's action was only reached
-from inside the body 3.6.2p2's dynamic initialization opened — and 3.6.2p2 had
-settled this one, so there was no body. The end of an object's lifetime is a
-fact of its declaration; the body is what the declaration asks for, which is an
-initialization to run, a lifetime to end, or both. g++ writes the guarded
-`__tls_init` and the `__cxa_thread_atexit` call for exactly this program.
+**5. The expression that specifier carries was written into the syntax tree.**
+The AST is what `cppgm++ --emit-ast` dumps, so hanging the operand under the
+decl-specifier made PA10 write an `id-expression` subtree the reference does not
+write for `decltype(a)::held x;` - a defect no fixture reached until the
+expression form was carried the same way, when pa10's own
+`100-decltype-qualified-id-expression` caught it. The reference dumps the operand
+under a *plain* decltype-specifier and never under a qualified one, because there
+the specifier is one component of a name the grammar leaves spelled. The operand
+is now a `carried-expression` the dump skips, which is what 7.6.2's
+alignment-specifier already is: a fact kept beside the syntax for the layer that
+has to answer for it.
 
-**6. 7.1.1p1 was cited in the comment and not written.** `thread_local` is a
-fact of the variable, so every declaration of one variable writes it or none
-does. `struct S { static thread_local int t; }; int S::t = 7;` was accepted here
-and refused by the references and by g++, and so was every other disagreeing
-pair — `extern int t; thread_local int t = 5;` and its mirror. The declaration
-the region already holds is found before this one is bound over it, and the two
-have to agree.
-
-**7. A reserved name was declared by a written call and by nothing else.**
-`reserved_function` was reached from `call_expression` alone, so `unsigned long
-(*p)(const char*) = __builtin_strlen;` was "no declaration of __builtin_strlen
-is in scope" — and so were 13.4's address of one, an argument reaching a
-function pointer and a cast of either, each of which is an id-expression. The
-qualified spelling `::__builtin_strlen` was refused from the call path too,
-because the name was compared with the nested-name-specifier still on it. 1.4p8
-puts a reserved function in the global namespace, so both spellings name it and
-no other prefix does.
+**6. 7.1.1p10's refusal sat on the path that declares an object.** `mutable` was
+asked about only where the declarator went on to declare one, so
+`struct S { mutable int f() { return 1; } };` and `mutable typedef int held;`
+were accepted - both refused by g++ and by the references - while
+`mutable static`, `mutable const` and a `mutable` reference were caught. What the
+specifier says is a fact about what the declaration declares, so the declaration
+is where it is asked, and a member function declared or defined, a typedef, a
+static data member and a declaration of no class at all are each refused there.
 
 ### Left for a later checkpoint
 
-- **8.5.1p1's user-provided constructor is read as "a body written in the class".**
-  `user_provided` is set only where the class body holds the definition, so
-  `struct A { int n; A(); };` is an aggregate here and `A g{}` / `A g = {}`
-  stores the members and never calls the constructor the program declared — at
-  block scope, at namespace scope and for a thread-local alike. 12.1p4 makes a
-  constructor user-provided when it is user-declared and not defaulted or
-  deleted on its first declaration, wherever its body is. It predates this
-  checkpoint - the flag has been written that way since C4 - and it is 8.5.1's
-  own, which C11 owns; no fixture reaches it, and a sweep of `= {}` against every
-  class shape does.
+- **8.5.1p1's user-provided constructor is read as "a body written in the
+  class".** 12.1p4 makes a constructor user-provided when it is user-declared and
+  not defaulted or deleted on its first declaration, wherever its body is. It
+  predates C12 and it is 8.5.1's own, which C11 owns. The out-of-class definition
+  this audit now reads sets it from the declaration, which is what 12.1p4 asks,
+  so what is left is the class that declares one and defines it nowhere.
 - **A subobject of class type an aggregate clause initializes is refused**, and
   **an aggregate an array element is, written as a constructor** - the two
-  largest groups left, both C11's.
-- **An out-of-class constructor definition is declared and never defined**, so
-  `struct A { int n; A(); }; A t; A::A() : n(1) {}` calls `@A__A` and the unit
-  writes only a declaration of it. One fixture, listed in the failure map before
-  this checkpoint, and reached by the sweep in four more shapes.
+  largest groups left, both C11's, and neither reached by this checkpoint.
 - **The exception cleanup regions around a partly built object**, and **a member
   named through a qualified-id on an object** - both unchanged and owned
-  elsewhere.
+  elsewhere. The destructor half of the first is the one this audit's
+  out-of-class destructors reach: a destructor whose class has a base writes an
+  `eh_cleanup` region here that the references do not write, in the class body
+  and outside it alike, which is 15.4's own question and not 12.4's.
+- **C11 landed with no audit of its own.** This review is bounded to C12, and the
+  ledger row below says so; the C11 shapes above are what a later one would open
+  with.
 
 ### Confirmed intact
 
-- pa1-pa15 hold at 1173 / 1173 from a clean tree. pa16 held at 233 / 262 across
-  every step of this audit - the same fixtures passing and the same failing as
-  at `ec1a8978` - and is 240 / 269 with the seven regression tests this audit
-  adds. Not one of the seven findings changes the verdict on a checked-in
-  fixture, because no fixture declares a block-scope `static` or `thread_local`,
-  writes a use of a thread-local before its definition, gives one a destructor
-  its initializer does not need, names one from another's initializer, spells
-  `thread_local` on one declaration of a variable and not another, or reaches a
-  reserved name without calling it.
-- Of the 204 passing fixtures with a reference output to compare, 150 are byte
+- pa1-pa15 hold at 1173 / 1173 from a clean tree, and 1174 / 1174 with the pa10
+  regression test this audit adds for the AST dump of a qualified
+  decltype-specifier. pa16 held at 265 / 283 through the audit and is 266 / 283
+  at the end - the same fixtures passing and one more,
+  `200-nested-out-of-class-constructor-enclosing-type` - and 269 / 286 with the
+  three regression tests this audit adds.
+- Of the 216 passing fixtures with a reference output to compare, 152 are byte
   for byte identical. What is left differs only in the order the top-level
   definitions are written in, in the internal symbol name `lowir.md` makes a
   presentation tie-breaker, and in `unwind` and `trivial_lifecycle`, which the
   comparison ignores. `pass=` is not on the ignore list and differs on none.
 - No fallback success path, skipped work, timeout workaround, source-specific
   gate, dummy output or file-audit bypass. The one this audit found - a
-  block-scope `thread_local` accepted and written as a different program - is
-  now a refusal that names the construct and the clause.
-- Valgrind clean (`-q --error-exitcode=99`) over every pa16 fixture source and
-  every synthesized input of the sweep - 389 programs, no error reported.
+  definition the analysis dropped where a switch had no arm for it - is now read,
+  and the two ill-formed shapes it accepted are refusals that name the class and
+  the clause.
 - The file audit passes with the same two `bad-division` warnings every audit
   since C1-C2 has recorded, both the heuristic counting declarations rather than
-  bodies in `sema_analyzer.h` and `lowir_lower.h`. `init_declarator` crossed the
-  240-line limit as the two storage-duration rules landed in it, and what came
-  out is a unit of its own: 3.5's linkage and 3.7's storage duration are the one
-  question of where the object a declaration declares lives.
+  bodies in `sema_analyzer.h` and `lowir_lower.h`. Nothing this audit adds
+  crosses a limit: the special member's type, its name check and the body it
+  opens came out of `special_member` as three descriptions two callers share.
 
 ### Checked and left alone
 
-- **The references refuse a namespace-scope `thread_local` scalar whose
-  initializer is a call** - "unsupported global initializer in PA14" for
-  `thread_local int t = g();` - and accept the same shape at block scope and for
-  a class. 3.6.2p2 makes it dynamic initialization like any other; it is
-  recovery on their side, and no fixture writes one.
-- **A thread-local whose value the image already holds.** `thread_local Slot
-  cell = {5};` is one data item here and `zero 4` plus a run-time store there;
-  where its class has a destructor this unit registers it and they do not. 3.6.2p2
-  and g++ agree with this unit on both halves.
-- **The guard the references write for an initialization that needs none**, for
-  a reference bound to a constant address, and the one they write for an object
-  whose whole initialization is 3.6.2p1's zero. Both are the C8 rule that a zero
-  the image already holds asks for no body.
-- **A thread-local array of a class with a non-trivial constructor**, which the
-  references never construct while writing the guard beside it, and **a
-  thread-local built by a constructor from a written argument**, which they never
-  construct either. 12.1 says the constructor runs.
-- **An unused `extern thread_local`**, for which the references write a wrapper
-  naming a global no entry declares - malformed LowIR - and this unit writes
-  nothing, as it writes nothing for any declaration no use reaches.
-- **A program that declares `__builtin_memcpy` itself**, accepted here and
-  refused there; **`int __builtin_strlen = 3;`**, which the reference cannot
-  mangle; and **a member function named `__builtin_count`**, which it gives
-  internal binding and no object name. None of the three is a judgment about the
-  program.
-- **`_GLOBAL__N_1`**, **`= zero` where the references write `= 0` for a scalar
-  given an empty braced-init-list**, and every divergence the C6-C9 audits
-  recorded - all unchanged.
-- **11.3p5's friend definition is the one body the emission walk still reads**,
-  so an inline function called only from an unused friend definition is emitted.
-  The references emit it too, and it is over-emission rather than a wrong
-  program.
+- **A constructor of a derived class defined outside it makes the references emit
+  the complete-object entry of an *inline* base constructor nothing calls.** Ours
+  emits the entries the program names, which is 3.2p3's closure and the rule the
+  unused-definition work settled; the reference's extra definition is
+  over-emission rather than a different program. With everything inline the two
+  agree exactly.
+- **7.1.6.4's deduced `auto`.** `auto x = 1;` is accepted by the references and
+  refused here, before this checkpoint and after it. 8.3.5p2's
+  trailing-return-type is what C12 gave `auto`, and deducing a type from an
+  initializer is a type-layer feature this milestone's slice does not hold. The
+  refusal names the clause.
+- **`decltype(r)::held` where `r` is a reference**, and `decltype(*this)::held`
+  in a member function: 7.1.6.2p4 makes both a reference type, which is no class
+  or enumeration, and g++ refuses each with that reason in those words.
+- **`(*pf)(0)` writes one `unary decay ptr` the references do not.** It is
+  5.3.1p1's dereference of a function pointer and predates the parenthesized
+  callee, which `((pf))(0)` shows: that one is byte-identical.
+- **A destructor whose body is empty**, which this unit runs and the references
+  elide along with the object's whole lifetime - unchanged, and now reached by an
+  out-of-class definition too.
+- **`_GLOBAL__N_1`**, **`= zero` where the references write `= 0`**, and every
+  divergence the C6-C10 audits recorded - all unchanged.
 
 ## Checkpoint Audit Ledger
 
@@ -200,6 +185,7 @@ no other prefix does.
 | C8 | 12.6p1's array of class type constructed element by element and 12.4p8's destroyed the same way, as one action naming the array; an element addressed a dimension at a time, which 8.5p7's value-initialized array member, 3.6.2p2's dynamic initialization and both lifecycle calls share; 3.6.2p2's static image of an array of class type; an aggregate clause's value computed before the address it is stored into; 7.6.2p1's alignment-specifier read by 9.2p13's layout; 5.3.6p1's `alignof` as an expression; 9.1p2's qualified class-head-name | the address of an element computed for a constructor that is never called, and a namespace-scope array of them opening an empty `@__cppgm_init`; a multi-dimensional array constructing one object per row rather than one per element, and an array member value-initialized by `m()` storing a literal of an object type; a namespace-scope array calling its constructor once on the array; the element walk written twice; an alignment-specifier read from wherever it stood among the decl-specifiers, where 7p1 gives one written after them to the type rather than to the declaration, so `int alignas(8) x;` laid a member out at 8 and made its class 16 where g++ and the references write 4 and 8; 7.6.2p3's fundamental alignment never asked for, so `alignas(6)` allocated a member at every sixth byte and `alignas(-4)` made a class one byte; 8.5p7's zero of an object with static storage duration written into a startup body 3.6.2p1 had already made unnecessary - `YA g[4000] = {};` at 20 018 lines of stores into storage the image holds zero, and the empty `@__cppgm_init` for `YA g = YA();` with it | pa16 199 / 243 held, the same set passing and failing; pa1-pa15 1173 / 1173; byte-identical passing fixtures 127 of 177, the rest differing only in top-level order, the internal symbol name and `unwind` / `trivial_lifecycle`, both ignored, with `pass=` agreeing on every one; valgrind clean over 243 fixtures and 116 probes; array, dimension, alignment and static-image axes linear at 2.0-2.2x per doubling and the per-element startup work gone (14 lines at 500 elements and at 4000); file audit passes with the two recorded header-weight warnings |
 | C9 | 7.3.3p1's using-declaration in a class made a declaration of that class per declaration the base has of the name, carrying 11p1's access and naming the base's through `shadowed`, with 13.3.3.1p4's object parameter naming the derived class and 11.2p5 leaving the base subobject unchecked; 7.3.3p14's hiding asked in both orders; 12.9's inheriting constructors with 12.9p4's access, the base's parameters and names, and 12.9p8's definition; 13.3.3.2p3's cv tie-break kept through 4.10p3's conversion; the ABI's two entry points written as two definitions | 13.3.1.2's operator expression not read through `shadowed`, so `d + 1` called `@YD__operator_` on the derived object under `_ZN2YDplEi`, a symbol no unit defines, and the base's body was never emitted; 13.4's address of an overloaded brought-in name the same, in three places that all end in `name_function`; 8.3.6's default-arguments unreachable from the declaration the class made, so a call that omitted one was refused; a hidden declaration left in 13.1's index, so a third overload declared after two were hidden was read as a redeclaration - "f is defined twice" for a program g++ accepts; 7.3.3p14 comparing 9.3.1p3's object parameter, which no declarator writes, so a static member function was never hidden by a non-static one 9.4.1p2 does not let it overload; that hiding asked once per member declaration rather than once for the complete class, at n^2 (2.53 s at 4000); 12.9p1's candidate set read as one constructor per declaration carrying its default-arguments, so `YB(int = 1)` inherited was ambiguous with 12.1p5's default constructor; 12.9p1's "unless the class declares one" settled at the using-declaration and repaired by repurposing the declaration in place, which left it under that section's access in both directions; the base-object entry a call names declared nowhere where this unit holds no body; a constructor declared with an ellipsis reading one type past its parameter list, in the analysis and in the lowering | pa16 210 / 247 held, the same set passing and failing, and 220 / 257 with ten regression tests added; pa1-pa15 1173 / 1173; byte-identical passing fixtures 143 of 197, the rest differing only in top-level order, the internal symbol name and `unwind` / `trivial_lifecycle`, both ignored, with `pass=` agreeing on every one; valgrind clean over 257 fixtures and 460 synthesized inputs once the two out-of-bounds reads were closed; a 458-program differential sweep against `cppgm++-ref` with every disagreement judged against g++; ten axes linear at 1.9-2.2x per doubling and the n^2 hiding gone (2.53 s -> 0.27 s at 4000); file audit passes with the two recorded header-weight warnings |
 | C10 | 3.7.2's thread storage duration as a fact of the variable, with `storage=thread_local`, 3.7.2p2's `_ZTW` wrapper, a per-object guarded body where 3.6.2p2 does not settle the initializer, a call of it at each use, and 12.4p11 handed to `__cxa_thread_atexit`; 1.4p8's four reserved functions declared by the use that names one, with the object name and the boundary facts a call may assume, and 6.8p1's ambiguity settled in the parser; 3.2p3's emission as a closure from the roots of the unit, with 11.3p5's friend definition the one body the walk still reads | a block-scope object declared `static` or `thread_local` written as an object of its block - `thread_local int x = 0;` one object per call where 3.7.2p1 asks for one per thread, and `static int count = 0;` one object of the program written the same way, because 3.7.1p3's refusal sat in `record_lifetime`, which only an object of class type reaches; a use of a thread-local written before its definition running nothing that initializes it, the map that turns a use into that call being filled as each definition was lowered - the source-order dependence `collect_definitions` exists to remove, and 3.6.2p4's "before the first odr-use"; that map keyed by `entity.id` where 3.1p2 gives one variable as many declarations as the program writes, so the definition's body was invisible to a use bound to the `extern` declaration; one thread-local's body reading another object of the same thread before anything initialized it, the name being recorded only after the body was written; 12.4p11's end of a lifetime reached only from inside the body 3.6.2p2's dynamic initialization opened, so `thread_local Slot cell = {5};` with `~Slot()` registered nothing with `__cxa_thread_atexit`; 7.1.1p1 cited in the comment and not written, so `struct S { static thread_local int t; }; int S::t = 7;` and every other disagreeing pair was accepted; 1.4p8's reserved function declared by a written call and by no other use of the name, so `unsigned long (*p)(const char*) = __builtin_strlen;` and `::__builtin_strlen(s)` were refused | pa16 233 / 262 held, the same set passing and failing, and 240 / 269 with seven regression tests added; pa1-pa15 1173 / 1173; byte-identical passing fixtures 150 of 204, the rest differing only in top-level order, the internal symbol name and `unwind` / `trivial_lifecycle`, both ignored, with `pass=` agreeing on every one; valgrind clean over 389 programs - every pa16 fixture source and every synthesized input of the sweep; a 134-program differential sweep against `cppgm++-ref` with every disagreement judged against g++, which agrees with this unit on the block-scope refusal's subject matter, on the initializer a use runs, and on the destruction a statically initialized thread-local still has; seven axes linear at 2.0-2.3x per doubling, including the definitions-before-bodies pass at 0.03 / 0.06 / 0.12 / 0.25 s for 500 / 1000 / 2000 / 4000 forward-declared thread-locals; file audit passes with the two recorded header-weight warnings once 3.5's linkage and 3.7's storage duration came out of `init_declarator` as one unit |
+| C12 | 3.3.7p1's member name made a fact of the class that declares it, with what it declared reachable through the prefix its name gives it; 3.4.1p8's region put in force for the rest of a qualified declarator and for the body after it, in the parser and in the analysis; 10.2p2's base recorded as the class the base-clause reaches, resolved once and walked where a name misses; 8.3.5p2's trailing-return-type with 7.1.6.4's `auto` standing for it alone; 13.1's index keyed by the parameter-type-list a declarator wrote wherever a class declares the name; 7.1.1p10's `mutable`; 7.1.6.2p1's decltype-specifier before `::`; 5.1.1p6's parenthesized callee | a constructor or destructor defined outside its class declared nothing and defined nothing, the node reaching the arm of `declaration` written for an access-specifier - so `YA::YA(int v) { n = v; }` wrote `declare function @YA__YA` and no body, and a definition matching no declaration and one written twice were both accepted where the references refuse them; 3.4.1p8's region opened after the parameter clause and the mem-initializers had been read, because `parse_special_member` builds its declarator by hand, so `YA::YA(int v) : n((held)v)` was not a translation unit and `Outer::Buffer::Buffer(Token)` could not name its enclosing class's type; the ABI's two entry points keyed on which of them a use named, where a definition written outside its class without `inline` is the program's one definition and owes both names - the branch unreachable until such a definition was read at all; 7.1.6.2p1's decltype-specifier before `::` written for the type a declaration names and for nothing else, so `decltype(a)::held` naming a static data member, an enumerator, the address of one or a static member function was "no declaration of decltype(a) is in scope"; the expression that specifier carries written into the syntax tree, which is PA10's own output, so `--emit-ast` wrote a subtree the reference does not; 7.1.1p10's refusal asked only where the declarator went on to declare an object, so `mutable int f() { return 1; }` and `mutable typedef int held;` were accepted | pa16 265 / 283 -> 266 / 283, the same set passing and `200-nested-out-of-class-constructor-enclosing-type` with it, and 269 / 286 with three regression tests added; pa1-pa15 1173 / 1173, and 1174 / 1174 with the pa10 test for the AST dump of a qualified decltype-specifier; byte-identical passing fixtures 152 of 216, the rest differing only in top-level order, the internal symbol name and `unwind` / `trivial_lifecycle`, both ignored, with `pass=` agreeing on every one; valgrind clean over 438 programs - every pa16 fixture source and every synthesized input of the sweep; an 88-program differential sweep against `cppgm++-ref` over out-of-class special members x where the class is declared x binding, decltype before `::` x use shape, `mutable` x declared type, 3.4.1p8's region x what names it, 13.1's index and the parenthesized callee, with 77 byte-identical after canonicalization and every one of the 11 disagreements named above or judged for this unit by g++; eight axes measured, the seven this audit's paths own linear at 1.9-2.1x per doubling and 10.2p2's chain named with its numbers rather than averaged away; file audit passes with the two recorded header-weight warnings |
 
 ## Durable architecture decisions
 
@@ -389,13 +375,51 @@ no other prefix does.
   holds. A rule that reads what the lowering has reached so far makes the
   program depend on the order the source happened to write it in.
 
+- A definition names the declaration it defines; it never declares a second one.
+  A constructor or a destructor written outside its class is 3.4.3p3's
+  declarator-id naming the class, 13.1's index of that class's chain saying which
+  of its declarations this defines, and 9.2p2's end of the translation unit
+  reading the body - which is the same description a definition written in the
+  class body already asked for, so the two differ only in where the region comes
+  from. A member form the analysis has no path for is a program it cannot
+  describe, not one it may drop: the switch that dispatches a declaration gives
+  no arm silently to a definition.
+- 9.3p2 says who may hold a body, and that is what decides how many of the ABI's
+  entry points the object file owes. A definition every unit that needs one may
+  hold owes the names this unit named; a definition only this unit holds owes
+  both, whichever of them a call here happened to write. Counting the uses
+  answers a different question and gets the second case wrong.
+- The syntax tree is PA10's output. A fact a later assignment needs and the
+  grammar leaves no place for - the expression a decltype-specifier before `::`
+  holds - is carried beside the tree in a node the dump does not write, as
+  7.6.2's alignment-specifier already is. Anything hung on a node the dump walks
+  is a change to another assignment's answer.
+- Which region a name reaches is one question. A type-specifier, an
+  id-expression, a callee and the operand of `&` each ask it, so 7.1.6.2p1's
+  decltype-specifier before `::` is answered in one place and those four reach it
+  the same way rather than one of them holding the rule.
+- What a declaration-specifier says is a fact about what the declaration
+  declares, so it is checked where the declaration is read and not where one of
+  the things it might declare is built. 7.1.1p10's `mutable` names a non-static
+  data member; a member function, a typedef, a static data member and a
+  declaration of no class at all are each refused there.
+
 ## Performance Evidence
 
 Measured with `cppgm++ --emit-lowir -O0` on synthesized inputs, this host, at the
-end of the audit. Every axis is linear in its size.
+end of the audit. Every axis is linear in its size but the one named below the
+table, which is the chain 10.2p2 asks a missed name to walk.
 
 | axis | sizes | times |
 | --- | --- | --- |
+| n classes each with an out-of-class constructor definition | 500 / 1000 / 2000 / 4000 | 0.08 / 0.16 / 0.33 / 0.63 s |
+| n classes each with an out-of-class destructor definition | 500 / 1000 / 2000 / 4000 | 0.09 / 0.17 / 0.34 / 0.69 s |
+| n out-of-class constructor definitions of one class's overloads | 500 / 1000 / 2000 / 4000 | 0.04 / 0.07 / 0.13 / 0.26 s |
+| n out-of-class member definitions naming a member typedef | 500 / 1000 / 2000 / 4000 | 0.05 / 0.10 / 0.20 / 0.41 s |
+| n uses of a decltype-qualified name in one body | 500 / 1000 / 2000 / 4000 | 0.03 / 0.05 / 0.09 / 0.18 s |
+| n mutable members written through a const object | 500 / 1000 / 2000 / 4000 | 0.03 / 0.06 / 0.11 / 0.22 s |
+| n classes in a chain, each declaring a member of its own | 500 / 1000 / 2000 / 4000 | 0.02 / 0.03 / 0.06 / 0.12 s |
+| n classes in a chain, each naming the root's member typedef | 500 / 1000 / 2000 / 4000 | 0.09 / 0.33 / 1.25 / 6.06 s |
 | n base members each brought in by a using-declaration of its own | 500 / 1000 / 2000 / 4000 | 0.01 / 0.03 / 0.06 / 0.13 s |
 | one using-declaration bringing in n overloads of one name | 500 / 1000 / 2000 / 4000 | 0.02 / 0.03 / 0.07 / 0.14 s |
 | n brought-in overloads, all hidden by n declarations of the class's own | 500 / 1000 / 2000 / 4000 | 0.03 / 0.06 / 0.13 / 0.27 s |
@@ -422,6 +446,32 @@ end of the audit. Every axis is linear in its size.
 | n calls of a reserved function | 500 / 1000 / 2000 / 4000 | 0.01 / 0.02 / 0.06 / 0.11 s |
 | n unused inline definitions | 500 / 1000 / 2000 / 4000 | 0.01 / 0.02 / 0.03 / 0.07 s |
 | n namespace-scope variable declarations, each redeclaration-probed | 500 / 1000 / 2000 / 4000 | 0.01 / 0.02 / 0.04 / 0.09 s |
+
+- A constructor or a destructor defined outside its class costs one probe of
+  13.1's index of the class's chain and the same body pass a definition written
+  in the class body costs: n classes each with one are 35 n + 9 lines at
+  0.63 s for n = 4000, and n such definitions of one class's overloads
+  0.26 s - each doubling 1.9-2.1x. What the object file holds is two definitions
+  of one body per strong definition and one plus an alias per inline one, so a
+  class with n constructors writes 2 n and not 2^n.
+- 7.1.6.2p1's decltype-specifier before `::` costs one reading of its expression
+  and one lookup in the region that type names, wherever the name is written:
+  4000 uses in one body are 0.18 s for 24 014 lines, linear at 2.0x. The
+  expression is read once by the parser and kept, so nothing re-parses it and the
+  version the parse memoizes against does not move.
+- 7.1.1p10's `mutable` is one flag on the member's own declaration and one mask
+  where 5.2.5p4 carries the object's cv: 4000 mutable members written through a
+  const object are 0.22 s for 36 020 lines, linear at 1.9-2.0x, and a class with
+  no mutable member pays one test per member access.
+- The one super-linear axis is 10.2p2's chain, and it is the lookup that misses
+  at every level: n classes in a chain each naming a name the root declares are
+  0.09 / 0.33 / 1.25 / 6.06 s at 500 / 1000 / 2000 / 4000, which is n steps for
+  each of n classes and 15 lines of output at every size. A name the class itself
+  declares costs one probe - the same chain with a member of its own at each
+  level is 0.12 s at 4000 - and a name no declaration of the unit wrote is one
+  probe of the declared names before any base is searched. The quadratic is what
+  a program that writes it asks for; it is named here rather than hidden, because
+  nothing in the fixtures reaches a chain more than a few classes deep.
 
 - The pass that lowers the thread-local definitions before any body costs one
   walk of the unit's top level and lowers each definition once - the second
@@ -537,39 +587,53 @@ end of the audit. Every axis is linear in its size.
 
 ## Validation
 
-- `make test-report ACTIVE_TEST_REPORT_PAS='pa16'` - 233 / 262 at every step of
-  this audit, the same set passing and the same failing as at `ec1a8978`, and
-  240 / 269 with the seven regression tests it adds.
-- `make test-report-through-pa15` - 1173 / 1173.
+- `make test-report ACTIVE_TEST_REPORT_PAS='pa16'` - 265 / 283 at the start of
+  this audit and 266 / 283 at the end, the same set passing and
+  `200-nested-out-of-class-constructor-enclosing-type` with it, and 269 / 286
+  with the three regression tests it adds: an out-of-class constructor and
+  destructor of a nested class naming their enclosing class's typedef in a
+  parameter clause and in a mem-initializer, a decltype-specifier before `::` in
+  an expression naming a static data member, an enumerator and the address of
+  one, and `mutable` written on a member function.
+- `make test-report-through-pa15` - 1173 / 1173, and 1174 / 1174 with the pa10
+  regression test this audit adds for the AST dump of a declaration whose
+  decl-specifier is a qualified decltype-specifier. pa10's own
+  `100-decltype-qualified-id-expression` is what caught the tree defect, and the
+  new test is its declaration half.
 - `perl scripts/cppgm_file_audit.pl --stage pa16 --paths dev/src` - passes, with
-  the two `bad-division` warnings accounted for above, once 3.5's linkage and
-  3.7's storage duration came out of `init_declarator` as `record_storage`.
-- `valgrind -q --error-exitcode=99` over all 255 pa16 fixture sources and the
-  134 synthesized inputs of the sweep - 389 programs, with no error reported.
-- Differential against `pa16/cppgm++-ref` on 134 synthesized programs - the
-  cross product of storage-class spelling, type and initializer shape for
-  thread-locals at namespace and block scope; every reserved function against
-  every use shape (a call, a discarded call, a qualified call, its address and
-  an argument); the emission closure against every holder of an unused
-  definition and every way of reaching one; and the shapes that separate a
-  declaration of a variable from a definition of it. 86 agree after the relaxed
-  comparison, 7 are refused by both, 29 differ and 12 are refused by one. Every
-  one of the 41 disagreements is named above, and the ones this audit turns were
-  put to g++: it constructs and destroys a block-scope `thread_local` in
-  `.tbss` with a guard, it reaches every use of a thread-local through `_ZTW`
-  and so runs the initializer wherever the use is written, and it emits the
-  guarded `__tls_init` with the `__cxa_thread_atexit` call for an object whose
-  value the image already holds.
-- Scaling: seven single-axis series at four sizes each for this checkpoint's own
-  paths, with the output line counts at the ends recorded beside the times, plus
-  the C4-C9 axes re-measured and unchanged.
-- The whole stripped set - `object=`, `binding=`, `linkage=`, `role=`, `unwind=`,
-  `projection=`, `effects=`, `capture=`, `access=`, `alias=`, `return=`,
-  `keep_alias=`, `trivial_lifecycle=`, `tls_for=`, `prefer_local=` and
-  `storage=` - diffed against the reference for all 204 passing fixtures whose
-  reference output is not empty. 150 are identical without any stripping; what
-  is left differs only in top-level order, in an internal symbol name, and in
-  `unwind=` and `trivial_lifecycle=`. `pass=`, which the comparison does not
-  strip, agrees on every one of them. The parameter metadata 1.4p8's reserved
-  functions carry - `capture=`, `access=`, `alias=`, `effects=` and `unwind=` -
-  agrees with the reference on every declaration that has any.
+  the two `bad-division` warnings accounted for above.
+- `valgrind -q --error-exitcode=99` over every pa16 fixture source and every
+  synthesized input of the sweep and the probes - 438 programs, with no error
+  reported.
+- Differential against `pa16/cppgm++-ref` on 88 synthesized programs - the cross
+  product of out-of-class special member x where the class is declared x whether
+  the definition is `inline` x how many parameters it takes, with a
+  mem-initializer, a member typedef in the parameter clause, a base class, a
+  nested class, a default argument, `explicit`, an array of the class, a
+  namespace-scope object, a use written before the definition and an inheriting
+  using-declaration; a decltype-specifier before `::` against every use shape and
+  every operand shape; `mutable` against seven declared types and six access
+  paths; 3.4.1p8's region against what names it; 13.1's index against the
+  static/non-static and const/non-const pairs; and the parenthesized callee. 77
+  are byte-identical after the relaxed comparison and 11 disagree: six are one
+  generator writing 8.2's most vexing parse, which both refuse; two are the
+  returned prvalue and the destructor's `eh_cleanup` region already in the
+  failure map; two are a `decltype` that evaluates to a reference, which g++
+  refuses in the same words; and one is the reference emitting the
+  complete-object entry of an inline base constructor nothing calls.
+- g++ was asked about every shape this audit turns and agrees with this unit on
+  each: it refuses `mutable` on a function and on a typedef, it accepts
+  `decltype(a)::held` naming a static data member, an enumerator and the address
+  of one, it refuses `decltype(r)::held` for a reference, and it defines an
+  out-of-class constructor rather than leaving the symbol to another unit.
+- Scaling: eight single-axis series at four sizes each for the paths this audit
+  touched, with the output line counts recorded beside the times, plus the
+  C4-C10 axes carried forward. Seven are linear at 1.9-2.1x per doubling; the
+  eighth is 10.2p2's chain and is named above with its numbers rather than
+  averaged away.
+- Byte-identity: of the 216 passing fixtures with a reference output that is not
+  empty, 152 are identical without any stripping at all. The rest differ only in
+  the order the top-level definitions are written in, in the internal symbol name
+  `lowir.md` makes a presentation tie-breaker, and in `unwind` and
+  `trivial_lifecycle`, which the comparison ignores - `pass=`, which it does not
+  ignore, therefore agrees on every one of the 216.

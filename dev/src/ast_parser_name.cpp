@@ -745,7 +745,30 @@ AstNode* AstParser::parse_id_expression()
 	{
 		return fail(start);
 	}
-	return make_text(AstKind::IdExpression, spelled(name));
+	// 7.1.6.2p1: a nested-name-specifier may begin with a decltype-specifier,
+	// whose region is the class the type of an expression names.  No spelling
+	// answers what that type is, so the expression is read here and kept beside
+	// the name, exactly as a decltype-specifier written among the type
+	// specifiers of a declaration is.
+	AstNode* operand = nullptr;
+	if (qualified && tokens_.type(name.pos) == KW_DECLTYPE)
+	{
+		const Mark after = mark();
+		reset(name);
+		pos_ += 2;
+		{
+			BracketGuard brackets(*this, false);
+			operand = parse_expression();
+			if (operand == nullptr || !at(OP_RPAREN))
+			{
+				return fail(start);
+			}
+		}
+		reset(after);
+	}
+	AstNode* node = make_text(AstKind::IdExpression, spelled(name));
+	node->add(carried(operand));
+	return node;
 }
 
 // The name after `.` or `->`.  A member name is not looked up before a

@@ -462,6 +462,17 @@ void SemaAnalyzer::declaration(const AstNode& node, const Context& ctx)
 		function_definition(node, ctx);
 		return;
 
+	case AstKind::SpecialMemberDefinition:
+		// 9.3p2: a constructor or a destructor defined outside its class, whose
+		// declarator-id names the class it belongs to.  A definition written in
+		// a class body is read where that body is, so one reaching here is
+		// written outside every class.
+		if (semantics())
+		{
+			special_member_definition(node, ctx);
+		}
+		return;
+
 	case AstKind::LinkageSpecification:
 	{
 		// 7.5p4: linkage specifications nest, and the innermost one a
@@ -1641,6 +1652,7 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 	{
 		return;
 	}
+	require_mutable_data_member(specifiers, target, name, type);
 	// 11.3p6: what a friend declaration declares belongs to the region around
 	// the class, so the declarator is read against that region and the class
 	// gets the grant.
@@ -1737,21 +1749,9 @@ void SemaAnalyzer::declare_object_declarator(const AstNode* initializer,
 		// that one is a variable the class names.
 		entity.object_member =
 			target.scope->kind == ScopeKind::Class && !specifiers.is_static;
-		// 7.1.1p10: `mutable` may be written only on a non-static data member
-		// whose type is neither const-qualified nor a reference, and what it
-		// says is that the const of the object holding the member stops at it.
-		if (specifiers.is_mutable)
-		{
-			if (!entity.object_member || (types_.cv(type) & kCvConst) != 0 ||
-			    types_.is_reference(type))
-			{
-				throw std::runtime_error(
-					name + " is declared `mutable`, which 7.1.1p10 allows only "
-					"for a non-static data member of neither const-qualified "
-					"nor reference type");
-			}
-			entity.mutable_member = true;
-		}
+		// 7.1.1p10: the const of the object holding this member stops at it,
+		// which the declaration is where 5.2.5p4 reads.
+		entity.mutable_member = specifiers.is_mutable;
 		// 7.6.2p1: what an alignment-specifier on the declaration asked for is
 		// a fact about what it declares, which 9.2p13's layout reads.
 		entity.requested_align = specifiers.alignment;
@@ -1972,6 +1972,7 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 		throw std::runtime_error("a function definition declares " + name +
 		                         ", which is not a function");
 	}
+	require_mutable_data_member(specifiers, target, name, type);
 	// 9.3.1p3: a member function is called on an object its declarator does not
 	// write, whether it is defined in its class or after it.
 	const TypeId written_type = type;
@@ -2129,6 +2130,33 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 	live_destructions_ = enclosing_live;
 }
 
+// 7.1.1p10: `mutable` may be written only on a non-static data member whose
+// type is neither const-qualified nor a reference.  What it says is a fact about
+// what the declaration declares, so every declaration is asked and not only the
+// one that goes on to declare an object: a member function - declared or
+// defined - a typedef, a static data member and a declaration of no class at
+// all each declare something the specifier says nothing about.
+void SemaAnalyzer::require_mutable_data_member(const Specifiers& specifiers,
+                                               const Context& target,
+                                               const std::string& name,
+                                               TypeId type)
+{
+	if (!specifiers.is_mutable)
+	{
+		return;
+	}
+	if (target.scope->kind != ScopeKind::Class || specifiers.is_static ||
+	    specifiers.is_typedef || specifiers.is_friend ||
+	    types_.kind(type) == TypeKind::Function ||
+	    (types_.cv(type) & kCvConst) != 0 || types_.is_reference(type))
+	{
+		throw std::runtime_error(
+			name + " is declared `mutable`, which 7.1.1p10 allows only for a "
+			"non-static data member of neither const-qualified nor reference "
+			"type");
+	}
+}
+
 // 9.3.1p3 put the object parameter of a non-static member function in its type,
 // and 8.3.5p4's parameter-type-list is what a declarator wrote - so the two
 // declarations `void unlink();` and `static void unlink(block*);` of one class
@@ -2262,7 +2290,9 @@ void SemaAnalyzer::reveal_friend(Scope& where, const std::string& name,
 	// one name in one namespace, which is what the source wrote.
 	for (SemaEntity* at = concealed; at != nullptr; at = at->next)
 	{
-		model_.drop_overload(*concealed, types_.signature(at->type));
+		model_.drop_overload(
+			*concealed,
+			declaration_signature(where, at->type, at->object_member));
 	}
 	SemaEntity* before = nullptr;
 	for (SemaEntity* at = concealed; at != &entity; at = at->next)

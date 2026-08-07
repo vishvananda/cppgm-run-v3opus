@@ -519,6 +519,14 @@ unsigned long long SemaAnalyzer::array_bound(const AstNode& node,
 TypeId SemaAnalyzer::decltype_type(const AstNode& node, const Context& ctx)
 {
 	const AstNode* expression = node.children[0];
+	if (expression->kind == AstKind::CarriedExpression)
+	{
+		// 7.1.6.2p1: the specifier stands before `::`, so the expression it
+		// holds is carried beside the name rather than written under it - the
+		// dump describes the name the grammar left spelled, and this is the one
+		// thing that spelling cannot hold.
+		expression = expression->children[0];
+	}
 	bool parenthesized = false;
 	while (expression->kind == AstKind::ParenthesizedExpression &&
 	       !expression->children.empty())

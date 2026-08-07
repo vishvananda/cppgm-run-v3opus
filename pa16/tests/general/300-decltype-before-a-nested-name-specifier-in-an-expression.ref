@@ -1,0 +1,35 @@
+global @holder__total : i32 [binding=strong, object=_ZN6holder5totalE] = 5
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $source : obj<4x4>
+  slot $reached : ptr
+  slot $cond__1 : i32
+
+  block ^entry:
+    %t1 = addr $source
+    %t2 = addr $source
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 0, %t3
+    %t4 = addr @holder__total
+    store ptr %t4, $reached
+    %t5 = load ptr $reached
+    %t6 = load i32 %t5
+    %t7 = binary add i32 %t6, 1
+    %t8 = load ptr $reached
+    store i32 %t7, %t8
+    %t9 = load i32 @holder__total
+    %t10 = cmp eq i32 %t9, 6
+    branch %t10, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t11 = load i32 $cond__1
+    return i32 %t11
+}

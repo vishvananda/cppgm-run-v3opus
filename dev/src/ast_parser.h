@@ -130,6 +130,11 @@ private:
 	// consumes.
 	AstNode* make_terminal(AstKind kind);
 	AstNode* make_text(AstKind kind, const std::string& text);
+	// An expression a later assignment needs and this dump does not describe:
+	// 7.1.6.2p1's decltype-specifier before `::` is one component of a name the
+	// grammar leaves spelled, and the expression it holds is a fact carried
+	// beside that name.  The wrapper is what keeps the dump the syntax it read.
+	AstNode* carried(AstNode* expression);
 
 	bool at_close_angle() const;
 	bool accept_close_angle();

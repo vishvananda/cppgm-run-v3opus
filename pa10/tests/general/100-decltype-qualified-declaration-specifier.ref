@@ -1,0 +1,59 @@
+1 translation units
+start translation unit 1
+translation-unit
+  class-specifier holder
+    class-key KW_STRUCT:struct
+    simple-declaration
+      decl-specifier-seq
+        decl-specifier KW_TYPEDEF:typedef
+        decl-specifier KW_INT:int
+      init-declarator-list
+        init-declarator
+          declarator
+            identifier entry
+    simple-declaration
+      decl-specifier-seq
+        decl-specifier TT_IDENTIFIER:entry
+      init-declarator-list
+        init-declarator
+          declarator
+            identifier held
+  function-definition
+    decl-specifier-seq
+      decl-specifier KW_INT:int
+    declarator
+      identifier main
+      parameter-clause
+    compound-statement
+      simple-declaration
+        decl-specifier-seq
+          decl-specifier TT_IDENTIFIER:holder
+        init-declarator-list
+          init-declarator
+            declarator
+              identifier source
+      expression-statement
+        assignment-expression OP_ASS:=
+          member-expression OP_DOT:.
+            id-expression source
+            identifier held
+          literal 3
+      simple-declaration
+        decl-specifier-seq
+          decl-specifier decltype(source)::entry
+        init-declarator-list
+          init-declarator
+            declarator
+              identifier copied
+            initializer
+              member-expression OP_DOT:.
+                id-expression source
+                identifier held
+      return-statement
+        conditional-expression
+          binary-expression OP_EQ:==
+            id-expression copied
+            literal 3
+          literal 0
+          literal 1
+end translation unit

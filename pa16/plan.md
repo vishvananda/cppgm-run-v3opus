@@ -38,25 +38,24 @@ relation between two entities, an implicit-object argument in 13.3,
 worklist in the unit lowering.
 ## Current Failure Map
 
-After C12: 265 / 283 - 251 / 269 of the checked-in fixtures and the 14 the C11
-and C12 work added. The 18 that remain, 5 refusing a program the references
-accept and 13 accepting one and writing a different shape:
+After the audit of C12: 266 / 283 - 251 / 269 of the checked-in fixtures, the 14
+the C11 and C12 work added and the 3 this audit adds, at 269 / 286. The 17 that
+remain, 5 refusing a program the references accept and 12 accepting one and
+writing a different shape:
 
 | group | count | what is missing |
 | --- | --- | --- |
-| the exception cleanup regions around a partly built object | 3 | `eh_cleanup` / `eh_try` / `resume` around each element of a member array and around a destructor's own body |
+| the exception cleanup regions around a partly built object | 3 | `eh_cleanup` / `eh_try` / `resume` around each element of a member array, and the region written around a destructor's own body where the references write none |
 | placement `new` | 2 | 5.3.4's placement form |
 | `#pragma pack` | 2 | a phase-4 fact that has to reach 9.2p13 in phase 7 |
 | 5.2.3p3's braced functional cast | 1 | `T{...}`, the postfix suffix the `pa16.gram` list does not hold and `holder x{value{1,2}, 0}` needs |
-| single defects, one fixture each | 10 | listed below |
+| single defects, one fixture each | 9 | listed below |
 
-The 10 singles, each its own fact: 5.2.4's pseudo-destructor call on a scalar; a
+The 9 singles, each its own fact: 5.2.4's pseudo-destructor call on a scalar; a
 user-defined string-literal operator; `store ptr nullptr` spelled `store ptr 0`,
 which two fixtures reach; an incomplete class as the return type of a declared
 function, written `obj<0x1>` where the references write `void`; a defaulted
-constructor called where the references elide it; an out-of-class constructor
-definition not matched to its in-class declaration, so this unit writes a
-declaration where the references write the body; an explicit destructor call
+constructor called where the references elide it; an explicit destructor call
 through an enclosing namespace's type; a `const` subobject a member function is
 called on; and the `_GLOBAL__N_1` name an unnamed namespace gives what it
 declares - which 3.5p4's internal linkage and the reference's emission of a
@@ -160,37 +159,40 @@ the reserved function rather than of a declaration this unit read.
 
 ## Active Checkpoint
 
-Done: **C12 - the class a member name belongs to, and the region the names after
-a declarator-id are found in**, 258 / 276 from a 251 / 276 baseline, and
-265 / 283 with seven regression tests added, at pa1-pa15 1173/1173.
+Done: **the audit of C12 - the definition a class already declared, and the
+region a name written before `::` reaches**, 266 / 283 from a 265 / 283 baseline
+and 269 / 286 with three regression tests added, at pa1-pa15 1174 / 1174 with the
+pa10 test the AST-dump defect asks for.
 
-3.3.7p1 makes the potential scope of a member name the class it is declared in,
-so the PA10 name table no longer declares a member into the region around its
-class - `struct iter { struct cons & cons; };` had left `cons` a value at
-namespace scope, and every declaration written with that class name after it
-stopped parsing. What the class declared stays reachable through the prefix its
-name gives it, which is what 3.4.1p8 puts back in force for the rest of a
-qualified declarator and for the body after it, and 10.2p2's base is recorded as
-the class the base-clause reaches so a name that misses walks the chain. 8.3.5p2
-gives a function the return type written after its declarator-id, with 7.1.6.4's
-`auto` standing for it and nothing else, and 3.4.1p8's region settles from the
-declarator-id before the declarator around it is read - which is the one thing
-`auto array::begin() noexcept -> iterator` needs from both layers. 13.1's index
-is keyed by the parameter-type-list a declarator wrote wherever a class declares
-the name, so 9.3.1p3's object parameter no longer collapses `void unlink();` and
-`static void unlink(block*);` onto one declaration. 7.1.1p10's `mutable` is a
-fact of the member's own declaration, so the const an object carries stops at it
-and 5.3.1p3 hands back a pointer to non-const. 7.1.6.2p1 lets a
-nested-name-specifier begin with a decltype-specifier, whose expression the
-parser now keeps beside the spelling because no spelling can hold it. And
-5.1.1p6 makes a parenthesized callee the callee it holds, with 3.4.2p1's
-associated namespaces the one thing the parentheses take away.
+C12 put 3.4.1p8's region in force for the body of a special member defined
+outside its class, and the analysis had no path for such a definition at all: the
+node reached the arm of `declaration` written for an access-specifier and
+returned, so `YA::YA(int v) { n = v; }` wrote `declare function @YA__YA` and no
+body and the unit named a symbol nothing defines. 12.1p1 and 9.3p2 say what one
+is - 3.4.3p3's declarator-id names the class, 13.1's index of that class's chain
+says which of its declarations this defines, and 9.2p2's end of the translation
+unit reads the body - so one description now opens both the definition written in
+a class body and the one written outside it, a definition matching no declaration
+and one written twice are refused, and the parser's region is in force from the
+declarator-id onward rather than after the parameter clause and the
+mem-initializers have been read. A definition only this unit holds owes both of
+the ABI's entry points whichever of them a call here wrote, which is 9.3p2's
+question and not a count of the uses. 7.1.6.2p1's decltype-specifier before `::`
+was written for the type a declaration names and for nothing else, so the same
+name in an expression - a static data member, an enumerator, the address of one,
+a static member function - was refused; which region a name reaches is one
+question and the four places that ask it now reach one answer. The expression
+that specifier carries is a `carried-expression` the AST dump skips, because the
+AST is PA10's output and hanging it on a node the dump walks changed another
+assignment's answer. And 7.1.1p10's refusal moved from the path that declares an
+object to the declaration, so `mutable` on a member function or a typedef is
+refused as g++ refuses it.
 
-Two sweeps through `cppgm++-ref` - 113 programs crossing where a name is
-declared, where it is used and what region stands between them, and 10 more on
-source order and the sibling paths of an out-of-class definition - left 111 and
-9 byte-identical after canonicalization; every one of the disagreements is
-either a shape PA16 puts out of scope or is resolved for this unit by g++.
+An 88-program differential sweep through `cppgm++-ref` left 77 byte-identical
+after canonicalization; of the 11 disagreements six are the sweep's own most
+vexing parse, two are shapes the failure map already holds, two are a `decltype`
+that evaluates to a reference and g++ refuses in the same words, and one is the
+reference emitting a definition nothing calls.
 
 Next: **C13 - 5.2.3p3's braced functional cast and 5.3.4's placement `new`**,
 which is `T{...}` in the parser and in 13.3.1.7 - the one shape
@@ -326,6 +328,20 @@ Invariants, one line each, and the measurements that hold them.
 - 3.8p1 makes a return destroy every object of every block it leaves, so n
   nested blocks each holding an object and a return emit n^2/2 calls: 400 deep,
   166 425 lines in 0.36 s. That is what the source asks for.
+- A constructor or a destructor defined outside its class is one probe of 13.1's
+  index of the class's chain and the same body pass a definition written in the
+  class body costs: n classes each with one are 0.63 s at 4000 for 35 n + 9
+  lines, and n such definitions of one class's overloads 0.26 s, each doubling
+  1.9-2.1x. 9.3p2 says how many of the ABI's entry points the object file owes -
+  both for a definition only this unit holds, and one plus an alias for a
+  definition every unit that needs one may hold - so a class with n constructors
+  writes 2 n and not 2^n.
+- 7.1.6.2p1's decltype-specifier before `::` costs one reading of its expression,
+  kept by the parser rather than re-parsed, and one lookup in the region that
+  type names: 4000 uses in one body are 0.18 s for 24 014 lines. 7.1.1p10's
+  `mutable` is one flag on the member's declaration and one mask where 5.2.5p4
+  carries the object's cv - 4000 written through a const object, 0.22 s - and a
+  class with no mutable member pays one test per access.
 - 3.3.7p1's class scope in the PA10 name table costs one scope per class body,
   and 10.2p2's base is one entry per base-specifier - the direct bases alone,
   resolved to the class they name where the base-clause is read, so a chain n
@@ -333,12 +349,14 @@ Invariants, one line each, and the measurements that hold them.
   chain. A name no declaration of the unit wrote is in no region for a prefix to
   reach, which one probe of the declared names settles before any base or any
   7.3.4p2 directive is searched: n classes in a chain each declaring a member
-  are 0.01/0.02/0.04/0.11 s at 500/1000/2000/4000, which is what they cost
+  are 0.02/0.03/0.06/0.12 s at 500/1000/2000/4000, which is what they cost
   before the class scope existed, where the walk without that probe had been
-  0.08/0.28/1.13 s. A name that *is* declared n levels up costs the chain, which
-  is what 10.2p2 asks for: n classes each using the root's member are
-  0.04/0.15/0.58 s at 500/1000/2000 against 0.02/0.05/0.20 s for the semantic
-  layer's own walk of the same chain. n out-of-class definitions naming a member
+  0.08/0.28/1.13 s. A name that *is* declared n levels up costs the chain, and n
+  classes each naming one is the only super-linear axis this milestone has -
+  0.09/0.33/1.25/6.06 s at 500/1000/2000/4000 for 15 lines of output at every
+  size. It is n steps for each of n classes, which is what a lookup that misses
+  at every level asks for; it is named rather than averaged away, and no fixture
+  reaches a chain more than a few classes deep. n out-of-class definitions naming a member
   typedef are 0.02/0.05/0.12/0.26 s, and n classes over one base with a member
   and a member function 0.02/0.05/0.12/0.25 s - both linear at 2.1-2.4x per
   doubling.
@@ -379,3 +397,4 @@ Invariants, one line each, and the measurements that hold them.
 | audit of C10 | 3.7.2's thread storage duration made a fact of the variable, with the `_ZTW` wrapper, the per-object guarded body, the call at each use and 12.4p11's `__cxa_thread_atexit`; 1.4p8's four reserved functions declared by a use of the name; 3.2p3's emission made a closure from the roots of the unit | 3.7.1p3 and 3.7.2p1's storage duration written as an object of its block, so `thread_local int x = 0;` was one object per call and `static int count = 0;` one automatic object, the refusal having sat where only an object of class type reached it; a use of a thread-local written before its definition running nothing that initializes it, and the map that turns a use into that call keyed by the declaration rather than by the name the object file gives the object; one thread-local's body reading another object of its own thread before anything initialized it; 12.4p11's end of a lifetime reached only from inside the body 3.6.2p2 opened, so a statically initialized thread-local with a destructor registered nothing; 7.1.1p1 cited and not written; 1.4p8's reserved function declared by a written call and by no other use of the name, so its address and its `::`-qualified spelling were refused | 233 / 262 held, the same set passing and failing, and 240 / 269 with seven regression tests added; pa1-pa15 1173 / 1173; byte-identical passing fixtures 150 of 204; valgrind clean over 389 programs - every pa16 fixture source and every synthesized input of the sweep; a 134-program differential sweep against `cppgm++-ref` with every disagreement judged against g++, which agrees with this unit on each of the three the audit turns; seven axes linear at 2.0-2.3x per doubling, the unused-definition closure still 4 lines at 4000; file audit passes once 3.5's linkage and 3.7's storage duration came out of `init_declarator` as one unit |
 | C11 | 8.4.2p4's user-provided special member made a fact of the declaration that neither defaulted nor deleted it; 8.5.1p2's subobject of class type copy-initialized from the clause that reached it - list-initialized from a braced one, converted from an expression, 12.8p31's copy from one of its own class - with 8.5.1p7 value-initializing one no clause reached and 8.5.1p11's elided braces left for the clause that cannot initialize the subaggregate alone; 13.3.1.7's element of an array of class type made an object of its own, built by the class's own constructor or by the one 8.5.1 gives an aggregate from its non-static data members, declared once and held on the class; 3.6.2p2's constant initialization through a constructor whose members hold what its arguments hold, which keeps a namespace-scope array an image; 12.1p5's deleted default constructor for a member of const-qualified or reference type that nothing initializes; 5.2.1p1's subscript of an element with no register width read once | 240 -> 244 / 269, and 251 / 276 with seven regression tests added; pa1-pa15 1173/1173; valgrind clean over 1315 programs - every pa16 fixture source and every synthesized input of both sweeps; two differential sweeps against `cppgm++-ref`, 405 programs over class shape x initializer form x storage duration and 648 over the constructors a subobject of class type reaches, leaving no status disagreement at all, with the two defects the first found closed and all 57 the second found judged for this unit by g++; every C11 axis linear at 2.0-2.5x per doubling, one synthesized constructor however many arrays name the class, and the namespace-scope array still an image and not a startup body |
 | C12 | 3.3.7p1's member name made a fact of the class that declares it, so the PA10 name table stopped declaring a member into the region around its class; 3.4.1p8's region put in force for the rest of a qualified declarator and for the body after it, in the parser and in the analysis; 10.2p2's base recorded as the class the base-clause reaches, resolved once, walked where a name misses; 8.3.5p2's trailing-return-type as the type a function returns, with 7.1.6.4's `auto` standing for it alone; 13.1's index keyed by the parameter-type-list a declarator wrote wherever a class declares the name, which 9.3.1p3's object parameter had collapsed; 7.1.1p10's `mutable` stopping the const an object carries into a member; 7.1.6.2p1's decltype-specifier before `::` carried to the semantics as its expression; 5.1.1p6's parenthesized callee, with 3.4.2p1's associated namespaces the one thing the parentheses take away | 251 -> 258 / 276, and 265 / 283 with seven regression tests added; pa1-pa15 1173/1173; valgrind clean over 403 programs - every pa16 fixture source and every synthesized input of both sweeps; two differential sweeps against `cppgm++-ref`, 113 programs over where a name is declared x where it is used x the region between them and 10 over source order and the sibling paths of an out-of-class definition, leaving 111 and 9 byte-identical after canonicalization and every disagreement either out of PA16's scope or resolved for this unit by g++; the class scope's cost held to what it was before it existed (1.13 s -> 0.04 s at 2000) and every new axis linear at 2.1-2.4x per doubling |
+| audit of C12 | 3.3.7p1's member name made a fact of the class that declares it; 3.4.1p8's region for the rest of a qualified declarator and the body after it; 10.2p2's base; 8.3.5p2's trailing-return-type; 13.1's index keyed by the written parameter-type-list; 7.1.1p10's `mutable`; 7.1.6.2p1's decltype-specifier before `::`; 5.1.1p6's parenthesized callee | a constructor or destructor defined outside its class declared nothing and defined nothing, the node reaching the arm of `declaration` written for an access-specifier, so the unit called `@YA__YA` and only declared it - and a definition matching no declaration and one written twice were accepted; 3.4.1p8's region opened after the parameter clause and the mem-initializers had been read, so `YA::YA(int v) : n((held)v)` was not a translation unit; the ABI's two entry points counted from the uses rather than asked of 9.3p2, which left a strong definition owing one name where the object file owes both; 7.1.6.2p1 written for the type a declaration names and for nothing else, so `decltype(a)::held` in an expression was refused; the expression that specifier carries written into the syntax tree, which is PA10's own output; 7.1.1p10's refusal asked only where the declarator went on to declare an object | 266 / 283 from a 265 / 283 baseline, the same set passing and `200-nested-out-of-class-constructor-enclosing-type` with it, and 269 / 286 with three regression tests added; pa1-pa15 1174 / 1174 with the pa10 test the AST-dump defect asks for; byte-identical passing fixtures 152 of 216; valgrind clean over 438 programs; an 88-program differential sweep against `cppgm++-ref` leaving 77 byte-identical and every disagreement named or judged for this unit by g++; eight axes measured, seven linear at 1.9-2.1x per doubling and 10.2p2's chain named with its numbers; file audit passes with the two recorded header-weight warnings |

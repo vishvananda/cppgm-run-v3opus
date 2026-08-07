@@ -195,7 +195,8 @@ const std::string& LowirUnitLowering::global_symbol(const SemaEntity& entity)
 // keeps the name its declaration flattens to.
 unsigned LowirUnitLowering::abi_variant(const SemaEntity& entity)
 {
-	return entity.special != kOrdinaryFunction && !entity.complete_object_entry
+	return entity.special != kOrdinaryFunction && !entity.complete_object_entry &&
+	       !writes_base_entry(entity)
 		? kBaseObjectAbi
 		: kCompleteObjectAbi;
 }
@@ -205,10 +206,25 @@ unsigned LowirUnitLowering::abi_variant(const SemaEntity& entity)
 // milestone has no virtual base, so the two do the same thing, but they are two
 // symbols the object file has to hold - and the references write them as two
 // definitions rather than as one and an alias.
+//
+// 9.3p2 says which of the two questions is being asked.  A definition this unit
+// holds that no other unit may hold - one written outside its class without
+// `inline` - is the program's one definition of the function, so the object
+// file owes both of the ABI's names whichever of them a call happened to write
+// here.  A definition every unit that needs one may hold owes only the names
+// this unit named, and a function this unit does not define owes none at all:
+// what a call wrote is what is declared.
 bool LowirUnitLowering::writes_base_entry(const SemaEntity& entity)
 {
-	return entity.special != kOrdinaryFunction && entity.complete_object_entry &&
-		entity.base_object_entry;
+	if (entity.special == kOrdinaryFunction)
+	{
+		return false;
+	}
+	if (entity.defined && !entity.inline_function)
+	{
+		return true;
+	}
+	return entity.complete_object_entry && entity.base_object_entry;
 }
 
 const std::string& LowirUnitLowering::function_symbol(const SemaEntity& entity,

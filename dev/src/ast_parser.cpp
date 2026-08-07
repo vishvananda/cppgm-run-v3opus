@@ -30,6 +30,17 @@ AstNode* AstParser::make_text(AstKind kind, const std::string& text)
 	return node;
 }
 
+AstNode* AstParser::carried(AstNode* expression)
+{
+	if (expression == nullptr)
+	{
+		return nullptr;
+	}
+	AstNode* node = make(AstKind::CarriedExpression);
+	node->add(expression);
+	return node;
+}
+
 AstNode* AstParser::run()
 {
 	AstNode* root = make(AstKind::TranslationUnit);
@@ -476,6 +487,11 @@ AstNode* AstParser::parse_special_member(bool in_class)
 	{
 		return fail(start);
 	}
+	// 3.4.1p8: a special member defined outside its class is read where its
+	// declarator-id names, which is everything after that name - the parameter
+	// clause, the mem-initializers and the body alike.  A member defined in its
+	// class writes no nested-name-specifier, so the guard opens nothing there.
+	ReachedGuard reached(names_, name_qualifier(name));
 	AstNode* declarator = make(AstKind::Declarator);
 	declarator->add(make_text(AstKind::Identifier, name));
 	AstNode* clause = parse_parameter_clause();
@@ -502,9 +518,6 @@ AstNode* AstParser::parse_special_member(bool in_class)
 	node->add(specifiers);
 	node->add(declarator);
 	node->add(initializer);
-	// 3.4.1p8: a special member defined outside its class reads the names in
-	// its mem-initializers and its body as the class declares them.
-	ReachedGuard reached(names_, name_qualifier(name));
 	ScopeGuard scope(names_);
 	declare_parameters(declarator);
 	AstNode* body = parse_compound_statement();

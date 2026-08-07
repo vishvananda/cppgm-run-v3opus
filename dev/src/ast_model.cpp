@@ -22,6 +22,16 @@ const char* ast_kind_name(AstKind kind)
 
 void write_ast(std::ostream& out, const AstNode& root, unsigned depth)
 {
+	if (root.kind == AstKind::CarriedExpression)
+	{
+		// 7.1.6.2p1: the expression a decltype-specifier written before `::`
+		// holds is kept for the semantic layer that has to answer which region
+		// it names, because no spelling holds it.  The dump writes the name as
+		// the grammar left it - one component of a nested-name-specifier - so
+		// the expression under it is a fact carried beside the syntax and not a
+		// node of the syntax this dump describes.
+		return;
+	}
 	if (root.kind == AstKind::AlignmentSpecifier)
 	{
 		// 7.6.1 and 7.6.2: the syntax accepts an attribute wherever the grammar

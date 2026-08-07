@@ -496,31 +496,19 @@ void SemaAnalyzer::read_base_clause(const AstNode& node, SemaEntity& entity,
 	scope.base = base->scope;
 }
 
-// 12.1 and 12.4: a constructor or a destructor declared in a class body.  Both
-// are functions of the class whose name no lookup reaches: an object of the
-// class asks the class for them, so they are chained on the class rather than
-// bound to a name in it.
-void SemaAnalyzer::special_member(const AstNode& node, const Context& ctx)
+// 12.1p1 and 12.4p1: the type a constructor or destructor declarator writes.
+// Neither has a return type, and both take the object 9.3.1p3 makes the first
+// parameter of a member function's type - so the declaration is read against
+// the class it belongs to wherever it is written, which 3.4.1p8 is what puts
+// that class in force for a definition written outside it.
+TypeId SemaAnalyzer::special_member_type(const AstNode& node,
+                                         const Context& ctx,
+                                         const SemaEntity& owner,
+                                         bool destructor,
+                                         std::vector<Parameter>& parameters,
+                                         bool& variadic)
 {
-	SemaEntity& owner = *ctx.scope->owner;
-	const std::string written = node.text;
-	const std::string spelled =
-		QualifiedName(types_.user_name(owner.type)).last();
-	const bool destructor = !written.empty() && written[0] == '~';
-	const std::string named = destructor ? written.substr(1) : written;
-	if (QualifiedName(named).last() != spelled)
-	{
-		// 12.3.2: a conversion function, and 13.5 an operator function written
-		// with no return type.  Neither is part of this milestone's slice, and
-		// what the output would describe without it is not the class the
-		// program wrote.
-		throw std::runtime_error(spelled + " declares " + written +
-		                         ", which is a special member function this "
-		                         "milestone does not describe");
-	}
 	const AstNode* const declarator = child_of(node, AstKind::Declarator);
-	std::vector<Parameter> parameters;
-	bool variadic = false;
 	const AstNode* const clause =
 		declarator == nullptr ? nullptr
 		                      : child_of(*declarator, AstKind::ParameterClause);
@@ -529,8 +517,6 @@ void SemaAnalyzer::special_member(const AstNode& node, const Context& ctx)
 		read_parameters(*clause, ctx, parameters, variadic);
 	}
 	std::vector<TypeId> types;
-	// 12.1p1 and 12.4p1: neither has a return type, and both are called on the
-	// object 9.3.1p3 makes the first parameter of a member function's type.
 	// 12.4p12 lets a destructor be invoked for any cv-qualified version of its
 	// class, which no cv-qualifier-seq of its own says.
 	types.push_back(types_.pointer_to(
@@ -546,8 +532,47 @@ void SemaAnalyzer::special_member(const AstNode& node, const Context& ctx)
 	{
 		throw std::runtime_error("a destructor is declared with parameters");
 	}
-	const TypeId type =
-		types_.function_of(types_.fundamental(FT_VOID), types, variadic);
+	return types_.function_of(types_.fundamental(FT_VOID), types, variadic);
+}
+
+// 12.1p1 and 12.4p1: the unqualified name a special member declarator wrote,
+// checked against the class it belongs to.  A name that is not the class's own
+// names something else, and what this milestone describes is the class the
+// program wrote.
+std::string SemaAnalyzer::special_member_name(const std::string& written,
+                                              const SemaEntity& owner)
+{
+	const std::string spelled =
+		QualifiedName(types_.user_name(owner.type)).last();
+	const bool destructor = !written.empty() && written[0] == '~';
+	const std::string named = destructor ? written.substr(1) : written;
+	if (named != spelled)
+	{
+		// 12.3.2: a conversion function, and 13.5 an operator function written
+		// with no return type.  Neither is part of this milestone's slice, and
+		// what the output would describe without it is not the class the
+		// program wrote.
+		throw std::runtime_error(spelled + " declares " + written +
+		                         ", which is a special member function this "
+		                         "milestone does not describe");
+	}
+	return spelled;
+}
+
+// 12.1 and 12.4: a constructor or a destructor declared in a class body.  Both
+// are functions of the class whose name no lookup reaches: an object of the
+// class asks the class for them, so they are chained on the class rather than
+// bound to a name in it.
+void SemaAnalyzer::special_member(const AstNode& node, const Context& ctx)
+{
+	SemaEntity& owner = *ctx.scope->owner;
+	const std::string written = QualifiedName(node.text).last();
+	const bool destructor = !written.empty() && written[0] == '~';
+	const std::string spelled = special_member_name(written, owner);
+	std::vector<Parameter> parameters;
+	bool variadic = false;
+	const TypeId type = special_member_type(node, ctx, owner, destructor,
+	                                        parameters, variadic);
 	SemaEntity* entity = nullptr;
 	if (destructor)
 	{
@@ -646,18 +671,30 @@ void SemaAnalyzer::special_member(const AstNode& node, const Context& ctx)
 	{
 		return;
 	}
-	entity->defined = true;
+	open_special_member_body(node, *entity, ctx, written, parameters);
+}
+
+// 12.6.2 and 9.2p2: the body a special member's definition gives it, read where
+// the class is complete rather than where the definition stands.  One
+// description serves the definition written in the class body and the one
+// written outside it, because the only thing that differs is where the
+// declarator-id was written.
+void SemaAnalyzer::open_special_member_body(
+	const AstNode& node, SemaEntity& entity, const Context& ctx,
+	const std::string& written, const std::vector<Parameter>& parameters)
+{
+	entity.defined = true;
 
 	DumpScope& dump = model_.open_dump(*ctx.dump, "scope function " + written);
-	Scope& inner = model_.open(ScopeKind::Function, *ctx.scope, entity, &dump);
+	Scope& inner = model_.open(ScopeKind::Function, *ctx.scope, &entity, &dump);
 	SemaEntity& self =
-		model_.create(SemaKind::Parameter, "this", this_type(*entity));
+		model_.create(SemaKind::Parameter, "this", this_type(entity));
 	model_.bind(inner, self.name, self);
 	model_.declare_in(inner, self);
 	// 9.2p2: the body and the mem-initializers are read where the class is
 	// complete, which is the end of the translation unit.
 	Pending pending;
-	pending.function = entity;
+	pending.function = &entity;
 	pending.self = &self;
 	pending.body = &node;
 	pending.scope = &inner;
@@ -665,6 +702,75 @@ void SemaAnalyzer::special_member(const AstNode& node, const Context& ctx)
 	pending.initializers = child_of(node, AstKind::CtorInitializer);
 	pending.members = ctx.scope;
 	pending_.push_back(pending);
+}
+
+// 9.3p2 and 12.1p1: a constructor or a destructor defined outside its class.
+// 3.4.3p3 makes the declarator-id name the class the definition belongs to, so
+// the class is the region the whole definition is read against - its
+// parameters, its mem-initializers and its body alike - and what it defines is
+// the declaration that class already made rather than a second one.  A class
+// declares its special members once, where 9.2p2 completes it, so a definition
+// that matches none of them defines nothing and is refused rather than dropped.
+void SemaAnalyzer::special_member_definition(const AstNode& node,
+                                             const Context& ctx)
+{
+	const QualifiedName spelled(node.text);
+	const std::string written = spelled.last();
+	if (!spelled.qualified())
+	{
+		throw std::runtime_error(written + " is defined where no class declares "
+		                         "it, which 12.1p1 gives no meaning");
+	}
+	Scope& region = *resolve_prefix(spelled, ctx);
+	if (region.kind != ScopeKind::Class || region.owner == nullptr)
+	{
+		throw std::runtime_error(node.text + " defines a special member of what "
+		                         "is not a class");
+	}
+	SemaEntity& owner = *region.owner;
+	const bool destructor = !written.empty() && written[0] == '~';
+	const std::string spelled_class = special_member_name(written, owner);
+	Context target = ctx;
+	target.scope = &region;
+	target.dump = region.dump;
+	std::vector<Parameter> parameters;
+	bool variadic = false;
+	const TypeId type = special_member_type(node, target, owner, destructor,
+	                                        parameters, variadic);
+	// 13.1: the declaration this definition defines is the one of the class's
+	// own whose parameter-type-list agrees, which is one probe of the chain the
+	// class holds.  12.1p5 and 12.4p3's implicitly declared members are not
+	// declarations the program wrote, so a definition never names one.
+	SemaEntity* const entity =
+		destructor ? owner.destructor
+		           : (owner.constructor == nullptr
+		              ? nullptr
+		              : model_.overload_of(*owner.constructor,
+		                                   types_.signature(type)));
+	if (entity == nullptr || entity->defaulted || entity->deleted ||
+	    entity->inherited != nullptr)
+	{
+		throw std::runtime_error(spelled_class + " declares no " +
+		                         (destructor ? "destructor" : "constructor") +
+		                         " this definition defines");
+	}
+	if (entity->defined)
+	{
+		throw std::runtime_error(node.text + " is defined twice");
+	}
+	// 7.1.2p3: a definition written outside the class is inline only where the
+	// program says so, which is what makes it the one definition of the
+	// function rather than one every unit that needs it may hold.
+	const AstNode* const specifiers = child_of(node, AstKind::MemberSpecifiers);
+	for (std::size_t index = 0;
+	     specifiers != nullptr && index < specifiers->children.size(); ++index)
+	{
+		if (specifiers->children[index]->token == KW_INLINE)
+		{
+			entity->inline_function = true;
+		}
+	}
+	open_special_member_body(node, *entity, target, written, parameters);
 }
 
 // 12.9p1: how many parameters the shortest constructor in the candidate set a

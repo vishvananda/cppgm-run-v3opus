@@ -202,7 +202,7 @@ bool AstParser::parse_name_specifier(AstNode* seq, SpecifierMode mode,
 	if (mode != SpecifierMode::Decl)
 	{
 		AstNode* named = make_text(AstKind::TypeName, text);
-		named->add(operand);
+		named->add(carried(operand));
 		seq->add(named);
 		return true;
 	}
@@ -211,7 +211,7 @@ bool AstParser::parse_name_specifier(AstNode* seq, SpecifierMode mode,
 	{
 		node->token = TT_IDENTIFIER;
 	}
-	node->add(operand);
+	node->add(carried(operand));
 	seq->add(node);
 	return true;
 }

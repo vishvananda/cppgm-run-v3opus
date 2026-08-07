@@ -638,8 +638,9 @@ Scope* SemaAnalyzer::resolve_prefix(const QualifiedName& name,
 // names, so the expression the parser kept beside the name is what answers it;
 // every component after it is looked up the way 3.4.3 looks one up behind any
 // other prefix.
-TypeId SemaAnalyzer::decltype_qualified_type(const AstNode& node,
-                                             const Context& ctx)
+SemaEntity* SemaAnalyzer::decltype_qualified_name(
+	const AstNode& node, const Context& ctx, LookupKind filter,
+	std::vector<SemaEntity*>* found)
 {
 	const TypeId head = types_.strip_cv(decltype_type(node, ctx));
 	SemaEntity* const owner = model_.type_owner(head);
@@ -650,12 +651,22 @@ TypeId SemaAnalyzer::decltype_qualified_type(const AstNode& node,
 		                         "names no class or enumeration");
 	}
 	const QualifiedName written(node.text);
-	SemaEntity& named =
-		require(model_.lookup_in(*resolve_prefix(written, ctx, region),
-		                         written.last(), LookupKind::Type),
-		        written.last());
-	// 11.2: the name reaches a member of the class the prefix named, which is
-	// where the access that class gave the member is asked about.
-	require_access(named, ctx.scope);
-	return named.type;
+	SemaEntity* const named =
+		model_.lookup_in(*resolve_prefix(written, ctx, region), written.last(),
+		                 filter, found);
+	if (named != nullptr)
+	{
+		// 11.2: the name reaches a member of the class the prefix named, which
+		// is where the access that class gave the member is asked about.
+		require_access(*named, ctx.scope);
+	}
+	return named;
+}
+
+TypeId SemaAnalyzer::decltype_qualified_type(const AstNode& node,
+                                             const Context& ctx)
+{
+	const QualifiedName written(node.text);
+	return require(decltype_qualified_name(node, ctx, LookupKind::Type),
+	               written.last()).type;
 }

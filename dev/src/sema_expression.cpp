@@ -370,10 +370,24 @@ SemaAnalyzer::Value SemaAnalyzer::id_expression(const AstNode& node,
                                                 const Context& ctx,
                                                 DumpNode& parent)
 {
+	std::vector<SemaEntity*>& found = model_.open_overloads();
+	if (child_kind(node, AstKind::CarriedExpression) != nullptr)
+	{
+		// 7.1.6.2p1: the nested-name-specifier begins with a
+		// decltype-specifier, so what says which region the rest of the name is
+		// looked up in is the expression the parser kept beside it.  A static
+		// data member, an enumerator and a static member function are each
+		// named this way, and each is the declaration that region holds.
+		return named_value(node,
+		                   require(decltype_qualified_name(node, ctx,
+		                                                   LookupKind::Any,
+		                                                   &found),
+		                           node.text),
+		                   parent, &found);
+	}
 	// 14.2: a template-id denotes the specializations its argument list makes
 	// rather than a declaration bound to the whole spelling, so the template
 	// layer answers before ordinary lookup is asked.
-	std::vector<SemaEntity*>& found = model_.open_overloads();
 	SemaEntity* named = template_specializations(node.text, ctx, found);
 	if (named == nullptr)
 	{
@@ -1542,7 +1556,12 @@ SemaAnalyzer::Value SemaAnalyzer::unary_expression(const AstNode& node,
 	    QualifiedName(written.text).qualified())
 	{
 		found = &model_.open_overloads();
-		named = resolve(written.text, ctx, LookupKind::Any, found);
+		// 7.1.6.2p1: a nested-name-specifier that begins with a
+		// decltype-specifier reaches its region through the expression the
+		// parser kept beside the name, which no spelling holds.
+		named = child_kind(written, AstKind::CarriedExpression) == nullptr
+			? resolve(written.text, ctx, LookupKind::Any, found)
+			: decltype_qualified_name(written, ctx, LookupKind::Any, found);
 		if (named != nullptr && named->kind == SemaKind::Variable &&
 		    named->object_member && named->region->owner != nullptr)
 		{

@@ -1,0 +1,90 @@
+function @outer__buffer__buffer__base_entry(%this : ptr, %given : obj<4x4>) -> void [binding=strong, object=_ZN5outer6bufferC2ENS_5tokenE] {
+  slot $this : ptr
+  slot $given : obj<4x4>
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = addr $given
+    copyobj 4x4 %given, %t1
+    %t2 = addr $given
+    %t3 = index i8 [projection=field] %t2, 0
+    %t4 = load i32 %t3
+    %t5 = load ptr $this
+    %t6 = index i8 [projection=field] %t5, 0
+    store i32 %t4, %t6
+    return void
+}
+function @outer__buffer__buffer(%this : ptr, %given : obj<4x4>) -> void [binding=strong, object=_ZN5outer6bufferC1ENS_5tokenE] {
+  slot $this : ptr
+  slot $given : obj<4x4>
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = addr $given
+    copyobj 4x4 %given, %t1
+    %t2 = addr $given
+    %t3 = index i8 [projection=field] %t2, 0
+    %t4 = load i32 %t3
+    %t5 = load ptr $this
+    %t6 = index i8 [projection=field] %t5, 0
+    store i32 %t4, %t6
+    return void
+}
+function @outer__buffer___buffer__base_entry(%this : ptr) -> void [binding=strong, object=_ZN5outer6bufferD2Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    store i32 0, %t2
+    return void
+}
+function @outer__buffer___buffer(%this : ptr) -> void [binding=strong, object=_ZN5outer6bufferD1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    store i32 0, %t2
+    return void
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $source : obj<4x4>
+  slot $holder : obj<4x4>
+  slot $argobj__1 : obj<4x4>
+  slot $cond__2 : i32
+
+  block ^entry:
+    %t1 = addr $source
+    %t2 = addr $source
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 4, %t3
+    %t4 = addr $holder
+    %t5 = addr $argobj__1
+    %t6 = addr $source
+    copyobj 4x4 %t6, %t5
+    call void @outer__buffer__buffer(%t4, $argobj__1)
+    %t7 = addr $holder
+    %t8 = index i8 [projection=field] %t7, 0
+    %t9 = load i32 %t8
+    %t10 = cmp eq i32 %t9, 4
+    branch %t10, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__2
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__2
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t11 = load i32 $cond__2
+    %t12 = addr $holder
+    call void @outer__buffer___buffer(%t12)
+    return i32 %t11
+}
+alias object _ZN5outer6bufferC2ENS_5tokenE = @outer__buffer__buffer
+alias object _ZN5outer6bufferD2Ev = @outer__buffer___buffer
