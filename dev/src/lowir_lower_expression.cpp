@@ -1132,12 +1132,17 @@ LowValue LowirFunctionLowering::conditional_object(const DumpNode& node,
 	const std::string then_label = reserve_block("condobj_then");
 	const std::string else_label = reserve_block("condobj_else");
 	const std::string end_label = reserve_block("condobj_end");
-	// 5.16p4 and 12.8p31: the object the conditional is worth is the object
-	// whichever arm ran created, so where a place asked for that object both
-	// arms create it there and no object of the conditional's own stands
-	// between them.
-	const Operand at =
-		into != nullptr ? *into : open_object_slot(type, "condobj");
+	// 5.16p3 and 12.8p31: the object the conditional is worth is the result
+	// object each of its operands initializes, so where a place asked for that
+	// object both arms initialize it there and no object of the conditional's
+	// own stands between them.  Where no place asked, the function gives it one
+	// - named after whatever did ask for the object, which is the name the
+	// analysis wrote on it, and after the conditional itself where nothing did.
+	const Operand at = into != nullptr
+		? *into
+		: open_object_slot(type, node.fact.spelling.empty()
+		                             ? "condobj"
+		                             : node.fact.spelling.c_str());
 	LowValue held;
 	held.type = type;
 	held.lvalue = true;

@@ -796,6 +796,30 @@ private:
 	                      bool copied = false, const Value* given = nullptr,
 	                      bool value_init = false,
 	                      const std::vector<SemaEntity*>* forwarded = nullptr);
+	// 8.5p15/p16 and 5.2.3p1: which of 8.5's forms the initializer an object of
+	// class type was written with is - a list whose clauses are the
+	// constructor's arguments, one expression a converting constructor answers,
+	// or the `T(a, b)` and `T{...}` whose arguments are the object's own
+	// because 12.8p31 leaves no prvalue standing between them.  Read once from
+	// what the program wrote, before anything is written for the
+	// initialization.
+	struct WrittenInitializer
+	{
+		WrittenInitializer()
+			: list(nullptr)
+			, converting(false)
+			, elided_prvalue(false)
+			, value_init(false)
+		{}
+
+		const AstNode* list;
+		bool converting;
+		bool elided_prvalue;
+		bool value_init;
+	};
+	WrittenInitializer read_initializer(const AstNode* written,
+	                                    TypeId object_type, const Context& ctx,
+	                                    bool value_init);
 	// 5.1.1p1: a parameter named as the program would name it, written into a
 	// node of its own under `parent`.
 	Value parameter_value(SemaEntity& parameter, DumpNode& parent);
@@ -1184,6 +1208,9 @@ private:
 	// 5.16p3: an operand of a conditional whose result is an lvalue of a base
 	// class of that operand's own class.
 	void convert_arm_to_base(Value& arm, TypeId result);
+	// 5.16p3: an operand of a conditional whose result is a prvalue of class
+	// type, which copy-initializes the result object from that operand.
+	void transfer_arm_to_result(Value& arm, TypeId result, const Context& ctx);
 	// 5.9p2: an operand of a built-in binary operator whose composite pointer
 	// type is a pointer to a base of its own class.
 	void convert_operand_to_base(Value& operand, TypeId operands);

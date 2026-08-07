@@ -72,20 +72,26 @@ void LowirFunctionLowering::add_initialization(const Operand& storage,
 	{
 		// 3.6.2p2 and 12.1p5: the object is initialized by calling its
 		// constructor on it, which is the one action its initialization is.
-		// The object has a name of the program image, so nothing has to be
-		// emitted to name it and a constructor that does nothing leaves no
-		// action at all.
-		if (node.children[0]->children[0]->fact.entity->trivial)
-		{
-			unit_.owe_internal_definition(
-				*node.children[0]->children[0]->fact.entity);
-			return;
-		}
+		// Whether that call comes to anything is the call's own question and is
+		// asked there rather than a second time here: 12.1p5's "there is
+		// nothing to do" is true of a trivial default constructor, and 12.8p12's
+		// trivial copy still carries the bytes of the object it was given.
+		// The object has a name of the program image, so where the call wrote
+		// nothing the address named for it is no part of the program either.
 		LowValue object;
 		object.type = type;
 		object.lvalue = true;
 		object.operand = storage;
+		const std::size_t block = current_;
+		const std::size_t named = out_.blocks[block].instructions.size();
+		const unsigned counted = temps_;
 		constructor_call(address_of(object), node);
+		if (current_ == block &&
+		    out_.blocks[block].instructions.size() == named + 1)
+		{
+			out_.blocks[block].instructions.pop_back();
+			temps_ = counted;
+		}
 		return;
 	}
 	if (types.is_reference(type))
@@ -1199,11 +1205,15 @@ LowValue LowirFunctionLowering::new_expression(const DumpNode& node)
 	return value;
 }
 
-// 8.5p14 and 12.8p31: whether the initializer creates the object it is worth
-// rather than naming one that already stands somewhere.  Where it does, the
-// object it creates is the object being initialized, and no copy stands between
-// the two; this is the one question that says so, asked before the initializer
-// runs because the answer is what the destination is handed to.
+// 8.5p14 and 12.8p31: whether this initializer builds at the destination rather
+// than being read out of an object that already stands somewhere.  The question
+// the analysis asked to decide whether the copy is written at all is
+// `creates_its_object`, and this is the same answer read where the destination
+// is handed over, with the two things only the lowering knows added: the storage
+// a temporary was already given, and whether the ABI hands a returned object
+// back as bytes.  5.16p3's result object is the one addition - a conditional
+// creates nothing, but the object it is worth is the one its arms fill, so where
+// a place asked for that object the arms fill that place.
 bool LowirFunctionLowering::creates_object(const DumpNode& node, TypeId type)
 {
 	TypeTable& types = unit_.types();
@@ -1213,30 +1223,26 @@ bool LowirFunctionLowering::creates_object(const DumpNode& node, TypeId type)
 		// this one through a conversion rather than by standing in its storage.
 		return false;
 	}
-	switch (node.fact.kind)
+	if (node.fact.kind == FactKind::Conditional)
 	{
-	case FactKind::TemporaryObject:
-		// 12.2p1: the temporary is the object the program wrote, and 12.8p31
-		// lets the storage it is given be the storage asking for it.
-		return node.fact.entity != nullptr && !node.children.empty() &&
-			node.children[0]->fact.kind == FactKind::ConstructorAction &&
-			placed_.count(node.fact.entity->id) == 0 &&
-			slots_.count(node.fact.entity->id) == 0;
-
-	case FactKind::Call:
-		// 6.6.3p2: the function creates the returned object in the storage the
-		// call names for it, which is this destination.
-		return types.returns_indirectly(node.fact.type);
-
-	case FactKind::Conditional:
-		// 5.16p4: the conditional is a prvalue of class type, so the object it
-		// is worth is the object whichever arm ran created.
+		// 5.16p3: the conditional is a prvalue of class type, so the result
+		// object each of its operands initializes is this destination.
 		return node.fact.category == ValueCategory::PRValue;
-
-	default:
-		break;
 	}
-	return false;
+	if (!creates_its_object(node))
+	{
+		return false;
+	}
+	if (node.fact.kind == FactKind::Call)
+	{
+		// 6.6.3p2: only a function the ABI gives a destination to creates the
+		// returned object there; one that hands back the bytes is copied in.
+		return types.returns_indirectly(node.fact.type);
+	}
+	// 12.2p1: a temporary that already stands in storage of its own stands
+	// there for every reader of it, so it is not built a second time here.
+	return placed_.count(node.fact.entity->id) == 0 &&
+		slots_.count(node.fact.entity->id) == 0;
 }
 
 LowValue LowirFunctionLowering::place_class_object(const Operand& destination,

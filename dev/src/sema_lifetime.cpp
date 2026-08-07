@@ -120,6 +120,27 @@ bool SemaAnalyzer::element_constructed(TypeId type, const AstNode* written)
 		(is_initializer_list(written->kind) && written->children.empty());
 }
 
+bool creates_its_object(const DumpNode& node)
+{
+	switch (node.fact.kind)
+	{
+	case FactKind::TemporaryObject:
+		// 12.2p1: the temporary is the object the program wrote, and what
+		// creates it is the constructor standing under it.
+		return node.fact.entity != nullptr && !node.children.empty() &&
+			node.children[0]->fact.kind == FactKind::ConstructorAction;
+
+	case FactKind::Call:
+		// 6.6.3p2: the returned object is created where the call names storage
+		// for it, so a call of a function returning a class creates one.
+		return node.fact.category == ValueCategory::PRValue;
+
+	default:
+		break;
+	}
+	return false;
+}
+
 // 12.8p32: a copy 12.8p31 elides is still a copy the program wrote, so the
 // constructor 13.3 would have chosen for it has to be one this region may name
 // and one the standard has a definition for.  The elision says the call does
@@ -145,6 +166,70 @@ void SemaAnalyzer::require_elided_transfer(TypeId type, const Context& ctx)
 			" is initialized from a value of its own class, whose copy 12.8p32 "
 			"asks for a constructor the access its class gave does not reach");
 	}
+}
+
+SemaAnalyzer::WrittenInitializer SemaAnalyzer::read_initializer(
+	const AstNode* written, TypeId object_type, const Context& ctx,
+	bool value_init)
+{
+	// 8.5p15 and 8.5p16: which of the arguments the program wrote reach the
+	// constructor, and whether 13.3.1.4 leaves out the ones declared `explicit`.
+	WrittenInitializer form;
+	form.value_init = value_init;
+	if (written == nullptr)
+	{
+		return form;
+	}
+	if (is_initializer_list(written->kind))
+	{
+		form.list = written;
+		// 8.5p7: `()` and `{}` value-initialize the object rather than naming
+		// an argument for a constructor.
+		form.value_init = written->children.empty();
+		return form;
+	}
+	// 8.5p14: copy-initialization from one expression, which only a converting
+	// constructor may answer.
+	form.converting = true;
+	if (written->kind != AstKind::CallExpression || written->children.empty() ||
+	    written->children[0]->kind != AstKind::IdExpression)
+	{
+		return form;
+	}
+	// 12.8p31 and 5.2.3p1: a class object copy-initialized from a prvalue of
+	// its own type is initialized by whatever makes that prvalue, so the
+	// arguments of `T(...)` are the constructor's and no object of the type
+	// stands between them.
+	SemaEntity* const named =
+		resolve(written->children[0]->text, ctx, LookupKind::Type);
+	if (named == nullptr || !names_a_type(*named) ||
+	    types_.strip_cv(named->type) != types_.strip_cv(object_type))
+	{
+		return form;
+	}
+	form.list = call_arguments(*written);
+	if (form.list != nullptr && form.list->children.size() == 1 &&
+	    form.list->children[0]->kind == AstKind::BracedInitList)
+	{
+		// 5.2.3p3: the prvalue was written `T{...}`, whose one braced list
+		// stands where the arguments of `T(...)` do.  What initializes the
+		// object is that list, so 8.5.4 reads it and 8.5.1 gives its clauses to
+		// the members of an aggregate.
+		form.list = form.list->children[0];
+	}
+	// 5.2.3p2 leaves `T()` the value-initialization 8.5p7 writes where it
+	// stands rather than an object something was built into, so it is the one
+	// spelling of the prvalue this is not: `T(a, b)` names arguments and
+	// `T{...}` names braces, and either of them is what the object was created
+	// by.
+	form.elided_prvalue =
+		form.list != nullptr && (form.list->kind == AstKind::BracedInitList ||
+		                         !form.list->children.empty());
+	form.converting = false;
+	// 5.2.3p2: `T()` value-initializes what it makes, and the grammar writes no
+	// argument-list node for one that has no arguments.
+	form.value_init = form.list == nullptr || form.list->children.empty();
+	return form;
 }
 
 // 8.5, 12.1 and 13.3.1.3: an object of class type is initialized by one of the
@@ -181,72 +266,18 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 		                         types_.description(object_type) +
 		                         " is declared");
 	}
-	// 8.5p15 and 8.5p16: which of the arguments the program wrote reach the
-	// constructor, and whether 13.3.1.4 leaves out the ones declared `explicit`.
-	const AstNode* list = nullptr;
-	bool converting = false;
-	// 12.8p31 and 5.2.3p1: whether the initializer is a prvalue written
-	// `T(a, b)` or `T{...}` that this object is created by rather than copied
-	// from.
-	bool elided_prvalue = false;
 	// 8.5p14 and 8.5p16: only `= { ... }` is copy-list-initialization.  `= e`
 	// is copy-initialization, which 13.3.1.4 answers by leaving the `explicit`
 	// constructors out of the candidates rather than by refusing one, and
 	// `= T(...)` is the direct-initialization 12.8p31 elides into.
 	const bool copy_list =
 		copied && written != nullptr && written->kind == AstKind::BracedInitList;
-	if (written != nullptr)
-	{
-		if (is_initializer_list(written->kind))
-		{
-			list = written;
-			// 8.5p7: `()` and `{}` value-initialize the object rather than
-			// naming an argument for a constructor.
-			value_init = list->children.empty();
-		}
-		else
-		{
-			// 8.5p14: copy-initialization from one expression, which only a
-			// converting constructor may answer.
-			converting = true;
-		}
-	}
-	if (converting && written->kind == AstKind::CallExpression &&
-	    !written->children.empty() &&
-	    written->children[0]->kind == AstKind::IdExpression)
-	{
-		// 12.8p31 and 5.2.3p1: a class object copy-initialized from a prvalue
-		// of its own type is initialized by whatever makes that prvalue, so the
-		// arguments of `T(...)` are the constructor's and no object of the type
-		// stands between them.
-		SemaEntity* const named =
-			resolve(written->children[0]->text, ctx, LookupKind::Type);
-		if (named != nullptr && names_a_type(*named) &&
-		    types_.strip_cv(named->type) == types_.strip_cv(object_type))
-		{
-			list = call_arguments(*written);
-			if (list != nullptr && list->children.size() == 1 &&
-			    list->children[0]->kind == AstKind::BracedInitList)
-			{
-				// 5.2.3p3: the prvalue was written `T{...}`, whose one braced
-				// list stands where the arguments of `T(...)` do.  What
-				// initializes the object is that list, so 8.5.4 reads it and
-				// 8.5.1 gives its clauses to the members of an aggregate.
-				list = list->children[0];
-			}
-			// 5.2.3p2 leaves `T()` the value-initialization 8.5p7 writes where
-			// it stands rather than an object something was built into, so it
-			// is the one spelling of the prvalue this is not: `T(a, b)` names
-			// arguments and `T{...}` names braces, and either of them is what
-			// the object was created by.
-			elided_prvalue = list != nullptr &&
-				(list->kind == AstKind::BracedInitList || !list->children.empty());
-			converting = false;
-			// 5.2.3p2: `T()` value-initializes what it makes, and the grammar
-			// writes no argument-list node for one that has no arguments.
-			value_init = list == nullptr || list->children.empty();
-		}
-	}
+	const WrittenInitializer form =
+		read_initializer(written, object_type, ctx, value_init);
+	const AstNode* const list = form.list;
+	const bool elided_prvalue = form.elided_prvalue;
+	bool converting = form.converting;
+	value_init = form.value_init;
 
 	Value source;
 	if (given != nullptr)
@@ -264,13 +295,23 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 		// be what initializes it, with no constructor standing between them.
 		source = expression(*written, ctx, line);
 		if (types_.strip_cv(source.type) == types_.strip_cv(object_type) &&
-		    !member && source.category == ValueCategory::PRValue)
+		    !member && source.category == ValueCategory::PRValue &&
+		    source.node != nullptr &&
+		    (creates_its_object(*source.node) ||
+		     types_.is_trivially_copied(types_.strip_cv(object_type))))
 		{
-			// 12.8p31: the initializer is a prvalue of the object's own class,
-			// so the object it denotes and the one being initialized may be one
-			// and nothing stands between them.  A glvalue names an object that
-			// goes on existing, so 8.5p14 leaves the initialization the call of
-			// the copy or move constructor 13.3 chooses for it.
+			// 12.8p31: the initializer is a prvalue of the object's own class
+			// that creates the object it is worth, so the object it creates and
+			// the one being initialized may be one and nothing stands between
+			// them.  A glvalue names an object that goes on existing, so 8.5p14
+			// leaves it the call of the copy or move constructor 13.3 chooses.
+			//
+			// A prvalue that only selects among objects - a conditional, a comma
+			// - creates nothing: the object it is worth was created where its
+			// operand stands, and 12.8p15's copy of it into this one is a call
+			// the program wrote and can watch run.  12.8p12's is not: where the
+			// class carries an object by its bytes there is no call to leave
+			// out, and the two objects are one.
 			require_elided_transfer(object_type, ctx);
 			return;
 		}
@@ -787,11 +828,18 @@ SemaAnalyzer::Value SemaAnalyzer::build_temporary(TypeId type, DumpNode& line,
 // argument that asked for it.  A temporary something already read as the object
 // it is - a base subobject of it, a member of it - keeps the name it was given
 // where it was written, because the argument is no longer what made it.
+//
+// 5.16p3's result object is a temporary the program wrote no `T(...)` for, and
+// it takes its name the same way: what asked for the object is what its storage
+// is named after, wherever the object came from.
 void SemaAnalyzer::name_argument_temporary(const Value& value,
                                            const char* prefix)
 {
 	if (value.node != nullptr &&
-	    value.node->fact.kind == FactKind::TemporaryObject)
+	    (value.node->fact.kind == FactKind::TemporaryObject ||
+	     (value.node->fact.kind == FactKind::Conditional &&
+	      value.category == ValueCategory::PRValue &&
+	      types_.is_class(types_.strip_cv(value.type)))))
 	{
 		value.node->fact.spelling = prefix;
 	}

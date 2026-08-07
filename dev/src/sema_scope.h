@@ -405,6 +405,18 @@ struct DumpNode
 // nothing to carry out of - so it is one answer rather than two.
 bool observable_expression(const DumpNode& node);
 
+// 12.8p31: whether this expression *creates* the object it is worth, rather
+// than selecting one that something else created.  A temporary the program
+// wrote and a call whose returned object the caller names each create theirs,
+// which is what lets the object being initialized be that object with no copy
+// standing between the two.  A conditional creates nothing: 5.16p3 gives it a
+// result object each of its operands copy-initializes, so what a copy of it
+// would carry is an object that already stands somewhere.  It is one question
+// about the resolved tree - the analysis asks it to decide whether the copy is
+// written at all, and the lowering asks it to decide where the initializer
+// builds - so it is one answer rather than two that can disagree.
+bool creates_its_object(const DumpNode& node);
+
 // One line-oriented scope of the dump.
 //
 // The output is a tree of scopes whose shape is not the scope tree: a reopened

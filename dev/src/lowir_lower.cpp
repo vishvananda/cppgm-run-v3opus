@@ -863,6 +863,22 @@ void LowirUnitLowering::global_variable(const DumpNode& node)
 		dynamic = nothing_to_do ? nullptr : written;
 		written = nullptr;
 	}
+	else if (written != nullptr &&
+	         types_.kind(types_.strip_cv(type)) == TypeKind::Class)
+	{
+		// 3.6.2p2 and 8.5p14: the initializer of an object of class type that
+		// 12.8p31 left standing is an expression - a call that creates the
+		// object where the initialization names storage for it, a name of an
+		// object it is copied from - and neither is a clause the image can
+		// hold.  So the storage starts as zero and the initialization runs
+		// before the program does, at the address the object has, which is the
+		// same hand-off a declaration inside a function reaches.  It is not a
+		// list of clauses over elements: a class has no element type, and
+		// reading one out of it counts a bound no array wrote.
+		global.structured = true;
+		add_zero_item(global, types_.object_size(types_.strip_cv(type)));
+		dynamic = written;
+	}
 	else if (types_.kind(types_.strip_cv(type)) == TypeKind::Array ||
 	         types_.kind(types_.strip_cv(type)) == TypeKind::Class)
 	{

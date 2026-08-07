@@ -2298,6 +2298,35 @@ void SemaAnalyzer::convert_arm_to_base(Value& arm, TypeId result)
 	}
 }
 
+// 5.16p3: the result of a conditional whose operands are two prvalue-or-glvalue
+// values of one class type is a prvalue, which is an object of its own that
+// each operand copy-initializes.  An operand that is a prvalue creates its
+// object where the result stands, so nothing is written for it; one that names
+// an object that goes on existing fills the result object with the copy or move
+// 12.8p15 gives the class, chosen by 13.3 from the value category the operand
+// has - the same transfer 5.2.2p4's argument and 6.6.3p2's returned object are
+// each filled by, and written here so no later layer has to work out that the
+// arm of a conditional is a copy.  A class whose copy carries nothing but bytes
+// is left to the copy of the bytes, which is what the result object already is.
+void SemaAnalyzer::transfer_arm_to_result(Value& arm, TypeId result,
+                                          const Context& ctx)
+{
+	if (arm.node == nullptr || arm.category == ValueCategory::PRValue ||
+	    types_.is_trivially_copied(types_.strip_cv(result)))
+	{
+		return;
+	}
+	const TypeId wanted = types_.strip_cv(result);
+	Value source = arm;
+	// The operand keeps the place it had among the conditional's children, so
+	// the temporary is written around it rather than beside it, and the operand
+	// becomes what constructs it.
+	DumpNode& line = model_.wrap_node(*arm.node, std::string());
+	source.node = line.children[0];
+	line.children.clear();
+	arm = build_temporary(wanted, line, nullptr, &source, ctx, "condobj", false);
+}
+
 // 5.9p2: an operand brought to the composite pointer type of two pointers to
 // related classes is converted to point at its own base subobject.
 void SemaAnalyzer::convert_operand_to_base(Value& operand, TypeId operands)
@@ -2692,6 +2721,14 @@ SemaAnalyzer::Value SemaAnalyzer::conditional_expression(const AstNode& node,
 		// two, asked here of the same base-specifier's access.
 		convert_operand_to_base(left, value.type);
 		convert_operand_to_base(right, value.type);
+	}
+	if (value.category == ValueCategory::PRValue &&
+	    types_.is_class(types_.strip_cv(value.type)))
+	{
+		// 5.16p3: the result object is one object however many operands could
+		// have filled it, and each of them fills it where it stands.
+		transfer_arm_to_result(left, value.type, ctx);
+		transfer_arm_to_result(right, value.type, ctx);
 	}
 	value.spelled = value.type;
 	value.node = &line;
