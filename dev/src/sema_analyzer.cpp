@@ -103,6 +103,7 @@ SemaAnalyzer::SemaAnalyzer(SemaDialect dialect)
 	, switches_(0)
 	, live_destructions_(0)
 	, returns_(kNoType)
+	, standard_only_(false)
 	, c_linkage_(false)
 {}
 
@@ -145,6 +146,8 @@ SemaAnalyzer::Match::Match()
 	, materialized(kNoType)
 	, to_base(nullptr)
 	, converting(nullptr)
+	, converted(nullptr)
+	, second_rank(0)
 {}
 
 void SemaAnalyzer::write(std::ostream& out) const

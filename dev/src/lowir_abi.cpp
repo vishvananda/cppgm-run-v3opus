@@ -290,7 +290,7 @@ std::string abi_symbol_of(const SemaEntity& entity, TypeTable& types,
 	// one of them - so a member `operator-(const T&)` is the binary operator
 	// however few parameters its declarator wrote.  This is the one question
 	// the object parameter is counted in; the encoding still leaves it out.
-	if (special ||
+	if (special || entity.conversion_function ||
 	    (entity.name.compare(0, 8, "operator") == 0 &&
 	     operator_terminal(entity.name.substr(8), parameters.size(), terminal,
 	                       literal_suffix)))
@@ -331,6 +331,14 @@ std::string abi_symbol_of(const SemaEntity& entity, TypeTable& types,
 				                             : "constructor-complete")
 				: (variant == kBaseObjectAbi ? "destructor-base"
 				                             : "destructor-complete");
+		}
+		else if (entity.conversion_function)
+		{
+			// 12.3.2p1: a conversion function is named by the type it converts
+			// to, which the encoding spells as `cv` and that type - and, having
+			// written it as the name, does not write it again as the result.
+			written.kind = abi_mangle::ABI_FUNCTION_RECORD_CONVERSION_TERMINAL;
+			written.type = abi_type(types, types.target(entity.type));
 		}
 		else
 		{

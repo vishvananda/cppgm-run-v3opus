@@ -32,6 +32,16 @@ void write_ast(std::ostream& out, const AstNode& root, unsigned depth)
 		// node of the syntax this dump describes.
 		return;
 	}
+	if (root.kind == AstKind::CarriedTypeId)
+	{
+		// 12.3.2p1: the conversion-type-id a conversion function's name is
+		// written from is a type, and only a semantic layer can say which one -
+		// two spellings of one type name one function, and a typedef-name is
+		// the usual way to write the second.  The dump writes the name as the
+		// grammar flattened it, so the type-id under it is a fact carried
+		// beside the syntax and not a node of the syntax this dump describes.
+		return;
+	}
 	if (root.kind == AstKind::AlignmentSpecifier)
 	{
 		// 7.6.1 and 7.6.2: the syntax accepts an attribute wherever the grammar

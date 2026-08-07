@@ -1564,8 +1564,8 @@ SemaAnalyzer::Value SemaAnalyzer::subscript_expression(const AstNode& node,
                                                        DumpNode& parent)
 {
 	DumpNode& line = model_.open_node(parent, std::string());
-	const Value left = expression(*node.children[0], ctx, line);
-	const Value right = expression(*node.children[1], ctx, line);
+	Value left = expression(*node.children[0], ctx, line);
+	Value right = expression(*node.children[1], ctx, line);
 	require_complete_value(left);
 	require_complete_value(right);
 	// 13.5.5p1: a subscript on a class object is a call of a member operator
@@ -1578,6 +1578,10 @@ SemaAnalyzer::Value SemaAnalyzer::subscript_expression(const AstNode& node,
 	{
 		return chosen;
 	}
+	// 13.6: an operand of class type reaches the built-in subscript through a
+	// conversion function of its class, which is what the operands now are.
+	left = operands[0];
+	right = operands[1];
 	// 5.2.1p1: one operand is a pointer to a completely-defined object type and
 	// the other an unscoped enumeration or integral type; `a[b]` is `*(a + b)`.
 	const TypeId left_type = decayed(left);
@@ -1989,7 +1993,7 @@ SemaAnalyzer::Value SemaAnalyzer::unary_expression(const AstNode& node,
 	DumpNode& line = model_.open_node(parent, std::string());
 	// A qualified name of anything else - a static member, a variable of a
 	// namespace, a function - is the operand `&` reads it as.
-	const Value operand = named != nullptr
+	Value operand = named != nullptr
 		? named_value(written, *named, line, found)
 		: expression(written, ctx, line);
 	Value value;
@@ -2001,6 +2005,9 @@ SemaAnalyzer::Value SemaAnalyzer::unary_expression(const AstNode& node,
 	{
 		return value;
 	}
+	// 13.6: an operand of class type reaches the built-in operator through a
+	// conversion function of its class, which is what the operand now is.
+	operand = operands[0];
 	value.category = ValueCategory::PRValue;
 
 	switch (node.token)
@@ -2247,6 +2254,10 @@ SemaAnalyzer::Value SemaAnalyzer::binary_expression(const AstNode& node,
 	{
 		return value;
 	}
+	// 13.6: an operand of class type reaches the built-in operator through a
+	// conversion function of its class, which is what the operands now are.
+	left = operands[0];
+	right = operands[1];
 	value.category = ValueCategory::PRValue;
 	if (node.token == OP_COMMA)
 	{
@@ -2606,14 +2617,16 @@ SemaAnalyzer::Value SemaAnalyzer::assignment_expression(const AstNode& node,
 		}
 		// 5.17p7: a compound assignment behaves as the operator it names
 		// followed by an assignment, so the operator's own rules decide
-		// whether the operands go together.
+		// whether the operands go together - and 13.6 lets the right operand
+		// reach that operator through a conversion function of its class.
+		const Value& rhs = operands[1];
 		Value target = left;
 		target.type = types_.strip_cv(left.type);
 		Value result;
-		result.type = binary_result(compound_operator(node.token), target, right);
+		result.type = binary_result(compound_operator(node.token), target, rhs);
 		result.spelled = result.type;
 		compound_type = binary_operand_type(compound_operator(node.token),
-		                                    target, right);
+		                                    target, rhs);
 		// 5.17p7: the result is then assigned to the left operand, so it has to
 		// be a value the left operand can hold.
 		if (!match_by_value(result, target.type).viable)
@@ -2661,8 +2674,11 @@ SemaAnalyzer::Value SemaAnalyzer::conditional_expression(const AstNode& node,
                                                          DumpNode& parent)
 {
 	DumpNode& line = model_.open_node(parent, std::string());
-	const Value condition_value = expression(*node.children[0], ctx, line);
+	Value condition_value = expression(*node.children[0], ctx, line);
 	require_complete_value(condition_value);
+	// 5.16p1: the first operand is contextually converted to bool, which for an
+	// operand of class type is a conversion function of that class.
+	contextual_bool(condition_value, ctx);
 	if (!types_.contextually_bool(condition_value.type))
 	{
 		throw std::runtime_error("the condition of ?: has no conversion to bool");

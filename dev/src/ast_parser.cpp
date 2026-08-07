@@ -482,16 +482,25 @@ AstNode* AstParser::parse_special_member(bool in_class)
 	const Mark start = mark();
 	skip_attributes();
 	AstNode* specifiers = parse_member_specifiers();
-	const std::string name = parse_special_member_name();
+	AstNode* conversion_type = nullptr;
+	std::string written_qualifier;
+	const std::string name =
+		parse_special_member_name(&conversion_type, &written_qualifier);
 	if (name.empty() || !at(OP_LPAREN))
 	{
 		return fail(start);
 	}
+	AstNode* conversion = carried_conversion(conversion_type,
+	                                         written_qualifier);
 	// 3.4.1p8: a special member defined outside its class is read where its
 	// declarator-id names, which is everything after that name - the parameter
 	// clause, the mem-initializers and the body alike.  A member defined in its
 	// class writes no nested-name-specifier, so the guard opens nothing there.
-	ReachedGuard reached(names_, name_qualifier(name));
+	// 12.3.2p1's conversion-type-id may hold a `::` of its own, so the prefix
+	// the parse read is what says which class, not the last `::` of the name.
+	ReachedGuard reached(names_, conversion != nullptr
+		? written_qualifier
+		: name_qualifier(name));
 	AstNode* declarator = make(AstKind::Declarator);
 	declarator->add(make_text(AstKind::Identifier, name));
 	AstNode* clause = parse_parameter_clause();
@@ -503,9 +512,11 @@ AstNode* AstParser::parse_special_member(bool in_class)
 	parse_function_suffixes(declarator);
 	if (in_class)
 	{
-		AstNode* declaration = parse_special_member_tail(specifiers, declarator, name);
+		AstNode* declaration =
+			parse_special_member_tail(specifiers, declarator, conversion);
 		if (declaration != nullptr)
 		{
+			declaration->text = name;
 			return declaration;
 		}
 	}
@@ -518,6 +529,10 @@ AstNode* AstParser::parse_special_member(bool in_class)
 	node->add(specifiers);
 	node->add(declarator);
 	node->add(initializer);
+	// 12.3.2p1's carried type-id stands before the body, because the body is
+	// the last child a definition has and the reader that runs it takes it
+	// from there.
+	node->add(conversion);
 	ScopeGuard scope(names_);
 	declare_parameters(declarator);
 	AstNode* body = parse_compound_statement();
@@ -533,7 +548,7 @@ AstNode* AstParser::parse_special_member(bool in_class)
 // only a declaration may carry.
 AstNode* AstParser::parse_special_member_tail(AstNode* specifiers,
                                               AstNode* declarator,
-                                              const std::string& name)
+                                              AstNode* conversion)
 {
 	const Mark start = mark();
 	AstNode* initializer = nullptr;
@@ -547,10 +562,11 @@ AstNode* AstParser::parse_special_member_tail(AstNode* specifiers,
 	{
 		return fail(start);
 	}
-	AstNode* node = make_text(AstKind::SpecialMemberDeclaration, name);
+	AstNode* node = make(AstKind::SpecialMemberDeclaration);
 	node->add(specifiers);
 	node->add(declarator);
 	node->add(initializer);
+	node->add(conversion);
 	return node;
 }
 

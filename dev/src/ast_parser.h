@@ -154,8 +154,12 @@ private:
 	// nested-name-specifier and without its argument list, which is the
 	// spelling the names in scope are keyed by.
 	bool skip_qualified_type_name(std::string* template_name = nullptr);
-	bool skip_operator_id(bool& conversion);
-	bool skip_conversion_type_id();
+	// 12.3.2p1: `conversion` takes the `type-id` node a conversion-function-id
+	// was written from, so that the semantic layer resolving the name has the
+	// type rather than the spelling.  Null where the operator-function-id names
+	// an operator instead.
+	bool skip_operator_id(AstNode** conversion = nullptr);
+	AstNode* parse_conversion_type_id();
 	bool skip_balanced(unsigned closer);
 	// 7.6.2: the attribute forms the grammar accepts.  `alignments`, when
 	// given, takes an `alignment-specifier` node per `alignas` whose operand
@@ -170,7 +174,15 @@ private:
 	AstNode* parse_id_expression();
 	AstNode* parse_declarator_id();
 	AstNode* parse_member_id();
-	std::string parse_special_member_name();
+	// 12.3.2p1: `conversion` takes the conversion-type-id, and `qualifier` the
+	// nested-name-specifier the name was written with - which for a conversion
+	// function is not the prefix `QualifiedName` reads out of the flattened
+	// spelling, because the type after `operator` may hold a `::` of its own.
+	std::string parse_special_member_name(AstNode** conversion = nullptr,
+	                                      std::string* qualifier = nullptr);
+	// The `carried-type-id` a conversion-function-id hands the semantic layer:
+	// the nested-name-specifier as its text and the type-id under it.
+	AstNode* carried_conversion(AstNode* type_id, const std::string& qualifier);
 
 	// Declared names (ast_parser_name.cpp).
 	void declare_template_name(const AstNode* declaration);
@@ -189,7 +201,7 @@ private:
 	AstNode* parse_member_specifiers();
 	AstNode* parse_special_member(bool in_class);
 	AstNode* parse_special_member_tail(AstNode* specifiers, AstNode* declarator,
-	                                   const std::string& name);
+	                                   AstNode* conversion);
 	AstNode* parse_ctor_initializer();
 	AstNode* parse_mem_initializer();
 

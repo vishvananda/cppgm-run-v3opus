@@ -197,6 +197,15 @@ private:
 		// the argument reaches the parameter's class only through one.  The
 		// temporary it makes is what the parameter is given.
 		SemaEntity* converting;
+		// 12.3.2p1 and 13.3.1.5p1: the conversion function this sequence calls,
+		// when the argument's class reaches the parameter only through one.
+		// What the parameter is given is the value that call handed back.
+		SemaEntity* converted;
+		// 13.3.3.2p3: the rank of the second standard conversion sequence of a
+		// user-defined conversion sequence, which is what orders two of them
+		// that call the same conversion function or constructor.  `kExactMatch`
+		// for a sequence that is not a user-defined one.
+		int second_rank;
 	};
 
 	// Where the object an initialization or a destruction acts on stands.
@@ -478,6 +487,25 @@ private:
 	// the class it belongs to.
 	std::string special_member_name(const std::string& written,
 	                                const SemaEntity& owner);
+	// 12.3.2: a conversion function declared or defined in a class body, and
+	// one defined outside it.  Both read the conversion-type-id the parse
+	// carried beside the name, because two spellings of one type declare one
+	// function and only the resolved type says so.
+	void conversion_function(const AstNode& node, const Context& ctx,
+	                         const AstNode& carried);
+	bool conversion_function_definition(const AstNode& node,
+	                                    const Context& ctx);
+	// 12.3.2p1: the declaration `carried` makes in the class `target` is the
+	// region of, declared or found among the ones already there.
+	SemaEntity& declare_conversion(const AstNode& node, const Context& target,
+	                               const AstNode& carried);
+	// 12.3.2p1: the name a region binds a conversion to `type` under, which is
+	// the type and never the tokens the declaration spelled it with.
+	std::string conversion_name(TypeId type) const;
+	// 12.3.2p1 and 13.3.1.5: the conversion functions an object of `entity` has
+	// - its own, then its base's that its own do not hide - settled where 9.2p2
+	// completes the class.
+	void collect_conversions(SemaEntity& entity, Scope& scope);
 	// 9.2p2: the body a special member's definition gives it, left for the end
 	// of the translation unit whether the definition was written in the class
 	// body or outside it.
@@ -539,6 +567,49 @@ private:
 	// conversion sequence for `argument` calls, or null where none does or
 	// where two do equally well.
 	SemaEntity* converting_constructor(const Value& argument, TypeId target);
+	// 12.3.2p1 and 13.3.1.5p1: the user-defined conversion sequence a conversion
+	// function of the argument's class makes to `parameter`, or a sequence that
+	// is not viable where no one of them answers.  `direct` is 12.3.2p2's
+	// question - a direct-initialization, an explicit cast and a contextual
+	// conversion may choose one declared `explicit`, and a copy-initialization
+	// may not.  The sequence the call's result takes to the parameter is the
+	// second, standard one 13.3.3.2p3 orders two of these by.
+	Match conversion_match(const Value& argument, TypeId parameter, bool direct);
+	// 5.2.2p3: the value a call of `chosen` on an object of its class hands
+	// back, as the analysis reads it.
+	Value conversion_result(const SemaEntity& chosen) const;
+	// 4p3: a value of class type written where the language itself needs a
+	// `bool` - a condition, `!`, `&&`, `||`, `?:` - becomes what a conversion
+	// function of its class hands back, chosen as a direct-initialization of
+	// `bool`, which 12.3.2p2 lets be one declared `explicit`.  A value of any
+	// other type is left as it stands and the caller's own check refuses what no
+	// conversion reaches.
+	void contextual_bool(Value& value, const Context& ctx);
+	// 6.4.2p2: the same question for a switch condition, whose class shall have
+	// one conversion to an integral or enumeration type and no `explicit` one
+	// answers it.
+	void contextual_integral(Value& value, const Context& ctx);
+	// 13.6: the type a built-in operator reads an operand of class type as,
+	// which is the one type that class converts to that a built-in operator has
+	// an operand of.  `kNoType` where the class converts to no such type or to
+	// more than one, which leaves the built-in operators with no one candidate.
+	TypeId builtin_conversion_type(const Value& value);
+	// 13.6 and 13.3.1.2p2: the operands a built-in operator reads, where one of
+	// them is of class type and reaches that operator through a conversion
+	// function.  True when any operand was converted.
+	bool builtin_operands(unsigned token, const Context& ctx,
+	                      std::vector<Value>& operands);
+	// 13.6 and 13.3.3p1: whether the built-in operator these operands reach
+	// reads them better than the operator function 13.3 chose.  The built-in
+	// candidates are candidates of the same set, so the two are compared on the
+	// same argument list; what tells them apart in practice is how many
+	// user-defined conversions each operand takes.
+	bool better_builtin(const SemaEntity& chosen, const Value& object,
+	                    const std::vector<Value>& operands);
+	// 12.3.2 and 5.2.2: the call of a conversion function, written around the
+	// operand in the place that operand already had.
+	Value call_conversion(const Value& object, SemaEntity& chosen,
+	                      const Context& ctx);
 	SemaEntity* class_destructor(TypeId type);
 	// 8.5.1p1: whether an object of `type` is initialized from a
 	// braced-init-list by initializing its members with the clauses.
@@ -1631,6 +1702,13 @@ private:
 	std::vector<std::string> gotos_;
 	// 6.6.3: the return type of the function whose body is being read.
 	TypeId returns_;
+	// 13.3.3.1.2p1: whether the sequence being measured is the second, standard
+	// conversion sequence of a user-defined one, which holds no user-defined
+	// conversion of its own.  One flag says it for both directions - a
+	// converting constructor's parameter and a conversion function's result -
+	// so a class whose conversion reaches another class whose conversion
+	// reaches it back is one probe rather than a walk that does not end.
+	bool standard_only_;
 	// 7.5p1 and 7.5p4: the language linkage of the linkage-specification the
 	// declaration being read is written inside, which is the innermost one.
 	bool c_linkage_;

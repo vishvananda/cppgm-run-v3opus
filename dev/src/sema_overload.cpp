@@ -205,8 +205,18 @@ SemaAnalyzer::Match SemaAnalyzer::match_by_value(const Value& argument,
 			match.viable = true;
 			match.rank = kUserConversion;
 			match.converting = constructor;
+			return match;
 		}
-		return match;
+		// 13.3.1.4p1: the other half of that candidate set is the conversion
+		// functions of the argument's own class, which reach the parameter's
+		// class where no constructor of it takes the argument.
+		return conversion_match(argument, parameter, false);
+	}
+	if (types_.is_class(types_.strip_cv(argument.type)))
+	{
+		// 13.3.1.5p1: an argument of class type reaches a parameter of any
+		// other type only through a conversion function of its class.
+		return conversion_match(argument, parameter, false);
 	}
 	// 4.10p1: a null pointer constant converts to any pointer type and to
 	// `std::nullptr_t`.
@@ -301,8 +311,11 @@ SemaEntity* SemaAnalyzer::converting_constructor(const Value& argument,
                                                  TypeId target)
 {
 	SemaEntity* const head = class_constructors(target);
-	if (head == nullptr)
+	if (head == nullptr || standard_only_)
 	{
+		// 13.3.3.1.2p1: a user-defined conversion sequence holds one
+		// user-defined conversion, so the sequence measured inside one holds
+		// none.
 		return nullptr;
 	}
 	SemaEntity* best = nullptr;
@@ -348,6 +361,389 @@ SemaEntity* SemaAnalyzer::converting_constructor(const Value& argument,
 	// 13.3.3p1: two constructors neither of which is better than the other
 	// leave the conversion ambiguous, which is no viable sequence at all.
 	return tied ? nullptr : best;
+}
+
+// 5.2.2p3: what a call of `chosen` hands back, as a value the ranking can read.
+// 12.3.2p1 makes it the conversion-type-id, which is the function's return type,
+// and 5.2.2p10 makes it a prvalue unless that type is a reference.
+SemaAnalyzer::Value SemaAnalyzer::conversion_result(
+	const SemaEntity& chosen) const
+{
+	const TypeId result = types_.target(chosen.type);
+	Value value;
+	value.spelled = result;
+	value.type = types_.is_reference(result) ? types_.target(result) : result;
+	value.category = types_.kind(result) == TypeKind::LValueReference
+		? ValueCategory::LValue
+		: (types_.kind(result) == TypeKind::RValueReference
+		   ? ValueCategory::XValue
+		   : ValueCategory::PRValue);
+	return value;
+}
+
+// 12.3.2p1 and 13.3.1.5p1: the user-defined conversion sequence one of the
+// argument's class's conversion functions makes to `parameter`.
+//
+// 13.3.1.5p1 makes the candidate set the conversion functions of that class and
+// of its bases, which the class already holds as one list, and 13.3 chooses
+// among them on the implicit object argument alone - so what is ranked here is
+// how the argument reaches each candidate's object parameter, with the standard
+// conversion sequence from what the call hands back to the parameter as
+// 13.3.3p1's tie-break.  13.3.3.1.2p1 stops the whole sequence at one
+// user-defined conversion, so that second sequence is measured with none
+// allowed in it, which is also what keeps two classes that convert to each
+// other one probe rather than a walk that does not end.
+SemaAnalyzer::Match SemaAnalyzer::conversion_match(const Value& argument,
+                                                   TypeId parameter,
+                                                   bool direct)
+{
+	Match match;
+	if (standard_only_)
+	{
+		return match;
+	}
+	SemaEntity* const owner =
+		model_.type_owner(types_.strip_cv(argument.type));
+	if (owner == nullptr || owner->conversions.empty())
+	{
+		return match;
+	}
+	// 13.3.1p3 and 9.3.1p3: the implicit object argument reaches the object
+	// parameter the same way any pointer reaches a pointer, which is the one
+	// place a candidate of this set can be unviable.
+	Value object;
+	object.type = object.spelled = types_.pointer_to(argument.type);
+	object.category = ValueCategory::PRValue;
+	SemaEntity* best = nullptr;
+	Match chosen_object;
+	Match chosen_result;
+	bool tied = false;
+	for (std::size_t index = 0; index < owner->conversions.size(); ++index)
+	{
+		SemaEntity* const at = owner->conversions[index];
+		if (at->deleted || (at->explicit_function && !direct))
+		{
+			// 12.3.2p2: only a direct-initialization, an explicit cast and a
+			// contextual conversion may choose a conversion function declared
+			// `explicit`.
+			continue;
+		}
+		const Match reached =
+			match_argument(object, types_.parameters(at->type)[0]);
+		if (!reached.viable)
+		{
+			continue;
+		}
+		const Value produced = conversion_result(*at);
+		standard_only_ = true;
+		const Match result = match_argument(produced, parameter);
+		standard_only_ = false;
+		if (!result.viable)
+		{
+			continue;
+		}
+		const int order = best == nullptr
+			? 1
+			: (compare_matches(reached, chosen_object) != 0
+			   ? compare_matches(reached, chosen_object)
+			   : compare_matches(result, chosen_result));
+		if (order > 0)
+		{
+			best = at;
+			chosen_object = reached;
+			chosen_result = result;
+			tied = false;
+			continue;
+		}
+		if (order == 0)
+		{
+			tied = true;
+		}
+	}
+	if (best == nullptr || tied)
+	{
+		// 13.3.3p1: two candidates neither of which is better than the other
+		// leave the conversion ambiguous, which is no viable sequence at all.
+		return match;
+	}
+	match = chosen_result;
+	match.viable = true;
+	match.rank = kUserConversion;
+	match.second_rank = chosen_result.rank;
+	match.converted = best;
+	match.converting = nullptr;
+	return match;
+}
+
+// 4p3: a value of class type where the language itself needs a `bool`.
+//
+// 12.3.2p2 lets a conversion function declared `explicit` answer this one, and
+// 13.3 chooses among the class's conversion functions exactly as it chooses for
+// a direct-initialization of `bool` - so the whole of the rule is the
+// user-defined conversion sequence, asked for with `explicit` left in.
+void SemaAnalyzer::contextual_bool(Value& value, const Context& ctx)
+{
+	if (value.node == nullptr || !types_.is_class(types_.strip_cv(value.type)))
+	{
+		return;
+	}
+	const TypeId wanted = types_.fundamental(FT_BOOL);
+	const Match match = conversion_match(value, wanted, true);
+	if (match.viable)
+	{
+		apply_conversion(value, wanted, match, ctx, Requested::Written);
+	}
+}
+
+// 6.4.2p2: the condition of a switch statement, which is contextually
+// *implicitly* converted - so a conversion function declared `explicit` is none
+// of the candidates, and the type the statement selects on is the one the class
+// converts to rather than one the context named.
+void SemaAnalyzer::contextual_integral(Value& value, const Context& ctx)
+{
+	if (value.node == nullptr || !types_.is_class(types_.strip_cv(value.type)))
+	{
+		return;
+	}
+	SemaEntity* const owner = model_.type_owner(types_.strip_cv(value.type));
+	SemaEntity* found = nullptr;
+	for (std::size_t index = 0;
+	     owner != nullptr && index < owner->conversions.size(); ++index)
+	{
+		SemaEntity* const at = owner->conversions[index];
+		TypeId result = types_.target(at->type);
+		if (types_.is_reference(result))
+		{
+			result = types_.target(result);
+		}
+		result = types_.strip_cv(result);
+		if (at->explicit_function || at->deleted ||
+		    (!types_.is_integral(result) &&
+		     types_.kind(result) != TypeKind::Enum))
+		{
+			continue;
+		}
+		if (found != nullptr)
+		{
+			// 6.4.2p2: a class with two of them converts to no one type, so
+			// there is no value for the statement to select on.
+			return;
+		}
+		found = at;
+	}
+	if (found == nullptr)
+	{
+		return;
+	}
+	value = call_conversion(value, *found, ctx);
+}
+
+// 13.6: the type a built-in operator reads an operand of class type as.
+//
+// 13.6 writes a candidate for every built-in operand type there is, and an
+// operand of class type reaches one of them only through a conversion function
+// of its class - so what the operand can be is what those conversions produce,
+// and a class that produces two of them leaves no one built-in candidate that
+// 13.3 could choose.  The class already holds its conversions as one list, so
+// this is one walk of that list and never a search.
+TypeId SemaAnalyzer::builtin_conversion_type(const Value& value)
+{
+	SemaEntity* const owner =
+		model_.type_owner(types_.strip_cv(value.type));
+	if (owner == nullptr)
+	{
+		return kNoType;
+	}
+	TypeId found = kNoType;
+	for (std::size_t index = 0; index < owner->conversions.size(); ++index)
+	{
+		SemaEntity* const at = owner->conversions[index];
+		if (at->explicit_function || at->deleted)
+		{
+			continue;
+		}
+		TypeId result = types_.target(at->type);
+		if (types_.is_reference(result))
+		{
+			result = types_.target(result);
+		}
+		result = types_.strip_cv(result);
+		const TypeKind kind = types_.kind(result);
+		if (!types_.is_arithmetic(result) && kind != TypeKind::Enum &&
+		    kind != TypeKind::Pointer && kind != TypeKind::MemberPointer)
+		{
+			continue;
+		}
+		if (found != kNoType && found != result)
+		{
+			return kNoType;
+		}
+		found = result;
+	}
+	return found;
+}
+
+// 13.3.1.2p2 and 13.6: the operands the built-in operator reads, where the
+// operand the program wrote is of class type.  What it becomes is what the
+// conversion function 13.3 chose hands back, written in the place the operand
+// already had - so the reading that follows is the one any built-in operand
+// gets and no operator repeats the question.
+bool SemaAnalyzer::builtin_operands(unsigned token, const Context& ctx,
+                                    std::vector<Value>& operands)
+{
+	// 13.6 writes each candidate's operands out, and only the ones taken by
+	// value are ones a conversion function can fill: `&E`, `E = F`, `++E` and
+	// `E, F` take a reference or take the operand as it stands, so an operand
+	// of class type reaches no built-in candidate of theirs at all.  A compound
+	// assignment takes its left operand by reference and its right by value, so
+	// only the right one is asked.
+	std::size_t first = 0;
+	switch (token)
+	{
+	case OP_ASS:
+	case OP_COMMA:
+	case OP_ARROW:
+	case OP_INC:
+	case OP_DEC:
+		return false;
+	case OP_AMP:
+		if (operands.size() == 1)
+		{
+			return false;
+		}
+		break;
+	case OP_PLUSASS:
+	case OP_MINUSASS:
+	case OP_STARASS:
+	case OP_DIVASS:
+	case OP_MODASS:
+	case OP_XORASS:
+	case OP_BANDASS:
+	case OP_BORASS:
+	case OP_LSHIFTASS:
+	case OP_RSHIFTASS:
+		first = 1;
+		break;
+	default:
+		break;
+	}
+	if (token == OP_LNOT || token == OP_LAND || token == OP_LOR)
+	{
+		// 5.3.1p9, 5.14p1 and 5.15p1: these operands are contextually converted
+		// to bool, which 12.3.2p2 lets a conversion function declared
+		// `explicit` answer - so they are not the ordinary 13.6 question.
+		bool converted = false;
+		for (std::size_t index = first; index < operands.size(); ++index)
+		{
+			const TypeId before = operands[index].type;
+			contextual_bool(operands[index], ctx);
+			converted = converted || operands[index].type != before;
+		}
+		return converted;
+	}
+	bool any = false;
+	for (std::size_t index = first; index < operands.size(); ++index)
+	{
+		Value& operand = operands[index];
+		if (operand.node == nullptr ||
+		    !types_.is_class(types_.strip_cv(operand.type)))
+		{
+			continue;
+		}
+		const TypeId wanted = builtin_conversion_type(operand);
+		if (wanted == kNoType)
+		{
+			continue;
+		}
+		const Match match = conversion_match(operand, wanted, false);
+		if (!match.viable)
+		{
+			continue;
+		}
+		apply_conversion(operand, wanted, match, ctx, Requested::Written);
+		any = true;
+	}
+	return any;
+}
+
+// 13.6 and 13.3.3p1: whether a built-in operator reads these operands better
+// than the operator function 13.3 chose among the declarations.
+//
+// 13.6's candidates are candidates of the same set, so the two are ranked over
+// the same argument list: the declaration through its own parameters, and the
+// built-in through the operand types 5p9 brings the operands to, which for an
+// operand of class type is what its conversion function hands back.  A class
+// that reaches no built-in operand type has no such candidate at all, and then
+// the declaration stands.
+bool SemaAnalyzer::better_builtin(const SemaEntity& chosen, const Value& object,
+                                  const std::vector<Value>& operands)
+{
+	std::vector<TypeId> wanted(operands.size(), kNoType);
+	bool any = false;
+	for (std::size_t index = 0; index < operands.size(); ++index)
+	{
+		if (!types_.is_class(types_.strip_cv(operands[index].type)))
+		{
+			wanted[index] = decayed(operands[index]);
+			continue;
+		}
+		wanted[index] = builtin_conversion_type(operands[index]);
+		if (wanted[index] == kNoType)
+		{
+			return false;
+		}
+		any = true;
+	}
+	if (!any)
+	{
+		return false;
+	}
+	if (operands.size() == 2 && types_.is_arithmetic(wanted[0]) &&
+	    types_.is_arithmetic(wanted[1]) && wanted[0] != wanted[1])
+	{
+		// 5p9: two arithmetic operands of a built-in operator are brought to
+		// one type, which is the type of the candidate that reads them.
+		Value left;
+		Value right;
+		left.type = left.spelled = wanted[0];
+		right.type = right.spelled = wanted[1];
+		left.category = right.category = ValueCategory::PRValue;
+		const TypeId common = binary_operand_type(OP_PLUS, left, right);
+		if (common != kNoType)
+		{
+			wanted[0] = wanted[1] = common;
+		}
+	}
+	const std::vector<TypeId>& parameters = types_.parameters(chosen.type);
+	const std::size_t written = chosen.object_member ? 1u : 0u;
+	std::vector<Match> declared(operands.size());
+	std::vector<Match> builtin(operands.size());
+	for (std::size_t index = 0; index < operands.size(); ++index)
+	{
+		if (index == 0 && chosen.object_member)
+		{
+			declared[0] = match_argument(object, parameters[0]);
+		}
+		else if (index + written < parameters.size())
+		{
+			declared[index] = match_argument(operands[index],
+			                                 parameters[index + written]);
+		}
+		else
+		{
+			// 13.3.3.1.3: an operand the ellipsis matched converts with the
+			// worst rank there is.
+			declared[index].viable = true;
+			declared[index].rank = kEllipsis;
+		}
+		builtin[index] = match_argument(operands[index], wanted[index]);
+		if (!builtin[index].viable)
+		{
+			return false;
+		}
+	}
+	return better_candidate(builtin.data(), declared.data(), operands.size(),
+	                        false, false);
 }
 
 // 3.9.3p5 and 8.3.4p1: the type with every top level qualifier removed, which
@@ -416,6 +812,19 @@ SemaAnalyzer::Match SemaAnalyzer::match_reference(const Value& argument,
 	if (!rvalue_ref && !const_lvalue_ref)
 	{
 		return match;
+	}
+	if (types_.is_class(types_.strip_cv(source)))
+	{
+		// 8.5.3p5: where the initializer is of class type, a conversion
+		// function that hands back an lvalue reference-compatible with the
+		// referenced type binds that lvalue itself rather than a temporary
+		// copied out of it - so the reference, and not the type it refers to,
+		// is what the sequence is measured against.
+		const Match reached = conversion_match(argument, parameter, false);
+		if (reached.viable)
+		{
+			return reached;
+		}
 	}
 
 	// The argument is converted to the referenced type and the reference binds
@@ -712,6 +1121,24 @@ int SemaAnalyzer::compare_matches(const Match& left, const Match& right)
 	{
 		return left.rank < right.rank ? 1 : -1;
 	}
+	// 13.3.3.2p3: two user-defined conversion sequences are indistinguishable
+	// unless they hold the same user-defined conversion, and where they do it
+	// is their second, standard conversion sequences that order them - which is
+	// what tells `pick(int)` from `pick(long)` apart on a class with one
+	// `operator int`.
+	if (left.rank == kUserConversion || right.rank == kUserConversion)
+	{
+		const bool same = left.converted == right.converted &&
+			left.converting == right.converting;
+		if (!same)
+		{
+			return 0;
+		}
+		if (left.second_rank != right.second_rank)
+		{
+			return left.second_rank < right.second_rank ? 1 : -1;
+		}
+	}
 	// 13.3.3.2p4: a conversion that keeps a pointer beats one to bool.
 	if (left.to_bool != right.to_bool)
 	{
@@ -809,6 +1236,50 @@ const char* SemaAnalyzer::requested_prefix(Requested by, bool reference)
 	return "tmpobj";
 }
 
+// 12.3.2p1 and 5.2.2p3: the call of a conversion function on the object the
+// argument named.
+//
+// It is written around the operand in the place that operand already had, so
+// the node the caller is holding goes on standing where it stood and what is
+// added is the call around it - which is what lets an argument, a condition and
+// an operand each reach a conversion without any of them moving anything.
+SemaAnalyzer::Value SemaAnalyzer::call_conversion(const Value& object,
+                                                  SemaEntity& chosen,
+                                                  const Context& ctx)
+{
+	DumpNode& line = model_.wrap_node(*object.node, std::string());
+	Value self = object;
+	self.node = line.children[0];
+	// 7.3.3p1: what a call runs is the declaration the class named, which a
+	// using-declaration in a derived class stands for.
+	SemaEntity& run = declared_member(chosen);
+	SemaEntity* const declared =
+		run.region != nullptr ? run.region->owner : nullptr;
+	require_access(chosen, ctx.scope,
+	               chosen.region != nullptr ? chosen.region : nullptr);
+	if (declared != nullptr &&
+	    types_.strip_cv(self.type) != types_.strip_cv(declared->type))
+	{
+		// 10.2p2 and 4.10p3: a conversion function a base class declared is
+		// called on the base class subobject of the object the argument named,
+		// which the tree names rather than leaving the address to be adjusted.
+		self = base_value(self, *declared, !object.through_using);
+	}
+	address_of_object(self, model_.wrap_node(*self.node, std::string()), false);
+	self.through_using = chosen.shadowed != nullptr;
+	std::vector<Value> arguments;
+	arguments.push_back(self);
+	// The callee stands before the argument, as it does in a call the program
+	// wrote, and the operand already holds the place after it.
+	DumpNode& named = model_.open_node(line, std::string());
+	line.children.pop_back();
+	line.children.insert(line.children.begin(), &named);
+	Value callee;
+	callee.node = &named;
+	name_function(callee, run, "callee");
+	return finish_call(line, run.type, arguments, &run, ctx);
+}
+
 // The one place a conversion is visible in the dump: a null pointer constant
 // takes the pointer type it is used as, and a reference that binds a converted
 // temporary writes the cast that made it.  `by` is what asked for the
@@ -826,6 +1297,19 @@ void SemaAnalyzer::apply_conversion(Value& value, TypeId target,
 			                         "name has the type it is used as");
 		}
 		name_function(value, *chosen, "id-expression");
+		return;
+	}
+	if (match.converted != nullptr && value.node != nullptr)
+	{
+		// 13.3.1.5p1: the argument reaches the parameter through a conversion
+		// function of its own class, and what the parameter is given is what
+		// that call handed back - which the second, standard conversion
+		// sequence of 13.3.3.2p3 then carries the rest of the way.
+		value = call_conversion(value, *match.converted, ctx);
+		Match rest = match;
+		rest.converted = nullptr;
+		rest.rank = match.second_rank;
+		apply_conversion(value, target, rest, ctx, by);
 		return;
 	}
 	if (match.to_base != nullptr && value.node != nullptr)

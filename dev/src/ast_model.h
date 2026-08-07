@@ -138,7 +138,8 @@
 	X(LambdaDeclarator, "lambda-declarator") \
 	X(LambdaSpecifier, "lambda-specifier") \
 	X(PackExpansionExpression, "pack-expansion-expression") \
-	X(CarriedExpression, "carried-expression")
+	X(CarriedExpression, "carried-expression") \
+	X(CarriedTypeId, "carried-type-id")
 
 enum class AstKind : std::uint8_t
 {

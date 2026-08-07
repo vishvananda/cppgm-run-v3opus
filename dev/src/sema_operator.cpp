@@ -447,6 +447,10 @@ bool SemaAnalyzer::operator_expression(unsigned token, const Context& ctx,
 	}
 	if (candidates.empty())
 	{
+		// 13.3.1.2p2: no operator function is a candidate, so what is left is
+		// 13.6's built-in operator, which an operand of class type reaches
+		// through a conversion function of its class.
+		builtin_operands(token, ctx, operands);
 		return false;
 	}
 
@@ -467,6 +471,17 @@ bool SemaAnalyzer::operator_expression(unsigned token, const Context& ctx,
 	{
 		// 13.3.1.2p2: no operator function accepts these operands, so what is
 		// left is the built-in operator the caller describes.
+		builtin_operands(token, ctx, operands);
+		return false;
+	}
+	if (better_builtin(*chosen, object, operands))
+	{
+		// 13.6 and 13.3.3p1: the built-in operators are candidates beside the
+		// operator functions, and one of them reads these operands better than
+		// the declaration 13.3 just chose - which is what an operand that
+		// reaches a built-in operator through one conversion does against a
+		// declaration that would take two.
+		builtin_operands(token, ctx, operands);
 		return false;
 	}
 	// 11.2p5 and 11.4p1: a member operator function is a member named on an

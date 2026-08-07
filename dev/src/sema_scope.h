@@ -207,8 +207,23 @@ struct SemaEntity
 	// when a use of a reserved name reaches nothing the program declared.
 	unsigned char builtin;
 	// 12.3.1p2: a constructor declared `explicit`, which only
-	// direct-initialization may choose.
+	// direct-initialization may choose.  12.3.2p2 gives a conversion function
+	// declared `explicit` the same fact, and 13.3.1.5 the same reading of it.
 	bool explicit_function;
+	// 12.3.2p1: whether this member function is a conversion function, whose
+	// name is a type rather than an identifier.  The type it converts to is its
+	// return type, which the declaration wrote as the conversion-type-id - so
+	// the one thing that is not already a fact of the type is that the function
+	// is one of these, which 13.3.1.5's candidate set and the ABI's `cv`
+	// terminal each read here rather than from the spelling of the name.
+	bool conversion_function;
+	// Class: 12.3.2p1 and 13.3.1.5, the conversion functions an object of this
+	// class has - the ones the class declared, followed by the ones a base
+	// declared and this class did not hide.  It is built once where 9.2p2
+	// completes the class, so a conversion asks a class for what it converts to
+	// in one walk of a list rather than a lookup per candidate type over the
+	// class and its bases.
+	std::vector<SemaEntity*> conversions;
 	// 12.1/12.4 and the ABI: the ABI gives a constructor and a destructor an
 	// entry point for a complete object and one for a base class subobject, and
 	// this says whether anything in this translation unit ever ran it on a

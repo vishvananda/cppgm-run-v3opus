@@ -642,10 +642,13 @@ bool AstParser::skip_nested_name_specifier()
 	}
 }
 
-bool AstParser::skip_operator_id(bool& conversion)
+bool AstParser::skip_operator_id(AstNode** conversion)
 {
 	const Mark start = mark();
-	conversion = false;
+	if (conversion != nullptr)
+	{
+		*conversion = nullptr;
+	}
 	if (!accept(KW_OPERATOR))
 	{
 		return false;
@@ -687,9 +690,13 @@ bool AstParser::skip_operator_id(bool& conversion)
 		}
 		return true;
 	}
-	if (skip_conversion_type_id())
+	AstNode* const written = parse_conversion_type_id();
+	if (written != nullptr)
 	{
-		conversion = true;
+		if (conversion != nullptr)
+		{
+			*conversion = written;
+		}
 		return true;
 	}
 	reset(start);
@@ -697,31 +704,59 @@ bool AstParser::skip_operator_id(bool& conversion)
 }
 
 // `conversion-type-id`: a type-specifier-seq and pointer operators only, so
-// that the parentheses of `operator int()` are the parameter clause.
-bool AstParser::skip_conversion_type_id()
+// that the parentheses of `operator int()` are the parameter clause.  The nodes
+// are the ones an ordinary `type-id` is read from, because 12.3.2p1's type is
+// the same type written the same way; what differs is only which declarator
+// operators the grammar allows after it.
+AstNode* AstParser::parse_conversion_type_id()
 {
 	const Mark start = mark();
-	if (parse_specifier_seq(SpecifierMode::Type) == nullptr)
+	AstNode* const seq = parse_specifier_seq(SpecifierMode::Type);
+	if (seq == nullptr)
 	{
 		reset(start);
-		return false;
+		return nullptr;
 	}
-	while (parse_ptr_operator() != nullptr)
+	AstNode* const node = make(AstKind::TypeId);
+	node->add(seq);
+	AstNode* const declarator = make(AstKind::AbstractDeclarator);
+	for (;;)
 	{
+		AstNode* const op = parse_ptr_operator();
+		if (op == nullptr)
+		{
+			break;
+		}
+		declarator->add(op);
 		while (at(KW_CONST) || at(KW_VOLATILE))
 		{
-			++pos_;
+			declarator->add(make_terminal(AstKind::CvQualifier));
 		}
 	}
-	return true;
+	if (!declarator->children.empty())
+	{
+		node->add(declarator);
+	}
+	return node;
+}
+
+AstNode* AstParser::carried_conversion(AstNode* type_id,
+                                       const std::string& qualifier)
+{
+	if (type_id == nullptr)
+	{
+		return nullptr;
+	}
+	AstNode* const node = make_text(AstKind::CarriedTypeId, qualifier);
+	node->add(type_id);
+	return node;
 }
 
 bool AstParser::skip_unqualified_id(bool qualified)
 {
 	if (at(KW_OPERATOR))
 	{
-		bool conversion = false;
-		return skip_operator_id(conversion);
+		return skip_operator_id();
 	}
 	if (at(OP_COMPL))
 	{
@@ -833,14 +868,25 @@ AstNode* AstParser::parse_member_id()
 	}
 	if (at(KW_OPERATOR) || at(OP_COMPL))
 	{
+		AstNode* conversion = nullptr;
+		if (tokens_.type(start.pos) == KW_OPERATOR)
+		{
+			if (!skip_operator_id(&conversion))
+			{
+				return fail(start);
+			}
+			// 12.3.2p1: `a.operator T()` names the conversion function of `a`'s
+			// class whose type is `T`, which two spellings of one type name the
+			// same one - so the type travels with the name.
+			AstNode* const node = make_text(
+				AstKind::Identifier,
+				"operator" + tokens_.flatten(start.pos + 1, pos_));
+			node->add(carried_conversion(conversion, std::string()));
+			return node;
+		}
 		if (!skip_unqualified_id())
 		{
 			return fail(start);
-		}
-		if (tokens_.type(start.pos) == KW_OPERATOR)
-		{
-			return make_text(AstKind::Identifier,
-			                 "operator" + tokens_.flatten(start.pos + 1, pos_));
 		}
 		return make_text(AstKind::Identifier, spelled(start));
 	}
@@ -883,11 +929,20 @@ AstNode* AstParser::parse_declarator_id()
 // A constructor, destructor, conversion function or operator function name, as
 // the special-member rules of the grammar spell one.  Empty when the cursor is
 // not at one.
-std::string AstParser::parse_special_member_name()
+std::string AstParser::parse_special_member_name(AstNode** conversion,
+                                                 std::string* qualifier)
 {
 	const Mark start = mark();
 	const bool qualified = skip_nested_name_specifier();
 	const Mark unqualified = mark();
+	if (conversion != nullptr)
+	{
+		*conversion = nullptr;
+	}
+	if (qualifier != nullptr)
+	{
+		*qualifier = tokens_.flatten(start.pos, unqualified.pos);
+	}
 	if (accept(OP_COMPL))
 	{
 		if (!skip_type_name(qualified))
@@ -898,11 +953,15 @@ std::string AstParser::parse_special_member_name()
 	}
 	else if (at(KW_OPERATOR))
 	{
-		bool conversion = false;
-		if (!skip_operator_id(conversion) || (qualified && !conversion))
+		AstNode* written = nullptr;
+		if (!skip_operator_id(&written) || (qualified && written == nullptr))
 		{
 			reset(start);
 			return std::string();
+		}
+		if (conversion != nullptr)
+		{
+			*conversion = written;
 		}
 		if (!qualified)
 		{

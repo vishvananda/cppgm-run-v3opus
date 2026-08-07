@@ -164,6 +164,8 @@ SemaEntity& SemaModel::create(SemaKind kind, const std::string& name, TypeId typ
 		entity.transfers[index] = nullptr;
 	}
 	entity.explicit_function = false;
+	entity.conversion_function = false;
+	entity.conversions.clear();
 	entity.complete_object_entry = false;
 	entity.base_object_entry = false;
 	entity.shadowed = nullptr;

@@ -655,12 +655,207 @@ std::string SemaAnalyzer::special_member_name(const std::string& written,
 	return spelled;
 }
 
+// 12.3.2p1: the name a region binds a conversion function under.
+//
+// A conversion function is named by the type it converts to, so two
+// declarations that spell that type differently declare one function -
+// `operator adaptor_type` and `operator runtime_traits` where the first names a
+// typedef of the second - and a use written either way names it.  The one
+// spelling every one of them agrees on is the type's own, so that is what the
+// region binds and what every later reader asks for.
+std::string SemaAnalyzer::conversion_name(TypeId type) const
+{
+	const std::string described = types_.description(type);
+	std::string spelled = "operator";
+	for (std::size_t index = 0; index < described.size(); ++index)
+	{
+		if (described[index] != ' ')
+		{
+			spelled += described[index];
+		}
+	}
+	return spelled;
+}
+
+// 12.3.2p1: the declaration a conversion function's declarator makes in the
+// class `target` names.  9.3.1p3's object parameter carries the
+// cv-qualifier-seq written after the parameter clause, so `operator int()
+// const` and `operator int() const volatile` are two declarations of one name
+// that 13.1 tells apart exactly as it tells any two member functions apart.
+SemaEntity& SemaAnalyzer::declare_conversion(const AstNode& node,
+                                             const Context& target,
+                                             const AstNode& carried)
+{
+	const AstNode* const declarator = child_of(node, AstKind::Declarator);
+	if (declarator == nullptr || carried.children.empty())
+	{
+		throw std::runtime_error("a conversion function is declared with no "
+		                         "declarator");
+	}
+	const AstNode* const clause =
+		child_of(*declarator, AstKind::ParameterClause);
+	std::vector<Parameter> parameters;
+	bool variadic = false;
+	if (clause != nullptr)
+	{
+		read_parameters(*clause, target, parameters, variadic);
+	}
+	if (!parameters.empty() || variadic)
+	{
+		// 12.3.2p1: a conversion function takes no arguments, because the one
+		// object it acts on is the one it is called on.
+		throw std::runtime_error("a conversion function is declared with "
+		                         "parameters, which 12.3.2p1 does not allow");
+	}
+	const TypeId converted = type_id_type(*carried.children[0], target);
+	if (types_.kind(converted) == TypeKind::Function ||
+	    types_.kind(converted) == TypeKind::Array)
+	{
+		// 12.3.2p1: the conversion-type-id shall not define a function or an
+		// array type, which the grammar's ptr-operators alone cannot spell but
+		// a typedef-name can.
+		throw std::runtime_error("a conversion function converts to a function "
+		                         "or array type, which 12.3.2p1 does not allow");
+	}
+	const std::string name = conversion_name(converted);
+	const TypeId written =
+		types_.function_of(converted, std::vector<TypeId>(), false);
+	const TypeId type = with_object_parameter(written, *declarator, target,
+	                                          false, name, false);
+	if (type == written)
+	{
+		// 9.3p1: a conversion function is a non-static member function, so a
+		// declarator that reached no class declares nothing this milestone has
+		// a meaning for.
+		throw std::runtime_error(name + " is declared where no class declares "
+		                         "a member");
+	}
+	SemaEntity& entity = declare_function(name, type, target, false, false,
+	                                      true);
+	entity.object_member = true;
+	entity.conversion_function = true;
+	return entity;
+}
+
+// 12.3.2: a conversion function declared in a class body.  It is a member
+// function like any other - 9.3.1p3's object parameter, 13.1's overload chain,
+// 11p1's access, 9.2p2's deferred body - and the one thing about it that is not
+// ordinary is that its name is a type.
+void SemaAnalyzer::conversion_function(const AstNode& node, const Context& ctx,
+                                       const AstNode& carried)
+{
+	SemaEntity& entity = declare_conversion(node, ctx, carried);
+	const AstNode* const specifiers = child_of(node, AstKind::MemberSpecifiers);
+	for (std::size_t index = 0;
+	     specifiers != nullptr && index < specifiers->children.size(); ++index)
+	{
+		// 12.3.2p2: `explicit` says which initializations may choose this
+		// conversion, exactly as 12.3.1p2 says of a constructor.
+		if (specifiers->children[index]->text == "explicit")
+		{
+			entity.explicit_function = true;
+		}
+		if (specifiers->children[index]->token == KW_INLINE)
+		{
+			entity.inline_function = true;
+		}
+	}
+	// 7.1.2p3 and 9.3p2: a member function defined in its class body is inline.
+	entity.inline_function = entity.inline_function ||
+		node.kind == AstKind::SpecialMemberDefinition;
+	const AstNode* const initializer = child_of(node, AstKind::Initializer);
+	if (initializer != nullptr && !initializer->children.empty())
+	{
+		// 8.4.3: `= delete` declares a function every use of is ill formed.
+		entity.deleted = initializer->children[0]->text == "delete";
+		entity.defaulted = !entity.deleted;
+		entity.defined = false;
+		entity.inline_function = true;
+		return;
+	}
+	entity.user_provided = true;
+	if (node.kind != AstKind::SpecialMemberDefinition)
+	{
+		return;
+	}
+	const std::vector<Parameter> none;
+	open_special_member_body(node, entity, ctx, entity.name, none);
+}
+
+// 12.3.2 and 9.3p2: a conversion function defined outside its class.  3.4.3p3
+// makes the declarator-id name the class the definition belongs to, so the
+// class is the region the conversion-type-id and the body alike are read
+// against, and what it defines is the declaration that class already made.
+bool SemaAnalyzer::conversion_function_definition(const AstNode& node,
+                                                  const Context& ctx)
+{
+	const AstNode* const carried = child_of(node, AstKind::CarriedTypeId);
+	if (carried == nullptr)
+	{
+		return false;
+	}
+	if (carried->text.empty())
+	{
+		throw std::runtime_error(node.text + " is defined where no class "
+		                         "declares it");
+	}
+	Scope& region = *resolve_prefix(QualifiedName(carried->text + "operator"),
+	                                ctx);
+	if (region.kind != ScopeKind::Class || region.owner == nullptr)
+	{
+		throw std::runtime_error(node.text + " defines a conversion function of "
+		                         "what is not a class");
+	}
+	Context target = ctx;
+	target.scope = &region;
+	target.dump = region.dump;
+	// 13.1: the declaration this definition defines is the one of the class's
+	// own whose name and object parameter agree, which the chain the name heads
+	// answers in one probe.  A definition that matches none of them would
+	// declare a second member of the class, which 9.2p1 does not allow written
+	// outside its body - so what says the definition defines nothing is that
+	// the class gained a declaration here.
+	const std::size_t declared = region.declarations.size();
+	SemaEntity& entity = declare_conversion(node, target, *carried);
+	if (region.declarations.size() != declared)
+	{
+		throw std::runtime_error(node.text + " defines a conversion function "
+		                         "its class does not declare");
+	}
+	if (entity.defined)
+	{
+		throw std::runtime_error(node.text + " is defined twice");
+	}
+	const AstNode* const specifiers = child_of(node, AstKind::MemberSpecifiers);
+	for (std::size_t index = 0;
+	     specifiers != nullptr && index < specifiers->children.size(); ++index)
+	{
+		if (specifiers->children[index]->token == KW_INLINE)
+		{
+			entity.inline_function = true;
+		}
+	}
+	entity.user_provided = true;
+	const std::vector<Parameter> none;
+	open_special_member_body(node, entity, target, entity.name, none);
+	return true;
+}
+
 // 12.1 and 12.4: a constructor or a destructor declared in a class body.  Both
 // are functions of the class whose name no lookup reaches: an object of the
 // class asks the class for them, so they are chained on the class rather than
 // bound to a name in it.
 void SemaAnalyzer::special_member(const AstNode& node, const Context& ctx)
 {
+	const AstNode* const carried = child_of(node, AstKind::CarriedTypeId);
+	if (carried != nullptr)
+	{
+		// 12.3.2p1: a conversion function is an ordinary member function whose
+		// name is a type, so what it declares is read from the type and not
+		// from the name the grammar flattened.
+		conversion_function(node, ctx, *carried);
+		return;
+	}
 	SemaEntity& owner = *ctx.scope->owner;
 	const std::string written = QualifiedName(node.text).last();
 	const bool destructor = !written.empty() && written[0] == '~';
@@ -819,6 +1014,10 @@ void SemaAnalyzer::open_special_member_body(
 void SemaAnalyzer::special_member_definition(const AstNode& node,
                                              const Context& ctx)
 {
+	if (conversion_function_definition(node, ctx))
+	{
+		return;
+	}
 	const QualifiedName spelled(node.text);
 	const std::string written = spelled.last();
 	if (!spelled.qualified())
@@ -1055,6 +1254,7 @@ void SemaAnalyzer::declare_special_members(SemaEntity& entity, Scope& scope)
 	// p9 and p20 make the answer decide whether the class has the other two at
 	// all, and p7 and p18 whether the ones it does have are deleted.
 	note_transfers(entity, scope);
+	collect_conversions(entity, scope);
 	const bool wrote_destructor = entity.destructor != nullptr;
 	if (!declares_own_constructor(entity))
 	{
@@ -1196,6 +1396,46 @@ void SemaAnalyzer::note_transfers(SemaEntity& entity, Scope& scope)
 SemaEntity* SemaAnalyzer::own_assignments(Scope& scope)
 {
 	return model_.find(scope, "operator=", LookupKind::Any);
+}
+
+// 12.3.2p1 and 13.3.1.5p1: the conversion functions an object of this class
+// has.
+//
+// They are the ones this class declared and the ones a base declared that
+// 10.2p2 does not hide - a conversion this class declares to the same type
+// hides the base's, exactly as any member of that name would.  The list is
+// built once, where 9.2p2 completes the class, out of this class's own
+// declarations and the list its base already holds: a hierarchy of n classes
+// each declaring one conversion costs one step per class rather than one walk
+// of the chain per conversion asked for.
+void SemaAnalyzer::collect_conversions(SemaEntity& entity, Scope& scope)
+{
+	for (std::size_t index = 0; index < scope.declarations.size(); ++index)
+	{
+		SemaEntity* const at = scope.declarations[index];
+		if (at->conversion_function)
+		{
+			entity.conversions.push_back(at);
+		}
+	}
+	if (entity.base == nullptr)
+	{
+		return;
+	}
+	const std::size_t own = entity.conversions.size();
+	const std::vector<SemaEntity*>& inherited = entity.base->conversions;
+	for (std::size_t index = 0; index < inherited.size(); ++index)
+	{
+		bool hidden = false;
+		for (std::size_t here = 0; here < own && !hidden; ++here)
+		{
+			hidden = entity.conversions[here]->name == inherited[index]->name;
+		}
+		if (!hidden)
+		{
+			entity.conversions.push_back(inherited[index]);
+		}
+	}
 }
 
 void SemaAnalyzer::note_transfer(SemaEntity& entity, SemaEntity& function)

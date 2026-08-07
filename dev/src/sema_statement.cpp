@@ -361,8 +361,20 @@ void SemaAnalyzer::condition(const AstNode& node, const Context& ctx,
 			condition_declaration(child, inner);
 			continue;
 		}
-		const Value value = expression(child, ctx, line);
+		Value value = expression(child, ctx, line);
 		require_complete_value(value);
+		// 4p3 and 6.4.2p2: a condition of class type is what a conversion
+		// function of its class hands back - one an `explicit` declaration may
+		// answer where a bool is what the statement needs, and one it may not
+		// where the statement selects on an integral value.
+		if (integral)
+		{
+			contextual_integral(value, ctx);
+		}
+		else
+		{
+			contextual_bool(value, ctx);
+		}
 		// 6.4p4 and 6.4.2p2: an `if` or loop condition is contextually
 		// converted to bool, and a switch condition to an integral or
 		// enumeration type.
