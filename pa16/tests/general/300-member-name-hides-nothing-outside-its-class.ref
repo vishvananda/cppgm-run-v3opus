@@ -1,0 +1,73 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $value : obj<4x4>
+  slot $p : obj<8x8>
+  slot $h : obj<4x4>
+  slot $cond__1 : i32
+  slot $land__2 : i64
+
+  block ^entry:
+    %t1 = addr $value
+    %t2 = addr $value
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 5, %t3
+    %t4 = addr $p
+    %t5 = addr $value
+    call void @pair__pair(%t4, %t5)
+    %t6 = addr $p
+    %t7 = index i8 [projection=reference_field] %t6, 0
+    %t8 = load ptr %t7
+    %t9 = index i8 [projection=field] %t8, 0
+    store i32 11, %t9
+    %t10 = addr $h
+    %t11 = addr $h
+    %t12 = index i8 [projection=field] %t11, 0
+    store i32 2, %t12
+    %t13 = addr $value
+    %t14 = index i8 [projection=field] %t13, 0
+    %t15 = load i32 %t14
+    %t16 = cmp eq i32 %t15, 11
+    branch %t16, ^land_rhs_4, ^land_short_5
+
+  block ^land_rhs_4:
+    %t17 = addr $h
+    %t18 = index i8 [projection=field] %t17, 0
+    %t19 = load i32 %t18
+    %t20 = cmp eq i32 %t19, 2
+    %t21 = cmp ne i64 %t20, 0
+    store i64 %t21, $land__2
+    jump ^land_end_6
+
+  block ^land_short_5:
+    store i64 0, $land__2
+    jump ^land_end_6
+
+  block ^land_end_6:
+    %t22 = load i64 $land__2
+    branch %t22, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t23 = load i32 $cond__1
+    return i32 %t23
+}
+function @pair__pair(%this : ptr, %first : ptr [pass=reference]) -> void [binding=weak, object=_ZN4pairC1ER4cell] {
+  slot $this : ptr
+  slot $first : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    store ptr %first, $first
+    %t1 = load ptr $first
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store ptr %t1, %t3
+    return void
+}
+alias object _ZN4pairC2ER4cell = @pair__pair

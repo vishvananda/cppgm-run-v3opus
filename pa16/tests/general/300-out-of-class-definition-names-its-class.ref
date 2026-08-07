@@ -1,0 +1,67 @@
+function @table__take(%this : ptr, %given : i32) -> i32 [binding=strong, object=_ZN5table4takeEi] {
+  slot $this : ptr
+  slot $given : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %given, $given
+    %t1 = load i32 $given
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    %t4 = load i32 %t3
+    %t5 = binary add i32 %t1, %t4
+    return i32 %t5
+}
+function @table__give(%this : ptr) -> i32 [binding=strong, object=_ZN5table4giveEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i32 %t2
+    return i32 %t3
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $t : obj<4x4>
+  slot $cond__1 : i32
+  slot $land__2 : i64
+
+  block ^entry:
+    %t1 = addr $t
+    %t2 = addr $t
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 3, %t3
+    %t4 = addr $t
+    %t5 = call i32 @table__take(%t4, 4)
+    %t6 = cmp eq i32 %t5, 7
+    branch %t6, ^land_rhs_4, ^land_short_5
+
+  block ^land_rhs_4:
+    %t7 = addr $t
+    %t8 = call i32 @table__give(%t7)
+    %t9 = cmp eq i32 %t8, 3
+    %t10 = cmp ne i64 %t9, 0
+    store i64 %t10, $land__2
+    jump ^land_end_6
+
+  block ^land_short_5:
+    store i64 0, $land__2
+    jump ^land_end_6
+
+  block ^land_end_6:
+    %t11 = load i64 $land__2
+    branch %t11, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t12 = load i32 $cond__1
+    return i32 %t12
+}

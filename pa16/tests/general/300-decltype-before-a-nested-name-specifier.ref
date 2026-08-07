@@ -1,0 +1,30 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $source : obj<4x4>
+  slot $copied : i32
+  slot $cond__1 : i32
+
+  block ^entry:
+    %t1 = addr $source
+    %t2 = addr $source
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 6, %t3
+    %t4 = addr $source
+    %t5 = index i8 [projection=field] %t4, 0
+    %t6 = load i32 %t5
+    store i32 %t6, $copied
+    %t7 = load i32 $copied
+    %t8 = cmp eq i32 %t7, 6
+    branch %t8, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t9 = load i32 $cond__1
+    return i32 %t9
+}

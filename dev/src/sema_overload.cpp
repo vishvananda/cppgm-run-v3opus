@@ -1360,7 +1360,20 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
                                                   const Context& ctx,
                                                   DumpNode& parent)
 {
-	const AstNode& callee = *node.children[0];
+	// 5.1.1p6: a parenthesized expression may be used wherever the expression
+	// it holds may be, and with the same meaning, so the parentheses around a
+	// callee change neither what it names nor how it is called.  3.4.2p1 is the
+	// one thing they do change: the associated namespaces are searched for an
+	// unqualified-id and a parenthesized id-expression is not one.
+	const AstNode* written = node.children[0];
+	bool parenthesized = false;
+	while (written->kind == AstKind::ParenthesizedExpression &&
+	       !written->children.empty())
+	{
+		written = written->children[0];
+		parenthesized = true;
+	}
+	const AstNode& callee = *written;
 	SemaEntity* named = nullptr;
 	std::vector<SemaEntity*>* found = nullptr;
 	if (callee.kind == AstKind::DecltypeSpecifier)
@@ -1423,7 +1436,7 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
 	// reach, and 3.4.2p3 leaves that search out where the ordinary lookup found
 	// a member of a class, a function declared in a block, or anything that is
 	// not a function at all.
-	const bool adl = callee.kind == AstKind::IdExpression &&
+	const bool adl = callee.kind == AstKind::IdExpression && !parenthesized &&
 		!QualifiedName(callee.text).qualified() && allows_adl(named);
 	// Where nothing was found at all, the name is settled once the arguments
 	// are known, and the line the callee will be written on holds its place

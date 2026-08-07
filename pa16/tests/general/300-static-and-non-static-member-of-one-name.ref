@@ -1,0 +1,34 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $n : obj<4x4>
+
+  block ^entry:
+    %t1 = addr $n
+    %t2 = addr $n
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 3, %t3
+    %t4 = addr $n
+    call void @node__clear__ov2(%t4)
+    %t5 = addr $n
+    %t6 = index i8 [projection=field] %t5, 0
+    %t7 = load i32 %t6
+    return i32 %t7
+}
+function @node__clear__ov2(%which : ptr) -> void [binding=weak, object=_ZN4node5clearEPS_] {
+  slot $which : ptr
+
+  block ^entry:
+    store ptr %which, $which
+    %t1 = load ptr $which
+    call void @node__clear(%t1)
+    return void
+}
+function @node__clear(%this : ptr) -> void [binding=weak, object=_ZN4node5clearEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    store i32 0, %t2
+    return void
+}

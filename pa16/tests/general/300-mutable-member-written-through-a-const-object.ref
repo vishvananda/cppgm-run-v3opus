@@ -1,0 +1,87 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $c : obj<8x4>
+  slot $first : i32
+  slot $second : i32
+  slot $cond__1 : i32
+  slot $land__2 : i64
+  slot $land__3 : i64
+
+  block ^entry:
+    %t1 = addr $c
+    %t2 = addr $c
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 0, %t3
+    %t4 = addr $c
+    %t5 = index i8 [projection=field] %t4, 4
+    store i32 9, %t5
+    %t6 = addr $c
+    %t7 = call i32 @counter__look(%t6)
+    store i32 %t7, $first
+    %t8 = addr $c
+    %t9 = call i32 @counter__look(%t8)
+    store i32 %t9, $second
+    %t10 = load i32 $first
+    %t11 = cmp eq i32 %t10, 9
+    branch %t11, ^land_rhs_7, ^land_short_8
+
+  block ^land_rhs_7:
+    %t12 = load i32 $second
+    %t13 = cmp eq i32 %t12, 9
+    %t14 = cmp ne i64 %t13, 0
+    store i64 %t14, $land__3
+    jump ^land_end_9
+
+  block ^land_short_8:
+    store i64 0, $land__3
+    jump ^land_end_9
+
+  block ^land_end_9:
+    %t15 = load i64 $land__3
+    branch %t15, ^land_rhs_4, ^land_short_5
+
+  block ^land_rhs_4:
+    %t16 = addr $c
+    %t17 = index i8 [projection=field] %t16, 0
+    %t18 = load i32 %t17
+    %t19 = cmp eq i32 %t18, 2
+    %t20 = cmp ne i64 %t19, 0
+    store i64 %t20, $land__2
+    jump ^land_end_6
+
+  block ^land_short_5:
+    store i64 0, $land__2
+    jump ^land_end_6
+
+  block ^land_end_6:
+    %t21 = load i64 $land__2
+    branch %t21, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t22 = load i32 $cond__1
+    return i32 %t22
+}
+function @counter__look(%this : ptr) -> i32 [binding=weak, object=_ZNK7counter4lookEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i32 %t2
+    %t4 = binary add i32 %t3, 1
+    %t5 = load ptr $this
+    %t6 = index i8 [projection=field] %t5, 0
+    store i32 %t4, %t6
+    %t7 = load ptr $this
+    %t8 = index i8 [projection=field] %t7, 4
+    %t9 = load i32 %t8
+    return i32 %t9
+}

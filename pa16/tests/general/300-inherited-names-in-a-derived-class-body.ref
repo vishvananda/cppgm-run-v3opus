@@ -1,0 +1,55 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $d : obj<8x4>
+  slot $cond__1 : i32
+
+  block ^entry:
+    %t1 = addr $d
+    %t2 = addr $d
+    %t3 = index i8 [projection=base_subobject] %t2, 0
+    %t4 = index i8 [projection=field] %t3, 0
+    store i32 1, %t4
+    %t5 = addr $d
+    %t6 = index i8 [projection=field] %t5, 4
+    store i32 2, %t6
+    %t7 = addr $d
+    %t8 = call i32 @derived__use(%t7)
+    %t9 = cmp eq i32 %t8, 7
+    branch %t9, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t10 = load i32 $cond__1
+    return i32 %t10
+}
+function @derived__use(%this : ptr) -> i32 [binding=weak, object=_ZNK7derived3useEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    %t3 = call i32 @base__reached(%t2)
+    %t4 = binary add i32 %t3, 4
+    %t5 = load ptr $this
+    %t6 = index i8 [projection=field] %t5, 4
+    %t7 = load i32 %t6
+    %t8 = binary add i32 %t4, %t7
+    return i32 %t8
+}
+function @base__reached(%this : ptr) -> i32 [binding=weak, object=_ZNK4base7reachedEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i32 %t2
+    return i32 %t3
+}
