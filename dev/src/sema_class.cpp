@@ -1050,14 +1050,21 @@ void SemaAnalyzer::declare_special_members(SemaEntity& entity, Scope& scope)
 		// calls complete holds every constructor it declares itself.
 		inherit_constructors(*entity.base, scope);
 	}
+	// 12.8p2/p3/p17/p19: which of the four value-transfer members the program
+	// itself declared, read before anything is added to the class - because
+	// p9 and p20 make the answer decide whether the class has the other two at
+	// all, and p7 and p18 whether the ones it does have are deleted.
+	note_transfers(entity, scope);
+	const bool wrote_destructor = entity.destructor != nullptr;
 	if (!declares_own_constructor(entity))
 	{
 		declare_constructor(entity, scope);
 	}
-	if (entity.destructor == nullptr)
+	if (!wrote_destructor)
 	{
 		declare_destructor(entity, scope);
 	}
+	declare_transfer_members(entity, scope, wrote_destructor);
 	for (SemaEntity* at = entity.constructor; at != nullptr; at = at->next)
 	{
 		if (at->inherited != nullptr)
@@ -1084,6 +1091,358 @@ void SemaAnalyzer::declare_special_members(SemaEntity& entity, Scope& scope)
 	{
 		entity.destructor->trivial = trivial_destruction(scope);
 	}
+	settle_transfers(entity, scope);
+}
+
+// 12.8p2, p3, p17 and p19: which of the four value-transfer special members a
+// declaration of `owner` declares, read from the parameter list 9.3.1p3 gave
+// the function's type rather than from the declarator that wrote it.  A
+// constructor is one where its first written parameter is a reference to its
+// own class and every parameter after it has a default argument; `operator=` is
+// one where it takes exactly that one parameter.  Which of the copy and the
+// move it is, is which reference the parameter is - and a parameter of the
+// class itself is 12.8p17's copy assignment taking its argument by value.
+unsigned char SemaAnalyzer::transfer_kind(const SemaEntity& function,
+                                          const SemaEntity& owner)
+{
+	if (function.shadowed != nullptr || function.inherited != nullptr ||
+	    !function.object_member)
+	{
+		// 12.9p3 and 7.3.3p3: a constructor inherited from a base and a member
+		// a using-declaration brought in are declarations of the base's
+		// function, which is a member of the base and not of this class.
+		return kNotTransfer;
+	}
+	const bool constructor = function.special == kConstructorFunction;
+	if (!constructor && function.name != "operator=")
+	{
+		return kNotTransfer;
+	}
+	const std::vector<TypeId>& parameters = types_.parameters(function.type);
+	if (parameters.size() < 2)
+	{
+		return kNotTransfer;
+	}
+	for (std::size_t index = 2; index < parameters.size(); ++index)
+	{
+		// 12.8p2: a constructor whose later parameters all have default
+		// arguments is still a copy constructor, because a call with one
+		// argument reaches it.  12.8p17 gives an assignment operator exactly
+		// one parameter, so any second one leaves it an ordinary overload.
+		if (!constructor || !has_default_argument(function, index))
+		{
+			return kNotTransfer;
+		}
+	}
+	const TypeId written = parameters[1];
+	const bool rvalue = types_.kind(written) == TypeKind::RValueReference;
+	const bool reference = types_.is_reference(written);
+	if (constructor && !reference)
+	{
+		// 12.8p2: a constructor taking its own class by value is not a copy
+		// constructor - it could never be called - and 12.1p6 makes it
+		// ill formed, which the declaration path is where to say.
+		return kNotTransfer;
+	}
+	const TypeId bare =
+		types_.strip_cv(reference ? types_.target(written) : written);
+	if (bare != types_.strip_cv(owner.type))
+	{
+		return kNotTransfer;
+	}
+	if (constructor)
+	{
+		return rvalue ? kMoveConstructorTransfer : kCopyConstructorTransfer;
+	}
+	return rvalue ? kMoveAssignmentTransfer : kCopyAssignmentTransfer;
+}
+
+// 8.3.6p1: whether the declarations of `function` gave the parameter at `index`
+// in its type a default argument, which is what lets a call leave it out.
+bool SemaAnalyzer::has_default_argument(const SemaEntity& function,
+                                        std::size_t index)
+{
+	const std::unordered_map<std::uint32_t, std::vector<Default> >::const_iterator
+		found = defaults_.find(function.id);
+	return found != defaults_.end() && index < found->second.size() &&
+		found->second[index].written != nullptr;
+}
+
+// 12.8: the four value-transfer members the program itself declared, recorded
+// on the class.  Constructors are the chain the class already holds and
+// assignment operators are the declarations of one name in its own region, so
+// both are one walk and neither searches.
+void SemaAnalyzer::note_transfers(SemaEntity& entity, Scope& scope)
+{
+	for (SemaEntity* at = entity.constructor; at != nullptr; at = at->next)
+	{
+		note_transfer(entity, *at);
+	}
+	SemaEntity* const assignment =
+		model_.lookup_in(scope, "operator=", LookupKind::Any);
+	for (SemaEntity* at = assignment; at != nullptr; at = at->next)
+	{
+		if (at->kind == SemaKind::Function)
+		{
+			note_transfer(entity, *at);
+		}
+	}
+}
+
+void SemaAnalyzer::note_transfer(SemaEntity& entity, SemaEntity& function)
+{
+	const unsigned char kind = transfer_kind(function, entity);
+	function.transfer = kind;
+	if (kind != kNotTransfer && entity.transfers[kind - 1] == nullptr)
+	{
+		entity.transfers[kind - 1] = &function;
+	}
+}
+
+// 12.8p7, p9, p18 and p20: the value-transfer members a class that declared
+// none of its own has.  The copy constructor and the copy assignment operator
+// are always there; the move constructor and the move assignment operator only
+// where the program declared no copy member, no move member and no destructor -
+// because a class that wrote any one of those said how its objects are carried,
+// and the standard does not add a second answer beside it.
+void SemaAnalyzer::declare_transfer_members(SemaEntity& entity, Scope& scope,
+                                            bool wrote_destructor)
+{
+	const bool wrote_copy_constructor =
+		entity.transfers[kCopyConstructorTransfer - 1] != nullptr;
+	const bool wrote_move_constructor =
+		entity.transfers[kMoveConstructorTransfer - 1] != nullptr;
+	const bool wrote_copy_assignment =
+		entity.transfers[kCopyAssignmentTransfer - 1] != nullptr;
+	const bool wrote_move_assignment =
+		entity.transfers[kMoveAssignmentTransfer - 1] != nullptr;
+	// 12.8p9 and p20: the one condition both of the move members are declared
+	// under, which any copy member, any move member of the other kind, or a
+	// destructor the program wrote takes away.
+	const bool moves = !wrote_copy_constructor && !wrote_copy_assignment &&
+		!wrote_destructor;
+	// 12.8p7 and p18: a class that said how its objects move is one whose
+	// implicitly declared copy members are deleted.
+	const bool deleted_copies = wrote_move_constructor || wrote_move_assignment;
+	if (!wrote_copy_constructor)
+	{
+		declare_transfer_member(entity, scope, kCopyConstructorTransfer,
+		                        deleted_copies);
+	}
+	if (!wrote_move_constructor && moves)
+	{
+		declare_transfer_member(entity, scope, kMoveConstructorTransfer, false);
+	}
+	if (!wrote_copy_assignment)
+	{
+		declare_transfer_member(entity, scope, kCopyAssignmentTransfer,
+		                        deleted_copies);
+	}
+	if (!wrote_move_assignment && moves)
+	{
+		declare_transfer_member(entity, scope, kMoveAssignmentTransfer, false);
+	}
+}
+
+// 12.8p8, p10, p19 and p21: one value-transfer member the standard rather than
+// the program declares.  A constructor takes the object it builds and the one
+// it is built from; an assignment operator takes the object it writes to and
+// hands it back as an lvalue.  Both are inline, because a definition no
+// declaration wrote belongs to every translation unit that needs one.
+void SemaAnalyzer::declare_transfer_member(SemaEntity& entity, Scope& scope,
+                                           unsigned char kind, bool deleted)
+{
+	const bool constructor = kind == kCopyConstructorTransfer ||
+		kind == kMoveConstructorTransfer;
+	const bool moving = kind == kMoveConstructorTransfer ||
+		kind == kMoveAssignmentTransfer;
+	std::vector<TypeId> parameters;
+	parameters.push_back(types_.pointer_to(entity.type));
+	// 12.8p8 and p19: the parameter is `const C&` for a copy and `C&&` for a
+	// move.  The non-const `C&` form p8 allows is not written here: every
+	// subobject this milestone copies is copied through a `const` reference.
+	parameters.push_back(types_.reference_to(
+		moving ? entity.type : types_.qualified(entity.type, kCvConst),
+		moving));
+	const TypeId result = constructor
+		? types_.fundamental(FT_VOID)
+		: types_.reference_to(entity.type, false);
+	const std::string spelled = constructor
+		? QualifiedName(types_.user_name(entity.type)).last()
+		: std::string("operator=");
+	SemaEntity& member = model_.create(
+		SemaKind::Function, spelled,
+		types_.function_of(result, parameters, false));
+	name_in_region(member, scope, spelled);
+	member.object_member = true;
+	member.inline_function = true;
+	member.defaulted = true;
+	member.deleted = deleted;
+	member.transfer = kind;
+	member.tail = &member;
+	entity.transfers[kind - 1] = &member;
+	if (constructor)
+	{
+		member.special = kConstructorFunction;
+		// 13.1: the constructors of a class are the declarations of one name,
+		// so this one joins the chain 13.3.1.3 walks rather than replacing it.
+		if (entity.constructor == nullptr)
+		{
+			entity.constructor = &member;
+		}
+		else
+		{
+			entity.constructor->tail->next = &member;
+		}
+		entity.constructor->tail = &member;
+		model_.hold_overload(*entity.constructor, types_.signature(member.type),
+		                     member);
+		model_.declare_in(scope, member);
+		return;
+	}
+	// 13.5.3p1: `operator=` is a name an ordinary lookup in the class reaches,
+	// so the declaration is bound there as well as chained.
+	SemaEntity* const head =
+		model_.lookup_in(scope, "operator=", LookupKind::Any);
+	if (head == nullptr)
+	{
+		model_.bind(scope, "operator=", member);
+	}
+	else
+	{
+		head->tail->next = &member;
+		head->tail = &member;
+		model_.hold_overload(*head, types_.signature(member.type), member);
+	}
+	model_.declare_in(scope, member);
+}
+
+// 12.8p15 and p28: the special member one subobject of class type is carried by
+// where the enclosing class's is `kind`.  A class with no move member is moved
+// by its copy member instead, because 12.8p15 direct-initializes the subobject
+// from an xvalue and 13.3 binds that to a `const` lvalue reference where no
+// rvalue one is declared.
+SemaEntity* SemaAnalyzer::selected_transfer(TypeId type, unsigned char kind)
+{
+	SemaEntity* const owner = model_.type_owner(member_copy_type(type));
+	if (owner == nullptr)
+	{
+		return nullptr;
+	}
+	SemaEntity* const chosen = owner->transfers[kind - 1];
+	if (chosen != nullptr)
+	{
+		return chosen;
+	}
+	if (kind == kMoveConstructorTransfer)
+	{
+		return owner->transfers[kCopyConstructorTransfer - 1];
+	}
+	if (kind == kMoveAssignmentTransfer)
+	{
+		return owner->transfers[kCopyAssignmentTransfer - 1];
+	}
+	return nullptr;
+}
+
+// 12.8p12, p13, p25 and p26: whether a value-transfer member the standard gives
+// this class does nothing but copy the bytes of an object, and 12.8p11 and p23
+// whether the standard can give it a definition at all.  Both are one walk of
+// the subobjects: a subobject of class type is carried by the member its own
+// class has, and a subobject of any other type is carried by its storage - so
+// what the enclosing member is, is what its parts are.
+void SemaAnalyzer::settle_transfers(SemaEntity& entity, Scope& scope)
+{
+	for (unsigned char kind = 1; kind <= kTransferKinds; ++kind)
+	{
+		SemaEntity* const member = entity.transfers[kind - 1];
+		if (member == nullptr || !member->defaulted)
+		{
+			// 8.4.2p1: a definition the program wrote is what the program says
+			// it is, and nothing about the class makes it trivial.
+			continue;
+		}
+		bool trivial = true;
+		bool deleted = member->deleted;
+		const bool assignment = kind == kCopyAssignmentTransfer ||
+			kind == kMoveAssignmentTransfer;
+		if (entity.base != nullptr)
+		{
+			SemaEntity* const carried = selected_transfer(entity.base->type, kind);
+			if (carried == nullptr || carried->deleted)
+			{
+				deleted = true;
+			}
+			else
+			{
+				trivial = trivial && carried->trivial;
+				if (!accessible(*carried, scope))
+				{
+					deleted = true;
+				}
+			}
+		}
+		for (std::size_t index = 0; index < scope.declarations.size(); ++index)
+		{
+			SemaEntity& field = *scope.declarations[index];
+			if (!declares_subobject(field, scope))
+			{
+				continue;
+			}
+			const TypeId bare = member_copy_type(field.type);
+			if (assignment &&
+			    (types_.is_reference(field.type) ||
+			     (types_.cv(bare) & kCvConst) != 0 ||
+			     (types_.cv(types_.strip_cv(field.type)) & kCvConst) != 0))
+			{
+				// 12.8p23: a member of const-qualified or reference type is one
+				// an assignment has nothing to write, so the standard gives the
+				// class's own assignment no definition.
+				deleted = true;
+				continue;
+			}
+			if (!assignment &&
+			    types_.kind(field.type) == TypeKind::RValueReference)
+			{
+				// 12.8p11: a member of rvalue reference type is one a copy has
+				// nothing to bind.
+				deleted = true;
+				continue;
+			}
+			if (!types_.is_class(bare))
+			{
+				continue;
+			}
+			SemaEntity* const carried = selected_transfer(field.type, kind);
+			if (carried == nullptr || carried->deleted ||
+			    !accessible(*carried, scope))
+			{
+				deleted = true;
+				continue;
+			}
+			trivial = trivial && carried->trivial;
+		}
+		member->trivial = trivial && !deleted;
+		member->deleted = deleted;
+	}
+}
+
+// 11.2p1: whether a member of another class may be named from inside `scope`,
+// which is what 12.8p11 and p23 ask of the transfer member of every subobject.
+bool SemaAnalyzer::accessible(const SemaEntity& member, Scope& scope)
+{
+	if (member.access == kPublicAccess)
+	{
+		return true;
+	}
+	for (Scope* at = &scope; at != nullptr; at = at->parent)
+	{
+		if (at == member.region)
+		{
+			return true;
+		}
+	}
+	return false;
 }
 
 // 12.1p5: whether the definition the standard would give a default constructor

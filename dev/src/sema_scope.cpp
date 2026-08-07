@@ -158,6 +158,11 @@ SemaEntity& SemaModel::create(SemaKind kind, const std::string& name, TypeId typ
 	entity.base_access = kPublicAccess;
 	entity.empty_class = true;
 	entity.special = kOrdinaryFunction;
+	entity.transfer = kNotTransfer;
+	for (unsigned index = 0; index < kTransferKinds; ++index)
+	{
+		entity.transfers[index] = nullptr;
+	}
 	entity.explicit_function = false;
 	entity.complete_object_entry = false;
 	entity.base_object_entry = false;

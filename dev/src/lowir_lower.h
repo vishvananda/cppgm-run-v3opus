@@ -618,6 +618,14 @@ private:
 	                                    bool bound = false);
 	// 12.6.2: one member of the object a constructor is initializing.
 	void member_initialization(const DumpNode& node);
+	// 12.8p15 and p28: one step of a value transfer the standard defines that
+	// carries storage rather than naming a subobject.
+	void storage_transfer(const DumpNode& node);
+	// 9.2p13: the storage a given number of bytes into the object at `at`.
+	lowir_model::Operand at_offset(const lowir_model::Operand& at,
+	                               unsigned long long offset);
+	lowir_model::Operand field_at(const lowir_model::Operand& at,
+	                              unsigned long long offset);
 	// 9.6p2 and 4.5p3: the value a bit-field lvalue holds, which is the unit it
 	// sits in read at the field's own promoted type, shifted down to the bottom
 	// and masked to the width the declaration wrote.
@@ -753,6 +761,10 @@ private:
 	// holds nothing moves nothing at all.
 	void copy_class_object(const lowir_model::Operand& destination,
 	                       const lowir_model::Operand& source, TypeId type);
+	// 12.8p15: the bytes of one object of class type written into the storage
+	// of another, which is what a copy the standard defines comes to.
+	void copy_object_storage(const lowir_model::Operand& destination,
+	                         const lowir_model::Operand& source, TypeId type);
 	// 5.2.2p4: what the call is passed for one argument.  For every type but a
 	// class this is the conversion the parameter asks for; for a class it is
 	// the storage the copy was made in, and 12.8p31 lets a prvalue argument be

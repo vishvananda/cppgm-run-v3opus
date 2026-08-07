@@ -237,8 +237,13 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 		// be what initializes it, with no constructor standing between them.
 		source = expression(*written, ctx, line);
 		if (types_.strip_cv(source.type) == types_.strip_cv(object_type) &&
-		    !member)
+		    !member && source.category == ValueCategory::PRValue)
 		{
+			// 12.8p31: the initializer is a prvalue of the object's own class,
+			// so the object it denotes and the one being initialized may be one
+			// and nothing stands between them.  A glvalue names an object that
+			// goes on existing, so 8.5p14 leaves the initialization the call of
+			// the copy or move constructor 13.3 chooses for it.
 			return;
 		}
 		line.children.pop_back();
@@ -609,12 +614,14 @@ void SemaAnalyzer::demand_constructor_definition(SemaEntity& constructor)
 	pending.function = &constructor;
 	pending.self = &model_.create(SemaKind::Parameter, "this", parameters[0]);
 	pending.members = constructor.region;
-	if (constructor.inherited != nullptr || constructor.member_entry)
+	if (constructor.inherited != nullptr || constructor.member_entry ||
+	    constructor.transfer != kNotTransfer)
 	{
-		// 12.9p8 and 8.5.1p2: the definition writes parameters of its own and
-		// names them in what it initializes - the base subobject for one, each
-		// member for the other - so unlike 12.1p5's it has a region of its own
-		// for them to be declared in.
+		// 12.9p8, 8.5.1p2 and 12.8p15: the definition writes parameters of its
+		// own and names them in what it initializes - the base subobject for
+		// one, each member for the other, the object being copied for the
+		// third - so unlike 12.1p5's it has a region of its own for them to be
+		// declared in.
 		DumpScope& dump = model_.open_dump(*constructor.region->dump,
 		                                   "scope function " + constructor.name);
 		pending.scope = &model_.open(ScopeKind::Function, *constructor.region,
@@ -631,16 +638,41 @@ void SemaAnalyzer::demand_constructor_definition(SemaEntity& constructor)
 			// A base whose constructor this unit only saw declared through
 			// another inheriting one still says what its parameters are; a name
 			// is what it may not have said, and the output gives an unnamed
-			// parameter one of its own.
+			// parameter one of its own.  A value-transfer member the standard
+			// declared has one parameter and no declaration to have named it,
+			// and its definition reads that object throughout, so it is named
+			// here after what it is.
 			for (std::size_t index = 1; index < parameters.size(); ++index)
 			{
 				Parameter written;
 				written.type = parameters[index];
+				if (constructor.transfer != kNotTransfer)
+				{
+					written.name = "other";
+				}
 				pending.parameters.push_back(written);
 			}
 		}
 	}
 	pending_.push_back(pending);
+}
+
+// 12.8p15 and p28: the definition a use of a value-transfer member the standard
+// rather than the program gives a class asks this unit for.  A constructor
+// reaches this through the initialization that chose it; an assignment operator
+// through the name a call of it wrote, which is where every other function's
+// definition is asked for too.
+void SemaAnalyzer::demand_transfer_definition(SemaEntity& function)
+{
+	if (function.transfer == kNotTransfer ||
+	    function.special == kConstructorFunction)
+	{
+		// A constructor is asked for where the object it builds is, because
+		// only there is it known whether the complete-object or the base-object
+		// entry of the ABI is the one being run.
+		return;
+	}
+	demand_constructor_definition(function);
 }
 
 // 12.2p1: a prvalue of class type denotes an object, and no declaration named
@@ -859,6 +891,14 @@ void SemaAnalyzer::write_member_initializations(const Pending& pending,
 		write_member_parameters(pending, line);
 		return;
 	}
+	if (pending.function->transfer != kNotTransfer && pending.function->defaulted)
+	{
+		// 12.8p15: a copy or move constructor the standard defines initializes
+		// each subobject from the corresponding subobject of its parameter,
+		// rather than from a mem-initializer the program wrote.
+		write_transfer_steps(pending, line, inner);
+		return;
+	}
 	// 12.6.2p10: the members are initialized in declaration order and the
 	// mem-initializers may be written in any, so which one names each member is
 	// asked once per member rather than by a scan of the list per member.
@@ -1058,6 +1098,246 @@ void SemaAnalyzer::write_member_initializations(const Pending& pending,
 			                         "non-static data member of the class");
 		}
 	}
+}
+
+// 12.8p15 and p28: what a value-transfer member the standard rather than the
+// program defines does - the base class subobject and then each non-static data
+// member, in the one order 9.2p13 and 12.6.2p10 share, carried from the
+// corresponding subobject of the object the parameter names.  A subobject of
+// class type is carried by the member its own class has; any other subobject is
+// carried by its storage, which for a copy or a move is 8.5's initialization of
+// it and for an assignment is 5.17's.
+//
+// The one shape that is not one subobject at a time is the leading run of
+// members whose bytes a copy carries exactly.  For a class with no base
+// subobject that run begins where the object does, so the whole of it is one
+// `copyobj` of the span it covers and only the members after it are named.
+void SemaAnalyzer::write_transfer_steps(const Pending& pending, DumpNode& line,
+                                        const Context& inner)
+{
+	SemaEntity& function = *pending.function;
+	Scope& members = *pending.members;
+	SemaEntity* parameter = nullptr;
+	for (std::size_t index = 0;
+	     pending.scope != nullptr && index < pending.scope->declarations.size();
+	     ++index)
+	{
+		if (pending.scope->declarations[index]->kind == SemaKind::Parameter)
+		{
+			parameter = pending.scope->declarations[index];
+			break;
+		}
+	}
+	if (parameter == nullptr)
+	{
+		throw std::runtime_error("a value-transfer special member has no "
+		                         "parameter to carry its object from");
+	}
+	const unsigned char kind = function.transfer;
+	const bool assigning = kind == kCopyAssignmentTransfer ||
+		kind == kMoveAssignmentTransfer;
+	SemaEntity* const base =
+		members.owner != nullptr ? members.owner->base : nullptr;
+	std::vector<SemaEntity*> fields;
+	for (std::size_t index = 0; index < members.declarations.size(); ++index)
+	{
+		SemaEntity& field = *members.declarations[index];
+		if (declares_subobject(field, members))
+		{
+			fields.push_back(&field);
+		}
+	}
+	std::size_t first = 0;
+	if (base == nullptr)
+	{
+		// 12.8p15: the members carried as storage are carried in one piece, and
+		// the piece is only the object's own storage where nothing stands
+		// before them in it.
+		unsigned long long span = 0;
+		for (; first < fields.size(); ++first)
+		{
+			const SemaEntity& field = *fields[first];
+			if (field.bit_field || !carried_as_storage(field.type, kind))
+			{
+				break;
+			}
+			const unsigned long long end =
+				field.offset + types_.object_size(field.type);
+			span = end > span ? end : span;
+		}
+		if (span != 0)
+		{
+			write_storage_transfer(*parameter, line, 0, span, kNoType);
+		}
+	}
+	if (base != nullptr)
+	{
+		Value source = base_value(parameter_value(*parameter, line), *base,
+		                          false);
+		line.children.pop_back();
+		transfer_source(source, kind);
+		if (assigning)
+		{
+			write_transfer_assignment(*base, source, line, inner, Placement::Base);
+		}
+		else
+		{
+			construct_object(*base, line, nullptr, inner, Placement::Base, true,
+			                 &source);
+		}
+	}
+	for (std::size_t index = first; index < fields.size(); ++index)
+	{
+		SemaEntity& field = *fields[index];
+		if (field.bit_field)
+		{
+			// 9.6p2: the field is a run of bits in a storage unit it shares
+			// with the fields beside it, and what carries all of them is one
+			// read and one write of that unit.  The unit is named by the byte
+			// it begins at, so a second field of the same unit is already done.
+			if (index > first && fields[index - 1]->bit_field &&
+			    fields[index - 1]->offset == field.offset)
+			{
+				continue;
+			}
+			write_storage_transfer(*parameter, line, field.offset,
+			                       types_.object_size(field.type), field.type);
+			continue;
+		}
+		DumpNode& access = model_.open_node(line, std::string());
+		Value source = member_value(field, parameter_value(*parameter, access),
+		                            field.name, access);
+		line.children.pop_back();
+		transfer_source(source, kind);
+		if (assigning)
+		{
+			write_transfer_assignment(field, source, line, inner,
+			                          Placement::Member);
+			continue;
+		}
+		if (types_.is_class(member_copy_type(field.type)))
+		{
+			construct_object(field, line, nullptr, inner, Placement::Member,
+			                 true, &source);
+			continue;
+		}
+		// 12.8p15: a member of any other type is initialized with the value the
+		// corresponding member of the source holds, which is the same node an
+		// ordinary mem-initializer for it would carry.
+		DumpNode& node = open_fact(line, "member-initialization " + field.name +
+		                           " " + types_.description(field.type),
+		                           FactKind::MemberInitialization);
+		node.fact.entity = &field;
+		node.fact.type = field.type;
+		node.fact.spelled = field.type;
+		implied_object(field, node);
+		node.children.push_back(source.node);
+	}
+}
+
+// 12.8p15 and p28: whether a subobject of this type is carried by a copy of its
+// bytes rather than by a call.  Anything that is not of class type is; a class
+// is where the member its own class has for this transfer is one that does
+// nothing but copy those bytes.
+bool SemaAnalyzer::carried_as_storage(TypeId type, unsigned char kind)
+{
+	const TypeId bare = member_copy_type(type);
+	if (!types_.is_class(bare))
+	{
+		return true;
+	}
+	const SemaEntity* const carried = selected_transfer(bare, kind);
+	return carried != nullptr && carried->trivial && !carried->deleted;
+}
+
+// 12.8p15: the subobject of the object a move reads from is an xvalue, which is
+// what makes 13.3 choose the move member of the subobject's own class where it
+// has one.  A copy leaves it the lvalue naming the parameter made it.
+void SemaAnalyzer::transfer_source(Value& source, unsigned char kind)
+{
+	if (kind != kMoveConstructorTransfer && kind != kMoveAssignmentTransfer)
+	{
+		return;
+	}
+	source.category = ValueCategory::XValue;
+	if (source.node != nullptr)
+	{
+		source.node->fact.category = ValueCategory::XValue;
+	}
+}
+
+// One `StorageTransfer` step: the bytes at `offset` of the object being written
+// into take the bytes at `offset` of the object read from.
+void SemaAnalyzer::write_storage_transfer(SemaEntity& parameter, DumpNode& line,
+                                          unsigned long long offset,
+                                          unsigned long long span, TypeId scalar)
+{
+	DumpNode& node = open_fact(line, "storage-transfer", FactKind::StorageTransfer);
+	node.fact.type = scalar;
+	node.fact.value = offset;
+	node.fact.elements = span;
+	Value into = this_value(node);
+	DumpNode& held = model_.wrap_node(*into.node, std::string());
+	set_fact(held, FactKind::Unary, types_.target(into.type),
+	         ValueCategory::LValue);
+	held.fact.op = OP_STAR;
+	parameter_value(parameter, node);
+}
+
+// 12.8p28: one subobject of an assignment the standard defines, which is 5.17's
+// assignment of the corresponding subobject of the source to it.  A subobject of
+// class type reaches the assignment operator its own class has, which is the
+// same call 13.3.1.2 makes for an assignment the program wrote.
+void SemaAnalyzer::write_transfer_assignment(SemaEntity& subobject,
+                                             const Value& source,
+                                             DumpNode& line,
+                                             const Context& inner,
+                                             Placement where)
+{
+	DumpNode& statement =
+		open_fact(line, "expression-statement", FactKind::ExpressionStatement);
+	DumpNode& step = model_.open_node(statement, std::string());
+	Value target;
+	if (where == Placement::Base)
+	{
+		Value self = this_value(step);
+		DumpNode& held = model_.wrap_node(*self.node, std::string());
+		set_fact(held, FactKind::Unary, types_.target(self.type),
+		         ValueCategory::LValue);
+		held.fact.op = OP_STAR;
+		self.type = self.spelled = types_.target(self.type);
+		self.category = ValueCategory::LValue;
+		self.node = &held;
+		target = base_value(self, subobject, false);
+	}
+	else
+	{
+		DumpNode& access = model_.open_node(step, std::string());
+		target = member_value(subobject, implied_object(subobject, access),
+		                      subobject.name, access);
+	}
+	step.children.push_back(source.node);
+	std::vector<Value> operands;
+	operands.push_back(target);
+	operands.push_back(source);
+	Value chosen;
+	if (types_.is_class(member_copy_type(target.type)))
+	{
+		if (!operator_expression(OP_ASS, inner, step, operands, true, chosen))
+		{
+			throw std::runtime_error(
+				"a subobject of the class type " +
+				types_.description(member_copy_type(target.type)) +
+				" has no assignment operator 12.8p28 can call on it");
+		}
+		return;
+	}
+	// 5.17p1: the value the source subobject holds is written into the one this
+	// object holds, and the result is that object.
+	step.text = spell("assignment-expression", ValueCategory::LValue,
+	                  target.type, std::string());
+	set_fact(step, FactKind::Assignment, target.type, ValueCategory::LValue);
+	step.fact.op = OP_ASS;
 }
 
 // 8.5.1p2: what the constructor an aggregate class was given does - each of its

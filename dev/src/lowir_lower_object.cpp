@@ -719,6 +719,21 @@ void LowirFunctionLowering::constructor_call(const Operand& address,
 		// than every byte the array occupies.
 		zero_object(address, zeroed == kNoType ? node.fact.type : zeroed);
 	}
+	if (constructor.trivial &&
+	    (constructor.transfer == kCopyConstructorTransfer ||
+	     constructor.transfer == kMoveConstructorTransfer) &&
+	    call.children.size() > 2)
+	{
+		// 12.8p12: the copy or move the standard defines for this class does
+		// nothing but carry the bytes of the object it reads from, so the
+		// transfer is that copy and no call stands for it.  A trivial
+		// constructor with nothing to read from is 12.1p5's, which leaves the
+		// storage holding what it held; this one leaves it holding an object.
+		const LowValue source = expression(*call.children[2], true);
+		unit_.owe_internal_definition(constructor);
+		copy_object_storage(address, address_of(source), node.fact.type);
+		return;
+	}
 	if (!always && (constructor.trivial ||
 	                (!constructor.user_provided &&
 	                 unit_.construction_writes_nothing(constructor))))
@@ -1160,6 +1175,19 @@ void LowirFunctionLowering::copy_class_object(const Operand& destination,
 			" is copied, which 12.8p1 makes a call of the copy constructor its "
 			"program wrote and this milestone does not write");
 	}
+	copy_object_storage(destination, source, type);
+}
+
+// 12.8p15: the bytes of one object of class type written into the storage of
+// another, which is what a copy the standard defines comes to.  A class that
+// holds nothing has no bytes for it, and 9p6 gives its object a size only so
+// that two of them stand apart.
+void LowirFunctionLowering::copy_object_storage(const Operand& destination,
+                                                const Operand& source,
+                                                TypeId type)
+{
+	TypeTable& types = unit_.types();
+	const TypeId bare = types.strip_cv(type);
 	if (types.is_empty_class(bare))
 	{
 		return;

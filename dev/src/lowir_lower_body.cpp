@@ -1286,6 +1286,10 @@ void LowirFunctionLowering::statement(const DumpNode& node)
 		destructor_call(node);
 		return;
 
+	case FactKind::StorageTransfer:
+		storage_transfer(node);
+		return;
+
 	case FactKind::TypeAlias:
 	case FactKind::FunctionDeclaration:
 		return;
@@ -2025,6 +2029,68 @@ Operand LowirFunctionLowering::member_storage(const DumpNode& object,
 		? lowir_model::IPK_REFERENCE_FIELD
 		: lowir_model::IPK_FIELD;
 	step.first = base;
+	step.second = named_operand(Operand::OP_INTEGER, decimal(offset));
+	return emit(step);
+}
+
+// 12.8p15 and p28: one step of a value transfer the standard defines that
+// carries storage rather than naming a subobject.  A step with no type is the
+// leading run of members a copy of the bytes carries exactly, which is one
+// `copyobj` of the span it covers; a step with one is 9.6p2's storage unit,
+// which the bit-fields sharing it are carried in with one read and one write.
+void LowirFunctionLowering::storage_transfer(const DumpNode& node)
+{
+	TypeTable& types = unit_.types();
+	const unsigned long long offset = node.fact.value;
+	if (node.fact.type == kNoType)
+	{
+		const Operand into = address_of(expression(*node.children[0], true));
+		const Operand from = address_of(expression(*node.children[1], true));
+		Instruction copy;
+		copy.kind = Instruction::IK_COPYOBJ;
+		copy.byte_count = static_cast<std::size_t>(node.fact.elements);
+		copy.byte_alignment = static_cast<std::size_t>(
+			types.object_align(types.strip_cv(node.children[0]->fact.type)));
+		copy.first = at_offset(from, offset);
+		copy.second = at_offset(into, offset);
+		emit_void(copy);
+		return;
+	}
+	// 5.17p1: the value is read out of the object it is read from before the
+	// object it is written into is named, which is the order every other
+	// assignment this lowering writes has.  The unit is a member of the object
+	// rather than the object itself, so where it stands is written as the step
+	// down to it that every other member access writes.
+	const Operand from = address_of(expression(*node.children[1], true));
+	const Operand held = load(field_at(from, offset), node.fact.type);
+	const Operand into = address_of(expression(*node.children[0], true));
+	store(held, field_at(into, offset), node.fact.type);
+}
+
+// 9.2p13: the storage `offset` bytes into the object standing at `at`, which is
+// where a member the layout put there begins.  An offset of zero is the object
+// itself, so nothing is written for it.
+Operand LowirFunctionLowering::at_offset(const Operand& at,
+                                         unsigned long long offset)
+{
+	if (offset == 0)
+	{
+		return at;
+	}
+	return field_at(at, offset);
+}
+
+// The same step written whether or not the member begins where the object does,
+// which is what a member access is: the storage this names is the member's and
+// not the object's, however far into it the layout put it.
+Operand LowirFunctionLowering::field_at(const Operand& at,
+                                        unsigned long long offset)
+{
+	Instruction step;
+	step.kind = Instruction::IK_INDEX;
+	step.type.text = "i8";
+	step.index_projection = lowir_model::IPK_FIELD;
+	step.first = at;
 	step.second = named_operand(Operand::OP_INTEGER, decimal(offset));
 	return emit(step);
 }

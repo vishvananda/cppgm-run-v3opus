@@ -463,6 +463,15 @@ void SemaAnalyzer::write_definition(Pending& pending)
 		}
 		unwind_subobjects_.swap(enclosing_subobjects);
 	}
+	else if (function.transfer != kNotTransfer && function.defaulted &&
+	         pending.members != nullptr)
+	{
+		// 12.8p28: an assignment operator the standard defines assigns each
+		// subobject of the object it is called on from the corresponding
+		// subobject of the one it is passed, before its body - which is empty -
+		// runs.
+		write_transfer_steps(pending, line, inner);
+	}
 	if (pending.body != nullptr)
 	{
 		semantic_statement(*pending.body->children.back(), inner, line);
@@ -472,6 +481,20 @@ void SemaAnalyzer::write_definition(Pending& pending)
 		// 12.1p5 and 12.4p3: a definition no declaration wrote has a body that
 		// does nothing beyond what the standard already said it does.
 		open_fact(line, "compound-statement", FactKind::Compound);
+	}
+	if (function.transfer != kNotTransfer && function.defaulted &&
+	    function.special != kConstructorFunction && pending.members != nullptr)
+	{
+		// 12.8p28: the assignment hands back the object it wrote into, which is
+		// the lvalue `*this` denotes.
+		DumpNode& returned = open_fact(line, "return-statement", FactKind::Return);
+		Value self = this_value(returned);
+		DumpNode& held = model_.wrap_node(*self.node, std::string());
+		held.text = spell("unary-expression", ValueCategory::LValue,
+		                  types_.target(self.type), "*");
+		set_fact(held, FactKind::Unary, types_.target(self.type),
+		         ValueCategory::LValue);
+		held.fact.op = OP_STAR;
 	}
 	if (function.special == kDestructorFunction && pending.members != nullptr)
 	{
@@ -1616,7 +1639,7 @@ void SemaAnalyzer::declare_function_declarator(
 	const AstNode& node, const std::string& name, TypeId type,
 	const QualifiedName& spelled, const Specifiers& specifiers,
 	const Context& target, SemaEntity* granting,
-	std::vector<Parameter>& spelled_parameters)
+	std::vector<Parameter>& spelled_parameters, const AstNode* initializer)
 {
 	// 9.3.1p3: a member function is called on an object, which is a
 	// parameter of it that the declarator does not write.
@@ -1653,6 +1676,19 @@ void SemaAnalyzer::declare_function_declarator(
 	// so the fact accumulates over the declarations of one entity.
 	function.inline_function =
 		function.inline_function || specifiers.is_inline;
+	if (initializer != nullptr && !initializer->children.empty() &&
+	    initializer->children[0]->kind == AstKind::SpecialInitializer)
+	{
+		// 8.4.2 and 8.4.3: `= default` asks for the definition 12.8 would have
+		// given this special member, and `= delete` for a declaration every use
+		// of is ill formed.  8.4.2p1 makes the first of them implicitly inline,
+		// so the definition it stands for belongs to every translation unit
+		// that needs one rather than to the one that wrote the class.
+		function.deleted = initializer->children[0]->text == "delete";
+		function.defaulted = !function.deleted;
+		function.defined = false;
+		function.inline_function = true;
+	}
 	record_default_arguments(function, spelled_parameters, target.scope);
 	if (function.template_parameters != nullptr)
 	{
@@ -1820,8 +1856,15 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 	if (types_.kind(type) == TypeKind::Function)
 	{
 		declare_function_declarator(node, name, type, spelled, specifiers,
-		                            target, granting, spelled_parameters);
+		                            target, granting, spelled_parameters,
+		                            initializer);
 		return;
+	}
+	if (initializer != nullptr && !initializer->children.empty() &&
+	    initializer->children[0]->kind == AstKind::SpecialInitializer)
+	{
+		throw std::runtime_error(name + " is not a function and is declared "
+		                                "with `= default` or `= delete`");
 	}
 
 	declare_object_declarator(initializer, specifiers, ctx, target, spelled,

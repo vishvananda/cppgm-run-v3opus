@@ -34,6 +34,19 @@ const unsigned char kOrdinaryFunction = 0;
 const unsigned char kConstructorFunction = 1;
 const unsigned char kDestructorFunction = 2;
 
+// 12.8: which of the four special members that carry the value of one object of
+// a class into another this declaration declares.  p7/p9/p18/p20 say which of
+// them a class that declared none has, p11/p23 which are deleted, p12/p25 which
+// are trivial, and p15/p28 what the definition of one comes to - and every one
+// of those questions is asked of a declaration rather than of the syntax that
+// wrote it, so which of the four it is, is a fact the declaration carries.
+const unsigned char kNotTransfer = 0;
+const unsigned char kCopyConstructorTransfer = 1;
+const unsigned char kMoveConstructorTransfer = 2;
+const unsigned char kCopyAssignmentTransfer = 3;
+const unsigned char kMoveAssignmentTransfer = 4;
+const unsigned char kTransferKinds = 4;
+
 // 1.4p8 and 17.6.4.3.2p1: the names an implementation reserves for functions
 // of its own, which a program declares nothing of and every use of names the
 // one function the implementation provides.  Which one it is, is what says
@@ -175,6 +188,19 @@ struct SemaEntity
 	// 12.1 and 12.4: which special member function this declaration declares,
 	// as one of the `kOrdinaryFunction` constants.
 	unsigned char special;
+	// 12.8: which of the four value-transfer special members this declaration
+	// declares, as one of the `kNotTransfer` constants.  It is settled where
+	// 9.2p2 completes the class, from the parameter list the declaration wrote,
+	// so no later reader has to match a parameter type against a class again.
+	unsigned char transfer;
+	// Class: 12.8p7/p9/p18/p20's four value-transfer special members of this
+	// class, indexed by `transfer - 1`.  A copy constructor and a move
+	// constructor have no name a lookup reaches and an assignment operator is
+	// one declaration of `operator=` among however many the class wrote, so the
+	// one place each of the four can be asked for is the class itself.  Null
+	// where the class has none - which 12.8p9 and p20 leave a class that
+	// declared a copy member or a destructor of its own with.
+	SemaEntity* transfers[kTransferKinds];
 	// 1.4p8: which reserved function of the implementation this declaration
 	// declares, as one of the `kNotBuiltin` constants.  `kNotBuiltin` for every
 	// declaration a program wrote, which is all but the few the analysis makes

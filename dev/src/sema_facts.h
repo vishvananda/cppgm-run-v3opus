@@ -111,6 +111,15 @@ enum class FactKind : unsigned char
 	AggregateInitialization,
 	// One of those subobjects: a member of a class, or an element of an array.
 	SubobjectInitialization,
+	// 12.8p15 and p28: one step of a value transfer the standard rather than
+	// the program defines that carries storage rather than naming a subobject -
+	// the leading run of members a copy of the bytes carries exactly, and
+	// 9.6p2's storage unit, which the bit-fields sharing it are carried in one
+	// piece.  `value` is the byte it begins at, `elements` how many bytes it
+	// spans, and `type` the scalar the two ends are read and written with, or
+	// no type where the span is copied as storage.  The two children are the
+	// object written into and the object read from, in that order.
+	StorageTransfer,
 	// Declarations.
 	Variable,
 	Parameter,

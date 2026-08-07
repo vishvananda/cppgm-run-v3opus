@@ -432,7 +432,8 @@ private:
 	                                 const Specifiers& specifiers,
 	                                 const Context& target,
 	                                 SemaEntity* granting,
-	                                 std::vector<Parameter>& spelled_parameters);
+	                                 std::vector<Parameter>& spelled_parameters,
+	                                 const AstNode* initializer);
 	void function_definition(const AstNode& node, const Context& ctx);
 	void statement(const AstNode& node, const Context& ctx);
 	SemaEntity& class_declaration(const AstNode& node, const Context& ctx,
@@ -494,6 +495,31 @@ private:
 	void declare_special_members(SemaEntity& entity, Scope& scope);
 	void declare_constructor(SemaEntity& entity, Scope& scope);
 	void declare_destructor(SemaEntity& entity, Scope& scope);
+	// 12.8p2/p3/p17/p19: which of the four value-transfer special members one
+	// declaration of a class declares, and the same asked of every declaration
+	// the class holds.
+	unsigned char transfer_kind(const SemaEntity& function,
+	                            const SemaEntity& owner);
+	void note_transfers(SemaEntity& entity, Scope& scope);
+	void note_transfer(SemaEntity& entity, SemaEntity& function);
+	// 12.8p7/p9/p18/p20: the value-transfer members the standard rather than
+	// the program declares, added where 9.2p2 completes the class.
+	void declare_transfer_members(SemaEntity& entity, Scope& scope,
+	                              bool wrote_destructor);
+	void declare_transfer_member(SemaEntity& entity, Scope& scope,
+	                             unsigned char kind, bool deleted);
+	// 12.8p11/p12/p23/p25: whether each of them is one the standard can define
+	// and whether its definition is the copy of an object's bytes.
+	void settle_transfers(SemaEntity& entity, Scope& scope);
+	// 12.8p15/p28: the value-transfer member one subobject of class type is
+	// carried by, which for a move falls back on the class's copy member.
+	SemaEntity* selected_transfer(TypeId type, unsigned char kind);
+	// 8.3.6p1: whether the parameter at `index` of this function's type has a
+	// default argument, which is what lets 12.8p2 count a constructor with more
+	// parameters as a copy constructor.
+	bool has_default_argument(const SemaEntity& function, std::size_t index);
+	// 11.2p1: whether a member of another class may be named from `scope`.
+	bool accessible(const SemaEntity& member, Scope& scope);
 	// 12.1p5 and 8.5p6: the constructors of the class `type`, as the chain
 	// 13.3.1.3 chooses from, and the destructor 12.4p3 gives it.  Null for
 	// anything that is not a class type this unit completed.
@@ -522,6 +548,28 @@ private:
 	// 8.5.1p2: what the constructor an aggregate class was given does - each
 	// member initialized with the parameter of the same name.
 	void write_member_parameters(const Pending& pending, DumpNode& line);
+	// 12.8p15 and p28: what a value-transfer member the standard defines does -
+	// each subobject carried from the corresponding subobject of its parameter,
+	// with the leading run whose bytes a copy carries exactly carried in one
+	// piece.
+	void write_transfer_steps(const Pending& pending, DumpNode& line,
+	                          const Context& inner);
+	void write_transfer_assignment(SemaEntity& subobject, const Value& source,
+	                               DumpNode& line, const Context& inner,
+	                               Placement where);
+	void write_storage_transfer(SemaEntity& parameter, DumpNode& line,
+	                            unsigned long long offset,
+	                            unsigned long long span, TypeId scalar);
+	// 12.8p15: whether a subobject of this type is carried by a copy of its
+	// bytes rather than by a call of a member of its own class.
+	bool carried_as_storage(TypeId type, unsigned char kind);
+	// 12.8p15: a move reads its source subobject as an xvalue, which is what
+	// makes 13.3 choose the subobject's own move member.
+	void transfer_source(Value& source, unsigned char kind);
+	// 12.8p28: the definition a use of a value-transfer member the standard
+	// gives a class asks this unit for, where a name rather than an object
+	// initialization is what named it.
+	void demand_transfer_definition(SemaEntity& function);
 	// 12.1p5: whether the definition the standard would give this class's
 	// default constructor is one it cannot write, which deletes the
 	// constructor.
