@@ -106,8 +106,7 @@ void LowirFunctionLowering::add_initialization(const Operand& storage,
 		{
 			LowObject at;
 			at.storage = storage;
-			at.element_array = array;
-			at.element_index = index;
+			at.elements.push_back(LowObject::ElementStep(array, index));
 			if (node.children[index]->fact.kind == FactKind::ConstructorAction)
 			{
 				// 12.6p1: the element is one object of its class, built by the
@@ -341,13 +340,22 @@ void LowirFunctionLowering::constructor_call(const Operand& address,
 	TypeTable& types = unit_.types();
 	const DumpNode& call = *node.children[0];
 	const SemaEntity& constructor = *call.children[0]->fact.entity;
-	// 15.2p2: the step that built this subobject is the one the region belongs
-	// to, so the mark it left is taken here and a constructor call an argument
-	// of this one makes finds none.  What names the subobject is what has been
-	// written since the mark, which is the address and nothing else - the
-	// arguments are read below, after this.
-	const UnwindMark mark = unwind_mark_;
-	unwind_mark_ = UnwindMark();
+	// 15.2p2: the partly built object is the one a constructor is initializing
+	// the subobjects of, so only a call that builds one of those subobjects is
+	// a step of it.  `always` says this object stands at an address instead -
+	// 12.2p1's temporary and 5.3.4p12's object - which is no subobject of
+	// anything and leaves the step whose clause it was written in still
+	// looking for its own call.
+	const bool subobject = !always;
+	const UnwindMark mark = subobject ? unwind_mark_ : UnwindMark();
+	if (subobject)
+	{
+		// The mark this step left is taken here, so a constructor call an
+		// argument of this one makes finds none.  What names the subobject is
+		// what has been written since the mark, which is the address and
+		// nothing else - the arguments are read below, after this.
+		unwind_mark_ = UnwindMark();
+	}
 	std::vector<Instruction> named;
 	if (mark.active && mark.block == current_)
 	{
@@ -372,9 +380,16 @@ void LowirFunctionLowering::constructor_call(const Operand& address,
 	}
 	// 15.2p2: an exception out of this step leaves the subobjects the steps
 	// before it built, and they are destroyed before it goes on unwinding.  The
-	// region opens where the step began, which is why the place was marked.
+	// region opens where the step began, which is why the place was marked -
+	// and where 8.5.1p1's clause reached the subobject, what the step is, is
+	// the arguments that clause wrote and the call they are passed to, so the
+	// path down to the subobject stands before the region.  A clause that wrote
+	// no argument leaves the naming as the whole of the step, which is what
+	// 12.6.2 and 12.6p1 name a subobject with.
+	UnwindMark opened = mark;
+	opened.at_call = mark.at_call && call.children.size() > 2;
 	const UnwindRegion region =
-		mark.active && !unwind_live_.empty() ? open_unwind_region(mark)
+		mark.active && !unwind_live_.empty() ? open_unwind_region(opened)
 		                                    : UnwindRegion();
 	unit_.declare_entity(constructor);
 	Instruction out;
@@ -410,13 +425,14 @@ void LowirFunctionLowering::constructor_call(const Operand& address,
 // 15.2p2: the place one subobject's construction begins.  Whether a handler
 // stands around it is known only once the step has said whether it made a call,
 // so the place is remembered and the region is written into it afterwards.
-void LowirFunctionLowering::mark_unwind_step()
+void LowirFunctionLowering::mark_unwind_step(bool at_call)
 {
 	if (!unwinding_)
 	{
 		return;
 	}
 	unwind_mark_.active = true;
+	unwind_mark_.at_call = at_call;
 	unwind_mark_.block = current_;
 	unwind_mark_.at = out_.blocks[current_].instructions.size();
 }
@@ -441,7 +457,11 @@ LowirFunctionLowering::UnwindRegion LowirFunctionLowering::open_unwind_region(
 	open.kind = Instruction::IK_EH_TRY;
 	open.first = named_operand(Operand::OP_LABEL, region.dispatch);
 	std::vector<Instruction>& written = out_.blocks[mark.block].instructions;
-	written.insert(written.begin() + static_cast<std::ptrdiff_t>(mark.at), open);
+	// 8.5.1p1's clause reached the subobject down a path the step did not walk,
+	// so the region begins where the initialization does; everywhere else the
+	// naming is the step's own and stands inside it.
+	const std::size_t opens = mark.at_call ? written.size() : mark.at;
+	written.insert(written.begin() + static_cast<std::ptrdiff_t>(opens), open);
 	return region;
 }
 
@@ -1177,7 +1197,7 @@ void LowirFunctionLowering::initialize_aggregate(const LowObject& object,
 // nothing has to be emitted to name storage the function already holds.
 Operand LowirFunctionLowering::object_storage(const LowObject& object)
 {
-	if (object.element_array != kNoType)
+	if (!object.elements.empty())
 	{
 		return object_address(object);
 	}
@@ -1200,13 +1220,18 @@ Operand LowirFunctionLowering::object_address(const LowObject& object)
 		held.operand = object.storage;
 		at = address_of(held);
 	}
-	if (object.element_array == kNoType)
-	{
-		return at;
-	}
 	// 8.5.1p1: what is being initialized is one element of that array, which is
-	// where the array is plus the elements before it.
-	return array_element(at, object.element_array, object.element_index);
+	// where the array is plus the elements before it - and where the walk
+	// stepped through more than one dimension, one such step per dimension,
+	// which is 5.2.1p1's own reading of the subscripts.  The array decays once,
+	// because after the first step the walk already stands at an element.
+	for (std::size_t index = 0; index < object.elements.size(); ++index)
+	{
+		const LowObject::ElementStep& step = object.elements[index];
+		at = index == 0 ? array_element(at, step.array, step.index)
+		                : element_step(at, step.array, step.index);
+	}
+	return at;
 }
 
 Operand LowirFunctionLowering::subobject_address(
@@ -1252,8 +1277,10 @@ void LowirFunctionLowering::initialize_subobject(
 {
 	// 15.2p2: whatever this subobject turns out to be, its initialization
 	// begins here, and where it is one of class type the call it makes is a
-	// step an exception out of a later one has to undo.
-	mark_unwind_step();
+	// step an exception out of a later one has to undo.  8.5.1p1's path to the
+	// subobject is walked before that initialization, so the region begins
+	// where the call does and the path is what the handler replays.
+	mark_unwind_step(true);
 	path.push_back(&node);
 	if (!node.children.empty() &&
 	    node.children[0]->fact.kind == FactKind::SubobjectInitialization)
@@ -1456,8 +1483,13 @@ void LowirFunctionLowering::initialize_array(const LowObject& object,
                                              TypeId type, const DumpNode& node)
 {
 	// 8.5.1: the clauses initialize the elements in order and the elements no
-	// clause reached are value-initialized.  The elements are addressed from
-	// one base, by byte, so the storage is named once however many there are.
+	// clause reached are value-initialized.  Where the array is the object
+	// itself the elements are addressed from one base, by byte, so the storage
+	// is named once however many there are; where it is a subobject of one, an
+	// element is named the way the program would name it - the object, the
+	// member, then the element - which is the one description every other place
+	// that reaches an element uses, and the only one 15.2p2's handler can write
+	// again in a block of its own.
 	TypeTable& types = unit_.types();
 	const TypeId element = types.target(types.strip_cv(type));
 	const unsigned long long stride = types.object_size(element);
@@ -1467,7 +1499,7 @@ void LowirFunctionLowering::initialize_array(const LowObject& object,
 		throw std::runtime_error("an array initializer has more clauses than "
 		                         "the array has elements");
 	}
-	const Operand address = object_address(object);
+	const bool subobject = object.written != nullptr;
 	// 8.5p7: the elements no clause reached are value-initialized, which is one
 	// span of zero bytes.  A scalar element is still written one store at a
 	// time while there are few enough for that to be a description of the
@@ -1480,10 +1512,20 @@ void LowirFunctionLowering::initialize_array(const LowObject& object,
 		left <= kZeroSpanLimit;
 	const unsigned long long written =
 		spelled_elementwise ? bound : node.children.size();
+	const Operand address = subobject ? Operand() : object_address(object);
 	for (unsigned long long index = 0; index < written; ++index)
 	{
+		// 15.2p2: an element built after another is one an exception out of
+		// that later one leaves standing, so each is a step of its own.
+		mark_unwind_step(true);
+		LowObject reached = object;
 		Operand at = address;
-		if (index != 0)
+		if (subobject)
+		{
+			reached.elements.push_back(
+				LowObject::ElementStep(types.strip_cv(type), index));
+		}
+		else if (index != 0)
 		{
 			Instruction step;
 			step.kind = Instruction::IK_INDEX;
@@ -1499,20 +1541,41 @@ void LowirFunctionLowering::initialize_array(const LowObject& object,
 			{
 				// 12.6p1: the element is one object of its class, built where
 				// it stands by the constructor 8.5 chose for it.
-				constructor_call(at, *node.children[index]);
+				constructor_call(subobject ? object_address(reached) : at,
+				                 *node.children[index]);
+				continue;
+			}
+			if (subobject)
+			{
+				// The element keeps the walk that named it, so an element of
+				// its own - a dimension further in - is named from the object
+				// again rather than from the address this step produced, and
+				// the address is written once by whoever needs it.
+				initialize_into(reached, element, *node.children[index]);
 				continue;
 			}
 			initialize(at, element, *node.children[index]);
 			continue;
 		}
-		store(zero_operand(element), at, element);
+		store(zero_operand(element),
+		      subobject ? object_address(reached) : at, element);
 	}
 	if (spelled_elementwise || left == 0)
 	{
 		return;
 	}
 	Operand at = address;
-	if (written != 0)
+	if (subobject)
+	{
+		LowObject reached = object;
+		if (written != 0)
+		{
+			reached.elements.push_back(
+				LowObject::ElementStep(types.strip_cv(type), written));
+		}
+		at = object_address(reached);
+	}
+	else if (written != 0)
 	{
 		Instruction step;
 		step.kind = Instruction::IK_INDEX;

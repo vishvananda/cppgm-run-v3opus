@@ -97,12 +97,23 @@ enum class BitFieldWrite
 // of the object being constructed is reached through `this` every time.
 struct LowObject
 {
+	// 8.5.1p1 and 5.2.1p1: one subscript of the walk down to the object, held
+	// as the array it steps through and which of its elements it reached.
+	struct ElementStep
+	{
+		ElementStep(TypeId stepped, unsigned long long reached)
+			: array(stepped)
+			, index(reached)
+		{}
+
+		TypeId array;
+		unsigned long long index;
+	};
+
 	LowObject()
 		: written(nullptr)
 		, member(nullptr)
 		, addressed(false)
-		, element_array(kNoType)
-		, element_index(0)
 	{}
 
 	lowir_model::Operand storage;
@@ -114,12 +125,14 @@ struct LowObject
 	// rather than computing a second one for the same storage.
 	lowir_model::Operand address;
 	bool addressed;
-	// 8.5.1p1: the object is one element of the array the two members above
-	// name, which is what a namespace-scope array whose clauses 3.6.2p2 could
-	// not settle is initialized one of at a time.  `kNoType` where the object
-	// is the whole thing the storage holds.
-	TypeId element_array;
-	unsigned long long element_index;
+	// 8.5.1p1: the object is the element these subscripts name inside the array
+	// the two members above reach - one entry per dimension the walk has
+	// stepped through, from the outside in, which is how 5.2.1p1 would write
+	// them.  Empty where the object is the whole thing the storage holds.  The
+	// chain rather than a cursor is what lets the element be named again
+	// wherever it is asked for, which 15.2p2's handler needs and which a
+	// namespace-scope array initialized one element at a time already did.
+	std::vector<ElementStep> elements;
 };
 
 // The symbols one LowIR program names, which outlive the translation unit that
@@ -764,15 +777,24 @@ private:
 	// Where the code that builds one subobject begins.  Whether the step needs
 	// a handler is known only once it has made its call, so the place is marked
 	// before the step and the region is opened into it afterwards.
+	//
+	// `at` is where the instructions that name the subobject begin, which is
+	// what the handler replays.  `at_call` says the region begins after them
+	// rather than at them: where 8.5.1p1's clause reached the subobject, the
+	// path to it is walked before the initialization the clause is, and it is
+	// that initialization the region covers - where 12.6.2 and 12.6p1 name a
+	// subobject, the naming is part of the step and stands inside it.
 	struct UnwindMark
 	{
 		UnwindMark()
 			: active(false)
+			, at_call(false)
 			, block(0)
 			, at(0)
 		{}
 
 		bool active;
+		bool at_call;
 		std::size_t block;
 		std::size_t at;
 	};
@@ -788,7 +810,7 @@ private:
 		std::string end;
 		bool fresh;
 	};
-	void mark_unwind_step();
+	void mark_unwind_step(bool at_call = false);
 	UnwindRegion open_unwind_region(const UnwindMark& mark);
 	void close_unwind_region(const UnwindRegion& region);
 	// The subobject `address` names, destroyed in a block of its own.

@@ -1,0 +1,109 @@
+global @order : i32 [binding=strong, object=_Z5order] = zero
+global @storage [binding=strong, object=_Z7storage] = {
+  zero 64
+}
+
+function @operatornew(%__param0 : i64, %p : ptr) -> ptr [binding=strong, object=_ZnwmPv] {
+  slot $__param0 : i64
+  slot $p : ptr
+
+  block ^entry:
+    store i64 %__param0, $__param0
+    store ptr %p, $p
+    %t1 = load ptr $p
+    return ptr %t1
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $owner : obj<16x8>
+  slot $cond__1 : i32
+
+  block ^entry:
+    %t1 = addr $owner
+    call void @Owner__Owner(%t1)
+    %t2 = addr $owner
+    call void @Owner___Owner(%t2)
+    %t3 = addr @storage
+    %t4 = unary decay ptr %t3
+    call void @Node___Node(%t4)
+    %t5 = load i32 @order
+    %t6 = cmp eq i32 %t5, 44
+    branch %t6, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t7 = load i32 $cond__1
+    return i32 %t7
+}
+function @Node___Node(%this : ptr) -> void [binding=weak, object=_ZN4NodeD1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load i32 @order
+    %t2 = binary mul i32 %t1, 3
+    %t3 = binary add i32 %t2, 2
+    store i32 %t3, @order
+    return void
+}
+function @Owner__Owner(%this : ptr) -> void [binding=weak, object=_ZN5OwnerC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = convert sext i64 i32 1
+    %t2 = addr @storage
+    %t3 = unary decay ptr %t2
+    %t4 = call ptr @operatornew(%t1, %t3)
+    call void @Node__Node(%t4)
+    %t5 = load ptr $this
+    %t6 = index i8 [projection=field] %t5, 0
+    store ptr %t4, %t6
+    %t7 = load ptr $this
+    %t8 = index i8 [projection=field] %t7, 8
+    call void @Node__Node(%t8)
+    return void
+}
+function @Owner___Owner(%this : ptr) -> void [binding=weak, object=_ZN5OwnerD1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    eh_cleanup ^destructor_cleanup_1
+    eh_end
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 8
+    call void @Node___Node(%t2)
+    jump ^destructor_end_2
+
+  block ^destructor_cleanup_1:
+    %t3 = load ptr $this
+    %t4 = index i8 [projection=field] %t3, 8
+    call void @Node___Node(%t4)
+    eh_end
+    resume
+
+  block ^destructor_end_2:
+    return void
+}
+function @Node__Node(%this : ptr) -> void [binding=weak, object=_ZN4NodeC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load i32 @order
+    %t2 = binary mul i32 %t1, 3
+    %t3 = binary add i32 %t2, 1
+    store i32 %t3, @order
+    return void
+}
+alias object _ZN4NodeD2Ev = @Node___Node
+alias object _ZN5OwnerC2Ev = @Owner__Owner
+alias object _ZN5OwnerD2Ev = @Owner___Owner
+alias object _ZN4NodeC2Ev = @Node__Node

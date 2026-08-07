@@ -632,6 +632,15 @@ void SemaAnalyzer::special_member(const AstNode& node, const Context& ctx)
 		{
 			entity->explicit_function = true;
 		}
+		// 7.1.2p2: a declaration written with `inline` declares an inline
+		// function, whether or not it is the declaration the body is written
+		// on - so a constructor or destructor the class declares `inline` and
+		// a later definition gives a body belongs to every unit that needs
+		// one, exactly as one defined in the class body does.
+		if (specifiers->children[index]->text == "inline")
+		{
+			entity->inline_function = true;
+		}
 	}
 	record_default_arguments(*entity, parameters, ctx.scope);
 	model_.declare_in(*ctx.scope, *entity);

@@ -1,0 +1,292 @@
+global @order : i32 [binding=strong, object=_Z5order] = zero
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $holder : obj<16x4>
+  slot $cond__1 : i32
+
+  block ^entry:
+    %t1 = addr $holder
+    call void @Holder__Holder(%t1)
+    %t2 = addr $holder
+    call void @Holder___Holder(%t2)
+    %t3 = load i32 @order
+    %t4 = cmp eq i32 %t3, 3320
+    branch %t4, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t5 = load i32 $cond__1
+    return i32 %t5
+}
+function @Holder__Holder(%this : ptr) -> void [binding=weak, object=_ZN6HolderC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = unary decay ptr %t2
+    %t4 = binary mul i64 0, 4
+    %t5 = index i8 [projection=array_element] %t3, %t4
+    call void @Value__Value(%t5, 1)
+    %t6 = load ptr $this
+    %t7 = index i8 [projection=field] %t6, 0
+    %t8 = unary decay ptr %t7
+    %t9 = binary mul i64 1, 4
+    %t10 = index i8 [projection=array_element] %t8, %t9
+    eh_try ^call_unwind_dispatch_1
+    call void @Value__Value(%t10, 2)
+    eh_end
+    jump ^call_unwind_end_2
+
+  block ^call_unwind_dispatch_1:
+    %t11 = load ptr $this
+    %t12 = index i8 [projection=field] %t11, 0
+    %t13 = unary decay ptr %t12
+    %t14 = binary mul i64 0, 4
+    %t15 = index i8 [projection=array_element] %t13, %t14
+    call void @Value___Value(%t15)
+    resume
+
+  block ^call_unwind_end_2:
+    %t16 = load ptr $this
+    %t17 = index i8 [projection=field] %t16, 0
+    %t18 = unary decay ptr %t17
+    %t19 = binary mul i64 2, 4
+    %t20 = index i8 [projection=array_element] %t18, %t19
+    eh_try ^call_unwind_dispatch_3
+    call void @Value__Value(%t20, 3)
+    eh_end
+    jump ^call_unwind_end_4
+
+  block ^call_unwind_dispatch_3:
+    %t21 = load ptr $this
+    %t22 = index i8 [projection=field] %t21, 0
+    %t23 = unary decay ptr %t22
+    %t24 = binary mul i64 1, 4
+    %t25 = index i8 [projection=array_element] %t23, %t24
+    call void @Value___Value(%t25)
+    %t26 = load ptr $this
+    %t27 = index i8 [projection=field] %t26, 0
+    %t28 = unary decay ptr %t27
+    %t29 = binary mul i64 0, 4
+    %t30 = index i8 [projection=array_element] %t28, %t29
+    call void @Value___Value(%t30)
+    resume
+
+  block ^call_unwind_end_4:
+    eh_try ^call_unwind_dispatch_5
+    %t31 = load ptr $this
+    %t32 = index i8 [projection=field] %t31, 12
+    call void @Mark__Mark(%t32)
+    eh_end
+    jump ^call_unwind_end_6
+
+  block ^call_unwind_dispatch_5:
+    %t33 = load ptr $this
+    %t34 = index i8 [projection=field] %t33, 0
+    %t35 = unary decay ptr %t34
+    %t36 = binary mul i64 2, 4
+    %t37 = index i8 [projection=array_element] %t35, %t36
+    call void @Value___Value(%t37)
+    %t38 = load ptr $this
+    %t39 = index i8 [projection=field] %t38, 0
+    %t40 = unary decay ptr %t39
+    %t41 = binary mul i64 1, 4
+    %t42 = index i8 [projection=array_element] %t40, %t41
+    call void @Value___Value(%t42)
+    %t43 = load ptr $this
+    %t44 = index i8 [projection=field] %t43, 0
+    %t45 = unary decay ptr %t44
+    %t46 = binary mul i64 0, 4
+    %t47 = index i8 [projection=array_element] %t45, %t46
+    call void @Value___Value(%t47)
+    resume
+
+  block ^call_unwind_end_6:
+    return void
+}
+function @Holder___Holder(%this : ptr) -> void [binding=weak, object=_ZN6HolderD1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    eh_cleanup ^destructor_cleanup_1
+    eh_end
+    eh_cleanup ^destructor_suffix_cleanup_3
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 12
+    call void @Mark___Mark(%t2)
+    eh_end
+    jump ^destructor_suffix_next_4
+
+  block ^destructor_suffix_cleanup_3:
+    %t3 = load ptr $this
+    %t4 = index i8 [projection=field] %t3, 0
+    %t5 = unary decay ptr %t4
+    %t6 = binary mul i64 2, 4
+    %t7 = index i8 [projection=array_element] %t5, %t6
+    call void @Value___Value(%t7)
+    %t8 = load ptr $this
+    %t9 = index i8 [projection=field] %t8, 0
+    %t10 = unary decay ptr %t9
+    %t11 = binary mul i64 1, 4
+    %t12 = index i8 [projection=array_element] %t10, %t11
+    call void @Value___Value(%t12)
+    %t13 = load ptr $this
+    %t14 = index i8 [projection=field] %t13, 0
+    %t15 = unary decay ptr %t14
+    %t16 = binary mul i64 0, 4
+    %t17 = index i8 [projection=array_element] %t15, %t16
+    call void @Value___Value(%t17)
+    eh_end
+    resume
+
+  block ^destructor_suffix_next_4:
+    eh_cleanup ^destructor_suffix_cleanup_5
+    %t18 = load ptr $this
+    %t19 = index i8 [projection=field] %t18, 0
+    %t20 = unary decay ptr %t19
+    %t21 = binary mul i64 2, 4
+    %t22 = index i8 [projection=array_element] %t20, %t21
+    call void @Value___Value(%t22)
+    eh_end
+    jump ^destructor_suffix_next_6
+
+  block ^destructor_suffix_cleanup_5:
+    %t23 = load ptr $this
+    %t24 = index i8 [projection=field] %t23, 0
+    %t25 = unary decay ptr %t24
+    %t26 = binary mul i64 1, 4
+    %t27 = index i8 [projection=array_element] %t25, %t26
+    call void @Value___Value(%t27)
+    %t28 = load ptr $this
+    %t29 = index i8 [projection=field] %t28, 0
+    %t30 = unary decay ptr %t29
+    %t31 = binary mul i64 0, 4
+    %t32 = index i8 [projection=array_element] %t30, %t31
+    call void @Value___Value(%t32)
+    eh_end
+    resume
+
+  block ^destructor_suffix_next_6:
+    eh_cleanup ^destructor_suffix_cleanup_7
+    %t33 = load ptr $this
+    %t34 = index i8 [projection=field] %t33, 0
+    %t35 = unary decay ptr %t34
+    %t36 = binary mul i64 1, 4
+    %t37 = index i8 [projection=array_element] %t35, %t36
+    call void @Value___Value(%t37)
+    eh_end
+    jump ^destructor_suffix_next_8
+
+  block ^destructor_suffix_cleanup_7:
+    %t38 = load ptr $this
+    %t39 = index i8 [projection=field] %t38, 0
+    %t40 = unary decay ptr %t39
+    %t41 = binary mul i64 0, 4
+    %t42 = index i8 [projection=array_element] %t40, %t41
+    call void @Value___Value(%t42)
+    eh_end
+    resume
+
+  block ^destructor_suffix_next_8:
+    %t43 = load ptr $this
+    %t44 = index i8 [projection=field] %t43, 0
+    %t45 = unary decay ptr %t44
+    %t46 = binary mul i64 0, 4
+    %t47 = index i8 [projection=array_element] %t45, %t46
+    call void @Value___Value(%t47)
+    jump ^destructor_end_2
+
+  block ^destructor_cleanup_1:
+    %t48 = load ptr $this
+    %t49 = index i8 [projection=field] %t48, 12
+    call void @Mark___Mark(%t49)
+    %t50 = load ptr $this
+    %t51 = index i8 [projection=field] %t50, 0
+    %t52 = unary decay ptr %t51
+    %t53 = binary mul i64 2, 4
+    %t54 = index i8 [projection=array_element] %t52, %t53
+    call void @Value___Value(%t54)
+    %t55 = load ptr $this
+    %t56 = index i8 [projection=field] %t55, 0
+    %t57 = unary decay ptr %t56
+    %t58 = binary mul i64 1, 4
+    %t59 = index i8 [projection=array_element] %t57, %t58
+    call void @Value___Value(%t59)
+    %t60 = load ptr $this
+    %t61 = index i8 [projection=field] %t60, 0
+    %t62 = unary decay ptr %t61
+    %t63 = binary mul i64 0, 4
+    %t64 = index i8 [projection=array_element] %t62, %t63
+    call void @Value___Value(%t64)
+    eh_end
+    resume
+
+  block ^destructor_end_2:
+    return void
+}
+function @Value___Value(%this : ptr) -> void [binding=weak, object=_ZN5ValueD1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load i32 @order
+    %t2 = binary mul i32 %t1, 3
+    %t3 = binary add i32 %t2, 2
+    store i32 %t3, @order
+    return void
+}
+function @Value__Value(%this : ptr, %given : i32) -> void [binding=weak, object=_ZN5ValueC1Ei] {
+  slot $this : ptr
+  slot $given : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %given, $given
+    %t1 = load i32 $given
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 %t1, %t3
+    %t4 = load i32 @order
+    %t5 = binary mul i32 %t4, 3
+    %t6 = binary add i32 %t5, 1
+    store i32 %t6, @order
+    return void
+}
+function @Mark__Mark(%this : ptr) -> void [binding=weak, object=_ZN4MarkC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load i32 @order
+    %t2 = binary mul i32 %t1, 3
+    %t3 = binary add i32 %t2, 1
+    store i32 %t3, @order
+    return void
+}
+function @Mark___Mark(%this : ptr) -> void [binding=weak, object=_ZN4MarkD1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load i32 @order
+    %t2 = binary mul i32 %t1, 3
+    %t3 = binary add i32 %t2, 2
+    store i32 %t3, @order
+    return void
+}
+alias object _ZN6HolderC2Ev = @Holder__Holder
+alias object _ZN6HolderD2Ev = @Holder___Holder
+alias object _ZN5ValueD2Ev = @Value___Value
+alias object _ZN5ValueC2Ei = @Value__Value
+alias object _ZN4MarkC2Ev = @Mark__Mark
+alias object _ZN4MarkD2Ev = @Mark___Mark

@@ -1253,6 +1253,20 @@ SemaAnalyzer::Value SemaAnalyzer::list_initialize(const AstNode& node,
 			}
 			initialize(clause, element, ctx, line, true);
 		}
+		if (types_.is_class(types_.strip_cv(element)) && types_.bounded(wanted))
+		{
+			// 8.5.1p7: an element no clause reached is value-initialized, which
+			// for one of class type is the constructor 8.5p8 gives it and not a
+			// span of zero bytes - the object's lifetime begins with that call,
+			// and 12.4p8 ends the lifetime of every element whether a clause
+			// reached it or not.  A class with no default constructor is what
+			// this refuses, where writing the zero would have accepted it.
+			for (unsigned long long index = node.children.size();
+			     index < types_.bound(wanted); ++index)
+			{
+				construct_subobject(element, nullptr, ctx, line, true);
+			}
+		}
 	}
 	else if (node.children.size() > 1)
 	{
@@ -1567,12 +1581,19 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
 		SemaEntity& chosen = declared_member(selected);
 		name_function(target, chosen, "callee");
 		function = target.type;
-		if (chosen.special != kOrdinaryFunction)
+		if (chosen.special == kDestructorFunction)
 		{
-			// 5.2.4 and the ABI: a destructor a call names is named on an object
-			// the program wrote, which is a complete object - so this is the
-			// complete-object entry rather than the base-object one a base
-			// subobject's own action runs.
+			// 5.2.4 and the ABI: a destructor a call names is named on an
+			// object the program wrote, which is a complete object - so this
+			// is the complete-object entry rather than the base-object one a
+			// base subobject's own action runs.  The call odr-uses it, so
+			// 12.4p6's definition of an implicitly declared one is asked for
+			// here as it is wherever else a lifetime ends: the object file
+			// otherwise names a symbol no unit defines.
+			note_destruction_entry(chosen, false);
+		}
+		else if (chosen.special != kOrdinaryFunction)
+		{
 			chosen.complete_object_entry = true;
 		}
 		if (object.node != nullptr && chosen.object_member)
