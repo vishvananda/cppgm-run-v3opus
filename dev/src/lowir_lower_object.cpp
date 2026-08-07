@@ -543,6 +543,72 @@ void LowirFunctionLowering::add_destruction(const DumpNode& node)
 	destructor_call(node);
 }
 
+// 3.7.2p2 and 3.6.2p2: the initialization of one thread's copy of an object
+// with thread storage duration.  There is one such object per thread and no
+// point before a thread starts at which the program could initialize it, so
+// the initialization stands in a body of its own that runs at most once per
+// thread - which is what the flag beside the object says, being itself an
+// object of that thread.
+void LowirFunctionLowering::add_thread_initialization(const std::string& guard,
+                                                      const Operand& storage,
+                                                      TypeId type,
+                                                      const DumpNode& node,
+                                                      const DumpNode* destruction)
+{
+	const TypeId counter = unit_.types().fundamental(FT_LONG_INT);
+	const std::string run = reserve_block("local_static_ctor_run");
+	const std::string done = reserve_block("local_static_ctor_done");
+	const Operand flag = named_operand(Operand::OP_GLOBAL, guard);
+	Instruction test;
+	test.kind = Instruction::IK_CMP;
+	test.op = "ne";
+	test.type = unit_.low_type(counter);
+	test.first = load(flag, counter);
+	test.second = named_operand(Operand::OP_INTEGER, "0");
+	branch(emit(test), done, run);
+	open_block(run);
+	add_initialization(storage, type, node);
+	if (destruction != nullptr)
+	{
+		// 3.7.2p2 and 12.4p11: the object's lifetime ends with its thread, and
+		// the runtime is what knows when that is - so what ends it is given to
+		// the runtime as the object it runs on and the function it runs, with
+		// the image the pair belongs to.  The runtime runs them in the reverse
+		// of the order it was given them, which is the order the objects of
+		// this thread were begun in.
+		Instruction hand;
+		hand.kind = Instruction::IK_CALL;
+		hand.type.text = "i32";
+		hand.first = named_operand(Operand::OP_GLOBAL,
+		                           unit_.thread_atexit_symbol());
+		Instruction object;
+		object.kind = Instruction::IK_ADDR;
+		object.type.text = "ptr";
+		object.first = storage;
+		const Operand at = emit(object);
+		Instruction ends;
+		ends.kind = Instruction::IK_ADDR;
+		ends.type.text = "ptr";
+		ends.first = named_operand(
+			Operand::OP_GLOBAL,
+			unit_.function_symbol(*destruction->fact.entity,
+			                      destruction->fact.base_subobject));
+		unit_.declare_entity(*destruction->fact.entity);
+		Instruction image;
+		image.kind = Instruction::IK_ADDR;
+		image.type.text = "ptr";
+		image.first = named_operand(Operand::OP_GLOBAL,
+		                            unit_.image_handle_symbol());
+		hand.args.push_back(emit(ends));
+		hand.args.push_back(at);
+		hand.args.push_back(emit(image));
+		emit(hand);
+	}
+	store(named_operand(Operand::OP_INTEGER, "1"), flag, counter);
+	jump(done);
+	open_block(done);
+}
+
 // 3.8p1: the destructor actions a statement carries for the blocks control
 // leaves through it, written where control leaves them.
 void LowirFunctionLowering::leave_blocks(const DumpNode& node)

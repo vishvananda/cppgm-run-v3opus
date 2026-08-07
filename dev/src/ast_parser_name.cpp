@@ -159,6 +159,14 @@ NameKind DeclaredNames::kind_of(const std::string& name) const
 			}
 		}
 	}
+	// 1.4p8: a name beginning `__builtin_` is one this implementation reserves
+	// for a function of its own, so no declaration can have made it a type and
+	// 6.8p1's ambiguity is settled without one: `__builtin_strlen(s);` is the
+	// call it looks like and not a declaration of `s`.
+	if (name.compare(0, sizeof("__builtin_") - 1, "__builtin_") == 0)
+	{
+		return NameKind::Value;
+	}
 	return NameKind::Unknown;
 }
 

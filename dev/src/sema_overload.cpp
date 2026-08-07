@@ -1327,6 +1327,13 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
 			{
 				return builtin;
 			}
+			if (named == nullptr)
+			{
+				// 1.4p8: the name is one the implementation reserves for a
+				// function of its own, so what the program did not declare the
+				// implementation declares here, once for the unit.
+				named = reserved_function(callee.text, found);
+			}
 		}
 	}
 

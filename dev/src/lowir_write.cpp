@@ -18,8 +18,8 @@ namespace lowir_model {
 namespace {
 
 // The metadata keys of one entry, in the canonical order `pa13/lowir.md`
-// writes them: what the entry is to the runtime first, then how it is called,
-// then how it is named in an object file, then the storage it lives in.
+// writes them: what the entry is to the runtime first, then the storage it
+// lives in, then how it is called, then how it is named in an object file.
 class MetadataText
 {
 public:
@@ -98,6 +98,18 @@ const char* projection_text(IndexProjectionKind projection)
 	}
 }
 
+const char* access_text(ParamAccessMode access)
+{
+	switch (access)
+	{
+	case PAM_NONE: return "none";
+	case PAM_READ: return "read";
+	case PAM_WRITE: return "write";
+	case PAM_READWRITE: return "readwrite";
+	default: return "";
+	}
+}
+
 const char* passing_text(ParamPassingMode passing)
 {
 	switch (passing)
@@ -154,7 +166,11 @@ void symbol_metadata(const SymbolMetadata & metadata, MetadataText & out)
 	                       : (metadata.linkage == LLM_CPP ? "cpp" : ""));
 	out.add("binding", binding_text(metadata.binding));
 	out.add("object", metadata.object_symbol);
-	out.add("tls_for", metadata.tls_for_symbol);
+	// The wrapper names the global it reaches, and a global is named with the
+	// sigil every other reference to one is written with.
+	out.add("tls_for", metadata.tls_for_symbol.empty()
+	                       ? std::string()
+	                       : "@" + metadata.tls_for_symbol);
 	if (metadata.keep_internal_alias)
 	{
 		out.add("keep_alias", "yes");
@@ -188,6 +204,15 @@ std::string parameter_text(const std::vector<Parameter> & params)
 		if (params[index].metadata.capture == PCM_NOCAPTURE)
 		{
 			metadata.add("capture", "nocapture");
+		}
+		else if (params[index].metadata.capture == PCM_MAYCAPTURE)
+		{
+			metadata.add("capture", "maycapture");
+		}
+		metadata.add("access", access_text(params[index].metadata.access));
+		if (params[index].metadata.alias == PALM_NOALIAS)
+		{
+			metadata.add("alias", "noalias");
 		}
 		text += metadata.result();
 	}
@@ -264,8 +289,8 @@ void write_global(std::ostream & out, const GlobalDefinition & global)
 {
 	MetadataText metadata;
 	metadata.add("role", role_text(global.metadata.role));
-	symbol_metadata(global.metadata, metadata);
 	metadata.add("storage", storage_text(global.storage));
+	symbol_metadata(global.metadata, metadata);
 	out << "global @" << global.name;
 	if (!global.structured)
 	{
@@ -306,8 +331,8 @@ void write_global_declaration(std::ostream & out,
 {
 	MetadataText metadata;
 	metadata.add("role", role_text(global.metadata.role));
-	symbol_metadata(global.metadata, metadata);
 	metadata.add("storage", storage_text(global.storage));
+	symbol_metadata(global.metadata, metadata);
 	out << "declare global @" << global.name;
 	if (global.has_type)
 	{

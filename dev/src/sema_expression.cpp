@@ -1350,6 +1350,60 @@ SemaAnalyzer::Value SemaAnalyzer::cast_to_reference(TypeId target, Value& source
 	}
 }
 
+// 1.4p8: the functions this implementation reserves a name for, as the type
+// each has and what a backend may assume of a call of one.  A program declares
+// none of them, so a use of the name is what declares the one it names - and
+// the declaration is an ordinary one, which is what lets 13.3, 4.10's argument
+// conversions and the lowering read it the way they read any other function.
+SemaEntity* SemaAnalyzer::reserved_function(const std::string& name,
+                                            std::vector<SemaEntity*>* found)
+{
+	const TypeId voided = types_.fundamental(FT_VOID);
+	const TypeId size = types_.fundamental(FT_UNSIGNED_LONG_INT);
+	const TypeId any = types_.pointer_to(voided);
+	const TypeId source = types_.pointer_to(types_.qualified(voided, kCvConst));
+	const TypeId text = types_.pointer_to(
+		types_.qualified(types_.fundamental(FT_CHAR), kCvConst));
+	std::vector<TypeId> parameters;
+	TypeId result = voided;
+	unsigned char which = kNotBuiltin;
+	if (name == "__builtin_memcpy" || name == "__builtin_memmove")
+	{
+		// 17.6.5.6: the copies of `<cstring>`, which take the storage to write,
+		// the storage to read and how many bytes, and give back the first.
+		which = name == "__builtin_memcpy" ? kBuiltinMemcpy : kBuiltinMemmove;
+		result = any;
+		parameters.push_back(any);
+		parameters.push_back(source);
+		parameters.push_back(size);
+	}
+	else if (name == "__builtin_strlen")
+	{
+		which = kBuiltinStrlen;
+		result = size;
+		parameters.push_back(text);
+	}
+	else if (name == "__builtin_unreachable")
+	{
+		which = kBuiltinUnreachable;
+	}
+	else
+	{
+		return nullptr;
+	}
+	Context global;
+	global.scope = &model_.global();
+	global.dump = model_.global().dump;
+	SemaEntity& entity = declare_function(
+		name, types_.function_of(result, parameters, false), global, false);
+	entity.builtin = which;
+	if (found != nullptr)
+	{
+		found->push_back(&entity);
+	}
+	return &entity;
+}
+
 // 5.19 and the course builtins: `__builtin_constant_p` answers whether its
 // operand is one of the constants the translation propagates, and
 // `__builtin_abort` is a zero-argument call PA12 recognises without lowering.

@@ -33,6 +33,18 @@ const unsigned char kOrdinaryFunction = 0;
 const unsigned char kConstructorFunction = 1;
 const unsigned char kDestructorFunction = 2;
 
+// 1.4p8 and 17.6.4.3.2p1: the names an implementation reserves for functions
+// of its own, which a program declares nothing of and every use of names the
+// one function the implementation provides.  Which one it is, is what says
+// what the object file calls it and what a call of it may be assumed to do -
+// so it is a fact the reserved declaration carries rather than one a backend
+// works out from the spelling again.
+const unsigned char kNotBuiltin = 0;
+const unsigned char kBuiltinMemcpy = 1;
+const unsigned char kBuiltinMemmove = 2;
+const unsigned char kBuiltinStrlen = 3;
+const unsigned char kBuiltinUnreachable = 4;
+
 enum class SemaKind
 {
 	Namespace,
@@ -141,6 +153,11 @@ struct SemaEntity
 	// 12.1 and 12.4: which special member function this declaration declares,
 	// as one of the `kOrdinaryFunction` constants.
 	unsigned char special;
+	// 1.4p8: which reserved function of the implementation this declaration
+	// declares, as one of the `kNotBuiltin` constants.  `kNotBuiltin` for every
+	// declaration a program wrote, which is all but the few the analysis makes
+	// when a use of a reserved name reaches nothing the program declared.
+	unsigned char builtin;
 	// 12.3.1p2: a constructor declared `explicit`, which only
 	// direct-initialization may choose.
 	bool explicit_function;
@@ -171,6 +188,13 @@ struct SemaEntity
 	// subobject is what its definition does.  Null for a constructor a
 	// declaration wrote and for 12.1p5's implicit one.
 	SemaEntity* inherited;
+	// 11.3p5: whether this unit's definition of the function was written in a
+	// friend declaration inside a class body, which defines a member of the
+	// enclosing namespace where no ordinary lookup finds its name.  The class
+	// that wrote it is the only place this unit reads it, so 3.2p2's uses
+	// written in it are read there; every other definition no one unit owns is
+	// read where a use of it reaches it.
+	bool friend_definition;
 	// 8.5.1p1 and 12.1p4: whether the program itself wrote what this function
 	// does, which `= default` and `= delete` do not.  It is what stops a class
 	// with a constructor from being an aggregate.
@@ -276,6 +300,13 @@ struct SemaEntity
 	// unit may reach from one that belongs to this one alone, and only the
 	// declaration's own specifiers say it.
 	bool internal_linkage;
+	// 3.7.2p1: whether this variable has thread storage duration, which any
+	// declaration of it written `thread_local` gives it.  It is one object per
+	// thread rather than one per program, so 3.7.2p2 gives it storage of its
+	// own kind, a wrapper the ABI names, and - where its initializer is not one
+	// 3.6.2p2 settles - an initialization that runs once per thread rather than
+	// once before `main`.  False for every other variable.
+	bool thread_storage;
 	// The name the PA12 dump spells this entity with: a namespace-scope
 	// declaration is written with the named namespaces around it, and
 	// everything else with the name it was declared with.  It is built where

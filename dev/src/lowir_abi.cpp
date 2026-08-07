@@ -225,9 +225,26 @@ bool operator_terminal(const std::string& written, std::size_t arity,
 
 }  // namespace
 
+std::string abi_thread_wrapper_of(const SemaEntity& entity)
+{
+	abi_mangle::AbiTargetRecord target;
+	target.kind = abi_mangle::ABI_TARGET_FACT_THREAD_LOCAL_WRAPPER;
+	target.qualified_name = entity.dump_name;
+	return abi_mangle::mangle_target(target,
+	                                 std::vector<abi_mangle::AbiFunctionRecord>(),
+	                                 abi_mangle::AbiDefinitionMap());
+}
+
 std::string abi_symbol_of(const SemaEntity& entity, TypeTable& types,
                           unsigned variant)
 {
+	// 1.4p8: a reserved function is the implementation's own, and the name the
+	// object file gives it is the one the implementation's runtime defines -
+	// not an encoding of the declaration the analysis made to describe it.
+	if (entity.builtin != kNotBuiltin)
+	{
+		return "cppgm_builtin_" + entity.name.substr(sizeof("__builtin_") - 1);
+	}
 	// 7.5p6 and 3.6.1p1: a name another translation unit reaches by its C
 	// spelling is that spelling, and `main` is the one C++ function every
 	// implementation names the same way.  Neither is encoded.

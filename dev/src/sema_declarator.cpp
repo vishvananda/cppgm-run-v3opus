@@ -42,6 +42,7 @@ SemaAnalyzer::Specifiers::Specifiers()
 	, is_extern(false)
 	, is_static(false)
 	, is_inline(false)
+	, is_thread_local(false)
 	, is_friend(false)
 	, alignment(0)
 	, introduced(nullptr)
@@ -181,6 +182,13 @@ void SemaAnalyzer::read_type_specifier(const AstNode& node, Specifiers& out,
 		// 7.1.2p2: the definition may be written in more than one translation
 		// unit, so the one the program has is not this unit's to own.
 		out.is_inline = true;
+		return;
+
+	case KW_THREAD_LOCAL:
+		// 3.7.2p1: the object the declaration declares belongs to a thread
+		// rather than to the program, so every thread that names it names one
+		// of its own.
+		out.is_thread_local = true;
 		return;
 
 	case KW_FRIEND:

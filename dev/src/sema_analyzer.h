@@ -252,6 +252,9 @@ private:
 		// 7.1.2p2: the definition of this function may be written in more than
 		// one translation unit, so no one unit owns the one the program has.
 		bool is_inline;
+		// 3.7.2p1 and 7.1.1p1: the variable this sequence declares has thread
+		// storage duration - one object per thread rather than one per program.
+		bool is_thread_local;
 		// 11.3p1: the declaration grants this class's access rather than
 		// declaring a member of it, so what it declares belongs to the region
 		// around the class and not to the class.
@@ -492,7 +495,7 @@ private:
 	// 3.8p1 makes the end of its lifetime an action of, which its storage
 	// duration is what says.
 	void record_lifetime(SemaEntity& entity, const Context& target,
-	                     bool is_static);
+	                     bool is_static, DumpNode& line);
 	// The objects an open block has declared whose destructors run when control
 	// leaves it, innermost frame last.
 	std::vector<std::vector<SemaEntity*> > lifetimes_;
@@ -520,6 +523,18 @@ private:
 	// 3.6.3p1: the namespace-scope objects this unit constructed, whose
 	// destructors run in reverse order when the program ends.
 	std::vector<SemaEntity*> static_lifetimes_;
+	// 3.7.2p2: the namespace-scope objects with thread storage duration this
+	// unit constructed, and the line each was declared on.  One of these is
+	// destroyed when its own thread ends rather than when the program does, so
+	// the action stands under the declaration - where the initialization that
+	// hands it to the runtime is - and is written once that declaration has
+	// written everything else it holds.
+	struct ThreadLifetime
+	{
+		SemaEntity* entity;
+		DumpNode* line;
+	};
+	std::vector<ThreadLifetime> thread_lifetimes_;
 	// 8.5.1p1: whether the class `scope` declares is an aggregate.
 	static bool aggregate_class(Scope& scope);
 	// 8.5.1p2: the initializer-clauses of one braced-init-list, and how many of
@@ -1011,6 +1026,13 @@ private:
 	// 5.19 and the course builtins: a call the translation answers itself.
 	bool builtin_call(const std::string& name, const AstNode& node,
 	                  const Context& ctx, DumpNode& parent, Value& out);
+	// 1.4p8 and 17.6.4.3.2p1: the declaration of a reserved function the
+	// implementation provides, made where a call names one no declaration of the
+	// program reached.  It is declared in the global namespace, so the first
+	// call to name it declares it and every later one finds it by ordinary
+	// lookup; a name the implementation reserves nothing for leaves it null.
+	SemaEntity* reserved_function(const std::string& name,
+	                              std::vector<SemaEntity*>* found);
 
 	// Templates (sema_template.cpp).
 	//

@@ -26,3 +26,8 @@ const unsigned kBaseObjectAbi = 1;
 
 std::string abi_symbol_of(const SemaEntity& entity, TypeTable& types,
                           unsigned variant = kCompleteObjectAbi);
+
+// 3.7.2p2: the object-file name of the wrapper function the ABI gives a
+// variable with thread storage duration.  It is named after the variable
+// rather than after a declaration of its own, because no program declares it.
+std::string abi_thread_wrapper_of(const SemaEntity& entity);

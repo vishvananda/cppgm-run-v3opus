@@ -1,0 +1,23 @@
+declare function @__builtin_strlen(%arg0 : ptr [capture=nocapture, access=read]) -> i64 [effects=readonly, unwind=no, binding=strong, object=cppgm_builtin_strlen]
+
+global @__strlit__1 [binding=internal] = {
+  i8 97
+  i8 98
+  i8 0
+}
+
+function @scan(%s : ptr) -> void [binding=strong, object=_Z4scanPKc] {
+  slot $s : ptr
+
+  block ^entry:
+    store ptr %s, $s
+    %t1 = load ptr $s
+    %t2 = call i64 @__builtin_strlen(%t1)
+    return void
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    %t1 = addr @__strlit__1
+    call void @scan(%t1)
+    return i32 0
+}

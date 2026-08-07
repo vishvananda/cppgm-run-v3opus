@@ -1,0 +1,75 @@
+declare global @__external_runtime____dso_handle [binding=strong, object=__dso_handle]
+declare function @__cppgm_tls_wrapper__per_thread() -> ptr [binding=strong, object=_ZTW10per_thread, tls_for=@per_thread]
+declare function @__cppgm_tls_wrapper____cppgm_tls_guard__per_thread() -> ptr [binding=internal, tls_for=@__cppgm_tls_guard__per_thread]
+declare function @__external_runtime____cxa_thread_atexit(%arg0 : ptr, %arg1 : ptr, %arg2 : ptr) -> i32 [linkage=c, binding=strong, object=__cxa_thread_atexit]
+
+global @sink : i32 [binding=strong, object=_Z4sink] = zero
+global @program [binding=strong, object=_Z7program] = {
+  zero 4
+}
+global @per_thread [storage=thread_local, binding=strong, object=_Z10per_thread] = {
+  zero 4
+}
+global @__cppgm_tls_guard__per_thread : i64 [storage=thread_local, binding=internal] = zero
+
+function @Held__Held(%this : ptr) -> void [binding=weak, object=_ZN4HeldC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    store i32 0, %t2
+    return void
+}
+function @__cppgm_tls_init__per_thread() -> void [binding=internal] {
+  block ^entry:
+    %t1 = load i64 @__cppgm_tls_guard__per_thread
+    %t2 = cmp ne i64 %t1, 0
+    branch %t2, ^local_static_ctor_done_2, ^local_static_ctor_run_1
+
+  block ^local_static_ctor_run_1:
+    %t3 = addr @per_thread
+    call void @Held__Held(%t3)
+    %t4 = addr @per_thread
+    %t5 = addr @Held___Held
+    %t6 = addr @__external_runtime____dso_handle
+    %t7 = call i32 @__external_runtime____cxa_thread_atexit(%t5, %t4, %t6)
+    store i64 1, @__cppgm_tls_guard__per_thread
+    jump ^local_static_ctor_done_2
+
+  block ^local_static_ctor_done_2:
+    return void
+}
+function @Held___Held(%this : ptr) -> void [binding=weak, object=_ZN4HeldD1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i32 %t2
+    store i32 %t3, @sink
+    return void
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    %t1 = addr @program
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i32 %t2
+    return i32 %t3
+}
+function @__cppgm_init() -> void [role=init, binding=internal] {
+  block ^entry:
+    %t1 = addr @program
+    call void @Held__Held(%t1)
+    return void
+}
+function @__cppgm_fini() -> void [role=fini, binding=internal] {
+  block ^entry:
+    %t1 = addr @program
+    call void @Held___Held(%t1)
+    return void
+}
+alias object _ZN4HeldC2Ev = @Held__Held
+alias object _ZN4HeldD2Ev = @Held___Held

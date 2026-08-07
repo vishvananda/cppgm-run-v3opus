@@ -560,7 +560,11 @@ void LowirUnitLowering::global_variable(const DumpNode& node)
 	const std::string symbol = global_symbol(entity);
 	if (!entity.object_definition)
 	{
-		declare_entity(entity);
+		// 3.1p2 and 3.2p3: the declaration defines nothing, so the object it
+		// names is another unit's.  What this unit owes the program is a name
+		// for the storage its own code reaches, and a declaration no code here
+		// reaches names nothing - so the line is written where a use asks for
+		// it, as the declaration of a function this unit does not define is.
 		return;
 	}
 	// 3.2p3: one definition in one program, however many units declare it.
@@ -648,11 +652,100 @@ void LowirUnitLowering::global_variable(const DumpNode& node)
 		global.init_kind = lowir_model::GlobalDefinition::INIT_ZERO;
 		dynamic = written;
 	}
-	program_.globals.push_back(global);
-	if (dynamic != nullptr)
+	if (entity.thread_storage)
 	{
-		dynamic_initializer(entity, *dynamic, type);
+		// 3.7.2p1: the definition lays out one object per thread rather than
+		// one per program, and 3.7.2p2 gives the ABI a function to reach it
+		// through.
+		global.storage = lowir_model::GSM_THREAD_LOCAL;
+		thread_wrapper(symbol, abi_thread_wrapper_of(entity),
+		               global.metadata.binding);
 	}
+	program_.globals.push_back(global);
+	if (dynamic == nullptr)
+	{
+		return;
+	}
+	if (entity.thread_storage)
+	{
+		thread_initializer(entity, symbol, *dynamic, type,
+		                   thread_destruction(node));
+		return;
+	}
+	dynamic_initializer(entity, *dynamic, type);
+}
+
+// 3.7.2p2: the action that ends the lifetime of the object a declaration
+// declared, which for a thread-local object stands under the declaration
+// because no point of the program is where it runs.  Null where the class ends
+// the lifetime with nothing to run.
+const DumpNode* LowirUnitLowering::thread_destruction(const DumpNode& node)
+{
+	for (std::size_t index = node.children.size(); index-- > 0; )
+	{
+		if (node.children[index]->fact.kind == FactKind::DestructorAction)
+		{
+			return node.children[index];
+		}
+	}
+	return nullptr;
+}
+
+void LowirUnitLowering::thread_wrapper(const std::string& symbol,
+                                       const std::string& object,
+                                       lowir_model::SymbolBindingMode binding)
+{
+	lowir_model::FunctionDeclaration wrapper;
+	wrapper.name = "__cppgm_tls_wrapper__" + symbol;
+	wrapper.return_type = low("ptr");
+	wrapper.metadata.binding = binding;
+	wrapper.metadata.object_symbol = object;
+	wrapper.metadata.tls_for_symbol = symbol;
+	program_.function_declarations.push_back(wrapper);
+}
+
+// 3.7.2p2 and 3.6.2p2: an object with thread storage duration whose initializer
+// is not one the translation settles is initialized once per thread, so the
+// actions belong to a body of that object's own rather than to the program's
+// one startup function.  The flag that says a thread has run it is itself an
+// object of that thread, and both it and the object it guards are reached the
+// way any other thread-local global is.
+void LowirUnitLowering::thread_initializer(const SemaEntity& entity,
+                                           const std::string& symbol,
+                                           const DumpNode& node, TypeId type,
+                                           const DumpNode* destruction)
+{
+	lowir_model::GlobalDefinition guard;
+	guard.name = "__cppgm_tls_guard__" + symbol;
+	guard.type = low("i64");
+	guard.storage = lowir_model::GSM_THREAD_LOCAL;
+	guard.metadata.binding = lowir_model::SBM_INTERNAL;
+	guard.init_kind = lowir_model::GlobalDefinition::INIT_ZERO;
+	thread_wrapper(guard.name, std::string(), lowir_model::SBM_INTERNAL);
+	program_.globals.push_back(guard);
+
+	lowir_model::Function body;
+	body.name = "__cppgm_tls_init__" + symbol;
+	body.return_type = low("void");
+	body.metadata.binding = lowir_model::SBM_INTERNAL;
+	lowir_model::Operand storage;
+	storage.kind = lowir_model::Operand::OP_GLOBAL;
+	storage.text = global_symbol(entity);
+	{
+		LowirFunctionLowering lowering(*this, body);
+		lowering.open_generated(GeneratedBody());
+		lowering.add_thread_initialization(guard.name, storage, type, node,
+		                                   destruction);
+		lowir_model::Instruction leave;
+		leave.kind = lowir_model::Instruction::IK_RETURN;
+		leave.type.text = "void";
+		body.blocks.back().instructions.push_back(leave);
+	}
+	program_.functions.push_back(body);
+	// The body is what the object's initialization is, so the name is a use of
+	// the object only after it: the initialization itself names the storage it
+	// is filling and must not call the body it is.
+	builder_.thread_initializers_[entity.id] = body.name;
 }
 
 void LowirUnitLowering::add_zero_item(lowir_model::GlobalDefinition& global,
@@ -1051,8 +1144,25 @@ std::string LowirUnitLowering::string_literal(const std::string& data,
 // it names.  A constructor or a destructor is left out: 12.1p5 gives a class
 // one whether or not a program ever runs it, and this milestone writes such a
 // helper only where a lifetime the unit lowers asks for it.
+//
+// 3.2p3 and 7.1.2p4: a definition no one unit owns is part of the program only
+// where the program uses it, and a name written inside such a definition is a
+// use only if that definition is itself one - so the walk stops at a deferred
+// body rather than reading it.  What a deferred body names is asked for as it
+// is lowered, which happens exactly when a use reaches it, so the definitions
+// this unit writes are the ones a root of the unit reaches and no others.
+//
+// 11.3p5's friend definition is the one this walk still reads: it defines a
+// member of the enclosing namespace, and the class that wrote it is the only
+// place this unit reads it, so what it names is read where it is.
 void LowirUnitLowering::demand_referenced(const DumpNode& node)
 {
+	if (node.fact.kind == FactKind::FunctionDefinition &&
+	    node.fact.entity != nullptr && !node.fact.entity->friend_definition &&
+	    deferred_.find(node.fact.entity->id) != deferred_.end())
+	{
+		return;
+	}
 	if (node.fact.entity != nullptr &&
 	    node.fact.entity->kind == SemaKind::Function &&
 	    node.fact.entity->special == kOrdinaryFunction &&
@@ -1093,6 +1203,61 @@ void LowirUnitLowering::drain_demanded()
 	}
 }
 
+// 3.7.2p2: the runtime function a destruction that runs at the end of a thread
+// is handed to.  It is the implementation's own, not this program's, so it is
+// named as the implementation names it and declared once per program.
+const std::string& LowirUnitLowering::thread_atexit_symbol()
+{
+	static const std::string kSymbol = "__external_runtime____cxa_thread_atexit";
+	if (declared_.insert(kSymbol).second)
+	{
+		lowir_model::FunctionDeclaration declaration;
+		declaration.name = kSymbol;
+		for (unsigned index = 0; index < 3; ++index)
+		{
+			lowir_model::Parameter parameter;
+			parameter.name = "arg" + decimal(index);
+			parameter.type = low("ptr");
+			declaration.params.push_back(parameter);
+		}
+		declaration.return_type = low("i32");
+		declaration.metadata.linkage = lowir_model::LLM_C;
+		declaration.metadata.binding = lowir_model::SBM_STRONG;
+		declaration.metadata.object_symbol = "__cxa_thread_atexit";
+		program_.function_declarations.push_back(declaration);
+	}
+	return kSymbol;
+}
+
+// 3.6.3p3 and the ABI: the handle that tells the runtime which loaded image a
+// registered destruction belongs to, so that unloading one runs its own.
+const std::string& LowirUnitLowering::image_handle_symbol()
+{
+	static const std::string kSymbol = "__external_runtime____dso_handle";
+	if (declared_.insert(kSymbol).second)
+	{
+		lowir_model::GlobalDeclaration declaration;
+		declaration.name = kSymbol;
+		declaration.metadata.binding = lowir_model::SBM_STRONG;
+		declaration.metadata.object_symbol = "__dso_handle";
+		program_.global_declarations.push_back(declaration);
+	}
+	return kSymbol;
+}
+
+const std::string* LowirUnitLowering::thread_initializer_of(
+	const SemaEntity& entity) const
+{
+	if (!entity.thread_storage)
+	{
+		return nullptr;
+	}
+	const std::unordered_map<std::uint32_t, std::string>::const_iterator found =
+		builder_.thread_initializers_.find(entity.id);
+	return found == builder_.thread_initializers_.end() ? nullptr
+	                                                    : &found->second;
+}
+
 void LowirUnitLowering::declare_entity(const SemaEntity& entity)
 {
 	if (entity.kind == SemaKind::Function)
@@ -1118,6 +1283,15 @@ void LowirUnitLowering::declare_entity(const SemaEntity& entity)
 		declaration.type = low_type(entity.type);
 	}
 	describe_symbol(entity, declaration.metadata, symbol);
+	if (entity.thread_storage)
+	{
+		// 3.7.2p1: the object another translation unit defines is one per
+		// thread there too, and a use of it here reaches it through the same
+		// surface 3.7.2p2 gives one this unit defines.
+		declaration.storage = lowir_model::GSM_THREAD_LOCAL;
+		thread_wrapper(symbol, abi_thread_wrapper_of(entity),
+		               declaration.metadata.binding);
+	}
 	program_.global_declarations.push_back(declaration);
 }
 
@@ -1161,8 +1335,61 @@ void LowirUnitLowering::add_function_declaration(const SemaEntity& entity,
 	{
 		declaration.boundary.arity = lowir_model::CAM_VARIADIC;
 	}
+	describe_builtin(entity, declaration);
 	describe_symbol(entity, declaration.metadata, symbol, base_entry);
 	program_.function_declarations.push_back(declaration);
+}
+
+// 1.4p8: what a backend may assume about a call of a function the
+// implementation provides.  These are facts of the reserved function rather
+// than of anything the program wrote, so they are stated here once per name and
+// not worked out again from the call.
+void LowirUnitLowering::describe_builtin(
+	const SemaEntity& entity, lowir_model::FunctionDeclaration& declaration)
+{
+	if (entity.builtin == kNotBuiltin)
+	{
+		return;
+	}
+	// 15.4p14 and 17.6.5.12: none of them propagates an exception.
+	declaration.boundary.unwind = lowir_model::CUM_NO;
+	switch (entity.builtin)
+	{
+	case kBuiltinMemcpy:
+	case kBuiltinMemmove:
+		// 17.6.5.6: the copy reads and writes the storage its two pointers
+		// name and keeps neither past the call.  `memcpy` alone is given
+		// storage the caller promises does not overlap.
+		declaration.boundary.effects = lowir_model::CFXM_READWRITE;
+		declaration.params[0].metadata.capture = lowir_model::PCM_NOCAPTURE;
+		declaration.params[0].metadata.access =
+			entity.builtin == kBuiltinMemcpy ? lowir_model::PAM_WRITE
+			                                 : lowir_model::PAM_READWRITE;
+		declaration.params[1].metadata.capture = lowir_model::PCM_NOCAPTURE;
+		declaration.params[1].metadata.access = lowir_model::PAM_READ;
+		if (entity.builtin == kBuiltinMemcpy)
+		{
+			declaration.params[0].metadata.alias = lowir_model::PALM_NOALIAS;
+			declaration.params[1].metadata.alias = lowir_model::PALM_NOALIAS;
+		}
+		return;
+
+	case kBuiltinStrlen:
+		declaration.boundary.effects = lowir_model::CFXM_READONLY;
+		declaration.params[0].metadata.capture = lowir_model::PCM_NOCAPTURE;
+		declaration.params[0].metadata.access = lowir_model::PAM_READ;
+		return;
+
+	case kBuiltinUnreachable:
+		// 1.9p4: control never reaches the call, so it reads nothing, writes
+		// nothing and does not come back.
+		declaration.boundary.effects = lowir_model::CFXM_READNONE;
+		declaration.boundary.returns = lowir_model::CRM_NORETURN;
+		return;
+
+	default:
+		return;
+	}
 }
 
 void LowirUnitLowering::function_definition(const DumpNode& node)

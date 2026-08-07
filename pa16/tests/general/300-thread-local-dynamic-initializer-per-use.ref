@@ -1,0 +1,48 @@
+declare function @__cppgm_tls_wrapper__tally() -> ptr [binding=strong, object=_ZTW5tally, tls_for=@tally]
+declare function @__cppgm_tls_wrapper____cppgm_tls_guard__tally() -> ptr [binding=internal, tls_for=@__cppgm_tls_guard__tally]
+
+global @tally [storage=thread_local, binding=strong, object=_Z5tally] = {
+  zero 4
+}
+global @__cppgm_tls_guard__tally : i64 [storage=thread_local, binding=internal] = zero
+
+function @__cppgm_tls_init__tally() -> void [binding=internal] {
+  block ^entry:
+    %t1 = load i64 @__cppgm_tls_guard__tally
+    %t2 = cmp ne i64 %t1, 0
+    branch %t2, ^local_static_ctor_done_2, ^local_static_ctor_run_1
+
+  block ^local_static_ctor_run_1:
+    %t3 = addr @tally
+    call void @Counter__Counter(%t3)
+    store i64 1, @__cppgm_tls_guard__tally
+    jump ^local_static_ctor_done_2
+
+  block ^local_static_ctor_done_2:
+    return void
+}
+function @Counter__Counter(%this : ptr) -> void [binding=weak, object=_ZN7CounterC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    store i32 1, %t2
+    return void
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    call void @__cppgm_tls_init__tally()
+    %t1 = addr @tally
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i32 %t2
+    call void @__cppgm_tls_init__tally()
+    %t4 = addr @tally
+    %t5 = index i8 [projection=field] %t4, 0
+    %t6 = load i32 %t5
+    %t7 = binary add i32 %t3, %t6
+    %t8 = binary sub i32 %t7, 2
+    return i32 %t8
+}
+alias object _ZN7CounterC2Ev = @Counter__Counter

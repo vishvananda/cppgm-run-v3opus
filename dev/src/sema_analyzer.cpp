@@ -195,6 +195,17 @@ void SemaAnalyzer::run(const AstNode& unit)
 	{
 		destructor_action(*static_lifetimes_[index], *ctx.node, Placement::Named);
 	}
+	// 3.7.2p2: an object with thread storage duration is destroyed when its own
+	// thread ends, which is a point the program hands to the runtime where the
+	// object is initialized.  The action stands under the declaration, after
+	// everything else that declaration wrote, and in declaration order: each
+	// thread ends its own objects in the reverse of the order it began them,
+	// which is what the runtime it was handed them in that order does.
+	for (std::size_t index = 0; index < thread_lifetimes_.size(); ++index)
+	{
+		destructor_action(*thread_lifetimes_[index].entity,
+		                  *thread_lifetimes_[index].line, Placement::Named);
+	}
 	write_pending_definitions();
 }
 
@@ -1667,6 +1678,12 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 		 (specifiers.is_static ||
 		  (!specifiers.is_extern &&
 		   (types_.object_cv(type) & kCvConst) != 0)));
+	// 3.7.2p1 and 7.1.1p1: `thread_local` on any declaration of a variable
+	// gives that variable thread storage duration, so the fact belongs to the
+	// variable and not to the declaration that happened to write the keyword -
+	// a static data member is declared in its class and defined outside it, and
+	// either may carry it.
+	entity.thread_storage = entity.thread_storage || specifiers.is_thread_local;
 	// 9.4.2p2: a definition written with a nested-name-specifier declares
 	// nothing where it names, so the line it writes is not one of that region's:
 	// it stands where the definition is written, spelled the way it wrote it.
@@ -1700,7 +1717,7 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 		// action of the region that declared it, whatever form its initializer
 		// took.  An aggregate initialized from a braced-init-list is written
 		// below rather than by a constructor, and its lifetime still ends.
-		record_lifetime(entity, target, specifiers.is_static);
+		record_lifetime(entity, target, specifiers.is_static, line);
 	}
 	if (types_.is_class(types_.strip_cv(type)) && entity.object_definition &&
 	    !(value != nullptr && value->kind == AstKind::BracedInitList &&
@@ -1863,6 +1880,11 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 		if (!spelled.qualified() && granting->scope != nullptr)
 		{
 			granting->scope->friend_functions.push_back(&entity);
+			// 11.3p5: the definition declares a member of the enclosing
+			// namespace and is written where no ordinary lookup finds its
+			// name, so the class that wrote it is where this unit reads it.
+			entity.friend_definition =
+				entity.friend_definition || ctx.scope->kind == ScopeKind::Class;
 		}
 	}
 	// 3.5p3: one declaration written `static` gives the name internal linkage,

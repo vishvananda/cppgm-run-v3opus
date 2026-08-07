@@ -265,6 +265,20 @@ LowValue LowirFunctionLowering::storage_of(const SemaEntity& entity)
 	else
 	{
 		unit_.declare_entity(entity);
+		// 3.7.2p2: there is no point in the program before every thread that
+		// names a thread-local object, so what initializes one runs where the
+		// object is named rather than before the program.  The body it runs
+		// does nothing after the first time a thread reaches it.
+		const std::string* const initializer =
+			unit_.thread_initializer_of(entity);
+		if (initializer != nullptr)
+		{
+			Instruction start;
+			start.kind = Instruction::IK_CALL;
+			start.type.text = "void";
+			start.first = named_operand(Operand::OP_GLOBAL, *initializer);
+			emit_void(start);
+		}
 		value.operand =
 			named_operand(Operand::OP_GLOBAL, unit_.global_symbol(entity));
 	}

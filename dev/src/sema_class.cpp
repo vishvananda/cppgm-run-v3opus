@@ -2389,7 +2389,7 @@ void SemaAnalyzer::write_member_destructions(Scope& members, DumpNode& line)
 // the static data member 9.4.2p2 defines outside its class - and 3.6.3p1 ends
 // it when the program does; a local one ends with the block that declared it.
 void SemaAnalyzer::record_lifetime(SemaEntity& entity, const Context& target,
-                                   bool is_static)
+                                   bool is_static, DumpNode& line)
 {
 	// 12.4p11: whichever region ends it, the lifetime ends in a call of the
 	// destructor of the object's class, and the region that declares the object
@@ -2398,6 +2398,20 @@ void SemaAnalyzer::record_lifetime(SemaEntity& entity, const Context& target,
 	if (target.scope->kind == ScopeKind::Namespace ||
 	    target.scope->kind == ScopeKind::Class)
 	{
+		// 3.7.2p2 and 3.6.3p1: there is one object per thread, and its lifetime
+		// ends when its own thread does - which is neither 3.6.3p1's shutdown
+		// nor any point this program writes.  So the end of it is an action of
+		// the declaration rather than of the program, handed to the runtime
+		// where the object is initialized; the action is written under the
+		// declaration once the initialization it follows has been.
+		if (entity.thread_storage)
+		{
+			ThreadLifetime held;
+			held.entity = &entity;
+			held.line = &line;
+			thread_lifetimes_.push_back(held);
+			return;
+		}
 		static_lifetimes_.push_back(&entity);
 		return;
 	}
