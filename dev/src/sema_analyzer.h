@@ -563,6 +563,8 @@ private:
 	// 12.8p15: whether a subobject of this type is carried by a copy of its
 	// bytes rather than by a call of a member of its own class.
 	bool carried_as_storage(TypeId type, unsigned char kind);
+	// 9p6: whether carrying a subobject of this type comes to nothing at all.
+	bool carries_nothing(TypeId type, unsigned char kind);
 	// 12.8p15: a move reads its source subobject as an xvalue, which is what
 	// makes 13.3 choose the subobject's own move member.
 	void transfer_source(Value& source, unsigned char kind);

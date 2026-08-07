@@ -729,8 +729,14 @@ void LowirFunctionLowering::constructor_call(const Operand& address,
 		// transfer is that copy and no call stands for it.  A trivial
 		// constructor with nothing to read from is 12.1p5's, which leaves the
 		// storage holding what it held; this one leaves it holding an object.
-		const LowValue source = expression(*call.children[2], true);
 		unit_.owe_internal_definition(constructor);
+		if (types.is_empty_class(types.strip_cv(node.fact.type)))
+		{
+			// 9p6: an object of a class that holds nothing has no bytes to
+			// carry, so neither the object read from nor its address is named.
+			return;
+		}
+		const LowValue source = expression(*call.children[2], true);
 		copy_object_storage(address, address_of(source), node.fact.type);
 		return;
 	}

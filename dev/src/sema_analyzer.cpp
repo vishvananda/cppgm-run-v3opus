@@ -1688,6 +1688,13 @@ void SemaAnalyzer::declare_function_declarator(
 		function.defaulted = !function.deleted;
 		function.defined = false;
 		function.inline_function = true;
+		// 12.8p28: the definition the standard gives this declaration names the
+		// object it reads from throughout, and the declarator is what said what
+		// that name is - so the parameters it wrote travel to the definition,
+		// exactly as a constructor's do.  A declaration that named none leaves
+		// the definition to give it a name of its own.
+		std::vector<Parameter> named = spelled_parameters;
+		constructor_parameters_[function.id].swap(named);
 	}
 	record_default_arguments(function, spelled_parameters, target.scope);
 	if (function.template_parameters != nullptr)

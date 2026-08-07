@@ -1170,7 +1170,7 @@ void SemaAnalyzer::write_transfer_steps(const Pending& pending, DumpNode& line,
 			write_storage_transfer(*parameter, line, 0, span, kNoType);
 		}
 	}
-	if (base != nullptr)
+	if (base != nullptr && !carries_nothing(base->type, kind))
 	{
 		Value source = base_value(parameter_value(*parameter, line), *base,
 		                          false);
@@ -1202,6 +1202,13 @@ void SemaAnalyzer::write_transfer_steps(const Pending& pending, DumpNode& line,
 			}
 			write_storage_transfer(*parameter, line, field.offset,
 			                       types_.object_size(field.type), field.type);
+			continue;
+		}
+		if (carries_nothing(field.type, kind))
+		{
+			// 9p6 and 12.8p15: the subobject holds nothing and the member its
+			// class has for this transfer does nothing, so there is neither a
+			// call to write nor storage to carry.
 			continue;
 		}
 		DumpNode& access = model_.open_node(line, std::string());
@@ -1248,6 +1255,20 @@ bool SemaAnalyzer::carried_as_storage(TypeId type, unsigned char kind)
 	}
 	const SemaEntity* const carried = selected_transfer(bare, kind);
 	return carried != nullptr && carried->trivial && !carried->deleted;
+}
+
+// 9p6 and 12.8p15: whether carrying a subobject of this type comes to nothing
+// at all - the class holds nothing, so there are no bytes, and the member its
+// own class has for this transfer does nothing, so there is no call either.
+bool SemaAnalyzer::carries_nothing(TypeId type, unsigned char kind)
+{
+	const TypeId bare = member_copy_type(type);
+	if (!types_.is_class(bare) || !types_.is_empty_class(bare))
+	{
+		return false;
+	}
+	const SemaEntity* const carried = selected_transfer(bare, kind);
+	return carried != nullptr && carried->trivial;
 }
 
 // 12.8p15: the subobject of the object a move reads from is an xvalue, which is

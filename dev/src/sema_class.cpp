@@ -1390,10 +1390,16 @@ void SemaAnalyzer::settle_transfers(SemaEntity& entity, Scope& scope)
 				continue;
 			}
 			const TypeId bare = member_copy_type(field.type);
-			if (assignment &&
-			    (types_.is_reference(field.type) ||
-			     (types_.cv(bare) & kCvConst) != 0 ||
-			     (types_.cv(types_.strip_cv(field.type)) & kCvConst) != 0))
+			// 8.3.4p1: an array of const elements is const in each of them, so
+			// what says whether a member can be written is the cv-qualification
+			// of the element rather than of the array around it.
+			TypeId element = field.type;
+			while (types_.kind(types_.strip_cv(element)) == TypeKind::Array)
+			{
+				element = types_.target(types_.strip_cv(element));
+			}
+			if (assignment && (types_.is_reference(field.type) ||
+			                   (types_.cv(element) & kCvConst) != 0))
 			{
 				// 12.8p23: a member of const-qualified or reference type is one
 				// an assignment has nothing to write, so the standard gives the
