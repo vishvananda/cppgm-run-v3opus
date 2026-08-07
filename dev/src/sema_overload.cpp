@@ -495,6 +495,30 @@ void SemaAnalyzer::contextual_bool(Value& value, const Context& ctx)
 	}
 }
 
+// 5.2.9p4, 5.4p4 and 8.5p16: an operand of class type where a
+// direct-initialization or an explicit cast asked for a value of another type.
+//
+// Both are direct-initializations of the target from the operand, which is the
+// one context 12.3.2p2 lets a conversion function declared `explicit` answer -
+// so the whole of the difference from an ordinary argument conversion is that
+// `explicit` is left in the candidate set.
+bool SemaAnalyzer::explicit_conversion(Value& value, TypeId target,
+                                       const Context& ctx)
+{
+	if (value.node == nullptr || !types_.is_class(types_.strip_cv(value.type)) ||
+	    types_.is_class(types_.strip_cv(target)) || types_.is_reference(target))
+	{
+		return false;
+	}
+	const Match match = conversion_match(value, target, true);
+	if (!match.viable)
+	{
+		return false;
+	}
+	apply_conversion(value, target, match, ctx, Requested::Written);
+	return true;
+}
+
 // 6.4.2p2: the condition of a switch statement, which is contextually
 // *implicitly* converted - so a conversion function declared `explicit` is none
 // of the candidates, and the type the statement selects on is the one the class
@@ -1910,13 +1934,20 @@ void SemaAnalyzer::require_no_narrowing(const AstNode& written,
 SemaAnalyzer::Value SemaAnalyzer::initialize(const AstNode& node, TypeId target,
                                              const Context& ctx,
                                              DumpNode& parent, bool listed,
-                                             Requested by)
+                                             Requested by, bool direct)
 {
 	if (node.kind == AstKind::BracedInitList)
 	{
 		return list_initialize(node, target, ctx, parent);
 	}
 	Value value = expression(node, ctx, parent);
+	if (direct)
+	{
+		// 8.5p16 and 12.3.2p2: a direct-initialization may choose a conversion
+		// function declared `explicit`, which is the one thing that tells it
+		// from the copy-initialization every other initializer here is.
+		explicit_conversion(value, target, ctx);
+	}
 	const Match match = match_argument(value, target);
 	if (!match.viable)
 	{
@@ -2327,6 +2358,7 @@ SemaAnalyzer::Value SemaAnalyzer::functional_cast(const AstNode& node,
 		// what 5.2.9p1 and 5.4p4 make of the operand.
 		return cast_to_reference(target, source, parent, line, value);
 	}
+	explicit_conversion(source, target, ctx);
 	value.node = &line;
 	respell(value);
 	return value;

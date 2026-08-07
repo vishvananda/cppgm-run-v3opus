@@ -2072,11 +2072,13 @@ void SemaAnalyzer::write_initializer(const AstNode& initializer, TypeId type,
 {
 	if (initializer.kind == AstKind::ParenInitializer)
 	{
-		// 8.5p16: direct-initialization from one expression, which for the PA12
-		// subset is the same conversion copy-initialization asks for.
+		// 8.5p16: direct-initialization from one expression, which differs from
+		// copy-initialization in one thing only - 12.3.2p2 lets it choose a
+		// conversion function declared `explicit`.
 		if (!initializer.children.empty())
 		{
-			initialize(*initializer.children[0], type, ctx, line);
+			initialize(*initializer.children[0], type, ctx, line, false,
+			           Requested::Written, true);
 		}
 		return;
 	}

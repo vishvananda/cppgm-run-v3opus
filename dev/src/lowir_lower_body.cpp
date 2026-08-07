@@ -1688,6 +1688,13 @@ LowValue LowirFunctionLowering::condition_value(const DumpNode& node)
 	// same name.
 	const DumpNode& declared = *node.children[0];
 	local_variable(declared);
+	if (node.children.size() > 1)
+	{
+		// 4p3: the object is of class type, and what the statement branches on
+		// is what the conversion function of that class handed back - written
+		// under the declaration, so it runs once the object stands.
+		return expression(*node.children[1]);
+	}
 	return storage_of(*declared.fact.entity);
 }
 

@@ -575,6 +575,11 @@ private:
 	// may not.  The sequence the call's result takes to the parameter is the
 	// second, standard one 13.3.3.2p3 orders two of these by.
 	Match conversion_match(const Value& argument, TypeId parameter, bool direct);
+	// 5.2.9p4, 5.4p4 and 8.5p16: an operand of class type where the program
+	// asked for a value of another type by a direct-initialization or an
+	// explicit cast, which 12.3.2p2 lets choose a conversion function declared
+	// `explicit`.  True when a conversion was written.
+	bool explicit_conversion(Value& value, TypeId target, const Context& ctx);
 	// 5.2.2p3: the value a call of `chosen` on an object of its class hands
 	// back, as the analysis reads it.
 	Value conversion_result(const SemaEntity& chosen) const;
@@ -1184,6 +1189,11 @@ private:
 	// integral or enumeration type rather than to bool.
 	void condition(const AstNode& node, const Context& ctx, DumpNode& parent,
 	               bool integral);
+	// 6.4p4 and 4p3: the value of a condition that declared an object of class
+	// type, which is that object converted by a conversion function of its
+	// class.
+	void condition_of_declaration(DumpNode& declaration, const Context& ctx,
+	                              bool integral);
 	// The region a substatement that is not a compound-statement opens (6.4p1).
 	Context substatement_scope(const Context& ctx);
 
@@ -1437,7 +1447,7 @@ private:
 	// 8.5.4p7 will not let narrow the value it holds.
 	Value initialize(const AstNode& node, TypeId target, const Context& ctx,
 	                 DumpNode& parent, bool listed = false,
-	                 Requested by = Requested::Written);
+	                 Requested by = Requested::Written, bool direct = false);
 	// 8.5.4p7: the error that a clause narrows to the type it initialises.
 	void require_no_narrowing(const AstNode& written, const Value& value,
 	                          TypeId target, const Context& ctx);

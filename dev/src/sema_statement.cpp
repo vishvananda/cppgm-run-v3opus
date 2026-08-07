@@ -3,6 +3,7 @@
 #include <stdexcept>
 
 #include "ast_model.h"
+#include "ast_tokens.h"
 
 // The PA12 statement walk.
 //
@@ -356,9 +357,16 @@ void SemaAnalyzer::condition(const AstNode& node, const Context& ctx,
 			// 6.4p3: the declaration declares its name in the region the
 			// statement opened, and its value is the condition.
 			Context inner = ctx;
-			inner.node = &open_fact(line, "condition-declaration",
-			                        FactKind::ConditionDeclaration);
+			DumpNode& declaration = open_fact(line, "condition-declaration",
+			                                  FactKind::ConditionDeclaration);
+			inner.node = &declaration;
 			condition_declaration(child, inner);
+			// 6.4p4 and 4p3: the condition is the value of the object the
+			// declaration declared, which for an object of class type is what a
+			// conversion function of that class hands back.  The declaration
+			// stands first and the value of it after, so the statement reads one
+			// and then the other.
+			condition_of_declaration(declaration, ctx, integral);
 			continue;
 		}
 		Value value = expression(child, ctx, line);
@@ -386,6 +394,53 @@ void SemaAnalyzer::condition(const AstNode& node, const Context& ctx,
 			throw std::runtime_error("a condition has no conversion to the type "
 			                         "its statement needs");
 		}
+	}
+}
+
+// 6.4p4: the value of a condition that declared a name, where that name is of
+// class type and the statement needs a value of a built-in one.  4p3's
+// conversion is written under the condition-declaration, after the declaration
+// it converts, so the reader of the condition runs the declaration and then the
+// value the statement branches on.
+void SemaAnalyzer::condition_of_declaration(DumpNode& declaration,
+                                            const Context& ctx, bool integral)
+{
+	if (!lowering() || declaration.children.empty())
+	{
+		return;
+	}
+	SemaEntity* const declared = declaration.children[0]->fact.entity;
+	if (declared == nullptr ||
+	    !types_.is_class(types_.strip_cv(declared->type)))
+	{
+		return;
+	}
+	Value named;
+	named.type = named.spelled = declared->type;
+	named.category = ValueCategory::LValue;
+	named.entity = declared;
+	named.what = "id-expression";
+	named.payload = std::string(ast_token_type_name(TT_IDENTIFIER)) + ":" +
+		declared->name;
+	const std::size_t written = declaration.children.size();
+	named.node = &model_.open_node(
+		declaration,
+		spell(named.what, named.category, named.type, named.payload));
+	record(named);
+	if (integral)
+	{
+		contextual_integral(named, ctx);
+	}
+	else
+	{
+		contextual_bool(named, ctx);
+	}
+	if (types_.is_class(types_.strip_cv(named.type)))
+	{
+		// No conversion answered, so the name written here says nothing the
+		// object's own storage does not, and the caller's check is what refuses
+		// the condition.
+		declaration.children.resize(written);
 	}
 }
 

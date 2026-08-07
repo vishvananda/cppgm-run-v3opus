@@ -1706,6 +1706,10 @@ SemaAnalyzer::Value SemaAnalyzer::cast_expression(const AstNode& node,
 		lift_operand(parent, line);
 		return source;
 	}
+	// 5.2.9p4 and 5.4p4: the cast is a direct-initialization of the target from
+	// the operand, so an operand of class type reaches it through a conversion
+	// function of its class - one 12.3.2p2 lets be declared `explicit`.
+	explicit_conversion(source, target, ctx);
 	line.text = spell(value.what, value.category, target, value.payload);
 	value.node = &line;
 	record(value);
