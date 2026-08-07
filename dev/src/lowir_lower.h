@@ -250,6 +250,15 @@ public:
 	// function are a pointer, an enumeration is its underlying integer, and an
 	// object with no register form is its storage span.
 	lowir_model::LowType low_type(TypeId type);
+	// 6.6.3p2: the boundary a function returning `returned` has.  A class the
+	// ABI hands back through storage the caller named takes that destination as
+	// a parameter standing before every one the declaration wrote, and returns
+	// nothing; every other return type is the value it is.  Both halves are one
+	// answer, written here once so a declaration, a definition and a call
+	// through a pointer cannot disagree about the same function.
+	void open_signature(TypeId returned,
+	                    std::vector<lowir_model::Parameter>& params,
+	                    lowir_model::LowType& result);
 	bool is_signed(TypeId type);
 	// The register width of a scalar type, in bytes.
 	unsigned long long width(TypeId type);
@@ -751,7 +760,54 @@ private:
 	// 12.2p1: the storage a prvalue of class type stands in, given to it here
 	// and constructed here.  The object is named once however many readers the
 	// temporary has, so the slot is made the first time it is reached.
-	LowValue temporary_object(const DumpNode& node);
+	LowValue temporary_object(const DumpNode& node,
+	                          const lowir_model::Operand* into = nullptr);
+	// 12.8p31 and 8.5p14: the object standing at `destination`, initialized by
+	// `node`.  An initializer that creates an object of its own - a temporary
+	// the program wrote, a call that returns one, a conditional whose arms each
+	// do - creates it there and no copy stands between the two; every other
+	// initializer is read for the object it names and copied.  The destination
+	// is named before the initializer runs, because it is what the
+	// initialization is about.
+	LowValue place_class_object(const lowir_model::Operand& destination,
+	                            TypeId type, const DumpNode& node);
+	// Whether `node` is an initializer that creates its object, which is what
+	// says the destination is where that object is built.
+	bool creates_object(const DumpNode& node, TypeId type);
+	// 12.2p1: storage of the function's own for an object of class type no
+	// declaration named, and the address of it.  The slot is opened before
+	// whatever fills it runs, because the object standing in it is what that
+	// initialization is about.  `storage` takes the slot itself, which is what
+	// 5.2.2p4 passes an object of class type as.
+	lowir_model::Operand open_object_slot(TypeId type, const char* prefix,
+	                                      lowir_model::Operand* storage = nullptr);
+	// 12.2p1: the storage a class prvalue an initialization did not name a
+	// destination for is given - one slot of the function, named after what
+	// asked for it and named before the initializer that fills it runs.
+	LowValue class_object_slot(const DumpNode& node, TypeId type,
+	                           const char* prefix);
+	// 5.2.2p4: one argument of a call standing where a parameter of class type
+	// is, which is the storage that parameter object occupies.
+	lowir_model::Operand class_argument(const DumpNode& node, TypeId type);
+	// 5p11: an expression whose value is discarded, where the expression is
+	// worth an object of class type it created.  The object still stands in
+	// storage of the function's, which is what the discarding gives it here.
+	bool discarded_class_object(const DumpNode& node);
+	// 12.2p1: whether the expression is worth an object of class type standing
+	// in no storage of the function's, which is what needs some given to it.
+	bool stands_in_no_storage(const DumpNode& node);
+	// 12.8p31: the local object every `return` of this function copies into the
+	// returned object, where there is one such object and the copy is all that
+	// stands between it and the destination the caller named.  The two may then
+	// be one object: the declaration is given the destination as its storage and
+	// the copy is not written at all.  Null where no local answers that, which
+	// is every function whose returns name different objects, whose returned
+	// object is not one a declaration of the outermost block named, or that
+	// leaves a lifetime behind on the way out.
+	const SemaEntity* return_slot_local(const DumpNode& definition);
+	// The object one `return` copies into the returned object, or null where
+	// what it returns is not the copy of a named object.
+	const SemaEntity* returned_local(const DumpNode& node);
 	// 5.3.4: the storage 3.7.4.1's allocation function returned, and the
 	// object 8.5p16 creates in it.  The address is the one the call produced,
 	// so nothing here allocates a slot and the object is built at a value
@@ -936,7 +992,12 @@ private:
 	void emit_handler(bool cleanup, const std::string& label);
 	void emit_handler_end();
 	void emit_resume();
-	LowValue call_expression(const DumpNode& node);
+	// 5.2.2p10 and 6.6.3p2: the call, and the object it returns.  `into` is the
+	// storage the caller of the call named for a returned object the ABI hands
+	// back through a destination; where the call returns one and no place asked
+	// for it, the function gives it storage of its own.
+	LowValue call_expression(const DumpNode& node,
+	                         const lowir_model::Operand* into = nullptr);
 	LowValue unary_expression(const DumpNode& node);
 	LowValue increment_expression(const DumpNode& node, bool postfix);
 	LowValue binary_expression(const DumpNode& node);
@@ -945,7 +1006,8 @@ private:
 	LowValue conditional_expression(const DumpNode& node, bool as_object);
 	// 5.16 and 12.2p1: a conditional whose result is a prvalue of class type,
 	// which is an object the function holds and each arm writes its own into.
-	LowValue conditional_object(const DumpNode& node);
+	LowValue conditional_object(const DumpNode& node,
+	                            const lowir_model::Operand* into = nullptr);
 	// 5.16 where the value is thrown away: the arms are still alternatives and
 	// still run, but neither has a value for a slot to hold.
 	void discarded_conditional(const DumpNode& node);
@@ -1064,7 +1126,20 @@ private:
 	std::size_t current_;
 	bool open_;
 	TypeId returns_;
+	// 6.6.3p2: the destination the caller named for the returned object, where
+	// this function is one that returns an object indirectly.  Every return of
+	// the function creates its object there rather than in storage of its own.
+	lowir_model::Operand result_object_;
+	bool indirect_result_;
+	// 12.8p31: the one local object this function's returns copy into that
+	// destination, which is then the object standing in it.
+	const SemaEntity* return_slot_local_;
 	std::unordered_map<std::uint32_t, std::string> slots_;
+	// 12.2p1 and 12.8p31: the address a temporary that was created in storage
+	// the place asking for it already owned stands at.  Such a temporary has no
+	// slot of its own, so what names it is the destination it was built in, and
+	// every later reader of the same temporary reads that address.
+	std::unordered_map<std::uint32_t, lowir_model::Operand> placed_;
 	std::unordered_set<std::string> slot_names_;
 	// 3.3.3p4: the suffix the last slot named after one identifier took, so the
 	// next one starts from there rather than from the first suffix again.

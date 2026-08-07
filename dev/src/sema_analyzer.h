@@ -518,6 +518,9 @@ private:
 	// 12.8p15/p28: the value-transfer member one subobject of class type is
 	// carried by, which for a move falls back on the class's copy member.
 	SemaEntity* selected_transfer(TypeId type, unsigned char kind);
+	// 12.8p32: the constructor a copy 12.8p31 elided would have called, asked
+	// for where the program wrote the initialization it elided from.
+	void require_elided_transfer(TypeId type, const Context& ctx);
 	// 8.3.6p1: whether the parameter at `index` of this function's type has a
 	// default argument, which is what lets 12.8p2 count a constructor with more
 	// parameters as a copy constructor.

@@ -187,6 +187,26 @@ lowir_model::LowType LowirUnitLowering::low_type(TypeId type)
 	return low("i64");
 }
 
+void LowirUnitLowering::open_signature(
+	TypeId returned, std::vector<lowir_model::Parameter>& params,
+	lowir_model::LowType& result)
+{
+	if (!types_.returns_indirectly(returned))
+	{
+		result = low_type(returned);
+		return;
+	}
+	// 6.6.3p2 and 12.8p31: the returned object stands in storage of the
+	// caller's, so the destination is what the call passes and the function
+	// hands nothing back.
+	lowir_model::Parameter destination;
+	destination.name = "ret";
+	destination.type = low("ptr");
+	destination.metadata.passing = lowir_model::PPM_INDIRECT_RESULT;
+	params.push_back(destination);
+	result = low("void");
+}
+
 // A name is used as often as the program writes it, and its symbol is a fact
 // about the declaration rather than about the use, so each declaration is
 // flattened - and a function's signature described and signed - once.
@@ -1912,6 +1932,8 @@ void LowirUnitLowering::add_function_declaration(const SemaEntity& entity,
 	}
 	lowir_model::FunctionDeclaration declaration;
 	declaration.name = symbol;
+	open_signature(types_.target(entity.type), declaration.params,
+	               declaration.return_type);
 	const std::vector<TypeId>& parameters = types_.parameters(entity.type);
 	for (std::size_t index = 0; index < parameters.size(); ++index)
 	{
@@ -1924,7 +1946,6 @@ void LowirUnitLowering::add_function_declaration(const SemaEntity& entity,
 		}
 		declaration.params.push_back(parameter);
 	}
-	declaration.return_type = low_type(types_.target(entity.type));
 	if (types_.variadic(entity.type))
 	{
 		declaration.boundary.arity = lowir_model::CAM_VARIADIC;
@@ -1999,7 +2020,7 @@ void LowirUnitLowering::function_definition(const DumpNode& node)
 	lowir_model::Function& out = program_.functions.back();
 	out.name = symbol;
 	const TypeId type = node.fact.type;
-	out.return_type = low_type(types_.target(type));
+	open_signature(types_.target(type), out.params, out.return_type);
 	if (types_.variadic(type))
 	{
 		out.boundary.arity = lowir_model::CAM_VARIADIC;

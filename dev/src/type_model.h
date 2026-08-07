@@ -14,6 +14,10 @@ typedef std::uint32_t TypeId;
 // The identifier no type has.
 const TypeId kNoType = 0;
 
+// 6.6.3p2: the widest object of class type the course ABI hands back as the
+// bytes it occupies, which is the two machine words a return carries.
+const unsigned long long kDirectReturnBytes = 16;
+
 // The cv-qualifiers of 7.1.6.1, as a bit set.
 enum CvQualifiers
 {
@@ -180,6 +184,17 @@ public:
 	// or holds a subobject whose copy is not.  True for every type that is not
 	// a class.
 	bool is_trivially_copied(TypeId type) const;
+
+	// 6.6.3p2 and 5.2.2p4: whether an object of this type is returned in
+	// storage the caller gives the function rather than as a value the call
+	// hands back.  A class the bytes are not the copy of cannot be handed back
+	// as bytes at all - the copy is a call, and a call needs an object to make
+	// it into - and a class whose object is wider than two words is one the
+	// boundary carries by its address whether or not its copy is trivial.  It
+	// is one fact of the type, settled where 12.8p12's is, so the signature the
+	// declaration writes, the definition's return and every call of it read the
+	// same answer rather than each working one out.
+	bool returns_indirectly(TypeId type);
 
 	bool is_class(TypeId type) const { return kind(type) == TypeKind::Class; }
 	bool is_enum(TypeId type) const { return kind(type) == TypeKind::Enum; }

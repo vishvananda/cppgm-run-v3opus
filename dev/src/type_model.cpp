@@ -501,6 +501,18 @@ bool TypeTable::is_trivially_copied(TypeId type) const
 	return kind(type) != TypeKind::Class || user_at(type).trivially_copied;
 }
 
+bool TypeTable::returns_indirectly(TypeId type)
+{
+	const TypeId bare = strip_cv(type);
+	if (kind(bare) != TypeKind::Class || is_incomplete(bare))
+	{
+		return false;
+	}
+	// The course ABI hands back an object of two words or less as the bytes it
+	// occupies, and everything wider through a destination the caller names.
+	return !user_at(bare).trivially_copied || object_size(bare) > kDirectReturnBytes;
+}
+
 bool TypeTable::is_empty_class(TypeId type) const
 {
 	return kind(type) == TypeKind::Class && user_at(type).empty;

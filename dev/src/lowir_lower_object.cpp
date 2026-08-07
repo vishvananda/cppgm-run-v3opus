@@ -748,7 +748,15 @@ void LowirFunctionLowering::constructor_call(const Operand& address,
 		if (types.is_empty_class(types.strip_cv(node.fact.type)))
 		{
 			// 9p6: an object of a class that holds nothing has no bytes to
-			// carry, so neither the object read from nor its address is named.
+			// carry, so nothing is read out of the object this transfer reads
+			// from and nothing is written into the one it builds.  1.9p12 still
+			// evaluates the operand where evaluating it is something the
+			// program can observe - a temporary created there is an object with
+			// a lifetime of its own however little it holds.
+			if (observable_expression(*call.children[2]))
+			{
+				expression(*call.children[2], true);
+			}
 			return;
 		}
 		const LowValue source = expression(*call.children[2], true);
@@ -1096,13 +1104,23 @@ void LowirFunctionLowering::destructor_epilogue()
 // says what asked for the object; the constructor then runs on it exactly as it
 // would on one a declaration named, and is written even where it does nothing,
 // because the call is the only mark this object's lifetime has begun.
-LowValue LowirFunctionLowering::temporary_object(const DumpNode& node)
+LowValue LowirFunctionLowering::temporary_object(const DumpNode& node,
+                                                 const Operand* into)
 {
 	const SemaEntity& entity = *node.fact.entity;
 	LowValue value;
 	value.type = node.fact.type;
 	value.lvalue = true;
 	value.named = true;
+	const std::unordered_map<std::uint32_t, Operand>::const_iterator standing =
+		placed_.find(entity.id);
+	if (standing != placed_.end())
+	{
+		// 12.8p31: the temporary was created in the storage the place asking
+		// for it owned, so the object it is stands at that address.
+		value.operand = standing->second;
+		return value;
+	}
 	const std::unordered_map<std::uint32_t, std::string>::const_iterator found =
 		slots_.find(entity.id);
 	if (found != slots_.end())
@@ -1110,6 +1128,16 @@ LowValue LowirFunctionLowering::temporary_object(const DumpNode& node)
 		// The temporary was already made, so what it is worth now is the
 		// storage it was given rather than a second object.
 		value.operand = named_operand(Operand::OP_SLOT, found->second);
+		return value;
+	}
+	if (into != nullptr)
+	{
+		// 12.8p31: the initialization named the storage this object stands in
+		// before it ran, so the constructor runs there and the temporary and
+		// the object being initialized are one object.
+		placed_[entity.id] = *into;
+		constructor_call(*into, *node.children[0], true);
+		value.operand = *into;
 		return value;
 	}
 	const std::string slot =
@@ -1169,6 +1197,115 @@ LowValue LowirFunctionLowering::new_expression(const DumpNode& node)
 	const LowValue held = expression(initialization);
 	store(converted(held, created), allocated.operand, created);
 	return value;
+}
+
+// 8.5p14 and 12.8p31: whether the initializer creates the object it is worth
+// rather than naming one that already stands somewhere.  Where it does, the
+// object it creates is the object being initialized, and no copy stands between
+// the two; this is the one question that says so, asked before the initializer
+// runs because the answer is what the destination is handed to.
+bool LowirFunctionLowering::creates_object(const DumpNode& node, TypeId type)
+{
+	TypeTable& types = unit_.types();
+	if (types.strip_cv(node.fact.type) != types.strip_cv(type))
+	{
+		// The initializer is worth an object of another class, which reaches
+		// this one through a conversion rather than by standing in its storage.
+		return false;
+	}
+	switch (node.fact.kind)
+	{
+	case FactKind::TemporaryObject:
+		// 12.2p1: the temporary is the object the program wrote, and 12.8p31
+		// lets the storage it is given be the storage asking for it.
+		return node.fact.entity != nullptr && !node.children.empty() &&
+			node.children[0]->fact.kind == FactKind::ConstructorAction &&
+			placed_.count(node.fact.entity->id) == 0 &&
+			slots_.count(node.fact.entity->id) == 0;
+
+	case FactKind::Call:
+		// 6.6.3p2: the function creates the returned object in the storage the
+		// call names for it, which is this destination.
+		return types.returns_indirectly(node.fact.type);
+
+	case FactKind::Conditional:
+		// 5.16p4: the conditional is a prvalue of class type, so the object it
+		// is worth is the object whichever arm ran created.
+		return node.fact.category == ValueCategory::PRValue;
+
+	default:
+		break;
+	}
+	return false;
+}
+
+LowValue LowirFunctionLowering::place_class_object(const Operand& destination,
+                                                   TypeId type,
+                                                   const DumpNode& node)
+{
+	LowValue object;
+	object.type = type;
+	object.lvalue = true;
+	object.operand = destination;
+	if (creates_object(node, type))
+	{
+		switch (node.fact.kind)
+		{
+		case FactKind::TemporaryObject:
+			temporary_object(node, &destination);
+			return object;
+
+		case FactKind::Call:
+			call_expression(node, &destination);
+			return object;
+
+		case FactKind::Conditional:
+			conditional_object(node, &destination);
+			return object;
+
+		default:
+			break;
+		}
+	}
+	// 8.5p14: the initializer names an object that already stands somewhere,
+	// so what the initialization comes to is 12.8p15's copy of it.
+	const LowValue value = expression(node);
+	copy_class_object(destination, class_copy_source(value), type);
+	return object;
+}
+
+Operand LowirFunctionLowering::open_object_slot(TypeId type, const char* prefix,
+                                                Operand* storage)
+{
+	LowValue held;
+	held.type = type;
+	held.lvalue = true;
+	held.named = true;
+	held.operand =
+		named_operand(Operand::OP_SLOT, add_generated_slot(prefix, type));
+	if (storage != nullptr)
+	{
+		*storage = held.operand;
+	}
+	return address_of(held);
+}
+
+LowValue LowirFunctionLowering::class_object_slot(const DumpNode& node,
+                                                  TypeId type,
+                                                  const char* prefix)
+{
+	// 12.2p1: no declaration named this object, so the function gives it
+	// storage - and names it before the initializer runs, because the
+	// initializer creates its object in it.
+	return place_class_object(open_object_slot(type, prefix), type, node);
+}
+
+Operand LowirFunctionLowering::class_argument(const DumpNode& node, TypeId type)
+{
+	Operand storage;
+	const Operand into = open_object_slot(type, "argobj", &storage);
+	place_class_object(into, type, node);
+	return storage;
 }
 
 // 12.8p15: a copy of a class object copies what the object holds, which for a
@@ -1595,21 +1732,23 @@ void LowirFunctionLowering::initialize_into(const LowObject& object,
 		initialize_into(object, type, *node.children[0]);
 		return;
 	}
-	const LowValue value = expression(node);
 	if (types.is_class(types.strip_cv(type)))
 	{
-		// 12.8p15: the object holds what the initializer's object holds, which
-		// is one copy of its bytes into the storage this initialization already
-		// owns - not a value read out of one object and written into another.
-		// The declaration of an object of class type already named its address,
-		// and one piece of storage has one address however many readers it
-		// has, so the copy is written into the address that declaration
-		// computed rather than into a second one for the same storage.
+		// 8.5p14 and 12.8p31: the object being initialized is where the
+		// initializer creates its own object, and where the initializer names
+		// one that already stands somewhere it is 12.8p15's copy of it.  The
+		// declaration of an object of class type already named its address, and
+		// one piece of storage has one address however many readers it has, so
+		// the initialization runs at the address that declaration computed
+		// rather than at a second one for the same storage - and that address
+		// is named before the initializer, because the object standing there is
+		// what the initialization is about.
 		const Operand into =
 			object.addressed ? object.address : object_address(object);
-		copy_class_object(into, class_copy_source(value), types.strip_cv(type));
+		place_class_object(into, types.strip_cv(type), node);
 		return;
 	}
+	const LowValue value = expression(node);
 	store(initializer_value(value, type), object_storage(object), type);
 }
 

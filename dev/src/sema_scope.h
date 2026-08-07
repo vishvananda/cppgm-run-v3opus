@@ -395,6 +395,16 @@ struct DumpNode
 	SemaFact fact;
 };
 
+// 1.9p12 and 5p11: whether evaluating this expression is something the program
+// can observe.  A name, a constant and the operators that only read them are
+// not; anything that calls, assigns or constructs is, and so is any expression
+// holding one.  5.3.3p1 leaves the operand of `sizeof` and `alignof`
+// unevaluated, so what is written there is never observed.  It is one question
+// about the resolved tree - the analysis asks it of a statement whose value
+// nothing reads, and the lowering asks it of an operand it would otherwise have
+// nothing to carry out of - so it is one answer rather than two.
+bool observable_expression(const DumpNode& node);
+
 // One line-oriented scope of the dump.
 //
 // The output is a tree of scopes whose shape is not the scope tree: a reopened

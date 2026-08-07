@@ -120,6 +120,33 @@ bool SemaAnalyzer::element_constructed(TypeId type, const AstNode* written)
 		(is_initializer_list(written->kind) && written->children.empty());
 }
 
+// 12.8p32: a copy 12.8p31 elides is still a copy the program wrote, so the
+// constructor 13.3 would have chosen for it has to be one this region may name
+// and one the standard has a definition for.  The elision says the call does
+// not run, not that the program did not have to be allowed to write it.  The
+// initializer is a prvalue, so what 13.3 chooses is the class's move
+// constructor where it has one and its copy constructor otherwise - which is
+// the one fact 12.8p15 already settled on the class rather than a resolution
+// run again here.
+void SemaAnalyzer::require_elided_transfer(TypeId type, const Context& ctx)
+{
+	SemaEntity* const chosen = selected_transfer(type, kMoveConstructorTransfer);
+	if (chosen == nullptr || chosen->deleted)
+	{
+		throw std::runtime_error(
+			"an object of " + types_.description(types_.strip_cv(type)) +
+			" is initialized from a value of its own class, whose copy 12.8p32 "
+			"asks for a constructor the program has none of");
+	}
+	if (ctx.scope != nullptr && !accessible(*chosen, *ctx.scope))
+	{
+		throw std::runtime_error(
+			"an object of " + types_.description(types_.strip_cv(type)) +
+			" is initialized from a value of its own class, whose copy 12.8p32 "
+			"asks for a constructor the access its class gave does not reach");
+	}
+}
+
 // 8.5, 12.1 and 13.3.1.3: an object of class type is initialized by one of the
 // constructors of its class, chosen from the arguments its initializer wrote.
 // The action is one call like any other, written under the declaration of the
@@ -244,6 +271,7 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 			// and nothing stands between them.  A glvalue names an object that
 			// goes on existing, so 8.5p14 leaves the initialization the call of
 			// the copy or move constructor 13.3 chooses for it.
+			require_elided_transfer(object_type, ctx);
 			return;
 		}
 		line.children.pop_back();

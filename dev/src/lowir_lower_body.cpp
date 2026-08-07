@@ -78,6 +78,8 @@ LowirFunctionLowering::LowirFunctionLowering(LowirUnitLowering& unit,
 	, current_(0)
 	, open_(false)
 	, returns_(kNoType)
+	, indirect_result_(false)
+	, return_slot_local_(nullptr)
 	, unwinding_(false)
 	, unwind_dispatch_live_(0)
 {}
@@ -279,6 +281,15 @@ LowValue LowirFunctionLowering::storage_of(const SemaEntity& entity)
 	LowValue value;
 	value.type = entity.type;
 	value.lvalue = true;
+	const std::unordered_map<std::uint32_t, Operand>::const_iterator standing =
+		placed_.find(entity.id);
+	if (standing != placed_.end())
+	{
+		// 12.8p31: the object was created in storage the place asking for it
+		// owned, so what names it is that address rather than a slot.
+		value.operand = standing->second;
+		return value;
+	}
 	const std::unordered_map<std::uint32_t, std::string>::const_iterator found =
 		slots_.find(entity.id);
 	if (found != slots_.end())
@@ -944,6 +955,17 @@ void LowirFunctionLowering::run(const DumpNode& node, TypeId type)
 {
 	TypeTable& types = unit_.types();
 	returns_ = types.target(type);
+	// 6.6.3p2: the caller named the storage the returned object stands in, and
+	// the signature already wrote the parameter that carries it.  Every return
+	// of this function creates its object there.
+	indirect_result_ = !out_.params.empty() &&
+		out_.params[0].metadata.passing == lowir_model::PPM_INDIRECT_RESULT;
+	if (indirect_result_)
+	{
+		result_object_ = named_operand(Operand::OP_TEMP, out_.params[0].name);
+		taken_.insert(out_.params[0].name);
+		return_slot_local_ = return_slot_local(node);
+	}
 	open_block("entry");
 	// 15.2p2 and 12.4p8: the destructions that follow the destructor's own body
 	// are read before the body is, because the two blocks they stand between
@@ -1053,9 +1075,111 @@ void LowirFunctionLowering::run(const DumpNode& node, TypeId type)
 		Instruction instruction;
 		instruction.kind = Instruction::IK_RETURN;
 		instruction.type = out_.return_type;
-		instruction.first = literal_operand(returns_, 0);
+		if (!indirect_result_)
+		{
+			instruction.first = literal_operand(returns_, 0);
+		}
 		terminate(instruction);
 	}
+}
+
+const SemaEntity* LowirFunctionLowering::returned_local(const DumpNode& node)
+{
+	// 3.8p1: a lifetime ends where control leaves the block that named the
+	// object, and the actions that end one stand under the return - so a return
+	// that carries any of them is one whose returned object cannot be the local
+	// this destroys on the way out.
+	if (node.children.size() != 1 ||
+	    node.children[0]->fact.kind != FactKind::TemporaryObject)
+	{
+		return nullptr;
+	}
+	const DumpNode& temporary = *node.children[0];
+	if (temporary.children.empty() ||
+	    temporary.children[0]->fact.kind != FactKind::ConstructorAction)
+	{
+		return nullptr;
+	}
+	// 12.8p15: the returned object is initialized by one transfer member taking
+	// one argument, and that argument is the object this return names.
+	const DumpNode& call = *temporary.children[0]->children[0];
+	if (call.children.size() != 3 || call.children[2]->fact.kind != FactKind::Id)
+	{
+		return nullptr;
+	}
+	const SemaEntity* const named = call.children[2]->fact.entity;
+	TypeTable& types = unit_.types();
+	if (named == nullptr || named->kind != SemaKind::Variable ||
+	    types.strip_cv(named->type) != types.strip_cv(returns_))
+	{
+		return nullptr;
+	}
+	return named;
+}
+
+const SemaEntity* LowirFunctionLowering::return_slot_local(
+	const DumpNode& definition)
+{
+	// 6.6.3p2 and 12.8p31: the objects a declaration of the function's own
+	// outermost block named, which are the ones whose storage may be the
+	// destination the caller passed - one an inner block named is an object of
+	// that block and ends where it does.
+	std::unordered_set<std::uint32_t> outermost;
+	const DumpNode* body = nullptr;
+	for (std::size_t index = 0; index < definition.children.size(); ++index)
+	{
+		if (definition.children[index]->fact.kind == FactKind::Compound)
+		{
+			body = definition.children[index];
+			break;
+		}
+	}
+	if (body == nullptr)
+	{
+		return nullptr;
+	}
+	for (std::size_t index = 0; index < body->children.size(); ++index)
+	{
+		const DumpNode& statement = *body->children[index];
+		if (statement.fact.kind != FactKind::SimpleDeclaration)
+		{
+			continue;
+		}
+		for (std::size_t at = 0; at < statement.children.size(); ++at)
+		{
+			const DumpNode& declared = *statement.children[at];
+			if (declared.fact.kind == FactKind::Variable &&
+			    declared.fact.entity != nullptr)
+			{
+				outermost.insert(declared.fact.entity->id);
+			}
+		}
+	}
+	// Every return of the function is read once, and the object they agree on -
+	// if they agree at all - is the one the destination stands for.
+	const SemaEntity* chosen = nullptr;
+	std::vector<const DumpNode*> pending(1, body);
+	while (!pending.empty())
+	{
+		const DumpNode& at = *pending.back();
+		pending.pop_back();
+		if (at.fact.kind == FactKind::Return)
+		{
+			const SemaEntity* const named = returned_local(at);
+			if (named == nullptr || outermost.count(named->id) == 0 ||
+			    (chosen != nullptr && chosen != named))
+			{
+				return nullptr;
+			}
+			chosen = named;
+			continue;
+		}
+		for (std::size_t index = 0; index < at.children.size(); ++index)
+		{
+			pending.push_back(at.children[index]);
+		}
+	}
+	return chosen;
 }
 
 // 12.4p8: the destructions written after a destructor's body, flattened to one
@@ -1342,8 +1466,41 @@ void LowirFunctionLowering::expression_statement(const DumpNode& node)
 		discarded_conditional(*written);
 		return;
 	}
+	if (discarded_class_object(*written))
+	{
+		return;
+	}
 	// 6.2p1: the value is computed and discarded.
 	expression(*written);
+}
+
+// 5p11 and 12.2p1: the value of the expression is thrown away, but an object of
+// class type the expression created is an object of the function all the same -
+// it stands in storage of its own, which is what a lifetime the full-expression
+// ends needs it to have.  A temporary the analysis already named has that
+// storage; a call handing one back has none until the statement gives it some.
+bool LowirFunctionLowering::discarded_class_object(const DumpNode& node)
+{
+	if (!stands_in_no_storage(node))
+	{
+		return false;
+	}
+	class_object_slot(node, unit_.types().strip_cv(node.fact.type), "discard");
+	return true;
+}
+
+// 12.2p1: whether the expression is worth an object of class type that stands
+// in no storage of the function's yet.  A temporary the analysis named, a
+// subobject of one and a conditional over them each already stand somewhere;
+// what a call hands back is the object itself, which needs storage before it
+// can be read as one - and a call returning its object indirectly needs the
+// storage before it runs, because it is what creates the object there.
+bool LowirFunctionLowering::stands_in_no_storage(const DumpNode& node)
+{
+	TypeTable& types = unit_.types();
+	return node.fact.kind == FactKind::Call &&
+		node.fact.category == ValueCategory::PRValue &&
+		types.is_class(types.strip_cv(node.fact.type));
 }
 
 void LowirFunctionLowering::local_variable(const DumpNode& node)
@@ -1351,6 +1508,28 @@ void LowirFunctionLowering::local_variable(const DumpNode& node)
 	TypeTable& types = unit_.types();
 	SemaEntity& entity = *node.fact.entity;
 	const TypeId type = node.fact.type;
+	if (return_slot_local_ != nullptr && return_slot_local_->id == entity.id)
+	{
+		// 12.8p31: every return of this function copies this object into the
+		// destination the caller named, so the declaration is given that
+		// destination as its storage and the two are one object.
+		placed_[entity.id] = result_object_;
+		if (!node.children.empty() &&
+		    node.children[0]->fact.kind == FactKind::ConstructorAction)
+		{
+			constructor_call(result_object_, *node.children[0]);
+			return;
+		}
+		LowObject standing;
+		standing.storage = result_object_;
+		standing.address = result_object_;
+		standing.addressed = true;
+		if (!node.children.empty())
+		{
+			initialize_into(standing, type, *node.children[0]);
+		}
+		return;
+	}
 	const std::string slot = add_slot(entity, type);
 	const Operand storage = named_operand(Operand::OP_SLOT, slot);
 	LowObject opened;
@@ -1440,9 +1619,37 @@ void LowirFunctionLowering::return_statement(const DumpNode& node)
 			: node.children[0];
 	if (written == nullptr)
 	{
-		if (!types.is_void(returns_))
+		if (!types.is_void(returns_) && !indirect_result_)
 		{
 			instruction.first = literal_operand(returns_, 0);
+		}
+	}
+	else if (!types.is_reference(returns_) &&
+	         types.is_class(types.strip_cv(returns_)))
+	{
+		// 6.6.3p2 and 12.8p31: the returned object is an object of its own,
+		// standing either in the storage the caller named for it or in storage
+		// of the function's, and the expression creates it there rather than
+		// being read and copied into it.  Either way the place is named before
+		// the expression runs.
+		const TypeId type = types.strip_cv(returns_);
+		if (indirect_result_)
+		{
+			// 12.8p31: where the object this return names is the object already
+			// standing in the destination, the copy between them is not one the
+			// program can tell was made, and it is not written.
+			if (return_slot_local_ == nullptr ||
+			    returned_local(node) != return_slot_local_)
+			{
+				place_class_object(result_object_, type, *written);
+			}
+		}
+		else
+		{
+			Operand storage;
+			place_class_object(open_object_slot(type, "retobj", &storage), type,
+			                   *written);
+			instruction.first = storage;
 		}
 	}
 	else
@@ -1452,15 +1659,7 @@ void LowirFunctionLowering::return_statement(const DumpNode& node)
 		// and there is no value for the return to carry.
 		if (!types.is_void(types.strip_cv(value.type)))
 		{
-			// 6.6.3p2 and 12.8p15: a returned object of class type is a copy
-			// the function makes in storage of its own, which 12.8p31 lets a
-			// prvalue be created in rather than copied into.
-			instruction.first =
-				!types.is_reference(returns_) &&
-					types.is_class(types.strip_cv(returns_))
-					? class_value_slot(*written, value,
-					                   types.strip_cv(returns_), "retobj")
-					: converted(value, returns_);
+			instruction.first = converted(value, returns_);
 		}
 	}
 	leave_blocks(node);
@@ -1834,1147 +2033,3 @@ void LowirFunctionLowering::case_statement(const DumpNode& node)
 		statement(*node.children[index]);
 	}
 }
-
-// ------------------------------------------------------------- expressions
-
-LowValue LowirFunctionLowering::expression(const DumpNode& node,
-                                           bool as_object)
-{
-	switch (node.fact.kind)
-	{
-	case FactKind::Literal:
-	case FactKind::Sizeof:
-		return literal(node);
-
-	case FactKind::Id:
-		return id_expression(node);
-
-	case FactKind::Member:
-		return member_expression(node);
-
-	case FactKind::Call:
-		return call_expression(node);
-
-	case FactKind::Unary:
-		return node.fact.op == OP_INC || node.fact.op == OP_DEC
-			? increment_expression(node, false)
-			: unary_expression(node);
-
-	case FactKind::Postfix:
-		return increment_expression(node, true);
-
-	case FactKind::Binary:
-		return binary_expression(node);
-
-	case FactKind::Assignment:
-		return assignment_expression(node);
-
-	case FactKind::Conditional:
-		return conditional_expression(node, as_object);
-
-	case FactKind::Subscript:
-		return subscript_expression(node);
-
-	case FactKind::Cast:
-		return cast_expression(node, as_object);
-
-	case FactKind::BaseConversion:
-		return base_conversion(node);
-
-	case FactKind::TemporaryObject:
-		return temporary_object(node);
-
-	case FactKind::NewExpression:
-		return new_expression(node);
-
-	case FactKind::BracedInitList:
-	{
-		// 8.5.4 over a scalar: the value is what its one clause says, and an
-		// empty list is the zero of the type it initializes.
-		if (!node.children.empty())
-		{
-			return expression(*node.children[0], as_object);
-		}
-		LowValue value;
-		value.type = node.fact.type;
-		value.constant = true;
-		value.operand = zero_operand(value.type);
-		return value;
-	}
-
-	default:
-		break;
-	}
-	throw std::runtime_error("an expression is outside the PA15 lowering subset: "
-	                         + node.text);
-}
-
-LowValue LowirFunctionLowering::literal(const DumpNode& node)
-{
-	TypeTable& types = unit_.types();
-	LowValue value;
-	value.type = node.fact.type;
-	if (!node.fact.spelling.empty() &&
-	    types.kind(types.strip_cv(value.type)) == TypeKind::Array)
-	{
-		// 2.14.5p8: the literal is an array object of static storage duration,
-		// which the program holds under a name of its own.
-		value.lvalue = true;
-		value.unnamed = true;
-		value.operand.kind = Operand::OP_GLOBAL;
-		value.operand.text =
-			unit_.string_literal(node.fact.spelling, value.type);
-		return value;
-	}
-	if (types.strip_cv(value.type) == types.fundamental(FT_NULLPTR_T) &&
-	    !node.fact.constant)
-	{
-		// 2.14.7 and 4.10p1: `nullptr` is a value of its own type, which every
-		// pointer type converts from and which LowIR spells as it is written.
-		// 4.10p1's *other* null pointer constant is an integral constant
-		// expression of value zero, which is the integer the program wrote and
-		// keeps that spelling wherever it converts to - the two are the same
-		// value and not the same token, and the constant is what says which.
-		value.operand = named_operand(Operand::OP_INTEGER, "nullptr");
-		return value;
-	}
-	if (!node.fact.constant)
-	{
-		throw std::runtime_error("a literal is outside the PA15 lowering subset");
-	}
-	value.constant = true;
-	value.value = node.fact.value;
-	if (!node.fact.spelling.empty())
-	{
-		// 2.14.4: the value is a floating one, which the program spelled
-		// exactly and which no integer of the translation holds.
-		value.constant = false;
-		value.operand.kind = Operand::OP_FLOAT;
-		value.operand.text = node.fact.spelling;
-		return value;
-	}
-	if (node.fact.kind == FactKind::Sizeof)
-	{
-		// 5.3.3p6: the size is a value the translation computed rather than one
-		// the program wrote, and LowIR names such a value with `const`.
-		Instruction instruction;
-		instruction.kind = Instruction::IK_CONST;
-		instruction.type = unit_.low_type(value.type);
-		instruction.first = literal_operand(value.type, node.fact.value);
-		value.operand = emit(instruction);
-		value.constant = false;
-		return value;
-	}
-	// 8.5p7: a zero the initialization is rather than a literal the program
-	// wrote is a value of the object's own type, which for a pointer is 4.10p1's
-	// null pointer value and not the integer a null pointer constant is.
-	value.operand = node.fact.zero_initialized
-		? zero_operand(value.type)
-		: literal_operand(value.type, node.fact.value);
-	return value;
-}
-
-LowValue LowirFunctionLowering::id_expression(const DumpNode& node)
-{
-	SemaEntity& entity = *node.fact.entity;
-	if (entity.kind == SemaKind::Function)
-	{
-		// 4.3: a function name used as a value is a pointer to it, and the
-		// address of a function is the symbol itself.
-		unit_.declare_entity(entity);
-		LowValue value;
-		value.type = entity.type;
-		value.lvalue = true;
-		value.operand =
-			named_operand(Operand::OP_GLOBAL, unit_.function_symbol(entity));
-		return value;
-	}
-	return storage_of(entity);
-}
-
-// 5.2.5p1 and 9.2p13: the member of the object the operand denotes, which is
-// that object's storage advanced by the place its class gave the member.  The
-// operand is a pointer where `->` or an implicit `this` wrote one and the
-// object itself where `.` did, and its own type is what says which.
-// 9.2p13: where one member of an object begins, which is what the layout of its
-// class settled.  A member of reference type holds a pointer, so this is the
-// storage of that pointer rather than of the object it names, and the
-// projection says which of the two the address is being taken for: `bound` is
-// the initialization writing the pointer into the member's own storage, and
-// anything else is a use that reads the object through it.
-Operand LowirFunctionLowering::member_storage(const DumpNode& object,
-                                              const SemaEntity& member,
-                                              bool bound)
-{
-	TypeTable& types = unit_.types();
-	// 9.5p1: an anonymous class declared an object no name reaches, and its
-	// members are reached through it - so the access the analysis wrote holds
-	// one step for that object and one for the member.  Nothing reads the
-	// object itself, so where the member stands is one offset from where the
-	// enclosing object stands, and it is written as the one step it is.
-	const DumpNode* at = &object;
-	unsigned long long offset = member.offset;
-	for (const SemaEntity* held = member.storage;
-	     held != nullptr && held->object_member && !at->children.empty();
-	     held = held->storage)
-	{
-		offset += held->offset;
-		at = at->children[0];
-	}
-	const LowValue held = expression(*at, true);
-	const Operand base =
-		types.kind(types.strip_cv(held.type)) == TypeKind::Pointer
-			? rvalue(held)
-			: address_of(held);
-	Instruction step;
-	step.kind = Instruction::IK_INDEX;
-	step.type.text = "i8";
-	step.index_projection = types.is_reference(member.type) && !bound
-		? lowir_model::IPK_REFERENCE_FIELD
-		: lowir_model::IPK_FIELD;
-	step.first = base;
-	step.second = named_operand(Operand::OP_INTEGER, decimal(offset));
-	return emit(step);
-}
-
-// 12.8p15 and p28: one step of a value transfer the standard defines that
-// carries storage rather than naming a subobject.  A step with no type is the
-// leading run of members a copy of the bytes carries exactly, which is one
-// `copyobj` of the span it covers; a step with one is 9.6p2's storage unit,
-// which the bit-fields sharing it are carried in with one read and one write.
-void LowirFunctionLowering::storage_transfer(const DumpNode& node)
-{
-	TypeTable& types = unit_.types();
-	const unsigned long long offset = node.fact.value;
-	if (node.fact.type == kNoType)
-	{
-		const Operand into = address_of(expression(*node.children[0], true));
-		const Operand from = address_of(expression(*node.children[1], true));
-		Instruction copy;
-		copy.kind = Instruction::IK_COPYOBJ;
-		copy.byte_count = static_cast<std::size_t>(node.fact.elements);
-		// 3.11p1: the run stands `offset` bytes into an object of the class, so
-		// what is known of its address is the class's own alignment cut down to
-		// the one that many bytes still allow - which for a run beginning where
-		// the object does is the class's.
-		unsigned long long known =
-			types.object_align(types.strip_cv(node.children[0]->fact.type));
-		while (offset % known != 0)
-		{
-			known /= 2;
-		}
-		copy.byte_alignment = static_cast<std::size_t>(known);
-		copy.first = at_offset(from, offset);
-		copy.second = at_offset(into, offset);
-		emit_void(copy);
-		return;
-	}
-	// 5.17p1: the value is read out of the object it is read from before the
-	// object it is written into is named, which is the order every other
-	// assignment this lowering writes has.  The unit is a member of the object
-	// rather than the object itself, so where it stands is written as the step
-	// down to it that every other member access writes.
-	const Operand from = address_of(expression(*node.children[1], true));
-	const Operand held = load(field_at(from, offset), node.fact.type);
-	const Operand into = address_of(expression(*node.children[0], true));
-	store(held, field_at(into, offset), node.fact.type);
-}
-
-// 9.2p13: the storage `offset` bytes into the object standing at `at`, which is
-// where a member the layout put there begins.  An offset of zero is the object
-// itself, so nothing is written for it.
-Operand LowirFunctionLowering::at_offset(const Operand& at,
-                                         unsigned long long offset)
-{
-	if (offset == 0)
-	{
-		return at;
-	}
-	return field_at(at, offset);
-}
-
-// The same step written whether or not the member begins where the object does,
-// which is what a member access is: the storage this names is the member's and
-// not the object's, however far into it the layout put it.
-Operand LowirFunctionLowering::field_at(const Operand& at,
-                                        unsigned long long offset)
-{
-	Instruction step;
-	step.kind = Instruction::IK_INDEX;
-	step.type.text = "i8";
-	step.index_projection = lowir_model::IPK_FIELD;
-	step.first = at;
-	step.second = named_operand(Operand::OP_INTEGER, decimal(offset));
-	return emit(step);
-}
-
-// 4.10p3 and 10p1: the base class subobject of the object the operand denotes,
-// which is that object's storage at the place its class gave the base.  The
-// operand is a pointer where a pointer converted and the object itself where an
-// lvalue did, and the node's own type says which of the two the result is.
-LowValue LowirFunctionLowering::base_conversion(const DumpNode& node)
-{
-	TypeTable& types = unit_.types();
-	const LowValue held = expression(*node.children[0], true);
-	const Operand from =
-		types.kind(types.strip_cv(held.type)) == TypeKind::Pointer
-			? rvalue(held)
-			: address_of(held);
-	Instruction step;
-	step.kind = Instruction::IK_INDEX;
-	step.type.text = "i8";
-	step.index_projection = lowir_model::IPK_BASE_SUBOBJECT;
-	step.first = from;
-	step.second = named_operand(Operand::OP_INTEGER, decimal(node.fact.value));
-	LowValue value;
-	value.type = node.fact.type;
-	value.operand = emit(step);
-	value.named = true;
-	value.lvalue =
-		types.kind(types.strip_cv(value.type)) != TypeKind::Pointer;
-	return value;
-}
-
-LowValue LowirFunctionLowering::member_expression(const DumpNode& node)
-{
-	TypeTable& types = unit_.types();
-	const SemaEntity& member = *node.fact.entity;
-	LowValue value;
-	value.type = node.fact.type;
-	value.lvalue = true;
-	value.named = true;
-	value.operand = member_storage(*node.children[0], member);
-	if (member.bit_field)
-	{
-		// 9.6p2: the member names a run of bits inside the unit just addressed,
-		// so what the lvalue is worth and what a write puts back are the field's
-		// own question rather than the unit's.
-		value.field = &member;
-		return value;
-	}
-	if (types.is_reference(member.type))
-	{
-		// 8.3.2p5: a member of reference type names what it is bound to, so the
-		// object the member holds is reached through the pointer it stores.
-		value.operand = load(value.operand, member.type);
-	}
-	return value;
-}
-
-LowValue LowirFunctionLowering::cast_expression(const DumpNode& node,
-                                                bool as_object)
-{
-	TypeTable& types = unit_.types();
-	LowValue value;
-	value.type = node.fact.type;
-	if (node.children.empty())
-	{
-		value.constant = true;
-		value.operand = literal_operand(value.type, node.fact.value);
-		return value;
-	}
-	const bool to_void = types.is_void(types.strip_cv(value.type));
-	const bool object_result = as_object || to_void ||
-		node.fact.category != ValueCategory::PRValue;
-	const LowValue source = expression(*node.children[0], object_result);
-	if (node.fact.category != ValueCategory::PRValue)
-	{
-		// 5.2.9p1 and 5.2.11: a cast to a reference names the object the
-		// operand named, so what it produces is that storage.
-		value.lvalue = true;
-		value.operand = source.operand;
-		return value;
-	}
-	if (to_void)
-	{
-		// 5.2.9p4 and 5p11: the operand of a cast to `void` is evaluated and
-		// its value discarded.  An object of class type has no value the
-		// discarding reads, so nothing loads it out of the storage it stands in.
-		const TypeId bare = types.strip_cv(source.type);
-		if (!types.is_class(bare) && types.kind(bare) != TypeKind::Array)
-		{
-			rvalue(source);
-			return value;
-		}
-		// An object of class or array type has no value the discarding reads,
-		// so the storage it stands in is what the operand comes to.
-		address_of(source);
-		return value;
-	}
-	if (types.kind(types.strip_cv(value.type)) == TypeKind::Pointer &&
-	    types.is_integral(types.strip_cv(source.type)))
-	{
-		// 5.2.10p5: the cast reads the integer as an address, which is the same
-		// bits under another type.
-		Instruction instruction;
-		instruction.kind = Instruction::IK_COPY;
-		instruction.type.text = "ptr";
-		instruction.first = rvalue(source);
-		value.operand = emit(instruction);
-		return value;
-	}
-	if (source.constant && types.is_integral(types.strip_cv(value.type)) &&
-	    !(types.kind(types.strip_cv(value.type)) == TypeKind::Fundamental &&
-	      types.fundamental_type(types.strip_cv(value.type)) == FT_BOOL) &&
-	    types.is_integral(types.strip_cv(source.type)))
-	{
-		// 5.2.9 over a constant: the value the cast produces is a value the
-		// translation knows, so it is written as the immediate it is - and it
-		// is the immediate an object of the cast's own type holds, which is
-		// what a conversion above it then widens.  4.12's conversion to `bool`
-		// is not one of those: what it produces is whether the operand differs
-		// from zero, which is not the same bits read at another width.
-		value.constant = true;
-		value.value = unit_.narrowed(value.type, source.value);
-		value.operand = literal_operand(value.type, value.value);
-		return value;
-	}
-	if (types.is_class(types.strip_cv(value.type)))
-	{
-		// 5.2.9p4 and 12.2p1: a cast to a class type direct-initializes a
-		// temporary of it, which is an object the function holds.  The cast is
-		// worth that object, so whoever reads it reads storage rather than a
-		// value of the class.
-		LowValue held;
-		held.type = types.strip_cv(value.type);
-		held.lvalue = true;
-		held.named = true;
-		held.operand = named_operand(
-			Operand::OP_SLOT,
-			add_generated_slot("tmpobj", types.strip_cv(value.type)));
-		const Operand into = address_of(held);
-		copy_class_object(into, class_copy_source(source),
-		                  types.strip_cv(value.type));
-		held.operand = into;
-		return held;
-	}
-	value.operand = converted(source, value.type);
-	return value;
-}
-
-LowValue LowirFunctionLowering::call_expression(const DumpNode& node)
-{
-	TypeTable& types = unit_.types();
-	Instruction call;
-	call.kind = Instruction::IK_CALL;
-	const DumpNode& callee = *node.children[0];
-	const bool direct = callee.fact.kind == FactKind::Callee;
-	// What the call boundary is, is known from the callee's resolved type
-	// before anything is emitted, which is what lets the arguments be lowered
-	// where the source wrote them: before the callee they are passed to.
-	const TypeId written = types.strip_cv(
-		direct ? callee.fact.entity->type : callee.fact.type);
-	const TypeId function = types.kind(written) == TypeKind::Function
-		? written
-		: types.target(written);
-	const std::vector<TypeId>& parameters = types.parameters(function);
-	for (std::size_t index = 1; index < node.children.size(); ++index)
-	{
-		const std::size_t at = index - 1;
-		const bool bound =
-			at < parameters.size() && types.is_reference(parameters[at]);
-		const LowValue argument = expression(*node.children[index], bound);
-		call.args.push_back(
-			passed_operand(*node.children[index], argument, parameters, at));
-	}
-	if (direct)
-	{
-		SemaEntity& entity = *callee.fact.entity;
-		unit_.declare_entity(entity);
-		call.first =
-			named_operand(Operand::OP_GLOBAL, unit_.function_symbol(entity));
-	}
-	else
-	{
-		// 5.2.2p1: a call through a pointer calls what it points to, and the
-		// boundary the callee operand does not describe is written out.
-		const LowValue target = expression(callee);
-		call.has_call_signature = true;
-		call.first = types.kind(types.strip_cv(target.type)) == TypeKind::Function
-			? decay(target)
-			: rvalue(target);
-	}
-	if (call.has_call_signature)
-	{
-		for (std::size_t index = 0; index < parameters.size(); ++index)
-		{
-			lowir_model::Parameter parameter;
-			parameter.name = "arg" + decimal(index);
-			parameter.type = unit_.low_type(parameters[index]);
-			if (types.is_reference(parameters[index]))
-			{
-				parameter.metadata.passing = lowir_model::PPM_REFERENCE;
-			}
-			call.call_params.push_back(parameter);
-		}
-		call.call_return_type = unit_.low_type(types.target(function));
-		if (types.variadic(function))
-		{
-			call.call_boundary.arity = lowir_model::CAM_VARIADIC;
-		}
-	}
-	const TypeId result = types.target(function);
-	call.type = unit_.low_type(result);
-	LowValue value;
-	value.type = types.is_reference(result) ? types.target(result) : result;
-	if (types.is_void(types.strip_cv(result)))
-	{
-		emit_void(call);
-		return value;
-	}
-	const Operand produced = emit(call);
-	if (types.is_reference(result))
-	{
-		// 5.2.2p10: a call of a function returning a reference is an lvalue,
-		// which the address it returned names.
-		value.lvalue = true;
-	}
-	value.operand = produced;
-	return value;
-}
-
-LowValue LowirFunctionLowering::unary_expression(const DumpNode& node)
-{
-	const LowValue operand =
-		expression(*node.children[0], node.fact.op == OP_AMP);
-	LowValue value;
-	value.type = node.fact.type;
-	switch (node.fact.op)
-	{
-	case OP_AMP:
-		// 5.3.1p3: the pointer to the object or function the operand names.
-		value.operand = address_of(operand);
-		return value;
-
-	case OP_STAR:
-	{
-		// 5.3.1p1: the lvalue the pointer points to, which is that address.
-		value.lvalue = true;
-		value.operand = rvalue(operand);
-		return value;
-	}
-
-	case OP_LNOT:
-	{
-		// 5.3.1p9 and 4.12: the operand is read as a value first, which is
-		// where 4.2 and 4.3 make an array or a function the pointer that is
-		// then compared with zero.
-		const LowValue held = as_value(operand);
-		Instruction instruction;
-		instruction.kind = Instruction::IK_CMP;
-		instruction.op = "eq";
-		instruction.type = unit_.low_type(held.type);
-		instruction.first = held.operand;
-		instruction.second = literal_operand(held.type, 0);
-		value.operand = emit(instruction);
-		return value;
-	}
-
-	case OP_PLUS:
-		// 5.3.1p7: unary `+` is its promoted operand.
-		value.operand = converted(operand, value.type);
-		return value;
-
-	case OP_MINUS:
-	case OP_COMPL:
-	{
-		Instruction instruction;
-		instruction.kind = Instruction::IK_UNARY;
-		instruction.op = node.fact.op == OP_MINUS ? "neg" : "bitnot";
-		instruction.type = unit_.low_type(value.type);
-		instruction.first = converted(operand, value.type);
-		value.operand = emit(instruction);
-		return value;
-	}
-
-	default:
-		break;
-	}
-	throw std::runtime_error("a unary operator is outside the PA15 lowering "
-	                         "subset");
-}
-
-LowValue LowirFunctionLowering::increment_expression(const DumpNode& node,
-                                                     bool postfix)
-{
-	TypeTable& types = unit_.types();
-	const LowValue operand = expression(*node.children[0], true);
-	// 5.3.2p1 and 4.5p3: `++x` adds one to the value the operand holds, which
-	// for a bit-field is a value of the type its width promotes it to.
-	const TypeId bare = operand.field != nullptr
-		? operand.field->bit_access
-		: types.strip_cv(operand.type);
-	const Operand before = rvalue(operand);
-	Operand after;
-	if (types.is_object_pointer(bare))
-	{
-		// 5.7p1: `++p` advances the pointer by one element, which is the
-		// element's own size in bytes.
-		LowValue one;
-		one.type = types.fundamental(FT_INT);
-		one.constant = true;
-		one.value = 1;
-		one.operand = literal_operand(one.type, 1);
-		after = scaled_advance(before, one, types.target(bare),
-		                       node.fact.op == OP_INC);
-	}
-	else
-	{
-		Instruction instruction;
-		instruction.kind = Instruction::IK_BINARY;
-		instruction.op = node.fact.op == OP_INC ? "add" : "sub";
-		instruction.type = unit_.low_type(bare);
-		instruction.first = before;
-		instruction.second = literal_operand(bare, 1);
-		after = emit(instruction);
-	}
-	if (operand.field != nullptr)
-	{
-		// 5.2.6p1 and 5.3.2p1: what the operand named is where the new value
-		// goes.  A postfix `++` has already produced its own value and writes
-		// back into the storage it read; a prefix one is the object itself, so
-		// the object is named again for the write, which is what the
-		// references write.
-		if (postfix)
-		{
-			assign_bit_field(operand, after, bare);
-			LowValue held;
-			held.type = bare;
-			held.operand = before;
-			return held;
-		}
-		const LowValue again = expression(*node.children[0], true);
-		assign_bit_field(again, after, bare);
-		LowValue value = again;
-		value.has_held = true;
-		value.held = after;
-		return value;
-	}
-	store(after, operand.operand, bare);
-	LowValue value;
-	if (postfix)
-	{
-		// 5.2.6p1: the value is the one the operand held before.
-		value.type = bare;
-		value.operand = before;
-		return value;
-	}
-	value = operand;
-	value.has_held = true;
-	value.held = after;
-	return value;
-}
-
-LowValue LowirFunctionLowering::binary_expression(const DumpNode& node)
-{
-	TypeTable& types = unit_.types();
-	const unsigned op = node.fact.op;
-	if (op == OP_LAND || op == OP_LOR)
-	{
-		return logical_expression(node);
-	}
-	if (op == OP_COMMA)
-	{
-		// 5.18p1: the left operand is evaluated and discarded.
-		expression(*node.children[0]);
-		return expression(*node.children[1]);
-	}
-	const TypeId common = node.fact.operands;
-	const LowValue left = expression(*node.children[0]);
-	LowValue value;
-	value.type = node.fact.type;
-	if (types.is_object_pointer(types.strip_cv(common)) &&
-	    (op == OP_PLUS || op == OP_MINUS))
-	{
-		const LowValue right = expression(*node.children[1]);
-		value.operand = pointer_operation(op, left, right, common, value.type);
-		return value;
-	}
-	// 5p4: each operand is read where it is written, and the conversions the
-	// operator asks for are what it does with the two values it then has.
-	const LowValue held = as_value(left);
-	const LowValue right = as_value(expression(*node.children[1]));
-	value.operand = binary_operation(op, held, right, common);
-	return value;
-}
-
-unsigned LowirFunctionLowering::written_operator(unsigned op)
-{
-	switch (op)
-	{
-	case OP_PLUSASS: return OP_PLUS;
-	case OP_MINUSASS: return OP_MINUS;
-	case OP_STARASS: return OP_STAR;
-	case OP_DIVASS: return OP_DIV;
-	case OP_MODASS: return OP_MOD;
-	case OP_XORASS: return OP_XOR;
-	case OP_BANDASS: return OP_AMP;
-	case OP_BORASS: return OP_BOR;
-	case OP_LSHIFTASS: return OP_LSHIFT;
-	case OP_RSHIFTASS: return OP_RSHIFT;
-	default: break;
-	}
-	throw std::runtime_error("an assignment operator is outside the PA15 "
-	                         "lowering subset");
-}
-
-Operand LowirFunctionLowering::scaled_advance(const Operand& address,
-                                              const LowValue& count,
-                                              TypeId element, bool forward)
-{
-	TypeTable& types = unit_.types();
-	const TypeId wide = types.fundamental(FT_LONG_INT);
-	const unsigned long long stride = types.object_size(element);
-	Operand offset = converted(count, wide);
-	if (stride != 1)
-	{
-		// 5.7p5: the distance is in elements, and LowIR indexes the bytes the
-		// elements occupy.  An element that is one byte needs no scale.
-		Instruction scale;
-		scale.kind = Instruction::IK_BINARY;
-		scale.op = "mul";
-		scale.type = unit_.low_type(wide);
-		scale.first = offset;
-		scale.second = named_operand(Operand::OP_INTEGER, decimal(stride));
-		offset = emit(scale);
-	}
-	if (!forward)
-	{
-		Instruction back;
-		back.kind = Instruction::IK_BINARY;
-		back.op = "sub";
-		back.type = unit_.low_type(wide);
-		back.first = named_operand(Operand::OP_INTEGER, "0");
-		back.second = offset;
-		offset = emit(back);
-	}
-	Instruction instruction;
-	instruction.kind = Instruction::IK_INDEX;
-	instruction.type.text = "i8";
-	instruction.first = address;
-	instruction.second = offset;
-	return emit(instruction);
-}
-
-Operand LowirFunctionLowering::pointer_operation(unsigned op,
-                                                 const LowValue& left,
-                                                 const LowValue& right,
-                                                 TypeId common, TypeId result)
-{
-	TypeTable& types = unit_.types();
-	const TypeId pointer = types.strip_cv(common);
-	const TypeId element = types.target(pointer);
-	if (types.is_object_pointer(types.strip_cv(right.type)) ||
-	    types.kind(types.strip_cv(right.type)) == TypeKind::Array)
-	{
-		// 5.7p6: the distance between two pointers, in elements.
-		Instruction difference;
-		difference.kind = Instruction::IK_BINARY;
-		difference.op = "sub";
-		difference.type.text = "ptr";
-		difference.first = converted(left, common);
-		difference.second = converted(right, common);
-		const Operand bytes = emit(difference);
-		const unsigned long long stride = types.object_size(element);
-		if (stride == 1)
-		{
-			// The distance in elements of an element one byte wide is the
-			// distance in bytes, which is what the subtraction already is.
-			return bytes;
-		}
-		Instruction scale;
-		scale.kind = Instruction::IK_BINARY;
-		scale.op = "div";
-		scale.type = unit_.low_type(result);
-		scale.first = bytes;
-		scale.second = named_operand(Operand::OP_INTEGER, decimal(stride));
-		return emit(scale);
-	}
-	const bool pointer_left =
-		types.is_object_pointer(types.strip_cv(left.type)) ||
-		types.kind(types.strip_cv(left.type)) == TypeKind::Array;
-	const LowValue& address = pointer_left ? left : right;
-	const LowValue& count = pointer_left ? right : left;
-	return scaled_advance(converted(address, common), count, element,
-	                      op == OP_PLUS);
-}
-
-Operand LowirFunctionLowering::binary_operation(unsigned op,
-                                                const LowValue& left,
-                                                const LowValue& right,
-                                                TypeId common)
-{
-	Instruction instruction;
-	instruction.type = unit_.low_type(common);
-	instruction.first = converted(left, common);
-	instruction.second = converted(right, common);
-	// 5.9 and 5.10: a floating comparison is the ordered one, which LowIR
-	// spells with the same predicates a signed integer comparison uses.
-	const bool sign = unit_.is_signed(common) ||
-		unit_.types().is_floating(unit_.types().strip_cv(common));
-	switch (op)
-	{
-	case OP_EQ: case OP_NE: case OP_LT: case OP_GT: case OP_LE: case OP_GE:
-		instruction.kind = Instruction::IK_CMP;
-		instruction.op = op == OP_EQ ? "eq" : op == OP_NE ? "ne"
-			: op == OP_LT ? (sign ? "lt" : "ult")
-			: op == OP_GT ? (sign ? "gt" : "ugt")
-			: op == OP_LE ? (sign ? "le" : "ule")
-			: (sign ? "ge" : "uge");
-		break;
-
-	case OP_PLUS: instruction.kind = Instruction::IK_BINARY; instruction.op = "add"; break;
-	case OP_MINUS: instruction.kind = Instruction::IK_BINARY; instruction.op = "sub"; break;
-	case OP_STAR: instruction.kind = Instruction::IK_BINARY; instruction.op = "mul"; break;
-	case OP_DIV:
-		instruction.kind = Instruction::IK_BINARY;
-		instruction.op = sign ? "div" : "udiv";
-		break;
-	case OP_MOD:
-		instruction.kind = Instruction::IK_BINARY;
-		instruction.op = sign ? "mod" : "umod";
-		break;
-	case OP_AMP: instruction.kind = Instruction::IK_BINARY; instruction.op = "and"; break;
-	case OP_BOR: instruction.kind = Instruction::IK_BINARY; instruction.op = "or"; break;
-	case OP_XOR: instruction.kind = Instruction::IK_BINARY; instruction.op = "xor"; break;
-	case OP_LSHIFT: instruction.kind = Instruction::IK_BINARY; instruction.op = "shl"; break;
-	case OP_RSHIFT:
-		instruction.kind = Instruction::IK_BINARY;
-		instruction.op = sign ? "shr" : "ushr";
-		break;
-
-	default:
-		throw std::runtime_error("a binary operator is outside the PA15 "
-		                         "lowering subset");
-	}
-	return emit(instruction);
-}
-
-LowValue LowirFunctionLowering::logical_expression(const DumpNode& node)
-{
-	// 5.14 and 5.15 where the value is named: the result is one canonical
-	// integer, so a slot holds what each side decided and the uses of the
-	// expression read it once.
-	const bool conjunction = node.fact.op == OP_LAND;
-	unsigned long long decided = 0;
-	if (decided_logical(node, decided))
-	{
-		// 5.14p1: the right operand is not evaluated, so nothing it names is
-		// part of the program.
-		LowValue value;
-		value.type = node.fact.type;
-		value.constant = true;
-		value.value = decided;
-		value.operand = literal_operand(value.type, decided);
-		return value;
-	}
-	lowir_model::LowType held;
-	held.text = "i64";
-	const std::string slot =
-		add_generated_slot(conjunction ? "land" : "lor", held);
-	const Operand storage = named_operand(Operand::OP_SLOT, slot);
-	const std::string rhs_label = reserve_block(conjunction ? "land_rhs" : "lor_rhs");
-	const std::string short_label =
-		reserve_block(conjunction ? "land_short" : "lor_short");
-	const std::string end_label =
-		reserve_block(conjunction ? "land_end" : "lor_end");
-	const LowValue left = expression(*node.children[0]);
-	branch(truth_for_branch(left), conjunction ? rhs_label : short_label,
-	       conjunction ? short_label : rhs_label);
-
-	open_block(rhs_label);
-	const LowValue right = expression(*node.children[1]);
-	LowValue truth;
-	truth.type = node.fact.type;
-	truth.operand = truth_value(right);
-	Instruction rhs_store;
-	rhs_store.kind = Instruction::IK_STORE;
-	rhs_store.type = held;
-	rhs_store.first = truth.operand;
-	rhs_store.second = storage;
-	emit_void(rhs_store);
-	jump(end_label);
-
-	open_block(short_label);
-	Instruction short_store;
-	short_store.kind = Instruction::IK_STORE;
-	short_store.type = held;
-	short_store.first = named_operand(Operand::OP_INTEGER, conjunction ? "0" : "1");
-	short_store.second = storage;
-	emit_void(short_store);
-	jump(end_label);
-
-	open_block(end_label);
-	Instruction read;
-	read.kind = Instruction::IK_LOAD;
-	read.type = held;
-	read.first = storage;
-	LowValue value;
-	value.type = node.fact.type;
-	value.operand = emit(read);
-	return value;
-}
-
-LowValue LowirFunctionLowering::assignment_expression(const DumpNode& node)
-{
-	TypeTable& types = unit_.types();
-	if (node.fact.op == OP_ASS)
-	{
-		// 5.17p1: the value is converted to the type of the object it is
-		// written into, and the result is that object.  The value is what the
-		// assignment computes, so it is computed before the object it is
-		// written into is named.
-		const LowValue right = as_value(expression(*node.children[1]));
-		const TypeId spelled = types.strip_cv(node.children[0]->fact.type);
-		const TypeId written_type = types.is_reference(spelled)
-			? types.strip_cv(types.target(spelled))
-			: spelled;
-		if (types.is_class(written_type))
-		{
-			// 12.8p15 over 5.17: the object written into holds what the right
-			// operand's object holds, which is one copy of its bytes into the
-			// storage that operand already names.
-			const LowValue into = expression(*node.children[0], true);
-			copy_class_object(address_of(into), address_of(right),
-			                  written_type);
-			return into;
-		}
-		// 5.17p1: the value is converted where it is computed, which is before
-		// the object it is written into is named - the type it is converted to
-		// is what the left operand was declared with, and reading it needs
-		// nothing of the storage that operand will name.
-		const Operand written = converted(right, written_type);
-		const LowValue target = expression(*node.children[0], true);
-		if (target.field != nullptr)
-		{
-			// 9.6p2: the object written into is a run of bits, and the bits
-			// beside it in its storage unit are not this assignment's to change.
-			// What is written is a value of the member's own type; the unit it
-			// goes into is read and put back at the unit's own.
-			assign_bit_field(target, written, target.field->bit_access);
-			LowValue assigned = target;
-			assigned.has_held = true;
-			assigned.held = written;
-			return assigned;
-		}
-		store(written, target.operand, written_type);
-		LowValue assigned = target;
-		assigned.has_held = true;
-		assigned.held = written;
-		return assigned;
-	}
-	const LowValue left = expression(*node.children[0], true);
-	// 5.17p7: the operator acts on the value the left operand holds, which for
-	// a bit-field is a value of the type the member was declared with - the
-	// unit it was read out of is as wide as that type, so nothing is written to
-	// read what the load produced as one.
-	const TypeId bare = types.strip_cv(left.type);
-	LowValue value = left;
-	value.has_held = true;
-	// 5.17p7: a compound assignment is the operator it names followed by an
-	// assignment, with the left operand read once.
-	const TypeId common = node.fact.operands;
-	const LowValue right = expression(*node.children[1]);
-	LowValue held;
-	held.type = bare;
-	held.operand = rvalue(left);
-	const unsigned written_op = written_operator(node.fact.op);
-	const Operand result =
-		types.is_object_pointer(bare)
-			? pointer_operation(written_op, held, right, bare, bare)
-			: binary_operation(written_op, held, right, common);
-	const Operand written = types.strip_cv(common) == bare ||
-			types.is_object_pointer(bare)
-		? result
-		: convert_scalar(result, common, bare);
-	if (left.field != nullptr)
-	{
-		// 9.6p2: what the operator computed is a value of the member's type,
-		// and the unit it goes back into is read and put back at the unit's.
-		assign_bit_field(left, written, left.field->bit_access);
-		value.held = written;
-		return value;
-	}
-	store(written, left.operand, bare);
-	value.held = written;
-	return value;
-}
-
-LowValue LowirFunctionLowering::conditional_expression(const DumpNode& node,
-                                                       bool as_object)
-{
-	// 5.16: the two arms are alternatives, so each is lowered into the block
-	// that reaches it and the result is read from the one slot both wrote.
-	// Which of the two the slot holds - the value, or the object it names - is
-	// what the use of the expression asks for.
-	TypeTable& types = unit_.types();
-	// 12.8p15: an object of class type is storage rather than a value a slot
-	// can hold as one, so an arm of it is read as the object it names where the
-	// conditional is an lvalue, and copied into an object of the conditional's
-	// own where it is a prvalue.
-	const bool class_typed = types.is_class(types.strip_cv(node.fact.type));
-	const bool addressed =
-		node.fact.category != ValueCategory::PRValue &&
-		(as_object || class_typed ||
-		 types.kind(types.strip_cv(node.fact.type)) == TypeKind::Array);
-	if (class_typed && !addressed)
-	{
-		return conditional_object(node);
-	}
-	lowir_model::LowType held = addressed ? lowir_model::LowType()
-	                                      : unit_.low_type(node.fact.type);
-	if (addressed)
-	{
-		held.text = "ptr";
-	}
-	const std::string slot =
-		add_generated_slot(addressed ? "condaddr" : "cond", held);
-	const Operand storage = named_operand(Operand::OP_SLOT, slot);
-	const std::string then_label =
-		reserve_block(addressed ? "condaddr_then" : "cond_then");
-	const std::string else_label =
-		reserve_block(addressed ? "condaddr_else" : "cond_else");
-	const std::string end_label =
-		reserve_block(addressed ? "condaddr_end" : "cond_end");
-	const LowValue condition = expression(*node.children[0]);
-	branch(truth_for_branch(condition), then_label, else_label);
-
-	for (unsigned arm = 0; arm < 2; ++arm)
-	{
-		open_block(arm == 0 ? then_label : else_label);
-		const LowValue written = expression(*node.children[arm + 1], addressed);
-		Instruction instruction;
-		instruction.kind = Instruction::IK_STORE;
-		instruction.type = held;
-		instruction.first = addressed ? address_of(written)
-		                              : converted(written, node.fact.type);
-		instruction.second = storage;
-		emit_void(instruction);
-		jump(end_label);
-	}
-
-	open_block(end_label);
-	Instruction read;
-	read.kind = Instruction::IK_LOAD;
-	read.type = held;
-	read.first = storage;
-	LowValue value;
-	value.type = node.fact.type;
-	value.operand = emit(read);
-	value.lvalue = addressed;
-	return value;
-}
-
-// 5.16 over a prvalue of class type: 12.2p1 makes the result an object, so the
-// function holds one and each arm writes its own into it.  Only the arm control
-// reached is written, which is what the two blocks say.
-LowValue LowirFunctionLowering::conditional_object(const DumpNode& node)
-{
-	const TypeId type = unit_.types().strip_cv(node.fact.type);
-	const std::string slot = add_generated_slot("condobj", type);
-	const Operand storage = named_operand(Operand::OP_SLOT, slot);
-	const std::string then_label = reserve_block("condobj_then");
-	const std::string else_label = reserve_block("condobj_else");
-	const std::string end_label = reserve_block("condobj_end");
-	LowValue held;
-	held.type = type;
-	held.lvalue = true;
-	held.operand = storage;
-	const Operand into = address_of(held);
-	const LowValue condition = expression(*node.children[0]);
-	branch(truth_for_branch(condition), then_label, else_label);
-	for (unsigned arm = 0; arm < 2; ++arm)
-	{
-		open_block(arm == 0 ? then_label : else_label);
-		const LowValue written = expression(*node.children[arm + 1]);
-		copy_class_object(into, address_of(written), type);
-		jump(end_label);
-	}
-	open_block(end_label);
-	return held;
-}
-
-void LowirFunctionLowering::discarded_conditional(const DumpNode& node)
-{
-	const std::string then_label = reserve_block("discard_cond_then");
-	const std::string else_label = reserve_block("discard_cond_else");
-	const std::string end_label = reserve_block("discard_cond_end");
-	const LowValue condition = expression(*node.children[0]);
-	branch(truth_for_branch(condition), then_label, else_label);
-	for (unsigned arm = 0; arm < 2; ++arm)
-	{
-		open_block(arm == 0 ? then_label : else_label);
-		expression(*node.children[arm + 1]);
-		if (!terminated())
-		{
-			jump(end_label);
-		}
-	}
-	open_block(end_label);
-}
-
-bool LowirFunctionLowering::decided_logical(const DumpNode& node,
-                                            unsigned long long& value)
-{
-	if (node.children.empty() || !node.children[0]->fact.constant ||
-	    !node.children[0]->fact.spelling.empty())
-	{
-		return false;
-	}
-	const bool conjunction = node.fact.op == OP_LAND;
-	const bool truth = node.children[0]->fact.value != 0;
-	if (conjunction == truth)
-	{
-		return false;
-	}
-	value = truth ? 1 : 0;
-	return true;
-}
-
-LowValue LowirFunctionLowering::subscript_expression(const DumpNode& node)
-{
-	TypeTable& types = unit_.types();
-	// 5.2.1p1: the pointer operand is the one the dump wrote first, and it is
-	// brought to a pointer where it stands rather than after the subscript has
-	// been read.
-	const LowValue base = expression(*node.children[0], true);
-	const Operand address =
-		types.kind(types.strip_cv(base.type)) == TypeKind::Array ? decay(base)
-		                                                         : rvalue(base);
-	const LowValue offset = expression(*node.children[1]);
-	Instruction instruction;
-	instruction.kind = Instruction::IK_INDEX;
-	instruction.index_projection = lowir_model::IPK_ARRAY_ELEMENT;
-	instruction.type = unit_.low_type(node.fact.type);
-	instruction.first = address;
-	// 5.2.1p1: the subscript is one expression however the element is reached,
-	// so it is read once here and the byte count below counts what it holds.
-	instruction.second = rvalue(offset);
-	if (instruction.type.text.compare(0, 4, "obj<") == 0)
-	{
-		// An element with no register form is not a width LowIR indexes by, so
-		// the subscript counts the bytes 5.2.1p1 says the element occupies.
-		// An element that is one byte is already counted in them.
-		const unsigned long long stride =
-			types.object_size(types.strip_cv(node.fact.type));
-		instruction.type.text = "i8";
-		if (stride != 1)
-		{
-			Instruction scale;
-			scale.kind = Instruction::IK_BINARY;
-			scale.op = "mul";
-			scale.type.text = "i64";
-			scale.first = instruction.second;
-			scale.second =
-				named_operand(Operand::OP_INTEGER, decimal(stride));
-			instruction.second = emit(scale);
-		}
-	}
-	LowValue value;
-	value.type = node.fact.type;
-	value.lvalue = true;
-	value.named = true;
-	value.operand = emit(instruction);
-	return value;
-}
-

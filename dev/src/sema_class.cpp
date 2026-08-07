@@ -1975,12 +1975,12 @@ void SemaAnalyzer::require_access(const SemaEntity& member, const Scope* from,
 	}
 }
 
-// 5.2.5p1: whether evaluating this expression is something the program can
-// observe.  A name, a constant and the operators that only read them are not;
-// anything that calls, assigns or constructs is, and so is any expression
-// holding one.  5.3.3p1 leaves the operand of `sizeof` and `alignof`
-// unevaluated, so what is written there is never observed.
 bool SemaAnalyzer::observable(const DumpNode& node) const
+{
+	return observable_expression(node);
+}
+
+bool observable_expression(const DumpNode& node)
 {
 	switch (node.fact.kind)
 	{
@@ -2002,7 +2002,7 @@ bool SemaAnalyzer::observable(const DumpNode& node) const
 	}
 	for (std::size_t index = 0; index < node.children.size(); ++index)
 	{
-		if (observable(*node.children[index]))
+		if (observable_expression(*node.children[index]))
 		{
 			return true;
 		}
