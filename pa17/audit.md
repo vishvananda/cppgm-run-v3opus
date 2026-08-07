@@ -5,100 +5,89 @@ define, lower.
 
 ## Current Checkpoint Review
 
-**C3, reviewed at `8c59f91a`.** The architecture holds and is the right one.
-12.3.2p1's "the name is a type" is carried as `CarriedTypeId` beside the syntax
-and resolved once, so the region binds the type's own spelling and a declaration,
-an out-of-class definition, `a.operator T()` and the ABI's `cv` terminal cannot
-disagree - `operator myint` and `operator int` are one function, and every
-mangling probed (`_ZN1ScviEv`, `_ZNK1ScviEv`, `_ZNV1ScvlEv`, `_ZN1ScvPKcEv`,
-`_ZN1ScvRiEv`, `_ZN1Ucv1TEv`, `_ZN1Vcv1EEv`, `_ZN1ScvyEv`) is the reference's.
-The conversions a class declares stay on that class and `conversions_above`
-chains only the classes that declare any, so a hierarchy n deep costs one step
-per class rather than a walk per question. `vacuous_destruction` is one question
-with one memo. Nothing in the checkpoint is a second pipeline.
+**C4, reviewed at `9f693145`.** The architecture holds and is the right one.
+8.3.5p1 says the ref-qualifier is part of the function type, and the checkpoint
+puts it there: one field of the interned node, beside 8.3.5p7's cv-qualifier-seq
+and in the same step of `shape_of`'s key, so `declarator_type` writes it once and
+the declaration, the out-of-class definition, 13.1's signature, the Itanium name
+and a pointer to member all read the one fact. All ten cv/ref manglings agree
+with `g++` and with the reference byte for byte. `Value::object_category` is the
+right shape too: 9.3.1p3 holds the implicit object parameter as a pointer, and
+`object_match` is the one place the pointer's conversion and the reference's
+binding are asked together, reached by a member access, a call with no object
+expression, an operator's left operand and 13.3.1.5's own candidate set alike.
+Nothing in the checkpoint is a second pipeline and nothing walks for the
+qualifier: a hierarchy 2000 deep whose root declares `&`, `const &` and `&&` and
+is called three ways costs the same 0.11 s and the same constant output as the
+identical hierarchy with no ref-qualifier at all.
 
-What the review found is six defects. Two are 13.3 answering half a question -
-the flag that stops a second user-defined conversion was set in one direction
-and not the other, and the reference-binding hook stood below the refusal it had
-to precede. One is 12.4p8's new fact being read before it was written. One is a
-ranking that put the object argument ahead of where the conversion gets to. One
-is a cast that reached no conversion and read the object's bytes instead of
-refusing. One is a 13.6 gate whose comment states a rule that is not true.
+What the review found is four defects, and they are one pattern seen four times:
+a fact hung on the function type has to be read by *every* layer that rebuilds
+or spells that type, and three rebuilders were updated while a fourth was not,
+and two dumps spell the type the analyzer has and were never asked what they
+now print.
 
-**1. 13.3.3.1.2p1's "one user-defined conversion" ran in one direction only.**
-`conversion_match` measures its second, standard sequence under
-`standard_only_`; `converting_constructor` guarded *itself* with that flag but
-did not set it while measuring its own parameter. Before C3 nothing could
-reach a constructor's built-in parameter from a class argument, so the omission
-had no way to show; with 12.3.2's conversions it does. `struct B { B(int); }`
-became a converting constructor *from* any class with `operator int`, which made
-`B(const B&)` and `B(B&&)` viable beside `B(int)` on one argument and left
-`B b(s);` and `B b = s;` refused as ambiguous - a program the reference and
-`g++` both accept. The same flag now stands around both sequences, which is
-also what the plan already claimed of it.
+**1. A using-declaration rebuilt the shadow's type without the ref-qualifier.**
+13.3.3.1p4 makes a member a using-declaration brought into a derived class a
+member of *that* class where the implicit object parameter is concerned, so
+`declare_using_member` rebuilds the base's function type with the derived
+class's object pointer in front. It rebuilt it with `function_of` alone, which
+drops 8.3.5p1's qualifier - the one rebuilder of a member function type that C4
+did not carry it through, where `with_object_parameter`, `member_pointer_of` and
+`substitute` all do. Both readers of the fact then read the wrong one.
+13.3.1p4's viability: `struct B { int f() && ; }; struct D : B { using B::f; };`
+made `D d; d.f();` call `B::f() &&` on an lvalue, which the reference and `g++`
+both refuse. And 7.3.3p14's hiding, which is keyed on the same signature: a
+derived class that declared `int f() &` of its own no longer hid the base's
+`int f() &`, so `d.f()` was refused as ambiguous where both oracles call the
+derived one. The shadow now carries the qualifier over with the rest of the
+type, and the two questions read the one fact again.
 
-**2. 8.5.3p5's conversion to an lvalue stood below the refusal of a
-temporary.** `match_reference` reached `conversion_match` only after the guard
-that a non-const lvalue reference binds no temporary - but the lvalue a
-conversion function hands back is an object of its own, not a temporary, and a
-non-const lvalue reference binds one. `int& r = s;`, `T& r = s;` and `f(s)` for
-`void f(int&)` on a class with `operator int&` were all refused where the
-reference and `g++` bind. The hook now stands before that guard, and the guard
-below it still refuses what it was written for: a conversion that hands back a
-prvalue reaches a non-const lvalue reference through nothing.
+**2. 13.1p2 was asked of one cv-qualification instead of all four.**
+`require_uniform_ref_qualifiers` probed the chain's index for the signature the
+other ref-spelling would have given *with the object parameter the declaration
+wrote*. But 13.1p2 is keyed on the name and 8.3.5p4's parameter-type-list, and
+8.3.5p7's cv-qualifier-seq is no part of that list - so `void f() const;` beside
+`void f() &&;` is a set the rule refuses just as `void f();` beside
+`void f() &&;` is. Every cv mismatch was accepted: `f() &`/`f() const`,
+`f() volatile`/`f() const &`, `operator int() const`/`operator int() &&` and
+`f(int) const`/`f(int) &&` are each refused by `g++` and were each accepted
+here. The probe now asks for each of the four qualifications, which is four or
+eight reads of a map per declaration and no walk: one class declaring 2000
+member functions is 0.10 s, the same shape it was.
 
-**3. 12.4p8's `empty_body` was read before it was written.** A member defined
-outside its class stands wherever the program put it, and 3.4.1p8 has every
-namespace-scope function body read where *it* is written - so
-`struct S { ~S(); }; void f(){ S a; } S::~S() {}` asked whether destroying an
-`S` comes to anything before the definition that answers had been read, wrote
-the call, and then held that answer in the per-type memo for the whole unit,
-so the function *after* the definition wrote the call too. Definition-first was
-right and definition-last was wrong, which is the worst shape a fact can have.
-The unit's syntax is complete before the first declaration of it is read, so
-`collect_unit_definitions` takes the out-of-class definitions out of it once,
-keyed by the unqualified name each defines, and `note_definition_body` resolves
-3.4.1p8's prefix against the class itself to say which of them defines this
-destructor. `writes_no_statement` is the one reading of a body both that and
-`open_special_member_body` do, so the two cannot answer differently. 250
-classes whose destructors are defined after their uses now emit exactly what the
-same program with the definitions written first emits, and both are the
-reference's.
+**3. The two qualifiers written after the parameter-clause were spelled in the
+wrong assignment's dump - both ways.** `declarator_type` wrote them onto the
+function type only under `semantics()`, so PA11's `--emit-types` described
+`int f() &;` as `function of () returning int` and `typedef int F() const;` as
+`function of () returning int`, where the reference writes `function of () &
+returning int` and `function of () const returning int`. That hole was there for
+the cv-qualifier-seq before C4 and no pa11 fixture covers it; C4's new field
+joined it. In the other direction, C4 made PA12's `--emit-semantics` spell the
+ref-qualifier on the form 9.3.1p3 has *already* lowered - `function-definition
+S::f function of (pointer to struct S) & returning int` where the reference
+writes no `&`, because the cv-qualifier-seq beside it has by then moved onto the
+object parameter and the ref-qualifier is carried as a fact rather than spelled
+twice. Both are one rule: the qualifiers are spelled on the type the declarator
+wrote, and the lowered form spells the object parameter instead. The guard is
+gone, so a typedef, a pointer to function and a pointer to member all hold and
+spell both; `function_description` is the one reader that leaves the
+ref-qualifier unspelled where the object parameter already stands for it, used
+by the four lines that name a function's own type. PA11 and PA12 now agree with
+the reference on every ref-qualified and cv-qualified shape probed.
 
-**4. 13.3.1.5's candidates were ordered by the object argument first.**
-`conversion_match` compared how the operand reached each candidate's object
-parameter and only broke ties on where the conversion got to. For
-`struct B1 { operator int(); }; struct B2 : B1 { operator long(); };
-struct B3 : B2 {};`, `int b = x;` therefore chose `B2::operator long` - the
-nearer base - and truncated its result, where the reference and `g++` both call
-`B1::operator int`. It is a wrong value, not a refusal. The second standard
-conversion sequence to the destination now orders these candidates and the
-object argument tells apart only the ones that get equally far, which is still
-what picks `operator T()` over `operator T() const` on an object that is not
-const.
-
-**5. A cast of a class operand that reached no conversion read the object's
-bytes.** C3 gave 5.2.9p4/5.4p4 to `explicit_conversion` but neither cast site
-looked at whether it answered, so `(char)t`, `int(t)` and
-`static_cast<char>(t)` on a class with no conversion - or with only an
-`explicit operator int`, which 13.3.1.5p1 keeps out of a cast to `char` - fell
-through to `load obj<1x1> $t` and `copy i8`, which is a value of the target type
-by accident of layout and not at all for a class of another size. The reference
-and `g++` refuse all four. `cast_conversion` is that question with the refusal
-in it; 5.2.9p4's cast to `void`, a cast to a class and a cast to a reference are
-each the initialization answered elsewhere and stay where they were.
-
-**6. 13.6's `++E` and `--E` were gated out with a rule that is not true.**
-`builtin_operands` returned false for `OP_INC`/`OP_DEC` on the ground that an
-operand taken by reference is one no conversion function can fill. 13.6p3 and
-p5 write those candidates over `VQ T&`, and a conversion function that hands
-back an lvalue reaches one: `++s` on a class with `operator int&` is accepted by
-the reference and by `g++` and was refused here. `builtin_conversion_type` now
-answers that question too, and `increment_expression` reads back the operand the
-conversion made - the one read-back of the five 13.6 sites that C3 wrote and
-this one had not. `s = 5`, `s += 5` and `&s` stay refused, which is where the
-reference stands; the by-value `operator int()` still reaches no `++`, as
-`g++` also has it.
+**4. A reference member of a non-lvalue object was given the xvalue category.**
+5.2.5p4 answers `E1.E2` in two steps, and the first is that a member declared to
+have reference type makes the expression an lvalue whatever E1 was - what such a
+member names is the object it is bound to and not a subobject of E1. Only after
+that does the rule that a member of a non-lvalue object is an xvalue apply.
+`member_value` already gave a reference member the *type* the first step gives
+it and then took its *category* from the second, so
+`struct S { M& m; }; S(g).m.f()` reached `M::f() &&`, which the reference and
+`g++` both refuse. It is the README's "xvalue propagation through non-static
+data-member access" read one clause short, and the clause it missed is the one
+13.3.1p4 then binds by. The category now comes from the same step the type
+does.
 
 ## Evidence
 
@@ -107,71 +96,101 @@ best of three, at the end of the review.
 
 | axis | sizes | time | output |
 | --- | --- | --- | --- |
-| n classes, destructor defined out of class **after** its use | 250/500/1000/2000 | 0.02/0.04/0.10/0.22 s | 21 n lines |
-| the same n classes with the definitions written **first** | 250/500/1000/2000 | 0.02/0.05/0.10/0.22 s | 21 n lines, byte-identical |
-| hierarchy n deep, every class declaring a conversion | 250/500/1000/2000 | 0.01/0.03/0.07/0.17 s | 17 lines |
-| hierarchy n deep, only the root declaring one | 250/500/1000/2000 | 0.00/0.01/0.04/0.11 s | 18 lines |
-| one class declaring n conversions, one use | 250/500/1000/2000 | 0.01/0.03/0.06/0.14 s | 30 lines |
-| n uses of one conversion | 250/500/1000/2000 | 0.00/0.01/0.02/0.04 s | 4 n lines |
-| n direct-initializations of a class from a class through 13.3.3.1.2 | 250/500/1000/2000 | 0.01/0.02/0.05/0.11 s | 11 n lines |
-| n nested casts through one conversion | 250/500 | 0.00/0.00 s | 16 lines |
+| n classes each declaring `f() &` and `f() &&`, both called | 250/500/1000/2000 | 0.04/0.09/0.19/0.40 s | 32 n + 7 lines |
+| one class declaring n such pairs, all 2 n calls written | 250/500/1000/2000 | 0.02/0.05/0.10/0.22 s | 22 n + 17 lines |
+| one class declaring n **unqualified** members, all called | 250/500/1000/2000 | 0.01/0.02/0.05/0.10 s | 10 n + 9 lines |
+| hierarchy n deep, root declaring `&`, `const &`, `&&`, called three ways | 250/500/1000/2000 | 0.01/0.01/0.04/0.11 s | 54 lines |
+| the same hierarchy with **no** ref-qualifier at all | 250/500/1000/2000 | 0.00/0.01/0.04/0.11 s | 47 lines |
+| n members brought in by n using-declarations, all called | 250/500/1000/2000 | 0.01/0.03/0.06/0.13 s | 11 n + 9 lines |
+| a using-declaration chained n classes deep, called both ways | 50/100/200/400 | 0.00/0.00/0.01/0.01 s | 41 lines |
+| n chained calls of `f() &` returning `S&` | 50/100/200/400 | under 0.01 s | n + 19 lines |
+| n nested calls of `g() &&` returning a class by value | 50/100/200/400 | under 0.01 s | 4 n + 26 lines |
 
-Every axis is linear in time and in output, and the two that grow the *class*
-rather than the uses write a constant number of lines - the candidate set is one
-walk of the classes that declare a conversion and never one per base. The
-syntax walk `collect_unit_definitions` added costs nothing measurable: the two
-destructor axes above are the same program in two orders and their times are the
-same. 520 nested casts with an out-of-class destructor definition behind them
-parse and lower without a fault; 900 nested parentheses are refused by the
-parse-depth budget PA10 already had, where `pa17/cppgm++-ref` faults.
-`valgrind` is clean on every shape above and on 19 probes of the checkpoint's
-subject, refusals included.
+The third row is what finding 2 costs: every one of those n declarations now
+pays 13.1p2's eight probes instead of two, and the axis is the same time it was.
+The sixth and seventh are finding 1's: the shadow carries one more field, the
+chain of using-declarations writes a constant number of lines at every depth, and
+neither the type nor the signature is rebuilt per use. Rows four and five are
+the checkpoint's own invariant, re-measured: the ref-qualifier is carried and
+never walked for, so declaring three spellings at the root of a 2000-deep
+hierarchy costs the same time as declaring none.
 
-`pa17/cppgm++-ref` produces PA17 output, so it was used as a differential oracle
-over 61 probes: the conversion mangling of ten declared types and three
-cv-qualifications, the hiding and depth of conversions across a hierarchy,
-`a.operator T()` written with a typedef, the out-of-class definition, every
-contextual conversion 4p3 and 6.4.2p2 reach, thirteen built-in operator shapes,
-seven cast and initialization shapes, source order, and the multiplicity of both
-conversions and uses. 48 agree after the harness's function-name and metadata
-canonicalization, 8 more agree on the verdict where both refuse, and the 5 that
-do not are named under Open Gaps. `g++` was the third oracle wherever the
-reference's reading is its own rather than the standard's, and it settled
-findings 1, 2, 4, 5 and 6 - in each of those the reference and `g++` agreed
-against us.
+`valgrind` is clean on all 75 lowering probes and on 20 `--emit-types` /
+`--emit-semantics` probes, refusals included. The nesting sweeps above are
+linear in depth, not exponential in it.
+
+The reference was used as a differential oracle over 75 lowering probes and 20
+declaration-dump probes, run through the harness's own relaxed comparison. Every
+probe now agrees with `g++` on the verdict, and every probe on which the
+reference and we both accept produces LowIR the harness accepts as equal, save
+the one virtual-dispatch probe named under Open Gaps. Ten are refusals the
+reference does not make - a ref-qualifier on a constructor, a destructor and a
+friend, five declarations mixing a cv-qualification with a ref-qualifier, an
+out-of-class definition whose ref-qualifier matches none, and an assignment on
+an rvalue - and `g++` refuses all ten with us.
+Findings 1 and 4 were settled by the reference and `g++` agreeing against us;
+findings 2 and 3 by `g++` and by the standard's own wording where the reference
+is lenient.
 
 The file audit passes with the three recorded header-weight warnings it already
-had, pa1-pa16 stand at 1494 / 1494, and pa17 at 149 / 228 with the failure set
+had, pa1-pa16 stand at 1494 / 1494, and pa17 at 163 / 228 with the failure set
 unchanged.
 
 ## Open Gaps
 
+**The reference ignores 8.3.5p1 on the assignment path.** `S() = 5` for
+`struct S { S& operator=(int) & ; }` and `a = b` for a class whose member's
+`operator=` is `&&`-qualified are both accepted by `pa17/cppgm++-ref` and
+refused by `g++`; we refuse. The reference also accepts a ref-qualifier on a
+constructor, a destructor and a friend declaration, and an out-of-class
+definition whose ref-qualifier matches no declaration. These are the reference
+being lenient and are left that way.
+
+**A ref-qualifier written twice, or written before the cv-qualifier-seq, is
+accepted.** `void f() & &&;` and `void f() & const;` are refused by `g++` and
+accepted by the reference and by us; the parser takes the suffixes in any order
+and any number, which it already did for the cv-qualifier-seq before C4. Both
+readers of the qualifier take the first one written, so they cannot disagree.
+
+**13.5.6's overloaded `operator->` is not implemented.** `object_region` refuses
+a `->` whose operand is of class type, so a ref-qualified `operator->` is
+refused with every other one. No fixture covers it.
+
+**10.3's virtual dispatch is outside this milestone**, which the README says
+outright, so a ref-qualified override is called non-virtually and no vtable is
+written. No fixture covers it.
+
+**Class templates are outside this milestone**: `S<int>` names no declaration,
+so a ref-qualified member of a class template is refused at the use.
+
+**The reference writes a `function-declaration` line for every member function a
+class declares** and we write none. It is unrelated to the ref-qualifier - a
+class with no qualifier at all shows the same - and no pa12 fixture covers it.
+
+**PA11's reference refuses a conversion function outright** ("unsupported
+declaration kind special-member-declaration") where we describe it. That is the
+reference's own scope limit at that milestone.
+
 **The reference drops an observable conversion of an empty class.** For
 `struct T {}; struct U { operator T() { ++calls; return T(); } };`, `T t = u;`
-makes `pa17/cppgm++-ref` write no call at all, so `calls` stays zero; `g++`
-calls it, and 1.9p12 says it must. We write the call. This is the reference
-being wrong and is left that way; a class of non-zero size agrees exactly.
+makes `pa17/cppgm++-ref` write no call at all; `g++` calls it, and 1.9p12 says
+it must. We write the call.
 
 **A discarded id-expression of class type writes no `addr`.** `(s, 2)` costs the
-reference one `addr $s` for the operand it discards and costs us none. It is not
-C3's subject - a class with no conversion function at all shows the same - and
-it belongs with 12.2p3's full-expression group.
+reference one `addr $s` for the operand it discards and costs us none. It
+belongs with 12.2p3's full-expression group.
 
 **Pointer to member is outside the PA15 lowering subset**, so a conversion
 function to one is refused at its use rather than at its declaration.
 
-**`S::~S() = default;` written outside the class is not parsed at all**, which
-is what `spec/200-out-of-class-defaulted-special-members` waits on. 8.4.2's
-out-of-class defaulted definition is a declaration form, not a conversion
-question, so it is named in the failure map rather than fixed here.
+**`S::~S() = default;` written outside the class is not parsed at all**, which is
+what `spec/200-out-of-class-defaulted-special-members` waits on.
 
 **12.8p31 at a member or a base subobject.** `construct_object` refuses the
 elision wherever the object is a subobject - the `!member` gate - so
 `B::B() : m(f()) {}` writes a temporary and a copy where the reference builds
-the returned object in the member. 12.8p31 does not condition on placement; the
-gate is there because the resolved tree has no shape for a subobject
-initialized by a bare initializer, only for one initialized by a
-constructor-action. Giving it one is the fix, and it belongs with the
+the returned object in the member. Giving the resolved tree a shape for a
+subobject initialized by a bare initializer is the fix, and it belongs with the
 checkpoint that next touches 12.6.2's mem-initializer.
 
 **12.8p15's array member of a class whose transfer needs a call** is still
@@ -185,3 +204,4 @@ and the form is the loop 12.6p1 and 12.4p8 already use.
 | C1 | 12.8's four value-transfer special members | `c2894e79` | 6 / 6: one class's `operator=` bound into another's and its definition never written (also O(n²) in inheritance depth), 11.4p1's protected base member read as inaccessible, 12.8p11's deleted copy bypassed at every by-value boundary, a trivial transfer lowered as nothing, the site form disagreeing with the reference, and 12.8p15 having no form for an array member | 86 -> **88 / 228**; pa1-pa16 1494 / 1494; file audit passes |
 | C2 | 6.6.3p2's returned object and 12.8p31's result object | `be9d930d` | 7 / 7: 5.16p3's result object never initialized from a glvalue operand (which refused two fixtures), 12.8p31's elision and the lowering's placement as two answers to one question, 3.6.2p2's namespace-scope initialization read as an array of clauses (a refusal one way and silently dropped initialization the other), 12.1p5's "nothing to do" answered a second time and wrong for a trivial copy, a discarded conditional as one object per arm and its storage named by the lowering rather than by what asked, a trivial transfer giving a returned value storage one copy too late, and 9p6's empty class with no byte to hand back | 112 -> **117 / 228**; pa1-pa16 1494 / 1494; file audit passes |
 | C3 | 12.3.2's conversion functions, end to end | `8c59f91a` | 6 / 6: 13.3.3.1.2p1's one-user-defined-conversion flag set for the conversion function's direction and not the converting constructor's (which refused every `B b(s);`), 8.5.3p5's conversion-to-an-lvalue hook standing below the refusal of a temporary (which refused every non-const lvalue reference bound through one), 12.4p8's `empty_body` read before the out-of-class definition that writes it and the wrong answer then memoized for the unit, 13.3.1.5's candidates ordered by the object argument ahead of where the conversion gets to (a base's exact-match conversion losing to a nearer base's, and the result truncated), a cast of a class operand no conversion answers reading the object's bytes instead of being refused, and 13.6p3/p5's `++E` gated out on a rule that is not true | **149 / 228** unchanged; pa1-pa16 1494 / 1494; file audit passes |
+| C4 | 8.3.5p1's ref-qualifiers, end to end | `9f693145` | 4 / 4: a using-declaration rebuilding the brought-in member's type without the ref-qualifier, so 13.3.1p4 made an `&&`-qualified base member viable on an lvalue and 7.3.3p14 could not see the derived class's own declaration of the same spelling as hiding it; 13.1p2's refusal probed for the one cv-qualification the declaration wrote instead of all four, so every `f() const` beside `f() &&` was accepted; the two qualifiers written after the parameter-clause dropped from PA11's `--emit-types` and spelled a second time on the form 9.3.1p3 had already lowered in PA12's `--emit-semantics`; and 5.2.5p4's first clause missed, so a reference member of a non-lvalue object was an xvalue and reached an `&&`-qualified member | **163 / 228** unchanged; pa1-pa16 1494 / 1494; file audit passes |
