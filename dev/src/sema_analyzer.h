@@ -495,7 +495,13 @@ private:
 	// 3.8p1 makes the end of its lifetime an action of, which its storage
 	// duration is what says.
 	void record_lifetime(SemaEntity& entity, const Context& target,
-	                     bool is_static, DumpNode& line);
+	                     DumpNode& line);
+	// 3.5, 3.7.1 and 3.7.2: the linkage a variable's name has and the storage
+	// duration its object has, settled from this declaration's specifiers and
+	// from the declaration of the same variable this region already holds.
+	void record_storage(SemaEntity& entity, const SemaEntity* prior,
+	                    const Specifiers& specifiers, const Context& target,
+	                    TypeId type);
 	// The objects an open block has declared whose destructors run when control
 	// leaves it, innermost frame last.
 	std::vector<std::vector<SemaEntity*> > lifetimes_;
@@ -1031,7 +1037,7 @@ private:
 	// program reached.  It is declared in the global namespace, so the first
 	// call to name it declares it and every later one finds it by ordinary
 	// lookup; a name the implementation reserves nothing for leaves it null.
-	SemaEntity* reserved_function(const std::string& name,
+	SemaEntity* reserved_function(const std::string& written,
 	                              std::vector<SemaEntity*>* found);
 
 	// Templates (sema_template.cpp).

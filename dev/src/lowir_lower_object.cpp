@@ -543,16 +543,18 @@ void LowirFunctionLowering::add_destruction(const DumpNode& node)
 	destructor_call(node);
 }
 
-// 3.7.2p2 and 3.6.2p2: the initialization of one thread's copy of an object
-// with thread storage duration.  There is one such object per thread and no
-// point before a thread starts at which the program could initialize it, so
-// the initialization stands in a body of its own that runs at most once per
-// thread - which is what the flag beside the object says, being itself an
-// object of that thread.
+// 3.7.2p2 and 3.6.2p2: what one thread's copy of an object with thread storage
+// duration asks that thread to run.  There is one such object per thread and no
+// point before a thread starts at which the program could reach it, so both the
+// initialization the translation does not settle and 12.4p11's handing of the
+// destruction to the runtime stand in a body of their own that runs at most
+// once per thread - which is what the flag beside the object says, being itself
+// an object of that thread.  An object whose value the image already holds runs
+// no initialization here and is still an object whose lifetime ends.
 void LowirFunctionLowering::add_thread_initialization(const std::string& guard,
                                                       const Operand& storage,
                                                       TypeId type,
-                                                      const DumpNode& node,
+                                                      const DumpNode* node,
                                                       const DumpNode* destruction)
 {
 	const TypeId counter = unit_.types().fundamental(FT_LONG_INT);
@@ -567,7 +569,10 @@ void LowirFunctionLowering::add_thread_initialization(const std::string& guard,
 	test.second = named_operand(Operand::OP_INTEGER, "0");
 	branch(emit(test), done, run);
 	open_block(run);
-	add_initialization(storage, type, node);
+	if (node != nullptr)
+	{
+		add_initialization(storage, type, *node);
+	}
 	if (destruction != nullptr)
 	{
 		// 3.7.2p2 and 12.4p11: the object's lifetime ends with its thread, and

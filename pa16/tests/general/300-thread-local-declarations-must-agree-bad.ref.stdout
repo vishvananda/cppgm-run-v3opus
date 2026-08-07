@@ -1,0 +1,1 @@
+ERROR: a declaration of slot leaves out the thread_local an earlier declaration of it wrote

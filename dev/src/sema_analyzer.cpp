@@ -1527,6 +1527,72 @@ void SemaAnalyzer::declare_function_declarator(
 	return;
 }
 
+// 3.5, 3.7.1 and 3.7.2: where the object a declaration declares lives - which
+// linkage its name has and which region ends its lifetime.  Both are facts of
+// the variable rather than of the declaration that happened to spell them, so
+// they are settled against the declaration of the same variable this region
+// already holds as well as against this one's own specifiers.
+void SemaAnalyzer::record_storage(SemaEntity& entity, const SemaEntity* prior,
+                                  const Specifiers& specifiers,
+                                  const Context& target, TypeId type)
+{
+	// 3.5p3: at namespace scope a name declared `static` has internal linkage,
+	// and so does a `const` object no declaration wrote `extern`.
+	entity.internal_linkage = entity.internal_linkage ||
+		(target.scope->kind == ScopeKind::Namespace &&
+		 (specifiers.is_static ||
+		  (!specifiers.is_extern &&
+		   (types_.object_cv(type) & kCvConst) != 0)));
+	// 7.1.1p1: `thread_local` is a fact of the variable rather than of one
+	// declaration of it, so every declaration of one variable writes it or none
+	// does.  A declaration that disagrees with the one this region already
+	// holds names a storage duration the variable does not have, whether it is
+	// an `extern` declaration and the definition that follows it or a static
+	// data member declared in its class and defined outside it.
+	if (prior != nullptr && prior->thread_storage != specifiers.is_thread_local)
+	{
+		throw std::runtime_error(
+			specifiers.is_thread_local
+				? "a declaration of " + entity.name +
+				      " writes thread_local where an earlier declaration of it "
+				      "does not"
+				: "a declaration of " + entity.name +
+				      " leaves out the thread_local an earlier declaration of "
+				      "it wrote");
+	}
+	// 3.7.2p1: `thread_local` on a declaration of a variable gives that
+	// variable thread storage duration, so the fact belongs to the variable and
+	// not to the declaration that happened to write the keyword - a static data
+	// member is declared in its class and defined outside it, and 7.1.1p1 above
+	// makes either spelling of it say the same thing.
+	entity.thread_storage = entity.thread_storage || specifiers.is_thread_local;
+	if (!semantics())
+	{
+		return;
+	}
+	// 3.7.1p3 and 3.7.2p1: a block-scope object declared `static` is one object
+	// of the program and one declared `thread_local` is one per thread; neither
+	// is an object of the block that declares it.  6.7p4 initializes it the
+	// first time control passes through the declaration, and 3.6.3p1 or the end
+	// of its thread destroys it.  Writing it as the automatic object of its
+	// block would describe a different program, and the guard 6.7p4 asks for is
+	// not part of this milestone - so it is refused wherever it is declared and
+	// whatever its type, rather than only where a class of its own ends the
+	// lifetime.
+	if (entity.object_definition &&
+	    (specifiers.is_static || entity.thread_storage) &&
+	    target.scope->kind != ScopeKind::Namespace &&
+	    target.scope->kind != ScopeKind::Class)
+	{
+		throw std::runtime_error(
+			std::string("a block-scope ") +
+			(entity.thread_storage ? "thread_local" : "static") + " object of " +
+			types_.description(type) +
+			" is declared, whose one initialization and its destruction this "
+			"milestone does not write");
+	}
+}
+
 void SemaAnalyzer::init_declarator(const AstNode& node,
                                    const AstNode* initializer,
                                    const Specifiers& specifiers,
@@ -1604,9 +1670,11 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 	// the object that region already declares - a static data member is
 	// declared in its class and defined outside it - rather than declaring a
 	// second one there, so what its first declaration said about it stands.
-	SemaEntity* const declared = spelled.qualified()
-		? redeclared(target, name, SemaKind::Variable)
-		: nullptr;
+	// The declaration that region already has is also what 7.1.1p1's
+	// `thread_local` has to agree with, wherever this one is written, so it is
+	// found before this declaration is bound over it.
+	SemaEntity* const prior = redeclared(target, name, SemaKind::Variable);
+	SemaEntity* const declared = spelled.qualified() ? prior : nullptr;
 	SemaEntity& entity = declared != nullptr
 		? *declared
 		: model_.create(SemaKind::Variable, name, type);
@@ -1671,19 +1739,7 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 		((target.scope->kind != ScopeKind::Class || spelled.qualified()) &&
 		 (!specifiers.is_extern ||
 		  (initializer != nullptr && !initializer->children.empty())));
-	// 3.5p3: at namespace scope a name declared `static` has internal linkage,
-	// and so does a `const` object no declaration wrote `extern`.
-	entity.internal_linkage = entity.internal_linkage ||
-		(target.scope->kind == ScopeKind::Namespace &&
-		 (specifiers.is_static ||
-		  (!specifiers.is_extern &&
-		   (types_.object_cv(type) & kCvConst) != 0)));
-	// 3.7.2p1 and 7.1.1p1: `thread_local` on any declaration of a variable
-	// gives that variable thread storage duration, so the fact belongs to the
-	// variable and not to the declaration that happened to write the keyword -
-	// a static data member is declared in its class and defined outside it, and
-	// either may carry it.
-	entity.thread_storage = entity.thread_storage || specifiers.is_thread_local;
+	record_storage(entity, prior, specifiers, target, type);
 	// 9.4.2p2: a definition written with a nested-name-specifier declares
 	// nothing where it names, so the line it writes is not one of that region's:
 	// it stands where the definition is written, spelled the way it wrote it.
@@ -1717,7 +1773,7 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 		// action of the region that declared it, whatever form its initializer
 		// took.  An aggregate initialized from a braced-init-list is written
 		// below rather than by a constructor, and its lifetime still ends.
-		record_lifetime(entity, target, specifiers.is_static, line);
+		record_lifetime(entity, target, line);
 	}
 	if (types_.is_class(types_.strip_cv(type)) && entity.object_definition &&
 	    !(value != nullptr && value->kind == AstKind::BracedInitList &&

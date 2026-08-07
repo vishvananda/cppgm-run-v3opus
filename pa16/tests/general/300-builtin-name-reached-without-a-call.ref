@@ -1,0 +1,30 @@
+declare function @__builtin_strlen(%arg0 : ptr [capture=nocapture, access=read]) -> i64 [effects=readonly, unwind=no, binding=strong, object=cppgm_builtin_strlen]
+
+global @__strlit__1 [binding=internal] = {
+  i8 97
+  i8 98
+  i8 99
+  i8 0
+}
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $measure : ptr
+  slot $again : ptr
+
+  block ^entry:
+    %t1 = addr @__builtin_strlen
+    %t2 = unary decay ptr %t1
+    store ptr %t2, $measure
+    %t3 = addr @__builtin_strlen
+    store ptr %t3, $again
+    %t4 = addr @__strlit__1
+    %t5 = load ptr $measure
+    %t6 = call i64 %t5(%t4) as (%arg0 : ptr) -> i64
+    %t7 = convert trunc i32 i64 %t6
+    %t8 = addr @__strlit__1
+    %t9 = load ptr $again
+    %t10 = call i64 %t9(%t8) as (%arg0 : ptr) -> i64
+    %t11 = convert trunc i32 i64 %t10
+    %t12 = binary sub i32 %t7, %t11
+    return i32 %t12
+}

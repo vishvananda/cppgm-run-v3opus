@@ -315,6 +315,15 @@ void LowirUnitLowering::run(const DumpNode& unit)
 	// same - a function called only from an unused one is odr-used by it.  So
 	// the whole resolved tree is read for uses, in the order it names them.
 	demand_referenced(unit);
+	// 3.7.2p2 and 3.6.2p4: a use of a thread-local object runs what initializes
+	// it, and whether this unit initializes one at all is what its definition
+	// says - so a use written before that definition has to know the answer,
+	// exactly as a call written before a definition does.  The definitions with
+	// thread storage duration are lowered first, in the order the unit writes
+	// them, which is the order a thread begins them in.
+	thread_definitions(unit);
+	write_thread_bodies();
+	drain_demanded();
 	for (std::size_t index = 0; index < unit.children.size(); ++index)
 	{
 		declaration(*unit.children[index]);
@@ -336,6 +345,31 @@ void LowirUnitLowering::run(const DumpNode& unit)
 	if (shutdown_ != nullptr)
 	{
 		shutdown_->suspend_generated(builder_.shutdown_body_);
+	}
+}
+
+// 3.7.2p2: the definitions of this unit that lay out one object per thread,
+// lowered before any body of the unit is, so that the answer to "does a use of
+// this name run something first" is the same wherever the use is written.  A
+// definition writes its global once - `emitted_globals_` is what says so - and
+// the pass over the unit that follows reaches these nodes again and writes
+// nothing.
+void LowirUnitLowering::thread_definitions(const DumpNode& node)
+{
+	for (std::size_t index = 0; index < node.children.size(); ++index)
+	{
+		const DumpNode& child = *node.children[index];
+		if (child.fact.kind == FactKind::Namespace)
+		{
+			thread_definitions(child);
+		}
+		else if (child.fact.kind == FactKind::Variable &&
+		         child.fact.entity != nullptr &&
+		         child.fact.entity->thread_storage &&
+		         child.fact.entity->object_definition)
+		{
+			global_variable(child);
+		}
 	}
 }
 
@@ -662,17 +696,68 @@ void LowirUnitLowering::global_variable(const DumpNode& node)
 		               global.metadata.binding);
 	}
 	program_.globals.push_back(global);
-	if (dynamic == nullptr)
+	if (!entity.thread_storage)
+	{
+		if (dynamic != nullptr)
+		{
+			dynamic_initializer(entity, *dynamic, type);
+		}
+		return;
+	}
+	// 12.4p11 and 3.7.2p2: the end of the object's lifetime is a fact of the
+	// declaration and not of the initializer it was given, and the point the
+	// runtime is handed it at is the one point per thread this unit writes.  So
+	// the body is what the declaration asks for - an initialization to run, a
+	// lifetime to end, or both - and an object whose value the image already
+	// holds and whose class ends its lifetime with nothing still gets none.
+	const DumpNode* const destruction = thread_destruction(node);
+	if (dynamic == nullptr && destruction == nullptr)
 	{
 		return;
 	}
-	if (entity.thread_storage)
+	thread_initializer(symbol, dynamic, type, destruction);
+}
+
+// 3.7.2p2: the bodies the thread-local definitions of this unit asked for,
+// written once every one of those definitions has said whether it asked for
+// one.  A body reaches the objects of its own thread as any other code does, so
+// what one of them names has to already have the answer - which is why the
+// bodies are written after the definitions rather than as each is reached.
+void LowirUnitLowering::write_thread_bodies()
+{
+	for (std::size_t index = 0; index < thread_bodies_.size(); ++index)
 	{
-		thread_initializer(entity, symbol, *dynamic, type,
-		                   thread_destruction(node));
-		return;
+		// A copy, not a reference: the vector is the one place a definition
+		// records what it asked for, and nothing a body writes may leave a
+		// reference into it dangling.
+		const ThreadBody held = thread_bodies_[index];
+		lowir_model::Function body;
+		body.name = held.body;
+		body.return_type = low("void");
+		body.metadata.binding = lowir_model::SBM_INTERNAL;
+		lowir_model::Operand storage;
+		storage.kind = lowir_model::Operand::OP_GLOBAL;
+		storage.text = held.symbol;
+		// 3.2p2: filling an object's storage is not a use of the name that has
+		// to fill it first, so the one body that must not call this one is this
+		// one.  Every other thread-local a body names is reached the way a body
+		// of the program reaches it.
+		writing_thread_body_ = held.symbol;
+		{
+			LowirFunctionLowering lowering(*this, body);
+			lowering.open_generated(GeneratedBody());
+			lowering.add_thread_initialization(guard_of(held.symbol), storage,
+			                                   held.type, held.initialization,
+			                                   held.destruction);
+			lowir_model::Instruction leave;
+			leave.kind = lowir_model::Instruction::IK_RETURN;
+			leave.type.text = "void";
+			body.blocks.back().instructions.push_back(leave);
+		}
+		writing_thread_body_.clear();
+		program_.functions.push_back(body);
 	}
-	dynamic_initializer(entity, *dynamic, type);
+	thread_bodies_.clear();
 }
 
 // 3.7.2p2: the action that ends the lifetime of the object a declaration
@@ -704,19 +789,19 @@ void LowirUnitLowering::thread_wrapper(const std::string& symbol,
 	program_.function_declarations.push_back(wrapper);
 }
 
-// 3.7.2p2 and 3.6.2p2: an object with thread storage duration whose initializer
-// is not one the translation settles is initialized once per thread, so the
-// actions belong to a body of that object's own rather than to the program's
-// one startup function.  The flag that says a thread has run it is itself an
-// object of that thread, and both it and the object it guards are reached the
-// way any other thread-local global is.
-void LowirUnitLowering::thread_initializer(const SemaEntity& entity,
-                                           const std::string& symbol,
-                                           const DumpNode& node, TypeId type,
+// 3.7.2p2 and 3.6.2p2: what an object with thread storage duration asks a
+// thread to run - an initializer the translation does not settle, the handing
+// of 12.4p11's destruction to the runtime, or both - belongs to a body of that
+// object's own rather than to the program's one startup function.  The flag
+// that says a thread has run it is itself an object of that thread, and both it
+// and the object it guards are reached the way any other thread-local global
+// is.
+void LowirUnitLowering::thread_initializer(const std::string& symbol,
+                                           const DumpNode* node, TypeId type,
                                            const DumpNode* destruction)
 {
 	lowir_model::GlobalDefinition guard;
-	guard.name = "__cppgm_tls_guard__" + symbol;
+	guard.name = guard_of(symbol);
 	guard.type = low("i64");
 	guard.storage = lowir_model::GSM_THREAD_LOCAL;
 	guard.metadata.binding = lowir_model::SBM_INTERNAL;
@@ -724,28 +809,24 @@ void LowirUnitLowering::thread_initializer(const SemaEntity& entity,
 	thread_wrapper(guard.name, std::string(), lowir_model::SBM_INTERNAL);
 	program_.globals.push_back(guard);
 
-	lowir_model::Function body;
-	body.name = "__cppgm_tls_init__" + symbol;
-	body.return_type = low("void");
-	body.metadata.binding = lowir_model::SBM_INTERNAL;
-	lowir_model::Operand storage;
-	storage.kind = lowir_model::Operand::OP_GLOBAL;
-	storage.text = global_symbol(entity);
-	{
-		LowirFunctionLowering lowering(*this, body);
-		lowering.open_generated(GeneratedBody());
-		lowering.add_thread_initialization(guard.name, storage, type, node,
-		                                   destruction);
-		lowir_model::Instruction leave;
-		leave.kind = lowir_model::Instruction::IK_RETURN;
-		leave.type.text = "void";
-		body.blocks.back().instructions.push_back(leave);
-	}
-	program_.functions.push_back(body);
-	// The body is what the object's initialization is, so the name is a use of
-	// the object only after it: the initialization itself names the storage it
-	// is filling and must not call the body it is.
-	builder_.thread_initializers_[entity.id] = body.name;
+	ThreadBody held;
+	held.symbol = symbol;
+	held.body = "__cppgm_tls_init__" + symbol;
+	held.initialization = node;
+	held.type = type;
+	held.destruction = destruction;
+	thread_bodies_.push_back(held);
+	// The name is what a use of the object calls, and it is known as soon as
+	// the definition has asked for a body - before the body is written, so that
+	// one body naming another object of the same thread reaches it.
+	builder_.thread_initializers_[symbol] = held.body;
+}
+
+// 3.7.2p2: the flag of the same thread that says a thread has run what one
+// thread-local object asked it to, named after that object.
+std::string LowirUnitLowering::guard_of(const std::string& symbol)
+{
+	return "__cppgm_tls_guard__" + symbol;
 }
 
 void LowirUnitLowering::add_zero_item(lowir_model::GlobalDefinition& global,
@@ -1246,14 +1327,19 @@ const std::string& LowirUnitLowering::image_handle_symbol()
 }
 
 const std::string* LowirUnitLowering::thread_initializer_of(
-	const SemaEntity& entity) const
+	const SemaEntity& entity)
 {
 	if (!entity.thread_storage)
 	{
 		return nullptr;
 	}
-	const std::unordered_map<std::uint32_t, std::string>::const_iterator found =
-		builder_.thread_initializers_.find(entity.id);
+	const std::string& symbol = global_symbol(entity);
+	if (symbol == writing_thread_body_)
+	{
+		return nullptr;
+	}
+	const std::unordered_map<std::string, std::string>::const_iterator found =
+		builder_.thread_initializers_.find(symbol);
 	return found == builder_.thread_initializers_.end() ? nullptr
 	                                                    : &found->second;
 }

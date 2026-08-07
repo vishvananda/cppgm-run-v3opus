@@ -207,13 +207,17 @@ private:
 	// literal.  A literal is one array object of the program however many
 	// translation units write it, so the map outlives any one of them.
 	std::unordered_map<std::string, std::string> strings_;
-	// 3.7.2p2: the body that initializes one thread's copy of a thread-local
-	// object, for the objects whose initializer 3.6.2p2 does not settle, keyed
-	// by the variable.  A use of the name calls it, so the map is what turns a
-	// use into that call in one probe; a thread-local nothing here initializes
-	// - one another unit defines, or one the image already holds the value of -
-	// is absent, and a use of it costs the same probe and no call.
-	std::unordered_map<std::uint32_t, std::string> thread_initializers_;
+	// 3.7.2p2: the body one thread runs for a thread-local object of this unit,
+	// keyed by the name the object file gives the object.  That name and not
+	// the declaration is what identifies the object: 3.1p2 lets a program
+	// declare one variable as often as it likes, and a use written against an
+	// `extern` declaration reaches the same object the definition lays out.  A
+	// use of the name calls the body, so the map is what turns a use into that
+	// call in one probe; a thread-local this unit runs nothing for - one
+	// another unit defines, or one whose value the image holds and whose
+	// lifetime ends with nothing - is absent, and a use of it costs the same
+	// probe and no call.
+	std::unordered_map<std::string, std::string> thread_initializers_;
 
 	friend class LowirFunctionLowering;
 	friend class LowirUnitLowering;
@@ -274,7 +278,7 @@ public:
 	// thread-local one this unit initializes with code.  A use of the name has
 	// to run it before it reads the object, because no point in the program
 	// stands before every thread that names one.
-	const std::string* thread_initializer_of(const SemaEntity& entity) const;
+	const std::string* thread_initializer_of(const SemaEntity& entity);
 	// Names `entity` in the program as a declaration, for a use of a function
 	// or object this unit does not define.  A use of a function whose definition
 	// belongs to every unit that needs one also asks for that definition here.
@@ -297,6 +301,10 @@ public:
 private:
 	// The definitions of this unit, gathered before any of it is lowered.
 	void collect_definitions(const DumpNode& node);
+	// 3.7.2p2: the definitions with thread storage duration, lowered before any
+	// body is, so that a use of one written before its definition runs what
+	// initializes it as a use written after it does.
+	void thread_definitions(const DumpNode& node);
 	void declaration(const DumpNode& node);
 	void global_variable(const DumpNode& node);
 	void function_definition(const DumpNode& node);
@@ -373,12 +381,21 @@ private:
 	// global this program made up and no other unit can name.
 	void thread_wrapper(const std::string& symbol, const std::string& object,
 	                    lowir_model::SymbolBindingMode binding);
-	// 3.7.2p2: the initialization of a thread-local object whose initializer
-	// 3.6.2p2 does not settle, as the per-object body a thread runs rather than
-	// as an action of the program's one startup function.
-	void thread_initializer(const SemaEntity& entity, const std::string& symbol,
-	                        const DumpNode& node, TypeId type,
-	                        const DumpNode* destruction);
+	// 3.7.2p2: what one thread runs for a thread-local object - the
+	// initialization 3.6.2p2 does not settle and 12.4p11's handing of the
+	// destruction to the runtime - as the per-object body a thread runs rather
+	// than as an action of the program's one startup function.  Either of the
+	// two may be null, and the caller writes no body where both are.
+	void thread_initializer(const std::string& symbol, const DumpNode* node,
+	                        TypeId type, const DumpNode* destruction);
+	// 3.7.2p2: the bodies those definitions asked for, written once every
+	// thread-local definition of the unit has said whether it asked for one -
+	// so that a body naming another object of its own thread runs what
+	// initializes that one, wherever the two are written.
+	void write_thread_bodies();
+	// 3.7.2p2: the flag of the same thread that says a thread has run what one
+	// thread-local object asked it to.
+	static std::string guard_of(const std::string& symbol);
 	// 3.7.2p2: the action that ends the lifetime of the object a declaration
 	// declared, which stands under the declaration for a thread-local object
 	// because no point of the program is where it runs.
@@ -386,6 +403,23 @@ private:
 	// 3.6.3p1: the destructor of an object with static storage duration, added
 	// to the program's one shutdown function.
 	void static_destructor(const DumpNode& node);
+
+	// One thread-local definition's outstanding body: the object it fills, the
+	// initialization 3.6.2p2 left to run and the destruction 12.4p11 hands to
+	// the runtime, either of which may be absent.
+	struct ThreadBody
+	{
+		std::string symbol;
+		std::string body;
+		const DumpNode* initialization;
+		TypeId type;
+		const DumpNode* destruction;
+	};
+	std::vector<ThreadBody> thread_bodies_;
+	// The object whose body is being written, if any.  3.2p2: filling an
+	// object's storage is not a use of the name that has to be filled first, so
+	// this one body is the one a use inside it must not call.
+	std::string writing_thread_body_;
 
 	TypeTable& types_;
 	LowirProgramBuilder& builder_;
@@ -442,15 +476,17 @@ public:
 	void open_generated(const GeneratedBody& state);
 	void add_initialization(const lowir_model::Operand& storage, TypeId type,
 	                        const DumpNode& node);
-	// 3.7.2p2: one thread-local object's initialization, guarded by a flag of
-	// the same thread so that a thread runs it at most once.  `destruction` is
-	// the action that ends the object's lifetime, or null where its class ends
-	// one with nothing to run: this thread ends when nothing in the program
-	// does, so what ends the object is handed to the runtime here rather than
-	// written at a point of the program.
+	// 3.7.2p2: what one thread-local object asks the thread that reaches it to
+	// run, guarded by a flag of the same thread so that a thread runs it at
+	// most once.  `node` is the initialization, or null where 3.6.2p2 settled
+	// it and the image already holds the value; `destruction` is the action
+	// that ends the object's lifetime, or null where its class ends one with
+	// nothing to run: this thread ends when nothing in the program does, so
+	// what ends the object is handed to the runtime here rather than written at
+	// a point of the program.
 	void add_thread_initialization(const std::string& guard,
 	                               const lowir_model::Operand& storage,
-	                               TypeId type, const DumpNode& node,
+	                               TypeId type, const DumpNode* node,
 	                               const DumpNode* destruction);
 	// 3.6.3p1: one object's destruction, added to the generated body.
 	void add_destruction(const DumpNode& node);

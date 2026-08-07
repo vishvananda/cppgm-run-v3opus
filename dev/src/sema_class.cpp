@@ -2389,7 +2389,7 @@ void SemaAnalyzer::write_member_destructions(Scope& members, DumpNode& line)
 // the static data member 9.4.2p2 defines outside its class - and 3.6.3p1 ends
 // it when the program does; a local one ends with the block that declared it.
 void SemaAnalyzer::record_lifetime(SemaEntity& entity, const Context& target,
-                                   bool is_static, DumpNode& line)
+                                   DumpNode& line)
 {
 	// 12.4p11: whichever region ends it, the lifetime ends in a call of the
 	// destructor of the object's class, and the region that declares the object
@@ -2415,18 +2415,9 @@ void SemaAnalyzer::record_lifetime(SemaEntity& entity, const Context& target,
 		static_lifetimes_.push_back(&entity);
 		return;
 	}
-	if (is_static)
-	{
-		// 3.7.1p3 and 6.7p4: a block-scope `static` object is one object of the
-		// program, initialized the first time control passes through its
-		// declaration and destroyed at 3.6.3p1's shutdown.  Writing it as the
-		// automatic object of its block would describe a different program, and
-		// the guard 6.7p4 asks for is not part of this milestone.
-		throw std::runtime_error(
-			"a block-scope static object of " + types_.description(entity.type) +
-			" is declared, whose one initialization and shutdown destruction "
-			"this milestone does not write");
-	}
+	// 3.7.1p3: a block-scope object declared `static` or `thread_local` has
+	// reached the refusal the declaration itself writes, so what is left here
+	// is an object of the block, whatever its type.
 	if (!lifetimes_.empty())
 	{
 		lifetimes_.back().push_back(&entity);

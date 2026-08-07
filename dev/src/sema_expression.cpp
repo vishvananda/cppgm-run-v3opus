@@ -377,10 +377,19 @@ SemaAnalyzer::Value SemaAnalyzer::id_expression(const AstNode& node,
 	SemaEntity* named = template_specializations(node.text, ctx, found);
 	if (named == nullptr)
 	{
-		named = &require(resolve(node.text, ctx, LookupKind::Any, &found),
-		                 node.text);
+		named = resolve(node.text, ctx, LookupKind::Any, &found);
 	}
-	return named_value(node, *named, parent, &found);
+	if (named == nullptr)
+	{
+		// 1.4p8: the name is one the implementation reserves for a function of
+		// its own, so what the program did not declare the implementation
+		// declares here.  A call is not the only use of such a name: 13.4's
+		// address of it and 4.3's conversion of that address reach it as an
+		// id-expression, and each has to find the one declaration the reserved
+		// function has.
+		named = reserved_function(node.text, &found);
+	}
+	return named_value(node, require(named, node.text), parent, &found);
 }
 
 SemaAnalyzer::Value SemaAnalyzer::named_value(const AstNode& node,
@@ -1355,9 +1364,16 @@ SemaAnalyzer::Value SemaAnalyzer::cast_to_reference(TypeId target, Value& source
 // none of them, so a use of the name is what declares the one it names - and
 // the declaration is an ordinary one, which is what lets 13.3, 4.10's argument
 // conversions and the lowering read it the way they read any other function.
-SemaEntity* SemaAnalyzer::reserved_function(const std::string& name,
+SemaEntity* SemaAnalyzer::reserved_function(const std::string& written,
                                             std::vector<SemaEntity*>* found)
 {
+	// 3.4.3.2p1: 1.4p8 puts a reserved function in the global namespace, so
+	// `::__builtin_strlen` names the one `__builtin_strlen` names.  No other
+	// nested-name-specifier does: a name the implementation reserves is the
+	// global namespace's alone, and one written under any other region names
+	// what that region declares or nothing.
+	const std::string name =
+		written.compare(0, 2, "::") == 0 ? written.substr(2) : written;
 	const TypeId voided = types_.fundamental(FT_VOID);
 	const TypeId size = types_.fundamental(FT_UNSIGNED_LONG_INT);
 	const TypeId any = types_.pointer_to(voided);

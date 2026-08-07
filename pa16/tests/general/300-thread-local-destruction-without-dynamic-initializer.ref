@@ -1,0 +1,37 @@
+declare global @__external_runtime____dso_handle [binding=strong, object=__dso_handle]
+declare function @__cppgm_tls_wrapper__cell() -> ptr [binding=strong, object=_ZTW4cell, tls_for=@cell]
+declare function @__cppgm_tls_wrapper____cppgm_tls_guard__cell() -> ptr [binding=internal, tls_for=@__cppgm_tls_guard__cell]
+declare function @__external_runtime____cxa_thread_atexit(%arg0 : ptr, %arg1 : ptr, %arg2 : ptr) -> i32 [linkage=c, binding=strong, object=__cxa_thread_atexit]
+declare function @Slot___Slot(%arg0 : ptr) -> void [binding=strong, object=_ZN4SlotD1Ev]
+
+global @cell [storage=thread_local, binding=strong, object=_Z4cell] = {
+  i32 5
+}
+global @__cppgm_tls_guard__cell : i64 [storage=thread_local, binding=internal] = zero
+
+function @__cppgm_tls_init__cell() -> void [binding=internal] {
+  block ^entry:
+    %t1 = load i64 @__cppgm_tls_guard__cell
+    %t2 = cmp ne i64 %t1, 0
+    branch %t2, ^local_static_ctor_done_2, ^local_static_ctor_run_1
+
+  block ^local_static_ctor_run_1:
+    %t3 = addr @cell
+    %t4 = addr @Slot___Slot
+    %t5 = addr @__external_runtime____dso_handle
+    %t6 = call i32 @__external_runtime____cxa_thread_atexit(%t4, %t3, %t5)
+    store i64 1, @__cppgm_tls_guard__cell
+    jump ^local_static_ctor_done_2
+
+  block ^local_static_ctor_done_2:
+    return void
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    call void @__cppgm_tls_init__cell()
+    %t1 = addr @cell
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i32 %t2
+    %t4 = binary sub i32 %t3, 5
+    return i32 %t4
+}
