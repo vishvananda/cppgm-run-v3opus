@@ -719,16 +719,31 @@ void LowirFunctionLowering::constructor_call(const Operand& address,
 		// than every byte the array occupies.
 		zero_object(address, zeroed == kNoType ? node.fact.type : zeroed);
 	}
-	if (constructor.trivial &&
-	    (constructor.transfer == kCopyConstructorTransfer ||
-	     constructor.transfer == kMoveConstructorTransfer) &&
-	    call.children.size() > 2)
+	// 12.8p15: this construction carries the value of an object it was given
+	// into the one it builds, which is work whatever the definition of the
+	// member doing it comes to - so it is the one construction 12.1p5's "there
+	// is nothing to do" is never the answer for.
+	const bool transfers_value =
+		(constructor.transfer == kCopyConstructorTransfer ||
+		 constructor.transfer == kMoveConstructorTransfer) &&
+		call.children.size() > 2;
+	if (transfers_value && constructor.trivial &&
+	    (node.fact.subobject_step ||
+	     !types.is_copy_deleted(types.strip_cv(node.fact.type))))
 	{
 		// 12.8p12: the copy or move the standard defines for this class does
 		// nothing but carry the bytes of the object it reads from, so the
 		// transfer is that copy and no call stands for it.  A trivial
 		// constructor with nothing to read from is 12.1p5's, which leaves the
 		// storage holding what it held; this one leaves it holding an object.
+		//
+		// 12.8p11 is what the bytes are not enough for: a class whose copy
+		// constructor no program may name is one the program said is carried
+		// by the member it declared for it, and an initialization the program
+		// wrote of an object of it is the call of that member however little
+		// its definition comes to.  One step inside such a definition is not
+		// that initialization - 12.8p15 chose the constructor there, and where
+		// that one is trivial the subobject is its bytes.
 		unit_.owe_internal_definition(constructor);
 		if (types.is_empty_class(types.strip_cv(node.fact.type)))
 		{
@@ -740,9 +755,10 @@ void LowirFunctionLowering::constructor_call(const Operand& address,
 		copy_object_storage(address, address_of(source), node.fact.type);
 		return;
 	}
-	if (!always && (constructor.trivial ||
-	                (!constructor.user_provided &&
-	                 unit_.construction_writes_nothing(constructor))))
+	if (!always && !transfers_value &&
+	    (constructor.trivial ||
+	     (!constructor.user_provided &&
+	      unit_.construction_writes_nothing(constructor))))
 	{
 		// 12.1p5: there is nothing for a call of this constructor to do.  A
 		// constructor the program wrote is called wherever the program says

@@ -253,6 +253,7 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 	action.fact.type = variable.type;
 	action.fact.elided_prvalue = elided_prvalue;
 	action.fact.base_subobject = where == Placement::Base;
+	action.fact.subobject_step = where != Placement::Named;
 	DumpNode& call = model_.open_node(action, std::string());
 	DumpNode& callee = model_.open_node(call, std::string());
 	Value object;
@@ -1195,7 +1196,7 @@ void SemaAnalyzer::write_transfer_steps(const Pending& pending, DumpNode& line,
 			// with the fields beside it, and what carries all of them is one
 			// read and one write of that unit.  The unit is named by the byte
 			// it begins at, so a second field of the same unit is already done.
-			if (index > first && fields[index - 1]->bit_field &&
+			if (index > 0 && fields[index - 1]->bit_field &&
 			    fields[index - 1]->offset == field.offset)
 			{
 				continue;
@@ -1209,6 +1210,20 @@ void SemaAnalyzer::write_transfer_steps(const Pending& pending, DumpNode& line,
 			// 9p6 and 12.8p15: the subobject holds nothing and the member its
 			// class has for this transfer does nothing, so there is neither a
 			// call to write nor storage to carry.
+			continue;
+		}
+		if (types_.kind(types_.strip_cv(field.type)) == TypeKind::Array &&
+		    types_.is_class(member_copy_type(field.type)) &&
+		    carried_as_storage(field.type, kind))
+		{
+			// 12.8p15: an array member is carried element by element, and where
+			// the element's class carries one of them by its bytes the whole
+			// array is those bytes - which is the one form the transfer has for
+			// it, because the member the element's class holds takes an element
+			// and no call of it takes the array.  A run the leading prefix
+			// already covered never reaches here.
+			write_storage_transfer(*parameter, line, field.offset,
+			                       types_.object_size(field.type), kNoType);
 			continue;
 		}
 		DumpNode& access = model_.open_node(line, std::string());

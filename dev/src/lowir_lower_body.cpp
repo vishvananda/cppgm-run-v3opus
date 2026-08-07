@@ -2053,8 +2053,17 @@ void LowirFunctionLowering::storage_transfer(const DumpNode& node)
 		Instruction copy;
 		copy.kind = Instruction::IK_COPYOBJ;
 		copy.byte_count = static_cast<std::size_t>(node.fact.elements);
-		copy.byte_alignment = static_cast<std::size_t>(
-			types.object_align(types.strip_cv(node.children[0]->fact.type)));
+		// 3.11p1: the run stands `offset` bytes into an object of the class, so
+		// what is known of its address is the class's own alignment cut down to
+		// the one that many bytes still allow - which for a run beginning where
+		// the object does is the class's.
+		unsigned long long known =
+			types.object_align(types.strip_cv(node.children[0]->fact.type));
+		while (offset % known != 0)
+		{
+			known /= 2;
+		}
+		copy.byte_alignment = static_cast<std::size_t>(known);
 		copy.first = at_offset(from, offset);
 		copy.second = at_offset(into, offset);
 		emit_void(copy);

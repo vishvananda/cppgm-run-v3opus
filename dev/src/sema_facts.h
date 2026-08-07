@@ -151,6 +151,7 @@ struct SemaFact
 		, reverse_elements(false)
 		, elided_prvalue(false)
 		, base_subobject(false)
+		, subobject_step(false)
 		, elements(0)
 		, value(0)
 	{}
@@ -206,6 +207,13 @@ struct SemaFact
 	// destructor one entry point for a complete object and one for a base
 	// subobject, and this is what says which of them this call is of.
 	bool base_subobject;
+	// 12.8p15 and 12.6.2p10: whether this `constructor-action` builds a
+	// subobject of an object rather than a complete object of its own.  What
+	// the two part company over is 8.4.3p2: the class's copy constructor being
+	// one no program may name says how the *program's* initialization of an
+	// object of it is carried, and says nothing about the constructor 12.8p15
+	// itself selected for a subobject one step in.
+	bool subobject_step;
 	// 8.5.1p7: how many consecutive elements of the array it stands in this
 	// `constructor-action` builds.  An element a clause reached is one object
 	// and this is zero; the elements no clause reached are all value-
