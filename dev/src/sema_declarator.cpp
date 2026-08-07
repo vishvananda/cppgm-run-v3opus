@@ -402,17 +402,16 @@ TypeId SemaAnalyzer::declarator_type(const AstNode& node, TypeId base,
 		type = apply_suffix(part, type, ctx, declared);
 		if (part.kind == AstKind::ParameterClause)
 		{
-			if (semantics())
-			{
-				// PA11 describes the declarator as written, and a
-				// cv-qualifier-seq is part of the type only where 9.3.1p3 gives
-				// it a meaning, which is what PA12 reads it for.  8.3.5p1's
-				// ref-qualifier is part of it for the same reason and travels
-				// with it - which is what lets a pointer to member name a
-				// ref-qualified member function.
-				type = types_.ref_qualified_function(
-					types_.qualified_function(type, function_cv), function_ref);
-			}
+			// 8.3.5p1 and 8.3.5p7: both qualifiers are part of the function
+			// type the declarator wrote, so both are written onto it here -
+			// which is what a typedef, a pointer to function and the function
+			// type a pointer to member points to each go on holding, and what
+			// the description of any of them spells.  9.3.1p3's lowering is
+			// what moves the cv-qualifier-seq onto the object parameter; the
+			// ref-qualifier stays on the type, because 13.1 has `f() &` and
+			// `f() &&` to tell apart.
+			type = types_.ref_qualified_function(
+				types_.qualified_function(type, function_cv), function_ref);
 			function_cv = kCvNone;
 			function_ref = RefQualifier::None;
 			declared = nullptr;

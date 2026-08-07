@@ -417,6 +417,11 @@ private:
 	// other rather than overload, which 9.4.1p2 does not allow.
 	std::uint32_t member_signature(const SemaEntity& function);
 	std::uint32_t member_signature(TypeId type, bool object_member);
+	// 8.3.5p1 and 9.3.1p3: how a function's type is spelled in the output,
+	// which for the lowered form spells the object parameter rather than the
+	// qualifiers written after the parameter-clause.
+	TypeId function_description_type(TypeId type, bool object_member);
+	std::string function_description(TypeId type, bool object_member);
 	// 13.1p2: a class shall not declare one member function both with and
 	// without a ref-qualifier where the two agree in everything else.
 	void require_uniform_ref_qualifiers(const SemaEntity& head,

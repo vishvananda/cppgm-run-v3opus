@@ -401,7 +401,9 @@ void SemaAnalyzer::write_instantiation(const Pending& pending)
 	// own name, written with the types the arguments made of its parameters.
 	DumpNode& line = model_.open_node(model_.unit(), "function-declaration " +
 	                                  primary.dump_name + " " +
-	                                  types_.description(function.type));
+	                                  function_description(
+		                                  function.type,
+		                                  function.object_member));
 	const std::unordered_map<std::uint32_t, std::vector<Parameter> >::const_iterator
 		written = templates_.find(primary.id);
 	const std::vector<TypeId>& parameters = types_.parameters(function.type);

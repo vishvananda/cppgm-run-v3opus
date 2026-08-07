@@ -406,7 +406,8 @@ void SemaAnalyzer::write_definition(Pending& pending)
 	}
 	DumpNode& line = open_fact(model_.unit(), "function-definition " +
 	                           function.dump_name + " " +
-	                           types_.description(function.type),
+	                           function_description(function.type,
+	                                                function.object_member),
 	                           FactKind::FunctionDefinition);
 	line.fact.entity = &function;
 	line.fact.type = function.type;
@@ -769,6 +770,27 @@ std::uint32_t SemaAnalyzer::member_signature(const SemaEntity& function)
 	return member_signature(function.type, function.object_member);
 }
 
+// 8.3.5p1, 8.3.5p7 and 9.3.1p3: how a function's type is spelled in the output.
+//
+// The two qualifiers a declarator writes after its parameter-clause are part of
+// the function type it wrote, which is what a typedef, a pointer to function and
+// the function type a pointer to member points to each go on holding and what
+// their descriptions spell.  Where 9.3.1p3 has already made the object the first
+// parameter, the cv-qualifier-seq is spelled as that parameter's own - and the
+// ref-qualifier, which the type goes on carrying because 13.1 tells `f() &` from
+// `f() &&` by it, is not spelled a second time beside it.
+TypeId SemaAnalyzer::function_description_type(TypeId type, bool object_member)
+{
+	return object_member
+		? types_.ref_qualified_function(type, RefQualifier::None)
+		: type;
+}
+
+std::string SemaAnalyzer::function_description(TypeId type, bool object_member)
+{
+	return types_.description(function_description_type(type, object_member));
+}
+
 std::uint32_t SemaAnalyzer::member_signature(TypeId type, bool object_member)
 {
 	const std::vector<TypeId>& written = types_.parameters(type);
@@ -786,9 +808,13 @@ std::uint32_t SemaAnalyzer::member_signature(TypeId type, bool object_member)
 	{
 		list.push_back(written[index]);
 	}
+	// Where 9.3.1p3's lowering has not run - PA11 describes what the declarator
+	// wrote and adds no object parameter - the cv-qualifier-seq is still on the
+	// function type itself, so the one step reads it from wherever it stands.
 	TypeId object = types_.qualified(
 		types_.fundamental(FT_VOID),
-		object_member ? types_.object_cv(types_.target(written[0])) : 0u);
+		object_member ? types_.object_cv(types_.target(written[0]))
+		              : types_.cv(type));
 	// 8.3.5p1 and 13.1: a ref-qualifier is as much a part of what tells two
 	// declarations of one member apart as the cv-qualifier-seq beside it, so it
 	// stands in the same step: `f() &` and `f() &&` are two declarations of one
@@ -949,8 +975,16 @@ SemaEntity& SemaAnalyzer::declare_using_member(SemaEntity& target, Scope& where,
 		{
 			parameters.push_back(written[index]);
 		}
-		shadow.type = types_.function_of(types_.target(target.type), parameters,
-		                                 types_.variadic(target.type));
+		// 8.3.5p1: only the implicit object parameter is the derived class's;
+		// the ref-qualifier written after the parameter-clause is part of the
+		// function type the base declared, so it travels with the rest of it -
+		// which is what 13.3.1p4 reads to say the brought-in declaration is
+		// viable, and what 7.3.3p14 reads to say the derived class's own
+		// declaration of the same spelling hides it.
+		shadow.type = types_.ref_qualified_function(
+			types_.function_of(types_.target(target.type), parameters,
+			                   types_.variadic(target.type)),
+			types_.function_ref_qualifier(target.type));
 	}
 	SemaEntity* const head = model_.find(where, name, LookupKind::Any);
 	if (head != nullptr && head->kind == SemaKind::Function &&
@@ -2297,7 +2331,7 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 
 	DumpNode& line = open_fact(*target.node, "function-definition " +
 	                           entity.dump_name + " " +
-	                           types_.description(type),
+	                           function_description(type, entity.object_member),
 	                           FactKind::FunctionDefinition);
 	line.fact.entity = &entity;
 	line.fact.type = type;
@@ -2402,39 +2436,55 @@ std::uint32_t SemaAnalyzer::declaration_signature(const Scope& where,
 }
 
 // 13.1p2: a class shall not declare a member function with a ref-qualifier and
-// one without where the two agree in everything else, because 13.3.1p5's rule
-// that an unqualified member binds an rvalue too would leave a call on an
-// rvalue with no way to choose between them.  The chain the name heads is
-// indexed by 8.3.5p1's qualifier along with the rest of the signature, so the
-// question is the one probe for the signature the other spelling would have
-// given rather than a walk of the declarations already made.
+// one without where the two have the same name and the same parameter-type-list,
+// because 13.3.1p5's rule that an unqualified member binds an rvalue too would
+// leave a call on an rvalue with no way to choose between them.
+//
+// 8.3.5p4's parameter-type-list is the types the declarator wrote, which
+// 8.3.5p7's cv-qualifier-seq is no part of - so `f() const` and `f() &&` are a
+// pair this refuses just as `f()` and `f() &&` are, and the declaration asked
+// about may have written any of the four qualifications.  The chain the name
+// heads is indexed by both qualifiers along with the rest of the signature, so
+// each is one further probe of that index rather than a walk of the
+// declarations already made.
 void SemaAnalyzer::require_uniform_ref_qualifiers(const SemaEntity& head,
                                                   const std::string& name,
                                                   TypeId type)
 {
-	static const RefQualifier kSpellings[] = {
-		RefQualifier::None, RefQualifier::LValue, RefQualifier::RValue
+	static const unsigned kQualifications[] = {
+		kCvNone, kCvConst, kCvVolatile, kCvConst | kCvVolatile
 	};
-	const RefQualifier written = types_.function_ref_qualifier(type);
-	for (std::size_t index = 0; index < 3; ++index)
+	static const RefQualifier kSpellings[] = {
+		RefQualifier::LValue, RefQualifier::RValue
+	};
+	// Two ref-qualified declarations are two functions 13.3.1p4 tells apart by
+	// the category the object argument has, so what a declaration that wrote one
+	// asks about is the unqualified spelling alone, and what a declaration that
+	// wrote none asks about is either of the two.
+	const bool qualified =
+		types_.function_ref_qualifier(type) != RefQualifier::None;
+	const std::vector<TypeId>& written = types_.parameters(type);
+	std::vector<TypeId> parameters(written);
+	const TypeId object = types_.strip_cv(types_.target(written[0]));
+	for (std::size_t index = 0; index < 4; ++index)
 	{
-		const RefQualifier other = kSpellings[index];
-		if (other == written ||
-		    (written != RefQualifier::None && other != RefQualifier::None))
+		parameters[0] =
+			types_.pointer_to(types_.qualified(object, kQualifications[index]));
+		const TypeId probe = types_.function_of(types_.target(type), parameters,
+		                                        types_.variadic(type));
+		for (std::size_t spelling = 0; spelling < (qualified ? 1u : 2u);
+		     ++spelling)
 		{
-			// Two ref-qualified declarations are two functions 13.3.1p4 tells
-			// apart by the category the object argument has, so only the
-			// unqualified spelling is the one this asks about.
-			continue;
-		}
-		if (model_.overload_of(
-			    head, member_signature(
-				    types_.ref_qualified_function(type, other), true)) != nullptr)
-		{
-			throw std::runtime_error(
-				"a class declares " + name +
-				" both with and without a ref-qualifier, which 13.1p2 does not "
-				"allow");
+			const TypeId other = types_.ref_qualified_function(
+				probe, qualified ? RefQualifier::None : kSpellings[spelling]);
+			if (model_.overload_of(head, member_signature(other, true)) !=
+			    nullptr)
+			{
+				throw std::runtime_error(
+					"a class declares " + name +
+					" both with and without a ref-qualifier, which 13.1p2 does "
+					"not allow");
+			}
 		}
 	}
 }

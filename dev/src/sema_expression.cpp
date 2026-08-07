@@ -568,15 +568,21 @@ void SemaAnalyzer::name_function(Value& value, SemaEntity& selected,
 	// declaration reached under one name is written under another.
 	const std::string named =
 		value.name != nullptr ? payload_of(*value.name) : function.dump_name;
+	// 8.3.5p1 and 9.3.1p3: the name of a member function stands for a type whose
+	// first parameter is the object, and what the dump spells of it is that
+	// parameter rather than the qualifiers the declarator wrote after its
+	// parameter-clause - which the type goes on carrying for 13.1 to read.
+	const TypeId shown =
+		function_description_type(function.type, function.object_member);
 	if (value.addressed != nullptr)
 	{
 		// 5.3.1p3 and 13.4: `&f` is a pointer to the declaration the target
 		// chose, and the name under it is that declaration.
 		value.addressed->text = spell("id-expression", ValueCategory::LValue,
-		                              function.type, named);
+		                              shown, named);
 		value.addressed->fact.kind = FactKind::Id;
 		value.addressed->fact.type = function.type;
-		value.addressed->fact.spelled = function.type;
+		value.addressed->fact.spelled = shown;
 		value.addressed->fact.category = ValueCategory::LValue;
 		value.addressed->fact.entity = &function;
 		value.type = member_pointer_of(function);
@@ -594,7 +600,7 @@ void SemaAnalyzer::name_function(Value& value, SemaEntity& selected,
 		return;
 	}
 	value.type = function.type;
-	value.spelled = function.type;
+	value.spelled = shown;
 	value.category = ValueCategory::LValue;
 	value.entity = &function;
 	if (value.node == nullptr)
@@ -607,7 +613,8 @@ void SemaAnalyzer::name_function(Value& value, SemaEntity& selected,
 		// its type rather than after it, so it is the one line `spell` does not
 		// write and the one a conversion is never written around.
 		value.node->text =
-			"callee " + function.dump_name + " " + types_.description(function.type);
+			"callee " + function.dump_name + " " +
+			function_description(function.type, function.object_member);
 		value.node->fact.kind = FactKind::Callee;
 		value.node->fact.type = function.type;
 		value.node->fact.spelled = function.type;
@@ -1101,16 +1108,20 @@ SemaAnalyzer::Value SemaAnalyzer::member_value(SemaEntity& member,
 	const unsigned carried = types_.object_cv(object.type) &
 		(member.mutable_member ? ~unsigned(kCvConst) : ~0u);
 	value.type = types_.qualified(member.type, carried);
-	if (types_.is_reference(member.type))
+	const bool reference = types_.is_reference(member.type);
+	if (reference)
 	{
 		// 8.3.2p5: a member of reference type names what it is bound to, which
 		// the object it is part of does not qualify.
 		value.type = types_.target(member.type);
 	}
 	value.spelled = value.type;
-	// 5.2.5p4: the member of a prvalue object is an xvalue; PA12 reaches a
-	// member of an object the program named, which is an lvalue.
-	value.category = object.category == ValueCategory::LValue
+	// 5.2.5p4: `E1.E2` is an lvalue wherever E2 is declared to have reference
+	// type, whatever E1 was - what such a member names is the object it is bound
+	// to and not a subobject of E1, so E1's own category says nothing about it.
+	// Otherwise the member of an object that is not an lvalue is an xvalue,
+	// which is what 13.3.1p4 then binds an `&&`-qualified member function by.
+	value.category = object.category == ValueCategory::LValue || reference
 		? ValueCategory::LValue
 		: ValueCategory::XValue;
 	value.node = &node;
