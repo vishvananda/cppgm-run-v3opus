@@ -1,0 +1,52 @@
+global @d [binding=strong, object=_Z1d] = {
+  zero 4
+}
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $p : ptr
+
+  block ^entry:
+    %t1 = addr @d
+    store ptr %t1, $p
+    %t2 = addr @d
+    %t3 = index i8 [projection=base_subobject] %t2, 0
+    %t4 = call i32 @YBase__reach(%t3)
+    %t5 = addr @d
+    %t6 = call i32 @YDerived__reach(%t5)
+    %t7 = binary add i32 %t4, %t6
+    %t8 = addr @d
+    %t9 = index i8 [projection=base_subobject] %t8, 0
+    %t10 = call i32 @YBase__only(%t9)
+    %t11 = binary add i32 %t7, %t10
+    %t12 = load ptr $p
+    %t13 = index i8 [projection=base_subobject] %t12, 0
+    %t14 = call i32 @YBase__reach(%t13)
+    %t15 = binary add i32 %t11, %t14
+    %t16 = binary sub i32 %t15, 14
+    return i32 %t16
+}
+function @YBase__only(%this : ptr) -> i32 [binding=weak, object=_ZN5YBase4onlyEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    return i32 10
+}
+function @YBase__reach(%this : ptr) -> i32 [binding=weak, object=_ZN5YBase5reachEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    return i32 1
+}
+function @YDerived__reach(%this : ptr) -> i32 [binding=weak, object=_ZN8YDerived5reachEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    return i32 2
+}
+function @__cppgm_init() -> void [role=init, binding=internal] {
+  block ^entry:
+    return void
+}

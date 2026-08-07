@@ -720,6 +720,38 @@ SemaEntity* SemaAnalyzer::member_named(Scope& region, const std::string& id,
                                        const Context& ctx,
                                        std::vector<SemaEntity*>& found)
 {
+	const QualifiedName written(id);
+	if (written.qualified())
+	{
+		// 5.2.5p1 and 5.2.5p2: the id-expression after `.` or `->` may be a
+		// qualified-id, and then the class its nested-name-specifier names is
+		// where the member is looked up - which has to be the object's own
+		// class or one 10.2's chain reaches from it, because the member has to
+		// be a member of the object.  3.4.5p1 looks the specifier up in that
+		// class first and then where the whole expression stands.
+		const std::string prefix = id.substr(0, id.size() -
+		                                     written.last().size() - 2);
+		SemaEntity* named = model_.lookup_in(region, prefix, LookupKind::Region);
+		if (named == nullptr)
+		{
+			named = resolve(prefix, ctx, LookupKind::Region);
+		}
+		if (named == nullptr || named->kind != SemaKind::Class ||
+		    named->scope == nullptr)
+		{
+			throw std::runtime_error(prefix + " names no class the member "
+			                         "access can be looked up in");
+		}
+		if (named->scope != &region && !derives_from(region, *named->scope))
+		{
+			throw std::runtime_error(prefix + " is not the class of the object "
+			                         "expression nor a base of it");
+		}
+		// The member is that class's, so what a call of it runs is that
+		// class's function.  10.3 would make this the non-virtual call, and
+		// this milestone has no virtual function for it to be one of.
+		return member_named(*named->scope, written.last(), ctx, found);
+	}
 	SemaEntity* const member =
 		model_.lookup_in(region, id, LookupKind::Any, &found);
 	if (member != nullptr)
