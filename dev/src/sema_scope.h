@@ -6,6 +6,7 @@
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "sema_facts.h"
@@ -162,6 +163,15 @@ struct SemaEntity
 	// zero without giving the derived class any storage for it, so this is what
 	// 9.2p13 asks about a base before it lays the members out after it.
 	bool empty_class;
+	// Class and the ABI: where every empty class subobject of an object of this
+	// class stands, as the class it is of and the byte it begins at.  The ABI
+	// gives an empty base subobject offset zero and then forbids a second
+	// subobject of that same class from standing there too, so 9.2p13 has to
+	// know more than "the base holds nothing": it has to know which class holds
+	// nothing where.  The list is what says it, built once where the class is
+	// completed from the base's list and each member's, and empty for a class
+	// with no empty subobject at all - which is nearly every class.
+	std::vector<std::pair<TypeId, unsigned long long> > empty_subobjects;
 	// 12.1 and 12.4: which special member function this declaration declares,
 	// as one of the `kOrdinaryFunction` constants.
 	unsigned char special;

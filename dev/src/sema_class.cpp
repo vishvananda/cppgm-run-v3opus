@@ -327,6 +327,13 @@ void SemaAnalyzer::lay_out_class(SemaEntity& entity, Scope& scope, bool is_union
 	BitUnit unit;
 	unsigned long long align = 1;
 	bool empty = true;
+	// The ABI: where the empty class subobjects of this object stand, filled in
+	// as they are placed.  It is what the members after them are checked
+	// against, and what the classes that go on to hold one of these objects
+	// read.
+	std::vector<std::pair<TypeId, unsigned long long> >& holes =
+		entity.empty_subobjects;
+	holes.clear();
 	// 12.8p25 and 9p6: whether a copy of an object of this class is the copy of
 	// its bytes.  It is not where the program wrote a copy constructor of its
 	// own, nor where any subobject's copy is not, because 12.8p15 makes the
@@ -348,6 +355,11 @@ void SemaAnalyzer::lay_out_class(SemaEntity& entity, Scope& scope, bool is_union
 			size = types_.object_size(entity.base->type);
 			empty = false;
 		}
+		// The base subobject begins where this object does, so every empty
+		// class subobject of it stands at the byte it stands at inside the
+		// base - and no member of this class may be given one of those bytes
+		// for a subobject of the same class.
+		place_empty_subobjects(entity.base->type, 0, holes);
 	}
 	for (std::size_t index = 0; index < scope.declarations.size(); ++index)
 	{
@@ -402,7 +414,22 @@ void SemaAnalyzer::lay_out_class(SemaEntity& entity, Scope& scope, bool is_union
 		// the fields before it were given.
 		unit.open = false;
 		member.offset = round_up(size, member_align);
+		// The ABI: two subobjects of the same class may not begin at the same
+		// byte, and an empty one takes no storage to push the next along - so
+		// where this member would put one where an earlier subobject already
+		// has one of its class, it is moved to the next address its alignment
+		// allows and asked again.
+		while (collides_with_empty(member.type, member.offset, holes))
+		{
+			member.offset = round_up(member.offset + 1, member_align);
+		}
+		place_empty_subobjects(member.type, member.offset, holes);
 		size = member.offset + member_size;
+		if (size < member.offset)
+		{
+			throw std::runtime_error("a class is larger than its object "
+			                         "representation can address");
+		}
 	}
 	if (requested != 0)
 	{
@@ -416,11 +443,78 @@ void SemaAnalyzer::lay_out_class(SemaEntity& entity, Scope& scope, bool is_union
 		align = requested;
 	}
 	entity.empty_class = empty;
+	if (empty)
+	{
+		// 9p6 and the ABI: an object of this class holds nothing, so it is
+		// itself an empty subobject wherever one of it stands - and the class
+		// that goes on to hold one reads that from here.
+		holes.push_back(std::make_pair(types_.strip_cv(entity.type), 0ull));
+	}
 	// 1.8p5: a complete object has a size of at least one byte.
 	size = round_up(size, align);
 	types_.complete_class(entity.type, size == 0 ? 1 : size, align, empty,
 	                      trivially_copied);
 }
+// The ABI: where the empty class subobjects of an object of `type` standing at
+// `at` are, appended to `holes`.  A type that is no class has none, and a class
+// with none appends nothing - so the list is the size of the empty subobjects
+// the source wrote and not of the members it wrote.
+void SemaAnalyzer::place_empty_subobjects(
+	TypeId type, unsigned long long at,
+	std::vector<std::pair<TypeId, unsigned long long> >& holes)
+{
+	TypeId bare = types_.strip_cv(type);
+	// 8.3.4p1: an array is its elements, and only the first of them can be
+	// given a byte something already holds - the ones after it begin past
+	// storage the layout has already counted.
+	while (types_.kind(bare) == TypeKind::Array)
+	{
+		bare = types_.strip_cv(types_.target(bare));
+	}
+	if (!types_.is_class(bare))
+	{
+		return;
+	}
+	const SemaEntity* const owner = model_.type_owner(bare);
+	if (owner == nullptr)
+	{
+		return;
+	}
+	for (std::size_t index = 0; index < owner->empty_subobjects.size(); ++index)
+	{
+		holes.push_back(
+			std::make_pair(owner->empty_subobjects[index].first,
+			               at + owner->empty_subobjects[index].second));
+	}
+}
+
+// The ABI: whether putting an object of `type` at `at` would put a subobject of
+// some class where a subobject of that same class already stands.  A class with
+// no empty subobject at all answers before asking anything, which is what keeps
+// this one comparison per member for nearly every class.
+bool SemaAnalyzer::collides_with_empty(
+	TypeId type, unsigned long long at,
+	const std::vector<std::pair<TypeId, unsigned long long> >& holes)
+{
+	if (holes.empty())
+	{
+		return false;
+	}
+	std::vector<std::pair<TypeId, unsigned long long> > wanted;
+	place_empty_subobjects(type, at, wanted);
+	for (std::size_t index = 0; index < wanted.size(); ++index)
+	{
+		for (std::size_t other = 0; other < holes.size(); ++other)
+		{
+			if (holes[other] == wanted[index])
+			{
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
 // 10p1: the base-clause of a class definition, which says what every object of
 // the class holds a subobject of.  The base is recorded on the class and on the
 // region it declares, and every later question - 9.2p13 layout, 10.2 lookup,

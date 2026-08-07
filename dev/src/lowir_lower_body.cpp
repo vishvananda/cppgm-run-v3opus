@@ -2477,13 +2477,20 @@ Operand LowirFunctionLowering::pointer_operation(unsigned op,
 		difference.type.text = "ptr";
 		difference.first = converted(left, common);
 		difference.second = converted(right, common);
+		const Operand bytes = emit(difference);
+		const unsigned long long stride = types.object_size(element);
+		if (stride == 1)
+		{
+			// The distance in elements of an element one byte wide is the
+			// distance in bytes, which is what the subtraction already is.
+			return bytes;
+		}
 		Instruction scale;
 		scale.kind = Instruction::IK_BINARY;
 		scale.op = "div";
 		scale.type = unit_.low_type(result);
-		scale.first = emit(difference);
-		scale.second = named_operand(Operand::OP_INTEGER,
-		                             decimal(types.object_size(element)));
+		scale.first = bytes;
+		scale.second = named_operand(Operand::OP_INTEGER, decimal(stride));
 		return emit(scale);
 	}
 	const bool pointer_left =
@@ -2850,16 +2857,21 @@ LowValue LowirFunctionLowering::subscript_expression(const DumpNode& node)
 	{
 		// An element with no register form is not a width LowIR indexes by, so
 		// the subscript counts the bytes 5.2.1p1 says the element occupies.
-		Instruction scale;
-		scale.kind = Instruction::IK_BINARY;
-		scale.op = "mul";
-		scale.type.text = "i64";
-		scale.first = instruction.second;
-		scale.second = named_operand(
-			Operand::OP_INTEGER,
-			decimal(types.object_size(types.strip_cv(node.fact.type))));
+		// An element that is one byte is already counted in them.
+		const unsigned long long stride =
+			types.object_size(types.strip_cv(node.fact.type));
 		instruction.type.text = "i8";
-		instruction.second = emit(scale);
+		if (stride != 1)
+		{
+			Instruction scale;
+			scale.kind = Instruction::IK_BINARY;
+			scale.op = "mul";
+			scale.type.text = "i64";
+			scale.first = instruction.second;
+			scale.second =
+				named_operand(Operand::OP_INTEGER, decimal(stride));
+			instruction.second = emit(scale);
+		}
 	}
 	LowValue value;
 	value.type = node.fact.type;

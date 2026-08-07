@@ -805,6 +805,19 @@ private:
 	// `packed` the one 16.6 caps every subobject at, or zero for none.
 	void lay_out_class(SemaEntity& entity, Scope& scope, bool is_union,
 	                   unsigned long long requested, unsigned long long packed);
+	// The ABI: where the empty class subobjects of an object of `type` standing
+	// at `at` are, appended to `holes`, and whether putting one there would put
+	// a subobject of some class where a subobject of that class already stands.
+	// The ABI gives an empty base subobject offset zero and then forbids a
+	// second subobject of its class from standing there, and an empty subobject
+	// takes no storage to push the next one along - so the offsets alone do not
+	// say it and the classes standing at them have to be carried.
+	void place_empty_subobjects(
+		TypeId type, unsigned long long at,
+		std::vector<std::pair<TypeId, unsigned long long> >& holes);
+	bool collides_with_empty(
+		TypeId type, unsigned long long at,
+		const std::vector<std::pair<TypeId, unsigned long long> >& holes);
 	// 16.6: the packing alignment in force where `node` was written.
 	unsigned long long packing_of(const AstNode& node) const;
 	// 9.6p2: the storage unit the bit-fields of a class are being allocated

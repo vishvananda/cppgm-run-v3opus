@@ -1,0 +1,24 @@
+global @h [binding=strong, object=_Z1h] = {
+  zero 8
+}
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    %t1 = addr @h
+    %t2 = index i8 [projection=field] %t1, 1
+    %t3 = addr @h
+    %t4 = binary sub ptr %t2, %t3
+    %t5 = convert trunc i32 i64 %t4
+    %t6 = addr @h
+    %t7 = index i8 [projection=field] %t6, 2
+    %t8 = addr @h
+    %t9 = binary sub ptr %t7, %t8
+    %t10 = convert trunc i32 i64 %t9
+    %t11 = binary add i32 %t5, %t10
+    %t12 = binary sub i32 %t11, 3
+    return i32 %t12
+}
+function @__cppgm_init() -> void [role=init, binding=internal] {
+  block ^entry:
+    return void
+}

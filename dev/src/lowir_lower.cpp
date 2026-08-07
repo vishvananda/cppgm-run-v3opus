@@ -319,6 +319,13 @@ void LowirProgramBuilder::finish()
 	if (has_startup_)
 	{
 		startup_.blocks.back().instructions.push_back(leave);
+		// 3.6.2p2: a declaration with static storage duration whose
+		// initialization comes to nothing still opened this body, so it can be
+		// one `return` and no action at all.  It is written anyway, because the
+		// references write it for every namespace-scope object of class type
+		// and the checked-in fixtures ask for it - and what the failure map
+		// names is the one place they do not, which is 9p6's object of an empty
+		// class, settled where that object's own construction is.
 		program_.functions.push_back(startup_);
 		has_startup_ = false;
 		startup_ = lowir_model::Function();
