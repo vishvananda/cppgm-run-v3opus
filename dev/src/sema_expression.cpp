@@ -1710,8 +1710,9 @@ SemaAnalyzer::Value SemaAnalyzer::cast_expression(const AstNode& node,
 	}
 	// 5.2.9p4 and 5.4p4: the cast is a direct-initialization of the target from
 	// the operand, so an operand of class type reaches it through a conversion
-	// function of its class - one 12.3.2p2 lets be declared `explicit`.
-	explicit_conversion(source, target, ctx);
+	// function of its class - one 12.3.2p2 lets be declared `explicit`, and
+	// none of which leaves the cast with nothing to read.
+	cast_conversion(source, target, ctx);
 	line.text = spell(value.what, value.category, target, value.payload);
 	value.node = &line;
 	record(value);
@@ -2119,7 +2120,7 @@ SemaAnalyzer::Value SemaAnalyzer::increment_expression(const AstNode& node,
                                                        bool postfix)
 {
 	DumpNode& line = model_.open_node(parent, std::string());
-	const Value operand = expression(*node.children[0], ctx, line);
+	Value operand = expression(*node.children[0], ctx, line);
 	require_complete_value(operand);
 	// 13.5.7p1: `x++` is read as `x++0`, so the candidates of a postfix
 	// increment are gathered over two operands and the second is a zero the
@@ -2150,6 +2151,10 @@ SemaAnalyzer::Value SemaAnalyzer::increment_expression(const AstNode& node,
 		// built-in operator reads and the line it wrote leaves the tree.
 		line.children.pop_back();
 	}
+	// 13.6p3 and p5: an operand of class type reaches the built-in operator
+	// through a conversion function of its class that hands back an lvalue,
+	// which is what the operand now is.
+	operand = operands[0];
 	// 5.2.6p1 and 5.3.2p1: the operand is a modifiable lvalue of arithmetic or
 	// pointer type, and `--` does not take a `bool`.
 	if (operand.category != ValueCategory::LValue ||

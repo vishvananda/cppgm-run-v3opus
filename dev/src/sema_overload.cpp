@@ -546,6 +546,31 @@ bool SemaAnalyzer::explicit_conversion(Value& value, TypeId target,
 	return true;
 }
 
+// 5.2.9p4 and 5.4p4: a cast of an operand of class type to any other object
+// type is the direct-initialization of a value of that type from the operand,
+// so a conversion function of the operand's class is the whole of what carries
+// it.  Where none does, the cast reaches nothing - there is no reading of the
+// bytes of the object behind it, which for a class of a different size or
+// layout is not a value of the target type at all.  5.2.9p4's cast to `void`
+// is the one that asks for no value, and a cast to a class or to a reference is
+// 8.5's initialization of one and answered where that is.
+void SemaAnalyzer::cast_conversion(Value& source, TypeId target,
+                                   const Context& ctx)
+{
+	if (explicit_conversion(source, target, ctx) ||
+	    !types_.is_class(types_.strip_cv(source.type)) ||
+	    types_.is_class(types_.strip_cv(target)) ||
+	    types_.is_reference(target) || types_.is_void(types_.strip_cv(target)))
+	{
+		return;
+	}
+	throw std::runtime_error("a cast reads an operand of " +
+	                         types_.description(source.type) + " as " +
+	                         types_.description(target) +
+	                         ", which no conversion function of its class "
+	                         "reaches");
+}
+
 // 6.4.2p2: the condition of a switch statement, which is contextually
 // *implicitly* converted - so a conversion function declared `explicit` is none
 // of the candidates, and the type the statement selects on is the one the class
@@ -602,7 +627,12 @@ void SemaAnalyzer::contextual_integral(Value& value, const Context& ctx)
 // and a class that produces two of them leaves no one built-in candidate that
 // 13.3 could choose.  The class already holds its conversions as one list, so
 // this is one walk of that list and never a search.
-TypeId SemaAnalyzer::builtin_conversion_type(const Value& value)
+//
+// `reference` is 13.6p3 and p5's operand: `++E` and `--E` are written over
+// `VQ T&`, so what reaches them is a conversion function that hands back an
+// lvalue of a type they are written for, and the type the operand takes is that
+// reference rather than the value behind it.
+TypeId SemaAnalyzer::builtin_conversion_type(const Value& value, bool reference)
 {
 	SemaEntity* const owner =
 		model_.type_owner(types_.strip_cv(value.type));
@@ -630,7 +660,8 @@ TypeId SemaAnalyzer::builtin_conversion_type(const Value& value)
 		{
 			continue;
 		}
-		TypeId result = types_.target(at->type);
+		const TypeId handed = types_.target(at->type);
+		TypeId result = handed;
 		if (types_.is_reference(result))
 		{
 			result = types_.target(result);
@@ -641,6 +672,20 @@ TypeId SemaAnalyzer::builtin_conversion_type(const Value& value)
 		    kind != TypeKind::Pointer && kind != TypeKind::MemberPointer)
 		{
 			continue;
+		}
+		if (reference)
+		{
+			// 13.6p3 and p5: the operand of `++` and `--` is an lvalue of an
+			// arithmetic or pointer type, so a conversion that hands back a
+			// value reaches neither, and one that hands back an lvalue of an
+			// enumeration or a pointer to member reaches no candidate written
+			// over one.
+			if (types_.kind(handed) != TypeKind::LValueReference ||
+			    (!types_.is_arithmetic(result) && kind != TypeKind::Pointer))
+			{
+				continue;
+			}
+			result = handed;
 		}
 		const Match reached =
 			match_argument(object, types_.parameters(at->type)[0]);
@@ -673,21 +718,27 @@ TypeId SemaAnalyzer::builtin_conversion_type(const Value& value)
 bool SemaAnalyzer::builtin_operands(unsigned token, const Context& ctx,
                                     std::vector<Value>& operands)
 {
-	// 13.6 writes each candidate's operands out, and only the ones taken by
-	// value are ones a conversion function can fill: `&E`, `E = F`, `++E` and
-	// `E, F` take a reference or take the operand as it stands, so an operand
-	// of class type reaches no built-in candidate of theirs at all.  A compound
-	// assignment takes its left operand by reference and its right by value, so
-	// only the right one is asked.
+	// 13.6 writes each candidate's operands out, and which of them a conversion
+	// function can fill is which of them is taken by value: `&E`, `E = F` and
+	// `E, F` take the operand as it stands or take a reference 13.6 writes over
+	// the operand's own type, so an operand of class type reaches no built-in
+	// candidate of theirs at all.  A compound assignment takes its left operand
+	// by reference and its right by value, so only the right one is asked.
+	// 13.6p3 and p5's `++E` and `--E` are the ones written over a reference an
+	// operand *can* reach, because a conversion function may hand back an
+	// lvalue of the type they increment.
 	std::size_t first = 0;
+	bool reference = false;
 	switch (token)
 	{
 	case OP_ASS:
 	case OP_COMMA:
 	case OP_ARROW:
+		return false;
 	case OP_INC:
 	case OP_DEC:
-		return false;
+		reference = true;
+		break;
 	case OP_AMP:
 		if (operands.size() == 1)
 		{
@@ -732,7 +783,7 @@ bool SemaAnalyzer::builtin_operands(unsigned token, const Context& ctx,
 		{
 			continue;
 		}
-		const TypeId wanted = builtin_conversion_type(operand);
+		const TypeId wanted = builtin_conversion_type(operand, reference);
 		if (wanted == kNoType)
 		{
 			continue;
@@ -2423,7 +2474,7 @@ SemaAnalyzer::Value SemaAnalyzer::functional_cast(const AstNode& node,
 		// what 5.2.9p1 and 5.4p4 make of the operand.
 		return cast_to_reference(target, source, parent, line, value);
 	}
-	explicit_conversion(source, target, ctx);
+	cast_conversion(source, target, ctx);
 	value.node = &line;
 	respell(value);
 	return value;

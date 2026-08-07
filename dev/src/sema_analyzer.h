@@ -589,6 +589,10 @@ private:
 	// explicit cast, which 12.3.2p2 lets choose a conversion function declared
 	// `explicit`.  True when a conversion was written.
 	bool explicit_conversion(Value& value, TypeId target, const Context& ctx);
+	// 5.2.9p4 and 5.4p4: the same question a cast asks, with the refusal that
+	// an operand of class type no conversion function carries to the target is
+	// a cast that reads nothing rather than one that reads the object's bytes.
+	void cast_conversion(Value& source, TypeId target, const Context& ctx);
 	// 5.2.2p3: the value a call of `chosen` on an object of its class hands
 	// back, as the analysis reads it.
 	Value conversion_result(const SemaEntity& chosen) const;
@@ -607,7 +611,9 @@ private:
 	// which is the one type that class converts to that a built-in operator has
 	// an operand of.  `kNoType` where the class converts to no such type or to
 	// more than one, which leaves the built-in operators with no one candidate.
-	TypeId builtin_conversion_type(const Value& value);
+	// `reference` asks 13.6p3 and p5's question instead - which lvalue the
+	// class hands back, for the operators written over one.
+	TypeId builtin_conversion_type(const Value& value, bool reference = false);
 	// 13.6 and 13.3.1.2p2: the operands a built-in operator reads, where one of
 	// them is of class type and reaches that operator through a conversion
 	// function.  True when any operand was converted.
