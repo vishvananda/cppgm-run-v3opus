@@ -1,185 +1,191 @@
 # PA16 Audit — `cppgm++ --emit-lowir` object model
 
-A review of each landed checkpoint, in the order a fact travels: parse, declare,
-lay out, resolve, lower.
+The final, whole-stage audit of PA16, re-derived from the README, the standard
+and the source rather than from the checkpoint record. Seven blockers, all
+fixed; the sweeps that found them; and the evidence.
 
-## Current Checkpoint Review
+## Findings
 
-**C15 — the three constructs of the PA16 subset that had no path at all,
-reviewed at `2a5ff418`.** The split the checkpoint made is the right one and its
-seam is real: four fixtures wrote a construct that reached no rule of this unit,
-and the three constructs behind them are each a fact a phase before 7 established
-that phase 7 was never handed. 16.6's directive is the clearest case — a value and an
-epoch counter in the preprocessor, a `(position, alignment)` record wherever the
-epoch moves, and one binary search where 9.2p2 completes the class, so a unit
-that writes no such pragma stores nothing and searches nothing. 2.14.8's literal
-is the same shape one phase down, and settling it by the one written
-parameter-type-list p3 to p6 name per form rather than by 13.3 is what keeps a
-`char` operator out of an integer literal's way. 5.2.4's call is settled from the
-name after the `~` before the object expression is read, which is what lets it be
-told from a destructor without reading that expression twice. Four sweeps of 761
-programs left the layout agreeing with g++ on all 363 of its own, and 102 of the
-push/pop programs byte-identical to the references.
+Ranked by what they cost the milestone.
 
-**What the review found is that each of the three rules reads a fact from
-somewhere that is not its owner** — a literal's form guessed from the characters
-of its spelling rather than taken from the phase that lexed it, the class's
-position taken from a span another rule widens, and a `pop` restoring a value no
-frame saved. Each guess is right for the shapes the fixtures write and wrong for
-a sibling of every one of them.
+1. **12.6p1's array of class type was quadratic in a bound the source wrote as
+   one number.** Every element was written out, and C14 had made each of them a
+   step 15.2p2 asks about separately - so `struct YX { YA w[400]; };` was
+   494 836 lines in 0.93 s from three lines of source, where the references
+   write 55 flat. 8.5.1p7's tail had the same shape one layer up: the analysis
+   made one node per unreached element, so an array subobject with two clauses
+   was 484 501 lines at 400.
+2. **15.2p2's handlers were quadratic in the members a class declares.** Each
+   step's handler wrote out the destructions of every step before it, which is
+   n(n+1)/2 calls: a class with 2000 members of class type was 6 053 039 lines
+   in 12.48 s. 12.4p8's suffix had already been chained past a limit for
+   exactly this reason and 12.6.2's steps had not.
+3. **Six checked-in `.ref` fixtures held answers no reference binary wrote.**
+   `make -C pa16 ref-test` regenerates every `.ref` from `cppgm++-ref`; doing
+   that and running the suite left six failures. Two assert `EXIT_FAILURE` for
+   `static int count = 0;` in a block, which the references lower and PA15 puts
+   out of scope; four hold LowIR this unit generated for thread-local shapes
+   the failure map already names as resolved against the references. A fixture
+   whose expectation is the implementation's own output tests nothing.
+4. **3.4.2's argument-dependent lookup for an ordinary call was unreachable.**
+   `f(c)` for a hidden friend or a function only an associated namespace
+   declares was refused, and so was the plainer namespace case - which says the
+   gap was never about friendship. 6.8p1 was where it sat: the parser let any
+   identifier no scope in force declares stand as a decl-specifier, so `f(c);`
+   was a declaration of `c` and the call never reached `call_expression`.
+   3.4.3.4's global `::` was refused for the same reason.
+5. **9.2p13 gave two subobjects of one class the same address.** The ABI gives
+   an empty base subobject offset zero and then forbids a second subobject of
+   that class from standing there; the layout asked only the first half, so
+   `struct Q {}; struct T : Q { Q q; };` was one byte where g++ and the
+   references write two - and one level in, `struct H { Q e; }; struct T : Q
+   { H m; };` was the same collision, where the references stop short and
+   misalign `m` doing it.
+6. **9.5p1's anonymous struct declared nothing.** `struct S { struct { unsigned
+   a; unsigned b; }; unsigned c; };` laid out 4 bytes and `s.a` named nothing,
+   where g++ and the references lay out 12. The union half of the same rule had
+   two defects of its own that the struct half found: a class written inside
+   another anonymous one had its members re-pointed at the outer object, and
+   the object such a class declares at namespace scope was declared and never
+   defined.
+7. **Two 5.2 forms were wrong or missing.** 4.12's conversion to `bool` was
+   skipped for a constant operand, so `(bool)2` passed 2 and `int(bool(2))` was
+   2 where g++ and the references write 1; and 5.2.5p1's qualified-id in a
+   member access was refused, which is the only way a program has of calling a
+   member a derived class hid.
 
-**1. A literal's form was guessed from its spelling, in two places.**
-`literal_expression` decided what 2.14p1 terminal it held by asking whether the
-spelling holds a `"` and whether it begins with a digit. A character-literal
-whose c-char *is* a quote holds one, so `char c = '"';` was refused — and
-`const char* p = '"';` was *accepted*, the character literal becoming an empty
-string literal the program never wrote and the object file holding a
-`@__strlit__1` for it. A floating-literal 2.14.4 spells with no integer part
-begins with neither, so `.5`, `.5f` and `.5e2` were "a literal is outside the
-PA12 subset" wherever one stood. `literal_constant` writes the same rule a second
-time with its own spelling of the same two guesses, so `char row['"' - 30];` was
-"a constant expression holds a literal that has no integral value" as well. The
-checkpoint had already lexed the string form's terminal back into the pp-tokens
-phase 3 read it as, and stopped one step short of letting that answer *which*
-literal it is: `scan_literal` in `string_literal.cpp` is now the one owner of
-that question, and both callers ask it. The references agree with this unit byte
-for byte on every shape it turns, and g++ on every value: the quote as a c-char
-through an initialization, a mem-initializer, a member function's body, an array
-bound, a `case` label, an enumerator and a `static_assert`, and the leading `.`
-at all three widths and in every place a floating literal can stand.
+Smaller things the same sweeps turned up, each fixed with the finding above it:
+a spelling with two writers, where `8.5p7`'s float zero was `0.0F` beside
+`spell_floating`'s `1.5f`; an `index` or a `div` scaled by a one-byte element;
+a member of an anonymous class addressed in two steps where it is one offset;
+`sema_class.cpp` at 3 137 lines against the audit's 3 000; and `Scope`'s
+constructor initializing two members out of declaration order, which was the
+one warning the build had.
 
-**2. 16.6's position was asked of a span the declaration rule owns.**
-`packing_of` read `AstNode::end` and called it the `}` the definition ends at.
-That field has two writers: `parse_class_specifier` sets it past the `}`, and
-`parse_declaration` then sets it past the `;` on whatever node it was handed —
-and a class-specifier that is a whole declaration is handed back as that
-declaration. So the position asked was the `}` for a class-specifier a declarator
-or another member follows and the `;` for one standing alone, and the same class
-was laid out two ways depending on how it was declared: `struct S { char c; int
-i; }` `#pragma pack(push, 1)` `;` was packed, and `... } g;` with the directive in
-the same place was not. 16.6 removes the directive in phase 4, so what phase 7
-reads is `struct S { char c; int i; };` and 9.2p13 settled its layout under a
-directive the class was already complete before. The `}` is now the
-class-specifier's own fact — `AstNode::completed`, one writer — and the span
-stays what the declaration rule owns and what 9.5p2's anonymous union is named
-by. No fixture can hold this: the references read the directive's tokens in that
-position as a declaration and emit a global named after them, and g++ refuses the
-program outright, so it is the standard and the sweep that hold it.
+## Changes
 
-**3. A `pop` restored a value no frame had saved.** A pop is the undoing of a
-push, and where there is no push there is nothing to undo. This reset the
-alignment to the default instead: `#pragma pack(1)` followed by `#pragma
-pack(pop)` laid `struct S { char c; int i; };` out at 8 where g++ writes 5, so a
-directive the program wrote was silently cancelled by one that named no frame.
-The labelled form had the mirror of it — a `pop` naming a label nothing on the
-stack pushed unwound nothing, where g++ drops the innermost frame, so
-`pack(2)` / `push(a,1)` / `push(c,8)` / `pop(z)` is 8 here and 5 there. Both are
-one rule: a pop drops the frame the label names where it names one and the
-innermost otherwise, restores what that frame saved, and restores nothing where
-there is no frame at all. All nine push/pop shapes now agree with g++.
+- **12.6p1 and 12.4p8 as a loop.** One number in `sema_facts.h`,
+  `kArrayLoopLimit` (16), because three layers have to agree about which form
+  was written: the analysis leaves 8.5.1p7's tail as one action carrying how
+  many elements it is; the lowering writes the construction and the destruction
+  as a loop over an index the function holds; and 12.4p8's suffix counts that
+  array as one step. 15.2p2 is what the index is for beyond counting - an
+  exception out of the element being built leaves the ones before it standing,
+  and how many those are is a value only the loop knows, so the handler reads
+  the index back and destroys that many.
+- **15.2p2's handlers as a chain.** Past `kUnwindSuffixLimit` a handler
+  destroys the subobject the step before it built and enters that step's own
+  handler, which is the rest of what it owes - the same chain 12.4p8's suffix
+  already used, and the block it enters is the one `unwind_dispatch_` already
+  recorded.
+- **6.8p1's answer.** `DeclaredNames` keeps, per spelling, the kinds the unit's
+  declarations gave it - one bit each, unit-wide rather than per scope, because
+  the question is about the unit - and answers `Value` for a name no
+  declaration made a type. 14.2p3 keeps its own answer, so `declval<T>()` stays
+  a call. A qualified spelling is asked the question of the name it ends in,
+  which is what settles 3.4.3.4's global `::`.
+- **The ABI's empty subobjects.** A class carries where the empty class
+  subobjects of an object of it stand, as the class and the byte, built once
+  where 9.2p2 completes it from the base's list and each member's. A member
+  whose type would put one where one of its class already stands is moved to
+  the next address its alignment allows and asked again. A class with none
+  answers before asking anything.
+- **9.5p1 over a class rather than over a union.** The injection no longer
+  tells the two apart; a class written inside another anonymous one keeps its
+  own chain and the outer one gives that object its place; the namespace-scope
+  object is defined with internal linkage; and the lowering follows the chain
+  the analysis holds, adding the offsets rather than writing an `index` per
+  link. An anonymous struct outside a class declares nothing and is refused.
+- **5.2.9 and 5.2.5.** The constant path of a cast excludes `bool` for the same
+  reason `converted` already did. The member lookup splits a qualified
+  id-expression the way every other qualified name is split, asks the class the
+  prefix names - the object's own or one 10.2's chain reaches - and runs the
+  same one walk from there.
+- **The seam `sema_class.cpp` had grown past.** `sema_class.cpp` keeps what a
+  class *is* and `sema_lifetime.cpp` takes what running its special members
+  comes to. Both read the same `SemaEntity` and neither re-reads syntax the
+  other read.
+- **Six fixtures removed.** Every remaining `.ref` in the assignment is one
+  `cppgm++-ref` wrote, and `make -C pa16 ref-test` is now idempotent. The
+  behaviour they asserted is unchanged and is named in the plan's Final
+  Architecture Review; the wrapper, the guard, the per-use call and 12.4p11's
+  registration are still covered by two thread-local fixtures the references
+  agree with.
 
-### Left for a later checkpoint
+## Performance Evidence
 
-- **The five shapes the remaining fixtures write differently** (C16) — the
-  incomplete class as a return type, one `addr $m` written twice for a `const`
-  subobject, the empty-body elision, `_GLOBAL__N_1`, and `std::nullptr_t`'s LowIR
-  type. Unchanged by this audit and named in the plan with its owners.
-- **15.2p1 and 15.2p2's region around a whole full-expression.** The references
-  put a cleanup around every full-expression that can throw while an object is
-  still owed a destruction, not only around the call that builds a subobject: an
-  object a declaration named earlier in the block, a call written as a
-  mem-initializer's argument (`b(side())`), and a new-expression written in one
-  are each a region there and none here. The three are one rule and one
-  checkpoint — the value the expression produces has to cross the region, which
-  is what the `$call__n` slot the references materialize is for. 109 of the 1 097
-  programs of the C14 sweeps are this and nothing else.
-- **The ABI's two entry points counted from uses this unit never writes.** The
-  flags are set by the analysis wherever it reads a definition, and the 3.2p3
-  closure then emits only some of them, so a class no program reaches makes its
-  base owe both names. It is bounded — the extra name is a definition nothing
-  calls, never a call of a name nothing defines — and answering it needs the
-  closure to run before the naming is decided.
-- **12.6p1's array of class type as a loop** and the single defects the failure
-  map lists — unchanged and owned elsewhere.
+Measured with `cppgm++ --emit-lowir -O0` on synthesized inputs, this host, at
+the end of the audit.
 
-### Confirmed intact
+| axis | sizes | before | after |
+| --- | --- | --- | --- |
+| `YA w[n]` as a member, a local, a namespace-scope object | 50 / 400 / 4000 | 9 386 / 494 836 lines, 0.01 / 0.93 s | 147 lines and 0.00 s at every size |
+| an array subobject with two clauses and an 8.5.1p7 tail | 50 / 400 / 4000 | 8 151 / 484 501 lines | 199 lines at every size |
+| n members of class type in one class | 250 / 1000 / 2000 / 4000 | 100 414 / 1 526 539 / 6 053 039 lines, 0.18 / 2.99 / 12.48 s | 8 146 / 31 396 / 62 396 / 124 396 lines, 0.01 / 0.05 / 0.11 / 0.22 s |
+| n classes each with an empty base and an empty member | 500 / 1000 / 2000 / 4000 | — | 0.02 / 0.04 / 0.10 / 0.22 s |
+| a chain of n empty classes | 1000 / 2000 / 4000 | — | 0.03 / 0.08 / 0.26 s |
+| n hidden-friend ADL calls in one body | 500 / 1000 / 2000 / 4000 | refused | 0.00 / 0.01 / 0.02 / 0.05 s, 2 n + 19 lines |
+| n anonymous structs in one class | 250 / 500 / 1000 / 2000 | refused | 0.01 / 0.02 / 0.04 / 0.10 s |
+| n qualified-id member calls in one body | 250 / 500 / 1000 / 2000 | refused | 0.00 / 0.01 / 0.02 / 0.04 s |
+| n classes nested one inside the next, member access at the bottom | 250 / 500 / 1000 / 2000 | — | 0.00 / 0.01 / 0.02 / 0.05 s |
+| n nested blocks each holding an object of class type | 250 / 500 / 1000 / 2000 | — | 0.00 / 0.01 / 0.04 / 0.16 s |
+| a base chain n deep, member access at the bottom | 250 / 500 / 1000 / 2000 | — | 0.00 / 0.01 / 0.02 / 0.05 s, 16 lines at every size |
+| n member functions declared and called | 250 / 500 / 1000 / 2000 | — | 0.05 / 0.02 / 0.04 / 0.09 s |
+| n distinct non-member operators, each used once | 250 / 500 / 1000 / 2000 | — | 0.04 / 0.13 / 0.57 / 2.22 s |
+| n objects built by a constructor with an argument | 250 / 500 / 1000 / 2000 | — | 0.00 / 0.01 / 0.02 / 0.05 s |
+| n bit-fields declared and written | 250 / 500 / 1000 / 2000 | — | 0.01 / 0.01 / 0.03 / 0.06 s |
+| n placement new-expressions | 250 / 500 / 1000 / 2000 | — | 0.01 / 0.01 / 0.03 / 0.06 s |
+| n namespace-scope nested aggregates | 250 / 500 / 1000 / 2000 | — | 0.00 / 0.01 / 0.02 / 0.04 s |
 
-- pa1-pa15 hold at 1174 / 1174 from a clean tree. pa16 was 307 / 312 at the
-  turn's start and is 307 / 312 at the end — the same five fixtures failing, each
-  named in the failure map — and 309 / 314 with the two regression tests this
-  audit adds.
-- Of the 277 passing fixtures with a reference output to compare, 179 are byte
-  for byte identical. What is left differs only in the order the top-level
-  definitions are written in, in the internal symbol name `lowir.md` makes a
-  presentation tie-breaker, and in `unwind` and `trivial_lifecycle`, which the
-  comparison ignores. `pass=` differs on no passing fixture.
-- A 462-program layout sweep — 11 directive forms x 4 class shapes x 12 member
-  sets — reading every member's byte offset back out of the emitted LowIR and
-  every size and alignment through a compile-time refusal, against **g++** as the
-  oracle: 393 agree exactly, and every one of the 69 that do not is in the two
-  families named below, both of which disagree with g++ with no directive
-  written at all. The same 462 against `cppgm++-ref`: 239 byte-identical, 50
-  refused by both, and every remaining disagreement either a directive form the
-  references do not read (`pack(n)`, `pack()`, a bare or labelled push and pop)
-  or one of those same two families. The numbers are unchanged from before this
-  audit's fixes, so nothing in the sweep regressed.
-- Nine `#pragma pack` push/pop shapes measured against g++ one at a time —
-  empty-stack pop, push then pop, a labelled pop that misses with one frame and
-  with two, a labelled pop that hits, a labelled pop on an empty stack, two pops
-  for one push, a bare push, and nested frames under one label — all nine agree.
-- 30 `#pragma pack` placement and scope programs, 32 user-defined-literal
-  programs, 29 pseudo-destructor programs and 17 literal-form programs against
-  `cppgm++-ref`, with every disagreement named here or in the plan. The
-  literal-form set reaches every layer that reads a parsed literal — an
-  initialization, a mem-initializer, a member function's body, an array bound of
-  a member and of a block-scope object, a `case` label, an enumerator, a
-  `static_assert`, and a concatenation written over three lines, raw and wide.
-- Valgrind is clean over 650 programs — every pa16 general fixture source and
-  every synthesized input of the placement, literal, pseudo-destructor, push/pop
-  and scaling sweeps, plus a sampled 180 of the layout sweep.
-- Seven scaling axes measured after the fixes and all linear: n directives with
-  one class, n classes under one directive, n of each interleaved, n string
-  literals, one sequence of n parts, n user-defined literals and n overloads of
-  one literal operator, each at 250 / 500 / 1000 / 2000 or 500 / 1000 / 2000 /
-  4000 and none above 0.07 s.
-- No fallback success path, timeout workaround, source-specific gate, dummy
-  output or file-audit bypass survives. Finding 1 removes the one silent success
-  this audit found — a character literal answered with a string literal no
-  program wrote — and finding 3 removes a directive silently cancelling another.
-  16.6's own silence for a directive this implementation does not have is not one
-  of them: it is what the standard says a pragma it does not support does, and
-  every form the ABI names is read.
-- The file audit passes with the same two `bad-division` warnings every audit
-  since C1-C2 has recorded, in `sema_analyzer.h` and `lowir_lower.h`. What this
-  audit adds to a header is one `std::uint32_t` on `AstNode` — which fits the
-  padding the node already had — and one free function on `string_literal.h`.
+Every axis above is linear at 2.0-2.5x per doubling but the operator one, which
+is the lookup each of n classes pays, and the two the plan names and does not
+average away: 3.8p1's return through n nested blocks, which is the n^2/2 calls
+the source asks for, and a name declared n levels up a chain of n classes, which
+is a lookup that misses at every level.
 
-### Checked and left alone
+## Validation
 
-- **Bit-fields under a `#pragma pack` are laid out as the references lay them
-  out and not as g++ does.** 45 of the 462 sweep programs are this, and they
-  disagree with g++ with no directive written at all —
-  `struct { char c; unsigned b1 : 3; unsigned b2 : 30; char t; }` is 12 bytes for
-  g++ and 16 for the references and for this unit, which agree byte for byte. It
-  is 9.6p2's allocation and predates the object model.
-- **`alignas` on a member or on the class is not weakened by a pack.** g++ lets
-  the directive cap an alignment-specifier; 7.6.2p5 says a specifier only ever
-  strengthens, and the references agree with this unit on all 24 of the sweep
-  programs that write one. That is where the disagreement was left.
-- **2.14.8p3's raw literal operator is a fallback here and a refusal there**,
-  the cooked numeric argument is `unsigned long long` here and the literal's own
-  type converted there, a character literal's ud-suffix is dropped there, and
-  `"ab"_x "cd"` is accepted here and refused there. All four are named in the
-  plan, all four are what 2.14.8 and g++ say, and the values agree.
-- **A floating value with no integer part is echoed into a scalar image item as
-  the program wrote it** — `double d = .5;` is `= .5` here and `= 0.5` there.
-  It is the spelling divergence the plan already names, the value agrees, and
-  `lowiropt` and `lowir2cy86` read it.
-- **A member named through a qualified-id on an object is refused**, so
-  `p->I::~I()` for a scalar `I` is refused here and by the references alike. It
-  is 5.2.5p1's own path, predates the object model, and is in the failure map.
-- **A class's `operator new`, `_GLOBAL__N_1`, the discarded prvalue's name and
-  every divergence the C6-C14 audits recorded** — all unchanged.
+- `make test-report-through-pa16` - **1494 / 1494**, from 1493 / 1493 at the
+  turn's start with six fabricated fixtures removed and seven regression tests
+  added: the array lifecycle at the loop limit, a hidden friend found by an
+  ordinary call, a global-scope qualified call with a class argument, an empty
+  base and a member of its class, a cast to `bool`, an anonymous struct's layout
+  and lookup, and a qualified-id in a member access. Each of the seven agrees
+  with `cppgm++-ref` after the relaxed comparison, and each was generated
+  through `make -C pa16 ref-test`.
+- `perl scripts/cppgm_file_audit.pl --stage pa16 --paths dev/src` - passes with
+  the two recorded header-weight warnings, `dev/src/lowir_lower.h` and
+  `dev/src/sema_analyzer.h`. `sema_class.cpp` is 1 953 lines and
+  `sema_lifetime.cpp` 1 250 against the 3 000 limit. The build has no warnings.
+- Differential sweeps against `cppgm++-ref`, compared with the harness's own
+  canonicalization: 144 programs over array element shape x bound x placement
+  (18 identical, 126 in the empty-`@__cppgm_init` and empty-destructor families
+  the failure map names); 53 over the callee's placement x the shape of the call
+  x seven programs 6.8p1 must still read as declarations (46 identical, 11
+  refused by both because `::f(c)` and `(f)(c)` suppress 3.4.2, none refused
+  here alone); 60 over base shape x member run (28 identical, 32 in the
+  empty-init family and the ABI rule); 350 over 14 cast targets x 10 operands x
+  3 spellings (330 identical, 20 the `copy i64` the references write between two
+  `i64` types of different signedness); 15 over anonymous struct, union, nested
+  and namespace-scope shapes (11 identical); 12 over the shapes a qualified-id
+  takes (9 identical, 2 refused by both). Every disagreement is named in the
+  plan's Final Architecture Review.
+- A 107-shape layout sweep against **g++** - 6 base shapes x 18 member runs -
+  agrees on every size, where the direct empty-subobject collision had been
+  wrong before.
+- Execution through `lowir2cy86` and `cy86`: 35 programs counting the
+  constructions and destructions of both array forms at bounds either side of
+  the limit; 7 counting them across the 15.2p2 chain's limit at 1, 2, 15, 16,
+  17, 18 and 40 members; and one cross-feature program - a base class, an empty
+  member, a 20-element array of class type, an anonymous struct, a hidden-friend
+  call, two qualified-id calls and a `bool` cast - that this unit and g++ agree
+  on.
+- Valgrind clean over all **306** pa16 fixture sources and over the 144, 60, 53,
+  15 and 12 program sweeps.
+- The metadata the comparison strips: `object=`, `binding=`, `storage=` and
+  `linkage=` agree with the references over **282 of 284** passing fixtures.
+  The two that differ are the `_GLOBAL__N_1` local-name marker C16 resolved for
+  g++, which writes the same nested component this unit does.
 
 ## Checkpoint Audit Ledger
 
@@ -198,7 +204,7 @@ there is no frame at all. All nine push/pop shapes now agree with g++.
 | C13 | 5.3.4's new-expression: 3.7.4.1's allocation function found by 5.3.4p9's lookup, chosen by 13.3 from 5.3.4p8's byte count and the new-placement's own arguments, with 8.5p16's object built at the address it returned; 5.2.3p3's `T{...}` in the parser for a type-name, a keyword simple-type-specifier and a decltype-specifier, list-initialized by 8.5.1 for an aggregate and 13.3.1.7 for any other class; 12.8p31's elision of `T{...}` into the object it initializes; 8.5.1p2's member of a class that holds nothing written as the nothing the checked-in LowIR writes | 12.5p1's allocation function of a class read as an ordinary member, so one written without `static` was given 9.3.1p3's object parameter and `new((void*)buf) T(3)` was "no declaration of operator new accepts the arguments of a call"; the same name spelled `T::operator new` with the space its tokens are separated by wherever a declarator was qualified, so an out-of-class definition declared and defined `_ZN1T12operator newEmPv` while the call named `_ZN1TnwEmPv`; 8.5.1p2's empty-class subobject suppressed for every clause where 12.8p31 elides a prvalue into one for a prvalue alone, so `{ Mark(), 1 }`, `{ {}, 1 }` and `{ {3, 4}, 1 }` each lost the constructor the program wrote; the address of such a subobject, and of every element of an array of them, computed for an initialization that writes nothing; 5.19's fold answering for a floating operand with the integer no floating literal sets, so `float a = 1.5f;` was `global @a : f32 = 0` and so was every floating member, element and namespace-scope object; 5.2.3p2's floating `T()` spelled `0.0` at all three widths, which `lowir.md` gives f80 an `L` for; 8.5p7's zero of a pointer written as the integer 4.10p1 converts from rather than as the null pointer value; an element of an array of class type indexed by its object type on the subobject path and by the bytes it occupies on the element walk; 8.5.4p7 refusing `struct S { float m; }; S s = { 2.25 };`, whose value the conversion keeps | pa16 277 / 291 -> 278 / 291, the same set passing and `100-default-member-initializer-scalar-brace` with it, and 283 / 296 with five regression tests added; pa1-pa15 1174 / 1174; byte-identical passing fixtures 165 of 241, the rest differing only in top-level order, the internal symbol name and `unwind` / `trivial_lifecycle`, both ignored, with `pass=` agreeing on every one; valgrind clean over 780 programs - every pa16 fixture source and every synthesized input of the three sweeps; three differential sweeps against `cppgm++-ref` of 150, 108 and 210 programs over the allocated type x the initializer form x `::`, over where a class declares its allocation function x how the new-expression finds it x the empty-class subobject's clause x where the object stands, and over the floating types x ten initializer forms x seven places, leaving 6 status disagreements of 468 - all six the floating arithmetic this milestone does not fold - and every text disagreement named above or in the failure map; seven axes measured, all linear at 1.9-2.1x per doubling; file audit passes with the two recorded header-weight warnings |
 | C14 | 15.2p2's cleanup around a partly built object: the subobjects a constructor has built kept as the calls it made, each call after the first in an `eh_try` whose handler destroys that list backwards, the instructions that named a subobject written again in the handler's own block, a step needing what the step before it needed naming that block again; 12.4p8's suffix in one `eh_cleanup` with a region per destruction, written wherever control leaves the body and chained past `kUnwindSuffixLimit`; 15.2p2's odr-use asked of the whole list of steps at once | 5.2.4's explicit destructor call asking for neither of the two things `note_destruction_entry` was built to own, so `p->~Box()` on a class whose destructor is implicitly declared wrote `declare function @Box___Box`, a call of it and no body anywhere; 12.2p1's temporary and 5.3.4p12's object taking the step's mark, so the heap object of `T() : p(::new((void*)buf) N), a() {}` joined the list and its handler re-ran the allocation function to find it and named temporaries of a block a handler may not name; an element of an array subobject past the first being no step at all, so `w{V(1), V(2), V(3)}, a()` left `w[1]` and `w[2]` standing where `a`'s constructor threw; that element addressed from one byte cursor, which is what the references write only where the array is the object itself and which no handler can write again - `V w[2][2]` from a braced clause emitted a handler naming a temporary of another block; 8.5.1p7's tail of an array of class type written as a span of zero bytes, so `N w[4] = { N(), N() };` destroyed four objects two constructors had built and `V w[4]` for a class with no default constructor was accepted where the references and g++ refuse it; 7.1.2p2's `inline` read only from the declaration the body is written on, so a constructor or destructor a class declares `inline` and a later definition defines bound strongly and owed both of the ABI's entry points as two definitions | pa16 291 / 301 -> 292 / 301, the same set passing and `300-explicit-destructor-call-enclosing-namespace-type` with it, and 297 / 306 with five regression tests added, one per finding; pa1-pa15 1174 / 1174; byte-identical passing fixtures 162 of 253, the rest differing only in top-level order, the internal symbol name and `unwind` / `trivial_lifecycle`, both ignored, with `pass=` agreeing on every one; valgrind clean over 642 programs - every pa16 fixture source and every synthesized input of the sweeps; four differential sweeps of 1 097 programs against `cppgm++-ref` over what a class holds x its destructor's shape x where the object stands, the subobject count across `kUnwindSuffixLimit`, what a mem-initializer's clause can be, and array subobjects x nesting depth x source order, with every remaining disagreement named - 109 the region gap 15.2p1 owns, 40 multiple inheritance the README excludes, 17 the block-scope `static` refusal, 8 the array loop and the empty-body elision, 5 the `zeroinit` limit, 5 the aggregate constructor of an array of aggregates and 3 the entry-point count; the constructor of an array subobject byte-identical to the references at 50 / 100 / 200 / 400 elements and 8.5.1p7's tail linear at 24 041 lines for 4000 elements in 0.06 s; g++ agrees with this unit on the four shapes it turns; file audit passes with the two recorded header-weight warnings |
 | C15 | 16.6's `#pragma pack` carried from phase 4 to phase 7 as a value, an epoch counter and a `(position, alignment)` table the layout binary-searches where 9.2p2 completes the class; 2.14.8's user-defined-literal as the call p2 says it is, chosen by the one written parameter-type-list p3 to p6 name per form with p3's raw fallback and 13.5.8's `li` terminal; 5.2.4's pseudo-destructor call settled from the name after the `~` and written as the operand's value discarded; 2.14.5p12's sequence rebuilt from its parts | a literal's form guessed from the characters of its spelling, in `literal_expression` and again in `literal_constant`, so a character-literal whose c-char is a quote was a string - `char c = '"';` refused and `const char* p = '"';` accepted with a `@__strlit__1` no program wrote - and a floating-literal 2.14.4 spells with no integer part was no literal at all, `.5` / `.5f` / `.5e2` outside the subset wherever one stood and `char row['"' - 30];` with them; 16.6's position asked of `AstNode::end`, a span `parse_declaration` widens past the `;` for a class-specifier that is a whole declaration, so `struct S { char c; int i; }` `#pragma pack(push, 1)` `;` was packed by a directive the class was complete before while `... } g;` was not; a `pop` with an empty stack resetting the alignment to the default rather than leaving what a `pack` before it asked for, `#pragma pack(1)` then `#pragma pack(pop)` laying `struct S { char c; int i; };` out at 8 where g++ writes 5, and a labelled `pop` naming a label nothing pushed unwinding nothing where g++ drops the innermost frame | pa16 307 / 312 held, the same five fixtures failing, and 309 / 314 with two regression tests added; pa1-pa15 1174 / 1174; byte-identical passing fixtures 179 of 277, the rest differing only in top-level order, the internal symbol name and `unwind` / `trivial_lifecycle`, both ignored, with `pass=` agreeing on every one; a 462-program layout sweep - 11 directive forms x 4 class shapes x 12 member sets - read against **g++** through every member's byte offset in the emitted LowIR and every size and alignment through a compile-time refusal, 393 agreeing exactly and all 69 that do not in the bit-field and `alignas` families, which disagree with g++ with no directive written at all and agree with the references byte for byte; the same 462 against `cppgm++-ref` unchanged by the fixes at 239 byte-identical and 50 refused by both; nine push/pop shapes measured against g++ one at a time and all nine agreeing; 30 placement, 32 literal-operator, 29 pseudo-destructor and 17 literal-form programs against the references with every disagreement named; valgrind clean over 650 programs; seven scaling axes linear and none above 0.07 s; file audit passes with the two recorded header-weight warnings, and what this audit adds to a header is one `std::uint32_t` inside `AstNode`'s existing padding and one free function |
-
+| final audit | the whole stage, re-derived from the README and the source | 12.6p1's array quadratic in a bound the source wrote as one number, and 8.5.1p7's tail with it; 15.2p2's handlers quadratic in the members a class declares; six `.ref` fixtures no reference binary wrote; 3.4.2 unreachable for an ordinary call because 6.8p1 read `f(c);` as a declaration, and 3.4.3.4's global `::` with it; 9.2p13 giving two subobjects of one class the same address, directly and one level in; 9.5p1's anonymous struct declaring nothing, an anonymous class nested in one losing its chain, and its namespace-scope object declared and never defined; 4.12's conversion to `bool` skipped for a constant operand; 5.2.5p1's qualified-id refused; one float zero spelled by a second hand; an `index` and a `div` scaled by a one-byte element; `sema_class.cpp` past the audit's size limit | pa16 305 -> 299 / 299 with the six removed and **306 / 306** with seven regression tests; pa1-pa16 **1494 / 1494**; the three quadratic axes linear; 107 layout shapes agreeing with g++; valgrind clean over 306 fixtures and 284 sweep programs; the stripped metadata agreeing with the references over 282 of 284 fixtures; file audit passes with the two recorded warnings |
 
 ## Durable architecture decisions
 
@@ -482,340 +488,41 @@ there is no frame at all. All nine push/pop shapes now agree with g++.
   saved - the frame the label names where it names one, and the innermost
   otherwise - and where it finds no frame it restores nothing, because there is
   no push whose effect it could be undoing. A pop never sets a value of its own.
-
-## Performance Evidence
-
-Measured with `cppgm++ --emit-lowir -O0` on synthesized inputs, this host, at the
-end of the audit. Every axis is linear in its size but the one named below the
-table, which is the chain 10.2p2 asks a missed name to walk.
-
-| axis | sizes | times |
-| --- | --- | --- |
-| n classes each with an out-of-class constructor definition | 500 / 1000 / 2000 / 4000 | 0.08 / 0.16 / 0.33 / 0.63 s |
-| n classes each with an out-of-class destructor definition | 500 / 1000 / 2000 / 4000 | 0.09 / 0.17 / 0.34 / 0.69 s |
-| n out-of-class constructor definitions of one class's overloads | 500 / 1000 / 2000 / 4000 | 0.04 / 0.07 / 0.13 / 0.26 s |
-| n out-of-class member definitions naming a member typedef | 500 / 1000 / 2000 / 4000 | 0.05 / 0.10 / 0.20 / 0.41 s |
-| n uses of a decltype-qualified name in one body | 500 / 1000 / 2000 / 4000 | 0.03 / 0.05 / 0.09 / 0.18 s |
-| n mutable members written through a const object | 500 / 1000 / 2000 / 4000 | 0.03 / 0.06 / 0.11 / 0.22 s |
-| n classes in a chain, each declaring a member of its own | 500 / 1000 / 2000 / 4000 | 0.02 / 0.03 / 0.06 / 0.12 s |
-| n classes in a chain, each naming the root's member typedef | 500 / 1000 / 2000 / 4000 | 0.09 / 0.33 / 1.25 / 6.06 s |
-| n base members each brought in by a using-declaration of its own | 500 / 1000 / 2000 / 4000 | 0.01 / 0.03 / 0.06 / 0.13 s |
-| one using-declaration bringing in n overloads of one name | 500 / 1000 / 2000 / 4000 | 0.02 / 0.03 / 0.07 / 0.14 s |
-| n brought-in overloads, all hidden by n declarations of the class's own | 500 / 1000 / 2000 / 4000 | 0.03 / 0.06 / 0.13 / 0.27 s |
-| n classes deep, each bringing in the one before it | 500 / 1000 / 2000 / 4000 | 0.01 / 0.02 / 0.05 / 0.10 s |
-| n calls of a brought-in member in one body | 500 / 1000 / 2000 / 4000 | 0.01 / 0.03 / 0.05 / 0.11 s |
-| n constructors of one base, all inherited | 500 / 1000 / 2000 / 4000 | 0.02 / 0.04 / 0.09 / 0.29 s |
-| n classes each inheriting the constructors of the one before it | 500 / 1000 / 2000 / 4000 | 0.03 / 0.06 / 0.12 / 0.26 s |
-| n objects built through one inherited constructor | 500 / 1000 / 2000 / 4000 | 0.03 / 0.05 / 0.10 / 0.21 s |
-| n classes constructed and destroyed both as a complete object and as a base | 500 / 1000 / 2000 / 4000 | 0.17 / 0.36 / 0.73 / 1.49 s |
-| one base constructor with n defaulted parameters, inherited | 500 / 1000 / 2000 / 4000 | 0.02 / 0.05 / 0.16 / 0.56 s |
-| n elements in one local array, constructed and destroyed | 500 / 1000 / 2000 / 4000 | 0.01 / 0.02 / 0.05 / 0.09 s |
-| n elements in one namespace-scope array, constructed and destroyed | 500 / 1000 / 2000 / 4000 | 0.01 / 0.02 / 0.05 / 0.09 s |
-| n x 2 member array constructed by the class it belongs to | 250 / 500 / 1000 / 2000 | 0.01 / 0.01 / 0.03 / 0.06 s |
-| n-element namespace-scope array value-initialized by `{}` | 500 / 1000 / 2000 / 4000 | 0.00 / 0.00 / 0.00 / 0.00 s |
-| n-element array member value-initialized by `m()` | 500 / 1000 / 2000 / 4000 | 0.00 / 0.00 / 0.00 / 0.00 s |
-| n members each with an alignment-specifier | 500 / 1000 / 2000 / 4000 | 0.00 / 0.01 / 0.01 / 0.03 s |
-| n class clauses of one namespace-scope array's static image | 500 / 1000 / 2000 / 4000 | 0.00 / 0.01 / 0.01 / 0.03 s |
-| array dimensions deep, 2^d elements | 6 / 8 / 10 / 12 | 0.00 / 0.01 / 0.05 / 0.26 s |
-| n classes nested one inside the next, each holding an array of two | 8 / 12 / 16 / 20 | 0.00 / 0.00 / 0.00 / 0.00 s |
-| n thread-local objects, each with a constructor | 500 / 1000 / 2000 / 4000 | 0.02 / 0.05 / 0.10 / 0.23 s |
-| n thread-local objects, each with only a destructor to register | 500 / 1000 / 2000 / 4000 | 0.03 / 0.05 / 0.12 / 0.25 s |
-| n thread-locals declared `extern` and used before all n definitions | 500 / 1000 / 2000 / 4000 | 0.03 / 0.06 / 0.12 / 0.25 s |
-| n uses of one thread-local in one body | 500 / 1000 / 2000 / 4000 | 0.01 / 0.01 / 0.03 / 0.06 s |
-| n calls of a reserved function | 500 / 1000 / 2000 / 4000 | 0.01 / 0.02 / 0.06 / 0.11 s |
-| n unused inline definitions | 500 / 1000 / 2000 / 4000 | 0.01 / 0.02 / 0.03 / 0.07 s |
-| n namespace-scope variable declarations, each redeclaration-probed | 500 / 1000 / 2000 / 4000 | 0.01 / 0.02 / 0.04 / 0.09 s |
-| n placement new-expressions of a class in one body | 500 / 1000 / 2000 / 4000 | 0.03 / 0.05 / 0.12 / 0.22 s |
-| n classes each declaring its own `operator new`, each new'd once | 500 / 1000 / 2000 / 4000 | 0.09 / 0.19 / 0.37 / 0.76 s |
-| n braced functional casts written as arguments | 500 / 1000 / 2000 / 4000 | 0.02 / 0.03 / 0.07 / 0.14 s |
-| n aggregates with an empty-class subobject built from `Z{1,2}` | 500 / 1000 / 2000 / 4000 | 0.03 / 0.06 / 0.12 / 0.25 s |
-| n namespace-scope floating objects, each an image item | 500 / 1000 / 2000 / 4000 | 0.01 / 0.03 / 0.05 / 0.10 s |
-| n member functions declared, each asked 12.5p1's question | 500 / 1000 / 2000 / 4000 | 0.02 / 0.03 / 0.06 / 0.13 s |
-| an aggregate whose member is an n-element array of a class | 500 / 1000 / 2000 / 4000 | 0.02 / 0.04 / 0.07 / 0.14 s |
-| n members of class type, each a 15.2p2 step | 50 / 100 / 200 / 400 | 0.01 / 0.02 / 0.10 / 0.40 s |
-| n elements of one array subobject written from a braced clause | 50 / 100 / 200 / 400 | 0.01 / 0.05 / 0.20 / 0.83 s |
-| an n-element array subobject with two clauses, tail value-initialized | 500 / 1000 / 2000 / 4000 | 0.01 / 0.01 / 0.03 / 0.06 s |
-| n `#pragma pack` push/pop pairs before one class | 250 / 500 / 1000 / 2000 | 0.01 / 0.01 / 0.01 / 0.01 s |
-| n classes laid out under one `#pragma pack` | 250 / 500 / 1000 / 2000 | 0.01 / 0.02 / 0.03 / 0.05 s |
-| n `#pragma pack` regions, one class in each | 250 / 500 / 1000 / 2000 | 0.01 / 0.02 / 0.03 / 0.05 s |
-| n string literals, each re-lexed for its form | 500 / 1000 / 2000 / 4000 | 0.01 / 0.02 / 0.04 / 0.07 s |
-| one string literal of n concatenated parts | 250 / 500 / 1000 / 2000 | 0.01 / 0.01 / 0.01 / 0.02 s |
-| n user-defined literals in one body | 250 / 500 / 1000 / 2000 | 0.01 / 0.01 / 0.01 / 0.02 s |
-| n declarations of one literal-operator-id, one literal using it | 250 / 500 / 1000 / 2000 | 0.01 / 0.02 / 0.03 / 0.06 s |
-
-- 5.3.4's new-expression costs one qualified lookup of `operator new`, one
-  overload resolution over what it reached and the initialization a declaration
-  of the same object costs - no scan of the unit and no second pass over the
-  type: n of them in one body are 10 n + 36 lines at 0.22 s for n = 4000, linear
-  at 2.0x per doubling. n *classes* each with an allocation function of its own
-  and one new-expression each is 34 n + 12 lines at 0.76 s, which is the class
-  scope's lookup and the definition of each function, not a search.
-- 12.5p1's question is one comparison of the name a member declaration wrote
-  against `operator`, asked where 9.3.1p3 decides whether the function has an
-  object parameter: 4000 member functions declared are 0.13 s and 21 lines,
-  linear at 2.0-2.2x, and a class with no allocation function pays that one
-  comparison per member.
-- 5.2.3p3's braces cost the one reading of the list the initialization would
-  cost anyway: 4000 braced functional casts as arguments are 7 n + 36 lines at
-  0.14 s. 8.5.1p2's empty-class subobject costs one flag on the action and one
-  test in the lowering - 4000 of them are 13 n + 20 lines at 0.25 s - and the
-  address it no longer computes is two instructions per subobject that are no
-  longer written.
-- 2.14.4's floating image is one spelling per item, so n namespace-scope
-  floating objects are 2 n + 5 lines at 0.10 s for n = 4000, linear at 2.0x.
-  Nothing walks the digits twice: the fold refuses a floating operand at the
-  first node it reaches, and the one decode 8.5.4p7 asks for happens only under
-  a braced clause whose types differ in width.
-- An element of an array of class type is now indexed the one way, so an
-  aggregate whose member is an n-element array of a class is 14 n + 14 lines at
-  0.14 s for n = 4000 - the same instructions per element the element walk
-  already wrote, and one description rather than two.
-- 16.6 costs one integer comparison per token and one record per directive that
-  changed the value, so 2000 push/pop pairs before one class are the same 0.01 s
-  as 250 of them: nothing is stored for a pair that leaves the alignment where it
-  was. The layout's own cost is one binary search per class - 2000 classes under
-  one directive are 0.05 s, and 2000 directives with a class each are the same
-  0.05 s, which is the classes and not the table. `AstNode::completed` is one
-  `std::uint32_t` written once by the rule that read the `}`, in the padding the
-  node already had, so it costs no memory and no pass.
-- Asking phase 3 which literal a terminal is costs one lex of that terminal's own
-  spelling, which is bounded by the terminal and paid once per literal the tree
-  holds: 4000 string literals are 0.07 s and 46 896 lines, one sequence of 2000
-  parts is 0.02 s, and 2000 user-defined literals are 0.02 s. The lex the string
-  form already paid for is now the one every form pays, and no spelling is
-  scanned twice. 2.14.8p3 to p6 compare interned type ids against one written
-  parameter-type-list per form, so n declarations of one literal-operator-id cost
-  n comparisons and nothing else: 2000 of them are 0.06 s and 14 lines.
-- 15.2p2's list costs one entry per call a constructor made and one handler per
-  step that needs different destructions from the step before it, so n
-  subobjects are the n(n+1)/2 calls the rule asks for - which is what the
-  references write and is bounded by what the source spelled out. n members of
-  class type are 5 118 / 17 693 / 65 343 / 250 643 lines at 50 / 100 / 200 / 400
-  in 0.01 / 0.02 / 0.10 / 0.40 s, byte-identical to `cppgm++-ref` at every size.
-  An array subobject written from a braced clause is the same shape now that
-  each element is a step - 9 396 / 33 746 / 127 446 / 494 846 lines in
-  0.01 / 0.05 / 0.20 / 0.83 s, with the constructor byte-identical to the
-  references and only the destructor differing, where they write the loop C15
-  owes.
-- Naming an element from the object each time costs the walk the source would
-  write - one `decay` and one step per dimension - and nothing is walked twice:
-  the address is written once by whoever needs it, so a scalar element that
-  stores its clause names itself once and not once for the store and once for
-  the step. 8.5.1p7's value-initialized tail is one action per element, which is
-  linear and is what the references write: an n-element array subobject with two
-  clauses is 6 n + 41 lines at 0.01 / 0.01 / 0.03 / 0.06 s for
-  500 / 1000 / 2000 / 4000, against the references' 0.52 / 0.54 / 0.64 / 0.86 s
-  for the same count.
-
-- A constructor or a destructor defined outside its class costs one probe of
-  13.1's index of the class's chain and the same body pass a definition written
-  in the class body costs: n classes each with one are 35 n + 9 lines at
-  0.63 s for n = 4000, and n such definitions of one class's overloads
-  0.26 s - each doubling 1.9-2.1x. What the object file holds is two definitions
-  of one body per strong definition and one plus an alias per inline one, so a
-  class with n constructors writes 2 n and not 2^n.
-- 7.1.6.2p1's decltype-specifier before `::` costs one reading of its expression
-  and one lookup in the region that type names, wherever the name is written:
-  4000 uses in one body are 0.18 s for 24 014 lines, linear at 2.0x. The
-  expression is read once by the parser and kept, so nothing re-parses it and the
-  version the parse memoizes against does not move.
-- 7.1.1p10's `mutable` is one flag on the member's own declaration and one mask
-  where 5.2.5p4 carries the object's cv: 4000 mutable members written through a
-  const object are 0.22 s for 36 020 lines, linear at 1.9-2.0x, and a class with
-  no mutable member pays one test per member access.
-- The one super-linear axis is 10.2p2's chain, and it is the lookup that misses
-  at every level: n classes in a chain each naming a name the root declares are
-  0.09 / 0.33 / 1.25 / 6.06 s at 500 / 1000 / 2000 / 4000, which is n steps for
-  each of n classes and 15 lines of output at every size. A name the class itself
-  declares costs one probe - the same chain with a member of its own at each
-  level is 0.12 s at 4000 - and a name no declaration of the unit wrote is one
-  probe of the declared names before any base is searched. The quadratic is what
-  a program that writes it asks for; it is named here rather than hidden, because
-  nothing in the fixtures reaches a chain more than a few classes deep.
-
-- The pass that lowers the thread-local definitions before any body costs one
-  walk of the unit's top level and lowers each definition once - the second
-  reach of the same node in the ordinary pass writes nothing, which
-  `emitted_globals_` is what says. 4000 thread-locals declared `extern`, used in
-  one body and then defined take 0.25 s for 104 011 lines, against 0.23 s and
-  104 006 for the same 4000 defined before the use: the same work in the same
-  order, and one call per use rather than none.
-- 3.2p3's closure holds after this audit: 4000 unused inline definitions are
-  4 output lines at 0.07 s, and the definitions-before-bodies pass reads no body
-  it would not otherwise have read.
-- A declaration of a variable now asks the region it declares into for the
-  declaration it already holds, so that 7.1.1p1 can be answered. That is one
-  probe of one hash per declaration: 4000 namespace-scope declarations are
-  0.09 s, linear at 2.0-2.3x per doubling.
-
-- What the hiding finding removed is per declaration and not per program: n
-  brought-in overloads hidden by n declarations of the class's own took 2.53 s at
-  n = 4000 when 7.3.3p14 was asked once per member declaration, and 0.27 s now
-  that it is one pass where 9.2p2 completes the class - 2.0-2.2x per doubling,
-  and 16 lines of output at every size, because what the program uses is one
-  call.
-- 7.3.3p1's using-declaration writes no work at a use: 4000 calls of a
-  brought-in member in one body are 24 017 lines in 0.11 s, six lines a call, and
-  a class 4000 deep each bringing in the one before it is 17 lines in 0.10 s
-  because 10.2 finds the member in the class it was named on.
-- 12.9's inherited constructors are one pass over the base's chain with one probe
-  of 13.1's index per member of 12.9p1's candidate set: n classes each inheriting
-  the one before it is 13 n + 14 lines at 2.0-2.2x per doubling, and n objects
-  built through one inherited constructor 10 n + 36. n constructors of one base
-  all inherited is 48 lines whatever n is, and its 3.2x at the last doubling is
-  the type layer interning n distinct parameter types: declaring the same n
-  constructors with no using-declaration at all grows 0.02 / 0.03 / 0.07 / 0.22 s
-  over the same sizes.
-- The ABI's two entry points are two definitions of one body: 4000 classes each
-  constructed and destroyed both ways are 368 009 lines in 1.49 s, 92 lines a
-  class, each doubling 2.0-2.1x. Where the unit holds no body they are two
-  declarations instead, which is two lines rather than none.
-- Every one of the array axes writes output exactly linear in the objects the
-  source asks for: at 500 and at 4000 the line counts are 5033 / 40 033 for the local
-  array, 5042 / 40 042 for the namespace-scope one and 1513 / 12 013 for the
-  static image - eight times the size for eight times the output. An array of
-  2^d elements d dimensions deep is 982 lines at d = 6 and 110 614 at d = 12,
-  which is the elements it has times the steps to one of them.
-- What the startup finding removed is per element and not per program: a
-  namespace-scope array value-initialized by `{}` is 14 lines at 500 elements and
-  at 4000, where it had been 5 n + 18 - 20 018 of them at 4000 - writing zero
-  into storage the program image already holds. The same holds of an array member
-  value-initialized by `m()`, which is 24 lines at every size because 8.5.1p7's
-  span is one `zeroinit` past 64 bytes.
-- A class with n alignment-specifiers costs one constant evaluation and one
-  comparison each in the one 9.2p13 pass: 23 lines of output at every size, and
-  0.03 s at 4000.
-- A class holding an array of two of the next, nested d deep, is 2^d objects and
-  d definitions: 404 lines at depth 20, because each level writes the two calls
-  its own constructor makes rather than the objects beneath them.
-
-- Measured at the C7 audit and unchanged, each doubling 1.9x-2.3x, at
-  500 / 1000 / 2000 / 4000: n declarations `YA q = p;` copying one class object,
-  0.04 / 0.06 / 0.10 / 0.17 s; n calls passing one by value,
-  0.04 / 0.05 / 0.07 / 0.12 s; n written temporaries each passed to a by-value
-  parameter, 0.04 / 0.06 / 0.09 / 0.15 s; n arguments reaching a class parameter
-  through 13.3.3.1.2's converting constructor, 0.04 / 0.05 / 0.09 / 0.15 s; n
-  functions each returning a temporary by value, 0.05 / 0.09 / 0.16 / 0.29 s; n
-  value-initialized 16-byte class objects, 0.04 / 0.07 / 0.11 / 0.21 s; n
-  conditionals over two class lvalues, 0.05 / 0.09 / 0.15 / 0.27 s; n classes
-  nested one inside the next, 0.03 / 0.05 / 0.07 / 0.13 s. A copy of one class
-  object is still one `copyobj` written where the object it goes into is known,
-  and no place allocates a slot for a copy it already owns storage for.
-- Measured at the C6 audit and unchanged, each doubling 2.0x-2.3x: n one-bit
-  fields in one class, aggregate-initialized then assigned one by one,
-  0.02 / 0.05 / 0.10 / 0.23 s; n fields of four alternating declared types, so
-  every field opens its own unit, 0.02 / 0.03 / 0.07 / 0.12 s; n classes nested
-  one inside the next each with two fields, 0.01 / 0.02 / 0.06 / 0.13 s; n reads
-  of two fields of one class in one body, 0.02 / 0.04 / 0.08 / 0.16 s; n
-  namespace-scope objects of a class with fields each dynamically initialized,
-  0.02 / 0.04 / 0.10 / 0.20 s. 9.6p2's layout still carries a byte cursor and the
-  open unit's type, start and used bits, so a field costs one comparison and one
-  addition and a class with no bit-field never opens a unit.
-- Measured at the C5 audit and unchanged, each doubling 2.0x-2.4x: one call with
-  n arguments of n distinct associated classes, 0.02 / 0.06 / 0.12 / 0.29 s;
-  base-chain depth with one ADL call two arguments deep,
-  0.00 / 0.01 / 0.03 / 0.06 s; n ADL calls each four classes above the friend,
-  0.01 / 0.02 / 0.05 / 0.10 s; a nested enum then a class eight deep,
-  0.01 / 0.03 / 0.06 / 0.11 s, and that shape by chain depth,
-  0.00 / 0.01 / 0.03 / 0.08 s; a chained `operator<<`,
-  0.00 / 0.01 / 0.01 / 0.03 s; operator nesting depth,
-  0.01 / 0.01 / 0.03 / 0.06 s; n namespaces each with a class and an ADL free
-  function, 0.04 / 0.10 / 0.21 / 0.43 s; n friend declarations revealed by as
-  many definitions, 0.03 / 0.07 / 0.15 / 0.35 s.
-- The one quadratic axis is quadratic because the resolution is: one class with n
-  friend `operator<<` overloads used n times, 250 / 500 / 1000 / 2000 at
-  0.05 / 0.15 / 0.62 / 2.99 s, the same before this audit and after.
-- Nested namespace depth is super-linear and belongs to the scope layer, not to
-  the operator or friend paths: 500 / 1000 / 2000 / 4000 deep with one ADL call
-  at the bottom take 0.01 / 0.02 / 0.07 / 0.24 s, unchanged by this audit.
-- Measured at the C4 audit and unchanged, each doubling 2.0x-2.3x:
-  derived-to-base conversions in one body four deep, 500 / 1000 / 2000 / 4000 at
-  0.01 / 0.02 / 0.03 / 0.07 s; accesses to a base's member four deep,
-  0.01 / 0.01 / 0.03 / 0.08 s; chain depth with one access to the root member,
-  0.01 / 0.02 / 0.04 / 0.09 s; 11.4p1 protected accesses through a five-deep
-  chain, 0.00 / 0.00 / 0.01 / 0.02 s; classes in a chain with nothing used,
-  0.01 / 0.02 / 0.04 / 0.09 s. The n*d output blow-up that audit removed stays
-  removed: a 4000-deep chain with 4000 accesses is 20 007 lines in 2.0 s where it
-  had been 16 012 007 in 54.6 s.
-- Measured earlier and unchanged: 4000 mem-initializers in one constructor,
-  0.07 s; 4000 default member initializers in one class, 0.06 s; 4000
-  namespace-scope objects constructed and destroyed, 0.09 s; 4000 loops each with
-  a `break` leaving one object, 0.33 s; 2000 constructor overloads chosen between
-  for one call, 0.06 s; a single `break` unwinding 800 nested blocks, 0.04 s;
-  8000 members laid out and initialized twice, 0.14 s; nested aggregate depth
-  800, 0.80 s; 8.5.1p7's zero-fill bound at 2^20 elements in under 0.01 s.
-
-## Validation
-
-- `make test-report ACTIVE_TEST_REPORT_PAS='pa16'` - 307 / 312 at the start of
-  this audit and 307 / 312 at the end, the same five fixtures failing and each
-  named in the failure map, and 309 / 314 with the two regression tests it adds:
-  a character-literal whose c-char is a quote, used as a mem-initializer's
-  argument, as a member's value and as the bound of an array member; and a
-  floating-literal with no integer part, used in a member's initialization, in a
-  member function's body and as a value compared against. Both agree with the
-  references byte for byte and with g++ on the value the program computes. The
-  third finding has no fixture and cannot have one: the references read a
-  directive written between a class's `}` and its `;` as a declaration and emit a
-  global named after its tokens, and g++ refuses that program outright, so 16.6's
-  own rule - the directive is removed in phase 4 - is what holds it, with the
-  sweep below.
-- `make test-report-through-pa15` - 1174 / 1174, from a clean tree and after
-  every change this audit makes.
-- `perl scripts/cppgm_file_audit.pl --stage pa16 --paths dev/src` - passes, with
-  the two `bad-division` warnings accounted for above.
-- `valgrind -q --error-exitcode=99 --leak-check=full` over every pa16 general
-  fixture source and every synthesized input of this audit's sweeps and probes -
-  650 programs, with no error reported.
-- A 462-program layout sweep against **g++**, which reads `#pragma pack` and is
-  the only oracle that does for the forms the references drop: 11 directive forms
-  (none, `push` at five widths, three bare widths, a labelled push/pop pair, and
-  a bare push inside a width) x 4 class shapes (plain, with a base, a union, and
-  `alignas` on the class) x 12 member sets (scalars, a pointer, an array, a
-  nested class, bit-fields with and without a zero-width separator, and a member
-  with its own alignment-specifier). Every size and alignment is checked by a
-  compile-time refusal and every member's byte offset is read back out of the
-  emitted LowIR. 393 agree with g++ exactly. All 69 that do not are in the two
-  families the plan already names - 45 bit-fields and 24 `alignas` - and both
-  disagree with g++ with no directive written at all, so neither is 16.6's. Both
-  agree with `cppgm++-ref` byte for byte.
-- The same 462 against `cppgm++-ref`: 239 byte-identical, 50 refused by both, and
-  every remaining disagreement either a directive form the references do not read
-  at all or one of those two families. The counts are the same before and after
-  this audit's fixes, so nothing the sweep covers regressed.
-- Nine `#pragma pack` push/pop shapes measured against g++ one at a time - a pop
-  with an empty stack after a bare width, a push then a pop, a labelled pop that
-  misses with one frame on the stack and with two, a labelled pop that hits under
-  two frames, a labelled pop on an empty stack, two pops for one push, a bare
-  push around a width, and two frames under the same label. All nine agreed after
-  finding 3 and three of them did not before it.
-- 30 `#pragma pack` placement and scope programs, 32 user-defined-literal
-  programs and 29 pseudo-destructor programs against `cppgm++-ref`. The placement
-  set covers a class declared in one region and defined in another, a class in a
-  function body, nested classes with the directive between them, `_Pragma` at
-  namespace scope and between two members, a directive under `#if` and under
-  `#if 0`, a macro as the width, a push that leaves the file it was written in,
-  a pop that arrives in another, an odd and a zero width, and every position the
-  directive can take around a class's `}` and `;`. Every disagreement is a form
-  the references do not read, a shape they mis-parse, or named in the plan.
-- g++ was asked about every shape this audit turns. It packs a class under a
-  directive written between two of its members, which is the rule the checkpoint
-  settled on and the one this unit keeps. It leaves the alignment where it is
-  when a pop finds no frame, and drops the innermost frame when a labelled pop
-  names a label nothing pushed - both of which this unit now does and did not.
-  It accepts `char c = '"';` and `double d = .5;` and refuses
-  `const char* p = '"';`, which the references do too and which this unit now
-  does. Where g++ and the references agree against this unit the finding was
-  taken as a defect; where the references read a form g++ and 16.6 both give a
-  meaning, the standard's reading was kept and recorded.
-- Scaling: seven new single-axis series at four sizes each for the paths this
-  audit touched, with the output line counts recorded beside the times, plus the
-  C4-C14 axes carried forward. None is above 0.07 s and every one is linear or
-  flat; the pragma-multiplicity axis is flat, because a push and a pop that leave
-  the alignment where it was record nothing.
-- Byte-identity: of the 277 passing fixtures with a reference output, 179 are
-  identical without any stripping at all. The rest differ only in the order the
-  top-level definitions are written in, in the internal symbol name `lowir.md`
-  makes a presentation tie-breaker, and in `unwind` and `trivial_lifecycle`,
-  which the comparison ignores - `pass=`, which it does not ignore, therefore
-  agrees on every one.
+- A construct every element or every step writes the same way is written out
+  while a reader wants to count them and written as its order past that. One
+  number says where the line is, and it is one number rather than three because
+  the analysis that leaves 8.5.1p7's tail as one action, the lowering that
+  writes 12.6p1's construction and 12.4p8's destruction as a loop, and the
+  counting of a destructor's suffix all have to agree about which form was
+  written. The order is a loop where the elements differ only by an index and a
+  chain where each step owes the one before it plus what that one owed.
+- 15.2p2's handler for a run of objects reads back the count the run itself
+  carries. How many elements an exception left standing is not something the
+  translation knows, so the index the loop holds is what says it, and the
+  handler is the same loop run backwards from there.
+- 6.8p1's ambiguity is settled by whether a name could be a type at all, which
+  is a question about the whole translation unit and not about a region: a name
+  no declaration anywhere made a type cannot begin a declaration wherever it is
+  written. That is what lets a call the program wrote reach 3.4.2 rather than
+  being read as a declaration of its argument, and it is asked only after every
+  scope, using-directive and base has been asked, so a name that is declared
+  pays nothing for it.
+- The ABI's rule about empty subobjects needs to know which class holds nothing
+  where, not that a base holds nothing. A class carries the empty class
+  subobjects of an object of it, as the class and the byte it begins at, built
+  once where 9.2p2 completes it from the base's list and each member's - because
+  an empty subobject takes no storage to push the next one along, so the offsets
+  alone do not say it.
+- 9.5p1 is a rule about an object no name reaches, not about a union. What the
+  anonymous union and the anonymous struct share is that their members are
+  members of that object; what they differ in is what the class's own layout
+  does with them, which was already settled elsewhere. A class written inside
+  another anonymous one leaves a chain of such objects, and the chain is what
+  the access follows - each object in turn from the outermost in, which is the
+  order the offsets add up in and one step in the output.
+- A `.ref` is what the reference binary wrote. Where this unit means to give a
+  different answer - because the standard and g++ say so, or because the input
+  is outside the milestone - the shape belongs in the failure map and in a
+  differential sweep, and not in a fixture whose expectation would then be this
+  implementation's own output. `make -C paN ref-test` regenerating every `.ref`
+  and the suite still passing is what says no fixture is one of those.
