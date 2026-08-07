@@ -758,15 +758,23 @@ void LowirFunctionLowering::constructor_call(const Operand& address,
 			// from and nothing is written into the one it builds.  1.9p12 still
 			// evaluates the operand where evaluating it is something the
 			// program can observe - a temporary created there is an object with
-			// a lifetime of its own however little it holds.
+			// a lifetime of its own however little it holds.  It is evaluated
+			// for what running it does and not for the object it is worth, so
+			// nothing here asks for storage to read that object out of.
 			if (observable_expression(*call.children[2]))
 			{
-				expression(*call.children[2], true);
+				expression(*call.children[2]);
 			}
 			return;
 		}
-		const LowValue source = expression(*call.children[2], true);
-		copy_object_storage(address, address_of(source), node.fact.type);
+		// 12.8p15: what the transfer carries is the object the operand is worth,
+		// which is the same question `place_class_object`'s copy asks - so it is
+		// read the same way.  A call that handed its object back holding no
+		// storage of its own is that object already, and giving it storage
+		// first would be one copy more than the copy asked for.
+		const LowValue source = expression(*call.children[2]);
+		copy_object_storage(address, class_copy_source(source),
+		                    node.fact.type);
 		return;
 	}
 	if (!always && !transfers_value &&
