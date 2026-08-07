@@ -44,6 +44,8 @@ SemaAnalyzer::Specifiers::Specifiers()
 	, is_inline(false)
 	, is_thread_local(false)
 	, is_friend(false)
+	, is_mutable(false)
+	, is_auto(false)
 	, alignment(0)
 	, introduced(nullptr)
 {
@@ -198,6 +200,20 @@ void SemaAnalyzer::read_type_specifier(const AstNode& node, Specifiers& out,
 		out.is_friend = true;
 		return;
 
+	case KW_MUTABLE:
+		// 7.1.1p10: the specifier nullifies the const an object of the class
+		// carries into the member, which is a fact about the member's own
+		// declaration and not about the type it was declared with.
+		out.is_mutable = true;
+		return;
+
+	case KW_AUTO:
+		// 7.1.6.4p1: the specifier names no type.  8.3.5p2 gives the one it
+		// stands for to a trailing-return-type, which the declarator writes
+		// after its declarator-id and which the declarator walk reads.
+		out.is_auto = true;
+		return;
+
 	case KW_CONST:
 		out.cv |= kCvConst;
 		return;
@@ -222,6 +238,20 @@ void SemaAnalyzer::read_type_specifier(const AstNode& node, Specifiers& out,
 
 TypeId SemaAnalyzer::specifier_type(const Specifiers& specifiers)
 {
+	if (specifiers.is_auto)
+	{
+		// 7.1.6.4p1 and 8.3.5p2: `auto` shall be the whole of the sequence, and
+		// what it stands for is whatever the trailing-return-type after the
+		// declarator-id writes - so the walk of the declarator is handed a type
+		// that is no type at all, and 8.3.5p2 is what it has to become.
+		if (specifiers.has_type_name || specifiers.builtins != 0 ||
+		    specifiers.cv != kCvNone)
+		{
+			throw std::runtime_error("a declaration writes `auto` beside "
+			                         "another type-specifier");
+		}
+		return kNoType;
+	}
 	if (specifiers.has_type_name)
 	{
 		return types_.qualified(specifiers.type_name, specifiers.cv);
@@ -293,6 +323,15 @@ TypeId SemaAnalyzer::declarator_type(const AstNode& node, TypeId base,
 	       (node.children[index]->kind == AstKind::PtrOperator ||
 	        node.children[index]->kind == AstKind::CvQualifier))
 	{
+		if (type == kNoType)
+		{
+			// 8.3.5p2: the declarator-id of a declaration written `auto` is
+			// reached through the parameter-clause the trailing-return-type
+			// belongs to and through nothing else, so `auto *f() -> int`
+			// derives a type from a type-specifier that names none.
+			throw std::runtime_error("a declarator written `auto` derives a "
+			                         "type 8.3.5p2 leaves unwritten");
+		}
 		const AstNode& part = *node.children[index];
 		type = part.kind == AstKind::CvQualifier
 			? types_.qualified(type, part.token == KW_CONST ? kCvConst
@@ -322,6 +361,28 @@ TypeId SemaAnalyzer::declarator_type(const AstNode& node, TypeId base,
 			function_cv |= part.token == KW_CONST ? kCvConst : kCvVolatile;
 			continue;
 		}
+		if (part.kind == AstKind::TrailingReturnType)
+		{
+			// 8.3.5p2: the type the function returns is the one written after
+			// the declarator-id rather than the one the decl-specifier-seq
+			// named, and 3.4.1p8 has already put `ctx` on the region that
+			// declarator-id reaches - which is what lets an out-of-class
+			// definition name a type its own class declares.
+			if (type != kNoType)
+			{
+				throw std::runtime_error(
+					"a declarator writes a trailing-return-type where its "
+					"specifiers already name a type, which 8.3.5p2 requires to "
+					"be `auto`");
+			}
+			type = type_id_type(*part.children[0], ctx);
+			continue;
+		}
+		if (type == kNoType)
+		{
+			throw std::runtime_error("a declarator written `auto` derives a "
+			                         "type 8.3.5p2 leaves unwritten");
+		}
 		type = apply_suffix(part, type, ctx, declared);
 		if (part.kind == AstKind::ParameterClause)
 		{
@@ -337,6 +398,14 @@ TypeId SemaAnalyzer::declarator_type(const AstNode& node, TypeId base,
 		}
 	}
 
+	if (type == kNoType)
+	{
+		// 7.1.6.4: the placeholder is still one, so the declaration wrote
+		// `auto` and no trailing-return-type - which is the deduced form this
+		// milestone does not have.
+		throw std::runtime_error("a declaration written `auto` writes no "
+		                         "trailing-return-type");
+	}
 	if (core == nullptr)
 	{
 		return type;

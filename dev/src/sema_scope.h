@@ -274,6 +274,12 @@ struct SemaEntity
 	// not write.  9.4p1 makes a member declared `static` a member of the class
 	// and not of an object, so the region alone does not say.
 	bool object_member;
+	// 7.1.1p10: whether the declaration wrote `mutable`, which nullifies the
+	// const an object of the class carries into this member.  A member function
+	// declared `const` may write one, and 5.3.1p3 hands back a pointer to
+	// non-const, so it is a fact about the member and not about the object it
+	// is reached through.
+	bool mutable_member;
 	// 14.1p1: the region this declaration's template parameters were declared
 	// in, which is what an instantiation of it substitutes arguments for.  Null
 	// for a declaration no template-declaration parameterises, which every

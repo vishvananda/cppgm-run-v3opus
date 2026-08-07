@@ -1621,8 +1621,11 @@ bool SemaAnalyzer::declares_static_member(Scope& where, const std::string& name,
 	{
 		return false;
 	}
+	// 13.1's index of a class's chain is keyed by the list the declarator wrote,
+	// and a definition of a static member function writes the same list its
+	// declaration did.
 	const SemaEntity* const prior =
-		model_.overload_of(*head, types_.signature(type));
+		model_.overload_of(*head, member_signature(type, false));
 	return prior != nullptr && !prior->object_member;
 }
 

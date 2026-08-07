@@ -259,6 +259,15 @@ private:
 		// declaring a member of it, so what it declares belongs to the region
 		// around the class and not to the class.
 		bool is_friend;
+		// 7.1.1p10: the non-static data members this sequence declares are not
+		// const however const the object holding them is, so a const member
+		// function may write one and 5.3.1p3 hands back a pointer to
+		// non-const.
+		bool is_mutable;
+		// 7.1.6.4p1 and 8.3.5p2: the sequence is the one type-specifier `auto`,
+		// which names no type of its own and stands for the one a
+		// trailing-return-type writes after the declarator-id.
+		bool is_auto;
 		// 7.6.2p1: the strictest alignment an alignment-specifier of this
 		// sequence asked for, or zero where it wrote none.
 		unsigned long long alignment;
@@ -775,7 +784,14 @@ private:
 	// parameter type lists agree.
 	SemaEntity& declare_function(const std::string& name, TypeId type,
 	                             const Context& target, bool define,
-	                             bool hidden = false);
+	                             bool hidden = false,
+	                             bool object_member = false);
+	// 13.1 and 9.3.1p3: the key the chain a name heads is indexed by, which is
+	// the parameter-type-list the declarator wrote wherever the region is a
+	// class - so a static and a non-static member function whose types agree
+	// only because one carries the object parameter are two declarations.
+	std::uint32_t declaration_signature(const Scope& where, TypeId type,
+	                                    bool object_member);
 	// 7.3.3p14: a member function this class declares hides the one a
 	// using-declaration brought in from a base with the same name and
 	// parameter-type-list rather than conflicting with it, so what was brought

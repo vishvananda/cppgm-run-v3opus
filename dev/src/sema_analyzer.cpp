@@ -717,7 +717,9 @@ void SemaAnalyzer::hide_using_members(Scope& where)
 		{
 			if (at->shadowed == nullptr)
 			{
-				model_.hold_overload(*kept, types_.signature(at->type), *at);
+				model_.hold_overload(
+					*kept, declaration_signature(where, at->type,
+					                             at->object_member), *at);
 			}
 		}
 	}
@@ -1477,7 +1479,8 @@ void SemaAnalyzer::declare_function_declarator(
 	                             spelled.qualified());
 	SemaEntity& function =
 		declare_function(name, type, target, false,
-		                 granting != nullptr && !spelled.qualified());
+		                 granting != nullptr && !spelled.qualified(),
+		                 type != written_type);
 	function.object_member = type != written_type;
 	if (!function.object_member)
 	{
@@ -1598,6 +1601,22 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
                                    const Specifiers& specifiers,
                                    const Context& ctx)
 {
+	// 3.4.1p8: the rest of a declarator whose declarator-id is qualified is
+	// looked up in the region that name reaches, so the region is settled from
+	// the declarator-id before the declarator around it is read - which is what
+	// lets `auto A::f() -> nested` and `void A::g(nested)` name a type the
+	// class declares.
+	const AstNode* const id = declarator_id(node);
+	const std::string written_id = id == nullptr ? std::string() : id->text;
+	const QualifiedName spelled(written_id);
+	// 3.4.3p3: a declarator-id with a nested-name-specifier declares into the
+	// region that names, wherever the declaration is written.
+	Context target = ctx;
+	if (spelled.qualified())
+	{
+		target.scope = resolve_prefix(spelled, ctx);
+		target.dump = target.scope->dump;
+	}
 	std::string written;
 	// 14.1: a template's declarator is the pattern its instantiations write
 	// their own parameters from, and 8.3.6p4 makes a function declaration's
@@ -1605,7 +1624,8 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 	// it is the one with the body.  Both read the parameter clause the
 	// declarator already spelled, so it is captured here rather than read again.
 	std::vector<Parameter> spelled_parameters;
-	TypeId type = declarator_type(node, specifier_type(specifiers), ctx, &written,
+	TypeId type = declarator_type(node, specifier_type(specifiers),
+	                              spelled.qualified() ? target : ctx, &written,
 	                              &spelled_parameters);
 	// 8.3.4p3: an array declared with no bound and initialized from a braced
 	// list has as many elements as the list has clauses.
@@ -1616,20 +1636,10 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 		type = types_.array_of(types_.target(type), true,
 		                       initializer->children[0]->children.size());
 	}
-	const QualifiedName spelled(written);
 	const std::string name = spelled.last();
 	if (name.empty())
 	{
 		return;
-	}
-
-	// 3.4.3p3: a declarator-id with a nested-name-specifier declares into the
-	// region that names, wherever the declaration is written.
-	Context target = ctx;
-	if (spelled.qualified())
-	{
-		target.scope = resolve_prefix(spelled, ctx);
-		target.dump = target.scope->dump;
 	}
 	// 11.3p6: what a friend declaration declares belongs to the region around
 	// the class, so the declarator is read against that region and the class
@@ -1710,6 +1720,21 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 		// that one is a variable the class names.
 		entity.object_member =
 			target.scope->kind == ScopeKind::Class && !specifiers.is_static;
+		// 7.1.1p10: `mutable` may be written only on a non-static data member
+		// whose type is neither const-qualified nor a reference, and what it
+		// says is that the const of the object holding the member stops at it.
+		if (specifiers.is_mutable)
+		{
+			if (!entity.object_member || (types_.cv(type) & kCvConst) != 0 ||
+			    types_.is_reference(type))
+			{
+				throw std::runtime_error(
+					name + " is declared `mutable`, which 7.1.1p10 allows only "
+					"for a non-static data member of neither const-qualified "
+					"nor reference type");
+			}
+			entity.mutable_member = true;
+		}
 		// 7.6.2p1: what an alignment-specifier on the declaration asked for is
 		// a fact about what it declares, which 9.2p13's layout reads.
 		entity.requested_align = specifiers.alignment;
@@ -1938,7 +1963,8 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 
 	SemaEntity& entity =
 		declare_function(name, type, target, true,
-		                 granting != nullptr && !spelled.qualified());
+		                 granting != nullptr && !spelled.qualified(),
+		                 type != written_type);
 	entity.object_member = type != written_type;
 	if (!entity.object_member)
 	{
@@ -2086,9 +2112,26 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 	live_destructions_ = enclosing_live;
 }
 
+// 9.3.1p3 put the object parameter of a non-static member function in its type,
+// and 8.3.5p4's parameter-type-list is what a declarator wrote - so the two
+// declarations `void unlink();` and `static void unlink(block*);` of one class
+// have one function type and are two functions.  13.1's index is keyed by the
+// list the declarator wrote wherever a class is what declares the name, with
+// 8.3.5p7's cv-qualifier-seq beside it, which is the same key 7.3.3p14's hiding
+// already asks with.  A namespace declares no function with an object
+// parameter, so there the type's own list is the list and costs no rebuild.
+std::uint32_t SemaAnalyzer::declaration_signature(const Scope& where,
+                                                  TypeId type,
+                                                  bool object_member)
+{
+	return where.kind == ScopeKind::Class
+		? member_signature(type, object_member)
+		: types_.signature(type);
+}
+
 SemaEntity& SemaAnalyzer::declare_function(const std::string& name, TypeId type,
                                            const Context& target, bool define,
-                                           bool hidden)
+                                           bool hidden, bool object_member)
 {
 	// 14.1p1: the region a template's parameters are declared in encloses only
 	// the declaration they parameterise, so the function that declaration
@@ -2100,7 +2143,8 @@ SemaEntity& SemaAnalyzer::declare_function(const std::string& name, TypeId type,
 	{
 		head = nullptr;
 	}
-	const std::uint32_t signature = types_.signature(type);
+	const std::uint32_t signature = declaration_signature(where, type,
+	                                                      object_member);
 	// 1.3.11 and 13.1: two declarations declare the same function exactly when
 	// their parameter type lists agree, which 8.3.5p5 has already normalised.
 	// The chain the name heads is indexed by that list, so the question is a
@@ -2233,7 +2277,9 @@ void SemaAnalyzer::reveal_friend(Scope& where, const std::string& name,
 		held->second = concealed;
 		for (SemaEntity* at = concealed; at != nullptr; at = at->next)
 		{
-			model_.hold_overload(*concealed, types_.signature(at->type), *at);
+			model_.hold_overload(
+				*concealed,
+				declaration_signature(where, at->type, at->object_member), *at);
 		}
 	}
 	SemaEntity* head = model_.find(where, name, LookupKind::Any);

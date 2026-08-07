@@ -879,7 +879,12 @@ SemaAnalyzer::Value SemaAnalyzer::member_value(SemaEntity& member,
 		                         "used other than in a call of it");
 	}
 	Value value;
-	value.type = types_.qualified(member.type, types_.object_cv(object.type));
+	// 7.1.1p10: a member declared `mutable` is not const however const the
+	// object holding it is, so the const the object carries stops here while
+	// its volatile does not.
+	const unsigned carried = types_.object_cv(object.type) &
+		(member.mutable_member ? ~unsigned(kCvConst) : ~0u);
+	value.type = types_.qualified(member.type, carried);
 	if (types_.is_reference(member.type))
 	{
 		// 8.3.2p5: a member of reference type names what it is bound to, which
