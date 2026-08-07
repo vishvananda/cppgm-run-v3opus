@@ -283,6 +283,12 @@ public:
 	// or object this unit does not define.  A use of a function whose definition
 	// belongs to every unit that needs one also asks for that definition here.
 	void declare_entity(const SemaEntity& entity);
+	// The same for a call that names one of the ABI's two entry points and not
+	// the other.  `declare_entity` owes both wherever the analysis saw a
+	// complete object and a base subobject each ask for the function; a call
+	// this lowering writes knows which of the two it wrote, so it says so and
+	// the unit owes that one name.
+	void declare_call_target(const SemaEntity& entity, bool base_entry);
 	// Records what the metadata of a namespace-scope symbol says: 3.5p3 whose
 	// program may reach it, 7.5p1 what language linkage it was declared with,
 	// and 3.5p9 the name the object file gives it, which is written only where
@@ -712,10 +718,91 @@ private:
 	void zero_object(const lowir_model::Operand& address, TypeId type);
 	// 12.4p3: the destructor call the end of an object's lifetime is.
 	void destructor_call(const DumpNode& node);
+	// One call of that destructor: on the object the action names, or on the
+	// element at `index` of the array it names.  12.4p8 makes an array as many
+	// ends of a lifetime as it has elements, and 15.2p2 asks about each of them
+	// separately, so the step rather than the action is the unit.
+	void destruction_step(const DumpNode& node, bool element,
+	                      unsigned long long index);
+	// How many of those steps an action is: one, or one per element.
+	unsigned long long destruction_steps(const DumpNode& node);
 	// 3.8p1: the destructor actions a statement carries for the blocks control
 	// leaves through it - the jump out of them, or the end of the region the
 	// statement itself opened.
 	void leave_blocks(const DumpNode& node);
+
+	// 15.2p2: what a destructor still owes when control leaves its own body -
+	// the destruction of every base and member subobject, each of which may
+	// itself throw and leave the rest still to run.  The list is the trailing
+	// `destructor-action` children of the definition, flattened to one entry
+	// per call, and it is written at every point control leaves the body.
+	struct LowDestruction
+	{
+		const DumpNode* action;
+		bool element;
+		unsigned long long index;
+	};
+	// The destructions after the body, with the handler each of them needs for
+	// the subobjects still standing behind it.
+	void destructor_epilogue();
+	// Reads that list off the definition and answers where the body ends among
+	// its children.
+	std::size_t collect_epilogue(const DumpNode& node);
+
+	// 15.2p2: one subobject the constructor being lowered has already built,
+	// held as the instructions that named it rather than as the address they
+	// produced.  The handler stands in a block of its own, and a temporary of
+	// the block the construction stands in is not one that block may name, so
+	// the subobject is named there the way the step that built it named it.
+	struct LowUnwind
+	{
+		const SemaEntity* destructor;
+		bool base_subobject;
+		std::vector<lowir_model::Instruction> address;
+		lowir_model::Operand at;
+	};
+	// Where the code that builds one subobject begins.  Whether the step needs
+	// a handler is known only once it has made its call, so the place is marked
+	// before the step and the region is opened into it afterwards.
+	struct UnwindMark
+	{
+		UnwindMark()
+			: active(false)
+			, block(0)
+			, at(0)
+		{}
+
+		bool active;
+		std::size_t block;
+		std::size_t at;
+	};
+	// The two blocks one such region stands between, and whether this step
+	// wrote the handler or named one an earlier step wrote.
+	struct UnwindRegion
+	{
+		UnwindRegion()
+			: fresh(false)
+		{}
+
+		std::string dispatch;
+		std::string end;
+		bool fresh;
+	};
+	void mark_unwind_step();
+	UnwindRegion open_unwind_region(const UnwindMark& mark);
+	void close_unwind_region(const UnwindRegion& region);
+	// The subobject `address` names, destroyed in a block of its own.
+	void replay_unwind(const LowUnwind& live);
+	// 15.2p2: the subobject this step built joins the ones an exception out of
+	// a later step has to destroy, unless its class ends a lifetime with
+	// nothing.
+	void push_unwind(const SemaEntity& constructor,
+	                 const std::vector<lowir_model::Instruction>& address,
+	                 const lowir_model::Operand& at);
+	// The handler-stack instructions those regions are written with.
+	void emit_handler(bool cleanup, const std::string& label);
+	void emit_handler_end();
+	void emit_resume();
 	LowValue call_expression(const DumpNode& node);
 	LowValue unary_expression(const DumpNode& node);
 	LowValue increment_expression(const DumpNode& node, bool postfix);
@@ -889,4 +976,25 @@ private:
 	std::vector<SwitchArms> switches_;
 	// The block each label of this function names.
 	std::unordered_map<std::string, std::string> labels_;
+	// 12.4p8: the destructions that follow this destructor's body, one entry
+	// per call, and the two blocks 15.2p2's region around the body stands
+	// between - the cleanup an exception out of it reaches, which destroys
+	// every subobject, and the end the body's own exit reaches.  Both blocks
+	// are reserved before the body is read, so the blocks the body opens are
+	// numbered after them.  Empty for every function but a destructor with a
+	// subobject to destroy.
+	std::vector<LowDestruction> epilogue_;
+	std::string destructor_cleanup_;
+	std::string destructor_end_;
+	// Whether the walk is inside 12.6.2's initialization of the subobjects of
+	// the object a constructor was called on, which is the one place 15.2p2's
+	// partly built object exists.
+	bool unwinding_;
+	UnwindMark unwind_mark_;
+	std::vector<LowUnwind> unwind_live_;
+	// The handler the last step was given and how many subobjects it destroys.
+	// The list only grows, so a step needing the same destructions as the one
+	// before it names that block again rather than writing a second copy.
+	std::string unwind_dispatch_;
+	std::size_t unwind_dispatch_live_;
 };

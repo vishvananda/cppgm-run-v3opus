@@ -1675,6 +1675,13 @@ void LowirUnitLowering::declare_entity(const SemaEntity& entity)
 	program_.global_declarations.push_back(declaration);
 }
 
+void LowirUnitLowering::declare_call_target(const SemaEntity& entity,
+                                            bool base_entry)
+{
+	demand_definition(entity);
+	add_function_declaration(entity, base_entry);
+}
+
 void LowirUnitLowering::add_function_declaration(const SemaEntity& entity)
 {
 	add_function_declaration(entity, false);

@@ -1,0 +1,162 @@
+global @order : i32 [binding=strong, object=_Z5order] = zero
+global @stop : i32 [binding=strong, object=_Z4stop] = zero
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $one : obj<8x4>
+  slot $cond__1 : i32
+
+  block ^entry:
+    store i32 1, @stop
+    %t1 = addr $one
+    call void @Pair__Pair(%t1)
+    %t2 = addr $one
+    call void @Pair___Pair(%t2)
+    %t3 = load i32 @order
+    %t4 = cmp eq i32 %t3, 1221
+    branch %t4, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t5 = load i32 $cond__1
+    return i32 %t5
+}
+function @Pair__Pair(%this : ptr) -> void [binding=weak, object=_ZN4PairC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    call void @Part__Part(%t2, 1)
+    eh_try ^call_unwind_dispatch_1
+    %t3 = load ptr $this
+    %t4 = index i8 [projection=field] %t3, 4
+    call void @Part__Part(%t4, 2)
+    eh_end
+    jump ^call_unwind_end_2
+
+  block ^call_unwind_dispatch_1:
+    %t5 = load ptr $this
+    %t6 = index i8 [projection=field] %t5, 0
+    call void @Part___Part(%t6)
+    resume
+
+  block ^call_unwind_end_2:
+    return void
+}
+function @Pair___Pair(%this : ptr) -> void [binding=weak, object=_ZN4PairD1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    eh_cleanup ^destructor_cleanup_1
+    %t1 = load i32 @stop
+    branch %t1, ^if_then_3, ^if_else_4
+
+  block ^if_then_3:
+    eh_end
+    eh_cleanup ^destructor_suffix_cleanup_6
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 4
+    call void @Part___Part(%t3)
+    eh_end
+    jump ^destructor_suffix_next_7
+
+  block ^destructor_suffix_cleanup_6:
+    %t4 = load ptr $this
+    %t5 = index i8 [projection=field] %t4, 0
+    call void @Part___Part(%t5)
+    eh_end
+    resume
+
+  block ^destructor_suffix_next_7:
+    %t6 = load ptr $this
+    %t7 = index i8 [projection=field] %t6, 0
+    call void @Part___Part(%t7)
+    return void
+
+  block ^if_else_4:
+    jump ^if_end_5
+
+  block ^if_end_5:
+    %t8 = load i32 @order
+    %t9 = binary mul i32 %t8, 10
+    %t10 = binary add i32 %t9, 3
+    store i32 %t10, @order
+    eh_end
+    eh_cleanup ^destructor_suffix_cleanup_8
+    %t11 = load ptr $this
+    %t12 = index i8 [projection=field] %t11, 4
+    call void @Part___Part(%t12)
+    eh_end
+    jump ^destructor_suffix_next_9
+
+  block ^destructor_suffix_cleanup_8:
+    %t13 = load ptr $this
+    %t14 = index i8 [projection=field] %t13, 0
+    call void @Part___Part(%t14)
+    eh_end
+    resume
+
+  block ^destructor_suffix_next_9:
+    %t15 = load ptr $this
+    %t16 = index i8 [projection=field] %t15, 0
+    call void @Part___Part(%t16)
+    jump ^destructor_end_2
+
+  block ^destructor_cleanup_1:
+    %t17 = load ptr $this
+    %t18 = index i8 [projection=field] %t17, 4
+    call void @Part___Part(%t18)
+    %t19 = load ptr $this
+    %t20 = index i8 [projection=field] %t19, 0
+    call void @Part___Part(%t20)
+    eh_end
+    resume
+
+  block ^destructor_end_2:
+    return void
+}
+function @Part__Part(%this : ptr, %m : i32) -> void [binding=weak, object=_ZN4PartC1Ei] {
+  slot $this : ptr
+  slot $m : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %m, $m
+    %t1 = load i32 $m
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 %t1, %t3
+    %t4 = load i32 @order
+    %t5 = binary mul i32 %t4, 10
+    %t6 = load i32 $m
+    %t7 = binary add i32 %t5, %t6
+    store i32 %t7, @order
+    return void
+}
+function @Part___Part(%this : ptr) -> void [binding=weak, object=_ZN4PartD1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load i32 @order
+    %t2 = binary mul i32 %t1, 10
+    %t3 = load ptr $this
+    %t4 = index i8 [projection=field] %t3, 0
+    %t5 = load i32 %t4
+    %t6 = binary add i32 %t2, %t5
+    store i32 %t6, @order
+    return void
+}
+alias object _ZN4PairC2Ev = @Pair__Pair
+alias object _ZN4PairD2Ev = @Pair___Pair
+alias object _ZN4PartC2Ei = @Part__Part
+alias object _ZN4PartD2Ev = @Part___Part

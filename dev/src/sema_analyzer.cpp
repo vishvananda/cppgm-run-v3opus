@@ -302,6 +302,59 @@ void SemaAnalyzer::write_default_argument(const SemaEntity& function,
 	           Requested::Argument);
 }
 
+// 12.4 and the ABI: which of the destructor's two entry points a use of it
+// names - the base-object one for a base class subobject, and the
+// complete-object one for every other object - and, for an implicitly declared
+// one, the definition 12.4p6 says odr-using it asks for.  Every end of a
+// lifetime asks the same two things, whether a statement writes the call or
+// 15.2p2 leaves it to the cleanup around a partly built object, so both are
+// settled here rather than beside each of the places that end one.
+void SemaAnalyzer::note_destruction_entry(SemaEntity& destructor, bool base)
+{
+	if (base)
+	{
+		destructor.base_object_entry = true;
+	}
+	else
+	{
+		destructor.complete_object_entry = true;
+	}
+	if (destructor.defined || !destructor.defaulted)
+	{
+		return;
+	}
+	destructor.defined = true;
+	Pending pending;
+	pending.function = &destructor;
+	pending.self =
+		&model_.create(SemaKind::Parameter, "this", this_type(destructor));
+	pending.members = destructor.region;
+	pending_.push_back(pending);
+}
+
+// 15.2p2: the destructor an exception out of a later step of the constructor
+// would run on the subobject a step has just built.  Which steps have one after
+// them is a question about the whole list, so the steps are collected in order
+// and the caller asks it once the list is complete.  An array is as many steps
+// as it has elements, and each element but the last is left standing by the one
+// after it, so an array of more than one element stands for two.
+void SemaAnalyzer::record_unwind_subobject(TypeId type)
+{
+	SemaEntity* const ends = class_destructor(element_of(type));
+	if (ends == nullptr || ends->trivial || ends->deleted)
+	{
+		return;
+	}
+	const TypeId bare = types_.strip_cv(type);
+	unwind_subobjects_.push_back(ends);
+	if (types_.kind(bare) == TypeKind::Array &&
+	    types_.object_size(bare) >
+	        types_.object_size(types_.strip_cv(element_of(bare))))
+	{
+		unwind_subobjects_.push_back(ends);
+	}
+}
+
 void SemaAnalyzer::write_pending_definitions()
 {
 	// A body read here may itself default-initialize an object, and so ask for
@@ -377,7 +430,19 @@ void SemaAnalyzer::write_definition(Pending& pending)
 	if (function.special == kConstructorFunction && pending.members != nullptr)
 	{
 		// 12.6.2p10: the members are initialized before the body runs.
+		std::vector<SemaEntity*> enclosing_subobjects;
+		enclosing_subobjects.swap(unwind_subobjects_);
 		write_member_initializations(pending, line, inner);
+		for (std::size_t index = 0; index + 1 < unwind_subobjects_.size();
+		     ++index)
+		{
+			// 15.2p2: a step with a step after it leaves a built subobject
+			// behind wherever that later one throws, so its destructor is
+			// odr-used here.  The last step leaves nothing behind: the body
+			// after it is not a region the references write a handler around.
+			note_destruction_entry(*unwind_subobjects_[index], false);
+		}
+		unwind_subobjects_.swap(enclosing_subobjects);
 	}
 	if (pending.body != nullptr)
 	{

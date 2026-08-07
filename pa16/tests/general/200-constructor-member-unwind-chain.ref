@@ -1,0 +1,149 @@
+global @order : i32 [binding=strong, object=_Z5order] = zero
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $held : obj<16x4>
+  slot $cond__1 : i32
+
+  block ^entry:
+    %t1 = addr $held
+    call void @Holder__Holder(%t1)
+    %t2 = load i32 @order
+    %t3 = binary mul i32 %t2, 10
+    %t4 = addr $held
+    %t5 = index i8 [projection=field] %t4, 8
+    %t6 = load i32 %t5
+    %t7 = binary add i32 %t3, %t6
+    store i32 %t7, @order
+    %t8 = addr $held
+    call void @Holder___Holder(%t8)
+    %t9 = load i32 @order
+    %t10 = binary mul i32 1279, 10
+    %t11 = binary add i32 %t10, 9
+    %t12 = cmp eq i32 %t9, %t11
+    branch %t12, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t13 = load i32 $cond__1
+    return i32 %t13
+}
+function @Holder__Holder(%this : ptr) -> void [binding=weak, object=_ZN6HolderC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    call void @Trace__Trace(%t2, 1)
+    eh_try ^call_unwind_dispatch_1
+    %t3 = load ptr $this
+    %t4 = index i8 [projection=field] %t3, 4
+    call void @Plain__Plain(%t4)
+    eh_end
+    jump ^call_unwind_end_2
+
+  block ^call_unwind_dispatch_1:
+    %t5 = load ptr $this
+    %t6 = index i8 [projection=field] %t5, 0
+    call void @Trace___Trace(%t6)
+    resume
+
+  block ^call_unwind_end_2:
+    %t7 = load ptr $this
+    %t8 = index i8 [projection=field] %t7, 8
+    store i32 7, %t8
+    eh_try ^call_unwind_dispatch_1
+    %t9 = load ptr $this
+    %t10 = index i8 [projection=field] %t9, 12
+    call void @Trace__Trace(%t10, 2)
+    eh_end
+    return void
+}
+function @Holder___Holder(%this : ptr) -> void [binding=weak, object=_ZN6HolderD1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    eh_cleanup ^destructor_cleanup_1
+    eh_end
+    eh_cleanup ^destructor_suffix_cleanup_3
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 12
+    call void @Trace___Trace(%t2)
+    eh_end
+    jump ^destructor_suffix_next_4
+
+  block ^destructor_suffix_cleanup_3:
+    %t3 = load ptr $this
+    %t4 = index i8 [projection=field] %t3, 0
+    call void @Trace___Trace(%t4)
+    eh_end
+    resume
+
+  block ^destructor_suffix_next_4:
+    %t5 = load ptr $this
+    %t6 = index i8 [projection=field] %t5, 0
+    call void @Trace___Trace(%t6)
+    jump ^destructor_end_2
+
+  block ^destructor_cleanup_1:
+    %t7 = load ptr $this
+    %t8 = index i8 [projection=field] %t7, 12
+    call void @Trace___Trace(%t8)
+    %t9 = load ptr $this
+    %t10 = index i8 [projection=field] %t9, 0
+    call void @Trace___Trace(%t10)
+    eh_end
+    resume
+
+  block ^destructor_end_2:
+    return void
+}
+function @Trace__Trace(%this : ptr, %m : i32) -> void [binding=weak, object=_ZN5TraceC1Ei] {
+  slot $this : ptr
+  slot $m : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %m, $m
+    %t1 = load i32 $m
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 %t1, %t3
+    %t4 = load i32 @order
+    %t5 = binary mul i32 %t4, 10
+    %t6 = load i32 $m
+    %t7 = binary add i32 %t5, %t6
+    store i32 %t7, @order
+    return void
+}
+function @Trace___Trace(%this : ptr) -> void [binding=weak, object=_ZN5TraceD1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load i32 @order
+    %t2 = binary mul i32 %t1, 10
+    %t3 = binary add i32 %t2, 9
+    store i32 %t3, @order
+    return void
+}
+function @Plain__Plain(%this : ptr) -> void [binding=weak, object=_ZN5PlainC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    return void
+}
+alias object _ZN6HolderC2Ev = @Holder__Holder
+alias object _ZN6HolderD2Ev = @Holder___Holder
+alias object _ZN5TraceC2Ei = @Trace__Trace
+alias object _ZN5TraceD2Ev = @Trace___Trace
+alias object _ZN5PlainC2Ev = @Plain__Plain

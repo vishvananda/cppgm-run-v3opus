@@ -1,0 +1,88 @@
+global @order : i32 [binding=strong, object=_Z5order] = zero
+global @storage [binding=strong, object=_Z7storage] = {
+  zero 8
+}
+
+function @operatornew(%size : i64, %where : ptr) -> ptr [binding=strong, object=_ZnwmPv] {
+  slot $size : i64
+  slot $where : ptr
+
+  block ^entry:
+    store i64 %size, $size
+    store ptr %where, $where
+    %t1 = load ptr $where
+    return ptr %t1
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $cond__1 : i32
+
+  block ^entry:
+    %t1 = convert sext i64 i32 2
+    %t2 = addr @storage
+    %t3 = unary decay ptr %t2
+    %t4 = call ptr @operatornew(%t1, %t3)
+    store i16 0, %t4
+    call void @Pair__Pair(%t4)
+    %t5 = load i32 @order
+    %t6 = cmp eq i32 %t5, 2
+    branch %t6, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t7 = load i32 $cond__1
+    return i32 %t7
+}
+function @Pair__Pair(%this : ptr) -> void [binding=weak, object=_ZN4PairC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    call void @Leaf__Leaf(%t2)
+    eh_try ^call_unwind_dispatch_1
+    %t3 = load ptr $this
+    %t4 = index i8 [projection=field] %t3, 1
+    call void @Leaf__Leaf(%t4)
+    eh_end
+    jump ^call_unwind_end_2
+
+  block ^call_unwind_dispatch_1:
+    %t5 = load ptr $this
+    %t6 = index i8 [projection=field] %t5, 0
+    call void @Leaf___Leaf(%t6)
+    resume
+
+  block ^call_unwind_end_2:
+    return void
+}
+function @Leaf__Leaf(%this : ptr) -> void [binding=weak, object=_ZN4LeafC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load i32 @order
+    %t2 = binary add i32 %t1, 1
+    store i32 %t2, @order
+    return void
+}
+function @Leaf___Leaf(%this : ptr) -> void [binding=weak, object=_ZN4LeafD1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load i32 @order
+    %t2 = binary add i32 %t1, 10
+    store i32 %t2, @order
+    return void
+}
+alias object _ZN4PairC2Ev = @Pair__Pair
+alias object _ZN4LeafC2Ev = @Leaf__Leaf
+alias object _ZN4LeafD2Ev = @Leaf___Leaf

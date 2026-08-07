@@ -527,6 +527,14 @@ private:
 	// rather than an object a declaration named.
 	void destructor_action(SemaEntity& entity, DumpNode& parent,
 	                       Placement where);
+	// 12.4 and the ABI: which of the destructor's two entry points a use of it
+	// names, and the definition 12.4p6 gives an implicitly declared one.  Every
+	// end of a lifetime asks this, whether a statement writes the call or
+	// 15.2p2 leaves it to the cleanup around a partly built object.
+	void note_destruction_entry(SemaEntity& destructor, bool base);
+	// 15.2p2: records the destructor of a subobject a constructor step has just
+	// built, for the question the caller asks once every step has been read.
+	void record_unwind_subobject(TypeId type);
 	// 9.3.2p1: the type of `this` in the body of the member function `function`.
 	TypeId this_type(const SemaEntity& function);
 	// 3.7.1: records the object a definition declares with whichever region
@@ -543,6 +551,12 @@ private:
 	// The objects an open block has declared whose destructors run when control
 	// leaves it, innermost frame last.
 	std::vector<std::vector<SemaEntity*> > lifetimes_;
+	// 15.2p2: the destructors of the subobjects the constructor being read
+	// builds, in the order its steps build them.  A step with a step after it
+	// leaves its subobject standing wherever that later one throws, so all but
+	// the last of these is odr-used - which is a question about the whole list
+	// and is asked once it is complete.
+	std::vector<SemaEntity*> unwind_subobjects_;
 	// Holds one frame while a block is read, and writes its destructor actions
 	// where the block ends.
 	void open_lifetimes();

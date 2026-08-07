@@ -2041,6 +2041,12 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 	{
 		constructor.base_object_entry = true;
 	}
+	if (where != Placement::Named && !constructor.trivial)
+	{
+		// 15.2p2: this step builds a subobject an exception out of a later one
+		// leaves standing, which is what odr-uses its destructor.
+		record_unwind_subobject(variable.type);
+	}
 	const std::vector<TypeId>& parameters = types_.parameters(constructor.type);
 	for (std::size_t index = 0; index < arguments.size(); ++index)
 	{
@@ -2493,17 +2499,7 @@ void SemaAnalyzer::destructor_action(SemaEntity& entity, DumpNode& parent,
 	{
 		return;
 	}
-	if (where != Placement::Base)
-	{
-		// 12.4 and the ABI: the lifetime this ends is a complete object's, so
-		// the call is of the complete-object entry of the destructor.  Only the
-		// base class subobject of an object runs the base-object entry.
-		destructor->complete_object_entry = true;
-	}
-	else
-	{
-		destructor->base_object_entry = true;
-	}
+	note_destruction_entry(*destructor, where == Placement::Base);
 	DumpNode& action = model_.open_node(
 		parent, "destructor-action " + destructor->dump_name);
 	action.fact.kind = FactKind::DestructorAction;
@@ -2541,19 +2537,6 @@ void SemaAnalyzer::destructor_action(SemaEntity& entity, DumpNode& parent,
 		object.node = &node;
 		respell(object);
 	}
-	if (destructor->defined || !destructor->defaulted)
-	{
-		return;
-	}
-	// 12.4p6: the definition of an implicitly declared destructor is what
-	// odr-using it asks for.
-	destructor->defined = true;
-	Pending pending;
-	pending.function = destructor;
-	pending.self =
-		&model_.create(SemaKind::Parameter, "this", this_type(*destructor));
-	pending.members = destructor->region;
-	pending_.push_back(pending);
 }
 
 // 12.6.2p2: whether a mem-initializer-id spells the base class of the

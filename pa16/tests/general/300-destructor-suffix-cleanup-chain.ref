@@ -1,0 +1,333 @@
+global @order : i32 [binding=strong, object=_Z5order] = zero
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $wide : obj<17x1>
+  slot $cond__1 : i32
+
+  block ^entry:
+    %t1 = addr $wide
+    %t2 = addr $wide
+    call void @Wide___Wide(%t2)
+    %t3 = load i32 @order
+    %t4 = cmp eq i32 %t3, 17
+    branch %t4, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t5 = load i32 $cond__1
+    return i32 %t5
+}
+function @Wide___Wide(%this : ptr) -> void [binding=weak, object=_ZN4WideD1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    eh_cleanup ^destructor_cleanup_1
+    eh_end
+    eh_cleanup ^destructor_suffix_cleanup_3
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 16
+    call void @Cell___Cell(%t2)
+    eh_end
+    jump ^destructor_suffix_next_4
+
+  block ^destructor_suffix_cleanup_3:
+    %t3 = load ptr $this
+    %t4 = index i8 [projection=field] %t3, 15
+    call void @Cell___Cell(%t4)
+    jump ^destructor_suffix_cleanup_5
+
+  block ^destructor_suffix_next_4:
+    eh_cleanup ^destructor_suffix_cleanup_5
+    %t5 = load ptr $this
+    %t6 = index i8 [projection=field] %t5, 15
+    call void @Cell___Cell(%t6)
+    eh_end
+    jump ^destructor_suffix_next_6
+
+  block ^destructor_suffix_cleanup_5:
+    %t7 = load ptr $this
+    %t8 = index i8 [projection=field] %t7, 14
+    call void @Cell___Cell(%t8)
+    jump ^destructor_suffix_cleanup_7
+
+  block ^destructor_suffix_next_6:
+    eh_cleanup ^destructor_suffix_cleanup_7
+    %t9 = load ptr $this
+    %t10 = index i8 [projection=field] %t9, 14
+    call void @Cell___Cell(%t10)
+    eh_end
+    jump ^destructor_suffix_next_8
+
+  block ^destructor_suffix_cleanup_7:
+    %t11 = load ptr $this
+    %t12 = index i8 [projection=field] %t11, 13
+    call void @Cell___Cell(%t12)
+    jump ^destructor_suffix_cleanup_9
+
+  block ^destructor_suffix_next_8:
+    eh_cleanup ^destructor_suffix_cleanup_9
+    %t13 = load ptr $this
+    %t14 = index i8 [projection=field] %t13, 13
+    call void @Cell___Cell(%t14)
+    eh_end
+    jump ^destructor_suffix_next_10
+
+  block ^destructor_suffix_cleanup_9:
+    %t15 = load ptr $this
+    %t16 = index i8 [projection=field] %t15, 12
+    call void @Cell___Cell(%t16)
+    jump ^destructor_suffix_cleanup_11
+
+  block ^destructor_suffix_next_10:
+    eh_cleanup ^destructor_suffix_cleanup_11
+    %t17 = load ptr $this
+    %t18 = index i8 [projection=field] %t17, 12
+    call void @Cell___Cell(%t18)
+    eh_end
+    jump ^destructor_suffix_next_12
+
+  block ^destructor_suffix_cleanup_11:
+    %t19 = load ptr $this
+    %t20 = index i8 [projection=field] %t19, 11
+    call void @Cell___Cell(%t20)
+    jump ^destructor_suffix_cleanup_13
+
+  block ^destructor_suffix_next_12:
+    eh_cleanup ^destructor_suffix_cleanup_13
+    %t21 = load ptr $this
+    %t22 = index i8 [projection=field] %t21, 11
+    call void @Cell___Cell(%t22)
+    eh_end
+    jump ^destructor_suffix_next_14
+
+  block ^destructor_suffix_cleanup_13:
+    %t23 = load ptr $this
+    %t24 = index i8 [projection=field] %t23, 10
+    call void @Cell___Cell(%t24)
+    jump ^destructor_suffix_cleanup_15
+
+  block ^destructor_suffix_next_14:
+    eh_cleanup ^destructor_suffix_cleanup_15
+    %t25 = load ptr $this
+    %t26 = index i8 [projection=field] %t25, 10
+    call void @Cell___Cell(%t26)
+    eh_end
+    jump ^destructor_suffix_next_16
+
+  block ^destructor_suffix_cleanup_15:
+    %t27 = load ptr $this
+    %t28 = index i8 [projection=field] %t27, 9
+    call void @Cell___Cell(%t28)
+    jump ^destructor_suffix_cleanup_17
+
+  block ^destructor_suffix_next_16:
+    eh_cleanup ^destructor_suffix_cleanup_17
+    %t29 = load ptr $this
+    %t30 = index i8 [projection=field] %t29, 9
+    call void @Cell___Cell(%t30)
+    eh_end
+    jump ^destructor_suffix_next_18
+
+  block ^destructor_suffix_cleanup_17:
+    %t31 = load ptr $this
+    %t32 = index i8 [projection=field] %t31, 8
+    call void @Cell___Cell(%t32)
+    jump ^destructor_suffix_cleanup_19
+
+  block ^destructor_suffix_next_18:
+    eh_cleanup ^destructor_suffix_cleanup_19
+    %t33 = load ptr $this
+    %t34 = index i8 [projection=field] %t33, 8
+    call void @Cell___Cell(%t34)
+    eh_end
+    jump ^destructor_suffix_next_20
+
+  block ^destructor_suffix_cleanup_19:
+    %t35 = load ptr $this
+    %t36 = index i8 [projection=field] %t35, 7
+    call void @Cell___Cell(%t36)
+    jump ^destructor_suffix_cleanup_21
+
+  block ^destructor_suffix_next_20:
+    eh_cleanup ^destructor_suffix_cleanup_21
+    %t37 = load ptr $this
+    %t38 = index i8 [projection=field] %t37, 7
+    call void @Cell___Cell(%t38)
+    eh_end
+    jump ^destructor_suffix_next_22
+
+  block ^destructor_suffix_cleanup_21:
+    %t39 = load ptr $this
+    %t40 = index i8 [projection=field] %t39, 6
+    call void @Cell___Cell(%t40)
+    jump ^destructor_suffix_cleanup_23
+
+  block ^destructor_suffix_next_22:
+    eh_cleanup ^destructor_suffix_cleanup_23
+    %t41 = load ptr $this
+    %t42 = index i8 [projection=field] %t41, 6
+    call void @Cell___Cell(%t42)
+    eh_end
+    jump ^destructor_suffix_next_24
+
+  block ^destructor_suffix_cleanup_23:
+    %t43 = load ptr $this
+    %t44 = index i8 [projection=field] %t43, 5
+    call void @Cell___Cell(%t44)
+    jump ^destructor_suffix_cleanup_25
+
+  block ^destructor_suffix_next_24:
+    eh_cleanup ^destructor_suffix_cleanup_25
+    %t45 = load ptr $this
+    %t46 = index i8 [projection=field] %t45, 5
+    call void @Cell___Cell(%t46)
+    eh_end
+    jump ^destructor_suffix_next_26
+
+  block ^destructor_suffix_cleanup_25:
+    %t47 = load ptr $this
+    %t48 = index i8 [projection=field] %t47, 4
+    call void @Cell___Cell(%t48)
+    jump ^destructor_suffix_cleanup_27
+
+  block ^destructor_suffix_next_26:
+    eh_cleanup ^destructor_suffix_cleanup_27
+    %t49 = load ptr $this
+    %t50 = index i8 [projection=field] %t49, 4
+    call void @Cell___Cell(%t50)
+    eh_end
+    jump ^destructor_suffix_next_28
+
+  block ^destructor_suffix_cleanup_27:
+    %t51 = load ptr $this
+    %t52 = index i8 [projection=field] %t51, 3
+    call void @Cell___Cell(%t52)
+    jump ^destructor_suffix_cleanup_29
+
+  block ^destructor_suffix_next_28:
+    eh_cleanup ^destructor_suffix_cleanup_29
+    %t53 = load ptr $this
+    %t54 = index i8 [projection=field] %t53, 3
+    call void @Cell___Cell(%t54)
+    eh_end
+    jump ^destructor_suffix_next_30
+
+  block ^destructor_suffix_cleanup_29:
+    %t55 = load ptr $this
+    %t56 = index i8 [projection=field] %t55, 2
+    call void @Cell___Cell(%t56)
+    jump ^destructor_suffix_cleanup_31
+
+  block ^destructor_suffix_next_30:
+    eh_cleanup ^destructor_suffix_cleanup_31
+    %t57 = load ptr $this
+    %t58 = index i8 [projection=field] %t57, 2
+    call void @Cell___Cell(%t58)
+    eh_end
+    jump ^destructor_suffix_next_32
+
+  block ^destructor_suffix_cleanup_31:
+    %t59 = load ptr $this
+    %t60 = index i8 [projection=field] %t59, 1
+    call void @Cell___Cell(%t60)
+    jump ^destructor_suffix_cleanup_33
+
+  block ^destructor_suffix_next_32:
+    eh_cleanup ^destructor_suffix_cleanup_33
+    %t61 = load ptr $this
+    %t62 = index i8 [projection=field] %t61, 1
+    call void @Cell___Cell(%t62)
+    eh_end
+    jump ^destructor_suffix_next_34
+
+  block ^destructor_suffix_cleanup_33:
+    %t63 = load ptr $this
+    %t64 = index i8 [projection=field] %t63, 0
+    call void @Cell___Cell(%t64)
+    eh_end
+    resume
+
+  block ^destructor_suffix_next_34:
+    %t65 = load ptr $this
+    %t66 = index i8 [projection=field] %t65, 0
+    call void @Cell___Cell(%t66)
+    jump ^destructor_end_2
+
+  block ^destructor_cleanup_1:
+    %t67 = load ptr $this
+    %t68 = index i8 [projection=field] %t67, 16
+    call void @Cell___Cell(%t68)
+    %t69 = load ptr $this
+    %t70 = index i8 [projection=field] %t69, 15
+    call void @Cell___Cell(%t70)
+    %t71 = load ptr $this
+    %t72 = index i8 [projection=field] %t71, 14
+    call void @Cell___Cell(%t72)
+    %t73 = load ptr $this
+    %t74 = index i8 [projection=field] %t73, 13
+    call void @Cell___Cell(%t74)
+    %t75 = load ptr $this
+    %t76 = index i8 [projection=field] %t75, 12
+    call void @Cell___Cell(%t76)
+    %t77 = load ptr $this
+    %t78 = index i8 [projection=field] %t77, 11
+    call void @Cell___Cell(%t78)
+    %t79 = load ptr $this
+    %t80 = index i8 [projection=field] %t79, 10
+    call void @Cell___Cell(%t80)
+    %t81 = load ptr $this
+    %t82 = index i8 [projection=field] %t81, 9
+    call void @Cell___Cell(%t82)
+    %t83 = load ptr $this
+    %t84 = index i8 [projection=field] %t83, 8
+    call void @Cell___Cell(%t84)
+    %t85 = load ptr $this
+    %t86 = index i8 [projection=field] %t85, 7
+    call void @Cell___Cell(%t86)
+    %t87 = load ptr $this
+    %t88 = index i8 [projection=field] %t87, 6
+    call void @Cell___Cell(%t88)
+    %t89 = load ptr $this
+    %t90 = index i8 [projection=field] %t89, 5
+    call void @Cell___Cell(%t90)
+    %t91 = load ptr $this
+    %t92 = index i8 [projection=field] %t91, 4
+    call void @Cell___Cell(%t92)
+    %t93 = load ptr $this
+    %t94 = index i8 [projection=field] %t93, 3
+    call void @Cell___Cell(%t94)
+    %t95 = load ptr $this
+    %t96 = index i8 [projection=field] %t95, 2
+    call void @Cell___Cell(%t96)
+    %t97 = load ptr $this
+    %t98 = index i8 [projection=field] %t97, 1
+    call void @Cell___Cell(%t98)
+    %t99 = load ptr $this
+    %t100 = index i8 [projection=field] %t99, 0
+    call void @Cell___Cell(%t100)
+    eh_end
+    resume
+
+  block ^destructor_end_2:
+    return void
+}
+function @Cell___Cell(%this : ptr) -> void [binding=weak, object=_ZN4CellD1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load i32 @order
+    %t2 = binary add i32 %t1, 1
+    store i32 %t2, @order
+    return void
+}
+alias object _ZN4WideD2Ev = @Wide___Wide
+alias object _ZN4CellD2Ev = @Cell___Cell

@@ -45,6 +45,14 @@ Operand named_operand(Operand::Kind kind, const std::string& text)
 // with a bound the source only wrote a number for.
 const unsigned long long kZeroSpanLimit = 64;
 
+// 12.4p8 and 15.2p2: how many destructions after a destructor's body are still
+// written as the destructions they are.  Each of them needs the ones behind it
+// as its own cleanup, which is n(n+1)/2 calls; beyond this the same order is
+// written as a chain of n blocks, each running one destruction and entering the
+// next, because past here the calls stop being a description of the object and
+// the order starts being it.
+const std::size_t kUnwindSuffixLimit = 16;
+
 }  // namespace
 
 void LowirFunctionLowering::add_initialization(const Operand& storage,
@@ -258,29 +266,70 @@ void LowirFunctionLowering::array_lifecycle(const DumpNode& node,
 	{
 		const unsigned long long index =
 			node.fact.reverse_elements ? total - 1 - step : step;
+		if (!construct)
+		{
+			destruction_step(node, true, index);
+			continue;
+		}
+		// 15.2p2: an element built after another is one the exception out of it
+		// leaves standing, so each element is a step of its own.
+		mark_unwind_step();
 		// The array is named again for each element: the element's address is
 		// the array's plus the elements before it, which is one description of
 		// where it is however many readers the array has.
 		const LowValue object = expression(named, true);
-		const Operand at = element_at(
-			construct ? object.operand : address_of(object), dimensions, bounds,
-			index);
-		if (construct)
-		{
-			constructor_call(at, node, false, element);
-			continue;
-		}
-		const SemaEntity& destructor = *node.fact.entity;
-		unit_.declare_entity(destructor);
-		Instruction out;
-		out.kind = Instruction::IK_CALL;
-		out.type = unit_.low_type(types.target(destructor.type));
-		out.first = named_operand(
-			Operand::OP_GLOBAL,
-			unit_.function_symbol(destructor, node.fact.base_subobject));
-		out.args.push_back(at);
-		emit_void(out);
+		const Operand at =
+			element_at(object.operand, dimensions, bounds, index);
+		constructor_call(at, node, false, element);
 	}
+}
+
+// 12.4p8: how many ends of a lifetime one action is - one per element for an
+// array, and one otherwise.  15.2p2 asks about each of them separately, so the
+// count is what the destructions after a destructor's body are counted in.
+unsigned long long LowirFunctionLowering::destruction_steps(const DumpNode& node)
+{
+	TypeTable& types = unit_.types();
+	if (node.fact.entity->trivial ||
+	    types.kind(types.strip_cv(node.fact.type)) != TypeKind::Array)
+	{
+		return node.fact.entity->trivial ? 0 : 1;
+	}
+	std::vector<TypeId> dimensions;
+	std::vector<unsigned long long> bounds;
+	return array_dimensions(node.fact.type, dimensions, bounds);
+}
+
+// 12.4p3: one of those ends, which is one call of the destructor of the
+// object's class on the object - or on the element at `index` of the array the
+// action names, which is where the array is plus the elements before it.
+void LowirFunctionLowering::destruction_step(const DumpNode& node, bool element,
+                                             unsigned long long index)
+{
+	TypeTable& types = unit_.types();
+	const SemaEntity& destructor = *node.fact.entity;
+	if (destructor.trivial)
+	{
+		return;
+	}
+	const LowValue object = expression(*node.children[0], true);
+	Operand at = address_of(object);
+	if (element)
+	{
+		std::vector<TypeId> dimensions;
+		std::vector<unsigned long long> bounds;
+		array_dimensions(node.fact.type, dimensions, bounds);
+		at = element_at(at, dimensions, bounds, index);
+	}
+	unit_.declare_entity(destructor);
+	Instruction out;
+	out.kind = Instruction::IK_CALL;
+	out.type = unit_.low_type(types.target(destructor.type));
+	out.first = named_operand(
+		Operand::OP_GLOBAL,
+		unit_.function_symbol(destructor, node.fact.base_subobject));
+	out.args.push_back(at);
+	emit_void(out);
 }
 
 // 12.1p5 and 8.5p6: constructing the object at `address`, which is one call of
@@ -292,6 +341,21 @@ void LowirFunctionLowering::constructor_call(const Operand& address,
 	TypeTable& types = unit_.types();
 	const DumpNode& call = *node.children[0];
 	const SemaEntity& constructor = *call.children[0]->fact.entity;
+	// 15.2p2: the step that built this subobject is the one the region belongs
+	// to, so the mark it left is taken here and a constructor call an argument
+	// of this one makes finds none.  What names the subobject is what has been
+	// written since the mark, which is the address and nothing else - the
+	// arguments are read below, after this.
+	const UnwindMark mark = unwind_mark_;
+	unwind_mark_ = UnwindMark();
+	std::vector<Instruction> named;
+	if (mark.active && mark.block == current_)
+	{
+		const std::vector<Instruction>& written =
+			out_.blocks[current_].instructions;
+		named.assign(written.begin() + static_cast<std::ptrdiff_t>(mark.at),
+		             written.end());
+	}
 	if (node.fact.zero_initialized)
 	{
 		// 8.5p7: the object was value-initialized and its class wrote no
@@ -306,6 +370,12 @@ void LowirFunctionLowering::constructor_call(const Operand& address,
 	{
 		return;
 	}
+	// 15.2p2: an exception out of this step leaves the subobjects the steps
+	// before it built, and they are destroyed before it goes on unwinding.  The
+	// region opens where the step began, which is why the place was marked.
+	const UnwindRegion region =
+		mark.active && !unwind_live_.empty() ? open_unwind_region(mark)
+		                                    : UnwindRegion();
 	unit_.declare_entity(constructor);
 	Instruction out;
 	out.kind = Instruction::IK_CALL;
@@ -327,6 +397,250 @@ void LowirFunctionLowering::constructor_call(const Operand& address,
 			passed_operand(*call.children[index], argument, parameters, at));
 	}
 	emit_void(out);
+	if (!region.dispatch.empty())
+	{
+		close_unwind_region(region);
+	}
+	if (mark.active)
+	{
+		push_unwind(constructor, named, address);
+	}
+}
+
+// 15.2p2: the place one subobject's construction begins.  Whether a handler
+// stands around it is known only once the step has said whether it made a call,
+// so the place is remembered and the region is written into it afterwards.
+void LowirFunctionLowering::mark_unwind_step()
+{
+	if (!unwinding_)
+	{
+		return;
+	}
+	unwind_mark_.active = true;
+	unwind_mark_.block = current_;
+	unwind_mark_.at = out_.blocks[current_].instructions.size();
+}
+
+// 15.2p2: the handler the subobjects already built need, pushed where the step
+// begins.  The list of them only grows, so a step needing exactly what the step
+// before it needed names that block again rather than writing a second copy of
+// the same destructions.
+LowirFunctionLowering::UnwindRegion LowirFunctionLowering::open_unwind_region(
+	const UnwindMark& mark)
+{
+	UnwindRegion region;
+	region.fresh =
+		unwind_dispatch_.empty() || unwind_dispatch_live_ != unwind_live_.size();
+	region.dispatch = region.fresh ? reserve_block("call_unwind_dispatch")
+	                               : unwind_dispatch_;
+	if (region.fresh)
+	{
+		region.end = reserve_block("call_unwind_end");
+	}
+	Instruction open;
+	open.kind = Instruction::IK_EH_TRY;
+	open.first = named_operand(Operand::OP_LABEL, region.dispatch);
+	std::vector<Instruction>& written = out_.blocks[mark.block].instructions;
+	written.insert(written.begin() + static_cast<std::ptrdiff_t>(mark.at), open);
+	return region;
+}
+
+// The end of that region on the path the step took without throwing, and the
+// block the other path runs.
+void LowirFunctionLowering::close_unwind_region(const UnwindRegion& region)
+{
+	emit_handler_end();
+	if (!region.fresh)
+	{
+		return;
+	}
+	jump(region.end);
+	open_block(region.dispatch);
+	for (std::size_t index = unwind_live_.size(); index-- > 0;)
+	{
+		// 12.6.2p10: a subobject is destroyed in the reverse of the order it
+		// was created in, which an exception does not change.
+		replay_unwind(unwind_live_[index]);
+	}
+	emit_resume();
+	open_block(region.end);
+	unwind_dispatch_ = region.dispatch;
+	unwind_dispatch_live_ = unwind_live_.size();
+}
+
+// One of those destructions.  The instructions that named the subobject where
+// it was built are written again here with temporaries of this block, because a
+// block reached only by an exception names nothing another block produced.
+void LowirFunctionLowering::replay_unwind(const LowUnwind& live)
+{
+	std::unordered_map<std::string, std::string> renamed;
+	for (std::size_t index = 0; index < live.address.size(); ++index)
+	{
+		Instruction copy = live.address[index];
+		Operand* const operands[3] = { &copy.first, &copy.second, &copy.third };
+		for (std::size_t at = 0; at < 3; ++at)
+		{
+			if (operands[at]->kind != Operand::OP_TEMP)
+			{
+				continue;
+			}
+			const std::unordered_map<std::string, std::string>::const_iterator
+				found = renamed.find(operands[at]->text);
+			if (found != renamed.end())
+			{
+				operands[at]->text = found->second;
+			}
+		}
+		if (copy.dest.empty())
+		{
+			emit_void(copy);
+			continue;
+		}
+		const std::string produced = copy.dest;
+		renamed[produced] = emit(copy).text;
+	}
+	Operand at = live.at;
+	if (at.kind == Operand::OP_TEMP)
+	{
+		const std::unordered_map<std::string, std::string>::const_iterator found =
+			renamed.find(at.text);
+		if (found != renamed.end())
+		{
+			at.text = found->second;
+		}
+	}
+	// The name is asked for here rather than where the subobject joined the
+	// list, because a step whose subobject no later step leaves standing writes
+	// no handler at all - and a declaration nothing calls is not one this unit
+	// owes.  This call names one of the ABI's two entry points, so it owes that
+	// one and not the other.
+	unit_.declare_call_target(*live.destructor, live.base_subobject);
+	Instruction out;
+	out.kind = Instruction::IK_CALL;
+	out.type.text = "void";
+	out.first = named_operand(
+		Operand::OP_GLOBAL,
+		unit_.function_symbol(*live.destructor, live.base_subobject));
+	out.args.push_back(at);
+	emit_void(out);
+}
+
+// 15.2p2: the subobject this step built joins the ones an exception out of a
+// later step has to destroy.  A class whose destructor does nothing leaves
+// nothing to destroy, so it joins nothing.
+void LowirFunctionLowering::push_unwind(const SemaEntity& constructor,
+                                        const std::vector<Instruction>& address,
+                                        const Operand& at)
+{
+	const Scope* const owner = constructor.region;
+	const SemaEntity* const declared = owner == nullptr ? nullptr : owner->owner;
+	const SemaEntity* const destructor =
+		declared == nullptr ? nullptr : declared->destructor;
+	if (destructor == nullptr || destructor->trivial)
+	{
+		return;
+	}
+	LowUnwind live;
+	live.destructor = destructor;
+	// 12.4 and the ABI: the references name the complete-object entry here even
+	// where the subobject is a base class subobject, which 12.4p8's suffix does
+	// not.  This milestone has no virtual base, so the two entries destroy the
+	// same storage, and the text of the object file is what says which name a
+	// unit owes - so this is written the way the references write it.
+	live.base_subobject = false;
+	live.address = address;
+	live.at = at;
+	unwind_live_.push_back(live);
+}
+
+// 15.2p2: the handler-stack instructions those regions are written with.  A
+// cleanup runs and goes on unwinding; `eh_end` takes the handler off again on
+// the path that did not throw.
+void LowirFunctionLowering::emit_handler(bool cleanup, const std::string& label)
+{
+	Instruction out;
+	out.kind = cleanup ? Instruction::IK_EH_CLEANUP : Instruction::IK_EH_TRY;
+	out.first = named_operand(Operand::OP_LABEL, label);
+	emit_void(out);
+}
+
+void LowirFunctionLowering::emit_handler_end()
+{
+	Instruction out;
+	out.kind = Instruction::IK_EH_END;
+	emit_void(out);
+}
+
+void LowirFunctionLowering::emit_resume()
+{
+	Instruction out;
+	out.kind = Instruction::IK_RESUME;
+	terminate(out);
+}
+
+// 15.2p2 and 12.4p8: what a destructor owes when control leaves its own body.
+// The subobjects are destroyed in the order 12.4p8 gives them, and each of
+// those destructions may itself throw and leave the rest still standing - so
+// each but the last stands in a cleanup region that destroys the ones behind
+// it.  The whole of it is written at every point control leaves the body,
+// because the body is what the outer region covers.
+void LowirFunctionLowering::destructor_epilogue()
+{
+	emit_handler_end();
+	const std::size_t total = epilogue_.size();
+	// The handler of one destruction destroys the ones behind it, which are the
+	// handler of the next destruction plus that destruction itself - so a
+	// handler can either write them out or run the next one.  Written out they
+	// are n(n+1)/2 calls, which is what a reader wants to see while there are
+	// few enough of them to read; past that the chain is the same order in n
+	// blocks, and the block a handler jumps to is the next handler.
+	const bool chained = total > kUnwindSuffixLimit;
+	std::vector<std::string> cleanups;
+	std::vector<std::string> nexts;
+	for (std::size_t index = 0; index + 1 < total; ++index)
+	{
+		cleanups.push_back(reserve_block("destructor_suffix_cleanup"));
+		nexts.push_back(reserve_block("destructor_suffix_next"));
+	}
+	for (std::size_t index = 0; index < total; ++index)
+	{
+		const LowDestruction& step = epilogue_[index];
+		if (index + 1 == total)
+		{
+			// Nothing stands behind the last one, so an exception out of it has
+			// nothing left to destroy.
+			destruction_step(*step.action, step.element, step.index);
+			break;
+		}
+		emit_handler(true, cleanups[index]);
+		destruction_step(*step.action, step.element, step.index);
+		emit_handler_end();
+		jump(nexts[index]);
+		open_block(cleanups[index]);
+		if (chained)
+		{
+			destruction_step(*epilogue_[index + 1].action,
+			                 epilogue_[index + 1].element,
+			                 epilogue_[index + 1].index);
+			if (index + 2 < total)
+			{
+				jump(cleanups[index + 1]);
+				open_block(nexts[index]);
+				continue;
+			}
+		}
+		else
+		{
+			for (std::size_t at = index + 1; at < total; ++at)
+			{
+				destruction_step(*epilogue_[at].action, epilogue_[at].element,
+				                 epilogue_[at].index);
+			}
+		}
+		emit_handler_end();
+		emit_resume();
+		open_block(nexts[index]);
+	}
 }
 
 // 12.2p1: a prvalue of class type is an object, and no declaration named it, so
@@ -710,16 +1024,7 @@ void LowirFunctionLowering::destructor_call(const DumpNode& node)
 		array_lifecycle(node, false);
 		return;
 	}
-	const LowValue object = expression(*node.children[0], true);
-	unit_.declare_entity(destructor);
-	Instruction out;
-	out.kind = Instruction::IK_CALL;
-	out.type = unit_.low_type(types.target(destructor.type));
-	out.first = named_operand(
-		Operand::OP_GLOBAL,
-		unit_.function_symbol(destructor, node.fact.base_subobject));
-	out.args.push_back(address_of(object));
-	emit_void(out);
+	destruction_step(node, false, 0);
 }
 
 // 12.6.2: one member of the object a constructor is initializing, given what
@@ -945,6 +1250,10 @@ void LowirFunctionLowering::initialize_subobject(
 	const LowObject& object, const DumpNode& node,
 	std::vector<const DumpNode*>& path)
 {
+	// 15.2p2: whatever this subobject turns out to be, its initialization
+	// begins here, and where it is one of class type the call it makes is a
+	// step an exception out of a later one has to undo.
+	mark_unwind_step();
 	path.push_back(&node);
 	if (!node.children.empty() &&
 	    node.children[0]->fact.kind == FactKind::SubobjectInitialization)

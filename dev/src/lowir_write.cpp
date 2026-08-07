@@ -381,6 +381,12 @@ std::string terminator_text(const Instruction & instruction)
 	{
 		return "jump " + label_text(instruction.first);
 	}
+	if (instruction.kind == Instruction::IK_RESUME)
+	{
+		// 15.2p3: the cleanup this block held has run, and the exception that
+		// reached it goes on to the handler that will catch it.
+		return "resume";
+	}
 	if (instruction.kind == Instruction::IK_BRANCH)
 	{
 		return "branch " + operand_text(instruction.first) + ", " +
@@ -463,6 +469,15 @@ std::string instruction_text(const Instruction & instruction)
 	case Instruction::IK_VA_ARG:
 		return "va_arg " + instruction.type.text + " " +
 		       operand_text(instruction.first);
+	// 15.2p2: the handler stack the region an exception may leave is written
+	// with.  A cleanup runs and goes on unwinding; a catch-style handler takes
+	// control from the throw.
+	case Instruction::IK_EH_TRY:
+		return "eh_try " + label_text(instruction.first);
+	case Instruction::IK_EH_CLEANUP:
+		return "eh_cleanup " + label_text(instruction.first);
+	case Instruction::IK_EH_END:
+		return "eh_end";
 	default:
 		break;
 	}

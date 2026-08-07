@@ -51,14 +51,12 @@ demand-driven definition worklist in the unit lowering.
 
 ## Current Failure Map
 
-After the audit of C13: 278 / 291 of the fixtures that were checked in at the
-turn's start, and 283 / 296 with the five this audit adds. The 13 that remain,
-2 refusing a program the references accept and 11 accepting one and writing a
-different shape:
+After C14: 286 / 296 of the fixtures that were checked in at the turn's start,
+and 291 / 301 with the five it adds. The 10 that remain, 2 refusing a program
+the references accept and 8 accepting one and writing a different shape:
 
 | group | count | what is missing |
 | --- | --- | --- |
-| 15.2p2's cleanup around a partly built object | 3 | `eh_cleanup` / `eh_try` / `resume` around a constructor's body and around each element of a member array, and the region a destructor's own body carries |
 | `#pragma pack` | 2 | a phase-4 fact that has to reach 9.2p13 in phase 7 |
 | single defects, one fixture each | 8 | listed below |
 
@@ -75,6 +73,23 @@ fixture.
 
 Defects no fixture reaches, kept here because a sweep found them and not a test:
 
+- 15.2p1's cleanup around a *block-scope* object is not written. The references
+  give the same treatment to an object a declaration names: with one already
+  alive, the constructor call of the next one stands in an `eh_try` whose
+  handler destroys it - and, for a full-expression that builds a temporary, the
+  whole statement does. `A a; A b;` in a function body is two plain calls here
+  and a region there. It is the same live list this checkpoint built, kept for a
+  checkpoint of its own because the list is a stack there rather than a growing
+  one - it shrinks where a block ends - and because the unit of the region is the
+  statement rather than the subobject. No checked-in `.ref` has an `eh_try`
+  outside a constructor.
+- 12.6p1's array of class type is written as its elements however many there
+  are, where the references write a loop past 16 of them, with an index object
+  of the function and a second one for the elements an exception unwinds. This
+  predates the object model - the elements were always unrolled - but 15.2p2's
+  per-element handler now makes the unrolled form quadratic: `struct X { A w[n]; };`
+  is 7946 lines at n = 50 here and 126 there. It is named in the Performance
+  Model with its numbers and is the checkpoint after this one.
 - 5.2.9p1's conversion is not written around the operand of a cast to a scalar,
   in either the parenthesized or the functional spelling, so 4.12's `bool` is the
   operand's own value: `(bool)2` and `bool(2)` each pass 2 where the references
@@ -228,60 +243,69 @@ the reserved function rather than of a declaration this unit read.
 
 ## Active Checkpoint
 
-Done: **the audit of C13 - 5.3.4's new-expression and 5.2.3p3's braced
-functional cast**, 278 / 291 from a 277 / 291 baseline and 283 / 296 with five
-regression tests added, at pa1-pa15 1174 / 1174.
+Done: **C14 - 15.2p2's cleanup around a partly built object**, 286 / 296 from a
+283 / 296 baseline and 291 / 301 with five regression tests added, at pa1-pa15
+1174 / 1174.
 
-Both rules are the right architecture and the audit left their shape alone. What
-it found is that three of the questions the checkpoint answered were keyed on the
-one spelling its fixtures used, and that 2.14.4's value never reached the object
-file at all. 12.5p1 makes a class's allocation function static whether or not
-`static` is written, and every fixture wrote it, so one written without the
-keyword was given 9.3.1p3's object parameter and no call could choose it - and,
-beside it, an operator-function-id spelled apart by a separator bound a second
-name wherever a declarator was qualified, so an out-of-class definition of one
-defined a symbol no call names. 8.5.1p2's empty-class subobject was written for
-the class rather than for the clause, so every clause lost the constructor the
-program wrote where the checked-in LowIR elides one; it is 12.8p31's prvalue
-alone, and the address such a subobject no longer needs goes with it, one step
-down an array included. And 5.19's fold answered for a floating operand with the
-integer no floating literal sets, so every floating value the image carried was
-zero: the fold now refuses one, one description says what an image item holds,
-5.2.3p2's floating zero carries the suffix that says its width, 8.5p7's zero of a
-pointer is 4.10p1's null pointer value rather than the integer a written constant
-is, and 8.5.4p7's exception is answered by decoding the digits the way phase 7
-does.
+The rule turned out to be about one thing and not two. A subobject is *built* by
+a call, and what an exception out of a later call has to undo is the calls
+already made - so the lowering keeps the list of them, in order, for exactly as
+long as it is inside 12.6.2's initializations, and each call after the first
+stands in an `eh_try` region whose handler destroys that list backwards. The
+granularity is the call and not the member: an aggregate member whose own
+members are of class type puts *those* on the list, one entry each, which is what
+the references write. A subobject built by a constructor that does nothing joins
+nothing, because there is no call to undo.
 
-Three sweeps of 468 programs against `cppgm++-ref` - the allocated type crossed
-with the initializer form and with `::`, where a class declares its allocation
-function crossed with how a new-expression finds it and the empty subobject's
-clause crossed with where the object stands, and the three floating types crossed
-with ten initializer forms and seven places - leave 6 status disagreements, all
-the floating arithmetic this milestone does not fold, and every text disagreement
-named in the failure map. Valgrind is clean over 780 programs and all seven new
-axes are linear at 1.9-2.1x per doubling.
+The other half is 12.4p8's suffix. The destructor's own body stands in one
+`eh_cleanup` region whose handler destroys every subobject, and each destruction
+after it but the last stands in a region of its own that destroys the ones behind
+it. That region is written wherever control leaves the body, which is what found
+the defect underneath: a `return` in a destructor's body ran none of the member
+destructions at all - the actions stand after the body in the tree, and the
+return had simply terminated the block.
 
-Next: **C14 - 15.2p2's cleanup around a partly built object**, which is the
-largest group left and the three lifetime fixtures it holds.
+Three things the shape needed that the fixtures did not say. A handler block is
+reached only by an exception, so a temporary of the block the construction stands
+in is not one it may name: the instructions that named the subobject are written
+again there with temporaries of the handler's own block, which is also exactly
+what the references write. A step needing the same destructions as the one before
+it names that block again rather than writing a second copy - the list only
+grows, so equal length is equal content. And 15.2p2 odr-uses the destructor of
+every subobject a step leaves standing, which is a question about the whole list
+of steps and is asked once it is complete: all but the last of them, because the
+last has nothing after it to throw.
 
-- owner: `sema_class.cpp` for which subobjects are already built where a
-  constructor's body is entered, `lowir_lower_object.cpp` and
-  `lowir_lower_body.cpp` for the `eh_cleanup` / `eh_end` / `resume` region and
-  the blocks it opens.
-- data flow: 12.6.2's member initializations are already written in declaration
-  order under the constructor, and 12.4p8's destructions are that list walked
-  backwards - so the cleanup a partly built object needs is the tail of the same
-  list, taken at the point the construction had reached. The lowering opens one
-  region per point rather than recomputing which subobjects those are.
-- expected complexity: one region per constructor and one per element of a
-  member array, each holding the destructions of the subobjects before it - which
-  is what 15.2p2 asks for and is the same n(n+1)/2 the source describes.
+A 504-program sweep against `cppgm++-ref` - the subobjects a class holds crossed
+with its base, its constructor, its destructor and where the object stands -
+leaves no status disagreement and 3 text disagreements, all the one shape the
+Stage Design already names: the constructor whose body is empty that the
+references elide along with the object's whole lifetime. Two defects the sweep
+found on the way are closed: the destructor of a subobject no later step leaves
+standing was declared for a call nothing writes, and a call that names one of the
+ABI's two entry points was making the unit owe both. Valgrind is clean over 340
+programs - every fixture source and a sample of the sweep - and the suffix is
+linear past 16 destructions where the source would otherwise ask for n(n+1)/2 of
+them.
+
+Next: **C15 - 12.6p1's array of class type written as a loop**, which is the
+largest divergence the C14 sweep leaves and the one place this milestone's output
+grows quadratically from a number the source wrote.
+
+- owner: `lowir_lower_object.cpp` for the loop and its two index objects,
+  `lowir_lower.h` for the state one carries.
+- data flow: `array_lifecycle` already names the array once and steps to an
+  element from it; past 16 elements the step becomes an index object of the
+  function, the address is `element_at` of that object's value, and 15.2p2's
+  handler is the same loop counting down from it.
+- expected complexity: one loop however many elements, so `A w[n]` is a constant
+  number of lines rather than the 3 n it is now and the 6 n the per-element
+  handler makes it.
 - validation: `make test-report ACTIVE_TEST_REPORT_PAS='pa16'`,
-  `make test-report-through-pa15`,
-  `perl scripts/cppgm_file_audit.pl --stage pa16 --paths dev/src`, valgrind over
-  the fixtures, and a differential sweep of the subobject kinds a constructor
-  can leave half built against `cppgm++-ref`, with each disagreement judged
-  against g++.
+  `make test-report-through-pa15`, the file audit, valgrind, and a differential
+  sweep of the array shapes - bound, dimensions, element class, where the object
+  stands - against `cppgm++-ref`, with the 16-element boundary probed on both
+  sides.
 
 ## Performance Model
 
@@ -458,6 +482,26 @@ Invariants, one line each, and the measurements that hold them.
   that names one, so an aggregate whose member is an n-element array of a class
   is 0.02/0.04/0.07/0.14 s for 14 n + 14 lines - the instructions per element the
   element walk already wrote, from one description rather than two.
+- 15.2p2's cleanup costs one list of the subobjects a constructor has built,
+  appended to as the calls are made, and one handler block per step that needs
+  different destructions from the step before it - the list only grows, so equal
+  length is equal content and one probe answers. What a handler writes is the
+  instructions that named the subobject where it was built, copied and renamed,
+  which is one pass over a handful of instructions per subobject. n members of
+  class type therefore cost the n(n+1)/2 calls 15.2p2 asks for, which is what
+  the references write and is bounded by the n members the source wrote:
+  50/100/200/400 members are 0.01/0.03/0.12/0.43 s for 5098/17673/65323/250623
+  lines, byte-identical to `cppgm++-ref` at every size. 12.4p8's suffix is the
+  same n(n+1)/2 up to `kUnwindSuffixLimit` (16) destructions and a chain of n
+  blocks past it, each running one destruction and entering the next - which is
+  where the references stop writing them out too.
+- 12.6p1's array of class type is still written as its elements, so the same
+  n(n+1)/2 now applies to a count a single number in the source sets:
+  `struct X { A w[n]; };` is 7946 lines at n = 50 where the references write 126,
+  and 1.5 s and 810 824 lines at n = 400. Past 16 elements the references write a
+  loop instead, which is C15; until then this is the one axis of this milestone
+  that grows quadratically from a number rather than from what the program spells
+  out, and it is named rather than capped.
 - Nested block scopes and nested namespaces cost more than linearly in their
   depth and did before the object model - 4000 nested blocks holding one scalar
   each take 0.23 s, and 4000 namespaces deep with one ADL call at the bottom
@@ -492,3 +536,4 @@ Invariants, one line each, and the measurements that hold them.
 | audit of C12 | 3.3.7p1's member name made a fact of the class that declares it; 3.4.1p8's region for the rest of a qualified declarator and the body after it; 10.2p2's base; 8.3.5p2's trailing-return-type; 13.1's index keyed by the written parameter-type-list; 7.1.1p10's `mutable`; 7.1.6.2p1's decltype-specifier before `::`; 5.1.1p6's parenthesized callee | a constructor or destructor defined outside its class declared nothing and defined nothing, the node reaching the arm of `declaration` written for an access-specifier, so the unit called `@YA__YA` and only declared it - and a definition matching no declaration and one written twice were accepted; 3.4.1p8's region opened after the parameter clause and the mem-initializers had been read, so `YA::YA(int v) : n((held)v)` was not a translation unit; the ABI's two entry points counted from the uses rather than asked of 9.3p2, which left a strong definition owing one name where the object file owes both; 7.1.6.2p1 written for the type a declaration names and for nothing else, so `decltype(a)::held` in an expression was refused; the expression that specifier carries written into the syntax tree, which is PA10's own output; 7.1.1p10's refusal asked only where the declarator went on to declare an object | 266 / 283 from a 265 / 283 baseline, the same set passing and `200-nested-out-of-class-constructor-enclosing-type` with it, and 269 / 286 with three regression tests added; pa1-pa15 1174 / 1174 with the pa10 test the AST-dump defect asks for; byte-identical passing fixtures 152 of 216; valgrind clean over 438 programs; an 88-program differential sweep against `cppgm++-ref` leaving 77 byte-identical and every disagreement named or judged for this unit by g++; eight axes measured, seven linear at 1.9-2.1x per doubling and 10.2p2's chain named with its numbers; file audit passes with the two recorded header-weight warnings |
 | C13 | 5.3.4's new-expression: 3.7.4.1's allocation function found by 5.3.4p9's lookup - the class first for an unqualified one over a class type, the global namespace for `::new` and for every other type - chosen by 13.3 from the byte count 2.14.2p2 spells and the new-placement's own arguments, with 8.5p16's object built at the address it returned rather than in storage a name reaches; 5.2.3p3's `T{...}` in the parser for a type-name, a keyword simple-type-specifier and a decltype-specifier, list-initialized from its braces by 8.5.1 for an aggregate and 13.3.1.7 for any other class; 12.8p31's elision of `T{...}` into the object it initializes, at a declaration and at an aggregate's clause alike; 8.5.1p2's member of a class that holds nothing written as the nothing the references write | 269 -> 272 / 286, and 277 / 291 with five regression tests added; pa1-pa15 1174/1174; valgrind clean over 183 programs - every pa16 general fixture source and every synthesized input of the sweeps; two differential sweeps against `cppgm++-ref`, 125 programs over the allocated type x the initializer form x `::` and over every type a functional cast is written over, leaving 98 byte-identical after the stripped metadata and each of the other 27 named or judged; three new axes linear at 2.0-2.2x per doubling |
 | audit of C13 | 5.3.4's new-expression with 5.3.4p9's lookup and 8.5p16's object at the address it returned; 5.2.3p3's `T{...}` and 12.8p31's elision of it; 8.5.1p2's member of a class that holds nothing | 12.5p1's allocation function of a class given 9.3.1p3's object parameter where `static` was not written, and an operator-function-id spelled apart by a separator binding a second name wherever a declarator was qualified - so an out-of-class definition defined `_ZN1T12operator newEmPv` while the call named `_ZN1TnwEmPv`; 8.5.1p2's empty-class subobject written for the class rather than for the clause, so `{ Mark(), 1 }`, `{ {}, 1 }` and `{ {3, 4}, 1 }` each lost the constructor the program wrote, and the address of one whose initialization writes nothing computed anyway, an element of an array of them included; 5.19's fold answering for a floating operand with the integer no floating literal sets, so every floating value the image carried was zero; 5.2.3p2's floating `T()` spelled `0.0` at all three widths; 8.5p7's zero of a pointer written as the integer 4.10p1 converts from; an element of an array of class type indexed two ways; 8.5.4p7 refusing a floating clause whose value the narrower type keeps | 278 / 291 from a 277 / 291 baseline, the same set passing and `100-default-member-initializer-scalar-brace` with it, and 283 / 296 with five regression tests added; pa1-pa15 1174/1174; byte-identical passing fixtures 165 of 241; valgrind clean over 780 programs; three differential sweeps of 468 programs against `cppgm++-ref` leaving 6 status disagreements, all the floating arithmetic this milestone does not fold, and every text disagreement named; seven new axes linear at 1.9-2.1x per doubling; file audit passes with the two recorded header-weight warnings |
+| C14 | 15.2p2's cleanup around a partly built object: the subobjects a constructor has built kept as the calls it made, in order, for as long as the walk is inside 12.6.2's initializations, with each call after the first standing in an `eh_try` region whose handler destroys that list backwards - at the granularity of the call, so an aggregate member's own class members are entries of their own and a constructor that does nothing is no entry at all; the instructions that named a subobject written again in the handler's own block, because a block an exception reaches names no temporary of the block it left; a step needing what the step before it needed naming that block again, which equal length settles because the list only grows; 12.4p8's suffix given 15.2p2's shape - the destructor's body in one `eh_cleanup` whose handler destroys every subobject, each destruction but the last in a region that destroys the ones behind it, and the whole suffix written wherever control leaves the body, which is what a `return` in a destructor had been skipping entirely; the suffix chained past `kUnwindSuffixLimit` (16) destructions, where the references stop writing them out; and 15.2p2's odr-use asked of the whole list of steps at once, so all but the last of them get 12.4's entry point and 12.4p6's definition | 286 / 296 from a 283 / 296 baseline, the same set passing and the three lifetime fixtures with it, and 291 / 301 with five regression tests added; pa1-pa15 1174/1174; a 504-program differential sweep against `cppgm++-ref` over the subobjects a class holds x its base x its constructor x its destructor x where the object stands, leaving no status disagreement and 3 text disagreements, all the empty-constructor elision already named, with two defects it found closed - a destructor declared for a call nothing writes, and a call naming one ABI entry point making the unit owe both; valgrind clean over the fixtures and the sweep; n members of class type byte-identical to the references at 50/100/200/400 in 0.01/0.03/0.12/0.43 s, and 12.6p1's array named with its numbers as the one axis still quadratic in a count the source only wrote a number for; file audit passes with the two recorded header-weight warnings |

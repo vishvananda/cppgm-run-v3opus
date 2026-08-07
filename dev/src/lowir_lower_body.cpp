@@ -78,6 +78,8 @@ LowirFunctionLowering::LowirFunctionLowering(LowirUnitLowering& unit,
 	, current_(0)
 	, open_(false)
 	, returns_(kNoType)
+	, unwinding_(false)
+	, unwind_dispatch_live_(0)
 {}
 
 // ---------------------------------------------------------------- emission
@@ -943,6 +945,15 @@ void LowirFunctionLowering::run(const DumpNode& node, TypeId type)
 	TypeTable& types = unit_.types();
 	returns_ = types.target(type);
 	open_block("entry");
+	// 15.2p2 and 12.4p8: the destructions that follow the destructor's own body
+	// are read before the body is, because the two blocks they stand between
+	// are numbered before the blocks the body opens.
+	const std::size_t body_end = collect_epilogue(node);
+	if (!epilogue_.empty())
+	{
+		destructor_cleanup_ = reserve_block("destructor_cleanup");
+		destructor_end_ = reserve_block("destructor_end");
+	}
 	const std::vector<TypeId>& declared = types.parameters(type);
 	std::size_t index = 0;
 	for (; index < node.children.size(); ++index)
@@ -990,9 +1001,46 @@ void LowirFunctionLowering::run(const DumpNode& node, TypeId type)
 		store(named_operand(Operand::OP_TEMP, parameter.name),
 		      named_operand(Operand::OP_SLOT, parameter.name), written);
 	}
-	for (; index < node.children.size(); ++index)
+	if (!epilogue_.empty())
 	{
-		statement(*node.children[index]);
+		// 15.2p2: the whole of the destructor's body stands in one cleanup
+		// region, because an exception out of it leaves an object every
+		// subobject of which is still alive.
+		emit_handler(true, destructor_cleanup_);
+	}
+	// 15.2p2: 12.6.2's initializations are the one place a partly built object
+	// exists, so the steps before the body are the ones a handler stands around
+	// and the body itself is not.
+	unwinding_ = node.fact.entity != nullptr &&
+	             node.fact.entity->special == kConstructorFunction;
+	for (; index < body_end; ++index)
+	{
+		const DumpNode& child = *node.children[index];
+		if (child.fact.kind == FactKind::Compound)
+		{
+			unwinding_ = false;
+		}
+		statement(child);
+	}
+	unwinding_ = false;
+	if (!epilogue_.empty())
+	{
+		if (!terminated())
+		{
+			destructor_epilogue();
+			jump(destructor_end_);
+		}
+		open_block(destructor_cleanup_);
+		for (std::size_t at = 0; at < epilogue_.size(); ++at)
+		{
+			// 15.2p2: the exception left the body, so every subobject is still
+			// alive and every one of them is destroyed.
+			destruction_step(*epilogue_[at].action, epilogue_[at].element,
+			                 epilogue_[at].index);
+		}
+		emit_handler_end();
+		emit_resume();
+		open_block(destructor_end_);
 	}
 	if (!terminated())
 	{
@@ -1004,6 +1052,45 @@ void LowirFunctionLowering::run(const DumpNode& node, TypeId type)
 		instruction.first = literal_operand(returns_, 0);
 		terminate(instruction);
 	}
+}
+
+// 12.4p8: the destructions written after a destructor's body, flattened to one
+// entry per call, and where in the definition's children the body ends.  They
+// are the trailing `destructor-action` children of the definition, which no
+// other function has: every other end of a lifetime stands under the statement
+// that reaches it.
+std::size_t LowirFunctionLowering::collect_epilogue(const DumpNode& node)
+{
+	if (node.fact.entity == nullptr ||
+	    node.fact.entity->special != kDestructorFunction)
+	{
+		return node.children.size();
+	}
+	std::size_t at = node.children.size();
+	while (at > 0 &&
+	       node.children[at - 1]->fact.kind == FactKind::DestructorAction)
+	{
+		--at;
+	}
+	for (std::size_t index = at; index < node.children.size(); ++index)
+	{
+		const DumpNode& action = *node.children[index];
+		const unsigned long long total = destruction_steps(action);
+		std::vector<TypeId> dimensions;
+		std::vector<unsigned long long> bounds;
+		const bool array = total > 1 ||
+			unit_.types().kind(unit_.types().strip_cv(action.fact.type)) ==
+				TypeKind::Array;
+		for (unsigned long long step = 0; step < total; ++step)
+		{
+			LowDestruction one;
+			one.action = &action;
+			one.element = array;
+			one.index = action.fact.reverse_elements ? total - 1 - step : step;
+			epilogue_.push_back(one);
+		}
+	}
+	return at;
 }
 
 // 6.4.2p1: whether a switch that holds `node` can reach a label inside it.  A
@@ -1158,6 +1245,9 @@ void LowirFunctionLowering::statement(const DumpNode& node)
 		return;
 
 	case FactKind::MemberInitialization:
+		// 15.2p2: a member of class type an aggregate clause reaches is built
+		// by a call of its own, and the step is where it begins.
+		mark_unwind_step();
 		member_initialization(node);
 		return;
 
@@ -1173,6 +1263,7 @@ void LowirFunctionLowering::statement(const DumpNode& node)
 		}
 		// 12.6.2: a subobject of class type is initialized by running its
 		// constructor on it, and the action already names the subobject.
+		mark_unwind_step();
 		const LowValue object = expression(*node.children[0]->children[1]);
 		constructor_call(object.operand, node);
 		return;
@@ -1329,6 +1420,13 @@ void LowirFunctionLowering::return_statement(const DumpNode& node)
 		}
 	}
 	leave_blocks(node);
+	if (!epilogue_.empty())
+	{
+		// 12.4p8 and 15.2p2: the return leaves the destructor's own body, so
+		// the region that body stands in ends here and the subobjects are
+		// destroyed before control leaves the function.
+		destructor_epilogue();
+	}
 	terminate(instruction);
 }
 
