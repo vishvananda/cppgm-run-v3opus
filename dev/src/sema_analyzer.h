@@ -155,6 +155,13 @@ private:
 		unsigned op;
 		// 5p9: the type a built-in binary operator brings both operands to.
 		TypeId operands;
+		// 13.3.1p4: the value category the object expression of a member call
+		// had.  9.3.1p3 holds the implicit object parameter as a pointer, so
+		// the argument this value carries is the object's address and the
+		// category it was written with would otherwise be lost - and it is
+		// exactly what 8.3.5p1's ref-qualifier binds by.  It says nothing about
+		// any value that is not an implied object argument.
+		ValueCategory object_category;
 		// 7.3.3p1 and 11.2p5: whether this operand is the object a member
 		// function a using-declaration brought into its class is called on.
 		// The class the name was written on is the naming class, so 4.10p3's
@@ -410,6 +417,10 @@ private:
 	// other rather than overload, which 9.4.1p2 does not allow.
 	std::uint32_t member_signature(const SemaEntity& function);
 	std::uint32_t member_signature(TypeId type, bool object_member);
+	// 13.1p2: a class shall not declare one member function both with and
+	// without a ref-qualifier where the two agree in everything else.
+	void require_uniform_ref_qualifiers(const SemaEntity& head,
+	                                    const std::string& name, TypeId type);
 	// 7.3.3p1: the declaration a name a using-declaration brought into a class
 	// reaches, which is the one the base made.  11p1's access and 7.3.3p14's
 	// hiding are facts about the declaration the class made; everything a use
@@ -973,6 +984,14 @@ private:
 	TypeId with_object_parameter(TypeId type, const AstNode& declarator,
 	                             const Context& target, bool is_static,
 	                             const std::string& name, bool qualified);
+	// 8.3.5p5: the cv-qualifier-seq written after a declarator's
+	// parameter-clause, which is what 9.3.1p3's object parameter is qualified
+	// by.
+	static unsigned declarator_function_cv(const AstNode& declarator);
+	// 8.3.5p1: the ref-qualifier written there, for the declarations that build
+	// their own function type instead of taking the one the declarator walk
+	// built.
+	static RefQualifier declarator_ref_qualifier(const AstNode& declarator);
 	// 9.4p1: whether `where` declares `name` as a static member function whose
 	// declarator wrote `type`.
 	bool declares_static_member(Scope& where, const std::string& name,
@@ -1055,10 +1074,14 @@ private:
 	                               const Context& ctx, const Context& target,
 	                               const QualifiedName& spelled,
 	                               const std::string& written, TypeId type);
+	// `redeclaration` is 9.3p2 and 3.4.3.2p1: a definition whose declarator-id
+	// is qualified defines a declaration the region that name reaches has
+	// already made, and declares nothing of its own.
 	SemaEntity& declare_function(const std::string& name, TypeId type,
 	                             const Context& target, bool define,
 	                             bool hidden = false,
-	                             bool object_member = false);
+	                             bool object_member = false,
+	                             bool redeclaration = false);
 	// 13.1 and 9.3.1p3: the key the chain a name heads is indexed by, which is
 	// the parameter-type-list the declarator wrote wherever the region is a
 	// class - so a static and a non-static member function whose types agree
@@ -1496,6 +1519,12 @@ private:
 	Match match_argument(const Value& argument, TypeId parameter);
 	Match match_by_value(const Value& argument, TypeId parameter);
 	Match match_reference(const Value& argument, TypeId parameter);
+	// 13.3.1p4 and p5: how the implied object argument reaches a member
+	// candidate's implicit object parameter, which is the pointer conversion
+	// 9.3.1p3's parameter asks for plus what 8.3.5p1's ref-qualifier says about
+	// the category the object expression had.
+	Match object_match(const Value& object, const SemaEntity& candidate,
+	                   TypeId parameter);
 	// 8.5.3p5: whether a reference of `parameter` binds `argument` itself rather
 	// than a temporary a conversion made, which is what 5.16p3 asks of the two
 	// operands of a conditional expression about each other.

@@ -373,6 +373,20 @@ std::string abi_symbol_of(const SemaEntity& entity, TypeTable& types,
 				abi_mangle::ABI_FUNCTION_QUALIFIER_VOLATILE);
 			records.push_back(qualifier);
 		}
+		// 8.3.5p1: the ref-qualifier is part of the function type, so two
+		// members that differ only in it are two functions the object file has
+		// to name apart.
+		const RefQualifier ref = types.function_ref_qualifier(entity.type);
+		if (ref != RefQualifier::None)
+		{
+			abi_mangle::AbiFunctionRecord qualifier;
+			qualifier.kind = abi_mangle::ABI_FUNCTION_RECORD_QUALIFIER;
+			qualifier.qualifiers.push_back(
+				ref == RefQualifier::RValue
+					? abi_mangle::ABI_FUNCTION_QUALIFIER_RVALUE_REFERENCE
+					: abi_mangle::ABI_FUNCTION_QUALIFIER_LVALUE_REFERENCE);
+			records.push_back(qualifier);
+		}
 	}
 	for (std::size_t index = first; index < parameters.size(); ++index)
 	{

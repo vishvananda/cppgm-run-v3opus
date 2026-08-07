@@ -185,17 +185,7 @@ TypeTable::TypeTable()
 	// Index zero is `kNoType`.  Its record is every field's neutral value, so
 	// it doubles as the blank a builder starts from and fills in the two or
 	// three fields its category uses.
-	Node none;
-	none.kind = TypeKind::Fundamental;
-	none.cv = 0;
-	none.bounded = false;
-	none.variadic = false;
-	none.fundamental = FT_VOID;
-	none.target = kNoType;
-	none.bound = 0;
-	none.parameters = 0;
-	none.user = 0;
-	nodes_.push_back(none);
+	nodes_.push_back(Node());
 	intern_parameters(std::vector<TypeId>());
 }
 
@@ -222,11 +212,12 @@ std::uint32_t TypeTable::operand_of(const Node& node)
 std::uint32_t TypeTable::shape_of(const Node& node)
 {
 	// The category, then the flags that are part of what the type is: its
-	// cv-qualifiers, whether an array wrote a bound, and whether a function
-	// takes further arguments.  Each has a bit of its own, so no two of them
-	// can make one shape.
+	// cv-qualifiers, whether an array wrote a bound, whether a function takes
+	// further arguments, and 8.3.5p1's ref-qualifier.  Each has a bit of its
+	// own, so no two of them can make one shape.
 	return (static_cast<std::uint32_t>(node.kind) << 8) | node.cv |
-		(node.bounded ? 1u << 4 : 0u) | (node.variadic ? 1u << 5 : 0u);
+		(node.bounded ? 1u << 4 : 0u) | (node.variadic ? 1u << 5 : 0u) |
+		(static_cast<std::uint32_t>(node.ref_qualifier) << 6);
 }
 
 std::uint32_t TypeTable::extra_of(const Node& node)
@@ -284,18 +275,28 @@ TypeId TypeTable::intern(const Key& key, const Node& node)
 	return entry.first->second;
 }
 
+// A node is empty until a builder says what it is, so every field a category
+// does not use reads as the nothing it means.  Each builder below starts from
+// `nodes_[0]` and writes only what its category adds, which is what keeps a
+// field added later - 8.3.5p1's ref-qualifier is one - from arriving unset in
+// the builders that have no opinion about it.
+TypeTable::Node::Node()
+	: kind(TypeKind::Fundamental)
+	, cv(0)
+	, ref_qualifier(static_cast<unsigned char>(RefQualifier::None))
+	, bounded(false)
+	, variadic(false)
+	, fundamental(FT_VOID)
+	, target(kNoType)
+	, bound(0)
+	, parameters(0)
+	, user(0)
+{}
+
 TypeId TypeTable::fundamental(EFundamentalType type)
 {
 	Node node;
-	node.kind = TypeKind::Fundamental;
-	node.cv = 0;
-	node.bounded = false;
-	node.variadic = false;
 	node.fundamental = type;
-	node.target = kNoType;
-	node.bound = 0;
-	node.parameters = 0;
-	node.user = 0;
 	return intern(key_of(node), node);
 }
 
@@ -332,6 +333,23 @@ TypeId TypeTable::qualified_function(TypeId function, unsigned add)
 	}
 	Node node = nodes_[function];
 	node.cv = static_cast<unsigned char>(merged);
+	return intern(key_of(node), node);
+}
+
+// 8.3.5p1.  The ref-qualifier replaces rather than accumulates: a declarator
+// writes at most one, and the question 13.1 asks of an overload set is which of
+// the three a declaration wrote - so asking for `None` is what takes one off a
+// type in order to ask whether the set already holds the other spelling.
+TypeId TypeTable::ref_qualified_function(TypeId function, RefQualifier ref)
+{
+	const unsigned char wanted = static_cast<unsigned char>(ref);
+	if (kind(function) != TypeKind::Function ||
+	    nodes_[function].ref_qualifier == wanted)
+	{
+		return function;
+	}
+	Node node = nodes_[function];
+	node.ref_qualifier = wanted;
 	return intern(key_of(node), node);
 }
 
@@ -735,10 +753,15 @@ TypeId TypeTable::substitute(TypeId type,
 		{
 			built[index] = substitute(written[index], bindings, memo);
 		}
-		result = qualified_function(
-			function_of(substitute(target(type), bindings, memo), built,
-			            variadic(type)),
-			qualifiers);
+		// 8.3.5p1 and 8.3.5p7: a substitution replaces the types a function is
+		// written over and none of the qualifiers written after its
+		// parameter-clause, so both travel to the type it builds.
+		result = ref_qualified_function(
+			qualified_function(
+				function_of(substitute(target(type), bindings, memo), built,
+				            variadic(type)),
+				qualifiers),
+			function_ref_qualifier(type));
 		break;
 	}
 
@@ -986,6 +1009,18 @@ void TypeTable::append_description(TypeId type, std::string& out) const
 			if ((node.cv & kCvVolatile) != 0)
 			{
 				out += " volatile";
+			}
+			// 8.3.5p1: the ref-qualifier is written after the cv-qualifier-seq,
+			// which is where it is spelled back.
+			if (node.ref_qualifier ==
+			    static_cast<unsigned char>(RefQualifier::LValue))
+			{
+				out += " &";
+			}
+			else if (node.ref_qualifier ==
+			         static_cast<unsigned char>(RefQualifier::RValue))
+			{
+				out += " &&";
 			}
 			out += " returning ";
 			break;

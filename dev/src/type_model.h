@@ -44,6 +44,18 @@ enum class TypeKind
 	TemplateParameter
 };
 
+// 8.3.5p1: the ref-qualifier written after a member function's
+// parameter-clause.  Like 8.3.5p7's cv-qualifier-seq beside it, it qualifies
+// the function type itself rather than any parameter a declarator wrote, and
+// 13.3.1p4 reads it as the value category the implicit object parameter binds
+// its argument by.
+enum class RefQualifier
+{
+	None,
+	LValue,
+	RValue
+};
+
 // The class-key of 9p1, which is also how the dump spells the type.  Two
 // declarations of one class agree exactly when neither or both wrote `union`.
 enum class ClassTag
@@ -119,6 +131,23 @@ public:
 	// qualifies the function type itself.  It is not `qualified`, which 8.3.5p7
 	// makes ignore a qualifier a typedef brought to a function type.
 	TypeId qualified_function(TypeId function, unsigned cv);
+
+	// 8.3.5p1: `function` with `ref` as its ref-qualifier, replacing whatever
+	// one it had.  It stands beside 8.3.5p7's cv-qualifier-seq as the second
+	// thing a member function's declarator writes after its parameter-clause,
+	// so it is part of the function type for the same reason: a declaration and
+	// the definition written outside its class agree on one type, and 13.1 has
+	// `f() &` and `f() &&` to tell apart.
+	TypeId ref_qualified_function(TypeId function, RefQualifier ref);
+
+	// That ref-qualifier.  `RefQualifier::None` for every type that is not a
+	// function, and for a function whose declarator wrote none.
+	RefQualifier function_ref_qualifier(TypeId type) const
+	{
+		return kind(type) == TypeKind::Function
+			? static_cast<RefQualifier>(nodes_[type].ref_qualifier)
+			: RefQualifier::None;
+	}
 
 	// 8.3.2p6: a reference to a reference collapses, and only two rvalue
 	// references make an rvalue reference.
@@ -306,8 +335,14 @@ private:
 	// and the table is one flat array.
 	struct Node
 	{
+		Node();
+
 		TypeKind kind;
 		unsigned char cv;
+		// Function: 8.3.5p1's ref-qualifier, as a `RefQualifier`.  It is stored
+		// beside `cv` because it is written where the cv-qualifier-seq is
+		// written and tells two function types apart the same way.
+		unsigned char ref_qualifier;
 		bool bounded;
 		bool variadic;
 		EFundamentalType fundamental;

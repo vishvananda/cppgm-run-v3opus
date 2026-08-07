@@ -354,16 +354,27 @@ TypeId SemaAnalyzer::declarator_type(const AstNode& node, TypeId base,
 		++index;
 	}
 
-	// 8.3.5p7: the cv-qualifier-seq of a function declarator is written after
-	// its parameter-clause, so the walk from the last suffix inwards reaches it
-	// before the clause it qualifies and hands it on.
+	// 8.3.5p7 and 8.3.5p1: the cv-qualifier-seq and the ref-qualifier of a
+	// function declarator are written after its parameter-clause, so the walk
+	// from the last suffix inwards reaches them before the clause they qualify
+	// and hands both on.
 	unsigned function_cv = kCvNone;
+	RefQualifier function_ref = RefQualifier::None;
 	for (std::size_t suffix = node.children.size(); suffix-- > index;)
 	{
 		const AstNode& part = *node.children[suffix];
 		if (part.kind == AstKind::CvQualifier)
 		{
 			function_cv |= part.token == KW_CONST ? kCvConst : kCvVolatile;
+			continue;
+		}
+		if (part.kind == AstKind::FunctionQualifier &&
+		    (part.text == "&" || part.text == "&&"))
+		{
+			// The grammar spells an exception-specification with the same node,
+			// so which one this is is what it was written as.
+			function_ref = part.text == "&" ? RefQualifier::LValue
+			                                : RefQualifier::RValue;
 			continue;
 		}
 		if (part.kind == AstKind::TrailingReturnType)
@@ -395,10 +406,15 @@ TypeId SemaAnalyzer::declarator_type(const AstNode& node, TypeId base,
 			{
 				// PA11 describes the declarator as written, and a
 				// cv-qualifier-seq is part of the type only where 9.3.1p3 gives
-				// it a meaning, which is what PA12 reads it for.
-				type = types_.qualified_function(type, function_cv);
+				// it a meaning, which is what PA12 reads it for.  8.3.5p1's
+				// ref-qualifier is part of it for the same reason and travels
+				// with it - which is what lets a pointer to member name a
+				// ref-qualified member function.
+				type = types_.ref_qualified_function(
+					types_.qualified_function(type, function_cv), function_ref);
 			}
 			function_cv = kCvNone;
+			function_ref = RefQualifier::None;
 			declared = nullptr;
 		}
 	}

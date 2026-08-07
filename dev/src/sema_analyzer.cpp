@@ -132,6 +132,9 @@ SemaAnalyzer::Value::Value()
 	, entity(nullptr)
 	, op(0)
 	, operands(kNoType)
+	// 13.3.1p4: an object argument no member call built names an object, and
+	// every object a name reaches is an lvalue.
+	, object_category(ValueCategory::LValue)
 	, through_using(false)
 {}
 
@@ -783,9 +786,20 @@ std::uint32_t SemaAnalyzer::member_signature(TypeId type, bool object_member)
 	{
 		list.push_back(written[index]);
 	}
-	list.push_back(types_.qualified(
+	TypeId object = types_.qualified(
 		types_.fundamental(FT_VOID),
-		object_member ? types_.object_cv(types_.target(written[0])) : 0u));
+		object_member ? types_.object_cv(types_.target(written[0])) : 0u);
+	// 8.3.5p1 and 13.1: a ref-qualifier is as much a part of what tells two
+	// declarations of one member apart as the cv-qualifier-seq beside it, so it
+	// stands in the same step: `f() &` and `f() &&` are two declarations of one
+	// name, and a definition written outside the class matches the declaration
+	// whose qualifiers it repeats rather than colliding with it.
+	const RefQualifier ref = types_.function_ref_qualifier(type);
+	if (ref != RefQualifier::None)
+	{
+		object = types_.reference_to(object, ref == RefQualifier::RValue);
+	}
+	list.push_back(object);
 	return (types_.type_list(list) << 1) | (types_.variadic(type) ? 1u : 0u);
 }
 
@@ -2191,7 +2205,8 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 	SemaEntity& entity =
 		declare_function(name, type, target, true,
 		                 granting != nullptr && !spelled.qualified(),
-		                 type != written_type);
+		                 type != written_type,
+		                 spelled.qualified() && granting == nullptr);
 	entity.object_member = type != written_type;
 	if (!entity.object_member)
 	{
@@ -2386,9 +2401,48 @@ std::uint32_t SemaAnalyzer::declaration_signature(const Scope& where,
 		: types_.signature(type);
 }
 
+// 13.1p2: a class shall not declare a member function with a ref-qualifier and
+// one without where the two agree in everything else, because 13.3.1p5's rule
+// that an unqualified member binds an rvalue too would leave a call on an
+// rvalue with no way to choose between them.  The chain the name heads is
+// indexed by 8.3.5p1's qualifier along with the rest of the signature, so the
+// question is the one probe for the signature the other spelling would have
+// given rather than a walk of the declarations already made.
+void SemaAnalyzer::require_uniform_ref_qualifiers(const SemaEntity& head,
+                                                  const std::string& name,
+                                                  TypeId type)
+{
+	static const RefQualifier kSpellings[] = {
+		RefQualifier::None, RefQualifier::LValue, RefQualifier::RValue
+	};
+	const RefQualifier written = types_.function_ref_qualifier(type);
+	for (std::size_t index = 0; index < 3; ++index)
+	{
+		const RefQualifier other = kSpellings[index];
+		if (other == written ||
+		    (written != RefQualifier::None && other != RefQualifier::None))
+		{
+			// Two ref-qualified declarations are two functions 13.3.1p4 tells
+			// apart by the category the object argument has, so only the
+			// unqualified spelling is the one this asks about.
+			continue;
+		}
+		if (model_.overload_of(
+			    head, member_signature(
+				    types_.ref_qualified_function(type, other), true)) != nullptr)
+		{
+			throw std::runtime_error(
+				"a class declares " + name +
+				" both with and without a ref-qualifier, which 13.1p2 does not "
+				"allow");
+		}
+	}
+}
+
 SemaEntity& SemaAnalyzer::declare_function(const std::string& name, TypeId type,
                                            const Context& target, bool define,
-                                           bool hidden, bool object_member)
+                                           bool hidden, bool object_member,
+                                           bool redeclaration)
 {
 	// 14.1p1: the region a template's parameters are declared in encloses only
 	// the declaration they parameterise, so the function that declaration
@@ -2437,6 +2491,22 @@ SemaEntity& SemaAnalyzer::declare_function(const std::string& name, TypeId type,
 		}
 		prior->defined = prior->defined || define;
 		return *prior;
+	}
+	if (redeclaration)
+	{
+		// 9.3p2 and 3.4.3.2p1: a definition written with a qualified
+		// declarator-id defines the declaration that region already made, so a
+		// declarator that matches none of them names a member the region does
+		// not have however nearly it spells one - which is what tells `int
+		// X::f() &&` from the `int X::f() &` the class declared, and equally
+		// what tells a mistyped parameter list or cv-qualifier-seq from the one
+		// the class wrote.
+		throw std::runtime_error("a definition of " + name +
+		                         " matches no declaration of it");
+	}
+	if (object_member && where.kind == ScopeKind::Class && head != nullptr)
+	{
+		require_uniform_ref_qualifiers(*head, name, type);
 	}
 
 	SemaEntity& entity = model_.create(SemaKind::Function, name, type);

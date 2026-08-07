@@ -460,6 +460,10 @@ bool SemaAnalyzer::operator_expression(unsigned token, const Context& ctx,
 	// arguments either way.
 	Value object = operands[0];
 	object.type = object.spelled = types_.pointer_to(operands[0].type);
+	// 13.3.1p4: the object parameter is a reference, so what a member
+	// candidate's ref-qualifier binds by is the category the operand was
+	// written with rather than the prvalue address that stands for it.
+	object.object_category = operands[0].category;
 	object.category = ValueCategory::PRValue;
 	object.node = nullptr;
 	std::vector<Value> rest(operands.begin() + 1, operands.end());

@@ -704,6 +704,11 @@ SemaAnalyzer::Value SemaAnalyzer::member_expression(const AstNode& node,
 void SemaAnalyzer::address_of_object(Value& object, DumpNode& node,
                                      bool through_pointer)
 {
+	// 5.2.5p2 and 13.3.1p4: what the implied object argument's category is.
+	// `E1->E2` names the object `*E1` denotes, which 5.3.1p1 makes an lvalue
+	// however the pointer was written; `E1.E2` names whatever E1 named.
+	object.object_category =
+		through_pointer ? ValueCategory::LValue : object.category;
 	if (through_pointer)
 	{
 		// The pointer the program wrote is the argument, so the node the call
@@ -964,6 +969,11 @@ void SemaAnalyzer::implicit_object_argument(
 			if (at->object_member)
 			{
 				object = this_value(line);
+				// 9.3.2p1 and 13.3.1p4: the object argument is `(*this)`, which
+				// 5.3.1p1 makes an lvalue - so a call written with no object
+				// expression reaches an `&`-qualified member and not an
+				// `&&`-qualified one.
+				object.object_category = ValueCategory::LValue;
 				return;
 			}
 		}

@@ -424,6 +424,7 @@ SemaAnalyzer::Match SemaAnalyzer::conversion_match(const Value& argument,
 	// place a candidate of this set can be unviable.
 	Value object;
 	object.type = object.spelled = types_.pointer_to(argument.type);
+	object.object_category = argument.category;
 	object.category = ValueCategory::PRValue;
 	SemaEntity* best = nullptr;
 	Match chosen_object;
@@ -440,7 +441,7 @@ SemaAnalyzer::Match SemaAnalyzer::conversion_match(const Value& argument,
 			continue;
 		}
 		const Match reached =
-			match_argument(object, types_.parameters(at->type)[0]);
+			object_match(object, *at, types_.parameters(at->type)[0]);
 		if (!reached.viable)
 		{
 			continue;
@@ -647,6 +648,7 @@ TypeId SemaAnalyzer::builtin_conversion_type(const Value& value, bool reference)
 	// own cv-qualification says which.
 	Value object;
 	object.type = object.spelled = types_.pointer_to(value.type);
+	object.object_category = value.category;
 	object.category = ValueCategory::PRValue;
 	std::vector<SemaEntity*> candidates;
 	gather_conversions(*owner, candidates);
@@ -688,7 +690,7 @@ TypeId SemaAnalyzer::builtin_conversion_type(const Value& value, bool reference)
 			result = handed;
 		}
 		const Match reached =
-			match_argument(object, types_.parameters(at->type)[0]);
+			object_match(object, *at, types_.parameters(at->type)[0]);
 		if (!reached.viable)
 		{
 			continue;
@@ -1002,6 +1004,46 @@ bool SemaAnalyzer::binds_reference(const Value& argument, TypeId parameter)
 	return match.viable && match.materialized == kNoType && match.binds_lvalue;
 }
 
+// 13.3.1p4 and p5: how the implied object argument reaches a member candidate's
+// implicit object parameter.
+//
+// 9.3.1p3 holds that parameter as a pointer, and the pointer is still what the
+// conversion is measured over: it is what carries 4.10p3's conversion to a base
+// subobject and 13.3.3.2p3's ordering of `f()` above `f() const`.  What the
+// pointer cannot say is 13.3.1p4's other half - that the parameter is a
+// *reference*, and that 8.3.5p1's ref-qualifier says which categories it binds:
+// `&` binds an lvalue, and an rvalue only through the non-volatile const every
+// lvalue reference binds one through; `&&` binds only an rvalue; and a member
+// that wrote neither binds either, which is 13.3.1p5's added rule.  Those two
+// facts are written beside the pointer's match, where 13.3.3.2p3 already reads
+// them off every other reference binding.
+SemaAnalyzer::Match SemaAnalyzer::object_match(const Value& object,
+                                               const SemaEntity& candidate,
+                                               TypeId parameter)
+{
+	Match match = match_argument(object, parameter);
+	if (!match.viable)
+	{
+		return match;
+	}
+	const RefQualifier ref = types_.function_ref_qualifier(candidate.type);
+	const bool is_lvalue = object.object_category == ValueCategory::LValue;
+	const unsigned cv = types_.object_cv(types_.target(parameter));
+	const bool const_lvalue_ref =
+		(cv & kCvConst) != 0 && (cv & kCvVolatile) == 0;
+	if (ref == RefQualifier::RValue
+		    ? is_lvalue
+		    : (ref == RefQualifier::LValue && !is_lvalue && !const_lvalue_ref))
+	{
+		match.viable = false;
+		return match;
+	}
+	match.reference = true;
+	match.binds_lvalue = is_lvalue;
+	match.binds_rvalue_ref = ref == RefQualifier::RValue;
+	return match;
+}
+
 SemaAnalyzer::Match SemaAnalyzer::match_argument(const Value& argument,
                                                  TypeId parameter)
 {
@@ -1031,10 +1073,14 @@ TypeId SemaAnalyzer::member_pointer_of(const SemaEntity& function)
 	const std::vector<TypeId>& parameters = types_.parameters(function.type);
 	const TypeId object = types_.target(parameters[0]);
 	const std::vector<TypeId> written(parameters.begin() + 1, parameters.end());
-	const TypeId declared = types_.qualified_function(
-		types_.function_of(types_.target(function.type), written,
-		                   types_.variadic(function.type)),
-		types_.cv(object));
+	// 8.3.5p1 and 8.3.5p7: both qualifiers written after the parameter-clause
+	// are part of the function type a pointer to member points to.
+	const TypeId declared = types_.ref_qualified_function(
+		types_.qualified_function(
+			types_.function_of(types_.target(function.type), written,
+			                   types_.variadic(function.type)),
+			types_.cv(object)),
+		types_.function_ref_qualifier(function.type));
 	return types_.member_pointer_to(types_.strip_cv(object), declared);
 }
 
@@ -1177,7 +1223,7 @@ SemaEntity* SemaAnalyzer::select_overload(
 			match.rank = kExactMatch;
 			if (at->object_member)
 			{
-				match = match_argument(*object, parameters[0]);
+				match = object_match(*object, *at, parameters[0]);
 			}
 			else if (operand != nullptr)
 			{

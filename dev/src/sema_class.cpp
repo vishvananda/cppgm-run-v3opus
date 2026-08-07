@@ -612,6 +612,21 @@ TypeId SemaAnalyzer::special_member_type(const AstNode& node,
 	{
 		read_parameters(*clause, ctx, parameters, variadic);
 	}
+	if (declarator != nullptr)
+	{
+		// 12.1p4 and 12.4p2: neither a constructor nor a destructor writes a
+		// cv-qualifier-seq or a ref-qualifier, because what 9.3.1p3's object
+		// parameter names is an object whose lifetime is beginning or ending
+		// rather than one an expression could have named a category for.
+		if (declarator_ref_qualifier(*declarator) != RefQualifier::None &&
+		    semantics())
+		{
+			throw std::runtime_error(
+				owner.name + " declares a " +
+				(destructor ? "destructor" : "constructor") +
+				" with a ref-qualifier, which 8.3.5p6 does not allow");
+		}
+	}
 	std::vector<TypeId> types;
 	// 12.4p12 lets a destructor be invoked for any cv-qualified version of its
 	// class, which no cv-qualifier-seq of its own says.
@@ -746,8 +761,13 @@ SemaEntity& SemaAnalyzer::declare_conversion(const AstNode& node,
 		                         "or array type, which 12.3.2p1 does not allow");
 	}
 	const std::string name = conversion_name(converted);
-	const TypeId written =
-		types_.function_of(converted, std::vector<TypeId>(), false);
+	// 12.3.2p1: a conversion function's declarator writes no type of its own,
+	// so its function type is built here rather than by the walk that reads an
+	// ordinary declarator - and 8.3.5p1's ref-qualifier is as much a part of it
+	// as it is of any other member function's.
+	const TypeId written = types_.ref_qualified_function(
+		types_.function_of(converted, std::vector<TypeId>(), false),
+		declarator_ref_qualifier(*declarator));
 	const TypeId type = with_object_parameter(written, *declarator, target,
 	                                          false, name, false);
 	if (type == written)
@@ -2512,30 +2532,66 @@ TypeId SemaAnalyzer::with_object_parameter(TypeId type,
                                            const std::string& name,
                                            bool qualified)
 {
-	if (!semantics() || target.scope->kind != ScopeKind::Class || is_static ||
-	    target.scope->owner == nullptr)
+	if (!semantics())
 	{
 		return type;
 	}
-	if (allocation_function_name(name))
-	{
-		// 12.5p1: an allocation or deallocation function a class declares is a
-		// static member of it even where `static` was not written.  The storage
-		// it is asked for is what an object of the class would stand in, so
-		// there is no object for 9.3.1p3's implicit parameter to name.
-		return type;
-	}
-	if (qualified && declares_static_member(*target.scope, name, type))
-	{
-		// 9.4.1p2: the definition of a static member function written outside
-		// its class shall not repeat `static`, so which kind of member a
-		// qualified declarator declares is a fact of the declaration in the
-		// class it redeclares rather than of its own specifiers.
-		return type;
-	}
+	// 8.3.5p1: the ref-qualifier is already part of the function type the
+	// declarator built, and 9.3.1p3's rebuild below is what carries it over.
+	const RefQualifier ref = types_.function_ref_qualifier(type);
 	// 8.3.5p5: the cv-qualifier-seq of a member function is written after its
 	// parameter-clause, so it is a suffix of the declarator rather than one of
-	// the qualifiers its specifiers wrote.
+	// the qualifiers its specifiers wrote - and it qualifies the object rather
+	// than the function, which is why it is read here and not there.
+	const unsigned cv = declarator_function_cv(declarator);
+	// 12.5p1: an allocation or deallocation function a class declares is a
+	// static member of it even where `static` was not written.  The storage it
+	// is asked for is what an object of the class would stand in, so there is no
+	// object for 9.3.1p3's implicit parameter to name.
+	// 9.4.1p2: the definition of a static member function written outside its
+	// class shall not repeat `static`, so which kind of member a qualified
+	// declarator declares is a fact of the declaration in the class it
+	// redeclares rather than of its own specifiers - and a static member
+	// function writes no ref-qualifier, so the declaration it is looked for
+	// among is one that carries none.
+	const bool object_member =
+		target.scope->kind == ScopeKind::Class && !is_static &&
+		target.scope->owner != nullptr && !allocation_function_name(name) &&
+		!(qualified &&
+		  declares_static_member(
+			  *target.scope, name,
+			  types_.ref_qualified_function(type, RefQualifier::None)));
+	if (!object_member)
+	{
+		if (ref != RefQualifier::None)
+		{
+			// 8.3.5p6: a ref-qualifier shall be part of a function declarator
+			// only where it declares a non-static member function, because
+			// 13.3.1p4 gives it a meaning only where there is an implicit
+			// object parameter for it to qualify.
+			throw std::runtime_error(
+				name + " is declared with a ref-qualifier where 8.3.5p6 allows "
+				"one only on a non-static member function");
+		}
+		return type;
+	}
+	std::vector<TypeId> parameters;
+	parameters.push_back(
+		types_.pointer_to(types_.qualified(target.scope->owner->type, cv)));
+	const std::vector<TypeId>& written = types_.parameters(type);
+	parameters.insert(parameters.end(), written.begin(), written.end());
+	return types_.ref_qualified_function(
+		types_.function_of(types_.target(type), parameters,
+		                   types_.variadic(type)),
+		ref);
+}
+
+// 8.3.5p5: the cv-qualifier-seq a declarator wrote after its parameter-clause,
+// which is what 9.3.1p3 qualifies the object parameter by.  The parser hangs it
+// on the declarator beside the declarator-id, so what tells it from a qualifier
+// the specifiers wrote is that it stands after that id.
+unsigned SemaAnalyzer::declarator_function_cv(const AstNode& declarator)
+{
 	unsigned cv = kCvNone;
 	bool after_id = false;
 	for (std::size_t index = 0; index < declarator.children.size(); ++index)
@@ -2552,13 +2608,34 @@ TypeId SemaAnalyzer::with_object_parameter(TypeId type,
 			cv |= part.token == KW_CONST ? kCvConst : kCvVolatile;
 		}
 	}
-	std::vector<TypeId> parameters;
-	parameters.push_back(
-		types_.pointer_to(types_.qualified(target.scope->owner->type, cv)));
-	const std::vector<TypeId>& written = types_.parameters(type);
-	parameters.insert(parameters.end(), written.begin(), written.end());
-	return types_.function_of(types_.target(type), parameters,
-	                          types_.variadic(type));
+	return cv;
+}
+
+// 8.3.5p1: the ref-qualifier written there, for the two declarations that build
+// their own function type rather than taking the one an ordinary declarator
+// walk built - 12.3.2p1's conversion function, whose declarator writes no type,
+// and 12.1/12.4's constructor and destructor, which write no return type.
+RefQualifier SemaAnalyzer::declarator_ref_qualifier(const AstNode& declarator)
+{
+	for (std::size_t index = 0; index < declarator.children.size(); ++index)
+	{
+		const AstNode& part = *declarator.children[index];
+		// The grammar spells an exception-specification with the same node, so
+		// which one this is is what it was written as.
+		if (part.kind != AstKind::FunctionQualifier)
+		{
+			continue;
+		}
+		if (part.text == "&")
+		{
+			return RefQualifier::LValue;
+		}
+		if (part.text == "&&")
+		{
+			return RefQualifier::RValue;
+		}
+	}
+	return RefQualifier::None;
 }
 
 // 9.4p1: whether `where` declares `name` as a static member function whose
