@@ -5,6 +5,7 @@
 #include "ast_model.h"
 #include "literal_scan.h"
 #include "post_token.h"
+#include "string_literal.h"
 
 // The 5.19 subset PA11 needs: what an array bound, an enumerator and a
 // static_assert may be written with, plus the 7.1.6.2 decltype forms.
@@ -192,22 +193,12 @@ TypeId SemaAnalyzer::common_type(TypeId left, TypeId right)
 
 SemaAnalyzer::Constant SemaAnalyzer::literal_constant(const std::string& spelling)
 {
+	// 5.19p2: only an integral literal has a value a constant expression can
+	// hold, and which of 2.14p1's literals this one is is the same question the
+	// expression layer asks - so it is asked of the same owner, and a character
+	// literal that holds a `"` is a character literal here too.
 	PostToken token;
-	const char first = spelling.empty() ? '\0' : spelling[0];
-	const std::string::size_type quote = spelling.find('\'');
-	if (first >= '0' && first <= '9')
-	{
-		scan_pp_number(spelling, token);
-	}
-	else if (quote != std::string::npos && spelling.find('"') == std::string::npos)
-	{
-		scan_character_literal(spelling, token);
-	}
-	else
-	{
-		throw NotConstant("a constant expression holds a literal that has "
-		                         "no integral value");
-	}
+	scan_literal(spelling, token);
 	if (token.kind != PostTokenKind::Literal ||
 	    !fundamental_type_is_integral(token.type))
 	{

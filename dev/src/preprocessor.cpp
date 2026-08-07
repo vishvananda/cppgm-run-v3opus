@@ -632,9 +632,13 @@ bool Preprocessor::apply_pack_pragma(const MacroToken* begin, const MacroToken* 
 	}
 	if (verb && argument[0]->spelling == spelled_.pop)
 	{
-		// A labelled pop unwinds to the frame that label pushed; an unlabelled
-		// one drops the innermost frame.  Neither may name a width, and a pop
-		// with nothing left to unwind leaves the default in force.
+		// A pop drops a frame and puts back the value that frame saved: the one
+		// the label names where it names one, and the innermost otherwise.  A
+		// label nothing pushed names no frame, so what is left to undo is the
+		// innermost one, which is the pop an unlabelled directive is.  A pop
+		// may name no width, and one with nothing at all to undo restores
+		// nothing - what a directive before it asked for stays in force,
+		// because a pop is only ever the undoing of a push.
 		if (count > 2 || (count == 2 && !labelled))
 		{
 			return false;
@@ -642,23 +646,24 @@ bool Preprocessor::apply_pack_pragma(const MacroToken* begin, const MacroToken* 
 		std::size_t depth = pack_stack_.size();
 		if (count == 2)
 		{
-			while (depth != 0 && !(pack_stack_[depth - 1].labelled &&
-			                       pack_stack_[depth - 1].label ==
+			std::size_t named = depth;
+			while (named != 0 && !(pack_stack_[named - 1].labelled &&
+			                       pack_stack_[named - 1].label ==
 			                           argument[1]->spelling))
 			{
-				--depth;
+				--named;
 			}
-			if (depth == 0)
+			if (named != 0)
 			{
-				return true;
+				depth = named;
 			}
-			--depth;
 		}
-		else if (depth != 0)
+		if (depth == 0)
 		{
-			--depth;
+			return true;
 		}
-		set_pack(depth < pack_stack_.size() ? pack_stack_[depth].alignment : 0);
+		--depth;
+		set_pack(pack_stack_[depth].alignment);
 		pack_stack_.resize(depth);
 		return true;
 	}

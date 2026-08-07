@@ -7,7 +7,6 @@
 #include "ast_tokens.h"
 #include "literal_scan.h"
 #include "post_token.h"
-#include "pptoken_lexer.h"
 #include "string_literal.h"
 
 // The PA12 expression layer: 5 over the procedural, non-class subset.
@@ -1214,40 +1213,10 @@ SemaAnalyzer::Value SemaAnalyzer::literal_expression(const AstNode& node,
 		return value;
 	}
 
+	// 2.14: what one terminal of the parse is worth, asked of the layer that
+	// read it rather than of its spelling.
 	PostToken token;
-	const char first = spelling.empty() ? '\0' : spelling[0];
-	const bool string_form =
-		first == '"' || (spelling.find('"') != std::string::npos);
-	if (string_form)
-	{
-		// 2.14.5p12: a maximal sequence of adjacent string-literals is one
-		// literal, and the terminal the parse read is that whole sequence -
-		// whose parts the stream kept as the spellings they were written with,
-		// separated as phase 3 read them.  So the sequence is rebuilt from
-		// those parts and not from the one string they were joined into: what
-		// separates two of them is a token boundary, which no scan of the
-		// joined text can find again once a part holds a space of its own.
-		StringLiteralSequence sequence;
-		PPTokenLexer lexer(spelling, SourceForm::Translated);
-		PPToken part;
-		while (lexer.next(part))
-		{
-			if (part.type == PPTokenType::StringLiteral ||
-			    part.type == PPTokenType::UserDefinedStringLiteral)
-			{
-				sequence.add(part.spelling);
-			}
-		}
-		sequence.build(token);
-	}
-	else if (first >= '0' && first <= '9')
-	{
-		scan_pp_number(spelling, token);
-	}
-	else
-	{
-		scan_character_literal(spelling, token);
-	}
+	const bool string_form = scan_literal(spelling, token) == LiteralForm::String;
 	if (token.kind == PostTokenKind::UserDefinedLiteral)
 	{
 		// 2.14.8p2: the token is a call of the literal operator its ud-suffix

@@ -1,0 +1,85 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $p : obj<16x8>
+  slot $cond__1 : i32
+  slot $land__2 : i64
+
+  block ^entry:
+    %t1 = addr $p
+    call void @Point__Point(%t1)
+    %t2 = addr $p
+    %t3 = index i8 [projection=field] %t2, 8
+    store f32 .75f, %t3
+    %t4 = addr $p
+    call void @Point__scale(%t4)
+    %t5 = addr $p
+    %t6 = index i8 [projection=field] %t5, 0
+    %t7 = load f64 %t6
+    %t8 = cmp eq f64 %t7, .5
+    branch %t8, ^land_rhs_4, ^land_short_5
+
+  block ^land_rhs_4:
+    %t9 = addr $p
+    %t10 = index i8 [projection=field] %t9, 8
+    %t11 = load f32 %t10
+    %t12 = cmp eq f32 %t11, 1.875f
+    %t13 = cmp ne i64 %t12, 0
+    store i64 %t13, $land__2
+    jump ^land_end_6
+
+  block ^land_short_5:
+    store i64 0, $land__2
+    jump ^land_end_6
+
+  block ^land_end_6:
+    %t14 = load i64 $land__2
+    branch %t14, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t15 = load i32 $cond__1
+    return i32 %t15
+}
+function @Point__Point(%this : ptr) -> void [binding=weak, object=_ZN5PointC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = convert sitofp f64 i32 0
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store f64 %t1, %t3
+    %t4 = convert sitofp f32 i32 0
+    %t5 = load ptr $this
+    %t6 = index i8 [projection=field] %t5, 8
+    store f32 %t4, %t6
+    return void
+}
+function @Point__scale(%this : ptr) -> void [binding=weak, object=_ZN5Point5scaleEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load f64 %t2
+    %t4 = binary add f64 %t3, .5
+    %t5 = load ptr $this
+    %t6 = index i8 [projection=field] %t5, 0
+    store f64 %t4, %t6
+    %t7 = load ptr $this
+    %t8 = index i8 [projection=field] %t7, 8
+    %t9 = load f32 %t8
+    %t10 = binary mul f32 %t9, .25e1f
+    %t11 = load ptr $this
+    %t12 = index i8 [projection=field] %t11, 8
+    store f32 %t10, %t12
+    return void
+}
+alias object _ZN5PointC2Ev = @Point__Point

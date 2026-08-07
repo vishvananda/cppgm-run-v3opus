@@ -26,11 +26,18 @@ existing layers keep their jobs:
 - `preprocessor.cpp` owns 16.6. A pragma is a phase 4 directive whose effect is
   on phase 7, so what it leaves behind is a value and an epoch counter;
   `ast_tokens.*` turns that into a `PackTable` - the positions the value changes
-  at - and the class layout asks it where the definition ends.
+  at - and the class layout asks it at the `}` 9.2p2 completes the class on,
+  which the class-specifier carries as its own `completed` and not as the end of
+  a span the declaration around it widens.
 - `sema_expression.cpp` owns what a token is worth: 2.14's literal as one line,
   2.14.8's user-defined-literal as the call of the literal operator its
   ud-suffix names, and 5.2.4's pseudo-destructor call, which names no function
-  at all and is the value of its operand discarded.
+  at all and is the value of its operand discarded. *Which* of 2.14p1's literals
+  a terminal is is not its question but `string_literal.cpp`'s: the stream spells
+  them all the one way, so `scan_literal` lexes the terminal back into the
+  pp-tokens phase 3 read it as and the first of them says the form. Every layer
+  that reads a parsed literal - the expression and 5.19's fold alike - asks that
+  one owner rather than the characters of the spelling.
 - `sema_overload.cpp` owns 13.3, including 4.10p3/8.5.3p4's derived-to-base
   sequences and 13.3.3.2p4's ordering of them, and with them the two expressions
   whose call 13.3 chooses without a callee the program wrote: 5.2.3's explicit
@@ -65,11 +72,11 @@ writes the same naming again.
 
 ## Current Failure Map
 
-After C15: 301 / 306 of the fixtures that were checked in at the turn's start,
-and 307 / 312 with the six it adds. C15 closed the whole "the construct has no
-path at all" group - the two `#pragma pack` fixtures, 5.2.4's pseudo-destructor
-call and 2.14.8's literal operator - so what remains is 5 fixtures that accept
-the program and write a different shape, each its own fact:
+After the audit of C15: 307 / 312 of the fixtures that were checked in at the
+turn's start, and 309 / 314 with the two it adds. C15 closed the whole "the
+construct has no path at all" group - the two `#pragma pack` fixtures, 5.2.4's
+pseudo-destructor call and 2.14.8's literal operator - so what remains is 5
+fixtures that accept the program and write a different shape, each its own fact:
 
 | fixture | what differs |
 | --- | --- |
@@ -185,8 +192,15 @@ f80 f64 1.5` - where 2.14.8p3 names `unsigned long long` and `long double`, whic
 is what this unit passes. 2.14.8p5's *length* is the one number of the call the
 translation computes rather than reads, and it is spelled as the constant 2.14.2
 gives it, which is the `int` the references and the checked-in fixture write.
-5.2.4p2's scalar type is asked for here and not there, so `p->~I()` for
-`typedef int I[3]` is refused here and by g++ and accepted there.
+2.14.5p13 lets the parts of one sequence carry the same ud-suffix, so
+`"ab"_x "cd"` and `"ab"_x "cd"_x` are the one literal here and by g++ and
+refused there. 5.2.4p2's scalar type is asked for here and not there, so
+`p->~I()` for `typedef int I[3]` is refused here and by g++ and accepted there.
+A directive written between a class's `}` and the `;` that ends its declaration
+is one 16.6 removes in phase 4, so what phase 7 reads is `struct S { ... };` and
+the class was complete before it: it reaches nothing here, where the references
+read its tokens as a declaration and emit a global named after them, and g++
+refuses the program outright. It is the one 16.6 shape no fixture can hold.
 
 Shapes the references and this unit disagree about what a program means, each
 resolved for the standard, and each judged against g++ where g++ reads the
@@ -274,7 +288,8 @@ value in a scalar global is rendered from its value there - `1e2` is `100f` -
 and echoed from the program's token in a structured item, where a `double` token
 initializing an `f32` item keeps its `double` spelling. This unit echoes the
 token in both, re-suffixed for the storage's width, so no item carries the suffix
-of another width. Every value agrees.
+of another width - so `double d = .5;` is `= .5` here and `= 0.5` there, which
+`lowiropt` and `lowir2cy86` read. Every value agrees.
 
 Three divergences are deliberate and named in the Performance Model: past 64
 bytes the zero of a class object is one `zeroinit` where the references write
@@ -291,64 +306,63 @@ the reserved function rather than of a declaration this unit read.
 
 ## Active Checkpoint
 
-Done: **C15 - the three constructs of the PA16 subset that had no path at all**,
-301 / 306 from a 297 / 306 baseline and 307 / 312 with six regression tests
+Done: **audit of C15**, 307 / 312 held and 309 / 314 with two regression tests
 added, at pa1-pa15 1174 / 1174.
 
-The failure set split cleanly in two: four fixtures where a construct the
-program wrote reached no rule of this unit, and five where a construct it does
-write comes out a different shape. C15 is the first half, and the three
-constructs share one seam - a fact a phase before 7 establishes that phase 7 was
-never handed.
+C15's split is the right one and its seam is real: the three constructs that had
+no path at all are each a fact a phase before 7 establishes and phase 7 was never
+handed, and each is now carried by the one thing both phases name. What the audit
+found is that all three then read that fact from somewhere that is not its owner.
 
-16.6's `#pragma pack` is that seam exactly. The directive is read in phase 4 and
-9.2p13's layout is settled in phase 7, and the one thing both name is a position
-in the token stream: `Preprocessor` keeps the value and an epoch counter,
-`AstTokenStream` records `(position, alignment)` wherever the epoch moves - one
-integer comparison per token, one record per directive that changed anything -
-and the layout binary-searches that table at the `}` its definition ends on. A
-unit that writes no such pragma stores nothing and searches nothing. Where the
-value applies is g++'s rule and not the references': the layout is one fact
-settled where 9.2p2 completes the class, so a directive written between two
-members reaches every member.
+A literal's *form* was guessed from the characters of its spelling - "holds a
+`"`" for the string form and "begins with a digit" for the numeric one - in
+`literal_expression` and again, written a second time, in `literal_constant`. A
+character-literal whose c-char is a quote holds one, so `char c = '"';` was
+refused and `const char* p = '"';` was *accepted*, the character literal becoming
+an empty string literal with a `@__strlit__1` no program wrote; a
+floating-literal 2.14.4 spells with no integer part begins with neither, so `.5`,
+`.5f` and `.5e2` were outside the subset wherever one stood, and
+`char row['"' - 30];` with them. C15 had already lexed the string form's terminal
+back into the pp-tokens phase 3 read it as and stopped one step short of letting
+that answer which literal it is. `scan_literal` in `string_literal.cpp` is now
+the one owner of that question and both callers ask it.
 
-2.14.8's user-defined literal is the same shape one phase further down: phase 3
-already decoded the ud-suffix and the value, and phase 7 dropped both. It is now
-the call p2 says it is, chosen not by 13.3 but by the one written
-parameter-type-list p3 to p6 name per form - so a `char` operator is no candidate
-for an integer literal, and a numeric literal no cooked operator declares falls
-to p3's raw form. 13.5.8's `li` terminal was already in PA14's encoder and only
-needed the suffix handed to it.
+16.6's *position* was asked of `AstNode::end`, which has two writers:
+`parse_class_specifier` sets it past the `}`, and `parse_declaration` then sets
+it past the `;` on whatever node it was handed - and a class-specifier that is a
+whole declaration is handed back as that declaration. So the same class was laid
+out two ways depending on how it was declared, and a directive written between a
+class's `}` and its `;` reached a class 9.2p2 had already completed. The `}` is
+now the class-specifier's own fact, `AstNode::completed`, with one writer, in the
+padding the node already had; the span stays what the declaration rule owns and
+what 9.5p2's anonymous union is named by.
 
-5.2.4's pseudo-destructor call is the third: `p->~I()` for a scalar `I` names no
-function, so it is settled before the call's node is opened, from the name after
-the `~` alone - which is what tells it from the destructor of a class without
-reading the object expression twice. 5.2.4p1 says its only effect is evaluating
-the operand, and that is 5.2.9p4's conversion to `void`, so that is the one node
-the tree holds.
+And a `pop` restored a value no frame had saved. With an empty stack it reset the
+alignment to the default, so `#pragma pack(1)` followed by `#pragma pack(pop)`
+laid `struct S { char c; int i; };` out at 8 where g++ writes 5 - a directive the
+program wrote cancelled by one that named no frame. The labelled form had the
+mirror of it: a pop naming a label nothing pushed unwound nothing where g++ drops
+the innermost frame. Both are one rule - a pop drops the frame the label names
+where it names one and the innermost otherwise, restores what that frame saved,
+and restores nothing where there is no frame.
 
-Three defects the sweeps found and no fixture reaches, each now a test. A
-concatenated string-literal reached the semantic layer as the *joined* spelling
-of its parts, and re-scanning that as one literal made `"ab" "cd"` the 8
-characters `ab" "cd`; the parts are separated by a token boundary, so the
-sequence is rebuilt by lexing the terminal again. 12.4p12 binds a destructor
-under `~` and the class's own name, but 5.2.4p2 writes a *type-name* there, so
-`p->~Alias()` for `typedef Box Alias` named nothing. And 5.2.4p2's scalar type
-was not asked for, so `p->~I()` for `typedef int I[3]` was accepted.
-
-Four differential sweeps of 761 programs against `cppgm++-ref`, with every
-disagreement judged against g++: 340 layout programs (pack value x member set x
-class shape) and 23 directive forms, where this unit agrees with g++ on all 363
-and the two families g++ reads differently - bit-fields and `alignas` under a
-pack - are pre-existing and shared with the references; 102 push/pop programs
-byte-identical to the references; 288 literal-operator programs leaving 56
-disagreements in the three named families; and 110 pseudo-destructor programs
-leaving 10 that differ only in top-level order and 3 the array refusal.
-Valgrind is clean over 581 programs - every pa16 general fixture source and a
-sampled half of each sweep.
+Evidence. A 462-program layout sweep against **g++**, which is the only oracle
+for the forms the references drop: 11 directive forms x 4 class shapes x 12
+member sets, with every size and alignment checked by a compile-time refusal and
+every member's byte offset read back out of the emitted LowIR. 393 agree exactly;
+all 69 that do not are the bit-field and `alignas` families named below, both of
+which disagree with g++ with no directive written at all and agree with
+`cppgm++-ref` byte for byte. The same 462 against `cppgm++-ref` are unchanged by
+the fixes at 239 byte-identical and 50 refused by both. Nine push/pop shapes
+measured against g++ one at a time, all nine agreeing where three did not. 30
+placement and scope programs, 32 literal-operator programs, 29
+pseudo-destructor programs and 17 literal-form programs against the references,
+every disagreement named here or in the failure map. Valgrind clean over 663
+programs. Seven scaling axes for the paths this audit touched, all linear or flat
+and none above 0.07 s.
 
 Next: **C16 - the five shapes the remaining fixtures write differently**, which
-is the second half of the same split and the last group with a fixture behind it.
+is the second half of C15's split and the last group with a fixture behind it.
 
 - owner: `lowir_lower.cpp` for the LowIR type an incomplete class and
   `std::nullptr_t` are written as, `lowir_lower_body.cpp` for the one `addr`
@@ -585,16 +599,25 @@ Invariants, one line each, and the measurements that hold them.
   that writes none stores none; 9.2p13 asks one binary search per class
   definition, and an empty table answers before searching. n classes each under
   its own push/pop pair, n classes under one, and n classes under none are the
-  same 0.01/0.02/0.05/0.10 s at 500/1000/2000/4000, each doubling 2.0-2.2x.
+  same 0.01/0.02/0.05/0.10 s at 500/1000/2000/4000, each doubling 2.0-2.2x, and
+  2000 push/pop pairs before one class are the same 0.01 s as 250 of them,
+  because a pair that leaves the alignment where it was records nothing. The
+  position the layout asks at is the class-specifier's own `AstNode::completed`,
+  one `std::uint32_t` written once by the rule that read the `}` and living in
+  the padding the node already had, so it costs no memory and no pass.
 - 2.14.8's user-defined literal costs one lookup of the literal-operator-id and
   one walk of the declarations it reached, comparing interned type ids rather
   than ranking a candidate set - and the chain of one such id is bounded by the
   parameter lists 13.5.8 lets it have. n of them in one body are
   0.01/0.02/0.04/0.08 s for 6 n + 26 lines, and n literal operators declared and
   one used 0.02/0.05/0.10/0.20 s for 11 n + 14 lines.
-- 2.14.5p12's concatenated literal is lexed back into its parts once per reading
-  of the expression, which is the scan the single reading already cost: a literal
-  of n parts is 0.00 s and 2 n + 13 lines at 4000.
+- Which of 2.14p1's literals a terminal is is asked of phase 3 by lexing that
+  terminal's own spelling back into pp-tokens, which is bounded by the terminal
+  and paid once per literal the tree holds - the scan the string form already
+  cost, now the one every form pays and the only one any of them pays. 4000
+  string literals are 0.07 s and 46 896 lines, one sequence of 2000 parts is
+  0.02 s and 2 n + 13 lines, and 2000 user-defined literals are 0.02 s. One owner
+  answers it, so no layer re-derives it and no spelling is scanned twice.
 - 5.2.4's pseudo-destructor call costs one lookup of the name after the `~`,
   asked before the object expression is read, so a member call that is not one
   pays one comparison of the first character: n of them in one body are
@@ -636,3 +659,4 @@ Invariants, one line each, and the measurements that hold them.
 | C14 | 15.2p2's cleanup around a partly built object: the subobjects a constructor has built kept as the calls it made, in order, for as long as the walk is inside 12.6.2's initializations, with each call after the first standing in an `eh_try` region whose handler destroys that list backwards - at the granularity of the call, so an aggregate member's own class members are entries of their own and a constructor that does nothing is no entry at all; the instructions that named a subobject written again in the handler's own block, because a block an exception reaches names no temporary of the block it left; a step needing what the step before it needed naming that block again, which equal length settles because the list only grows; 12.4p8's suffix given 15.2p2's shape - the destructor's body in one `eh_cleanup` whose handler destroys every subobject, each destruction but the last in a region that destroys the ones behind it, and the whole suffix written wherever control leaves the body, which is what a `return` in a destructor had been skipping entirely; the suffix chained past `kUnwindSuffixLimit` (16) destructions, where the references stop writing them out; and 15.2p2's odr-use asked of the whole list of steps at once, so all but the last of them get 12.4's entry point and 12.4p6's definition | 286 / 296 from a 283 / 296 baseline, the same set passing and the three lifetime fixtures with it, and 291 / 301 with five regression tests added; pa1-pa15 1174/1174; a 504-program differential sweep against `cppgm++-ref` over the subobjects a class holds x its base x its constructor x its destructor x where the object stands, leaving no status disagreement and 3 text disagreements, all the empty-constructor elision already named, with two defects it found closed - a destructor declared for a call nothing writes, and a call naming one ABI entry point making the unit owe both; valgrind clean over the fixtures and the sweep; n members of class type byte-identical to the references at 50/100/200/400 in 0.01/0.03/0.12/0.43 s, and 12.6p1's array named with its numbers as the one axis still quadratic in a count the source only wrote a number for; file audit passes with the two recorded header-weight warnings |
 | audit of C14 | 15.2p2's list of the subobjects a constructor has built, each call after the first in a region whose handler destroys it backwards; 12.4p8's suffix in one `eh_cleanup` with a region per destruction; 15.2p2's odr-use asked of the whole list at once | membership of the list decided by whichever constructor call found the step's mark, so 12.2p1's temporary and 5.3.4p12's object joined it - the heap object of `T() : p(::new(buf) N), a() {}` gave a handler that re-ran the allocation function and named temporaries of a block a handler may not name - and an element of an array subobject past the first joined nothing, leaving `w{V(1), V(2), V(3)}, a()` two elements standing; that element addressed from one byte cursor, which no handler can write again, so the walk down to a subobject is now carried as the walk and a two-dimensional braced clause no longer emits a handler naming another block's temporary; 5.2.4's explicit destructor call asking for neither the entry point nor 12.4p6's definition, so `p->~Box()` named a symbol no unit defines; 8.5.1p7's tail of an array of class type written as a span of zero bytes, so `N w[4] = { N(), N() };` destroyed four objects two constructors had built and a class with no default constructor was accepted; 7.1.2p2's `inline` read only from the declaration the body is written on | 292 / 301 from a 291 / 301 baseline, the same set passing and `300-explicit-destructor-call-enclosing-namespace-type` with it, and 297 / 306 with five regression tests added, one per finding; pa1-pa15 1174 / 1174; byte-identical passing fixtures 162 of 253; valgrind clean over 642 programs; four differential sweeps of 1 097 programs against `cppgm++-ref` with every disagreement named and every shape the audit turns judged against g++; the two 15.2p2 axes byte-identical to the references at 50 / 100 / 200 / 400 and 8.5.1p7's tail linear at 6 n + 41 lines for 4000 elements in 0.06 s; file audit passes with the two recorded header-weight warnings |
 | C15 | the three constructs of the PA16 subset that had no path at all, each a fact a phase before 7 establishes and phase 7 was never handed: 16.6's `#pragma pack` carried from the directive to 9.2p13 as the positions in the token stream the value changes at, with a width, a reset, a labelled or bare push and a matching pop, and the value read where the definition ends because that is where 9.2p2 completes the class; 2.14.8's user-defined literal made the call p2 says it is, chosen by the one written parameter-type-list p3 to p6 name per form rather than by 13.3, with p3's raw fallback and 13.5.8's `li` terminal in the object-file name; 5.2.4's pseudo-destructor call on a scalar settled from the name after the `~` before the object expression is read, and written as the operand's value discarded, which is what p1 says the call comes to; and three defects no fixture reaches - a concatenated string-literal re-scanned from the joined spelling of its parts, so `"ab" "cd"` was the 8 characters `ab" "cd`; 12.4p12's destructor named through a typedef-name for its class reaching nothing, because 12.4p1 binds only `~` and the class's own name; and 5.2.4p2's scalar type never asked for, so `p->~I()` for `typedef int I[3]` was accepted | 301 / 306 from a 297 / 306 baseline, the same set passing and the four C15 fixtures with it, and 307 / 312 with six regression tests added; pa1-pa15 1174 / 1174; four differential sweeps of 761 programs against `cppgm++-ref` with every disagreement judged against g++, which this unit agrees with on all 363 layout and directive-form programs where the references act only on `pack(push, n)`, on 2.14.8p3's raw operator and on 5.2.4p2's scalar type; 102 push/pop programs byte-identical to the references; valgrind clean over 581 programs; four new axes linear at 2.0-2.2x per doubling; file audit passes with the two recorded header-weight warnings |
+| audit of C15 | 16.6's alignment carried as a `(position, alignment)` table the layout binary-searches where 9.2p2 completes the class; 2.14.8's literal as the call p2 says it is, chosen by the one written parameter-type-list p3 to p6 name per form; 5.2.4's pseudo-destructor call settled from the name after the `~`; 2.14.5p12's sequence rebuilt from its parts | a literal's form guessed from the characters of its spelling, in `literal_expression` and again in `literal_constant`, so a character-literal whose c-char is a quote was a string - `char c = '"';` refused and `const char* p = '"';` accepted with a `@__strlit__1` no program wrote - and a floating-literal with no integer part was no literal at all, `.5` / `.5f` / `.5e2` outside the subset and `char row['"' - 30];` with them; 16.6's position asked of `AstNode::end`, which `parse_declaration` widens past the `;` for a class-specifier that is a whole declaration, so a directive written between a class's `}` and its `;` packed a class 9.2p2 had already completed while the same directive after `} g` did not; a `pop` with an empty stack resetting the alignment to the default rather than leaving what a `pack` before it asked for, and a labelled `pop` naming a label nothing pushed unwinding nothing where g++ drops the innermost frame | one owner for 2.14p1's form in `string_literal.cpp`, asked by both callers; `AstNode::completed` as the class-specifier's own `}`, one writer, in the padding the node already had; a pop that restores what one frame saved and nothing where there is no frame. pa16 307 / 312 held and 309 / 314 with two regression tests; pa1-pa15 1174 / 1174; 179 of 277 passing fixtures byte-identical; a 462-program layout sweep against g++ with 393 exact and all 69 others in the pre-existing bit-field and `alignas` families, the same 462 against `cppgm++-ref` unchanged by the fixes; nine push/pop shapes against g++, all agreeing where three did not; 108 placement, literal-operator, pseudo-destructor and literal-form programs against the references; valgrind clean over 650 programs; seven scaling axes linear or flat and none above 0.07 s |

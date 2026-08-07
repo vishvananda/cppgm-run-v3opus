@@ -169,6 +169,13 @@ struct AstNode
 	// the one thing about it that is not a name - is what names it.
 	std::uint32_t begin;
 	std::uint32_t end;
+	// 9.2p2: the terminal a class definition is complete at - the `}` of a
+	// class-specifier - and zero for every other node.  It is kept beside the
+	// span rather than read out of it because a class-specifier that is a whole
+	// declaration is handed back as that declaration, whose span then reaches
+	// past the `;`; where a directive stands relative to the class is a
+	// question about the class and not about what declared it.
+	std::uint32_t completed;
 	// 8.5p14 and 8.5p15: whether an initializer was written with `=`, which is
 	// what tells copy-initialization from direct-initialization.  The two are
 	// one shape otherwise, and 13.3.1.4 and 8.5.4p3 give them different
@@ -183,6 +190,7 @@ struct AstNode
 		, token(kNoAstToken)
 		, begin(0)
 		, end(0)
+		, completed(0)
 		, copied(false)
 	{}
 

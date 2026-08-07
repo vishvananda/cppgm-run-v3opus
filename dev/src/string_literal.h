@@ -74,3 +74,28 @@ private:
 	std::size_t suffix_begin_;
 	std::size_t suffix_end_;
 };
+
+// Which of the literals 2.14p1 lists a terminal was written as.
+enum class LiteralForm
+{
+	None,
+	Number,
+	Character,
+	String
+};
+
+// Analyses one literal terminal of a parse, whatever form it was written in.
+//
+// A layer that reads a parsed terminal has only its spelling, and the token
+// stream spells every literal the one way, so which of 2.14p1's literals it is
+// has to be asked again - of phase 3, which answered it once already.  So the
+// spelling is lexed back into the pp-tokens it was read from and the first of
+// them says the form.  No character of the spelling answers it on its own: a
+// character-literal may hold a `"`, a floating-literal may begin with its `.`,
+// and either may be written after an encoding-prefix.
+//
+// 2.14.5p12's sequence is rebuilt from its parts rather than from the one
+// string they were joined into, because what separates two of them is a token
+// boundary the joined text no longer has.  `None`, with `token` left as it was,
+// for a spelling that is no literal.
+LiteralForm scan_literal(const std::string& spelling, PostToken& token);

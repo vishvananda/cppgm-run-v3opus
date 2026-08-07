@@ -1496,13 +1496,17 @@ void SemaAnalyzer::enumerators(const AstNode& node, SemaEntity& entity,
 // That position is the `}` the definition ends at, because 9.2p2 completes the
 // class there and the layout is settled once, from every member at once - which
 // is also what a directive written between two members means for the class it
-// is written in.  A class defined with no such directive anywhere in the unit
-// asks an empty table, which answers without a search.
+// is written in.  It is the class-specifier's own `completed` and not the end
+// of its span, because the span of a class-specifier that is a whole
+// declaration reaches past the `;`, and a directive written between the `}` and
+// that `;` is one the class was already complete before.  A class defined with
+// no such directive anywhere in the unit asks an empty table, which answers
+// without a search.
 unsigned long long SemaAnalyzer::packing_of(const AstNode& node) const
 {
-	return packs_ == nullptr || packs_->empty() || node.end == 0
+	return packs_ == nullptr || packs_->empty()
 		? 0
-		: packs_->at(node.end - 1);
+		: packs_->at(node.completed);
 }
 
 void SemaAnalyzer::simple_declaration(const AstNode& node, const Context& ctx)

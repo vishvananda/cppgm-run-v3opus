@@ -2,6 +2,7 @@
 
 #include <cstring>
 
+#include "pptoken_lexer.h"
 #include "source_charset.h"
 
 namespace
@@ -290,4 +291,59 @@ void StringLiteralSequence::build_literal_operator_id(PostToken& token,
 	token.element_count = 1;
 	token.data.assign(1, '\0');
 	clear();
+}
+
+LiteralForm scan_literal(const std::string& spelling, PostToken& token)
+{
+	// The parts, in the order phase 3 read them.  A form other than the string
+	// one is one part, so the loop that gathers a sequence is also the one that
+	// answers every other form.
+	LiteralForm form = LiteralForm::None;
+	StringLiteralSequence sequence;
+	PPTokenLexer lexer(spelling, SourceForm::Translated);
+	PPToken part;
+	while (lexer.next(part))
+	{
+		const bool part_is_string =
+			part.type == PPTokenType::StringLiteral ||
+			part.type == PPTokenType::UserDefinedStringLiteral;
+		if (form == LiteralForm::None)
+		{
+			if (part_is_string)
+			{
+				form = LiteralForm::String;
+			}
+			else if (part.type == PPTokenType::PPNumber)
+			{
+				form = LiteralForm::Number;
+			}
+			else if (part.type == PPTokenType::CharacterLiteral ||
+			         part.type == PPTokenType::UserDefinedCharacterLiteral)
+			{
+				form = LiteralForm::Character;
+			}
+		}
+		if (part_is_string)
+		{
+			sequence.add(part.spelling);
+		}
+	}
+	switch (form)
+	{
+	case LiteralForm::String:
+		sequence.build(token);
+		break;
+
+	case LiteralForm::Number:
+		scan_pp_number(spelling, token);
+		break;
+
+	case LiteralForm::Character:
+		scan_character_literal(spelling, token);
+		break;
+
+	case LiteralForm::None:
+		break;
+	}
+	return form;
 }
