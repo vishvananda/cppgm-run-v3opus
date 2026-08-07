@@ -4,6 +4,7 @@
 #include <stdexcept>
 
 #include "ast_model.h"
+#include "ast_tokens.h"
 
 namespace
 {
@@ -92,6 +93,7 @@ bool is_unnamed_namespace(const AstNode& node)
 SemaAnalyzer::SemaAnalyzer(SemaDialect dialect)
 	: reading_(nullptr)
 	, dialect_(dialect)
+	, packs_(nullptr)
 	, anonymous_enums_(0)
 	, local_types_(0)
 	, self_(nullptr)
@@ -1209,7 +1211,7 @@ SemaEntity& SemaAnalyzer::class_declaration(const AstNode& node,
 	// declares rather than of what the body had written so far.
 	hide_using_members(scope);
 	lay_out_class(*entity, scope, tag == ClassTag::Union,
-	              requested_alignment(node, inner));
+	              requested_alignment(node, inner), packing_of(node));
 	// 8.5.1p1: a class with a base class is not an aggregate, so a
 	// braced-init-list initializing an object of it chooses a constructor.
 	entity->aggregate = entity->base == nullptr && aggregate_class(scope);
@@ -1485,6 +1487,22 @@ void SemaAnalyzer::enumerators(const AstNode& node, SemaEntity& entity,
 		}
 	}
 	entity.promotion = types_.fundamental(promotion);
+}
+
+// 16.6: the packing alignment the definition `node` is laid out under.
+//
+// The directive is a fact of a position in the source and the layout is a fact
+// of a class, so the one thing that joins them is a position the class has.
+// That position is the `}` the definition ends at, because 9.2p2 completes the
+// class there and the layout is settled once, from every member at once - which
+// is also what a directive written between two members means for the class it
+// is written in.  A class defined with no such directive anywhere in the unit
+// asks an empty table, which answers without a search.
+unsigned long long SemaAnalyzer::packing_of(const AstNode& node) const
+{
+	return packs_ == nullptr || packs_->empty() || node.end == 0
+		? 0
+		: packs_->at(node.end - 1);
 }
 
 void SemaAnalyzer::simple_declaration(const AstNode& node, const Context& ctx)

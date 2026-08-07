@@ -249,6 +249,9 @@ MacroSpellings::MacroSpellings(SpellingPool& spellings)
 	, defined(spellings.intern("defined"))
 	, once(spellings.intern("once"))
 	, pragma_operator(spellings.intern("_Pragma"))
+	, pack(spellings.intern("pack"))
+	, push(spellings.intern("push"))
+	, pop(spellings.intern("pop"))
 {}
 
 MacroTable::MacroTable(SpellingPool& spellings, const MacroSpellings& spelled)

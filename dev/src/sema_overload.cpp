@@ -1417,24 +1417,35 @@ SemaAnalyzer::Value SemaAnalyzer::initialize(const AstNode& node, TypeId target,
 	return value;
 }
 
-SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
-                                                  const Context& ctx,
-                                                  DumpNode& parent)
+// 5.1.1p6: a parenthesized expression may be used wherever the expression it
+// holds may be, and with the same meaning, so the parentheses around a callee
+// change neither what it names nor how it is called.  3.4.2p1 is the one thing
+// they do change: the associated namespaces are searched for an unqualified-id,
+// and a parenthesized id-expression is not one - which `parenthesized` is what
+// says.
+namespace
 {
-	// 5.1.1p6: a parenthesized expression may be used wherever the expression
-	// it holds may be, and with the same meaning, so the parentheses around a
-	// callee change neither what it names nor how it is called.  3.4.2p1 is the
-	// one thing they do change: the associated namespaces are searched for an
-	// unqualified-id and a parenthesized id-expression is not one.
-	const AstNode* written = node.children[0];
-	bool parenthesized = false;
+
+const AstNode& written_callee(const AstNode& node, bool& parenthesized)
+{
+	const AstNode* written = &node;
 	while (written->kind == AstKind::ParenthesizedExpression &&
 	       !written->children.empty())
 	{
 		written = written->children[0];
 		parenthesized = true;
 	}
-	const AstNode& callee = *written;
+	return *written;
+}
+
+}
+
+SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
+                                                  const Context& ctx,
+                                                  DumpNode& parent)
+{
+	bool parenthesized = false;
+	const AstNode& callee = written_callee(*node.children[0], parenthesized);
 	SemaEntity* named = nullptr;
 	std::vector<SemaEntity*>* found = nullptr;
 	if (callee.kind == AstKind::DecltypeSpecifier)
@@ -1491,6 +1502,13 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
 		}
 	}
 
+	// 5.2.4: `E1.~T()` for a `T` that is no class names no function at all, so
+	// it is settled before the call's own node is opened.
+	Value pseudo;
+	if (pseudo_destructor_call(node, callee, ctx, parent, pseudo))
+	{
+		return pseudo;
+	}
 	DumpNode& line = model_.open_node(parent, std::string());
 	// 13.3.1p3: the object a member function is called on is an argument of the
 	// call like any other, and 9.3.1p3 already made it the first parameter of

@@ -61,6 +61,10 @@ void emit_lowir(const std::string& outfile,
 		// analysed on its own; what crosses the boundary is the symbol a name
 		// with external linkage stands for, which the program builder holds.
 		SemaAnalyzer analyzer(SemaDialect::Lowering);
+		// 16.6: a `#pragma pack` is a phase 4 directive whose one effect is on
+		// 9.2p13's layout in phase 7, so what the stream recorded about where
+		// it stood travels with the tree that was parsed from it.
+		analyzer.set_packing(tokens.packs());
 		analyzer.run(*root);
 		builder.add_unit(analyzer.resolved(), analyzer.types());
 	}

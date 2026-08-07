@@ -159,8 +159,17 @@ AbiType abi_type(TypeTable& types, TypeId type)
 // `+ - * &` are written for one operand as well as for two, and it is the
 // number of operands that says which operator was declared.
 bool operator_terminal(const std::string& written, std::size_t arity,
-                       std::string& terminal)
+                       std::string& terminal, std::string& literal_suffix)
 {
+	// 13.5.8: a literal-operator-id is `operator ""` and an identifier, which
+	// the encoding writes as its own terminal followed by that identifier as a
+	// source name rather than as one of the operator codes.
+	if (written.size() > 2 && written.compare(0, 2, "\"\"") == 0)
+	{
+		terminal = "literal";
+		literal_suffix = written.substr(2);
+		return true;
+	}
 	static const struct
 	{
 		const char* spelled;
@@ -271,6 +280,7 @@ std::string abi_symbol_of(const SemaEntity& entity, TypeTable& types,
 	// qualifier of the name rather than as a parameter.
 	const std::size_t first = entity.object_member ? 1u : 0u;
 	std::string terminal;
+	std::string literal_suffix;
 	// 12.1 and 12.4: a constructor and a destructor are named by what they are
 	// rather than by a source name, and `abi_variant` says which of the
 	// entry points of one this symbol is.
@@ -282,7 +292,8 @@ std::string abi_symbol_of(const SemaEntity& entity, TypeTable& types,
 	// the object parameter is counted in; the encoding still leaves it out.
 	if (special ||
 	    (entity.name.compare(0, 8, "operator") == 0 &&
-	     operator_terminal(entity.name.substr(8), parameters.size(), terminal)))
+	     operator_terminal(entity.name.substr(8), parameters.size(), terminal,
+	                       literal_suffix)))
 	{
 		// 13.5: an operator function is named by the operator it overloads,
 		// which the encoding spells as its own terminal rather than as a source
@@ -325,6 +336,7 @@ std::string abi_symbol_of(const SemaEntity& entity, TypeTable& types,
 		{
 			written.kind = abi_mangle::ABI_FUNCTION_RECORD_OPERATOR_TERMINAL;
 			written.terminal = terminal;
+			written.literal_suffix = literal_suffix;
 		}
 		records.push_back(written);
 	}

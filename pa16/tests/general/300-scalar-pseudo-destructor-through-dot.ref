@@ -1,0 +1,27 @@
+function @drop(%d : ptr [pass=reference], %p : ptr [pass=reference]) -> i32 [binding=strong, object=_Z4dropRdRPc] {
+  slot $d : ptr
+  slot $p : ptr
+
+  block ^entry:
+    store ptr %d, $d
+    store ptr %p, $p
+    %t1 = load ptr $d
+    %t2 = load f64 %t1
+    %t3 = load ptr $p
+    %t4 = load ptr %t3
+    %t5 = load ptr $d
+    %t6 = load f64 %t5
+    return i32 0
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $d : f64
+  slot $p : ptr
+
+  block ^entry:
+    store f64 1.5, $d
+    store ptr 0, $p
+    %t1 = addr $d
+    %t2 = addr $p
+    %t3 = call i32 @drop(%t1, %t2)
+    return i32 %t3
+}

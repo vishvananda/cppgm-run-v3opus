@@ -213,10 +213,15 @@ struct MacroSpellings
 	SpellingId error;
 	SpellingId pragma;
 
-	// The two identifiers 16.1 and 16.6 give a meaning of their own.
+	// The identifiers 16.1 and 16.6 give a meaning of their own.  `pack` and
+	// its two verbs are here for the same reason the directive names are: what
+	// a pragma asks for is decided by one integer comparison per token of it.
 	SpellingId defined;
 	SpellingId once;
 	SpellingId pragma_operator;
+	SpellingId pack;
+	SpellingId push;
+	SpellingId pop;
 };
 
 // One step of the substitution 16.3.3 describes, analysed once at definition

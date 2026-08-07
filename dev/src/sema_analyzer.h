@@ -15,6 +15,8 @@
 #include "type_model.h"
 
 struct AstNode;
+struct PostToken;
+class PackTable;
 
 // An expression that is not one of the constant expressions 5.19 defines, or
 // not one of the subset of them PA11 evaluates.
@@ -60,6 +62,11 @@ class SemaAnalyzer
 {
 public:
 	explicit SemaAnalyzer(SemaDialect dialect = SemaDialect::Types);
+
+	// 16.6: what `#pragma pack` asked for, by position in the token stream the
+	// tree was parsed from.  Borrowed rather than copied, and left null by a
+	// caller with no such table, which is what says no class is packed.
+	void set_packing(const PackTable& packs) { packs_ = &packs; }
 
 	// Analyses `unit`, a PA10 `translation-unit`.  Throws for a program the
 	// assignment gives no meaning to.
@@ -792,9 +799,12 @@ private:
 	void write_pending_definitions();
 	void write_definition(Pending& pending);
 	// 9.2p2 and the course ABI: the size and alignment of a completed class,
-	// with `requested` the alignment 7.6.2 asked for, or zero for none.
+	// with `requested` the alignment 7.6.2 asked for, or zero for none, and
+	// `packed` the one 16.6 caps every subobject at, or zero for none.
 	void lay_out_class(SemaEntity& entity, Scope& scope, bool is_union,
-	                   unsigned long long requested);
+	                   unsigned long long requested, unsigned long long packed);
+	// 16.6: the packing alignment in force where `node` was written.
+	unsigned long long packing_of(const AstNode& node) const;
 	// 9.6p2: the storage unit the bit-fields of a class are being allocated
 	// into while it is laid out.  A unit is opened by the first field that
 	// cannot share the one before it, and the fields declared with its own type
@@ -814,9 +824,10 @@ private:
 		unsigned long long used;
 	};
 	// 9.6p2: the share of a storage unit one bit-field takes, from the byte the
-	// layout has reached and the unit it is filling.
+	// layout has reached and the unit it is filling.  `packed` is 16.6's cap on
+	// where the unit may begin.
 	void lay_out_bit_field(SemaEntity& member, unsigned long long& at,
-	                       BitUnit& unit);
+	                       BitUnit& unit, unsigned long long packed);
 	// 9.6p1: the members one member-declaration that wrote widths declares.
 	void bit_field_declaration(const AstNode& node, const Context& ctx);
 	// 9.6p2: the type the storage unit of a bit-field of this type is read and
@@ -1019,7 +1030,22 @@ private:
 	// 13.3 or 13.4 chooses from.
 	Value named_value(const AstNode& node, SemaEntity& entity, DumpNode& parent,
 	                  const std::vector<SemaEntity*>* found = nullptr);
-	Value literal_expression(const AstNode& node, DumpNode& parent);
+	Value literal_expression(const AstNode& node, const Context& ctx,
+	                         DumpNode& parent);
+	// 2.14: the one line an analysed literal token is worth, which a literal
+	// the program wrote and one 2.14.8 hands a literal operator share.
+	Value literal_value(const PostToken& token, const std::string& payload,
+	                    DumpNode& parent);
+	// 2.14.8p2: the call of the literal operator a user-defined-literal's
+	// ud-suffix names, with the arguments p3 to p6 give it.
+	Value user_defined_literal(const PostToken& token,
+	                           const std::string& spelling, const Context& ctx,
+	                           DumpNode& parent);
+	// 2.14.8p3 to p6: the declaration among `candidates` whose
+	// parameter-type-list is `wanted`, which is what those paragraphs name
+	// instead of a candidate set 13.3 ranks.  Null where none is.
+	SemaEntity* literal_operator(const std::vector<SemaEntity*>& candidates,
+	                             const std::vector<TypeId>& wanted);
 	// 5.2.5: `E1.E2` and `E1->E2`, which name a member of the class the object
 	// expression has.
 	Value member_expression(const AstNode& node, const Context& ctx,
@@ -1035,6 +1061,23 @@ private:
 	// whatever the member holds, which the call then reads as an ordinary one.
 	void member_callee(const AstNode& callee, const Context& ctx, DumpNode& line,
 	                   Value& target, Value& object);
+	// 5.2.4: a call whose callee is `E1.~T` or `E1->~T` for a `T` that is not a
+	// class.  True when the callee is that, with `out` the void prvalue 5.2.4p1
+	// says the call is; false for every other member callee, including the
+	// destructor of a class, which is an ordinary member function.
+	bool pseudo_destructor_call(const AstNode& node, const AstNode& callee,
+	                            const Context& ctx, DumpNode& parent, Value& out);
+	// 5.2.5p1: what a member name written after `.` or `->` denotes in the
+	// class of the object expression, with `found` taking what the lookup
+	// associated with it.  Null where the class declares nothing of the name.
+	SemaEntity* member_named(Scope& region, const std::string& id,
+	                         const Context& ctx,
+	                         std::vector<SemaEntity*>& found);
+	// 12.4p12 and 5.2.4p2: the destructor of the class `region` declares, where
+	// `id` is `~` and a type-name that names that class - which need not be the
+	// name 12.4p1 bound the destructor under.  Null for every other name.
+	SemaEntity* destructor_named(Scope& region, const std::string& id,
+	                             const Context& ctx);
 	// 9.3.2p1: the `this` a member function named with no object expression is
 	// called on, written as the call's first argument.  `object` denotes nothing
 	// outside a member function, where 13.3.1p4 leaves a non-static member no
@@ -1393,6 +1436,10 @@ private:
 	bool lowering() const { return dialect_ == SemaDialect::Lowering; }
 
 	SemaDialect dialect_;
+	// 16.6: the packing alignment by position in the token stream, borrowed
+	// from the stream the tree was parsed from.  Null where the caller has
+	// none, which is every mode but the lowering.
+	const PackTable* packs_;
 	TypeTable types_;
 	SemaModel model_;
 	// The unnamed enumerations declared so far, which are numbered rather than

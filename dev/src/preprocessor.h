@@ -46,6 +46,15 @@ public:
 	Preprocessor(SourceFileTable& files, const PreprocessorOptions& options,
 	             const std::string& path);
 
+	// 16.6 and the course ABI: the maximum alignment `#pragma pack` leaves a
+	// class subobject, or zero where the directive has asked for none.  It is
+	// a fact of a *position* in the token stream rather than of the unit, so
+	// the stream builder reads it beside each token it appends; `pack_epoch`
+	// counts the directives that have changed it, which is what lets that
+	// reading be one integer comparison per token instead of a copy.
+	unsigned long long pack_alignment() const { return pack_; }
+	unsigned long long pack_epoch() const { return pack_epoch_; }
+
 protected:
 	void run_directive_line(const MacroToken* begin, const MacroToken* end) override;
 	bool pop_source() override;
@@ -118,6 +127,9 @@ private:
 	bool header_name_of(std::string& out);
 	void run_line(const MacroToken* begin, const MacroToken* end);
 	void apply_pragma(const MacroToken* begin, const MacroToken* end);
+	bool apply_pack_pragma(const MacroToken* begin, const MacroToken* end);
+	bool pragma_number(const MacroToken& token, unsigned long long& out);
+	void set_pack(unsigned long long alignment);
 	void include_file(const std::string& nextf);
 
 	// Predefined macros.
@@ -138,6 +150,20 @@ private:
 	std::vector<IfGroup> ifs_;
 	// The files `#pragma once` has closed, by identity rather than by path.
 	std::unordered_set<SourceFileId, SourceFileIdHash> pragma_once_;
+	// 16.6: the alignment `#pragma pack` leaves a class subobject, and the
+	// values `push` saved, each with the label the directive named it by or
+	// none.  The stack is the directive's own, so it outlives the file that
+	// pushed onto it.
+	struct PackFrame
+	{
+		bool labelled;
+		SpellingId label;
+		unsigned long long alignment;
+	};
+
+	unsigned long long pack_;
+	unsigned long long pack_epoch_;
+	std::vector<PackFrame> pack_stack_;
 	unsigned long long counter_;
 
 	MacroOracle oracle_;

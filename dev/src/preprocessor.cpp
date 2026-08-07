@@ -74,6 +74,8 @@ Preprocessor::Preprocessor(SourceFileTable& files,
                            const std::string& path)
 	: MacroExpander(nullptr)
 	, files_(files)
+	, pack_(0)
+	, pack_epoch_(0)
 	, counter_(0)
 	, oracle_(*this)
 	, conditions_(oracle_)
@@ -519,7 +521,170 @@ void Preprocessor::apply_pragma(const MacroToken* begin, const MacroToken* end)
 		pragma_once_.insert(id);
 		return;
 	}
+	if (apply_pack_pragma(begin, end))
+	{
+		return;
+	}
 	// 16.6: a pragma this implementation does not support has no effect.
+}
+
+// The decimal a `pack` argument is written as.  Only a plain integer means
+// anything here, so a pp-number that is not one leaves the directive alone
+// rather than being answered with a number it does not spell.
+bool Preprocessor::pragma_number(const MacroToken& token, unsigned long long& out)
+{
+	if (token.type != MacroTokenType::PPNumber)
+	{
+		return false;
+	}
+	const std::string text = spelling_text(token.spelling);
+	out = 0;
+	for (std::size_t at = 0; at < text.size(); ++at)
+	{
+		if (text[at] < '0' || text[at] > '9' || out > (1ULL << 40))
+		{
+			return false;
+		}
+		out = out * 10 + static_cast<unsigned long long>(text[at] - '0');
+	}
+	return !text.empty();
+}
+
+void Preprocessor::set_pack(unsigned long long alignment)
+{
+	if (alignment != pack_)
+	{
+		pack_ = alignment;
+		++pack_epoch_;
+	}
+}
+
+// 16.6 and the course ABI: `#pragma pack` caps the alignment of every subobject
+// of a class defined while it is in force.  The forms are the ones the
+// implementations this ABI follows agree on - a width, a reset, a push with an
+// optional label and an optional width, and a pop with an optional label - and
+// the state they change is one integer and one stack, both of them facts of the
+// translation unit rather than of a file.
+//
+// 16.6 does not replace macros in the tokens of a pragma, so what is read here
+// are the tokens as written.  The value has to be a power of two, because it is
+// used as an alignment: a width that is not one asks for something no address
+// can satisfy, so it is a pragma this implementation does not have rather than
+// a layout it cannot make.  False for anything that is not `pack`, which leaves
+// 16.6's silence in place.
+bool Preprocessor::apply_pack_pragma(const MacroToken* begin, const MacroToken* end)
+{
+	if (end - begin < 3 || begin->type != MacroTokenType::Identifier ||
+	    begin->spelling != spelled_.pack ||
+	    !is_punctuation(begin[1], spelled_.lparen) ||
+	    !is_punctuation(end[-1], spelled_.rparen))
+	{
+		return false;
+	}
+	// The arguments, as the `,` separated list they are written as.  There are
+	// at most three of them, so the list is read into a fixed array and a form
+	// that writes more is one this implementation does not have.
+	const MacroToken* argument[3] = {nullptr, nullptr, nullptr};
+	const std::size_t written = static_cast<std::size_t>((end - 1) - (begin + 2));
+	if (written > 5 || (written != 0 && written % 2 == 0))
+	{
+		return false;
+	}
+	std::size_t count = 0;
+	for (std::size_t at = 0; at < written; ++at)
+	{
+		const MacroToken& token = begin[2 + at];
+		if (at % 2 == 1)
+		{
+			if (!is_punctuation(token, spelled_.comma))
+			{
+				return false;
+			}
+			continue;
+		}
+		if (is_punctuation(token, spelled_.comma))
+		{
+			return false;
+		}
+		argument[count++] = &token;
+	}
+	if (count == 0)
+	{
+		// `pack()` restores the alignment a class would have had.
+		set_pack(0);
+		return true;
+	}
+	const bool verb = argument[0]->type == MacroTokenType::Identifier;
+	const bool labelled = count > 1 && argument[1]->type == MacroTokenType::Identifier;
+	// The width, where the form names one: it is the last argument of `push`
+	// and the only argument of the bare form.
+	unsigned long long width = 0;
+	const MacroToken* const spelled_width =
+		count == 1 && !verb ? argument[0]
+		                    : (count > 1 && !labelled ? argument[1]
+		                                              : (count == 3 ? argument[2]
+		                                                            : nullptr));
+	if (spelled_width != nullptr &&
+	    (!pragma_number(*spelled_width, width) || width == 0 ||
+	     (width & (width - 1)) != 0))
+	{
+		return false;
+	}
+	if (verb && argument[0]->spelling == spelled_.pop)
+	{
+		// A labelled pop unwinds to the frame that label pushed; an unlabelled
+		// one drops the innermost frame.  Neither may name a width, and a pop
+		// with nothing left to unwind leaves the default in force.
+		if (count > 2 || (count == 2 && !labelled))
+		{
+			return false;
+		}
+		std::size_t depth = pack_stack_.size();
+		if (count == 2)
+		{
+			while (depth != 0 && !(pack_stack_[depth - 1].labelled &&
+			                       pack_stack_[depth - 1].label ==
+			                           argument[1]->spelling))
+			{
+				--depth;
+			}
+			if (depth == 0)
+			{
+				return true;
+			}
+			--depth;
+		}
+		else if (depth != 0)
+		{
+			--depth;
+		}
+		set_pack(depth < pack_stack_.size() ? pack_stack_[depth].alignment : 0);
+		pack_stack_.resize(depth);
+		return true;
+	}
+	if (verb && argument[0]->spelling == spelled_.push)
+	{
+		if (count == 3 && !labelled)
+		{
+			return false;
+		}
+		PackFrame frame;
+		frame.labelled = labelled;
+		frame.label = labelled ? argument[1]->spelling : SpellingId();
+		frame.alignment = pack_;
+		pack_stack_.push_back(frame);
+		if (spelled_width != nullptr)
+		{
+			set_pack(width);
+		}
+		return true;
+	}
+	if (count != 1 || verb)
+	{
+		return false;
+	}
+	set_pack(width);
+	return true;
 }
 
 // The `_Pragma` operator: `_Pragma ( string-literal )` in a text-sequence,

@@ -172,6 +172,36 @@ std::string AstTokenStream::flatten(std::size_t begin, std::size_t end) const
 	return result;
 }
 
+void PackTable::add(std::size_t begin, unsigned long long alignment)
+{
+	Region region;
+	region.begin = begin;
+	region.alignment = alignment;
+	regions_.push_back(region);
+}
+
+unsigned long long PackTable::at(std::size_t index) const
+{
+	// The regions are appended in stream order, so the one in force is the
+	// last that begins at or before `index`: one binary search per class, and
+	// none at all for the unit that writes no such directive.
+	std::size_t low = 0;
+	std::size_t high = regions_.size();
+	while (low < high)
+	{
+		const std::size_t middle = low + (high - low) / 2;
+		if (regions_[middle].begin <= index)
+		{
+			low = middle + 1;
+		}
+		else
+		{
+			high = middle;
+		}
+	}
+	return low == 0 ? 0 : regions_[low - 1].alignment;
+}
+
 bool AstTokenStream::string_value(std::size_t index, std::string& out) const
 {
 	const std::unordered_map<std::size_t, std::string>::const_iterator found =
@@ -191,11 +221,21 @@ void AstTokenStream::build(SourceFileTable& files, const PreprocessorOptions& op
 	PostTokenizer tokenizer(preprocessor);
 
 	PostToken token;
+	unsigned long long pack_epoch = preprocessor.pack_epoch();
 	while (tokenizer.next(token))
 	{
 		if (token.kind == PostTokenKind::EndOfFile)
 		{
 			break;
+		}
+		// 16.6: every directive before this token has run, so what the packing
+		// alignment is here is what the token's own class definition asks.  The
+		// test is one comparison per token and the record is one per directive
+		// that changed it.
+		if (preprocessor.pack_epoch() != pack_epoch)
+		{
+			pack_epoch = preprocessor.pack_epoch();
+			packs_.add(tokens_.size(), preprocessor.pack_alignment());
 		}
 		switch (token.kind)
 		{

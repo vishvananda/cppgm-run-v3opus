@@ -95,6 +95,12 @@ AstNode* AstParser::parse_class_specifier()
 	{
 		return fail(start);
 	}
+	// The class-head's own terminals.  9.2p13's layout is settled from what the
+	// members are, but 16.6's packing alignment is a fact of where the
+	// definition was written, and the span is the one thing about a node that
+	// says where.
+	node->begin = static_cast<std::uint32_t>(start.pos);
+	node->end = static_cast<std::uint32_t>(pos_);
 	return node;
 }
 

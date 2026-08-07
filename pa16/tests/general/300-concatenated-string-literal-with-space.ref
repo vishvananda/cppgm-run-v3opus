@@ -1,0 +1,109 @@
+global @__strlit__1 [binding=internal] = {
+  i8 97
+  i8 32
+  i8 98
+  i8 32
+  i8 99
+  i8 0
+}
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $joined : ptr
+  slot $cond__1 : i32
+  slot $land__2 : i64
+  slot $land__3 : i64
+  slot $land__4 : i64
+  slot $land__5 : i64
+
+  block ^entry:
+    %t1 = addr @__strlit__1
+    store ptr %t1, $joined
+    %t2 = const i64 6
+    %t3 = convert sext i64 i32 7
+    %t4 = cmp eq i64 %t2, %t3
+    branch %t4, ^land_rhs_13, ^land_short_14
+
+  block ^land_rhs_13:
+    %t5 = load ptr $joined
+    %t6 = index i8 [projection=array_element] %t5, 1
+    %t7 = load i8 %t6
+    %t8 = convert sext i32 i8 %t7
+    %t9 = cmp eq i32 %t8, 32
+    %t10 = cmp ne i64 %t9, 0
+    store i64 %t10, $land__5
+    jump ^land_end_15
+
+  block ^land_short_14:
+    store i64 0, $land__5
+    jump ^land_end_15
+
+  block ^land_end_15:
+    %t11 = load i64 $land__5
+    branch %t11, ^land_rhs_10, ^land_short_11
+
+  block ^land_rhs_10:
+    %t12 = load ptr $joined
+    %t13 = index i8 [projection=array_element] %t12, 3
+    %t14 = load i8 %t13
+    %t15 = convert sext i32 i8 %t14
+    %t16 = cmp eq i32 %t15, 32
+    %t17 = cmp ne i64 %t16, 0
+    store i64 %t17, $land__4
+    jump ^land_end_12
+
+  block ^land_short_11:
+    store i64 0, $land__4
+    jump ^land_end_12
+
+  block ^land_end_12:
+    %t18 = load i64 $land__4
+    branch %t18, ^land_rhs_7, ^land_short_8
+
+  block ^land_rhs_7:
+    %t19 = load ptr $joined
+    %t20 = index i8 [projection=array_element] %t19, 4
+    %t21 = load i8 %t20
+    %t22 = convert sext i32 i8 %t21
+    %t23 = cmp eq i32 %t22, 99
+    %t24 = cmp ne i64 %t23, 0
+    store i64 %t24, $land__3
+    jump ^land_end_9
+
+  block ^land_short_8:
+    store i64 0, $land__3
+    jump ^land_end_9
+
+  block ^land_end_9:
+    %t25 = load i64 $land__3
+    branch %t25, ^land_rhs_4, ^land_short_5
+
+  block ^land_rhs_4:
+    %t26 = load ptr $joined
+    %t27 = index i8 [projection=array_element] %t26, 5
+    %t28 = load i8 %t27
+    %t29 = convert sext i32 i8 %t28
+    %t30 = cmp eq i32 %t29, 0
+    %t31 = cmp ne i64 %t30, 0
+    store i64 %t31, $land__2
+    jump ^land_end_6
+
+  block ^land_short_5:
+    store i64 0, $land__2
+    jump ^land_end_6
+
+  block ^land_end_6:
+    %t32 = load i64 $land__2
+    branch %t32, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t33 = load i32 $cond__1
+    return i32 %t33
+}

@@ -7,6 +7,7 @@
 #include "ast_tokens.h"
 #include "literal_scan.h"
 #include "post_token.h"
+#include "pptoken_lexer.h"
 #include "string_literal.h"
 
 // The PA12 expression layer: 5 over the procedural, non-class subset.
@@ -340,7 +341,7 @@ SemaAnalyzer::Value SemaAnalyzer::dispatch_expression(const AstNode& node,
 
 	case AstKind::Literal:
 	case AstKind::KeywordLiteral:
-		return literal_expression(node, parent);
+		return literal_expression(node, ctx, parent);
 
 	case AstKind::CallExpression:
 		return call_expression(node, ctx, parent);
@@ -653,8 +654,7 @@ SemaAnalyzer::Value SemaAnalyzer::member_expression(const AstNode& node,
 	const AstNode& id = *node.children[1];
 	std::vector<SemaEntity*>& found = model_.open_overloads();
 	SemaEntity& found_member =
-		require(model_.lookup_in(region, id.text, LookupKind::Any, &found),
-		        id.text);
+		require(member_named(region, id.text, ctx, found), id.text);
 	require_access(found_member, ctx.scope, &region);
 	require_protected_object(found, found_member, ctx.scope, &region);
 	// 7.3.3p1 and 11.2p5: the class the name was written on is the class that
@@ -718,6 +718,138 @@ void SemaAnalyzer::address_of_object(Value& object, DumpNode& node,
 	respell(object);
 }
 
+// 5.2.5p1: what `E1.E2` and `E1->E2` name in the class of the object
+// expression, with `found` taking the declarations the lookup associated with
+// the name.  It is the region's own lookup, plus the one name 5.2.4p2 spells as
+// a type rather than as the member it denotes.
+SemaEntity* SemaAnalyzer::member_named(Scope& region, const std::string& id,
+                                       const Context& ctx,
+                                       std::vector<SemaEntity*>& found)
+{
+	SemaEntity* const member =
+		model_.lookup_in(region, id, LookupKind::Any, &found);
+	if (member != nullptr)
+	{
+		return member;
+	}
+	SemaEntity* const destructor = destructor_named(region, id, ctx);
+	if (destructor != nullptr)
+	{
+		found.clear();
+		found.push_back(destructor);
+	}
+	return destructor;
+}
+
+// 12.4p12 and 5.2.4p2: the destructor `~T` names on an object of class type.
+//
+// 12.4p1 gives the destructor of a class the one name `~` and the class's own,
+// which is what `Scope` binds it under; but 5.2.4p2 writes a *type-name* after
+// the `~`, and a typedef-name for the class is one.  So a name the class does
+// not bind is still that class's destructor when it names the class, which
+// 3.4.5p3 looks for in the class first and then where the expression stands.
+// Null for every other member name, which is what leaves the ordinary lookup
+// in charge of it.
+SemaEntity* SemaAnalyzer::destructor_named(Scope& region, const std::string& id,
+                                           const Context& ctx)
+{
+	if (id.empty() || id[0] != '~' || region.owner == nullptr ||
+	    region.owner->destructor == nullptr)
+	{
+		return nullptr;
+	}
+	const std::string named = id.substr(1);
+	SemaEntity* type = model_.lookup_in(region, named, LookupKind::Type);
+	if (type == nullptr)
+	{
+		type = resolve(named, ctx, LookupKind::Type);
+	}
+	if (type == nullptr || !names_a_type(*type) ||
+	    types_.strip_cv(type->type) != types_.strip_cv(region.owner->type))
+	{
+		return nullptr;
+	}
+	return region.owner->destructor;
+}
+
+// 5.2.4: `E1.~T()` and `E1->~T()` for a `T` that is not a class type, which
+// 5.2.4p2 calls a pseudo-destructor call.
+//
+// It is told from the destructor of a class by the name after the `~` alone:
+// a class declares its destructor and 12.4p12 binds that name in the class, so
+// `p->~Box()` is the ordinary member call that path already writes, while for
+// every other type there is no region to look a member up in at all.  The
+// question is asked before the object expression is read, because reading it
+// twice would write it twice.
+//
+// 5.2.4p1: the type shall be the same as the object's, cv-qualification aside,
+// and the only effect of the call is the evaluation of the postfix-expression
+// before the `.` or `->`.  That is exactly the value of that expression
+// discarded, which is what 5.2.9p4's conversion to `void` is, so it is the node
+// the resolved tree holds: no destructor is named, because a scalar has none.
+bool SemaAnalyzer::pseudo_destructor_call(const AstNode& node,
+                                          const AstNode& callee,
+                                          const Context& ctx, DumpNode& parent,
+                                          Value& out)
+{
+	if (callee.kind != AstKind::MemberExpression)
+	{
+		return false;
+	}
+	const AstNode& id = *callee.children[1];
+	if (id.text.empty() || id.text[0] != '~')
+	{
+		return false;
+	}
+	const std::string named = id.text.substr(1);
+	SemaEntity* const type = resolve(named, ctx, LookupKind::Type);
+	if (type == nullptr || !names_a_type(*type) ||
+	    types_.is_class(types_.strip_cv(type->type)))
+	{
+		return false;
+	}
+	const TypeId wanted = types_.strip_cv(type->type);
+	// 3.9p10 and 5.2.4p2: the type shall be a scalar type - an arithmetic type,
+	// an enumeration, a pointer, a pointer to member, or `std::nullptr_t`.  A
+	// typedef-name may stand for an array, a function, a reference or `void`,
+	// and none of those has a destructor to write a call of.
+	if (!types_.is_scalar(wanted))
+	{
+		throw std::runtime_error("a pseudo-destructor call names a type that is "
+		                         "not a scalar type");
+	}
+	DumpNode& line = model_.open_node(parent, std::string());
+	Value object = expression(*callee.children[0], ctx, line);
+	if (callee.token == OP_ARROW)
+	{
+		// 5.2.5p2: `E1->~T()` is `(*E1).~T()`, so what the type is asked of is
+		// what the pointer addresses.
+		if (types_.kind(object.type) != TypeKind::Pointer)
+		{
+			throw std::runtime_error("`->` is written on an operand that is not "
+			                         "a pointer");
+		}
+		object.type = types_.target(object.type);
+	}
+	if (types_.strip_cv(object.type) != wanted)
+	{
+		throw std::runtime_error("a pseudo-destructor call names a type the "
+		                         "object expression does not have");
+	}
+	const AstNode* const list = arguments_of(node);
+	if (list != nullptr && !list->children.empty())
+	{
+		throw std::runtime_error("a pseudo-destructor call takes no argument");
+	}
+	out = Value();
+	out.type = out.spelled = types_.fundamental(FT_VOID);
+	out.category = ValueCategory::PRValue;
+	out.what = "cast-expression";
+	out.node = &line;
+	respell(out);
+	return true;
+}
+
 void SemaAnalyzer::member_callee(const AstNode& callee, const Context& ctx,
                                  DumpNode& line, Value& target, Value& object)
 {
@@ -731,8 +863,7 @@ void SemaAnalyzer::member_callee(const AstNode& callee, const Context& ctx,
 	const AstNode& id = *callee.children[1];
 	std::vector<SemaEntity*>& found = model_.open_overloads();
 	SemaEntity& found_member =
-		require(model_.lookup_in(region, id.text, LookupKind::Any, &found),
-		        id.text);
+		require(member_named(region, id.text, ctx, found), id.text);
 	require_access(found_member, ctx.scope, &region);
 	require_protected_object(found, found_member, ctx.scope, &region);
 	// 7.3.3p1: what a using-declaration brought into this class was found here
@@ -1001,7 +1132,57 @@ SemaAnalyzer::Value SemaAnalyzer::this_value(DumpNode& parent)
 	return value;
 }
 
+// 2.14: what one analysed literal token is worth, as the one line the resolved
+// tree writes for it.  A literal the program wrote and the literal 2.14.8p3
+// hands a literal operator are the same fact, so they are built here once.
+SemaAnalyzer::Value SemaAnalyzer::literal_value(const PostToken& token,
+                                                const std::string& payload,
+                                                DumpNode& parent)
+{
+	Value value;
+	value.category = ValueCategory::PRValue;
+	value.what = "literal";
+	value.payload = payload;
+	if (token.kind == PostTokenKind::LiteralArray)
+	{
+		// 2.14.5p8: a string literal is an lvalue array of n const characters.
+		value.type = types_.array_of(
+			types_.qualified(types_.fundamental(token.type), kCvConst), true,
+			token.element_count);
+		value.category = ValueCategory::LValue;
+		value.spelled = value.type;
+		value.node = &model_.open_node(
+			parent, spell(value.what, value.category, value.type, value.payload));
+		record(value);
+		// 2.14.5p8: the array the literal is holds the code units the
+		// translation read out of it, which no later layer can read back out
+		// of the spelling on its own.
+		value.node->fact.spelling = token.data;
+		return value;
+	}
+	value.type = types_.fundamental(token.type);
+	value.spelled = value.type;
+	if (fundamental_type_is_integral(token.type))
+	{
+		value.constant = true;
+		value.value = 0;
+		for (std::size_t index = token.data.size(); index-- > 0;)
+		{
+			value.value = (value.value << 8) |
+				static_cast<unsigned char>(token.data[index]);
+		}
+		// 4.10p1: a null pointer constant is an integral constant expression
+		// that evaluates to zero.
+		value.null_constant = value.value == 0;
+	}
+	value.node = &model_.open_node(
+		parent, spell(value.what, value.category, value.type, value.payload));
+	record(value);
+	return value;
+}
+
 SemaAnalyzer::Value SemaAnalyzer::literal_expression(const AstNode& node,
+                                                     const Context& ctx,
                                                      DumpNode& parent)
 {
 	Value value;
@@ -1035,30 +1216,31 @@ SemaAnalyzer::Value SemaAnalyzer::literal_expression(const AstNode& node,
 
 	PostToken token;
 	const char first = spelling.empty() ? '\0' : spelling[0];
-	if (first == '"' || (spelling.find('"') != std::string::npos))
+	const bool string_form =
+		first == '"' || (spelling.find('"') != std::string::npos);
+	if (string_form)
 	{
+		// 2.14.5p12: a maximal sequence of adjacent string-literals is one
+		// literal, and the terminal the parse read is that whole sequence -
+		// whose parts the stream kept as the spellings they were written with,
+		// separated as phase 3 read them.  So the sequence is rebuilt from
+		// those parts and not from the one string they were joined into: what
+		// separates two of them is a token boundary, which no scan of the
+		// joined text can find again once a part holds a space of its own.
 		StringLiteralSequence sequence;
-		sequence.add(spelling);
-		sequence.build(token);
-		if (token.kind != PostTokenKind::LiteralArray)
+		PPTokenLexer lexer(spelling, SourceForm::Translated);
+		PPToken part;
+		while (lexer.next(part))
 		{
-			throw std::runtime_error("a string literal is outside the PA12 subset");
+			if (part.type == PPTokenType::StringLiteral ||
+			    part.type == PPTokenType::UserDefinedStringLiteral)
+			{
+				sequence.add(part.spelling);
+			}
 		}
-		// 2.14.5p8: a string literal is an lvalue array of n const characters.
-		value.type = types_.array_of(
-			types_.qualified(types_.fundamental(token.type), kCvConst), true,
-			token.element_count);
-		value.category = ValueCategory::LValue;
-		value.spelled = value.type;
-		value.node = &model_.open_node(
-			parent, spell(value.what, value.category, value.type, value.payload));
-		// 2.14.5p8: the array the literal is holds the code units the
-		// translation read out of it, which no later layer can read back out
-		// of the spelling on its own.
-		value.node->fact.spelling = token.data;
-		return value;
+		sequence.build(token);
 	}
-	if (first >= '0' && first <= '9')
+	else if (first >= '0' && first <= '9')
 	{
 		scan_pp_number(spelling, token);
 	}
@@ -1066,28 +1248,213 @@ SemaAnalyzer::Value SemaAnalyzer::literal_expression(const AstNode& node,
 	{
 		scan_character_literal(spelling, token);
 	}
-	if (token.kind != PostTokenKind::Literal)
+	if (token.kind == PostTokenKind::UserDefinedLiteral)
 	{
-		throw std::runtime_error("a literal is outside the PA12 subset");
+		// 2.14.8p2: the token is a call of the literal operator its ud-suffix
+		// names, so what the tree holds for it is that call.
+		return user_defined_literal(token, spelling, ctx, parent);
 	}
-	value.type = types_.fundamental(token.type);
-	value.spelled = value.type;
-	if (fundamental_type_is_integral(token.type))
+	if (token.kind != (string_form ? PostTokenKind::LiteralArray
+	                               : PostTokenKind::Literal))
 	{
-		value.constant = true;
-		value.value = 0;
-		for (std::size_t index = token.data.size(); index-- > 0;)
+		throw std::runtime_error(
+			string_form ? "a string literal is outside the PA12 subset"
+			            : "a literal is outside the PA12 subset");
+	}
+	return literal_value(token, value.payload, parent);
+}
+
+// 2.14.8p3 to p6: the one declaration of a literal-operator-id whose
+// parameter-type-list is `wanted`.
+//
+// The forms name a parameter list rather than a set 13.3 ranks, so this is a
+// comparison and not an overload resolution: one walk of the declarations the
+// lookup reached, and one comparison of interned type ids per parameter.  A
+// member function is none of them, because 13.5.8p1 declares a literal operator
+// at namespace scope.
+SemaEntity* SemaAnalyzer::literal_operator(
+	const std::vector<SemaEntity*>& candidates,
+	const std::vector<TypeId>& wanted)
+{
+	for (std::size_t index = 0; index < candidates.size(); ++index)
+	{
+		for (SemaEntity* at = candidates[index]; at != nullptr; at = at->next)
 		{
-			value.value = (value.value << 8) |
-				static_cast<unsigned char>(token.data[index]);
+			if (at->kind != SemaKind::Function || at->object_member ||
+			    types_.variadic(at->type))
+			{
+				continue;
+			}
+			const std::vector<TypeId>& parameters = types_.parameters(at->type);
+			if (parameters.size() != wanted.size())
+			{
+				continue;
+			}
+			std::size_t same = 0;
+			while (same < wanted.size() && parameters[same] == wanted[same])
+			{
+				++same;
+			}
+			if (same == wanted.size())
+			{
+				return at;
+			}
 		}
-		// 4.10p1: a null pointer constant is an integral constant expression
-		// that evaluates to zero.
-		value.null_constant = value.value == 0;
 	}
-	value.node = &model_.open_node(
-		parent, spell(value.what, value.category, value.type, value.payload));
-	return value;
+	return nullptr;
+}
+
+// 2.14.8: a user-defined-literal, which p2 makes a call of the literal operator
+// its ud-suffix names.
+//
+// 2.14.8p2 looks the literal-operator-id up by ordinary unqualified lookup from
+// where the literal stands - and no further: 3.4.2 is not searched, because the
+// literal has no argument whose type could associate a namespace.  What p3 to
+// p6 then choose out of that set is not 13.3's ranking but one written
+// parameter-type-list per form, so a literal operator taking `char` is no
+// candidate for an integer literal and a value is never converted into one it
+// does not have.  The cooked forms are the value of the literal, and the raw
+// form is the fallback p3 names for a numeric literal no cooked operator
+// declares, where the operator is handed the digits the program wrote.
+SemaAnalyzer::Value SemaAnalyzer::user_defined_literal(const PostToken& token,
+                                                       const std::string& spelling,
+                                                       const Context& ctx,
+                                                       DumpNode& parent)
+{
+	const std::string name = "operator\"\"" + token.ud_suffix;
+	std::vector<SemaEntity*>& found = model_.open_overloads();
+	SemaEntity* const head =
+		model_.lookup(*ctx.scope, name, LookupKind::Any, &found);
+	if (head == nullptr || head->kind != SemaKind::Function)
+	{
+		throw std::runtime_error("no literal operator is declared for the "
+		                         "ud-suffix of a user-defined literal");
+	}
+	if (found.empty())
+	{
+		found.push_back(head);
+	}
+
+	// 2.14.8p1: the ud-suffix is the tail of the token, so what is left of the
+	// spelling is the literal 2.14 gives the operator - and is what the tree
+	// writes under the call, because that is what the program wrote.
+	const std::string prefix =
+		spelling.size() > token.ud_suffix.size()
+			? spelling.substr(0, spelling.size() - token.ud_suffix.size())
+			: spelling;
+	// The value the literal is, and the parameter-type-list p3 to p6 say the
+	// operator that takes it was declared with.
+	PostToken cooked;
+	cooked.reset(PostTokenKind::Literal);
+	std::vector<TypeId> wanted;
+	bool cooked_known = true;
+	switch (token.ud_kind)
+	{
+	case UserDefinedLiteralKind::String:
+		// 2.14.8p5: `operator "" X(const charT *, std::size_t)`, handed the
+		// characters and how many of them there are.
+		cooked.reset(PostTokenKind::LiteralArray);
+		cooked.type = token.type;
+		cooked.element_count = token.element_count;
+		cooked.data = token.data;
+		wanted.push_back(types_.pointer_to(
+			types_.qualified(types_.fundamental(token.type), kCvConst)));
+		wanted.push_back(types_.fundamental(FT_UNSIGNED_LONG_INT));
+		break;
+
+	case UserDefinedLiteralKind::Character:
+		// 2.14.8p6: `operator "" X(charT)`, for the character type 2.14.3 gave
+		// the literal.
+		cooked.type = token.type;
+		cooked.data = token.data;
+		wanted.push_back(types_.fundamental(token.type));
+		break;
+
+	case UserDefinedLiteralKind::Integer:
+	case UserDefinedLiteralKind::Floating:
+	default:
+	{
+		// 2.14.8p3: the value, as `unsigned long long` for an integer literal
+		// and `long double` for a floating one.  A literal whose value no such
+		// type holds leaves only the raw form.
+		const bool integral = token.ud_kind == UserDefinedLiteralKind::Integer;
+		PostToken scanned;
+		scan_pp_number(prefix, scanned);
+		cooked_known = scanned.kind == PostTokenKind::Literal &&
+			fundamental_type_is_integral(scanned.type) == integral;
+		if (integral)
+		{
+			cooked.set_integer_value(FT_UNSIGNED_LONG_LONG_INT,
+			                         cooked_known ? scanned.integer_value() : 0);
+			wanted.push_back(types_.fundamental(FT_UNSIGNED_LONG_LONG_INT));
+		}
+		else
+		{
+			cooked.type = FT_LONG_DOUBLE;
+			cooked.data = cooked_known
+				? scanned.data
+				: std::string(fundamental_type_size(FT_LONG_DOUBLE), 0);
+			wanted.push_back(types_.fundamental(FT_LONG_DOUBLE));
+		}
+		break;
+	}
+	}
+
+	SemaEntity* chosen = cooked_known ? literal_operator(found, wanted) : nullptr;
+	bool raw = false;
+	if (chosen == nullptr && (token.ud_kind == UserDefinedLiteralKind::Integer ||
+	                          token.ud_kind == UserDefinedLiteralKind::Floating))
+	{
+		// 2.14.8p3: the set declares no cooked operator for the value, so the
+		// raw one takes the digits the program wrote as a narrow string.
+		std::vector<TypeId> digits;
+		digits.push_back(types_.pointer_to(
+			types_.qualified(types_.fundamental(FT_CHAR), kCvConst)));
+		chosen = literal_operator(found, digits);
+		raw = chosen != nullptr;
+	}
+	if (chosen == nullptr)
+	{
+		throw std::runtime_error("no literal operator takes the value of a "
+		                         "user-defined literal");
+	}
+
+	DumpNode& line = model_.open_node(parent, std::string());
+	DumpNode& named = model_.open_node(line, std::string());
+	std::vector<Value> arguments;
+	if (raw)
+	{
+		PostToken digits;
+		digits.reset(PostTokenKind::LiteralArray);
+		digits.type = FT_CHAR;
+		digits.element_count = prefix.size() + 1;
+		digits.data = prefix;
+		digits.data.push_back('\0');
+		arguments.push_back(literal_value(digits, "\"" + prefix + "\"", line));
+	}
+	else
+	{
+		arguments.push_back(literal_value(cooked, prefix, line));
+		if (token.ud_kind == UserDefinedLiteralKind::String)
+		{
+			// 2.14.8p5: the length is the elements of the array less the
+			// terminating null character.  It is a number the translation
+			// computed rather than one the program wrote, so it is spelled as
+			// the constant 2.14.2 gives that number and reaches the parameter
+			// through the conversion any argument would take.
+			PostToken length;
+			length.reset(PostTokenKind::Literal);
+			length.set_integer_value(
+				FT_INT, static_cast<unsigned long long>(token.element_count - 1));
+			arguments.push_back(
+				literal_value(length, decimal(token.element_count - 1), line));
+		}
+	}
+	SemaEntity& run = declared_member(*chosen);
+	Value callee;
+	callee.node = &named;
+	name_function(callee, run, "callee");
+	return finish_call(line, run.type, arguments, &run, ctx);
 }
 
 SemaAnalyzer::Value SemaAnalyzer::sizeof_expression(const AstNode& node,

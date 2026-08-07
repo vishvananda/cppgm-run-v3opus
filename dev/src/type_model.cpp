@@ -496,6 +496,29 @@ bool TypeTable::is_arithmetic(TypeId type) const
 			FundamentalTypeClass::NonArithmetic;
 }
 
+bool TypeTable::is_scalar(TypeId type) const
+{
+	// A cv-qualifier is a fact beside the kind rather than a node around it, so
+	// this reads through one without removing it.
+	switch (kind(type))
+	{
+	case TypeKind::Pointer:
+	case TypeKind::MemberPointer:
+	case TypeKind::Enum:
+		return true;
+
+	case TypeKind::Fundamental:
+		// 3.9p9: `void` is an incomplete type and holds no value, which leaves
+		// `std::nullptr_t` the one non-arithmetic fundamental type that is a
+		// scalar.
+		return fundamental_type(type) != FT_VOID;
+
+	default:
+		break;
+	}
+	return false;
+}
+
 bool TypeTable::is_integral(TypeId type) const
 {
 	return kind(type) == TypeKind::Enum ||

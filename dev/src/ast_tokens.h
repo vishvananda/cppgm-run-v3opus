@@ -38,6 +38,37 @@ struct AstToken
 	std::uint32_t spelling;
 };
 
+// 16.6: the alignment `#pragma pack` leaves a class subobject, at each position
+// of a token stream.
+//
+// The directive is a phase 4 fact and 9.2p13's layout is a phase 7 question, so
+// what carries it between them is the one thing both name: a position in the
+// stream.  Only the positions the value changes at are stored, so a unit that
+// writes no such pragma stores nothing and one that writes n stores n, and the
+// value in force anywhere is one binary search.
+class PackTable
+{
+public:
+	bool empty() const { return regions_.empty(); }
+
+	// Records that the alignment becomes `alignment` at `begin`.  Positions
+	// arrive in stream order.
+	void add(std::size_t begin, unsigned long long alignment);
+
+	// The alignment in force at `index`, or zero where no directive asked for
+	// one.
+	unsigned long long at(std::size_t index) const;
+
+private:
+	struct Region
+	{
+		std::size_t begin;
+		unsigned long long alignment;
+	};
+
+	std::vector<Region> regions_;
+};
+
 // The terminals of one translation unit, with the spellings the dump needs.
 //
 // PA10 spells a name back out in several places - a template-id, a qualified
@@ -73,6 +104,9 @@ public:
 	// resolve, so `TC1 < TC2 < 1 >>` comes back as `TC1<TC2<1>>`.
 	std::string flatten(std::size_t begin, std::size_t end) const;
 
+	// 16.6: what `#pragma pack` asked for, by position in this stream.
+	const PackTable& packs() const { return packs_; }
+
 	// The characters of a narrow string literal, as phase 7 decoded them.
 	// False for every other token.  One rule - the language a
 	// linkage-specification names - wants a literal's value rather than its
@@ -84,6 +118,7 @@ private:
 	void append(unsigned type, const std::string& text);
 
 	std::vector<AstToken> tokens_;
+	PackTable packs_;
 	std::vector<std::string> pool_;
 	std::unordered_map<std::string, std::uint32_t> interned_;
 	// By token index, for the string literals only: most tokens have no value

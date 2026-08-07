@@ -1,0 +1,61 @@
+global @__strlit__1 [binding=internal] = {
+  i8 97
+  i8 98
+  i8 32
+  i8 99
+  i8 100
+  i8 0
+}
+
+function @operator___len(%text : ptr, %size : i64) -> i32 [binding=strong, object=_Zli4_lenPKcm] {
+  slot $text : ptr
+  slot $size : i64
+  slot $cond__1 : i32
+
+  block ^entry:
+    store ptr %text, $text
+    store i64 %size, $size
+    %t1 = load ptr $text
+    %t2 = index i8 [projection=array_element] %t1, 2
+    %t3 = load i8 %t2
+    %t4 = convert sext i32 i8 %t3
+    %t5 = cmp eq i32 %t4, 32
+    branch %t5, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    %t6 = load i64 $size
+    %t7 = convert trunc i32 i64 %t6
+    store i32 %t7, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    %t8 = unary neg i32 1
+    store i32 %t8, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t9 = load i32 $cond__1
+    return i32 %t9
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $cond__1 : i32
+
+  block ^entry:
+    %t1 = addr @__strlit__1
+    %t2 = convert sext i64 i32 5
+    %t3 = call i32 @operator___len(%t1, %t2)
+    %t4 = cmp eq i32 %t3, 5
+    branch %t4, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t5 = load i32 $cond__1
+    return i32 %t5
+}

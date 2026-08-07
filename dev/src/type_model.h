@@ -178,6 +178,10 @@ public:
 	// An enumeration counts, because 3.9.1p7 makes its values integral.
 	bool is_integral(TypeId type) const;
 	bool is_floating(TypeId type) const;
+	// 3.9p10: an arithmetic type, an enumeration, a pointer, a pointer to
+	// member or `std::nullptr_t`, each possibly cv-qualified - the types an
+	// object of which holds one value rather than subobjects.
+	bool is_scalar(TypeId type) const;
 	// 3.9.2: a pointer to an object type rather than to a function.
 	bool is_object_pointer(TypeId type) const;
 	// 4.12: whether a prvalue of `type` converts to bool, which every condition

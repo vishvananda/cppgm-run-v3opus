@@ -62,6 +62,16 @@ unsigned long long round_up(unsigned long long value, unsigned long long unit)
 	return remainder == 0 ? value : value + (unit - remainder);
 }
 
+// 16.6 and the course ABI: the alignment a subobject is allocated at once
+// `#pragma pack` has capped it.  A cap of zero is no cap, and one wider than
+// the subobject's own alignment asks for nothing, because the directive only
+// ever weakens what 3.11 gives a type.
+unsigned long long packed_align(unsigned long long natural,
+                                unsigned long long packed)
+{
+	return packed != 0 && packed < natural ? packed : natural;
+}
+
 }
 
 // What a class is, what its objects hold, and when their lifetimes end.
@@ -225,11 +235,13 @@ void SemaAnalyzer::bit_field_declaration(const AstNode& node,
 // width zero allocates nothing: it ends the open unit, which is what 9.6p2's
 // separator is for.
 void SemaAnalyzer::lay_out_bit_field(SemaEntity& member,
-                                     unsigned long long& at, BitUnit& unit)
+                                     unsigned long long& at, BitUnit& unit,
+                                     unsigned long long packed)
 {
 	const TypeId bare = types_.strip_cv(member.type);
 	const unsigned long long size = types_.object_size(bare);
-	const unsigned long long boundary = types_.object_align(bare);
+	const unsigned long long boundary = packed_align(types_.object_align(bare),
+	                                                 packed);
 	if (member.bit_width == 0)
 	{
 		unit.open = false;
@@ -299,8 +311,12 @@ bool SemaAnalyzer::declares_copy_constructor(const SemaEntity& entity,
 	return false;
 }
 
+// `packed` is 16.6's cap in force where the definition of the class ends, which
+// is where 9.2p2 completes it and where this settles its layout - so a
+// directive written between two of its members reaches every one of them.
 void SemaAnalyzer::lay_out_class(SemaEntity& entity, Scope& scope, bool is_union,
-                                 unsigned long long requested)
+                                 unsigned long long requested,
+                                 unsigned long long packed)
 {
 	// 9.2p13 allocates each member at the next address its alignment allows,
 	// and 9.6p2 gives a bit-field a share of a storage unit instead.  The walk
@@ -322,7 +338,7 @@ void SemaAnalyzer::lay_out_class(SemaEntity& entity, Scope& scope, bool is_union
 		// derived object does, and the members are laid out after it.  A base
 		// that holds nothing is given no storage of its own, so the derived
 		// class starts its members where the base did.
-		align = types_.object_align(entity.base->type);
+		align = packed_align(types_.object_align(entity.base->type), packed);
 		if (!types_.is_trivially_copied(types_.strip_cv(entity.base->type)))
 		{
 			trivially_copied = false;
@@ -343,9 +359,11 @@ void SemaAnalyzer::lay_out_class(SemaEntity& entity, Scope& scope, bool is_union
 		const unsigned long long member_size = types_.object_size(member.type);
 		// 7.6.2p1 and 7.6.2p5: an alignment-specifier on the member asks for an
 		// alignment at least as strict as its type's own, and the member is
-		// allocated at the next address that one allows.
+		// allocated at the next address that one allows.  16.6's cap is what
+		// the type's own alignment comes to here, so an alignment-specifier
+		// still only ever raises it.
 		const unsigned long long declared_align =
-			types_.object_align(member.type);
+			packed_align(types_.object_align(member.type), packed);
 		if (member.requested_align != 0 && member.requested_align < declared_align)
 		{
 			throw std::runtime_error("a member asks for an alignment weaker "
@@ -375,7 +393,7 @@ void SemaAnalyzer::lay_out_class(SemaEntity& entity, Scope& scope, bool is_union
 		}
 		if (member.bit_field)
 		{
-			lay_out_bit_field(member, size, unit);
+			lay_out_bit_field(member, size, unit, packed);
 			continue;
 		}
 		// 9.2p13: the members are allocated in declaration order, each at the
