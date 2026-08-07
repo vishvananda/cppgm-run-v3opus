@@ -6,6 +6,19 @@
 
 struct SemaEntity;
 
+// 12.6p1, 8.5.1p7 and 12.4p8: how many elements of an array of class type are
+// still described one element at a time.  Every element of such an array is
+// created and destroyed by the same one call, and 15.2p2 asks about each of
+// them separately - so writing them out is n nodes and n(n+1)/2 instructions
+// for a count the source wrote as one number.  Past this the elements stop
+// being a description of the array and the bound starts being one: the
+// analysis leaves 8.5.1p7's tail as one action, and the lowering writes both
+// 12.6p1's construction and 12.4p8's destruction as one loop over an index the
+// function holds.  It is one number because the analysis, the lowering and the
+// counting of a destructor's suffix all have to agree about which form the
+// array was written in.
+const unsigned long long kArrayLoopLimit = 16;
+
 // 3.10: what an expression denotes.
 enum class ValueCategory
 {
@@ -129,6 +142,7 @@ struct SemaFact
 		, reverse_elements(false)
 		, elided_prvalue(false)
 		, base_subobject(false)
+		, elements(0)
 		, value(0)
 	{}
 
@@ -183,6 +197,13 @@ struct SemaFact
 	// destructor one entry point for a complete object and one for a base
 	// subobject, and this is what says which of them this call is of.
 	bool base_subobject;
+	// 8.5.1p7: how many consecutive elements of the array it stands in this
+	// `constructor-action` builds.  An element a clause reached is one object
+	// and this is zero; the elements no clause reached are all value-
+	// initialized by the same call, so past `kArrayLoopLimit` of them they are
+	// one action and this says how many - which is what keeps a bound the
+	// source wrote as a number from being described one element at a time.
+	unsigned long long elements;
 	unsigned long long value;
 	// The spelling this node carries that no other fact holds: the tokens a
 	// floating literal was written from, whose value is a value of the

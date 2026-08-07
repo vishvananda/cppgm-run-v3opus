@@ -111,6 +111,21 @@ void LowirFunctionLowering::add_initialization(const Operand& storage,
 			at.elements.push_back(LowObject::ElementStep(array, index));
 			if (node.children[index]->fact.kind == FactKind::ConstructorAction)
 			{
+				const unsigned long long run =
+					node.children[index]->fact.elements;
+				if (run > 1)
+				{
+					// 8.5.1p7: the elements from here to the end of the array
+					// are all built by that same one call, which is the loop
+					// the call is and not one call per element.
+					construct_element_run(*node.children[index],
+					                      object_address(at), run,
+					                      types.object_size(
+						                      types.strip_cv(types.target(array))),
+					                      types.strip_cv(types.target(array)),
+					                      UnwindMark());
+					break;
+				}
 				// 12.6p1: the element is one object of its class, built by the
 				// constructor 8.5 chose for it before the program runs.
 				constructor_call(object_address(at), *node.children[index]);
@@ -263,6 +278,17 @@ void LowirFunctionLowering::array_lifecycle(const DumpNode& node,
 	}
 	const DumpNode& named =
 		construct ? *node.children[0]->children[1] : *node.children[0];
+	// 12.6p1 gives every element the same construction, so past the count a
+	// reader wants to see written out the elements stop being a description of
+	// the array and the bound starts being one.  A construction the source
+	// wrote arguments for is not that same one call - the arguments are read
+	// where they stand - so it stays written out.
+	if (total > kArrayLoopLimit && !dimensions.empty() &&
+	    (!construct || node.children[0]->children.size() <= 2))
+	{
+		array_lifecycle_loop(node, construct, named, total, element);
+		return;
+	}
 	for (unsigned long long step = 0; step < total; ++step)
 	{
 		const unsigned long long index =
@@ -285,6 +311,297 @@ void LowirFunctionLowering::array_lifecycle(const DumpNode& node,
 	}
 }
 
+// The address of one element counted from a value rather than from a number:
+// the array's own address moved by the bytes the elements before it occupy.
+// An element of class type has no register width, so LowIR indexes it by those
+// bytes, which is the one step every element of the loop is.
+Operand LowirFunctionLowering::element_at_value(const Operand& base,
+                                                const Operand& index,
+                                                unsigned long long stride)
+{
+	Operand offset = index;
+	if (stride != 1)
+	{
+		Instruction scale;
+		scale.kind = Instruction::IK_BINARY;
+		scale.op = "mul";
+		scale.type.text = "i64";
+		scale.first = index;
+		scale.second = named_operand(Operand::OP_INTEGER, decimal(stride));
+		offset = emit(scale);
+	}
+	Instruction move;
+	move.kind = Instruction::IK_INDEX;
+	move.type.text = "i8";
+	move.first = base;
+	move.second = offset;
+	return emit(move);
+}
+
+// 12.4p1: what ends the lifetime of a subobject the constructor `entity`
+// builds, which is the destructor of the class that declares it.  A class that
+// ends a lifetime with nothing has none for a handler to call.
+const SemaEntity* LowirFunctionLowering::subobject_destructor(
+	const SemaEntity& constructor) const
+{
+	const Scope* const owner = constructor.region;
+	const SemaEntity* const declared = owner == nullptr ? nullptr : owner->owner;
+	const SemaEntity* const destructor =
+		declared == nullptr ? nullptr : declared->destructor;
+	return destructor == nullptr || destructor->trivial ? nullptr : destructor;
+}
+
+// 12.6p1 and 12.4p8 written as the loop the order is, for an array whose bound
+// the source wrote as one number.  The array is named once, as the pointer to
+// its first element 4.2 makes it, and every element is that pointer moved by
+// the bytes before it - so the output holds one call and not the bound's worth
+// of them.
+//
+// 15.2p2 is what the index is for beyond counting: an exception out of the
+// element being built leaves the ones before it standing, and how many those
+// are is a value only the loop knows.  So the handler reads the index back and
+// destroys that many, which is the same loop run backwards.
+void LowirFunctionLowering::array_lifecycle_loop(const DumpNode& node,
+                                                 bool construct,
+                                                 const DumpNode& named,
+                                                 unsigned long long total,
+                                                 TypeId element)
+{
+	TypeTable& types = unit_.types();
+	const TypeId counter = types.fundamental(FT_LONG_INT);
+	const unsigned long long stride = types.object_size(types.strip_cv(element));
+	if (!construct)
+	{
+		const SemaEntity& destructor = *node.fact.entity;
+		const LowValue object = expression(named, true);
+		// The loop counts bytes from the front of the array, so the address of
+		// the array is already the cursor and 4.2's decay to a pointer to the
+		// first element would name the same byte a second time.
+		destroy_array_loop(address_of(object),
+		                   named_operand(Operand::OP_INTEGER, decimal(total)),
+		                   stride, destructor, node.fact.base_subobject, false,
+		                   nullptr);
+		return;
+	}
+	// 15.2p2: the whole array is one step of the object being built, so the
+	// place it begins is marked once and the instructions that named it are
+	// what a later step's handler writes again.
+	mark_unwind_step();
+	const UnwindMark mark = unwind_mark_;
+	unwind_mark_ = UnwindMark();
+	const LowValue object = expression(named, true);
+	construct_element_run(node, object.operand, total, stride, element, mark);
+}
+
+// 12.6p1 and 8.5.1p7: `count` consecutive elements of an array standing at
+// `base`, each built by the one call `action` names.  What makes them a loop
+// rather than a list is that the call is the same one for every element - so
+// the index the loop carries is the only thing that differs between them, and
+// it is what 15.2p2's handler reads to learn how many were built.
+void LowirFunctionLowering::construct_element_run(const DumpNode& action,
+                                                  const Operand& base,
+                                                  unsigned long long count,
+                                                  unsigned long long stride,
+                                                  TypeId element,
+                                                  const UnwindMark& mark)
+{
+	TypeTable& types = unit_.types();
+	const TypeId counter = types.fundamental(FT_LONG_INT);
+	const DumpNode& call = *action.children[0];
+	const SemaEntity& constructor = *call.children[0]->fact.entity;
+	std::vector<Instruction> naming;
+	if (mark.active && mark.block == current_)
+	{
+		const std::vector<Instruction>& written =
+			out_.blocks[current_].instructions;
+		naming.assign(written.begin() + static_cast<std::ptrdiff_t>(mark.at),
+		              written.end());
+	}
+	const SemaEntity* const destructor = subobject_destructor(constructor);
+	// A handler is needed where an exception out of one element would leave
+	// something standing: the elements before it, or a subobject an earlier
+	// step built.
+	const bool guarded =
+		mark.active && (destructor != nullptr || !unwind_live_.empty());
+	const std::string cond = reserve_block("array_ctor_cond");
+	const std::string body = reserve_block("array_ctor_body");
+	const std::string end = reserve_block("array_ctor_end");
+	const std::string cleanup =
+		guarded ? reserve_block("array_ctor_cleanup") : std::string();
+	const std::string past =
+		guarded ? reserve_block("array_ctor_cont") : std::string();
+	const std::string index =
+		add_generated_slot("array_ctor_index", unit_.low_type(counter));
+	const Operand cursor = named_operand(Operand::OP_SLOT, index);
+	store(named_operand(Operand::OP_INTEGER, "0"), cursor, counter);
+	jump(cond);
+	open_block(cond);
+	const Operand at = load(cursor, counter);
+	Instruction test;
+	test.kind = Instruction::IK_CMP;
+	test.op = "ult";
+	test.type = unit_.low_type(counter);
+	test.first = at;
+	test.second = named_operand(Operand::OP_INTEGER, decimal(count));
+	branch(emit(test), body, end);
+	open_block(body);
+	const Operand address = element_at_value(base, at, stride);
+	if (action.fact.zero_initialized)
+	{
+		// 8.5p7: the element's storage is zero before the constructor the
+		// standard gave its class runs, which is one element's worth of bytes
+		// and not the array's.
+		zero_object(address, element);
+	}
+	unit_.declare_entity(constructor);
+	if (guarded)
+	{
+		emit_handler(false, cleanup);
+	}
+	Instruction out;
+	out.kind = Instruction::IK_CALL;
+	out.type = unit_.low_type(types.target(constructor.type));
+	out.first = named_operand(
+		Operand::OP_GLOBAL,
+		unit_.function_symbol(constructor, action.fact.base_subobject));
+	out.args.push_back(address);
+	emit_void(out);
+	if (guarded)
+	{
+		emit_handler_end();
+	}
+	Instruction next;
+	next.kind = Instruction::IK_BINARY;
+	next.op = "add";
+	next.type = unit_.low_type(counter);
+	next.first = at;
+	next.second = named_operand(Operand::OP_INTEGER, "1");
+	store(emit(next), cursor, counter);
+	jump(cond);
+	open_block(end);
+	if (guarded)
+	{
+		jump(past);
+		open_block(cleanup);
+		// This handler stands in the loop the block before it opened, so what
+		// named the array reaches it: unlike a handler another step wrote, it
+		// is entered only from the one block that block dominates.  What it
+		// does not know without asking is how many elements were built, which
+		// is the loop's own index.
+		const Operand built = load(cursor, counter);
+		if (destructor != nullptr)
+		{
+			destroy_array_loop(base, built, stride, *destructor, false, false,
+			                   nullptr);
+		}
+		for (std::size_t live = unwind_live_.size(); live-- > 0;)
+		{
+			// 12.6.2p10: the subobjects built before this array are destroyed
+			// after it and in the reverse of the order they were built in.
+			replay_unwind(unwind_live_[live]);
+		}
+		emit_resume();
+		// The handler this array wrote is its own, so the next step cannot name
+		// it however many subobjects are live when it is reached.
+		unwind_dispatch_.clear();
+		open_block(past);
+	}
+	if (mark.active)
+	{
+		push_unwind(constructor, naming, base, count, stride);
+	}
+}
+
+// 12.4p8 over `count` elements of the array at `base`, in the reverse of the
+// order they were created in.  The index is an object of the function because
+// the count is a value: 15.2p2 asks for the elements an exception left
+// standing, and only the construction's own index says how many those are.
+//
+// `guarded` says this loop stands in 12.4p8's suffix, where a destruction that
+// throws leaves the elements behind it still standing - which is the same loop
+// again, run from the index this one had reached, and then `after` where the
+// suffix has steps behind this one and 15.1p2's resume where it has none.
+void LowirFunctionLowering::destroy_array_loop(const Operand& base,
+                                               const Operand& count,
+                                               unsigned long long stride,
+                                               const SemaEntity& destructor,
+                                               bool base_subobject, bool guarded,
+                                               const std::string* after)
+{
+	TypeTable& types = unit_.types();
+	const TypeId counter = types.fundamental(FT_LONG_INT);
+	const std::string cond = reserve_block("array_dtor_cond");
+	const std::string body = reserve_block("array_dtor_body");
+	const std::string end = reserve_block("array_dtor_end");
+	const std::string cleanup =
+		guarded ? reserve_block("array_dtor_cleanup") : std::string();
+	const std::string past =
+		guarded ? reserve_block("array_dtor_cont") : std::string();
+	const std::string index =
+		add_generated_slot("array_dtor_index", unit_.low_type(counter));
+	const Operand cursor = named_operand(Operand::OP_SLOT, index);
+	unit_.declare_call_target(destructor, base_subobject);
+	store(count, cursor, counter);
+	jump(cond);
+	open_block(cond);
+	const Operand at = load(cursor, counter);
+	Instruction test;
+	test.kind = Instruction::IK_CMP;
+	test.op = "ne";
+	test.type = unit_.low_type(counter);
+	test.first = at;
+	test.second = named_operand(Operand::OP_INTEGER, "0");
+	branch(emit(test), body, end);
+	open_block(body);
+	Instruction back;
+	back.kind = Instruction::IK_BINARY;
+	back.op = "sub";
+	back.type = unit_.low_type(counter);
+	back.first = at;
+	back.second = named_operand(Operand::OP_INTEGER, "1");
+	const Operand previous = emit(back);
+	store(previous, cursor, counter);
+	const Operand address = element_at_value(base, previous, stride);
+	if (guarded)
+	{
+		// 12.4p8: this destruction may itself throw, and what stands behind it
+		// is the elements below it and the rest of the suffix.
+		emit_handler(true, cleanup);
+	}
+	Instruction out;
+	out.kind = Instruction::IK_CALL;
+	out.type.text = "void";
+	out.first = named_operand(Operand::OP_GLOBAL,
+	                          unit_.function_symbol(destructor, base_subobject));
+	out.args.push_back(address);
+	emit_void(out);
+	if (guarded)
+	{
+		emit_handler_end();
+	}
+	jump(cond);
+	open_block(end);
+	if (!guarded)
+	{
+		return;
+	}
+	jump(past);
+	open_block(cleanup);
+	// The index was written back before the call, so what it holds is how many
+	// elements stand below the one that threw - which is the same loop again.
+	destroy_array_loop(base, load(cursor, counter), stride, destructor,
+	                   base_subobject, false, nullptr);
+	if (after != nullptr)
+	{
+		jump(*after);
+	}
+	else
+	{
+		emit_resume();
+	}
+	open_block(past);
+}
+
 // 12.4p8: how many ends of a lifetime one action is - one per element for an
 // array, and one otherwise.  15.2p2 asks about each of them separately, so the
 // count is what the destructions after a destructor's body are counted in.
@@ -305,13 +622,36 @@ unsigned long long LowirFunctionLowering::destruction_steps(const DumpNode& node
 // object's class on the object - or on the element at `index` of the array the
 // action names, which is where the array is plus the elements before it.
 void LowirFunctionLowering::destruction_step(const DumpNode& node, bool element,
-                                             unsigned long long index)
+                                             unsigned long long index,
+                                             unsigned long long count,
+                                             const std::string* cleanup,
+                                             bool suffix)
 {
 	TypeTable& types = unit_.types();
 	const SemaEntity& destructor = *node.fact.entity;
 	if (destructor.trivial)
 	{
 		return;
+	}
+	if (count != 0)
+	{
+		// 12.4p8: the whole array is this one step, ended by the loop 12.6p1's
+		// order run backwards rather than by the elements written out.
+		const LowValue whole = expression(*node.children[0], true);
+		const Operand base = address_of(whole);
+		std::vector<TypeId> dimensions;
+		std::vector<unsigned long long> bounds;
+		array_dimensions(node.fact.type, dimensions, bounds);
+		const TypeId held = types.strip_cv(types.target(dimensions.back()));
+		destroy_array_loop(base,
+		                   named_operand(Operand::OP_INTEGER, decimal(count)),
+		                   types.object_size(held), destructor,
+		                   node.fact.base_subobject, suffix, cleanup);
+		return;
+	}
+	if (cleanup != nullptr)
+	{
+		emit_handler(true, *cleanup);
 	}
 	const LowValue object = expression(*node.children[0], true);
 	Operand at = address_of(object);
@@ -331,6 +671,10 @@ void LowirFunctionLowering::destruction_step(const DumpNode& node, bool element,
 		unit_.function_symbol(destructor, node.fact.base_subobject));
 	out.args.push_back(at);
 	emit_void(out);
+	if (cleanup != nullptr)
+	{
+		emit_handler_end();
+	}
 }
 
 // 12.1p5 and 8.5p6: constructing the object at `address`, which is one call of
@@ -548,6 +892,17 @@ void LowirFunctionLowering::replay_unwind(const LowUnwind& live)
 			at.text = found->second;
 		}
 	}
+	if (live.elements != 0)
+	{
+		// 12.6p1: the subobject is an array written as a loop, so what an
+		// exception owes it is that loop run backwards over every element of
+		// it.  `at` is already the pointer to the first element, because that
+		// is what the step it replays produced.
+		destroy_array_loop(
+			at, named_operand(Operand::OP_INTEGER, decimal(live.elements)),
+			live.stride, *live.destructor, live.base_subobject, false, nullptr);
+		return;
+	}
 	// The name is asked for here rather than where the subobject joined the
 	// list, because a step whose subobject no later step leaves standing writes
 	// no handler at all - and a declaration nothing calls is not one this unit
@@ -569,18 +924,19 @@ void LowirFunctionLowering::replay_unwind(const LowUnwind& live)
 // nothing to destroy, so it joins nothing.
 void LowirFunctionLowering::push_unwind(const SemaEntity& constructor,
                                         const std::vector<Instruction>& address,
-                                        const Operand& at)
+                                        const Operand& at,
+                                        unsigned long long elements,
+                                        unsigned long long stride)
 {
-	const Scope* const owner = constructor.region;
-	const SemaEntity* const declared = owner == nullptr ? nullptr : owner->owner;
-	const SemaEntity* const destructor =
-		declared == nullptr ? nullptr : declared->destructor;
-	if (destructor == nullptr || destructor->trivial)
+	const SemaEntity* const destructor = subobject_destructor(constructor);
+	if (destructor == nullptr)
 	{
 		return;
 	}
 	LowUnwind live;
 	live.destructor = destructor;
+	live.elements = elements;
+	live.stride = stride;
 	// 12.4 and the ABI: the references name the complete-object entry here even
 	// where the subobject is a base class subobject, which 12.4p8's suffix does
 	// not.  This milestone has no virtual base, so the two entries destroy the
@@ -646,21 +1002,22 @@ void LowirFunctionLowering::destructor_epilogue()
 		const LowDestruction& step = epilogue_[index];
 		if (index + 1 == total)
 		{
-			// Nothing stands behind the last one, so an exception out of it has
-			// nothing left to destroy.
-			destruction_step(*step.action, step.element, step.index);
+			// Nothing stands behind the last one but its own elements, which
+			// an array written as a loop still owes.
+			destruction_step(*step.action, step.element, step.index, step.count,
+			                 nullptr, true);
 			break;
 		}
-		emit_handler(true, cleanups[index]);
-		destruction_step(*step.action, step.element, step.index);
-		emit_handler_end();
+		destruction_step(*step.action, step.element, step.index, step.count,
+		                 &cleanups[index], true);
 		jump(nexts[index]);
 		open_block(cleanups[index]);
 		if (chained)
 		{
 			destruction_step(*epilogue_[index + 1].action,
 			                 epilogue_[index + 1].element,
-			                 epilogue_[index + 1].index);
+			                 epilogue_[index + 1].index,
+			                 epilogue_[index + 1].count);
 			if (index + 2 < total)
 			{
 				jump(cleanups[index + 1]);
@@ -673,7 +1030,7 @@ void LowirFunctionLowering::destructor_epilogue()
 			for (std::size_t at = index + 1; at < total; ++at)
 			{
 				destruction_step(*epilogue_[at].action, epilogue_[at].element,
-				                 epilogue_[at].index);
+				                 epilogue_[at].index, epilogue_[at].count);
 			}
 		}
 		emit_handler_end();
@@ -1525,7 +1882,16 @@ void LowirFunctionLowering::initialize_array(const LowObject& object,
 	// elements; past that, and for an element no single store can hold, the
 	// span is what the initialization is, and `zeroinit` is how LowIR spells
 	// one.
-	const unsigned long long left = (bound - node.children.size()) * stride;
+	// 8.5.1p7: the elements no clause reached may be one action rather than one
+	// each, so how many elements the children account for is not how many
+	// children there are.
+	unsigned long long covered = 0;
+	for (std::size_t at = 0; at < node.children.size(); ++at)
+	{
+		const unsigned long long run = node.children[at]->fact.elements;
+		covered += run == 0 ? 1 : run;
+	}
+	const unsigned long long left = (bound - covered) * stride;
 	const bool spelled_elementwise =
 		unit_.low_type(element).text.compare(0, 4, "obj<") != 0 &&
 		left <= kZeroSpanLimit;
@@ -1558,6 +1924,22 @@ void LowirFunctionLowering::initialize_array(const LowObject& object,
 		{
 			if (node.children[index]->fact.kind == FactKind::ConstructorAction)
 			{
+				const unsigned long long run =
+					node.children[index]->fact.elements;
+				if (run > 1)
+				{
+					// 8.5.1p7: every element from here to the end of the array
+					// is value-initialized by that same one call, so what is
+					// written is the loop the call is - which is where the step
+					// this mark opened begins, and the elements stand inside it.
+					const UnwindMark mark = unwind_mark_;
+					unwind_mark_ = UnwindMark();
+					const Operand base =
+						subobject ? object_address(reached) : at;
+					construct_element_run(*node.children[index], base, run,
+					                      stride, types.strip_cv(element), mark);
+					break;
+				}
 				// 12.6p1: the element is one object of its class, built where
 				// it stands by the constructor 8.5 chose for it.
 				constructor_call(subobject ? object_address(reached) : at,

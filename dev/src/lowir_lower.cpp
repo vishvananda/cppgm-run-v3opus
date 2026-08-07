@@ -1429,8 +1429,33 @@ bool LowirUnitLowering::global_array_initializer(
 	}
 	const bool addressed = types_.kind(types_.strip_cv(element)) == TypeKind::Pointer;
 	const bool aggregate = types_.kind(types_.strip_cv(element)) == TypeKind::Array;
+	// 8.5.1p7: the elements no clause reached may be one action rather than one
+	// each, so how many elements the children account for is not how many
+	// children there are.
+	unsigned long long covered = 0;
 	for (std::size_t index = 0; index < clauses; ++index)
 	{
+		const unsigned long long run = node->children[index]->fact.elements;
+		if (run > 1)
+		{
+			// 3.6.2p2: every element of the run holds what that one constructor
+			// leaves, and where that is the zero the image already holds the
+			// whole run is one item.  Anything else would be one item per
+			// element, which is the count the source wrote as a number, so the
+			// array is given what it holds before the program runs instead.
+			const unsigned long long base = covered * stride;
+			unsigned long long at = base;
+			const std::size_t before = global.data_items.size();
+			if (!global_constructed(global, *node->children[index], base, at) ||
+			    global.data_items.size() != before || at != base)
+			{
+				return false;
+			}
+			add_zero_item(global, run * stride);
+			covered += run;
+			continue;
+		}
+		covered += 1;
 		if (aggregate)
 		{
 			// 8.5.1p3: an element that is itself an aggregate holds what its own
@@ -1507,7 +1532,7 @@ bool LowirUnitLowering::global_array_initializer(
 	}
 	// 8.5.1p7: the elements no clause reached are value-initialized, which for
 	// every type this milestone lays out is the zero of them.
-	add_zero_item(global, (bound - clauses) * stride);
+	add_zero_item(global, (bound - covered) * stride);
 	return true;
 }
 

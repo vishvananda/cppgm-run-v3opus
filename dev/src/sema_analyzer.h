@@ -635,9 +635,11 @@ private:
 	// is one object built where it stands, so what the node carries is the
 	// `constructor-action` a declaration of the same object would carry - or,
 	// where 12.8p31 elides it, the value it holds a copy of.
+	// `elements` past zero makes the one action that many consecutive elements
+	// of the array it stands in, which 8.5.1p7's tail is.
 	void construct_subobject(TypeId type, const AstNode* written,
 	                         const Context& ctx, DumpNode& node,
-	                         bool value_init);
+	                         bool value_init, unsigned long long elements = 0);
 	// 12.8p31 and 5.2.3p3: the braced-init-list of an initializer written
 	// `T{...}` for an object that is itself of `T`.  The prvalue and the object
 	// it initializes are one, so what initializes the object is that list - and

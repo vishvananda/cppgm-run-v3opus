@@ -13,6 +13,7 @@ struct DumpNode;
 struct SemaEntity;
 class LowirFunctionLowering;
 
+
 // The PA15 source-to-LowIR lowering.
 //
 // The input is the resolved procedural tree the PA12 analysis leaves behind:
@@ -677,6 +678,33 @@ private:
 	// array is plus the elements before it, and that is one description however
 	// the walk reached the array.
 	void array_lifecycle(const DumpNode& node, bool construct);
+	// The same action written as the loop 12.6p1's order is, for an array with
+	// more elements than a reader wants to count.  The array is named once and
+	// the element is the index the loop carries, so what the output holds is
+	// what the source wrote rather than what the bound multiplies it by.
+	void array_lifecycle_loop(const DumpNode& node, bool construct,
+	                          const DumpNode& named, unsigned long long total,
+	                          TypeId element);
+	// 12.4p8 over the first `count` elements of the array at `base`, destroyed
+	// in the reverse of the order they were created in.  `count` is a value
+	// rather than a number, because 15.2p2 asks for the elements an exception
+	// left standing and only the loop's own index knows how many those are.
+	// `cleanup` is the handler each of those destructions stands under, which
+	// 12.4p8's suffix has and the other three callers do not.
+	void destroy_array_loop(const lowir_model::Operand& base,
+	                        const lowir_model::Operand& count,
+	                        unsigned long long stride,
+	                        const SemaEntity& destructor, bool base_subobject,
+	                        bool guarded, const std::string* after);
+	// The address of the element at `index` of the array at `base`, counted in
+	// the bytes an element occupies - which is what LowIR indexes an element
+	// with no register width by.
+	lowir_model::Operand element_at_value(const lowir_model::Operand& base,
+	                                      const lowir_model::Operand& index,
+	                                      unsigned long long stride);
+	// 12.4p1: the destructor of the class the constructor `entity` belongs to,
+	// or null where that class ends a lifetime with nothing.
+	const SemaEntity* subobject_destructor(const SemaEntity& constructor) const;
 	// 5.2.1p1: one element of the array whose address is `array`, which is the
 	// array read as a pointer to its first element and moved by whole elements.
 	lowir_model::Operand array_element(const lowir_model::Operand& array,
@@ -760,8 +788,15 @@ private:
 	// element at `index` of the array it names.  12.4p8 makes an array as many
 	// ends of a lifetime as it has elements, and 15.2p2 asks about each of them
 	// separately, so the step rather than the action is the unit.
+	// `count` past zero makes the step the whole array, destroyed by a loop.
+	// `suffix` says the step stands in 12.4p8's suffix, where a destruction
+	// that throws leaves the ones behind it standing - which is `cleanup`, or
+	// 15.1p2's resume for the last step of all.
 	void destruction_step(const DumpNode& node, bool element,
-	                      unsigned long long index);
+	                      unsigned long long index,
+	                      unsigned long long count = 0,
+	                      const std::string* cleanup = nullptr,
+	                      bool suffix = false);
 	// How many of those steps an action is: one, or one per element.
 	unsigned long long destruction_steps(const DumpNode& node);
 	// 3.8p1: the destructor actions a statement carries for the blocks control
@@ -776,9 +811,20 @@ private:
 	// per call, and it is written at every point control leaves the body.
 	struct LowDestruction
 	{
+		LowDestruction()
+			: action(nullptr)
+			, element(false)
+			, index(0)
+			, count(0)
+		{}
+
 		const DumpNode* action;
 		bool element;
 		unsigned long long index;
+		// How many elements this one entry destroys: zero for the single object
+		// or single element every other entry is, and the whole bound for an
+		// array written as the loop 12.4p8's order is.
+		unsigned long long count;
 	};
 	// The destructions after the body, with the handler each of them needs for
 	// the subobjects still standing behind it.
@@ -794,10 +840,22 @@ private:
 	// the subobject is named there the way the step that built it named it.
 	struct LowUnwind
 	{
+		LowUnwind()
+			: destructor(nullptr)
+			, base_subobject(false)
+			, elements(0)
+			, stride(0)
+		{}
+
 		const SemaEntity* destructor;
 		bool base_subobject;
 		std::vector<lowir_model::Instruction> address;
 		lowir_model::Operand at;
+		// 12.6p1: the subobject is an array written as a loop, so what the
+		// handler owes is that loop over this many elements rather than one
+		// call.  Zero everywhere else, which is the one object `at` names.
+		unsigned long long elements;
+		unsigned long long stride;
 	};
 	// Where the code that builds one subobject begins.  Whether the step needs
 	// a handler is known only once it has made its call, so the place is marked
@@ -835,6 +893,15 @@ private:
 		std::string end;
 		bool fresh;
 	};
+	// 12.6p1 and 8.5.1p7: `count` consecutive elements standing at `base`, each
+	// built by the one call `action` names, written as the loop that one call
+	// is.  `mark` is where the step that names them began, which 15.2p2's
+	// handler writes again.
+	void construct_element_run(const DumpNode& action,
+	                           const lowir_model::Operand& base,
+	                           unsigned long long count,
+	                           unsigned long long stride, TypeId element,
+	                           const UnwindMark& mark);
 	void mark_unwind_step(bool at_call = false);
 	UnwindRegion open_unwind_region(const UnwindMark& mark);
 	void close_unwind_region(const UnwindRegion& region);
@@ -845,7 +912,9 @@ private:
 	// nothing.
 	void push_unwind(const SemaEntity& constructor,
 	                 const std::vector<lowir_model::Instruction>& address,
-	                 const lowir_model::Operand& at);
+	                 const lowir_model::Operand& at,
+	                 unsigned long long elements = 0,
+	                 unsigned long long stride = 0);
 	// The handler-stack instructions those regions are written with.
 	void emit_handler(bool cleanup, const std::string& label);
 	void emit_handler_end();

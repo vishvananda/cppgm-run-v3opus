@@ -2331,12 +2331,21 @@ void SemaAnalyzer::construct_from_members(SemaEntity& constructor,
 // declaration, so the object this creates is one no name reaches.
 void SemaAnalyzer::construct_subobject(TypeId type, const AstNode* written,
                                        const Context& ctx, DumpNode& node,
-                                       bool value_init)
+                                       bool value_init,
+                                       unsigned long long elements)
 {
+	const std::size_t before = node.children.size();
 	SemaEntity& object = model_.create(SemaKind::Variable, std::string(), type);
 	object.object_member = false;
 	construct_object(object, node, written, ctx, Placement::Named, true, nullptr,
 	                 value_init);
+	if (elements > 1 && node.children.size() > before &&
+	    node.children.back()->fact.kind == FactKind::ConstructorAction)
+	{
+		// 8.5.1p7: the one action is this many elements of the array, which is
+		// the only thing that differs between them.
+		node.children.back()->fact.elements = elements;
+	}
 }
 
 // 12.1p5, 12.9p6 and 3.2p3: a constructor the standard gives a class rather

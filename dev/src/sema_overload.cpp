@@ -1261,9 +1261,20 @@ SemaAnalyzer::Value SemaAnalyzer::list_initialize(const AstNode& node,
 			// and 12.4p8 ends the lifetime of every element whether a clause
 			// reached it or not.  A class with no default constructor is what
 			// this refuses, where writing the zero would have accepted it.
-			for (unsigned long long index = node.children.size();
-			     index < types_.bound(wanted); ++index)
+			const unsigned long long bound = types_.bound(wanted);
+			for (unsigned long long index = node.children.size(); index < bound;
+			     ++index)
 			{
+				const unsigned long long rest = bound - index;
+				if (rest > kArrayLoopLimit)
+				{
+					// Every one of them is that same one call, so past the count
+					// a reader wants to see written out they are one action and
+					// the bound is what says how many - which is what the source
+					// wrote, one number.
+					construct_subobject(element, nullptr, ctx, line, true, rest);
+					break;
+				}
 				construct_subobject(element, nullptr, ctx, line, true);
 			}
 		}

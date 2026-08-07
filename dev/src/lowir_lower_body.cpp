@@ -1036,7 +1036,7 @@ void LowirFunctionLowering::run(const DumpNode& node, TypeId type)
 			// 15.2p2: the exception left the body, so every subobject is still
 			// alive and every one of them is destroyed.
 			destruction_step(*epilogue_[at].action, epilogue_[at].element,
-			                 epilogue_[at].index);
+			                 epilogue_[at].index, epilogue_[at].count);
 		}
 		emit_handler_end();
 		emit_resume();
@@ -1081,6 +1081,19 @@ std::size_t LowirFunctionLowering::collect_epilogue(const DumpNode& node)
 		const bool array = total > 1 ||
 			unit_.types().kind(unit_.types().strip_cv(action.fact.type)) ==
 				TypeKind::Array;
+		if (array && total > kArrayLoopLimit)
+		{
+			// 12.4p8: the elements of the array are one entry of the suffix and
+			// not one each, so the handlers 15.2p2 gives the suffix are counted
+			// in the subobjects the class holds rather than in a bound the
+			// source wrote as a number.
+			LowDestruction whole;
+			whole.action = &action;
+			whole.element = true;
+			whole.count = total;
+			epilogue_.push_back(whole);
+			continue;
+		}
 		for (unsigned long long step = 0; step < total; ++step)
 		{
 			LowDestruction one;

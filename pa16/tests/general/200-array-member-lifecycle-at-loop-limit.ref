@@ -1,0 +1,2049 @@
+global @sink : i32 [binding=strong, object=_Z4sink] = zero
+global @g [binding=strong, object=_Z1g] = {
+  zero 64
+}
+
+function @YX___YX(%this : ptr) -> void [binding=weak, object=_ZN2YXD1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    eh_cleanup ^destructor_cleanup_1
+    store i32 200, @sink
+    eh_end
+    eh_cleanup ^destructor_suffix_cleanup_3
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = unary decay ptr %t2
+    %t4 = binary mul i64 15, 4
+    %t5 = index i8 [projection=array_element] %t3, %t4
+    call void @YA___YA(%t5)
+    eh_end
+    jump ^destructor_suffix_next_4
+
+  block ^destructor_suffix_cleanup_3:
+    %t6 = load ptr $this
+    %t7 = index i8 [projection=field] %t6, 0
+    %t8 = unary decay ptr %t7
+    %t9 = binary mul i64 14, 4
+    %t10 = index i8 [projection=array_element] %t8, %t9
+    call void @YA___YA(%t10)
+    %t11 = load ptr $this
+    %t12 = index i8 [projection=field] %t11, 0
+    %t13 = unary decay ptr %t12
+    %t14 = binary mul i64 13, 4
+    %t15 = index i8 [projection=array_element] %t13, %t14
+    call void @YA___YA(%t15)
+    %t16 = load ptr $this
+    %t17 = index i8 [projection=field] %t16, 0
+    %t18 = unary decay ptr %t17
+    %t19 = binary mul i64 12, 4
+    %t20 = index i8 [projection=array_element] %t18, %t19
+    call void @YA___YA(%t20)
+    %t21 = load ptr $this
+    %t22 = index i8 [projection=field] %t21, 0
+    %t23 = unary decay ptr %t22
+    %t24 = binary mul i64 11, 4
+    %t25 = index i8 [projection=array_element] %t23, %t24
+    call void @YA___YA(%t25)
+    %t26 = load ptr $this
+    %t27 = index i8 [projection=field] %t26, 0
+    %t28 = unary decay ptr %t27
+    %t29 = binary mul i64 10, 4
+    %t30 = index i8 [projection=array_element] %t28, %t29
+    call void @YA___YA(%t30)
+    %t31 = load ptr $this
+    %t32 = index i8 [projection=field] %t31, 0
+    %t33 = unary decay ptr %t32
+    %t34 = binary mul i64 9, 4
+    %t35 = index i8 [projection=array_element] %t33, %t34
+    call void @YA___YA(%t35)
+    %t36 = load ptr $this
+    %t37 = index i8 [projection=field] %t36, 0
+    %t38 = unary decay ptr %t37
+    %t39 = binary mul i64 8, 4
+    %t40 = index i8 [projection=array_element] %t38, %t39
+    call void @YA___YA(%t40)
+    %t41 = load ptr $this
+    %t42 = index i8 [projection=field] %t41, 0
+    %t43 = unary decay ptr %t42
+    %t44 = binary mul i64 7, 4
+    %t45 = index i8 [projection=array_element] %t43, %t44
+    call void @YA___YA(%t45)
+    %t46 = load ptr $this
+    %t47 = index i8 [projection=field] %t46, 0
+    %t48 = unary decay ptr %t47
+    %t49 = binary mul i64 6, 4
+    %t50 = index i8 [projection=array_element] %t48, %t49
+    call void @YA___YA(%t50)
+    %t51 = load ptr $this
+    %t52 = index i8 [projection=field] %t51, 0
+    %t53 = unary decay ptr %t52
+    %t54 = binary mul i64 5, 4
+    %t55 = index i8 [projection=array_element] %t53, %t54
+    call void @YA___YA(%t55)
+    %t56 = load ptr $this
+    %t57 = index i8 [projection=field] %t56, 0
+    %t58 = unary decay ptr %t57
+    %t59 = binary mul i64 4, 4
+    %t60 = index i8 [projection=array_element] %t58, %t59
+    call void @YA___YA(%t60)
+    %t61 = load ptr $this
+    %t62 = index i8 [projection=field] %t61, 0
+    %t63 = unary decay ptr %t62
+    %t64 = binary mul i64 3, 4
+    %t65 = index i8 [projection=array_element] %t63, %t64
+    call void @YA___YA(%t65)
+    %t66 = load ptr $this
+    %t67 = index i8 [projection=field] %t66, 0
+    %t68 = unary decay ptr %t67
+    %t69 = binary mul i64 2, 4
+    %t70 = index i8 [projection=array_element] %t68, %t69
+    call void @YA___YA(%t70)
+    %t71 = load ptr $this
+    %t72 = index i8 [projection=field] %t71, 0
+    %t73 = unary decay ptr %t72
+    %t74 = binary mul i64 1, 4
+    %t75 = index i8 [projection=array_element] %t73, %t74
+    call void @YA___YA(%t75)
+    %t76 = load ptr $this
+    %t77 = index i8 [projection=field] %t76, 0
+    %t78 = unary decay ptr %t77
+    %t79 = binary mul i64 0, 4
+    %t80 = index i8 [projection=array_element] %t78, %t79
+    call void @YA___YA(%t80)
+    eh_end
+    resume
+
+  block ^destructor_suffix_next_4:
+    eh_cleanup ^destructor_suffix_cleanup_5
+    %t81 = load ptr $this
+    %t82 = index i8 [projection=field] %t81, 0
+    %t83 = unary decay ptr %t82
+    %t84 = binary mul i64 14, 4
+    %t85 = index i8 [projection=array_element] %t83, %t84
+    call void @YA___YA(%t85)
+    eh_end
+    jump ^destructor_suffix_next_6
+
+  block ^destructor_suffix_cleanup_5:
+    %t86 = load ptr $this
+    %t87 = index i8 [projection=field] %t86, 0
+    %t88 = unary decay ptr %t87
+    %t89 = binary mul i64 13, 4
+    %t90 = index i8 [projection=array_element] %t88, %t89
+    call void @YA___YA(%t90)
+    %t91 = load ptr $this
+    %t92 = index i8 [projection=field] %t91, 0
+    %t93 = unary decay ptr %t92
+    %t94 = binary mul i64 12, 4
+    %t95 = index i8 [projection=array_element] %t93, %t94
+    call void @YA___YA(%t95)
+    %t96 = load ptr $this
+    %t97 = index i8 [projection=field] %t96, 0
+    %t98 = unary decay ptr %t97
+    %t99 = binary mul i64 11, 4
+    %t100 = index i8 [projection=array_element] %t98, %t99
+    call void @YA___YA(%t100)
+    %t101 = load ptr $this
+    %t102 = index i8 [projection=field] %t101, 0
+    %t103 = unary decay ptr %t102
+    %t104 = binary mul i64 10, 4
+    %t105 = index i8 [projection=array_element] %t103, %t104
+    call void @YA___YA(%t105)
+    %t106 = load ptr $this
+    %t107 = index i8 [projection=field] %t106, 0
+    %t108 = unary decay ptr %t107
+    %t109 = binary mul i64 9, 4
+    %t110 = index i8 [projection=array_element] %t108, %t109
+    call void @YA___YA(%t110)
+    %t111 = load ptr $this
+    %t112 = index i8 [projection=field] %t111, 0
+    %t113 = unary decay ptr %t112
+    %t114 = binary mul i64 8, 4
+    %t115 = index i8 [projection=array_element] %t113, %t114
+    call void @YA___YA(%t115)
+    %t116 = load ptr $this
+    %t117 = index i8 [projection=field] %t116, 0
+    %t118 = unary decay ptr %t117
+    %t119 = binary mul i64 7, 4
+    %t120 = index i8 [projection=array_element] %t118, %t119
+    call void @YA___YA(%t120)
+    %t121 = load ptr $this
+    %t122 = index i8 [projection=field] %t121, 0
+    %t123 = unary decay ptr %t122
+    %t124 = binary mul i64 6, 4
+    %t125 = index i8 [projection=array_element] %t123, %t124
+    call void @YA___YA(%t125)
+    %t126 = load ptr $this
+    %t127 = index i8 [projection=field] %t126, 0
+    %t128 = unary decay ptr %t127
+    %t129 = binary mul i64 5, 4
+    %t130 = index i8 [projection=array_element] %t128, %t129
+    call void @YA___YA(%t130)
+    %t131 = load ptr $this
+    %t132 = index i8 [projection=field] %t131, 0
+    %t133 = unary decay ptr %t132
+    %t134 = binary mul i64 4, 4
+    %t135 = index i8 [projection=array_element] %t133, %t134
+    call void @YA___YA(%t135)
+    %t136 = load ptr $this
+    %t137 = index i8 [projection=field] %t136, 0
+    %t138 = unary decay ptr %t137
+    %t139 = binary mul i64 3, 4
+    %t140 = index i8 [projection=array_element] %t138, %t139
+    call void @YA___YA(%t140)
+    %t141 = load ptr $this
+    %t142 = index i8 [projection=field] %t141, 0
+    %t143 = unary decay ptr %t142
+    %t144 = binary mul i64 2, 4
+    %t145 = index i8 [projection=array_element] %t143, %t144
+    call void @YA___YA(%t145)
+    %t146 = load ptr $this
+    %t147 = index i8 [projection=field] %t146, 0
+    %t148 = unary decay ptr %t147
+    %t149 = binary mul i64 1, 4
+    %t150 = index i8 [projection=array_element] %t148, %t149
+    call void @YA___YA(%t150)
+    %t151 = load ptr $this
+    %t152 = index i8 [projection=field] %t151, 0
+    %t153 = unary decay ptr %t152
+    %t154 = binary mul i64 0, 4
+    %t155 = index i8 [projection=array_element] %t153, %t154
+    call void @YA___YA(%t155)
+    eh_end
+    resume
+
+  block ^destructor_suffix_next_6:
+    eh_cleanup ^destructor_suffix_cleanup_7
+    %t156 = load ptr $this
+    %t157 = index i8 [projection=field] %t156, 0
+    %t158 = unary decay ptr %t157
+    %t159 = binary mul i64 13, 4
+    %t160 = index i8 [projection=array_element] %t158, %t159
+    call void @YA___YA(%t160)
+    eh_end
+    jump ^destructor_suffix_next_8
+
+  block ^destructor_suffix_cleanup_7:
+    %t161 = load ptr $this
+    %t162 = index i8 [projection=field] %t161, 0
+    %t163 = unary decay ptr %t162
+    %t164 = binary mul i64 12, 4
+    %t165 = index i8 [projection=array_element] %t163, %t164
+    call void @YA___YA(%t165)
+    %t166 = load ptr $this
+    %t167 = index i8 [projection=field] %t166, 0
+    %t168 = unary decay ptr %t167
+    %t169 = binary mul i64 11, 4
+    %t170 = index i8 [projection=array_element] %t168, %t169
+    call void @YA___YA(%t170)
+    %t171 = load ptr $this
+    %t172 = index i8 [projection=field] %t171, 0
+    %t173 = unary decay ptr %t172
+    %t174 = binary mul i64 10, 4
+    %t175 = index i8 [projection=array_element] %t173, %t174
+    call void @YA___YA(%t175)
+    %t176 = load ptr $this
+    %t177 = index i8 [projection=field] %t176, 0
+    %t178 = unary decay ptr %t177
+    %t179 = binary mul i64 9, 4
+    %t180 = index i8 [projection=array_element] %t178, %t179
+    call void @YA___YA(%t180)
+    %t181 = load ptr $this
+    %t182 = index i8 [projection=field] %t181, 0
+    %t183 = unary decay ptr %t182
+    %t184 = binary mul i64 8, 4
+    %t185 = index i8 [projection=array_element] %t183, %t184
+    call void @YA___YA(%t185)
+    %t186 = load ptr $this
+    %t187 = index i8 [projection=field] %t186, 0
+    %t188 = unary decay ptr %t187
+    %t189 = binary mul i64 7, 4
+    %t190 = index i8 [projection=array_element] %t188, %t189
+    call void @YA___YA(%t190)
+    %t191 = load ptr $this
+    %t192 = index i8 [projection=field] %t191, 0
+    %t193 = unary decay ptr %t192
+    %t194 = binary mul i64 6, 4
+    %t195 = index i8 [projection=array_element] %t193, %t194
+    call void @YA___YA(%t195)
+    %t196 = load ptr $this
+    %t197 = index i8 [projection=field] %t196, 0
+    %t198 = unary decay ptr %t197
+    %t199 = binary mul i64 5, 4
+    %t200 = index i8 [projection=array_element] %t198, %t199
+    call void @YA___YA(%t200)
+    %t201 = load ptr $this
+    %t202 = index i8 [projection=field] %t201, 0
+    %t203 = unary decay ptr %t202
+    %t204 = binary mul i64 4, 4
+    %t205 = index i8 [projection=array_element] %t203, %t204
+    call void @YA___YA(%t205)
+    %t206 = load ptr $this
+    %t207 = index i8 [projection=field] %t206, 0
+    %t208 = unary decay ptr %t207
+    %t209 = binary mul i64 3, 4
+    %t210 = index i8 [projection=array_element] %t208, %t209
+    call void @YA___YA(%t210)
+    %t211 = load ptr $this
+    %t212 = index i8 [projection=field] %t211, 0
+    %t213 = unary decay ptr %t212
+    %t214 = binary mul i64 2, 4
+    %t215 = index i8 [projection=array_element] %t213, %t214
+    call void @YA___YA(%t215)
+    %t216 = load ptr $this
+    %t217 = index i8 [projection=field] %t216, 0
+    %t218 = unary decay ptr %t217
+    %t219 = binary mul i64 1, 4
+    %t220 = index i8 [projection=array_element] %t218, %t219
+    call void @YA___YA(%t220)
+    %t221 = load ptr $this
+    %t222 = index i8 [projection=field] %t221, 0
+    %t223 = unary decay ptr %t222
+    %t224 = binary mul i64 0, 4
+    %t225 = index i8 [projection=array_element] %t223, %t224
+    call void @YA___YA(%t225)
+    eh_end
+    resume
+
+  block ^destructor_suffix_next_8:
+    eh_cleanup ^destructor_suffix_cleanup_9
+    %t226 = load ptr $this
+    %t227 = index i8 [projection=field] %t226, 0
+    %t228 = unary decay ptr %t227
+    %t229 = binary mul i64 12, 4
+    %t230 = index i8 [projection=array_element] %t228, %t229
+    call void @YA___YA(%t230)
+    eh_end
+    jump ^destructor_suffix_next_10
+
+  block ^destructor_suffix_cleanup_9:
+    %t231 = load ptr $this
+    %t232 = index i8 [projection=field] %t231, 0
+    %t233 = unary decay ptr %t232
+    %t234 = binary mul i64 11, 4
+    %t235 = index i8 [projection=array_element] %t233, %t234
+    call void @YA___YA(%t235)
+    %t236 = load ptr $this
+    %t237 = index i8 [projection=field] %t236, 0
+    %t238 = unary decay ptr %t237
+    %t239 = binary mul i64 10, 4
+    %t240 = index i8 [projection=array_element] %t238, %t239
+    call void @YA___YA(%t240)
+    %t241 = load ptr $this
+    %t242 = index i8 [projection=field] %t241, 0
+    %t243 = unary decay ptr %t242
+    %t244 = binary mul i64 9, 4
+    %t245 = index i8 [projection=array_element] %t243, %t244
+    call void @YA___YA(%t245)
+    %t246 = load ptr $this
+    %t247 = index i8 [projection=field] %t246, 0
+    %t248 = unary decay ptr %t247
+    %t249 = binary mul i64 8, 4
+    %t250 = index i8 [projection=array_element] %t248, %t249
+    call void @YA___YA(%t250)
+    %t251 = load ptr $this
+    %t252 = index i8 [projection=field] %t251, 0
+    %t253 = unary decay ptr %t252
+    %t254 = binary mul i64 7, 4
+    %t255 = index i8 [projection=array_element] %t253, %t254
+    call void @YA___YA(%t255)
+    %t256 = load ptr $this
+    %t257 = index i8 [projection=field] %t256, 0
+    %t258 = unary decay ptr %t257
+    %t259 = binary mul i64 6, 4
+    %t260 = index i8 [projection=array_element] %t258, %t259
+    call void @YA___YA(%t260)
+    %t261 = load ptr $this
+    %t262 = index i8 [projection=field] %t261, 0
+    %t263 = unary decay ptr %t262
+    %t264 = binary mul i64 5, 4
+    %t265 = index i8 [projection=array_element] %t263, %t264
+    call void @YA___YA(%t265)
+    %t266 = load ptr $this
+    %t267 = index i8 [projection=field] %t266, 0
+    %t268 = unary decay ptr %t267
+    %t269 = binary mul i64 4, 4
+    %t270 = index i8 [projection=array_element] %t268, %t269
+    call void @YA___YA(%t270)
+    %t271 = load ptr $this
+    %t272 = index i8 [projection=field] %t271, 0
+    %t273 = unary decay ptr %t272
+    %t274 = binary mul i64 3, 4
+    %t275 = index i8 [projection=array_element] %t273, %t274
+    call void @YA___YA(%t275)
+    %t276 = load ptr $this
+    %t277 = index i8 [projection=field] %t276, 0
+    %t278 = unary decay ptr %t277
+    %t279 = binary mul i64 2, 4
+    %t280 = index i8 [projection=array_element] %t278, %t279
+    call void @YA___YA(%t280)
+    %t281 = load ptr $this
+    %t282 = index i8 [projection=field] %t281, 0
+    %t283 = unary decay ptr %t282
+    %t284 = binary mul i64 1, 4
+    %t285 = index i8 [projection=array_element] %t283, %t284
+    call void @YA___YA(%t285)
+    %t286 = load ptr $this
+    %t287 = index i8 [projection=field] %t286, 0
+    %t288 = unary decay ptr %t287
+    %t289 = binary mul i64 0, 4
+    %t290 = index i8 [projection=array_element] %t288, %t289
+    call void @YA___YA(%t290)
+    eh_end
+    resume
+
+  block ^destructor_suffix_next_10:
+    eh_cleanup ^destructor_suffix_cleanup_11
+    %t291 = load ptr $this
+    %t292 = index i8 [projection=field] %t291, 0
+    %t293 = unary decay ptr %t292
+    %t294 = binary mul i64 11, 4
+    %t295 = index i8 [projection=array_element] %t293, %t294
+    call void @YA___YA(%t295)
+    eh_end
+    jump ^destructor_suffix_next_12
+
+  block ^destructor_suffix_cleanup_11:
+    %t296 = load ptr $this
+    %t297 = index i8 [projection=field] %t296, 0
+    %t298 = unary decay ptr %t297
+    %t299 = binary mul i64 10, 4
+    %t300 = index i8 [projection=array_element] %t298, %t299
+    call void @YA___YA(%t300)
+    %t301 = load ptr $this
+    %t302 = index i8 [projection=field] %t301, 0
+    %t303 = unary decay ptr %t302
+    %t304 = binary mul i64 9, 4
+    %t305 = index i8 [projection=array_element] %t303, %t304
+    call void @YA___YA(%t305)
+    %t306 = load ptr $this
+    %t307 = index i8 [projection=field] %t306, 0
+    %t308 = unary decay ptr %t307
+    %t309 = binary mul i64 8, 4
+    %t310 = index i8 [projection=array_element] %t308, %t309
+    call void @YA___YA(%t310)
+    %t311 = load ptr $this
+    %t312 = index i8 [projection=field] %t311, 0
+    %t313 = unary decay ptr %t312
+    %t314 = binary mul i64 7, 4
+    %t315 = index i8 [projection=array_element] %t313, %t314
+    call void @YA___YA(%t315)
+    %t316 = load ptr $this
+    %t317 = index i8 [projection=field] %t316, 0
+    %t318 = unary decay ptr %t317
+    %t319 = binary mul i64 6, 4
+    %t320 = index i8 [projection=array_element] %t318, %t319
+    call void @YA___YA(%t320)
+    %t321 = load ptr $this
+    %t322 = index i8 [projection=field] %t321, 0
+    %t323 = unary decay ptr %t322
+    %t324 = binary mul i64 5, 4
+    %t325 = index i8 [projection=array_element] %t323, %t324
+    call void @YA___YA(%t325)
+    %t326 = load ptr $this
+    %t327 = index i8 [projection=field] %t326, 0
+    %t328 = unary decay ptr %t327
+    %t329 = binary mul i64 4, 4
+    %t330 = index i8 [projection=array_element] %t328, %t329
+    call void @YA___YA(%t330)
+    %t331 = load ptr $this
+    %t332 = index i8 [projection=field] %t331, 0
+    %t333 = unary decay ptr %t332
+    %t334 = binary mul i64 3, 4
+    %t335 = index i8 [projection=array_element] %t333, %t334
+    call void @YA___YA(%t335)
+    %t336 = load ptr $this
+    %t337 = index i8 [projection=field] %t336, 0
+    %t338 = unary decay ptr %t337
+    %t339 = binary mul i64 2, 4
+    %t340 = index i8 [projection=array_element] %t338, %t339
+    call void @YA___YA(%t340)
+    %t341 = load ptr $this
+    %t342 = index i8 [projection=field] %t341, 0
+    %t343 = unary decay ptr %t342
+    %t344 = binary mul i64 1, 4
+    %t345 = index i8 [projection=array_element] %t343, %t344
+    call void @YA___YA(%t345)
+    %t346 = load ptr $this
+    %t347 = index i8 [projection=field] %t346, 0
+    %t348 = unary decay ptr %t347
+    %t349 = binary mul i64 0, 4
+    %t350 = index i8 [projection=array_element] %t348, %t349
+    call void @YA___YA(%t350)
+    eh_end
+    resume
+
+  block ^destructor_suffix_next_12:
+    eh_cleanup ^destructor_suffix_cleanup_13
+    %t351 = load ptr $this
+    %t352 = index i8 [projection=field] %t351, 0
+    %t353 = unary decay ptr %t352
+    %t354 = binary mul i64 10, 4
+    %t355 = index i8 [projection=array_element] %t353, %t354
+    call void @YA___YA(%t355)
+    eh_end
+    jump ^destructor_suffix_next_14
+
+  block ^destructor_suffix_cleanup_13:
+    %t356 = load ptr $this
+    %t357 = index i8 [projection=field] %t356, 0
+    %t358 = unary decay ptr %t357
+    %t359 = binary mul i64 9, 4
+    %t360 = index i8 [projection=array_element] %t358, %t359
+    call void @YA___YA(%t360)
+    %t361 = load ptr $this
+    %t362 = index i8 [projection=field] %t361, 0
+    %t363 = unary decay ptr %t362
+    %t364 = binary mul i64 8, 4
+    %t365 = index i8 [projection=array_element] %t363, %t364
+    call void @YA___YA(%t365)
+    %t366 = load ptr $this
+    %t367 = index i8 [projection=field] %t366, 0
+    %t368 = unary decay ptr %t367
+    %t369 = binary mul i64 7, 4
+    %t370 = index i8 [projection=array_element] %t368, %t369
+    call void @YA___YA(%t370)
+    %t371 = load ptr $this
+    %t372 = index i8 [projection=field] %t371, 0
+    %t373 = unary decay ptr %t372
+    %t374 = binary mul i64 6, 4
+    %t375 = index i8 [projection=array_element] %t373, %t374
+    call void @YA___YA(%t375)
+    %t376 = load ptr $this
+    %t377 = index i8 [projection=field] %t376, 0
+    %t378 = unary decay ptr %t377
+    %t379 = binary mul i64 5, 4
+    %t380 = index i8 [projection=array_element] %t378, %t379
+    call void @YA___YA(%t380)
+    %t381 = load ptr $this
+    %t382 = index i8 [projection=field] %t381, 0
+    %t383 = unary decay ptr %t382
+    %t384 = binary mul i64 4, 4
+    %t385 = index i8 [projection=array_element] %t383, %t384
+    call void @YA___YA(%t385)
+    %t386 = load ptr $this
+    %t387 = index i8 [projection=field] %t386, 0
+    %t388 = unary decay ptr %t387
+    %t389 = binary mul i64 3, 4
+    %t390 = index i8 [projection=array_element] %t388, %t389
+    call void @YA___YA(%t390)
+    %t391 = load ptr $this
+    %t392 = index i8 [projection=field] %t391, 0
+    %t393 = unary decay ptr %t392
+    %t394 = binary mul i64 2, 4
+    %t395 = index i8 [projection=array_element] %t393, %t394
+    call void @YA___YA(%t395)
+    %t396 = load ptr $this
+    %t397 = index i8 [projection=field] %t396, 0
+    %t398 = unary decay ptr %t397
+    %t399 = binary mul i64 1, 4
+    %t400 = index i8 [projection=array_element] %t398, %t399
+    call void @YA___YA(%t400)
+    %t401 = load ptr $this
+    %t402 = index i8 [projection=field] %t401, 0
+    %t403 = unary decay ptr %t402
+    %t404 = binary mul i64 0, 4
+    %t405 = index i8 [projection=array_element] %t403, %t404
+    call void @YA___YA(%t405)
+    eh_end
+    resume
+
+  block ^destructor_suffix_next_14:
+    eh_cleanup ^destructor_suffix_cleanup_15
+    %t406 = load ptr $this
+    %t407 = index i8 [projection=field] %t406, 0
+    %t408 = unary decay ptr %t407
+    %t409 = binary mul i64 9, 4
+    %t410 = index i8 [projection=array_element] %t408, %t409
+    call void @YA___YA(%t410)
+    eh_end
+    jump ^destructor_suffix_next_16
+
+  block ^destructor_suffix_cleanup_15:
+    %t411 = load ptr $this
+    %t412 = index i8 [projection=field] %t411, 0
+    %t413 = unary decay ptr %t412
+    %t414 = binary mul i64 8, 4
+    %t415 = index i8 [projection=array_element] %t413, %t414
+    call void @YA___YA(%t415)
+    %t416 = load ptr $this
+    %t417 = index i8 [projection=field] %t416, 0
+    %t418 = unary decay ptr %t417
+    %t419 = binary mul i64 7, 4
+    %t420 = index i8 [projection=array_element] %t418, %t419
+    call void @YA___YA(%t420)
+    %t421 = load ptr $this
+    %t422 = index i8 [projection=field] %t421, 0
+    %t423 = unary decay ptr %t422
+    %t424 = binary mul i64 6, 4
+    %t425 = index i8 [projection=array_element] %t423, %t424
+    call void @YA___YA(%t425)
+    %t426 = load ptr $this
+    %t427 = index i8 [projection=field] %t426, 0
+    %t428 = unary decay ptr %t427
+    %t429 = binary mul i64 5, 4
+    %t430 = index i8 [projection=array_element] %t428, %t429
+    call void @YA___YA(%t430)
+    %t431 = load ptr $this
+    %t432 = index i8 [projection=field] %t431, 0
+    %t433 = unary decay ptr %t432
+    %t434 = binary mul i64 4, 4
+    %t435 = index i8 [projection=array_element] %t433, %t434
+    call void @YA___YA(%t435)
+    %t436 = load ptr $this
+    %t437 = index i8 [projection=field] %t436, 0
+    %t438 = unary decay ptr %t437
+    %t439 = binary mul i64 3, 4
+    %t440 = index i8 [projection=array_element] %t438, %t439
+    call void @YA___YA(%t440)
+    %t441 = load ptr $this
+    %t442 = index i8 [projection=field] %t441, 0
+    %t443 = unary decay ptr %t442
+    %t444 = binary mul i64 2, 4
+    %t445 = index i8 [projection=array_element] %t443, %t444
+    call void @YA___YA(%t445)
+    %t446 = load ptr $this
+    %t447 = index i8 [projection=field] %t446, 0
+    %t448 = unary decay ptr %t447
+    %t449 = binary mul i64 1, 4
+    %t450 = index i8 [projection=array_element] %t448, %t449
+    call void @YA___YA(%t450)
+    %t451 = load ptr $this
+    %t452 = index i8 [projection=field] %t451, 0
+    %t453 = unary decay ptr %t452
+    %t454 = binary mul i64 0, 4
+    %t455 = index i8 [projection=array_element] %t453, %t454
+    call void @YA___YA(%t455)
+    eh_end
+    resume
+
+  block ^destructor_suffix_next_16:
+    eh_cleanup ^destructor_suffix_cleanup_17
+    %t456 = load ptr $this
+    %t457 = index i8 [projection=field] %t456, 0
+    %t458 = unary decay ptr %t457
+    %t459 = binary mul i64 8, 4
+    %t460 = index i8 [projection=array_element] %t458, %t459
+    call void @YA___YA(%t460)
+    eh_end
+    jump ^destructor_suffix_next_18
+
+  block ^destructor_suffix_cleanup_17:
+    %t461 = load ptr $this
+    %t462 = index i8 [projection=field] %t461, 0
+    %t463 = unary decay ptr %t462
+    %t464 = binary mul i64 7, 4
+    %t465 = index i8 [projection=array_element] %t463, %t464
+    call void @YA___YA(%t465)
+    %t466 = load ptr $this
+    %t467 = index i8 [projection=field] %t466, 0
+    %t468 = unary decay ptr %t467
+    %t469 = binary mul i64 6, 4
+    %t470 = index i8 [projection=array_element] %t468, %t469
+    call void @YA___YA(%t470)
+    %t471 = load ptr $this
+    %t472 = index i8 [projection=field] %t471, 0
+    %t473 = unary decay ptr %t472
+    %t474 = binary mul i64 5, 4
+    %t475 = index i8 [projection=array_element] %t473, %t474
+    call void @YA___YA(%t475)
+    %t476 = load ptr $this
+    %t477 = index i8 [projection=field] %t476, 0
+    %t478 = unary decay ptr %t477
+    %t479 = binary mul i64 4, 4
+    %t480 = index i8 [projection=array_element] %t478, %t479
+    call void @YA___YA(%t480)
+    %t481 = load ptr $this
+    %t482 = index i8 [projection=field] %t481, 0
+    %t483 = unary decay ptr %t482
+    %t484 = binary mul i64 3, 4
+    %t485 = index i8 [projection=array_element] %t483, %t484
+    call void @YA___YA(%t485)
+    %t486 = load ptr $this
+    %t487 = index i8 [projection=field] %t486, 0
+    %t488 = unary decay ptr %t487
+    %t489 = binary mul i64 2, 4
+    %t490 = index i8 [projection=array_element] %t488, %t489
+    call void @YA___YA(%t490)
+    %t491 = load ptr $this
+    %t492 = index i8 [projection=field] %t491, 0
+    %t493 = unary decay ptr %t492
+    %t494 = binary mul i64 1, 4
+    %t495 = index i8 [projection=array_element] %t493, %t494
+    call void @YA___YA(%t495)
+    %t496 = load ptr $this
+    %t497 = index i8 [projection=field] %t496, 0
+    %t498 = unary decay ptr %t497
+    %t499 = binary mul i64 0, 4
+    %t500 = index i8 [projection=array_element] %t498, %t499
+    call void @YA___YA(%t500)
+    eh_end
+    resume
+
+  block ^destructor_suffix_next_18:
+    eh_cleanup ^destructor_suffix_cleanup_19
+    %t501 = load ptr $this
+    %t502 = index i8 [projection=field] %t501, 0
+    %t503 = unary decay ptr %t502
+    %t504 = binary mul i64 7, 4
+    %t505 = index i8 [projection=array_element] %t503, %t504
+    call void @YA___YA(%t505)
+    eh_end
+    jump ^destructor_suffix_next_20
+
+  block ^destructor_suffix_cleanup_19:
+    %t506 = load ptr $this
+    %t507 = index i8 [projection=field] %t506, 0
+    %t508 = unary decay ptr %t507
+    %t509 = binary mul i64 6, 4
+    %t510 = index i8 [projection=array_element] %t508, %t509
+    call void @YA___YA(%t510)
+    %t511 = load ptr $this
+    %t512 = index i8 [projection=field] %t511, 0
+    %t513 = unary decay ptr %t512
+    %t514 = binary mul i64 5, 4
+    %t515 = index i8 [projection=array_element] %t513, %t514
+    call void @YA___YA(%t515)
+    %t516 = load ptr $this
+    %t517 = index i8 [projection=field] %t516, 0
+    %t518 = unary decay ptr %t517
+    %t519 = binary mul i64 4, 4
+    %t520 = index i8 [projection=array_element] %t518, %t519
+    call void @YA___YA(%t520)
+    %t521 = load ptr $this
+    %t522 = index i8 [projection=field] %t521, 0
+    %t523 = unary decay ptr %t522
+    %t524 = binary mul i64 3, 4
+    %t525 = index i8 [projection=array_element] %t523, %t524
+    call void @YA___YA(%t525)
+    %t526 = load ptr $this
+    %t527 = index i8 [projection=field] %t526, 0
+    %t528 = unary decay ptr %t527
+    %t529 = binary mul i64 2, 4
+    %t530 = index i8 [projection=array_element] %t528, %t529
+    call void @YA___YA(%t530)
+    %t531 = load ptr $this
+    %t532 = index i8 [projection=field] %t531, 0
+    %t533 = unary decay ptr %t532
+    %t534 = binary mul i64 1, 4
+    %t535 = index i8 [projection=array_element] %t533, %t534
+    call void @YA___YA(%t535)
+    %t536 = load ptr $this
+    %t537 = index i8 [projection=field] %t536, 0
+    %t538 = unary decay ptr %t537
+    %t539 = binary mul i64 0, 4
+    %t540 = index i8 [projection=array_element] %t538, %t539
+    call void @YA___YA(%t540)
+    eh_end
+    resume
+
+  block ^destructor_suffix_next_20:
+    eh_cleanup ^destructor_suffix_cleanup_21
+    %t541 = load ptr $this
+    %t542 = index i8 [projection=field] %t541, 0
+    %t543 = unary decay ptr %t542
+    %t544 = binary mul i64 6, 4
+    %t545 = index i8 [projection=array_element] %t543, %t544
+    call void @YA___YA(%t545)
+    eh_end
+    jump ^destructor_suffix_next_22
+
+  block ^destructor_suffix_cleanup_21:
+    %t546 = load ptr $this
+    %t547 = index i8 [projection=field] %t546, 0
+    %t548 = unary decay ptr %t547
+    %t549 = binary mul i64 5, 4
+    %t550 = index i8 [projection=array_element] %t548, %t549
+    call void @YA___YA(%t550)
+    %t551 = load ptr $this
+    %t552 = index i8 [projection=field] %t551, 0
+    %t553 = unary decay ptr %t552
+    %t554 = binary mul i64 4, 4
+    %t555 = index i8 [projection=array_element] %t553, %t554
+    call void @YA___YA(%t555)
+    %t556 = load ptr $this
+    %t557 = index i8 [projection=field] %t556, 0
+    %t558 = unary decay ptr %t557
+    %t559 = binary mul i64 3, 4
+    %t560 = index i8 [projection=array_element] %t558, %t559
+    call void @YA___YA(%t560)
+    %t561 = load ptr $this
+    %t562 = index i8 [projection=field] %t561, 0
+    %t563 = unary decay ptr %t562
+    %t564 = binary mul i64 2, 4
+    %t565 = index i8 [projection=array_element] %t563, %t564
+    call void @YA___YA(%t565)
+    %t566 = load ptr $this
+    %t567 = index i8 [projection=field] %t566, 0
+    %t568 = unary decay ptr %t567
+    %t569 = binary mul i64 1, 4
+    %t570 = index i8 [projection=array_element] %t568, %t569
+    call void @YA___YA(%t570)
+    %t571 = load ptr $this
+    %t572 = index i8 [projection=field] %t571, 0
+    %t573 = unary decay ptr %t572
+    %t574 = binary mul i64 0, 4
+    %t575 = index i8 [projection=array_element] %t573, %t574
+    call void @YA___YA(%t575)
+    eh_end
+    resume
+
+  block ^destructor_suffix_next_22:
+    eh_cleanup ^destructor_suffix_cleanup_23
+    %t576 = load ptr $this
+    %t577 = index i8 [projection=field] %t576, 0
+    %t578 = unary decay ptr %t577
+    %t579 = binary mul i64 5, 4
+    %t580 = index i8 [projection=array_element] %t578, %t579
+    call void @YA___YA(%t580)
+    eh_end
+    jump ^destructor_suffix_next_24
+
+  block ^destructor_suffix_cleanup_23:
+    %t581 = load ptr $this
+    %t582 = index i8 [projection=field] %t581, 0
+    %t583 = unary decay ptr %t582
+    %t584 = binary mul i64 4, 4
+    %t585 = index i8 [projection=array_element] %t583, %t584
+    call void @YA___YA(%t585)
+    %t586 = load ptr $this
+    %t587 = index i8 [projection=field] %t586, 0
+    %t588 = unary decay ptr %t587
+    %t589 = binary mul i64 3, 4
+    %t590 = index i8 [projection=array_element] %t588, %t589
+    call void @YA___YA(%t590)
+    %t591 = load ptr $this
+    %t592 = index i8 [projection=field] %t591, 0
+    %t593 = unary decay ptr %t592
+    %t594 = binary mul i64 2, 4
+    %t595 = index i8 [projection=array_element] %t593, %t594
+    call void @YA___YA(%t595)
+    %t596 = load ptr $this
+    %t597 = index i8 [projection=field] %t596, 0
+    %t598 = unary decay ptr %t597
+    %t599 = binary mul i64 1, 4
+    %t600 = index i8 [projection=array_element] %t598, %t599
+    call void @YA___YA(%t600)
+    %t601 = load ptr $this
+    %t602 = index i8 [projection=field] %t601, 0
+    %t603 = unary decay ptr %t602
+    %t604 = binary mul i64 0, 4
+    %t605 = index i8 [projection=array_element] %t603, %t604
+    call void @YA___YA(%t605)
+    eh_end
+    resume
+
+  block ^destructor_suffix_next_24:
+    eh_cleanup ^destructor_suffix_cleanup_25
+    %t606 = load ptr $this
+    %t607 = index i8 [projection=field] %t606, 0
+    %t608 = unary decay ptr %t607
+    %t609 = binary mul i64 4, 4
+    %t610 = index i8 [projection=array_element] %t608, %t609
+    call void @YA___YA(%t610)
+    eh_end
+    jump ^destructor_suffix_next_26
+
+  block ^destructor_suffix_cleanup_25:
+    %t611 = load ptr $this
+    %t612 = index i8 [projection=field] %t611, 0
+    %t613 = unary decay ptr %t612
+    %t614 = binary mul i64 3, 4
+    %t615 = index i8 [projection=array_element] %t613, %t614
+    call void @YA___YA(%t615)
+    %t616 = load ptr $this
+    %t617 = index i8 [projection=field] %t616, 0
+    %t618 = unary decay ptr %t617
+    %t619 = binary mul i64 2, 4
+    %t620 = index i8 [projection=array_element] %t618, %t619
+    call void @YA___YA(%t620)
+    %t621 = load ptr $this
+    %t622 = index i8 [projection=field] %t621, 0
+    %t623 = unary decay ptr %t622
+    %t624 = binary mul i64 1, 4
+    %t625 = index i8 [projection=array_element] %t623, %t624
+    call void @YA___YA(%t625)
+    %t626 = load ptr $this
+    %t627 = index i8 [projection=field] %t626, 0
+    %t628 = unary decay ptr %t627
+    %t629 = binary mul i64 0, 4
+    %t630 = index i8 [projection=array_element] %t628, %t629
+    call void @YA___YA(%t630)
+    eh_end
+    resume
+
+  block ^destructor_suffix_next_26:
+    eh_cleanup ^destructor_suffix_cleanup_27
+    %t631 = load ptr $this
+    %t632 = index i8 [projection=field] %t631, 0
+    %t633 = unary decay ptr %t632
+    %t634 = binary mul i64 3, 4
+    %t635 = index i8 [projection=array_element] %t633, %t634
+    call void @YA___YA(%t635)
+    eh_end
+    jump ^destructor_suffix_next_28
+
+  block ^destructor_suffix_cleanup_27:
+    %t636 = load ptr $this
+    %t637 = index i8 [projection=field] %t636, 0
+    %t638 = unary decay ptr %t637
+    %t639 = binary mul i64 2, 4
+    %t640 = index i8 [projection=array_element] %t638, %t639
+    call void @YA___YA(%t640)
+    %t641 = load ptr $this
+    %t642 = index i8 [projection=field] %t641, 0
+    %t643 = unary decay ptr %t642
+    %t644 = binary mul i64 1, 4
+    %t645 = index i8 [projection=array_element] %t643, %t644
+    call void @YA___YA(%t645)
+    %t646 = load ptr $this
+    %t647 = index i8 [projection=field] %t646, 0
+    %t648 = unary decay ptr %t647
+    %t649 = binary mul i64 0, 4
+    %t650 = index i8 [projection=array_element] %t648, %t649
+    call void @YA___YA(%t650)
+    eh_end
+    resume
+
+  block ^destructor_suffix_next_28:
+    eh_cleanup ^destructor_suffix_cleanup_29
+    %t651 = load ptr $this
+    %t652 = index i8 [projection=field] %t651, 0
+    %t653 = unary decay ptr %t652
+    %t654 = binary mul i64 2, 4
+    %t655 = index i8 [projection=array_element] %t653, %t654
+    call void @YA___YA(%t655)
+    eh_end
+    jump ^destructor_suffix_next_30
+
+  block ^destructor_suffix_cleanup_29:
+    %t656 = load ptr $this
+    %t657 = index i8 [projection=field] %t656, 0
+    %t658 = unary decay ptr %t657
+    %t659 = binary mul i64 1, 4
+    %t660 = index i8 [projection=array_element] %t658, %t659
+    call void @YA___YA(%t660)
+    %t661 = load ptr $this
+    %t662 = index i8 [projection=field] %t661, 0
+    %t663 = unary decay ptr %t662
+    %t664 = binary mul i64 0, 4
+    %t665 = index i8 [projection=array_element] %t663, %t664
+    call void @YA___YA(%t665)
+    eh_end
+    resume
+
+  block ^destructor_suffix_next_30:
+    eh_cleanup ^destructor_suffix_cleanup_31
+    %t666 = load ptr $this
+    %t667 = index i8 [projection=field] %t666, 0
+    %t668 = unary decay ptr %t667
+    %t669 = binary mul i64 1, 4
+    %t670 = index i8 [projection=array_element] %t668, %t669
+    call void @YA___YA(%t670)
+    eh_end
+    jump ^destructor_suffix_next_32
+
+  block ^destructor_suffix_cleanup_31:
+    %t671 = load ptr $this
+    %t672 = index i8 [projection=field] %t671, 0
+    %t673 = unary decay ptr %t672
+    %t674 = binary mul i64 0, 4
+    %t675 = index i8 [projection=array_element] %t673, %t674
+    call void @YA___YA(%t675)
+    eh_end
+    resume
+
+  block ^destructor_suffix_next_32:
+    %t676 = load ptr $this
+    %t677 = index i8 [projection=field] %t676, 0
+    %t678 = unary decay ptr %t677
+    %t679 = binary mul i64 0, 4
+    %t680 = index i8 [projection=array_element] %t678, %t679
+    call void @YA___YA(%t680)
+    jump ^destructor_end_2
+
+  block ^destructor_cleanup_1:
+    %t681 = load ptr $this
+    %t682 = index i8 [projection=field] %t681, 0
+    %t683 = unary decay ptr %t682
+    %t684 = binary mul i64 15, 4
+    %t685 = index i8 [projection=array_element] %t683, %t684
+    call void @YA___YA(%t685)
+    %t686 = load ptr $this
+    %t687 = index i8 [projection=field] %t686, 0
+    %t688 = unary decay ptr %t687
+    %t689 = binary mul i64 14, 4
+    %t690 = index i8 [projection=array_element] %t688, %t689
+    call void @YA___YA(%t690)
+    %t691 = load ptr $this
+    %t692 = index i8 [projection=field] %t691, 0
+    %t693 = unary decay ptr %t692
+    %t694 = binary mul i64 13, 4
+    %t695 = index i8 [projection=array_element] %t693, %t694
+    call void @YA___YA(%t695)
+    %t696 = load ptr $this
+    %t697 = index i8 [projection=field] %t696, 0
+    %t698 = unary decay ptr %t697
+    %t699 = binary mul i64 12, 4
+    %t700 = index i8 [projection=array_element] %t698, %t699
+    call void @YA___YA(%t700)
+    %t701 = load ptr $this
+    %t702 = index i8 [projection=field] %t701, 0
+    %t703 = unary decay ptr %t702
+    %t704 = binary mul i64 11, 4
+    %t705 = index i8 [projection=array_element] %t703, %t704
+    call void @YA___YA(%t705)
+    %t706 = load ptr $this
+    %t707 = index i8 [projection=field] %t706, 0
+    %t708 = unary decay ptr %t707
+    %t709 = binary mul i64 10, 4
+    %t710 = index i8 [projection=array_element] %t708, %t709
+    call void @YA___YA(%t710)
+    %t711 = load ptr $this
+    %t712 = index i8 [projection=field] %t711, 0
+    %t713 = unary decay ptr %t712
+    %t714 = binary mul i64 9, 4
+    %t715 = index i8 [projection=array_element] %t713, %t714
+    call void @YA___YA(%t715)
+    %t716 = load ptr $this
+    %t717 = index i8 [projection=field] %t716, 0
+    %t718 = unary decay ptr %t717
+    %t719 = binary mul i64 8, 4
+    %t720 = index i8 [projection=array_element] %t718, %t719
+    call void @YA___YA(%t720)
+    %t721 = load ptr $this
+    %t722 = index i8 [projection=field] %t721, 0
+    %t723 = unary decay ptr %t722
+    %t724 = binary mul i64 7, 4
+    %t725 = index i8 [projection=array_element] %t723, %t724
+    call void @YA___YA(%t725)
+    %t726 = load ptr $this
+    %t727 = index i8 [projection=field] %t726, 0
+    %t728 = unary decay ptr %t727
+    %t729 = binary mul i64 6, 4
+    %t730 = index i8 [projection=array_element] %t728, %t729
+    call void @YA___YA(%t730)
+    %t731 = load ptr $this
+    %t732 = index i8 [projection=field] %t731, 0
+    %t733 = unary decay ptr %t732
+    %t734 = binary mul i64 5, 4
+    %t735 = index i8 [projection=array_element] %t733, %t734
+    call void @YA___YA(%t735)
+    %t736 = load ptr $this
+    %t737 = index i8 [projection=field] %t736, 0
+    %t738 = unary decay ptr %t737
+    %t739 = binary mul i64 4, 4
+    %t740 = index i8 [projection=array_element] %t738, %t739
+    call void @YA___YA(%t740)
+    %t741 = load ptr $this
+    %t742 = index i8 [projection=field] %t741, 0
+    %t743 = unary decay ptr %t742
+    %t744 = binary mul i64 3, 4
+    %t745 = index i8 [projection=array_element] %t743, %t744
+    call void @YA___YA(%t745)
+    %t746 = load ptr $this
+    %t747 = index i8 [projection=field] %t746, 0
+    %t748 = unary decay ptr %t747
+    %t749 = binary mul i64 2, 4
+    %t750 = index i8 [projection=array_element] %t748, %t749
+    call void @YA___YA(%t750)
+    %t751 = load ptr $this
+    %t752 = index i8 [projection=field] %t751, 0
+    %t753 = unary decay ptr %t752
+    %t754 = binary mul i64 1, 4
+    %t755 = index i8 [projection=array_element] %t753, %t754
+    call void @YA___YA(%t755)
+    %t756 = load ptr $this
+    %t757 = index i8 [projection=field] %t756, 0
+    %t758 = unary decay ptr %t757
+    %t759 = binary mul i64 0, 4
+    %t760 = index i8 [projection=array_element] %t758, %t759
+    call void @YA___YA(%t760)
+    eh_end
+    resume
+
+  block ^destructor_end_2:
+    return void
+}
+function @YA___YA(%this : ptr) -> void [binding=weak, object=_ZN2YAD1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load i32 @sink
+    %t2 = binary sub i32 %t1, 1
+    store i32 %t2, @sink
+    return void
+}
+function @YX__YX(%this : ptr) -> void [binding=weak, object=_ZN2YXC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = unary decay ptr %t2
+    %t4 = binary mul i64 0, 4
+    %t5 = index i8 [projection=array_element] %t3, %t4
+    call void @YA__YA(%t5)
+    eh_try ^call_unwind_dispatch_1
+    %t6 = load ptr $this
+    %t7 = index i8 [projection=field] %t6, 0
+    %t8 = unary decay ptr %t7
+    %t9 = binary mul i64 1, 4
+    %t10 = index i8 [projection=array_element] %t8, %t9
+    call void @YA__YA(%t10)
+    eh_end
+    jump ^call_unwind_end_2
+
+  block ^call_unwind_dispatch_1:
+    %t11 = load ptr $this
+    %t12 = index i8 [projection=field] %t11, 0
+    %t13 = unary decay ptr %t12
+    %t14 = binary mul i64 0, 4
+    %t15 = index i8 [projection=array_element] %t13, %t14
+    call void @YA___YA(%t15)
+    resume
+
+  block ^call_unwind_end_2:
+    eh_try ^call_unwind_dispatch_3
+    %t16 = load ptr $this
+    %t17 = index i8 [projection=field] %t16, 0
+    %t18 = unary decay ptr %t17
+    %t19 = binary mul i64 2, 4
+    %t20 = index i8 [projection=array_element] %t18, %t19
+    call void @YA__YA(%t20)
+    eh_end
+    jump ^call_unwind_end_4
+
+  block ^call_unwind_dispatch_3:
+    %t21 = load ptr $this
+    %t22 = index i8 [projection=field] %t21, 0
+    %t23 = unary decay ptr %t22
+    %t24 = binary mul i64 1, 4
+    %t25 = index i8 [projection=array_element] %t23, %t24
+    call void @YA___YA(%t25)
+    %t26 = load ptr $this
+    %t27 = index i8 [projection=field] %t26, 0
+    %t28 = unary decay ptr %t27
+    %t29 = binary mul i64 0, 4
+    %t30 = index i8 [projection=array_element] %t28, %t29
+    call void @YA___YA(%t30)
+    resume
+
+  block ^call_unwind_end_4:
+    eh_try ^call_unwind_dispatch_5
+    %t31 = load ptr $this
+    %t32 = index i8 [projection=field] %t31, 0
+    %t33 = unary decay ptr %t32
+    %t34 = binary mul i64 3, 4
+    %t35 = index i8 [projection=array_element] %t33, %t34
+    call void @YA__YA(%t35)
+    eh_end
+    jump ^call_unwind_end_6
+
+  block ^call_unwind_dispatch_5:
+    %t36 = load ptr $this
+    %t37 = index i8 [projection=field] %t36, 0
+    %t38 = unary decay ptr %t37
+    %t39 = binary mul i64 2, 4
+    %t40 = index i8 [projection=array_element] %t38, %t39
+    call void @YA___YA(%t40)
+    %t41 = load ptr $this
+    %t42 = index i8 [projection=field] %t41, 0
+    %t43 = unary decay ptr %t42
+    %t44 = binary mul i64 1, 4
+    %t45 = index i8 [projection=array_element] %t43, %t44
+    call void @YA___YA(%t45)
+    %t46 = load ptr $this
+    %t47 = index i8 [projection=field] %t46, 0
+    %t48 = unary decay ptr %t47
+    %t49 = binary mul i64 0, 4
+    %t50 = index i8 [projection=array_element] %t48, %t49
+    call void @YA___YA(%t50)
+    resume
+
+  block ^call_unwind_end_6:
+    eh_try ^call_unwind_dispatch_7
+    %t51 = load ptr $this
+    %t52 = index i8 [projection=field] %t51, 0
+    %t53 = unary decay ptr %t52
+    %t54 = binary mul i64 4, 4
+    %t55 = index i8 [projection=array_element] %t53, %t54
+    call void @YA__YA(%t55)
+    eh_end
+    jump ^call_unwind_end_8
+
+  block ^call_unwind_dispatch_7:
+    %t56 = load ptr $this
+    %t57 = index i8 [projection=field] %t56, 0
+    %t58 = unary decay ptr %t57
+    %t59 = binary mul i64 3, 4
+    %t60 = index i8 [projection=array_element] %t58, %t59
+    call void @YA___YA(%t60)
+    %t61 = load ptr $this
+    %t62 = index i8 [projection=field] %t61, 0
+    %t63 = unary decay ptr %t62
+    %t64 = binary mul i64 2, 4
+    %t65 = index i8 [projection=array_element] %t63, %t64
+    call void @YA___YA(%t65)
+    %t66 = load ptr $this
+    %t67 = index i8 [projection=field] %t66, 0
+    %t68 = unary decay ptr %t67
+    %t69 = binary mul i64 1, 4
+    %t70 = index i8 [projection=array_element] %t68, %t69
+    call void @YA___YA(%t70)
+    %t71 = load ptr $this
+    %t72 = index i8 [projection=field] %t71, 0
+    %t73 = unary decay ptr %t72
+    %t74 = binary mul i64 0, 4
+    %t75 = index i8 [projection=array_element] %t73, %t74
+    call void @YA___YA(%t75)
+    resume
+
+  block ^call_unwind_end_8:
+    eh_try ^call_unwind_dispatch_9
+    %t76 = load ptr $this
+    %t77 = index i8 [projection=field] %t76, 0
+    %t78 = unary decay ptr %t77
+    %t79 = binary mul i64 5, 4
+    %t80 = index i8 [projection=array_element] %t78, %t79
+    call void @YA__YA(%t80)
+    eh_end
+    jump ^call_unwind_end_10
+
+  block ^call_unwind_dispatch_9:
+    %t81 = load ptr $this
+    %t82 = index i8 [projection=field] %t81, 0
+    %t83 = unary decay ptr %t82
+    %t84 = binary mul i64 4, 4
+    %t85 = index i8 [projection=array_element] %t83, %t84
+    call void @YA___YA(%t85)
+    %t86 = load ptr $this
+    %t87 = index i8 [projection=field] %t86, 0
+    %t88 = unary decay ptr %t87
+    %t89 = binary mul i64 3, 4
+    %t90 = index i8 [projection=array_element] %t88, %t89
+    call void @YA___YA(%t90)
+    %t91 = load ptr $this
+    %t92 = index i8 [projection=field] %t91, 0
+    %t93 = unary decay ptr %t92
+    %t94 = binary mul i64 2, 4
+    %t95 = index i8 [projection=array_element] %t93, %t94
+    call void @YA___YA(%t95)
+    %t96 = load ptr $this
+    %t97 = index i8 [projection=field] %t96, 0
+    %t98 = unary decay ptr %t97
+    %t99 = binary mul i64 1, 4
+    %t100 = index i8 [projection=array_element] %t98, %t99
+    call void @YA___YA(%t100)
+    %t101 = load ptr $this
+    %t102 = index i8 [projection=field] %t101, 0
+    %t103 = unary decay ptr %t102
+    %t104 = binary mul i64 0, 4
+    %t105 = index i8 [projection=array_element] %t103, %t104
+    call void @YA___YA(%t105)
+    resume
+
+  block ^call_unwind_end_10:
+    eh_try ^call_unwind_dispatch_11
+    %t106 = load ptr $this
+    %t107 = index i8 [projection=field] %t106, 0
+    %t108 = unary decay ptr %t107
+    %t109 = binary mul i64 6, 4
+    %t110 = index i8 [projection=array_element] %t108, %t109
+    call void @YA__YA(%t110)
+    eh_end
+    jump ^call_unwind_end_12
+
+  block ^call_unwind_dispatch_11:
+    %t111 = load ptr $this
+    %t112 = index i8 [projection=field] %t111, 0
+    %t113 = unary decay ptr %t112
+    %t114 = binary mul i64 5, 4
+    %t115 = index i8 [projection=array_element] %t113, %t114
+    call void @YA___YA(%t115)
+    %t116 = load ptr $this
+    %t117 = index i8 [projection=field] %t116, 0
+    %t118 = unary decay ptr %t117
+    %t119 = binary mul i64 4, 4
+    %t120 = index i8 [projection=array_element] %t118, %t119
+    call void @YA___YA(%t120)
+    %t121 = load ptr $this
+    %t122 = index i8 [projection=field] %t121, 0
+    %t123 = unary decay ptr %t122
+    %t124 = binary mul i64 3, 4
+    %t125 = index i8 [projection=array_element] %t123, %t124
+    call void @YA___YA(%t125)
+    %t126 = load ptr $this
+    %t127 = index i8 [projection=field] %t126, 0
+    %t128 = unary decay ptr %t127
+    %t129 = binary mul i64 2, 4
+    %t130 = index i8 [projection=array_element] %t128, %t129
+    call void @YA___YA(%t130)
+    %t131 = load ptr $this
+    %t132 = index i8 [projection=field] %t131, 0
+    %t133 = unary decay ptr %t132
+    %t134 = binary mul i64 1, 4
+    %t135 = index i8 [projection=array_element] %t133, %t134
+    call void @YA___YA(%t135)
+    %t136 = load ptr $this
+    %t137 = index i8 [projection=field] %t136, 0
+    %t138 = unary decay ptr %t137
+    %t139 = binary mul i64 0, 4
+    %t140 = index i8 [projection=array_element] %t138, %t139
+    call void @YA___YA(%t140)
+    resume
+
+  block ^call_unwind_end_12:
+    eh_try ^call_unwind_dispatch_13
+    %t141 = load ptr $this
+    %t142 = index i8 [projection=field] %t141, 0
+    %t143 = unary decay ptr %t142
+    %t144 = binary mul i64 7, 4
+    %t145 = index i8 [projection=array_element] %t143, %t144
+    call void @YA__YA(%t145)
+    eh_end
+    jump ^call_unwind_end_14
+
+  block ^call_unwind_dispatch_13:
+    %t146 = load ptr $this
+    %t147 = index i8 [projection=field] %t146, 0
+    %t148 = unary decay ptr %t147
+    %t149 = binary mul i64 6, 4
+    %t150 = index i8 [projection=array_element] %t148, %t149
+    call void @YA___YA(%t150)
+    %t151 = load ptr $this
+    %t152 = index i8 [projection=field] %t151, 0
+    %t153 = unary decay ptr %t152
+    %t154 = binary mul i64 5, 4
+    %t155 = index i8 [projection=array_element] %t153, %t154
+    call void @YA___YA(%t155)
+    %t156 = load ptr $this
+    %t157 = index i8 [projection=field] %t156, 0
+    %t158 = unary decay ptr %t157
+    %t159 = binary mul i64 4, 4
+    %t160 = index i8 [projection=array_element] %t158, %t159
+    call void @YA___YA(%t160)
+    %t161 = load ptr $this
+    %t162 = index i8 [projection=field] %t161, 0
+    %t163 = unary decay ptr %t162
+    %t164 = binary mul i64 3, 4
+    %t165 = index i8 [projection=array_element] %t163, %t164
+    call void @YA___YA(%t165)
+    %t166 = load ptr $this
+    %t167 = index i8 [projection=field] %t166, 0
+    %t168 = unary decay ptr %t167
+    %t169 = binary mul i64 2, 4
+    %t170 = index i8 [projection=array_element] %t168, %t169
+    call void @YA___YA(%t170)
+    %t171 = load ptr $this
+    %t172 = index i8 [projection=field] %t171, 0
+    %t173 = unary decay ptr %t172
+    %t174 = binary mul i64 1, 4
+    %t175 = index i8 [projection=array_element] %t173, %t174
+    call void @YA___YA(%t175)
+    %t176 = load ptr $this
+    %t177 = index i8 [projection=field] %t176, 0
+    %t178 = unary decay ptr %t177
+    %t179 = binary mul i64 0, 4
+    %t180 = index i8 [projection=array_element] %t178, %t179
+    call void @YA___YA(%t180)
+    resume
+
+  block ^call_unwind_end_14:
+    eh_try ^call_unwind_dispatch_15
+    %t181 = load ptr $this
+    %t182 = index i8 [projection=field] %t181, 0
+    %t183 = unary decay ptr %t182
+    %t184 = binary mul i64 8, 4
+    %t185 = index i8 [projection=array_element] %t183, %t184
+    call void @YA__YA(%t185)
+    eh_end
+    jump ^call_unwind_end_16
+
+  block ^call_unwind_dispatch_15:
+    %t186 = load ptr $this
+    %t187 = index i8 [projection=field] %t186, 0
+    %t188 = unary decay ptr %t187
+    %t189 = binary mul i64 7, 4
+    %t190 = index i8 [projection=array_element] %t188, %t189
+    call void @YA___YA(%t190)
+    %t191 = load ptr $this
+    %t192 = index i8 [projection=field] %t191, 0
+    %t193 = unary decay ptr %t192
+    %t194 = binary mul i64 6, 4
+    %t195 = index i8 [projection=array_element] %t193, %t194
+    call void @YA___YA(%t195)
+    %t196 = load ptr $this
+    %t197 = index i8 [projection=field] %t196, 0
+    %t198 = unary decay ptr %t197
+    %t199 = binary mul i64 5, 4
+    %t200 = index i8 [projection=array_element] %t198, %t199
+    call void @YA___YA(%t200)
+    %t201 = load ptr $this
+    %t202 = index i8 [projection=field] %t201, 0
+    %t203 = unary decay ptr %t202
+    %t204 = binary mul i64 4, 4
+    %t205 = index i8 [projection=array_element] %t203, %t204
+    call void @YA___YA(%t205)
+    %t206 = load ptr $this
+    %t207 = index i8 [projection=field] %t206, 0
+    %t208 = unary decay ptr %t207
+    %t209 = binary mul i64 3, 4
+    %t210 = index i8 [projection=array_element] %t208, %t209
+    call void @YA___YA(%t210)
+    %t211 = load ptr $this
+    %t212 = index i8 [projection=field] %t211, 0
+    %t213 = unary decay ptr %t212
+    %t214 = binary mul i64 2, 4
+    %t215 = index i8 [projection=array_element] %t213, %t214
+    call void @YA___YA(%t215)
+    %t216 = load ptr $this
+    %t217 = index i8 [projection=field] %t216, 0
+    %t218 = unary decay ptr %t217
+    %t219 = binary mul i64 1, 4
+    %t220 = index i8 [projection=array_element] %t218, %t219
+    call void @YA___YA(%t220)
+    %t221 = load ptr $this
+    %t222 = index i8 [projection=field] %t221, 0
+    %t223 = unary decay ptr %t222
+    %t224 = binary mul i64 0, 4
+    %t225 = index i8 [projection=array_element] %t223, %t224
+    call void @YA___YA(%t225)
+    resume
+
+  block ^call_unwind_end_16:
+    eh_try ^call_unwind_dispatch_17
+    %t226 = load ptr $this
+    %t227 = index i8 [projection=field] %t226, 0
+    %t228 = unary decay ptr %t227
+    %t229 = binary mul i64 9, 4
+    %t230 = index i8 [projection=array_element] %t228, %t229
+    call void @YA__YA(%t230)
+    eh_end
+    jump ^call_unwind_end_18
+
+  block ^call_unwind_dispatch_17:
+    %t231 = load ptr $this
+    %t232 = index i8 [projection=field] %t231, 0
+    %t233 = unary decay ptr %t232
+    %t234 = binary mul i64 8, 4
+    %t235 = index i8 [projection=array_element] %t233, %t234
+    call void @YA___YA(%t235)
+    %t236 = load ptr $this
+    %t237 = index i8 [projection=field] %t236, 0
+    %t238 = unary decay ptr %t237
+    %t239 = binary mul i64 7, 4
+    %t240 = index i8 [projection=array_element] %t238, %t239
+    call void @YA___YA(%t240)
+    %t241 = load ptr $this
+    %t242 = index i8 [projection=field] %t241, 0
+    %t243 = unary decay ptr %t242
+    %t244 = binary mul i64 6, 4
+    %t245 = index i8 [projection=array_element] %t243, %t244
+    call void @YA___YA(%t245)
+    %t246 = load ptr $this
+    %t247 = index i8 [projection=field] %t246, 0
+    %t248 = unary decay ptr %t247
+    %t249 = binary mul i64 5, 4
+    %t250 = index i8 [projection=array_element] %t248, %t249
+    call void @YA___YA(%t250)
+    %t251 = load ptr $this
+    %t252 = index i8 [projection=field] %t251, 0
+    %t253 = unary decay ptr %t252
+    %t254 = binary mul i64 4, 4
+    %t255 = index i8 [projection=array_element] %t253, %t254
+    call void @YA___YA(%t255)
+    %t256 = load ptr $this
+    %t257 = index i8 [projection=field] %t256, 0
+    %t258 = unary decay ptr %t257
+    %t259 = binary mul i64 3, 4
+    %t260 = index i8 [projection=array_element] %t258, %t259
+    call void @YA___YA(%t260)
+    %t261 = load ptr $this
+    %t262 = index i8 [projection=field] %t261, 0
+    %t263 = unary decay ptr %t262
+    %t264 = binary mul i64 2, 4
+    %t265 = index i8 [projection=array_element] %t263, %t264
+    call void @YA___YA(%t265)
+    %t266 = load ptr $this
+    %t267 = index i8 [projection=field] %t266, 0
+    %t268 = unary decay ptr %t267
+    %t269 = binary mul i64 1, 4
+    %t270 = index i8 [projection=array_element] %t268, %t269
+    call void @YA___YA(%t270)
+    %t271 = load ptr $this
+    %t272 = index i8 [projection=field] %t271, 0
+    %t273 = unary decay ptr %t272
+    %t274 = binary mul i64 0, 4
+    %t275 = index i8 [projection=array_element] %t273, %t274
+    call void @YA___YA(%t275)
+    resume
+
+  block ^call_unwind_end_18:
+    eh_try ^call_unwind_dispatch_19
+    %t276 = load ptr $this
+    %t277 = index i8 [projection=field] %t276, 0
+    %t278 = unary decay ptr %t277
+    %t279 = binary mul i64 10, 4
+    %t280 = index i8 [projection=array_element] %t278, %t279
+    call void @YA__YA(%t280)
+    eh_end
+    jump ^call_unwind_end_20
+
+  block ^call_unwind_dispatch_19:
+    %t281 = load ptr $this
+    %t282 = index i8 [projection=field] %t281, 0
+    %t283 = unary decay ptr %t282
+    %t284 = binary mul i64 9, 4
+    %t285 = index i8 [projection=array_element] %t283, %t284
+    call void @YA___YA(%t285)
+    %t286 = load ptr $this
+    %t287 = index i8 [projection=field] %t286, 0
+    %t288 = unary decay ptr %t287
+    %t289 = binary mul i64 8, 4
+    %t290 = index i8 [projection=array_element] %t288, %t289
+    call void @YA___YA(%t290)
+    %t291 = load ptr $this
+    %t292 = index i8 [projection=field] %t291, 0
+    %t293 = unary decay ptr %t292
+    %t294 = binary mul i64 7, 4
+    %t295 = index i8 [projection=array_element] %t293, %t294
+    call void @YA___YA(%t295)
+    %t296 = load ptr $this
+    %t297 = index i8 [projection=field] %t296, 0
+    %t298 = unary decay ptr %t297
+    %t299 = binary mul i64 6, 4
+    %t300 = index i8 [projection=array_element] %t298, %t299
+    call void @YA___YA(%t300)
+    %t301 = load ptr $this
+    %t302 = index i8 [projection=field] %t301, 0
+    %t303 = unary decay ptr %t302
+    %t304 = binary mul i64 5, 4
+    %t305 = index i8 [projection=array_element] %t303, %t304
+    call void @YA___YA(%t305)
+    %t306 = load ptr $this
+    %t307 = index i8 [projection=field] %t306, 0
+    %t308 = unary decay ptr %t307
+    %t309 = binary mul i64 4, 4
+    %t310 = index i8 [projection=array_element] %t308, %t309
+    call void @YA___YA(%t310)
+    %t311 = load ptr $this
+    %t312 = index i8 [projection=field] %t311, 0
+    %t313 = unary decay ptr %t312
+    %t314 = binary mul i64 3, 4
+    %t315 = index i8 [projection=array_element] %t313, %t314
+    call void @YA___YA(%t315)
+    %t316 = load ptr $this
+    %t317 = index i8 [projection=field] %t316, 0
+    %t318 = unary decay ptr %t317
+    %t319 = binary mul i64 2, 4
+    %t320 = index i8 [projection=array_element] %t318, %t319
+    call void @YA___YA(%t320)
+    %t321 = load ptr $this
+    %t322 = index i8 [projection=field] %t321, 0
+    %t323 = unary decay ptr %t322
+    %t324 = binary mul i64 1, 4
+    %t325 = index i8 [projection=array_element] %t323, %t324
+    call void @YA___YA(%t325)
+    %t326 = load ptr $this
+    %t327 = index i8 [projection=field] %t326, 0
+    %t328 = unary decay ptr %t327
+    %t329 = binary mul i64 0, 4
+    %t330 = index i8 [projection=array_element] %t328, %t329
+    call void @YA___YA(%t330)
+    resume
+
+  block ^call_unwind_end_20:
+    eh_try ^call_unwind_dispatch_21
+    %t331 = load ptr $this
+    %t332 = index i8 [projection=field] %t331, 0
+    %t333 = unary decay ptr %t332
+    %t334 = binary mul i64 11, 4
+    %t335 = index i8 [projection=array_element] %t333, %t334
+    call void @YA__YA(%t335)
+    eh_end
+    jump ^call_unwind_end_22
+
+  block ^call_unwind_dispatch_21:
+    %t336 = load ptr $this
+    %t337 = index i8 [projection=field] %t336, 0
+    %t338 = unary decay ptr %t337
+    %t339 = binary mul i64 10, 4
+    %t340 = index i8 [projection=array_element] %t338, %t339
+    call void @YA___YA(%t340)
+    %t341 = load ptr $this
+    %t342 = index i8 [projection=field] %t341, 0
+    %t343 = unary decay ptr %t342
+    %t344 = binary mul i64 9, 4
+    %t345 = index i8 [projection=array_element] %t343, %t344
+    call void @YA___YA(%t345)
+    %t346 = load ptr $this
+    %t347 = index i8 [projection=field] %t346, 0
+    %t348 = unary decay ptr %t347
+    %t349 = binary mul i64 8, 4
+    %t350 = index i8 [projection=array_element] %t348, %t349
+    call void @YA___YA(%t350)
+    %t351 = load ptr $this
+    %t352 = index i8 [projection=field] %t351, 0
+    %t353 = unary decay ptr %t352
+    %t354 = binary mul i64 7, 4
+    %t355 = index i8 [projection=array_element] %t353, %t354
+    call void @YA___YA(%t355)
+    %t356 = load ptr $this
+    %t357 = index i8 [projection=field] %t356, 0
+    %t358 = unary decay ptr %t357
+    %t359 = binary mul i64 6, 4
+    %t360 = index i8 [projection=array_element] %t358, %t359
+    call void @YA___YA(%t360)
+    %t361 = load ptr $this
+    %t362 = index i8 [projection=field] %t361, 0
+    %t363 = unary decay ptr %t362
+    %t364 = binary mul i64 5, 4
+    %t365 = index i8 [projection=array_element] %t363, %t364
+    call void @YA___YA(%t365)
+    %t366 = load ptr $this
+    %t367 = index i8 [projection=field] %t366, 0
+    %t368 = unary decay ptr %t367
+    %t369 = binary mul i64 4, 4
+    %t370 = index i8 [projection=array_element] %t368, %t369
+    call void @YA___YA(%t370)
+    %t371 = load ptr $this
+    %t372 = index i8 [projection=field] %t371, 0
+    %t373 = unary decay ptr %t372
+    %t374 = binary mul i64 3, 4
+    %t375 = index i8 [projection=array_element] %t373, %t374
+    call void @YA___YA(%t375)
+    %t376 = load ptr $this
+    %t377 = index i8 [projection=field] %t376, 0
+    %t378 = unary decay ptr %t377
+    %t379 = binary mul i64 2, 4
+    %t380 = index i8 [projection=array_element] %t378, %t379
+    call void @YA___YA(%t380)
+    %t381 = load ptr $this
+    %t382 = index i8 [projection=field] %t381, 0
+    %t383 = unary decay ptr %t382
+    %t384 = binary mul i64 1, 4
+    %t385 = index i8 [projection=array_element] %t383, %t384
+    call void @YA___YA(%t385)
+    %t386 = load ptr $this
+    %t387 = index i8 [projection=field] %t386, 0
+    %t388 = unary decay ptr %t387
+    %t389 = binary mul i64 0, 4
+    %t390 = index i8 [projection=array_element] %t388, %t389
+    call void @YA___YA(%t390)
+    resume
+
+  block ^call_unwind_end_22:
+    eh_try ^call_unwind_dispatch_23
+    %t391 = load ptr $this
+    %t392 = index i8 [projection=field] %t391, 0
+    %t393 = unary decay ptr %t392
+    %t394 = binary mul i64 12, 4
+    %t395 = index i8 [projection=array_element] %t393, %t394
+    call void @YA__YA(%t395)
+    eh_end
+    jump ^call_unwind_end_24
+
+  block ^call_unwind_dispatch_23:
+    %t396 = load ptr $this
+    %t397 = index i8 [projection=field] %t396, 0
+    %t398 = unary decay ptr %t397
+    %t399 = binary mul i64 11, 4
+    %t400 = index i8 [projection=array_element] %t398, %t399
+    call void @YA___YA(%t400)
+    %t401 = load ptr $this
+    %t402 = index i8 [projection=field] %t401, 0
+    %t403 = unary decay ptr %t402
+    %t404 = binary mul i64 10, 4
+    %t405 = index i8 [projection=array_element] %t403, %t404
+    call void @YA___YA(%t405)
+    %t406 = load ptr $this
+    %t407 = index i8 [projection=field] %t406, 0
+    %t408 = unary decay ptr %t407
+    %t409 = binary mul i64 9, 4
+    %t410 = index i8 [projection=array_element] %t408, %t409
+    call void @YA___YA(%t410)
+    %t411 = load ptr $this
+    %t412 = index i8 [projection=field] %t411, 0
+    %t413 = unary decay ptr %t412
+    %t414 = binary mul i64 8, 4
+    %t415 = index i8 [projection=array_element] %t413, %t414
+    call void @YA___YA(%t415)
+    %t416 = load ptr $this
+    %t417 = index i8 [projection=field] %t416, 0
+    %t418 = unary decay ptr %t417
+    %t419 = binary mul i64 7, 4
+    %t420 = index i8 [projection=array_element] %t418, %t419
+    call void @YA___YA(%t420)
+    %t421 = load ptr $this
+    %t422 = index i8 [projection=field] %t421, 0
+    %t423 = unary decay ptr %t422
+    %t424 = binary mul i64 6, 4
+    %t425 = index i8 [projection=array_element] %t423, %t424
+    call void @YA___YA(%t425)
+    %t426 = load ptr $this
+    %t427 = index i8 [projection=field] %t426, 0
+    %t428 = unary decay ptr %t427
+    %t429 = binary mul i64 5, 4
+    %t430 = index i8 [projection=array_element] %t428, %t429
+    call void @YA___YA(%t430)
+    %t431 = load ptr $this
+    %t432 = index i8 [projection=field] %t431, 0
+    %t433 = unary decay ptr %t432
+    %t434 = binary mul i64 4, 4
+    %t435 = index i8 [projection=array_element] %t433, %t434
+    call void @YA___YA(%t435)
+    %t436 = load ptr $this
+    %t437 = index i8 [projection=field] %t436, 0
+    %t438 = unary decay ptr %t437
+    %t439 = binary mul i64 3, 4
+    %t440 = index i8 [projection=array_element] %t438, %t439
+    call void @YA___YA(%t440)
+    %t441 = load ptr $this
+    %t442 = index i8 [projection=field] %t441, 0
+    %t443 = unary decay ptr %t442
+    %t444 = binary mul i64 2, 4
+    %t445 = index i8 [projection=array_element] %t443, %t444
+    call void @YA___YA(%t445)
+    %t446 = load ptr $this
+    %t447 = index i8 [projection=field] %t446, 0
+    %t448 = unary decay ptr %t447
+    %t449 = binary mul i64 1, 4
+    %t450 = index i8 [projection=array_element] %t448, %t449
+    call void @YA___YA(%t450)
+    %t451 = load ptr $this
+    %t452 = index i8 [projection=field] %t451, 0
+    %t453 = unary decay ptr %t452
+    %t454 = binary mul i64 0, 4
+    %t455 = index i8 [projection=array_element] %t453, %t454
+    call void @YA___YA(%t455)
+    resume
+
+  block ^call_unwind_end_24:
+    eh_try ^call_unwind_dispatch_25
+    %t456 = load ptr $this
+    %t457 = index i8 [projection=field] %t456, 0
+    %t458 = unary decay ptr %t457
+    %t459 = binary mul i64 13, 4
+    %t460 = index i8 [projection=array_element] %t458, %t459
+    call void @YA__YA(%t460)
+    eh_end
+    jump ^call_unwind_end_26
+
+  block ^call_unwind_dispatch_25:
+    %t461 = load ptr $this
+    %t462 = index i8 [projection=field] %t461, 0
+    %t463 = unary decay ptr %t462
+    %t464 = binary mul i64 12, 4
+    %t465 = index i8 [projection=array_element] %t463, %t464
+    call void @YA___YA(%t465)
+    %t466 = load ptr $this
+    %t467 = index i8 [projection=field] %t466, 0
+    %t468 = unary decay ptr %t467
+    %t469 = binary mul i64 11, 4
+    %t470 = index i8 [projection=array_element] %t468, %t469
+    call void @YA___YA(%t470)
+    %t471 = load ptr $this
+    %t472 = index i8 [projection=field] %t471, 0
+    %t473 = unary decay ptr %t472
+    %t474 = binary mul i64 10, 4
+    %t475 = index i8 [projection=array_element] %t473, %t474
+    call void @YA___YA(%t475)
+    %t476 = load ptr $this
+    %t477 = index i8 [projection=field] %t476, 0
+    %t478 = unary decay ptr %t477
+    %t479 = binary mul i64 9, 4
+    %t480 = index i8 [projection=array_element] %t478, %t479
+    call void @YA___YA(%t480)
+    %t481 = load ptr $this
+    %t482 = index i8 [projection=field] %t481, 0
+    %t483 = unary decay ptr %t482
+    %t484 = binary mul i64 8, 4
+    %t485 = index i8 [projection=array_element] %t483, %t484
+    call void @YA___YA(%t485)
+    %t486 = load ptr $this
+    %t487 = index i8 [projection=field] %t486, 0
+    %t488 = unary decay ptr %t487
+    %t489 = binary mul i64 7, 4
+    %t490 = index i8 [projection=array_element] %t488, %t489
+    call void @YA___YA(%t490)
+    %t491 = load ptr $this
+    %t492 = index i8 [projection=field] %t491, 0
+    %t493 = unary decay ptr %t492
+    %t494 = binary mul i64 6, 4
+    %t495 = index i8 [projection=array_element] %t493, %t494
+    call void @YA___YA(%t495)
+    %t496 = load ptr $this
+    %t497 = index i8 [projection=field] %t496, 0
+    %t498 = unary decay ptr %t497
+    %t499 = binary mul i64 5, 4
+    %t500 = index i8 [projection=array_element] %t498, %t499
+    call void @YA___YA(%t500)
+    %t501 = load ptr $this
+    %t502 = index i8 [projection=field] %t501, 0
+    %t503 = unary decay ptr %t502
+    %t504 = binary mul i64 4, 4
+    %t505 = index i8 [projection=array_element] %t503, %t504
+    call void @YA___YA(%t505)
+    %t506 = load ptr $this
+    %t507 = index i8 [projection=field] %t506, 0
+    %t508 = unary decay ptr %t507
+    %t509 = binary mul i64 3, 4
+    %t510 = index i8 [projection=array_element] %t508, %t509
+    call void @YA___YA(%t510)
+    %t511 = load ptr $this
+    %t512 = index i8 [projection=field] %t511, 0
+    %t513 = unary decay ptr %t512
+    %t514 = binary mul i64 2, 4
+    %t515 = index i8 [projection=array_element] %t513, %t514
+    call void @YA___YA(%t515)
+    %t516 = load ptr $this
+    %t517 = index i8 [projection=field] %t516, 0
+    %t518 = unary decay ptr %t517
+    %t519 = binary mul i64 1, 4
+    %t520 = index i8 [projection=array_element] %t518, %t519
+    call void @YA___YA(%t520)
+    %t521 = load ptr $this
+    %t522 = index i8 [projection=field] %t521, 0
+    %t523 = unary decay ptr %t522
+    %t524 = binary mul i64 0, 4
+    %t525 = index i8 [projection=array_element] %t523, %t524
+    call void @YA___YA(%t525)
+    resume
+
+  block ^call_unwind_end_26:
+    eh_try ^call_unwind_dispatch_27
+    %t526 = load ptr $this
+    %t527 = index i8 [projection=field] %t526, 0
+    %t528 = unary decay ptr %t527
+    %t529 = binary mul i64 14, 4
+    %t530 = index i8 [projection=array_element] %t528, %t529
+    call void @YA__YA(%t530)
+    eh_end
+    jump ^call_unwind_end_28
+
+  block ^call_unwind_dispatch_27:
+    %t531 = load ptr $this
+    %t532 = index i8 [projection=field] %t531, 0
+    %t533 = unary decay ptr %t532
+    %t534 = binary mul i64 13, 4
+    %t535 = index i8 [projection=array_element] %t533, %t534
+    call void @YA___YA(%t535)
+    %t536 = load ptr $this
+    %t537 = index i8 [projection=field] %t536, 0
+    %t538 = unary decay ptr %t537
+    %t539 = binary mul i64 12, 4
+    %t540 = index i8 [projection=array_element] %t538, %t539
+    call void @YA___YA(%t540)
+    %t541 = load ptr $this
+    %t542 = index i8 [projection=field] %t541, 0
+    %t543 = unary decay ptr %t542
+    %t544 = binary mul i64 11, 4
+    %t545 = index i8 [projection=array_element] %t543, %t544
+    call void @YA___YA(%t545)
+    %t546 = load ptr $this
+    %t547 = index i8 [projection=field] %t546, 0
+    %t548 = unary decay ptr %t547
+    %t549 = binary mul i64 10, 4
+    %t550 = index i8 [projection=array_element] %t548, %t549
+    call void @YA___YA(%t550)
+    %t551 = load ptr $this
+    %t552 = index i8 [projection=field] %t551, 0
+    %t553 = unary decay ptr %t552
+    %t554 = binary mul i64 9, 4
+    %t555 = index i8 [projection=array_element] %t553, %t554
+    call void @YA___YA(%t555)
+    %t556 = load ptr $this
+    %t557 = index i8 [projection=field] %t556, 0
+    %t558 = unary decay ptr %t557
+    %t559 = binary mul i64 8, 4
+    %t560 = index i8 [projection=array_element] %t558, %t559
+    call void @YA___YA(%t560)
+    %t561 = load ptr $this
+    %t562 = index i8 [projection=field] %t561, 0
+    %t563 = unary decay ptr %t562
+    %t564 = binary mul i64 7, 4
+    %t565 = index i8 [projection=array_element] %t563, %t564
+    call void @YA___YA(%t565)
+    %t566 = load ptr $this
+    %t567 = index i8 [projection=field] %t566, 0
+    %t568 = unary decay ptr %t567
+    %t569 = binary mul i64 6, 4
+    %t570 = index i8 [projection=array_element] %t568, %t569
+    call void @YA___YA(%t570)
+    %t571 = load ptr $this
+    %t572 = index i8 [projection=field] %t571, 0
+    %t573 = unary decay ptr %t572
+    %t574 = binary mul i64 5, 4
+    %t575 = index i8 [projection=array_element] %t573, %t574
+    call void @YA___YA(%t575)
+    %t576 = load ptr $this
+    %t577 = index i8 [projection=field] %t576, 0
+    %t578 = unary decay ptr %t577
+    %t579 = binary mul i64 4, 4
+    %t580 = index i8 [projection=array_element] %t578, %t579
+    call void @YA___YA(%t580)
+    %t581 = load ptr $this
+    %t582 = index i8 [projection=field] %t581, 0
+    %t583 = unary decay ptr %t582
+    %t584 = binary mul i64 3, 4
+    %t585 = index i8 [projection=array_element] %t583, %t584
+    call void @YA___YA(%t585)
+    %t586 = load ptr $this
+    %t587 = index i8 [projection=field] %t586, 0
+    %t588 = unary decay ptr %t587
+    %t589 = binary mul i64 2, 4
+    %t590 = index i8 [projection=array_element] %t588, %t589
+    call void @YA___YA(%t590)
+    %t591 = load ptr $this
+    %t592 = index i8 [projection=field] %t591, 0
+    %t593 = unary decay ptr %t592
+    %t594 = binary mul i64 1, 4
+    %t595 = index i8 [projection=array_element] %t593, %t594
+    call void @YA___YA(%t595)
+    %t596 = load ptr $this
+    %t597 = index i8 [projection=field] %t596, 0
+    %t598 = unary decay ptr %t597
+    %t599 = binary mul i64 0, 4
+    %t600 = index i8 [projection=array_element] %t598, %t599
+    call void @YA___YA(%t600)
+    resume
+
+  block ^call_unwind_end_28:
+    eh_try ^call_unwind_dispatch_29
+    %t601 = load ptr $this
+    %t602 = index i8 [projection=field] %t601, 0
+    %t603 = unary decay ptr %t602
+    %t604 = binary mul i64 15, 4
+    %t605 = index i8 [projection=array_element] %t603, %t604
+    call void @YA__YA(%t605)
+    eh_end
+    jump ^call_unwind_end_30
+
+  block ^call_unwind_dispatch_29:
+    %t606 = load ptr $this
+    %t607 = index i8 [projection=field] %t606, 0
+    %t608 = unary decay ptr %t607
+    %t609 = binary mul i64 14, 4
+    %t610 = index i8 [projection=array_element] %t608, %t609
+    call void @YA___YA(%t610)
+    %t611 = load ptr $this
+    %t612 = index i8 [projection=field] %t611, 0
+    %t613 = unary decay ptr %t612
+    %t614 = binary mul i64 13, 4
+    %t615 = index i8 [projection=array_element] %t613, %t614
+    call void @YA___YA(%t615)
+    %t616 = load ptr $this
+    %t617 = index i8 [projection=field] %t616, 0
+    %t618 = unary decay ptr %t617
+    %t619 = binary mul i64 12, 4
+    %t620 = index i8 [projection=array_element] %t618, %t619
+    call void @YA___YA(%t620)
+    %t621 = load ptr $this
+    %t622 = index i8 [projection=field] %t621, 0
+    %t623 = unary decay ptr %t622
+    %t624 = binary mul i64 11, 4
+    %t625 = index i8 [projection=array_element] %t623, %t624
+    call void @YA___YA(%t625)
+    %t626 = load ptr $this
+    %t627 = index i8 [projection=field] %t626, 0
+    %t628 = unary decay ptr %t627
+    %t629 = binary mul i64 10, 4
+    %t630 = index i8 [projection=array_element] %t628, %t629
+    call void @YA___YA(%t630)
+    %t631 = load ptr $this
+    %t632 = index i8 [projection=field] %t631, 0
+    %t633 = unary decay ptr %t632
+    %t634 = binary mul i64 9, 4
+    %t635 = index i8 [projection=array_element] %t633, %t634
+    call void @YA___YA(%t635)
+    %t636 = load ptr $this
+    %t637 = index i8 [projection=field] %t636, 0
+    %t638 = unary decay ptr %t637
+    %t639 = binary mul i64 8, 4
+    %t640 = index i8 [projection=array_element] %t638, %t639
+    call void @YA___YA(%t640)
+    %t641 = load ptr $this
+    %t642 = index i8 [projection=field] %t641, 0
+    %t643 = unary decay ptr %t642
+    %t644 = binary mul i64 7, 4
+    %t645 = index i8 [projection=array_element] %t643, %t644
+    call void @YA___YA(%t645)
+    %t646 = load ptr $this
+    %t647 = index i8 [projection=field] %t646, 0
+    %t648 = unary decay ptr %t647
+    %t649 = binary mul i64 6, 4
+    %t650 = index i8 [projection=array_element] %t648, %t649
+    call void @YA___YA(%t650)
+    %t651 = load ptr $this
+    %t652 = index i8 [projection=field] %t651, 0
+    %t653 = unary decay ptr %t652
+    %t654 = binary mul i64 5, 4
+    %t655 = index i8 [projection=array_element] %t653, %t654
+    call void @YA___YA(%t655)
+    %t656 = load ptr $this
+    %t657 = index i8 [projection=field] %t656, 0
+    %t658 = unary decay ptr %t657
+    %t659 = binary mul i64 4, 4
+    %t660 = index i8 [projection=array_element] %t658, %t659
+    call void @YA___YA(%t660)
+    %t661 = load ptr $this
+    %t662 = index i8 [projection=field] %t661, 0
+    %t663 = unary decay ptr %t662
+    %t664 = binary mul i64 3, 4
+    %t665 = index i8 [projection=array_element] %t663, %t664
+    call void @YA___YA(%t665)
+    %t666 = load ptr $this
+    %t667 = index i8 [projection=field] %t666, 0
+    %t668 = unary decay ptr %t667
+    %t669 = binary mul i64 2, 4
+    %t670 = index i8 [projection=array_element] %t668, %t669
+    call void @YA___YA(%t670)
+    %t671 = load ptr $this
+    %t672 = index i8 [projection=field] %t671, 0
+    %t673 = unary decay ptr %t672
+    %t674 = binary mul i64 1, 4
+    %t675 = index i8 [projection=array_element] %t673, %t674
+    call void @YA___YA(%t675)
+    %t676 = load ptr $this
+    %t677 = index i8 [projection=field] %t676, 0
+    %t678 = unary decay ptr %t677
+    %t679 = binary mul i64 0, 4
+    %t680 = index i8 [projection=array_element] %t678, %t679
+    call void @YA___YA(%t680)
+    resume
+
+  block ^call_unwind_end_30:
+    store i32 100, @sink
+    return void
+}
+function @YA__YA(%this : ptr) -> void [binding=weak, object=_ZN2YAC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load i32 @sink
+    %t2 = binary add i32 %t1, 1
+    store i32 %t2, @sink
+    return void
+}
+function @__cppgm_init() -> void [role=init, binding=internal] {
+  block ^entry:
+    %t1 = addr @g
+    call void @YX__YX(%t1)
+    return void
+}
+function @__cppgm_fini() -> void [role=fini, binding=internal] {
+  block ^entry:
+    %t1 = addr @g
+    call void @YX___YX(%t1)
+    return void
+}
+alias object _ZN2YXD2Ev = @YX___YX
+alias object _ZN2YAD2Ev = @YA___YA
+alias object _ZN2YXC2Ev = @YX__YX
+alias object _ZN2YAC2Ev = @YA__YA
