@@ -1,1 +1,12 @@
-ERROR: a declaration of slot leaves out the thread_local an earlier declaration of it wrote
+ERROR: mismatched variable thread_local storage at tests/general/300-thread-local-declarations-must-agree-bad.t:5:5 [previous declaration at tests/general/300-thread-local-declarations-must-agree-bad.t:2:27] [top-level declaration 1 kind=simple-declaration ast={simple-declaration
+  decl-specifier-seq
+    decl-specifier KW_INT:int
+  init-declarator-list
+    init-declarator
+      declarator
+        identifier Holder::slot
+      initializer
+        literal 3
+}]
+Diagnostic context:
+collect_simple_declaration [int Holder::slot=3;] at tests/general/300-thread-local-declarations-must-agree-bad.t:5:1

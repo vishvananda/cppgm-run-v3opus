@@ -1,7 +1,7 @@
 ERROR: unsupported member function definition  [function main] [is_method no] [body_parent_scope <here>] [body_parent_bindings ] [body_function_scope <here>] [body_function_bindings ]
 Diagnostic context:
 analyze_function_binding_output [main]
-  analyze_statement [simple-declaration] at pa16/tests/general/300-mutable-names-a-data-member.t:9:3
+  analyze_statement [simple-declaration] at tests/general/300-mutable-names-a-data-member.t:9:3
     complete_class_type [struct holder]
-      populate_class_info [holder] at pa16/tests/general/300-mutable-names-a-data-member.t:2:1
-        class_member_function_definition [] at pa16/tests/general/300-mutable-names-a-data-member.t:4:3
+      populate_class_info [holder] at tests/general/300-mutable-names-a-data-member.t:2:1
+        class_member_function_definition [] at tests/general/300-mutable-names-a-data-member.t:4:3
