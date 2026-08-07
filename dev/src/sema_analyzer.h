@@ -499,6 +499,11 @@ private:
 	// region of, declared or found among the ones already there.
 	SemaEntity& declare_conversion(const AstNode& node, const Context& target,
 	                               const AstNode& carried);
+	// 12.3.2p1: the name a member access looked a conversion-function-id up
+	// under, which is the type it named rather than the tokens it spelled -
+	// `a.operator T()` and `a.operator U()` name one function where `T` and `U`
+	// are one type.  Any other member id is the name the program wrote.
+	std::string member_id_name(const AstNode& id, const Context& ctx);
 	// 12.3.2p1: the name a region binds a conversion to `type` under, which is
 	// the type and never the tokens the declaration spelled it with.
 	std::string conversion_name(TypeId type) const;

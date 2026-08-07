@@ -665,9 +665,10 @@ SemaAnalyzer::Value SemaAnalyzer::member_expression(const AstNode& node,
 	Value object = expression(*node.children[0], ctx, line);
 	Scope& region = object_region(node, object);
 	const AstNode& id = *node.children[1];
+	const std::string looked = member_id_name(id, ctx);
 	std::vector<SemaEntity*>& found = model_.open_overloads();
 	SemaEntity& found_member =
-		require(member_named(region, id.text, ctx, found), id.text);
+		require(member_named(region, looked, ctx, found), looked);
 	require_access(found_member, ctx.scope, &region);
 	require_protected_object(found, found_member, ctx.scope, &region);
 	// 7.3.3p1 and 11.2p5: the class the name was written on is the class that
@@ -901,9 +902,10 @@ void SemaAnalyzer::member_callee(const AstNode& callee, const Context& ctx,
 	const bool through_pointer = callee.token == OP_ARROW;
 	Scope& region = object_region(callee, object);
 	const AstNode& id = *callee.children[1];
+	const std::string looked = member_id_name(id, ctx);
 	std::vector<SemaEntity*>& found = model_.open_overloads();
 	SemaEntity& found_member =
-		require(member_named(region, id.text, ctx, found), id.text);
+		require(member_named(region, looked, ctx, found), looked);
 	require_access(found_member, ctx.scope, &region);
 	require_protected_object(found, found_member, ctx.scope, &region);
 	// 7.3.3p1: what a using-declaration brought into this class was found here

@@ -746,8 +746,13 @@ LowValue LowirFunctionLowering::binary_expression(const DumpNode& node)
 	if (types.is_object_pointer(types.strip_cv(common)) &&
 	    (op == OP_PLUS || op == OP_MINUS))
 	{
+		// 5p4: the left operand is read where it is written, so what it is
+		// worth is taken before the right operand runs - which is a difference
+		// only where the right operand is something that runs at all, a call of
+		// 12.3.2's conversion function among them.
+		const LowValue held = as_value(left);
 		const LowValue right = expression(*node.children[1]);
-		value.operand = pointer_operation(op, left, right, common, value.type);
+		value.operand = pointer_operation(op, held, right, common, value.type);
 		return value;
 	}
 	// 5p4: each operand is read where it is written, and the conversions the
@@ -824,10 +829,19 @@ Operand LowirFunctionLowering::pointer_operation(unsigned op,
 	TypeTable& types = unit_.types();
 	const TypeId pointer = types.strip_cv(common);
 	const TypeId element = types.target(pointer);
-	if (types.is_object_pointer(types.strip_cv(right.type)) ||
-	    types.kind(types.strip_cv(right.type)) == TypeKind::Array)
+	const bool left_addresses =
+		types.is_object_pointer(types.strip_cv(left.type)) ||
+		types.kind(types.strip_cv(left.type)) == TypeKind::Array;
+	const bool right_addresses =
+		types.is_object_pointer(types.strip_cv(right.type)) ||
+		types.kind(types.strip_cv(right.type)) == TypeKind::Array;
+	if (op == OP_MINUS && left_addresses && right_addresses)
 	{
-		// 5.7p6: the distance between two pointers, in elements.
+		// 5.7p6: the distance between two pointers, in elements.  It is the one
+		// reading where *both* operands address an object and the operator is
+		// `-`: 5.7p5 adds an integral operand to a pointer whichever side it
+		// was written on, so `n + p` is that addition and not a subtraction of
+		// the pointer from something.
 		Instruction difference;
 		difference.kind = Instruction::IK_BINARY;
 		difference.op = "sub";
@@ -850,11 +864,8 @@ Operand LowirFunctionLowering::pointer_operation(unsigned op,
 		scale.second = named_operand(Operand::OP_INTEGER, decimal(stride));
 		return emit(scale);
 	}
-	const bool pointer_left =
-		types.is_object_pointer(types.strip_cv(left.type)) ||
-		types.kind(types.strip_cv(left.type)) == TypeKind::Array;
-	const LowValue& address = pointer_left ? left : right;
-	const LowValue& count = pointer_left ? right : left;
+	const LowValue& address = left_addresses ? left : right;
+	const LowValue& count = left_addresses ? right : left;
 	return scaled_advance(converted(address, common), count, element,
 	                      op == OP_PLUS);
 }
@@ -1034,10 +1045,12 @@ LowValue LowirFunctionLowering::assignment_expression(const DumpNode& node)
 	// 5.17p7: a compound assignment is the operator it names followed by an
 	// assignment, with the left operand read once.
 	const TypeId common = node.fact.operands;
-	const LowValue right = expression(*node.children[1]);
+	// 5p4: the left operand is read where it is written, which is before the
+	// right operand runs.
 	LowValue held;
 	held.type = bare;
 	held.operand = rvalue(left);
+	const LowValue right = expression(*node.children[1]);
 	const unsigned written_op = written_operator(node.fact.op);
 	const Operand result =
 		types.is_object_pointer(bare)

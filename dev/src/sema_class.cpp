@@ -663,16 +663,44 @@ std::string SemaAnalyzer::special_member_name(const std::string& written,
 // typedef of the second - and a use written either way names it.  The one
 // spelling every one of them agrees on is the type's own, so that is what the
 // region binds and what every later reader asks for.
+std::string SemaAnalyzer::member_id_name(const AstNode& id, const Context& ctx)
+{
+	const AstNode* const carried = child_of(id, AstKind::CarriedTypeId);
+	if (carried == nullptr || carried->children.empty())
+	{
+		return id.text;
+	}
+	// 3.4.5p1: the conversion-type-id is looked up in the class of the object
+	// expression and in the region the whole expression stands in; the second
+	// is what a typedef-name of an enclosing class or namespace is found by,
+	// and it is the region every other name in this expression is read in.
+	return conversion_name(type_id_type(*carried->children[0], ctx));
+}
+
 std::string SemaAnalyzer::conversion_name(TypeId type) const
 {
 	const std::string described = types_.description(type);
 	std::string spelled = "operator";
 	for (std::size_t index = 0; index < described.size(); ++index)
 	{
-		if (described[index] != ' ')
+		if (described[index] == ' ')
 		{
-			spelled += described[index];
+			continue;
 		}
+		if (described[index] == ':' && index + 1 < described.size() &&
+		    described[index + 1] == ':')
+		{
+			// A `::` inside the name would read as a nested-name-specifier
+			// everywhere a qualified name is split - the region a member access
+			// looks in, the regions the object file encodes - and this one is
+			// part of one component and not a boundary between two.  No type is
+			// spelled with a `.`, so writing one there keeps the name one
+			// component and still tells two types apart.
+			spelled += '.';
+			++index;
+			continue;
+		}
+		spelled += described[index];
 	}
 	return spelled;
 }
