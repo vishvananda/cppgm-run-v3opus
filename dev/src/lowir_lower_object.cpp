@@ -837,14 +837,30 @@ void LowirFunctionLowering::close_unwind_region(const UnwindRegion& region)
 		return;
 	}
 	jump(region.end);
+	const std::string behind = unwind_dispatch_;
+	const std::size_t behind_live = unwind_dispatch_live_;
 	open_block(region.dispatch);
-	for (std::size_t index = unwind_live_.size(); index-- > 0;)
+	if (unwind_live_.size() > kUnwindSuffixLimit && !behind.empty() &&
+	    behind_live + 1 == unwind_live_.size())
 	{
-		// 12.6.2p10: a subobject is destroyed in the reverse of the order it
-		// was created in, which an exception does not change.
-		replay_unwind(unwind_live_[index]);
+		// 12.6.2p10 again, written as the chain 12.4p8's suffix is written as:
+		// what this handler owes is the subobject the step before it built plus
+		// everything that step's own handler owed, so past the count a reader
+		// wants to see written out it destroys the one and enters the other.
+		// n subobjects then cost n destructions and not n(n+1)/2.
+		replay_unwind(unwind_live_.back());
+		jump(behind);
 	}
-	emit_resume();
+	else
+	{
+		for (std::size_t index = unwind_live_.size(); index-- > 0;)
+		{
+			// 12.6.2p10: a subobject is destroyed in the reverse of the order it
+			// was created in, which an exception does not change.
+			replay_unwind(unwind_live_[index]);
+		}
+		emit_resume();
+	}
 	open_block(region.end);
 	unwind_dispatch_ = region.dispatch;
 	unwind_dispatch_live_ = unwind_live_.size();
