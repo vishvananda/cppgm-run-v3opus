@@ -384,10 +384,16 @@ SemaAnalyzer::Value SemaAnalyzer::id_expression(const AstNode& node,
 }
 
 SemaAnalyzer::Value SemaAnalyzer::named_value(const AstNode& node,
-                                              SemaEntity& entity,
+                                              SemaEntity& named,
                                               DumpNode& parent,
                                               const std::vector<SemaEntity*>* found)
 {
+	// 7.3.3p1: a using-declaration made this class declare what its base
+	// declared, and what the name denotes is the base's declaration - the same
+	// object, with the same address and the same name in the object file.  What
+	// the class declared is what 13.3 ranks and 11p1 gave an access to, so the
+	// two part company only here.
+	SemaEntity& entity = declared_member(named);
 	Value value;
 	if (entity.kind == SemaKind::Enumerator ||
 	    (entity.kind == SemaKind::Variable && entity.constant &&
@@ -423,18 +429,24 @@ SemaAnalyzer::Value SemaAnalyzer::named_value(const AstNode& node,
 		else
 		{
 			set = &model_.open_overloads();
-			set->push_back(&entity);
+			// 13.3.3.1p4 ranks what a using-declaration brought into a class as
+			// a member of that class, so the candidate is the declaration the
+			// class made and the call resolves it to the one it names.
+			set->push_back(&named);
 			value.functions = set;
 		}
 		value.category = ValueCategory::LValue;
 		value.name = &node;
 		value.node = &model_.open_node(parent, std::string());
-		if (value.functions->size() == 1 && entity.next == nullptr &&
-		    entity.template_parameters == nullptr)
+		if (value.functions->size() == 1 && named.next == nullptr &&
+		    named.template_parameters == nullptr)
 		{
 			// One declaration, so the name already denotes it and the line can
 			// be written where it is read.  14p1 leaves a template denoting no
 			// function until a call deduces one, so its line waits for that.
+			// 7.3.3p1: what a using-declaration brought into a class is one
+			// declaration of this class naming the base's, and the line names
+			// the one the call runs.
 			name_function(value, entity, "id-expression");
 		}
 		return value;
@@ -449,9 +461,12 @@ SemaAnalyzer::Value SemaAnalyzer::named_value(const AstNode& node,
 		// 9.3.1p3 and 9.5p1: a member named with no object expression is a
 		// member of the object `this` points to, or of the object an anonymous
 		// union declared, and the output writes the access it stands for.
+		// 7.3.3p1: 11.2p5's naming class is the class the using-declaration was
+		// written in rather than the base that declared the member, which
+		// leaves the base-specifier's own access unasked about.
 		DumpNode& line = model_.open_node(parent, std::string());
 		return member_value(entity, implied_object(entity, line), entity.name,
-		                    line);
+		                    line, named.shadowed == nullptr);
 	}
 	value.type = entity.type;
 	value.category = ValueCategory::LValue;
@@ -584,11 +599,17 @@ SemaAnalyzer::Value SemaAnalyzer::member_expression(const AstNode& node,
 	Scope& region = object_region(node, object);
 	const AstNode& id = *node.children[1];
 	std::vector<SemaEntity*>& found = model_.open_overloads();
-	SemaEntity& member =
+	SemaEntity& found_member =
 		require(model_.lookup_in(region, id.text, LookupKind::Any, &found),
 		        id.text);
-	require_access(member, ctx.scope, &region);
-	require_protected_object(found, member, ctx.scope, &region);
+	require_access(found_member, ctx.scope, &region);
+	require_protected_object(found, found_member, ctx.scope, &region);
+	// 7.3.3p1 and 11.2p5: the class the name was written on is the class that
+	// declared what a using-declaration brought in, so the access above was
+	// asked of that declaration - and the base subobject the member belongs to
+	// is reached without asking about the base-specifier's own access.
+	const bool checked_base = found_member.shadowed == nullptr;
+	SemaEntity& member = declared_member(found_member);
 	if (member.kind != SemaKind::Variable || !member.object_member)
 	{
 		// 9.4p1 and 7.2p10: the member is not part of the object, so the object
@@ -598,7 +619,7 @@ SemaAnalyzer::Value SemaAnalyzer::member_expression(const AstNode& node,
 		// what evaluating it comes to.
 		require_droppable(*object.node, id.text);
 		parent.children.pop_back();
-		return named_value(id, member, parent, &found);
+		return named_value(id, found_member, parent, &found);
 	}
 	if (member.storage != nullptr)
 	{
@@ -607,11 +628,12 @@ SemaAnalyzer::Value SemaAnalyzer::member_expression(const AstNode& node,
 		// object expression wrote holds one more - the same object a member
 		// named with no object expression is reached through.
 		object = member_value(*member.storage, object, member.storage->name,
-		                      model_.wrap_node(*object.node, std::string()));
+		                      model_.wrap_node(*object.node, std::string()),
+		                      checked_base);
 	}
 	return member_value(member, object,
 	                    std::string(ast_token_type_name(node.token)) + ":" +
-	                    id.text, line);
+	                    id.text, line, checked_base);
 }
 
 // 5.3.1p3: the address of the object a member function is called on, written
@@ -655,11 +677,15 @@ void SemaAnalyzer::member_callee(const AstNode& callee, const Context& ctx,
 	Scope& region = object_region(callee, object);
 	const AstNode& id = *callee.children[1];
 	std::vector<SemaEntity*>& found = model_.open_overloads();
-	SemaEntity& member =
+	SemaEntity& found_member =
 		require(model_.lookup_in(region, id.text, LookupKind::Any, &found),
 		        id.text);
-	require_access(member, ctx.scope, &region);
-	require_protected_object(found, member, ctx.scope, &region);
+	require_access(found_member, ctx.scope, &region);
+	require_protected_object(found, found_member, ctx.scope, &region);
+	// 7.3.3p1: what a using-declaration brought into this class was found here
+	// and named the base's declaration, which is what the use reaches.
+	const bool checked_base = found_member.shadowed == nullptr;
+	SemaEntity& member = declared_member(found_member);
 	if (member.kind == SemaKind::Function)
 	{
 		address_of_object(object, object_line, through_pointer);
@@ -680,7 +706,7 @@ void SemaAnalyzer::member_callee(const AstNode& callee, const Context& ctx,
 		// reached without one, so it is left out only where that is what
 		// evaluating it comes to.
 		require_droppable(*object.node, id.text);
-		target = named_value(id, member, line, &found);
+		target = named_value(id, found_member, line, &found);
 		object = Value();
 		return;
 	}
@@ -690,11 +716,12 @@ void SemaAnalyzer::member_callee(const AstNode& callee, const Context& ctx,
 	if (member.storage != nullptr)
 	{
 		object = member_value(*member.storage, object, member.storage->name,
-		                      model_.wrap_node(*object.node, std::string()));
+		                      model_.wrap_node(*object.node, std::string()),
+		                      checked_base);
 	}
 	target = member_value(member, object,
 	                      std::string(ast_token_type_name(callee.token)) + ":" +
-	                      id.text, access);
+	                      id.text, access, checked_base);
 	object = Value();
 }
 
@@ -769,7 +796,7 @@ SemaAnalyzer::Value SemaAnalyzer::base_value(const Value& object,
 // and 4.10p3 writes the one node every other derived-to-base conversion writes.
 // A member the walk never reaches belongs to the object as it stands.
 SemaAnalyzer::Value SemaAnalyzer::object_in_declaring_class(
-	const Value& object, const SemaEntity& member)
+	const Value& object, const SemaEntity& member, bool checked)
 {
 	const SemaEntity* const named =
 		member.storage != nullptr ? member.storage : &member;
@@ -789,7 +816,31 @@ SemaAnalyzer::Value SemaAnalyzer::object_in_declaring_class(
 	{
 		return object;
 	}
-	return base_value(object, *reached);
+	return base_value(object, *reached, checked);
+}
+
+// 5.1.1p1: a parameter named the way the program would name it, which is what
+// 12.9p8 passes on to the constructor of the base subobject.  The name is a
+// declaration the definition itself made, so nothing is looked up for it.
+SemaAnalyzer::Value SemaAnalyzer::parameter_value(SemaEntity& parameter,
+                                                  DumpNode& parent)
+{
+	Value value;
+	value.type = parameter.type;
+	if (types_.is_reference(value.type))
+	{
+		// 8.3.2p5: a name of reference type is an lvalue naming what it is
+		// bound to, and the reference itself is not part of the expression.
+		value.type = types_.target(value.type);
+	}
+	value.spelled = value.type;
+	value.category = ValueCategory::LValue;
+	value.entity = &parameter;
+	value.what = "id-expression";
+	value.payload = parameter.name;
+	value.node = &model_.open_node(parent, std::string());
+	respell(value);
+	return value;
 }
 
 // 5.2.5p4: the member the object expression holds, which is an lvalue when the
@@ -797,11 +848,13 @@ SemaAnalyzer::Value SemaAnalyzer::object_in_declaring_class(
 SemaAnalyzer::Value SemaAnalyzer::member_value(SemaEntity& member,
                                                const Value& object_written,
                                                const std::string& payload,
-                                               DumpNode& node)
+                                               DumpNode& node,
+                                               bool checked_base)
 {
 	// 10.2: the member may have been declared in a base of the object's class,
 	// and what it is a member of is that class's base subobject.
-	const Value object = object_in_declaring_class(object_written, member);
+	const Value object =
+		object_in_declaring_class(object_written, member, checked_base);
 	if (member.kind != SemaKind::Variable)
 	{
 		// 5.2.5p4 gives a member function the meaning only a call of it has, and

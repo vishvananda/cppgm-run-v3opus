@@ -152,6 +152,25 @@ struct SemaEntity
 	// is the base-object entry alone; one a complete object asked for is the
 	// complete-object entry, with the base-object name given to the same body.
 	bool complete_object_entry;
+	// The same question the other way round: whether a base class subobject
+	// ever asked for this special member in this translation unit.  One both
+	// asked for stands under both entries, and this milestone has no virtual
+	// base to make the two bodies differ - so the base-object entry is the same
+	// body emitted again under its own name, which is what a base subobject's
+	// own action calls.
+	bool base_object_entry;
+	// 7.3.3p1: the declaration a using-declaration in a class named, which this
+	// member of that class stands for.  The class declares it, so 11p1's access
+	// and 7.3.3p14's hiding are asked of this declaration, while every use of
+	// it - the function a call runs, the offset a member access reads, the name
+	// the object file gives it - is a fact about the one it names.  Null for
+	// every declaration the program wrote in the region that declares it.
+	SemaEntity* shadowed;
+	// 12.9p1: the constructor of a direct base class this constructor was
+	// declared from, whose parameters it takes and whose call on the base
+	// subobject is what its definition does.  Null for a constructor a
+	// declaration wrote and for 12.1p5's implicit one.
+	SemaEntity* inherited;
 	// 8.5.1p1 and 12.1p4: whether the program itself wrote what this function
 	// does, which `= default` and `= delete` do not.  It is what stops a class
 	// with a constructor from being an aggregate.
@@ -323,6 +342,7 @@ public:
 		, id(scope_id)
 		, visit(0)
 		, base(nullptr)
+		, using_members(false)
 		, searchers_at(0)
 	{}
 
@@ -356,6 +376,12 @@ public:
 	// Every other region leaves it null, so a program with no inheritance pays
 	// nothing for the question.
 	Scope* base;
+	// 7.3.3p1: whether a using-declaration written in this class brought a
+	// member function of a base into it.  7.3.3p14's hiding is a question only
+	// such a class can answer yes to, so a class that wrote none pays one test
+	// per member function it declares rather than a walk of the declarations
+	// that name already has.
+	bool using_members;
 	// 11.3p6: the functions a friend declaration in this class first declared.
 	// 7.3.1.2p3 makes each a member of the innermost enclosing namespace whose
 	// name no ordinary lookup finds, and 3.4.2p2 makes it visible through the
@@ -575,6 +601,15 @@ private:
 	std::vector<Scope*> reached_;
 	std::uint64_t visit_;
 };
+
+// 9.2p13: whether this declaration gives the class `scope` declares an object
+// of its own, which is what the layout, the initialization of a subobject and
+// the end of one's lifetime each walk the declarations for.  9.4p2 makes a
+// static data member a variable rather than part of an object; 9.5p1 records an
+// anonymous union's members in the region around it as well as in its own; and
+// 7.3.3p1's using-declaration declares a member of a base class, which that
+// class already laid out.  None of the three is storage this class gives.
+bool declares_subobject(const SemaEntity& member, const Scope& scope);
 
 // True when `entity` names a type: a class, an enumeration, a typedef-name or
 // a template type parameter (3.4.4p2, 7.1.3p1, 14.1p3).

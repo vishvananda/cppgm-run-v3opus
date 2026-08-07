@@ -148,6 +148,13 @@ private:
 		unsigned op;
 		// 5p9: the type a built-in binary operator brings both operands to.
 		TypeId operands;
+		// 7.3.3p1 and 11.2p5: whether this operand is the object a member
+		// function a using-declaration brought into its class is called on.
+		// The class the name was written on is the naming class, so 4.10p3's
+		// conversion to the base subobject the function belongs to is not one
+		// the program wrote and the base-specifier's own access is not asked
+		// about - which is what lets a private base's member be named.
+		bool through_using;
 	};
 
 	// 13.3.3.1: how good the conversion of one argument is.  The ranks of
@@ -339,6 +346,38 @@ private:
 	void namespace_alias(const AstNode& node, const Context& ctx);
 	void using_directive(const AstNode& node, const Context& ctx);
 	void using_declaration(const AstNode& node, const Context& ctx);
+	// 7.3.3p1: the members a using-declaration written in a class declares -
+	// one per declaration `named` heads - and 7.3.3p14's rule that a
+	// declaration the class itself made of the same name and parameter list
+	// hides the one the base made, so it is not brought in at all.
+	void declare_using_members(SemaEntity& named, Scope& where,
+	                           const std::string& name);
+	// One of them: a declaration of this class naming what the base declared.
+	SemaEntity& declare_using_member(SemaEntity& target, Scope& where,
+	                                 const std::string& name);
+	// 12.9p1: the constructors a using-declaration naming a direct base class's
+	// constructors declares in `where`, one per constructor of the base other
+	// than the ones 12.9p3 leaves out.
+	void inherit_constructors(SemaEntity& base, Scope& where);
+	// 12.1p5 and 12.9p3: whether this class declares a constructor of its own,
+	// which an inherited one is not - so a class that only inherits still has
+	// the default constructor 12.1p5 gives it.
+	static bool declares_own_constructor(const SemaEntity& entity);
+	// 13.1 and 7.3.3p14: what tells two declarations of one name in one class
+	// apart.  9.3.1p3 put the object parameter in a member function's type, and
+	// one brought in from a base carries the base's class there - so what the
+	// two have in common is the rest of the parameter list and how cv-qualified
+	// the object the function may be called on is.
+	std::uint32_t member_signature(const SemaEntity& function);
+	std::uint32_t member_signature(TypeId type, bool object_member);
+	// 7.3.3p1: the declaration a name a using-declaration brought into a class
+	// reaches, which is the one the base made.  11p1's access and 7.3.3p14's
+	// hiding are facts about the declaration the class made; everything a use
+	// of the member needs is a fact about the one it names.
+	static SemaEntity& declared_member(SemaEntity& entity)
+	{
+		return entity.shadowed != nullptr ? *entity.shadowed : entity;
+	}
 	void alias_declaration(const AstNode& node, const Context& ctx);
 	void static_assert_declaration(const AstNode& node, const Context& ctx);
 	void template_declaration(const AstNode& node, const Context& ctx);
@@ -389,6 +428,8 @@ private:
 	                      const Context& ctx, const std::string& header);
 	// 12.1p5 and 12.4p3: the constructor and the destructor a class with no
 	// declared one has, declared into the class where its definition ends.
+	// 9.2p2: the special members the class has where its definition ends.
+	void declare_special_members(SemaEntity& entity, Scope& scope);
 	void declare_constructor(SemaEntity& entity, Scope& scope);
 	void declare_destructor(SemaEntity& entity, Scope& scope);
 	// 12.1p5 and 8.5p6: the constructors of the class `type`, as the chain
@@ -555,11 +596,18 @@ private:
 	// as it stands and its line moves into the place the call gives it.
 	// `value_init` says the initializer was an empty list the grammar wrote no
 	// node for, which is what 5.2.3p2's `T()` is.
+	// `forwarded`, where given, are the parameters whose values 12.9p8 passes
+	// to the constructor of the base subobject an inheriting constructor
+	// initializes, in place of an initializer the program wrote.
 	void construct_object(SemaEntity& variable, DumpNode& line,
 	                      const AstNode* written, const Context& ctx,
 	                      Placement where = Placement::Named,
 	                      bool copied = false, const Value* given = nullptr,
-	                      bool value_init = false);
+	                      bool value_init = false,
+	                      const std::vector<SemaEntity*>* forwarded = nullptr);
+	// 5.1.1p1: a parameter named as the program would name it, written into a
+	// node of its own under `parent`.
+	Value parameter_value(SemaEntity& parameter, DumpNode& parent);
 	// The object a constructor-action runs on, as the address of it: an object
 	// a declaration named, a member of the object being constructed, or that
 	// object's base class subobject.
@@ -653,9 +701,20 @@ private:
 	// 13.1 and 3.5: the declaration a function declarator makes, which is a
 	// redeclaration of an earlier one in the same region exactly when their
 	// parameter type lists agree.
+	// `object_member` says 9.3.1p3 put the object the function is called on in
+	// `type`, which is what 7.3.3p14 compares two declarations of one class by.
 	SemaEntity& declare_function(const std::string& name, TypeId type,
 	                             const Context& target, bool define,
-	                             bool hidden = false);
+	                             bool hidden = false,
+	                             bool object_member = false);
+	// 7.3.3p14: a member function this class declares hides the one a
+	// using-declaration brought in from a base with the same name and parameter
+	// list rather than conflicting with it, so what was brought in leaves the
+	// chain the name heads.  A class that wrote no using-declaration has no such
+	// declaration to find, so this costs one walk of the declarations that name
+	// already has and nothing else.
+	void hide_using_member(Scope& where, const std::string& name,
+	                       SemaEntity*& head, TypeId type, bool object_member);
 	// 11.3p6: a friend declaration declares its function in the innermost
 	// enclosing namespace, so a declarator written after `friend` is read
 	// against that region rather than against the class it stands in.  Returns
@@ -833,8 +892,13 @@ private:
 	// member of the object `this` points to or of the one an anonymous union
 	// declared.  `payload` is what the dump writes after the type, which is the
 	// member's name alone when no `.` or `->` was written.
+	// `checked_base` is false where 11.2p5's naming class is the one the name
+	// was written on rather than the one that declared the member, which is
+	// what a using-declaration makes it: the subobject the member belongs to is
+	// still named, and the base-specifier's own access is not asked about.
 	Value member_value(SemaEntity& member, const Value& object_written,
-	                   const std::string& payload, DumpNode& node);
+	                   const std::string& payload, DumpNode& node,
+	                   bool checked_base = true);
 	// 5.16p3: an operand of a conditional whose result is an lvalue of a base
 	// class of that operand's own class.
 	void convert_arm_to_base(Value& arm, TypeId result);
@@ -869,7 +933,8 @@ private:
 	// 10.2: the object a member found through a base class is a member of,
 	// which is the base subobject of the class that declared it.
 	Value object_in_declaring_class(const Value& object,
-	                                const SemaEntity& member);
+	                                const SemaEntity& member,
+	                                bool checked = true);
 	// The object a member named with no object expression is a member of.
 	Value implied_object(const SemaEntity& member, DumpNode& line);
 	// 5.3.1p3: `&C::x`, where `entity` is the member of a class the qualified-id
@@ -1160,6 +1225,13 @@ private:
 	// and only a template is ever asked for, so an ordinary declaration adds
 	// nothing to it.
 	std::unordered_map<std::uint32_t, std::vector<Parameter> > templates_;
+	// 12.9p8: the parameters each constructor was declared with, which the
+	// inheriting constructor a using-declaration declares takes as its own -
+	// their names as much as their types, because the definition this unit
+	// generates for it writes them.  Only a constructor is ever inherited, so
+	// only a constructor's declaration adds to this.
+	std::unordered_map<std::uint32_t, std::vector<Parameter> >
+		constructor_parameters_;
 	// 8.3.6p4 and 8.3.6p9: the default-arguments each function has been
 	// declared with so far, and for each the region its own declaration was
 	// written in.  Several declarations of one function each add the defaults

@@ -241,8 +241,13 @@ SemaAnalyzer::Match SemaAnalyzer::match_by_value(const Value& argument,
 			                                     types_.target(target));
 			// 4.4 and 13.3.3.2p3: a qualification conversion changes nothing
 			// but the qualifiers, so the pointer it produced is what orders it
-			// against another sequence that did the same.
-			match.qualified = exact ? target : kNoType;
+			// against another sequence that did the same.  4.10p3's conversion
+			// to a base is followed by that same qualification conversion where
+			// the base was named more qualified than the object, and 13.3.3.2p3
+			// makes the sequence without it a proper subsequence of the one with
+			// it - so the pointer the sequence produced orders these too, once
+			// the base each of them reached has been compared.
+			match.qualified = target;
 			return match;
 		}
 		return match;
@@ -393,8 +398,10 @@ SemaAnalyzer::Match SemaAnalyzer::match_reference(const Value& argument,
 		match.binds_rvalue_ref = rvalue_ref;
 		match.to_base = to_base;
 		// 13.3.3.2p3: two references that bound the same object differ only in
-		// how qualified they made it, which is what orders them.
-		match.qualified = to_base != nullptr ? kNoType : referenced;
+		// how qualified they made it, which is what orders them - and two that
+		// bound the same base subobject of it differ in nothing else either,
+		// so 4.10p3's conversion does not take the question away.
+		match.qualified = referenced;
 		return match;
 	}
 	if (related)
@@ -824,8 +831,11 @@ void SemaAnalyzer::apply_conversion(Value& value, TypeId target,
 		// 4.10p3 and 8.5.3p4: what the argument became is the base class
 		// subobject of the object it named, or a pointer to it, and the tree
 		// names that subobject rather than leaving the address to be adjusted
-		// by whoever reads the call.
-		value = base_value(value, *match.to_base);
+		// by whoever reads the call.  11.2p5 asks about the base-specifier's
+		// own access wherever the program wrote the conversion; the object a
+		// member a using-declaration brought into a class is called on is one
+		// the class named itself, so there nothing was written to ask about.
+		value = base_value(value, *match.to_base, !value.through_using);
 	}
 	if (match.converting != nullptr && value.node != nullptr)
 	{
@@ -954,8 +964,7 @@ void SemaAnalyzer::aggregate_members(TypeId type, Clauses& clauses,
 	for (std::size_t index = 0; index < region.declarations.size(); ++index)
 	{
 		SemaEntity& member = *region.declarations[index];
-		if (member.kind != SemaKind::Variable || !member.object_member ||
-		    member.region != &region)
+		if (!declares_subobject(member, region))
 		{
 			continue;
 		}
@@ -1399,10 +1408,16 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
 		}
 		// 13.3: the arguments choose one declaration, which the callee line is
 		// then written from.
-		SemaEntity& chosen =
+		SemaEntity& selected =
 			*select_overload(candidates, arguments, called,
 			                 object.node != nullptr ? &object : nullptr, false,
 			                 singles);
+		// 7.3.3p1: a using-declaration made the class declare what its base
+		// declared, and what the call runs is the base's function - reached
+		// through the base subobject of the object the call names, which
+		// 11.2p5 leaves the base-specifier's own access unasked about.
+		object.through_using = selected.shadowed != nullptr;
+		SemaEntity& chosen = declared_member(selected);
 		name_function(target, chosen, "callee");
 		function = target.type;
 		if (chosen.special != kOrdinaryFunction)

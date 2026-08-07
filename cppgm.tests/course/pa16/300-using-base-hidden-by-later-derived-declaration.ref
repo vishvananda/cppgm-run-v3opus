@@ -1,0 +1,30 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $d : obj<1x1>
+
+  block ^entry:
+    %t1 = addr $d
+    %t2 = addr $d
+    %t3 = index i8 [projection=base_subobject] %t2, 0
+    %t4 = call i32 @base_hidden_later__f(%t3)
+    %t5 = addr $d
+    %t6 = call i32 @derived_hidden_later__f(%t5, 2)
+    %t7 = binary add i32 %t4, %t6
+    %t8 = binary sub i32 %t7, 10
+    return i32 %t8
+}
+function @base_hidden_later__f(%this : ptr) -> i32 [binding=weak, object=_ZN17base_hidden_later1fEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    return i32 1
+}
+function @derived_hidden_later__f(%this : ptr, %x : i32) -> i32 [binding=weak, object=_ZN20derived_hidden_later1fEi] {
+  slot $this : ptr
+  slot $x : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %x, $x
+    return i32 9
+}

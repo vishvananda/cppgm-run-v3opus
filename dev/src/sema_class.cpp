@@ -276,8 +276,8 @@ bool SemaAnalyzer::declares_copy_constructor(const SemaEntity& entity,
 	{
 		const SemaEntity& declared = *scope.declarations[index];
 		if (declared.kind != SemaKind::Function || declared.region != &scope ||
-		    declared.name != entity.name || declared.defaulted ||
-		    declared.deleted)
+		    declared.shadowed != nullptr || declared.name != entity.name ||
+		    declared.defaulted || declared.deleted)
 		{
 			continue;
 		}
@@ -336,12 +336,7 @@ void SemaAnalyzer::lay_out_class(SemaEntity& entity, Scope& scope, bool is_union
 	for (std::size_t index = 0; index < scope.declarations.size(); ++index)
 	{
 		SemaEntity& member = *scope.declarations[index];
-		// 9.4p2 makes a static data member a variable rather than part of an
-		// object, and 9.5p1 records an anonymous union's members in this region
-		// as well as in the union's; the object they are part of is the one the
-		// union declared, which is counted here in their place.
-		if (member.kind != SemaKind::Variable || !member.object_member ||
-		    member.region != &scope)
+		if (!declares_subobject(member, scope))
 		{
 			continue;
 		}
@@ -561,6 +556,7 @@ void SemaAnalyzer::special_member(const AstNode& node, const Context& ctx)
 			throw std::runtime_error(spelled + " declares two destructors");
 		}
 		entity = &model_.create(SemaKind::Function, written, type);
+		entity->tail = entity;
 		owner.destructor = entity;
 		entity->special = kDestructorFunction;
 		model_.bind(*ctx.scope, written, *entity);
@@ -569,27 +565,51 @@ void SemaAnalyzer::special_member(const AstNode& node, const Context& ctx)
 	{
 		// 13.1: the constructors of a class are its declarations of one name,
 		// so a second one joins the chain the first heads and 13.3.1.3 walks it.
-		for (SemaEntity* at = owner.constructor; at != nullptr; at = at->next)
+		// A constructor has no name a lookup binds, so the chain the class holds
+		// is what the parameter list indexes - and a class with n of them is
+		// declared in n steps rather than n^2 comparisons.
+		SemaEntity* const prior =
+			owner.constructor == nullptr
+				? nullptr
+				: model_.overload_of(*owner.constructor, types_.signature(type));
+		if (prior != nullptr && prior->inherited == nullptr)
 		{
-			if (at->type == type)
-			{
-				throw std::runtime_error(spelled +
-				                         " declares one constructor twice");
-			}
+			throw std::runtime_error(spelled +
+			                         " declares one constructor twice");
 		}
-		entity = &model_.create(SemaKind::Function, written, type);
-		entity->special = kConstructorFunction;
-		if (owner.constructor == nullptr)
+		if (prior != nullptr)
 		{
-			owner.constructor = entity;
+			// 12.9p1: a constructor this class declares itself is what an
+			// object of it is initialized by, and the base's is not inherited
+			// beside it - so the declaration standing here is the one an
+			// earlier using-declaration made, and this is what it declares.
+			prior->inherited = nullptr;
+			prior->defaulted = false;
+			prior->inline_function = false;
+			prior->deleted = false;
+			prior->explicit_function = false;
+			constructor_parameters_.erase(prior->id);
+			defaults_.erase(prior->id);
+			entity = prior;
 		}
 		else
 		{
-			owner.constructor->tail->next = entity;
+			entity = &model_.create(SemaKind::Function, written, type);
+			entity->special = kConstructorFunction;
+			entity->tail = entity;
+			if (owner.constructor == nullptr)
+			{
+				owner.constructor = entity;
+			}
+			else
+			{
+				owner.constructor->tail->next = entity;
+			}
+			owner.constructor->tail = entity;
+			model_.hold_overload(*owner.constructor, types_.signature(type),
+			                     *entity);
 		}
-		owner.constructor->tail = entity;
 	}
-	entity->tail = entity;
 	entity->dump_name = ctx.scope->prefix + written;
 	entity->object_member = true;
 	// 7.1.2p3 and 9.3p2: a special member function *defined* in its class body
@@ -609,7 +629,21 @@ void SemaAnalyzer::special_member(const AstNode& node, const Context& ctx)
 		}
 	}
 	record_default_arguments(*entity, parameters, ctx.scope);
-	model_.declare_in(*ctx.scope, *entity);
+	if (entity->region == nullptr)
+	{
+		// 12.9p1: the declaration this makes may be the one an inheriting
+		// using-declaration already put in this region, which this one is the
+		// declaration of - so the region records it once.
+		model_.declare_in(*ctx.scope, *entity);
+	}
+	if (!destructor)
+	{
+		// 12.9p8: an inheriting using-declaration in a class derived from this
+		// one declares a constructor from this one, and the definition it is
+		// given writes the parameters this declaration named.
+		std::vector<Parameter> named = parameters;
+		constructor_parameters_[entity->id].swap(named);
+	}
 
 	const AstNode* const initializer = child_of(node, AstKind::Initializer);
 	if (initializer != nullptr && !initializer->children.empty())
@@ -655,6 +689,159 @@ void SemaAnalyzer::special_member(const AstNode& node, const Context& ctx)
 	pending_.push_back(pending);
 }
 
+// 12.9p1: a using-declaration that names the constructors of a direct base
+// class declares a constructor of this class from each of them, taking the same
+// parameters.  12.9p3 leaves out the two an object of this class already has of
+// its own - the base's default constructor and its copy and move constructors -
+// and 12.9p1 leaves out one whose parameters a constructor this class declared
+// itself already takes.  What each of them does is 12.9p8's initialization of
+// the base subobject, so what the declaration has to carry is the base's
+// constructor and the names its parameters were declared with.
+void SemaAnalyzer::inherit_constructors(SemaEntity& base, Scope& where)
+{
+	SemaEntity& derived = *where.owner;
+	const std::string spelled =
+		QualifiedName(types_.user_name(derived.type)).last();
+	for (SemaEntity* at = base.constructor; at != nullptr; at = at->next)
+	{
+		const std::vector<TypeId>& written = types_.parameters(at->type);
+		if (written.size() == 1)
+		{
+			// 12.9p3: a constructor with no parameters is not inherited, and
+			// 12.1p5 gives this class one of its own.
+			continue;
+		}
+		if (written.size() == 2 &&
+		    bare_type(types_.is_reference(written[1])
+		                  ? types_.target(written[1])
+		                  : written[1]) == types_.strip_cv(base.type))
+		{
+			// 12.9p3: neither is the base's copy or move constructor, which
+			// would make an object of this class out of a base subobject.
+			continue;
+		}
+		std::vector<TypeId> parameters;
+		// 9.3.1p3: the object the constructor runs on is one of this class.
+		parameters.push_back(types_.pointer_to(derived.type));
+		for (std::size_t index = 1; index < written.size(); ++index)
+		{
+			parameters.push_back(written[index]);
+		}
+		const TypeId type = types_.function_of(types_.fundamental(FT_VOID),
+		                                       parameters,
+		                                       types_.variadic(at->type));
+		// 12.9p1: a base constructor whose parameters a constructor of this
+		// class already takes is not inherited.  13.1's index of the chain
+		// answers that in one probe, so a base with n constructors costs n.
+		if (derived.constructor != nullptr &&
+		    model_.overload_of(*derived.constructor,
+		                       types_.signature(type)) != nullptr)
+		{
+			continue;
+		}
+		SemaEntity& entity = model_.create(SemaKind::Function, spelled, type);
+		entity.dump_name = where.prefix + spelled;
+		entity.object_member = true;
+		entity.special = kConstructorFunction;
+		entity.inherited = at;
+		entity.explicit_function = at->explicit_function;
+		entity.deleted = at->deleted;
+		// 12.9p6 and 7.1.2p3: the definition is one the standard gives it and
+		// this unit generates where a use asks for one, as 12.1p5's is, so it
+		// belongs to every translation unit that needs one.
+		entity.defaulted = true;
+		entity.inline_function = true;
+		entity.tail = &entity;
+		if (derived.constructor == nullptr)
+		{
+			derived.constructor = &entity;
+		}
+		else
+		{
+			derived.constructor->tail->next = &entity;
+		}
+		derived.constructor->tail = &entity;
+		model_.hold_overload(*derived.constructor, types_.signature(type),
+		                     entity);
+		model_.declare_in(where, entity);
+		// 12.9p8: the definition writes the parameters, so the names the base's
+		// declaration gave them are part of what is inherited; 8.3.6 leaves the
+		// default-arguments where the base's declaration put them, and a call
+		// that omits an argument reads them from this declaration.
+		const std::unordered_map<std::uint32_t,
+		                         std::vector<Parameter> >::const_iterator names =
+			constructor_parameters_.find(at->id);
+		if (names != constructor_parameters_.end())
+		{
+			std::vector<Parameter> taken = names->second;
+			constructor_parameters_[entity.id].swap(taken);
+		}
+		const std::unordered_map<std::uint32_t,
+		                         std::vector<Default> >::const_iterator given =
+			defaults_.find(at->id);
+		if (given != defaults_.end())
+		{
+			std::vector<Default> taken = given->second;
+			defaults_[entity.id].swap(taken);
+		}
+	}
+}
+
+// 12.1p5 and 12.9p3: whether this class declares a constructor of its own,
+// which an inherited one is not - 12.9 declares it from the base's rather than
+// from anything written here, and leaves the class the default constructor it
+// would have had.
+bool SemaAnalyzer::declares_own_constructor(const SemaEntity& entity)
+{
+	for (const SemaEntity* at = entity.constructor; at != nullptr; at = at->next)
+	{
+		if (at->inherited == nullptr)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+// 9.2p2: the special members a class has where its definition ends, which is
+// where the class is complete and where every subobject they act on is known.
+// 12.1p5 gives a class with no constructor of its own a default one, 12.4p3
+// gives one with no destructor a destructor, 12.9p4 settles what access the
+// constructors a using-declaration inherited have, and 12.1p5/12.4p3 say which
+// of them do nothing at all.
+void SemaAnalyzer::declare_special_members(SemaEntity& entity, Scope& scope)
+{
+	if (!declares_own_constructor(entity))
+	{
+		declare_constructor(entity, scope);
+	}
+	if (entity.destructor == nullptr)
+	{
+		declare_destructor(entity, scope);
+	}
+	for (SemaEntity* at = entity.constructor; at != nullptr; at = at->next)
+	{
+		if (at->inherited != nullptr)
+		{
+			// 12.9p4: an inherited constructor has the access the one it was
+			// declared from has, whatever access-specifier the using-declaration
+			// that brought it in stood under.
+			at->access = at->inherited->access;
+		}
+		// 12.1p5 and 8.4.2p1: a special member written `= default` does what
+		// the implicitly declared one would, and what that is, is known only
+		// here, where the class is complete.
+		if (at->defaulted && types_.parameters(at->type).size() == 1)
+		{
+			at->trivial = trivial_default_construction(scope);
+		}
+	}
+	if (entity.destructor->defaulted)
+	{
+		entity.destructor->trivial = trivial_destruction(scope);
+	}
+}
+
 // 12.1p5: a class with no declared constructor has a default one, which the
 // course ABI gives the object it initializes as its only parameter.  It is
 // declared where the definition of the class ends, because that is where 9.2p2
@@ -681,7 +868,20 @@ void SemaAnalyzer::declare_constructor(SemaEntity& entity, Scope& scope)
 	constructor.special = kConstructorFunction;
 	constructor.defaulted = true;
 	model_.declare_in(scope, constructor);
-	entity.constructor = &constructor;
+	// 12.9p3: an inheriting using-declaration may already have put constructors
+	// on this chain, and none of them is the one this declares, so it joins
+	// them rather than replacing them.
+	if (entity.constructor == nullptr)
+	{
+		entity.constructor = &constructor;
+	}
+	else
+	{
+		entity.constructor->tail->next = &constructor;
+	}
+	entity.constructor->tail = &constructor;
+	model_.hold_overload(*entity.constructor,
+	                     types_.signature(constructor.type), constructor);
 }
 
 // 12.4p3: a class with no declared destructor has one, declared where the
@@ -725,6 +925,12 @@ bool SemaAnalyzer::aggregate_class(Scope& scope)
 	for (std::size_t index = 0; index < scope.declarations.size(); ++index)
 	{
 		const SemaEntity& member = *scope.declarations[index];
+		if (member.shadowed != nullptr)
+		{
+			// 7.3.3p1: the declaration is of a member of a base class, and a
+			// class with a base class is no aggregate anyway.
+			continue;
+		}
 		if (member.kind == SemaKind::Function)
 		{
 			if (member.special == kConstructorFunction && member.user_provided)
@@ -1164,8 +1370,7 @@ bool SemaAnalyzer::trivial_default_construction(Scope& scope)
 	for (std::size_t index = 0; index < scope.declarations.size(); ++index)
 	{
 		const SemaEntity& member = *scope.declarations[index];
-		if (member.kind != SemaKind::Variable || !member.object_member ||
-		    member.region != &scope)
+		if (!declares_subobject(member, scope))
 		{
 			continue;
 		}
@@ -1199,8 +1404,7 @@ bool SemaAnalyzer::trivial_destruction(Scope& scope)
 	for (std::size_t index = 0; index < scope.declarations.size(); ++index)
 	{
 		const SemaEntity& member = *scope.declarations[index];
-		if (member.kind != SemaKind::Variable || !member.object_member ||
-		    member.region != &scope)
+		if (!declares_subobject(member, scope))
 		{
 			continue;
 		}
@@ -1267,7 +1471,7 @@ void SemaAnalyzer::inject_union_members(SemaEntity* entity, const Context& ctx,
 	for (std::size_t index = 0; index < members.declarations.size(); ++index)
 	{
 		SemaEntity& member = *members.declarations[index];
-		if (member.kind != SemaKind::Variable)
+		if (member.kind != SemaKind::Variable || member.shadowed != nullptr)
 		{
 			continue;
 		}
@@ -1467,7 +1671,8 @@ bool SemaAnalyzer::element_constructed(TypeId type, const AstNode* written)
 void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
                                     const AstNode* written, const Context& ctx,
                                     Placement where, bool copied,
-                                    const Value* given, bool value_init)
+                                    const Value* given, bool value_init,
+                                    const std::vector<SemaEntity*>* forwarded)
 {
 	const bool member = where != Placement::Named;
 	// 12.6p1: an array of class type is initialized element by element, and
@@ -1565,12 +1770,22 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 	DumpNode& action = model_.open_node(line, std::string());
 	action.fact.kind = FactKind::ConstructorAction;
 	action.fact.type = variable.type;
+	action.fact.base_subobject = where == Placement::Base;
 	DumpNode& call = model_.open_node(action, std::string());
 	DumpNode& callee = model_.open_node(call, std::string());
 	Value object;
 	write_constructed_object(variable, call, where, object, object_type);
 	std::vector<Value> arguments;
-	if (list != nullptr)
+	if (forwarded != nullptr)
+	{
+		// 12.9p8: the arguments are this constructor's own parameters, each
+		// named as the program naming it would be, in declaration order.
+		for (std::size_t index = 0; index < forwarded->size(); ++index)
+		{
+			arguments.push_back(parameter_value(*(*forwarded)[index], call));
+		}
+	}
+	else if (list != nullptr)
 	{
 		for (std::size_t index = 0; index < list->children.size(); ++index)
 		{
@@ -1612,6 +1827,10 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 		// runs the complete-object entry of the constructor.  A base class
 		// subobject is the one case that runs the base-object entry instead.
 		constructor.complete_object_entry = true;
+	}
+	else
+	{
+		constructor.base_object_entry = true;
 	}
 	const std::vector<TypeId>& parameters = types_.parameters(constructor.type);
 	for (std::size_t index = 0; index < arguments.size(); ++index)
@@ -1662,6 +1881,36 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 	pending.function = &constructor;
 	pending.self = &model_.create(SemaKind::Parameter, "this", parameters[0]);
 	pending.members = constructor.region;
+	if (constructor.inherited != nullptr)
+	{
+		// 12.9p8: the definition writes the parameters it inherited and names
+		// them in the call it makes on the base subobject, so unlike 12.1p5's
+		// it has a region of its own for them to be declared in.
+		DumpScope& dump = model_.open_dump(*constructor.region->dump,
+		                                   "scope function " + constructor.name);
+		pending.scope = &model_.open(ScopeKind::Function, *constructor.region,
+		                             &constructor, &dump);
+		const std::unordered_map<std::uint32_t,
+		                         std::vector<Parameter> >::const_iterator named =
+			constructor_parameters_.find(constructor.id);
+		if (named != constructor_parameters_.end())
+		{
+			pending.parameters = named->second;
+		}
+		else
+		{
+			// A base whose constructor this unit only saw declared through
+			// another inheriting one still says what its parameters are; a name
+			// is what it may not have said, and the output gives an unnamed
+			// parameter one of its own.
+			for (std::size_t index = 1; index < parameters.size(); ++index)
+			{
+				Parameter written;
+				written.type = parameters[index];
+				pending.parameters.push_back(written);
+			}
+		}
+	}
 	pending_.push_back(pending);
 }
 
@@ -1790,11 +2039,16 @@ void SemaAnalyzer::destructor_action(SemaEntity& entity, DumpNode& parent,
 		// base class subobject of an object runs the base-object entry.
 		destructor->complete_object_entry = true;
 	}
+	else
+	{
+		destructor->base_object_entry = true;
+	}
 	DumpNode& action = model_.open_node(
 		parent, "destructor-action " + destructor->dump_name);
 	action.fact.kind = FactKind::DestructorAction;
 	action.fact.entity = destructor;
 	action.fact.type = entity.type;
+	action.fact.base_subobject = where == Placement::Base;
 	// 12.4p8: an array of class type is as many objects as it has elements and
 	// the destructor runs on each of them.  The action names the array, which
 	// says how many they are; a member subobject is destroyed in the reverse of
@@ -1907,7 +2161,27 @@ void SemaAnalyzer::write_member_initializations(const Pending& pending,
 	// its mem-initializer was written in and whether or not one was.
 	SemaEntity* const base =
 		members.owner != nullptr ? members.owner->base : nullptr;
-	if (base != nullptr)
+	if (base != nullptr && pending.function->inherited != nullptr)
+	{
+		// 12.9p8: an inheriting constructor initializes the base subobject by
+		// calling the constructor it was declared from, with its own parameters
+		// as the arguments, and writes no ctor-initializer of its own.  The
+		// parameters are the declarations the definition just made, in the
+		// order the declaration wrote them.
+		std::vector<SemaEntity*> forwarded;
+		for (std::size_t index = 0;
+		     index < pending.scope->declarations.size(); ++index)
+		{
+			SemaEntity& parameter = *pending.scope->declarations[index];
+			if (parameter.kind == SemaKind::Parameter)
+			{
+				forwarded.push_back(&parameter);
+			}
+		}
+		construct_object(*base, line, nullptr, inner, Placement::Base, false,
+		                 nullptr, false, &forwarded);
+	}
+	else if (base != nullptr)
 	{
 		const AstNode* written = nullptr;
 		const std::string spelled =
@@ -1941,8 +2215,7 @@ void SemaAnalyzer::write_member_initializations(const Pending& pending,
 	for (std::size_t index = 0; index < members.declarations.size(); ++index)
 	{
 		SemaEntity& member = *members.declarations[index];
-		if (member.kind != SemaKind::Variable || !member.object_member ||
-		    member.region != &members)
+		if (!declares_subobject(member, members))
 		{
 			continue;
 		}
@@ -2058,8 +2331,7 @@ void SemaAnalyzer::write_member_destructions(Scope& members, DumpNode& line)
 	for (std::size_t index = members.declarations.size(); index-- > 0;)
 	{
 		SemaEntity& member = *members.declarations[index];
-		if (member.kind != SemaKind::Variable || !member.object_member ||
-		    member.region != &members)
+		if (!declares_subobject(member, members))
 		{
 			continue;
 		}

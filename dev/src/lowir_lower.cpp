@@ -200,8 +200,29 @@ unsigned LowirUnitLowering::abi_variant(const SemaEntity& entity)
 		: kCompleteObjectAbi;
 }
 
-const std::string& LowirUnitLowering::function_symbol(const SemaEntity& entity)
+// 12.1 and 12.4: a constructor or destructor a complete object and a base class
+// subobject both asked for stands under both of the ABI's entry points.  This
+// milestone has no virtual base, so the two do the same thing, but they are two
+// symbols the object file has to hold - and the references write them as two
+// definitions rather than as one and an alias.
+bool LowirUnitLowering::writes_base_entry(const SemaEntity& entity)
 {
+	return entity.special != kOrdinaryFunction && entity.complete_object_entry &&
+		entity.base_object_entry;
+}
+
+const std::string& LowirUnitLowering::function_symbol(const SemaEntity& entity,
+                                                      bool base_subobject)
+{
+	if (base_subobject && writes_base_entry(entity))
+	{
+		std::string& base = base_entry_symbols_[entity.id];
+		if (base.empty())
+		{
+			base = function_symbol(entity) + "__base_entry";
+		}
+		return base;
+	}
 	std::string& held = entity_symbols_[entity.id];
 	if (held.empty())
 	{
@@ -222,7 +243,8 @@ const std::string& LowirUnitLowering::function_symbol(const SemaEntity& entity)
 
 void LowirUnitLowering::describe_symbol(const SemaEntity& entity,
                                         lowir_model::SymbolMetadata& metadata,
-                                        const std::string& symbol)
+                                        const std::string& symbol,
+                                        bool base_entry)
 {
 	// 3.5p3: a definition of a name with internal linkage belongs to the
 	// translation unit that wrote it and no other may reach it.  7.1.2p4 makes
@@ -241,8 +263,8 @@ void LowirUnitLowering::describe_symbol(const SemaEntity& entity,
 	// 3.5p9: the object file names the entity, and PA14's encoder is what says
 	// how.  The internal LowIR symbol is a spelling of this program alone, so
 	// the object name is carried only where the two differ.
-	const std::string object = abi_symbol_of(entity, types_,
-	                                         abi_variant(entity));
+	const std::string object = abi_symbol_of(
+		entity, types_, base_entry ? kBaseObjectAbi : abi_variant(entity));
 	if (object != symbol)
 	{
 		metadata.object_symbol = object;
@@ -1131,6 +1153,7 @@ void LowirUnitLowering::function_definition(const DumpNode& node)
 		return;
 	}
 	program_.functions.push_back(lowir_model::Function());
+	const std::size_t at = program_.functions.size() - 1;
 	lowir_model::Function& out = program_.functions.back();
 	out.name = symbol;
 	const TypeId type = node.fact.type;
@@ -1141,15 +1164,15 @@ void LowirUnitLowering::function_definition(const DumpNode& node)
 	}
 	describe_symbol(entity, out.metadata, symbol);
 	if (entity.special != kOrdinaryFunction &&
-	    abi_variant(entity) == kCompleteObjectAbi)
+	    abi_variant(entity) == kCompleteObjectAbi && !writes_base_entry(entity))
 	{
 		// 12.1 and 12.4: the ABI gives a constructor and a destructor one entry
 		// point for a complete object and one for a base subobject.  This
 		// milestone has no virtual base, so the two do the same thing, and a
-		// body a complete object asked for is named twice rather than emitted
-		// twice.  A body only a base subobject asked for stands under the
-		// base-object name alone: nothing named the other, and a symbol nothing
-		// asked for is one this unit does not owe the program.
+		// body only a complete object asked for is named twice rather than
+		// emitted twice.  A body only a base subobject asked for stands under
+		// the base-object name alone: nothing named the other, and a symbol
+		// nothing asked for is one this unit does not owe the program.
 		lowir_model::ObjectAlias alias;
 		alias.object_symbol = abi_symbol_of(entity, types_, kBaseObjectAbi);
 		alias.target = symbol;
@@ -1164,4 +1187,22 @@ void LowirUnitLowering::function_definition(const DumpNode& node)
 	}
 	LowirFunctionLowering body(*this, out);
 	body.run(node, type);
+	if (!writes_base_entry(entity))
+	{
+		return;
+	}
+	// 12.1 and 12.4: a base class subobject asked for this constructor or
+	// destructor as well as a complete object did, so the object file has to
+	// hold both of the ABI's entry points.  With no virtual base the two run the
+	// same body, which is the one just lowered, under the base-object name.
+	const std::string& base = function_symbol(entity, true);
+	if (!builder_.emitted_functions_.insert(base).second)
+	{
+		return;
+	}
+	lowir_model::Function second = program_.functions[at];
+	second.name = base;
+	second.metadata = lowir_model::SymbolMetadata();
+	describe_symbol(entity, second.metadata, base, true);
+	program_.functions.push_back(second);
 }

@@ -256,8 +256,9 @@ void LowirFunctionLowering::array_lifecycle(const DumpNode& node,
 		Instruction out;
 		out.kind = Instruction::IK_CALL;
 		out.type = unit_.low_type(types.target(destructor.type));
-		out.first = named_operand(Operand::OP_GLOBAL,
-		                          unit_.function_symbol(destructor));
+		out.first = named_operand(
+			Operand::OP_GLOBAL,
+			unit_.function_symbol(destructor, node.fact.base_subobject));
 		out.args.push_back(at);
 		emit_void(out);
 	}
@@ -290,8 +291,9 @@ void LowirFunctionLowering::constructor_call(const Operand& address,
 	Instruction out;
 	out.kind = Instruction::IK_CALL;
 	out.type = unit_.low_type(types.target(constructor.type));
-	out.first =
-		named_operand(Operand::OP_GLOBAL, unit_.function_symbol(constructor));
+	out.first = named_operand(
+		Operand::OP_GLOBAL,
+		unit_.function_symbol(constructor, node.fact.base_subobject));
 	out.args.push_back(address);
 	// 12.6.2: whatever else the constructor was chosen with is passed after the
 	// object, in the order the resolved call wrote them.
@@ -548,8 +550,9 @@ void LowirFunctionLowering::destructor_call(const DumpNode& node)
 	Instruction out;
 	out.kind = Instruction::IK_CALL;
 	out.type = unit_.low_type(types.target(destructor.type));
-	out.first =
-		named_operand(Operand::OP_GLOBAL, unit_.function_symbol(destructor));
+	out.first = named_operand(
+		Operand::OP_GLOBAL,
+		unit_.function_symbol(destructor, node.fact.base_subobject));
 	out.args.push_back(address_of(object));
 	emit_void(out);
 }

@@ -1,0 +1,8 @@
+global @base_static_holder__value : i32 [binding=strong, object=_ZN18base_static_holder5valueE] = 1
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    %t1 = load i32 @base_static_holder__value
+    %t2 = binary sub i32 %t1, 1
+    return i32 %t2
+}

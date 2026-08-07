@@ -4,6 +4,12 @@
 #include <stdexcept>
 #include <utility>
 
+bool declares_subobject(const SemaEntity& member, const Scope& scope)
+{
+	return member.kind == SemaKind::Variable && member.object_member &&
+		member.region == &scope && member.shadowed == nullptr;
+}
+
 bool names_a_type(const SemaEntity& entity)
 {
 	switch (entity.kind)
@@ -113,6 +119,9 @@ SemaEntity& SemaModel::create(SemaKind kind, const std::string& name, TypeId typ
 	entity.special = kOrdinaryFunction;
 	entity.explicit_function = false;
 	entity.complete_object_entry = false;
+	entity.base_object_entry = false;
+	entity.shadowed = nullptr;
+	entity.inherited = nullptr;
 	entity.user_provided = false;
 	entity.deleted = false;
 	entity.defaulted = false;

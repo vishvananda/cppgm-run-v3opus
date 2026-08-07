@@ -121,6 +121,7 @@ struct SemaFact
 		, constant(false)
 		, zero_initialized(false)
 		, reverse_elements(false)
+		, base_subobject(false)
 		, value(0)
 	{}
 
@@ -155,6 +156,12 @@ struct SemaFact
 	// thing left to say about them, and 12.6.2p10's member is the subobject
 	// destroyed in the reverse of the order it was created in.
 	bool reverse_elements;
+	// 12.6.2p5 and 12.4p8: whether this `constructor-action` or
+	// `destructor-action` acts on the base class subobject of the object the
+	// function it stands in was called on.  The ABI gives a constructor and a
+	// destructor one entry point for a complete object and one for a base
+	// subobject, and this is what says which of them this call is of.
+	bool base_subobject;
 	unsigned long long value;
 	// The spelling this node carries that no other fact holds: the tokens a
 	// floating literal was written from, whose value is a value of the

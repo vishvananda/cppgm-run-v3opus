@@ -237,10 +237,19 @@ public:
 	LowirSymbolTable& symbols() { return symbols_; }
 	// The internal LowIR symbol of a namespace-scope object.
 	const std::string& global_symbol(const SemaEntity& entity);
-	const std::string& function_symbol(const SemaEntity& entity);
+	// The internal LowIR symbol a call of `entity` names.  12.1 and 12.4 give a
+	// constructor and a destructor two entry points, so a call on a base class
+	// subobject names the base-object one wherever a complete object asked for
+	// the other; everywhere else the one entry this unit wrote is the one name.
+	const std::string& function_symbol(const SemaEntity& entity,
+	                                   bool base_subobject = false);
 	// 12.1 and 12.4: which of the ABI's two entry points a constructor or a
 	// destructor stands under here, which is what this unit ran it as.
 	unsigned abi_variant(const SemaEntity& entity);
+	// Whether this unit writes the base-object entry of `entity` as a definition
+	// of its own, which is what a constructor or destructor a complete object
+	// and a base subobject both asked for needs.
+	static bool writes_base_entry(const SemaEntity& entity);
 	// 2.14.5p8: the global holding the code units of a string literal, made
 	// once per distinct literal.  The literal is an array object with static
 	// storage duration and no name a program can write, so the program holds
@@ -254,9 +263,11 @@ public:
 	// program may reach it, 7.5p1 what language linkage it was declared with,
 	// and 3.5p9 the name the object file gives it, which is written only where
 	// it differs from the internal LowIR symbol `symbol`.
+	// `base_entry` says this symbol is the base-object entry of a constructor or
+	// a destructor whose other entry the unit writes too.
 	void describe_symbol(const SemaEntity& entity,
 	                     lowir_model::SymbolMetadata& metadata,
-	                     const std::string& symbol);
+	                     const std::string& symbol, bool base_entry = false);
 	// 5.19 over the resolved tree: the value an initializer is worth, as the
 	// bits an object of its own type holds.  3.6.2 initializes a namespace
 	// scope object with data rather than with code, so the data has to be
@@ -350,6 +361,11 @@ private:
 	// The symbol of every namespace-scope entity this unit has already asked
 	// for, so a name used many times is flattened and signed once.
 	std::unordered_map<std::uint32_t, std::string> entity_symbols_;
+	// The base-object entry's own symbol, for the constructors and destructors a
+	// base subobject asked for after a complete object already had.  It is kept
+	// apart from `entity_symbols_` because one declaration then stands under two
+	// names, and which of them a call writes is a fact about the call.
+	std::unordered_map<std::uint32_t, std::string> base_entry_symbols_;
 	// 3.2p3 and 7.1.2p4: the definitions this unit holds that belong to every
 	// unit needing one rather than to this one - an inline function, a member
 	// function defined in its class, and the constructor 12.1p5 gives a class -

@@ -1,0 +1,32 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $d : obj<1x1>
+
+  block ^entry:
+    %t1 = addr $d
+    %t2 = addr $d
+    %t3 = index i8 [projection=base_subobject] %t2, 0
+    %t4 = call i32 @base_ranked__f(%t3, 1)
+    %t5 = addr $d
+    %t6 = call i32 @derived_ranked__f(%t5, 1)
+    %t7 = binary add i32 %t4, %t6
+    %t8 = binary sub i32 %t7, 3
+    return i32 %t8
+}
+function @base_ranked__f(%this : ptr, %x : i32) -> i32 [binding=weak, object=_ZN11base_ranked1fEi] {
+  slot $this : ptr
+  slot $x : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %x, $x
+    return i32 1
+}
+function @derived_ranked__f(%this : ptr, %x : i64) -> i32 [binding=weak, object=_ZN14derived_ranked1fEl] {
+  slot $this : ptr
+  slot $x : i64
+
+  block ^entry:
+    store ptr %this, $this
+    store i64 %x, $x
+    return i32 2
+}
