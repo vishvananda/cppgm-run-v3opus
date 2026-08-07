@@ -348,6 +348,13 @@ void LowirUnitLowering::collect_definitions(const DumpNode& node)
 		    child.fact.entity != nullptr)
 		{
 			defined_.insert(function_symbol(*child.fact.entity));
+			if (writes_base_entry(*child.fact.entity))
+			{
+				// 12.1 and 12.4: the body stands under both of the ABI's entry
+				// points, so the unit holds the base-object name too and owes
+				// the program no declaration of it.
+				defined_.insert(function_symbol(*child.fact.entity, true));
+			}
 			if (child.fact.entity->inline_function)
 			{
 				// 7.1.2p4: the definition is the program's rather than this
@@ -1116,7 +1123,21 @@ void LowirUnitLowering::declare_entity(const SemaEntity& entity)
 
 void LowirUnitLowering::add_function_declaration(const SemaEntity& entity)
 {
-	const std::string symbol = function_symbol(entity);
+	add_function_declaration(entity, false);
+	if (writes_base_entry(entity))
+	{
+		// 12.1 and 12.4: a complete object and a base class subobject each
+		// asked this unit for the constructor or destructor, so calls here name
+		// both of the ABI's entry points.  A name a call writes is one the unit
+		// owes the program a declaration of, whether or not it holds the body.
+		add_function_declaration(entity, true);
+	}
+}
+
+void LowirUnitLowering::add_function_declaration(const SemaEntity& entity,
+                                                 bool base_entry)
+{
+	const std::string symbol = function_symbol(entity, base_entry);
 	if (defined_.count(symbol) != 0 || !declared_.insert(symbol).second)
 	{
 		return;
@@ -1140,7 +1161,7 @@ void LowirUnitLowering::add_function_declaration(const SemaEntity& entity)
 	{
 		declaration.boundary.arity = lowir_model::CAM_VARIADIC;
 	}
-	describe_symbol(entity, declaration.metadata, symbol);
+	describe_symbol(entity, declaration.metadata, symbol, base_entry);
 	program_.function_declarations.push_back(declaration);
 }
 

@@ -356,18 +356,30 @@ private:
 	SemaEntity& declare_using_member(SemaEntity& target, Scope& where,
 	                                 const std::string& name);
 	// 12.9p1: the constructors a using-declaration naming a direct base class's
-	// constructors declares in `where`, one per constructor of the base other
-	// than the ones 12.9p3 leaves out.
+	// constructors declares in `where`, one per member of the base's candidate
+	// set of inherited constructors other than the ones 12.9p3 leaves out.
 	void inherit_constructors(SemaEntity& base, Scope& where);
+	// One of that set: the first `taken` parameters of `from`, which is the
+	// whole of its parameter-type-list when `whole`.
+	void inherit_constructor(SemaEntity& from, const SemaEntity& base,
+	                         std::size_t taken, bool whole, SemaEntity& derived,
+	                         Scope& where, const std::string& spelled);
+	// 12.9p1 and 8.3.6p4: how many parameters a call of `function` has to write,
+	// which is where its default-arguments begin - the shortest parameter list
+	// 12.9p1's candidate set takes from this declaration.
+	std::size_t required_parameters(const SemaEntity& function) const;
 	// 12.1p5 and 12.9p3: whether this class declares a constructor of its own,
 	// which an inherited one is not - so a class that only inherits still has
 	// the default constructor 12.1p5 gives it.
 	static bool declares_own_constructor(const SemaEntity& entity);
 	// 13.1 and 7.3.3p14: what tells two declarations of one name in one class
-	// apart.  9.3.1p3 put the object parameter in a member function's type, and
-	// one brought in from a base carries the base's class there - so what the
-	// two have in common is the rest of the parameter list and how cv-qualified
-	// the object the function may be called on is.
+	// apart - 8.3.5p4's parameter-type-list and 8.3.5p7's cv-qualifier-seq.
+	// 9.3.1p3 put an object parameter in a non-static member function's type
+	// that no declarator wrote, so it is left out of the list and its
+	// qualifiers stand beside it; a static member function wrote no
+	// cv-qualifier-seq and declares the list its declarator wrote.  That is
+	// what makes a static and a non-static declaration of one class hide each
+	// other rather than overload, which 9.4.1p2 does not allow.
 	std::uint32_t member_signature(const SemaEntity& function);
 	std::uint32_t member_signature(TypeId type, bool object_member);
 	// 7.3.3p1: the declaration a name a using-declaration brought into a class
@@ -375,6 +387,10 @@ private:
 	// hiding are facts about the declaration the class made; everything a use
 	// of the member needs is a fact about the one it names.
 	static SemaEntity& declared_member(SemaEntity& entity)
+	{
+		return entity.shadowed != nullptr ? *entity.shadowed : entity;
+	}
+	static const SemaEntity& declared_member(const SemaEntity& entity)
 	{
 		return entity.shadowed != nullptr ? *entity.shadowed : entity;
 	}
@@ -608,6 +624,10 @@ private:
 	// 5.1.1p1: a parameter named as the program would name it, written into a
 	// node of its own under `parent`.
 	Value parameter_value(SemaEntity& parameter, DumpNode& parent);
+	// 12.1p5, 12.9p6 and 3.2p3: the definition a use of a constructor the
+	// standard rather than the program gives a class asks this unit for, which
+	// is written once however many uses ask.
+	void demand_constructor_definition(SemaEntity& constructor);
 	// The object a constructor-action runs on, as the address of it: an object
 	// a declaration named, a member of the object being constructed, or that
 	// object's base class subobject.
@@ -701,20 +721,18 @@ private:
 	// 13.1 and 3.5: the declaration a function declarator makes, which is a
 	// redeclaration of an earlier one in the same region exactly when their
 	// parameter type lists agree.
-	// `object_member` says 9.3.1p3 put the object the function is called on in
-	// `type`, which is what 7.3.3p14 compares two declarations of one class by.
 	SemaEntity& declare_function(const std::string& name, TypeId type,
 	                             const Context& target, bool define,
-	                             bool hidden = false,
-	                             bool object_member = false);
+	                             bool hidden = false);
 	// 7.3.3p14: a member function this class declares hides the one a
-	// using-declaration brought in from a base with the same name and parameter
-	// list rather than conflicting with it, so what was brought in leaves the
-	// chain the name heads.  A class that wrote no using-declaration has no such
-	// declaration to find, so this costs one walk of the declarations that name
-	// already has and nothing else.
-	void hide_using_member(Scope& where, const std::string& name,
-	                       SemaEntity*& head, TypeId type, bool object_member);
+	// using-declaration brought in from a base with the same name and
+	// parameter-type-list rather than conflicting with it, so what was brought
+	// in leaves the chain the name heads.  It is asked where 9.2p2 completes
+	// the class, because it is a question about what the complete class
+	// declares and not about which of the two the body wrote first - one pass
+	// over the declarations each brought-in name has, and nothing at all for a
+	// class that wrote no using-declaration.
+	void hide_using_members(Scope& where);
 	// 11.3p6: a friend declaration declares its function in the innermost
 	// enclosing namespace, so a declarator written after `friend` is read
 	// against that region rather than against the class it stands in.  Returns

@@ -1,0 +1,20 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $chosen : ptr
+
+  block ^entry:
+    %t1 = addr @address_base__selected
+    %t2 = unary decay ptr %t1
+    store ptr %t2, $chosen
+    %t3 = load ptr $chosen
+    %t4 = call i32 %t3(4) as (%arg0 : i32) -> i32
+    %t5 = binary sub i32 %t4, 4
+    return i32 %t5
+}
+function @address_base__selected(%given : i32) -> i32 [binding=weak, object=_ZN12address_base8selectedEi] {
+  slot $given : i32
+
+  block ^entry:
+    store i32 %given, $given
+    %t1 = load i32 $given
+    return i32 %t1
+}

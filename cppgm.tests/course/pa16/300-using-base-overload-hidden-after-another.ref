@@ -1,0 +1,47 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $derived : obj<1x1>
+
+  block ^entry:
+    %t1 = addr $derived
+    %t2 = addr $derived
+    %t3 = call i32 @hidden_chain_derived__reached(%t2)
+    %t4 = addr $derived
+    %t5 = index i8 [projection=base_subobject] %t4, 0
+    %t6 = call i32 @hidden_chain_base__reached__ov2(%t5, 1)
+    %t7 = binary add i32 %t3, %t6
+    %t8 = addr $derived
+    %t9 = call i32 @hidden_chain_derived__reached__ov2(%t8, 2.0)
+    %t10 = binary add i32 %t7, %t9
+    %t11 = binary sub i32 %t10, 16
+    return i32 %t11
+}
+function @hidden_chain_derived__reached__ov2(%this : ptr, %given : f64) -> i32 [binding=weak, object=_ZN20hidden_chain_derived7reachedEd] {
+  slot $this : ptr
+  slot $given : f64
+
+  block ^entry:
+    store ptr %this, $this
+    store f64 %given, $given
+    %t1 = load f64 $given
+    %t2 = convert fptosi i32 f64 %t1
+    %t3 = binary add i32 %t2, 7
+    return i32 %t3
+}
+function @hidden_chain_base__reached__ov2(%this : ptr, %given : i32) -> i32 [binding=weak, object=_ZN17hidden_chain_base7reachedEi] {
+  slot $this : ptr
+  slot $given : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %given, $given
+    %t1 = load i32 $given
+    %t2 = binary add i32 %t1, 1
+    return i32 %t2
+}
+function @hidden_chain_derived__reached(%this : ptr) -> i32 [binding=weak, object=_ZN20hidden_chain_derived7reachedEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    return i32 5
+}

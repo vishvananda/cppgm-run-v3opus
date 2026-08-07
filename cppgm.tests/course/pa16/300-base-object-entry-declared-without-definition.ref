@@ -1,0 +1,36 @@
+declare function @entry_base__entry_base(%arg0 : ptr, %arg1 : i32) -> void [binding=strong, object=_ZN10entry_baseC1Ei]
+declare function @entry_base__entry_base__base_entry(%arg0 : ptr, %arg1 : i32) -> void [binding=strong, object=_ZN10entry_baseC2Ei]
+
+global @whole_object [binding=strong, object=_Z12whole_object] = {
+  zero 4
+}
+global @through_base [binding=strong, object=_Z12through_base] = {
+  zero 4
+}
+
+function @entry_derived__entry_derived(%this : ptr, %given : i32) -> void [binding=weak, object=_ZN13entry_derivedC1Ei] {
+  slot $this : ptr
+  slot $given : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %given, $given
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    %t3 = load i32 $given
+    call void @entry_base__entry_base__base_entry(%t2, %t3)
+    return void
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    return i32 0
+}
+function @__cppgm_init() -> void [role=init, binding=internal] {
+  block ^entry:
+    %t1 = addr @whole_object
+    call void @entry_base__entry_base(%t1, 1)
+    %t2 = addr @through_base
+    call void @entry_derived__entry_derived(%t2, 2)
+    return void
+}
+alias object _ZN13entry_derivedC2Ei = @entry_derived__entry_derived

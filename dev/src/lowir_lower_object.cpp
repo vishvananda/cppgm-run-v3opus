@@ -305,7 +305,7 @@ void LowirFunctionLowering::constructor_call(const Operand& address,
 			at < parameters.size() && types.is_reference(parameters[at]);
 		const LowValue argument = expression(*call.children[index], bound);
 		out.args.push_back(
-			argument_operand(*call.children[index], argument, parameters[at]));
+			passed_operand(*call.children[index], argument, parameters, at));
 	}
 	emit_void(out);
 }
@@ -380,6 +380,34 @@ void LowirFunctionLowering::copy_class_object(const Operand& destination,
 	copy.first = source;
 	copy.second = destination;
 	emit_void(copy);
+}
+
+// 5.2.2p4 and 5.2.2p7: what the argument standing at `at` is passed as - the
+// conversion the parameter it reached asks for, or, where the declaration named
+// no parameter there and wrote an ellipsis instead, the default argument
+// promotions.  A call the program wrote and one 12.6.2 wrote for a constructor
+// each pass an argument this way.
+Operand LowirFunctionLowering::passed_operand(
+	const DumpNode& node, const LowValue& value,
+	const std::vector<TypeId>& parameters, std::size_t at)
+{
+	if (at < parameters.size())
+	{
+		return argument_operand(node, value, parameters[at]);
+	}
+	TypeTable& types = unit_.types();
+	const TypeId bare = types.strip_cv(value.type);
+	TypeId promoted = bare;
+	if (types.is_floating(bare) && types.fundamental_type(bare) == FT_FLOAT)
+	{
+		promoted = types.fundamental(FT_DOUBLE);
+	}
+	else if (types.is_integral(bare) && unit_.width(bare) < 4)
+	{
+		promoted =
+			types.fundamental(unit_.is_signed(bare) ? FT_INT : FT_UNSIGNED_INT);
+	}
+	return converted(value, promoted);
 }
 
 // 5.2.2p4 and 12.8p31: what one argument of a call is passed as.  A prvalue of

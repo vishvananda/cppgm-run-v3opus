@@ -313,8 +313,12 @@ private:
 	                          unsigned long long bytes);
 	// The literal `bits` of `type` is written as, signed when the type is.
 	std::string spell_value(TypeId type, unsigned long long bits);
-	// The declaration of `entity` as a function, without a body.
+	// The declaration of `entity` as a function, without a body - one per name
+	// a call of it can write, which for a constructor or a destructor both a
+	// complete object and a base subobject asked for is both of the ABI's
+	// entry points.
 	void add_function_declaration(const SemaEntity& entity);
+	void add_function_declaration(const SemaEntity& entity, bool base_entry);
 	// 7.1.2p4 and 12.1p5: a definition no one translation unit owns is in the
 	// program only where the program uses it, so a use asks for it here.  The
 	// definition is taken off the deferred map as it is asked for, which makes
@@ -558,6 +562,15 @@ private:
 	lowir_model::Operand argument_operand(const DumpNode& node,
 	                                      const LowValue& value,
 	                                      TypeId parameter);
+	// The same for the argument at `at` of a call whose declaration is
+	// `parameters`, which for one past the last of them is 5.2.2p7's argument
+	// matched by the ellipsis, passed under the default argument promotions.
+	// A call the program wrote and a constructor call the object model wrote
+	// pass an argument the same way.
+	lowir_model::Operand passed_operand(const DumpNode& node,
+	                                    const LowValue& value,
+	                                    const std::vector<TypeId>& parameters,
+	                                    std::size_t at);
 	// 12.8p15 and 12.8p31: the storage a copy of one class object is made in
 	// where the place that asked for the copy owns storage of its own, and the
 	// storage a prvalue already stands in where 12.8p31 lets the two be one

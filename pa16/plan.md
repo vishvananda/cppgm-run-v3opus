@@ -39,9 +39,10 @@ worklist in the unit lowering.
 
 ## Current Failure Map
 
-After C9: 206 / 243 of the checked-in fixtures, plus the four this checkpoint
-added. The 37 that remain, 18 refusing a program the references accept and 19
-accepting one and writing a different shape:
+After the audit of C9: 220 / 257 — 206 / 243 of the checked-in fixtures, the
+four C9 added and the ten this audit added. The 37 that remain, 18 refusing a
+program the references accept and 19 accepting one and writing a different
+shape:
 
 | group | count | what is missing |
 | --- | --- | --- |
@@ -109,8 +110,11 @@ Defects no fixture reaches, kept here because a sweep found them and not a test:
 - A cast written on a null pointer constant is one `copy ptr 0` the references
   do not write, so `f((char*)0)` passes a temporary where they pass the constant.
   It is 5.2.9's own path and has nothing to do with the class it is passed to.
+- A member named through a qualified-id on an object is refused - `d.YD::f()`
+  and `d.YB::f()` alike, with and without a base and with and without a
+  using-declaration. It is 5.2.5p1's qualified-id and predates the object model.
 
-Three shapes the references and this unit disagree about what a program means,
+Four shapes the references and this unit disagree about what a program means,
 each resolved for the standard: 8.5p7 zero-initializes a value-initialized
 object whose class wrote no constructor *before* the non-trivial one it was
 given runs, which the references do not write, so
@@ -118,8 +122,14 @@ given runs, which the references do not write, so
 storage held; 12.1/12.4 run a constructor and a destructor whose body is empty,
 which the references elide along with the object's whole lifetime - `B() {}` in
 a base and `~B() {}` alike, whether the derived class wrote its constructor or
-inherited it; and the references pass a class holding a bit-field by address
-where they pass every other class of the same size by value.
+inherited it; the references pass a class holding a bit-field by address
+where they pass every other class of the same size by value; and 12.9p1's
+candidate set of inherited constructors holds the base's parameter-type-list and
+the shorter ones its defaulted parameters leave, with 12.9p2's characteristics
+carrying no default-argument, where the references inherit one declaration and
+copy its defaults onto it - which makes `struct YB { YB(int = 1); }` inherited
+beside 12.1p5's default constructor ambiguous there and well formed here, as g++
+reads it.
 
 Three divergences are deliberate and named in the Performance Model: past 64
 bytes the zero of a class object is one `zeroinit` where the references write
@@ -135,46 +145,43 @@ claim.
 
 ## Active Checkpoint
 
-Done: **C9 - the declarations a using-declaration brings into a class**,
-199 -> 206 / 243 with pa1-pa15 at 1173/1173, and four regression tests added.
+Done: **audit of C9 - the sibling places a brought-in declaration is used, and
+the question a complete class answers**, 210 / 247 held with pa1-pa15 at
+1173/1173, and ten regression tests added (220 / 257).
 
-7.3.3p1 read in a class makes a declaration of that class rather than a second
-name for the base's: one member per declaration the base has of the name,
-carrying the access 11p1 gave the using-declaration and naming the base's
-declaration through `SemaEntity::shadowed`. 10.2's lookup finds them in the
-class itself, 13.3 ranks them beside the class's own with 13.3.3.1p4's object
-parameter naming *this* class, and the use resolves to what `shadowed` names -
-so the call runs the base's function and `this` is the base subobject, an
-address 11.2p5 leaves unchecked because the naming class is the derived one.
-7.3.3p14's hiding is one probe of a signature that leaves the object parameter
-out, asked in both orders: at the using-declaration for what the class already
-declares, and at a later member declaration for what the using-declaration
-brought in. 12.9's using-declaration instead declares a constructor of this
-class per constructor of the base, with the base's access (12.9p4), the base's
-parameters and their names, whose definition initializes the base subobject by
-calling the one it was declared from (12.9p8) and default-initializes
-everything else - while 12.1p5 still gives the class the default constructor an
-inherited one is not.
+C9's architecture stands: a using-declaration in a class makes a declaration of
+that class, and every use of it reaches the one `shadowed` names. What the audit
+found is that the rule was written at the places C9's own fixtures name and left
+at the siblings, and that two questions about the complete class were answered
+where the body had got to. 13.3.1.2's operator expression called the class's own
+declaration - `@YD__operator_` under `_ZN2YDplEi`, a symbol no unit defines - on
+the derived object rather than the base subobject; 13.4's address of an
+overloaded brought-in name did the same in three places; and 8.3.6's
+default-arguments were unreachable from what the class declared. Naming a
+function is one description in one place now, so all of them reach the base's
+declaration. 7.3.3p14's hiding and 12.9p1's "unless the class declares one with
+the same signature" are settled where 9.2p2 completes the class: the hiding was
+n^2 in the declarations of one name (2.53 s at 4000, 0.27 s now) and left a
+hidden declaration in 13.1's index, so a third overload was read as a
+redeclaration; the inheriting rule repurposed a declaration in place, which gave
+a constructor the access of the using-declaration's section rather than of its
+own, in both directions. 12.9p1's candidate set is the base's parameter-type-list
+and the shorter ones its defaulted parameters leave, with 12.9p2's
+characteristics carrying no default-argument. 7.3.3p14 compares the parameters a
+declarator wrote with 8.3.5p7's cv-qualifier-seq beside them, so a static and a
+non-static member function of one class meet where 9.4.1p2 says they must. The
+base-object entry a call names is declared where this unit holds no body. And a
+constructor declared with an ellipsis read one type past its parameter list, in
+the analysis and again in the lowering - two out-of-bounds reads, now one shared
+description of how an argument is passed.
 
-Beside them, at the same boundary: 13.3.3.2p3's cv tie-break kept through
-4.10p3's derived-to-base conversion, without which `f()` and `f() const`
-inherited by one class rank the same on any object; and the ABI's two entry
-points written as the two definitions the references write where a complete
-object and a base subobject both asked for one, rather than one definition and
-an alias - which is what a constructor inherited twice over needs and what every
-class constructed both ways needed already.
-
-A differential sweep of 72 shapes through `cppgm++-ref` - the cross product of
-base access, member access and member kind, the hiding orders, multiplicity,
-chain depth, and the inherited-constructor shapes - found four defects the
-fixtures do not reach, each fixed here and each now a test: 13.3.3.1p4's object
-parameter, an exact match on a brought-in overload losing to a conversion on the
-class's own, a static data member reached through a using-declaration written as
-a second object of the derived class, and a declaration written after the
-using-declaration not hiding what it brought in. g++ agrees with this unit on
-the well-formedness of all 72 and on the value each returns; where the
-references accept a using-declaration naming a private member of the base, g++
-and this unit both refuse it.
+A 458-program differential sweep through `cppgm++-ref` - the cross product of
+base access, member access and member kind; every constructor shape against
+every derived declaration and every member the derived class adds; 7.3.3p14's
+hiding in both orders over four base overload sets, five derived declarations
+and four calls - found all ten, and every disagreement left standing was put to
+g++, which agrees with this unit on all of them but the shapes this milestone
+does not read.
 
 Next: **C10 - the `thread_local` storage duration and the `__builtin_*` names**,
 which is 6 of the remaining fixtures and the two largest groups left.
@@ -203,34 +210,50 @@ which is 6 of the remaining fixtures and the two largest groups left.
   the name has in the base - which is what the source wrote - and one probe per
   declaration of 7.3.3p14's signature, so the members it brings in are declared
   in as many steps as there are of them. 10.2's lookup then finds them in the
-  class itself and walks no base chain for them. A class that wrote no
-  using-declaration pays one flag test per member function it declares and
-  nothing else, which is what keeps a class with n overloads of one name linear.
-  Measured at 500/1000/2000/4000, each doubling 1.9-2.2x: n members of one base
-  each brought in by a using-declaration of its own, 0.00/0.01/0.02/0.04 s; one
-  using-declaration bringing in n overloads, 0.01/0.03/0.06/0.13 s; n classes
-  deep, each bringing in the one before it, 0.01/0.02/0.04/0.08 s; n calls of a
-  brought-in member in one body, 0.01/0.02/0.04/0.09 s and 6 n + 17 lines.
+  class itself and walks no base chain for them, and a use of one costs one
+  pointer test to reach the declaration it names. Measured at
+  500/1000/2000/4000, each doubling 1.9-2.2x: n members of one base each brought
+  in by a using-declaration of its own, 0.01/0.03/0.06/0.13 s; one
+  using-declaration bringing in n overloads, 0.02/0.03/0.07/0.14 s; n classes
+  deep, each bringing in the one before it, 0.01/0.02/0.05/0.10 s; n calls of a
+  brought-in member in one body, 0.01/0.03/0.05/0.11 s and 6 n + 17 lines.
+- 7.3.3p14's hiding is asked where 9.2p2 completes the class, once for each name
+  a using-declaration brought a function in under: one pass over the
+  declarations that name has to say which signatures the class declared itself,
+  and one more to take the brought-in declarations of those signatures off the
+  chain. A class that wrote no using-declaration answers nothing at all, and one
+  that did pays the declarations it has rather than their square - n brought-in
+  overloads all hidden by n declarations of the class's own,
+  0.03/0.06/0.13/0.27 s at 500/1000/2000/4000, where asking it once per member
+  declaration had been 0.05/0.15/0.61/2.53 s.
 - 12.9's inherited constructors are one pass over the base's chain with one
-  probe of 13.1's index per constructor, so a base with n of them is inherited
-  in n steps and a chain n classes deep costs n per class and not n^2. Measured
-  at 500/1000/2000/4000, each doubling 2.0-2.3x: n constructors of one base all
-  inherited, 0.01/0.03/0.07/0.25 s and 40 lines whatever n is; n classes each
-  inheriting the one before it, 0.02/0.05/0.11/0.24 s and 13 n + 13 lines; n
-  objects built through one inherited constructor, 0.02/0.05/0.10/0.23 s. The
-  first of those is dominated by 12.6.2's own pass: n constructor definitions
-  each walking the class's declarations to initialize its members is n^2 by
-  what 12.6.2p10 asks for, and a class with n constructors and no
-  using-declaration measures the same 0.24 s at 4000.
+  probe of 13.1's index per member of 12.9p1's candidate set, so a base with n
+  constructors is inherited in n steps and a chain n classes deep costs n per
+  class and not n^2. Measured at 500/1000/2000/4000, each doubling 2.0-2.2x: n
+  constructors of one base all inherited, 0.02/0.04/0.09/0.29 s and 48 lines
+  whatever n is; n classes each inheriting the one before it,
+  0.03/0.06/0.12/0.26 s and 13 n + 14 lines; n objects built through one
+  inherited constructor, 0.03/0.05/0.10/0.21 s and 10 n + 36 lines. The first of
+  those grows the same way with no using-declaration at all -
+  0.02/0.03/0.07/0.22 s for the same n constructors - so the last doubling is
+  the type layer interning n distinct parameter types and not the inheritance.
+- 12.9p1's candidate set is one constructor per parameter list a base
+  constructor's defaulted parameters leave, so one declaration with n of them is
+  n inherited constructors holding n^2/2 parameters between them. That is what
+  12.9p1 describes rather than a walk this unit adds: 500/1000/2000/4000
+  defaulted parameters take 0.02/0.05/0.16/0.56 s, and the output stays 2 n + 40
+  lines because only the constructor a use asks for is defined.
 - 13.1's index of a class's constructors is keyed by the chain the class holds
   and the parameter list, so declaring the nth constructor, asking whether a
   base's is already declared, and 12.9p1's "unless this class declares one with
-  the same signature" are each one probe rather than a walk.
+  the same signature" are each one probe rather than a walk. A declaration a
+  using-declaration brought in is never in that index, because 7.3.3p14 hides it
+  rather than letting a declarator redeclare it.
 - The ABI's two entry points are two definitions of one body where a complete
-  object and a base subobject both asked for one, so a program with n such
-  classes writes 2 n bodies and not 2^n or n^2: 500/1000/2000/4000 classes each
-  constructed and destroyed both ways take 0.15/0.32/0.66/1.39 s for 87 n lines,
-  each doubling 2.1x.
+  object and a base subobject both asked for one, and two declarations where
+  this unit holds no body, so a program with n such classes writes 2 n of them
+  and not 2^n or n^2: 500/1000/2000/4000 classes each constructed and destroyed
+  both ways take 0.17/0.36/0.73/1.49 s for 92 n lines, each doubling 2.0-2.1x.
 
 - 12.6p1's array of class type costs one constructor selection and one node in
   the tree however many elements it has: the action names the array, and the
@@ -451,5 +474,6 @@ which is 6 of the remaining fixtures and the two largest groups left.
 | C7 | 12.2p1's prvalue of class type made an object the function holds - `T(args)` and `T()` declaring a temporary no name reaches, 8.5/13.3.1.3 choosing its constructor, and the storage named `tmpobj__n`, `arg__n` or `argobj__n` after what asked for it; 8.5.3p5's reference bound to that object; 13.3.3.1.2p1's user-defined conversion sequence as the same temporary made by a converting constructor, ranked below every standard conversion sequence and above the ellipsis, with 12.3.1p2's `explicit` left out and one user-defined conversion per sequence; 5.2.2p4's argument of class type copied into a generated `argobj__n` slot the call is passed, with 12.8p31 creating a prvalue argument in that slot rather than copying into it; 12.8p15's copy made memberwise, so a class that holds nothing moves nothing - at an argument and at a parameter's entry alike; 8.5p7's zero-initialization of a value-initialized class with no user-provided constructor, written as the zero of its bytes; 12.2p3's temporary of a class with a non-trivial destructor refused rather than left alive past the full-expression; the object model of the lowering split out into `lowir_lower_object.cpp` | 174 -> 186 / 243; pa1-pa15 1173/1173; valgrind clean over 243 fixtures and the probes; 18 of 21 synthesized prvalue, by-value, conversion and value-initialization shapes byte-identical to the reference, the other 3 differing only in the `zeroinit` limit; every axis linear at 1.9-2.3x per doubling |
 | audit of C7 | 5.2.2p4's copy owned by the call taken out of `converted`, which every initialization, assignment, return, conditional arm and cast reaches, and written at each of those places instead - one `copyobj` into the object already known, and no call's slot allocated for a copy that place already owns storage for; the storage a temporary takes named by what asked for it, which only a call's argument and a return's value do, so a reference a declaration binds keeps `tmpobj__n` and 13.3.3.1.2's temporary reaching a by-value class parameter is the `argobj__n` 12.8p31 makes it; 12.2p1 given to the other prvalue of class type, so a call that returns one by value no longer hands back a value where `this` or a reference needs an object; 12.8p25 made a fact the class carries and asked at the one place a class object is copied, so a copy the program wrote is refused rather than written as the copy of the bytes; a declaration and the initialization under it naming one address rather than two | 186 / 243 held, the same set passing and failing; pa1-pa15 1173/1173; byte-identical passing fixtures 110 -> 116 of 164; valgrind clean over 243 fixtures and 130 probes; eight axes linear and the per-copy slot and instruction growth gone |
 | C8 | 12.6p1's array of class type constructed element by element and 12.4p8's destroyed the same way, as one action naming the array that the lowering writes the calls of; an element addressed the way the source would name it, a dimension at a time, which 8.5p7's value-initialized array member, 3.6.2p2's dynamic initialization of a namespace-scope array and both lifecycle calls share; 3.6.2p2's static image of an array of class type, with an element's own padding and a fallback to `@__cppgm_init` for a clause the translation does not know; an aggregate clause's value computed before the address it is stored into; 7.6.2p1's alignment-specifier kept where a decl-specifier stands and read by 9.2p13's layout; 5.3.6p1's `alignof` as an expression; 9.1p2's qualified class-head-name defining the class that region declared | 186 -> 199 / 243; pa1-pa15 1173/1173; valgrind clean over the new fixtures and the probes; a 70-shape differential sweep against `cppgm++-ref` found and closed four defects no fixture reaches; every axis linear at 1.9-2.1x per doubling |
-| C9 | 7.3.3p1's using-declaration in a class made a declaration of that class per declaration the base has of the name, carrying 11p1's access and naming the base's through `shadowed`, with 13.3.3.1p4's object parameter naming the derived class and 11.2p5 leaving the base subobject `this` reaches unchecked; 7.3.3p14's hiding asked in both orders through a signature that leaves the object parameter out; 12.9's inheriting constructors declared from the base's with 12.9p4's access, the base's parameters and names, and 12.9p8's definition, with 12.1p5's default constructor still given to a class that only inherits; 13.3.3.2p3's cv tie-break kept through 4.10p3's derived-to-base conversion; the ABI's two entry points written as two definitions where a complete object and a base subobject both asked for one | 199 -> 206 / 243; pa1-pa15 1173/1173; valgrind clean over the seven fixtures and 72 probes; a 72-shape differential sweep against `cppgm++-ref` found and closed four defects no fixture reaches, each now a test, and g++ agrees with this unit on the well-formedness and the value of all 72; every C9 axis linear at 1.9-2.3x per doubling |
 | audit of C8 | an alignment-specifier read from wherever it stood among the decl-specifiers, where 7p1 gives one written before them to what the declaration declares and one written after them to the type those specifiers named, so `struct S { char c; int alignas(8) x; };` laid `x` at 8 and made its class 16 where g++ and the references write 4 and 8; 7.6.2p3's fundamental alignment never asked for, so `alignas(6)` allocated a member at every sixth byte, `alignas(6)` on a class-head made the class six and `alignas(-4)` made it one, all three refused by g++ and by the references; 8.5p7's zero of an object with static storage duration written into a startup body 3.6.2p1 had already made unnecessary, one store per element - `YA g[4000] = {};` at 20 018 lines writing zero into storage the program image holds zero, and the empty `@__cppgm_init` for `YA g = YA();` with it | 199 / 243 held, the same set passing and failing; pa1-pa15 1173 / 1173; byte-identical passing fixtures 127 of 177, the rest differing only in top-level order, the internal symbol name and `unwind` / `trivial_lifecycle`, with `pass=` agreeing on every one; valgrind clean over 243 fixtures and 116 probes; nine axes linear at 2.0-2.2x per doubling and the per-element startup work gone - 14 lines at 500 elements and at 4000; file audit passes with the two recorded header-weight warnings |
+| C9 | 7.3.3p1's using-declaration in a class made a declaration of that class per declaration the base has of the name, carrying 11p1's access and naming the base's through `shadowed`, with 13.3.3.1p4's object parameter naming the derived class and 11.2p5 leaving the base subobject `this` reaches unchecked; 7.3.3p14's hiding asked in both orders through a signature that leaves the object parameter out; 12.9's inheriting constructors declared from the base's with 12.9p4's access, the base's parameters and names, and 12.9p8's definition, with 12.1p5's default constructor still given to a class that only inherits; 13.3.3.2p3's cv tie-break kept through 4.10p3's derived-to-base conversion; the ABI's two entry points written as two definitions where a complete object and a base subobject both asked for one | 199 -> 206 / 243; pa1-pa15 1173/1173; valgrind clean over the seven fixtures and 72 probes; a 72-shape differential sweep against `cppgm++-ref` found and closed four defects no fixture reaches, each now a test, and g++ agrees with this unit on the well-formedness and the value of all 72; every C9 axis linear at 1.9-2.3x per doubling |
+| audit of C9 | 13.3.1.2's operator expression and 13.4's address of an overloaded name read through `shadowed`, so what a using-declaration brought in is called and named as the base's declaration rather than as a symbol no unit defines, on the base subobject and with the base's definition emitted; 8.3.6's default-arguments read from the declaration that wrote them; a hidden declaration kept out of 13.1's index, so a third overload declared after two were hidden is a function of its own; 7.3.3p14's parameter-type-list made the one a declarator wrote, with 8.3.5p7's cv-qualifier-seq beside it, so a static and a non-static member function of one class hide each other where 9.4.1p2 does not let them overload; that hiding and 12.9p1's "unless the class declares one" both settled where 9.2p2 completes the class, which makes the order the body wrote them in irrelevant, gives a constructor the access of its own section, and takes the hiding from n^2 to one pass; 12.9p1's candidate set read as the shorter parameter lists a base constructor's defaulted parameters leave, with 12.9p2's characteristics carrying no default-argument; the ABI's base-object entry declared where this unit holds no body; a constructor declared with an ellipsis no longer reading one type past its parameter list, in the analysis or in the lowering | 210 / 247 held, the same set passing and failing, and 220 / 257 with ten regression tests added; pa1-pa15 1173 / 1173; byte-identical passing fixtures 143 of 197; valgrind clean over 257 fixtures and 460 synthesized inputs; a 458-program differential sweep against `cppgm++-ref` with every disagreement judged against g++; ten axes linear at 1.9-2.2x per doubling and the n^2 hiding gone (2.53 s -> 0.27 s at 4000) |

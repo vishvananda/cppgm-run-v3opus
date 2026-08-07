@@ -342,7 +342,7 @@ public:
 		, id(scope_id)
 		, visit(0)
 		, base(nullptr)
-		, using_members(false)
+		, inheriting_constructors(false)
 		, searchers_at(0)
 	{}
 
@@ -376,12 +376,19 @@ public:
 	// Every other region leaves it null, so a program with no inheritance pays
 	// nothing for the question.
 	Scope* base;
-	// 7.3.3p1: whether a using-declaration written in this class brought a
-	// member function of a base into it.  7.3.3p14's hiding is a question only
-	// such a class can answer yes to, so a class that wrote none pays one test
-	// per member function it declares rather than a walk of the declarations
-	// that name already has.
-	bool using_members;
+	// 7.3.3p1: the names a using-declaration written in this class brought a
+	// member function of a base in under.  7.3.3p14's hiding is a question only
+	// those names can answer yes to, and it is asked of the complete class -
+	// one pass over the declarations each of them has, where 9.2p2 completes
+	// the class - so a class that wrote no using-declaration pays nothing at
+	// all and one that did pays the declarations it has rather than their
+	// square.
+	std::vector<std::string> using_names;
+	// 12.9p1: whether a using-declaration written in this class named the
+	// constructors of its direct base.  Which of them are inherited is settled
+	// where 9.2p2 completes the class, because 12.9p1 leaves out the ones the
+	// complete class declares itself - wherever among the members they stand.
+	bool inheriting_constructors;
 	// 11.3p6: the functions a friend declaration in this class first declared.
 	// 7.3.1.2p3 makes each a member of the innermost enclosing namespace whose
 	// name no ordinary lookup finds, and 3.4.2p2 makes it visible through the

@@ -1,0 +1,41 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $derived : obj<4x4>
+
+  block ^entry:
+    %t1 = addr $derived
+    call void @later_declaration_derived__later_declaration_derived(%t1, 1)
+    %t2 = addr $derived
+    %t3 = index i8 [projection=base_subobject] %t2, 0
+    %t4 = index i8 [projection=field] %t3, 0
+    %t5 = load i32 %t4
+    %t6 = binary sub i32 %t5, 3
+    return i32 %t6
+}
+function @later_declaration_derived__later_declaration_derived(%this : ptr, %given : i32) -> void [binding=weak, object=_ZN25later_declaration_derivedC1Ei] {
+  slot $this : ptr
+  slot $given : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %given, $given
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    %t3 = load i32 $given
+    %t4 = binary add i32 %t3, 2
+    call void @later_declaration_base__later_declaration_base__base_entry(%t2, %t4)
+    return void
+}
+function @later_declaration_base__later_declaration_base__base_entry(%this : ptr, %given : i32) -> void [binding=weak, object=_ZN22later_declaration_baseC2Ei] {
+  slot $this : ptr
+  slot $given : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %given, $given
+    %t1 = load i32 $given
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 %t1, %t3
+    return void
+}
+alias object _ZN25later_declaration_derivedC2Ei = @later_declaration_derived__later_declaration_derived

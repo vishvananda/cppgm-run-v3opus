@@ -206,8 +206,13 @@ bool SemaAnalyzer::accepts_arity(const SemaEntity& function,
 	{
 		return true;
 	}
+	// 8.3.6p4 and 7.3.3p1: a default-argument belongs to the declaration that
+	// wrote it, which for a member a using-declaration brought into a class is
+	// the base's - and a later declaration of the base's function may add one,
+	// so the question is asked of that declaration rather than of a copy made
+	// where the using-declaration stood.
 	const std::unordered_map<std::uint32_t, std::vector<Default> >::const_iterator
-		found = defaults_.find(function.id);
+		found = defaults_.find(declared_member(function).id);
 	if (found == defaults_.end())
 	{
 		return false;
@@ -257,8 +262,10 @@ void SemaAnalyzer::record_default_arguments(
 void SemaAnalyzer::write_default_argument(const SemaEntity& function,
                                           std::size_t index, DumpNode& parent)
 {
+	// 7.3.3p1: the default-argument stands on the declaration the base wrote,
+	// which is the one this call runs.
 	const std::unordered_map<std::uint32_t, std::vector<Default> >::const_iterator
-		found = defaults_.find(function.id);
+		found = defaults_.find(declared_member(function).id);
 	if (found == defaults_.end() || index >= found->second.size() ||
 	    found->second[index].written == nullptr)
 	{
@@ -583,7 +590,13 @@ void SemaAnalyzer::using_declaration(const AstNode& node, const Context& ctx)
 					"a using-declaration names the constructors of a class "
 					"that is not a direct base of the one it is written in");
 			}
-			inherit_constructors(entity, *ctx.scope);
+			// 12.9p1: which of the base's constructors are inherited is a
+			// question about the complete class - it leaves out the ones this
+			// class declares itself, and a member declaration standing after
+			// this one declares them just as one standing before it does.  So
+			// the class records that it asked, and 9.2p2's completion settles
+			// it.
+			ctx.scope->inheriting_constructors = true;
 			return;
 		}
 		declare_using_members(entity, *ctx.scope, name);
@@ -605,64 +618,97 @@ std::uint32_t SemaAnalyzer::member_signature(TypeId type, bool object_member)
 	const std::vector<TypeId>& written = types_.parameters(type);
 	std::vector<TypeId> list;
 	list.reserve(written.size());
-	for (std::size_t index = 0; index < written.size(); ++index)
+	// 9.3.1p3: the object parameter is one this milestone put in the type and
+	// no declarator wrote, so it is no part of 8.3.5p4's parameter-type-list -
+	// which is why a static member function and a non-static one declare the
+	// same list when their declarators wrote the same parameters.  What the
+	// object parameter says about the declaration itself is 8.3.5p7's
+	// cv-qualifier-seq, and a static member function wrote none, so that stands
+	// beside the list as its own step rather than in place of a parameter.
+	for (std::size_t index = object_member ? 1u : 0u; index < written.size();
+	     ++index)
 	{
-		if (index == 0 && object_member)
-		{
-			// 9.3.1p3: the object parameter names the class the declaration was
-			// made in, which two classes never share.  What it says about the
-			// declaration itself is the cv-qualifier-seq the member function
-			// was written with, so that is all of it this key keeps.
-			list.push_back(types_.qualified(
-				types_.fundamental(FT_VOID),
-				types_.object_cv(types_.target(written[index]))));
-			continue;
-		}
 		list.push_back(written[index]);
 	}
+	list.push_back(types_.qualified(
+		types_.fundamental(FT_VOID),
+		object_member ? types_.object_cv(types_.target(written[0])) : 0u));
 	return (types_.type_list(list) << 1) | (types_.variadic(type) ? 1u : 0u);
 }
 
-void SemaAnalyzer::hide_using_member(Scope& where, const std::string& name,
-                                     SemaEntity*& head, TypeId type,
-                                     bool object_member)
+void SemaAnalyzer::hide_using_members(Scope& where)
 {
-	const std::uint32_t wanted = member_signature(type, object_member);
-	SemaEntity* previous = nullptr;
-	for (SemaEntity* at = head; at != nullptr; at = at->next)
+	for (std::size_t index = 0; index < where.using_names.size(); ++index)
 	{
-		if (at->shadowed == nullptr || member_signature(*at) != wanted)
+		const std::string& name = where.using_names[index];
+		SemaEntity* const head = model_.find(where, name, LookupKind::Any);
+		if (head == nullptr || head->kind != SemaKind::Function)
 		{
-			previous = at;
 			continue;
 		}
-		if (previous != nullptr)
+		// 7.3.3p14: what this class declared itself hides what the base
+		// declared with the same name and parameter-type-list rather than
+		// conflicting with it, whichever of the two the class body wrote
+		// first.  The declarations of the name are what the source wrote, so
+		// one pass says which signatures the class has of its own and one more
+		// takes the brought-in declarations of those signatures off the chain.
+		std::unordered_set<std::uint32_t> declared;
+		bool brought_in = false;
+		for (SemaEntity* at = head; at != nullptr; at = at->next)
 		{
-			previous->next = at->next;
-			if (head->tail == at)
+			if (at->shadowed != nullptr)
 			{
-				head->tail = previous;
+				brought_in = true;
 			}
-			return;
+			else
+			{
+				declared.insert(member_signature(*at));
+			}
 		}
-		// What the using-declaration brought in was the head of the chain, so
-		// the name now binds what follows it - and 13.1's index of the chain is
-		// keyed by the head, so the declarations left are keyed again under it.
-		SemaEntity* const rest = at->next;
-		head = rest;
-		if (rest == nullptr)
+		if (!brought_in || declared.empty())
 		{
-			// Nothing is left, and the declaration being made will bind the
-			// name where the one brought in had.
-			return;
+			continue;
 		}
-		rest->tail = at->tail;
-		model_.bind(where, name, *rest);
-		for (SemaEntity* held = rest; held != nullptr; held = held->next)
+		SemaEntity* kept = nullptr;
+		SemaEntity* tail = nullptr;
+		for (SemaEntity* at = head; at != nullptr;)
 		{
-			model_.hold_overload(*rest, types_.signature(held->type), *held);
+			SemaEntity* const next = at->next;
+			at->next = nullptr;
+			if (at->shadowed == nullptr ||
+			    declared.count(member_signature(*at)) == 0)
+			{
+				if (kept == nullptr)
+				{
+					kept = at;
+				}
+				else
+				{
+					tail->next = at;
+				}
+				tail = at;
+			}
+			at = next;
 		}
-		return;
+		kept->tail = tail;
+		if (kept == head)
+		{
+			continue;
+		}
+		// What the name was bound to was one of the declarations hidden, so
+		// the name now binds what is left - and 13.1's index of the chain is
+		// keyed by the declaration the name binds, so what stays is keyed
+		// again under it.  A declaration a using-declaration brought in is one
+		// 7.3.3p14 hides rather than one 13.1 redeclares, so it stays out of
+		// that index exactly as it was when the using-declaration made it.
+		model_.bind(where, name, *kept);
+		for (SemaEntity* at = kept; at != nullptr; at = at->next)
+		{
+			if (at->shadowed == nullptr)
+			{
+				model_.hold_overload(*kept, types_.signature(at->type), *at);
+			}
+		}
 	}
 }
 
@@ -750,8 +796,23 @@ SemaEntity& SemaAnalyzer::declare_using_member(SemaEntity& target, Scope& where,
 	{
 		model_.bind(where, name, shadow);
 	}
-	where.using_members = where.using_members ||
-		shadow.kind == SemaKind::Function;
+	if (shadow.kind == SemaKind::Function)
+	{
+		// 7.3.3p14's hiding is asked of this name where the class is complete,
+		// and this is what says the class has one to ask about.  A class writes
+		// the using-declarations it writes, so holding them is what the source
+		// wrote and no search.
+		bool held = false;
+		for (std::size_t index = 0;
+		     !held && index < where.using_names.size(); ++index)
+		{
+			held = where.using_names[index] == name;
+		}
+		if (!held)
+		{
+			where.using_names.push_back(name);
+		}
+	}
 	model_.declare_in(where, shadow);
 	return shadow;
 }
@@ -1055,6 +1116,9 @@ SemaEntity& SemaAnalyzer::class_declaration(const AstNode& node,
 			scope.declarations[at]->access = access;
 		}
 	}
+	// 9.2p2: the class is complete here, so 7.3.3p14 can be asked of what it
+	// declares rather than of what the body had written so far.
+	hide_using_members(scope);
 	lay_out_class(*entity, scope, tag == ClassTag::Union,
 	              requested_alignment(node, inner));
 	// 8.5.1p1: a class with a base class is not an aggregate, so a
@@ -1402,8 +1466,7 @@ void SemaAnalyzer::declare_function_declarator(
 	                             spelled.qualified());
 	SemaEntity& function =
 		declare_function(name, type, target, false,
-		                 granting != nullptr && !spelled.qualified(),
-		                 type != written_type);
+		                 granting != nullptr && !spelled.qualified());
 	function.object_member = type != written_type;
 	if (!function.object_member)
 	{
@@ -1787,8 +1850,7 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 
 	SemaEntity& entity =
 		declare_function(name, type, target, true,
-		                 granting != nullptr && !spelled.qualified(),
-		                 type != written_type);
+		                 granting != nullptr && !spelled.qualified());
 	entity.object_member = type != written_type;
 	if (!entity.object_member)
 	{
@@ -1933,7 +1995,7 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 
 SemaEntity& SemaAnalyzer::declare_function(const std::string& name, TypeId type,
                                            const Context& target, bool define,
-                                           bool hidden, bool object_member)
+                                           bool hidden)
 {
 	// 14.1p1: the region a template's parameters are declared in encloses only
 	// the declaration they parameterise, so the function that declaration
@@ -1944,13 +2006,6 @@ SemaEntity& SemaAnalyzer::declare_function(const std::string& name, TypeId type,
 	if (head != nullptr && head->kind != SemaKind::Function)
 	{
 		head = nullptr;
-	}
-	if (head != nullptr && where.using_members)
-	{
-		// 7.3.3p14: a declaration of this class hides the one a
-		// using-declaration brought in with the same parameter list, so the
-		// chain 13.3 gathers holds one of them and not both.
-		hide_using_member(where, name, head, type, object_member);
 	}
 	const std::uint32_t signature = types_.signature(type);
 	// 1.3.11 and 13.1: two declarations declare the same function exactly when

@@ -1,0 +1,59 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $defaulted : obj<4x4>
+  slot $written : obj<4x4>
+
+  block ^entry:
+    %t1 = addr $defaulted
+    call void @default_argument_derived__default_argument_derived(%t1)
+    %t2 = addr $written
+    call void @default_argument_derived__default_argument_derived__ov2(%t2, 4)
+    %t3 = addr $defaulted
+    %t4 = index i8 [projection=base_subobject] %t3, 0
+    %t5 = index i8 [projection=field] %t4, 0
+    %t6 = load i32 %t5
+    %t7 = addr $written
+    %t8 = index i8 [projection=base_subobject] %t7, 0
+    %t9 = index i8 [projection=field] %t8, 0
+    %t10 = load i32 %t9
+    %t11 = binary add i32 %t6, %t10
+    %t12 = binary sub i32 %t11, 11
+    return i32 %t12
+}
+function @default_argument_derived__default_argument_derived__ov2(%this : ptr, %given : i32) -> void [binding=weak, object=_ZN24default_argument_derivedC1Ei] {
+  slot $this : ptr
+  slot $given : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %given, $given
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    %t3 = load i32 $given
+    call void @default_argument_base__default_argument_base__base_entry(%t2, %t3)
+    return void
+}
+function @default_argument_base__default_argument_base__base_entry(%this : ptr, %given : i32) -> void [binding=weak, object=_ZN21default_argument_baseC2Ei] {
+  slot $this : ptr
+  slot $given : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %given, $given
+    %t1 = load i32 $given
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 %t1, %t3
+    return void
+}
+function @default_argument_derived__default_argument_derived(%this : ptr) -> void [binding=weak, object=_ZN24default_argument_derivedC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    call void @default_argument_base__default_argument_base__base_entry(%t2, 7)
+    return void
+}
+alias object _ZN24default_argument_derivedC2Ei = @default_argument_derived__default_argument_derived__ov2
+alias object _ZN24default_argument_derivedC2Ev = @default_argument_derived__default_argument_derived

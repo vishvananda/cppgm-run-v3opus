@@ -486,9 +486,15 @@ SemaAnalyzer::Value SemaAnalyzer::named_value(const AstNode& node,
 	return value;
 }
 
-void SemaAnalyzer::name_function(Value& value, SemaEntity& function,
+void SemaAnalyzer::name_function(Value& value, SemaEntity& selected,
                                  const char* what)
 {
+	// 7.3.3p1: 13.3 chose among the declarations the class made, and one a
+	// using-declaration made names the base's.  Naming a function is a use of
+	// it - the body a call runs, the address `&` takes, the symbol the object
+	// file holds - and every use reaches the declaration the base wrote, so the
+	// two part company here and nowhere below.
+	SemaEntity& function = declared_member(selected);
 	if (function.primary != nullptr)
 	{
 		// 14.7.1p1: choosing a specialization is what asks for it, and the

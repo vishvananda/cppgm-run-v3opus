@@ -1995,26 +1995,8 @@ LowValue LowirFunctionLowering::call_expression(const DumpNode& node)
 		const bool bound =
 			at < parameters.size() && types.is_reference(parameters[at]);
 		const LowValue argument = expression(*node.children[index], bound);
-		if (at < parameters.size())
-		{
-			call.args.push_back(argument_operand(*node.children[index], argument,
-			                                     parameters[at]));
-			continue;
-		}
-		// 5.2.2p7: an argument matched by the ellipsis goes through the default
-		// argument promotions.
-		const TypeId bare = types.strip_cv(argument.type);
-		TypeId promoted = bare;
-		if (types.is_floating(bare) && types.fundamental_type(bare) == FT_FLOAT)
-		{
-			promoted = types.fundamental(FT_DOUBLE);
-		}
-		else if (types.is_integral(bare) && unit_.width(bare) < 4)
-		{
-			promoted = types.fundamental(unit_.is_signed(bare) ? FT_INT
-			                                                   : FT_UNSIGNED_INT);
-		}
-		call.args.push_back(converted(argument, promoted));
+		call.args.push_back(
+			passed_operand(*node.children[index], argument, parameters, at));
 	}
 	if (direct)
 	{

@@ -462,6 +462,12 @@ bool SemaAnalyzer::operator_expression(unsigned token, const Context& ctx,
 		require_protected_object(settled, *chosen, ctx.scope, naming);
 	}
 
+	// 7.3.3p1: 13.3 ranked the declaration the class made, and what an operator
+	// expression calls is the one it names - reached through the base subobject
+	// of the object the expression named, which 11.2p5 leaves the
+	// base-specifier's own access unasked about because the naming class is the
+	// one the using-declaration was written in.
+	SemaEntity& run = declared_member(*chosen);
 	std::vector<Value> arguments;
 	if (chosen->object_member)
 	{
@@ -470,6 +476,7 @@ bool SemaAnalyzer::operator_expression(unsigned token, const Context& ctx,
 		Value self = operands[0];
 		address_of_object(self, model_.wrap_node(*operands[0].node,
 		                                         std::string()), false);
+		self.through_using = chosen->shadowed != nullptr;
 		arguments.push_back(self);
 	}
 	else
@@ -488,7 +495,7 @@ bool SemaAnalyzer::operator_expression(unsigned token, const Context& ctx,
 	line.children.insert(line.children.begin(), &named);
 	Value callee;
 	callee.node = &named;
-	name_function(callee, *chosen, "callee");
-	value = finish_call(line, chosen->type, arguments, chosen, ctx);
+	name_function(callee, run, "callee");
+	value = finish_call(line, run.type, arguments, &run, ctx);
 	return true;
 }

@@ -568,47 +568,27 @@ void SemaAnalyzer::special_member(const AstNode& node, const Context& ctx)
 		// A constructor has no name a lookup binds, so the chain the class holds
 		// is what the parameter list indexes - and a class with n of them is
 		// declared in n steps rather than n^2 comparisons.
-		SemaEntity* const prior =
-			owner.constructor == nullptr
-				? nullptr
-				: model_.overload_of(*owner.constructor, types_.signature(type));
-		if (prior != nullptr && prior->inherited == nullptr)
+		if (owner.constructor != nullptr &&
+		    model_.overload_of(*owner.constructor,
+		                       types_.signature(type)) != nullptr)
 		{
 			throw std::runtime_error(spelled +
 			                         " declares one constructor twice");
 		}
-		if (prior != nullptr)
+		entity = &model_.create(SemaKind::Function, written, type);
+		entity->special = kConstructorFunction;
+		entity->tail = entity;
+		if (owner.constructor == nullptr)
 		{
-			// 12.9p1: a constructor this class declares itself is what an
-			// object of it is initialized by, and the base's is not inherited
-			// beside it - so the declaration standing here is the one an
-			// earlier using-declaration made, and this is what it declares.
-			prior->inherited = nullptr;
-			prior->defaulted = false;
-			prior->inline_function = false;
-			prior->deleted = false;
-			prior->explicit_function = false;
-			constructor_parameters_.erase(prior->id);
-			defaults_.erase(prior->id);
-			entity = prior;
+			owner.constructor = entity;
 		}
 		else
 		{
-			entity = &model_.create(SemaKind::Function, written, type);
-			entity->special = kConstructorFunction;
-			entity->tail = entity;
-			if (owner.constructor == nullptr)
-			{
-				owner.constructor = entity;
-			}
-			else
-			{
-				owner.constructor->tail->next = entity;
-			}
-			owner.constructor->tail = entity;
-			model_.hold_overload(*owner.constructor, types_.signature(type),
-			                     *entity);
+			owner.constructor->tail->next = entity;
 		}
+		owner.constructor->tail = entity;
+		model_.hold_overload(*owner.constructor, types_.signature(type),
+		                     *entity);
 	}
 	entity->dump_name = ctx.scope->prefix + written;
 	entity->object_member = true;
@@ -629,13 +609,7 @@ void SemaAnalyzer::special_member(const AstNode& node, const Context& ctx)
 		}
 	}
 	record_default_arguments(*entity, parameters, ctx.scope);
-	if (entity->region == nullptr)
-	{
-		// 12.9p1: the declaration this makes may be the one an inheriting
-		// using-declaration already put in this region, which this one is the
-		// declaration of - so the region records it once.
-		model_.declare_in(*ctx.scope, *entity);
-	}
+	model_.declare_in(*ctx.scope, *entity);
 	if (!destructor)
 	{
 		// 12.9p8: an inheriting using-declaration in a class derived from this
@@ -689,14 +663,43 @@ void SemaAnalyzer::special_member(const AstNode& node, const Context& ctx)
 	pending_.push_back(pending);
 }
 
+// 12.9p1: how many parameters the shortest constructor in the candidate set a
+// declaration contributes takes, which is the ones no default-argument has
+// reached.  8.3.6p4 says a default-argument stands on every parameter after the
+// first one that has one, so the count is where they begin.
+std::size_t SemaAnalyzer::required_parameters(const SemaEntity& function) const
+{
+	const std::size_t declared = types_.parameters(function.type).size();
+	const std::unordered_map<std::uint32_t, std::vector<Default> >::const_iterator
+		found = defaults_.find(function.id);
+	if (found == defaults_.end())
+	{
+		return declared;
+	}
+	for (std::size_t index = 0; index < declared; ++index)
+	{
+		if (index < found->second.size() &&
+		    found->second[index].written != nullptr)
+		{
+			return index;
+		}
+	}
+	return declared;
+}
+
 // 12.9p1: a using-declaration that names the constructors of a direct base
-// class declares a constructor of this class from each of them, taking the same
-// parameters.  12.9p3 leaves out the two an object of this class already has of
-// its own - the base's default constructor and its copy and move constructors -
-// and 12.9p1 leaves out one whose parameters a constructor this class declared
-// itself already takes.  What each of them does is 12.9p8's initialization of
-// the base subobject, so what the declaration has to carry is the base's
-// constructor and the names its parameters were declared with.
+// class declares a constructor of this class from each constructor in the
+// base's candidate set.  That set is the base's own constructors and, for each
+// one a default-argument reached, the shorter parameter lists that result from
+// omitting the ellipsis and then those parameters from the end - so what is
+// inherited is a parameter-type-list rather than a declaration, and 12.9p2's
+// constructor characteristics hold no default-argument of their own.  12.9p3
+// leaves out the two an object of this class already has of its own - the
+// base's default constructor and its copy and move constructors - and 12.9p1
+// leaves out one whose parameters a constructor this class declared itself
+// already takes.  What each of them does is 12.9p8's initialization of the base
+// subobject, so what the declaration has to carry is the base's constructor and
+// the names its parameters were declared with.
 void SemaAnalyzer::inherit_constructors(SemaEntity& base, Scope& where)
 {
 	SemaEntity& derived = *where.owner;
@@ -705,85 +708,99 @@ void SemaAnalyzer::inherit_constructors(SemaEntity& base, Scope& where)
 	for (SemaEntity* at = base.constructor; at != nullptr; at = at->next)
 	{
 		const std::vector<TypeId>& written = types_.parameters(at->type);
-		if (written.size() == 1)
+		const std::size_t least = required_parameters(*at);
+		for (std::size_t count = written.size(); count + 1 > least && count > 1;
+		     --count)
 		{
-			// 12.9p3: a constructor with no parameters is not inherited, and
-			// 12.1p5 gives this class one of its own.
-			continue;
+			inherit_constructor(*at, base, count, count == written.size(),
+			                    derived, where, spelled);
 		}
-		if (written.size() == 2 &&
-		    bare_type(types_.is_reference(written[1])
-		                  ? types_.target(written[1])
-		                  : written[1]) == types_.strip_cv(base.type))
-		{
-			// 12.9p3: neither is the base's copy or move constructor, which
-			// would make an object of this class out of a base subobject.
-			continue;
-		}
-		std::vector<TypeId> parameters;
-		// 9.3.1p3: the object the constructor runs on is one of this class.
-		parameters.push_back(types_.pointer_to(derived.type));
-		for (std::size_t index = 1; index < written.size(); ++index)
-		{
-			parameters.push_back(written[index]);
-		}
-		const TypeId type = types_.function_of(types_.fundamental(FT_VOID),
-		                                       parameters,
-		                                       types_.variadic(at->type));
-		// 12.9p1: a base constructor whose parameters a constructor of this
-		// class already takes is not inherited.  13.1's index of the chain
-		// answers that in one probe, so a base with n constructors costs n.
-		if (derived.constructor != nullptr &&
-		    model_.overload_of(*derived.constructor,
-		                       types_.signature(type)) != nullptr)
-		{
-			continue;
-		}
-		SemaEntity& entity = model_.create(SemaKind::Function, spelled, type);
-		entity.dump_name = where.prefix + spelled;
-		entity.object_member = true;
-		entity.special = kConstructorFunction;
-		entity.inherited = at;
-		entity.explicit_function = at->explicit_function;
-		entity.deleted = at->deleted;
-		// 12.9p6 and 7.1.2p3: the definition is one the standard gives it and
-		// this unit generates where a use asks for one, as 12.1p5's is, so it
-		// belongs to every translation unit that needs one.
-		entity.defaulted = true;
-		entity.inline_function = true;
-		entity.tail = &entity;
-		if (derived.constructor == nullptr)
-		{
-			derived.constructor = &entity;
-		}
-		else
-		{
-			derived.constructor->tail->next = &entity;
-		}
-		derived.constructor->tail = &entity;
-		model_.hold_overload(*derived.constructor, types_.signature(type),
-		                     entity);
-		model_.declare_in(where, entity);
-		// 12.9p8: the definition writes the parameters, so the names the base's
-		// declaration gave them are part of what is inherited; 8.3.6 leaves the
-		// default-arguments where the base's declaration put them, and a call
-		// that omits an argument reads them from this declaration.
-		const std::unordered_map<std::uint32_t,
-		                         std::vector<Parameter> >::const_iterator names =
-			constructor_parameters_.find(at->id);
-		if (names != constructor_parameters_.end())
-		{
-			std::vector<Parameter> taken = names->second;
-			constructor_parameters_[entity.id].swap(taken);
-		}
-		const std::unordered_map<std::uint32_t,
-		                         std::vector<Default> >::const_iterator given =
-			defaults_.find(at->id);
-		if (given != defaults_.end())
-		{
-			std::vector<Default> taken = given->second;
-			defaults_[entity.id].swap(taken);
-		}
+	}
+}
+
+// One constructor of that candidate set: the first `taken` parameters of the
+// base's declaration, with the ellipsis kept only where none was omitted.
+void SemaAnalyzer::inherit_constructor(SemaEntity& from, const SemaEntity& base,
+                                       std::size_t taken, bool whole,
+                                       SemaEntity& derived, Scope& where,
+                                       const std::string& spelled)
+{
+	const std::vector<TypeId>& written = types_.parameters(from.type);
+	if (taken <= 1)
+	{
+		// 12.9p3: a constructor with no parameters is not inherited, and
+		// 12.1p5 gives this class one of its own.
+		return;
+	}
+	if (taken == 2 &&
+	    bare_type(types_.is_reference(written[1]) ? types_.target(written[1])
+	                                              : written[1]) ==
+		types_.strip_cv(base.type))
+	{
+		// 12.9p3: neither is the base's copy or move constructor, which would
+		// make an object of this class out of a base subobject.
+		return;
+	}
+	std::vector<TypeId> parameters;
+	// 9.3.1p3: the object the constructor runs on is one of this class.
+	parameters.push_back(types_.pointer_to(derived.type));
+	for (std::size_t index = 1; index < taken; ++index)
+	{
+		parameters.push_back(written[index]);
+	}
+	const TypeId type =
+		types_.function_of(types_.fundamental(FT_VOID), parameters,
+		                   whole && types_.variadic(from.type));
+	// 12.9p1: a base constructor whose parameters a constructor of this class
+	// already takes is not inherited, and neither is one two members of the
+	// candidate set agree on.  13.1's index of the chain answers both in one
+	// probe, so a base with n constructors costs n.
+	if (derived.constructor != nullptr &&
+	    model_.overload_of(*derived.constructor,
+	                       types_.signature(type)) != nullptr)
+	{
+		return;
+	}
+	SemaEntity& entity = model_.create(SemaKind::Function, spelled, type);
+	entity.dump_name = where.prefix + spelled;
+	entity.object_member = true;
+	entity.special = kConstructorFunction;
+	entity.inherited = &from;
+	entity.explicit_function = from.explicit_function;
+	entity.deleted = from.deleted;
+	// 12.9p6 and 7.1.2p3: the definition is one the standard gives it and this
+	// unit generates where a use asks for one, as 12.1p5's is, so it belongs to
+	// every translation unit that needs one.
+	entity.defaulted = true;
+	entity.inline_function = true;
+	entity.tail = &entity;
+	if (derived.constructor == nullptr)
+	{
+		derived.constructor = &entity;
+	}
+	else
+	{
+		derived.constructor->tail->next = &entity;
+	}
+	derived.constructor->tail = &entity;
+	model_.hold_overload(*derived.constructor, types_.signature(type), entity);
+	model_.declare_in(where, entity);
+	// 12.9p8: the definition writes the parameters, so the names the base's
+	// declaration gave them are part of what is inherited.  A parameter the
+	// candidate set omitted is one this declaration does not have; the base's
+	// own default-argument is what fills it where 12.9p8's call is written.
+	const std::unordered_map<std::uint32_t,
+	                         std::vector<Parameter> >::const_iterator names =
+		constructor_parameters_.find(from.id);
+	if (names != constructor_parameters_.end())
+	{
+		std::vector<Parameter> kept(
+			names->second.begin(),
+			names->second.begin() +
+				static_cast<std::ptrdiff_t>(
+					taken - 1 < names->second.size() ? taken - 1
+					                                 : names->second.size()));
+		constructor_parameters_[entity.id].swap(kept);
 	}
 }
 
@@ -811,6 +828,13 @@ bool SemaAnalyzer::declares_own_constructor(const SemaEntity& entity)
 // of them do nothing at all.
 void SemaAnalyzer::declare_special_members(SemaEntity& entity, Scope& scope)
 {
+	if (scope.inheriting_constructors && entity.base != nullptr)
+	{
+		// 12.9p1: a using-declaration named the base's constructors, and which
+		// of them are inherited is settled here, where the class the standard
+		// calls complete holds every constructor it declares itself.
+		inherit_constructors(*entity.base, scope);
+	}
 	if (!declares_own_constructor(entity))
 	{
 		declare_constructor(entity, scope);
@@ -1835,6 +1859,13 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 	const std::vector<TypeId>& parameters = types_.parameters(constructor.type);
 	for (std::size_t index = 0; index < arguments.size(); ++index)
 	{
+		if (index + 1 >= parameters.size())
+		{
+			// 5.2.2p7: the constructor was declared with an ellipsis and this
+			// argument is one no parameter names, so it is passed as it stands.
+			require_complete_value(arguments[index]);
+			continue;
+		}
 		const Match match = match_argument(arguments[index],
 		                                   parameters[index + 1]);
 		apply_conversion(arguments[index], parameters[index + 1], match, ctx,
@@ -1863,20 +1894,22 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 		types_.description(constructor.type);
 	set_fact(callee, FactKind::Callee, constructor.type, ValueCategory::LValue);
 	callee.fact.entity = &constructor;
-	if (constructor.defined || constructor.deleted)
+	demand_constructor_definition(constructor);
+}
+
+// 12.1p5, 12.9p6 and 3.2p3: a constructor the standard gives a class rather
+// than the program has the definition the standard describes, and one use of it
+// is what asks this unit to write one.  A constructor the program declared and
+// did not define is one this unit has no body for, so a use of it is a call of
+// a definition elsewhere.
+void SemaAnalyzer::demand_constructor_definition(SemaEntity& constructor)
+{
+	if (constructor.defined || constructor.deleted || !constructor.defaulted)
 	{
-		return;
-	}
-	// 12.1p5: the definition is what odr-using the constructor asks for, and
-	// one use is what asks for it.  A constructor the program declared without
-	// defining is one this unit has no body for, and nothing asks for one.
-	if (!constructor.defaulted)
-	{
-		// A constructor the program declared without defining is one this unit
-		// has no body for, so a use of it is a call of a definition elsewhere.
 		return;
 	}
 	constructor.defined = true;
+	const std::vector<TypeId>& parameters = types_.parameters(constructor.type);
 	Pending pending;
 	pending.function = &constructor;
 	pending.self = &model_.create(SemaKind::Parameter, "this", parameters[0]);
