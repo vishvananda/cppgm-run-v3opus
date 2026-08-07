@@ -774,7 +774,7 @@ void LowirFunctionLowering::constructor_call(const Operand& address,
 		// first would be one copy more than the copy asked for.
 		const LowValue source = expression(*call.children[2]);
 		copy_object_storage(address, class_copy_source(source),
-		                    node.fact.type);
+		                    node.fact.type, holds_class_value(source));
 		return;
 	}
 	if (!always && !transfers_value &&
@@ -1284,7 +1284,8 @@ LowValue LowirFunctionLowering::place_class_object(const Operand& destination,
 	// 8.5p14: the initializer names an object that already stands somewhere,
 	// so what the initialization comes to is 12.8p15's copy of it.
 	const LowValue value = expression(node);
-	copy_class_object(destination, class_copy_source(value), type);
+	copy_class_object(destination, class_copy_source(value), type,
+	                  holds_class_value(value));
 	return object;
 }
 
@@ -1339,7 +1340,7 @@ Operand LowirFunctionLowering::class_argument(const DumpNode& node, TypeId type)
 // program wrote is the copy of the bytes.
 void LowirFunctionLowering::copy_class_object(const Operand& destination,
                                               const Operand& source,
-                                              TypeId type)
+                                              TypeId type, bool stored)
 {
 	TypeTable& types = unit_.types();
 	const TypeId bare = types.strip_cv(type);
@@ -1354,7 +1355,7 @@ void LowirFunctionLowering::copy_class_object(const Operand& destination,
 			" is copied, which 12.8p1 makes a call of the copy constructor its "
 			"program wrote and this milestone does not write");
 	}
-	copy_object_storage(destination, source, type);
+	copy_object_storage(destination, source, type, stored);
 }
 
 // 12.8p15: the bytes of one object of class type written into the storage of
@@ -1363,12 +1364,15 @@ void LowirFunctionLowering::copy_class_object(const Operand& destination,
 // that two of them stand apart.
 void LowirFunctionLowering::copy_object_storage(const Operand& destination,
                                                 const Operand& source,
-                                                TypeId type)
+                                                TypeId type, bool stored)
 {
 	TypeTable& types = unit_.types();
 	const TypeId bare = types.strip_cv(type);
-	if (types.is_empty_class(bare))
+	if (types.is_empty_class(bare) && !stored)
 	{
+		// 9p6: the object holds nothing, so there are no bytes to read out of
+		// it - but a value the ABI handed back is the object itself, and
+		// putting it where the object stands is a store however little it says.
 		return;
 	}
 	Instruction copy;
@@ -1458,7 +1462,8 @@ Operand LowirFunctionLowering::class_value_slot(const DumpNode& node,
 	// The storage the copy is made in is named before the object it is made
 	// from: the place asking is what this instruction is about.
 	const Operand into = address_of(held);
-	copy_class_object(into, class_copy_source(value), type);
+	copy_class_object(into, class_copy_source(value), type,
+	                  holds_class_value(value));
 	return storage;
 }
 
@@ -1468,12 +1473,17 @@ Operand LowirFunctionLowering::class_value_slot(const DumpNode& node,
 // and giving it storage first would be one copy more than the copy asked for.
 Operand LowirFunctionLowering::class_copy_source(const LowValue& value)
 {
-	if (!value.lvalue && value.operand.kind == Operand::OP_TEMP &&
-	    unit_.types().is_class(unit_.types().strip_cv(value.type)))
+	if (holds_class_value(value))
 	{
 		return value.operand;
 	}
 	return address_of(value);
+}
+
+bool LowirFunctionLowering::holds_class_value(const LowValue& value)
+{
+	return !value.lvalue && value.operand.kind == Operand::OP_TEMP &&
+		unit_.types().is_class(unit_.types().strip_cv(value.type));
 }
 
 // 8.5p5: an object of class type is zero-initialized by giving every byte it

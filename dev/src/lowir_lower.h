@@ -814,13 +814,22 @@ private:
 	// rather than at a name.
 	LowValue new_expression(const DumpNode& node);
 	// 12.8p15: one class object copied into another, which for a class that
-	// holds nothing moves nothing at all.
+	// holds nothing moves nothing at all.  `stored` says the source is the
+	// value a call handed back rather than the storage an object stands in,
+	// which is what leaves 9p6's class with a byte to write after all: what is
+	// written is the returned value going into storage, and not the bytes of
+	// one object read out of another.
 	void copy_class_object(const lowir_model::Operand& destination,
-	                       const lowir_model::Operand& source, TypeId type);
+	                       const lowir_model::Operand& source, TypeId type,
+	                       bool stored = false);
 	// 12.8p15: the bytes of one object of class type written into the storage
 	// of another, which is what a copy the standard defines comes to.
 	void copy_object_storage(const lowir_model::Operand& destination,
-	                         const lowir_model::Operand& source, TypeId type);
+	                         const lowir_model::Operand& source, TypeId type,
+	                         bool stored = false);
+	// Whether what the value is worth is the object itself rather than storage
+	// it stands in, which is what a call returning a small class hands back.
+	bool holds_class_value(const LowValue& value);
 	// 5.2.2p4: what the call is passed for one argument.  For every type but a
 	// class this is the conversion the parameter asks for; for a class it is
 	// the storage the copy was made in, and 12.8p31 lets a prvalue argument be
