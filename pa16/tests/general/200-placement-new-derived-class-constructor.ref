@@ -1,0 +1,58 @@
+declare function @operatornew(%arg0 : i64, %arg1 : ptr) -> ptr [binding=strong, object=_ZnwmPv]
+
+global @buf [binding=strong, object=_Z3buf] = {
+  zero 32
+}
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $p : ptr
+  slot $q : ptr
+
+  block ^entry:
+    %t1 = convert sext i64 i32 8
+    %t2 = addr @buf
+    %t3 = unary decay ptr %t2
+    %t4 = call ptr @operatornew(%t1, %t3)
+    call void @D__D__ov2(%t4, 5)
+    store ptr %t4, $p
+    %t5 = convert sext i64 i32 8
+    %t6 = addr @buf
+    %t7 = unary decay ptr %t6
+    %t8 = call ptr @operatornew(%t5, %t7)
+    call void @D__D(%t8)
+    store ptr %t8, $q
+    %t9 = load ptr $p
+    %t10 = index i8 [projection=field] %t9, 4
+    %t11 = load i32 %t10
+    %t12 = load ptr $q
+    %t13 = index i8 [projection=field] %t12, 4
+    %t14 = load i32 %t13
+    %t15 = binary sub i32 %t11, %t14
+    %t16 = binary sub i32 %t15, 4
+    return i32 %t16
+}
+function @D__D(%this : ptr) -> void [binding=weak, object=_ZN1DC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 4
+    store i32 1, %t2
+    return void
+}
+function @D__D__ov2(%this : ptr, %v : i32) -> void [binding=weak, object=_ZN1DC1Ei] {
+  slot $this : ptr
+  slot $v : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %v, $v
+    %t1 = load i32 $v
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 4
+    store i32 %t1, %t3
+    return void
+}
+alias object _ZN1DC2Ev = @D__D
+alias object _ZN1DC2Ei = @D__D__ov2

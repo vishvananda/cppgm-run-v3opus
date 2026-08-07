@@ -652,6 +652,11 @@ private:
 	// and constructed here.  The object is named once however many readers the
 	// temporary has, so the slot is made the first time it is reached.
 	LowValue temporary_object(const DumpNode& node);
+	// 5.3.4: the storage 3.7.4.1's allocation function returned, and the
+	// object 8.5p16 creates in it.  The address is the one the call produced,
+	// so nothing here allocates a slot and the object is built at a value
+	// rather than at a name.
+	LowValue new_expression(const DumpNode& node);
 	// 12.8p15: one class object copied into another, which for a class that
 	// holds nothing moves nothing at all.
 	void copy_class_object(const lowir_model::Operand& destination,

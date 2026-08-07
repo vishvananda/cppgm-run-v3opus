@@ -1,0 +1,65 @@
+global @buf [binding=strong, object=_Z3buf] = {
+  zero 16
+}
+
+function @operatornew(%__param0 : i64, %p : ptr) -> ptr [unwind=no, binding=strong, object=_ZnwmPv] {
+  slot $__param0 : i64
+  slot $p : ptr
+
+  block ^entry:
+    store i64 %__param0, $__param0
+    store ptr %p, $p
+    %t1 = load ptr $p
+    return ptr %t1
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $a : ptr
+  slot $b : ptr
+
+  block ^entry:
+    %t1 = convert sext i64 i32 4
+    %t2 = addr @buf
+    %t3 = unary decay ptr %t2
+    %t4 = call ptr @T__operatornew(%t1, %t3)
+    call void @T__T(%t4, 3)
+    store ptr %t4, $a
+    %t5 = convert sext i64 i32 4
+    %t6 = addr @buf
+    %t7 = unary decay ptr %t6
+    %t8 = call ptr @operatornew(%t5, %t7)
+    call void @T__T(%t8, 4)
+    store ptr %t8, $b
+    %t9 = load ptr $a
+    %t10 = index i8 [projection=field] %t9, 0
+    %t11 = load i32 %t10
+    %t12 = load ptr $b
+    %t13 = index i8 [projection=field] %t12, 0
+    %t14 = load i32 %t13
+    %t15 = binary add i32 %t11, %t14
+    %t16 = binary sub i32 %t15, 7
+    return i32 %t16
+}
+function @T__T(%this : ptr, %v : i32) -> void [binding=weak, object=_ZN1TC1Ei] {
+  slot $this : ptr
+  slot $v : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %v, $v
+    %t1 = load i32 $v
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 %t1, %t3
+    return void
+}
+function @T__operatornew(%__param0 : i64, %p : ptr) -> ptr [unwind=no, binding=weak, object=_ZN1TnwEmPv] {
+  slot $__param0 : i64
+  slot $p : ptr
+
+  block ^entry:
+    store i64 %__param0, $__param0
+    store ptr %p, $p
+    %t1 = load ptr $p
+    return ptr %t1
+}
+alias object _ZN1TC2Ei = @T__T

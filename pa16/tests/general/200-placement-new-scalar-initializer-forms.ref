@@ -1,0 +1,71 @@
+global @buf [binding=strong, object=_Z3buf] = {
+  zero 32
+}
+
+function @operatornew(%__param0 : i64, %p : ptr) -> ptr [unwind=no, binding=strong, object=_ZnwmPv] {
+  slot $__param0 : i64
+  slot $p : ptr
+
+  block ^entry:
+    store i64 %__param0, $__param0
+    store ptr %p, $p
+    %t1 = load ptr $p
+    return ptr %t1
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $a : ptr
+  slot $b : ptr
+  slot $c : ptr
+  slot $d : ptr
+  slot $cond__1 : i32
+
+  block ^entry:
+    %t1 = convert sext i64 i32 4
+    %t2 = addr @buf
+    %t3 = unary decay ptr %t2
+    %t4 = call ptr @operatornew(%t1, %t3)
+    store ptr %t4, $a
+    %t5 = convert sext i64 i32 4
+    %t6 = addr @buf
+    %t7 = unary decay ptr %t6
+    %t8 = call ptr @operatornew(%t5, %t7)
+    store i32 0, %t8
+    store ptr %t8, $b
+    %t9 = convert sext i64 i32 4
+    %t10 = addr @buf
+    %t11 = unary decay ptr %t10
+    %t12 = call ptr @operatornew(%t9, %t11)
+    store i32 7, %t12
+    store ptr %t12, $c
+    %t13 = convert sext i64 i32 4
+    %t14 = addr @buf
+    %t15 = unary decay ptr %t14
+    %t16 = call ptr @operatornew(%t13, %t15)
+    store i32 9, %t16
+    store ptr %t16, $d
+    %t17 = load ptr $b
+    %t18 = load i32 %t17
+    %t19 = load ptr $c
+    %t20 = load i32 %t19
+    %t21 = binary add i32 %t18, %t20
+    %t22 = load ptr $d
+    %t23 = load i32 %t22
+    %t24 = binary add i32 %t21, %t23
+    %t25 = binary sub i32 %t24, 16
+    %t26 = load ptr $a
+    %t27 = cmp eq ptr %t26, 0
+    branch %t27, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t28 = load i32 $cond__1
+    %t29 = binary add i32 %t25, %t28
+    return i32 %t29
+}

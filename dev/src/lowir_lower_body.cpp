@@ -1721,6 +1721,9 @@ LowValue LowirFunctionLowering::expression(const DumpNode& node,
 	case FactKind::TemporaryObject:
 		return temporary_object(node);
 
+	case FactKind::NewExpression:
+		return new_expression(node);
+
 	case FactKind::BracedInitList:
 	{
 		// 8.5.4 over a scalar: the value is what its one clause says, and an

@@ -1915,6 +1915,15 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 		    types_.strip_cv(named->type) == types_.strip_cv(object_type))
 		{
 			list = call_arguments(*written);
+			if (list != nullptr && list->children.size() == 1 &&
+			    list->children[0]->kind == AstKind::BracedInitList)
+			{
+				// 5.2.3p3: the prvalue was written `T{...}`, whose one braced
+				// list stands where the arguments of `T(...)` do.  What
+				// initializes the object is that list, so 8.5.4 reads it and
+				// 8.5.1 gives its clauses to the members of an aggregate.
+				list = list->children[0];
+			}
 			converting = false;
 			// 5.2.3p2: `T()` value-initializes what it makes, and the grammar
 			// writes no argument-list node for one that has no arguments.
@@ -2051,6 +2060,39 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 	set_fact(callee, FactKind::Callee, constructor.type, ValueCategory::LValue);
 	callee.fact.entity = &constructor;
 	demand_constructor_definition(constructor);
+}
+
+// 12.8p31 and 5.2.3p3: an initializer written `T{...}` for an object that is
+// itself of `T` creates that very object - the prvalue and what it initializes
+// are one, so nothing stands between the braces and the object.  What is left
+// initializing it is the braced-init-list, which is the same list a declarator
+// could have carried: 8.5.1 gives its clauses to the members of an aggregate
+// and 13.3.1.7 gives them to a constructor of any other class.  Told from
+// `T(...)` by the one braced clause standing where the arguments do, which is
+// exactly what 5.2.3p3 wrote.
+const AstNode* SemaAnalyzer::braced_prvalue_of(const AstNode& written,
+                                               TypeId type, const Context& ctx)
+{
+	if (written.kind != AstKind::CallExpression || written.children.empty() ||
+	    written.children[0]->kind != AstKind::IdExpression ||
+	    !types_.is_class(types_.strip_cv(type)))
+	{
+		return nullptr;
+	}
+	const AstNode* const list = call_arguments(written);
+	if (list == nullptr || list->children.size() != 1 ||
+	    list->children[0]->kind != AstKind::BracedInitList)
+	{
+		return nullptr;
+	}
+	SemaEntity* const named =
+		resolve(written.children[0]->text, ctx, LookupKind::Type);
+	if (named == nullptr || !names_a_type(*named) ||
+	    types_.strip_cv(named->type) != types_.strip_cv(type))
+	{
+		return nullptr;
+	}
+	return list->children[0];
 }
 
 // 8.5.1p2 and 13.3.1.7: the constructor an object of an aggregate class is
@@ -2332,8 +2374,26 @@ SemaAnalyzer::Value SemaAnalyzer::build_temporary(TypeId type, DumpNode& line,
 	         ValueCategory::PRValue);
 	line.fact.entity = &object;
 	line.fact.spelling = prefix;
-	construct_object(object, line, written, ctx, Placement::Named, false, given,
-	                 value_init);
+	// 8.5.1p2 and 13.3.1.7: a prvalue of an aggregate class written with braces
+	// is an object of its own rather than a subobject an enclosing list reaches
+	// into, so the clauses initialize its members through the constructor 8.5.1
+	// gives the class from them - the same one an element of an array of the
+	// class is built by, declared once and held on the class.
+	SemaEntity* const from_members =
+		given == nullptr && written != nullptr &&
+		written->kind == AstKind::BracedInitList &&
+		!written->children.empty() && aggregate_type(object_type)
+			? member_constructor(object_type)
+			: nullptr;
+	if (from_members != nullptr)
+	{
+		construct_from_members(*from_members, *written, ctx, line);
+	}
+	else
+	{
+		construct_object(object, line, written, ctx, Placement::Named, false,
+		                 given, value_init);
+	}
 	const SemaEntity* const destructor = class_destructor(object_type);
 	if (destructor != nullptr && !destructor->trivial)
 	{

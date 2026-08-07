@@ -22,11 +22,16 @@ existing layers keep their jobs:
 - `sema_analyzer.cpp` walks the syntax, resolves names and types, and hands each
   class to that owner once, where 9.2p2 makes it complete.
 - `sema_overload.cpp` owns 13.3, including 4.10p3/8.5.3p4's derived-to-base
-  sequences and 13.3.3.2p4's ordering of them.
+  sequences and 13.3.3.2p4's ordering of them, and with them the two expressions
+  whose call 13.3 chooses without a callee the program wrote: 5.2.3's explicit
+  type conversion and 5.3.4's new-expression, whose allocation function 5.3.4p9
+  looks up.
 - `lowir_lower*.cpp` reads only the resolved tree. It never re-resolves a name
   and never reads syntax. `lowir_lower_object.cpp` holds the part of it that is
   about one object: 12.1/12.4's lifetime calls, 12.2's temporary, 12.6.2's
-  member initializations, 12.8p15's copy, 8.5p5's zero and 8.5.1's aggregate.
+  member initializations, 12.8p15's copy, 8.5p5's zero, 8.5.1's aggregate and
+  5.3.4p12's object standing at an address rather than in storage a name
+  reaches.
 - `lowir_abi.cpp` turns one resolved declaration into its object-file name
   through PA14's encoder.
 
@@ -34,21 +39,21 @@ The object model is added as typed facts at those owners rather than as a second
 pipeline: field offsets on members, a base class on the class, a friendship
 relation between two entities, an implicit-object argument in 13.3,
 `constructor-action` / `destructor-action` / `member-initialization` /
-`base-conversion` / `temporary-object` nodes, and a demand-driven definition
-worklist in the unit lowering.
+`base-conversion` / `temporary-object` / `new-expression` nodes, and a
+demand-driven definition worklist in the unit lowering.
+
+
 ## Current Failure Map
 
-After the audit of C12: 266 / 283 - 251 / 269 of the checked-in fixtures, the 14
-the C11 and C12 work added and the 3 this audit adds, at 269 / 286. The 17 that
-remain, 5 refusing a program the references accept and 12 accepting one and
-writing a different shape:
+After C13: 272 / 286 of the fixtures that were checked in at the turn's start,
+and 277 / 291 with the five this checkpoint adds. The 14 that remain, 3 refusing
+a program the references accept and 11 accepting one and writing a different
+shape:
 
 | group | count | what is missing |
 | --- | --- | --- |
-| the exception cleanup regions around a partly built object | 3 | `eh_cleanup` / `eh_try` / `resume` around each element of a member array, and the region written around a destructor's own body where the references write none |
-| placement `new` | 2 | 5.3.4's placement form |
+| 15.2p2's cleanup around a partly built object | 3 | `eh_cleanup` / `eh_try` / `resume` around a constructor's body and around each element of a member array, and the region a destructor's own body carries |
 | `#pragma pack` | 2 | a phase-4 fact that has to reach 9.2p13 in phase 7 |
-| 5.2.3p3's braced functional cast | 1 | `T{...}`, the postfix suffix the `pa16.gram` list does not hold and `holder x{value{1,2}, 0}` needs |
 | single defects, one fixture each | 9 | listed below |
 
 The 9 singles, each its own fact: 5.2.4's pseudo-destructor call on a scalar; a
@@ -63,6 +68,19 @@ trivial constructor helper stand beside in the one fixture.
 
 Defects no fixture reaches, kept here because a sweep found them and not a test:
 
+- 5.2.9p1's conversion is not written around the operand of a cast to a scalar,
+  in either the parenthesized or the functional spelling, so 4.12's `bool` is the
+  operand's own value: `(bool)2` and `bool(2)` each pass 2 where the references
+  write `cmp ne` and pass 1, and `int(bool(2))` is 2 here and 1 there. It is
+  5.2.9's own path and predates the object model. `bool{2}` is right, because
+  8.5.4 reads the list through the initialization.
+- An aggregate one of whose members is of class type has no constructor built
+  from its members (C11), so where such a class is a prvalue of its own - a
+  functional cast, an argument, the object a new-expression creates - the
+  clauses have nothing to initialize and the program is refused rather than
+  written differently: `f(T{V{1,2},0})` and `::new(p) T{{1,2},3}`. The
+  references write the synthesized constructor there and build each class-typed
+  argument in an `argobj__n` slot, which is the divergence named below.
 - An anonymous *struct* member declares nothing, so `s.a` for
   `struct S { struct { unsigned a; unsigned b; }; unsigned c; };` names nothing
   here and 4 bytes are laid out where the references and g++ lay out 12; and a
@@ -92,12 +110,9 @@ Defects no fixture reaches, kept here because a sweep found them and not a test:
 - A member named through a qualified-id on an object is refused - `d.YD::f()`
   and `d.YB::f()` alike, with and without a base and with and without a
   using-declaration. It is 5.2.5p1's qualified-id and predates the object model.
-- 8.5.1's constructor an aggregate is given (C11) is declared only where every
-  member of the class is one a by-value parameter carries: a bit-field, a
-  reference, an array member and a member of class type each leave the class
-  without one, and its elements are initialized where they stand instead. The
-  code is right; the references write a call of a synthesized constructor there,
-  building each class-typed argument in an `argobj__n` slot of its own.
+- 5.3.4's array form `new T[n]` is refused: it calls `operator new[]` for a
+  count 5.3.4p6 lets an expression give, which is a second allocation function
+  and a second lifetime this milestone does not write.
 - `E a[3] = {}` is 12.6p1's per-element construction here and, for the
   references, one call per element of that same aggregate constructor with a
   zero for every member. The elements are given the same values.
@@ -122,27 +137,40 @@ the top-level cv of a parameter, so the aggregate constructor of
 `struct T { const int a; int b; };` is `_ZN1TC1Eii` here and `_ZN1TC1EKii`
 there; 3.6.2p2 folds a constructor whose members hold what its arguments do, so
 `struct T { int a[2]; int b; }; T v[2] = {{1,2},{3,4}};` at namespace scope is an
-image here and a startup body there; the references pass a class holding a
-bit-field by address where they pass every other class of the same size by
-value; 12.9p1's candidate set of inherited constructors holds the base's
-parameter-type-list and the shorter ones its defaulted parameters leave, with
-12.9p2's characteristics carrying no default-argument, where the references
-inherit one declaration and copy its defaults onto it; 3.6.2p2's constant
-initialization covers thread storage duration, so `thread_local A g{};` holds its
-zero in the image here and is a per-thread store there - and where such an
-object's class has a destructor, 12.4p11 still hands it to
-`__cxa_thread_atexit` here and is dropped there, which is what g++ writes; a
-thread-local array of a class with a non-trivial constructor, and a thread-local
-built by a constructor from a written argument, are constructed here and never
-constructed there; a thread-local whose initialization is 3.6.2p1's zero is given
-no guard here and one there; a use of a thread-local written before its
-definition runs what initializes it here and nothing there, which is what g++'s
-`_ZTW` wrapper does; a namespace-scope thread-local scalar whose initializer is a
-call is accepted here and refused there; a block-scope object declared `static`
-or `thread_local` is refused here and lowered there; an unused
-`extern thread_local` is a wrapper naming a global no entry declares there, which
-is malformed LowIR; and a program that declares `__builtin_memcpy` itself is
-accepted here and refused there.
+image here and a startup body there; 12.8p31 elides `T x = T{...}` into `x`, so
+an aggregate holds what 8.5.1 stores where the references call the constructor
+built from its members, and a prvalue of such a class an argument asks for is
+built by that constructor here too but with no class-typed member passed by
+value; the references pass a class holding a bit-field by address where they
+pass every other class of the same size by value; 12.9p1's candidate set of
+inherited constructors holds the base's parameter-type-list and the shorter ones
+its defaulted parameters leave, with 12.9p2's characteristics carrying no
+default-argument, where the references inherit one declaration and copy its
+defaults onto it; 3.6.2p2's constant initialization covers thread storage
+duration, so `thread_local A g{};` holds its zero in the image here and is a
+per-thread store there - and where such an object's class has a destructor,
+12.4p11 still hands it to `__cxa_thread_atexit` here and is dropped there, which
+is what g++ writes; a thread-local array of a class with a non-trivial
+constructor, and a thread-local built by a constructor from a written argument,
+are constructed here and never constructed there; a thread-local whose
+initialization is 3.6.2p1's zero is given no guard here and one there; a use of a
+thread-local written before its definition runs what initializes it here and
+nothing there, which is what g++'s `_ZTW` wrapper does; a namespace-scope
+thread-local scalar whose initializer is a call is accepted here and refused
+there; a block-scope object declared `static` or `thread_local` is refused here
+and lowered there; an unused `extern thread_local` is a wrapper naming a global
+no entry declares there, which is malformed LowIR; and a program that declares
+`__builtin_memcpy` itself is accepted here and refused there.
+
+One shape of the references this unit reproduces rather than resolves, because a
+fixture asks for it: 8.5.1p2's initialization of a member of a class with no
+non-static data member and no base subobject writes nothing at all - not the
+call of the constructor the clause chose, and not the clause. 12.8p15's copy of
+such a class copies nothing, which is what the shape is written from; a
+constructor whose body does something loses that call there. It is 8.5.1's
+member alone: an element of an array a declaration names, an argument and a
+mem-initializer each write their call, and the constructor's definition is still
+what the object file owes.
 
 Three divergences are deliberate and named in the Performance Model: past 64
 bytes the zero of a class object is one `zeroinit` where the references write
@@ -159,69 +187,63 @@ the reserved function rather than of a declaration this unit read.
 
 ## Active Checkpoint
 
-Done: **the audit of C12 - the definition a class already declared, and the
-region a name written before `::` reaches**, 266 / 283 from a 265 / 283 baseline
-and 269 / 286 with three regression tests added, at pa1-pa15 1174 / 1174 with the
-pa10 test the AST-dump defect asks for.
+Done: **C13 - 5.3.4's new-expression and 5.2.3p3's braced functional cast**,
+272 / 286 from a 269 / 286 baseline and 277 / 291 with five regression tests
+added, at pa1-pa15 1174 / 1174.
 
-C12 put 3.4.1p8's region in force for the body of a special member defined
-outside its class, and the analysis had no path for such a definition at all: the
-node reached the arm of `declaration` written for an access-specifier and
-returned, so `YA::YA(int v) { n = v; }` wrote `declare function @YA__YA` and no
-body and the unit named a symbol nothing defines. 12.1p1 and 9.3p2 say what one
-is - 3.4.3p3's declarator-id names the class, 13.1's index of that class's chain
-says which of its declarations this defines, and 9.2p2's end of the translation
-unit reads the body - so one description now opens both the definition written in
-a class body and the one written outside it, a definition matching no declaration
-and one written twice are refused, and the parser's region is in force from the
-declarator-id onward rather than after the parameter clause and the
-mem-initializers have been read. A definition only this unit holds owes both of
-the ABI's entry points whichever of them a call here wrote, which is 9.3p2's
-question and not a count of the uses. 7.1.6.2p1's decltype-specifier before `::`
-was written for the type a declaration names and for nothing else, so the same
-name in an expression - a static data member, an enumerator, the address of one,
-a static member function - was refused; which region a name reaches is one
-question and the four places that ask it now reach one answer. The expression
-that specifier carries is a `carried-expression` the AST dump skips, because the
-AST is PA10's output and hanging it on a node the dump walks changed another
-assignment's answer. And 7.1.1p10's refusal moved from the path that declares an
-object to the declaration, so `mutable` on a member function or a typedef is
-refused as g++ refuses it.
+5.3.4 says two things happen and the resolved tree now holds both: 3.7.4.1's
+allocation function is called for the bytes one object of the type occupies,
+with 5.3.4p9's lookup starting in the class for an unqualified new-expression
+over a class type and in the global namespace for `::new` and for every other
+type, and 13.3 choosing among what that lookup reached; and 8.5p16's
+initialization of an object of the type at the address the call returned. That
+address is the one thing this initialization does not share with a declaration's:
+every other object of class type this lowering writes stands in storage a name
+reaches, and this one stands at a value, so the `new-expression` node holds the
+call and the initialization side by side and the lowering hands the pointer to
+the same construction. 5.3.4p8's byte count is one integer constant written with
+the type 2.14.2p2 gives a literal of its value and converted where 5.2.2p4
+converts any argument, which leaves `std::size_t` a type this unit needs no name
+for.
 
-An 88-program differential sweep through `cppgm++-ref` left 77 byte-identical
-after canonicalization; of the 11 disagreements six are the sweep's own most
-vexing parse, two are shapes the failure map already holds, two are a `decltype`
-that evaluates to a reference and g++ refuses in the same words, and one is the
-reference emitting a definition nothing calls.
+5.2.3p3's `T{...}` is written where `T(...)` is and the one braced list standing
+where the arguments do is the whole of what says so, in the parser for a
+type-name, for a keyword simple-type-specifier and for a decltype-specifier
+alike. What it makes is list-initialized from that list rather than built from
+its clauses as arguments, which is 8.5.1 for an aggregate and 13.3.1.7 for any
+other class; and 12.8p31 makes `T x = T{...}` create `x` itself, so the braces
+reach the object being declared and the subobject an aggregate's clause reached
+in the same words a list written on the declarator would.
 
-Next: **C13 - 5.2.3p3's braced functional cast and 5.3.4's placement `new`**,
-which is `T{...}` in the parser and in 13.3.1.7 - the one shape
-`200-nested-braced-member-aggregate-init` still needs and the one
-`200-placement-new-expression-aggregate-brace` writes its new-initializer with -
-together with the allocation function a new-expression calls and the object
-8.5p16 builds at what it returned.
+Two sweeps of 125 programs against `cppgm++-ref` - the allocated type crossed
+with the initializer form and with `::`, and every type a functional cast is
+written over - left 98 byte-identical after the metadata the relaxed comparison
+strips. Of the 27 that remain, 12 are the internal LowIR symbol name or the
+top-level order, 4 are the `store ptr nullptr` and 5.2.9 defects the map already
+holds, 5 are 12.8p31's elision of `T{...}` into the object it initializes, and 6
+are the aggregate with a class-typed member the map now holds.
 
-- owner: `ast_parser_expression.cpp` and `recognizer_expression.cpp` for
-  5.2.3p3's postfix form, `sema_expression.cpp` for the functional cast it makes
-  and for 5.3.4's new-expression, `sema_overload.cpp` for 3.7.4.2's allocation
-  function, `lowir_lower_object.cpp` for the construction at the returned
-  address.
-- data flow: the parser writes the braced list where a call writes its argument
-  list, so the semantics reaches `functional_cast` with a list rather than
-  arguments and 13.3.1.7 chooses from it exactly as 8.5.1p2's clause already
-  does. A new-expression resolves its allocation function by ordinary lookup
-  over the declarations of `operator new`, and the object it builds is the same
-  `constructor-action` a declaration's is, addressed by the pointer the call
-  returned rather than by a slot.
-- expected complexity: one more postfix suffix tried per primary-expression, one
-  overload resolution per new-expression, and no change to how many candidates a
-  selection ranks.
+Next: **C14 - 15.2p2's cleanup around a partly built object**, which is the
+largest group left and the three lifetime fixtures it holds.
+
+- owner: `sema_class.cpp` for which subobjects are already built where a
+  constructor's body is entered, `lowir_lower_object.cpp` and
+  `lowir_lower_body.cpp` for the `eh_cleanup` / `eh_end` / `resume` region and
+  the blocks it opens.
+- data flow: 12.6.2's member initializations are already written in declaration
+  order under the constructor, and 12.4p8's destructions are that list walked
+  backwards - so the cleanup a partly built object needs is the tail of the same
+  list, taken at the point the construction had reached. The lowering opens one
+  region per point rather than recomputing which subobjects those are.
+- expected complexity: one region per constructor and one per element of a
+  member array, each holding the destructions of the subobjects before it - which
+  is what 15.2p2 asks for and is the same n(n+1)/2 the source describes.
 - validation: `make test-report ACTIVE_TEST_REPORT_PAS='pa16'`,
   `make test-report-through-pa15`,
   `perl scripts/cppgm_file_audit.pl --stage pa16 --paths dev/src`, valgrind over
-  the fixtures, and a differential sweep of `T{...}` against every type and of
-  `new` against every placement and initializer form through `cppgm++-ref`, with
-  each disagreement judged against g++.
+  the fixtures, and a differential sweep of the subobject kinds a constructor
+  can leave half built against `cppgm++-ref`, with each disagreement judged
+  against g++.
 
 ## Performance Model
 
@@ -366,6 +388,18 @@ Invariants, one line each, and the measurements that hold them.
 - 13.1's index is keyed by the written parameter-type-list only where a class
   declares the name; a namespace declares no function with an object parameter,
   so there the type's own list is the list and no list is rebuilt.
+- 5.3.4's new-expression costs one qualified lookup of `operator new`, one
+  overload resolution over what it reached, and the initialization a declaration
+  of the same object costs - no scan of the unit and no second pass over the
+  type: n placement new-expressions in one body are 0.04/0.08/0.15/0.30 s at
+  500/1000/2000/4000 for 13 n + 36 lines, linear at 2.0x per doubling.
+- 5.2.3p3's `T{...}` costs one comparison of the token after a primary-expression
+  and, where the braces follow, the one reading of the list the initialization
+  would cost anyway: n of them as arguments are 0.02/0.04/0.08/0.15 s at the same
+  sizes for 7 n + 24 lines. 12.8p31's elision of one into the object it
+  initializes is one probe of the region's names per initializer written as a
+  call and nothing at all for any other form: n declarations `T x = T{a, b}` are
+  0.03/0.06/0.11/0.25 s for 14 n + 8 lines, linear at 2.0-2.2x per doubling.
 - Nested block scopes and nested namespaces cost more than linearly in their
   depth and did before the object model - 4000 nested blocks holding one scalar
   each take 0.23 s, and 4000 namespaces deep with one ADL call at the bottom
@@ -398,3 +432,4 @@ Invariants, one line each, and the measurements that hold them.
 | C11 | 8.4.2p4's user-provided special member made a fact of the declaration that neither defaulted nor deleted it; 8.5.1p2's subobject of class type copy-initialized from the clause that reached it - list-initialized from a braced one, converted from an expression, 12.8p31's copy from one of its own class - with 8.5.1p7 value-initializing one no clause reached and 8.5.1p11's elided braces left for the clause that cannot initialize the subaggregate alone; 13.3.1.7's element of an array of class type made an object of its own, built by the class's own constructor or by the one 8.5.1 gives an aggregate from its non-static data members, declared once and held on the class; 3.6.2p2's constant initialization through a constructor whose members hold what its arguments hold, which keeps a namespace-scope array an image; 12.1p5's deleted default constructor for a member of const-qualified or reference type that nothing initializes; 5.2.1p1's subscript of an element with no register width read once | 240 -> 244 / 269, and 251 / 276 with seven regression tests added; pa1-pa15 1173/1173; valgrind clean over 1315 programs - every pa16 fixture source and every synthesized input of both sweeps; two differential sweeps against `cppgm++-ref`, 405 programs over class shape x initializer form x storage duration and 648 over the constructors a subobject of class type reaches, leaving no status disagreement at all, with the two defects the first found closed and all 57 the second found judged for this unit by g++; every C11 axis linear at 2.0-2.5x per doubling, one synthesized constructor however many arrays name the class, and the namespace-scope array still an image and not a startup body |
 | C12 | 3.3.7p1's member name made a fact of the class that declares it, so the PA10 name table stopped declaring a member into the region around its class; 3.4.1p8's region put in force for the rest of a qualified declarator and for the body after it, in the parser and in the analysis; 10.2p2's base recorded as the class the base-clause reaches, resolved once, walked where a name misses; 8.3.5p2's trailing-return-type as the type a function returns, with 7.1.6.4's `auto` standing for it alone; 13.1's index keyed by the parameter-type-list a declarator wrote wherever a class declares the name, which 9.3.1p3's object parameter had collapsed; 7.1.1p10's `mutable` stopping the const an object carries into a member; 7.1.6.2p1's decltype-specifier before `::` carried to the semantics as its expression; 5.1.1p6's parenthesized callee, with 3.4.2p1's associated namespaces the one thing the parentheses take away | 251 -> 258 / 276, and 265 / 283 with seven regression tests added; pa1-pa15 1173/1173; valgrind clean over 403 programs - every pa16 fixture source and every synthesized input of both sweeps; two differential sweeps against `cppgm++-ref`, 113 programs over where a name is declared x where it is used x the region between them and 10 over source order and the sibling paths of an out-of-class definition, leaving 111 and 9 byte-identical after canonicalization and every disagreement either out of PA16's scope or resolved for this unit by g++; the class scope's cost held to what it was before it existed (1.13 s -> 0.04 s at 2000) and every new axis linear at 2.1-2.4x per doubling |
 | audit of C12 | 3.3.7p1's member name made a fact of the class that declares it; 3.4.1p8's region for the rest of a qualified declarator and the body after it; 10.2p2's base; 8.3.5p2's trailing-return-type; 13.1's index keyed by the written parameter-type-list; 7.1.1p10's `mutable`; 7.1.6.2p1's decltype-specifier before `::`; 5.1.1p6's parenthesized callee | a constructor or destructor defined outside its class declared nothing and defined nothing, the node reaching the arm of `declaration` written for an access-specifier, so the unit called `@YA__YA` and only declared it - and a definition matching no declaration and one written twice were accepted; 3.4.1p8's region opened after the parameter clause and the mem-initializers had been read, so `YA::YA(int v) : n((held)v)` was not a translation unit; the ABI's two entry points counted from the uses rather than asked of 9.3p2, which left a strong definition owing one name where the object file owes both; 7.1.6.2p1 written for the type a declaration names and for nothing else, so `decltype(a)::held` in an expression was refused; the expression that specifier carries written into the syntax tree, which is PA10's own output; 7.1.1p10's refusal asked only where the declarator went on to declare an object | 266 / 283 from a 265 / 283 baseline, the same set passing and `200-nested-out-of-class-constructor-enclosing-type` with it, and 269 / 286 with three regression tests added; pa1-pa15 1174 / 1174 with the pa10 test the AST-dump defect asks for; byte-identical passing fixtures 152 of 216; valgrind clean over 438 programs; an 88-program differential sweep against `cppgm++-ref` leaving 77 byte-identical and every disagreement named or judged for this unit by g++; eight axes measured, seven linear at 1.9-2.1x per doubling and 10.2p2's chain named with its numbers; file audit passes with the two recorded header-weight warnings |
+| C13 | 5.3.4's new-expression: 3.7.4.1's allocation function found by 5.3.4p9's lookup - the class first for an unqualified one over a class type, the global namespace for `::new` and for every other type - chosen by 13.3 from the byte count 2.14.2p2 spells and the new-placement's own arguments, with 8.5p16's object built at the address it returned rather than in storage a name reaches; 5.2.3p3's `T{...}` in the parser for a type-name, a keyword simple-type-specifier and a decltype-specifier, list-initialized from its braces by 8.5.1 for an aggregate and 13.3.1.7 for any other class; 12.8p31's elision of `T{...}` into the object it initializes, at a declaration and at an aggregate's clause alike; 8.5.1p2's member of a class that holds nothing written as the nothing the references write | 269 -> 272 / 286, and 277 / 291 with five regression tests added; pa1-pa15 1174/1174; valgrind clean over 183 programs - every pa16 general fixture source and every synthesized input of the sweeps; two differential sweeps against `cppgm++-ref`, 125 programs over the allocated type x the initializer form x `::` and over every type a functional cast is written over, leaving 98 byte-identical after the stripped metadata and each of the other 27 named or judged; three new axes linear at 2.0-2.2x per doubling |

@@ -269,6 +269,9 @@ private:
 	AstNode* parse_initializer_clause();
 	bool parse_initializer_clause_list(AstNode* parent, unsigned closer);
 	AstNode* parse_argument_suffix(AstKind kind);
+	// 5.2.3p1 and 5.2.3p3: the operands of a functional-notation conversion,
+	// parenthesized or the one braced-init-list standing for all of them.
+	AstNode* parse_conversion_arguments();
 
 	const AstTokenStream& tokens_;
 	AstArena& arena_;

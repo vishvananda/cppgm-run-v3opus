@@ -44,6 +44,12 @@ enum class FactKind : unsigned char
 	// itself where an lvalue did, and this node's own type says which.
 	BaseConversion,
 	Sizeof,
+	// 5.3.4: a new-expression, which is the call of the allocation function
+	// 3.7.4.1 gives the storage and, under it, the initialization 8.5p16 gives
+	// the object that storage now holds.  What the expression is worth is the
+	// pointer the call returned, so the object is built at an address the tree
+	// already produced rather than in storage of the function's own.
+	NewExpression,
 	BracedInitList,
 	Label,
 	Goto,

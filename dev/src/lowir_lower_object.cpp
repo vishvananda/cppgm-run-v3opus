@@ -342,11 +342,58 @@ LowValue LowirFunctionLowering::temporary_object(const DumpNode& node)
 		add_generated_slot(node.fact.spelling.c_str(), node.fact.type);
 	slots_[entity.id] = slot;
 	const DumpNode& action = *node.children[0];
+	const DumpNode& written = *action.children[0]->children[1];
 	// The action names the object as the address of it, which is the address
-	// everything that reads the temporary from here on uses.
-	const LowValue object = expression(*action.children[0]->children[1]);
-	constructor_call(object.operand, action, true);
-	value.operand = object.operand;
+	// everything that reads the temporary from here on uses.  8.5.1p2's
+	// constructor of an aggregate names it by the place asking for the object
+	// instead, and here that place is the storage this temporary was just
+	// given, so the address is taken around the slot rather than read out of a
+	// line the analysis wrote.
+	LowValue held;
+	held.type = node.fact.type;
+	held.lvalue = true;
+	held.named = true;
+	held.operand = named_operand(Operand::OP_SLOT, slot);
+	const Operand at = written.fact.kind == FactKind::None
+		? address_of(held)
+		: expression(written).operand;
+	constructor_call(at, action, true);
+	value.operand = at;
+	return value;
+}
+
+// 5.3.4p8 and 5.3.4p12: the allocation function is called for the bytes the
+// object needs, and the object is created at what it returned.  Every other
+// object of class type this lowering writes stands in storage a name reaches -
+// a slot, a global, a subobject of one - and this one stands at a value, so the
+// address the call produced is passed to the same construction rather than an
+// address being taken around a name.
+LowValue LowirFunctionLowering::new_expression(const DumpNode& node)
+{
+	TypeTable& types = unit_.types();
+	const LowValue allocated = expression(*node.children[0]);
+	LowValue value;
+	value.type = node.fact.type;
+	value.operand = allocated.operand;
+	if (node.children.size() < 2)
+	{
+		// 8.5p16: the new-initializer was left out for an object of no class
+		// type, which 8.5p6 default-initializes by performing no
+		// initialization at all.
+		return value;
+	}
+	const DumpNode& initialization = *node.children[1];
+	if (initialization.fact.kind == FactKind::ConstructorAction)
+	{
+		// 12.1p5: the object's lifetime begins with the call of its
+		// constructor, which is written even where the constructor does
+		// nothing, because the call is the only mark that it has.
+		constructor_call(allocated.operand, initialization, true);
+		return value;
+	}
+	const TypeId created = types.target(node.fact.type);
+	const LowValue held = expression(initialization);
+	store(converted(held, created), allocated.operand, created);
 	return value;
 }
 
@@ -971,6 +1018,26 @@ void LowirFunctionLowering::initialize_subobject(
 	}
 	const Operand at = subobject_address(object, path);
 	path.pop_back();
+	if (unit_.types().is_empty_class(unit_.types().strip_cv(node.fact.type)))
+	{
+		// 8.5.1p2 copy-initializes the subobject from the clause that reached
+		// it, and 12.8p15's copy of a class with no non-static data member and
+		// no base subobject copies nothing: the checked-in LowIR writes no
+		// action for such a subobject at all, not even the object 12.8p31 would
+		// have elided that copy into.  The address is still named, because
+		// 8.5.1p1 reached the subobject, and the constructor the analysis chose
+		// is still a use of it, so its definition is still written.  This is
+		// the one initialization whose clause the output does not evaluate, and
+		// it is 8.5.1's member alone: an element of an array a declaration
+		// names, an argument and a mem-initializer each write their call.
+		if (!node.children.empty() &&
+		    node.children[0]->fact.kind == FactKind::ConstructorAction)
+		{
+			unit_.declare_entity(
+				*node.children[0]->children[0]->children[0]->fact.entity);
+		}
+		return;
+	}
 	if (!node.children.empty() &&
 	    node.children[0]->fact.kind == FactKind::ConstructorAction)
 	{

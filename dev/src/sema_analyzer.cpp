@@ -1804,10 +1804,21 @@ void SemaAnalyzer::declare_object_declarator(const AstNode* initializer,
 	                           types_.description(type), FactKind::Variable);
 	line.fact.entity = &entity;
 	line.fact.type = type;
-	const AstNode* const value =
+	const AstNode* const clause =
 		initializer == nullptr || initializer->children.empty()
 			? nullptr
 			: initializer->children[0];
+	// 12.8p31 and 5.2.3p3: `T x = T{...}` creates `x` itself, so the braced
+	// list is what initializes it and the initialization is the one the same
+	// list written on the declarator would be - which for an aggregate is
+	// 8.5.1's and not a constructor's.  The prvalue was direct-list-initialized
+	// where it stands, so 8.5.4p3 asks nothing of the list here either.
+	const AstNode* const elided = clause == nullptr
+		? nullptr
+		: braced_prvalue_of(*clause, type, ctx);
+	const AstNode* const value = elided != nullptr ? elided : clause;
+	const bool copied =
+		elided == nullptr && initializer != nullptr && initializer->copied;
 	if (types_.is_class(element_of(types_.strip_cv(type))) &&
 	    entity.object_definition)
 	{
@@ -1825,8 +1836,7 @@ void SemaAnalyzer::declare_object_declarator(const AstNode* initializer,
 		// constructors of its class, whatever form the initializer took, unless
 		// 8.5.1 makes the class an aggregate initialized from the clauses of a
 		// braced-init-list.
-		construct_object(entity, line, value, ctx, Placement::Named,
-		                 initializer != nullptr && initializer->copied);
+		construct_object(entity, line, value, ctx, Placement::Named, copied);
 		return;
 	}
 	if (entity.object_definition && element_constructed(type, value))
@@ -1835,8 +1845,7 @@ void SemaAnalyzer::declare_object_declarator(const AstNode* initializer,
 		// its elements, and where no clause named one the constructor every
 		// element is given is the same one.  The action names the array, so
 		// there is one of it however many elements there are.
-		construct_object(entity, line, value, ctx, Placement::Named,
-		                 initializer != nullptr && initializer->copied);
+		construct_object(entity, line, value, ctx, Placement::Named, copied);
 		return;
 	}
 	// 5.19p3 and 7.1.5p9: a constexpr object is initialized by a constant
@@ -1857,7 +1866,7 @@ void SemaAnalyzer::declare_object_declarator(const AstNode* initializer,
 	// 3.6.2p2 and 3.7.1p1: an object at namespace scope, and the static data
 	// member 9.4.2p2 defines there, is given its value by the program image
 	// rather than built where its declaration stands.
-	write_initializer(*initializer->children[0], type, ctx, line,
+	write_initializer(*value, type, ctx, line,
 	                  entity.object_definition &&
 	                  (target.scope->kind == ScopeKind::Namespace ||
 	                   target.scope->kind == ScopeKind::Class));

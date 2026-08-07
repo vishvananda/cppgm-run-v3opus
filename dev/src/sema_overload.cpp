@@ -1087,6 +1087,18 @@ void SemaAnalyzer::aggregate_subobject(TypeId type, Clauses& clauses,
 			++clauses.at;
 			return;
 		}
+		const AstNode* const elided = clauses.spent()
+			? nullptr
+			: braced_prvalue_of(clauses.next(), bare, ctx);
+		if (elided != nullptr && owner->aggregate)
+		{
+			// 12.8p31 and 5.2.3p3: the clause is `T{...}` for the subobject's
+			// own class, so it creates the subobject and its braces are the
+			// ones 8.5.1p2 reads into the subaggregate.
+			aggregate_from_list(bare, *elided, ctx, node);
+			++clauses.at;
+			return;
+		}
 		if (owner->aggregate && !clauses.spent() &&
 		    !clause_initializes_class(bare, clauses.next(), ctx))
 		{
@@ -1657,6 +1669,16 @@ SemaAnalyzer::Value SemaAnalyzer::functional_cast(const AstNode& node,
                                                   TypeId target)
 {
 	const AstNode* list = arguments_of(node);
+	// 5.2.3p3: `T{...}` is written where `T(...)` is, and the one braced list
+	// standing where the arguments do is the whole of what says so.  What it
+	// makes is list-initialized from that list, which is not the same as being
+	// built from its clauses as arguments: 8.5.1 gives them to the members of
+	// an aggregate, and 8.5.4p7 refuses one that narrows.
+	const AstNode* const braced =
+		list != nullptr && list->children.size() == 1 &&
+		list->children[0]->kind == AstKind::BracedInitList
+			? list->children[0]
+			: nullptr;
 	const std::size_t count = list == nullptr ? 0 : list->children.size();
 	Value value;
 	value.type = target;
@@ -1669,16 +1691,26 @@ SemaAnalyzer::Value SemaAnalyzer::functional_cast(const AstNode& node,
 		// one 8.5 and 13.3.1.3 give an object of the class, so the arguments
 		// are the constructor's whatever their number, and the storage the
 		// prvalue stands in is the function's.
-		return materialize_temporary(target, list, ctx, parent, "tmpobj",
-		                             count == 0);
+		return materialize_temporary(target, braced != nullptr ? braced : list,
+		                             ctx, parent, "tmpobj", count == 0);
+	}
+	if (braced != nullptr)
+	{
+		// 5.2.3p3 over any other type: the braces make 8.5.4's
+		// list-initialization of a prvalue of the type, which is the same
+		// reading of the same list a declaration of an object of it would get.
+		return list_initialize(*braced, target, ctx, parent);
 	}
 	if (count == 0)
 	{
 		// 5.2.3p2: `T()` is a prvalue of type T that is value-initialized,
-		// which for the PA12 subset is the zero of that type.
+		// which for the PA12 subset is the zero of that type - and 2.14.4
+		// spells the zero of a floating type as a value of that type rather
+		// than as the integer the other types share.
 		value.constant = true;
 		value.what = "literal";
-		value.payload = "0";
+		value.payload =
+			types_.is_floating(types_.strip_cv(target)) ? "0.0" : "0";
 		value.node = &model_.open_node(
 			parent, spell(value.what, value.category, target, value.payload));
 		return value;
@@ -1707,6 +1739,243 @@ SemaAnalyzer::Value SemaAnalyzer::functional_cast(const AstNode& node,
 		// what 5.2.9p1 and 5.4p4 make of the operand.
 		return cast_to_reference(target, source, parent, line, value);
 	}
+	value.node = &line;
+	respell(value);
+	return value;
+}
+
+// 3.7.4.1p2 and 5.3.4p9: which declarations of `operator new` a new-expression
+// chooses among.  13.5p1 leaves the allocation functions out of the operators a
+// program may give a meaning to, so the name is one an ordinary qualified
+// lookup finds and nothing about it is special but where the lookup starts: the
+// global namespace for a new-expression written with `::` and for one whose
+// allocated type is no class, and the class itself otherwise, which 10.2 also
+// searches the bases of.  A class that declares none leaves the global
+// namespace's declarations to answer.
+SemaEntity* SemaAnalyzer::allocation_function(bool global, TypeId created,
+                                              std::vector<SemaEntity*>& found)
+{
+	static const std::string kName("operatornew");
+	if (!global)
+	{
+		SemaEntity* const owner = model_.type_owner(types_.strip_cv(created));
+		if (owner != nullptr && owner->scope != nullptr)
+		{
+			SemaEntity* const member =
+				model_.lookup_in(*owner->scope, kName, LookupKind::Any, &found);
+			if (member != nullptr)
+			{
+				return member;
+			}
+		}
+	}
+	found.clear();
+	return model_.lookup_in(model_.global(), kName, LookupKind::Any, &found);
+}
+
+// 5.3.4: a new-expression creates one object with dynamic storage duration, and
+// the resolved tree holds the two things that are: 5.3.4p8's call of an
+// allocation function for the bytes the object occupies, and 5.3.4p12's
+// initialization of an object of the type at the address that call returned.
+// What the expression is worth is that address, so the object is built where
+// the allocation put it and the function it was written in gives it no storage
+// of its own - which is the one way this initialization differs from the one a
+// declaration of the same object would carry.
+SemaAnalyzer::Value SemaAnalyzer::new_expression(const AstNode& node,
+                                                 const Context& ctx,
+                                                 DumpNode& parent)
+{
+	bool global = false;
+	const AstNode* placement = nullptr;
+	const AstNode* written_type = nullptr;
+	const AstNode* written_init = nullptr;
+	for (std::size_t index = 0; index < node.children.size(); ++index)
+	{
+		const AstNode& child = *node.children[index];
+		if (child.kind == AstKind::GlobalScope)
+		{
+			global = true;
+		}
+		else if (child.kind == AstKind::Placement)
+		{
+			placement = &child;
+		}
+		else if (child.kind == AstKind::TypeId)
+		{
+			written_type = &child;
+		}
+		else if (child.kind == AstKind::Initializer && !child.children.empty())
+		{
+			written_init = child.children[0];
+		}
+	}
+	if (written_type == nullptr)
+	{
+		throw std::runtime_error("a new-expression names no type");
+	}
+	const TypeId created = type_id_type(*written_type, ctx);
+	if (types_.kind(types_.strip_cv(created)) == TypeKind::Array)
+	{
+		// 5.3.4p1's array form calls `operator new[]` for a count 5.3.4p6 lets
+		// an expression give, which is a second allocation function and a
+		// second lifetime this milestone does not write.
+		throw std::runtime_error("a new-expression creates an array, which "
+		                         "5.3.4p1's array form allocates and this "
+		                         "milestone does not write");
+	}
+	if (types_.is_incomplete(created))
+	{
+		// 5.3.4p1: the type shall be complete, which is what has the size
+		// 5.3.4p8 passes.
+		throw std::runtime_error("a new-expression creates an object of the "
+		                         "incomplete type " +
+		                         types_.description(created));
+	}
+	DumpNode& line = model_.open_node(parent, std::string());
+
+	// 5.3.4p8: the allocation function is called with the number of bytes one
+	// object of the type occupies, and with the new-placement's own arguments
+	// after it.  The count is one integer constant the translation knows, so it
+	// is written with the type 2.14.2p2 gives an integer literal of that value
+	// and reaches the parameter through the conversion 5.2.2p4 gives any
+	// argument - which is what leaves `std::size_t` a type this unit needs no
+	// name for.
+	DumpNode& call = model_.open_node(line, std::string());
+	DumpNode& callee = model_.open_node(call, std::string());
+	const unsigned long long bytes = size_of(created);
+	std::vector<Value> arguments;
+	Value size;
+	size.type = size.spelled =
+		types_.fundamental(bytes <= 0x7FFFFFFFull ? FT_INT : FT_LONG_INT);
+	size.category = ValueCategory::PRValue;
+	size.constant = true;
+	size.value = bytes;
+	size.what = "literal";
+	size.payload = decimal(bytes);
+	size.node = &model_.open_node(
+		call, spell(size.what, size.category, size.type, size.payload));
+	record(size);
+	arguments.push_back(size);
+	const AstNode* const written_placement =
+		placement == nullptr ? nullptr : arguments_of(*placement);
+	for (std::size_t index = 0;
+	     written_placement != nullptr &&
+	     index < written_placement->children.size(); ++index)
+	{
+		arguments.push_back(
+			expression(*written_placement->children[index], ctx, call));
+	}
+	std::vector<SemaEntity*>& reached = model_.open_overloads();
+	SemaEntity* const declared = allocation_function(global, created, reached);
+	if (declared == nullptr)
+	{
+		throw std::runtime_error("a new-expression is written where no "
+		                         "allocation function is declared");
+	}
+	// 13.3p1: the candidate set is what that lookup reached, and the arguments
+	// choose one of them exactly as they would for a call the program wrote.
+	std::vector<SemaEntity*> candidates;
+	if (reached.empty())
+	{
+		candidates.push_back(declared);
+	}
+	else
+	{
+		candidates = reached;
+	}
+	Value target;
+	target.node = &callee;
+	name_function(target, *select_overload(candidates, arguments, "operator new"),
+	              "callee");
+	const Value allocated = finish_call(call, target.type, arguments,
+	                                    target.entity, ctx);
+	if (types_.kind(types_.strip_cv(allocated.type)) != TypeKind::Pointer)
+	{
+		// 3.7.4.1p2: an allocation function returns the address of the storage
+		// it obtained, which is what the object is then created at.
+		throw std::runtime_error("the allocation function a new-expression "
+		                         "calls does not return a pointer");
+	}
+
+	// 5.3.4p15 and 8.5p16: the object at that address is initialized by the
+	// new-initializer, which is the same initialization a declaration of an
+	// object of the type with the same initializer written on it would be.
+	if (types_.is_class(types_.strip_cv(created)))
+	{
+		// 8.5p7: `{}` value-initializes the object rather than naming a clause
+		// for any member, which is the zero of its storage and the default
+		// constructor its class was given, so it is not the list 8.5.1 reads.
+		const bool braced = written_init != nullptr &&
+			written_init->kind == AstKind::BracedInitList &&
+			!written_init->children.empty();
+		SemaEntity* const from_members = braced && aggregate_type(created)
+			? member_constructor(created)
+			: nullptr;
+		if (from_members != nullptr)
+		{
+			// 8.5.4p3 and 13.3.1.7: the class is an aggregate, so its clauses
+			// initialize its members - and what they initialize is an object of
+			// its own rather than a subobject an enclosing list reaches into,
+			// so it is built by the constructor 8.5.1 gives the class from its
+			// non-static data members.
+			construct_from_members(*from_members, *written_init, ctx, line);
+		}
+		else
+		{
+			// 12.1 and 13.3.1.3: any other class object is built by one of the
+			// constructors its class declared, chosen from what the
+			// new-initializer wrote.  The object is one no name reaches, which
+			// is what leaves the address the allocation returned as the only
+			// thing that says where it stands.
+			SemaEntity& object =
+				model_.create(SemaKind::Variable, std::string(), created);
+			object.object_member = false;
+			construct_object(object, line, written_init, ctx, Placement::Named);
+		}
+		if (line.children.size() != 2 ||
+		    line.children[1]->fact.kind != FactKind::ConstructorAction)
+		{
+			// 12.8p31's elision reaches an object the place asking already owns
+			// storage for, and here the storage is one the allocation function
+			// chose, so a value of the class's own type has nowhere to be
+			// elided into.
+			throw std::runtime_error("a new-expression initializes an object of "
+			                         "class type from a value of that class, "
+			                         "which 12.8p1 makes a call of the copy "
+			                         "constructor its program wrote");
+		}
+	}
+	else if (written_init != nullptr)
+	{
+		// 8.5p16 over a scalar: the object holds what the one clause of the
+		// initializer says, and 8.5p7's `()` and `{}` hold the zero of the
+		// type.
+		const bool braced = written_init->kind == AstKind::BracedInitList;
+		if ((!braced && written_init->kind != AstKind::ParenInitializer) ||
+		    written_init->children.size() > 1)
+		{
+			throw std::runtime_error("a new-expression initializes an object of "
+			                         "non-class type with more than one value");
+		}
+		if (written_init->children.empty())
+		{
+			DumpNode& zero = model_.open_node(
+				line, spell("literal", ValueCategory::PRValue, created, "0"));
+			set_fact(zero, FactKind::Literal, created, ValueCategory::PRValue);
+			zero.fact.constant = true;
+		}
+		else
+		{
+			initialize(*written_init->children[0], created, ctx, line, braced);
+		}
+	}
+
+	// 5.3.4p1: the value is a pointer to the object created, which is the
+	// address the allocation function returned read at the type of that object.
+	Value value;
+	value.type = value.spelled = types_.pointer_to(created);
+	value.category = ValueCategory::PRValue;
+	value.what = "new-expression";
 	value.node = &line;
 	respell(value);
 	return value;

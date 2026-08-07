@@ -491,6 +491,28 @@ AstNode* AstParser::parse_delete_expression()
 	return node;
 }
 
+// 5.2.3p1 and 5.2.3p3: the operands of an explicit type conversion written in
+// functional notation, which are a parenthesized expression-list or the one
+// braced-init-list 5.2.3p3 writes.  Both stand where the arguments of a call
+// do, because the grammar cannot say whether the name before them is a type;
+// the braced form stands as the single clause of that list, which is the one
+// thing that tells the two apart where the semantics asks.
+AstNode* AstParser::parse_conversion_arguments()
+{
+	if (!at(OP_LBRACE))
+	{
+		return parse_argument_suffix(AstKind::ParenArgumentList);
+	}
+	AstNode* braced = parse_braced_init_list();
+	if (braced == nullptr)
+	{
+		return nullptr;
+	}
+	AstNode* arguments = make(AstKind::ArgumentList);
+	arguments->add(braced);
+	return arguments;
+}
+
 AstNode* AstParser::parse_postfix_expression()
 {
 	AstNode* expression = parse_primary_expression();
@@ -557,6 +579,28 @@ AstNode* AstParser::parse_postfix_suffixes(AstNode* expression)
 			expression = node;
 			continue;
 		}
+		if (at(OP_LBRACE) &&
+		    (expression->kind == AstKind::IdExpression ||
+		     expression->kind == AstKind::DecltypeSpecifier))
+		{
+			// 5.2.3p3: a simple-type-specifier or a typename-specifier followed
+			// by a braced-init-list is an explicit type conversion, written
+			// where a call is written and told from one only by the braces.
+			// The grammar cannot say whether the name is a type, so the shape
+			// is the one a call takes and the list stands where the arguments
+			// do; what the braces mean - 8.5.4's list-initialization rather
+			// than 8.5's arguments - is a question for the semantics.
+			AstNode* arguments = parse_conversion_arguments();
+			if (arguments == nullptr)
+			{
+				return expression;
+			}
+			AstNode* node = make(AstKind::CallExpression);
+			node->add(expression);
+			node->add(arguments);
+			expression = node;
+			continue;
+		}
 		if (at(OP_INC) || at(OP_DEC))
 		{
 			AstNode* node = make(AstKind::PostfixExpression);
@@ -601,14 +645,14 @@ AstNode* AstParser::parse_primary_expression()
 			named += spelling(words);
 			++words;
 		}
-		if (peek(words) != OP_LPAREN)
+		if (peek(words) != OP_LPAREN && peek(words) != OP_LBRACE)
 		{
 			return parse_id_expression();
 		}
 		const Mark start = mark();
 		AstNode* callee = make_text(AstKind::IdExpression, named);
 		pos_ += words;
-		AstNode* arguments = parse_argument_suffix(AstKind::ParenArgumentList);
+		AstNode* arguments = parse_conversion_arguments();
 		if (arguments == nullptr)
 		{
 			return fail(start);
@@ -626,7 +670,7 @@ AstNode* AstParser::parse_primary_expression()
 		// so the type stands where a callee does.  A decltype-specifier written
 		// anywhere else in an expression is a name, and is read as one.
 		const Mark start = mark();
-		if (skip_decltype_specifier() && at(OP_LPAREN))
+		if (skip_decltype_specifier() && (at(OP_LPAREN) || at(OP_LBRACE)))
 		{
 			const std::string named = spelled(start);
 			reset(start);
@@ -643,7 +687,7 @@ AstNode* AstParser::parse_primary_expression()
 			}
 			AstNode* callee = make_text(AstKind::DecltypeSpecifier, named);
 			callee->add(operand);
-			AstNode* arguments = parse_argument_suffix(AstKind::ParenArgumentList);
+			AstNode* arguments = parse_conversion_arguments();
 			if (arguments == nullptr)
 			{
 				return fail(start);

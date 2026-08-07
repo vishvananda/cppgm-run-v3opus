@@ -171,6 +171,7 @@ FactKind SemaAnalyzer::fact_kind(const char* what)
 		{"cast-expression", FactKind::Cast},
 		{"base-conversion", FactKind::BaseConversion},
 		{"temporary-object", FactKind::TemporaryObject},
+		{"new-expression", FactKind::NewExpression},
 		{"sizeof-expression", FactKind::Sizeof}
 	};
 	for (std::size_t index = 0; index < sizeof(kKinds) / sizeof(kKinds[0]);
@@ -323,6 +324,9 @@ SemaAnalyzer::Value SemaAnalyzer::dispatch_expression(const AstNode& node,
 
 	case AstKind::CallExpression:
 		return call_expression(node, ctx, parent);
+
+	case AstKind::NewExpression:
+		return new_expression(node, ctx, parent);
 
 	case AstKind::SubscriptExpression:
 		return subscript_expression(node, ctx, parent);

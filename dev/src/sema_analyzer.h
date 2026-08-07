@@ -617,6 +617,13 @@ private:
 	void construct_subobject(TypeId type, const AstNode* written,
 	                         const Context& ctx, DumpNode& node,
 	                         bool value_init);
+	// 12.8p31 and 5.2.3p3: the braced-init-list of an initializer written
+	// `T{...}` for an object that is itself of `T`.  The prvalue and the object
+	// it initializes are one, so what initializes the object is that list - and
+	// then 8.5.1 gives its clauses to the members of an aggregate exactly as a
+	// list written on the declarator would.  Null for anything else.
+	const AstNode* braced_prvalue_of(const AstNode& written, TypeId type,
+	                                 const Context& ctx);
 	// 8.5.1p2 and 13.3.1.7: the constructor an object of the aggregate class
 	// `type` is built by where it is an object of its own, declared once and
 	// held on the class.  Null where the class is no aggregate, and where a
@@ -1078,6 +1085,19 @@ private:
 	                      DumpNode& parent);
 	Value functional_cast(const AstNode& node, const Context& ctx,
 	                      DumpNode& parent, TypeId target);
+	// 5.3.4: `new T`, which is the call of an allocation function for the
+	// storage one object of `T` needs and the initialization 8.5p16 gives the
+	// object at what that call returned.  The value is the pointer.
+	Value new_expression(const AstNode& node, const Context& ctx,
+	                     DumpNode& parent);
+	// 3.7.4.1p2 and 5.3.4p9: the declarations of `operator new` a
+	// new-expression chooses among.  A new-expression written with `::`, and
+	// one whose allocated type is no class, looks the name up in the global
+	// namespace alone; any other looks in the class first and falls back to the
+	// global namespace where the class declares none.  `found` takes the whole
+	// overload set, which 13.3 then chooses from.
+	SemaEntity* allocation_function(bool global, TypeId created,
+	                                std::vector<SemaEntity*>& found);
 	// 8.5: the initializer written for a declarator, in each of the three forms
 	// 8.5p1 gives it.  `image` says 3.6.2 gives the object its value rather than
 	// a function building it, which is what an object with static storage
