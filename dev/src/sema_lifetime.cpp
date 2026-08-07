@@ -1654,8 +1654,15 @@ bool SemaAnalyzer::vacuous_destruction(TypeId type)
 	}
 	const SemaEntity* const destructor = class_destructor(bare);
 	bool nothing = destructor == nullptr || destructor->trivial;
-	if (!nothing && !destructor->deleted && destructor->empty_body)
+	if (!nothing && !destructor->deleted &&
+	    (destructor->empty_body || destructor->defaulted))
 	{
+		// 12.4p8: what a destructor comes to is its body and then the
+		// destruction of each subobject, so one whose body writes nothing - and
+		// one 12.4p4 gave no body at all - comes to what its subobjects come
+		// to.  12.4p5 only calls that trivial where the program wrote no
+		// destructor anywhere below, and what running it does is the same
+		// either way.
 		SemaEntity* const owner = model_.type_owner(bare);
 		nothing = owner != nullptr && owner->scope != nullptr;
 		if (nothing && owner->base != nullptr)
