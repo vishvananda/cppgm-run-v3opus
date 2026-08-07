@@ -1,6 +1,6 @@
 # PA17 Plan — `cppgm++ --emit-lowir` value semantics
 
-PA17 stands at **112 / 228** of its fixtures, with pa1-pa16 at **1494 / 1494**
+PA17 stands at **117 / 228** of its fixtures, with pa1-pa16 at **1494 / 1494**
 and the file audit passing with the three recorded header-weight warnings it
 already had.
 
@@ -21,29 +21,40 @@ answers the question it belongs to.
   later layer searches a class for its copy constructor.
 - `type_model` owns what an object of the class is *carried by*: whether the
   bytes stand for the copy, whether 8.4.3p2 leaves the program a copy of one at
-  all, and - added by C2 - whether 6.6.3p2 hands one back as bytes or through a
-  destination the caller named. Those are one fact each, on the type, with one
-  writer; the layout, 5.2.2p4's argument, every signature and every call read
-  there rather than asking the declarations again.
+  all, and whether 6.6.3p2 hands one back as bytes or through a destination the
+  caller named. Those are one fact each, on the type, with one writer; the
+  layout, 5.2.2p4's argument, every signature and every call read there rather
+  than asking the declarations again.
 - `sema_lifetime.cpp` owns what running the four comes to. 12.8p15/p28's
   definition is one walk of the same subobject list 12.6.2p10 and 12.4p8 walk.
-  It also owns 12.8p32: a copy 12.8p31 elides is still one the program had to be
-  allowed to write, so the constructor it would have named is asked for where
-  the initialization stands.
+  It also owns **12.8p31's elision**, which is one question - does the
+  initializer *create* the object it is worth, or only select one that already
+  stands somewhere - written once as `creates_its_object` and read by the
+  analysis to decide whether the copy is written and by the lowering to decide
+  where the initializer builds, so the two can never disagree. 12.8p32 is the
+  rest of it: a copy the elision removes is still one the program had to be
+  allowed to write.
 - `sema_overload.cpp` owns 13.3, and with it which of the four a transfer
   chooses - the value category of the argument is what separates the copy from
-  the move, at a call's argument, at a return, and at every subobject of a
-  synthesized body.
+  the move, at a call's argument, at a return, at **each operand of 5.16p3's
+  conditional**, and at every subobject of a synthesized body.
 - `lowir_lower*.cpp` reads only the resolved tree. Its one shape rule is
   **result-object placement**: the storage an object of class type will stand in
   is named *before* the initializer that fills it runs, and handed to it. An
   initializer that creates an object - a temporary, a call returning one
-  indirectly, a conditional whose arms each do - creates it there and no copy
-  stands between the two; everything else is read and copied. `creates_object`
-  is that question and `place_class_object` is that hand-off.
+  indirectly - creates it there; 5.16p3's conditional creates nothing but its
+  arms fill whatever place it is given; everything else is read and copied.
+  `creates_object` is that question and `place_class_object` is that hand-off,
+  reached by an initialization of a declared object, a namespace-scope
+  initialization, a return, a call's argument, a conditional arm and a discarded
+  value. A member and a base subobject are the two that do not yet (below).
 - 6.6.3p2's boundary is one answer, written by `LowirUnitLowering::open_signature`
   and read by the declaration, the definition and a call through a pointer, so
   the three cannot disagree about one function.
+- 8.5.3p5's name for the storage a class prvalue with no object of its own is
+  given is what asked for the object - an argument, a binding, a return - and
+  the analysis writes it on the node, so the lowering names no slot itself where
+  something already said what the object is for.
 - The course ABI passes an object of class type as the storage it occupies. The
   caller has already run 12.8p15's copy into it, so the callee's own
   materialization is a payload move and not a second copy of the object.
@@ -51,40 +62,43 @@ answers the question it belongs to.
 Facts PA17 adds: `SemaEntity::transfer` on a function, `SemaEntity::transfers`
 on a class, `UserType::copy_deleted` beside `trivially_copied`,
 `TypeTable::returns_indirectly`, `Fact::subobject_step`,
-`FactKind::StorageTransfer`, and `observable_expression` lifted out of the
-analyzer so the lowering asks 1.9p12 the same question the analysis does.
+`FactKind::StorageTransfer`, and the two questions lifted out of the analyzer so
+both layers ask them once - `observable_expression` for 1.9p12 and
+`creates_its_object` for 12.8p31.
 
 ## Current Failure Map
 
-116 fixtures fail. Grouped by the compiler behaviour they are waiting on, most
+111 fixtures fail. Grouped by the compiler behaviour they are waiting on, most
 of a group failing for the one reason named.
 
 | group | ~n | what is missing |
 | --- | --- | --- |
-| 12.3.2 conversion functions | 34 | `operator T()` is refused at its declaration |
-| 5.3.4/5.3.5 new and delete | 12 | the array form, the class-specific allocation functions and `::operator new[]` |
+| 12.3.2 conversion functions | 35 | `operator T()` is refused at its declaration |
+| 5.3.4/5.3.5 new and delete | 18 | the array form, the class-specific and placement allocation functions, `::operator new[]`, and the null a nothrow allocation returns |
+| 8.3.5 ref-qualifiers | 12 | `&`/`&&` on a member is parsed and dropped, so the declaration collides with its out-of-class definition and 8.3.5p4 refuses nothing |
 | 12.2p3 full-expression temporaries | 10 | the lowering marks no full-expression boundary, so a temporary with a destructor is refused |
-| out-of-class definitions | 8 | a definition written outside the class declares a second function |
-| 8.3.5 ref-qualifiers | 6 | `&`/`&&` on a member are parsed and ignored, and never refused where 8.3.5p4 refuses them |
-| 5.2.2p4 `by_address` parameters | 5 | a class the bytes are not the copy of is still passed as `obj<NxA>`; the refs pass its address and name the argument object `arg` rather than `argobj` |
 | empty-destructor elision | 6 | the references elide a destructor whose body is empty; this unit runs it (a PA16 divergence the PA17 fixtures price) |
+| 5.2.2p4 `by_address` parameters | 3 | a class the bytes are not the copy of is still passed as `obj<NxA>` where the refs pass its address |
 | 5.2.9p4 cast to a class type | 4 | a cast to a class reads the operand's bytes instead of direct-initializing a prvalue of it, which for `static_cast<box>(7)` writes `addr 7` - 5.2.9p4 is a direct-initialization, so the fix has to reach `construct_object` with 13.3.1.4's explicit constructors left in |
-| 12.8p15 array member / union transfer | 5 | an array of a class whose transfer needs a call has no form, and a union's `operator=` picks the copy where 13.3 picks the move |
-| 9.5 unions | 3 | variant lifetime and p1's one default member initializer |
+| out-of-class definitions | 3 | a definition written outside the class declares a second function |
 | 12.6.2p6 delegating constructors | 3 | a mem-initializer naming the class itself |
-| 4.7 conversion spelling | 4 | an `int` initializer of a `long` object is folded rather than written as the `convert sext` the refs write |
+| 9.5 unions | 3 | variant lifetime and p1's one default member initializer |
+| 4.7 conversion spelling | 2 | an `int` initializer of a `long` object is folded rather than written as the `convert sext` the refs write |
+| 12.8p31 at a subobject | 2 | the `!member` gate, and the `$that` an aggregate's returned object still takes |
+| 12.8p15 array member / union transfer | 2 | an array of a class whose transfer needs a call has no form, and a union's `operator=` picks the copy where 13.3 picks the move |
 
 ## Active Checkpoint
 
-None open. C2 is complete and its ledger row is below.
+None open. C2 is complete, audited at `be9d930d`, and its ledger row is below.
 
 The next checkpoint is **C3: 12.3.2's conversion functions** - by far the
-largest group left, 34 fixtures, and refused at the *declaration*, which means
+largest group left, 35 fixtures, and refused at the *declaration*, which means
 nothing downstream of it has ever been asked to run. `operator T()` is a member
 whose name is a type, so it belongs where 9.2p2 settles what a class declares
 and where 13.3.1.5/13.3.3.1.2 already rank a user-defined conversion; the
 conversion machinery `sema_overload.cpp` holds for a converting constructor is
-the same machinery the other direction.
+the same machinery the other direction, and `apply_conversion`'s
+`match.converting` is the one place a second direction has to be added.
 
 ## Performance Model
 
@@ -115,15 +129,21 @@ host, at 250/500/1000/2000 unless said otherwise.
   `kUnwindSuffixLimit` and grows no faster.
 - 6.6.3p2's boundary is one probe of the type, and 12.8p31's result object is
   one operand threaded down the initializer - no node is read twice and no
-  instruction is rewritten once written. n nested calls each returning and each
-  taking a class by value are **3n + 19 lines** and under 0.01 s at n = 400: one
-  argument object and one call per level, and no copy at any of them, because
-  each call creates its returned object directly in the next argument's storage.
+  instruction is rewritten once written. **The threading is linear in nesting
+  depth, not exponential in it**: n nested calls each returning and each taking a
+  class by value are 3 n + 14 lines in under 0.02 s, and conditionals of class
+  type nested n deep are 11 n + 19 lines in 0.02 s, both to the parse-depth
+  budget PA10 already had (which refuses past ~500 in 0.02 s rather than
+  recursing to a fault).
 - 12.8p31's return-slot local is settled by **one** walk of the function body,
   done once per function that returns indirectly and only then. n functions each
-  with two returns are 0.01/0.03/0.07/0.15 s; one function with n returns is
-  0.01/0.01/0.03/0.06 s and 11 n lines - the walk is the body, not the body per
-  return.
+  with two returns are 0.03/0.06/0.11/0.22 s and 27 n lines; one function with n
+  returns is 0.02/0.02/0.04/0.07 s and 11 n lines - the walk is the body, not the
+  body per return.
+- 5.16p3's copy of a glvalue operand is one transfer chosen per operand, not per
+  reader of the conditional: n conditionals each with a glvalue arm are
+  0.03/0.05/0.09/0.18 s and 24 n lines. One class with n class members each
+  initialized from a call is 0.02/0.03/0.05/0.09 s and 12 n lines.
 - 9.6p2's storage unit is carried once however many bit-fields share it: n
   one-bit fields are n/32 units, 0.00/0.00/0.01/0.01 s.
 - 8.3.6p1's "does this parameter have a default argument", which 12.8p2 asks of
@@ -138,4 +158,4 @@ host, at 250/500/1000/2000 unless said otherwise.
 | # | checkpoint | result |
 | --- | --- | --- |
 | C1 | 12.8's four value-transfer special members: p2/p3/p17/p19's classification of what the program declared, p7/p9/p18/p20's declaration of what it did not, p11/p23's deletion and p12/p25's triviality, p15/p28's synthesized definition as one walk of the subobjects with a leading trivial storage prefix, 8.5p14's copy-initialization from a glvalue as the call 13.3 chooses, 5.2.2p4/6.6.3p2's argument and returned object as objects of their own, 8.4.2/8.4.3 on an ordinary member declarator, and 8.4.3p2's refusal of every name of a deleted function. Audited at `c2894e79`: six blockers found and fixed | 61 -> 86 -> **88 / 228**; pa1-pa16 1494 / 1494 |
-| C2 | 6.6.3p2's returned object and 12.8p31's result object: `TypeTable::returns_indirectly` as one fact of the type, `open_signature` as the one writer of the boundary a declaration, a definition and an indirect call all read, `%ret [pass=indirect_result]` bound in the body, and result-object placement threaded through initialization, return, argument, conditional arm and discarded value so a class prvalue's storage is named before the initializer that fills it. 12.8p31's return-slot local settled by one walk of the body; 12.8p32's access check for the copy the elision removed; 1.9p12's operand of an empty-class transfer still evaluated where evaluating it is observable. `lowir_lower_body.cpp` split at the statement/expression seam | 88 -> **112 / 228**; pa1-pa16 1494 / 1494; no regressions |
+| C2 | 6.6.3p2's returned object and 12.8p31's result object: `TypeTable::returns_indirectly` as one fact of the type, `open_signature` as the one writer of the boundary a declaration, a definition and an indirect call all read, `%ret [pass=indirect_result]` bound in the body, and result-object placement threaded through initialization, return, argument, conditional arm and discarded value so a class prvalue's storage is named before the initializer that fills it. 12.8p31's return-slot local settled by one walk of the body; 12.8p32's access check for the copy the elision removed; 1.9p12's operand of an empty-class transfer still evaluated where evaluating it is observable. `lowir_lower_body.cpp` split at the statement/expression seam. Audited at `be9d930d`: seven blockers found and fixed, which added 5.16p3's initialization of a conditional's result object, made `creates_its_object` the one answer both layers read for 12.8p31, and brought 3.6.2p2's namespace-scope initialization into the same hand-off | 88 -> 112 -> **117 / 228**; pa1-pa16 1494 / 1494; no regressions |
