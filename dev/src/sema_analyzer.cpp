@@ -527,11 +527,13 @@ void SemaAnalyzer::declaration(const AstNode& node, const Context& ctx)
 
 	case AstKind::ClassSpecifier:
 	case AstKind::ClassForwardDeclaration:
-		inject_union_members(
+		// A class-specifier that is a whole declaration wrote no
+		// decl-specifier-seq, so 9.5p3's `static` is not among what it says.
+		inject_anonymous_members(
 			&class_declaration(node, ctx, span,
 			                   node.kind == AstKind::ClassSpecifier,
 			                   std::string()),
-			ctx, span);
+			ctx, span, false);
 		return;
 
 	case AstKind::EnumSpecifier:
@@ -1577,7 +1579,8 @@ void SemaAnalyzer::simple_declaration(const AstNode& node, const Context& ctx)
 			grant_class_friendship(ctx, specifiers);
 			return;
 		}
-		inject_union_members(specifiers.introduced, ctx, span);
+		inject_anonymous_members(specifiers.introduced, ctx, span,
+			                         specifiers.is_static);
 		return;
 	}
 	for (std::size_t index = 0; index < list->children.size(); ++index)

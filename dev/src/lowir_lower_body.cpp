@@ -1999,7 +1999,21 @@ Operand LowirFunctionLowering::member_storage(const DumpNode& object,
                                               bool bound)
 {
 	TypeTable& types = unit_.types();
-	const LowValue held = expression(object, true);
+	// 9.5p1: an anonymous class declared an object no name reaches, and its
+	// members are reached through it - so the access the analysis wrote holds
+	// one step for that object and one for the member.  Nothing reads the
+	// object itself, so where the member stands is one offset from where the
+	// enclosing object stands, and it is written as the one step it is.
+	const DumpNode* at = &object;
+	unsigned long long offset = member.offset;
+	for (const SemaEntity* held = member.storage;
+	     held != nullptr && held->object_member && !at->children.empty();
+	     held = held->storage)
+	{
+		offset += held->offset;
+		at = at->children[0];
+	}
+	const LowValue held = expression(*at, true);
 	const Operand base =
 		types.kind(types.strip_cv(held.type)) == TypeKind::Pointer
 			? rvalue(held)
@@ -2011,7 +2025,7 @@ Operand LowirFunctionLowering::member_storage(const DumpNode& object,
 		? lowir_model::IPK_REFERENCE_FIELD
 		: lowir_model::IPK_FIELD;
 	step.first = base;
-	step.second = named_operand(Operand::OP_INTEGER, decimal(member.offset));
+	step.second = named_operand(Operand::OP_INTEGER, decimal(offset));
 	return emit(step);
 }
 

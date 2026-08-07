@@ -4,6 +4,23 @@
 #include <stdexcept>
 #include <utility>
 
+// 3.3p1: one declarative region.  3.5p4's internal linkage is a fact the region
+// is opened with rather than one a walk outwards answers, so an unnamed
+// namespace hands it to every region opened inside it here.
+Scope::Scope(ScopeKind scope_kind, Scope* enclosing, SemaEntity* scope_owner,
+             DumpScope* scope_dump, std::uint32_t scope_id)
+	: kind(scope_kind)
+	, parent(enclosing)
+	, owner(scope_owner)
+	, dump(scope_dump)
+	, id(scope_id)
+	, unnamed_region(enclosing != nullptr && enclosing->unnamed_region)
+	, visit(0)
+	, base(nullptr)
+	, inheriting_constructors(false)
+	, searchers_at(0)
+{}
+
 bool declares_subobject(const SemaEntity& member, const Scope& scope)
 {
 	return member.kind == SemaKind::Variable && member.object_member &&

@@ -445,12 +445,17 @@ private:
 	// 7.1.3p2: the name the first declarator of a declaration gives a class or
 	// enumeration its specifiers left unnamed.
 	static std::string name_from_declarators(const AstNode& node);
-	// 9.5p1: the members of an anonymous union are declared in the region the
-	// union is declared in, and are members of the object the union declared.
-	// Anything else `entity` may be declares nothing there, so every
-	// declaration that introduces a class asks.
-	void inject_union_members(SemaEntity* entity, const Context& ctx,
-	                          const Span& span);
+	// 9.5p1: the members of an anonymous class are declared in the region the
+	// class is declared in, and are members of the object that class declared.
+	// The standard writes it for a union and the README puts the anonymous
+	// struct in this milestone's subset; the two differ in what the class's own
+	// layout does with its members and in nothing here.  Anything else `entity`
+	// may be declares nothing there, so every declaration that introduces a
+	// class asks.
+	// `is_static` is what 9.5p3 asks for at namespace scope, where the object
+	// the class declares is one this unit alone holds.
+	void inject_anonymous_members(SemaEntity* entity, const Context& ctx,
+	                              const Span& span, bool is_static);
 	// 12.1 and 12.4: a constructor or destructor a class body declares, which
 	// is a member declaration with no decl-specifier-seq whose name is the
 	// class's own.  It declares into the class and, where a body is written,
@@ -1113,6 +1118,12 @@ private:
 	Value member_value(SemaEntity& member, const Value& object_written,
 	                   const std::string& payload, DumpNode& node,
 	                   bool checked_base = true);
+	// 9.5p1: the objects an anonymous class declared that stand between an
+	// object expression and `member`.  A class written inside another anonymous
+	// one leaves a chain of them, and the access holds each in turn from the
+	// outermost in - which is the order the offsets add up in.
+	Value through_anonymous_storage(const SemaEntity& member, Value object,
+	                                bool checked_base);
 	// 5.16p3: an operand of a conditional whose result is an lvalue of a base
 	// class of that operand's own class.
 	void convert_arm_to_base(Value& arm, TypeId result);

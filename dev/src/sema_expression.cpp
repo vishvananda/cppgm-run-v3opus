@@ -673,16 +673,11 @@ SemaAnalyzer::Value SemaAnalyzer::member_expression(const AstNode& node,
 		parent.children.pop_back();
 		return named_value(id, found_member, parent, &found);
 	}
-	if (member.storage != nullptr)
-	{
-		// 9.5p1: the member belongs to the object the anonymous union declared,
-		// which is itself a member of the class named here, so the access the
-		// object expression wrote holds one more - the same object a member
-		// named with no object expression is reached through.
-		object = member_value(*member.storage, object, member.storage->name,
-		                      model_.wrap_node(*object.node, std::string()),
-		                      checked_base);
-	}
+	// 9.5p1: the member belongs to the object the anonymous class declared,
+	// which is itself a member of the class named here, so the access the
+	// object expression wrote holds one more - the same object a member named
+	// with no object expression is reached through.
+	object = through_anonymous_storage(member, object, checked_base);
 	return member_value(member, object,
 	                    std::string(ast_token_type_name(node.token)) + ":" +
 	                    id.text, line, checked_base);
@@ -896,12 +891,7 @@ void SemaAnalyzer::member_callee(const AstNode& callee, const Context& ctx,
 	DumpNode& access = model_.open_node(line, std::string());
 	access.children.push_back(object_line.children[0]);
 	object.node = access.children[0];
-	if (member.storage != nullptr)
-	{
-		object = member_value(*member.storage, object, member.storage->name,
-		                      model_.wrap_node(*object.node, std::string()),
-		                      checked_base);
-	}
+	object = through_anonymous_storage(member, object, checked_base);
 	target = member_value(member, object,
 	                      std::string(ast_token_type_name(callee.token)) + ":" +
 	                      id.text, access, checked_base);
@@ -1071,6 +1061,28 @@ SemaAnalyzer::Value SemaAnalyzer::member_value(SemaEntity& member,
 	value.payload = payload;
 	respell(value);
 	return value;
+}
+
+// 9.5p1: the objects an anonymous class declared that stand between an object
+// expression and `member`.  A class written inside another anonymous one leaves
+// a chain of them - the object of the inner class is a member of the outer -
+// and the access holds each in turn from the outermost in, which is the order
+// the offsets add up in.
+SemaAnalyzer::Value SemaAnalyzer::through_anonymous_storage(
+	const SemaEntity& member, Value object, bool checked_base)
+{
+	std::vector<SemaEntity*> chain;
+	for (SemaEntity* at = member.storage; at != nullptr; at = at->storage)
+	{
+		chain.push_back(at);
+	}
+	for (std::size_t index = chain.size(); index-- > 0;)
+	{
+		object = member_value(*chain[index], object, chain[index]->name,
+		                      model_.wrap_node(*object.node, std::string()),
+		                      checked_base);
+	}
+	return object;
 }
 
 // 9.3.1p3 and 9.5p1: the object a member named with no object expression is a

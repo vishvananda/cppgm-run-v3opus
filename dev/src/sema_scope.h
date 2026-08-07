@@ -404,18 +404,7 @@ class Scope
 {
 public:
 	Scope(ScopeKind scope_kind, Scope* enclosing, SemaEntity* scope_owner,
-	      DumpScope* scope_dump, std::uint32_t scope_id)
-		: kind(scope_kind)
-		, parent(enclosing)
-		, owner(scope_owner)
-		, dump(scope_dump)
-		, id(scope_id)
-		, visit(0)
-		, base(nullptr)
-		, inheriting_constructors(false)
-		, searchers_at(0)
-		, unnamed_region(enclosing != nullptr && enclosing->unnamed_region)
-	{}
+	      DumpScope* scope_dump, std::uint32_t scope_id);
 
 	ScopeKind kind;
 	Scope* parent;

@@ -41,7 +41,8 @@ FRONTEND_OBJ_BASENAMES_cppgm++ := source_charset source_reader pptoken_lexer \
 	macro_model macro_expander ctrl_expr source_files preprocessor \
 	ast_tokens ast_model ast_parser ast_parser_name ast_parser_class \
 	ast_parser_declarator ast_parser_statement ast_parser_expression ast_emit \
-	type_model sema_name sema_scope sema_analyzer sema_class sema_declarator \
+	type_model sema_name sema_scope sema_analyzer sema_class sema_lifetime \
+	sema_declarator \
 	sema_constant \
 	sema_statement sema_expression sema_overload sema_operator sema_template \
 	types_emit \

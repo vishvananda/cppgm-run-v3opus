@@ -368,7 +368,6 @@ void LowirFunctionLowering::array_lifecycle_loop(const DumpNode& node,
                                                  TypeId element)
 {
 	TypeTable& types = unit_.types();
-	const TypeId counter = types.fundamental(FT_LONG_INT);
 	const unsigned long long stride = types.object_size(types.strip_cv(element));
 	if (!construct)
 	{
