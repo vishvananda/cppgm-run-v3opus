@@ -1630,6 +1630,100 @@ bool SemaAnalyzer::ends_in_call(const SemaEntity& entity)
 	return !vacuous_destruction(entity.type);
 }
 
+// 12.4p8: whether the definition `node` gives a function writes any statement
+// at all.  The body is the last child a definition has, and this is the one
+// reading of it, so the definition read in place and the same node found in the
+// syntax ahead of the read cannot answer differently.
+bool SemaAnalyzer::writes_no_statement(const AstNode& node)
+{
+	const AstNode* const body =
+		node.children.empty() ? nullptr : node.children.back();
+	return body != nullptr && body->kind == AstKind::CompoundStatement &&
+		body->children.empty();
+}
+
+// 3.4.1p8 and 9.3p2: the definitions of members written outside their class,
+// taken from the unit's syntax before any of it is read.
+//
+// A member defined outside its class stands wherever the program put it, which
+// is to say possibly after a body that already has to know what defining it
+// settled: 12.4p8's question of whether destroying an object comes to anything
+// is the one this milestone asks, and every function body at namespace scope is
+// read where it is written.  The parse of the whole unit is complete before the
+// first declaration of it is read, so the answer is taken from the syntax once
+// rather than from wherever in the read the definition happened to fall.  The
+// walk leaves every function body alone, because 9.3p2 lets no such definition
+// stand in one.
+void SemaAnalyzer::collect_unit_definitions(const AstNode& node)
+{
+	if (node.kind == AstKind::CompoundStatement)
+	{
+		return;
+	}
+	if (node.kind == AstKind::SpecialMemberDefinition)
+	{
+		const QualifiedName spelled(node.text);
+		if (spelled.qualified())
+		{
+			unit_definitions_[spelled.last()].push_back(&node);
+		}
+	}
+	for (std::size_t index = 0; index < node.children.size(); ++index)
+	{
+		collect_unit_definitions(*node.children[index]);
+	}
+}
+
+// 12.4p8: whether the definition this unit gives `destructor` writes a
+// statement, asked where that definition may not have been read yet.
+//
+// A class's destructor has one unqualified name, so the definitions to consider
+// are the ones the walk collected under it - one, in any program that defines
+// it once - and 3.4.1p8's prefix, resolved against the class itself, says which
+// of them defines this one rather than another class's of the same name.  A
+// prefix that reaches the class only through a name some other region binds is
+// found by none of this, and the destruction is written as the call it is.
+void SemaAnalyzer::note_definition_body(SemaEntity& destructor,
+                                        const SemaEntity& owner)
+{
+	if (destructor.defined || owner.scope == nullptr)
+	{
+		return;
+	}
+	const std::unordered_map<std::string,
+	                         std::vector<const AstNode*> >::const_iterator
+		found = unit_definitions_.find(destructor.name);
+	if (found == unit_definitions_.end())
+	{
+		return;
+	}
+	Context ctx;
+	ctx.scope = owner.scope;
+	ctx.dump = owner.scope->dump;
+	for (std::size_t index = 0; index < found->second.size(); ++index)
+	{
+		const AstNode& node = *found->second[index];
+		Scope* region = nullptr;
+		try
+		{
+			region = resolve_prefix(QualifiedName(node.text), ctx);
+		}
+		catch (const std::runtime_error&)
+		{
+			// A prefix that names no region here defines no member of this
+			// class, and what the program did write is refused where it is
+			// read.
+			continue;
+		}
+		if (region != owner.scope)
+		{
+			continue;
+		}
+		destructor.empty_body = writes_no_statement(node);
+		return;
+	}
+}
+
 // 12.4p8 and 3.8p1: whether destroying an object of this type comes to nothing.
 //
 // 12.4p5 makes a destructor trivial where the program wrote none and no
@@ -1652,7 +1746,15 @@ bool SemaAnalyzer::vacuous_destruction(TypeId type)
 	{
 		return held->second != 0;
 	}
-	const SemaEntity* const destructor = class_destructor(bare);
+	SemaEntity* const destructor = class_destructor(bare);
+	SemaEntity* const owner = model_.type_owner(bare);
+	if (destructor != nullptr && owner != nullptr)
+	{
+		// 12.4p8: what running the destructor comes to is what its definition
+		// writes, and a definition written outside the class stands wherever
+		// the program put it - which may be after the body asking this.
+		note_definition_body(*destructor, *owner);
+	}
 	bool nothing = destructor == nullptr || destructor->trivial;
 	if (!nothing && !destructor->deleted &&
 	    (destructor->empty_body || destructor->defaulted))
@@ -1663,7 +1765,6 @@ bool SemaAnalyzer::vacuous_destruction(TypeId type)
 		// to.  12.4p5 only calls that trivial where the program wrote no
 		// destructor anywhere below, and what running it does is the same
 		// either way.
-		SemaEntity* const owner = model_.type_owner(bare);
 		nothing = owner != nullptr && owner->scope != nullptr;
 		if (nothing && owner->base != nullptr)
 		{

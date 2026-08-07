@@ -736,6 +736,15 @@ private:
 	// two differ in which clause said so and not in what running them comes to,
 	// and the output writes an action only where there is one to write.
 	bool vacuous_destruction(TypeId type);
+	// 3.4.1p8 and 9.3p2: the out-of-class definitions the unit's syntax holds,
+	// collected before any of it is read, and the one of them that defines this
+	// class's destructor - which is what settles 12.4p8's question wherever the
+	// definition was written.
+	void collect_unit_definitions(const AstNode& node);
+	void note_definition_body(SemaEntity& destructor, const SemaEntity& owner);
+	// 12.4p8: whether the definition `node` gives a function writes any
+	// statement, which is the one reading of a body both of those ask.
+	static bool writes_no_statement(const AstNode& node);
 	// 12.1p5: whether default-initializing an object of `type` does nothing at
 	// all, so that a subobject of it needs no action written.
 	bool trivially_constructed(TypeId type);
@@ -1732,6 +1741,13 @@ private:
 	// subobjects are n deep is walked once and not once per object of it whose
 	// lifetime ends.
 	std::unordered_map<TypeId, unsigned char> vacuous_;
+	// 3.4.1p8: the unit's out-of-class special member definitions, keyed by the
+	// unqualified name each defines, so the one that defines a given class's
+	// destructor is found in one probe rather than a walk of the unit per
+	// class.  Filled once from the syntax, before the first declaration is
+	// read.
+	std::unordered_map<std::string, std::vector<const AstNode*> >
+		unit_definitions_;
 	// 13.3.3.1.2p1: whether the sequence being measured is the second, standard
 	// conversion sequence of a user-defined one, which holds no user-defined
 	// conversion of its own.  One flag says it for both directions - a

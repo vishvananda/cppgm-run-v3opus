@@ -204,6 +204,10 @@ void SemaAnalyzer::run(const AstNode& unit)
 		SemaEntity& entity = model_.create(SemaKind::Typedef, "nullptr_t",
 		                                   types_.fundamental(FT_NULLPTR_T));
 		model_.bind(*ctx.scope, entity.name, entity);
+		// 3.4.1p8 and 9.3p2: a member defined outside its class settles facts a
+		// body written before it already asks about, and the syntax of the
+		// whole unit is in hand here.
+		collect_unit_definitions(unit);
 	}
 	for (std::size_t index = 0; index < unit.children.size(); ++index)
 	{

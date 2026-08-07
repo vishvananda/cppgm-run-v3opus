@@ -1012,14 +1012,13 @@ void SemaAnalyzer::open_special_member_body(
 	const std::string& written, const std::vector<Parameter>& parameters)
 {
 	entity.defined = true;
-	// 12.4p8: the body is the last child a definition has, and whether it
-	// writes any statement is what says whether running this function comes to
-	// anything.  It is read here, where the definition is, because every
-	// definition of the unit is read before any body is analysed.
-	const AstNode* const body = node.children.empty() ? nullptr
-	                                                  : node.children.back();
-	entity.empty_body = body != nullptr &&
-		body->kind == AstKind::CompoundStatement && body->children.empty();
+	// 12.4p8: whether the definition writes any statement is what says whether
+	// running this function comes to anything.  It is read here for the
+	// definition written in the class body; one written outside it stands
+	// wherever the program put it, and `note_definition_body` asks the same
+	// question of the same node out of the syntax, so a body reading earlier
+	// gets the same answer.
+	entity.empty_body = writes_no_statement(node);
 
 	DumpScope& dump = model_.open_dump(*ctx.dump, "scope function " + written);
 	Scope& inner = model_.open(ScopeKind::Function, *ctx.scope, &entity, &dump);
