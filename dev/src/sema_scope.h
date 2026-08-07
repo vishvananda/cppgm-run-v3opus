@@ -217,13 +217,18 @@ struct SemaEntity
 	// is one of these, which 13.3.1.5's candidate set and the ABI's `cv`
 	// terminal each read here rather than from the spelling of the name.
 	bool conversion_function;
-	// Class: 12.3.2p1 and 13.3.1.5, the conversion functions an object of this
-	// class has - the ones the class declared, followed by the ones a base
-	// declared and this class did not hide.  It is built once where 9.2p2
-	// completes the class, so a conversion asks a class for what it converts to
-	// in one walk of a list rather than a lookup per candidate type over the
-	// class and its bases.
+	// Class: 12.3.2p1 and 13.3.1.5, the conversion functions *this* class
+	// declares, settled where 9.2p2 completes it, so a conversion asks a class
+	// what it converts to in one walk rather than a lookup per candidate type.
+	// 13.3.1.5p1 also offers the ones a base declares that this class does not
+	// hide, and those stay on the base: copying them down would give a
+	// hierarchy n deep n^2 entries for the n conversions it declares.
 	std::vector<SemaEntity*> conversions;
+	// Class: the nearest class at or above this one whose `conversions` is not
+	// empty, or null where nothing above it declares one.  It is what turns
+	// 13.3.1.5p1's candidate set into one walk of the few classes that declare a
+	// conversion instead of one walk of every base.
+	SemaEntity* conversions_above;
 	// 12.1/12.4 and the ABI: the ABI gives a constructor and a destructor an
 	// entry point for a complete object and one for a base class subobject, and
 	// this says whether anything in this translation unit ever ran it on a

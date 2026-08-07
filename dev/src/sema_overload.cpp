@@ -404,10 +404,12 @@ SemaAnalyzer::Match SemaAnalyzer::conversion_match(const Value& argument,
 	}
 	SemaEntity* const owner =
 		model_.type_owner(types_.strip_cv(argument.type));
-	if (owner == nullptr || owner->conversions.empty())
+	if (owner == nullptr || owner->conversions_above == nullptr)
 	{
 		return match;
 	}
+	std::vector<SemaEntity*> candidates;
+	gather_conversions(*owner, candidates);
 	// 13.3.1p3 and 9.3.1p3: the implicit object argument reaches the object
 	// parameter the same way any pointer reaches a pointer, which is the one
 	// place a candidate of this set can be unviable.
@@ -418,9 +420,9 @@ SemaAnalyzer::Match SemaAnalyzer::conversion_match(const Value& argument,
 	Match chosen_object;
 	Match chosen_result;
 	bool tied = false;
-	for (std::size_t index = 0; index < owner->conversions.size(); ++index)
+	for (std::size_t index = 0; index < candidates.size(); ++index)
 	{
-		SemaEntity* const at = owner->conversions[index];
+		SemaEntity* const at = candidates[index];
 		if (at->deleted || (at->explicit_function && !direct))
 		{
 			// 12.3.2p2: only a direct-initialization, an explicit cast and a
@@ -539,11 +541,16 @@ void SemaAnalyzer::contextual_integral(Value& value, const Context& ctx)
 		return;
 	}
 	SemaEntity* const owner = model_.type_owner(types_.strip_cv(value.type));
-	SemaEntity* found = nullptr;
-	for (std::size_t index = 0;
-	     owner != nullptr && index < owner->conversions.size(); ++index)
+	if (owner == nullptr)
 	{
-		SemaEntity* const at = owner->conversions[index];
+		return;
+	}
+	std::vector<SemaEntity*> candidates;
+	gather_conversions(*owner, candidates);
+	SemaEntity* found = nullptr;
+	for (std::size_t index = 0; index < candidates.size(); ++index)
+	{
+		SemaEntity* const at = candidates[index];
 		TypeId result = types_.target(at->type);
 		if (types_.is_reference(result))
 		{
@@ -595,12 +602,14 @@ TypeId SemaAnalyzer::builtin_conversion_type(const Value& value)
 	Value object;
 	object.type = object.spelled = types_.pointer_to(value.type);
 	object.category = ValueCategory::PRValue;
+	std::vector<SemaEntity*> candidates;
+	gather_conversions(*owner, candidates);
 	TypeId found = kNoType;
 	Match chosen;
 	bool tied = false;
-	for (std::size_t index = 0; index < owner->conversions.size(); ++index)
+	for (std::size_t index = 0; index < candidates.size(); ++index)
 	{
-		SemaEntity* const at = owner->conversions[index];
+		SemaEntity* const at = candidates[index];
 		if (at->explicit_function || at->deleted)
 		{
 			continue;

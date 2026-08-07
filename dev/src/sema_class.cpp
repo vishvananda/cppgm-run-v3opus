@@ -1454,22 +1454,41 @@ void SemaAnalyzer::collect_conversions(SemaEntity& entity, Scope& scope)
 			entity.conversions.push_back(at);
 		}
 	}
-	if (entity.base == nullptr)
+	entity.conversions_above = !entity.conversions.empty()
+		? &entity
+		: (entity.base != nullptr ? entity.base->conversions_above : nullptr);
+}
+
+// 12.3.2p1 and 13.3.1.5p1: the conversion functions an object of `owner` has,
+// which are the ones its class declares and the ones a base declares that
+// 10.2p2 does not hide.
+//
+// The classes that declare any are a chain each class holds the head of, so
+// this walks those and not every base - and a class writes its candidates once
+// per question asked rather than once per class derived from it.
+void SemaAnalyzer::gather_conversions(const SemaEntity& owner,
+                                      std::vector<SemaEntity*>& out)
+{
+	out.clear();
+	for (const SemaEntity* at = owner.conversions_above; at != nullptr;
+	     at = at->base != nullptr ? at->base->conversions_above : nullptr)
 	{
-		return;
-	}
-	const std::size_t own = entity.conversions.size();
-	const std::vector<SemaEntity*>& inherited = entity.base->conversions;
-	for (std::size_t index = 0; index < inherited.size(); ++index)
-	{
-		bool hidden = false;
-		for (std::size_t here = 0; here < own && !hidden; ++here)
+		const std::size_t nearer = out.size();
+		for (std::size_t index = 0; index < at->conversions.size(); ++index)
 		{
-			hidden = entity.conversions[here]->name == inherited[index]->name;
-		}
-		if (!hidden)
-		{
-			entity.conversions.push_back(inherited[index]);
+			SemaEntity* const candidate = at->conversions[index];
+			bool hidden = false;
+			for (std::size_t here = 0; here < nearer && !hidden; ++here)
+			{
+				// 10.2p2: a conversion to the same type declared in a class
+				// nearer the object hides this one, exactly as any member of
+				// that name would.
+				hidden = out[here]->name == candidate->name;
+			}
+			if (!hidden)
+			{
+				out.push_back(candidate);
+			}
 		}
 	}
 }

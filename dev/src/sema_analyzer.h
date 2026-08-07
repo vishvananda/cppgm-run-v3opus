@@ -511,6 +511,10 @@ private:
 	// - its own, then its base's that its own do not hide - settled where 9.2p2
 	// completes the class.
 	void collect_conversions(SemaEntity& entity, Scope& scope);
+	// 13.3.1.5p1: the candidate set a conversion of an object of `owner` chooses
+	// from, written into `out`.
+	void gather_conversions(const SemaEntity& owner,
+	                        std::vector<SemaEntity*>& out);
 	// 9.2p2: the body a special member's definition gives it, left for the end
 	// of the translation unit whether the definition was written in the class
 	// body or outside it.
