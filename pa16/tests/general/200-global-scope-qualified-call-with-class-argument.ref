@@ -1,0 +1,21 @@
+global @c [binding=strong, object=_Z1c] = {
+  i32 7
+}
+
+function @reach(%c : ptr [pass=reference]) -> i32 [binding=strong, object=_Z5reachRK2YC] {
+  slot $c : ptr
+
+  block ^entry:
+    store ptr %c, $c
+    %t1 = load ptr $c
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i32 %t2
+    return i32 %t3
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    %t1 = addr @c
+    %t2 = call i32 @reach(%t1)
+    %t3 = binary sub i32 %t2, 7
+    return i32 %t3
+}

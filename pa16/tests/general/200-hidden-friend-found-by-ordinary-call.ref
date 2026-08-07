@@ -1,0 +1,36 @@
+global @c [binding=strong, object=_Z1c] = {
+  i32 4
+}
+global @d [binding=strong, object=_Z1d] = {
+  i32 4
+}
+
+function @reach(%c : ptr [pass=reference]) -> i32 [binding=weak, object=_Z5reachRK2YC] {
+  slot $c : ptr
+
+  block ^entry:
+    store ptr %c, $c
+    %t1 = load ptr $c
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i32 %t2
+    return i32 %t3
+}
+function @nn__reach(%d : ptr [pass=reference]) -> i32 [binding=strong, object=_ZN2nn5reachERKNS_2YDE] {
+  slot $d : ptr
+
+  block ^entry:
+    store ptr %d, $d
+    %t1 = load ptr $d
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i32 %t2
+    return i32 %t3
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    %t1 = addr @c
+    %t2 = call i32 @reach(%t1)
+    %t3 = addr @d
+    %t4 = call i32 @nn__reach(%t3)
+    %t5 = binary sub i32 %t2, %t4
+    return i32 %t5
+}

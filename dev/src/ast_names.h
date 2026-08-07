@@ -273,7 +273,13 @@ private:
 	// no region either, so the prefixes 7.3.4p2 and 10.2p2 reach are searched
 	// only for a name some declaration wrote - which is what keeps a miss one
 	// probe rather than a walk of every base and every nominated namespace.
-	std::unordered_set<std::string> declared_;
+	// 6.8p1: every spelling this unit has declared, and the kinds the
+	// declarations of it gave it, one bit each.  It is not a scope: a name is
+	// in it from the declaration that wrote it to the end of the unit, because
+	// what it answers is what a declaration of the spelling could have made the
+	// name anywhere - which is a question about the unit and not about a
+	// region.
+	std::unordered_map<std::string, unsigned> declared_;
 	// The prefix each class-head gave its members, which is what a base written
 	// against the regions around a derived class is resolved to.
 	std::unordered_set<std::string> classes_;

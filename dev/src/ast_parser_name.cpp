@@ -37,7 +37,11 @@ void DeclaredNames::declare(const std::string& name, NameKind kind)
 	if (!name.empty())
 	{
 		scopes_.back().names[name] = kind;
-		declared_.insert(name);
+		// 6.8p1: what the spelling was declared as, wherever in the unit that
+		// declaration stood.  A name no declaration of which named a type is
+		// one that cannot begin a declaration, which is what settles the
+		// ambiguity for a name no scope in force declares.
+		declared_[name] |= 1u << static_cast<unsigned>(kind);
 		++version_;
 	}
 }
@@ -323,7 +327,40 @@ NameKind DeclaredNames::kind_of(const std::string& name) const
 	{
 		return NameKind::Value;
 	}
-	return NameKind::Unknown;
+	// 6.8p1: a statement that can be read as a declaration is one, and a
+	// declaration needs its decl-specifier-seq to name a type.  No scope in
+	// force declares this name, so what says whether it could be a type is
+	// every declaration of the spelling this unit wrote: where none of them
+	// made it a type, the statement is the expression it looks like.  That is
+	// what lets 3.4.2 be asked about `f(c)` for an `f` only an associated
+	// namespace or 11.3p5's hidden friend declares - a shape ordinary lookup
+	// finds nothing for, and which the declaration reading would otherwise
+	// swallow.  14.2p3 keeps its own answer: a template-id of a function
+	// template names an overload set rather than a type, so a name declared
+	// only as one is answered as one and `declval<T>()` stays a call.
+	//
+	// A spelling with a nested-name-specifier is asked the same question of
+	// the name it ends in: what a prefix reaches is a declaration of that
+	// name, so a name no declaration of the unit made a type does not become
+	// one because a region was written in front of it.  3.4.3.4's global `::`
+	// is the case that needs it, because a member of the global namespace is
+	// remembered under no prefix at all.
+	const std::string::size_type after = name.rfind("::");
+	const std::string ends_in = after == std::string::npos
+		? without_arguments(name)
+		: without_arguments(name.substr(after + 2));
+	const std::unordered_map<std::string, unsigned>::const_iterator seen =
+		declared_.find(ends_in);
+	if (seen == declared_.end() ||
+	    (seen->second & ((1u << static_cast<unsigned>(NameKind::Type)) |
+	                     (1u << static_cast<unsigned>(NameKind::Template)))) != 0)
+	{
+		return NameKind::Unknown;
+	}
+	return (seen->second &
+	        (1u << static_cast<unsigned>(NameKind::FunctionTemplate))) != 0
+		? NameKind::FunctionTemplate
+		: NameKind::Value;
 }
 
 // The kind a declaration introduces, which is a template-name when the
