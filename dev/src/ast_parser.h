@@ -89,6 +89,7 @@ private:
 
 	typedef DeclaredNames::Scope ScopeGuard;
 	typedef DeclaredNames::Prefix PrefixGuard;
+	typedef DeclaredNames::Reached ReachedGuard;
 
 	// Cursor (ast_parser.cpp).
 	unsigned peek(std::size_t offset = 0) const { return tokens_.type(pos_ + offset); }
@@ -222,6 +223,12 @@ private:
 	void declare_init_declarators(const AstNode* specs, const AstNode* list);
 	void declare_parameters(const AstNode* declarator);
 	static const AstNode* declarator_identifier(const AstNode* declarator);
+	// 3.4.1p8: the nested-name-specifier a declarator-id was written with, up
+	// to and including its last `::`, or empty for an unqualified one.  It is
+	// what says which region the rest of the declarator and the body after it
+	// reach unqualified.
+	static std::string declarator_qualifier(const AstNode* declarator);
+	static std::string name_qualifier(const std::string& spelling);
 	static bool has_declarator_identifier(const AstNode* declarator);
 
 	// Statements (ast_parser_statement.cpp).

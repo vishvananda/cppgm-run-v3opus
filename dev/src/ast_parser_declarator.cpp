@@ -1,5 +1,7 @@
 #include "ast_parser.h"
 
+#include "sema_name.h"
+
 // Specifier sequences, type-ids, declarators and initializers.
 
 namespace
@@ -161,6 +163,27 @@ bool AstParser::parse_name_specifier(AstNode* seq, SpecifierMode mode,
 		return false;
 	}
 	const std::string text = spelled(spelled_from);
+	// 7.1.6.2p1: a nested-name-specifier may begin with a decltype-specifier,
+	// whose region is the class the type of an expression names.  No spelling
+	// answers what that type is, so the expression is read here and kept beside
+	// the name, which is the one thing the semantics cannot recover.
+	AstNode* operand = nullptr;
+	if (tokens_.type(spelled_from.pos) == KW_DECLTYPE)
+	{
+		const Mark after = mark();
+		reset(spelled_from);
+		pos_ += 2;
+		{
+			BracketGuard brackets(*this, false);
+			operand = parse_expression();
+			if (operand == nullptr || !at(OP_RPAREN))
+			{
+				reset(start);
+				return false;
+			}
+		}
+		reset(after);
+	}
 	const bool plain = !introduced && pos_ == spelled_from.pos + 1;
 	const NameKind kind = names_.kind_of(text);
 	// 14.2p3: a template-id of a function template names an overload set rather
@@ -178,7 +201,9 @@ bool AstParser::parse_name_specifier(AstNode* seq, SpecifierMode mode,
 	seen_type = true;
 	if (mode != SpecifierMode::Decl)
 	{
-		seq->add(make_text(AstKind::TypeName, text));
+		AstNode* named = make_text(AstKind::TypeName, text);
+		named->add(operand);
+		seq->add(named);
 		return true;
 	}
 	AstNode* node = make_text(AstKind::DeclSpecifier, text);
@@ -186,6 +211,7 @@ bool AstParser::parse_name_specifier(AstNode* seq, SpecifierMode mode,
 	{
 		node->token = TT_IDENTIFIER;
 	}
+	node->add(operand);
 	seq->add(node);
 	return true;
 }
@@ -353,7 +379,13 @@ AstNode* AstParser::parse_declarator(DeclaratorForm form)
 	{
 		return fail(start);
 	}
-	parse_declarator_suffixes(node);
+	{
+		// 3.4.1p8: the rest of a declarator whose declarator-id is qualified is
+		// read where that name reaches, so a parameter type or a
+		// trailing-return-type may name what the class declares.
+		ReachedGuard reached(names_, declarator_qualifier(node));
+		parse_declarator_suffixes(node);
+	}
 	if (form == DeclaratorForm::Named && !has_declarator_identifier(node))
 	{
 		return fail(start);
@@ -691,6 +723,26 @@ const AstNode* AstParser::declarator_identifier(const AstNode* declarator)
 bool AstParser::has_declarator_identifier(const AstNode* declarator)
 {
 	return declarator_identifier(declarator) != nullptr;
+}
+
+// 3.4.1p8: the nested-name-specifier a name was written with.  A `::` inside a
+// template-argument-list or a parenthesized decltype-specifier belongs to the
+// component around it, so the split is the one `QualifiedName` already makes
+// rather than the last `::` of the spelling.
+std::string AstParser::name_qualifier(const std::string& spelling)
+{
+	const QualifiedName written(spelling);
+	if (!written.qualified())
+	{
+		return std::string();
+	}
+	return spelling.substr(0, spelling.size() - written.last().size());
+}
+
+std::string AstParser::declarator_qualifier(const AstNode* declarator)
+{
+	const AstNode* const id = declarator_identifier(declarator);
+	return id == nullptr ? std::string() : name_qualifier(id->text);
 }
 
 void AstParser::declare_init_declarators(const AstNode* specifiers,

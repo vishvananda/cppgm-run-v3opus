@@ -37,6 +37,7 @@ void DeclaredNames::declare(const std::string& name, NameKind kind)
 	if (!name.empty())
 	{
 		scopes_.back().names[name] = kind;
+		declared_.insert(name);
 		++version_;
 	}
 }
@@ -67,6 +68,155 @@ void DeclaredNames::nominate(const std::string& target)
 		scopes_.back().nominated.push_back(target + "::");
 		++version_;
 	}
+}
+
+// 10.2p2: a class reaches its base's declarations, and through them whatever
+// those reach.  The base is recorded as it was written, so the prefixes in
+// force are tried outward when a name is looked up behind it - which is what
+// lets one entry answer for a base named from a region the derived class is
+// not in - and only the direct bases are held, so a chain n deep is n entries
+// and not n^2.
+void DeclaredNames::declare_class(const std::string& name)
+{
+	if (!name.empty())
+	{
+		classes_.insert(qualify(name));
+	}
+}
+
+std::string DeclaredNames::canonical(const std::string& reached) const
+{
+	// 14.5.1.1: a member of a class template is remembered under the
+	// template's own name, so a class named through a template-id is the one
+	// the argument list was dropped from.
+	const bool templated = reached.find('<') != std::string::npos;
+	const std::string bare = templated ? without_arguments(reached) : reached;
+	std::string key;
+	key.reserve(prefix_.size() + reached.size());
+	std::string::size_type kept = prefix_.size();
+	for (;;)
+	{
+		key.assign(prefix_, 0, kept);
+		key.append(bare);
+		if (classes_.find(key) != classes_.end())
+		{
+			return key;
+		}
+		if (kept == 0)
+		{
+			return bare;
+		}
+		const std::string::size_type at = prefix_.rfind("::", kept - 3);
+		kept = at == std::string::npos ? 0 : at + 2;
+	}
+}
+
+void DeclaredNames::derive(const std::string& name, const std::string& base)
+{
+	if (name.empty() || base.empty())
+	{
+		return;
+	}
+	// A base class is complete where the base-clause names it, so the class it
+	// reaches is settled here rather than at every name looked up through it.
+	inherited_[qualify(name)].push_back(canonical(base + "::"));
+}
+
+std::string DeclaredNames::without_arguments(const std::string& spelling)
+{
+	if (spelling.find('<') == std::string::npos)
+	{
+		return spelling;
+	}
+	std::string bare;
+	bare.reserve(spelling.size());
+	int depth = 0;
+	for (std::size_t index = 0; index < spelling.size(); ++index)
+	{
+		const char one = spelling[index];
+		if (one == '<')
+		{
+			++depth;
+			continue;
+		}
+		if (one == '>')
+		{
+			if (depth > 0)
+			{
+				--depth;
+			}
+			continue;
+		}
+		if (depth == 0)
+		{
+			bare.push_back(one);
+		}
+	}
+	return bare;
+}
+
+const std::vector<std::string>* DeclaredNames::bases_of(
+	const std::string& canonical_prefix) const
+{
+	const std::unordered_map<std::string,
+	                         std::vector<std::string> >::const_iterator found =
+		inherited_.find(canonical_prefix);
+	return found == inherited_.end() ? nullptr : &found->second;
+}
+
+NameKind DeclaredNames::reached_through(const std::string& reached,
+                                        const std::string& name) const
+{
+	const NameKind direct = reached_kind(reached + name);
+	if (direct != NameKind::Unknown || inherited_.empty())
+	{
+		return direct;
+	}
+	const std::vector<std::string>* const bases = bases_of(canonical(reached));
+	if (bases == nullptr)
+	{
+		return NameKind::Unknown;
+	}
+	// The chain is followed breadth first from the prefix that missed, and the
+	// classes there are bound it, so a base-clause written through a cycle
+	// ends the walk rather than repeating it.  Every entry is the prefix its
+	// class was remembered under, so a step is one probe of the names and one
+	// of the chain.
+	std::vector<std::string> pending(*bases);
+	for (std::size_t at = 0; at < pending.size() && at <= inherited_.size();
+	     ++at)
+	{
+		const NameKind kind = spelled_kind(pending[at] + name);
+		if (kind != NameKind::Unknown)
+		{
+			return kind;
+		}
+		const std::vector<std::string>* const next = bases_of(pending[at]);
+		if (next != nullptr)
+		{
+			pending.insert(pending.end(), next->begin(), next->end());
+		}
+	}
+	return NameKind::Unknown;
+}
+
+void DeclaredNames::inherit(const std::string& qualifier)
+{
+	const std::unordered_map<std::string,
+	                         std::vector<std::string> >::const_iterator found =
+		inherited_.find(qualifier);
+	if (found == inherited_.end())
+	{
+		return;
+	}
+	std::vector<std::string>& nominated = scopes_.back().nominated;
+	nominated.insert(nominated.end(), found->second.begin(),
+	                 found->second.end());
+}
+
+void DeclaredNames::reach(const std::string& qualifier)
+{
+	scopes_.back().nominated.push_back(qualifier);
 }
 
 NameKind DeclaredNames::spelled_kind(const std::string& spelling) const
@@ -143,19 +293,25 @@ NameKind DeclaredNames::kind_of(const std::string& name) const
 			}
 		}
 	}
-	// 7.3.4p2: a name no scope declares may still be one the using-directives
-	// in scope reach.  That question is asked only once every scope has been
-	// asked the cheap one, so a name that is declared costs no probe of a
-	// directive however many are written.
-	for (std::size_t index = scopes_.size(); index-- > 0; )
+	// 7.3.4p2 and 10.2p2: a name no scope declares may still be one the
+	// using-directives in scope reach, or one a base class declares.  That
+	// question is asked only once every scope has been asked the cheap one, so
+	// a name that is declared costs no probe of a directive however many are
+	// written - and a name no declaration of this unit wrote at all is in no
+	// region for one to reach, which one probe settles before any prefix is
+	// searched.
+	if (qualified || declared_.find(name) != declared_.end())
 	{
-		const std::vector<std::string>& nominated = scopes_[index].nominated;
-		for (std::size_t at = 0; at < nominated.size(); ++at)
+		for (std::size_t index = scopes_.size(); index-- > 0; )
 		{
-			const NameKind kind = reached_kind(nominated[at] + name);
-			if (kind != NameKind::Unknown)
+			const std::vector<std::string>& nominated = scopes_[index].nominated;
+			for (std::size_t at = 0; at < nominated.size(); ++at)
 			{
-				return kind;
+				const NameKind kind = reached_through(nominated[at], name);
+				if (kind != NameKind::Unknown)
+				{
+					return kind;
+				}
 			}
 		}
 	}

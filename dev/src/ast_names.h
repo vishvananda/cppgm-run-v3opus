@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 // What kind of thing the declaration of a name introduced.
@@ -58,6 +59,11 @@ public:
 	// the spelling the prefix in force gives it.
 	void declare_member(const std::string& name, NameKind kind);
 
+	// 9.1: the class a class-head declared, whose members are remembered under
+	// the prefix its name gives them.  It is what a base-specifier written
+	// against the regions around a derived class is resolved to.
+	void declare_class(const std::string& name);
+
 	// 7.3.2p1: a namespace alias names the namespace its target names, so a
 	// name written behind the alias is the name written behind that namespace.
 	void alias(const std::string& name, const std::string& target);
@@ -66,6 +72,31 @@ public:
 	// the directive was written in, so a name that scope does not declare may
 	// still be one of theirs.
 	void nominate(const std::string& target);
+
+	// 10.2p2: the declarations of a base class are found in the scope of a
+	// class derived from it.  Only the direct bases are recorded, as they were
+	// written, so a chain n deep costs n entries and not n^2; the chain itself
+	// is walked where a name misses, which is the only place it is needed.
+	void derive(const std::string& name, const std::string& base);
+
+	// The prefix a region's own name brings into scope with it, whose bases the
+	// walk that answers a name then follows.
+	void reach(const std::string& qualifier);
+	// The direct bases alone, which is what a class body's own scope adds: what
+	// the class declares itself is in that scope already.
+	void inherit(const std::string& qualifier);
+
+	// 14.5.1.1: a member of a class template is remembered under the
+	// template's own name, so a definition written on a template-id reaches it
+	// once the argument list it was written with is dropped.  The spelling
+	// without any argument list, or the spelling itself where it holds none.
+	static std::string without_arguments(const std::string& spelling);
+
+	// The prefix the members of `name` declared here are remembered under.
+	std::string qualify(const std::string& name) const
+	{
+		return prefix_ + name + "::";
+	}
 
 	// What the innermost declaration of `name` declared, or `Unknown` when no
 	// declaration in scope names it.  A name written with a `::` in it is a
@@ -105,6 +136,67 @@ public:
 		DeclaredNames& names_;
 	};
 
+	// 3.4.1p8: the region a qualified declarator-id names, whose declarations
+	// the rest of that declarator and the body after it reach unqualified.  A
+	// class encloses the regions around it, so every prefix of the qualifier is
+	// reached and not only the innermost.
+	//
+	// A declarator-id that names no region opens nothing at all: an ordinary
+	// declaration pays one comparison, and the version the parse memoizes
+	// against does not move.
+	class Reached
+	{
+	public:
+		Reached(DeclaredNames& names, const std::string& qualifier)
+			: names_(names)
+			, opened_(qualifier.size() > 2)
+		{
+			if (!opened_)
+			{
+				return;
+			}
+			names_.scopes_.resize(names_.scopes_.size() + 1);
+			const std::string bare = without_arguments(qualifier);
+			for (std::string::size_type at = qualifier.size();
+			     (at = qualifier.rfind("::", at - 1)) != std::string::npos;
+			     )
+			{
+				names_.reach(qualifier.substr(0, at + 2));
+				if (at == 0)
+				{
+					break;
+				}
+			}
+			for (std::string::size_type at = bare.size();
+			     bare != qualifier &&
+			     (at = bare.rfind("::", at - 1)) != std::string::npos;
+			     )
+			{
+				names_.reach(bare.substr(0, at + 2));
+				if (at == 0)
+				{
+					break;
+				}
+			}
+			++names_.version_;
+		}
+
+		~Reached()
+		{
+			if (opened_)
+			{
+				names_.scopes_.pop_back();
+				++names_.version_;
+			}
+		}
+
+	private:
+		Reached(const Reached&);
+		Reached& operator=(const Reached&);
+		DeclaredNames& names_;
+		bool opened_;
+	};
+
 	// The scope name that members are spelled against, held for as long as the
 	// body that opened it is being read.  It changes no answer, only how the
 	// next member is remembered, so it is not a version of its own.
@@ -142,6 +234,20 @@ private:
 		std::vector<std::string> nominated;
 	};
 
+	// The prefix a class was remembered under, found by trying the prefixes in
+	// force outward exactly as a name written behind it would be.  The
+	// spelling itself for a name no class-head declared.
+	std::string canonical(const std::string& reached) const;
+	// 10.2p2: the direct bases of the class a prefix was remembered under, or
+	// null for one no base-clause named.  The bases were resolved where the
+	// base-clause was read, so a step along the chain is one probe.
+	const std::vector<std::string>* bases_of(const std::string& canonical) const;
+	// 10.2p2: `name` looked up behind `reached` and, where that finds nothing,
+	// behind each base `reached` reaches - the chain walked once per name that
+	// misses and bounded by the classes there are, so a base-clause written
+	// through a cycle is answered rather than followed.
+	NameKind reached_through(const std::string& reached,
+	                         const std::string& name) const;
 	// What a spelling with a nested-name-specifier names, following the
 	// namespace aliases its prefix was written through.
 	NameKind spelled_kind(const std::string& spelling) const;
@@ -162,6 +268,20 @@ private:
 	// The namespace each alias names, which is what turns a spelling written
 	// through an alias into the one the declarations were remembered under.
 	std::unordered_map<std::string, std::string> aliases_;
+	// Every name a declaration of this translation unit introduced, whatever
+	// region it was written in.  A name that is in no declaration at all is in
+	// no region either, so the prefixes 7.3.4p2 and 10.2p2 reach are searched
+	// only for a name some declaration wrote - which is what keeps a miss one
+	// probe rather than a walk of every base and every nominated namespace.
+	std::unordered_set<std::string> declared_;
+	// The prefix each class-head gave its members, which is what a base written
+	// against the regions around a derived class is resolved to.
+	std::unordered_set<std::string> classes_;
+	// 10.2p2: the prefixes each class reaches besides its own, keyed by the
+	// prefix that class's own name gives its members.  A class with no base is
+	// in no entry, so a program with no inheritance pays one probe per region
+	// a name is written in.
+	std::unordered_map<std::string, std::vector<std::string> > inherited_;
 	std::string prefix_;
 	unsigned long version_;
 };

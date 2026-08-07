@@ -782,6 +782,13 @@ private:
 	// 13.1 and 3.5: the declaration a function declarator makes, which is a
 	// redeclaration of an earlier one in the same region exactly when their
 	// parameter type lists agree.
+	// 3.1p2 and 8.5: the object an init-declarator that is not a function
+	// declares, once its type and the region it belongs to are settled.
+	void declare_object_declarator(const AstNode* initializer,
+	                               const Specifiers& specifiers,
+	                               const Context& ctx, const Context& target,
+	                               const QualifiedName& spelled,
+	                               const std::string& written, TypeId type);
 	SemaEntity& declare_function(const std::string& name, TypeId type,
 	                             const Context& target, bool define,
 	                             bool hidden = false,
@@ -882,7 +889,12 @@ private:
 	                    std::vector<SemaEntity*>* found = nullptr);
 	// The region the nested-name-specifier of `name` reaches, for a declaration
 	// that names an entity of another region.
-	Scope* resolve_prefix(const QualifiedName& name, const Context& ctx);
+	Scope* resolve_prefix(const QualifiedName& name, const Context& ctx,
+	                      Scope* first_region = nullptr);
+	// 7.1.6.2p1: the type a name whose nested-name-specifier begins with a
+	// decltype-specifier reaches.  The expression the parser kept beside the
+	// spelling is what says which region the rest of the name is looked up in.
+	TypeId decltype_qualified_type(const AstNode& node, const Context& ctx);
 	SemaEntity& require(SemaEntity* entity, const std::string& name);
 
 	// Constant expressions and decltype (sema_constant.cpp).

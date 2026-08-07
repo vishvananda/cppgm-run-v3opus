@@ -1671,6 +1671,23 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 		return;
 	}
 
+	declare_object_declarator(initializer, specifiers, ctx, target, spelled,
+	                          written, type);
+}
+
+// 3.1p2 and 8.5: the object a declarator that is not a function declares, from
+// the point its type and the region it belongs to are known.  The declaration
+// is what says whether it is also a definition, what its lifetime is, and which
+// of 8.5's initializations builds it.
+void SemaAnalyzer::declare_object_declarator(const AstNode* initializer,
+                                             const Specifiers& specifiers,
+                                             const Context& ctx,
+                                             const Context& target,
+                                             const QualifiedName& spelled,
+                                             const std::string& written,
+                                             TypeId type)
+{
+	const std::string name = spelled.last();
 	// 7.1.5p9: a constexpr object is a const object.
 	if (specifiers.is_constexpr)
 	{

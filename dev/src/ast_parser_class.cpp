@@ -54,11 +54,31 @@ AstNode* AstParser::parse_class_specifier()
 	}
 	node->add(bases);
 	names_.declare_member(name, take_declared_kind(NameKind::Type));
+	names_.declare_class(name);
+	// 10.2p2: the declarations of a base class are found in the scope of this
+	// one, which the base-clause is where the parse learns.
+	for (std::size_t index = 0;
+	     bases != nullptr && index < bases->children.size(); ++index)
 	{
-		// A class body declares into the scope around it as well as into
-		// itself: PA10 has no lookup to reach a member from outside, so the
-		// facts an unqualified member name carries have to stay reachable.
+		const AstNode* const base = bases->children[index];
+		for (std::size_t part = 0; part < base->children.size(); ++part)
+		{
+			if (base->children[part]->kind == AstKind::BaseName)
+			{
+				names_.derive(name, base->children[part]->text);
+			}
+		}
+	}
+	const std::string own = names_.qualify(name);
+	{
+		// 3.3.7p1: the potential scope of a member name is the class it is
+		// declared in, so what the body declares leaves with it.  The names it
+		// declared stay reachable through the prefix the class gives them,
+		// which 3.4.1p8's `Reached` is what puts back in force for a
+		// declarator-id that names this class.
 		BracketGuard brackets(*this, false);
+		ScopeGuard members(names_);
+		names_.inherit(own);
 		PrefixGuard prefix(names_, name);
 		++pos_;
 		while (!at(OP_RBRACE) && !at(ST_EOF))

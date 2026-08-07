@@ -137,9 +137,14 @@ void SemaAnalyzer::read_type_specifier(const AstNode& node, Specifiers& out,
 	{
 		if (!node.children.empty())
 		{
-			// 7.1.6.2p4: a decltype-specifier names the type of an expression.
+			// 7.1.6.2p4: a decltype-specifier names the type of an expression,
+			// and 7.1.6.2p1 lets one stand as the first component of a
+			// nested-name-specifier - where the rest of the name is looked up
+			// in the region that type names.
 			out.has_type_name = true;
-			out.type_name = decltype_type(node, ctx);
+			out.type_name = QualifiedName(node.text).qualified()
+				? decltype_qualified_type(node, ctx)
+				: decltype_type(node, ctx);
 			return;
 		}
 		if (node.text.empty())
@@ -597,14 +602,17 @@ SemaEntity* SemaAnalyzer::resolve(const std::string& name, const Context& ctx,
 // 3.4.3: each component of a nested-name-specifier is looked up in the region
 // the one before it named, the first in the scopes around the declaration.
 Scope* SemaAnalyzer::resolve_prefix(const QualifiedName& name,
-                                    const Context& ctx)
+                                    const Context& ctx, Scope* first_region)
 {
 	// 3.4.3p1: a name written `::x` is looked up in the global namespace.
 	const std::string first = name.part(0);
-	Scope* region = first.empty()
-		? &model_.global()
-		: model_.region_of(
-			require(model_.lookup(*ctx.scope, first, LookupKind::Region), first));
+	Scope* region = first_region != nullptr
+		? first_region
+		: (first.empty()
+			? &model_.global()
+			: model_.region_of(
+				require(model_.lookup(*ctx.scope, first, LookupKind::Region),
+				        first)));
 
 	for (std::size_t index = 1; index + 1 < name.size(); ++index)
 	{
@@ -623,4 +631,31 @@ Scope* SemaAnalyzer::resolve_prefix(const QualifiedName& name,
 		                                       "enumeration");
 	}
 	return region;
+}
+
+// 7.1.6.2p1: a nested-name-specifier whose first component is a
+// decltype-specifier.  The spelling cannot say what region that component
+// names, so the expression the parser kept beside the name is what answers it;
+// every component after it is looked up the way 3.4.3 looks one up behind any
+// other prefix.
+TypeId SemaAnalyzer::decltype_qualified_type(const AstNode& node,
+                                             const Context& ctx)
+{
+	const TypeId head = types_.strip_cv(decltype_type(node, ctx));
+	SemaEntity* const owner = model_.type_owner(head);
+	Scope* const region = owner == nullptr ? nullptr : model_.region_of(*owner);
+	if (region == nullptr)
+	{
+		throw std::runtime_error("a decltype-specifier written before `::` "
+		                         "names no class or enumeration");
+	}
+	const QualifiedName written(node.text);
+	SemaEntity& named =
+		require(model_.lookup_in(*resolve_prefix(written, ctx, region),
+		                         written.last(), LookupKind::Type),
+		        written.last());
+	// 11.2: the name reaches a member of the class the prefix named, which is
+	// where the access that class gave the member is asked about.
+	require_access(named, ctx.scope);
+	return named.type;
 }

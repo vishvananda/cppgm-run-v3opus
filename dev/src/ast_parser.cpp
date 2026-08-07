@@ -392,6 +392,9 @@ AstNode* AstParser::parse_simple_or_function_declaration(AstNode* specifiers,
 		node->add(specifiers);
 		node->add(declarator);
 		declare_init_declarators(specifiers, declarator);
+		// 3.4.1p8: a member function defined outside its class reads the names
+		// in its body as the class declares them.
+		ReachedGuard reached(names_, declarator_qualifier(declarator));
 		ScopeGuard scope(names_);
 		declare_parameters(declarator);
 		AstNode* body = parse_compound_statement();
@@ -499,6 +502,9 @@ AstNode* AstParser::parse_special_member(bool in_class)
 	node->add(specifiers);
 	node->add(declarator);
 	node->add(initializer);
+	// 3.4.1p8: a special member defined outside its class reads the names in
+	// its mem-initializers and its body as the class declares them.
+	ReachedGuard reached(names_, name_qualifier(name));
 	ScopeGuard scope(names_);
 	declare_parameters(declarator);
 	AstNode* body = parse_compound_statement();
