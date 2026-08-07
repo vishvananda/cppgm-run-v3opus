@@ -238,7 +238,7 @@ std::string abi_thread_wrapper_of(const SemaEntity& entity)
 {
 	abi_mangle::AbiTargetRecord target;
 	target.kind = abi_mangle::ABI_TARGET_FACT_THREAD_LOCAL_WRAPPER;
-	target.qualified_name = entity.dump_name;
+	target.qualified_name = abi_qualified_name(entity);
 	return abi_mangle::mangle_target(target,
 	                                 std::vector<abi_mangle::AbiFunctionRecord>(),
 	                                 abi_mangle::AbiDefinitionMap());
@@ -267,7 +267,7 @@ std::string abi_symbol_of(const SemaEntity& entity, TypeTable& types,
 	if (entity.kind != SemaKind::Function)
 	{
 		target.kind = abi_mangle::ABI_TARGET_FACT_VARIABLE;
-		target.qualified_name = entity.dump_name;
+		target.qualified_name = abi_qualified_name(entity);
 		target.internal_linkage = entity.internal_linkage;
 		return abi_mangle::mangle_target(target, records,
 		                                 abi_mangle::AbiDefinitionMap());
@@ -300,7 +300,7 @@ std::string abi_symbol_of(const SemaEntity& entity, TypeTable& types,
 		// name.  The regions around the declaration still precede it, with one
 		// component standing where that terminal goes.
 		target.function.kind = abi_mangle::ABI_FUNCTION_TARGET_ENCODING;
-		const std::string& spelled = entity.dump_name;
+		const std::string& spelled = abi_qualified_name(entity);
 		std::size_t at = 0;
 		while (true)
 		{
@@ -343,7 +343,7 @@ std::string abi_symbol_of(const SemaEntity& entity, TypeTable& types,
 	else
 	{
 		target.function.kind = abi_mangle::ABI_FUNCTION_TARGET_PATH;
-		target.function.qualified_name = entity.dump_name;
+		target.function.qualified_name = abi_qualified_name(entity);
 	}
 	if (first != 0 && entity.special != kDestructorFunction)
 	{

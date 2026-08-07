@@ -199,6 +199,7 @@ SemaEntity& SemaAnalyzer::specialize(SemaEntity& primary,
 		// name, which is what the output calls it wherever it names a
 		// declaration rather than repeating what a use wrote.
 		made->dump_name = primary.dump_name;
+		made->abi_name = primary.abi_name;
 		model_.hold_specialization(primary, list, *made);
 	}
 	return *made;

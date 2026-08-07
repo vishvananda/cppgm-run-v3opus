@@ -138,7 +138,8 @@ public:
 	// The name the dump spells a user-defined type with.  7.1.3p2 lets a
 	// declaration name an unnamed class after it has been read, so the name can
 	// arrive after the type.
-	void rename(TypeId type, const std::string& name);
+	void rename(TypeId type, const std::string& name,
+	            const std::string& qualified);
 	// That name, which 9.1p2 makes what a member of the type is written after.
 	const std::string& user_name(TypeId type) const { return user_at(type).name; }
 	// 3.4.3: the same type named from outside every region that encloses its

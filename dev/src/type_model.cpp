@@ -457,9 +457,15 @@ TypeId TypeTable::template_parameter_type(std::uint32_t entity, bool is_template
 	return user_type(TypeKind::TemplateParameter, entity, record);
 }
 
-void TypeTable::rename(TypeId type, const std::string& name)
+// A type has two spellings - the one a dump writes and the one PA14's encoder
+// reads - and a rename that moved only the first would leave the object file
+// naming the type the declaration was called before.  Both are written here.
+void TypeTable::rename(TypeId type, const std::string& name,
+                       const std::string& qualified)
 {
-	user_types_[nodes_[type].user].name = name;
+	UserType& record = user_types_[nodes_[type].user];
+	record.name = name;
+	record.qualified = qualified;
 }
 
 void TypeTable::complete_class(TypeId type, unsigned long long size,

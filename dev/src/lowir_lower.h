@@ -296,6 +296,12 @@ public:
 	// or object this unit does not define.  A use of a function whose definition
 	// belongs to every unit that needs one also asks for that definition here.
 	void declare_entity(const SemaEntity& entity);
+	// 3.2p2 and 3.5p4: the definition a use named even though this lowering
+	// wrote no call of it.  A definition every unit that needs one may hold is
+	// nobody's to owe where no call survives; one with internal linkage is this
+	// unit's alone, so the object file holds it wherever an initialization
+	// named it.
+	void owe_internal_definition(const SemaEntity& entity);
 	// The same for a call that names one of the ABI's two entry points and not
 	// the other.  `declare_entity` owes both wherever the analysis saw a
 	// complete object and a base subobject each ask for the function; a call

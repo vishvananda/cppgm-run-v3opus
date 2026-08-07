@@ -1,0 +1,5 @@
+declare function @make_held() -> void [binding=strong, object=_Z9make_heldv]
+declare function @take_held(%arg0 : ptr [pass=reference]) -> void [binding=strong, object=_Z9take_heldR4held]
+
+global @made : ptr [binding=strong, object=_Z4made] = addr @make_held
+global @taker : ptr [binding=strong, object=_Z5taker] = addr @take_held

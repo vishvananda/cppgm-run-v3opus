@@ -77,6 +77,8 @@ void LowirFunctionLowering::add_initialization(const Operand& storage,
 		// action at all.
 		if (node.children[0]->children[0]->fact.entity->trivial)
 		{
+			unit_.owe_internal_definition(
+				*node.children[0]->children[0]->fact.entity);
 			return;
 		}
 		LowValue object;
@@ -376,6 +378,10 @@ void LowirFunctionLowering::constructor_call(const Operand& address,
 	}
 	if (constructor.trivial && !always)
 	{
+		// 3.2p2: the initialization named this constructor whether or not
+		// there was anything for a call of it to do, and 3.5p4's internal
+		// linkage makes the definition one no other unit may hold.
+		unit_.owe_internal_definition(constructor);
 		return;
 	}
 	// 15.2p2: an exception out of this step leaves the subobjects the steps

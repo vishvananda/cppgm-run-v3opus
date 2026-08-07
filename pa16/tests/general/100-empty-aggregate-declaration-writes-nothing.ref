@@ -1,0 +1,56 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $one : obj<1x1>
+  slot $two : obj<1x1>
+  slot $three : obj<1x1>
+  slot $cond__1 : i32
+  slot $lor__2 : i64
+  slot $lor__3 : i64
+
+  block ^entry:
+    %t1 = addr $three
+    %t2 = addr $one
+    %t3 = cmp eq ptr %t2, 0
+    branch %t3, ^lor_short_8, ^lor_rhs_7
+
+  block ^lor_rhs_7:
+    %t4 = addr $two
+    %t5 = cmp eq ptr %t4, 0
+    %t6 = cmp ne i64 %t5, 0
+    store i64 %t6, $lor__3
+    jump ^lor_end_9
+
+  block ^lor_short_8:
+    store i64 1, $lor__3
+    jump ^lor_end_9
+
+  block ^lor_end_9:
+    %t7 = load i64 $lor__3
+    branch %t7, ^lor_short_5, ^lor_rhs_4
+
+  block ^lor_rhs_4:
+    %t8 = addr $three
+    %t9 = cmp eq ptr %t8, 0
+    %t10 = cmp ne i64 %t9, 0
+    store i64 %t10, $lor__2
+    jump ^lor_end_6
+
+  block ^lor_short_5:
+    store i64 1, $lor__2
+    jump ^lor_end_6
+
+  block ^lor_end_6:
+    %t11 = load i64 $lor__2
+    branch %t11, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t12 = load i32 $cond__1
+    return i32 %t12
+}

@@ -1343,6 +1343,9 @@ void LowirFunctionLowering::local_variable(const DumpNode& node)
 		object.type = type;
 		object.lvalue = true;
 		object.operand = storage;
+		const std::size_t block = current_;
+		const std::size_t named = out_.blocks[block].instructions.size();
+		const unsigned counted = temps_;
 		const Operand address = address_of(object);
 		if (!node.children.empty() &&
 		    node.children[0]->fact.kind == FactKind::ConstructorAction)
@@ -1353,6 +1356,26 @@ void LowirFunctionLowering::local_variable(const DumpNode& node)
 		}
 		opened.address = address;
 		opened.addressed = true;
+		if (!node.children.empty() &&
+		    (node.children[0]->fact.kind == FactKind::AggregateInitialization ||
+		     node.children[0]->fact.kind == FactKind::BracedInitList))
+		{
+			// 8.5.1p1: what the clauses write into is that same address, so
+			// where the declaration is initialized from a list the address it
+			// named is the destination of that initialization.  A list that
+			// writes nothing - `{}` for a class each of whose subobjects holds
+			// nothing - asked for no destination, and the address is then no
+			// part of the program.  What the initialization wrote is what says
+			// so, rather than a second walk predicting what it will.
+			initialize_into(opened, type, *node.children[0]);
+			if (current_ == block &&
+			    out_.blocks[block].instructions.size() == named + 1)
+			{
+				out_.blocks[block].instructions.pop_back();
+				temps_ = counted;
+			}
+			return;
+		}
 	}
 	if (!node.children.empty() &&
 	    node.children[0]->fact.kind == FactKind::ConstructorAction &&
@@ -1882,10 +1905,15 @@ LowValue LowirFunctionLowering::literal(const DumpNode& node)
 			unit_.string_literal(node.fact.spelling, value.type);
 		return value;
 	}
-	if (types.strip_cv(value.type) == types.fundamental(FT_NULLPTR_T))
+	if (types.strip_cv(value.type) == types.fundamental(FT_NULLPTR_T) &&
+	    !node.fact.constant)
 	{
 		// 2.14.7 and 4.10p1: `nullptr` is a value of its own type, which every
 		// pointer type converts from and which LowIR spells as it is written.
+		// 4.10p1's *other* null pointer constant is an integral constant
+		// expression of value zero, which is the integer the program wrote and
+		// keeps that spelling wherever it converts to - the two are the same
+		// value and not the same token, and the constant is what says which.
 		value.operand = named_operand(Operand::OP_INTEGER, "nullptr");
 		return value;
 	}

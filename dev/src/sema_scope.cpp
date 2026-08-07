@@ -50,6 +50,26 @@ SemaModel::SemaModel()
 	global_ = &scopes_.back();
 }
 
+const std::string& abi_qualified_name(const SemaEntity& entity)
+{
+	return entity.abi_name.empty() ? entity.dump_name : entity.abi_name;
+}
+
+void name_in_region(SemaEntity& entity, const Scope& scope,
+                    const std::string& name)
+{
+	const bool named = scope.kind == ScopeKind::Namespace ||
+		scope.kind == ScopeKind::Class;
+	entity.dump_name = named ? scope.prefix + name : name;
+	entity.abi_name = named && !scope.abi_prefix.empty()
+		? scope.abi_prefix + name
+		: std::string();
+	// 3.5p4: a name 7.3.1.1p1's unnamed namespace declares has internal
+	// linkage, and so has a member of a class it declares - no declaration of
+	// either writes a specifier, so the region is the only thing that says so.
+	entity.internal_linkage = entity.internal_linkage || scope.unnamed_region;
+}
+
 Scope& SemaModel::open(ScopeKind kind, Scope& parent, SemaEntity* owner,
                        DumpScope* dump)
 {

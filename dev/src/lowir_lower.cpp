@@ -61,7 +61,7 @@ std::string flatten_name(const std::string& name)
 std::string LowirSymbolTable::function_symbol(const SemaEntity& entity,
                                               const std::string& identity)
 {
-	const std::string base = flatten_name(entity.dump_name);
+	const std::string base = flatten_name(abi_qualified_name(entity));
 	std::unordered_map<std::string, std::size_t>& seen = overloads_[base];
 	// 13.1 lets one name have as many declarations as the program writes, so
 	// which of them a function is, is a probe rather than a walk of the ones
@@ -74,7 +74,7 @@ std::string LowirSymbolTable::function_symbol(const SemaEntity& entity,
 
 std::string LowirSymbolTable::object_symbol(const SemaEntity& entity)
 {
-	return flatten_name(entity.dump_name);
+	return flatten_name(abi_qualified_name(entity));
 }
 
 LowirProgramBuilder::LowirProgramBuilder()
@@ -145,6 +145,14 @@ lowir_model::LowType LowirUnitLowering::low_type(TypeId type)
 
 	case TypeKind::Array:
 	case TypeKind::Class:
+		// 3.9p5: an incomplete type has no size, so there is no storage for
+		// LowIR to name.  8.3.5p6 lets a function be *declared* with such a
+		// return type as long as nothing calls or defines it, and what that
+		// declaration says about its result is that there is none.
+		if (types_.is_incomplete(bare))
+		{
+			return low("void");
+		}
 		return low("obj<" + decimal(types_.object_size(bare)) + "x" +
 		           decimal(types_.object_align(bare)) + ">");
 
@@ -168,7 +176,10 @@ lowir_model::LowType LowirUnitLowering::low_type(TypeId type)
 	case FT_FLOAT: return low("f32");
 	case FT_DOUBLE: return low("f64");
 	case FT_LONG_DOUBLE: return low("f80");
-	case FT_NULLPTR_T: return low("ptr");
+	// 3.9.1p10: `std::nullptr_t` is a distinct type whose object is the size of
+	// a pointer and holds no address at all, so LowIR stores it as the integer
+	// of that width rather than as an address something could be loaded from.
+	case FT_NULLPTR_T: return low("i64");
 	default: break;
 	}
 	// 3.9.1p2: every remaining integral type is one of the two 8 byte ones, and
@@ -220,8 +231,12 @@ bool LowirUnitLowering::writes_base_entry(const SemaEntity& entity)
 	{
 		return false;
 	}
-	if (entity.defined && !entity.inline_function)
+	if (entity.defined && (!entity.inline_function || entity.internal_linkage))
 	{
+		// 3.5p4 and 3.5p3: a definition with internal linkage is this unit's
+		// alone for the same reason one written outside its class is - no other
+		// unit may hold it - so the object file owes both of the ABI's names
+		// whichever of them a use here happened to write.
 		return true;
 	}
 	return entity.complete_object_entry && entity.base_object_entry;
@@ -410,13 +425,19 @@ void LowirUnitLowering::collect_definitions(const DumpNode& node)
 			// definition says, so every definition is indexed by what it
 			// defines whether or not a use has asked for it yet.
 			bodies_[child.fact.entity->id] = &child;
-			if (child.fact.entity->inline_function)
+			if (child.fact.entity->inline_function &&
+			    !(child.fact.entity->friend_definition &&
+			      child.fact.entity->internal_linkage))
 			{
 				// 7.1.2p4: the definition is the program's rather than this
 				// unit's, and 3.2p3 puts it in the program only where a use
 				// asks for it.
 				deferred_[child.fact.entity->id] = &child;
 			}
+			// 3.5p4 and 11.3p5: a friend definition with internal linkage is
+			// one no other unit may hold and none of this unit's ordinary
+			// lookups reaches, so there is no use for it to wait for - the
+			// object file owes it where it stands.
 		}
 		else if (child.fact.kind == FactKind::Variable &&
 		         child.fact.entity != nullptr &&
@@ -594,6 +615,14 @@ bool LowirUnitLowering::image_value(const DumpNode& node, TypeId type,
 			return false;
 		}
 		text = spell_floating(type, written);
+		return true;
+	}
+	if (node.fact.kind == FactKind::Literal && !node.fact.constant &&
+	    types_.strip_cv(node.fact.type) == types_.fundamental(FT_NULLPTR_T))
+	{
+		// 2.14.7: the item holds the null pointer value, which the program wrote
+		// as `nullptr` and which the image spells the same way a body does.
+		text = "nullptr";
 		return true;
 	}
 	unsigned long long bits = 0;
@@ -789,11 +818,21 @@ void LowirUnitLowering::global_variable(const DumpNode& node)
 		// storage, so where that zero is the whole initialization there is
 		// nothing left for the startup body to do either, however many elements
 		// it would have written it into.
-		const bool trivial =
-			written->children[0]->children[0]->fact.entity->trivial;
+		// 9p6: an object of an empty class holds nothing, so the address the
+		// action would name reaches no storage a constructor could write - and
+		// where the constructor writes nothing either, the initialization is
+		// the image and there is no action for the program to run before it.
+		const SemaEntity& built = *written->children[0]->children[0]->fact.entity;
+		const bool trivial = built.trivial;
 		const bool nothing_to_do = trivial &&
 			(written->fact.zero_initialized ||
-			 types_.kind(types_.strip_cv(type)) == TypeKind::Array);
+			 types_.kind(types_.strip_cv(type)) == TypeKind::Array ||
+			 types_.is_empty_class(types_.strip_cv(type)));
+		if (nothing_to_do)
+		{
+			// 3.2p2: the initialization still named the constructor.
+			owe_internal_definition(built);
+		}
 		dynamic = nothing_to_do ? nullptr : written;
 		written = nullptr;
 	}
@@ -1548,6 +1587,14 @@ void LowirUnitLowering::demand_referenced(const DumpNode& node)
 	for (std::size_t index = 0; index < node.children.size(); ++index)
 	{
 		demand_referenced(*node.children[index]);
+	}
+}
+
+void LowirUnitLowering::owe_internal_definition(const SemaEntity& entity)
+{
+	if (entity.internal_linkage)
+	{
+		demand_definition(entity);
 	}
 }
 

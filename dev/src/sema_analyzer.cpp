@@ -169,6 +169,23 @@ std::string SemaAnalyzer::dump_name(const Scope& scope,
 		: name;
 }
 
+// 3.5p4 and 7.3.1.1p1: the same name with the one region the dump leaves out
+// written in - the unnamed namespace, which belongs to this translation unit
+// and which the object file has to spell so that another unit's is a different
+// entity.  Where no unnamed namespace stands around the region, the two names
+// are the same string and only one of them is kept.
+std::string SemaAnalyzer::abi_name(const Scope& scope,
+                                   const std::string& name) const
+{
+	if (scope.abi_prefix.empty())
+	{
+		return dump_name(scope, name);
+	}
+	return scope.kind == ScopeKind::Namespace || scope.kind == ScopeKind::Class
+		? scope.abi_prefix + name
+		: name;
+}
+
 void SemaAnalyzer::run(const AstNode& unit)
 {
 	Context ctx;
@@ -580,9 +597,24 @@ void SemaAnalyzer::namespace_definition(const AstNode& node, const Context& ctx)
 			&model_.open(ScopeKind::Namespace, *ctx.scope, entity, &dump);
 		// 7.3.1.1p1: an unnamed namespace has no name to write before its
 		// members, so they are spelled by the namespace around it.
-		entity->scope->prefix = is_unnamed_namespace(node)
+		const bool unnamed = is_unnamed_namespace(node);
+		entity->scope->prefix = unnamed
 			? ctx.scope->prefix
 			: ctx.scope->prefix + node.text + "::";
+		// 3.5p4 and the ABI: what the dump leaves out the object file cannot,
+		// because two units each writing an unnamed namespace declare two
+		// entities and the names have to differ.  The ABI's name for the region
+		// is `_GLOBAL__N_1`, and every region inside one carries it on.
+		entity->scope->unnamed_region =
+			unnamed || ctx.scope->unnamed_region;
+		if (entity->scope->unnamed_region)
+		{
+			const std::string& outer = ctx.scope->abi_prefix.empty()
+				? ctx.scope->prefix
+				: ctx.scope->abi_prefix;
+			entity->scope->abi_prefix =
+				outer + (unnamed ? "_GLOBAL__N_1" : node.text) + "::";
+		}
 		model_.bind(*ctx.scope, node.text, *entity);
 		model_.declare_in(*ctx.scope, *entity);
 		// 7.3.1p8 and 7.3.1.1p1: an inline or unnamed member's declarations
@@ -852,7 +884,7 @@ SemaEntity& SemaAnalyzer::declare_using_member(SemaEntity& target, Scope& where,
 	shadow.access = kPublicAccess;
 	shadow.shadowed =
 		target.shadowed != nullptr ? target.shadowed : &target;
-	shadow.dump_name = where.prefix + name;
+	name_in_region(shadow, where, name);
 	if (shadow.kind == SemaKind::Function && shadow.object_member &&
 	    where.owner != nullptr)
 	{
@@ -1066,8 +1098,12 @@ SemaEntity& SemaAnalyzer::class_declaration(const AstNode& node,
 		// a fact about the declaration rather than about the use, so the type
 		// carries it.
 		const std::string qualified = dump_name(*ctx.scope, name);
+		// 3.5p4: the object file names it by the regions the ABI writes, which
+		// is the same string but for 7.3.1.1p1's unnamed namespace - so the
+		// type carries both, and every name encoded from a use of it reads the
+		// second.
 		const TypeId type = types_.class_type(
-			id, tag, semantics() ? qualified : name, qualified);
+			id, tag, semantics() ? qualified : name, abi_name(*ctx.scope, name));
 		entity = &model_.create(SemaKind::Class, name, type);
 		model_.own_type(type, *entity);
 		if (!name.empty())
@@ -1100,7 +1136,7 @@ SemaEntity& SemaAnalyzer::class_declaration(const AstNode& node,
 				(tag == ClassTag::Union ? "union" : "class") + "_type__" +
 				decimal(span.begin, false) + "_" + decimal(span.end, false)
 			: "__local_type" + decimal(++local_types_, false);
-		types_.rename(entity->type, header);
+		types_.rename(entity->type, header, abi_name(*ctx.scope, header));
 	}
 	DumpScope& dump = model_.open_dump(*ctx.dump, "scope class " + header);
 	Scope& scope = model_.open(ScopeKind::Class, *ctx.scope, entity, &dump);
@@ -1110,6 +1146,15 @@ SemaEntity& SemaAnalyzer::class_declaration(const AstNode& node,
 	// declaration with the class before it, and the class with the named
 	// namespaces around it, which is what its type already carries.
 	scope.prefix = types_.user_name(entity->type) + "::";
+	// 3.5p4: the object file names a member by its class and the class by the
+	// regions around it, one of which - 7.3.1.1p1's unnamed namespace - the
+	// dump leaves out.  The type is what carries that second spelling, so a
+	// member is named from the class rather than from the region the
+	// definition of the class happens to stand in.
+	if (scope.unnamed_region)
+	{
+		scope.abi_prefix = types_.user_qualified_name(entity->type) + "::";
+	}
 
 	Context inner;
 	inner.scope = &scope;
@@ -1596,7 +1641,10 @@ void SemaAnalyzer::declare_function_declarator(
 			granting->scope->friend_functions.push_back(&function);
 		}
 	}
+	// 3.5p4: and so does every name 7.3.1.1p1's unnamed namespace declares,
+	// whether the declaration wrote `static` or not.
 	function.internal_linkage = function.internal_linkage ||
+		target.scope->unnamed_region ||
 		(specifiers.is_static && target.scope->kind == ScopeKind::Namespace);
 	// 7.1.2p2: one declaration of a function with `inline` makes it inline,
 	// so the fact accumulates over the declarations of one entity.
@@ -1639,7 +1687,10 @@ void SemaAnalyzer::record_storage(SemaEntity& entity, const SemaEntity* prior,
 {
 	// 3.5p3: at namespace scope a name declared `static` has internal linkage,
 	// and so does a `const` object no declaration wrote `extern`.
+	// 3.5p4: a name an unnamed namespace declares has internal linkage however
+	// the declaration was written.
 	entity.internal_linkage = entity.internal_linkage ||
+		target.scope->unnamed_region ||
 		(target.scope->kind == ScopeKind::Namespace &&
 		 (specifiers.is_static ||
 		  (!specifiers.is_extern &&
@@ -1830,7 +1881,7 @@ void SemaAnalyzer::declare_object_declarator(const AstNode* initializer,
 		model_.declare_in(*target.scope, entity);
 		// The qualified spelling a use of the name writes, built here as it is
 		// for a function, because that is where the regions around it are known.
-		entity.dump_name = dump_name(*target.scope, name);
+		name_in_region(entity, *target.scope, name);
 		// 9.2p1: a data member is part of an object of its class and is reached
 		// through one, which 9.4p2 makes untrue of a member declared `static`:
 		// that one is a variable the class names.
@@ -2100,7 +2151,10 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 	}
 	// 3.5p3: one declaration written `static` gives the name internal linkage,
 	// however the others were written.
+	// 3.5p4: so does 7.3.1.1p1's unnamed namespace, which the definition may
+	// stand in without any declaration of it writing a specifier.
 	entity.internal_linkage = entity.internal_linkage ||
+		target.scope->unnamed_region ||
 		(specifiers.is_static && target.scope->kind == ScopeKind::Namespace);
 	// 7.1.2p2 and 9.3p2: `inline` says so, and so does defining a member
 	// function inside the class definition - which is where the definition is
@@ -2324,7 +2378,7 @@ SemaEntity& SemaAnalyzer::declare_function(const std::string& name, TypeId type,
 	}
 
 	SemaEntity& entity = model_.create(SemaKind::Function, name, type);
-	entity.dump_name = dump_name(where, name);
+	name_in_region(entity, where, name);
 	entity.defined = define;
 	entity.c_linkage = c_linkage_;
 	entity.tail = &entity;

@@ -633,7 +633,7 @@ void SemaAnalyzer::special_member(const AstNode& node, const Context& ctx)
 		model_.hold_overload(*owner.constructor, types_.signature(type),
 		                     *entity);
 	}
-	entity->dump_name = ctx.scope->prefix + written;
+	name_in_region(*entity, *ctx.scope, written);
 	entity->object_member = true;
 	// 7.1.2p3 and 9.3p2: a special member function *defined* in its class body
 	// is inline, so its definition belongs to every translation unit that needs
@@ -899,7 +899,7 @@ void SemaAnalyzer::inherit_constructor(SemaEntity& from, const SemaEntity& base,
 		return;
 	}
 	SemaEntity& entity = model_.create(SemaKind::Function, spelled, type);
-	entity.dump_name = where.prefix + spelled;
+	name_in_region(entity, where, spelled);
 	entity.object_member = true;
 	entity.special = kConstructorFunction;
 	entity.inherited = &from;
@@ -1055,7 +1055,7 @@ void SemaAnalyzer::declare_constructor(SemaEntity& entity, Scope& scope)
 	SemaEntity& constructor = model_.create(
 		SemaKind::Function, spelled,
 		types_.function_of(types_.fundamental(FT_VOID), parameters, false));
-	constructor.dump_name = scope.prefix + spelled;
+	name_in_region(constructor, scope, spelled);
 	constructor.object_member = true;
 	// 7.1.2p3 and 12.1p5: a constructor no declaration wrote is inline, so the
 	// definition it is given belongs to every translation unit that needs one
@@ -1100,7 +1100,7 @@ void SemaAnalyzer::declare_destructor(SemaEntity& entity, Scope& scope)
 	SemaEntity& destructor = model_.create(
 		SemaKind::Function, spelled,
 		types_.function_of(types_.fundamental(FT_VOID), parameters, false));
-	destructor.dump_name = scope.prefix + spelled;
+	name_in_region(destructor, scope, spelled);
 	destructor.object_member = true;
 	destructor.inline_function = true;
 	destructor.trivial = trivial_destruction(scope);
@@ -2205,7 +2205,7 @@ SemaEntity* SemaAnalyzer::member_constructor(TypeId type)
 	SemaEntity& constructor = model_.create(
 		SemaKind::Function, spelled,
 		types_.function_of(types_.fundamental(FT_VOID), types, false));
-	constructor.dump_name = scope.prefix + spelled;
+	name_in_region(constructor, scope, spelled);
 	constructor.object_member = true;
 	// 7.1.2p3: the definition is one the standard rather than the program
 	// writes, so it belongs to every unit that needs one.

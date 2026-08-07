@@ -1,0 +1,59 @@
+global @outer___GLOBAL__N_1__inner__counted : i32 [binding=internal, object=_ZN5outer12_GLOBAL__N_15inner7countedE] = zero
+global @outer___GLOBAL__N_1__inner__held [binding=internal, object=_ZN5outer12_GLOBAL__N_15inner4heldE] = {
+  zero 4
+}
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $cond__1 : i32
+
+  block ^entry:
+    %t1 = addr @outer___GLOBAL__N_1__inner__held
+    call void @outer___GLOBAL__N_1__inner__Held__set(%t1)
+    %t2 = addr @outer___GLOBAL__N_1__inner__held
+    %t3 = index i8 [projection=field] %t2, 0
+    %t4 = load i32 %t3
+    store i32 %t4, @outer___GLOBAL__N_1__inner__counted
+    %t5 = load i32 @outer___GLOBAL__N_1__inner__counted
+    %t6 = cmp eq i32 %t5, 1
+    branch %t6, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t7 = load i32 $cond__1
+    return i32 %t7
+}
+function @outer___GLOBAL__N_1__inner__Held__set(%this : ptr) -> void [binding=internal, object=_ZN5outer12_GLOBAL__N_15inner4Held3setEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    store i32 1, %t2
+    return void
+}
+function @outer___GLOBAL__N_1__inner__Held__Held__base_entry(%this : ptr) -> void [unwind=no, binding=internal, object=_ZN5outer12_GLOBAL__N_15inner4HeldC2Ev, trivial_lifecycle=yes] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    return void
+}
+function @outer___GLOBAL__N_1__inner__Held__Held(%this : ptr) -> void [unwind=no, binding=internal, object=_ZN5outer12_GLOBAL__N_15inner4HeldC1Ev, trivial_lifecycle=yes] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    return void
+}
+function @__cppgm_init() -> void [role=init, binding=internal] {
+  block ^entry:
+    return void
+}

@@ -330,7 +330,18 @@ struct SemaEntity
 	// everything else with the name it was declared with.  It is built where
 	// the declaration is read, so a use of the name costs no walk.
 	std::string dump_name;
+	// The same name PA14's encoder reads, which is `dump_name` with
+	// 7.3.1.1p1's `_GLOBAL__N_1` written where the dump writes nothing.  Empty
+	// for every declaration outside an unnamed namespace, which is all but the
+	// few a unit writes there, so the second spelling costs nothing where there
+	// is nothing to say.
+	std::string abi_name;
 };
+
+// The name the object file encodes this declaration from, which is the dump's
+// wherever 7.3.1.1p1 gave the region around it a name to write.
+const std::string& abi_qualified_name(const SemaEntity& entity);
+
 
 // One node of the PA12 semantic dump.
 //
@@ -393,6 +404,7 @@ public:
 		, base(nullptr)
 		, inheriting_constructors(false)
 		, searchers_at(0)
+		, unnamed_region(enclosing != nullptr && enclosing->unnamed_region)
 	{}
 
 	ScopeKind kind;
@@ -417,6 +429,20 @@ public:
 	// 7.3.1.1p1 leaves an unnamed namespace with no name to write, so its
 	// members are spelled as the namespace around it spells its own.
 	std::string prefix;
+	// 3.5p4: whether 7.3.1.1p1's unnamed namespace stands around this region,
+	// which gives every name declared here internal linkage and gives the
+	// object file a region to name that the dump writes nothing for.  A region
+	// inherits it from the one it is opened in, so it is one comparison per
+	// declaration rather than a walk outwards.
+	bool unnamed_region;
+	// The same `N::M::` the object file's name is encoded from, which differs
+	// from the dump's in one place: 7.3.1.1p1's unnamed namespace is a region
+	// of its own that 3.5p4 keeps to this translation unit, and the ABI writes
+	// it as the name `_GLOBAL__N_1` rather than as nothing - so two unnamed
+	// namespaces in two units name two entities and not one.  Empty where it
+	// is the same string as `prefix`, which every region outside an unnamed
+	// namespace leaves it.
+	std::string abi_prefix;
 	// Scratch of one walk: the walk that reached this region, so that one with
 	// several paths into one namespace holds it once.
 	std::uint64_t visit;
@@ -473,6 +499,14 @@ private:
 	Scope(const Scope&);
 	Scope& operator=(const Scope&);
 };
+
+// 3.4.3.1 and 3.4.3.2: a declaration of a namespace or of a class is named from
+// outside it by the regions it is written in.  Both spellings of that name are
+// settled together, so no caller can write one of them and leave the other
+// saying what the region was called before an unnamed namespace was opened
+// around it - and 3.5p4's linkage is settled with them.
+void name_in_region(SemaEntity& entity, const Scope& scope,
+                    const std::string& name);
 
 // The entities, scopes and dump nodes of one translation unit.
 class SemaModel

@@ -1432,6 +1432,7 @@ private:
 	static const char* category_name(ValueCategory category);
 	// The name the PA12 dump gives a declaration of `scope`.
 	std::string dump_name(const Scope& scope, const std::string& name) const;
+	std::string abi_name(const Scope& scope, const std::string& name) const;
 	bool semantics() const { return dialect_ != SemaDialect::Types; }
 	bool lowering() const { return dialect_ == SemaDialect::Lowering; }
 
