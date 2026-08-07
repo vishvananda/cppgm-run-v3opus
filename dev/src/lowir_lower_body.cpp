@@ -991,9 +991,13 @@ void LowirFunctionLowering::run(const DumpNode& node, TypeId type)
 			held.type = written;
 			held.lvalue = true;
 			held.operand = named_operand(Operand::OP_SLOT, parameter.name);
-			copy_class_object(address_of(held),
-			                  named_operand(Operand::OP_TEMP, parameter.name),
-			                  written);
+			// The course ABI passes an object of class type as the storage it
+			// occupies, which the caller already ran 12.8p15's copy into - so
+			// what the body owes is the payload moved into the storage a name
+			// reaches, and not a second copy of the object.
+			copy_object_storage(address_of(held),
+			                    named_operand(Operand::OP_TEMP, parameter.name),
+			                    written);
 			continue;
 		}
 		// 5.1.1p8: a parameter is an object of the function, so its value is

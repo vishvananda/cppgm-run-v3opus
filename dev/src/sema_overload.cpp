@@ -869,6 +869,25 @@ void SemaAnalyzer::apply_conversion(Value& value, TypeId target,
 	    types_.is_class(types_.strip_cv(target)) &&
 	    types_.strip_cv(value.type) == types_.strip_cv(target))
 	{
+		if (value.category != ValueCategory::PRValue && value.node != nullptr &&
+		    !types_.is_trivially_copied(types_.strip_cv(target)))
+		{
+			// 5.2.2p4 and 6.6.3p2: the parameter and the returned object are
+			// objects of their own, and the argument names one that goes on
+			// existing - so what fills the new one is the copy or move
+			// constructor 12.8p15 gives the class, chosen by 13.3 from the
+			// value category the argument has.  A class whose copy carries
+			// nothing but bytes is left to the copy of the bytes, which is
+			// what the storage this asked for already is.
+			const TypeId wanted = types_.strip_cv(target);
+			Value source = value;
+			DumpNode& line = model_.wrap_node(*value.node, std::string());
+			source.node = line.children[0];
+			line.children.clear();
+			value = build_temporary(wanted, line, nullptr, &source, ctx,
+			                        requested_prefix(by, false), false);
+			return;
+		}
 		// 12.8p31: the argument is a prvalue of the parameter's own class, so
 		// the temporary it is may be created in the storage the call passes -
 		// and then there is one object rather than an object and a copy of it.

@@ -548,6 +548,17 @@ void SemaAnalyzer::name_function(Value& value, SemaEntity& selected,
 		// declaration it stands for is written once however often it is named.
 		instantiate(function);
 	}
+	// 8.4.3p2: a program that names a deleted function is ill formed, and a
+	// name is what every use of one but 12.1's construction of an object goes
+	// through - a call, an address, an operator expression the class of an
+	// operand answered.  12.8p11 and p23 are what delete most of them, and
+	// nothing below this point could tell that from a declaration the program
+	// never wrote.
+	if (function.deleted)
+	{
+		throw std::runtime_error(function.name +
+		                         " is named and is a deleted function");
+	}
 	// 12.8p28 and 3.2p3: naming an assignment operator the standard gave a
 	// class is what asks this unit for the definition of it.
 	demand_transfer_definition(function);
