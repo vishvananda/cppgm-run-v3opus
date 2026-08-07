@@ -341,7 +341,16 @@ SemaEntity* SemaAnalyzer::converting_constructor(const Value& argument,
 			// second user-defined conversion, and one sequence holds one.
 			continue;
 		}
+		// 13.3.3.1.2p1: the sequence measured inside a user-defined conversion
+		// holds no user-defined conversion of its own, whichever direction the
+		// second one would run - a converting constructor of a further class or
+		// a conversion function of the argument's.  One flag says it for both,
+		// and it is set here as well as around 13.3.1.5's second sequence
+		// because a candidate parameter of built-in type is exactly where a
+		// conversion function would otherwise slip a second one in.
+		standard_only_ = true;
 		const Match match = match_argument(argument, wanted);
+		standard_only_ = false;
 		if (!match.viable || match.converting != nullptr)
 		{
 			continue;
@@ -453,11 +462,18 @@ SemaAnalyzer::Match SemaAnalyzer::conversion_match(const Value& argument,
 			// nothing rather than reaching `bool` and converting it.
 			continue;
 		}
+		// 13.3.3p1: what a conversion of an object is worth is where it gets
+		// to, so the second, standard conversion sequence to the destination
+		// orders these candidates and the implicit object argument tells apart
+		// only the ones that get equally far - which is what makes
+		// `operator int` of a base beat `operator long` of a nearer one for an
+		// `int` destination, and `operator T()` beat `operator T() const` on an
+		// object that is not const.
 		const int order = best == nullptr
 			? 1
-			: (compare_matches(reached, chosen_object) != 0
-			   ? compare_matches(reached, chosen_object)
-			   : compare_matches(result, chosen_result));
+			: (compare_matches(result, chosen_result) != 0
+			   ? compare_matches(result, chosen_result)
+			   : compare_matches(reached, chosen_object));
 		if (order > 0)
 		{
 			best = at;
@@ -875,22 +891,29 @@ SemaAnalyzer::Match SemaAnalyzer::match_reference(const Value& argument,
 		// qualifier binds nothing.
 		return match;
 	}
-	if (!rvalue_ref && !const_lvalue_ref)
-	{
-		return match;
-	}
 	if (types_.is_class(types_.strip_cv(source)))
 	{
 		// 8.5.3p5: where the initializer is of class type, a conversion
 		// function that hands back an lvalue reference-compatible with the
 		// referenced type binds that lvalue itself rather than a temporary
 		// copied out of it - so the reference, and not the type it refers to,
-		// is what the sequence is measured against.
+		// is what the sequence is measured against.  It stands before the
+		// refusal below, because that one is about the temporary a conversion
+		// *to* the referenced type would make: an lvalue a conversion function
+		// handed back is an object of its own, and a non-const lvalue
+		// reference binds one.
 		const Match reached = conversion_match(argument, parameter, false);
 		if (reached.viable)
 		{
 			return reached;
 		}
+	}
+	if (!rvalue_ref && !const_lvalue_ref)
+	{
+		// 8.5.3p5: a non-const lvalue reference binds no temporary, and what is
+		// left below is the temporary a conversion to the referenced type would
+		// be held in.
+		return match;
 	}
 
 	// The argument is converted to the referenced type and the reference binds
