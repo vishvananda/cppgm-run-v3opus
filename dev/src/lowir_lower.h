@@ -341,12 +341,17 @@ public:
 	// it reaches the image as the digits the program wrote and the suffix the
 	// storage asks for.
 	bool image_value(const DumpNode& node, TypeId type, std::string& text);
+	// 2.14.4 and `lowir.md`: one floating value spelled at the width of the
+	// storage that holds it.  It is one owner because a spelling that carries
+	// the suffix of another width would be a value of that width, so the
+	// digits of the image, of a body's immediate and of 8.5p7's zero all come
+	// through here rather than each carrying a suffix of its own.
+	std::string spell_floating(TypeId type, const std::string& written);
 
 private:
 	// 2.14.4: the digits of the floating constant an initializer is worth, and
 	// one floating value spelled at the width the storage has.
 	bool floating_image(const DumpNode& node, std::string& text);
-	std::string spell_floating(TypeId type, const std::string& written);
 	// The definitions of this unit, gathered before any of it is lowered.
 	void collect_definitions(const DumpNode& node);
 	// 3.7.2p2: the definitions with thread storage duration, lowered before any

@@ -188,14 +188,14 @@ Operand LowirFunctionLowering::literal_operand(TypeId type,
 	if (types.is_floating(types.strip_cv(type)))
 	{
 		// 2.14.4: a floating zero is spelled at the width it is written for,
-		// which is what the suffix of a LowIR floating literal says - the same
-		// three spellings 5.2.3p2's `T()` gives the zero of a floating type.
-		// Every floating value that is not this zero was spelled by the program
-		// and reaches the output as `fact.spelling`, so no other one is asked
-		// for here.
-		const std::string low = unit_.low_type(type).text;
+		// which is what the suffix of a LowIR floating literal says - and it is
+		// asked of the one owner of that suffix, so the zero of an `f32` is
+		// spelled the way every other `f32` value in the output is.  Every
+		// floating value that is not this zero was spelled by the program and
+		// reaches the output as `fact.spelling`, so no other one is asked for
+		// here.
 		operand.kind = Operand::OP_FLOAT;
-		operand.text = low == "f32" ? "0.0F" : low == "f80" ? "0.0L" : "0.0";
+		operand.text = unit_.spell_floating(type, "0.0");
 		return operand;
 	}
 	const unsigned long long value = unit_.narrowed(type, bits);
@@ -2121,12 +2121,16 @@ LowValue LowirFunctionLowering::cast_expression(const DumpNode& node,
 		return value;
 	}
 	if (source.constant && types.is_integral(types.strip_cv(value.type)) &&
+	    !(types.kind(types.strip_cv(value.type)) == TypeKind::Fundamental &&
+	      types.fundamental_type(types.strip_cv(value.type)) == FT_BOOL) &&
 	    types.is_integral(types.strip_cv(source.type)))
 	{
 		// 5.2.9 over a constant: the value the cast produces is a value the
 		// translation knows, so it is written as the immediate it is - and it
 		// is the immediate an object of the cast's own type holds, which is
-		// what a conversion above it then widens.
+		// what a conversion above it then widens.  4.12's conversion to `bool`
+		// is not one of those: what it produces is whether the operand differs
+		// from zero, which is not the same bits read at another width.
 		value.constant = true;
 		value.value = unit_.narrowed(value.type, source.value);
 		value.operand = literal_operand(value.type, value.value);

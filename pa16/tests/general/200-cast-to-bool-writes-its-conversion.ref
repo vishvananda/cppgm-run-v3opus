@@ -1,0 +1,19 @@
+global @held : i32 [binding=strong, object=_Z4held] = 2
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    %t1 = cmp ne i32 2, 0
+    %t2 = copy u8 %t1
+    %t3 = convert zext i32 u8 %t2
+    %t4 = load i32 @held
+    %t5 = cmp ne i32 %t4, 0
+    %t6 = copy u8 %t5
+    %t7 = convert zext i32 u8 %t6
+    %t8 = binary add i32 %t3, %t7
+    %t9 = cmp ne i32 0, 0
+    %t10 = copy u8 %t9
+    %t11 = convert zext i32 u8 %t10
+    %t12 = binary add i32 %t8, %t11
+    %t13 = binary sub i32 %t12, 2
+    return i32 %t13
+}
