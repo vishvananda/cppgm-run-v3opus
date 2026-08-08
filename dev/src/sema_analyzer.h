@@ -987,12 +987,18 @@ private:
 	// `forwarded`, where given, are the parameters whose values 12.9p8 passes
 	// to the constructor of the base subobject an inheriting constructor
 	// initializes, in place of an initializer the program wrote.
+	// `direct` says the place that asked for the initialization wrote it as a
+	// direct-initialization, which 13.3.1.4 leaves the class's `explicit`
+	// constructors in: 5.2.9p4's cast is one and 13.3.3.1.2's conversion is
+	// not, and the two reach here the same way - with the one operand already
+	// read.
 	void construct_object(SemaEntity& variable, DumpNode& line,
 	                      const AstNode* written, const Context& ctx,
 	                      Placement where = Placement::Named,
 	                      bool copied = false, const Value* given = nullptr,
 	                      bool value_init = false,
-	                      const std::vector<SemaEntity*>* forwarded = nullptr);
+	                      const std::vector<SemaEntity*>* forwarded = nullptr,
+	                      bool direct = false);
 	// 8.5p15/p16 and 5.2.3p1: which of 8.5's forms the initializer an object of
 	// class type was written with is - a list whose clauses are the
 	// constructor's arguments, one expression a converting constructor answers,
@@ -1047,10 +1053,12 @@ private:
 	// something else already ends: 5.2.2p4's by-value parameter object, which
 	// the function called is what destroys, and 5.16p3's result object, which
 	// each arm builds and whoever reads the conditional holds.
+	// `direct` is 13.3.1.4's question about the place that asked for the
+	// temporary, passed through to the initialization.
 	Value build_temporary(TypeId type, DumpNode& line, const AstNode* written,
 	                      const Value* given, const Context& ctx,
 	                      const char* prefix, bool value_init,
-	                      bool owned = true);
+	                      bool owned = true, bool direct = false);
 	// 8.5.3p5 and 13.3.3.1.2: a temporary an argument conversion made is named
 	// after the argument it was made for, unless something already read it as
 	// the object it is.  `owned` says the same thing it says above: an argument

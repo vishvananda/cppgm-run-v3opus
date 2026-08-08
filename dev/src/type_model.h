@@ -185,9 +185,21 @@ public:
 
 	// 9.2p2: the class becomes complete at the end of its member specification,
 	// which is where its size and alignment are first known.
+	// `zeroed_storage` is 8.5p8's answer for the same class: whether any byte
+	// of an object of it is written by zero-initialization, which is what its
+	// bases and members hold rather than what its size comes to.
 	void complete_class(TypeId type, unsigned long long size,
 	                    unsigned long long align, bool empty,
-	                    bool trivially_copied);
+	                    bool trivially_copied, bool zeroed_storage);
+
+	// 8.5p8: whether zero-initializing an object of `type` writes anything at
+	// all.  It is over the storage the bases and the non-static data members
+	// hold, so a subobject that holds nothing holds none of it and a class every
+	// subobject of which holds nothing is zeroed by writing no byte.  1.8p5
+	// still gives such an object a size, which is why the size cannot answer
+	// this.  True for every type that is not a class, and for an array of one
+	// whichever way its element answers.
+	bool has_zeroed_storage(TypeId type);
 
 	// 9p6: whether an object of the class holds nothing, which is what says a
 	// copy of one moves no bytes.  False for every type that is not a class.
@@ -398,6 +410,9 @@ private:
 		// is the copy of its bytes, which the program writing a copy
 		// constructor of its own - here or in a subobject - makes it not.
 		bool trivially_copied;
+		// 8.5p8: whether any byte of an object of the class is written by
+		// zero-initialization, which is what its bases and members hold.
+		bool zeroed_storage = true;
 		// 12.8p11: whether the class's copy constructor is one 8.4.3p2 leaves
 		// no program able to name, which is what says an object of it is
 		// carried by the member the program declared and not by its bytes.

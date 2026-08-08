@@ -141,6 +141,16 @@ bool creates_its_object(const DumpNode& node)
 		// for it, so a call of a function returning a class creates one.
 		return node.fact.category == ValueCategory::PRValue;
 
+	case FactKind::Cast:
+		// 5.2.9p4: a cast to a class type *is* the direct-initialization of a
+		// temporary of it, so the object the cast is worth is the one standing
+		// under it and the cast creates it wherever that one is created.
+		return node.fact.category == ValueCategory::PRValue &&
+			!node.children.empty() &&
+			node.children[0]->fact.kind == FactKind::TemporaryObject &&
+			node.children[0]->fact.type == node.fact.type &&
+			creates_its_object(*node.children[0]);
+
 	default:
 		break;
 	}
@@ -246,7 +256,8 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
                                     const AstNode* written, const Context& ctx,
                                     Placement where, bool copied,
                                     const Value* given, bool value_init,
-                                    const std::vector<SemaEntity*>* forwarded)
+                                    const std::vector<SemaEntity*>* forwarded,
+                                    bool direct)
 {
 	const bool member = where != Placement::Named;
 	// 12.6p1: an array of class type is initialized element by element, and
@@ -292,7 +303,11 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 		// it, so it is taken as it stands.  Its line is not held by this one
 		// yet, so nothing is taken back out of what this line already holds.
 		source = *given;
-		converting = true;
+		// 13.3.1.3 and 13.3.1.4: the operand is one, and which of the class's
+		// constructors are candidates for it is what the place that asked
+		// wrote - 5.2.9p4's cast is a direct-initialization and leaves the
+		// `explicit` ones in, and 13.3.3.1.2's conversion is not and does not.
+		converting = !direct;
 	}
 	else if (converting)
 	{
@@ -778,7 +793,8 @@ SemaAnalyzer::Value SemaAnalyzer::build_temporary(TypeId type, DumpNode& line,
                                                   const Value* given,
                                                   const Context& ctx,
                                                   const char* prefix,
-                                                  bool value_init, bool owned)
+                                                  bool value_init, bool owned,
+                                                  bool direct)
 {
 	const TypeId object_type = types_.strip_cv(type);
 	SemaEntity& object = model_.create(SemaKind::Variable, std::string(),
@@ -806,7 +822,7 @@ SemaAnalyzer::Value SemaAnalyzer::build_temporary(TypeId type, DumpNode& line,
 	else
 	{
 		construct_object(object, line, written, ctx, Placement::Named, false,
-		                 given, value_init);
+		                 given, value_init, nullptr, direct);
 	}
 	if (owned)
 	{

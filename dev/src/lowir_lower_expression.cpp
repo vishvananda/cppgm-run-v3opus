@@ -457,6 +457,15 @@ LowValue LowirFunctionLowering::cast_expression(const DumpNode& node,
 	}
 	if (types.is_class(types.strip_cv(value.type)))
 	{
+		if (node.children[0]->fact.kind == FactKind::TemporaryObject &&
+		    types.strip_cv(node.children[0]->fact.type) ==
+		        types.strip_cv(value.type))
+		{
+			// 5.2.9p4 and 12.8p31: the operand is the object the cast
+			// direct-initialized, so the cast is worth that object and no copy
+			// of it stands between the two.
+			return source;
+		}
 		// 5.2.9p4 and 12.2p1: a cast to a class type direct-initializes a
 		// temporary of it, which is an object the function holds.  The cast is
 		// worth that object, so whoever reads it reads storage rather than a

@@ -491,7 +491,7 @@ void TypeTable::rename(TypeId type, const std::string& name,
 
 void TypeTable::complete_class(TypeId type, unsigned long long size,
                                unsigned long long align, bool empty,
-                               bool trivially_copied)
+                               bool trivially_copied, bool zeroed_storage)
 {
 	UserType& record = user_types_[nodes_[type].user];
 	record.complete = true;
@@ -499,6 +499,19 @@ void TypeTable::complete_class(TypeId type, unsigned long long size,
 	record.align = align;
 	record.empty = empty;
 	record.trivially_copied = trivially_copied;
+	record.zeroed_storage = zeroed_storage;
+}
+
+bool TypeTable::has_zeroed_storage(TypeId type)
+{
+	TypeId bare = strip_cv(type);
+	while (kind(bare) == TypeKind::Array)
+	{
+		// 8.5p8 over an array is 8.5p8 over each of its elements, so an array
+		// of a class that holds nothing holds nothing however long it is.
+		bare = strip_cv(target(bare));
+	}
+	return kind(bare) != TypeKind::Class || user_at(bare).zeroed_storage;
 }
 
 void TypeTable::settle_copy_facts(TypeId type, bool trivially_copied,

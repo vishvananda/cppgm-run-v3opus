@@ -716,9 +716,13 @@ private:
 	// mark of its lifetime beginning, so even a constructor that does nothing
 	// is the call it is - which is what a temporary no declaration named needs
 	// and what an object a declaration named does not.
+	// `storage` says what stands at `address` is storage 5.3.4 obtained rather
+	// than an object of the function's own, which is what 8.5p7's zero covers
+	// there: the whole extent the allocation asked for, and not only the bytes
+	// an object of the class holds.
 	void constructor_call(const lowir_model::Operand& address,
 	                      const DumpNode& node, bool always = false,
-	                      TypeId zeroed = kNoType);
+	                      TypeId zeroed = kNoType, bool storage = false);
 	// 12.6p1 and 12.4p8: the action `node` names, run on every element of the
 	// array it names rather than on one object.  The object the action names is
 	// read again for each element, because where the element is, is where the

@@ -323,6 +323,11 @@ void SemaAnalyzer::lay_out_class(SemaEntity& entity, Scope& scope, bool is_union
 	// own, nor where any subobject's copy is not, because 12.8p15 makes the
 	// copy memberwise and each member's own copy constructor is what copies it.
 	bool trivially_copied = !declares_copy_constructor(entity, scope);
+	// 8.5p8: what zero-initializing an object of this class writes is what its
+	// base subobject and its non-static data members hold, so a class every
+	// subobject of which holds nothing has no byte to write - which 1.8p5's
+	// size for it cannot say, because a size it has either way.
+	bool zeroed_storage = false;
 	if (entity.base != nullptr)
 	{
 		// 10p1 and the course ABI: the direct base subobject begins where the
@@ -333,6 +338,10 @@ void SemaAnalyzer::lay_out_class(SemaEntity& entity, Scope& scope, bool is_union
 		if (!types_.is_trivially_copied(types_.strip_cv(entity.base->type)))
 		{
 			trivially_copied = false;
+		}
+		if (types_.has_zeroed_storage(entity.base->type))
+		{
+			zeroed_storage = true;
 		}
 		if (!entity.base->empty_class)
 		{
@@ -371,6 +380,10 @@ void SemaAnalyzer::lay_out_class(SemaEntity& entity, Scope& scope, bool is_union
 		if (!types_.is_trivially_copied(member_copy_type(member.type)))
 		{
 			trivially_copied = false;
+		}
+		if (types_.has_zeroed_storage(member.type))
+		{
+			zeroed_storage = true;
 		}
 		if (member_align > align)
 		{
@@ -437,7 +450,7 @@ void SemaAnalyzer::lay_out_class(SemaEntity& entity, Scope& scope, bool is_union
 	// 1.8p5: a complete object has a size of at least one byte.
 	size = round_up(size, align);
 	types_.complete_class(entity.type, size == 0 ? 1 : size, align, empty,
-	                      trivially_copied);
+	                      trivially_copied, zeroed_storage);
 }
 // The ABI: where the empty class subobjects of an object of `type` standing at
 // `at` are, appended to `holes`.  A type that is no class has none, and a class

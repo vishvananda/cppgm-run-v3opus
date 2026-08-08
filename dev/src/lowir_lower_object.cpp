@@ -677,7 +677,7 @@ void LowirFunctionLowering::destruction_step(const DumpNode& node, bool element,
 // its constructor on it.  A constructor that does nothing is no call at all.
 void LowirFunctionLowering::constructor_call(const Operand& address,
                                              const DumpNode& node, bool always,
-                                             TypeId zeroed)
+                                             TypeId zeroed, bool storage)
 {
 	TypeTable& types = unit_.types();
 	const DumpNode& call = *node.children[0];
@@ -711,7 +711,21 @@ void LowirFunctionLowering::constructor_call(const Operand& address,
 		// constructor is the trivial one.  What is zeroed is one object, which
 		// for an array of class type is the element being constructed rather
 		// than every byte the array occupies.
-		zero_object(address, zeroed == kNoType ? node.fact.type : zeroed);
+		const TypeId written = zeroed == kNoType ? node.fact.type : zeroed;
+		if (storage)
+		{
+			// 5.3.4p15: what stands here is the storage the allocation
+			// obtained, which the new-expression zeroes over its whole extent
+			// as the array form does - so a class whose subobjects hold nothing
+			// still has the bytes it was given written over.
+			const TypeId bare = types.strip_cv(written);
+			zero_span(address, types.object_size(bare),
+			          types.object_align(bare));
+		}
+		else
+		{
+			zero_object(address, written);
+		}
 	}
 	// 12.8p15: this construction carries the value of an object it was given
 	// into the one it builds, which is work whatever the definition of the
@@ -1051,7 +1065,7 @@ LowValue LowirFunctionLowering::new_expression(const DumpNode& node)
 		// 12.1p5: the object's lifetime begins with the call of its
 		// constructor, which is written even where the constructor does
 		// nothing, because the call is the only mark that it has.
-		constructor_call(allocated.operand, initialization, true);
+		constructor_call(allocated.operand, initialization, true, kNoType, true);
 	}
 	else
 	{
@@ -1550,6 +1564,14 @@ bool LowirFunctionLowering::creates_object(const DumpNode& node, TypeId type)
 		// object each of its operands initializes is this destination.
 		return node.fact.category == ValueCategory::PRValue;
 	}
+	if (node.fact.kind == FactKind::Cast && creates_its_object(node))
+	{
+		// 5.2.9p4: the cast is the direct-initialization of the temporary
+		// standing under it, so where that temporary builds is where the cast
+		// builds - and the storage it may already have been given is its own
+		// question and not the cast's.
+		return creates_object(*node.children[0], type);
+	}
 	if (!creates_its_object(node))
 	{
 		return false;
@@ -1589,6 +1611,11 @@ LowValue LowirFunctionLowering::place_class_object(const Operand& destination,
 		case FactKind::Conditional:
 			conditional_object(node, &destination);
 			return object;
+
+		case FactKind::Cast:
+			// 5.2.9p4: the cast is the initialization written under it, and it
+			// writes into the storage this place named.
+			return place_class_object(destination, type, *node.children[0]);
 
 		default:
 			break;
@@ -1852,8 +1879,12 @@ void LowirFunctionLowering::zero_object(const Operand& address, TypeId type)
 {
 	TypeTable& types = unit_.types();
 	const TypeId bare = types.strip_cv(type);
-	if (types.is_empty_class(bare))
+	if (!types.has_zeroed_storage(bare))
 	{
+		// 8.5p8: what the zero covers is the storage the bases and the members
+		// hold, and a subobject that holds nothing holds none of it - so a class
+		// every subobject of which holds nothing is zeroed by writing no byte,
+		// however many bytes 1.8p5 gives an object of it.
 		return;
 	}
 	zero_span(address, types.object_size(bare), types.object_align(bare));
