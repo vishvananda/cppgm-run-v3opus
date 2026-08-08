@@ -189,6 +189,28 @@ public:
 		return user_at(type).qualified;
 	}
 
+	// 14.7.1p1 and the ABI's `<template-args>`: the template this class is a
+	// specialization of, named from outside every region around it, and the
+	// types its template-argument list bound to the parameters.  A name
+	// encoded from the type writes the two apart - the template's name and
+	// then its arguments - which the one spelling `qualified` carries cannot
+	// be split back into, so the specialization records them as the facts they
+	// are.  Empty for every class no template made.
+	void set_template_arguments(TypeId type, const std::string& templated,
+	                            const std::vector<TypeId>& arguments);
+	bool is_specialization(TypeId type) const
+	{
+		return !user_at(type).template_name.empty();
+	}
+	const std::string& template_name(TypeId type) const
+	{
+		return user_at(type).template_name;
+	}
+	const std::vector<TypeId>& template_arguments(TypeId type) const
+	{
+		return user_at(type).template_arguments;
+	}
+
 	// 9.8p1: the function whose body declared this class or enumeration, and
 	// its place among the types of that name the function declares.  Settled
 	// where the declaration is read, because the region it was written in is
@@ -502,6 +524,11 @@ private:
 		const SemaEntity* local_function = nullptr;
 		unsigned local_occurrence = 0;
 		bool local_unnamed = false;
+		// 14.7.1p1: the template a specialization was made of and the
+		// arguments that made it, empty for every class a template-id did not
+		// name.
+		std::string template_name;
+		std::vector<TypeId> template_arguments;
 	};
 
 	// What makes two types the same type.

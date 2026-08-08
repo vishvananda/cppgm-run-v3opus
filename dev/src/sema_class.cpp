@@ -209,7 +209,12 @@ std::string SemaAnalyzer::special_member_name(const std::string& written,
 		QualifiedName(types_.user_name(owner.type)).last();
 	const bool destructor = !written.empty() && written[0] == '~';
 	const std::string named = destructor ? written.substr(1) : written;
-	if (named != spelled)
+	// 14.6.1p1 and 9p2: inside a class template the injected-class-name is the
+	// template's own name, and 12.1p1's declarator writes that - so a
+	// specialization's constructor is the one its pattern spelled with the
+	// template-name, whatever the template-id calls the class.
+	if (named != spelled &&
+	    (owner.primary == nullptr || named != owner.primary->name))
 	{
 		// 12.3.2: a conversion function, and 13.5 an operator function written
 		// with no return type.  Neither is part of this milestone's slice, and

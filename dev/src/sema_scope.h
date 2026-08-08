@@ -113,6 +113,9 @@ enum class LookupKind
 class Scope;
 
 struct SemaEntity;
+// 14p1: the pattern a template-declaration parameterises, which the semantic
+// walk owns because it is syntax and this layer knows none.
+struct TemplateInfo;
 
 // The slot index a virtual function has in every vtable that holds it, or
 // `kNoVtableIndex` for a declaration that is not virtual.  The index a base
@@ -491,6 +494,15 @@ struct SemaEntity
 	// for a declaration no template-declaration parameterises, which every
 	// declaration of the PA12 subset but a template is.
 	Scope* template_parameters;
+	// 14p1: what this declaration is a template *of*, when a
+	// template-declaration parameterises it - the syntax the pattern was
+	// written from, the region it stands in, and the parameters its head
+	// declared.  14.7.1p1 makes an instantiation a reading of that pattern
+	// against arguments bound to those parameters, so the declaration is the
+	// natural owner of both and the walk that instantiates one asks nothing of
+	// the tree it did not record here.  Null for every declaration no
+	// template-declaration parameterises.
+	TemplateInfo* templated;
 	// 14.7p1: the template this declaration is a specialization of, and whether
 	// the output has already written the declaration it stands for.  A
 	// specialization is made by naming it rather than by a declaration the

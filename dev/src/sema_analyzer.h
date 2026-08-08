@@ -13,6 +13,8 @@
 #include "parse_depth.h"
 #include "sema_name.h"
 #include "sema_scope.h"
+#include "sema_template.h"
+#include "sema_value.h"
 #include "type_model.h"
 
 struct AstNode;
@@ -110,145 +112,11 @@ private:
 		DumpNode* node;
 	};
 
-	// One analysed expression.
-	//
-	// `type` is what the operators see, so a reference is already removed from
-	// it (5p5).  `spelled` is what the dump writes, which parts company with
-	// `type` exactly where the standard makes a reference visible in the
-	// result of an expression: a call of a function returning a reference, and
-	// a cast to one.
-	struct Value
-	{
-		Value();
-
-		TypeId type;
-		TypeId spelled;
-		ValueCategory category;
-		DumpNode* node;
-		// 13.4 and 3.4p2: the declarations an unresolved function name denotes,
-		// which a target type or a call's arguments choose between.  One region's
-		// declarations of a name are the chain it heads, and 7.3.4p3 lets one
-		// lookup reach the chains of several, so the set is a list of heads and
-		// belongs to the lookup that found it.
-		const std::vector<SemaEntity*>* functions;
-		// 5.3.1p3: the line that name wrote, when `&` was written on it, so
-		// that the target which chooses a declaration writes both the name and
-		// the pointer to it.  Null when the value is the name itself.
-		DumpNode* addressed;
-		// 3.4 and 13.4: the id-expression a function name was written as.  The
-		// line the output writes for it names the declaration the program
-		// wrote rather than the one the lookup reached, so a name found
-		// through a using-directive stays as it stands and a template-id keeps
-		// the arguments it wrote.
-		const AstNode* name;
-		// The line this value wrote, as the two parts of it that are not the
-		// category and the type: the node kind the format writes before them,
-		// and the payload it writes after.  Holding them is what lets a
-		// conversion that changes what the value denotes - a cast to a
-		// reference, a null pointer constant - spell that one line again in the
-		// place it stands, rather than the output being built in a second pass.
-		const char* what;
-		std::string payload;
-		// 4.10p1: an integral constant expression prvalue that evaluates to
-		// zero, which is the only integral operand a pointer accepts.
-		bool null_constant;
-		// 9.3.2p1: a pointer this translation knows holds the address of an
-		// object - `this`, which is the object a member function was called on.
-		// 4.10p3 has to hand back the null pointer value where the source of a
-		// derived-to-base conversion holds one, and where the conversion moves
-		// the address at all that test is a branch the program pays for; a
-		// pointer that cannot be null needs neither.  False for every pointer a
-		// program wrote, which is all but the one the analysis makes.
-		bool nonnull;
-		bool constant;
-		unsigned long long value;
-		// The declaration a name stands for, and the token an operator was
-		// written with.  The line spells both; a lowering needs them as the
-		// facts they are, so they travel with the value rather than being
-		// read back out of the text.
-		SemaEntity* entity;
-		unsigned op;
-		// 5p9: the type a built-in binary operator brings both operands to.
-		TypeId operands;
-		// 13.3.1p4: the value category the object expression of a member call
-		// had.  9.3.1p3 holds the implicit object parameter as a pointer, so
-		// the argument this value carries is the object's address and the
-		// category it was written with would otherwise be lost - and it is
-		// exactly what 8.3.5p1's ref-qualifier binds by.  It says nothing about
-		// any value that is not an implied object argument.
-		ValueCategory object_category;
-		// 7.3.3p1 and 11.2p5: whether this operand is the object a member
-		// function a using-declaration brought into its class is called on.
-		// The class the name was written on is the naming class, so 4.10p3's
-		// conversion to the base subobject the function belongs to is not one
-		// the program wrote and the base-specifier's own access is not asked
-		// about - which is what lets a private base's member be named.
-		bool through_using;
-		// 13.3.3.1.5p1: the braced-init-list this argument was written as.  A
-		// list is not an expression, so nothing about it can be read before the
-		// parameter it reaches is known: the list travels as the value, `node`
-		// holds the place it will be written in, and `type` stays unsettled
-		// until 8.5.4 has been given a type to read it for.
-		const AstNode* braced;
-		// 13.3.3.1p4: the class 13.3.1.7's second phase is initializing, where
-		// this list is that phase's one element and is itself a list.  A
-		// parameter of that class - or of a reference to it - reaches nothing
-		// through a user-defined conversion there, which is what stops the
-		// class's own copy constructor from competing with the constructor the
-		// braces were written for.  `kNoType` everywhere else.
-		TypeId listed_class;
-	};
-
-	// 13.3.3.1: how good the conversion of one argument is.  The ranks of
-	// Table 12, plus what 13.3.3.2p3 and p4 need to tell two of one rank apart.
-	struct Match
-	{
-		Match();
-
-		bool viable;
-		// 0 exact, 1 promotion, 2 conversion, 3 ellipsis.
-		int rank;
-		// 13.3.3.2p4: a conversion to `bool` from a pointer loses to one that
-		// keeps the pointer.
-		bool to_bool;
-		// 13.3.3.2p3: how a reference parameter bound its argument.
-		bool reference;
-		bool binds_rvalue_ref;
-		bool binds_lvalue;
-		// 13.3.3.2p3: the type the sequence produced where all it did to the
-		// argument was qualify it - the pointer a qualification conversion made
-		// of it, or the type a reference bound it as.  Two sequences that differ
-		// only in this are ordered by whose qualifiers are the fewer, which is
-		// what tells `f()` from `f() const` apart on an object of either.
-		TypeId qualified;
-		// The temporary a reference parameter had to convert its argument into,
-		// which the dump writes as a cast.
-		TypeId materialized;
-		// 4.10p3 and 13.3.3.1.4p1: the base class this sequence converted the
-		// argument to, which is what the tree has to name the subobject of and
-		// what 13.3.3.2p4 orders two such sequences by.
-		SemaEntity* to_base;
-		// 13.3.3.1.2p1: the converting constructor this sequence calls, when
-		// the argument reaches the parameter's class only through one.  The
-		// temporary it makes is what the parameter is given.
-		SemaEntity* converting;
-		// 12.3.2p1 and 13.3.1.5p1: the conversion function this sequence calls,
-		// when the argument's class reaches the parameter only through one.
-		// What the parameter is given is the value that call handed back.
-		SemaEntity* converted;
-		// 13.3.3.2p3: the rank of the second standard conversion sequence of a
-		// user-defined conversion sequence, which is what orders two of them
-		// that call the same conversion function or constructor.  `kExactMatch`
-		// for a sequence that is not a user-defined one.
-		int second_rank;
-		// 13.3.3.1.5p3 and p4: the class a list-initialization sequence
-		// initializes, which is the user-defined conversion such a sequence
-		// holds - 13.3.3.2p3 orders two of them only where they "initialize the
-		// same class", exactly as it orders two ordinary ones only where they
-		// hold the same constructor or conversion function.  `kNoType` for a
-		// sequence that is not one.
-		TypeId list_class;
-	};
+	// 5p1 and 13.3: one analysed expression and one ranked candidate, which
+	// the expression layer owns and `sema_value.h` defines.  The walk spells
+	// them by their short names, as it did while they stood here.
+	typedef AnalyzedValue Value;
+	typedef OverloadMatch Match;
 
 	// Where the object an initialization or a destruction acts on stands.
 	// 8.5 initializes an object a declaration named; 12.6.2 initializes a
@@ -519,9 +387,16 @@ private:
 	                                 const AstNode* initializer);
 	void function_definition(const AstNode& node, const Context& ctx);
 	void statement(const AstNode& node, const Context& ctx);
+	// 14.7.1p1: a specialization is read from the same class-specifier the
+	// template wrote, so `as` and `spelled_as` are what an instantiation hands
+	// in - the declaration it already made for the specialization, and the
+	// name the template-id gave it.  Both are null for every class the program
+	// declared itself, which is the one the class-head names.
 	SemaEntity& class_declaration(const AstNode& node, const Context& ctx,
 	                              const Span& span, bool define,
-	                              const std::string& named_by);
+	                              const std::string& named_by,
+	                              SemaEntity* as = nullptr,
+	                              const std::string* spelled_as = nullptr);
 	// 9.1p2: the declaration a class-head names - one an earlier declaration in
 	// the region already made, or one this class-head makes.
 	SemaEntity* class_head_entity(const Context& ctx, ClassTag tag,
@@ -1915,11 +1790,58 @@ private:
 	// around it.
 	TypeId template_argument_type(const std::string& spelling,
 	                              const Context& ctx);
+	// 8.1p1, 8.3p1, 8.3.4p1 and 8.3.5p1 over the words a type-id's spelling
+	// was split into: the type its specifiers named, what an
+	// abstract-declarator makes of that, and the array bounds and
+	// parameter-clauses written after it.  `at` is left one past the last word
+	// each read, so a parameter-clause reads its list one type-id at a time.
+	TypeId type_id_words(const std::vector<std::string>& words, std::size_t& at,
+	                     std::size_t end, const std::string& spelling,
+	                     const Context& ctx);
+	TypeId abstract_declarator_words(TypeId base,
+	                                 const std::vector<std::string>& words,
+	                                 std::size_t& at, std::size_t end,
+	                                 const std::string& spelling,
+	                                 const Context& ctx);
+	TypeId suffix_words(TypeId base, const std::vector<std::string>& words,
+	                    std::size_t& at, std::size_t end,
+	                    const std::string& spelling, const Context& ctx);
 	// 14.7.1p1: the declaration a specialization stands for, held for the end
 	// of the translation unit, which is where the output writes it.  Naming
 	// the same specialization again writes nothing more.
 	void instantiate(SemaEntity& function);
 	void write_instantiation(const Pending& pending);
+
+	// 14p1: records what a template-declaration parameterises rather than
+	// reading it, for the declarations this milestone instantiates.  False for
+	// a template-declaration whose declaration is not one of them, which is
+	// then read the way the earlier assignments read it.
+	bool record_template(const AstNode& node, const Context& ctx);
+	// 14.1p2: the parameters a template-parameter-clause declared, written
+	// onto `info`.
+	void read_template_head(const AstNode& clause, TemplateInfo& info);
+	// 14.2: the specialization a name written as a template-id denotes, or
+	// null when `component` is no template-id or names no template this
+	// milestone instantiates.  `in` is the region a qualified name looks into
+	// and null for one looked up from `ctx`.
+	SemaEntity* template_id_entity(const std::string& component,
+	                               const Context& ctx, Scope* in,
+	                               LookupKind filter);
+	// 14.3p1 and 14.7.1p1: the class `arguments` makes of the class template
+	// `primary`, made once however many times it is named.  The pattern is
+	// read against a region binding each parameter to its argument, so every
+	// name in the body is looked up with the arguments already in hand.
+	SemaEntity& instantiate_class(SemaEntity& primary,
+	                              const std::vector<TypeId>& arguments);
+	// 14.3p1: the argument list `written` gives `primary`, with 14.1p9's
+	// defaults filled in for the parameters the list stopped short of.
+	void bind_template_arguments(SemaEntity& primary,
+	                             const std::vector<std::string>& written,
+	                             const Context& ctx,
+	                             std::vector<TypeId>& out);
+	// The source spelling of a type, which is what a specialization is named
+	// by: `Box<int>` rather than the dump's description of what it holds.
+	std::string type_spelling(TypeId type) const;
 
 	// 8.5: initialising an object of `target` from `node`, which is what a
 	// variable, a condition, a return statement and an argument all do.
@@ -2210,6 +2132,16 @@ private:
 	// and only a template is ever asked for, so an ordinary declaration adds
 	// nothing to it.
 	std::unordered_map<std::uint32_t, std::vector<Parameter> > templates_;
+	// 14p1: the patterns the unit's template-declarations wrote, one per
+	// declaration the milestone instantiates.  They are held here because a
+	// pointer handed to an entity has to outlive every instantiation that
+	// reads it, and a deque never moves what it already holds.
+	std::deque<TemplateInfo> template_patterns_;
+	// 14.1p9: the whole argument list one list of explicit arguments makes of a
+	// template, keyed by the template and that list.  A default is an
+	// expression read in a region binding the parameters before it, so it is
+	// read once rather than at every naming of the same specialization.
+	std::unordered_map<std::uint64_t, std::vector<TypeId> > default_arguments_;
 	// 12.9p8: the parameters each constructor was declared with, which the
 	// inheriting constructor a using-declaration declares takes as its own -
 	// their names as much as their types, because the definition this unit

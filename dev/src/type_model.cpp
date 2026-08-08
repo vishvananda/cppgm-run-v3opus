@@ -489,6 +489,14 @@ void TypeTable::rename(TypeId type, const std::string& name,
 	record.qualified = qualified;
 }
 
+void TypeTable::set_template_arguments(TypeId type, const std::string& templated,
+                                       const std::vector<TypeId>& arguments)
+{
+	UserType& record = user_types_[nodes_[type].user];
+	record.template_name = templated;
+	record.template_arguments = arguments;
+}
+
 void TypeTable::set_local_name(TypeId type, const SemaEntity* function,
                                unsigned occurrence, bool unnamed)
 {

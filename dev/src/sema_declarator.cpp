@@ -614,10 +614,20 @@ SemaEntity* SemaAnalyzer::resolve(const std::string& spelling, const Context& ct
 	const QualifiedName written(name);
 	if (!written.qualified())
 	{
-		return model_.lookup(*ctx.scope, name, filter, found);
+		SemaEntity* const here = model_.lookup(*ctx.scope, name, filter, found);
+		// 14.2: a name no declaration bound may still be a template-id, which
+		// names the specialization its arguments make of the template the
+		// program did declare.
+		return here != nullptr ? here
+		                       : template_id_entity(name, ctx, nullptr, filter);
 	}
-	SemaEntity* const named = model_.lookup_in(
-		*resolve_prefix(written, ctx), written.last(), filter, found);
+	Scope* const region = resolve_prefix(written, ctx);
+	SemaEntity* named =
+		model_.lookup_in(*region, written.last(), filter, found);
+	if (named == nullptr)
+	{
+		named = template_id_entity(written.last(), ctx, region, filter);
+	}
 	if (named != nullptr)
 	{
 		// 11.2: a qualified name reaches a member of the class it names, which
@@ -634,13 +644,23 @@ Scope* SemaAnalyzer::resolve_prefix(const QualifiedName& name,
 {
 	// 3.4.3p1: a name written `::x` is looked up in the global namespace.
 	const std::string first = name.part(0);
-	Scope* region = first_region != nullptr
-		? first_region
-		: (first.empty()
-			? &model_.global()
-			: model_.region_of(
-				require(model_.lookup(*ctx.scope, first, LookupKind::Region),
-				        first)));
+	Scope* region = first_region;
+	if (region == nullptr && first.empty())
+	{
+		region = &model_.global();
+	}
+	if (region == nullptr)
+	{
+		// 14.2: a component of a nested-name-specifier is a template-id where
+		// the region it names is a specialization, and the lookup that finds
+		// the template is the one 3.4.3p1 makes.
+		SemaEntity* head = model_.lookup(*ctx.scope, first, LookupKind::Region);
+		if (head == nullptr)
+		{
+			head = template_id_entity(first, ctx, nullptr, LookupKind::Region);
+		}
+		region = model_.region_of(require(head, first));
+	}
 
 	for (std::size_t index = 1; index + 1 < name.size(); ++index)
 	{
@@ -650,6 +670,10 @@ Scope* SemaAnalyzer::resolve_prefix(const QualifiedName& name,
 			throw std::runtime_error(name.part(index - 1) + " names no region");
 		}
 		SemaEntity* next = model_.lookup_in(*region, part, LookupKind::Region);
+		if (next == nullptr)
+		{
+			next = template_id_entity(part, ctx, region, LookupKind::Region);
+		}
 		region = model_.region_of(require(next, part));
 	}
 	if (region == nullptr)

@@ -90,6 +90,12 @@ public:
 	// The identifier the encoder reads `function`'s encoding back under.
 	const std::string& context_of(const SemaEntity& function);
 
+	// 14.2 and `<template-args>`: the identifier the encoder reads one
+	// template argument back under.  A specialization writes its arguments
+	// after the template's name, and each of them is a type the encoder has to
+	// be handed rather than a spelling, for the same reason a local context is.
+	const std::string& argument_of(TypeId type);
+
 	const abi_mangle::AbiDefinitionMap& definitions() const { return map_; }
 
 private:
@@ -99,6 +105,7 @@ private:
 	// and a reference already handed out has to survive that.
 	std::deque<abi_mangle::AbiDefinitionRecord> records_;
 	std::map<const SemaEntity*, std::string> ids_;
+	std::map<TypeId, std::string> arguments_;
 	abi_mangle::AbiDefinitionMap map_;
 };
 
@@ -202,6 +209,21 @@ AbiType abi_type(TypeTable& types, TypeId type, LocalContexts& contexts)
 			else
 			{
 				out.discriminator = decimal(types.local_occurrence(type));
+			}
+			return out;
+		}
+		// 14.2 and `<template-args>`: a specialization is named by its
+		// template and the arguments that made it, which the ABI writes apart
+		// so that a use of the same class in another unit spells it the same
+		// way whatever the source called its arguments.
+		if (types.is_specialization(type))
+		{
+			out.kind = abi_mangle::ABI_TYPE_TEMPLATE_SPECIALIZATION;
+			out.name = types.template_name(type);
+			const std::vector<TypeId>& arguments = types.template_arguments(type);
+			for (std::size_t index = 0; index < arguments.size(); ++index)
+			{
+				out.argument_refs.push_back(contexts.argument_of(arguments[index]));
 			}
 			return out;
 		}
@@ -382,6 +404,53 @@ std::vector<std::string> name_components(const std::string& spelled)
 	}
 }
 
+// 14.2: the classes a declaration is named through, innermost first.
+//
+// A component of an encoded name is a source name unless the class it names is
+// a specialization, which the ABI writes as the template's name and then the
+// arguments - so the walk that builds the name has to ask the class rather
+// than the spelling, which cannot be split back into the two.  The regions
+// above the outermost class are namespaces and say nothing about templates.
+std::vector<const SemaEntity*> owning_classes(const SemaEntity& entity)
+{
+	std::vector<const SemaEntity*> owners;
+	for (const Scope* at = entity.region; at != nullptr; at = at->parent)
+	{
+		if (at->kind == ScopeKind::TemplateParameters)
+		{
+			// 14.1p1: the region a specialization's bindings stand in encloses
+			// the class alone and names nothing.
+			continue;
+		}
+		if (at->kind != ScopeKind::Class || at->owner == nullptr)
+		{
+			break;
+		}
+		owners.push_back(at->owner);
+	}
+	return owners;
+}
+
+// Which of the components of a qualified name that class stands at, or the
+// count itself when the name has none: `components` ends in the declaration's
+// own name, and the classes are the components before it, innermost last.
+bool specialized_component(const std::vector<const SemaEntity*>& owners,
+                           TypeTable& types, std::size_t index,
+                           std::size_t components, const SemaEntity*& owner)
+{
+	if (index + 1 >= components)
+	{
+		return false;
+	}
+	const std::size_t depth = components - 2 - index;
+	if (depth >= owners.size())
+	{
+		return false;
+	}
+	owner = owners[depth];
+	return types.is_specialization(owner->type);
+}
+
 // The typed facts one function declaration is encoded from: what names it, the
 // regions it is named through, its cv-qualifiers and its parameter types.
 //
@@ -422,7 +491,17 @@ void build_function_name(const SemaEntity& entity, TypeTable& types,
 	// inside the context and the regions the definition was written in say
 	// nothing at all.
 	const bool local = entity.local_function != nullptr && components.size() > 1;
-	if (named_by_terminal || local)
+	// 14.2: a member of a specialization is named through the template and the
+	// arguments that made it, which no path built from one spelling can write.
+	const std::vector<const SemaEntity*> owners = owning_classes(entity);
+	bool specialized = false;
+	for (std::size_t index = 0; index + 1 < components.size(); ++index)
+	{
+		const SemaEntity* owner = nullptr;
+		specialized = specialized ||
+			specialized_component(owners, types, index, components.size(), owner);
+	}
+	if (named_by_terminal || local || specialized)
 	{
 		// 13.5: an operator function is named by the operator it overloads,
 		// which the encoding spells as its own terminal rather than as a source
@@ -454,8 +533,28 @@ void build_function_name(const SemaEntity& entity, TypeTable& types,
 			}
 			else
 			{
-				region.kind = abi_mangle::ABI_FUNCTION_RECORD_NAME_SOURCE;
-				region.name = components[index];
+				const SemaEntity* owner = nullptr;
+				if (specialized_component(owners, types, index,
+				                          components.size(), owner))
+				{
+					// The record stands for one component, and the regions
+					// around the template were written by the ones before it.
+					region.kind = abi_mangle::ABI_FUNCTION_RECORD_NAME_TEMPLATE;
+					region.name =
+						name_components(types.template_name(owner->type)).back();
+					const std::vector<TypeId>& arguments =
+						types.template_arguments(owner->type);
+					for (std::size_t at = 0; at < arguments.size(); ++at)
+					{
+						region.argument_refs.push_back(
+							contexts.argument_of(arguments[at]));
+					}
+				}
+				else
+				{
+					region.kind = abi_mangle::ABI_FUNCTION_RECORD_NAME_SOURCE;
+					region.name = components[index];
+				}
 			}
 			records.push_back(region);
 		}
@@ -556,6 +655,29 @@ void build_function_name(const SemaEntity& entity, TypeTable& types,
 		ellipsis.kind = abi_mangle::ABI_FUNCTION_RECORD_VARIADIC;
 		records.push_back(ellipsis);
 	}
+}
+
+const std::string& LocalContexts::argument_of(TypeId type)
+{
+	const std::map<TypeId, std::string>::iterator held = arguments_.find(type);
+	if (held != arguments_.end())
+	{
+		return held->second;
+	}
+	// The identifier is recorded before the type is described, because that
+	// type may be a specialization of its own whose arguments walk this map
+	// again.
+	const std::string id = "argument" + decimal(arguments_.size());
+	const std::map<TypeId, std::string>::iterator placed =
+		arguments_.insert(std::make_pair(type, id)).first;
+	records_.push_back(abi_mangle::AbiDefinitionRecord());
+	abi_mangle::AbiDefinitionRecord& record = records_.back();
+	record.kind = abi_mangle::ABI_DEFINITION_TEMPLATE_ARGUMENT;
+	record.id = id;
+	record.template_argument.kind = abi_mangle::ABI_TEMPLATE_ARGUMENT_TYPE;
+	map_[id] = &record;
+	record.template_argument.type = abi_type(types_, type, *this);
+	return placed->second;
 }
 
 const std::string& LocalContexts::context_of(const SemaEntity& function)

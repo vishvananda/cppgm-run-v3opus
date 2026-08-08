@@ -106,7 +106,7 @@ SemaAnalyzer::Pending::Pending()
 	, instantiation(false)
 {}
 
-SemaAnalyzer::Value::Value()
+AnalyzedValue::AnalyzedValue()
 	: type(kNoType)
 	, spelled(kNoType)
 	, category(ValueCategory::PRValue)
@@ -130,7 +130,7 @@ SemaAnalyzer::Value::Value()
 	, listed_class(kNoType)
 {}
 
-SemaAnalyzer::Match::Match()
+OverloadMatch::OverloadMatch()
 	: viable(false)
 	, rank(0)
 	, to_bool(false)
@@ -1067,6 +1067,14 @@ void SemaAnalyzer::static_assert_declaration(const AstNode& node,
 
 void SemaAnalyzer::template_declaration(const AstNode& node, const Context& ctx)
 {
+	// 14p1: a template declares nothing until it is instantiated, so where the
+	// milestone instantiates one the pattern is recorded rather than read.
+	// PA11 and PA12 describe what the declaration *says*, which is the walk
+	// below, and neither instantiates anything.
+	if (lowering() && record_template(node, ctx))
+	{
+		return;
+	}
 	// 14.1p1 and 3.3.2p4: the template parameters are declared in a region of
 	// their own that encloses the declaration they parameterise.
 	DumpScope& dump = model_.open_dump(*ctx.dump, "scope template-parameters");
@@ -1220,7 +1228,9 @@ SemaEntity* SemaAnalyzer::class_head_entity(const Context& ctx, ClassTag tag,
 SemaEntity& SemaAnalyzer::class_declaration(const AstNode& node,
                                             const Context& ctx, const Span& span,
                                             bool define,
-                                            const std::string& named_by)
+                                            const std::string& named_by,
+                                            SemaEntity* as,
+                                            const std::string* spelled_as)
 {
 	const ClassTag tag = tag_of(node);
 	// 7.1.3p2: a class its specifiers left unnamed is named by the first
@@ -1231,13 +1241,18 @@ SemaEntity& SemaAnalyzer::class_declaration(const AstNode& node,
 	// name a declarator would lend it says nothing about it.
 	const bool local = ctx.scope->kind == ScopeKind::Block ||
 		ctx.scope->kind == ScopeKind::Function;
-	const std::string written =
+	const std::string pattern_name =
 		node.text.empty() ? (local ? std::string() : named_by) : node.text;
+	// 14.7.1p1: a specialization is spelled by the template-id that named it,
+	// so its lines and its members are written under that name; the class-head
+	// still says which name its body binds to the injected class-name.
+	const std::string written =
+		spelled_as != nullptr ? *spelled_as : pattern_name;
 	const QualifiedName spelled(written);
-	const std::string name = spelled.last();
+	const std::string name = QualifiedName(pattern_name).last();
 
 	SemaEntity* const entity =
-		class_head_entity(ctx, tag, spelled, written, define);
+		as != nullptr ? as : class_head_entity(ctx, tag, spelled, written, define);
 
 	if (!name.empty())
 	{
