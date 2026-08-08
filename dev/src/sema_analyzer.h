@@ -1600,7 +1600,7 @@ private:
 	// which is the same whether the cast named its type with a type-id or with
 	// the name of the type.
 	Value cast_to_reference(TypeId target, Value& source, DumpNode& parent,
-	                        DumpNode& line, Value value);
+	                        DumpNode& line, Value value, const Context& ctx);
 	// Puts what `line` holds in the place `line` itself has under `parent`, for
 	// the casts 5.2.9 gives the operand's own line to.
 	static void lift_operand(DumpNode& parent, DumpNode& line);

@@ -1709,7 +1709,7 @@ SemaAnalyzer::Value SemaAnalyzer::cast_expression(const AstNode& node,
 	}
 	if (types_.is_reference(target))
 	{
-		return cast_to_reference(target, source, parent, line, value);
+		return cast_to_reference(target, source, parent, line, value, ctx);
 	}
 	if (types_.kind(types_.strip_cv(target)) == TypeKind::Pointer &&
 	    types_.kind(types_.strip_cv(source.type)) == TypeKind::Pointer)
@@ -1763,7 +1763,8 @@ SemaAnalyzer::Value SemaAnalyzer::cast_expression(const AstNode& node,
 
 SemaAnalyzer::Value SemaAnalyzer::cast_to_reference(TypeId target, Value& source,
                                                     DumpNode& parent,
-                                                    DumpNode& line, Value value)
+                                                    DumpNode& line, Value value,
+                                                    const Context& ctx)
 {
 	{
 		// 5.2.9p1: a cast to an lvalue reference is an lvalue and one to an
@@ -1793,6 +1794,16 @@ SemaAnalyzer::Value SemaAnalyzer::cast_to_reference(TypeId target, Value& source
 		if (bare_type(source.type) == bare_type(referenced) &&
 		    source.node != nullptr && source.what != nullptr)
 		{
+			// 8.5.3p5: the operand is a prvalue, so what the reference binds is
+			// a temporary - and the cast is what asked for its storage, which
+			// is what 12.2p1 names that storage after.  An argument written
+			// around this cast binds the object the cast already named rather
+			// than one of its own, so nothing later renames it.
+			if (source.category == ValueCategory::PRValue &&
+			    types_.is_class(types_.strip_cv(source.type)))
+			{
+				name_argument_temporary(source, "refcall", ctx, false);
+			}
 			source.category = value.category;
 			source.type = referenced;
 			source.spelled = target;

@@ -1982,6 +1982,14 @@ void SemaAnalyzer::open_parameter_lifetimes(DumpNode& line)
 		{
 			break;
 		}
+		// 5.2.2p4: only the parameter the boundary left standing in the
+		// caller's storage is the function's to end - the one the boundary
+		// carried as bytes is a copy of the caller's object that the caller
+		// laid out and the caller is done with.
+		if (!types_.passes_indirectly(child.fact.type))
+		{
+			continue;
+		}
 		// 12.4p5: whether the class has an end to run at all.  It is asked of
 		// the class rather than of 12.4p8's reading of a body, because what the
 		// boundary owes is the destructor the class declares and not whatever

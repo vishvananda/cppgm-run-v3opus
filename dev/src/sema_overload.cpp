@@ -1551,7 +1551,8 @@ void SemaAnalyzer::apply_conversion(Value& value, TypeId target,
 		                        match.reference);
 		return;
 	}
-	if (by != Requested::Written && match.reference && !match.binds_lvalue)
+	if (by != Requested::Written && match.reference && !match.binds_lvalue &&
+	    value.category == ValueCategory::PRValue)
 	{
 		// 8.5.3p5: the reference binds a temporary rather than an object the
 		// argument named, and where that temporary is the prvalue itself the
@@ -2547,7 +2548,7 @@ SemaAnalyzer::Value SemaAnalyzer::functional_cast(const AstNode& node,
 	{
 		// 5.2.3p1: `T(x)` is the cast `(T)x`, which for a reference type is
 		// what 5.2.9p1 and 5.4p4 make of the operand.
-		return cast_to_reference(target, source, parent, line, value);
+		return cast_to_reference(target, source, parent, line, value, ctx);
 	}
 	cast_conversion(source, target, ctx);
 	value.node = &line;
