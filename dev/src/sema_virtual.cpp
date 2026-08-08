@@ -41,6 +41,33 @@ bool dispatchable_member(const SemaEntity& member)
 		member.surrogate_for == nullptr && member.inherited == nullptr;
 }
 
+// 9.4.1p2: a declaration of this class's own that declares a static member
+// function.  It is the one declaration that dispatches on nothing and yet
+// declares 13.1's name and signature, which is what 10.3p2 matches an
+// overriding declaration by - so the settlement has to ask about it even
+// though it can take no slot.
+bool static_member_function(const SemaEntity& member)
+{
+	return member.kind == SemaKind::Function && !member.object_member &&
+		member.special == kOrdinaryFunction && member.shadowed == nullptr &&
+		member.surrogate_for == nullptr && member.inherited == nullptr;
+}
+
+// 9.2's member-declarator: whether this declarator wrote a virt-specifier at
+// all, which is what 9.2p8 allows only where the declaration is of a virtual
+// member function.
+bool writes_virt_specifier(const AstNode& declarator)
+{
+	for (std::size_t index = 0; index < declarator.children.size(); ++index)
+	{
+		if (declarator.children[index]->kind == AstKind::VirtSpecifier)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
 }
 
 // 10.3p1 read before 9.2p13 lays the class out: whether an object of this class
@@ -98,7 +125,8 @@ unsigned long long SemaAnalyzer::base_subobject_offset(TypeId from,
 // pointer the base's caller holds to be the pointer the override hands back
 // with no adjustment, which is what the Assignment Boundary's "no thunks" says;
 // the derivation walk `derives_from` does is that same single chain.
-bool SemaAnalyzer::covariant_return(TypeId overriding, TypeId overridden)
+bool SemaAnalyzer::covariant_return(TypeId overriding, TypeId overridden,
+                                    Scope* where)
 {
 	if (overriding == overridden)
 	{
@@ -140,7 +168,16 @@ bool SemaAnalyzer::covariant_return(TypeId overriding, TypeId overridden)
 	{
 		return false;
 	}
-	return derives_from(*derived->scope, *base->scope);
+	if (!derives_from(*derived->scope, *base->scope))
+	{
+		return false;
+	}
+	// 10.3p7: the base has to be an *accessible* one of the class the override
+	// wrote, and 11.2p1 asks that of the class the overriding declaration is
+	// written in - which is what lets a friend of the derived class write a
+	// return type a stranger to it may not.
+	const Naming naming(*this, where);
+	return base_accessible(derived, *base);
 }
 
 // 10.3p2 and 10.3p10, settled where 9.2p2 completes the class and after 12.1p5
@@ -179,6 +216,20 @@ void SemaAnalyzer::settle_virtual_members(SemaEntity& entity, Scope& scope)
 		if (!dispatchable_member(member))
 		{
 			require_no_virtual_specifier(member);
+			// 10.3p2 and 9.4.1p2: a declaration of this class with the name and
+			// the signature of an inherited virtual function overrides it and
+			// is virtual whether or not it says so - and a static member
+			// function shall not be virtual.  The map the settlement already
+			// built answers it in the one probe every other member pays.
+			if (static_member_function(member) &&
+			    inherited.count(override_key(member.name,
+			                                 member_signature(member))) != 0)
+			{
+				throw std::runtime_error(member.name + " is a static member "
+				                         "function and declares the name and "
+				                         "signature of a virtual function of a "
+				                         "base class");
+			}
 			continue;
 		}
 		if (member.special == kDestructorFunction)
@@ -279,17 +330,18 @@ void SemaAnalyzer::require_overridable(const SemaEntity& member,
 		                         "declared `final`");
 	}
 	if (!covariant_return(types_.target(member.type),
-	                      types_.target(overridden.type)))
+	                      types_.target(overridden.type), member.region))
 	{
 		throw std::runtime_error(member.name + " overrides a virtual function "
 		                         "whose return type it is not covariant with");
 	}
 }
 
-// 10.3p5 and 10.4p2: what a member function that overrides nothing may not have
-// written.  `override` asks the class for an overridden function it does not
-// have, and a pure-specifier is written only where the declaration is virtual -
-// which for one that overrides nothing means its own `virtual` keyword.
+// 10.3p5, 9.2p8 and 10.4p2: what a member function that overrides nothing may
+// not have written.  `override` asks the class for an overridden function it
+// does not have; the other two are written only where the declaration is of a
+// virtual member function - which for one that overrides nothing means its own
+// `virtual` keyword.
 void SemaAnalyzer::require_dispatches(const SemaEntity& member)
 {
 	if (member.override_written)
@@ -298,29 +350,85 @@ void SemaAnalyzer::require_dispatches(const SemaEntity& member)
 		                         "overrides no virtual function of a base "
 		                         "class");
 	}
-	if (member.pure_virtual && !member.virtual_function)
+	if (member.virtual_function)
+	{
+		return;
+	}
+	if (member.final_virtual)
+	{
+		throw std::runtime_error(member.name + " is declared `final` and is not "
+		                         "a virtual function");
+	}
+	if (member.pure_virtual)
 	{
 		throw std::runtime_error(member.name + " is declared with a "
 		                         "pure-specifier and is not virtual");
 	}
 }
 
-// 7.1.2p1: `virtual` is written only on the declaration a class body makes.  A
-// member function defined outside its class repeats neither the keyword nor the
-// virt-specifiers, and a function that is no member of a class dispatches on
-// nothing at all - so where the keyword stands is asked where the declarator
-// was read, and which *member* may carry it is asked once the class is
-// complete.
+// 7.1.2p1 and 9.2p8: `virtual` and the virt-specifiers beside it are written
+// only on the declaration a class body makes.  A member function defined
+// outside its class repeats neither, and a function that is no member of a
+// class dispatches on nothing at all - so both halves are the one question,
+// asked wherever a declarator that could carry either is read, and which
+// *member* may carry it is asked once the class is complete.
 void SemaAnalyzer::require_virtual_placement(bool wrote_virtual,
+                                             const AstNode* declarator,
                                              const Scope& where,
                                              bool qualified,
                                              const std::string& name)
 {
-	if (wrote_virtual && (where.kind != ScopeKind::Class || qualified))
+	if (where.kind == ScopeKind::Class && !qualified)
+	{
+		return;
+	}
+	if (wrote_virtual)
 	{
 		throw std::runtime_error(name + " is declared `virtual` outside the "
 		                         "body of a class");
 	}
+	if (declarator != nullptr && writes_virt_specifier(*declarator))
+	{
+		// 8.4p2: a virt-specifier-seq can be part of a function-definition only
+		// where the definition is a member-declaration, which the one written
+		// outside the class is not.
+		throw std::runtime_error(name + " writes `override` or `final` outside "
+		                         "the body of a class");
+	}
+}
+
+// The same reading over the form a constructor, a destructor or a conversion
+// function is written in: the keyword stands in the member-specifiers ahead of
+// the declarator-id rather than in a decl-specifier-seq, and the
+// virt-specifiers stand on the declarator as they do everywhere else - so the
+// declaration is handed to the one question above rather than asking a second
+// one of its own.
+void SemaAnalyzer::require_special_virtual_placement(const AstNode& node,
+                                                     const Scope& where,
+                                                     bool qualified,
+                                                     const std::string& name)
+{
+	bool wrote_virtual = false;
+	const AstNode* declarator = nullptr;
+	for (std::size_t index = 0; index < node.children.size(); ++index)
+	{
+		const AstNode& part = *node.children[index];
+		if (part.kind == AstKind::Declarator)
+		{
+			declarator = &part;
+			continue;
+		}
+		if (part.kind != AstKind::MemberSpecifiers)
+		{
+			continue;
+		}
+		for (std::size_t at = 0; at < part.children.size(); ++at)
+		{
+			wrote_virtual =
+				wrote_virtual || part.children[at]->token == KW_VIRTUAL;
+		}
+	}
+	require_virtual_placement(wrote_virtual, declarator, where, qualified, name);
 }
 
 // 10.3p1 and 9.3p3: `virtual`, `override` and `final` are written on a

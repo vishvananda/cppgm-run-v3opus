@@ -1739,7 +1739,7 @@ void SemaAnalyzer::declare_function_declarator(
 	// declarations, exactly as 7.1.2p2's `inline` beside it does, and the one
 	// declaration that may write it is the one the class body makes.  9.4p1's
 	// static member is the class's own to refuse, where the class is complete.
-	require_virtual_placement(specifiers.is_virtual, *target.scope,
+	require_virtual_placement(specifiers.is_virtual, &node, *target.scope,
 	                          spelled.qualified(), name);
 	function.virtual_function =
 		function.virtual_function || specifiers.is_virtual;
@@ -2343,7 +2343,7 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 	// another declaration of it wrote the same thing - and 7.1.2p1 lets the one
 	// written in the class body write `virtual` and the one written outside it
 	// not.
-	require_virtual_placement(specifiers.is_virtual, *target.scope,
+	require_virtual_placement(specifiers.is_virtual, &declarator, *target.scope,
 	                          spelled.qualified(), name);
 	entity.virtual_function =
 		entity.virtual_function || specifiers.is_virtual;

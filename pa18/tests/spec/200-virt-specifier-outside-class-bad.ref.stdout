@@ -1,0 +1,12 @@
+ERROR: unsupported namespace-scope declarator [top-level declaration 0 kind=simple-declaration ast={simple-declaration
+  decl-specifier-seq
+    decl-specifier KW_VOID:void
+  init-declarator-list
+    init-declarator
+      declarator
+        identifier f
+        parameter-clause
+        virt-specifier TT_IDENTIFIER:final
+}]
+Diagnostic context:
+collect_simple_declaration [void f()final;] at tests/spec/200-virt-specifier-outside-class-bad.t:6:1

@@ -551,7 +551,8 @@ AstNode* AstParser::parse_special_member(bool in_class)
 }
 
 // The `;` form of a special member, with the `= default` or `= delete` that
-// only a declaration may carry.
+// only a declaration may carry - and 9.2's pure-specifier, which a destructor's
+// member-declarator writes exactly as any other member function's does.
 AstNode* AstParser::parse_special_member_tail(AstNode* specifiers,
                                               AstNode* declarator,
                                               AstNode* conversion)
@@ -562,6 +563,17 @@ AstNode* AstParser::parse_special_member_tail(AstNode* specifiers,
 	{
 		initializer = make(AstKind::Initializer);
 		initializer->add(make_text(AstKind::SpecialInitializer, spelling(1)));
+		pos_ += 2;
+	}
+	else if (at(OP_ASS) && peek(1) == TT_LITERAL && spelling(1) == "0")
+	{
+		// 9.2's member-declarator is `declarator virt-specifier-seq_opt
+		// pure-specifier_opt`, and 12.4p9 lets a destructor be pure virtual like
+		// any other member function - so `= 0` stands here beside the two forms
+		// 8.4.2 writes, spelled as the literal the reader of a pure-specifier
+		// already looks for.
+		initializer = make(AstKind::Initializer);
+		initializer->add(make_text(AstKind::Literal, spelling(1)));
 		pos_ += 2;
 	}
 	if (!accept(OP_SEMICOLON))

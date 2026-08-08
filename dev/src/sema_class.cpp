@@ -429,6 +429,10 @@ bool SemaAnalyzer::conversion_function_definition(const AstNode& node,
 		throw std::runtime_error(node.text + " defines a conversion function of "
 		                         "what is not a class");
 	}
+	// 7.1.2p1, 9.2p8 and 8.4p2: a conversion function defined outside its class
+	// repeats neither `virtual` nor the virt-specifiers, exactly as every other
+	// member function defined outside one does.
+	require_special_virtual_placement(node, region, true, node.text);
 	Context target = ctx;
 	target.scope = &region;
 	target.dump = region.dump;
@@ -699,6 +703,10 @@ void SemaAnalyzer::special_member_definition(const AstNode& node,
 	SemaEntity& owner = *region.owner;
 	const bool destructor = !written.empty() && written[0] == '~';
 	const std::string spelled_class = special_member_name(written, owner);
+	// 7.1.2p1, 9.2p8 and 8.4p2: a definition written outside the class repeats
+	// neither `virtual` nor the virt-specifiers, which is the same question the
+	// declarator of every other member function is asked.
+	require_special_virtual_placement(node, region, true, spelled_class);
 	Context target = ctx;
 	target.scope = &region;
 	target.dump = region.dump;
@@ -1824,15 +1832,45 @@ void SemaAnalyzer::require_base_access(const SemaEntity* derived,
 	}
 }
 
+// 11.2p4 and 11.2p5 asked as a question rather than as a refusal, because
+// 10.3p7's covariant return wants the answer and not the diagnosis: the base
+// has to be accessible for the return types to be covariant, and one that is
+// not leaves the two return types simply different.
+bool SemaAnalyzer::base_accessible(const SemaEntity* derived,
+                                   const SemaEntity& base)
+{
+	for (const SemaEntity* at = derived; at != nullptr && at != &base;
+	     at = at->base)
+	{
+		if (!base_link_accessible(*at))
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
 // 11.2p1: the access one base-specifier gave the base it named, asked of where
 // the conversion through it is written.  A public base reaches everywhere, a
 // protected one reaches the classes derived from the one that named it, and a
 // private one reaches that class alone.
 void SemaAnalyzer::require_base_link(const SemaEntity& derived)
 {
-	if (derived.base_access == kPublicAccess || derived.scope == nullptr)
+	if (base_link_accessible(derived))
 	{
 		return;
+	}
+	throw std::runtime_error("a conversion to a base class of " +
+	                         types_.description(derived.type) +
+	                         " is written where the access its base-specifier "
+	                         "gave it does not reach");
+}
+
+bool SemaAnalyzer::base_link_accessible(const SemaEntity& derived)
+{
+	if (derived.base_access == kPublicAccess || derived.scope == nullptr)
+	{
+		return true;
 	}
 	const Scope* const from = naming_ != nullptr ? naming_ : reading_;
 	const bool friends = model_.has_friends();
@@ -1840,14 +1878,14 @@ void SemaAnalyzer::require_base_link(const SemaEntity& derived)
 	{
 		if (at == derived.scope)
 		{
-			return;
+			return true;
 		}
 		if (friends && befriended(*derived.scope, *at))
 		{
 			// 11.2p1 and 11.3p1: a friend of the derived class reaches what
 			// the class itself reaches, which is the base its base-specifier
 			// named however it named it.
-			return;
+			return true;
 		}
 		if (derived.base_access != kProtectedAccess ||
 		    at->kind != ScopeKind::Class)
@@ -1856,13 +1894,10 @@ void SemaAnalyzer::require_base_link(const SemaEntity& derived)
 		}
 		if (at->base != nullptr && derives_from(*at->base, *derived.scope))
 		{
-			return;
+			return true;
 		}
 	}
-	throw std::runtime_error("a conversion to a base class of " +
-	                         types_.description(derived.type) +
-	                         " is written where the access its base-specifier "
-	                         "gave it does not reach");
+	return false;
 }
 
 // 12.4p11: an object's lifetime ends in a call of the destructor of its class,

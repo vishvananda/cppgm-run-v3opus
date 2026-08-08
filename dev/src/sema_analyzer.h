@@ -626,10 +626,16 @@ private:
 	                         const SemaEntity& overridden);
 	static void require_dispatches(const SemaEntity& member);
 	static void require_no_virtual_specifier(const SemaEntity& member);
-	static void require_virtual_placement(bool wrote_virtual, const Scope& where,
-	                                      bool qualified,
+	// 7.1.2p1, 9.2p8 and 8.4p2: whether this declaration may say anything about
+	// dispatch at all, which only the one a class body makes may.
+	static void require_virtual_placement(bool wrote_virtual,
+	                                      const AstNode* declarator,
+	                                      const Scope& where, bool qualified,
 	                                      const std::string& name);
-	bool covariant_return(TypeId overriding, TypeId overridden);
+	void require_special_virtual_placement(const AstNode& node,
+	                                       const Scope& where, bool qualified,
+	                                       const std::string& name);
+	bool covariant_return(TypeId overriding, TypeId overridden, Scope* where);
 	// 10p1: where the base class subobject stands inside an object of the
 	// derived class, which every class but one that added a vpointer gave the
 	// place its own object begins at.
@@ -1683,6 +1689,11 @@ private:
 	// A conversion spanning a chain passes through every base-specifier between
 	// the two classes, so each one is asked in turn.
 	void require_base_access(const SemaEntity* derived, const SemaEntity& base);
+	// 11.2p4/p5 asked as a question: whether every base-specifier between the
+	// two reaches from where this stands, which 10.3p7's covariant return wants
+	// the answer to rather than the refusal.
+	bool base_accessible(const SemaEntity* derived, const SemaEntity& base);
+	bool base_link_accessible(const SemaEntity& derived);
 	// 11.2p1: the one base-specifier a class wrote, asked of where it is read.
 	void require_base_link(const SemaEntity& derived);
 	// 11.4p1: the additional check a protected non-static member named on an
