@@ -234,39 +234,32 @@ SemaAnalyzer::Value SemaAnalyzer::cast_to_reference(TypeId target, Value& source
 		// and what the cast is worth is that object.  The temporary is written
 		// around the operand in the place the operand already had, which is the
 		// same thing 13.3.3.1.2's converting constructor does for an argument.
-		const Match match = match_by_value(source, referenced);
-		if (!match.viable)
-		{
-			throw std::runtime_error("a cast to a reference type binds neither "
-			                         "the operand nor a conversion of it");
-		}
-		// 8.5.3p5: the conversion below is 5.2.9p4's `T t(e);`, and the only
-		// reference that initialization is one of is a reference that may bind
-		// a temporary - an rvalue reference, or an lvalue reference to a
-		// non-volatile const.  One that may not binds no temporary for the
-		// conversion to stand in, so the cast is no such initialization at all
-		// and 5.4p4 falls to reinterpreting the object the operand named, which
-		// is the cast's own line below.  Converting there would bind a
-		// non-const lvalue reference to a temporary of this function.
+		// 8.5.3p5: the conversion below is 5.2.9p4's `T t(e);`, and there are
+		// two ways for the cast not to be one.  The reference may bind no
+		// temporary for the conversion to stand in - an lvalue reference that is
+		// not to a non-volatile const - and 5.2.10p11's reinterpret_cast, which
+		// refers to the object the operand named under another type, is that
+		// reading written by name.  Or nothing converts the operand to the
+		// referenced type at all: `(const E&)i` over an enumeration, and
+		// `(const W&)i` over a class, each write `T t(e);` that is ill formed.
 		//
-		// 5.2.10p11's reinterpret_cast is that same reinterpretation written by
-		// name: what it produces refers to the object the operand named, under
-		// another type, and never to a temporary holding a conversion of it - so
-		// it is no such initialization however const the referenced type is.
-		const bool binds_temporary =
+		// 5.4p4 then falls to reinterpreting the storage the operand named,
+		// which is the cast's own line below - the reading `(const E&)i` over
+		// an enumeration and `(const W&)i` over a class each take, and which
+		// g++ and the reference binary both write for them.  A named
+		// static_cast has nothing to fall to, so that is where it is refused
+		// rather than where the reinterpretation would be written; 5.2.11p4's
+		// const_cast has a reading of its own over a similar pointer type,
+		// which is that same naming of the operand's storage.
+		const Match match = match_by_value(source, referenced);
+		const bool binds_temporary = match.viable &&
 			(types_.kind(target) != TypeKind::LValueReference || const_lvalue) &&
 			value.op != KW_REINTERPET_CAST;
 		if (!binds_temporary && value.op == KW_STATIC_CAST)
 		{
-			// 5.2.9p4: a static_cast is well formed exactly where `T t(e);` is,
-			// and a reference that binds no temporary and is reference-related to
-			// nothing the operand named binds nothing at all.  5.4p4's cast has
-			// reinterpret_cast to fall to for that reading; a named static_cast
-			// has none, so this is where it is refused rather than where the
-			// reinterpretation would be written.
-			throw std::runtime_error("a static_cast to a non-const lvalue "
-			                         "reference is written on an operand of "
-			                         "another type, which binds nothing");
+			throw std::runtime_error("a static_cast to a reference type is "
+			                         "written on an operand of another type, "
+			                         "which no `T t(e);` binds");
 		}
 		if (binds_temporary && types_.is_class(types_.strip_cv(referenced)))
 		{
@@ -342,7 +335,20 @@ SemaAnalyzer::Value SemaAnalyzer::cast_to_reference(TypeId target, Value& source
 		// program can watch, so nothing but the storage is owed for it and
 		// 12.2p3 has no end to hold - which is why the fact stands on the cast's
 		// own line rather than being an object of the analysis.
-		line.fact.binds_temporary = binds_temporary;
+		//
+		// 4.4p4's qualification conversion is the one conversion that leaves
+		// nothing for a temporary to hold: it is between two pointers to the
+		// same type, so the storage the operand named already holds the value
+		// the reference binds and 5.2.11p4's const_cast is the reading 5.4p4
+		// reaches first.  That is the same exception `match_reference` already
+		// makes for an argument, and it is an exception only where the operand
+		// named storage at all.
+		const TypeId from = types_.strip_cv(source.type);
+		const bool qualification_only =
+			types_.kind(from) == TypeKind::Pointer &&
+			source.category == ValueCategory::LValue &&
+			qualification_convertible(from, types_.strip_cv(referenced));
+		line.fact.binds_temporary = binds_temporary && !qualification_only;
 		// A conversion to any other type is a value, and the cast's own line is
 		// the whole of what stands for it, as it always was.
 		value.payload.clear();
