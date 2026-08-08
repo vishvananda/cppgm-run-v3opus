@@ -383,6 +383,74 @@ bool SemaAnalyzer::allows_adl(const SemaEntity* named) const
 	return named->region->kind == ScopeKind::Namespace;
 }
 
+// 13.3.1.1.2p2: the surrogate call functions an object of `type` is called
+// through, which is one declaration per non-explicit conversion function of its
+// class that yields a pointer to a function - taking that pointer where the
+// implied object argument stands and the function's own parameters after it, so
+// 13.3 ranks it against the class's `operator()`s over one argument list.
+//
+// The set is a fact of the class and is built once: 12.3.2p1's conversions are
+// already gathered in one walk of the classes that declare any, and a class
+// that declares none - which is nearly every class - answers with an empty list
+// it never walks again.  8.3.5p5's adjustment is what makes a conversion to a
+// *reference* to a function one of these too: what the call reads is the
+// pointer either way.
+const std::vector<SemaEntity*>& SemaAnalyzer::surrogate_calls(TypeId type)
+{
+	const std::unordered_map<TypeId, std::vector<SemaEntity*> >::const_iterator
+		found = surrogate_calls_.find(type);
+	if (found != surrogate_calls_.end())
+	{
+		return found->second;
+	}
+	std::vector<SemaEntity*>& built = surrogate_calls_[type];
+	SemaEntity* const owner = model_.type_owner(type);
+	if (owner == nullptr || owner->conversions_above == nullptr)
+	{
+		return built;
+	}
+	std::vector<SemaEntity*> conversions;
+	gather_conversions(*owner, conversions);
+	for (std::size_t index = 0; index < conversions.size(); ++index)
+	{
+		SemaEntity& conversion = *conversions[index];
+		if (conversion.explicit_function || conversion.deleted)
+		{
+			// 13.3.1.1.2p2: only a non-explicit conversion is one a call
+			// written on the object reaches without naming it.
+			continue;
+		}
+		const TypeId result = types_.target(conversion.type);
+		TypeId pointer = types_.is_reference(result)
+			? types_.strip_cv(types_.target(result))
+			: types_.strip_cv(result);
+		if (types_.kind(pointer) == TypeKind::Function)
+		{
+			pointer = types_.pointer_to(pointer);
+		}
+		if (types_.kind(pointer) != TypeKind::Pointer ||
+		    types_.kind(types_.strip_cv(types_.target(pointer))) !=
+		        TypeKind::Function)
+		{
+			continue;
+		}
+		const TypeId function = types_.strip_cv(types_.target(pointer));
+		// 13.3.1.1.2p2: the surrogate takes the pointer the conversion yields
+		// and then the parameters of the function it points to, and hands back
+		// what that function does.
+		std::vector<TypeId> parameters(1, pointer);
+		const std::vector<TypeId>& written = types_.parameters(function);
+		parameters.insert(parameters.end(), written.begin(), written.end());
+		SemaEntity& surrogate = model_.create(
+			SemaKind::Function, "call-function",
+			types_.function_of(types_.target(function), parameters,
+			                   types_.variadic(function)));
+		surrogate.surrogate_for = &conversion;
+		built.push_back(&surrogate);
+	}
+	return built;
+}
+
 // 13.3.1.2p1: an operator expression with an operand of class or enumeration
 // type is a call of an operator function, and 13.3 chooses that function among
 // the member operator functions 13.3.1.2p3 gathers from the first operand's
@@ -485,6 +553,20 @@ bool SemaAnalyzer::operator_expression(unsigned token, const Context& ctx,
 		}
 		singles = argument_candidates(name, operands, candidates);
 	}
+	if (token == OP_LPAREN && owner != nullptr)
+	{
+		// 13.3.1.1.2p2: a call written on an object of class type also reaches
+		// the surrogate call function of every conversion its class has to a
+		// pointer to function, so those stand in the one set 13.3 chooses from
+		// beside the `operator()`s the lookup above found.  Each of them is one
+		// declaration and no chain, so they are gathered last and counted among
+		// the entries nothing is walked past.
+		const std::vector<SemaEntity*>& surrogates =
+			surrogate_calls(types_.strip_cv(operands[0].type));
+		candidates.insert(candidates.end(), surrogates.begin(),
+		                  surrogates.end());
+		singles += surrogates.size();
+	}
 	if (candidates.empty())
 	{
 		// 13.3.1.2p2: no operator function is a candidate, so what is left is
@@ -526,6 +608,18 @@ bool SemaAnalyzer::operator_expression(unsigned token, const Context& ctx,
 		// left is the built-in operator the caller describes.
 		builtin_operands(token, ctx, operands);
 		return false;
+	}
+	if (chosen->surrogate_for != nullptr)
+	{
+		// 13.3.1.1.2p2: what the surrogate stands for is the conversion run on
+		// the object and a call of what the pointer it handed back points to,
+		// so that is what is written: the conversion takes the place the object
+		// operand held, which is the place a callee stands in, and the operands
+		// after it are the arguments 5.2.2p1 passes.
+		Value callee = call_conversion(operands[0], *chosen->surrogate_for, ctx);
+		const TypeId pointer = decayed(callee);
+		value = finish_call(line, types_.target(pointer), rest, nullptr, ctx);
+		return true;
 	}
 	if (!listed && better_builtin(*chosen, object, operands))
 	{

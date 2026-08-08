@@ -285,6 +285,15 @@ struct SemaEntity
 	// base or a member, which is all but the few that delegate - so the chain
 	// p6 forbids a cycle in is walked over those alone.
 	SemaEntity* delegates_to;
+	// 13.3.1.1.2p2: the conversion function this declaration is the surrogate
+	// call function of.  An object whose class converts to a pointer to
+	// function is callable, and what 13.3 chooses among is a set holding one
+	// such declaration per conversion beside the class's own `operator()`s - so
+	// the surrogate is a declaration like any other and this is the one thing
+	// about it that is not: which conversion the call runs on the object before
+	// it calls what the pointer points to.  Null for every declaration a
+	// program wrote.
+	SemaEntity* surrogate_for;
 	// 11.3p5: whether this unit's definition of the function was written in a
 	// friend declaration inside a class body, which defines a member of the
 	// enclosing namespace where no ordinary lookup finds its name.  The class
