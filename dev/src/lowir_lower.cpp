@@ -207,6 +207,28 @@ void LowirUnitLowering::open_signature(
 	result = low("void");
 }
 
+void LowirUnitLowering::describe_parameter(TypeId written,
+                                           lowir_model::Parameter& parameter)
+{
+	if (types_.is_reference(written))
+	{
+		// 8.5.3: a reference parameter is passed as the address of what it was
+		// bound to, which the boundary says rather than the type.
+		parameter.type = low("ptr");
+		parameter.metadata.passing = lowir_model::PPM_REFERENCE;
+		return;
+	}
+	if (types_.passes_indirectly(written))
+	{
+		// 5.2.2p4: the parameter and the argument are one object, standing in
+		// storage of the caller's, so what crosses the boundary is its address.
+		parameter.type = low("ptr");
+		parameter.metadata.passing = lowir_model::PPM_BY_ADDRESS;
+		return;
+	}
+	parameter.type = low_type(written);
+}
+
 // A name is used as often as the program writes it, and its symbol is a fact
 // about the declaration rather than about the use, so each declaration is
 // flattened - and a function's signature described and signed - once.
@@ -1955,11 +1977,7 @@ void LowirUnitLowering::add_function_declaration(const SemaEntity& entity,
 	{
 		lowir_model::Parameter parameter;
 		parameter.name = "arg" + decimal(index);
-		parameter.type = low_type(parameters[index]);
-		if (types_.is_reference(parameters[index]))
-		{
-			parameter.metadata.passing = lowir_model::PPM_REFERENCE;
-		}
+		describe_parameter(parameters[index], parameter);
 		declaration.params.push_back(parameter);
 	}
 	if (types_.variadic(entity.type))

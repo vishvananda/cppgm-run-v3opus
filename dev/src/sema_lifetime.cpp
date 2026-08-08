@@ -1205,8 +1205,12 @@ void SemaAnalyzer::destructor_action(SemaEntity& entity, DumpNode& parent,
 		                         " is declared, and the destructor its lifetime "
 		                         "ends with is deleted");
 	}
-	if (vacuous_destruction(entity.type))
+	if (where != Placement::Parameter && vacuous_destruction(entity.type))
 	{
+		// 12.4p8: nothing runs, so nothing is written - except at 5.2.2p4's
+		// boundary, where the destruction is what the function owes for an
+		// object it was handed rather than one it made, and 12.4p5's triviality
+		// is what says whether the class has one to owe.
 		return;
 	}
 	if (where == Placement::Named && entity.name.empty())
@@ -1232,7 +1236,7 @@ void SemaAnalyzer::destructor_action(SemaEntity& entity, DumpNode& parent,
 	// the order 12.6.2p10 created it in, and the elements of one an enclosing
 	// block declared are left in the order the references end them in.
 	action.fact.reverse_elements =
-		where != Placement::Named &&
+		(where == Placement::Member || where == Placement::Base) &&
 		types_.kind(types_.strip_cv(entity.type)) == TypeKind::Array;
 	if (where == Placement::Base)
 	{
@@ -1946,6 +1950,43 @@ void SemaAnalyzer::leave_lifetimes(std::size_t depth, DumpNode& line)
 void SemaAnalyzer::unwind_lifetimes(DumpNode& line)
 {
 	leave_lifetimes(0, line);
+	end_parameter_lifetimes(line);
+}
+
+// 5.2.2p4 and 3.8p1: a parameter of class type is an object of the function
+// whose storage the *caller* laid out and whose initialization the caller ran,
+// so what is left to the function is its end - which is where control leaves
+// the function and after every object a block of it declared has ended.
+void SemaAnalyzer::open_parameter_lifetimes(DumpNode& line)
+{
+	for (std::size_t index = 0; index < line.children.size(); ++index)
+	{
+		const DumpNode& child = *line.children[index];
+		if (child.fact.kind != FactKind::Parameter)
+		{
+			break;
+		}
+		// 12.4p5: whether the class has an end to run at all.  It is asked of
+		// the class rather than of 12.4p8's reading of a body, because what the
+		// boundary owes is the destructor the class declares and not whatever
+		// that destructor's definition turns out to write.
+		SemaEntity* const destructor =
+			class_destructor(types_.strip_cv(child.fact.type));
+		if (child.fact.entity == nullptr || destructor == nullptr ||
+		    destructor->trivial)
+		{
+			continue;
+		}
+		parameter_objects_.push_back(child.fact.entity);
+	}
+}
+
+void SemaAnalyzer::end_parameter_lifetimes(DumpNode& line)
+{
+	for (std::size_t at = parameter_objects_.size(); at-- > 0;)
+	{
+		destructor_action(*parameter_objects_[at], line, Placement::Parameter);
+	}
 }
 
 // 12.1p5: whether default-initializing an object of `type` does nothing at all,

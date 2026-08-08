@@ -351,6 +351,11 @@ LowValue LowirFunctionLowering::storage_of(const SemaEntity& entity)
 		// reference is bound to, and the reference itself holds that address.
 		value.type = types.target(entity.type);
 		value.operand = load(value.operand, entity.type);
+		// 4.2p1: the lvalue the name stands for is the array itself, so a
+		// pointer view of it is a conversion the source wrote a name at - the
+		// same place a member of reference type marks - and not an address a
+		// computation already had in hand.
+		value.named = true;
 	}
 	return value;
 }
@@ -1017,13 +1022,7 @@ void LowirFunctionLowering::run(const DumpNode& node, TypeId type)
 		const TypeId written = index < declared.size() ? declared[index]
 		                                              : child.fact.type;
 		lowir_model::Parameter parameter;
-		parameter.type = unit_.low_type(written);
-		if (types.is_reference(written))
-		{
-			// 8.5.3: a reference parameter is passed as the address of what it
-			// was bound to, which the boundary says rather than the type.
-			parameter.metadata.passing = lowir_model::PPM_REFERENCE;
-		}
+		unit_.describe_parameter(written, parameter);
 		// 1.4p8 and 3.7.4.2p2: a program that replaces one of the functions the
 		// implementation declared writes another declaration of it, and a
 		// parameter its definition left unnamed keeps the name the
@@ -1035,6 +1034,15 @@ void LowirFunctionLowering::run(const DumpNode& node, TypeId type)
 		                              : "__param");
 		taken_.insert(parameter.name);
 		out_.params.push_back(parameter);
+		if (parameter.metadata.passing == lowir_model::PPM_BY_ADDRESS)
+		{
+			// 5.2.2p4: the parameter is the object the caller built, standing
+			// where the caller put it - so the body reaches it through the
+			// address it was passed and nothing is copied into a second place.
+			placed_[child.fact.entity->id] =
+				named_operand(Operand::OP_TEMP, parameter.name);
+			continue;
+		}
 		if (types.is_class(types.strip_cv(written)))
 		{
 			// 5.1.1p8 and 12.8p15: a parameter of class type is an object of

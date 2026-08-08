@@ -203,8 +203,12 @@ public:
 	// ABI reads beside the copy: a class one of whose lifetimes ends in
 	// something is not one a call may hand back in registers, because the bytes
 	// alone are not the object.
+	// `base` is 10p1's base class subobject the object of this class begins
+	// with, which the boundary reads beside them; `kNoType` where the class has
+	// none.
 	void settle_copy_facts(TypeId type, bool trivially_copied,
-	                       bool copy_deleted, bool trivial_destruction);
+	                       bool copy_deleted, bool trivial_destruction,
+	                       TypeId base);
 
 	// 8.4.3p2 and 12.8p11: whether the copy constructor of the class is one no
 	// program may name, which is what says a transfer of an object of it is the
@@ -228,6 +232,18 @@ public:
 	// declaration writes, the definition's return and every call of it read the
 	// same answer rather than each working one out.
 	bool returns_indirectly(TypeId type);
+
+	// 5.2.2p4: whether a parameter of this type is passed as the address of the
+	// object the caller built rather than as the bytes that object holds.  A
+	// class 12.8p12 says a copy of is not the copy of its bytes, or 12.4p5 says
+	// the end of an object of is a call, is a class the boundary cannot carry
+	// as a value: the caller has to be able to name the object it built and the
+	// callee has to be able to name the one it was given, so the two name one
+	// object.  It is the other half of `returns_indirectly` and read at the same
+	// three places - the declaration, the definition and the call - except that
+	// width says nothing here, because an argument the caller already laid out
+	// costs nothing to point at however narrow it is.
+	bool passes_indirectly(TypeId type);
 
 	bool is_class(TypeId type) const { return kind(type) == TypeKind::Class; }
 	bool is_enum(TypeId type) const { return kind(type) == TypeKind::Enum; }
@@ -386,6 +402,11 @@ private:
 		// no program able to name, which is what says an object of it is
 		// carried by the member the program declared and not by its bytes.
 		bool copy_deleted;
+		// 10p1: the base class subobject an object of this class begins with,
+		// which 5.2.2p4's boundary reads because an object of a derived class
+		// is carried the way the storage it is laid out over is.  `kNoType`
+		// where the class derives from nothing.
+		TypeId base = kNoType;
 	};
 
 	// What makes two types the same type.

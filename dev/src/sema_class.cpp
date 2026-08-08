@@ -1783,7 +1783,10 @@ void SemaAnalyzer::settle_transfers(SemaEntity& entity, Scope& scope)
 	types_.settle_copy_facts(types_.strip_cv(entity.type),
 	                         !deleted_copy && copy->trivial, deleted_copy,
 	                         entity.destructor == nullptr ||
-	                             entity.destructor->trivial);
+	                             entity.destructor->trivial,
+	                         entity.base != nullptr
+	                             ? types_.strip_cv(entity.base->type)
+	                             : kNoType);
 }
 
 // 11.2p1: whether a member of another class may be named from inside `scope`,

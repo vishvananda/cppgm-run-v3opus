@@ -502,12 +502,14 @@ void TypeTable::complete_class(TypeId type, unsigned long long size,
 }
 
 void TypeTable::settle_copy_facts(TypeId type, bool trivially_copied,
-                                  bool copy_deleted, bool trivial_destruction)
+                                  bool copy_deleted, bool trivial_destruction,
+                                  TypeId base)
 {
 	UserType& record = user_types_[nodes_[type].user];
 	record.trivially_copied = trivially_copied;
 	record.copy_deleted = copy_deleted;
 	record.trivial_destruction = trivial_destruction;
+	record.base = base;
 }
 
 bool TypeTable::is_copy_deleted(TypeId type) const
@@ -536,6 +538,30 @@ bool TypeTable::returns_indirectly(TypeId type)
 	return !user_at(bare).trivially_copied ||
 		!user_at(bare).trivial_destruction ||
 		object_size(bare) > kDirectReturnBytes;
+}
+
+bool TypeTable::passes_indirectly(TypeId type)
+{
+	const TypeId bare = strip_cv(type);
+	if (kind(bare) != TypeKind::Class || is_incomplete(bare))
+	{
+		return false;
+	}
+	// 12.8p12 and 12.4p5: the boundary carries an object of the class as its
+	// bytes only where those bytes are the whole of what a copy of it is and
+	// where the end of its lifetime is nothing at all.  Either one failing makes
+	// the parameter and the argument one object standing in the caller's
+	// storage, which the call names by its address.
+	//
+	// 10p1: what a copy of an object of a *derived* class comes to at the
+	// boundary is what a copy of the storage it is laid out over comes to, so
+	// the copy read here is the base class subobject's - the checked-in ABI
+	// carries an object of a class with a base as its bytes wherever a copy of
+	// that base is the copy of its bytes, however the derived class writes its
+	// own.  A class that derives from nothing reads its own.
+	const UserType& carried =
+		user_at(bare).base != kNoType ? user_at(user_at(bare).base) : user_at(bare);
+	return !carried.trivially_copied || !user_at(bare).trivial_destruction;
 }
 
 bool TypeTable::is_empty_class(TypeId type) const

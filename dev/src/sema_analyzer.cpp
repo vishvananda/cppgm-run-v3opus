@@ -2380,6 +2380,11 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 	enclosing_continues.swap(continuable_frames_);
 	const std::size_t enclosing_live = live_destructions_;
 	live_destructions_ = 0;
+	std::vector<SemaEntity*> enclosing_parameters;
+	enclosing_parameters.swap(parameter_objects_);
+	// 5.2.2p4: the parameters of class type this definition has to end are read
+	// once, off the lines just written, before the body that may return.
+	open_parameter_lifetimes(line);
 	returns_ = types_.target(type);
 	breakable_ = 0;
 	continuable_ = 0;
@@ -2390,6 +2395,10 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 	{
 		semantic_statement(*node.children[index], inner, line);
 	}
+	// 6.6.3p2 and 3.8p1: control reaching the end of the body leaves the
+	// function as a return does, so what a return would end is ended there too.
+	end_parameter_lifetimes(line);
+	parameter_objects_.swap(enclosing_parameters);
 	// 6.6.4p1: every label a goto names is one the function writes.
 	for (std::size_t index = 0; index < gotos_.size(); ++index)
 	{

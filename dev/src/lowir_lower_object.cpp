@@ -1644,12 +1644,20 @@ LowValue LowirFunctionLowering::class_object_slot(const DumpNode& node,
 	return standing;
 }
 
+// 5.2.2p4: the storage the parameter of class type stands in belongs to the
+// caller, so the call names it here and the argument creates its object in it.
+// What crosses the boundary is that storage as the ABI carries it: the address
+// where the parameter and the argument are one object, and the bytes where the
+// class is one the boundary may copy - and 8.5.3p5 names the storage after the
+// half it is, so the two are told apart in the dump as well as in the call.
 Operand LowirFunctionLowering::class_argument(const DumpNode& node, TypeId type)
 {
+	const bool indirect = unit_.types().passes_indirectly(type);
 	Operand storage;
-	const Operand into = open_object_slot(type, "argobj", &storage);
+	const Operand into =
+		open_object_slot(type, indirect ? "arg" : "argobj", &storage);
 	place_class_object(into, type, node);
-	return storage;
+	return indirect ? into : storage;
 }
 
 // 12.8p15: a copy of a class object copies what the object holds, which for a
@@ -1747,8 +1755,14 @@ Operand LowirFunctionLowering::argument_operand(const DumpNode& node,
 	if (!types.is_reference(parameter) &&
 	    types.is_class(types.strip_cv(parameter)))
 	{
-		return class_value_slot(node, value, types.strip_cv(parameter),
-		                        "argobj");
+		// 5.2.2p4: the ABI carries the object as its bytes only where the class
+		// is one a copy of is the copy of them; everywhere else the parameter
+		// and the argument are one object the call names by its address, and
+		// 8.5.3p5 names the storage after which of the two it is.
+		const TypeId bare = types.strip_cv(parameter);
+		const bool indirect = types.passes_indirectly(bare);
+		return class_value_slot(node, value, bare,
+		                        indirect ? "arg" : "argobj", indirect);
 	}
 	return converted(value, parameter);
 }
@@ -1762,18 +1776,36 @@ Operand LowirFunctionLowering::argument_operand(const DumpNode& node,
 Operand LowirFunctionLowering::class_value_slot(const DumpNode& node,
                                                 const LowValue& value,
                                                 TypeId type,
-                                                const char* prefix)
+                                                const char* prefix,
+                                                bool addressed)
 {
 	TypeTable& types = unit_.types();
 	if (node.fact.kind == FactKind::TemporaryObject &&
 	    node.fact.entity != nullptr &&
 	    types.strip_cv(node.fact.type) == type)
 	{
+		if (addressed)
+		{
+			// 12.2p1: the construction named this object by an address a moment
+			// ago, and every later reader of the temporary reads the one
+			// object - so the call is passed that address rather than a second
+			// description of the same place.
+			const std::unordered_map<std::uint32_t, Operand>::const_iterator
+				standing = placed_.find(node.fact.entity->id);
+			if (standing != placed_.end())
+			{
+				return standing->second;
+			}
+		}
 		const std::unordered_map<std::uint32_t, std::string>::const_iterator
 			found = slots_.find(node.fact.entity->id);
 		if (found != slots_.end())
 		{
-			return named_operand(Operand::OP_SLOT, found->second);
+			LowValue standing;
+			standing.type = type;
+			standing.lvalue = true;
+			standing.operand = named_operand(Operand::OP_SLOT, found->second);
+			return addressed ? address_of(standing) : standing.operand;
 		}
 	}
 	const std::string slot = add_generated_slot(prefix, type);
@@ -1787,7 +1819,7 @@ Operand LowirFunctionLowering::class_value_slot(const DumpNode& node,
 	const Operand into = address_of(held);
 	copy_class_object(into, class_copy_source(value), type,
 	                  holds_class_value(value));
-	return storage;
+	return addressed ? into : storage;
 }
 
 // 12.8p15: what a copy of a class object is made from.  Where the value stands

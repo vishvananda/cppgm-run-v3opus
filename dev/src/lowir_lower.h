@@ -268,6 +268,12 @@ public:
 	void open_signature(TypeId returned,
 	                    std::vector<lowir_model::Parameter>& params,
 	                    lowir_model::LowType& result);
+	// 5.2.2p4 and 8.5.3: what one declared parameter is at the boundary.  A
+	// reference is the address of what it was bound to, a class the ABI cannot
+	// carry as bytes is the address of the object the caller built, and every
+	// other type is the value it is.  It is the same answer for the declaration,
+	// the definition and a call through a pointer, so it is written once.
+	void describe_parameter(TypeId written, lowir_model::Parameter& parameter);
 	bool is_signed(TypeId type);
 	// The register width of a scalar type, in bytes.
 	unsigned long long width(TypeId type);
@@ -915,10 +921,13 @@ private:
 	// 12.8p15 and 12.8p31: the storage a copy of one class object is made in
 	// where the place that asked for the copy owns storage of its own, and the
 	// storage a prvalue already stands in where 12.8p31 lets the two be one
-	// object.  `prefix` is what asked: an argument, a return.
+	// object.  `prefix` is what asked: an argument, a return.  `addressed` is
+	// 5.2.2p4's other half - whether what the place asking takes is the address
+	// of that storage rather than the bytes standing in it.
 	lowir_model::Operand class_value_slot(const DumpNode& node,
 	                                      const LowValue& value, TypeId type,
-	                                      const char* prefix);
+	                                      const char* prefix,
+	                                      bool addressed = false);
 	// 12.2p1: the storage a class prvalue that stands in none of its own is
 	// given, which is one slot of the function holding a copy of it.
 	lowir_model::Operand materialized_class_value(const LowValue& value);

@@ -220,11 +220,16 @@ private:
 	// non-static data member of the object the constructor is running on, and
 	// 12.6.2p5 that object's base class subobject.  The three differ only in how
 	// the action names the object, so one path writes all three.
+	// 5.2.2p4's parameter is a fourth: an object the *caller* built, which the
+	// function ends because the boundary says so - so it names the object the
+	// way a declaration does and 12.4p8's reading of an empty body, which is an
+	// answer about an object this translation created, does not reach it.
 	enum class Placement
 	{
 		Named,
 		Member,
-		Base
+		Base,
+		Parameter
 	};
 
 	// 12.2p1: what asked a conversion for the temporary it made, which is what
@@ -243,8 +248,10 @@ private:
 	// The prefix `Requested` gives a temporary an argument conversion made.
 	// `reference` says the place binds a reference to it rather than holding
 	// the object itself, which 8.5.3p5 makes storage of the argument and not an
-	// object the call is passed.
-	static const char* requested_prefix(Requested by, bool reference);
+	// object the call is passed.  `passed` is the type the object standing there
+	// has, which 5.2.2p4 reads to say whether the boundary carries it as bytes
+	// or as the address of the one object the caller and the callee share.
+	const char* requested_prefix(Requested by, bool reference, TypeId passed);
 
 	// The terminals a declaration was written from, which is what names an
 	// unnamed class that no declarator names (9.5p2).
@@ -727,6 +734,20 @@ private:
 	// The objects an open block has declared whose destructors run when control
 	// leaves it, innermost frame last.
 	std::vector<std::vector<SemaEntity*> > lifetimes_;
+	// 5.2.2p4: the parameters of class type of the function being read whose
+	// end of lifetime the boundary makes the function's own, in declaration
+	// order.  They stand outside `lifetimes_` because no block declared them
+	// and because every block's objects end before they do.
+	std::vector<SemaEntity*> parameter_objects_;
+	// 3.8p1: writes the end of each of them, in the reverse of the order the
+	// parameter-declaration-clause wrote them.  Reached where control leaves
+	// the function: at a return, once the blocks it left have ended their own
+	// objects, and where the body falls off its end.
+	void end_parameter_lifetimes(DumpNode& line);
+	// 5.2.2p4 and 12.4p5: which of a definition's parameters those are - one of
+	// class type whose destructor is a call.  Read once per definition, off the
+	// parameter lines the definition already wrote.
+	void open_parameter_lifetimes(DumpNode& line);
 	// 12.2p3: the temporaries each open full-expression has created, whose
 	// lifetimes end where that full-expression does.  The frames nest for the
 	// same reason 5.16's arms and 5.14's right operand need their own: an

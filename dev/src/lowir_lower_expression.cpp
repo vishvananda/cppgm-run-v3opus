@@ -587,11 +587,7 @@ LowValue LowirFunctionLowering::call_expression(const DumpNode& node,
 		{
 			lowir_model::Parameter parameter;
 			parameter.name = "arg" + decimal(index);
-			parameter.type = unit_.low_type(parameters[index]);
-			if (types.is_reference(parameters[index]))
-			{
-				parameter.metadata.passing = lowir_model::PPM_REFERENCE;
-			}
+			unit_.describe_parameter(parameters[index], parameter);
 			call.call_params.push_back(parameter);
 		}
 		if (types.variadic(function))
