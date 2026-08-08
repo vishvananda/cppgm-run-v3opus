@@ -1158,8 +1158,21 @@ const SemaEntity* LowirFunctionLowering::returned_local(const DumpNode& node)
 	// object, and the actions that end one stand under the return - so a return
 	// that carries any of them is one whose returned object cannot be the local
 	// this destroys on the way out.
-	if (node.children.size() != 1 ||
-	    node.children[0]->fact.kind != FactKind::TemporaryObject)
+	if (node.children.size() != 1)
+	{
+		return nullptr;
+	}
+	if (node.children[0]->fact.kind == FactKind::Id)
+	{
+		// 12.8p12 and 12.8p31: a class whose bytes stand for the object is
+		// carried into the returned object by a copy of those bytes and no
+		// transfer member stands over it, so the operand of the return is the
+		// name itself.  It is the same object 12.8p31 lets the destination be:
+		// what the elision leaves out is the copy, and there is one here
+		// whether or not it is written as a call.
+		return returned_name(*node.children[0]);
+	}
+	if (node.children[0]->fact.kind != FactKind::TemporaryObject)
 	{
 		return nullptr;
 	}
@@ -1176,7 +1189,17 @@ const SemaEntity* LowirFunctionLowering::returned_local(const DumpNode& node)
 	{
 		return nullptr;
 	}
-	const SemaEntity* const named = call.children[2]->fact.entity;
+	return returned_name(*call.children[2]);
+}
+
+// 12.8p31: the automatic object a return names, where naming it is all the
+// return does.  It is one declaration of this function's own, of the function's
+// own returned type, and it is the one question both spellings of the return
+// ask - the transfer member's argument and the bare name a copy of the bytes
+// carries.
+const SemaEntity* LowirFunctionLowering::returned_name(const DumpNode& node)
+{
+	const SemaEntity* const named = node.fact.entity;
 	TypeTable& types = unit_.types();
 	if (named == nullptr || named->kind != SemaKind::Variable ||
 	    types.strip_cv(named->type) != types.strip_cv(returns_))

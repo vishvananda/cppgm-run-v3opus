@@ -43,6 +43,13 @@ LowValue LowirFunctionLowering::expression(const DumpNode& node,
                                            bool as_object)
 {
 	TypeTable& types = unit_.types();
+	if (!selected_arms_.empty() && &selected(node) != &node)
+	{
+		// 5.16p3: this initialization is being written over the arms of a
+		// conditional, and on this path the conditional is worth the arm
+		// control reached - so every reader of it reads that one.
+		return expression(selected(node), as_object);
+	}
 	if (as_object && stands_in_no_storage(node))
 	{
 		// 12.2p1: what is needed here is the object the expression is worth,

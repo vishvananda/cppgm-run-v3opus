@@ -242,6 +242,21 @@ public:
 	// type that is not a class.
 	bool has_vacuous_destruction(TypeId type);
 
+	// 12.4p3: whether the program declared a destructor anywhere in the
+	// subobject tree of the class.  It is the other of the two questions an end
+	// of a lifetime asks, and which of them is asked is which kind of object is
+	// ending: an object a declaration named reads 12.4p8's vacuity, because the
+	// block that declared it is where the program can watch its end; an object
+	// the *translation* made - 12.2p1's temporary, 5.2.2p4's parameter object,
+	// the object a delete-expression ends - is reached through an address, and
+	// the call is the one mark its end has, so it is written wherever the
+	// program named a destructor at all.  False for every type that is not a
+	// class.
+	bool has_declared_destruction(TypeId type);
+	// Settled where the class completes, from whether the program wrote a
+	// destructor of its own and from the same subobjects 12.4p8 walks.
+	void settle_declared_destruction(TypeId type, bool declared);
+
 	// 12.8p12 and 12.4p8 as one question: whether the bytes of an object of the
 	// class stand for the object.  They do exactly where a copy of one is the
 	// copy of its bytes *and* nothing runs when one ends - an object something
@@ -440,6 +455,10 @@ private:
 		// comes to nothing, which the ABI and every copy read beside the copy
 		// fact: bytes stand for an object only while nothing runs at its end.
 		bool vacuous_destruction = true;
+		// 12.4p3: whether the program itself declared a destructor anywhere in
+		// the subobject tree of the class, which is what says an end of a
+		// lifetime the *translation* writes is a call.
+		bool declared_destruction = false;
 		// 8.5p8: whether any byte of an object of the class is written by
 		// zero-initialization, which is what its bases and members hold.
 		bool zeroed_storage = true;

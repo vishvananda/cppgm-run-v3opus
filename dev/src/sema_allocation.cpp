@@ -307,11 +307,13 @@ SemaAnalyzer::Value SemaAnalyzer::delete_expression(const AstNode& node,
 	target.node = &model_.open_node(line, std::string());
 	name_function(target, *given, "callee");
 	// 12.4p3: the lifetime of the object ends in a call of the destructor of
-	// its class, which 12.4p5 leaves nothing to run where the program wrote no
-	// destructor below it.  What the object stands in is the storage the
-	// operand points to, so the action names no object of its own.
+	// its class, and the object is one this expression reaches through an
+	// address alone - never a declaration's own - so the call is written
+	// wherever the program declared a destructor below its class at all.  What
+	// the object stands in is the storage the operand points to, so the action
+	// names no object of its own.
 	SemaEntity* const destructor = class_destructor(destroyed);
-	if (destructor == nullptr || destructor->trivial)
+	if (destructor == nullptr || !declared_destruction(destroyed))
 	{
 		return value;
 	}
@@ -908,12 +910,16 @@ SemaAnalyzer::Value SemaAnalyzer::new_expression(const AstNode& node,
 			construct_object(object, line, written_init, ctx, Placement::Named);
 		}
 		if (line.children.size() != 2 ||
-		    line.children[1]->fact.kind != FactKind::ConstructorAction)
+		    (line.children[1]->fact.kind != FactKind::ConstructorAction &&
+		     !creates_its_object(*line.children[1], types_)))
 		{
 			// 12.8p31's elision reaches an object the place asking already owns
-			// storage for, and here the storage is one the allocation function
-			// chose, so a value of the class's own type has nowhere to be
-			// elided into.
+			// storage for.  5.3.4p12's storage is one the allocation function
+			// chose, and it is storage this expression owns just as a
+			// declaration owns a slot - so an initializer that creates its own
+			// object creates it there.  What is left is an initializer that
+			// names an object standing somewhere else, which is 12.8p15's copy
+			// and a call this milestone does not write.
 			throw std::runtime_error("a new-expression initializes an object of "
 			                         "class type from a value of that class, "
 			                         "which 12.8p1 makes a call of the copy "

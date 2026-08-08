@@ -686,6 +686,9 @@ private:
 	// `scope` declares does nothing, so that no call has to be made for one.
 	bool trivial_default_construction(Scope& scope);
 	bool trivial_destruction(Scope& scope);
+	// 12.4p3: whether any subobject of the class holds a destructor the program
+	// itself declared, which is the subobject half of the class's own answer.
+	bool subobject_declares_destruction(SemaEntity& entity, Scope& scope);
 	// 15.4p14 and 12.4p3: whether the destructor of the class `scope` declares
 	// throws nothing, which is the same walk asked of what each subobject's own
 	// destructor allows rather than of what running it comes to.
@@ -845,8 +848,14 @@ private:
 	// ends, or - where 12.2p5's reference binding extended it - the objects the
 	// enclosing block ends.  Answers the object, or null where the node is
 	// worth none.
+	// `demanded` says this temporary is one whose end names the destructor of
+	// its class wherever the program declared one at all - which every
+	// temporary but 13.3.3.1.5p5's is, because a temporary a braced-init-list
+	// was written into demands no definition of its own and so ends only in a
+	// destructor 12.4p8 leaves something to run.
 	SemaEntity* register_temporary(DumpNode& node, const Scope* from,
-	                               bool extended = false);
+	                               bool extended = false,
+	                               bool demanded = true);
 	// 8.5.3p5 and 12.2p5: the temporary a reference initializer bound, which is
 	// the prvalue under whatever conversion the binding wrote over it.
 	DumpNode* bound_temporary(DumpNode& node);
@@ -899,6 +908,11 @@ private:
 	// two differ in which clause said so and not in what running them comes to,
 	// and the output writes an action only where there is one to write.
 	bool vacuous_destruction(TypeId type);
+	// 12.4p3: whether the program declared a destructor anywhere below this
+	// type's class, which is the question every end of a lifetime the
+	// *translation* wrote asks - a temporary, the object a reference extended,
+	// and the object a delete-expression ends.
+	bool declared_destruction(TypeId type);
 	// 3.4.1p8 and 9.3p2: the out-of-class definitions the unit's syntax holds,
 	// collected before any of it is read, and the one of them that defines this
 	// class's destructor - which is what settles 12.4p8's question wherever the
@@ -1108,6 +1122,13 @@ private:
 	WrittenInitializer read_initializer(const AstNode* written,
 	                                    TypeId object_type, const Context& ctx,
 	                                    bool value_init);
+	// 12.8p31: whether the transfer 13.3 chose for this initialization is one
+	// whose argument creates the very object being initialized, which makes the
+	// two objects one and leaves the transfer unwritten.  The initializer the
+	// line then holds is the one that creates it.
+	bool elide_transfer(const SemaEntity& constructor,
+	                    std::vector<Value>& arguments, TypeId object_type,
+	                    DumpNode& line, DumpNode& action);
 	// 5.1.1p1: a parameter named as the program would name it, written into a
 	// node of its own under `parent`.
 	Value parameter_value(SemaEntity& parameter, DumpNode& parent);

@@ -197,6 +197,52 @@ void SemaAnalyzer::require_elided_transfer(TypeId type, const Context& ctx)
 	}
 }
 
+// 12.8p31: a temporary of the object's own class that has not been bound to a
+// reference, and that would be copied or moved into this object, is created in
+// this object's storage instead - so the transfer 13.3 chose does not run and
+// the line the initialization holds is the one that creates the temporary.
+//
+// The question is asked once, after 13.3 has chosen, because which constructor
+// the initializer reaches is what says there is a copy here at all: an argument
+// that reaches the parameter through a conversion function of its own class is
+// a prvalue of this class only after that conversion has been applied, and a
+// class that declares a constructor taking the argument's own type reaches no
+// copy for the elision to remove.  What the elision removes is the call; 12.8p32
+// already asked for access to the constructor above, and `select_overload` and
+// `require_access` are what asked.
+bool SemaAnalyzer::elide_transfer(const SemaEntity& constructor,
+                                  std::vector<Value>& arguments,
+                                  TypeId object_type, DumpNode& line,
+                                  DumpNode& action)
+{
+	if (arguments.size() != 1 ||
+	    (constructor.transfer != kCopyConstructorTransfer &&
+	     constructor.transfer != kMoveConstructorTransfer))
+	{
+		return false;
+	}
+	Value& source = arguments[0];
+	if (source.node == nullptr || source.category != ValueCategory::PRValue ||
+	    types_.strip_cv(source.type) != types_.strip_cv(object_type) ||
+	    !creates_its_object(*source.node, types_))
+	{
+		return false;
+	}
+	if (line.children.empty() || line.children.back() != &action)
+	{
+		return false;
+	}
+	// 12.2p3: the object this line creates is the one being initialized, so
+	// its lifetime is the one the declaration holds and no full-expression ends
+	// it - and 15.2p2 reads the same one end, so the node keeps neither.
+	release_temporary(source);
+	source.node->fact.destruction = nullptr;
+	source.node->fact.object = nullptr;
+	line.children.pop_back();
+	line.children.push_back(source.node);
+	return true;
+}
+
 SemaAnalyzer::WrittenInitializer SemaAnalyzer::read_initializer(
 	const AstNode* written, TypeId object_type, const Context& ctx,
 	bool value_init)
@@ -467,6 +513,14 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 		                                   parameters[index + 1]);
 		apply_conversion(arguments[index], parameters[index + 1], match, ctx,
 		                 Requested::Argument);
+	}
+	if (!member && where != Placement::Base &&
+	    elide_transfer(constructor, arguments, object_type, line, action))
+	{
+		// 12.8p31: the constructor 13.3 chose carries an object into this one,
+		// and what it was given is a prvalue that creates its own object - so
+		// the two objects are one and the copy between them is not written.
+		return;
 	}
 	for (std::size_t index = arguments.size() + 1; index < parameters.size();
 	     ++index)
@@ -996,7 +1050,12 @@ SemaAnalyzer::Value SemaAnalyzer::build_temporary(TypeId type, DumpNode& line,
 	{
 		// 12.2p3: the temporary is destroyed at the end of the full-expression
 		// it was created in, so the open full-expression is what holds it.
-		register_temporary(line, ctx.scope);
+		// 13.3.3.1.5p5's temporary - the one a braced-init-list was written
+		// into - demands no definition of the destructor of its class, so what
+		// its end comes to is 12.4p8's reading of that destructor's body.
+		register_temporary(line, ctx.scope, false,
+		                   written == nullptr ||
+		                       written->kind != AstKind::BracedInitList);
 	}
 	line.text = spell("temporary-object", ValueCategory::PRValue, object_type,
 	                  std::string());
@@ -1055,7 +1114,7 @@ void SemaAnalyzer::temporary_destruction(SemaEntity& object, DumpNode& parent,
                                          bool full_expression)
 {
 	SemaEntity* const destructor = class_destructor(element_of(object.type));
-	if (destructor == nullptr || vacuous_destruction(object.type))
+	if (destructor == nullptr || !declared_destruction(object.type))
 	{
 		return;
 	}
@@ -1107,7 +1166,7 @@ SemaEntity* SemaAnalyzer::prvalue_object(DumpNode& node)
 }
 
 SemaEntity* SemaAnalyzer::register_temporary(DumpNode& node, const Scope* from,
-                                             bool extended)
+                                             bool extended, bool demanded)
 {
 	const bool known = node.fact.object != nullptr;
 	SemaEntity* const object = prvalue_object(node);
@@ -1133,10 +1192,15 @@ SemaEntity* SemaAnalyzer::register_temporary(DumpNode& node, const Scope* from,
 		}
 		return object;
 	}
-	if (vacuous_destruction(object->type))
+	if (demanded ? !declared_destruction(object->type)
+	             : vacuous_destruction(object->type))
 	{
-		// 12.4p8: the end of this object's lifetime comes to nothing at all, so
-		// no region has to hold it to write one, and nothing says it began.
+		// 12.4p3: the program declared no destructor anywhere below this
+		// object's class, so its end names nothing at all - no region has to
+		// hold it to write one, and nothing says it began.  13.3.3.1.5p5's
+		// temporary is the one that asks 12.4p8 instead: it demands no
+		// definition of its own, so what its end comes to is what running the
+		// destructor comes to and not whether one was declared.
 		node.fact.object = nullptr;
 		return nullptr;
 	}
@@ -1283,11 +1347,11 @@ void SemaAnalyzer::end_arm_temporaries(const std::vector<SemaEntity*>& frame,
 	{
 		ends_in_something = ends_in_something ||
 			(class_destructor(element_of(frame[index]->type)) != nullptr &&
-			 !vacuous_destruction(frame[index]->type));
+			 declared_destruction(frame[index]->type));
 	}
 	if (!ends_in_something)
 	{
-		// 12.4p8: nothing the arm created comes to anything at its end, so the
+		// 12.4p3: nothing the arm created comes to anything at its end, so the
 		// arm needs no place to write one.
 		return;
 	}
@@ -1389,9 +1453,9 @@ void SemaAnalyzer::destructor_action(SemaEntity& entity, DumpNode& parent,
 		                         " is declared, and the destructor its lifetime "
 		                         "ends with is deleted");
 	}
-	if (where != Placement::Parameter && vacuous_destruction(entity.type))
+	if (where != Placement::Parameter && !ends_in_call(entity))
 	{
-		// 12.4p8: nothing runs, so nothing is written - except at 5.2.2p4's
+		// 12.4p3: nothing runs, so nothing is written - except at 5.2.2p4's
 		// boundary, where the destruction is what the function owes for an
 		// object it was handed rather than one it made, and 12.4p5's triviality
 		// is what says whether the class has one to owe.
@@ -2449,7 +2513,11 @@ void SemaAnalyzer::open_parameter_lifetimes(DumpNode& line)
 		// 12.4p5: whether the class has an end to run at all.  It is asked of
 		// the class rather than of 12.4p8's reading of a body, because what the
 		// boundary owes is the destructor the class declares and not whatever
-		// that destructor's definition turns out to write.
+		// that destructor's definition turns out to write.  It is 12.4p5's
+		// triviality and not 12.4p3's declaration: the reference writes this
+		// end for a declared-but-trivial destructor only where some other use
+		// of the unit already demanded its definition, which is a reading of
+		// the whole unit and not of the boundary.
 		SemaEntity* const destructor =
 			class_destructor(types_.strip_cv(child.fact.type));
 		if (child.fact.entity == nullptr || destructor == nullptr ||
@@ -2493,9 +2561,27 @@ bool SemaAnalyzer::trivially_constructed(TypeId type)
 
 // 12.4p3: whether the end of this object's lifetime is a call rather than
 // nothing at all, which is the one question every count of live objects asks.
+//
+// Which of the two questions an end asks is which kind of object is ending.
+// An object a declaration named is one the program can watch leave its block,
+// and 12.4p8 says what running its destructor comes to; an object the
+// *translation* made - 12.2p1's temporary, and the one 12.2p5 moved out of its
+// full-expression into this block - is reached through an address alone, and
+// the call is the one mark its end has, so it is written wherever the program
+// declared a destructor below its class at all.  An unnamed object is the one
+// the translation made, which is what `destructor_action` already reads it as.
 bool SemaAnalyzer::ends_in_call(const SemaEntity& entity)
 {
-	return !vacuous_destruction(entity.type);
+	return entity.name.empty() ? declared_destruction(entity.type)
+	                           : !vacuous_destruction(entity.type);
+}
+
+// 12.4p3: the same question asked of a type rather than of an object, held per
+// class where the class completes - so a chain of subobjects n deep costs one
+// read and never a walk.
+bool SemaAnalyzer::declared_destruction(TypeId type)
+{
+	return types_.has_declared_destruction(element_of(type));
 }
 
 // 12.4p8: whether the definition `node` gives a function writes any statement

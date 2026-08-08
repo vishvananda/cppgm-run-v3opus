@@ -809,6 +809,21 @@ private:
 	// Whether `node` is an initializer that creates its object, which is what
 	// says the destination is where that object is built.
 	bool creates_object(const DumpNode& node, TypeId type);
+	// 5.16p3: the conditional an initializer reads its object out of, where
+	// that conditional selects among objects that already stand somewhere.
+	// Only one of the two exists on each path, so a destination the
+	// translation named is filled on the path that chose the object it reads
+	// rather than once at the end over an address both paths wrote.  A
+	// destination the *program* declared is filled where its declaration
+	// stands, which is why this is asked at the hand-off and nowhere else.
+	const DumpNode* selecting_conditional(const DumpNode& node, TypeId type);
+	// Whether the initializer was written over the arms of such a conditional,
+	// which is what says `place_class_object` has nothing further to write.
+	bool place_over_conditional(const lowir_model::Operand& destination,
+	                            TypeId type, const DumpNode& node);
+	// The node standing in for `node` while an arm of a conditional is being
+	// written, which is that arm.
+	const DumpNode& selected(const DumpNode& node) const;
 	// 12.2p1: storage of the function's own for an object of class type no
 	// declaration named, and the address of it.  The slot is opened before
 	// whatever fills it runs, because the object standing in it is what that
@@ -843,6 +858,9 @@ private:
 	// The object one `return` copies into the returned object, or null where
 	// what it returns is not the copy of a named object.
 	const SemaEntity* returned_local(const DumpNode& node);
+	// 12.8p31: the automatic object of the function's own returned type that an
+	// id-expression standing in a return names, and nothing otherwise.
+	const SemaEntity* returned_name(const DumpNode& node);
 	// 5.3.4: the storage 3.7.4.1's allocation function returned, and the
 	// object 8.5p16 creates in it.  The address is the one the call produced,
 	// so nothing here allocates a slot and the object is built at a value
@@ -1322,6 +1340,11 @@ private:
 	// slot of its own, so what names it is the destination it was built in, and
 	// every later reader of the same temporary reads that address.
 	std::unordered_map<std::uint32_t, lowir_model::Operand> placed_;
+	// 5.16p3: while one arm of a conditional is being written, that arm stands
+	// where the conditional does for every reader of it.  The map is empty
+	// everywhere else, so no expression pays for it, and an entry standing is
+	// also what stops the distribution from finding the same conditional again.
+	std::unordered_map<const DumpNode*, const DumpNode*> selected_arms_;
 	std::unordered_set<std::string> slot_names_;
 	// 3.3.3p4: the suffix the last slot named after one identifier took, so the
 	// next one starts from there rather than from the first suffix again.

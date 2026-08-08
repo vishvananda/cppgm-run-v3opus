@@ -583,6 +583,17 @@ bool TypeTable::has_vacuous_destruction(TypeId type)
 	return kind(bare) != TypeKind::Class || user_at(bare).vacuous_destruction;
 }
 
+bool TypeTable::has_declared_destruction(TypeId type)
+{
+	const TypeId bare = strip_cv(type);
+	return kind(bare) == TypeKind::Class && user_at(bare).declared_destruction;
+}
+
+void TypeTable::settle_declared_destruction(TypeId type, bool declared)
+{
+	user_types_[nodes_[type].user].declared_destruction = declared;
+}
+
 bool TypeTable::bytes_stand_for_object(TypeId type)
 {
 	const TypeId bare = strip_cv(type);

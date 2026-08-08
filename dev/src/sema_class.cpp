@@ -1448,6 +1448,15 @@ void SemaAnalyzer::declare_special_members(SemaEntity& entity, Scope& scope)
 	{
 		entity.destructor->nonthrowing = destruction_nonthrowing(scope);
 	}
+	// 12.4p3: whether the program declared a destructor anywhere below this
+	// class is a fact of the class like the four above it, settled once here
+	// and read as one field by every end of a lifetime the translation writes.
+	// The walk is 12.4p8's own - the base subobject and the non-variant
+	// members, each of which already holds its answer - so a class asks its
+	// subobjects once and a chain n deep costs n reads and not n walks.
+	types_.settle_declared_destruction(
+		types_.strip_cv(entity.type),
+		wrote_destructor || subobject_declares_destruction(entity, scope));
 	settle_transfers(entity, scope);
 }
 
@@ -2586,6 +2595,40 @@ bool SemaAnalyzer::trivial_destruction(Scope& scope)
 		}
 	}
 	return true;
+}
+
+// 12.4p3 and 12.4p8: whether any subobject of the class this region declares
+// has a destructor the program itself declared.  The walk is the one 12.4p8's
+// destruction makes - the base class subobject and the non-variant members,
+// because a union's destructor destroys no member of its own - and each of
+// them already carries its answer, so this is one step per declaration and
+// never a walk of the tree below it.
+bool SemaAnalyzer::subobject_declares_destruction(SemaEntity& entity,
+                                                  Scope& scope)
+{
+	if (entity.base != nullptr &&
+	    types_.has_declared_destruction(entity.base->type))
+	{
+		return true;
+	}
+	if (one_storage(entity.type))
+	{
+		return false;
+	}
+	for (std::size_t index = 0; index < scope.declarations.size(); ++index)
+	{
+		const SemaEntity& member = *scope.declarations[index];
+		if (!declares_subobject(member, scope) ||
+		    types_.is_reference(member.type))
+		{
+			continue;
+		}
+		if (types_.has_declared_destruction(element_of(member.type)))
+		{
+			return true;
+		}
+	}
+	return false;
 }
 
 // 8.3.4p1: the type one element of an array is, however many dimensions it

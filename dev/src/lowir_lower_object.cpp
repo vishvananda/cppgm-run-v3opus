@@ -776,6 +776,14 @@ void LowirFunctionLowering::constructor_call(const Operand& address,
 			}
 			return;
 		}
+		// 5.16p3: no call stands for this transfer, so what fills the object is
+		// the initialization itself - and where the operand is a conditional
+		// that selects among objects standing elsewhere, that initialization is
+		// written on the path that chose the one it reads.
+		if (place_over_conditional(address, written, *call.children[2]))
+		{
+			return;
+		}
 		// 12.8p15: what the transfer carries is the object the operand is worth,
 		// which is the same question `place_class_object`'s copy asks - so it is
 		// read the same way.  A call that handed its object back holding no
@@ -1076,6 +1084,15 @@ LowValue LowirFunctionLowering::new_expression(const DumpNode& node)
 		// constructor, which is written even where the constructor does
 		// nothing, because the call is the only mark that it has.
 		constructor_call(allocated.operand, initialization, true, kNoType, true);
+	}
+	else if (types.is_class(types.strip_cv(types.target(node.fact.type))))
+	{
+		// 12.8p31: the initializer creates its own object, and 5.3.4p12's
+		// storage is what this expression owns - so it creates it there, the
+		// same hand-off a declaration makes to the initializer written on it.
+		place_class_object(allocated.operand,
+		                   types.strip_cv(types.target(node.fact.type)),
+		                   initialization);
 	}
 	else
 	{
@@ -1599,6 +1616,94 @@ bool LowirFunctionLowering::creates_object(const DumpNode& node, TypeId type)
 		slots_.count(node.fact.entity->id) == 0;
 }
 
+const DumpNode& LowirFunctionLowering::selected(const DumpNode& node) const
+{
+	if (selected_arms_.empty())
+	{
+		return node;
+	}
+	const std::unordered_map<const DumpNode*, const DumpNode*>::const_iterator
+		found = selected_arms_.find(&node);
+	return found == selected_arms_.end() ? node : selected(*found->second);
+}
+
+const DumpNode* LowirFunctionLowering::selecting_conditional(
+	const DumpNode& node, TypeId type)
+{
+	TypeTable& types = unit_.types();
+	const DumpNode* written = &selected(node);
+	if (written->fact.kind == FactKind::TemporaryObject)
+	{
+		// 12.8p15: the object standing here is filled by a transfer whose one
+		// argument is the object it reads, so the conditional that chose that
+		// object is the conditional this initialization reads through.  A
+		// temporary that already stands somewhere is not built again, so there
+		// is nothing here to write on either path.
+		if (written->fact.entity == nullptr ||
+		    placed_.count(written->fact.entity->id) != 0 ||
+		    slots_.count(written->fact.entity->id) != 0 ||
+		    written->children.empty() ||
+		    written->children[0]->fact.kind != FactKind::ConstructorAction)
+		{
+			return nullptr;
+		}
+		const DumpNode& call = *written->children[0]->children[0];
+		const SemaEntity& constructor = *call.children[0]->fact.entity;
+		if (call.children.size() != 3 ||
+		    (constructor.transfer != kCopyConstructorTransfer &&
+		     constructor.transfer != kMoveConstructorTransfer))
+		{
+			return nullptr;
+		}
+		written = &selected(*call.children[2]);
+	}
+	if (written->fact.kind != FactKind::Conditional ||
+	    written->fact.category == ValueCategory::PRValue ||
+	    !types.is_class(types.strip_cv(written->fact.type)) ||
+	    types.strip_cv(written->fact.type) != types.strip_cv(type))
+	{
+		// A prvalue conditional creates the object it is worth, which
+		// `creates_object` already hands the destination to.
+		return nullptr;
+	}
+	return written;
+}
+
+bool LowirFunctionLowering::place_over_conditional(const Operand& destination,
+                                                   TypeId type,
+                                                   const DumpNode& node)
+{
+	const DumpNode* const chosen = selecting_conditional(node, type);
+	if (chosen == nullptr)
+	{
+		return false;
+	}
+	const std::string then_label = reserve_block("condobj_then");
+	const std::string else_label = reserve_block("condobj_else");
+	const std::string end_label = reserve_block("condobj_end");
+	const LowValue condition = expression(*chosen->children[0]);
+	branch(truth_for_branch(condition), then_label, else_label);
+	for (unsigned arm = 0; arm < 2; ++arm)
+	{
+		open_block(arm == 0 ? then_label : else_label);
+		// 12.2p1: the temporary this initialization builds is built again on
+		// the other path, so the storage it was given on this one is not what
+		// the other path finds standing.
+		if (node.fact.kind == FactKind::TemporaryObject &&
+		    node.fact.entity != nullptr)
+		{
+			placed_.erase(node.fact.entity->id);
+		}
+		selected_arms_[chosen] = chosen->children[arm + 1];
+		place_class_object(destination, type, node);
+		selected_arms_.erase(chosen);
+		end_conditional_arm(*chosen, arm);
+		jump(end_label);
+	}
+	open_block(end_label);
+	return true;
+}
+
 LowValue LowirFunctionLowering::place_class_object(const Operand& destination,
                                                    TypeId type,
                                                    const DumpNode& node)
@@ -1607,26 +1712,34 @@ LowValue LowirFunctionLowering::place_class_object(const Operand& destination,
 	object.type = type;
 	object.lvalue = true;
 	object.operand = destination;
-	if (creates_object(node, type))
+	if (place_over_conditional(destination, type, node))
 	{
-		switch (node.fact.kind)
+		return object;
+	}
+	// 5.16p3: an arm of a conditional this destination is being filled over
+	// stands where the conditional does, so the initializer read here is that
+	// arm and not the selection above it.
+	const DumpNode& written = selected(node);
+	if (creates_object(written, type))
+	{
+		switch (written.fact.kind)
 		{
 		case FactKind::TemporaryObject:
-			temporary_object(node, &destination);
+			temporary_object(written, &destination);
 			return object;
 
 		case FactKind::Call:
-			call_expression(node, &destination);
+			call_expression(written, &destination);
 			return object;
 
 		case FactKind::Conditional:
-			conditional_object(node, &destination);
+			conditional_object(written, &destination);
 			return object;
 
 		case FactKind::Cast:
 			// 5.2.9p4: the cast is the initialization written under it, and it
 			// writes into the storage this place named.
-			return place_class_object(destination, type, *node.children[0]);
+			return place_class_object(destination, type, *written.children[0]);
 
 		default:
 			break;
@@ -1634,7 +1747,7 @@ LowValue LowirFunctionLowering::place_class_object(const Operand& destination,
 	}
 	// 8.5p14: the initializer names an object that already stands somewhere,
 	// so what the initialization comes to is 12.8p15's copy of it.
-	const LowValue value = expression(node);
+	const LowValue value = expression(written);
 	copy_class_object(destination, class_copy_source(value), type,
 	                  holds_class_value(value));
 	return object;
