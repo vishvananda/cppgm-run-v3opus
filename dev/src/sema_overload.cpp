@@ -1207,8 +1207,10 @@ SemaEntity* SemaAnalyzer::select_overload(
 	// only where several were gathered.
 	std::unordered_set<const SemaEntity*> gathered;
 	// 13.3.3p1: which of the viable candidates is a specialization of a
-	// template, which is what tells two apart whose conversions tie.
+	// template, which is what tells two apart whose conversions tie - and, for
+	// two that are, the template each was made of, which 14.5.6.2 orders.
 	std::vector<char> templated;
+	std::vector<SemaEntity*> patterns;
 	std::vector<Match> matches;
 	// 13.3.1p3: every candidate is compared over the same argument list, so the
 	// implicit object argument holds a place in it whether or not a candidate is
@@ -1216,6 +1218,17 @@ SemaEntity* SemaAnalyzer::select_overload(
 	// candidate with no implicit object parameter, so it never decides between
 	// two candidates on its own.
 	const std::size_t implicit = object != nullptr ? 1u : 0u;
+	// 13.3.1.2p4 and 14.8.2.1p1: a non-member operator candidate takes the
+	// first operand as its own first argument, so the list a deduction of one
+	// reads from is that operand and then the rest.  It is built once, because
+	// every template candidate of one operator deduces from the same list.
+	std::vector<Value> operands;
+	if (operand != nullptr)
+	{
+		operands.reserve(arguments.size() + 1);
+		operands.push_back(*operand);
+		operands.insert(operands.end(), arguments.begin(), arguments.end());
+	}
 	for (std::size_t chain = 0; chain < candidates.size(); ++chain)
 	{
 	// 3.4.2p2: the friend declarations an associated class makes visible are
@@ -1237,7 +1250,11 @@ SemaEntity* SemaAnalyzer::select_overload(
 			// 14.8.3p1: a template is a candidate through the specialization
 			// the arguments deduce, and no candidate at all when they deduce
 			// none.
-			at = deduce_specialization(*candidate, arguments);
+			at = deduce_specialization(*candidate,
+			                           operand != nullptr &&
+			                           !candidate->object_member
+				? operands
+				: arguments);
 			if (at == nullptr)
 			{
 				continue;
@@ -1318,6 +1335,12 @@ SemaEntity* SemaAnalyzer::select_overload(
 		}
 		viable.push_back(at);
 		templated.push_back(at->primary != nullptr ? 1 : 0);
+		// 14.5.6.2p2 orders the templates a call made specializations of, and
+		// an ordinary declaration is ordered against nothing.
+		patterns.push_back(at->primary != nullptr &&
+		                   at->primary->template_parameters != nullptr
+			? at->primary
+			: nullptr);
 	}
 	}
 	if (viable.empty())
@@ -1343,7 +1366,8 @@ SemaEntity* SemaAnalyzer::select_overload(
 	for (std::size_t index = 1; index < viable.size(); ++index)
 	{
 		if (better_candidate(rows + index * count, rows + best * count, count,
-		                     templated[index] == 0, templated[best] != 0))
+		                     templated[index] == 0, templated[best] != 0,
+		                     patterns[index], patterns[best]))
 		{
 			best = index;
 		}
@@ -1352,7 +1376,8 @@ SemaEntity* SemaAnalyzer::select_overload(
 	{
 		if (index != best &&
 		    !better_candidate(rows + best * count, rows + index * count, count,
-		                      templated[best] == 0, templated[index] != 0))
+		                      templated[best] == 0, templated[index] != 0,
+		                      patterns[best], patterns[index]))
 		{
 			throw std::runtime_error("a call of " + name +
 			                         " has no best declaration");
@@ -1419,8 +1444,13 @@ int SemaAnalyzer::compare_matches(const Match& left, const Match& right)
 	// the argument, the one whose qualifiers are a proper subset of the other's
 	// is better - which is what 13.3.1.1.1 orders `f()` above `f() const` by on
 	// an object that is not const, and what orders `f(T&)` above `f(const T&)`.
-	if (left.qualified != kNoType && right.qualified != kNoType &&
-	    left.qualified != right.qualified)
+	// The two clauses the field carries are different ones: for a reference
+	// binding it is how qualified the reference made the object, and for every
+	// other sequence it is what a qualification conversion made of a pointer.
+	// A sequence of one kind is ordered against a sequence of the other by
+	// neither, which is what leaves `f(T)` and `f(const T &)` to 14.5.6.2.
+	if (left.reference == right.reference && left.qualified != kNoType &&
+	    right.qualified != kNoType && left.qualified != right.qualified)
 	{
 		if (qualification_convertible(left.qualified, right.qualified))
 		{
@@ -1446,9 +1476,53 @@ int SemaAnalyzer::compare_matches(const Match& left, const Match& right)
 	return 0;
 }
 
+// 14.5.6.2p2 and p8: whether the parameter types `right` was written over are
+// every one of them deduced from the type `left` wrote in the same place, with
+// `left`'s own parameters standing for types of their own.
+//
+// 14.5.6.2p5 and p7 are what make `const T &` and `T` comparable at all: a
+// reference on either side is replaced by what it refers to and the top-level
+// qualifiers of both are dropped, so what is left is the shape each template
+// wrote.  One binding map runs the whole list, because a parameter that two
+// places deduce differently makes neither template the other's.
+bool SemaAnalyzer::at_least_as_specialized(SemaEntity& left, SemaEntity& right)
+{
+	const std::uint64_t key =
+		(static_cast<std::uint64_t>(left.id) << 32) | right.id;
+	const std::unordered_map<std::uint64_t, bool>::const_iterator held =
+		specialization_order_.find(key);
+	if (held != specialization_order_.end())
+	{
+		return held->second;
+	}
+	const std::vector<TypeId>& wrote = types_.parameters(left.type);
+	const std::vector<TypeId>& against = types_.parameters(right.type);
+	bool answer = wrote.size() == against.size();
+	std::unordered_map<TypeId, TypeId> bindings;
+	for (std::size_t index = 0; answer && index < against.size(); ++index)
+	{
+		TypeId pattern = against[index];
+		TypeId argument = wrote[index];
+		if (types_.is_reference(pattern))
+		{
+			pattern = types_.target(pattern);
+		}
+		if (types_.is_reference(argument))
+		{
+			argument = types_.target(argument);
+		}
+		answer = deduce(types_.strip_cv(pattern), types_.strip_cv(argument),
+		                bindings);
+	}
+	specialization_order_.insert(std::make_pair(key, answer));
+	return answer;
+}
+
 bool SemaAnalyzer::better_candidate(const Match* left, const Match* right,
                                     std::size_t count, bool left_written,
-                                    bool right_deduced)
+                                    bool right_deduced,
+                                    SemaEntity* left_template,
+                                    SemaEntity* right_template)
 {
 	bool strictly_better = false;
 	for (std::size_t index = 0; index < count; ++index)
@@ -1462,7 +1536,21 @@ bool SemaAnalyzer::better_candidate(const Match* left, const Match* right,
 	}
 	// 13.3.3p1: a function the program declared beats a specialization of a
 	// template whose conversions are no better than its own.
-	return strictly_better || (left_written && right_deduced);
+	if (strictly_better || (left_written && right_deduced))
+	{
+		return true;
+	}
+	// 13.3.3p1: two specializations whose conversions are indistinguishable are
+	// told apart by 14.5.6.2's ordering of the templates they were made from,
+	// which is a question about the two patterns and not about this call.
+	// 9.3.1p3 put a member's object parameter in its type and left a
+	// non-member's first operand out of its own, so the two lists only name the
+	// same places where both templates declared the same kind of function.
+	return left_template != nullptr && right_template != nullptr &&
+		left_template != right_template &&
+		left_template->object_member == right_template->object_member &&
+		at_least_as_specialized(*left_template, *right_template) &&
+		!at_least_as_specialized(*right_template, *left_template);
 }
 
 // 12.2p1: the storage a temporary is given is named after what asked for it,

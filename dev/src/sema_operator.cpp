@@ -198,6 +198,15 @@ void SemaAnalyzer::require_operator_operand(const std::string& name,
 		{
 			return;
 		}
+		// 14p1 and 13.5p6: a parameter written over a template parameter is of
+		// no type until an instantiation gives it one, so the clause is a
+		// question about the specialization rather than about the template.
+		// Every specialization this one makes has its own parameter types, and
+		// the declaration each of them makes asks again.
+		if (types_.is_dependent(at))
+		{
+			return;
+		}
 	}
 	throw std::runtime_error(name + " is declared outside a class and takes no "
 	                         "operand of class or enumeration type");
@@ -256,6 +265,19 @@ void SemaAnalyzer::associate_type(TypeId type, Associated& out)
 	if (owner->kind != SemaKind::Class)
 	{
 		return;
+	}
+	// 3.4.2p2: a class template specialization also associates whatever the
+	// types its template arguments named associate.  The walk is over the
+	// arguments the specialization recorded rather than over its spelling, and
+	// `walked` below stops a second visit to one class - so a nest whose
+	// arguments repeat costs each distinct specialization once.
+	if (types_.is_specialization(bare) && out.arguments.insert(bare).second)
+	{
+		const std::vector<TypeId>& given = types_.template_arguments(bare);
+		for (std::size_t index = 0; index < given.size(); ++index)
+		{
+			associate_type(given[index], out);
+		}
 	}
 	// 10p1: the base classes of the class are associated with it, and so are
 	// their own, which the chain the base-clauses left is one walk of.  What

@@ -1780,8 +1780,13 @@ private:
 	// 14.8.2.5: the bindings the argument type `argument` gives the template
 	// parameters `pattern` is written over, added to `bindings`.  False when
 	// the two do not agree, which is a deduction that failed.
+	//
+	// 14.8.2.1p4: `relaxed` is the top of a reference parameter, where the
+	// deduced argument may be more cv-qualified than what was passed - which is
+	// what lets `const T &` take an lvalue of a type nothing wrote `const` on.
 	bool deduce(TypeId pattern, TypeId argument,
-	            std::unordered_map<TypeId, TypeId>& bindings);
+	            std::unordered_map<TypeId, TypeId>& bindings,
+	            bool relaxed = false);
 	// 14.7.1: the declaration `arguments` makes of `primary`, made once
 	// however many times it is named.
 	SemaEntity& specialize(SemaEntity& primary,
@@ -2041,6 +2046,11 @@ private:
 		// the same question as `held`: 3.4.2p2 also associates the class a
 		// nested type is a member of, and associates none of its bases.
 		std::unordered_set<const SemaEntity*> walked;
+		// The specializations whose template arguments the walk has already
+		// followed.  A specialization holds only types made before it, so this
+		// keeps a nest whose arguments repeat to one visit each rather than one
+		// per path through it.
+		std::unordered_set<TypeId> arguments;
 	};
 	// 3.4.2p2: the namespaces and classes a type is associated with.
 	void associate_type(TypeId type, Associated& out);
@@ -2068,7 +2078,15 @@ private:
 	// the other a specialization a deduction made.
 	bool better_candidate(const Match* left, const Match* right,
 	                      std::size_t count, bool left_written = false,
-	                      bool right_deduced = false);
+	                      bool right_deduced = false,
+	                      SemaEntity* left_template = nullptr,
+	                      SemaEntity* right_template = nullptr);
+	// 14.5.6.2p2: whether every parameter type of `right` is deduced from the
+	// one `left` wrote in the same place, which is what makes `left` at least
+	// as specialized as `right`.  The answer is a fact of the two templates
+	// and is kept, because a call over a large overload set asks it of the
+	// same pair once per comparison.
+	bool at_least_as_specialized(SemaEntity& left, SemaEntity& right);
 	// Rewrites what the dump wrote for `value` where a conversion is visible in
 	// it: a null pointer constant, a resolved function name, and the temporary
 	// a reference binds to.  Each rewrites the line the operand already wrote,
@@ -2178,6 +2196,10 @@ private:
 	// expression read in a region binding the parameters before it, so it is
 	// read once rather than at every naming of the same specialization.
 	std::unordered_map<std::uint64_t, std::vector<TypeId> > default_arguments_;
+	// 14.5.6.2p2: which of two function templates is at least as specialized as
+	// the other, keyed by the two declarations.  It is a fact of the pair, and
+	// 13.3.3p1 asks it of the same pair once for every comparison a call makes.
+	std::unordered_map<std::uint64_t, bool> specialization_order_;
 	// 14p1: the declaration the template-declaration being read parameterises,
 	// and the dump its lines stand in, while its declarators are read.  Null
 	// wherever the walk is not inside one.

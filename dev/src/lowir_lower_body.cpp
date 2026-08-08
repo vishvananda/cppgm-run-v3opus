@@ -859,13 +859,18 @@ Operand LowirFunctionLowering::converted(const LowValue& value, TypeId target)
 		types.is_reference(target) ? types.target(target) : target);
 	if (types.is_reference(target))
 	{
-		if (value.lvalue || value.operand.kind != Operand::OP_TEMP)
+		if (value.lvalue || (value.operand.kind != Operand::OP_TEMP &&
+		                     value.operand.kind != Operand::OP_INTEGER &&
+		                     value.operand.kind != Operand::OP_FLOAT))
 		{
 			return address_of(value);
 		}
 		// 8.5.3p5: a reference that does not bind the operand itself binds a
 		// temporary holding the conversion of it, which is an object of the
-		// function and so has storage of its own.
+		// function and so has storage of its own.  A literal is such an operand
+		// as much as a computed one is: 3.10p1 makes it a prvalue, which is a
+		// value and not an object, so there is nothing there to take the
+		// address of.
 		const std::string slot = add_generated_slot("refarg", wanted);
 		const Operand storage = named_operand(Operand::OP_SLOT, slot);
 		store(convert_scalar(value.operand, value.type, wanted), storage, wanted);

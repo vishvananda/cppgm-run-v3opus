@@ -497,14 +497,17 @@ SemaEntity* SemaAnalyzer::template_specializations(const std::string& spelling,
 }
 
 bool SemaAnalyzer::deduce(TypeId pattern, TypeId argument,
-                          std::unordered_map<TypeId, TypeId>& bindings)
+                          std::unordered_map<TypeId, TypeId>& bindings,
+                          bool relaxed)
 {
 	if (types_.kind(pattern) == TypeKind::TemplateParameter)
 	{
 		// 14.8.2.5p4: the qualifiers the parameter writes are matched by the
 		// argument's own, and what is left of the argument is what the
-		// parameter names.
-		if ((types_.cv(pattern) & ~types_.cv(argument)) != 0)
+		// parameter names.  14.8.2.1p4 lets the top of a reference parameter
+		// write qualifiers the argument does not have, because binding the
+		// reference adds them.
+		if (!relaxed && (types_.cv(pattern) & ~types_.cv(argument)) != 0)
 		{
 			return false;
 		}
@@ -518,7 +521,8 @@ bool SemaAnalyzer::deduce(TypeId pattern, TypeId argument,
 		return held.second || held.first->second == deduced;
 	}
 	if (types_.kind(pattern) != types_.kind(argument) ||
-	    types_.cv(pattern) != types_.cv(argument))
+	    (relaxed ? (types_.cv(argument) & ~types_.cv(pattern)) != 0
+	             : types_.cv(pattern) != types_.cv(argument)))
 	{
 		return false;
 	}
@@ -596,15 +600,27 @@ SemaEntity* SemaAnalyzer::deduce_specialization(
 	SemaEntity& primary, const std::vector<Value>& arguments)
 {
 	// 14.8.2.1p1: each parameter is deduced from the argument passed to it, so
-	// a call that passes another number of them deduces nothing.
+	// a call that passes more of them deduces nothing.  8.3.6p1 lets a call
+	// leave the trailing parameters a default-argument stands for unwritten;
+	// those deduce nothing, and 14.8.2p5 below is what says whether what is
+	// left named every parameter.
 	const std::vector<TypeId>& pattern = types_.parameters(primary.type);
-	if (arguments.size() != pattern.size() || types_.variadic(primary.type))
+	if (arguments.size() > pattern.size() || types_.variadic(primary.type) ||
+	    (arguments.size() < pattern.size() &&
+	     !accepts_arity(primary, arguments.size())))
 	{
 		return nullptr;
 	}
 	std::unordered_map<TypeId, TypeId> bindings;
 	for (std::size_t index = 0; index < arguments.size(); ++index)
 	{
+		// 14.8.2.5p3: a parameter written over no template parameter deduces
+		// nothing at all, so whether the argument reaches it is 13.3's question
+		// about a conversion rather than this one about a substitution.
+		if (!types_.is_dependent(pattern[index]))
+		{
+			continue;
+		}
 		// 13.4p1: an argument that is an unresolved overload set has no type of
 		// its own, and 14.8.2.1p6 leaves it deducing nothing.
 		// 14.8.2.1p2: where the parameter is a reference, what deduces the
@@ -618,7 +634,7 @@ SemaEntity* SemaAnalyzer::deduce_specialization(
 		const TypeId given =
 			reference ? arguments[index].type : decayed(arguments[index]);
 		if (arguments[index].type == kNoType ||
-		    !deduce(expected, given, bindings))
+		    !deduce(expected, given, bindings, reference))
 		{
 			return nullptr;
 		}
