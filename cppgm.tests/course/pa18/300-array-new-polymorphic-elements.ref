@@ -1,0 +1,174 @@
+declare global @__external_rtti_vtable____class_type_info [binding=strong, object=_ZTVN10__cxxabiv117__class_type_infoE]
+declare function @operator_delete__(%arg0 : ptr) -> void [unwind=no, binding=strong, object=cppgm_builtin_operator_delete_array]
+declare function @operator_new__(%arg0 : i64) -> ptr [binding=strong, object=cppgm_builtin_operator_new_array]
+
+global @__typeinfo_name__struct_ArrayElement [storage=readonly, binding=weak, object=_ZTS12ArrayElement] = {
+  i8 49
+  i8 50
+  i8 65
+  i8 114
+  i8 114
+  i8 97
+  i8 121
+  i8 69
+  i8 108
+  i8 101
+  i8 109
+  i8 101
+  i8 110
+  i8 116
+  i8 0
+}
+global @__rtti_struct_ArrayElement [storage=readonly, binding=weak, object=_ZTI12ArrayElement] = {
+  ptr addr @__external_rtti_vtable____class_type_info + 16
+  ptr addr @__typeinfo_name__struct_ArrayElement
+}
+global @ArrayElement__vtable [storage=readonly, binding=strong, object=_ZTV12ArrayElement] = {
+  i64 0
+  ptr addr @__rtti_struct_ArrayElement
+  ptr addr @ArrayElement__value
+}
+
+function @ArrayElement__ArrayElement__base_entry(%this : ptr) -> void [unwind=no, binding=strong, object=_ZN12ArrayElementC2Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = addr @ArrayElement__vtable
+    %t3 = index i8 %t2, 16
+    store ptr %t3, %t1
+    return void
+}
+function @ArrayElement__ArrayElement(%this : ptr) -> void [unwind=no, binding=strong, object=_ZN12ArrayElementC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = addr @ArrayElement__vtable
+    %t3 = index i8 %t2, 16
+    store ptr %t3, %t1
+    return void
+}
+function @ArrayElement___ArrayElement__base_entry(%this : ptr) -> void [binding=strong, object=_ZN12ArrayElementD2Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = addr @ArrayElement__vtable
+    %t3 = index i8 %t2, 16
+    store ptr %t3, %t1
+    %t4 = load ptr $this
+    %t5 = index i8 [projection=field] %t4, 8
+    store i32 0, %t5
+    return void
+}
+function @ArrayElement___ArrayElement(%this : ptr) -> void [binding=strong, object=_ZN12ArrayElementD1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = addr @ArrayElement__vtable
+    %t3 = index i8 %t2, 16
+    store ptr %t3, %t1
+    %t4 = load ptr $this
+    %t5 = index i8 [projection=field] %t4, 8
+    store i32 0, %t5
+    return void
+}
+function @ArrayElement__value(%this : ptr) -> i32 [binding=strong, object=_ZN12ArrayElement5valueEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    return i32 1
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $elements : ptr
+  slot $array_new_index__1 : i64
+  slot $first : ptr
+  slot $seen : i32
+  slot $array_delete_index__2 : i64
+  slot $cond__3 : i32
+
+  block ^entry:
+    %t1 = convert sext i64 i32 56
+    %t2 = call ptr @operator_new__(%t1)
+    %t3 = index i8 %t2, 8
+    %t4 = const i64 3
+    store i64 %t4, %t2
+    %t5 = const i64 3
+    store i64 0, $array_new_index__1
+    jump ^array_new_ctor_cond_1
+
+  block ^array_new_ctor_cond_1:
+    %t6 = load i64 $array_new_index__1
+    %t7 = cmp ult i64 %t6, %t5
+    branch %t7, ^array_new_ctor_body_2, ^array_new_ctor_end_3
+
+  block ^array_new_ctor_body_2:
+    %t8 = binary mul i64 %t6, 16
+    %t9 = index i8 %t3, %t8
+    call void @ArrayElement__ArrayElement(%t9)
+    %t10 = binary add i64 %t6, 1
+    store i64 %t10, $array_new_index__1
+    jump ^array_new_ctor_cond_1
+
+  block ^array_new_ctor_end_3:
+    store ptr %t3, $elements
+    %t11 = load ptr $elements
+    store ptr %t11, $first
+    %t12 = load ptr $first
+    %t13 = load ptr %t12
+    %t14 = load ptr %t13
+    %t15 = call i32 %t14(%t12) as (%arg0 : ptr) -> i32
+    store i32 %t15, $seen
+    %t16 = load ptr $elements
+    %t17 = cmp ne ptr %t16, 0
+    branch %t17, ^array_delete_nonnull_4, ^array_delete_end_5
+
+  block ^array_delete_nonnull_4:
+    %t18 = index i8 %t16, -8
+    %t19 = load i64 %t18
+    store i64 %t19, $array_delete_index__2
+    jump ^array_delete_dtor_cond_6
+
+  block ^array_delete_dtor_cond_6:
+    %t20 = load i64 $array_delete_index__2
+    %t21 = cmp ne i64 %t20, 0
+    branch %t21, ^array_delete_dtor_body_7, ^array_delete_dtor_end_8
+
+  block ^array_delete_dtor_body_7:
+    %t22 = binary sub i64 %t20, 1
+    store i64 %t22, $array_delete_index__2
+    %t23 = binary mul i64 %t22, 16
+    %t24 = index i8 %t16, %t23
+    call void @ArrayElement___ArrayElement(%t24)
+    jump ^array_delete_dtor_cond_6
+
+  block ^array_delete_dtor_end_8:
+    call void @operator_delete__(%t18)
+    jump ^array_delete_end_5
+
+  block ^array_delete_end_5:
+    %t25 = load i32 $seen
+    %t26 = cmp eq i32 %t25, 1
+    branch %t26, ^cond_then_9, ^cond_else_10
+
+  block ^cond_then_9:
+    store i32 0, $cond__3
+    jump ^cond_end_11
+
+  block ^cond_else_10:
+    store i32 1, $cond__3
+    jump ^cond_end_11
+
+  block ^cond_end_11:
+    %t27 = load i32 $cond__3
+    return i32 %t27
+}
+alias object _ZN12ArrayElementC2Ev = @ArrayElement__ArrayElement
+alias object _ZN12ArrayElementD2Ev = @ArrayElement___ArrayElement

@@ -1,0 +1,120 @@
+declare global @__external_rtti_vtable____class_type_info [binding=strong, object=_ZTVN10__cxxabiv117__class_type_infoE]
+
+global @__typeinfo_name__struct_Delegating [storage=readonly, binding=weak, object=_ZTS10Delegating] = {
+  i8 49
+  i8 48
+  i8 68
+  i8 101
+  i8 108
+  i8 101
+  i8 103
+  i8 97
+  i8 116
+  i8 105
+  i8 110
+  i8 103
+  i8 0
+}
+global @__rtti_struct_Delegating [storage=readonly, binding=weak, object=_ZTI10Delegating] = {
+  ptr addr @__external_rtti_vtable____class_type_info + 16
+  ptr addr @__typeinfo_name__struct_Delegating
+}
+global @Delegating__vtable [storage=readonly, binding=strong, object=_ZTV10Delegating] = {
+  i64 0
+  ptr addr @__rtti_struct_Delegating
+  ptr addr @Delegating__value
+}
+
+function @Delegating__Delegating__base_entry(%this : ptr) -> void [binding=strong, object=_ZN10DelegatingC2Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    call void @Delegating__Delegating__ov2(%t1, 7)
+    return void
+}
+function @Delegating__Delegating(%this : ptr) -> void [binding=strong, object=_ZN10DelegatingC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    call void @Delegating__Delegating__ov2(%t1, 7)
+    return void
+}
+function @Delegating__Delegating__ov2__base_entry(%this : ptr, %given : i32) -> void [binding=strong, object=_ZN10DelegatingC2Ei] {
+  slot $this : ptr
+  slot $given : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %given, $given
+    %t1 = load ptr $this
+    %t2 = addr @Delegating__vtable
+    %t3 = index i8 %t2, 16
+    store ptr %t3, %t1
+    %t4 = load i32 $given
+    %t5 = load ptr $this
+    %t6 = index i8 [projection=field] %t5, 8
+    store i32 %t4, %t6
+    return void
+}
+function @Delegating__Delegating__ov2(%this : ptr, %given : i32) -> void [binding=strong, object=_ZN10DelegatingC1Ei] {
+  slot $this : ptr
+  slot $given : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %given, $given
+    %t1 = load ptr $this
+    %t2 = addr @Delegating__vtable
+    %t3 = index i8 %t2, 16
+    store ptr %t3, %t1
+    %t4 = load i32 $given
+    %t5 = load ptr $this
+    %t6 = index i8 [projection=field] %t5, 8
+    store i32 %t4, %t6
+    return void
+}
+function @Delegating__value(%this : ptr) -> i32 [binding=strong, object=_ZN10Delegating5valueEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 8
+    %t3 = load i32 %t2
+    return i32 %t3
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $object : obj<16x8>
+  slot $through : ptr
+  slot $cond__1 : i32
+
+  block ^entry:
+    %t1 = addr $object
+    call void @Delegating__Delegating(%t1)
+    %t2 = addr $object
+    store ptr %t2, $through
+    %t3 = load ptr $through
+    %t4 = load ptr %t3
+    %t5 = load ptr %t4
+    %t6 = call i32 %t5(%t3) as (%arg0 : ptr) -> i32
+    %t7 = cmp eq i32 %t6, 7
+    branch %t7, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t8 = load i32 $cond__1
+    return i32 %t8
+}
+alias object _ZN10DelegatingC2Ev = @Delegating__Delegating
+alias object _ZN10DelegatingC2Ei = @Delegating__Delegating__ov2

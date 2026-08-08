@@ -391,11 +391,18 @@ void LowirFunctionLowering::construct_array_new_run(const DumpNode& node,
 	const DumpNode& call = *action.children[0];
 	const SemaEntity& constructor = *call.children[0]->fact.entity;
 	const SemaEntity* const destructor = subobject_destructor(constructor);
+	// 15.2p2 and 15.4p1: the handler is what an exception out of one element's
+	// constructor leaves by, so a constructor that throws nothing leaves by
+	// nothing and the blocks it would need are never reserved - a block no
+	// edge reaches is still a block, and the references write none here.
+	const bool throwing = !constructor.nonthrowing;
 	const std::string cond = reserve_block("array_new_ctor_cond");
 	const std::string body = reserve_block("array_new_ctor_body");
 	const std::string end = reserve_block("array_new_ctor_end");
-	const std::string cleanup = reserve_block("array_new_ctor_cleanup");
-	const std::string past = reserve_block("array_new_ctor_cont");
+	const std::string cleanup =
+		throwing ? reserve_block("array_new_ctor_cleanup") : std::string();
+	const std::string past =
+		throwing ? reserve_block("array_new_ctor_cont") : std::string();
 	const std::string index =
 		add_generated_slot("array_new_index", unit_.low_type(counter));
 	const Operand cursor = named_operand(Operand::OP_SLOT, index);
@@ -414,9 +421,15 @@ void LowirFunctionLowering::construct_array_new_run(const DumpNode& node,
 	// 8.5p7's zero, where the element was value-initialized, is one element's
 	// worth of bytes and not the array's - which is what `element` says.
 	const Operand address = element_at_value(data, at, stride);
-	emit_handler(false, cleanup);
+	if (throwing)
+	{
+		emit_handler(false, cleanup);
+	}
 	constructor_call(address, action, false, element);
-	emit_handler_end();
+	if (throwing)
+	{
+		emit_handler_end();
+	}
 	Instruction next;
 	next.kind = Instruction::IK_BINARY;
 	next.op = "add";
@@ -426,6 +439,11 @@ void LowirFunctionLowering::construct_array_new_run(const DumpNode& node,
 	store(emit(next), cursor, counter);
 	jump(cond);
 	open_block(end);
+	if (!throwing)
+	{
+		(void)node;
+		return;
+	}
 	jump(past);
 	open_block(cleanup);
 	const Operand built = load(cursor, counter);

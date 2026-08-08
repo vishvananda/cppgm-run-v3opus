@@ -378,6 +378,143 @@ void LowirProgramBuilder::finish()
 		shutdown_ = lowir_model::Function();
 		shutdown_body_ = GeneratedBody();
 	}
+	settle_vtable_names();
+	settle_external_declarations();
+}
+
+// 3.2p1: a declaration of a name with external linkage says another unit has
+// the definition, and a unit is read before the ones after it - so a unit that
+// only used the name wrote that declaration whether or not a later unit turned
+// out to define it here.  One entity is one top-level entry, so where the
+// program has the definition the declaration in front of it is dropped.
+void LowirProgramBuilder::settle_external_declarations()
+{
+	std::unordered_set<std::string> defined;
+	for (std::size_t index = 0; index < program_.functions.size(); ++index)
+	{
+		defined.insert(program_.functions[index].name);
+	}
+	std::vector<lowir_model::FunctionDeclaration> functions;
+	for (std::size_t index = 0; index < program_.function_declarations.size();
+	     ++index)
+	{
+		if (defined.count(program_.function_declarations[index].name) == 0)
+		{
+			functions.push_back(program_.function_declarations[index]);
+		}
+	}
+	program_.function_declarations.swap(functions);
+	defined.clear();
+	for (std::size_t index = 0; index < program_.globals.size(); ++index)
+	{
+		defined.insert(program_.globals[index].name);
+	}
+	std::vector<lowir_model::GlobalDeclaration> globals;
+	for (std::size_t index = 0; index < program_.global_declarations.size();
+	     ++index)
+	{
+		if (defined.count(program_.global_declarations[index].name) == 0)
+		{
+			globals.push_back(program_.global_declarations[index]);
+		}
+	}
+	program_.global_declarations.swap(globals);
+}
+
+namespace
+{
+
+// One operand of an instruction, where it names a global the program renamed.
+void rename_global(lowir_model::Operand& operand,
+                   const std::unordered_map<std::string, std::string>& renamed)
+{
+	if (operand.kind != lowir_model::Operand::OP_GLOBAL)
+	{
+		return;
+	}
+	const std::unordered_map<std::string, std::string>::const_iterator found =
+		renamed.find(operand.text);
+	if (found != renamed.end())
+	{
+		operand.text = found->second;
+	}
+}
+
+}  // namespace
+
+// 3.2p3: a class's table is one object of the program, so the units that use it
+// and the unit that owns it have to name one symbol.  A unit that does not hold
+// the definition of the key function cannot know whether another one will, so it
+// writes the name a table nobody defines has and records what it did; where a
+// later unit turned out to own the table, the program has one name too many and
+// this is where the two become one.
+//
+// A program whose units agree - which is every program written as a single
+// translation unit - has nothing here to do, and the walk is not made at all.
+void LowirProgramBuilder::settle_vtable_names()
+{
+	std::unordered_map<std::string, std::string> renamed;
+	std::unordered_map<std::string, std::string>::const_iterator at =
+		vtable_external_.begin();
+	for (; at != vtable_external_.end(); ++at)
+	{
+		const std::unordered_map<std::string, std::string>::const_iterator owned =
+			vtable_owned_.find(at->first);
+		if (owned != vtable_owned_.end() && owned->second != at->second)
+		{
+			renamed[at->second] = owned->second;
+		}
+	}
+	if (renamed.empty())
+	{
+		return;
+	}
+	// The declaration of a table the program defines is one declaration too
+	// many, so it goes rather than being renamed onto the definition.
+	std::vector<lowir_model::GlobalDeclaration> kept;
+	for (std::size_t index = 0; index < program_.global_declarations.size();
+	     ++index)
+	{
+		if (renamed.count(program_.global_declarations[index].name) == 0)
+		{
+			kept.push_back(program_.global_declarations[index]);
+		}
+	}
+	program_.global_declarations.swap(kept);
+	for (std::size_t index = 0; index < program_.globals.size(); ++index)
+	{
+		std::vector<lowir_model::GlobalDefinition::DataItem>& items =
+			program_.globals[index].data_items;
+		for (std::size_t item = 0; item < items.size(); ++item)
+		{
+			const std::unordered_map<std::string, std::string>::const_iterator
+				found = renamed.find(items[item].symbol);
+			if (found != renamed.end())
+			{
+				items[item].symbol = found->second;
+			}
+		}
+	}
+	for (std::size_t index = 0; index < program_.functions.size(); ++index)
+	{
+		std::vector<lowir_model::Block>& blocks = program_.functions[index].blocks;
+		for (std::size_t block = 0; block < blocks.size(); ++block)
+		{
+			std::vector<lowir_model::Instruction>& written =
+				blocks[block].instructions;
+			for (std::size_t step = 0; step < written.size(); ++step)
+			{
+				lowir_model::Instruction& out = written[step];
+				rename_global(out.first, renamed);
+				rename_global(out.second, renamed);
+				rename_global(out.third, renamed);
+				for (std::size_t arg = 0; arg < out.args.size(); ++arg)
+				{
+					rename_global(out.args[arg], renamed);
+				}
+			}
+		}
+	}
 }
 
 void LowirUnitLowering::run(const DumpNode& unit)

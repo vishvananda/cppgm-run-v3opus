@@ -209,6 +209,11 @@ const std::string& LowirUnitLowering::rtti_symbol(const SemaEntity& owner)
 // left pure holds the runtime's own function, whose call is the one thing a
 // program that reaches such a slot may be said to have done.  One declaration
 // stands for every such slot of the unit, so it is signed from the first.
+//
+// 3.5p9: the runtime's own name is one entity across the units on the command
+// line, so the *program* holds one declaration of it however many of them have
+// a pure slot - which is why the second ask is answered from `declared_` and
+// not from this unit's own memo.
 const std::string& LowirUnitLowering::pure_virtual_symbol(
 	const SemaEntity& member)
 {
@@ -218,6 +223,10 @@ const std::string& LowirUnitLowering::pure_virtual_symbol(
 		return pure_virtual_;
 	}
 	pure_virtual_ = kSymbol;
+	if (!declared_.insert(kSymbol).second)
+	{
+		return pure_virtual_;
+	}
 	lowir_model::FunctionDeclaration declaration;
 	declaration.name = kSymbol;
 	open_signature(types_.target(member.type), declaration.params,
@@ -297,23 +306,28 @@ const std::string& LowirUnitLowering::vtable_symbol(const SemaEntity& owner)
 		flatten_symbol_name(types_.user_qualified_name(owner.type));
 	const bool elsewhere = owner.key_function != nullptr &&
 		bodies_.count(owner.key_function->id) == 0;
+	// 3.5p9: the table is one object of the program under the name the object
+	// file gives it, whichever unit writes it, so that name is what the two
+	// answers below are recorded against.
+	const std::string object = abi_vtable_symbol_of(owner.type, types_);
 	if (elsewhere)
 	{
 		const std::string external =
 			named ? "__external_vtable__" + flat : "__external_vtable_" + tag;
 		vtable_symbols_[owner.id] = external;
+		builder_.vtable_external_[object] = external;
 		if (declared_.insert(external).second)
 		{
 			lowir_model::GlobalDeclaration declaration;
 			declaration.name = external;
 			declaration.metadata.binding = lowir_model::SBM_STRONG;
-			declaration.metadata.object_symbol =
-				abi_vtable_symbol_of(owner.type, types_);
+			declaration.metadata.object_symbol = object;
 			program_.global_declarations.push_back(declaration);
 		}
 		return vtable_symbols_[owner.id];
 	}
 	vtable_symbols_[owner.id] = named ? flat + "__vtable" : "__vtable_" + tag;
+	builder_.vtable_owned_[object] = vtable_symbols_[owner.id];
 	lowir_model::GlobalDefinition table;
 	table.name = vtable_symbols_[owner.id];
 	table.structured = true;

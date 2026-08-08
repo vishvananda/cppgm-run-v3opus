@@ -538,7 +538,8 @@ LowValue LowirFunctionLowering::cast_expression(const DumpNode& node,
 	if (types.kind(types.strip_cv(value.type)) == TypeKind::Pointer &&
 	    types.is_integral(types.strip_cv(source.type)))
 	{
-		if (node.fact.op != 0 && source.constant && source.value == 0 &&
+		if (node.fact.op != 0 && node.fact.op != KW_REINTERPET_CAST &&
+		    source.constant && source.value == 0 &&
 		    types.kind(types.strip_cv(source.type)) != TypeKind::Enum)
 		{
 			// 5.4p4 and 4.10p1: a cast the program wrote whose operand is a
@@ -548,6 +549,12 @@ LowValue LowirFunctionLowering::cast_expression(const DumpNode& node,
 			// produces is the null pointer value, and nothing computes that.
 			// A conversion the program did not write is one 8.5.3p5 may have to
 			// hold a temporary for, so it keeps the value an instruction names.
+			//
+			// 5.2.10p5 is the one spelling this is not: `reinterpret_cast` says
+			// to read the integer as an address whatever the integer is, and
+			// 5.2.10p1 lets no other conversion stand in for what it names - so
+			// its operand is reinterpreted even where 4.10p1 would have had a
+			// null pointer value to give.
 			value.constant = true;
 			value.operand = named_operand(Operand::OP_INTEGER, "0");
 			return value;

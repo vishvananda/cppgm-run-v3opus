@@ -394,6 +394,12 @@ bool SemaAnalyzer::vacuous_construction(TypeId element)
 	vacuous_construction_[bare] = 0u;
 	SemaEntity* const chosen = default_constructor(bare);
 	bool nothing = false;
+	// 12.1p11 and 10.3p10: building an object of a polymorphic class writes the
+	// vpointer of the class whose constructor is running, whatever else that
+	// constructor's body comes to and however vacuous every subobject under it
+	// is - so a call of one is never a call that does nothing.  The same reading
+	// 12.4p11 has at the other end of the lifetime.
+	const bool writes_vpointer = owner->polymorphic;
 	if (chosen != nullptr && !chosen->deleted)
 	{
 		// 3.4.1p8: the definition may stand after the body asking this, so it is
@@ -419,8 +425,9 @@ bool SemaAnalyzer::vacuous_construction(TypeId element)
 		{
 			note_definition_body(*chosen, *owner);
 		}
-		nothing = chosen->trivial;
-		if (!nothing && (chosen->empty_body || chosen->defaulted))
+		nothing = !writes_vpointer && chosen->trivial;
+		if (!nothing && !writes_vpointer &&
+		    (chosen->empty_body || chosen->defaulted))
 		{
 			nothing = owner->scope != nullptr;
 			if (nothing && owner->base != nullptr)

@@ -1157,9 +1157,14 @@ void LowirFunctionLowering::run(const DumpNode& node, TypeId type,
 	// destructor is running, from the moment that destructor begins - so the
 	// vpointer names this class's table before the body runs and before the
 	// base subobject's own destructor names the base's.
+	// 12.6.2p6: a delegating constructor initializes no base and no member of
+	// its own - the target constructor initializes the whole object, and by
+	// 12.6.2p13 the object is constructed once that call returns - so the
+	// vpointer is the target's store and not one this constructor repeats.
 	const SemaEntity* vpointer_owner =
 		written != nullptr && written->region != nullptr &&
 			written->special != kOrdinaryFunction &&
+			written->delegates_to == nullptr &&
 			written->region->owner != nullptr &&
 			written->region->owner->polymorphic
 		? written->region->owner

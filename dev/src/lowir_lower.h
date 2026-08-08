@@ -248,6 +248,25 @@ private:
 	// lifetime ends with nothing - is absent, and a use of it costs the same
 	// probe and no call.
 	std::unordered_map<std::string, std::string> thread_initializers_;
+	// 3.2p3 and the ABI: which name the program gives a class's virtual
+	// function table, keyed by the object-file name that identifies the table
+	// across units.  A unit holding the definition of the class's key function
+	// writes the table under the class's own name; one that does not names a
+	// table another unit owes.  Which of those the *program* has is no fact any
+	// one unit holds - the unit that owns the table can be read after the ones
+	// that use it - so each unit records what it did and `finish` settles it.
+	std::unordered_map<std::string, std::string> vtable_owned_;
+	std::unordered_map<std::string, std::string> vtable_external_;
+	// The names a unit wrote for a table the program turns out to own, as the
+	// name it has to become.  Empty for every program whose units agree, which
+	// is every program written as one translation unit.
+	void settle_vtable_names();
+	// 3.2p1 and 3.5p9: a name with external linkage is one entity of the
+	// program, and a declaration of it says only that some unit defines it.
+	// A unit reading a name it does not define writes that declaration before
+	// the unit that *does* define it has been read, so the program can hold
+	// both - and one entity is one top-level entry, so the declaration goes.
+	void settle_external_declarations();
 
 	friend class LowirFunctionLowering;
 	friend class LowirUnitLowering;
