@@ -620,7 +620,7 @@ syntax as 7.1.6.2p1's decltype operand already is),
 `LowirFunctionLowering::selected_arms_`, `Fact::boundary_object` with
 `construct_object`'s `into_temporary`, `SemaAnalyzer::direct_initialized_`,
 `SemaEntity::surrogate_for` with `surrogate_calls`, `SemaModel::take_pending`, `SemaAnalyzer::require_condition_type`,
-and the eleven questions
+and the twelve questions
 lifted out of the analyzer so each layer asks them once - `observable_expression`,
 `creates_its_object`, `vacuous_destruction`, `declared_destruction`,
 `vacuous_construction`,
