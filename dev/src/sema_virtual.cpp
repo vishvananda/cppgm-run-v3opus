@@ -16,20 +16,6 @@
 namespace
 {
 
-// The key 10.3p2 tells an overriding declaration from one that merely reuses a
-// name by: the name, and the parameter-type-list, cv-qualifier-seq and
-// ref-qualifier that 13.1 already tells two declarations of one name apart by.
-std::string override_key(const std::string& name, std::uint32_t signature)
-{
-	std::string key = name;
-	key.push_back('\0');
-	for (std::uint32_t rest = signature; rest != 0; rest >>= 8)
-	{
-		key.push_back(static_cast<char>(rest & 0xffu));
-	}
-	return key;
-}
-
 // Whether a declaration of `scope` can take a vtable slot at all.  A
 // constructor cannot be virtual - 12.1p4 - and a static member function has no
 // object to dispatch on; a using-declaration's member stands for a declaration
@@ -180,6 +166,47 @@ bool SemaAnalyzer::covariant_return(TypeId overriding, TypeId overridden,
 	return base_accessible(derived, *base);
 }
 
+// 10.3p2's key: the name, and the parameter-type-list, cv-qualifier-seq and
+// ref-qualifier that 13.1 already tells two declarations of one name apart by.
+//
+// The name is the small integer the run interns it as rather than its letters,
+// because this is asked of every member of every class and the answer is
+// compared and never read.
+std::uint64_t SemaAnalyzer::override_key(const SemaEntity& member)
+{
+	return (static_cast<std::uint64_t>(override_names_.intern(member.name))
+	        << 32) |
+		member_signature(member);
+}
+
+// 10.3p2: the slot a declaration of this key already has in the table of
+// `from`, or `kNoVtableIndex` where no class in the derivation gave it one.
+//
+// Each class records only the slots it *introduces*: a slot's index is fixed
+// where the name first took one and every class below copies the table with
+// that index, so the walk down the derivation asks the class that introduced it
+// and no class rebuilds an index over what it inherited.  That is what keeps a
+// chain of n classes linear in the records it holds rather than quadratic.
+unsigned SemaAnalyzer::inherited_slot(const SemaEntity* from,
+                                      std::uint64_t key) const
+{
+	for (const SemaEntity* at = from; at != nullptr; at = at->base)
+	{
+		const std::unordered_map<std::uint32_t, SlotIndex>::const_iterator
+			records = introduced_slots_.find(at->id);
+		if (records == introduced_slots_.end())
+		{
+			continue;
+		}
+		const SlotIndex::const_iterator found = records->second.find(key);
+		if (found != records->second.end())
+		{
+			return found->second;
+		}
+	}
+	return kNoVtableIndex;
+}
+
 // 10.3p2 and 10.3p10, settled where 9.2p2 completes the class and after 12.1p5
 // and 12.4p3 have given it the members no declaration wrote: which of this
 // class's member functions are virtual, which slot each has, and what the
@@ -187,28 +214,12 @@ bool SemaAnalyzer::covariant_return(TypeId overriding, TypeId overridden,
 void SemaAnalyzer::settle_virtual_members(SemaEntity& entity, Scope& scope)
 {
 	SemaEntity* const base = entity.base;
-	const bool inherits = base != nullptr && base->polymorphic;
-	// 10.3p10: the derived class's table is the base's, with the entries its
-	// own declarations override replaced in place.  The copy is what the ABI
-	// emits for this class, so it is the table and not a view of the base's.
-	std::unordered_map<std::string, unsigned> inherited;
-	if (inherits)
+	if (base != nullptr && base->polymorphic)
 	{
+		// 10.3p10: the derived class's table is the base's, with the entries its
+		// own declarations override replaced in place.  The copy is what the ABI
+		// emits for this class, so it is the table and not a view of the base's.
 		entity.vtable = base->vtable;
-		for (std::size_t slot = 0; slot < entity.vtable.size(); ++slot)
-		{
-			const SemaEntity* const at = entity.vtable[slot].overrider;
-			if (at == nullptr || entity.vtable[slot].deleting ||
-			    at->special == kDestructorFunction)
-			{
-				// A destructor overrides by being one and not by its name,
-				// which is its own class's; the two entries it holds are found
-				// through `base->destructor` rather than through this map.
-				continue;
-			}
-			inherited[override_key(at->name, member_signature(*at))] =
-				static_cast<unsigned>(slot);
-		}
 	}
 	for (std::size_t index = 0; index < scope.declarations.size(); ++index)
 	{
@@ -219,11 +230,10 @@ void SemaAnalyzer::settle_virtual_members(SemaEntity& entity, Scope& scope)
 			// 10.3p2 and 9.4.1p2: a declaration of this class with the name and
 			// the signature of an inherited virtual function overrides it and
 			// is virtual whether or not it says so - and a static member
-			// function shall not be virtual.  The map the settlement already
-			// built answers it in the one probe every other member pays.
+			// function shall not be virtual.  It is the one declaration that
+			// takes no slot and still has to ask.
 			if (static_member_function(member) &&
-			    inherited.count(override_key(member.name,
-			                                 member_signature(member))) != 0)
+			    inherited_slot(base, override_key(member)) != kNoVtableIndex)
 			{
 				throw std::runtime_error(member.name + " is a static member "
 				                         "function and declares the name and "
@@ -237,19 +247,17 @@ void SemaAnalyzer::settle_virtual_members(SemaEntity& entity, Scope& scope)
 			settle_virtual_destructor(entity, member);
 			continue;
 		}
-		const std::string key =
-			override_key(member.name, member_signature(member));
-		const std::unordered_map<std::string, unsigned>::const_iterator found =
-			inherited.find(key);
-		if (found != inherited.end())
+		const std::uint64_t key = override_key(member);
+		const unsigned found = inherited_slot(base, key);
+		if (found != kNoVtableIndex)
 		{
-			SemaEntity& over = *entity.vtable[found->second].overrider;
+			SemaEntity& over = *entity.vtable[found].overrider;
 			// 10.3p2: a function that overrides a virtual function is itself
 			// virtual, whether or not its declaration wrote `virtual`.
 			member.virtual_function = true;
 			member.overridden = &over;
-			member.vtable_index = found->second;
-			entity.vtable[found->second].overrider = &member;
+			member.vtable_index = found;
+			entity.vtable[found].overrider = &member;
 			require_overridable(member, over);
 			continue;
 		}
@@ -261,6 +269,11 @@ void SemaAnalyzer::settle_virtual_members(SemaEntity& entity, Scope& scope)
 		member.vtable_index = static_cast<unsigned>(entity.vtable.size());
 		const VirtualSlot slot = { &member, false };
 		entity.vtable.push_back(slot);
+		// 10.3p2: this class is where the name and signature first took a slot,
+		// and the slot a name has never moves - a class derived from this one
+		// copies the table with its indices - so the record belongs here and a
+		// class below reads it rather than building one of its own.
+		introduced_slots_[entity.id][key] = member.vtable_index;
 	}
 	// 10.3p1: a class with a table dispatches, whatever its declarations wrote -
 	// which is the same answer `note_polymorphism` already gave the layout,

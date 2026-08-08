@@ -9,6 +9,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "name_table.h"
 #include "parse_depth.h"
 #include "sema_name.h"
 #include "sema_scope.h"
@@ -467,6 +468,13 @@ private:
 	// other rather than overload, which 9.4.1p2 does not allow.
 	std::uint32_t member_signature(const SemaEntity& function);
 	std::uint32_t member_signature(TypeId type, bool object_member);
+	// 10.3p2's key: that signature beside the interned name, which is what tells
+	// an overriding declaration from one that merely reuses a name.
+	std::uint64_t override_key(const SemaEntity& member);
+	// 10.3p2: the slot a declaration of `key` already has in the table of the
+	// class `from` or of one it derives from, or `kNoVtableIndex` where none of
+	// them gave it one.
+	unsigned inherited_slot(const SemaEntity* from, std::uint64_t key) const;
 	// 8.3.5p1 and 9.3.1p3: how a function's type is spelled in the output,
 	// which for the lowered form spells the object parameter rather than the
 	// qualifiers written after the parameter-clause.
@@ -2177,6 +2185,20 @@ private:
 	// The unnamed classes defined in a function so far, which 9p1 leaves with
 	// no name of their own and which the convention numbers.
 	unsigned local_types_;
+	// 10.3p2: the slots one class introduced, by the key of the declaration that
+	// introduced each.
+	typedef std::unordered_map<std::uint64_t, unsigned> SlotIndex;
+	// 10.3p2's keys: the member names this settlement has compared, each stored
+	// once so that a key is two words rather than a string built for the probe.
+	NameTable override_names_;
+	// 10.3p2 and 10.3p10: for each class that introduces virtual functions, the
+	// slot each name and signature it introduced took.  A slot's index is fixed
+	// where the name first took one, so a class below reads the record of the
+	// class that introduced it rather than building an index over everything it
+	// inherited - which is what keeps the settlement's records linear in the
+	// declarations rather than quadratic in the derivation.  Kept here rather
+	// than on the class because nearly every class introduces none.
+	std::unordered_map<std::uint32_t, SlotIndex> introduced_slots_;
 	// The definitions the end of the translation unit writes, in the order they
 	// were asked for.  Writing one may ask for another, so the list grows while
 	// it is being walked and what is being written has to stay where it is.
