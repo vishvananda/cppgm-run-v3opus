@@ -497,6 +497,11 @@ void TypeTable::set_template_arguments(TypeId type, const std::string& templated
 	record.template_arguments = arguments;
 }
 
+void TypeTable::set_template_index(TypeId type, unsigned index)
+{
+	user_types_[nodes_[type].user].template_index = index;
+}
+
 void TypeTable::set_local_name(TypeId type, const SemaEntity* function,
                                unsigned occurrence, bool unnamed)
 {

@@ -510,6 +510,11 @@ struct SemaEntity
 	// template-id or the call that asked for it.
 	SemaEntity* primary;
 	bool instantiated;
+	// 14.2 and the ABI's `<template-args>`: the arguments that made this
+	// specialization, as the interned list `TypeTable::type_list` keys a fact
+	// about one by.  Zero - the empty list - for every declaration no
+	// template-id and no deduction made.
+	std::uint32_t template_arguments;
 	// This entity among the run's, which is how a fact about it is keyed - the
 	// same use `Scope::id` is put to for a region.
 	std::uint32_t id;

@@ -211,6 +211,17 @@ public:
 		return user_at(type).template_arguments;
 	}
 
+	// 14.1p2 and the ABI's `<template-param>`: which of its template's
+	// parameters this one is, counted from zero.  A specialization's own name
+	// is encoded from the *template's* signature, where a parameter stands for
+	// itself, and the ABI writes it by its place rather than by its spelling -
+	// so the place is a fact of the type the parameter declared.
+	void set_template_index(TypeId type, unsigned index);
+	unsigned template_index(TypeId type) const
+	{
+		return user_at(type).template_index;
+	}
+
 	// 9.8p1: the function whose body declared this class or enumeration, and
 	// its place among the types of that name the function declares.  Settled
 	// where the declaration is read, because the region it was written in is
@@ -432,6 +443,13 @@ public:
 		return intern_parameters(types);
 	}
 
+	// The types that list holds, which is what a fact keyed by a list reads
+	// back: the template-argument list a specialization was made from is one.
+	const std::vector<TypeId>& type_list_at(std::uint32_t list) const
+	{
+		return *parameter_lists_[list];
+	}
+
 	// 14.3 and 14.8.2: `type` with every template parameter `bindings` names
 	// replaced by the type bound to it, keeping the qualifiers written around
 	// each.  `memo` holds the answers of one substitution, so a type reached
@@ -529,6 +547,8 @@ private:
 		// name.
 		std::string template_name;
 		std::vector<TypeId> template_arguments;
+		// 14.1p2: which parameter of its template a template parameter is.
+		unsigned template_index = 0;
 	};
 
 	// What makes two types the same type.

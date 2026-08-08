@@ -1312,7 +1312,8 @@ private:
 	                             const Context& target, bool define,
 	                             bool hidden = false,
 	                             bool object_member = false,
-	                             bool redeclaration = false);
+	                             bool redeclaration = false,
+	                             SemaEntity* as = nullptr);
 	// 13.1 and 9.3.1p3: the key the chain a name heads is indexed by, which is
 	// the parameter-type-list the declarator wrote wherever the region is a
 	// class - so a static and a non-static member function whose types agree
@@ -1842,6 +1843,10 @@ private:
 	// The source spelling of a type, which is what a specialization is named
 	// by: `Box<int>` rather than the dump's description of what it holds.
 	std::string type_spelling(TypeId type) const;
+	// 14p1: records the pattern the template-declaration being read wrote onto
+	// the function it just declared, so that 14.7.1p1 can read it again.
+	void record_function_template(SemaEntity& entity, Scope& parameters,
+	                              Scope& region);
 
 	// 8.5: initialising an object of `target` from `node`, which is what a
 	// variable, a condition, a return statement and an argument all do.
@@ -2142,6 +2147,15 @@ private:
 	// expression read in a region binding the parameters before it, so it is
 	// read once rather than at every naming of the same specialization.
 	std::unordered_map<std::uint64_t, std::vector<TypeId> > default_arguments_;
+	// 14p1: the declaration the template-declaration being read parameterises,
+	// and the dump its lines stand in, while its declarators are read.  Null
+	// wherever the walk is not inside one.
+	const AstNode* template_pattern_;
+	DumpScope* template_pattern_dump_;
+	// 14.7.1p1: the specialization whose pattern is being read, which is the
+	// declaration that reading is of rather than one it makes.  Null wherever
+	// the walk is reading a declaration the program wrote.
+	SemaEntity* instantiating_;
 	// 12.9p8: the parameters each constructor was declared with, which the
 	// inheriting constructor a using-declaration declares takes as its own -
 	// their names as much as their types, because the definition this unit

@@ -437,6 +437,9 @@ SemaEntity& SemaAnalyzer::specialize(SemaEntity& primary,
 		// declaration rather than repeating what a use wrote.
 		made->dump_name = primary.dump_name;
 		made->abi_name = primary.abi_name;
+		// 14.2: the arguments that made it, which the object file writes after
+		// the template's name and which no spelling of the declaration holds.
+		made->template_arguments = list;
 		model_.hold_specialization(primary, list, *made);
 	}
 	return *made;
@@ -611,15 +614,53 @@ void SemaAnalyzer::instantiate(SemaEntity& function)
 		return;
 	}
 	function.instantiated = true;
-	if (function.primary->defined)
+	SemaEntity& primary = *function.primary;
+	if (primary.defined)
 	{
 		// 14.7.1p1: instantiating a template that has a definition instantiates
-		// the definition, which is a body read again against the arguments
-		// rather than a declaration built from them.  PA12 has no rule that
-		// reads one, so the program is refused rather than described as though
-		// the definition were not there.
-		throw std::runtime_error("a function template with a definition is "
-		                         "instantiated, which PA12 does not describe");
+		// the definition, which is the body read again against the arguments
+		// rather than a declaration built from them.
+		if (primary.templated == nullptr ||
+		    primary.templated->pattern == nullptr)
+		{
+			throw std::runtime_error("a function template with a definition is "
+			                         "instantiated, which this milestone does "
+			                         "not describe");
+		}
+		const TemplateInfo& info = *primary.templated;
+		const std::vector<TypeId>& arguments =
+			types_.type_list_at(function.template_arguments);
+		Context inner;
+		inner.scope = &model_.open(ScopeKind::TemplateParameters, *info.region,
+		                           nullptr, info.dump);
+		inner.dump = info.dump;
+		// 9.2p2 and 14.7.1p1: the definition is written where the output puts
+		// one the program did not write - among the pending ones, at the end of
+		// the unit - so it stands under no declaration's node.
+		inner.node = nullptr;
+		for (std::size_t index = 0;
+		     index < info.parameters.size() && index < arguments.size(); ++index)
+		{
+			if (info.parameters[index].empty())
+			{
+				continue;
+			}
+			SemaEntity& bound = model_.create(SemaKind::Typedef,
+			                                  info.parameters[index],
+			                                  arguments[index]);
+			model_.bind(*inner.scope, bound.name, bound);
+			model_.declare_in(*inner.scope, bound);
+		}
+		// 14p1 and 3.2p3: every unit that names this specialization
+		// instantiates the same definition from the same template, so the
+		// definition is not this unit's to own - it binds the way an inline
+		// one does and the program keeps one of them.
+		function.inline_function = true;
+		SemaEntity* const enclosing = instantiating_;
+		instantiating_ = &function;
+		function_definition(*info.pattern, inner);
+		instantiating_ = enclosing;
+		return;
 	}
 	// The declaration the specialization stands for is written where the output
 	// puts a definition the program did not write: at the end of the unit, in
@@ -1144,4 +1185,37 @@ SemaEntity* SemaAnalyzer::template_id_entity(const std::string& component,
 	std::vector<TypeId> arguments;
 	bind_template_arguments(*primary, id.arguments(), ctx, arguments);
 	return &instantiate_class(*primary, arguments);
+}
+
+// 14p1: the pattern a function template's declaration was written from, taken
+// from the walk that is reading the template-declaration.
+//
+// A function template's name is declared in the region around its parameter
+// clause, so the declaration is made by the ordinary path and this only hands
+// it what 14.7.1p1 needs to read the same syntax again: the syntax, the region
+// its names are looked up from, and the parameters its head declared.
+void SemaAnalyzer::record_function_template(SemaEntity& entity,
+                                            Scope& parameters, Scope& region)
+{
+	if (!lowering() || template_pattern_ == nullptr ||
+	    template_pattern_->kind != AstKind::FunctionDefinition)
+	{
+		return;
+	}
+	template_patterns_.push_back(TemplateInfo());
+	entity.templated = &template_patterns_.back();
+	TemplateInfo& info = *entity.templated;
+	info.pattern = template_pattern_;
+	info.region = &region;
+	info.dump = template_pattern_dump_;
+	for (std::size_t index = 0; index < parameters.declarations.size(); ++index)
+	{
+		const SemaEntity& parameter = *parameters.declarations[index];
+		// 14.1p2: a parameter this milestone does not bind leaves the pattern
+		// unreadable, which an instantiation of it - and nothing else - finds.
+		info.supported = info.supported &&
+			parameter.kind == SemaKind::TemplateType;
+		info.parameters.push_back(parameter.name);
+		info.defaults.push_back(nullptr);
+	}
 }

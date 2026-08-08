@@ -94,6 +94,9 @@ SemaAnalyzer::SemaAnalyzer(SemaDialect dialect)
 	, standard_only_(false)
 	, direct_initialized_(kNoType)
 	, c_linkage_(false)
+	, template_pattern_(nullptr)
+	, template_pattern_dump_(nullptr)
+	, instantiating_(nullptr)
 {}
 
 SemaAnalyzer::Pending::Pending()
@@ -1098,7 +1101,17 @@ void SemaAnalyzer::template_declaration(const AstNode& node, const Context& ctx)
 			}
 			continue;
 		}
+		// 14p1: the declaration is a pattern, and 14.7.1p1's instantiation of
+		// it is a second reading of the same syntax - so the walk that reads it
+		// for its declaration records where the syntax stands, and every
+		// declaration it makes takes that record.
+		const AstNode* const enclosing = template_pattern_;
+		DumpScope* const enclosing_dump = template_pattern_dump_;
+		template_pattern_ = lowering() ? &child : nullptr;
+		template_pattern_dump_ = ctx.dump;
 		declaration(child, inner);
+		template_pattern_ = enclosing;
+		template_pattern_dump_ = enclosing_dump;
 	}
 }
 
@@ -1119,6 +1132,11 @@ void SemaAnalyzer::template_parameter(const AstNode& node, const Context& ctx)
 	const bool is_template = has_child(node, AstKind::TemplateTemplateParameter);
 	const TypeId type = types_.template_parameter_type(model_.type_entity_id(),
 	                                                   is_template, id->text);
+	// 14.1p2 and the ABI's `<template-param>`: a specialization's own name is
+	// encoded from the template's signature, where the parameter stands for
+	// itself and is written by its place rather than by its spelling.
+	types_.set_template_index(
+		type, static_cast<unsigned>(ctx.scope->declarations.size()));
 	SemaEntity& entity = model_.create(SemaKind::TemplateType, id->text, type);
 	model_.bind(*ctx.scope, id->text, entity);
 	model_.declare_in(*ctx.scope, entity);
@@ -2397,11 +2415,16 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 	type = with_object_parameter(type, declarator, target, specifiers.is_static,
 	                             name, spelled.qualified());
 
+	// 14.7.1p1: the specialization this reading is of, taken here so that a
+	// declaration the body itself writes is an ordinary one.
+	SemaEntity* const specializing = instantiating_;
+	instantiating_ = nullptr;
 	SemaEntity& entity =
 		declare_function(name, type, target, true,
 		                 granting != nullptr && !spelled.qualified(),
 		                 type != written_type,
-		                 spelled.qualified() && granting == nullptr);
+		                 spelled.qualified() && granting == nullptr,
+		                 specializing);
 	entity.nonthrowing =
 		entity.nonthrowing || declarator_nonthrowing(declarator);
 	entity.wrote_exception_specification =
@@ -2484,11 +2507,14 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 		model_.bind(*inner.scope, self->name, *self);
 		model_.declare_in(*inner.scope, *self);
 	}
-	if (target.scope->kind == ScopeKind::TemplateParameters)
+	if (target.scope->kind == ScopeKind::TemplateParameters &&
+	    specializing == nullptr)
 	{
 		// 14p1 and 14.6: a template declares no function until it is
 		// instantiated, so the output has no definition to write and the body
-		// is not read against the types it has none of yet.
+		// is not read against the types it has none of yet.  A reading of the
+		// pattern *for* an instantiation stands in the same kind of region -
+		// the one that binds its arguments - and is the declaration.
 		return;
 	}
 	if (target.node == nullptr)
@@ -2678,8 +2704,18 @@ void SemaAnalyzer::require_uniform_ref_qualifiers(const SemaEntity& head,
 SemaEntity& SemaAnalyzer::declare_function(const std::string& name, TypeId type,
                                            const Context& target, bool define,
                                            bool hidden, bool object_member,
-                                           bool redeclaration)
+                                           bool redeclaration, SemaEntity* as)
 {
+	if (as != nullptr)
+	{
+		// 14.7.1p1: the declaration this reading is of was made where the
+		// template-id or the call named it, and reading the pattern again for
+		// its definition declares nothing further.  The type the pattern makes
+		// against the bound arguments is the type that declaration has.
+		as->type = type;
+		as->defined = define;
+		return *as;
+	}
 	// 14.1p1: the region a template's parameters are declared in encloses only
 	// the declaration they parameterise, so the function that declaration
 	// declares is declared in the region around it, which is where a call of it
@@ -2756,6 +2792,7 @@ SemaEntity& SemaAnalyzer::declare_function(const std::string& name, TypeId type,
 		// parameters it is written over are what an instantiation of it
 		// substitutes arguments for.
 		entity.template_parameters = target.scope;
+		record_function_template(entity, *target.scope, where);
 	}
 	if (hidden)
 	{

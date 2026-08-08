@@ -184,6 +184,18 @@ AbiType abi_type(TypeTable& types, TypeId type, LocalContexts& contexts)
 		return out;
 	}
 
+	case TypeKind::TemplateParameter:
+	{
+		// 14.1p2 and `<template-param>`: a specialization's own name is
+		// encoded from the template's signature, where the parameter stands
+		// for itself and is written by its place among the ones its head
+		// declared.
+		AbiType out;
+		out.kind = abi_mangle::ABI_TYPE_TEMPLATE_PARAMETER;
+		out.index = types.template_index(type);
+		return out;
+	}
+
 	case TypeKind::Class:
 	case TypeKind::Enum:
 	{
@@ -463,7 +475,19 @@ void build_function_name(const SemaEntity& entity, TypeTable& types,
                          std::vector<abi_mangle::AbiFunctionRecord>& records)
 {
 	target.kind = abi_mangle::ABI_TARGET_FACT_FUNCTION;
-	const std::vector<TypeId>& parameters = types.parameters(entity.type);
+	// 14.2 and `<template-args>`: a function-template specialization is named
+	// by the template, the arguments that made it, its result type and the
+	// *template's* signature - where a parameter the head declared stands for
+	// itself.  8.3.5p5 drops a top-level cv-qualifier from a parameter, so two
+	// specializations can have one function type and only the arguments tell
+	// them apart, which is exactly why the ABI writes them.
+	const SemaEntity* const templated =
+		entity.kind == SemaKind::Function && entity.primary != nullptr &&
+			entity.primary->template_parameters != nullptr
+		? entity.primary
+		: nullptr;
+	const std::vector<TypeId>& parameters =
+		types.parameters(templated != nullptr ? templated->type : entity.type);
 	// 9.3.1p3: the object parameter is not one the declarator wrote, so it is
 	// not one the name encodes; 8.3.5p7's cv-qualifier-seq on the function is
 	// what the object it points to carries, and the encoding writes that as a
@@ -641,6 +665,24 @@ void build_function_name(const SemaEntity& entity, TypeTable& types,
 					: abi_mangle::ABI_FUNCTION_QUALIFIER_LVALUE_REFERENCE);
 			records.push_back(qualifier);
 		}
+	}
+	if (templated != nullptr)
+	{
+		abi_mangle::AbiFunctionRecord written;
+		written.kind = abi_mangle::ABI_FUNCTION_RECORD_FUNCTION_TEMPLATE_ARGUMENT;
+		const std::vector<TypeId>& arguments =
+			types.type_list_at(entity.template_arguments);
+		for (std::size_t index = 0; index < arguments.size(); ++index)
+		{
+			written.argument_refs.push_back(contexts.argument_of(arguments[index]));
+		}
+		records.push_back(written);
+		// The ABI writes a function template's result type, because two
+		// specializations of one template can differ in it alone.
+		abi_mangle::AbiFunctionRecord result;
+		result.kind = abi_mangle::ABI_FUNCTION_RECORD_RESULT;
+		result.type = abi_type(types, types.target(templated->type), contexts);
+		records.push_back(result);
 	}
 	for (std::size_t index = first; index < parameters.size(); ++index)
 	{
