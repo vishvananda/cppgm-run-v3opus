@@ -509,6 +509,9 @@ AstNode* AstParser::parse_conversion_arguments()
 		return nullptr;
 	}
 	AstNode* arguments = make(AstKind::ArgumentList);
+	// 5.2.3p3: the braces were written where the parentheses of 5.2.3p1 would
+	// be, which is the one thing that tells `T{a}` from `T({a})`.
+	arguments->braced = true;
 	arguments->add(braced);
 	return arguments;
 }

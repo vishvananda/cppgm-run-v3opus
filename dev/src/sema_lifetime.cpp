@@ -228,13 +228,15 @@ SemaAnalyzer::WrittenInitializer SemaAnalyzer::read_initializer(
 		return form;
 	}
 	form.list = call_arguments(*written);
-	if (form.list != nullptr && form.list->children.size() == 1 &&
-	    form.list->children[0]->kind == AstKind::BracedInitList)
+	if (form.list != nullptr && form.list->braced)
 	{
 		// 5.2.3p3: the prvalue was written `T{...}`, whose one braced list
 		// stands where the arguments of `T(...)` do.  What initializes the
 		// object is that list, so 8.5.4 reads it and 8.5.1 gives its clauses to
-		// the members of an aggregate.
+		// the members of an aggregate.  `T({...})` writes the same one node
+		// under the same list and means the other thing - one argument, which
+		// 13.3.3.1.5 gives to a constructor - so the braces the parse saw are
+		// what says which was written.
 		form.list = form.list->children[0];
 	}
 	// 5.2.3p2 leaves `T()` the value-initialization 8.5p7 writes where it
@@ -300,6 +302,16 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 	bool converting = form.converting;
 	value_init = form.value_init;
 
+	if (elided_prvalue)
+	{
+		// 12.8p31 and 12.8p32: the initializer is a prvalue of the object's own
+		// class written where the object stands, so the object it creates and
+		// this one are one and no copy runs - and p32 still asks for the
+		// constructor that copy would have called, because the elision says the
+		// call does not run and not that the program did not have to be allowed
+		// to write it.
+		require_elided_transfer(object_type, ctx);
+	}
 	Value source;
 	if (given != nullptr)
 	{
@@ -364,9 +376,21 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 	}
 	else if (list != nullptr)
 	{
+		// 13.3.3.1p4: this is 13.3.1.7's second phase where the initializer is
+		// a braced-init-list, and where that list holds exactly one element
+		// that is itself a list, a parameter of the class being initialized
+		// reaches it through no user-defined conversion.
+		const bool sole_list = list->kind == AstKind::BracedInitList &&
+			list->children.size() == 1 &&
+			list->children[0]->kind == AstKind::BracedInitList;
 		for (std::size_t index = 0; index < list->children.size(); ++index)
 		{
-			arguments.push_back(expression(*list->children[index], ctx, call));
+			Value one = argument_expression(*list->children[index], ctx, call);
+			if (sole_list && one.braced != nullptr)
+			{
+				one.listed_class = object_type;
+			}
+			arguments.push_back(one);
 		}
 	}
 	if (source.node != nullptr)
@@ -477,8 +501,7 @@ const AstNode* SemaAnalyzer::braced_prvalue_of(const AstNode& written,
 		return nullptr;
 	}
 	const AstNode* const list = call_arguments(written);
-	if (list == nullptr || list->children.size() != 1 ||
-	    list->children[0]->kind != AstKind::BracedInitList)
+	if (list == nullptr || !list->braced)
 	{
 		return nullptr;
 	}
@@ -524,15 +547,21 @@ SemaEntity* SemaAnalyzer::member_constructor(TypeId type)
 		}
 		const TypeId bare = types_.strip_cv(member.type);
 		if (member.bit_field || types_.is_reference(member.type) ||
-		    types_.kind(bare) == TypeKind::Array || types_.is_class(bare))
+		    types_.kind(bare) == TypeKind::Array)
 		{
 			// 9.6p1, 8.3.2p4 and 8.3.5p5: none of these is a member a by-value
 			// parameter carries what the member holds - a bit-field and a
 			// reference are no object of their own, and an array parameter is
-			// the pointer 8.3.5p5 adjusts it to.  A class member would be one
-			// object built to be copied into another, which is a second object
-			// this milestone does not write, so the class is given no such
+			// the pointer 8.3.5p5 adjusts it to.  The class is given no such
 			// constructor and 8.5.1 initializes its subobjects where they are.
+			return nullptr;
+		}
+		if (types_.is_class(bare) &&
+		    selected_transfer(bare, kMoveConstructorTransfer) == nullptr)
+		{
+			// 12.8p11: a class member the parameter holding it cannot be
+			// carried out of is one no such constructor can pass, so the
+			// clauses initialize it where it stands instead.
 			return nullptr;
 		}
 		Parameter one;
@@ -798,7 +827,7 @@ SemaAnalyzer::Value SemaAnalyzer::build_temporary(TypeId type, DumpNode& line,
                                                   const Context& ctx,
                                                   const char* prefix,
                                                   bool value_init, bool owned,
-                                                  bool direct)
+                                                  bool direct, bool copy_list)
 {
 	const TypeId object_type = types_.strip_cv(type);
 	SemaEntity& object = model_.create(SemaKind::Variable, std::string(),
@@ -825,7 +854,7 @@ SemaAnalyzer::Value SemaAnalyzer::build_temporary(TypeId type, DumpNode& line,
 	}
 	else
 	{
-		construct_object(object, line, written, ctx, Placement::Named, false,
+		construct_object(object, line, written, ctx, Placement::Named, copy_list,
 		                 given, value_init, nullptr, direct);
 	}
 	if (owned)
@@ -1310,31 +1339,15 @@ bool SemaAnalyzer::names_the_base(const std::string& written,
 // mem-initializer that names it, else by the brace-or-equal-initializer its own
 // declaration wrote (12.6.2p8), else by default-initialization, which for
 // anything but a class type leaves it holding no value the program may read.
-void SemaAnalyzer::write_member_initializations(const Pending& pending,
-                                                DumpNode& line,
-                                                const Context& inner)
+// 12.6.2p10: the members are initialized in declaration order and the
+// mem-initializers may be written in any, so which one names each member is
+// asked once per member rather than by a scan of the list per member.  The
+// index is built once per constructor definition, keyed by the unqualified
+// name each mem-initializer-id wrote.
+void SemaAnalyzer::read_mem_initializers(
+	const Pending& pending,
+	std::unordered_map<std::string, MemInitializer>& named)
 {
-	Scope& members = *pending.members;
-	if (pending.function->member_entry)
-	{
-		// 8.5.1p2: the constructor an aggregate was given initializes each of
-		// its members with the parameter of the same name, in the one order
-		// 12.6.2p10 and 9.2p13 share.
-		write_member_parameters(pending, line);
-		return;
-	}
-	if (pending.function->transfer != kNotTransfer && pending.function->defaulted)
-	{
-		// 12.8p15: a copy or move constructor the standard defines initializes
-		// each subobject from the corresponding subobject of its parameter,
-		// rather than from a mem-initializer the program wrote.
-		write_transfer_steps(pending, line, inner);
-		return;
-	}
-	// 12.6.2p10: the members are initialized in declaration order and the
-	// mem-initializers may be written in any, so which one names each member is
-	// asked once per member rather than by a scan of the list per member.
-	std::unordered_map<std::string, MemInitializer> named;
 	for (std::size_t at = 0;
 	     pending.initializers != nullptr &&
 	     at < pending.initializers->children.size(); ++at)
@@ -1361,6 +1374,31 @@ void SemaAnalyzer::write_member_initializations(const Pending& pending,
 			                         " initializes " + id->text + " twice");
 		}
 	}
+}
+
+void SemaAnalyzer::write_member_initializations(const Pending& pending,
+                                                DumpNode& line,
+                                                const Context& inner)
+{
+	Scope& members = *pending.members;
+	if (pending.function->member_entry)
+	{
+		// 8.5.1p2: the constructor an aggregate was given initializes each of
+		// its members with the parameter of the same name, in the one order
+		// 12.6.2p10 and 9.2p13 share.
+		write_member_parameters(pending, line, inner);
+		return;
+	}
+	if (pending.function->transfer != kNotTransfer && pending.function->defaulted)
+	{
+		// 12.8p15: a copy or move constructor the standard defines initializes
+		// each subobject from the corresponding subobject of its parameter,
+		// rather than from a mem-initializer the program wrote.
+		write_transfer_steps(pending, line, inner);
+		return;
+	}
+	std::unordered_map<std::string, MemInitializer> named;
+	read_mem_initializers(pending, named);
 	// 12.6.2p10: the base class subobject is initialized first, whatever place
 	// its mem-initializer was written in and whether or not one was.
 	SemaEntity* const base =
@@ -1521,7 +1559,19 @@ void SemaAnalyzer::write_member_initializations(const Pending& pending,
 			continue;
 		}
 		open_full_expression();
-		initialize(*written, type, where, node);
+		if (written->kind == AstKind::BracedInitList)
+		{
+			// 8.5.1p2: the member is an aggregate or an array and the clauses
+			// initialize its subobjects where they stand, which is the same
+			// reading a declaration of an object of it gets.  Nothing here is
+			// an object of its own for 13.3.3.1.5 to build: 9.2p13 already
+			// laid this one out inside the object being constructed.
+			list_initialize(*written, type, where, node);
+		}
+		else
+		{
+			initialize(*written, type, where, node);
+		}
 		close_full_expression(line);
 	}
 	// 12.6.2p2: a mem-initializer-id shall name a non-static data member of the
@@ -1835,7 +1885,7 @@ void SemaAnalyzer::write_transfer_assignment(SemaEntity& subobject,
 // parameters were declared in that same order, so the two walks step together
 // and neither looks the other up.
 void SemaAnalyzer::write_member_parameters(const Pending& pending,
-                                           DumpNode& line)
+                                           DumpNode& line, const Context& inner)
 {
 	Scope& members = *pending.members;
 	std::vector<SemaEntity*> parameters;
@@ -1854,6 +1904,24 @@ void SemaAnalyzer::write_member_parameters(const Pending& pending,
 		SemaEntity& member = *members.declarations[index];
 		if (!declares_subobject(member, members) || at >= parameters.size())
 		{
+			continue;
+		}
+		if (types_.is_class(types_.strip_cv(member.type)))
+		{
+			// 12.8p31 and 5.2.2p4: the parameter is an object of its own that
+			// this call owns and that nothing after this step reads, so what
+			// carries it into the member is a read of it as an xvalue - which
+			// is what makes 13.3 choose the member's own move constructor
+			// where its class has one and its copy constructor where it has
+			// not.  The step is the `constructor-action` any other member of
+			// class type carries, so the object it names is the subobject and
+			// not a second one.
+			DumpNode held;
+			Value source = parameter_value(*parameters[at], held);
+			source.category = ValueCategory::XValue;
+			construct_object(member, line, nullptr, inner, Placement::Member,
+			                 false, &source);
+			++at;
 			continue;
 		}
 		DumpNode& node = open_fact(line, "member-initialization " + member.name +

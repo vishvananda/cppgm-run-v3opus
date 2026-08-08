@@ -79,6 +79,7 @@ LowirFunctionLowering::LowirFunctionLowering(LowirUnitLowering& unit,
 	, open_(false)
 	, returns_(kNoType)
 	, indirect_result_(false)
+	, returned_object_open_(false)
 	, return_slot_local_(nullptr)
 	, unwinding_(false)
 	, unwind_dispatch_live_(0)
@@ -1807,10 +1808,24 @@ void LowirFunctionLowering::return_statement(const DumpNode& node)
 		}
 		else
 		{
-			Operand storage;
-			place_class_object(open_object_slot(type, "retobj", &storage), type,
-			                   *written);
-			instruction.first = storage;
+			// 6.6.3p2: the object the caller reads is one object of this
+			// function, so the storage it stands in is one slot however many
+			// returns write it - no two of them are ever standing at once.
+			// The slot is a name and the address of it is a value, so the
+			// name is opened once and the address taken again on each path.
+			if (!returned_object_open_)
+			{
+				returned_object_storage_ = named_operand(
+					Operand::OP_SLOT, add_generated_slot("retobj", type));
+				returned_object_open_ = true;
+			}
+			LowValue held;
+			held.type = type;
+			held.lvalue = true;
+			held.named = true;
+			held.operand = returned_object_storage_;
+			place_class_object(address_of(held), type, *written);
+			instruction.first = returned_object_storage_;
 		}
 	}
 	else

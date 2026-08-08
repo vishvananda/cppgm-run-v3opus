@@ -169,6 +169,19 @@ private:
 		// the program wrote and the base-specifier's own access is not asked
 		// about - which is what lets a private base's member be named.
 		bool through_using;
+		// 13.3.3.1.5p1: the braced-init-list this argument was written as.  A
+		// list is not an expression, so nothing about it can be read before the
+		// parameter it reaches is known: the list travels as the value, `node`
+		// holds the place it will be written in, and `type` stays unsettled
+		// until 8.5.4 has been given a type to read it for.
+		const AstNode* braced;
+		// 13.3.3.1p4: the class 13.3.1.7's second phase is initializing, where
+		// this list is that phase's one element and is itself a list.  A
+		// parameter of that class - or of a reference to it - reaches nothing
+		// through a user-defined conversion there, which is what stops the
+		// class's own copy constructor from competing with the constructor the
+		// braces were written for.  `kNoType` everywhere else.
+		TypeId listed_class;
 	};
 
 	// 13.3.3.1: how good the conversion of one argument is.  The ranks of
@@ -213,6 +226,13 @@ private:
 		// that call the same conversion function or constructor.  `kExactMatch`
 		// for a sequence that is not a user-defined one.
 		int second_rank;
+		// 13.3.3.1.5p3 and p4: the class a list-initialization sequence
+		// initializes, which is the user-defined conversion such a sequence
+		// holds - 13.3.3.2p3 orders two of them only where they "initialize the
+		// same class", exactly as it orders two ordinary ones only where they
+		// hold the same constructor or conversion function.  `kNoType` for a
+		// sequence that is not one.
+		TypeId list_class;
 	};
 
 	// Where the object an initialization or a destruction acts on stands.
@@ -670,9 +690,15 @@ private:
 	// written in.  Each is written under the constructor's own definition.
 	void write_member_initializations(const Pending& pending, DumpNode& line,
 	                                  const Context& inner);
+	// 12.6.2p10 and 12.6.2p6: which mem-initializer names each member, as one
+	// index built once per definition and keyed by the unqualified name.
+	void read_mem_initializers(
+		const Pending& pending,
+		std::unordered_map<std::string, MemInitializer>& named);
 	// 8.5.1p2: what the constructor an aggregate class was given does - each
 	// member initialized with the parameter of the same name.
-	void write_member_parameters(const Pending& pending, DumpNode& line);
+	void write_member_parameters(const Pending& pending, DumpNode& line,
+	                             const Context& inner);
 	// 12.8p15 and p28: what a value-transfer member the standard defines does -
 	// each subobject carried from the corresponding subobject of its parameter,
 	// with the leading run whose bytes a copy carries exactly carried in one
@@ -1059,10 +1085,13 @@ private:
 	// each arm builds and whoever reads the conditional holds.
 	// `direct` is 13.3.1.4's question about the place that asked for the
 	// temporary, passed through to the initialization.
+	// `copy_list` says the place that asked wrote `= {...}` or passed the list
+	// as an argument, which 8.5.4p3 refuses an `explicit` constructor for.
 	Value build_temporary(TypeId type, DumpNode& line, const AstNode* written,
 	                      const Value* given, const Context& ctx,
 	                      const char* prefix, bool value_init,
-	                      bool owned = true, bool direct = false);
+	                      bool owned = true, bool direct = false,
+	                      bool copy_list = false);
 	// 8.5.3p5 and 13.3.3.1.2: a temporary an argument conversion made is named
 	// after the argument it was made for, unless something already read it as
 	// the object it is.  `owned` says the same thing it says above: an argument
@@ -1688,6 +1717,44 @@ private:
 	// value the object takes, and an empty one value-initializes it.
 	Value list_initialize(const AstNode& node, TypeId target, const Context& ctx,
 	                      DumpNode& parent, bool image = false);
+	// The same reading, written into a line something else already opened -
+	// which is what an argument needs, because 13.3.3.1.5 leaves the list
+	// unread until 13.3 has chosen and the place it stands in among the
+	// arguments was taken before that.
+	Value list_initialize_into(const AstNode& node, TypeId target,
+	                           const Context& ctx, DumpNode& line, bool image);
+	// 13.3.3.1.5p1: an argument written as a braced-init-list is not an
+	// expression, so it is carried rather than read: the line it will be
+	// written on holds its place among the arguments until the parameter it
+	// reaches is known.  Anything else is the expression it is.
+	Value argument_expression(const AstNode& node, const Context& ctx,
+	                          DumpNode& parent);
+	// 13.3.3.1.5: the implicit conversion sequence of an argument written as a
+	// braced-init-list, which is a fact of the parameter type alone.
+	Match match_list(const AstNode& list, TypeId parameter, TypeId listed_class);
+	// 13.3.1.7 and 8.5.1: whether a braced-init-list of this many clauses
+	// initializes an object of `type` at all, which is what 13.3.3.1.5 asks of
+	// every candidate's parameter.  8.5.1 gives an aggregate's subobjects the
+	// clauses; every other class is initialized by one of its constructors, so
+	// what the list needs is one that accepts that many arguments.  The clauses
+	// themselves are read once, where the initialization is written, rather
+	// than once per candidate.
+	bool list_initializes(TypeId type, const AstNode& list);
+	// 8.5.1p6 and 8.5.1p11: the most initializer-clauses an object of `type`
+	// can take, which is the number of leaves its subobject tree has - a
+	// nested aggregate contributes its own, because the braces around it may be
+	// left out, and a union contributes one because 8.5.1p15 initializes it by
+	// its first member alone.  A list with more clauses than that initializes
+	// no object of the type, which is what keeps `f(One)` out of the candidates
+	// of `f({1,2})`.  Held per type, so a class is walked once however many
+	// lists ask.
+	unsigned long long clause_capacity(TypeId type);
+	std::unordered_map<TypeId, unsigned long long> clause_capacity_;
+	// 8.5.4: what the list is worth once the type it initializes is known -
+	// an object of a class 13.3.1.7 or 8.5.1 built, or the value 13.3.3.1.5p6
+	// gives any other type.  Written into the line the argument already held.
+	void initialize_from_list(Value& value, TypeId target, const Match& match,
+	                          const Context& ctx, Requested by);
 	// 13.3.3.1 over the PA12 conversion subset.
 	Match match_argument(const Value& argument, TypeId parameter);
 	Match match_by_value(const Value& argument, TypeId parameter);

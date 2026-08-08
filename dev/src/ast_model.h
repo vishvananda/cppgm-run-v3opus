@@ -183,6 +183,15 @@ struct AstNode
 	// candidate sets, so the fact is kept even though the PA10 dump - like the
 	// alignment-specifier it also keeps - does not spell it.
 	bool copied;
+	// 5.2.3p3: whether the operands of an explicit type conversion written in
+	// functional notation were spelled as the one braced-init-list that clause
+	// writes rather than as the parenthesized expression-list 5.2.3p1 writes.
+	// `T{a}` and `T({a})` are one shape otherwise - a list holding one
+	// braced-init-list - and they mean different things: the first
+	// list-initializes the object the conversion makes, and the second passes
+	// that list as the one argument of a constructor of it.  Like `copied`, the
+	// PA10 dump does not spell it and the semantics cannot do without it.
+	bool braced;
 	std::string text;
 	std::vector<AstNode*> children;
 
@@ -193,6 +202,7 @@ struct AstNode
 		, end(0)
 		, completed(0)
 		, copied(false)
+		, braced(false)
 	{}
 
 	// Appends `child`, ignoring a null one so that an optional part of a rule

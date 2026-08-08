@@ -406,8 +406,17 @@ bool SemaAnalyzer::operator_expression(unsigned token, const Context& ctx,
 	// 13.3.1.2p2: an operator whose operands are all of built-in type is the
 	// built-in operator, and no lookup is done for it at all.
 	bool overloadable = false;
+	// 5.17p9 and 13.3.3.1.5p1: an operand written as a braced-init-list is no
+	// operand a built-in operator reads, so an operator function is all that
+	// can answer it and 13.6's candidates are not gathered beside them.
+	bool listed = false;
 	for (std::size_t index = 0; index < operands.size(); ++index)
 	{
+		if (operands[index].braced != nullptr)
+		{
+			listed = true;
+			continue;
+		}
 		if (operands[index].type == kNoType || operands[index].node == nullptr)
 		{
 			// 13.4p1: an operand that is still an overloaded name has no type
@@ -481,7 +490,10 @@ bool SemaAnalyzer::operator_expression(unsigned token, const Context& ctx,
 		// 13.3.1.2p2: no operator function is a candidate, so what is left is
 		// 13.6's built-in operator, which an operand of class type reaches
 		// through a conversion function of its class.
-		builtin_operands(token, ctx, operands);
+		if (!listed)
+		{
+			builtin_operands(token, ctx, operands);
+		}
 		return false;
 	}
 
@@ -504,12 +516,18 @@ bool SemaAnalyzer::operator_expression(unsigned token, const Context& ctx,
 		                &operands[0], &unviable);
 	if (chosen == nullptr)
 	{
+		if (listed)
+		{
+			// 5.17p9: what a braced-init-list operand is written for is the
+			// operator function, and there is no built-in operator to fall to.
+			return false;
+		}
 		// 13.3.1.2p2: no operator function accepts these operands, so what is
 		// left is the built-in operator the caller describes.
 		builtin_operands(token, ctx, operands);
 		return false;
 	}
-	if (better_builtin(*chosen, object, operands))
+	if (!listed && better_builtin(*chosen, object, operands))
 	{
 		// 13.6 and 13.3.3p1: the built-in operators are candidates beside the
 		// operator functions, and one of them reads these operands better than

@@ -136,6 +136,8 @@ SemaAnalyzer::Value::Value()
 	// every object a name reaches is an lvalue.
 	, object_category(ValueCategory::LValue)
 	, through_using(false)
+	, braced(nullptr)
+	, listed_class(kNoType)
 {}
 
 SemaAnalyzer::Match::Match()
@@ -151,6 +153,7 @@ SemaAnalyzer::Match::Match()
 	, converting(nullptr)
 	, converted(nullptr)
 	, second_rank(0)
+	, list_class(kNoType)
 {}
 
 void SemaAnalyzer::write(std::ostream& out) const

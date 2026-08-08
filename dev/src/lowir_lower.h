@@ -1306,6 +1306,13 @@ private:
 	// the function creates its object there rather than in storage of its own.
 	lowir_model::Operand result_object_;
 	bool indirect_result_;
+	// 6.6.3p2: where the caller named no destination, the returned object
+	// stands in storage of the function's own - and it is *the* returned
+	// object of the function, one however many returns write it, because no
+	// two of them are ever standing at once.  The slot is opened where the
+	// first return needs it and named again by every other.
+	lowir_model::Operand returned_object_storage_;
+	bool returned_object_open_;
 	// 12.8p31: the one local object this function's returns copy into that
 	// destination, which is then the object standing in it.
 	const SemaEntity* return_slot_local_;

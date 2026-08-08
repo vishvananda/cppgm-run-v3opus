@@ -2726,7 +2726,11 @@ SemaAnalyzer::Value SemaAnalyzer::assignment_expression(const AstNode& node,
 		{
 			std::vector<Value> operands;
 			operands.push_back(left);
-			operands.push_back(expression(*node.children[1], ctx, line));
+			// 5.17p9 and 13.3.3.1.5p1: `x = {...}` means `x.operator=({...})`,
+			// so the list is the argument of that call and is read for the
+			// parameter 13.3 chooses rather than as an expression of its own.
+			operands.push_back(
+				argument_expression(*node.children[1], ctx, line));
 			Value chosen;
 			if (!operator_expression(node.token, ctx, line, operands, true,
 			                         chosen))
