@@ -105,6 +105,16 @@ struct AnalyzedValue
 	TypeId listed_class;
 };
 
+// The ranks of 13.3.3.1.1 Table 12, which every walk that fills an
+// `OverloadMatch` writes and 13.3.3.2 orders two matches by.
+const int kExactMatch = 0;
+const int kPromotion = 1;
+const int kConversion = 2;
+// 13.3.3.2p2: a user-defined conversion sequence is worse than every standard
+// conversion sequence and better than the ellipsis, so it stands between them.
+const int kUserConversion = 3;
+const int kEllipsis = 4;
+
 // 13.3.3.1: how good the conversion of one argument is.  The ranks of
 // Table 12, plus what 13.3.3.2p3 and p4 need to tell two of one rank apart.
 struct OverloadMatch
