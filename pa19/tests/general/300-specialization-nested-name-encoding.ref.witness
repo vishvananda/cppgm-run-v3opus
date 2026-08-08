@@ -1,0 +1,75 @@
+translation-unit
+  class-use at tests/general/300-specialization-nested-name-encoding.t:59:10
+    template outer
+    selected primary
+    bind #1 = int source=explicit
+  class-use at tests/general/300-specialization-nested-name-encoding.t:73:9
+    template api::text
+    selected primary
+    bind #1 = char source=explicit
+  class-use at tests/general/300-specialization-nested-name-encoding.t:95:3
+    template outer
+    selected primary
+    bind #1 = int source=explicit
+  class-use at tests/general/300-specialization-nested-name-encoding.t:97:3
+    template outer
+    selected primary
+    bind #1 = int source=explicit
+  class-use at tests/general/300-specialization-nested-name-encoding.t:98:3
+    template outer
+    selected primary
+    bind #1 = int source=explicit
+  class-use at tests/general/300-specialization-nested-name-encoding.t:99:3
+    template outer
+    selected primary
+    bind #1 = int source=explicit
+  class-use at tests/general/300-specialization-nested-name-encoding.t:100:6
+    template n::use
+    selected primary
+    bind #1 = n::a source=explicit
+  class-use at tests/general/300-specialization-nested-name-encoding.t:101:8
+    template api::pair
+    selected primary
+    bind #1 = const api::text<char> source=explicit
+    bind #2 = api::kind source=explicit
+  class-use at tests/general/300-specialization-nested-name-encoding.t:103:7
+    template outer
+    selected primary
+    bind #1 = int source=explicit
+template-closure-events
+  class-instantiation
+    entity outer<int>::inner
+  class-instantiation
+    entity outer<int>::tag
+  ensure-definition
+    entity api::pair<const api::text<char>, api::kind>::pair
+  ensure-definition
+    entity api::text<char>::text
+  ensure-definition
+    entity n::use<n::a>::size
+  ensure-definition
+    entity outer<int>::call
+  ensure-definition
+    entity outer<int>::inner::deref
+  function-instantiation
+    entity api::pair<const api::text<char>, api::kind>::pair
+  function-instantiation
+    entity api::text<char>::text
+  function-instantiation
+    entity n::use<n::a>::size
+  function-instantiation
+    entity outer<int>::call
+  function-instantiation
+    entity outer<int>::inner::deref
+  require-definition
+    entity api::pair<const api::text<char>, api::kind>::pair
+  require-definition
+    entity api::text<char>::text
+  require-definition
+    entity n::use<n::a>::size
+  require-definition
+    entity outer<int>::call
+  require-definition
+    entity outer<int>::inner::deref
+  variable-instantiation
+    entity outer<int>::value

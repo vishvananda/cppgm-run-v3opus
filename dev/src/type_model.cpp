@@ -495,11 +495,20 @@ void TypeTable::set_template_arguments(TypeId type, const std::string& templated
 	UserType& record = user_types_[nodes_[type].user];
 	record.template_name = templated;
 	record.template_arguments = arguments;
+	// 14.6.2p1 is asked of the arguments, so the answer this type had before it
+	// had any is not the answer it has now.  Nothing holds this type yet - it
+	// was made a moment ago - so its own entry is the only stale one.
+	dependent_.erase(type);
 }
 
 void TypeTable::set_template_index(TypeId type, unsigned index)
 {
 	user_types_[nodes_[type].user].template_index = index;
+}
+
+void TypeTable::set_declaration(TypeId type, const SemaEntity* declaration)
+{
+	user_types_[nodes_[type].user].declaration = declaration;
 }
 
 void TypeTable::set_local_name(TypeId type, const SemaEntity* function,
@@ -1002,6 +1011,23 @@ unsigned long long TypeTable::object_align(TypeId type) const
 }
 
 bool TypeTable::is_dependent(TypeId type) const
+{
+	const std::unordered_map<TypeId, bool>::const_iterator held =
+		dependent_.find(type);
+	if (held != dependent_.end())
+	{
+		return held->second;
+	}
+	// The answer is recorded before the walk, because a type reached twice
+	// from one nest is otherwise walked twice - and a nest whose arguments
+	// double at every level would be walked 2^n times.  A specialization holds
+	// only types made before it, so nothing here reaches this type again.
+	const bool answer = dependent_walk(type);
+	dependent_[type] = answer;
+	return answer;
+}
+
+bool TypeTable::dependent_walk(TypeId type) const
 {
 	switch (kind(type))
 	{

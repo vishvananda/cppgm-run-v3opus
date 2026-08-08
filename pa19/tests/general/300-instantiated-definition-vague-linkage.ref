@@ -1,0 +1,101 @@
+global @box_int___tally : i32 [binding=weak, object=_ZN3boxIiE5tallyE] = 0
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $b : obj<4x4>
+  slot $tmpobj__1 : obj<4x4>
+
+  block ^entry:
+    %t1 = addr $b
+    call void @box_int___box(%t1, 3)
+    %t2 = addr $b
+    %t3 = call i32 @box_int___twice(%t2)
+    store i32 %t3, @box_int___tally
+    %t4 = addr $tmpobj__1
+    %t5 = addr $b
+    %t6 = call obj<4x4> @box_int___mark(%t5)
+    copyobj 4x4 %t6, %t4
+    %t7 = index i8 [projection=field] %t4, 0
+    %t8 = load i32 %t7
+    %t9 = binary sub i32 %t8, 3
+    %t10 = call i32 @pick(1, 2)
+    %t11 = binary add i32 %t9, %t10
+    %t12 = binary sub i32 %t11, 2
+    %t13 = load i32 @box_int___tally
+    %t14 = binary add i32 %t12, %t13
+    %t15 = binary sub i32 %t14, 6
+    return i32 %t15
+}
+function @pick(%a : i32, %b : i32) -> i32 [binding=weak, object=_Z4pickIiET_S0_S0_] {
+  slot $a : i32
+  slot $b : i32
+  slot $cond__1 : i32
+
+  block ^entry:
+    store i32 %a, $a
+    store i32 %b, $b
+    %t1 = load i32 $a
+    %t2 = load i32 $b
+    %t3 = cmp lt i32 %t1, %t2
+    branch %t3, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    %t4 = load i32 $b
+    store i32 %t4, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    %t5 = load i32 $a
+    store i32 %t5, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t6 = load i32 $cond__1
+    return i32 %t6
+}
+function @box_int___box(%this : ptr, %x : i32) -> void [binding=weak, object=_ZN3boxIiEC1Ei] {
+  slot $this : ptr
+  slot $x : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %x, $x
+    %t1 = load i32 $x
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 %t1, %t3
+    return void
+}
+function @box_int___mark(%this : ptr) -> obj<4x4> [binding=weak, object=_ZN3boxIiE4markEv] {
+  slot $this : ptr
+  slot $t : obj<4x4>
+  slot $retobj__1 : obj<4x4>
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = addr $t
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    %t4 = load i32 %t3
+    %t5 = addr $t
+    %t6 = index i8 [projection=field] %t5, 0
+    store i32 %t4, %t6
+    %t7 = addr $retobj__1
+    %t8 = addr $t
+    copyobj 4x4 %t8, %t7
+    return obj<4x4> $retobj__1
+}
+function @box_int___twice(%this : ptr) -> i32 [binding=weak, object=_ZN3boxIiE5twiceEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i32 %t2
+    %t4 = load ptr $this
+    %t5 = index i8 [projection=field] %t4, 0
+    %t6 = load i32 %t5
+    %t7 = binary add i32 %t3, %t6
+    return i32 %t7
+}
+alias object _ZN3boxIiEC2Ei = @box_int___box

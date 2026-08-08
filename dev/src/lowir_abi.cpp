@@ -74,6 +74,7 @@ std::string source_name(const std::string& written)
 class LocalContexts;
 
 AbiType abi_type(TypeTable& types, TypeId type, LocalContexts& contexts);
+std::vector<const SemaEntity*> owning_classes(const SemaEntity& entity);
 
 // The `<local-name>` contexts one encoded name reads.
 //
@@ -193,6 +194,11 @@ AbiType abi_type(TypeTable& types, TypeId type, LocalContexts& contexts)
 		AbiType out;
 		out.kind = abi_mangle::ABI_TYPE_TEMPLATE_PARAMETER;
 		out.index = types.template_index(type);
+		// The ABI's compression makes a `<template-param>` a substitution
+		// candidate like any other component, so `T x` written twice in one
+		// signature is the parameter and then a reference back to it - which
+		// is what the second unit reading the name has to spell the same way.
+		out.substitutable = true;
 		return out;
 	}
 
@@ -238,6 +244,31 @@ AbiType abi_type(TypeTable& types, TypeId type, LocalContexts& contexts)
 				out.argument_refs.push_back(contexts.argument_of(arguments[index]));
 			}
 			return out;
+		}
+		// 9.1p2 and 14.2: a class or enumeration a specialization declares is
+		// named *through* it, and the ABI writes that class as its template and
+		// the arguments - which the one spelling the type carries cannot be
+		// split back into.  So the enclosing class is asked for its own
+		// encoding and this name stands after it, however many classes deep the
+		// declaration is.  A type no template stands over is the spelling it
+		// always was, which is what a class the program wrote needs.
+		const SemaEntity* const declared = types.declaration(type);
+		if (declared != nullptr)
+		{
+			const std::vector<const SemaEntity*> owners = owning_classes(*declared);
+			bool specialized = false;
+			for (std::size_t index = 0; index < owners.size(); ++index)
+			{
+				specialized = specialized ||
+					types.is_specialization(owners[index]->type);
+			}
+			if (specialized)
+			{
+				out.kind = abi_mangle::ABI_TYPE_MEMBER;
+				out.name = declared->name;
+				out.types.push_back(abi_type(types, owners.front()->type, contexts));
+				return out;
+			}
 		}
 		// 3.4.3: the type is named from outside every region that encloses its
 		// declaration, which is the spelling an object-file name carries.
@@ -399,21 +430,41 @@ bool named_by_its_spelling(const SemaEntity& entity)
 }
 
 // The components one qualified name is written from, outermost first.
+//
+// 14.2: a template-argument-list is written inside one component and may spell
+// a qualified name of its own, so `A<N::B>::f` is three names and not four -
+// the `::` a component holds belongs to the argument around it.  A
+// template-id therefore only ever stands *last* in a name this splits, because
+// the components after it are the classes and members of a specialization,
+// which are asked of the declaration rather than of its spelling.
 std::vector<std::string> name_components(const std::string& spelled)
 {
 	std::vector<std::string> parts;
 	std::size_t at = 0;
-	while (true)
+	unsigned depth = 0;
+	for (std::size_t index = 0; index < spelled.size(); ++index)
 	{
-		const std::size_t next = spelled.find("::", at);
-		if (next == std::string::npos)
+		const char c = spelled[index];
+		if (c == '<' || c == '(' || c == '[')
 		{
-			parts.push_back(spelled.substr(at));
-			return parts;
+			++depth;
+			continue;
 		}
-		parts.push_back(spelled.substr(at, next - at));
-		at = next + 2;
+		if ((c == '>' || c == ')' || c == ']') && depth != 0)
+		{
+			--depth;
+			continue;
+		}
+		if (depth == 0 && c == ':' && index + 1 < spelled.size() &&
+		    spelled[index + 1] == ':')
+		{
+			parts.push_back(spelled.substr(at, index - at));
+			at = index + 2;
+			++index;
+		}
 	}
+	parts.push_back(spelled.substr(at));
+	return parts;
 }
 
 // 14.2: the classes a declaration is named through, innermost first.
@@ -421,46 +472,122 @@ std::vector<std::string> name_components(const std::string& spelled)
 // A component of an encoded name is a source name unless the class it names is
 // a specialization, which the ABI writes as the template's name and then the
 // arguments - so the walk that builds the name has to ask the class rather
-// than the spelling, which cannot be split back into the two.  The regions
-// above the outermost class are namespaces and say nothing about templates.
+// than the spelling, which cannot be split back into the two.
+//
+// Each class is asked where *its own* declaration stands rather than where the
+// region around this one does: 9.1p2 names a member through the class that
+// declared it however the definition was written, and 9.7p3's definition of a
+// nested class outside its enclosing one opens a region under whatever the
+// definition was written in.
 std::vector<const SemaEntity*> owning_classes(const SemaEntity& entity)
 {
 	std::vector<const SemaEntity*> owners;
-	for (const Scope* at = entity.region; at != nullptr; at = at->parent)
+	for (const SemaEntity* at = &entity; at != nullptr;)
 	{
-		if (at->kind == ScopeKind::TemplateParameters)
+		const Scope* region = at->region;
+		while (region != nullptr && region->kind == ScopeKind::TemplateParameters)
 		{
 			// 14.1p1: the region a specialization's bindings stand in encloses
 			// the class alone and names nothing.
-			continue;
+			region = region->parent;
 		}
-		if (at->kind != ScopeKind::Class || at->owner == nullptr)
+		if (region == nullptr || region->kind != ScopeKind::Class ||
+		    region->owner == nullptr || region->owner == at)
 		{
 			break;
 		}
-		owners.push_back(at->owner);
+		owners.push_back(region->owner);
+		at = region->owner;
 	}
 	return owners;
 }
 
-// Which of the components of a qualified name that class stands at, or the
-// count itself when the name has none: `components` ends in the declaration's
-// own name, and the classes are the components before it, innermost last.
-bool specialized_component(const std::vector<const SemaEntity*>& owners,
-                           TypeTable& types, std::size_t index,
-                           std::size_t components, const SemaEntity*& owner)
+// One component of an encoded name: the class it names, or null where it names
+// a namespace.
+struct NameRegion
 {
-	if (index + 1 >= components)
+	const SemaEntity* owner;
+	std::string name;
+};
+
+// The regions one declaration is named through, outermost first, with the
+// declaration's own name left off - which is where a terminal, an operator or
+// a constructor stands instead.
+//
+// The classes come from the walk above rather than from a spelling, because a
+// specialization is a component no spelling can be split back into.  What is
+// left in front of them is namespaces, and 7.3.1p1 gives a namespace one
+// identifier for a name - so that prefix is the one part of a qualified name
+// `::` does split.
+std::vector<NameRegion> name_regions(const SemaEntity& entity, TypeTable& types,
+                                     const std::vector<const SemaEntity*>& owners)
+{
+	// The outermost class carries its own qualified spelling on its type; a
+	// declaration no class stands over carries it as its name.
+	std::vector<std::string> spaces = name_components(
+		owners.empty() ? abi_qualified_name(entity)
+		               : types.user_qualified_name(owners.back()->type));
+	// The outermost declaration's own component is the class the walk already
+	// holds, or the declaration itself, and neither stands here.
+	spaces.pop_back();
+	std::vector<NameRegion> regions;
+	regions.reserve(spaces.size() + owners.size());
+	for (std::size_t index = 0; index < spaces.size(); ++index)
 	{
-		return false;
+		NameRegion region;
+		region.owner = nullptr;
+		region.name = spaces[index];
+		regions.push_back(region);
 	}
-	const std::size_t depth = components - 2 - index;
-	if (depth >= owners.size())
+	for (std::size_t index = owners.size(); index-- > 0;)
 	{
-		return false;
+		NameRegion region;
+		region.owner = owners[index];
+		region.name = owners[index]->name;
+		regions.push_back(region);
 	}
-	owner = owners[depth];
-	return types.is_specialization(owner->type);
+	return regions;
+}
+
+// Whether any class this declaration is named through is a specialization,
+// which is what makes its spelling one the encoder cannot split for itself.
+bool names_a_specialization(const std::vector<NameRegion>& regions,
+                            TypeTable& types)
+{
+	for (std::size_t index = 0; index < regions.size(); ++index)
+	{
+		if (regions[index].owner != nullptr &&
+		    types.is_specialization(regions[index].owner->type))
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+// The record one region of an encoded name is written as: a source name, or -
+// where the class a template made stands there - the template's own name and
+// the arguments that made it.
+abi_mangle::AbiFunctionRecord region_record(const NameRegion& region,
+                                            TypeTable& types,
+                                            LocalContexts& contexts)
+{
+	abi_mangle::AbiFunctionRecord record;
+	if (region.owner != nullptr && types.is_specialization(region.owner->type))
+	{
+		record.kind = abi_mangle::ABI_FUNCTION_RECORD_NAME_TEMPLATE;
+		record.name = name_components(types.template_name(region.owner->type)).back();
+		const std::vector<TypeId>& arguments =
+			types.template_arguments(region.owner->type);
+		for (std::size_t at = 0; at < arguments.size(); ++at)
+		{
+			record.argument_refs.push_back(contexts.argument_of(arguments[at]));
+		}
+		return record;
+	}
+	record.kind = abi_mangle::ABI_FUNCTION_RECORD_NAME_SOURCE;
+	record.name = region.name;
+	return record;
 }
 
 // 9.4.2p1: the components a static data member's name is written from, where
@@ -475,41 +602,16 @@ void build_data_name(const SemaEntity& entity, TypeTable& types,
                      abi_mangle::AbiTargetRecord& target,
                      std::vector<abi_mangle::AbiFunctionRecord>& records)
 {
-	const std::vector<const SemaEntity*> owners = owning_classes(entity);
-	bool specialized = false;
-	for (std::size_t index = 0; index < owners.size(); ++index)
-	{
-		specialized = specialized || types.is_specialization(owners[index]->type);
-	}
-	if (!specialized)
+	const std::vector<NameRegion> regions =
+		name_regions(entity, types, owning_classes(entity));
+	if (!names_a_specialization(regions, types))
 	{
 		return;
 	}
-	const std::vector<std::string> components =
-		name_components(abi_qualified_name(entity));
 	target.function.kind = abi_mangle::ABI_FUNCTION_TARGET_ENCODING;
-	for (std::size_t index = 0; index + 1 < components.size(); ++index)
+	for (std::size_t index = 0; index < regions.size(); ++index)
 	{
-		abi_mangle::AbiFunctionRecord region;
-		const SemaEntity* owner = nullptr;
-		if (specialized_component(owners, types, index, components.size(), owner))
-		{
-			region.kind = abi_mangle::ABI_FUNCTION_RECORD_NAME_TEMPLATE;
-			region.name =
-				name_components(types.template_name(owner->type)).back();
-			const std::vector<TypeId>& arguments =
-				types.template_arguments(owner->type);
-			for (std::size_t at = 0; at < arguments.size(); ++at)
-			{
-				region.argument_refs.push_back(contexts.argument_of(arguments[at]));
-			}
-		}
-		else
-		{
-			region.kind = abi_mangle::ABI_FUNCTION_RECORD_NAME_SOURCE;
-			region.name = components[index];
-		}
-		records.push_back(region);
+		records.push_back(region_record(regions[index], types, contexts));
 	}
 	// The encoder drops the last *name* component where a terminal names the
 	// entity, so the components before it stay the regions they are.
@@ -519,7 +621,7 @@ void build_data_name(const SemaEntity& entity, TypeTable& types,
 	records.push_back(placeholder);
 	abi_mangle::AbiFunctionRecord written;
 	written.kind = abi_mangle::ABI_FUNCTION_RECORD_TERMINAL_SOURCE;
-	written.source_name = components.back();
+	written.source_name = entity.name;
 	records.push_back(written);
 }
 
@@ -568,23 +670,16 @@ void build_function_name(const SemaEntity& entity, TypeTable& types,
 		(entity.name.compare(0, 8, "operator") == 0 &&
 		 operator_terminal(entity.name.substr(8), parameters.size(), terminal,
 		                   literal_suffix));
-	const std::vector<std::string> components =
-		name_components(abi_qualified_name(entity));
+	// 14.2: a member of a specialization is named through the template and the
+	// arguments that made it, which no path built from one spelling can write.
+	const std::vector<NameRegion> regions =
+		name_regions(entity, types, owning_classes(entity));
 	// 9.8p1: a member of a class a function's body declared is named through
 	// that class and the class through the function, so the whole name stands
 	// inside the context and the regions the definition was written in say
 	// nothing at all.
-	const bool local = entity.local_function != nullptr && components.size() > 1;
-	// 14.2: a member of a specialization is named through the template and the
-	// arguments that made it, which no path built from one spelling can write.
-	const std::vector<const SemaEntity*> owners = owning_classes(entity);
-	bool specialized = false;
-	for (std::size_t index = 0; index + 1 < components.size(); ++index)
-	{
-		const SemaEntity* owner = nullptr;
-		specialized = specialized ||
-			specialized_component(owners, types, index, components.size(), owner);
-	}
+	const bool local = entity.local_function != nullptr && !regions.empty();
+	const bool specialized = names_a_specialization(regions, types);
 	if (named_by_terminal || local || specialized)
 	{
 		// 13.5: an operator function is named by the operator it overloads,
@@ -592,7 +687,7 @@ void build_function_name(const SemaEntity& entity, TypeTable& types,
 		// name.  The regions around the declaration still precede it, with one
 		// component standing where that terminal goes.
 		target.function.kind = abi_mangle::ABI_FUNCTION_TARGET_ENCODING;
-		for (std::size_t index = 0; index + 1 < components.size(); ++index)
+		for (std::size_t index = 0; index < regions.size(); ++index)
 		{
 			abi_mangle::AbiFunctionRecord region;
 			if (index == 0 && local)
@@ -611,38 +706,17 @@ void build_function_name(const SemaEntity& entity, TypeTable& types,
 				}
 				else
 				{
-					region.source_name = components[index];
+					region.source_name = regions[index].name;
 					region.discriminator = decimal(entity.local_occurrence);
 				}
 			}
 			else
 			{
-				const SemaEntity* owner = nullptr;
-				if (specialized_component(owners, types, index,
-				                          components.size(), owner))
-				{
-					// The record stands for one component, and the regions
-					// around the template were written by the ones before it.
-					region.kind = abi_mangle::ABI_FUNCTION_RECORD_NAME_TEMPLATE;
-					region.name =
-						name_components(types.template_name(owner->type)).back();
-					const std::vector<TypeId>& arguments =
-						types.template_arguments(owner->type);
-					for (std::size_t at = 0; at < arguments.size(); ++at)
-					{
-						region.argument_refs.push_back(
-							contexts.argument_of(arguments[at]));
-					}
-				}
-				else
-				{
-					region.kind = abi_mangle::ABI_FUNCTION_RECORD_NAME_SOURCE;
-					region.name = components[index];
-				}
+				region = region_record(regions[index], types, contexts);
 			}
 			records.push_back(region);
 		}
-		if (components.size() > 1)
+		if (!regions.empty())
 		{
 			abi_mangle::AbiFunctionRecord placeholder;
 			placeholder.kind = abi_mangle::ABI_FUNCTION_RECORD_NAME_SOURCE;
@@ -682,7 +756,7 @@ void build_function_name(const SemaEntity& entity, TypeTable& types,
 			// does, because the components before it are the context's and not
 			// a path the encoder splits for itself.
 			written.kind = abi_mangle::ABI_FUNCTION_RECORD_TERMINAL_SOURCE;
-			written.source_name = components.back();
+			written.source_name = entity.name;
 		}
 		records.push_back(written);
 	}
@@ -825,6 +899,46 @@ const std::string& LocalContexts::context_of(const SemaEntity& function)
 }
 
 }  // namespace
+
+bool abi_instantiated_class(const SemaEntity& entity, TypeTable& types)
+{
+	if (types.is_specialization(entity.type))
+	{
+		return true;
+	}
+	const std::vector<const SemaEntity*> owners = owning_classes(entity);
+	for (std::size_t index = 0; index < owners.size(); ++index)
+	{
+		if (types.is_specialization(owners[index]->type))
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+bool abi_instantiated(const SemaEntity& entity, TypeTable& types)
+{
+	// 14.7.1p1: a function template's specialization is the body read again
+	// for the arguments that named it, which is a definition of the *template*
+	// and not of this unit.
+	if (entity.kind == SemaKind::Function && entity.primary != nullptr &&
+	    entity.primary->template_parameters != nullptr)
+	{
+		return true;
+	}
+	// 14.2: a member of a class a template-id named is made where a use asks
+	// for it, so the classes the declaration is named through are what say it.
+	const std::vector<const SemaEntity*> owners = owning_classes(entity);
+	for (std::size_t index = 0; index < owners.size(); ++index)
+	{
+		if (types.is_specialization(owners[index]->type))
+		{
+			return true;
+		}
+	}
+	return false;
+}
 
 std::string abi_symbol_of(const SemaEntity& entity, TypeTable& types,
                           unsigned variant)

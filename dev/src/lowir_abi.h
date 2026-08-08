@@ -43,6 +43,17 @@ std::string abi_typeinfo_name_symbol_of(TypeId type, TypeTable& types);
 // `_ZTS` name without the prefix that says what the name is for.
 std::string abi_type_name_of(TypeId type, TypeTable& types);
 
+// 14.7.1p1 and 3.2p5: whether an instantiation made this declaration - a
+// specialization of a function template, or a member of a class a template-id
+// named.  Such a definition is one every translation unit that needs it writes
+// for itself, so no unit owns it and the object file has to say so; the walk
+// is the same one the encoded name is built from, because it is the same
+// question about the same regions.
+bool abi_instantiated(const SemaEntity& entity, TypeTable& types);
+// The same question asked of a class rather than of a declaration, which is
+// what the tables and records named after a class read.
+bool abi_instantiated_class(const SemaEntity& entity, TypeTable& types);
+
 // 3.7.2p2: the object-file name of the wrapper function the ABI gives a
 // variable with thread storage duration.  It is named after the variable
 // rather than after a declaration of its own, because no program declares it.

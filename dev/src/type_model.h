@@ -222,6 +222,17 @@ public:
 		return user_at(type).template_index;
 	}
 
+	// 9.1p2 and 14.2: the declaration this class or enumeration was made by.
+	// The spelling `user_qualified_name` carries names every region around it
+	// in one string, and a component of it that a template made cannot be
+	// split back out - so a name the object file encodes reads the regions the
+	// declaration itself stands in.  Null for a type no declaration owns.
+	void set_declaration(TypeId type, const SemaEntity* declaration);
+	const SemaEntity* declaration(TypeId type) const
+	{
+		return user_at(type).declaration;
+	}
+
 	// 9.8p1: the function whose body declared this class or enumeration, and
 	// its place among the types of that name the function declares.  Settled
 	// where the declaration is read, because the region it was written in is
@@ -463,6 +474,11 @@ public:
 	// which is what makes a name that mentions it dependent.  A specialization
 	// is dependent when one of the arguments that made it is, so the walk asks
 	// the arguments the type records rather than the class's members.
+	//
+	// The answer is a fact of the type and never changes, so it is kept: the
+	// arguments of one specialization are a graph and not a tree - `P<t,t>`
+	// reaches `t` twice - and a walk that asks again at every edge is
+	// exponential in the depth of a nest a few lines of source can write.
 	bool is_dependent(TypeId type) const;
 
 	// The type in the form PA2 and PA7 print it in.
@@ -548,6 +564,11 @@ private:
 		const SemaEntity* local_function = nullptr;
 		unsigned local_occurrence = 0;
 		bool local_unnamed = false;
+		// 9.1p2: the declaration that made this type, which is what says
+		// which regions it is named through.  `qualified` is one string, and a
+		// component of it a template made cannot be split back out of it, so a
+		// name the object file encodes walks the declaration instead.
+		const SemaEntity* declaration = nullptr;
 		// 14.7.1p1: the template a specialization was made of and the
 		// arguments that made it, empty for every class a template-id did not
 		// name.
@@ -607,6 +628,9 @@ private:
 	void append_description(TypeId type, std::string& out) const;
 	void append_parameters(TypeId type, std::string& out) const;
 
+	// 14.6.2p1 asked of the type itself, which is what the memo above holds.
+	bool dependent_walk(TypeId type) const;
+
 	std::vector<Node> nodes_;
 	std::vector<UserType> user_types_;
 	// The array types `qualified` is between, innermost last.
@@ -617,4 +641,9 @@ private:
 	std::unordered_map<std::uint64_t, TypeId> user_ids_;
 	std::unordered_map<std::vector<TypeId>, std::uint32_t, ListHash> parameter_ids_;
 	std::vector<const std::vector<TypeId>*> parameter_lists_;
+	// 14.6.2p1's answer for each type it has been asked of.  A specialization's
+	// arguments are a graph, so the walk below reaches one type by as many
+	// paths as the nest above it has; the answer is a fact of the type, so it
+	// is read once and kept.
+	mutable std::unordered_map<TypeId, bool> dependent_;
 };

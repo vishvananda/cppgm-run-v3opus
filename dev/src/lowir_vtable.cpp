@@ -326,8 +326,11 @@ const std::string& LowirUnitLowering::vtable_symbol(const SemaEntity& owner)
 	table.storage = lowir_model::GSM_READONLY;
 	// 3.2p3: a table this unit alone defines is the program's one definition of
 	// it; one every unit that needs the class may hold is nobody's, and the
-	// linker keeps whichever it saw.
-	table.metadata.binding = owner.key_function != nullptr
+	// linker keeps whichever it saw.  14.7.1p1's specialization has no unit of
+	// its own to stand in, so the key function does not make the table one
+	// unit's however it was declared.
+	table.metadata.binding =
+		owner.key_function != nullptr && !abi_instantiated_class(owner, types_)
 		? lowir_model::SBM_STRONG
 		: lowir_model::SBM_WEAK;
 	table.metadata.object_symbol = abi_vtable_symbol_of(owner.type, types_);

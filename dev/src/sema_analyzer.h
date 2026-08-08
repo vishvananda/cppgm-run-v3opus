@@ -1843,6 +1843,11 @@ private:
 	// The source spelling of a type, which is what a specialization is named
 	// by: `Box<int>` rather than the dump's description of what it holds.
 	std::string type_spelling(TypeId type) const;
+	// 9.1p2: `entity` is the declaration `type` was made by.  The model
+	// answers it for a walk that has the type in hand, and the type table
+	// carries it for the object-file name a *use* of the type is encoded
+	// into - so one call settles both and no site records only one of them.
+	void own_type(TypeId type, SemaEntity& entity);
 	// 14p1: records the pattern the template-declaration being read wrote onto
 	// the function it just declared, so that 14.7.1p1 can read it again.
 	void record_function_template(SemaEntity& entity, Scope& parameters,

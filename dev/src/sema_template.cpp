@@ -904,7 +904,7 @@ bool SemaAnalyzer::record_template(const AstNode& node, const Context& ctx)
 			id, class_tag_of(*declared), dump_name(*ctx.scope, name),
 			abi_name(*ctx.scope, name));
 		entity = &model_.create(SemaKind::Class, name, type);
-		model_.own_type(type, *entity);
+		own_type(type, *entity);
 		model_.bind(*ctx.scope, name, *entity);
 		model_.declare_in(*ctx.scope, *entity);
 		template_patterns_.push_back(TemplateInfo());
@@ -963,6 +963,20 @@ bool SemaAnalyzer::record_template(const AstNode& node, const Context& ctx)
 	                                      : "struct ")) +
 	                          name);
 	return true;
+}
+
+// 9.1p2: the declaration a type was made by, recorded where the declaration is
+// read.
+//
+// The model answers it for a walk that already has the type in hand.  The type
+// table carries it because an object-file name encoded from a *use* of the
+// type - a parameter, a template argument, the type a table is named after -
+// has only the type, and the one spelling the type carries cannot say which of
+// its components a template made.
+void SemaAnalyzer::own_type(TypeId type, SemaEntity& entity)
+{
+	model_.own_type(type, entity);
+	types_.set_declaration(type, &entity);
 }
 
 // The source spelling of a type, which is what a specialization is named by.
@@ -1168,7 +1182,7 @@ SemaEntity& SemaAnalyzer::instantiate_class(SemaEntity& primary,
 	made->template_arguments = list;
 	made->region = info.region;
 	made->access = primary.access;
-	model_.own_type(type, *made);
+	own_type(type, *made);
 	// The ABI writes the template's own name and then the arguments, which the
 	// one spelling above cannot be split back into.
 	types_.set_template_arguments(type, abi_name(*info.region, primary.name),
@@ -1403,15 +1417,17 @@ TypeId SemaAnalyzer::substituted(
 	TypeId type, const std::unordered_map<TypeId, TypeId>& bindings,
 	std::unordered_map<TypeId, TypeId>& memo)
 {
-	if (!types_.is_dependent(type))
-	{
-		return type;
-	}
+	// The memo is asked first: a type this substitution has already rebuilt is
+	// what it was rebuilt into, whatever it is made of.
 	const std::unordered_map<TypeId, TypeId>::const_iterator held =
 		memo.find(type);
 	if (held != memo.end())
 	{
 		return held->second;
+	}
+	if (!types_.is_dependent(type))
+	{
+		return type;
 	}
 	TypeId out = type;
 	const unsigned cv = types_.cv(type);

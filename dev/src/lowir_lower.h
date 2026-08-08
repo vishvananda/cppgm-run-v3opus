@@ -326,10 +326,19 @@ public:
 	// points, encoded once per pair however often it is asked for.
 	const std::string& object_symbol_of(const SemaEntity& entity,
 	                                    unsigned variant);
+	// 7.1.2p4 and 14.7.1p1: whether the definition this unit holds is one every
+	// unit that needs it holds too.  An inline definition is the program's
+	// rather than this unit's, and so is one an instantiation made: the
+	// template is what the program declared, and each unit that names a
+	// specialization reads that definition for itself.  The three questions
+	// that follow from it - what the object file binds the symbol as, which of
+	// 12.1's entry points the definition owes, and whether 3.2p3 waits for a
+	// use before writing it - are one question and are asked here.
+	bool shared_definition(const SemaEntity& entity);
 	// Whether this unit writes the base-object entry of `entity` as a definition
 	// of its own, which is what a constructor or destructor a complete object
 	// and a base subobject both asked for needs.
-	static bool writes_base_entry(const SemaEntity& entity);
+	bool writes_base_entry(const SemaEntity& entity);
 	// 2.14.5p8: the global holding the code units of a string literal, made
 	// once per distinct literal.  The literal is an array object with static
 	// storage duration and no name a program can write, so the program holds

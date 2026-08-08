@@ -264,13 +264,18 @@ unsigned LowirUnitLowering::abi_variant(const SemaEntity& entity)
 // here.  A definition every unit that needs one may hold owes only the names
 // this unit named, and a function this unit does not define owes none at all:
 // what a call wrote is what is declared.
+bool LowirUnitLowering::shared_definition(const SemaEntity& entity)
+{
+	return entity.inline_function || abi_instantiated(entity, types_);
+}
+
 bool LowirUnitLowering::writes_base_entry(const SemaEntity& entity)
 {
 	if (entity.special == kOrdinaryFunction)
 	{
 		return false;
 	}
-	if (entity.defined && (!entity.inline_function || entity.internal_linkage))
+	if (entity.defined && (!shared_definition(entity) || entity.internal_linkage))
 	{
 		// 3.5p4 and 3.5p3: a definition with internal linkage is this unit's
 		// alone for the same reason one written outside its class is - no other
@@ -320,10 +325,19 @@ void LowirUnitLowering::describe_symbol(const SemaEntity& entity,
 	// translation unit that wrote it and no other may reach it.  7.1.2p4 makes
 	// an inline definition one the whole program shares, so every unit that
 	// holds one holds the same definition and none of them owns it.
+	//
+	// 14.7.1p1 leaves an instantiated definition in exactly that position: the
+	// template is what the program declared once, and every unit that names a
+	// specialization writes the definition its own reading made - so two units
+	// naming `Box<int>::get` each hold one, and neither owns it.  A member
+	// defined *in* its class is already inline and would come out weak either
+	// way; one defined outside it is not, and a function template's
+	// specialization is not, which is why this is asked of the declaration
+	// rather than left to the specifier it was written with.
 	metadata.binding = entity.internal_linkage
 		? lowir_model::SBM_INTERNAL
-		: (entity.inline_function ? lowir_model::SBM_WEAK
-		                          : lowir_model::SBM_STRONG);
+		: (shared_definition(entity) ? lowir_model::SBM_WEAK
+		                             : lowir_model::SBM_STRONG);
 	// 7.5p1: the language linkage a backend needs is a fact about the
 	// declaration, which no LowIR type says.
 	if (entity.c_linkage)
@@ -631,11 +645,11 @@ void LowirUnitLowering::collect_definitions(const DumpNode& node)
 			// function rather than in the one that holds this body.
 			if (child.fact.entity->special == kDestructorFunction &&
 			    child.fact.entity->virtual_function &&
-			    !child.fact.entity->inline_function)
+			    !shared_definition(*child.fact.entity))
 			{
 				owe_deleting_entry(*child.fact.entity);
 			}
-			if (child.fact.entity->inline_function &&
+			if (shared_definition(*child.fact.entity) &&
 			    !(child.fact.entity->friend_definition &&
 			      child.fact.entity->internal_linkage))
 			{

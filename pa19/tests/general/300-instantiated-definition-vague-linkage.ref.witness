@@ -1,0 +1,50 @@
+translation-unit
+  class-use at tests/general/300-instantiated-definition-vague-linkage.t:42:3
+    template box
+    selected primary
+    bind #1 = int source=explicit
+  class-use at tests/general/300-instantiated-definition-vague-linkage.t:60:3
+    template box
+    selected primary
+    bind #1 = int source=explicit
+  class-use at tests/general/300-instantiated-definition-vague-linkage.t:61:3
+    template box
+    selected primary
+    bind #1 = int source=explicit
+  function-call at tests/general/300-instantiated-definition-vague-linkage.t:62:27
+    callee pick
+    selected instantiation
+    bind #1 = int source=explicit
+  class-use at tests/general/300-instantiated-definition-vague-linkage.t:62:49
+    template box
+    selected primary
+    bind #1 = int source=explicit
+template-closure-events
+  class-instantiation
+    entity box<int>::tag
+  ensure-definition
+    entity box<int>::box
+  ensure-definition
+    entity box<int>::mark
+  ensure-definition
+    entity box<int>::twice
+  ensure-definition
+    entity pick
+  function-instantiation
+    entity box<int>::box
+  function-instantiation
+    entity box<int>::mark
+  function-instantiation
+    entity box<int>::twice
+  function-instantiation
+    entity pick
+  require-definition
+    entity box<int>::box
+  require-definition
+    entity box<int>::mark
+  require-definition
+    entity box<int>::twice
+  require-definition
+    entity pick
+  variable-instantiation
+    entity box<int>::tally

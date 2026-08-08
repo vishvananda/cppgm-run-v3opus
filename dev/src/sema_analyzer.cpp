@@ -1218,7 +1218,7 @@ SemaEntity* SemaAnalyzer::class_head_entity(const Context& ctx, ClassTag tag,
 	const TypeId type = types_.class_type(
 		id, tag, semantics() ? qualified : name, abi_name(*ctx.scope, name));
 	entity = &model_.create(SemaKind::Class, name, type);
-	model_.own_type(type, *entity);
+	own_type(type, *entity);
 	if (!name.empty())
 	{
 		model_.bind(*ctx.scope, name, *entity);
@@ -1579,7 +1579,7 @@ SemaEntity& SemaAnalyzer::enum_declaration(const AstNode& node,
 		const TypeId type = types_.enum_type(
 			id, scoped, name, dump_name(*ctx.scope, name), underlying);
 		entity = &model_.create(SemaKind::Enum, name, type);
-		model_.own_type(type, *entity);
+		own_type(type, *entity);
 		model_.bind(*ctx.scope, name, *entity);
 		model_.declare_in(*ctx.scope, *entity);
 		// 9.8p1 read of an enumeration: a function's body declares it too, and
