@@ -489,6 +489,14 @@ void TypeTable::rename(TypeId type, const std::string& name,
 	record.qualified = qualified;
 }
 
+void TypeTable::set_local_name(TypeId type, const SemaEntity* function,
+                               unsigned occurrence)
+{
+	UserType& record = user_types_[nodes_[type].user];
+	record.local_function = function;
+	record.local_occurrence = occurrence;
+}
+
 void TypeTable::complete_class(TypeId type, unsigned long long size,
                                unsigned long long align, bool empty,
                                bool trivially_copied, bool zeroed_storage,

@@ -1,11 +1,11 @@
 # PA18 Plan — `cppgm++ --emit-lowir` scoped polymorphism
 
-PA18 stands at **37 / 39** of its fixtures (30 of the 32 checked-in ones, plus
-the four regression tests C2 added and the three the C2 audit added), with
-pa1-pa17 at **1732 / 1732** and the file audit passing with the three recorded
-header-weight warnings it inherited. The milestone gives the PA16/PA17 object
-model a vpointer, a vtable and dynamic dispatch, for the single-inheritance
-slice the README's Assignment Boundary names.
+PA18 stands at **39 / 40** of its fixtures (31 of the 32 checked-in ones, plus
+the four regression tests C2 added, the three the C2 audit added and the one C3
+added), with pa1-pa17 at **1732 / 1732** and the file audit passing with the
+three recorded header-weight warnings it inherited. The milestone gives the
+PA16/PA17 object model a vpointer, a vtable and dynamic dispatch, for the
+single-inheritance slice the README's Assignment Boundary names.
 
 The pa1-pa17 report takes **10.3 s** and no test in it is near its limit. It was
 not so before the C2 audit's review: `pa9/300-binary-calculator` ran 6.84 s
@@ -107,6 +107,14 @@ that class, and read by name afterwards.
   gains one step - 5.3.5p3's deallocation - and 15.2p2's handler for every step
   before it ends with the storage going back too, which is what the existing
   `destructor_epilogue` already writes for a destruction.
+- **The region says which function a declaration is local to.** `Scope`
+  carries 9.8p1's enclosing function and the occurrence number of the class
+  between it and the region, each inherited when the region is opened, so
+  `declare_in` settles both on the declaration with one read and no walk
+  outwards. `TypeTable` carries the same pair for the class or enumeration,
+  because `abi_type` is handed a `TypeId` and 3.5p8 leaves nothing else to tell
+  two functions' `struct L`s apart. `named_from_namespace_scope` is now that
+  one read.
 - **Dispatch is a fact of the callee node.** `SemaFact::dispatches` is set where
   overload resolution names the member, from 5.2.2p1's three conditions: the
   function is virtual, an object expression named it, and the id was not
@@ -114,32 +122,33 @@ that class, and read by name afterwards.
 
 ## Current Failure Map
 
-2 of the 32 checked-in fixtures fail, and both are naming/emission conventions
-of the reference binary rather than missing compiler behaviour:
+1 of the 32 checked-in fixtures fails, and it is an emission convention of the
+reference binary rather than missing compiler behaviour:
 
 | group | count | what is missing |
 | --- | --- | --- |
-| G1 function-local class ABI names | 1 | `100-function-local-class-vtable-identity`: a class a *function* declares gets `abi_name` `local` here and `Z5firstvE5local` in the reference, so two `local`s in two functions collide in one unit and the table is spelled `__vtable_type_5local` instead of `__vtable_type_Z5firstvE5local`. The gap is PA17-era ABI naming for block-scope entities, not PA18 lowering: our `_ZN5localC1Ev` should be `_ZZ5firstvEN5localC1Ev`. Fixing it touches `Scope::abi_prefix` for a function/block region and `TypeTable::user_qualified_name` for a local class, and must leave the PA11/PA12 `dump_name` alone. |
-| G2 the file a definition was read from | 1 | `400-header-out-of-class-virtual-vtable`: we emit one constructor entry too many. The rule is now pinned by six probes through `reference-binaries/cppgm++` and is **not** about the class: *a constructor whose definition is written in the primary source file gets both of the ABI's entry points; one whose definition was read from an included file gets only the entries this unit's own code used.* A class in a header with its constructor defined out-of-line in the `.cpp` gets both; the same class and constructor moved into one file gets both; an inline constructor in a header gets only the used one, and in the primary file gets both. Nothing in this compiler models which file a definition came from, so `settle_vtable_ownership` marks every user-provided constructor of every base and we write both. Closing it means carrying the `Preprocessor`'s open-file depth beside each token - a side table like `AstTokenStream::packs()` - into a fact on the definition that `settle_vtable_ownership` reads. |
+| G2 the file a definition was read from | 1 | `400-header-out-of-class-virtual-vtable`: we emit one constructor entry too many. Twelve probes through `reference-binaries/cppgm++` pin the rule, and it splits the two entry points apart. **The base-object entry** is written where a base subobject asked for it or where the definition is not inline - which `writes_base_entry` already says, and every probe agrees with. **The complete-object entry** is written where a complete object asked for it, where the definition is not inline, *or where a base's user-provided definition was read from this unit's own source file*. An inline constructor in a header used only as a base gets the base entry alone (`b1`, `b7`, `c1`); the same constructor in the primary file gets both (`b2`, `b3`); an out-of-line constructor gets both wherever it stands (`b5`, `b8`); an implicit one gets only what was used (`e1`, `e2`). Nothing in this compiler models which file a definition came from, so `settle_vtable_ownership` marks every user-provided constructor of every base and we write both. The reference diverges further for definitions read from an included file - `f2` keeps a destructor call `f1` elides, and `n1` gives a *non*-polymorphic base's constructor both entries where we give one - and neither divergence is under a checked-in fixture, so neither is in this group. |
 
 ## Active Checkpoint
 
-**C3 - the ABI name of an entity a function declares.**  Not started.
+**C4 - the file a definition was read from.**  Not started.
 
-- Owner: `sema_scope.cpp`'s `name_in_region` and the `Scope` a function body
-  opens, with `lowir_abi.cpp` reading the result. The dump name stays what
-  PA11/PA12 already print; only `abi_name` and the class type's
-  `user_qualified_name` gain the enclosing function's encoding.
-- Data flow: the function whose body is open -> the block/function scope's
-  `abi_prefix` -> `abi_name` of every entity declared under it -> PA14's
-  `ABI_TYPE_LOCAL_TYPE` / `ABI_CONTEXT_FUNCTION` records, which the encoder
-  already has.
-- Complexity: one string per function body entered, O(1) per declaration; no
-  walk outwards, exactly as `abi_prefix` already works for a namespace.
-- Validation: `100-function-local-class-vtable-identity` closes; pa14's
-  `abimangle` suite and the whole pa10-pa17 report are the guard that no dump
-  and no earlier object name moved. The two local classes named `local` in
-  `first()` and `second()` are the shape that proves the collision is gone.
+- Owner: `AstTokenStream`, which already carries one phase-4 fact into phase 7
+  the same way - `PackTable` records only the positions `#pragma pack` changes
+  the answer at. A second run-length table records the positions the reading
+  enters and leaves an included file, and `SemaAnalyzer` reads it where a
+  function definition's body is read, so the fact lands on the declaration and
+  no later question asks the preprocessor anything.
+- Data flow: `Preprocessor::source_depth` -> `AstTokenStream::sources()` ->
+  `SemaAnalyzer::set_sources` -> `SemaEntity::own_source_definition` ->
+  `settle_vtable_ownership`'s complete-entry marking.
+- Complexity: one comparison per token and one record per `#include` that
+  changed the answer; the reader is one binary search per function definition,
+  and a unit that includes nothing stores nothing and answers without a search.
+- Validation: `400-header-out-of-class-virtual-vtable` closes; the twelve
+  probes above are the shape sweep, and the whole pa1-pa17 report plus pa18's
+  other 39 tests are the guard that a definition in the primary file - which is
+  every fixture but this one - still owes both entries.
 
 ## Performance Model
 
@@ -205,3 +214,4 @@ and over `cy86` on the layout probes.
 | C2 | the emitted polymorphic object model: `lowir_vtable.cpp`'s tables, type-information records and name strings with the ABI's three record kinds and `__cxa_pure_virtual`; the key function deciding which unit owes the table and `__external_vtable__` where another does; 12.1p11/12.4p11's vpointer stores; 12.4's D1/D2/D0 triple with 5.3.5p3's deallocation as the last step of 12.4p8's suffix; 10.3p12's dispatch on `SemaFact::dispatches` with 5.2.2p1's qualified-id suppressing it; 5.3.5p3's `delete` through the deleting slot; 12.4p11 read into `vacuous_destruction` and 12.1p11 into `construction_writes_nothing`; 5.4p4's cast of a null pointer constant folded where 4.10p1 and not 5.2.10p5 is the conversion | 9 / 32 -> **30 / 32**, plus 4 new regression tests all passing (34 / 36); pa1-pa17 1732 / 1732; 20 emission probes against the reference binary |
 | C2 audit | the boundary a fact of the *program* was settled at, the third reader of a fact C2 widened, and the sibling spellings of a rule it landed at one: the table's name and `__cxa_pure_virtual` and a use's declaration settled in `LowirProgramBuilder::finish` rather than per unit, 12.1p11 read into `vacuous_construction`, 15.2p2's handler opened only where the element constructor can throw, 12.6.2p6's delegating constructor left without a vpointer store, and 5.2.10p5's `reinterpret_cast` left out of 5.4p4's fold | 7 / 7; 34 / 36 -> **37 / 39**, three of them regression tests; pa1-pa17 1732 / 1732; all 36 checked `.ref` files regenerated from the reference binary, 44 lowering probes, four multi-unit shapes, seven scaling shapes, valgrind clean |
 | C2 audit review | the increment re-derived rather than taken on its commit message, and the blocker sitting under the whole report: all seven of C2's audit fixes hold and are order-free over two and three units, and `pa9/300-binary-calculator`'s 6.84 s against the reference's 0.35 s was a cache line shared between a store and an instruction fetch, not load - fixed in `cy86_codegen.cpp` the way the reference does it, with the label held byte-exact by a `jmp rel32` | 1 / 1; pa18 holds **37 / 39**; pa1-pa17 1732 / 1732 in 10.3 s where pa9 alone took 15.3 s; nine multi-unit programs valid, a unit-count sweep to 512, valgrind clean |
+| C3 | 9.8p1's `<local-name>`: the function whose body declares a class settled on the declaration and on the type where the region is read, the ABI's discriminator counted per function and name, the encoder's `<local-name>` context carrying the records that describe its function so a const member function and a variadic one are spellable, `Z <source-name> E` for a function the object file names by its own spelling, and the `N`/`E` of a nested local name put inside the context where g++ and 5.1.6 put it | 37 / 39 -> **39 / 40**, one of them a regression test; pa1-pa17 1732 / 1732; 14 naming probes against `reference-binaries/cppgm++` and g++, which agree on all but a class nested inside a local class |

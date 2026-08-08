@@ -1203,6 +1203,12 @@ SemaEntity& SemaAnalyzer::class_declaration(const AstNode& node,
 		{
 			model_.bind(*ctx.scope, name, *entity);
 			model_.declare_in(*ctx.scope, *entity);
+			// 9.8p1: the declaration is what says the class is local to a
+			// function, and the type is what a use of it - as a parameter, as
+			// the type an object-file name for its table is written from -
+			// reads afterwards, so the two carry the same answer.
+			types_.set_local_name(type, entity->local_function,
+			                      entity->local_occurrence);
 		}
 	}
 
@@ -1516,6 +1522,10 @@ SemaEntity& SemaAnalyzer::enum_declaration(const AstNode& node,
 		model_.own_type(type, *entity);
 		model_.bind(*ctx.scope, name, *entity);
 		model_.declare_in(*ctx.scope, *entity);
+		// 9.8p1 read of an enumeration: a function's body declares it too, and
+		// the object file names it after that function for the same reason.
+		types_.set_local_name(type, entity->local_function,
+		                      entity->local_occurrence);
 	}
 	else if (types_.target(entity->type) != underlying)
 	{

@@ -74,14 +74,9 @@ const char* const kRttiClassObjects[] = {
 // may each declare one of the same spelling.
 bool LowirUnitLowering::named_from_namespace_scope(const SemaEntity& owner)
 {
-	for (const Scope* at = owner.region; at != nullptr; at = at->parent)
-	{
-		if (at->kind == ScopeKind::Function || at->kind == ScopeKind::Block)
-		{
-			return false;
-		}
-	}
-	return true;
+	// 9.8p1 settled that where the declaration was read, so the question is one
+	// read of the class rather than a walk out of the region it stands in.
+	return owner.local_function == nullptr;
 }
 
 std::string LowirUnitLowering::class_tag(const SemaEntity& owner)

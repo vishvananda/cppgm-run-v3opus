@@ -534,6 +534,20 @@ struct SemaEntity
 	// few a unit writes there, so the second spelling costs nothing where there
 	// is nothing to say.
 	std::string abi_name;
+	// 9.8p1 and the ABI's `<local-name>`: the function whose body declares this
+	// entity.  3.5p8 gives a local class no linkage, so the region around it
+	// writes no name a program can spell and two functions may each declare one
+	// of the same spelling - which is why the object file names it after the
+	// function rather than after the regions the dump writes.  A member of a
+	// local class carries the same function, because it is named through the
+	// class.  Null for every declaration at namespace or class scope, which is
+	// nearly all of them.
+	SemaEntity* local_function;
+	// Which occurrence of that name the function's body declares this is,
+	// counted from zero, which is the ABI's discriminator.  A member of a local
+	// class carries the class's own number rather than one of its own, because
+	// the number belongs to the component the function declared.
+	unsigned local_occurrence;
 };
 
 // The name the object file encodes this declaration from, which is the dump's
@@ -654,6 +668,16 @@ public:
 	// is the same string as `prefix`, which every region outside an unnamed
 	// namespace leaves it.
 	std::string abi_prefix;
+	// 9.8p1: the function whose body this region stands inside, which is what a
+	// declaration made here is named from in the object file.  A region
+	// inherits it from the one it was opened in, so settling it for a
+	// declaration is one read rather than a walk outwards, and null says the
+	// region stands at namespace or class scope.
+	SemaEntity* local_function;
+	// The occurrence number of the outermost entity between that function and
+	// this region - the class a local class's members are named through.  Zero
+	// for the function's own body and for every region outside one.
+	unsigned local_occurrence;
 	// Scratch of one walk: the walk that reached this region, so that one with
 	// several paths into one namespace holds it once.
 	std::uint64_t visit;
@@ -858,6 +882,10 @@ private:
 	static SemaEntity* merge_found(SemaEntity* found, SemaEntity* again,
 	                               std::vector<SemaEntity*>* set);
 
+	// 9.8p1: the function a declaration recorded in `where` is named from, and
+	// its place among what that function declares.
+	void settle_local_name(Scope& where, SemaEntity& entity);
+
 	std::deque<Scope> scopes_;
 	std::deque<SemaEntity> entities_;
 	std::deque<DumpScope> dumps_;
@@ -891,6 +919,13 @@ private:
 	// several declare is answered from whichever is smaller, the regions that
 	// declare it or the regions the lookup reaches.
 	std::unordered_map<std::string, std::vector<Scope*> > declarers_;
+	// 9.8p1 and the ABI's discriminator: how many types of each name each
+	// function's body has already declared, keyed by the function and the name.
+	// The count is what tells the second `struct L` a function writes from the
+	// first, and it is kept here rather than on the function because nearly
+	// every function declares no type at all - the map grows only for the ones
+	// that do.
+	std::unordered_map<std::string, unsigned> local_occurrences_;
 	// The using-directives written so far, as the pair of region identifiers in
 	// one word, so writing the same one twice costs a probe rather than a scan.
 	std::unordered_set<std::uint64_t> nominations_;

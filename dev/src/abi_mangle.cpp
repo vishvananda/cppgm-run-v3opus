@@ -817,13 +817,28 @@ void Encoder::emit_class_prefix_content(const AbiType & type)
 
 void Encoder::emit_local_type(const AbiType & type)
 {
+  const Mark base = mark();
   emit_context(type.context_ref);
   if(type.kind == ABI_TYPE_LAMBDA_CLOSURE) {
     emit_closure_name(type.types, type.discriminator);
     return;
   }
-  put(source_name(type.name) + abi_tag_suffix(type.abi_tags));
-  put(local_discriminator(type.discriminator));
+  // The occurrence number belongs to the entity the function itself declared,
+  // which is the first component; a class that entity holds follows it the way
+  // a member of any class does.  The `N`/`E` around a name of more than one
+  // component stands inside the context and never around it, because it is the
+  // components and not the function that it delimits.
+  const vector<string> parts = split_qualified_name(type.name);
+  const bool nested = parts.size() > 1;
+  if(nested) { put_out("N"); }
+  for(size_t i = 0; i + 1 < parts.size(); ++i) {
+    put(source_name(parts[i]));
+    if(i == 0) { put(local_discriminator(type.discriminator)); }
+    close_candidate(base);
+  }
+  put(source_name(parts.back()) + abi_tag_suffix(type.abi_tags));
+  if(!nested) { put(local_discriminator(type.discriminator)); }
+  if(nested) { put_out("E"); }
 }
 
 // `<closure-type-name>`: the lambda's signature, then its own number.
@@ -1217,7 +1232,7 @@ void Encoder::emit_context(const string & id)
     return;
   }
   put("Z");
-  emit_function(context.function, vector<AbiFunctionRecord>());
+  emit_function(context.function, context.records);
   put("E");
 }
 

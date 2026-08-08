@@ -15,6 +15,8 @@ Scope::Scope(ScopeKind scope_kind, Scope* enclosing, SemaEntity* scope_owner,
 	, dump(scope_dump)
 	, id(scope_id)
 	, unnamed_region(enclosing != nullptr && enclosing->unnamed_region)
+	, local_function(nullptr)
+	, local_occurrence(0)
 	, visit(0)
 	, base(nullptr)
 	, inheriting_constructors(false)
@@ -104,7 +106,30 @@ Scope& SemaModel::open(ScopeKind kind, Scope& parent, SemaEntity* owner,
 {
 	scopes_.emplace_back(kind, &parent, owner, dump,
 	                     static_cast<std::uint32_t>(scopes_.size()));
-	return scopes_.back();
+	Scope& scope = scopes_.back();
+	// 9.8p1: the region a function's parameters and body stand in is inside
+	// that function, and every region opened under it is too - a block, a class
+	// the block declares, the body of that class's members.  Each of the three
+	// answers the question the same way, so it is settled once here and read
+	// afterwards rather than walked outwards from each declaration.
+	if (kind == ScopeKind::Function && owner != nullptr &&
+	    owner->kind == SemaKind::Function)
+	{
+		scope.local_function = owner;
+	}
+	else if (kind == ScopeKind::Class && owner != nullptr)
+	{
+		// A member is named through its class, so it is the class's own place
+		// among what the function declared that its name carries.
+		scope.local_function = owner->local_function;
+		scope.local_occurrence = owner->local_occurrence;
+	}
+	else
+	{
+		scope.local_function = parent.local_function;
+		scope.local_occurrence = parent.local_occurrence;
+	}
+	return scope;
 }
 
 DumpScope& SemaModel::open_dump(DumpScope& parent, const std::string& header)
@@ -223,6 +248,8 @@ SemaEntity& SemaModel::create(SemaKind kind, const std::string& name, TypeId typ
 	entity.instantiated = false;
 	entity.id = static_cast<std::uint32_t>(entities_.size() - 1);
 	entity.dump_name = name;
+	entity.local_function = nullptr;
+	entity.local_occurrence = 0;
 	return entity;
 }
 
@@ -408,7 +435,43 @@ void SemaModel::declare_in(Scope& where, SemaEntity& entity)
 		// in the region the union was declared in, and that is a binding rather
 		// than another declaration of it.
 		entity.region = &where;
+		settle_local_name(where, entity);
 	}
+}
+
+// 9.8p1 and the ABI's `<local-name>`: which function's body declares this, and
+// which occurrence of the name there it is.  Both are facts of the region, so
+// the declaration reads them where it is recorded and no later question about
+// the object-file name walks outwards to ask again.
+void SemaModel::settle_local_name(Scope& where, SemaEntity& entity)
+{
+	entity.local_function = where.local_function;
+	if (entity.local_function == nullptr)
+	{
+		return;
+	}
+	if (where.kind != ScopeKind::Function && where.kind != ScopeKind::Block)
+	{
+		// A member of a local class stands under the class the function
+		// declared, and it is that class the occurrence number belongs to.
+		entity.local_occurrence = where.local_occurrence;
+		return;
+	}
+	// 3.5p8 leaves a local class without linkage, so nothing but the name and
+	// the function tells two of them apart - and only a declaration the object
+	// file has to name takes a number, which in this subset is a type.
+	if (entity.kind != SemaKind::Class && entity.kind != SemaKind::Enum)
+	{
+		return;
+	}
+	const std::uint32_t function = entity.local_function->id;
+	std::string key(4, '\0');
+	key[0] = static_cast<char>(function & 0xff);
+	key[1] = static_cast<char>((function >> 8) & 0xff);
+	key[2] = static_cast<char>((function >> 16) & 0xff);
+	key[3] = static_cast<char>((function >> 24) & 0xff);
+	key += entity.name;
+	entity.local_occurrence = local_occurrences_[key]++;
 }
 
 void SemaModel::nominate(Scope& where, Scope& space)

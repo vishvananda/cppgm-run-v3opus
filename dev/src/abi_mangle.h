@@ -258,11 +258,39 @@ struct AbiFunctionTarget
   std::vector<std::string> namespace_qualifiers;
 };
 
+struct AbiFunctionRecord
+{
+  AbiFunctionRecordKind kind = ABI_FUNCTION_RECORD_PARAMETER;
+  std::string name;
+  std::string substitution;
+  std::string complete_substitution;
+  std::string standard_substitution;
+  bool standard_substitution_includes_arguments = false;
+  std::string context_ref;
+  std::string source_name;
+  std::string discriminator;
+  std::string terminal;
+  std::string literal_suffix;
+  AbiType type;
+  std::vector<AbiType> types;
+  std::vector<std::string> argument_refs;
+  std::vector<std::string> namespace_qualifiers;
+  std::vector<AbiFunctionQualifier> qualifiers;
+};
+
 struct AbiLocalContext
 {
   AbiContextFactKind kind = ABI_CONTEXT_RAW;
   std::string fragment;
   AbiFunctionTarget function;
+  // The records that describe the same function the target names, which is
+  // what a fact file spells on the lines after the target and what a
+  // `<local-name>` needs whenever the function it stands for says more than a
+  // path does: 8.3.5p7's cv-qualifier-seq on a member function, a parameter
+  // list that ends in an ellipsis, a conversion function's terminal.  Empty
+  // for every context a fact file writes, which says all it has to say in the
+  // target.
+  std::vector<AbiFunctionRecord> records;
 };
 
 struct AbiEntityFact
@@ -303,26 +331,6 @@ struct AbiTargetRecord
   bool result_adjust_virtual = false;
   long long result_vcall_offset = 0;
   long long vcall_offset = 0;
-};
-
-struct AbiFunctionRecord
-{
-  AbiFunctionRecordKind kind = ABI_FUNCTION_RECORD_PARAMETER;
-  std::string name;
-  std::string substitution;
-  std::string complete_substitution;
-  std::string standard_substitution;
-  bool standard_substitution_includes_arguments = false;
-  std::string context_ref;
-  std::string source_name;
-  std::string discriminator;
-  std::string terminal;
-  std::string literal_suffix;
-  AbiType type;
-  std::vector<AbiType> types;
-  std::vector<std::string> argument_refs;
-  std::vector<std::string> namespace_qualifiers;
-  std::vector<AbiFunctionQualifier> qualifiers;
 };
 
 struct AbiFactRecord

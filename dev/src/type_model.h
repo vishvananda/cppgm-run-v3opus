@@ -11,6 +11,12 @@
 // A type, as the small integer that names it in a `TypeTable`.
 typedef std::uint32_t TypeId;
 
+// 9.8p1: a type a function's body declares is named after that function in the
+// object file, so a class or enumeration record carries the declaration of the
+// function it is local to.  Nothing here reads the declaration; it is the key
+// the name is encoded from where a name is asked for.
+struct SemaEntity;
+
 // The identifier no type has.
 const TypeId kNoType = 0;
 
@@ -181,6 +187,21 @@ public:
 	const std::string& user_qualified_name(TypeId type) const
 	{
 		return user_at(type).qualified;
+	}
+
+	// 9.8p1: the function whose body declared this class or enumeration, and
+	// its place among the types of that name the function declares.  Settled
+	// where the declaration is read, because the region it was written in is
+	// the only thing that says either.
+	void set_local_name(TypeId type, const SemaEntity* function,
+	                    unsigned occurrence);
+	const SemaEntity* local_function(TypeId type) const
+	{
+		return user_at(type).local_function;
+	}
+	unsigned local_occurrence(TypeId type) const
+	{
+		return user_at(type).local_occurrence;
 	}
 
 	// 9.2p2: the class becomes complete at the end of its member specification,
@@ -466,6 +487,14 @@ private:
 		// no program able to name, which is what says an object of it is
 		// carried by the member the program declared and not by its bytes.
 		bool copy_deleted;
+		// 9.8p1: the function whose body declared this type, and which
+		// occurrence of the name there it is.  3.5p8 gives it no linkage, so
+		// the regions the dump writes do not tell it from another function's
+		// type of the same spelling - only the function does, and the object
+		// file names it after that function.  Null for every type declared at
+		// namespace or class scope.
+		const SemaEntity* local_function = nullptr;
+		unsigned local_occurrence = 0;
 	};
 
 	// What makes two types the same type.
