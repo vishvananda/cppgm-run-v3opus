@@ -1,0 +1,22 @@
+global @outer__i : i32 [binding=strong, object=_ZN5outer1iE] = 1
+global @holder__i : i32 [binding=strong, object=_ZN6holder1iE] = 2
+global @deep__i : i32 [binding=strong, object=_ZN4deep1iE] = 3
+
+function @holder__hidden() -> i32 [binding=strong, object=_ZN6holder6hiddenEv] {
+  block ^entry:
+    %t1 = load i32 @holder__i
+    return i32 %t1
+}
+function @deep__inner__reached() -> i32 [binding=strong, object=_ZN4deep5inner7reachedEv] {
+  block ^entry:
+    %t1 = load i32 @deep__i
+    return i32 %t1
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    %t1 = call i32 @holder__hidden()
+    %t2 = binary mul i32 %t1, 10
+    %t3 = call i32 @deep__inner__reached()
+    %t4 = binary add i32 %t2, %t3
+    return i32 %t4
+}

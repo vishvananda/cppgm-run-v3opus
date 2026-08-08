@@ -68,19 +68,6 @@ const char* tag_text(ClassTag tag)
 	}
 }
 
-// Whether `outer` is `inner` or a region `inner` is written in.
-bool encloses(const Scope& outer, const Scope& inner)
-{
-	for (const Scope* at = &inner; at != nullptr; at = at->parent)
-	{
-		if (at == &outer)
-		{
-			return true;
-		}
-	}
-	return false;
-}
-
 // 7.3.1.1p1: the namespace-definition PA10 wrote no name for, which it spells
 // with the placeholder the dump uses.
 bool is_unnamed_namespace(const AstNode& node)

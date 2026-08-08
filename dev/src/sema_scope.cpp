@@ -21,6 +21,18 @@ Scope::Scope(ScopeKind scope_kind, Scope* enclosing, SemaEntity* scope_owner,
 	, searchers_at(0)
 {}
 
+bool encloses(const Scope& outer, const Scope& inner)
+{
+	for (const Scope* at = &inner; at != nullptr; at = at->parent)
+	{
+		if (at == &outer)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
 bool declares_subobject(const SemaEntity& member, const Scope& scope)
 {
 	return member.kind == SemaKind::Variable && member.object_member &&
@@ -638,6 +650,68 @@ SemaEntity* SemaModel::search_declarers(Scope& in, const std::string& name,
 	return found;
 }
 
+// 7.3.4p2: a using-directive does not make the names it nominates appear where
+// it was written.  They appear in the nearest region enclosing both the
+// directive and the namespace it named - which is the region that wrote it only
+// where that region encloses the namespace, and an outer one otherwise.  Which
+// level of the chain each declaration stands at is the whole of 3.4.1's answer
+// where several regions declare one name: two at one level are 3.4p1's
+// ambiguity and one at a nearer level simply hides the rest.
+//
+// The chain is walked once and each region that declares the name is placed on
+// it, which is the cheaper of the two questions by the same reading `declarers`
+// already makes: a name is declared in few regions and a directive may reach
+// many, so this asks of each declaration where it appears rather than walking
+// every namespace the directives reach.  7.3.4p4's transitivity is
+// `reaches`, and the innermost region of the chain that reaches a declaration
+// is the directive 7.3.4p2's "nearest" is measured from.
+void SemaModel::place_declarers(Scope& from, const std::vector<Scope*>& regions)
+{
+	chain_.clear();
+	placed_.clear();
+	++visit_;
+	bool directives = false;
+	for (Scope* scope = &from; scope != nullptr; scope = scope->parent)
+	{
+		// A region of the chain is a level of its own, so a declaration it
+		// holds is one the walk outward finds where it stands.
+		scope->visit = visit_;
+		chain_.push_back(scope);
+		directives = directives || !scope->nominated.empty();
+	}
+	if (!directives)
+	{
+		// No using-directive stands anywhere around this lookup, so nothing
+		// appears anywhere but in the region that declared it.
+		return;
+	}
+	for (std::size_t index = 0; index < regions.size(); ++index)
+	{
+		Scope& declaring = *regions[index];
+		if (declaring.visit == visit_ || declaring.nominated_by.empty())
+		{
+			continue;
+		}
+		std::size_t at = 0;
+		while (at < chain_.size() && !reaches(*chain_[at], declaring))
+		{
+			++at;
+		}
+		// 7.3.4p2: the directive nearest the lookup is the one its names
+		// appear through, so the region enclosing both is measured from there
+		// and never from further in.
+		while (at < chain_.size() && !encloses(*chain_[at], declaring))
+		{
+			++at;
+		}
+		if (at < chain_.size())
+		{
+			placed_.push_back(
+				std::make_pair(static_cast<std::uint32_t>(at), &declaring));
+		}
+	}
+}
+
 SemaEntity* SemaModel::lookup(Scope& from, const std::string& name,
                               LookupKind filter,
                               std::vector<SemaEntity*>* found_set)
@@ -657,24 +731,39 @@ SemaEntity* SemaModel::lookup(Scope& from, const std::string& name,
 		                                 *(*regions)[0]),
 		                   found_set);
 	}
-	for (Scope* scope = &from; scope != nullptr; scope = scope->parent)
+	// Several regions declare the name, so 3.4p1 asks which of them a lookup
+	// written here reaches at each level rather than which one it reaches
+	// first.
+	place_declarers(from, *regions);
+	for (std::size_t level = 0; level < chain_.size(); ++level)
 	{
-		SemaEntity* found = search_declarers(*scope, name, filter, *regions,
-		                                    found_set);
+		Scope& scope = *chain_[level];
+		SemaEntity* found = merge_found(nullptr, find(scope, name, filter),
+		                                found_set);
+		// 10.2p2 and 3.4.1p8: what a base class declares is found from a member
+		// of the derived class, and hides what the region around the class
+		// declares rather than being hidden by it.  7.3.4p1 writes no
+		// using-directive in a class, so a level a class stands at holds
+		// nothing else.
+		for (Scope* at = scope.base; at != nullptr && found == nullptr;
+		     at = at->base)
+		{
+			found = merge_found(found, find(*at, name, filter), found_set);
+		}
+		for (std::size_t index = 0; index < placed_.size(); ++index)
+		{
+			if (placed_[index].first == level)
+			{
+				// 7.3.4p2: this declaration appears at this level, so it is one
+				// of the level's own as far as 3.4p1 is concerned.
+				found = merge_found(found, find(*placed_[index].second, name,
+				                                filter),
+				                    found_set);
+			}
+		}
 		if (found != nullptr)
 		{
 			return found;
-		}
-		// 10.2p2 and 3.4.1p8: what a base class declares is found from a member
-		// of the derived class, and hides what the region around the class
-		// declares rather than being hidden by it.
-		for (Scope* at = scope->base; at != nullptr; at = at->base)
-		{
-			found = search_declarers(*at, name, filter, *regions, found_set);
-			if (found != nullptr)
-			{
-				return found;
-			}
 		}
 	}
 	return nullptr;
