@@ -1,17 +1,19 @@
 # PA17 Plan — `cppgm++ --emit-lowir` value semantics
 
-PA17 stands at **234 / 234** of its fixtures - the whole suite - with pa1-pa16
+PA17 stands at **238 / 238** of its fixtures - the whole suite - with pa1-pa16
 at **1494 / 1494** and the file audit passing with the three recorded
-header-weight warnings it already had. What is left is an audit of C12 and the
-shapes below that no fixture covers.
+header-weight warnings it already had.  Twelve checkpoints and twelve audits are
+landed, the last of them the stage's own review; what is left is what the README
+puts after this milestone.
 
 `reference-binaries/cppgm++` accepts PA17 input, and **it reproduces every
 checked-in fixture exactly**: `pa17/scripts/ref_vs_fixtures.pl` runs it over the
-whole suite under the harness's own relaxed comparison and reports 208 same, 0
-different, 0 exit-status different - the other 22 tests are the ones whose
-`.ref.exit_status` is a refusal. So the binary is not merely a second oracle:
-where it and a fixture could disagree they do not, and a synthesized shape it
-answers differently from us is a defect until judged otherwise.
+whole suite under the harness's own relaxed comparison and reports 214 same, 0
+different, 0 exit-status different - the rest are the tests whose
+`.ref.exit_status` is a refusal, and it agrees on every one of those too. So the
+binary is not merely a second oracle: where it and a fixture could disagree they
+do not, and a synthesized shape it answers differently from us is a defect until
+judged otherwise.
 `pa17/scripts/probe_diff.pl` runs one synthesized unit through both. Probe it
 before guessing at a rule the fixtures pin only one point of - it is what
 settled 5.2.2p4's boundary below, what showed 5.3.4's zero is not 8.5p8's, and
@@ -22,7 +24,9 @@ checkpoint introduced it. Three of C11's audit's five blockers were older
 holes its new answers reached and two were its own, and nothing but that
 comparison says which - keep a worktree at the commit before the checkpoint *and*
 one at the checkpoint itself, because the second is what the audit's own before
-and after are measured against.
+and after are measured against.  **Build it with `make build` and not with
+`make dev/cppgm++`**, which is not a target: a missing binary times every probe
+at zero and reads as a speed-up that is not there.
 
 ## Stage Design
 
@@ -475,6 +479,19 @@ answers the question it belongs to.
   returns write it: no two of them are ever standing at once. The slot is a
   name and its address is a value, so the name is opened once and the address
   taken again on each path.
+- **The object standing under 5.2.9p4's cast is the object the cast is worth,
+  whatever node the prvalue was written as.**  A call returning an object of this
+  class creates it exactly as a `temporary-object` written there does, so
+  `creates_its_object` and the lowering's own cast ask one question of whatever
+  stands under the cast and never of its kind: `V v = (V)h();` is `h` writing its
+  returned object into `v`, and reading the kind instead left the lowering asked
+  for a copy of an object nothing had built.
+- **5.2.2p4's boundary is the same boundary in a constructor's call as in an
+  ordinary one.**  The storage a by-value class parameter stands in is named
+  before the argument runs, so the argument builds its object in it - one
+  `class_argument` read by both argument loops, because reading the argument as a
+  value and copying it in afterwards refuses every prvalue the callee could have
+  been left to build in place.
 - `lowir_lower*.cpp` reads only the resolved tree. Its one shape rule is
   **result-object placement**: the storage an object of class type will stand in
   is named *before* the initializer that fills it runs, and handed to it.
@@ -542,18 +559,42 @@ answers the question it belongs to.
   of the entity under it: 9.4.2p2's definition written with a
   nested-name-specifier is a second line describing one object, and only the
   line that lays the storage out may write the image.
-- **7.3.4p2 puts a nominated namespace's declarations at a *level* of the chain
-  around the lookup, and the level is the nearest region enclosing both the
-  directive and the namespace** - the region that wrote the directive only where
-  it encloses the namespace.  `sema_scope.cpp` owns it: `place_declarers` walks
-  the chain once and places each region that declares the name on it, which is
-  the cheaper of the two questions by the same measure `declarers` already takes
-  - a name is declared in few regions where a directive may reach many.  The
-  innermost region of the chain that `reaches` a declaration is the directive
-  7.3.4p2's "nearest" is measured from, and 7.3.4p4's transitivity is `reaches`
-  itself.  Two at one level are 3.4p1's ambiguity; one at a nearer level hides
-  the rest; a program with no directive around the lookup places nothing and
-  pays the chain alone.
+- **7.3.4p2 turns on two things and one walk answers both.** The names a
+  using-directive nominates *can be used in the scope the directive appears in*,
+  and during unqualified lookup they *appear at a level of the chain* - the
+  nearest region enclosing both the directive and the namespace it named, which
+  is the region that wrote it only where that region encloses the namespace.  So
+  the directive is recorded **where the program wrote it** and `SemaModel::lookup`
+  walks the chain outward asking both halves as it goes: a level that wrote a
+  directive `reaches` takes the declaring region up, and the first level from
+  there that `encloses` it is where its declarations appear.  Recording it at
+  the level instead answers the second and loses the first, which makes a
+  directive written in one function's block reach every lookup in the namespace
+  around it.  Two at one level are 3.4p1's ambiguity; one at a nearer level hides
+  the rest; a level that wrote no directive and holds nothing pending costs one
+  probe of the name, so a lookup answered where it stands never walks the chain
+  above it.  Which of the two questions a level asks is **whichever set is
+  smaller** - the regions this level reaches, or the regions that declare the
+  name - because either alone is quadratic on the program the other is linear on.
+- **6.4p4's condition is one reading, and a condition-declaration is a
+  condition.**  `require_condition_type` is asked of the value an expression is
+  worth and of the type `condition_of_declaration` hands back alike, because a
+  class object no conversion function answered is nothing either spelling of a
+  condition can branch on - and the lowering below has no reading of a `branch`
+  on an `obj` at all.
+- **Which of 5.4p4's two readings a cast to a reference is, is a fact of the
+  node** (`Fact::binds_temporary`).  8.5.3p5's initialization of a temporary
+  holding the conversion and 5.2.10p11's reinterpretation of the storage the
+  operand named spell exactly the same two types, so nothing below the analysis
+  can tell them apart: `(const int&)d` over a `double` is `const int t(d);` and
+  the address of `t`, and `reinterpret_cast<const float&>(i)` is the `int`'s own
+  storage under another type.  5.4p4's order is what settles which: a named
+  `static_cast` is refused where no `T t(e);` binds, and everything else falls to
+  the reinterpretation - which is what `(const E&)i` over an enumeration and
+  `(const W&)i` over a class each come to.  4.4p4's qualification conversion is
+  the one conversion that leaves no temporary to hold, because it is between two
+  pointers to the same type and the operand's own storage already holds the
+  value, which is the exception `match_reference` already makes for an argument.
 
 Facts PA17 adds: `TypeTable::passes_indirectly`, `::bytes_stand_for_object`,
 `::has_zeroed_storage`, `UserType::subobject_bytes`, `::carried_by_bytes`,
@@ -565,7 +606,7 @@ Facts PA17 adds: `TypeTable::passes_indirectly`, `::bytes_stand_for_object`,
 `UserType::copy_deleted`, `TypeTable::returns_indirectly`, `RefQualifier` on the
 function type, `Value::object_category`, `Fact::subobject_step`,
 `Fact::array_form`, `Fact::object_definition`, `Fact::counted`, `Fact::may_fail`,
-`Fact::full_expression_end`,
+`Fact::full_expression_end`, `Fact::binds_temporary`,
 `SemaEntity::delegates_to`, `Placement::Delegate`,
 `FactKind::StorageTransfer`, `FactKind::DeleteExpression`,
 `FactKind::ArrayTransfer` with `LowirFunctionLowering::element_walk_`
@@ -578,7 +619,7 @@ syntax as 7.1.6.2p1's decltype operand already is),
 `UserType::declared_destruction` with `TypeTable::has_declared_destruction`,
 `LowirFunctionLowering::selected_arms_`, `Fact::boundary_object` with
 `construct_object`'s `into_temporary`, `SemaAnalyzer::direct_initialized_`,
-`SemaEntity::surrogate_for` with `surrogate_calls`, `SemaModel::place_declarers`,
+`SemaEntity::surrogate_for` with `surrogate_calls`, `SemaModel::take_pending`, `SemaAnalyzer::require_condition_type`,
 and the eleven questions
 lifted out of the analyzer so each layer asks them once - `observable_expression`,
 `creates_its_object`, `vacuous_destruction`, `declared_destruction`,
@@ -589,7 +630,7 @@ lifted out of the analyzer so each layer asks them once - `observable_expression
 
 ## Current Failure Map
 
-**No fixture fails.** 234 / 234, with pa1-pa16 at 1494 / 1494. What follows is
+**No fixture fails.** 238 / 238, with pa1-pa16 at 1494 / 1494. What follows is
 what the suite does not cover: the shapes left unwritten, the refusals of valid
 programs, and the disagreements with the reference binary each sweep judged.
 
@@ -604,24 +645,23 @@ union; and 12.8p31's elision through a parenthesized single argument -
 `pair({1, 2})`, `pair(Pair{1, 2})` and `S() : S(S(3)) {}` alike build a
 temporary and copy it into the subobject, because `elide_transfer` puts the
 creating node where the `constructor-action` stood and for a member or a base
-that action is what names the subobject's address.  Which of **5.4p4's two
-readings a cast is** has no fact of its own, so a reference to a type that is
-not a class binds the operand's own storage where 8.5.3p5 binds a temporary
-holding the conversion - `(const int&)d` over a `double` passes the `double`'s
-address - which is silent wrong code until a checkpoint writes that fact.
+that action is what names the subobject's address.  And **13.3.3.1p4's bound on
+the conversion a constructor's first parameter takes** is not written where
+13.3.1.4's copy-initialization resolves a class's constructors directly, so
+`T t = c;` takes two user-defined conversions where `g++` allows one and is
+ambiguous where `g++` chooses the conversion function - the reference answers
+both exactly as we do, and `sink(c)` answers both correctly through
+`match_by_value`.
 
-**Three refusals of valid programs.** A `try` block in an ordinary body is "a
-statement outside the PA12 subset", which is what makes 12.8p32's exclusion of a
-catch-clause parameter nothing to ask yet.  `V v = (V)h();` reaches "an object of
-the class type struct V is copied", because `creates_its_object` reads 5.2.9p4's
-cast only where a `temporary-object` stands under it and here a `call` does - so
-the lowering is asked for a copy where the callee could have written into `v`
-(the binary's own answer here is garbage: it calls `h` not at all).  And
-`W w(s)`, where `W`'s constructor takes a by-value `R` and `s` reaches it through
-a conversion function, reaches the same refusal: the analysis writes the
-conversion's call as the argument and the *constructor* call's lowering copies
-it where an ordinary call's places the returned object in the parameter's
-storage.  The last two are one checkpoint's work and are what C13 should take.
+**One refusal of a valid program, and one over-acceptance.** A `try` block in an
+ordinary body is "a statement outside the PA12 subset", which is what makes
+12.8p32's exclusion of a catch-clause parameter nothing to ask yet; the README
+lists no handler syntax among this milestone's own.  And 3.4.1p8's point of
+declaration is not modelled for a *deferred* member function body, so a
+namespace-scope declaration written after the class is still in scope for it -
+which accepts `struct S { int f() { return i; } }; int i;` and, where a
+using-directive in that body reaches another declaration of the name, refuses
+the program as ambiguous.  It predates this milestone and reaches every lookup.
 
 **Disagreements with the reference binary, each judged and left as it stands.**
 g++ settles most of them our way.
@@ -638,7 +678,18 @@ g++ settles most of them our way.
   `static_cast<const W&>(t)` binds, which 12.2p3 ends and the binary never
   destroys; 8.5p7's **zero** in front of a default constructor the standard
   defines; a directive in a block reaching a namespace-scope declaration written
-  *after* the function, which 3.4.1p1's point of use excludes.
+  *after* the function, which 3.4.1p1's point of use excludes; a cast to a
+  reference to a type that is not a class binding the temporary 8.5.3p5 makes -
+  `(const int&)d` over a `double` - where the binary converts the value and then
+  passes the *value* where a pointer is wanted; and `V v = (V)h();`, where the
+  binary writes a body that calls `h` not at all.
+- *Theirs and g++'s, against us.* `const_cast<const E&>(i)` over an enumeration
+  is accepted here, because 5.2.11's own rule for what a const_cast may write is
+  not modelled - every cast to a reference the operand is reference-related to
+  nothing of falls to 5.4p4's reinterpretation unless a named `static_cast`
+  refuses it.  And a namespace-scope declaration written after a class is in
+  scope for that class's *deferred* member function bodies, which 3.4.1p8 bounds
+  and this translation does not.
 - *Ours, with no third oracle.* Four shapes we accept and it refuses - a list two
   aggregates deep with both sets of braces left out, `new Out{1, 2, 3}`,
   `Out({1, 2, 3})`, and `f({{}, 7})` over a class whose first member holds
@@ -680,41 +731,94 @@ g++ settles most of them our way.
   both stores into the one storage.  And the binary passes a class holding a
   **bit-field** by address where g++ and we carry it as bytes.
 
-## Active Checkpoint
+## Final Architecture Review
 
-**C12 is complete and the stage passes in full**, at 234 / 234 with pa1-pa16
-unchanged, over three commits: 13.3.1.4p1's `explicit` conversion in a
-direct-initialization with 12.8p31's destination and 12.8p12's bytes
-(`21acd4da`), 13.3.1.1.2p2's surrogate call function (`c2fbaf00`), and 7.3.4p2's
-levels (`37d82718`).  It has not been audited: **the audit is what the next turn
-owes**, and it should probe the readers of the three facts C12 added -
-`Fact::boundary_object` at every place a temporary is built, `direct_initialized_`
-at every constructor whose parameter is a reference to its own class,
-`surrogate_calls` beside 13.5's other operators, and `place_declarers` at a
-lookup written in a class, in a block and through a base.
+**The stage was reviewed as a whole at `5ba05933`, and the seven blockers that
+review found are fixed.**  `pa17/audit.md` holds the findings, the evidence and
+the validation; what the architecture keeps from it is one rule, which the
+Stage Design above now spells at each of the places it reaches:
 
-The checkpoint after that is **C13: the object a prvalue of class type stands
-in, wherever the initialization did not name storage for it**.  Its owner is
-`lowir_lower_object.cpp` with `sema_lifetime.cpp`'s `creates_its_object`: the two
-refusals above are one question asked at two places - a `call` under 5.2.9p4's
-cast is a prvalue that creates its object exactly as a `temporary-object` under
-one is, and a *constructor* call's by-address argument is 5.2.2p4's parameter
-exactly as an ordinary call's is, so the returned object is placed in the
-storage the parameter stands in rather than copied into it.  Its data flow is
-`creates_its_object`'s cast case widened to a call of the same class, read by
-`creates_object` in the lowering where 6.6.3p2's `returns_indirectly` already
-bounds it, and the constructor call's argument path reading `place_class_object`
-where the ordinary call already does.  Its expected complexity is O(1) per
-argument and per cast - one kind test each, no second walk of anything.  Its
-validation is `V v = (V)h();`, `sink((V)h())`, `return (V)h();`, `W w(s)` and
-`W w(R())` differentially against `g++`, which is the oracle here because the
-reference binary answers the first with a body that calls `h` not at all.
+**A rule landed at one reader is a rule with siblings, and the sibling is the
+same question spelled another way.**  Every one of the seven was a second
+implementation of something the stage had already settled once - 7.3.4p2
+answered at the level *and* at the recording, 6.4p4 asked of an expression and
+not of a declaration, 5.4p4's two readings with no fact between them, 5.2.9p4's
+cast reading one node kind under it, 5.2.2p4's boundary written in an ordinary
+call's argument loop and not in a constructor's, 7.3.4p2's level asking the
+expensive one of two questions the reading before it knew to choose between, and
+5.4p4's fall to the reinterpretation missing at both of its ends.
+
+What the stage leaves is a non-polymorphic value-semantics object model with one
+owner per question, which is what PA18 adds virtual dispatch to:
+
+- `sema_class.cpp` owns what a class *is* - 12.8's four transfers, 12.3.2's
+  conversions, 13.3.1.1.2p2's surrogates, 9.5p1's one storage, 12.4p8's vacuity.
+- `type_model` owns what an object of it is *carried by* - 5.2.2p4's boundary,
+  6.6.3p2's return, 12.8p12's bytes, 8.3.5p1's ref-qualifier.
+- `sema_lifetime.cpp` owns what beginning and ending one *comes to* - 12.2p3's
+  frames, 12.8p31's elision, 12.6.2's steps, 12.4p3's end.
+- `sema_overload.cpp` owns 13.3, `sema_allocation.cpp` owns 5.3.4/5.3.5's
+  storage, `sema_cast.cpp` owns 5.2.9/5.2.11/5.4, `sema_scope.cpp` owns 3.4's
+  lookup with 7.3.4p2's levels.
+- `lowir_lower*.cpp` reads only the resolved tree, split at four seams: the
+  statement/expression seam, 15.2p2's handler (`lowir_lower_unwind.cpp`),
+  5.3.4/5.3.5's storage (`lowir_lower_allocation.cpp`), and the object model
+  itself.
+
+**What PA18 should not inherit** is in `pa17/audit.md`'s Open Gaps, and the two
+worth naming here are 13.3.1.4's copy-initialization measuring a class's
+constructors with no bound on the conversion its argument takes - the one
+central path this milestone leaves with a rule missing rather than a reader
+missing - and 3.4.1p8's point of declaration for a deferred member function
+body, which predates this milestone entirely and reaches every lookup.
 
 ## Performance Model
 
 One line per invariant, and the measurement that holds it. Best of three on this
 host, at 250/500/1000/2000 unless said otherwise.
 
+- **7.3.4p2's level asks the cheaper of the two questions, and the directive is
+  recorded where the program wrote it.** The chain is walked outward exactly as
+  an unqualified lookup already walks it, so a level that wrote no directive and
+  holds nothing pending costs one probe of the name and a lookup answered where
+  it stands never walks the chain above it.  At a level that did write one, the
+  walk of the regions that level reaches runs on a budget of the declaring
+  list's size, so it costs the smaller of the two however lopsided they are: n
+  blocks each nominating one of n namespaces that all declare **one** name are
+  0.012/0.021/0.040/0.080 s and 5 n + 13 lines, the same time as the same
+  program with n distinct names (0.013/0.023/0.050/0.102 s), where asking of each
+  declaring region whether this level reaches it was 0.170 s at 2000.  n uses of
+  a name two regions declare, each hidden by a local, are
+  0.010/0.017/0.035/0.070 s and 6 n + 15 lines.
+- **A use written n blocks deep from the declaration it names costs n levels of
+  the region chain, and that is the source's own k x m.** n such uses at depth n
+  are 0.009/0.019/0.050/0.157 s, where the same n statements naming only their
+  own block's declarations are 0.02/0.04/0.09 s at 500/1000/2000 and n *empty*
+  blocks nested n deep are 0.00 s at every size.  It is 6.6p2's n² read the other
+  way round and predates this milestone: the binary built before C12 is the same
+  0.15 s on the same file.
+- **5.4p4's reading is one fact on the node and one store where it says so.** n
+  casts to a reference of another type are 6 n + 13 lines in
+  0.009/0.015/0.027/0.053 s and n `reinterpret_cast`s to a reference are
+  2 n + 13 lines in 0.007/0.012/0.021/0.039 s - the second writes no storage at
+  all, which is the whole of the difference between the two readings.  n such
+  casts under n standing objects are 23 n + 253 lines in
+  0.018/0.033/0.062/0.136 s, so 15.2p2's regions cost what they cost.
+- **5.2.9p4's cast of a call to its own class is one kind test and no second
+  walk.** n of them are 15 n + 242 lines in 0.013/0.023/0.042/0.084 s, and n
+  nested n deep are 3 n + 18 lines in 0.004/0.005/0.006/0.010 s at 50/100/200/400
+  - linear in the nesting the source wrote, because what the question reads is
+  the one node standing under the cast.
+- **5.2.2p4's boundary in a constructor's call costs what it costs in an
+  ordinary one.** n constructor calls each with a by-value class argument the
+  callee builds in place are 9 n + 13 lines in 0.013/0.023/0.044/0.086 s, and one
+  constructor call with n such arguments is 3 n + 15 lines in
+  0.004/0.005/0.006/0.010 s at 50/100/200/400 - one storage named per parameter,
+  and no copy at all where the reading before it wrote one per argument and
+  refused the program outright.
+- **6.4p4's condition is one probe per condition.** n class-valued
+  condition-declarations, each with a conversion function, are 32 n + 14 lines in
+  0.019/0.035/0.069/0.164 s.
 - **13.3.1.4p1's context is one field read per candidate and no second walk.**
   n direct-initializations of a class from a class through an `explicit`
   conversion function are 14 n + 16 lines in 0.04/0.08/0.16/0.34 s: the class
@@ -1137,3 +1241,4 @@ host, at 250/500/1000/2000 unless said otherwise.
 | C10 | 12.8p31's remaining placement, and which of two questions an end of a lifetime asks. 5.16p3's conditional that selects among glvalues is a selection among *objects*, so a destination the translation named - 6.6.3p2's returned object, 5.2.2p4's argument object, 12.2p1's temporary - is filled on the path that chose the object it reads; `selecting_conditional` is asked at `place_class_object`, the hand-off itself, which is what leaves a destination the *program* declared filled where its declaration stands. 12.8p31's NRVO reached a class the ABI carries as bytes (`returned_name` is the one reading of the operand both spellings of a return make) and reached past 3.8p1's actions standing under the return, because the object the return names is one of them - and `leave_blocks` then writes no end for it anywhere, since with the elision the lifetime the callee began is the caller's to end. 12.8p31's elision of the transfer 13.3 chose became `elide_transfer`, asked once *after* the choice, so an argument reaching the copy constructor through a conversion function of its own class is the object being initialized - and 5.3.4p12's storage is storage a new-expression owns, so the elision reaches it as it reaches a slot. 12.8p32 joined it at both ends: a return naming an automatic object of the function's own returned type is read as an rvalue first, and the definition the elided constructor would have run is still one this unit owes what it would have called. 12.4p3 became `TypeTable::declared_destruction` beside 12.4p8's vacuity, with `ends_in_call` the one place the two meet: an object a declaration named reads what running its destructor comes to, and an object the translation made reads whether the program declared one at all. Swept differentially against the reference binary over the conditional, NRVO, conversion-elision and destruction shapes, with three disagreements judged and recorded and valgrind clean over the depth-200 nesting and the 2000-return function. Audited at `ae1e4567`: five blockers found and fixed, every one of them an object the checkpoint gave an end or a place to that something else was already holding - 8.5.1p11's probe of a clause, and 5.3.3p1's and 7.1.6.2p4's unevaluated operands, left 12.2p1's temporary standing in the program's full-expression, so `K k = {D(), 7}` over a `D` with a destructor crashed the compiler and `probe_expression` is how a question is read now; 12.8p31's elision left the object it elided in 12.2p3's frame wherever 5.2.9p4's cast stood over the prvalue, so `V v = (V)V(3)` destroyed `v` before its first read and `return (V)V(3)`, `new V((V)V(3))` and `sink((V)V(3))` each handed on a destroyed object, which `created_object_node` fixes for every reader at once; `destructor_call` re-derived 12.4p5's triviality over the analysis's own answer, so a temporary of a class with a declared-but-trivial destructor was destroyed only when something threw, and `register_temporary` noted no entry, so an end only 15.2p2 reaches named the base-object destructor of a complete object and left the symbol undefined; 5.16p3's selection was asked below the hand-off as well as at it, so a cast between the destination and the conditional distributed the transfer over both arms; and 12.8p32 read an lvalue reference as p31's automatic object | 217 -> **222 / 228**; pa1-pa16 1494 / 1494; no regressions |
 | C11 | 12.8p15/p28's array member, and the two readings a conditional arm makes. The member the element's class has takes an element, so the transfer is written once - for an element, with the source read as one exactly as `write_constructed_object` already reads the destination, the line going on naming the array because that is where the element stands - and the walk around it is what says which element each step is at: `element_walk_` is that one cursor, read by the destination and the source alike (`walks_this_array`/`walked_element`), in a number below `kArrayLoopLimit` and in the loop's own index past it, with `FactKind::ArrayTransfer` giving 12.8p28's assignment the same walk 12.6p1's construction already had. An array whose element is carried by its bytes is the whole array's bytes, which is what a non-class array member out of the leading run had been getting a truncating load of. 5.16p6's arm became a *reading* of the object it names rather than a consuming of it, keyed on the arm's spelling, so a cast to an rvalue reference is still moved out of and 5.2.5p4's subobject of a temporary is not - and 12.8p15's transfer filling an object the translation named opens no 15.2p2 region of its own, while a temporary's storage is named in front of the region already standing around it. 8.5.3p4's unrelated cast to a class reference became the initialization it is: the converting constructor is applied where the operand stood and 12.2p3's frame ends the object it made, which 12.3.2p2's conversion function under a cast to a non-class type joins. Swept differentially against the reference binary and g++ over 30 synthesized units - array members of 1/2/3/64/2000 elements, two-dimensional, under a base, of a class holding an array, mixed with a trivial prefix; conditional arms that are casts, member accesses of prvalues and of xvalues, in returns, declarations and arguments; casts to `const W&`, `W&&`, a base, a derived and a conversion function - with five disagreements judged and recorded and valgrind clean over all of them. Audited at `4eb9f73b`: five blockers found and fixed, three of them one rule the checkpoint's new walk reached - a walk of an array is the same walk for every reader of it, and a step written once is not one run twice. 12.8p28's element walk re-lowered one step per element while `placed_`/`slots_` stayed the function's, so `creates_object` handed the second element the object the first built: an element's `operator=` taking its parameter by value **refused** a valid program between 2 and `kArrayLoopLimit` elements, and 8.3.6p9's default argument was evaluated once for every element. 3.8p1's end of an array a declaration named was one call in 15.2p2's handler where the block's end walks every element, so `T a[3]` leaked two of three on every exceptional path and past the loop limit stood in the list twice. `new T[n]`'s own cleanup owed the elements and 5.3.4p18's storage and not the objects standing around it. 8.5.3p4's cast to a class reference spelled 12.3.2p2's conversion function as the lvalue the cast is, so nothing asked for the object's storage and 12.2p3's end named an object nothing built - **the compiler crashed** on `use((const W&)s)`. And 8.5.3p5's bound was missed, so `(W&)i` bound a non-const lvalue reference to a temporary and `static_cast<W&>(i)` was accepted where `g++` and the binary both refuse it. `place_object`/`name_object` with one element's run, `array_entry` on a standing entry, and `sema_cast.cpp` at 5.4p4's own seam are what came out of it | 222 / 228 -> 226 / 229 -> **227 / 230**, two of them regression tests for an array member of more than one element and for an element whose assignment takes its parameter by value; pa1-pa16 1494 / 1494; no regressions |
 | C12 | The three candidate sets and one destination the stage still owed, which took it to the whole suite. **13.3.1.4p1's second sentence** is a fact of the place asking: a temporary bound to the first parameter of a constructor of the class an object is being direct-initialized of is initialized in the context of that direct-initialization, so 12.3.2p2's `explicit` conversion functions reach it - `direct_initialized_` carries that class over 13.3's choice *and* over the conversions applied after it, because each argument's sequence is measured once to choose and once to apply. **12.8p31's elision then needs a destination that stands of its own**, because an object the analysis made to hold a prvalue is storage the enclosing initialization has not settled and 8.5.3p5 has already bound the source to the transfer's reference parameter; eliding into one left a `temporary-object` whose child was a call rather than a `constructor-action`, and `return T(e)`, `sink(T(e))`, `const T& r = T(e)`, `sink(V(V(3)))` and `sink(V(make()))` each **crashed the compiler** on a valid program. **12.8p12's bytes got the bound 12.1p5's reading beside it already had**: an object standing at an address alone has the member 13.3 chose written as the call that begins its lifetime, and what reads the bytes is an initialization of an object a declaration named, each subobject step inside one, and 5.2.2p4's parameter - `Fact::boundary_object` is what tells those two temporaries apart. **13.3.1.1.2p2's surrogate call function** became a declaration like any other, one per non-explicit conversion to a pointer to function, held per class and ranked by `select_overload` against the class's `operator()`s over the one argument list. And **7.3.4p2's names appear in the region enclosing both** the directive and the namespace it named rather than where the directive stands, which `place_declarers` answers by walking the chain once and placing each region that declares the name on it - two bugs at once, a name two namespaces of one level declare being accepted and a class's own declaration being refused as ambiguous with what appears around it. Swept differentially against the reference binary over 36 synthesized units with `g++` as the third oracle, valgrind clean over all of them | 227 / 230 -> 230 / 232 -> 232 / 233 -> **234 / 234**, four of them regression tests for the shapes that crashed, for the transfer a written construction is, for the surrogate candidate set and for 7.3.4p2's levels; pa1-pa16 1494 / 1494; no regressions |
+| PA17 | The stage's own review, run over the whole implementation rather than over the checkpoint that landed last. C12's four facts were swept first - `Fact::boundary_object` at every place a temporary is built, `direct_initialized_` at a direct-initialization and at every other place a reference to the class is a parameter, `surrogate_calls` beside 13.5's other operators, `place_declarers` at a lookup written in a class, in a block and through a base - and then the seams no *one* checkpoint owns. Seven blockers, every one of them a second implementation of a rule the stage had already settled once: **7.3.4p2's directive recorded at the level its names appear at** rather than where it was written, so a block directive reached every lookup in the namespace around it - `int g(){using namespace R;} int h(){return q;}` was accepted and two functions each nominating a namespace that declares one name refused every use of it; **6.4p4's condition-declaration never asked what the statement branches on**, so `if (S s = make())` over a class with no conversion to bool was accepted and lowered as `branch` on a `load obj<4x4>`; **5.4p4's two readings of a cast to a reference had no fact between them**, so `take((const int&)d)` over a `double` passed the `f64`'s own address through a `const int&`; **5.2.9p4's cast read the object under it only where that object was a `temporary-object`**, so `V v = (V)h();` and its three siblings were refused on a valid program; **a constructor's by-value class parameter was not 5.2.2p4's boundary**, so `W w(from(T()))` was refused where the same argument to an ordinary function is built in place; **7.3.4p2's level asked the more expensive of the two questions**, which was 0.170 s at 2000 against 0.086 s for the same program with distinct names; and **5.4p4's fall to the reinterpretation was missing at both ends** - `(const E&)i` and `(const W&)i` refused where g++ and the reference reinterpret, and 4.4p4's qualification conversion materializing where the operand's own storage holds the value. `Fact::binds_temporary`, `require_condition_type`, `take_pending` and `lowir_lower_allocation.cpp` at 5.3.4's own seam are what came out of it. Swept differentially against the reference binary and `g++` over 63 synthesized units with valgrind clean over all of them and over every unit of the performance sweep | 234 / 234 -> **238 / 238**, four of them regression tests for the boundary a constructor's argument crosses, for 6.4p4's condition and for 7.3.4p2's two halves; pa1-pa16 1494 / 1494; no regressions; the reference reproduces all 214 comparable fixtures |
