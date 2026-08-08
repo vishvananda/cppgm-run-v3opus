@@ -728,6 +728,15 @@ void SemaAnalyzer::address_of_object(Value& object, DumpNode& node,
 	// however the pointer was written; `E1.E2` names whatever E1 named.
 	object.object_category =
 		through_pointer ? ValueCategory::LValue : object.category;
+	if (!through_pointer && !node.children.empty())
+	{
+		// 5.3.1p3 and 12.2p1: taking the address of the object a member
+		// function is called on is what makes a prvalue of class type an object
+		// - one no declaration named, whose lifetime 12.2p3 ends where the
+		// full-expression this call stands in does.  An operator written as an
+		// expression reaches this the same way `E1.f()` does.
+		register_temporary(*node.children[0], nullptr);
+	}
 	if (through_pointer)
 	{
 		// The pointer the program wrote is the argument, so the node the call

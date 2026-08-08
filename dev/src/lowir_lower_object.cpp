@@ -1046,6 +1046,13 @@ void LowirFunctionLowering::end_object_lifetime(const DumpNode& node)
 	{
 		if (unwind_live_[index].object == object)
 		{
+			if (standing_before_end_.empty())
+			{
+				// The region now open covers this end of a lifetime, so what it
+				// owes is what stood before it rather than what stands after.
+				standing_before_end_ = unwind_live_;
+			}
+			++ended_lifetimes_;
 			unwind_live_.erase(unwind_live_.begin() +
 			                   static_cast<std::ptrdiff_t>(index));
 			// Every handler written for more objects than stand below this one
@@ -1069,6 +1076,17 @@ LowirFunctionLowering::UnwindRegion LowirFunctionLowering::open_unwind_region(
 {
 	UnwindRegion region;
 	region.live = unwind_live_.size();
+	region.behind = unwind_dispatch_;
+	region.chained = region.live > kUnwindSuffixLimit &&
+		!region.behind.empty() && unwind_dispatch_live_ + 1 == region.live;
+	region.ended = ended_lifetimes_;
+	standing_before_end_.clear();
+	if (!unwind_live_.empty())
+	{
+		// 12.6.2p10's chain needs the one object the step before it added, and
+		// nothing else keeps a list until an end of a lifetime asks for one.
+		region.owed.assign(unwind_live_.end() - 1, unwind_live_.end());
+	}
 	const bool held = region.live < dispatch_cache_.size() &&
 		!dispatch_cache_[region.live].empty();
 	region.fresh = !held;
@@ -1095,37 +1113,52 @@ void LowirFunctionLowering::close_unwind_region(const UnwindRegion& held)
 	{
 		return;
 	}
+	// The list this handler destroys from is held while it is written, so
+	// nothing written into it may open a region and take that list away.
 	// The block the step goes on in is named here rather than where the region
 	// opened, because a step that opened blocks of its own - an arm, a loop -
 	// numbered those first.
+	// Nothing written into the handler's own block is code the region machinery
+	// acts on again: the instructions it holds are the ones an exception runs,
+	// and a handler around them would be a handler around the handler.
+	const bool nested = closing_region_;
+	closing_region_ = true;
 	UnwindRegion region = held;
 	region.end = reserve_block("call_unwind_end");
 	jump(region.end);
-	const std::string behind = unwind_dispatch_;
-	const std::size_t behind_live = unwind_dispatch_live_;
 	open_block(region.dispatch);
-	if (region.live > kUnwindSuffixLimit && !behind.empty() &&
-	    behind_live + 1 == region.live)
+	if (region.chained)
 	{
 		// 12.6.2p10 again, written as the chain 12.4p8's suffix is written as:
 		// what this handler owes is the subobject the step before it built plus
 		// everything that step's own handler owed, so past the count a reader
 		// wants to see written out it destroys the one and enters the other.
 		// n subobjects then cost n destructions and not n(n+1)/2.
-		replay_unwind(unwind_live_.back());
-		jump(behind);
+		replay_unwind(region.owed.back());
+		jump(region.behind);
 	}
 	else
 	{
+		// 12.2p3's end of a temporary's lifetime is written inside the region
+		// that covered the temporary, so what this handler owes is what stood
+		// when it opened - the objects still standing where no end of one fell
+		// inside it, and what was standing before the first end that did.
+		const std::vector<LowUnwind>& owed =
+			region.ended == ended_lifetimes_ ? unwind_live_
+			                                 : standing_before_end_;
 		for (std::size_t index = region.live; index-- > 0;)
 		{
 			// 12.6.2p10: a subobject is destroyed in the reverse of the order it
 			// was created in, which an exception does not change.
-			replay_unwind(unwind_live_[index]);
+			if (index < owed.size())
+			{
+				replay_unwind(owed[index]);
+			}
 		}
 		emit_resume();
 	}
 	open_block(region.end);
+	closing_region_ = nested;
 	unwind_dispatch_ = region.dispatch;
 	unwind_dispatch_live_ = region.live;
 	if (dispatch_cache_.size() <= region.live)

@@ -89,6 +89,7 @@ LowirFunctionLowering::LowirFunctionLowering(LowirUnitLowering& unit,
 	, full_expressions_(0)
 	, pending_calls_(0)
 	, step_depth_(0)
+	, ended_lifetimes_(0)
 {}
 
 // ---------------------------------------------------------------- emission

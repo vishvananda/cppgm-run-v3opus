@@ -1039,17 +1039,35 @@ private:
 		UnwindRegion()
 			: fresh(false)
 			, live(0)
+			, chained(false)
+			, ended(0)
 		{}
 
 		std::string dispatch;
 		std::string end;
 		bool fresh;
-		// 15.2p2: how many objects were standing when the region opened, which
-		// is what its handler owes.  It is read at the open and not at the
-		// close because 12.2p3's end of a temporary's lifetime is written
-		// inside the region that covered the temporary: an exception out of
-		// the code before that end still has the object to destroy.
+		// 15.2p2: the objects standing when the region opened, which is what
+		// its handler owes.  They are taken at the open and not read off the
+		// standing ones at the close because 12.2p3's end of a temporary's
+		// lifetime is written inside the region that covered the temporary: an
+		// exception out of the code before that end still has the object to
+		// destroy, and by the close that object is no longer standing.
 		std::size_t live;
+		std::vector<LowUnwind> owed;
+		// 12.6.2p10 again: whether this handler owes the one object the step
+		// before it added plus everything that step's own handler owed, which
+		// is what makes n standing objects n destructions and not n(n+1)/2 -
+		// and what lets the region hold one entry rather than a copy of the
+		// whole list.  The handler it enters is named here for the same reason
+		// the list is: both are what was standing when the region opened.
+		bool chained;
+		std::string behind;
+		// How many lifetimes the program had ended when the region opened.  A
+		// region no end of a lifetime falls inside owes exactly the objects
+		// still standing at its close, so it keeps no list of its own; only one
+		// that does needs the list as it was, and there is one such list rather
+		// than one per region.
+		unsigned long long ended;
 	};
 	// 12.6p1 and 8.5.1p7: `count` consecutive elements standing at `base`, each
 	// built by the one call `action` names, written as the loop that one call
@@ -1343,6 +1361,10 @@ private:
 	// entry stays good while those objects do: a lifetime ending takes the
 	// entries past it away, and one beginning leaves the ones before it alone.
 	std::vector<std::string> dispatch_cache_;
+	// 3.8p1: how many lifetimes the program has ended, and what was standing
+	// before the first of them that fell inside the region now open.
+	unsigned long long ended_lifetimes_;
+	std::vector<LowUnwind> standing_before_end_;
 	// The region now standing around what is being written, in an ordinary
 	// body: whether there is one, what it is, and whether the last close left
 	// one for the next instruction to open.
