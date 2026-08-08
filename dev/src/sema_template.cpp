@@ -1425,6 +1425,42 @@ void SemaAnalyzer::record_function_template(SemaEntity& entity,
 	}
 }
 
+SemaEntity* SemaAnalyzer::equivalent_template(SemaEntity& head,
+                                              Scope& parameters, TypeId type)
+{
+	const std::vector<SemaEntity*>& declared = parameters.declarations;
+	for (SemaEntity* at = &head; at != nullptr; at = at->next)
+	{
+		if (at->template_parameters == nullptr ||
+		    at->template_parameters == &parameters)
+		{
+			continue;
+		}
+		const std::vector<SemaEntity*>& against =
+			at->template_parameters->declarations;
+		if (against.size() != declared.size())
+		{
+			continue;
+		}
+		std::unordered_map<TypeId, TypeId> bindings;
+		bool comparable = true;
+		for (std::size_t index = 0; comparable && index < declared.size();
+		     ++index)
+		{
+			comparable = declared[index]->kind == SemaKind::TemplateType &&
+				against[index]->kind == SemaKind::TemplateType;
+			bindings.insert(std::make_pair(declared[index]->type,
+			                               against[index]->type));
+		}
+		std::unordered_map<TypeId, TypeId> memo;
+		if (comparable && substituted(type, bindings, memo) == at->type)
+		{
+			return at;
+		}
+	}
+	return nullptr;
+}
+
 // 14.5.1.3p1: the class template a definition written outside its class is a
 // member of.
 //

@@ -260,7 +260,7 @@ bool SemaAnalyzer::accepts_arity(const SemaEntity& function,
 	// so the question is asked of that declaration rather than of a copy made
 	// where the using-declaration stood.
 	const std::unordered_map<std::uint32_t, std::vector<Default> >::const_iterator
-		found = defaults_.find(declared_member(function).id);
+		found = defaults_.find(wrote_defaults(function).id);
 	if (found == defaults_.end())
 	{
 		return false;
@@ -313,7 +313,7 @@ void SemaAnalyzer::write_default_argument(const SemaEntity& function,
 	// 7.3.3p1: the default-argument stands on the declaration the base wrote,
 	// which is the one this call runs.
 	const std::unordered_map<std::uint32_t, std::vector<Default> >::const_iterator
-		found = defaults_.find(declared_member(function).id);
+		found = defaults_.find(wrote_defaults(function).id);
 	if (found == defaults_.end() || index >= found->second.size() ||
 	    found->second[index].written == nullptr)
 	{
@@ -327,8 +327,21 @@ void SemaAnalyzer::write_default_argument(const SemaEntity& function,
 	}
 	// 8.3.6p9: the default-argument is looked up and read in the region the
 	// declaration that introduced it was written in, not the one the call is.
+	// 14.7.1p1: for a specialization that region is the template's, where every
+	// parameter still stands for itself - so what the expression is read
+	// against is a region of its own binding each of them to the argument this
+	// specialization was made from, exactly as its body is read.
 	Context where;
 	where.scope = found->second[index].scope;
+	if (function.primary != nullptr &&
+	    function.primary->templated != nullptr &&
+	    where.scope != nullptr &&
+	    where.scope->kind == ScopeKind::TemplateParameters)
+	{
+		where.scope = &open_template_bindings(
+			*function.primary->templated,
+			types_.type_list_at(function.template_arguments));
+	}
 	where.dump = where.scope->dump;
 	where.node = &parent;
 	// 8.3.6p1: the call is made as if the default-argument stood where the
@@ -2750,9 +2763,20 @@ SemaEntity& SemaAnalyzer::declare_function(const std::string& name, TypeId type,
 			reveal_friend(where, name, *prior, signature);
 		}
 	}
+	if (prior == nullptr && head != nullptr &&
+	    target.scope->kind == ScopeKind::TemplateParameters)
+	{
+		// 14.5.6.1p5: two function templates declare the same template when
+		// their heads declare the same parameters and their types agree once
+		// each head's parameters stand for the other's.  The types themselves
+		// differ, because each head declared parameters of its own, so the
+		// chain's index of parameter type lists cannot answer this and the
+		// declarations of the name are asked one at a time.
+		prior = equivalent_template(*head, *target.scope, type);
+	}
 	if (prior != nullptr)
 	{
-		if (prior->type != type)
+		if (prior->type != type && prior->template_parameters == nullptr)
 		{
 			throw std::runtime_error("two declarations of " + name +
 			                         " differ only in their return type");
@@ -2762,6 +2786,16 @@ SemaEntity& SemaAnalyzer::declare_function(const std::string& name, TypeId type,
 			throw std::runtime_error(name + " is defined twice");
 		}
 		prior->defined = prior->defined || define;
+		if (define && prior->template_parameters != nullptr &&
+		    prior->templated == nullptr)
+		{
+			// 14.5.6.1p5 and 14p1: the definition is of the template an earlier
+			// declaration made, so what an instantiation reads is this
+			// definition's syntax and the parameter names *it* wrote - against
+			// the parameters the declaration's own type is written over, which
+			// is what a deduction binds.
+			record_function_template(*prior, *target.scope, where);
+		}
 		return *prior;
 	}
 	if (redeclaration)

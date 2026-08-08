@@ -364,6 +364,15 @@ private:
 	{
 		return entity.shadowed != nullptr ? *entity.shadowed : entity;
 	}
+	// 8.3.6p4 and 14.7.1p1: the declaration a default-argument stands on.  A
+	// specialization is a declaration nothing wrote, so what wrote its
+	// defaults is the template it was made of; every other declaration is the
+	// one 7.3.3p1 reaches through a using-declaration.
+	static const SemaEntity& wrote_defaults(const SemaEntity& entity)
+	{
+		return entity.primary != nullptr ? *entity.primary
+		                                 : declared_member(entity);
+	}
 	void alias_declaration(const AstNode& node, const Context& ctx);
 	void static_assert_declaration(const AstNode& node, const Context& ctx);
 	void template_declaration(const AstNode& node, const Context& ctx);
@@ -1873,6 +1882,14 @@ private:
 	// the function it just declared, so that 14.7.1p1 can read it again.
 	void record_function_template(SemaEntity& entity, Scope& parameters,
 	                              Scope& region);
+	// 14.5.6.1p5: the declaration in the chain `head` that declares the same
+	// function template as a head declaring `parameters` and a declarator that
+	// made `type`, or null where none does.  Two such declarations write types
+	// that differ, because each head declared parameters of its own, so the
+	// question is asked by putting one head's parameters in place of the
+	// other's and comparing what is left.
+	SemaEntity* equivalent_template(SemaEntity& head, Scope& parameters,
+	                                TypeId type);
 	// 14.5.1.3p1: the class template a definition written outside its class is
 	// a member of, found from the template-id its declarator-id was qualified
 	// with.  Null for a declaration that is a member of no such template.
