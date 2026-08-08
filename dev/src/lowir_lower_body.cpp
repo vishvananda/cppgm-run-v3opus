@@ -81,6 +81,7 @@ LowirFunctionLowering::LowirFunctionLowering(LowirUnitLowering& unit,
 	, indirect_result_(false)
 	, returned_object_open_(false)
 	, return_slot_local_(nullptr)
+	, element_runs_(0)
 	, unwinding_(false)
 	, unwind_dispatch_live_(0)
 	, ended_lifetimes_(0)
@@ -279,7 +280,7 @@ std::string LowirFunctionLowering::add_slot(const SemaEntity& entity,
 		chosen = name + "__shadow" + decimal(shadow);
 	}
 	out_.slots.push_back(std::make_pair(chosen, unit_.low_type(type)));
-	slots_[entity.id] = chosen;
+	name_object(entity.id, chosen);
 	return chosen;
 }
 
@@ -303,6 +304,52 @@ std::string LowirFunctionLowering::add_generated_slot(
 	while (!slot_names_.insert(chosen).second);
 	out_.slots.push_back(std::make_pair(chosen, type));
 	return chosen;
+}
+
+// 12.2p1: this object stands here for every reader of it, and this is the one
+// place that is written down - so an element run standing over it is also the
+// one place that has to say the reader it is written for is *this* element's.
+void LowirFunctionLowering::place_object(std::uint32_t entity, const Operand& at)
+{
+	placed_[entity] = at;
+	if (element_runs_ != 0)
+	{
+		element_objects_.push_back(entity);
+	}
+}
+
+void LowirFunctionLowering::name_object(std::uint32_t entity,
+                                        const std::string& slot)
+{
+	slots_[entity] = slot;
+	if (element_runs_ != 0)
+	{
+		element_objects_.push_back(entity);
+	}
+}
+
+// 12.6p1 and 12.8p15/p28: one element's run of a step written once for the
+// whole array.  The lines the run writes are the element's, and so is every
+// object the step creates while it runs - the storage a by-value parameter
+// stands in, a temporary a default argument asked for - because the next element
+// runs the same step and 8.3.6p9 evaluates that default argument again.  So a
+// run drops what it placed at its end, which leaves the next run finding no
+// object of its own already standing and building it where this one built its.
+std::size_t LowirFunctionLowering::open_element_run()
+{
+	++element_runs_;
+	return element_objects_.size();
+}
+
+void LowirFunctionLowering::close_element_run(std::size_t opened)
+{
+	for (std::size_t index = opened; index < element_objects_.size(); ++index)
+	{
+		placed_.erase(element_objects_[index]);
+		slots_.erase(element_objects_[index]);
+	}
+	element_objects_.resize(opened);
+	--element_runs_;
 }
 
 LowValue LowirFunctionLowering::storage_of(const SemaEntity& entity)
@@ -1041,7 +1088,7 @@ void LowirFunctionLowering::run(const DumpNode& node, TypeId type)
 			// where the caller put it - so the body reaches it through the
 			// address it was passed and nothing is copied into a second place.
 			const Operand at = named_operand(Operand::OP_TEMP, parameter.name);
-			placed_[child.fact.entity->id] = at;
+			place_object(child.fact.entity->id, at);
 			// 15.2p2 and 12.4p5: it stands from the moment the body begins and
 			// its end is this function's to write, so an exception out of
 			// anything the body does has to end it - the same standing object a
@@ -1710,7 +1757,7 @@ void LowirFunctionLowering::declare_local(const DumpNode& node)
 		// 12.8p31: every return of this function copies this object into the
 		// destination the caller named, so the declaration is given that
 		// destination as its storage and the two are one object.
-		placed_[entity.id] = result_object_;
+		place_object(entity.id, result_object_);
 		if (!node.children.empty() &&
 		    node.children[0]->fact.kind == FactKind::ConstructorAction)
 		{

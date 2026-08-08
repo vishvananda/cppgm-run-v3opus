@@ -308,6 +308,11 @@ void LowirFunctionLowering::array_lifecycle(const DumpNode& node,
 		// 15.2p2: an element built after another is one the exception out of it
 		// leaves standing, so each element is a step of its own.
 		mark_unwind_step();
+		// 8.3.6p9 and 12.8p15: this element runs the one step the array's
+		// construction is, so an object that step creates - a temporary a
+		// default argument asked for, the storage a by-value parameter stands
+		// in - is this element's own and not one the element before it built.
+		const std::size_t opened = open_element_run();
 		// The array is named again for each element: the element's address is
 		// the array's plus the elements before it, which is one description of
 		// where it is however many readers the array has.
@@ -323,6 +328,7 @@ void LowirFunctionLowering::array_lifecycle(const DumpNode& node,
 		element_walk_.index = index;
 		constructor_call(at, node, false, element);
 		element_walk_ = held;
+		close_element_run(opened);
 	}
 	element_walk_ = held;
 }
@@ -387,11 +393,17 @@ void LowirFunctionLowering::array_transfer(const DumpNode& node)
 	(void)element;
 	for (unsigned long long index = 0; index < total; ++index)
 	{
+		// 12.8p28: this element runs the one step the member's assignment is,
+		// so the objects that step creates - the storage the by-value parameter
+		// of the element's own `operator=` stands in, say - are this element's
+		// and the next element builds its own where this one built these.
+		const std::size_t opened = open_element_run();
 		element_walk_.active = true;
 		element_walk_.counted = true;
 		element_walk_.index = index;
 		statement(*node.children[0]);
 		element_walk_ = held;
+		close_element_run(opened);
 	}
 	element_walk_ = held;
 }
@@ -654,7 +666,13 @@ void LowirFunctionLowering::construct_element_run(const DumpNode& action,
 		unwind_dispatch_.clear();
 		open_block(past);
 	}
-	if (mark.active)
+	// 15.2p2 and 3.8p1: what joins the standing list here is 12.6.2's subobject,
+	// whose entry the whole constructor holds.  An array a *declaration* named
+	// is no such subobject: 3.8p1 gives it one lifetime, which the declaration
+	// enters once the initialization is over and which `begin_object_lifetime`
+	// already owes every element of - so joining here as well would leave two
+	// entries for one object and destroy its first element twice.
+	if (unwinding_ && mark.active)
 	{
 		push_unwind(constructor, naming, base, count, stride);
 	}
@@ -1156,14 +1174,14 @@ LowValue LowirFunctionLowering::temporary_object(const DumpNode& node,
 		// 12.8p31: the initialization named the storage this object stands in
 		// before it ran, so the constructor runs there and the temporary and
 		// the object being initialized are one object.
-		placed_[entity.id] = *into;
+		place_object(entity.id, *into);
 		constructor_call(*into, *node.children[0], true);
 		value.operand = *into;
 		return value;
 	}
 	const std::string slot =
 		add_generated_slot(node.fact.spelling.c_str(), node.fact.type);
-	slots_[entity.id] = slot;
+	name_object(entity.id, slot);
 	const DumpNode& action = *node.children[0];
 	const DumpNode& written = *action.children[0]->children[1];
 	// The action names the object as the address of it, which is the address
@@ -1187,7 +1205,7 @@ LowValue LowirFunctionLowering::temporary_object(const DumpNode& node,
 	// member of it, an argument bound to it, and 12.2p3's end of its lifetime
 	// alike.  Naming the slot again instead would be a second description of
 	// one place.
-	placed_[entity.id] = at;
+	place_object(entity.id, at);
 	// 15.2p2: where objects are already standing, the region written around
 	// this step is the one *they* asked for - and naming the storage a new
 	// object will stand in is no place an exception could leave them standing,
@@ -1608,6 +1626,15 @@ void LowirFunctionLowering::construct_array_new_run(const DumpNode& node,
 	{
 		deallocation_call(*release, storage, types.object_size(element));
 	}
+	for (std::size_t live = unwind_live_.size(); live-- > 0;)
+	{
+		// 15.2p2: this block is the whole of what an exception out of an
+		// element's constructor leaves by, so what it owes is the elements this
+		// expression built and 5.3.4p18's storage *and* every object standing in
+		// the function around it - in the reverse of the order they began, which
+		// is what the handler 12.6p1's array of a subobject writes owes too.
+		replay_unwind(unwind_live_[live]);
+	}
 	emit_resume();
 	unwind_dispatch_.clear();
 	open_block(past);
@@ -1980,7 +2007,7 @@ LowValue LowirFunctionLowering::class_object_slot(const DumpNode& node,
 		// holds the end of its lifetime, and the storage it was just given is
 		// what that end names - so the two are bound here, once, before the
 		// initializer that fills the storage runs.
-		placed_[node.fact.object->id] = into;
+		place_object(node.fact.object->id, into);
 	}
 	const UnwindMark opened = unwind_mark_;
 	const LowValue standing = place_class_object(into, type, node);

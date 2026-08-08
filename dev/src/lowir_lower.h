@@ -1062,9 +1062,11 @@ private:
 		bool base_subobject;
 		std::vector<lowir_model::Instruction> address;
 		lowir_model::Operand at;
-		// 12.6p1: the subobject is an array written as a loop, so what the
-		// handler owes is that loop over this many elements rather than one
-		// call.  Zero everywhere else, which is the one object `at` names.
+		// 12.6p1 and 3.8p1: the object is an *array*, so what the handler owes
+		// it is every one of these elements and not the one `at` names - the
+		// same walk the end of its block writes, written out below
+		// `kArrayLoopLimit` and as one loop past it.  Zero is the one object
+		// `at` names, which is every entry that is not an array.
 		unsigned long long elements;
 		unsigned long long stride;
 	};
@@ -1183,6 +1185,9 @@ private:
 	bool begins_lifetime(const DumpNode& node);
 	UnwindRegion open_unwind_region(const UnwindMark& mark);
 	void close_unwind_region(const UnwindRegion& held);
+	// 3.8p1: the elements of the object this entry ends, where its type is an
+	// array - which is what makes its end one end per element.
+	void array_entry(TypeId type, LowUnwind& live);
 	// The subobject `address` names, destroyed in a block of its own.
 	void replay_unwind(const LowUnwind& live);
 	// 15.2p2: the subobject this step built joins the ones an exception out of
@@ -1332,6 +1337,19 @@ private:
 	std::string add_generated_slot(const char* prefix, TypeId type);
 	std::string add_generated_slot(const char* prefix,
 	                               const lowir_model::LowType& type);
+	// 12.2p1: where an object no declaration named stands, and the slot one was
+	// given.  These are the two writers of that, because 12.6p1's and 12.8p15's
+	// element walks **run a step written once** for each element of an array:
+	// the objects one element's run creates - the storage a by-value parameter
+	// stands in, a temporary a default argument asked for - are that element's
+	// own, so a run records what it placed and drops it at its end rather than
+	// leaving it to answer the next element's run of the same step.
+	void place_object(std::uint32_t entity, const lowir_model::Operand& at);
+	void name_object(std::uint32_t entity, const std::string& slot);
+	// One element's run of such a step.  `close_element_run` takes the value
+	// `open_element_run` returned, which is where this run's own objects begin.
+	std::size_t open_element_run();
+	void close_element_run(std::size_t opened);
 	// The storage a name denotes: the slot a local was given, or the global
 	// symbol a namespace-scope object has.
 	LowValue storage_of(const SemaEntity& entity);
@@ -1365,6 +1383,11 @@ private:
 	// slot of its own, so what names it is the destination it was built in, and
 	// every later reader of the same temporary reads that address.
 	std::unordered_map<std::uint32_t, lowir_model::Operand> placed_;
+	// The objects the element runs standing here created, this run's last.  A
+	// run is the only thing that writes to it, so a function that walks no
+	// array keeps it empty and pays nothing for it.
+	std::vector<std::uint32_t> element_objects_;
+	unsigned element_runs_;
 	// 5.16p3: while one arm of a conditional is being written, that arm stands
 	// where the conditional does for every reader of it.  The map is empty
 	// everywhere else, so no expression pays for it, and an entry standing is

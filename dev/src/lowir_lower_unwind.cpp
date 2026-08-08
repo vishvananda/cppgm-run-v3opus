@@ -192,6 +192,11 @@ void LowirFunctionLowering::begin_object_lifetime(
 	live.base_subobject = false;
 	live.address = address;
 	live.at = at;
+	// 3.8p1: an object a declaration named of array type is one object whose end
+	// is one end per element - which is the walk `leave_blocks` writes where the
+	// block ends, so it is the walk an exception leaving that block owes too.
+	// The destructor the analysis wrote on the node is already the element's.
+	array_entry(node.fact.type, live);
 	unwind_live_.push_back(live);
 	// Where a handler already stood, the rest of the full-expression stands
 	// under one too: the set it owes has changed, so the region it stood in
@@ -369,6 +374,25 @@ void LowirFunctionLowering::close_unwind_region(const UnwindRegion& held)
 	dispatch_cache_[region.live] = region.dispatch;
 }
 
+// 3.8p1: whether the object one entry ends is an array, which is what says its
+// end is one end per element.  A type that is not an array leaves the entry the
+// one object `at` names, and an array of an array is the elements of both, laid
+// out as 8.3.4p1 lays them - one run of the innermost element's own size, which
+// is the one thing a destruction of an element needs to know.
+void LowirFunctionLowering::array_entry(TypeId type, LowUnwind& live)
+{
+	std::vector<TypeId> dimensions;
+	std::vector<unsigned long long> bounds;
+	const unsigned long long total = array_dimensions(type, dimensions, bounds);
+	if (dimensions.empty())
+	{
+		return;
+	}
+	live.elements = total;
+	live.stride = unit_.types().object_size(
+		unit_.types().strip_cv(unit_.types().target(dimensions.back())));
+}
+
 // One of those destructions.  The instructions that named the subobject where
 // it was built are written again here with temporaries of this block, because a
 // block reached only by an exception names nothing another block produced.
@@ -412,13 +436,33 @@ void LowirFunctionLowering::replay_unwind(const LowUnwind& live)
 	}
 	if (live.elements != 0)
 	{
-		// 12.6p1: the subobject is an array written as a loop, so what an
-		// exception owes it is that loop run backwards over every element of
-		// it.  `at` is already the pointer to the first element, because that
-		// is what the step it replays produced.
-		destroy_array_loop(
-			at, named_operand(Operand::OP_INTEGER, decimal(live.elements)),
-			live.stride, *live.destructor, live.base_subobject, false, nullptr);
+		// 12.6p1 and 3.8p1: the object is an array, so what an exception owes it
+		// is every element of it - written out below `kArrayLoopLimit` and as
+		// one loop past it, which is the walk the end of a block writes for the
+		// same array.  `at` is already the pointer to the first element, because
+		// that is what the step it replays produced.
+		unit_.declare_call_target(*live.destructor, live.base_subobject);
+		if (live.elements > kArrayLoopLimit)
+		{
+			destroy_array_loop(
+				at, named_operand(Operand::OP_INTEGER, decimal(live.elements)),
+				live.stride, *live.destructor, live.base_subobject, false,
+				nullptr);
+			return;
+		}
+		for (unsigned long long index = 0; index < live.elements; ++index)
+		{
+			Instruction element;
+			element.kind = Instruction::IK_CALL;
+			element.type.text = "void";
+			element.first = named_operand(
+				Operand::OP_GLOBAL,
+				unit_.function_symbol(*live.destructor, live.base_subobject));
+			element.args.push_back(element_at_value(
+				at, named_operand(Operand::OP_INTEGER, decimal(index)),
+				live.stride));
+			emit_void(element);
+		}
 		return;
 	}
 	// The name is asked for here rather than where the subobject joined the
