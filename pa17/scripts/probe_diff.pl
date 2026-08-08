@@ -22,7 +22,12 @@ use File::Basename;
 }
 
 my $root = "$FindBin::Bin/../..";
-my $mine = "$root/dev/cppgm++";
+# `MYCC` names a cppgm++ built somewhere else - a worktree at the commit before
+# the checkpoint, say - so the same probe answers whether a disagreement with
+# the reference is one the checkpoint introduced or one that was already there.
+# That is the question every audit asks first, and a `git worktree add` plus one
+# build is the whole of it.
+my $mine = $ENV{'MYCC'} || "$root/dev/cppgm++";
 my $ref = "$root/pa17/cppgm++-ref";
 my $show = 0;
 my @files;
