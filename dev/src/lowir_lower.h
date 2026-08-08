@@ -824,6 +824,11 @@ private:
 	// The node standing in for `node` while an arm of a conditional is being
 	// written, which is that arm.
 	const DumpNode& selected(const DumpNode& node) const;
+	// `place_class_object` with 5.16p3's selection already asked, which is what
+	// every step below the hand-off is: the cast an initialization was written
+	// under is one step of the same hand-off and not a second destination.
+	LowValue place_created_object(const lowir_model::Operand& destination,
+	                              TypeId type, const DumpNode& node);
 	// 12.2p1: storage of the function's own for an object of class type no
 	// declaration named, and the address of it.  The slot is opened before
 	// whatever fills it runs, because the object standing in it is what that

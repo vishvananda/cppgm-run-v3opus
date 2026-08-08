@@ -604,10 +604,9 @@ void LowirFunctionLowering::destroy_array_loop(const Operand& base,
 unsigned long long LowirFunctionLowering::destruction_steps(const DumpNode& node)
 {
 	TypeTable& types = unit_.types();
-	if (node.fact.entity->trivial ||
-	    types.kind(types.strip_cv(node.fact.type)) != TypeKind::Array)
+	if (types.kind(types.strip_cv(node.fact.type)) != TypeKind::Array)
 	{
-		return node.fact.entity->trivial ? 0 : 1;
+		return 1;
 	}
 	std::vector<TypeId> dimensions;
 	std::vector<unsigned long long> bounds;
@@ -625,10 +624,6 @@ void LowirFunctionLowering::destruction_step(const DumpNode& node, bool element,
 {
 	TypeTable& types = unit_.types();
 	const SemaEntity& destructor = *node.fact.entity;
-	if (destructor.trivial)
-	{
-		return;
-	}
 	if (count != 0)
 	{
 		// 12.4p8: the whole array is this one step, ended by the loop 12.6p1's
@@ -1708,14 +1703,31 @@ LowValue LowirFunctionLowering::place_class_object(const Operand& destination,
                                                    TypeId type,
                                                    const DumpNode& node)
 {
+	if (place_over_conditional(destination, type, node))
+	{
+		LowValue object;
+		object.type = type;
+		object.lvalue = true;
+		object.operand = destination;
+		return object;
+	}
+	return place_created_object(destination, type, node);
+}
+
+// `place_class_object` with 5.16p3's selection already asked.  The hand-off is
+// where it is asked and nowhere else: what a cast writes under it is one step
+// of the same hand-off rather than a second one, so a selection among objects
+// standing elsewhere that stands under a cast is read as the one address it is
+// worth and copied once at the join - which is what the destination the
+// *program* declared gets for the same selection written without the cast.
+LowValue LowirFunctionLowering::place_created_object(const Operand& destination,
+                                                     TypeId type,
+                                                     const DumpNode& node)
+{
 	LowValue object;
 	object.type = type;
 	object.lvalue = true;
 	object.operand = destination;
-	if (place_over_conditional(destination, type, node))
-	{
-		return object;
-	}
 	// 5.16p3: an arm of a conditional this destination is being filled over
 	// stands where the conditional does, so the initializer read here is that
 	// arm and not the selection above it.
@@ -1739,7 +1751,8 @@ LowValue LowirFunctionLowering::place_class_object(const Operand& destination,
 		case FactKind::Cast:
 			// 5.2.9p4: the cast is the initialization written under it, and it
 			// writes into the storage this place named.
-			return place_class_object(destination, type, *written.children[0]);
+			return place_created_object(destination, type,
+			                            *written.children[0]);
 
 		default:
 			break;
@@ -2178,14 +2191,16 @@ void LowirFunctionLowering::leave_blocks(const DumpNode& node)
 
 // 12.4p3 and 3.8p1: the end of an object's lifetime, which is one call of the
 // destructor of its class on the object the action names.
+//
+// Which ends are calls at all is the analysis's answer and not one this reads
+// again: 12.4p8's vacuity for an object a declaration named and 12.4p3's
+// declaration for one the translation made.  A trivial destructor is one of
+// the two answers to *that* question and not a third one asked here - and
+// asking it here left the same object's end written in 15.2p2's handler, which
+// reads the action's own fact, and nowhere on the path that returns.
 void LowirFunctionLowering::destructor_call(const DumpNode& node)
 {
 	TypeTable& types = unit_.types();
-	const SemaEntity& destructor = *node.fact.entity;
-	if (destructor.trivial)
-	{
-		return;
-	}
 	if (types.kind(types.strip_cv(node.fact.type)) == TypeKind::Array)
 	{
 		// 12.4p8: the object whose lifetime ends is each element of the array,
