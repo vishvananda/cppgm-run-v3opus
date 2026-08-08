@@ -746,7 +746,7 @@ private:
 	                          const Context& inner);
 	void write_transfer_assignment(SemaEntity& subobject, const Value& source,
 	                               DumpNode& line, const Context& inner,
-	                               Placement where);
+	                               Placement where, bool elements = false);
 	void write_storage_transfer(SemaEntity& parameter, DumpNode& line,
 	                            unsigned long long offset,
 	                            unsigned long long span, TypeId scalar);

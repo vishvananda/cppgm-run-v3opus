@@ -1854,15 +1854,51 @@ SemaAnalyzer::Value SemaAnalyzer::cast_to_reference(TypeId target, Value& source
 			respell(value);
 			return value;
 		}
-		// The operand is converted to the referenced type and the reference
-		// binds the temporary that holds it, which is a value of its own.  The
-		// node stands for that temporary rather than for the terminals the cast
-		// was written from, as the one an argument conversion writes does.
-		if (!match_by_value(source, referenced).viable)
+		// 8.5.3p5: the operand is converted to the referenced type and the
+		// reference binds the temporary that holds the conversion, which is an
+		// object of the function like any other - so the conversion is applied
+		// here rather than being left as a spelling on the operand's own line,
+		// and what the cast is worth is that object.  The temporary is written
+		// around the operand in the place the operand already had, which is the
+		// same thing 13.3.3.1.2's converting constructor does for an argument.
+		const Match match = match_by_value(source, referenced);
+		if (!match.viable)
 		{
 			throw std::runtime_error("a cast to a reference type binds neither "
 			                         "the operand nor a conversion of it");
 		}
+		if (types_.is_class(types_.strip_cv(referenced)))
+		{
+			apply_conversion(source, referenced, match, ctx,
+			                 Requested::Written);
+			// 12.2p3: the conversion made an object of this class, and nothing
+			// but the cast asked for it - so the full-expression the cast was
+			// written in is what holds the end of its lifetime, exactly as it
+			// holds the end of a `T(e)` written in the same place.
+			if (source.category == ValueCategory::PRValue &&
+			    source.node != nullptr)
+			{
+				register_temporary(*source.node, ctx.scope);
+			}
+			source.category = value.category;
+			source.type = referenced;
+			source.spelled = target;
+			respell(source);
+			lift_operand(parent, line);
+			return source;
+		}
+		if (match.converted != nullptr)
+		{
+			// 12.3.2p2: the operand is of class type and reaches the referenced
+			// type through a conversion function of its own class, so what the
+			// reference binds is a temporary holding what that call returned -
+			// and the call is written where the operand stood.
+			apply_conversion(source, referenced, match, ctx,
+			                 Requested::Written);
+		}
+		// A conversion to any other type is a value, and the temporary holding
+		// it begins no lifetime the program can watch - so the cast's own line
+		// is the whole of what stands for it, as it always was.
 		value.payload.clear();
 		value.node = &line;
 		respell(value);
@@ -2488,6 +2524,24 @@ void SemaAnalyzer::transfer_arm_to_result(Value& arm, TypeId result,
 	}
 	const TypeId wanted = types_.strip_cv(result);
 	Value source = arm;
+	if (source.category == ValueCategory::XValue &&
+	    types_.kind(types_.strip_cv(source.spelled)) !=
+		    TypeKind::RValueReference)
+	{
+		// 5.16p6: what stands between the arm and the result object is 4.1's
+		// conversion, which *reads* the object the arm names - and reading an
+		// object is not consuming it.  What the program wrote as an rvalue is
+		// still one: a prvalue creates the result object outright and an
+		// operand of rvalue reference type is an object the program already
+		// said may be emptied.  5.2.5p4's subobject of a temporary is neither:
+		// it is an xvalue because the object it is part of ends at the end of
+		// the full-expression, which says when that object dies and not that
+		// this arm is what empties it - so the transfer 13.3 chooses here reads
+		// the lvalue the member access names.  What the program wrote is what
+		// the *spelling* says, which is why the question is asked of it and not
+		// of the category the operand ended up with.
+		source.category = ValueCategory::LValue;
+	}
 	// The operand keeps the place it had among the conditional's children, so
 	// the temporary is written around it rather than beside it, and the operand
 	// becomes what constructs it.

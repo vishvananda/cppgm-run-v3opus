@@ -1,6 +1,6 @@
 # PA17 Plan — `cppgm++ --emit-lowir` value semantics
 
-PA17 stands at **222 / 228** of its fixtures, with pa1-pa16 at **1494 / 1494**
+PA17 stands at **226 / 229** of its fixtures, with pa1-pa16 at **1494 / 1494**
 and the file audit passing with the three recorded header-weight warnings it
 already had.
 
@@ -152,6 +152,24 @@ answers the question it belongs to.
   frame of its own and drops it with the throwaway node.  A temporary left in the
   program's frame by one of them is an end of a lifetime for an object nothing
   was ever asked to give storage to.
+- **12.8p15/p28's array member is one step and a walk of the array around it.**
+  The member the element's class has takes an *element* and no call of it takes
+  the array, so the transfer is written once, for an element, with the source
+  read as the element exactly as `write_constructed_object` already reads the
+  destination as one: the *line* goes on naming the array - that is where the
+  element stands - and the `Value` carries the element's type, which is what
+  13.3 chooses on. Which element a step is at is the lowering's
+  `ElementWalk`, the one cursor the destination and the source both read
+  (`walks_this_array`/`walked_element`), so nothing in the step is written a
+  second time to say it. A construction hangs it on the `constructor-action`
+  the array already names; an assignment hangs it on `FactKind::ArrayTransfer`,
+  which is that same walk over one expression-statement. Below
+  `kArrayLoopLimit` the elements are written out and past it the walk is one
+  loop with the index in an object of the function, which is where the cursor's
+  second form - a value rather than a number - comes from. An array whose
+  *element* is carried by its bytes is the whole array's bytes and no walk at
+  all, which is 12.8p15's other form and the one every non-class array member
+  takes.
 - `sema_lifetime.cpp` owns what running the four comes to, and what *ending* an
   object's lifetime comes to. 12.8p15/p28's definition is one walk of the same
   subobject list 12.6.2p10 and 12.4p8 walk. 12.4p8's `vacuous_destruction` is
@@ -260,6 +278,17 @@ answers the question it belongs to.
   prvalue is what asked for the temporary the reference binds, so 12.2p1 names
   that storage `refcall`; an argument written around such a cast binds the
   object the glvalue already names and materializes nothing of its own.
+  **8.5.3p4's reference-related is what says the operand itself is bound, and
+  everything else binds a temporary holding a conversion of it** - so where the
+  two are unrelated the conversion is *applied* rather than left as a spelling
+  on the operand's line: `apply_conversion` writes 13.3.3.1.2's converting
+  constructor of the referenced class around the operand, in the place the
+  operand already had, and 12.2p3's frame holds the end of the object it made,
+  because nothing but the cast asked for it. Over a referenced type that is not
+  a class the temporary begins no lifetime the program can watch, so the cast's
+  own line goes on standing for it and only 12.3.2p2's conversion function of
+  the operand's class is written under it - which is what leaves PA12's reading
+  of `(const int&)wide` exactly as it was.
 - **8.5p8's zero is over the storage the bases and the members hold**
   (`TypeTable::has_zeroed_storage`, settled in the layout walk beside 9p6's
   `empty`), so a class every subobject of which holds nothing is zeroed by
@@ -311,6 +340,17 @@ answers the question it belongs to.
   of the list is one entry with the place it stood at, never a copy of the list.
   6.6p2's jump puts back what it destroyed on its own path, because the code
   after it is reached by paths where those objects still stand.
+  **Two calls open no region of their own.** One is 12.8p15's transfer filling
+  an object the *translation* named - 6.6.3p2's returned object, 5.16p3's result
+  object, 8.5.3p5's argument storage: what it writes is a value that already
+  stood somewhere else, so an exception out of it leaves the program with
+  exactly what the expression before it left and nothing new to end. An object a
+  *declaration* named is not that, and the copy that fills it is a step like any
+  other. The other is where a temporary's storage was just named: naming storage
+  leaves nothing standing, so where objects already stand - and the region is
+  therefore theirs rather than the step's - the naming stands in front of it,
+  which the mark is moved past exactly once and only where the step had not
+  already begun.
 - **13.3.3.1.5p1's argument is not an expression, so it is carried and not
   read**: a braced-init-list written as an argument travels as the list
   (`Value::braced`) with the line it will be written on holding its place among
@@ -393,6 +433,18 @@ answers the question it belongs to.
   destination, and `place_class_object` is what a cast case would otherwise
   re-enter.  `selected_arms_` makes an arm stand where the conditional does while
   its path is written, so each leaf is one transfer and nothing is read twice.
+- **5.16p6's arm is *read* into the result object, and reading an object is not
+  consuming it.**  Where the two operands are glvalues of one type in different
+  categories the conditional is a prvalue, and what fills its result object is
+  4.1's conversion of the selected operand - so the transfer 13.3 chooses there
+  reads the arm as the lvalue it names unless the *program* wrote an rvalue.
+  What the program wrote is the arm's **spelling**: a cast to an rvalue
+  reference and a call returning one are spelled as references and are read
+  through, while 5.2.5p4's subobject of a temporary is spelled as the member's
+  own type - its xvalue says when the object it is part of dies, not that this
+  arm is what empties it.  The question is asked at `transfer_arm_to_result` and
+  nowhere else: everywhere a *use* asks 13.3 directly - an argument, a return
+  operand - 5.2.5p4's xvalue stands as it always did.
 - 6.6.3p2's boundary is one answer, written by `LowirUnitLowering::open_signature`
   and read by the declaration, the definition and a call through a pointer.
 - **12.8p31's NRVO is the object standing in the destination, and every end of
@@ -426,6 +478,8 @@ function type, `Value::object_category`, `Fact::subobject_step`,
 `Fact::full_expression_end`,
 `SemaEntity::delegates_to`, `Placement::Delegate`,
 `FactKind::StorageTransfer`, `FactKind::DeleteExpression`,
+`FactKind::ArrayTransfer` with `LowirFunctionLowering::element_walk_`
+(`walks_this_array`, `walked_element`, `array_transfer`),
 `AstKind::CarriedTypeId` (12.3.2p1's conversion-type-id, carried beside the
 syntax as 7.1.6.2p1's decltype operand already is),
 `UserType::declared_destruction` with `TypeTable::has_declared_destruction`,
@@ -439,13 +493,10 @@ lifted out of the analyzer so each layer asks them once - `observable_expression
 
 ## Current Failure Map
 
-6 fixtures fail, grouped by the compiler behaviour they are waiting on.
+3 fixtures fail, grouped by the compiler behaviour they are waiting on.
 
 | group | n | what is missing |
 | --- | --- | --- |
-| 12.8p15's array member | 1 | `struct Owner { Value values[1]; };` - the four transfers walk an array member as one object and hand the whole array to a member taking one element. The reference unrolls it: one step per element, both sides subscripted, which is the shape the destination side already writes for 12.6p1's construction. What is missing is the *source* element - `constructor_call` and `write_transfer_assignment` pass the argument as written, and it has to be indexed by the same element the destination is |
-| 12.4p8 / 15.2p2 in a conditional arm | 1 | two readings at once: the reference chooses the *copy* member for an arm that is `Result(...).member` where we choose the move (its 5.2.5p4 is an xvalue for 13.3 and an lvalue for the arm's own copy-initialization), and it opens no 15.2p2 region around the construction of 6.6.3p2's returned object where only a block's objects stand |
-| 5.2.9p4 cast to a class reference | 1 | `static_cast<const W&>(t)` binds a temporary a converting constructor of `W` builds, which `cast_to_reference` still lets bind the operand itself |
 | 8.5p16 direct-init of a class from a class | 1 | the fixtures let `T(e)` reach 13.3.1.4's `explicit` conversion function of the operand's class, which the standard's copy-initialization of the constructor's parameter does not. The reference materializes the conversion's result and *calls* the move constructor on it rather than eliding, because the conversion hands its object back as bytes |
 | 13.3.1.1.2 surrogate call functions | 1 | an object whose conversion yields a function pointer, called |
 | 3.4.3.2 using-directive ambiguity | 1 | two namespaces one level reaches declare one name |
@@ -548,6 +599,25 @@ implicitly-movable entity, and we follow it there while C++11's wording would
 copy out of both. What it took back is the fourth: an lvalue reference was being
 moved out of here, against every oracle.
 
+C11's sweep left five, each judged and left as it stands. Two go our way with
+g++ beside us: an array member of a class whose copy constructor is
+user-provided but whose object holds nothing (`struct Owner { Empty v[2]; };`)
+is one the binary copies with `copyobj` - `__is_trivially_copyable` says it is
+not - and the temporary `static_cast<const W&>(t)` binds is one the binary never
+destroys, where 12.2p3 and g++ both end it at the end of the full-expression.
+One is our own reading of scale: an array member of more elements than
+`kArrayLoopLimit` is one loop here and the bound's worth of calls there, which
+is the same trade 12.6p1's construction already made. Two are presentation: a
+non-class array member out of the leading storage run is one `copyobj` of its
+bytes here and one load-and-store per element there, and where a conditional
+stands under a by-value argument the binary opens a region around the argument's
+naming that we open in the arm that needs it. Three older shapes the sweep's
+probes turned up and left, all predating C11: `(const int&)e` over a *nested*
+array writes a second `unary decay` we do not need, the binary opens no region
+around a declaration's own initializer where we open one after the storage was
+named, and a region whose handler owes nothing is still written where a call
+stands in front of the lifetime it began.
+
 The sweeps of C8 and of its audit left these disagreements with the reference
 binary, and g++ settles every one our way: 8.5.4p7's narrowing of `f({1.5})`
 into an `int` member; 8.5.4p3's refusal of a copy-list-initialization that
@@ -565,35 +635,34 @@ constructor and write one call fewer.
 
 ## Active Checkpoint
 
-None open. C10 is complete, swept and audited at 222 / 228 with pa1-pa16
-unchanged: the audit found five blockers on the ownership path it opened - a
-crash on `K k = {D(), 7}`, a double destruction wherever 5.2.9p4's cast stood
-over an elided prvalue, an end of a lifetime only 15.2p2's handler wrote, a
-5.16p3 selection distributed below the hand-off, and 12.8p32 moving out of an
-lvalue reference - and fixed all five.
+None open. C11 is complete and swept at 226 / 229 with pa1-pa16 unchanged; it
+has not been audited yet, which is what the next turn owes it.
 
-The next checkpoint is **C11: 12.8p15's array member and the two readings a
-conditional arm makes**, at 2 fixtures - the two that are still this
-milestone's own object model rather than a lookup rule or a surrogate call.
-Its owner is `sema_lifetime.cpp`'s `write_transfer_steps` beside
-`lowir_lower_object.cpp`'s `array_lifecycle`, which already agree about the
-*destination* of an array member's per-element step and not about its source.
-Its data flow is one element index threaded from `array_lifecycle` into
-`constructor_call`'s argument, and the same index into
-`write_transfer_assignment`'s call - no new fact on a node, because the action
-already names the array and the bound already says how many elements it is.
-Its expected complexity is one step per element up to `kArrayLoopLimit` and one
-loop past it, matching what 8.5.1p7's local array already writes, so a member of
-n elements is O(n) output below the limit and O(1) above it. Its validation is
-`300-synthesized-array-member-special-members` plus a differential sweep of an
-array member of 1, 2 and 64 elements under all four transfers, an array member
-of a class carried by its bytes (which the leading storage run must still take
-whole), and a two-dimensional array member. The second fixture is the arm
-reading: whether 5.2.5p4's member of a class prvalue is the *copy*'s lvalue that
-the reference makes it inside a conditional arm while staying 13.3's xvalue
-everywhere else, and whether the construction of 6.6.3p2's returned object opens
-a 15.2p2 region at all - both settled by probing the binary over an arm that is a
-cast, an arm that is a member access, and a return with a block object standing.
+The next checkpoint is **C12: 8.5p16's direct-initialization of a class from a
+class**, at 1 fixture and the two shapes the sweeps left beside it. Its owner is
+`sema_lifetime.cpp`'s `construct_object` with `sema_overload.cpp`'s
+`standard_only_`: the fixtures let `T(e)` reach 13.3.1.4's `explicit` conversion
+function of the *operand's* class, which the copy-initialization of the chosen
+constructor's parameter does not, so what the direct-initialization's `direct`
+flag reaches has to be told from what the argument's own sequence reaches. Its
+data flow is that one flag, already threaded, read one level lower - and the
+object the conversion hands back, which the reference materializes and *calls*
+the move constructor on rather than eliding, because the conversion returns its
+object as bytes; `elide_transfer` is where that is asked and
+`bytes_stand_for_object` is what it has to ask beside `creates_its_object`.  Its
+expected complexity is O(1) per initialization - one flag and one type read, no
+second walk of the candidates.  Its validation is
+`400-direct-init-class-explicit-conversion` plus a differential sweep of `T(e)`,
+`T t(e)`, `T t = e` and `static_cast<T>(e)` over a source class whose conversion
+function is `explicit` and one whose is not, over a target carried by its bytes
+and one carried by address.
+
+Before it, C11 owes an audit: the ownership path it opened is the element walk
+(one cursor two readers share) and the two region rules, and the shapes to probe
+are an array member under a *base* whose own array member is being walked, an
+array member of a class whose element has an array member, a transfer past
+`kArrayLoopLimit` under 15.2p2, and a conditional arm whose spelling is a call
+returning `T&&`.
 
 ## Performance Model
 
@@ -614,6 +683,17 @@ host, at 250/500/1000/2000 unless said otherwise.
   at every size**, in 0.00/0.00/0.01/0.02 s. A class with n members that each
   need a call is 10 n lines and 0.02/0.03/0.07/0.14 s; a base subobject in
   front of them costs 5 n lines and 0.01/0.03/0.07/0.10 s.
+- **12.8p15/p28's array member is one step whatever the bound is.** A class with
+  one array member of n elements, copied, moved and assigned both ways, is
+  **292 lines of output and 4.2 ms at every one of 250/500/1000/2000** - the
+  analysis writes one step per transfer and the lowering writes one loop, so
+  neither the tree nor the text grows with the bound. Below `kArrayLoopLimit`
+  the elements are written out, which is the 50 lines per element the reader
+  asked for: 376/576/976 lines at 4/8/16.
+- The mark a temporary's step is written from is moved once, not searched for,
+  so 15.2p2's regions cost what they cost. n temporaries in one function are
+  22 n lines in 0.017/0.030/0.057/0.113 s, which is what the same function cost
+  before this checkpoint (0.112 s at 2000) to the millisecond.
 - **12.3.2's conversions stay on the class that declares them.** A hierarchy n
   deep where every class declares one is 0.01/0.03/0.07/0.17 s and **17 lines
   at every size** - the same shape as the chain of the same depth whose root
@@ -953,3 +1033,4 @@ host, at 250/500/1000/2000 unless said otherwise.
 | C8 | 8.5.4's braced-init-list of a class, and 13.3.3.1.5's sequence for an argument that is one. `Value::braced` carries the list past 13.3 with the line it will be written on holding its place, `match_list` answers what it converts to from the parameter alone - p3/p4's user-defined conversion sequence keyed on the class it initializes, p5's reference to the temporary named after the argument, p6's one clause - and the clauses are read once, where 8.5.4 has a type to read them for. 8.5.1p6's `clause_capacity` bounds an aggregate candidate and is held per type; 13.3.3.1p4's third bullet keeps a class's own copy constructor out of `X{ {a, b} }`; 5.17p9's `x = {...}` is that call's argument and reaches no built-in operator. `AstNode::braced` tells 5.2.3p3's `T{a}` from 5.2.3p1's `T({a})`, which the tree could not, and over a non-class type the two are one. 8.5.1p2's aggregate constructor took a class member by value and moves it into place; 6.6.3p2's returned object became one slot per function; 12.8p32 now asks for the constructor the copy 12.8p31 elided would have called. Swept differentially against the reference binary and g++ over 26 synthesized units, with the four disagreements judged and recorded, and valgrind clean over the depth-200 nesting and the 2000-return function. Audited at `bc50cabb`: six blockers found and fixed and one shape recorded as a refusal, all of them the one seam where 8.5.4's reading of a list for a class had two owners - 8.5.1p6's capacity gave a subobject that holds nothing no clause; 8.5.1p11's elided braces reached the walk that writes a subobject where it stands and never the by-value parameter list a prvalue is built by; that elision question had no bound, so a clause walked past a subaggregate with nothing to take it; 8.5.1p2's constructor left out a reference member and a bit-field member, which is what the reference-member fixture was waiting on; 8.5.1p15's union got a parameter per member and wrote each of them into the one storage a union is; and 13.3.3.1.5p1's list was a viable ellipsis argument | 204 -> 209 -> **210 / 228**; pa1-pa16 1494 / 1494; no regressions |
 | C9 | 12.6.2p6's delegating constructors, 9.5's unions and 8.4.2p2's out-of-class `= default`, which are one boundary: what a ctor-initializer means and who wrote the definition under it. `delegating_initializer` reads the *list* rather than an entry - the class's own name in one probe, any other spelling of it in one lookup and only where p6's own rule already bounds the list to one - and `Placement::Delegate` makes the object the one the constructor is already running on, so `this` is passed to the target's complete-object entry as it stands and no subobject step is written; `SemaEntity::delegates_to` is the edge and p6's cycle is one colouring of the constructors that delegate, run where the unit has been read. 9.5p1's one storage became 12.6.2p8's reading: a variant member's brace-or-equal-initializer is used only where no *other* variant member was designated, one neither reaches is not initialized at all, and 9.5p2's "at most one" is refused in the layout walk. 8.4.2p2's `= default` outside the class is parsed as the definition it is, read against the declaration the class made, left non-inline so this unit holds it, and collected with the bodies so 12.4p8's vacuity is settled from the syntax - which split "who wrote the declaration" from "who wrote the definition" for both readers of 12.1p5's elided call. Swept differentially against the reference binary and g++ over 23 synthesized units, with three disagreements judged and recorded and valgrind clean over the delegation, union and out-of-class shapes. Audited at `39fa3bf7`: four blockers found and fixed, every one of them a sibling of the reader the checkpoint answered at - 12.6.2p6's delegation keyed on the last component of a mem-initializer-id rather than on the class it denotes, so a base spelled `N::S` under a derived `S` was read as a delegation and the program refused; 12.4p8's `non-variant` missed, so a union's destructor called the destructor of every class-typed member it declared, on storage no lifetime began in, and `vacuous_destruction` and `destruction_nonthrowing` answered off that same walk; 12.8p15/p28's transfer walked those members too, writing the trivial prefix and then a copy call per variant member over the same bytes; and 8.4.2p2 reached only the parse path a constructor and a destructor take, so an out-of-class `= default` on an assignment operator was left inline, never demanded and never refused a second time. `one_storage` and `names_the_class` are the two questions that came out of it | 210 -> **217 / 228**; pa1-pa16 1494 / 1494; no regressions |
 | C10 | 12.8p31's remaining placement, and which of two questions an end of a lifetime asks. 5.16p3's conditional that selects among glvalues is a selection among *objects*, so a destination the translation named - 6.6.3p2's returned object, 5.2.2p4's argument object, 12.2p1's temporary - is filled on the path that chose the object it reads; `selecting_conditional` is asked at `place_class_object`, the hand-off itself, which is what leaves a destination the *program* declared filled where its declaration stands. 12.8p31's NRVO reached a class the ABI carries as bytes (`returned_name` is the one reading of the operand both spellings of a return make) and reached past 3.8p1's actions standing under the return, because the object the return names is one of them - and `leave_blocks` then writes no end for it anywhere, since with the elision the lifetime the callee began is the caller's to end. 12.8p31's elision of the transfer 13.3 chose became `elide_transfer`, asked once *after* the choice, so an argument reaching the copy constructor through a conversion function of its own class is the object being initialized - and 5.3.4p12's storage is storage a new-expression owns, so the elision reaches it as it reaches a slot. 12.8p32 joined it at both ends: a return naming an automatic object of the function's own returned type is read as an rvalue first, and the definition the elided constructor would have run is still one this unit owes what it would have called. 12.4p3 became `TypeTable::declared_destruction` beside 12.4p8's vacuity, with `ends_in_call` the one place the two meet: an object a declaration named reads what running its destructor comes to, and an object the translation made reads whether the program declared one at all. Swept differentially against the reference binary over the conditional, NRVO, conversion-elision and destruction shapes, with three disagreements judged and recorded and valgrind clean over the depth-200 nesting and the 2000-return function. Audited at `ae1e4567`: five blockers found and fixed, every one of them an object the checkpoint gave an end or a place to that something else was already holding - 8.5.1p11's probe of a clause, and 5.3.3p1's and 7.1.6.2p4's unevaluated operands, left 12.2p1's temporary standing in the program's full-expression, so `K k = {D(), 7}` over a `D` with a destructor crashed the compiler and `probe_expression` is how a question is read now; 12.8p31's elision left the object it elided in 12.2p3's frame wherever 5.2.9p4's cast stood over the prvalue, so `V v = (V)V(3)` destroyed `v` before its first read and `return (V)V(3)`, `new V((V)V(3))` and `sink((V)V(3))` each handed on a destroyed object, which `created_object_node` fixes for every reader at once; `destructor_call` re-derived 12.4p5's triviality over the analysis's own answer, so a temporary of a class with a declared-but-trivial destructor was destroyed only when something threw, and `register_temporary` noted no entry, so an end only 15.2p2 reaches named the base-object destructor of a complete object and left the symbol undefined; 5.16p3's selection was asked below the hand-off as well as at it, so a cast between the destination and the conditional distributed the transfer over both arms; and 12.8p32 read an lvalue reference as p31's automatic object | 217 -> **222 / 228**; pa1-pa16 1494 / 1494; no regressions |
+| C11 | 12.8p15/p28's array member, and the two readings a conditional arm makes. The member the element's class has takes an element, so the transfer is written once - for an element, with the source read as one exactly as `write_constructed_object` already reads the destination, the line going on naming the array because that is where the element stands - and the walk around it is what says which element each step is at: `element_walk_` is that one cursor, read by the destination and the source alike (`walks_this_array`/`walked_element`), in a number below `kArrayLoopLimit` and in the loop's own index past it, with `FactKind::ArrayTransfer` giving 12.8p28's assignment the same walk 12.6p1's construction already had. An array whose element is carried by its bytes is the whole array's bytes, which is what a non-class array member out of the leading run had been getting a truncating load of. 5.16p6's arm became a *reading* of the object it names rather than a consuming of it, keyed on the arm's spelling, so a cast to an rvalue reference is still moved out of and 5.2.5p4's subobject of a temporary is not - and 12.8p15's transfer filling an object the translation named opens no 15.2p2 region of its own, while a temporary's storage is named in front of the region already standing around it. 8.5.3p4's unrelated cast to a class reference became the initialization it is: the converting constructor is applied where the operand stood and 12.2p3's frame ends the object it made, which 12.3.2p2's conversion function under a cast to a non-class type joins. Swept differentially against the reference binary and g++ over 30 synthesized units - array members of 1/2/3/64/2000 elements, two-dimensional, under a base, of a class holding an array, mixed with a trivial prefix; conditional arms that are casts, member accesses of prvalues and of xvalues, in returns, declarations and arguments; casts to `const W&`, `W&&`, a base, a derived and a conversion function - with five disagreements judged and recorded and valgrind clean over all of them | 222 / 228 -> **226 / 229**, one of them the regression test the checkpoint added for an array member of more than one element; pa1-pa16 1494 / 1494; no regressions |

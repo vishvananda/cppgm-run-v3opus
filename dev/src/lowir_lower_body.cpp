@@ -1545,6 +1545,13 @@ void LowirFunctionLowering::statement(const DumpNode& node)
 		storage_transfer(node);
 		return;
 
+	case FactKind::ArrayTransfer:
+		// 12.8p28: the one step under this node is the transfer of one element
+		// of an array member, and the member is however many elements its type
+		// says - so the step is written for each of them in turn.
+		array_transfer(node);
+		return;
+
 	case FactKind::TypeAlias:
 	case FactKind::FunctionDeclaration:
 		return;

@@ -266,7 +266,13 @@ void LowirFunctionLowering::array_lifecycle(const DumpNode& node,
 	const TypeId element = dimensions.empty()
 		? node.fact.type
 		: types.strip_cv(types.target(dimensions.back()));
-	if (construct && !node.fact.zero_initialized &&
+	// 12.8p15: a transfer carries the corresponding element of the object it
+	// reads from into each element, which is work whatever the definition of
+	// the member doing it comes to - so 12.1p5's "there is nothing to do" is
+	// never the answer for it, and the call is what says which of the two this
+	// is: a construction with no argument beside the object is 12.6p1's.
+	const bool carries = construct && node.children[0]->children.size() > 2;
+	if (construct && !carries && !node.fact.zero_initialized &&
 	    node.children[0]->children[0]->fact.entity->trivial)
 	{
 		// 12.1p5: the constructor of every element does nothing, so no element
@@ -280,13 +286,16 @@ void LowirFunctionLowering::array_lifecycle(const DumpNode& node,
 	// reader wants to see written out the elements stop being a description of
 	// the array and the bound starts being one.  A construction the source
 	// wrote arguments for is not that same one call - the arguments are read
-	// where they stand - so it stays written out.
+	// where they stand - so it stays written out; 12.8p15's transfer is that
+	// same one call again, because what its argument names is the element the
+	// walk is at and nothing the source wrote.
 	if (total > kArrayLoopLimit && !dimensions.empty() &&
-	    (!construct || node.children[0]->children.size() <= 2))
+	    (!construct || carries || node.children[0]->children.size() <= 2))
 	{
 		array_lifecycle_loop(node, construct, named, total, element);
 		return;
 	}
+	const ElementWalk held = element_walk_;
 	for (unsigned long long step = 0; step < total; ++step)
 	{
 		const unsigned long long index =
@@ -302,11 +311,131 @@ void LowirFunctionLowering::array_lifecycle(const DumpNode& node,
 		// The array is named again for each element: the element's address is
 		// the array's plus the elements before it, which is one description of
 		// where it is however many readers the array has.
+		element_walk_ = ElementWalk();
 		const LowValue object = expression(named, true);
 		const Operand at =
 			element_at(object.operand, dimensions, bounds, index);
+		// 12.8p15: what the call carries is the element of the source array at
+		// this same index, which is the one thing that tells two of these
+		// steps apart - so the walk stands while the arguments are read.
+		element_walk_.active = carries;
+		element_walk_.counted = true;
+		element_walk_.index = index;
 		constructor_call(at, node, false, element);
+		element_walk_ = held;
 	}
+	element_walk_ = held;
+}
+
+// 12.8p28: the one step an array member's assignment is, run over each element
+// of the member in increasing order.  Nothing in the step is read a second time
+// for a second element: the lines under it name the arrays, and the walk
+// standing over them is what says which element each of those names reaches.
+void LowirFunctionLowering::array_transfer(const DumpNode& node)
+{
+	TypeTable& types = unit_.types();
+	std::vector<TypeId> dimensions;
+	std::vector<unsigned long long> bounds;
+	const unsigned long long total =
+		array_dimensions(node.fact.type, dimensions, bounds);
+	const TypeId element = dimensions.empty()
+		? node.fact.type
+		: types.strip_cv(types.target(dimensions.back()));
+	const ElementWalk held = element_walk_;
+	if (total > kArrayLoopLimit && !dimensions.empty())
+	{
+		// Past the count a reader wants to see written out the elements stop
+		// being a description of the member and the bound starts being one.
+		// 12.4p8 has nothing to ask of this loop the way 12.6p1's construction
+		// does: every element it assigns was already standing before it ran, so
+		// an exception out of one of them leaves nothing this step built.
+		const TypeId counter = types.fundamental(FT_LONG_INT);
+		const std::string cond = reserve_block("array_transfer_cond");
+		const std::string body = reserve_block("array_transfer_body");
+		const std::string end = reserve_block("array_transfer_end");
+		const std::string index =
+			add_generated_slot("array_transfer_index", unit_.low_type(counter));
+		const Operand slot = named_operand(Operand::OP_SLOT, index);
+		store(named_operand(Operand::OP_INTEGER, "0"), slot, counter);
+		jump(cond);
+		open_block(cond);
+		const Operand at = load(slot, counter);
+		Instruction test;
+		test.kind = Instruction::IK_CMP;
+		test.op = "ult";
+		test.type = unit_.low_type(counter);
+		test.first = at;
+		test.second = named_operand(Operand::OP_INTEGER, decimal(total));
+		branch(emit(test), body, end);
+		open_block(body);
+		element_walk_.active = true;
+		element_walk_.counted = false;
+		element_walk_.cursor = at;
+		statement(*node.children[0]);
+		element_walk_ = held;
+		Instruction next;
+		next.kind = Instruction::IK_BINARY;
+		next.op = "add";
+		next.type = unit_.low_type(counter);
+		next.first = at;
+		next.second = named_operand(Operand::OP_INTEGER, "1");
+		store(emit(next), slot, counter);
+		jump(cond);
+		open_block(end);
+		return;
+	}
+	(void)element;
+	for (unsigned long long index = 0; index < total; ++index)
+	{
+		element_walk_.active = true;
+		element_walk_.counted = true;
+		element_walk_.index = index;
+		statement(*node.children[0]);
+		element_walk_ = held;
+	}
+	element_walk_ = held;
+}
+
+// Whether a walk of an array member's elements is standing and this line is one
+// of the arrays it walks.  Only a name and a member access can be one: those
+// are the two spellings the transfer the standard defines writes, and inside
+// one of its steps the only arrays named at all are the object being written
+// into and the object being read from.
+bool LowirFunctionLowering::walks_this_array(const DumpNode& node) const
+{
+	if (!element_walk_.active ||
+	    (node.fact.kind != FactKind::Member && node.fact.kind != FactKind::Id))
+	{
+		return false;
+	}
+	TypeTable& types = unit_.types();
+	return types.kind(types.strip_cv(node.fact.type)) == TypeKind::Array;
+}
+
+// 12.8p15 and p28: the element of that array the walk has reached.  Where the
+// elements are written out it is the index counted the way the storage lays
+// them out; where the bound was written as one number it is the loop's own
+// index, which counts whole elements from the front of the array.
+LowValue LowirFunctionLowering::walked_element(const DumpNode& node)
+{
+	TypeTable& types = unit_.types();
+	const ElementWalk held = element_walk_;
+	element_walk_ = ElementWalk();
+	const LowValue array = expression(node, true);
+	std::vector<TypeId> dimensions;
+	std::vector<unsigned long long> bounds;
+	array_dimensions(array.type, dimensions, bounds);
+	LowValue value;
+	value.type = dimensions.empty()
+		? array.type
+		: types.target(types.strip_cv(dimensions.back()));
+	value.lvalue = true;
+	value.operand = held.counted
+		? element_at(array.operand, dimensions, bounds, held.index)
+		: element_at_value(array.operand, held.cursor,
+		                   types.object_size(types.strip_cv(value.type)));
+	element_walk_ = held;
+	return value;
 }
 
 // The address of one element counted from a value rather than from a number:
@@ -446,6 +575,28 @@ void LowirFunctionLowering::construct_element_run(const DumpNode& action,
 		// and not the array's.
 		zero_object(address, element);
 	}
+	// 12.8p15: where this one call carries a value, what it carries is the
+	// corresponding element of the array it reads from - which is the index
+	// this loop is holding, exactly as the element it writes into is.
+	std::vector<Operand> carried;
+	if (call.children.size() > 2)
+	{
+		const ElementWalk held = element_walk_;
+		element_walk_.active = true;
+		element_walk_.counted = false;
+		element_walk_.cursor = at;
+		const std::vector<TypeId>& parameters = types.parameters(constructor.type);
+		for (std::size_t index = 2; index < call.children.size(); ++index)
+		{
+			const std::size_t which = index - 1;
+			const bool bound = which < parameters.size() &&
+				types.is_reference(parameters[which]);
+			const LowValue argument = expression(*call.children[index], bound);
+			carried.push_back(passed_operand(*call.children[index], argument,
+			                                 parameters, which));
+		}
+		element_walk_ = held;
+	}
 	unit_.declare_entity(constructor);
 	if (guarded)
 	{
@@ -458,6 +609,10 @@ void LowirFunctionLowering::construct_element_run(const DumpNode& action,
 		Operand::OP_GLOBAL,
 		unit_.function_symbol(constructor, action.fact.base_subobject));
 	out.args.push_back(address);
+	for (std::size_t index = 0; index < carried.size(); ++index)
+	{
+		out.args.push_back(carried[index]);
+	}
 	emit_void(out);
 	if (guarded)
 	{
@@ -875,7 +1030,17 @@ void LowirFunctionLowering::constructor_call(const Operand& address,
 		// 15.2p2 in an ordinary body: the objects standing here are the ones a
 		// declaration and 12.2p1's temporaries began, and the handler that ends
 		// them is opened where this step began.
-		note_call(!constructor.nonthrowing);
+		//
+		// 12.8p15: the one call this is not asked of is a transfer filling an
+		// object the *translation* named - 6.6.3p2's returned object, 5.16p3's
+		// result object, 8.5.3p5's argument storage.  Such an object holds no
+		// more than the value the expression already had standing somewhere
+		// else, so an exception out of the transfer leaves the program exactly
+		// where the expression before it did and nothing new to end; an object
+		// a declaration named is not that, and the copy that fills it is a step
+		// like any other.  A region already covering the full-expression -
+		// because 12.2p1's temporary is standing in it - still covers this.
+		note_call(!constructor.nonthrowing, transfers_value && always);
 	}
 	emit_void(out);
 	release_call_step(step);
@@ -1012,6 +1177,8 @@ LowValue LowirFunctionLowering::temporary_object(const DumpNode& node,
 	held.lvalue = true;
 	held.named = true;
 	held.operand = named_operand(Operand::OP_SLOT, slot);
+	const std::size_t opens = current_;
+	const std::size_t written_through = out_.blocks[current_].instructions.size();
 	const Operand at = written.fact.kind == FactKind::None
 		? address_of(held)
 		: expression(written).operand;
@@ -1021,6 +1188,20 @@ LowValue LowirFunctionLowering::temporary_object(const DumpNode& node,
 	// alike.  Naming the slot again instead would be a second description of
 	// one place.
 	placed_[entity.id] = at;
+	// 15.2p2: where objects are already standing, the region written around
+	// this step is the one *they* asked for - and naming the storage a new
+	// object will stand in is no place an exception could leave them standing,
+	// so it stands in front of that region rather than inside it.  Two things
+	// bound that: where nothing stands, the region is the step's own, which
+	// 12.6.2 names its subobject inside; and where the step had already begun -
+	// the storage of the argument this temporary is being made for, say - the
+	// region covers what began it, because that is where the step is.
+	if (!unwind_live_.empty() && unwind_mark_.active &&
+	    unwind_mark_.block == current_ && opens == current_ &&
+	    unwind_mark_.at == written_through)
+	{
+		unwind_mark_.at = out_.blocks[current_].instructions.size();
+	}
 	const UnwindMark opened = unwind_mark_;
 	constructor_call(at, action, true);
 	// 12.2p1 and 15.2p2: the temporary's lifetime has begun, so an exception

@@ -92,7 +92,7 @@ void LowirFunctionLowering::release_call_step(bool)
 // 15.2p2 and 15.4p1: a call about to be written.  Where objects stand whose
 // lifetimes an exception out of it would have to end, the handler that ends
 // them is opened where this step began.
-void LowirFunctionLowering::note_call(bool throwing)
+void LowirFunctionLowering::note_call(bool throwing, bool returned_object)
 {
 	if (!throwing)
 	{
@@ -101,7 +101,7 @@ void LowirFunctionLowering::note_call(bool throwing)
 	call_since_mark_ = true;
 	settle_pending_region();
 	if (region_open_ || unwind_live_.empty() || !unwind_mark_.active ||
-	    unwind_mark_.block != current_)
+	    unwind_mark_.block != current_ || returned_object)
 	{
 		return;
 	}

@@ -2219,15 +2219,15 @@ void SemaAnalyzer::write_transfer_steps(const Pending& pending, DumpNode& line,
 			continue;
 		}
 		if (types_.kind(types_.strip_cv(field.type)) == TypeKind::Array &&
-		    types_.is_class(member_copy_type(field.type)) &&
 		    carried_as_storage(field.type, kind))
 		{
 			// 12.8p15: an array member is carried element by element, and where
-			// the element's class carries one of them by its bytes the whole
-			// array is those bytes - which is the one form the transfer has for
-			// it, because the member the element's class holds takes an element
-			// and no call of it takes the array.  A run the leading prefix
-			// already covered never reaches here.
+			// an element is carried by its bytes the whole array is those bytes
+			// - which is the one form the transfer has for it, because the
+			// member the element's class holds takes an element and no call of
+			// it takes the array, and an element of any other type is 8.5's
+			// initialization of storage no name reaches.  A run the leading
+			// prefix already covered never reaches here.
 			write_storage_transfer(*parameter, line, field.offset,
 			                       types_.object_size(field.type), kNoType);
 			continue;
@@ -2237,8 +2237,30 @@ void SemaAnalyzer::write_transfer_steps(const Pending& pending, DumpNode& line,
 		                            field.name, access);
 		line.children.pop_back();
 		transfer_source(source, kind);
+		// 12.8p15 and p28: an array member whose elements are carried by a call
+		// is carried one element at a time, and the element of the source is
+		// the one at the same index.  What the step reads is that element, so
+		// the source is an element here exactly as the destination already is -
+		// the line keeps the array it was written from, because that is where
+		// the element stands, and the walk around the step says which.
+		const bool elements =
+			types_.kind(types_.strip_cv(field.type)) == TypeKind::Array;
+		if (elements)
+		{
+			source.type = source.spelled = types_.qualified(
+				element_of(source.type), types_.object_cv(source.type));
+		}
 		if (assigning)
 		{
+			if (elements)
+			{
+				DumpNode& walk = open_fact(line, "array-transfer",
+				                           FactKind::ArrayTransfer);
+				walk.fact.type = field.type;
+				write_transfer_assignment(field, source, walk, inner,
+				                          Placement::Member, true);
+				continue;
+			}
 			write_transfer_assignment(field, source, line, inner,
 			                          Placement::Member);
 			continue;
@@ -2342,7 +2364,7 @@ void SemaAnalyzer::write_transfer_assignment(SemaEntity& subobject,
                                              const Value& source,
                                              DumpNode& line,
                                              const Context& inner,
-                                             Placement where)
+                                             Placement where, bool elements)
 {
 	DumpNode& statement =
 		open_fact(line, "expression-statement", FactKind::ExpressionStatement);
@@ -2365,6 +2387,15 @@ void SemaAnalyzer::write_transfer_assignment(SemaEntity& subobject,
 		DumpNode& access = model_.open_node(step, std::string());
 		target = member_value(subobject, implied_object(subobject, access),
 		                      subobject.name, access);
+	}
+	if (elements)
+	{
+		// 12.8p28: what this step assigns is one element of the array member,
+		// which is the object the assignment operator of the element's own
+		// class is called on.  The line goes on naming the array, so the walk
+		// around the step is what says which element it stands at.
+		target.type = target.spelled = types_.qualified(
+			element_of(target.type), types_.object_cv(target.type));
 	}
 	step.children.push_back(source.node);
 	std::vector<Value> operands;

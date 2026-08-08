@@ -135,6 +135,16 @@ enum class FactKind : unsigned char
 	// no type where the span is copied as storage.  The two children are the
 	// object written into and the object read from, in that order.
 	StorageTransfer,
+	// 12.8p15 and p28: one step of such a transfer that carries an *array*
+	// member whose elements are carried by a call rather than by their bytes.
+	// The member the element's class has takes one element and no call of it
+	// takes the array, so the step is written once - for an element - and this
+	// node is the walk of the array around it: `type` is the array member's
+	// own type, which is what says how many elements the one step is run for,
+	// and the one child is that step.  Which element it is at is the walk's,
+	// exactly as 12.6p1's construction of an array leaves it: the lines under
+	// it name the array, and where they stand is the element the walk reached.
+	ArrayTransfer,
 	// Declarations.
 	Variable,
 	Parameter,

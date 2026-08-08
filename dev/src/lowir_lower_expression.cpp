@@ -50,6 +50,13 @@ LowValue LowirFunctionLowering::expression(const DumpNode& node,
 		// control reached - so every reader of it reads that one.
 		return expression(selected(node), as_object);
 	}
+	if (walks_this_array(node))
+	{
+		// 12.8p15 and p28: this line stands inside one step of an array
+		// member's transfer, and what it names - the object being written into,
+		// the object being read from - is the element the walk has reached.
+		return walked_element(node);
+	}
 	if (as_object && stands_in_no_storage(node))
 	{
 		// 12.2p1: what is needed here is the object the expression is worth,

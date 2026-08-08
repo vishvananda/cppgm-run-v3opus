@@ -736,6 +736,21 @@ private:
 	void array_lifecycle_loop(const DumpNode& node, bool construct,
 	                          const DumpNode& named, unsigned long long total,
 	                          TypeId element);
+	// 12.8p28: the one step `node` holds, run over every element of the array
+	// member it walks.  The step names the arrays and the walk names the
+	// element, so the assignment of an array member is written once here for
+	// however many elements the member holds - one step per element while a
+	// reader still wants to count them, and one loop past that.
+	void array_transfer(const DumpNode& node);
+	// 12.8p15 and p28: the element of the array this line names that the walk
+	// standing over it has reached, which is what every reader of that line
+	// inside one step of an array member's transfer is given.
+	LowValue walked_element(const DumpNode& node);
+	// Whether such a walk is standing and this line is one of the arrays it
+	// walks - a name or a member access whose type is an array, which inside
+	// one of those steps is only ever the object being written into or the
+	// object being read from.
+	bool walks_this_array(const DumpNode& node) const;
 	// 12.4p8 over the first `count` elements of the array at `base`, destroyed
 	// in the reverse of the order they were created in.  `count` is a value
 	// rather than a number, because 15.2p2 asks for the elements an exception
@@ -1138,7 +1153,12 @@ private:
 	void release_call_step(bool taken);
 	// One call about to be written.  15.4p1's non-throwing call is not a place
 	// an exception leaves by, so it needs no handler around it.
-	void note_call(bool throwing);
+	// `returned_object` says the call is 12.8p15's transfer filling 6.6.3p2's
+	// destination, which opens no region of its own: nothing of this function
+	// stands after it, so a handler it needed would be one over objects the
+	// caller is about to see destroyed anyway.  A region already open around
+	// the full-expression still covers it.
+	void note_call(bool throwing, bool returned_object = false);
 	// 1.9p10: a full-expression opened and closed, which is where 12.2p3 ends
 	// the temporaries it created and where the region around it ends.
 	void open_full_expression();
@@ -1350,6 +1370,29 @@ private:
 	// everywhere else, so no expression pays for it, and an entry standing is
 	// also what stops the distribution from finding the same conditional again.
 	std::unordered_map<const DumpNode*, const DumpNode*> selected_arms_;
+	// 12.8p15 and p28: while one element of an array member's transfer is being
+	// written, every line of the step that names one of the arrays it walks
+	// names the element the walk stands at.  The step is written once and run
+	// per element, so the index is the only thing that tells two of them apart
+	// - a number where the elements are written out, and the loop's own counter
+	// where the bound is written as one.  Inactive everywhere else, so no
+	// expression outside such a step pays anything for it.
+	struct ElementWalk
+	{
+		ElementWalk()
+			: active(false)
+			, counted(true)
+			, index(0)
+		{}
+
+		bool active;
+		// Whether the element is the number `index` or the value `cursor`
+		// holds.
+		bool counted;
+		unsigned long long index;
+		lowir_model::Operand cursor;
+	};
+	ElementWalk element_walk_;
 	std::unordered_set<std::string> slot_names_;
 	// 3.3.3p4: the suffix the last slot named after one identifier took, so the
 	// next one starts from there rather than from the first suffix again.
