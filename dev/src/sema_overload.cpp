@@ -566,8 +566,18 @@ void SemaAnalyzer::cast_conversion(Value& source, TypeId target,
 		// invented temporary, so a cast to a class type *is* that
 		// direct-initialization - a call of the constructor 13.3.1.3 chooses,
 		// with 13.3.1.4 leaving the class's `explicit` constructors in, and
-		// never a reading of whatever bytes the operand happens to hold.  The
-		// temporary is written around the operand in the place the operand
+		// never a reading of whatever bytes the operand happens to hold.
+		//
+		// 12.3.2p2: where the operand's own class reaches the target through a
+		// conversion function of its own, a cast may name that function however
+		// the class declared it - which converts the operand rather than
+		// constructing an object of the target's class from it.
+		if (types_.is_class(types_.strip_cv(source.type)) &&
+		    explicit_conversion(source, target, ctx))
+		{
+			return;
+		}
+		// The temporary is written around the operand in the place the operand
 		// already had, so the cast goes on standing where the program wrote it.
 		DumpNode& line = model_.wrap_node(*source.node, std::string());
 		Value operand = source;

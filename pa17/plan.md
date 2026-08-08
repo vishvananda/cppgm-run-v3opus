@@ -1,8 +1,14 @@
 # PA17 Plan — `cppgm++ --emit-lowir` value semantics
 
-PA17 stands at **194 / 228** of its fixtures, with pa1-pa16 at **1494 / 1494**
+PA17 stands at **204 / 228** of its fixtures, with pa1-pa16 at **1494 / 1494**
 and the file audit passing with the three recorded header-weight warnings it
 already had.
+
+`reference-binaries/cppgm++` accepts PA17 input, so the milestone has a
+differential oracle beside its checked-in fixtures: the README's "no external
+reference binary" means no *ref-test* target, not no binary. Probe it before
+guessing at a rule the fixtures pin only one point of - it is what settled
+5.2.2p4's boundary below, and what showed 5.3.4's zero is not 8.5p8's.
 
 ## Stage Design
 
@@ -29,6 +35,19 @@ answers the question it belongs to.
   same reason 8.3.5p7's cv-qualifier-seq beside it is: it is written after the
   parameter-clause, a declaration and the definition written outside its class
   agree on one type, and 13.1 has `f() &` and `f() &&` to tell apart.
+- **5.2.2p4's boundary is `TypeTable::passes_indirectly` and
+  `LowirUnitLowering::describe_parameter`**, the other half of 6.6.3p2's: a
+  class 12.8p12 says a copy of is not the copy of its bytes is `ptr
+  [pass=by_address]`, the caller passes the address of the object it built, the
+  callee reaches it through that address and copies nothing into a slot, and
+  8.5.3p5 names the storage `arg` rather than `argobj` because which half it is
+  is what the name says. What the boundary owes at the other end is 12.4p5's
+  destruction of that one object, at every return and where the body falls off
+  its end - which 12.4p8's reading of an empty body does not reach, because that
+  is an answer about an object this translation created and not one it was
+  handed. The checked-in ABI reads 12.8p12 of the **base class subobject** where
+  the class has one, and of the class itself where it does not; the destructor
+  says nothing here, unlike at 6.6.3p2's end.
 - `sema_lifetime.cpp` owns what running the four comes to, and what *ending* an
   object's lifetime comes to. 12.8p15/p28's definition is one walk of the same
   subobject list 12.6.2p10 and 12.4p8 walk. 12.4p8's `vacuous_destruction` is
@@ -100,6 +119,26 @@ answers the question it belongs to.
   9.3.1p3's lowering is what moves the cv-qualifier-seq onto the object
   parameter - so `function_description` leaves the ref-qualifier unspelled on
   that form and PA11's description of the declarator's own type spells both.
+- **5.2.9p4's cast to a class type is an initialization and not a reading of
+  bytes**: `T(e)` is well formed exactly where `T t(e);` is, so the cast is a
+  call of the constructor 13.3.1.3 chooses with 13.3.1.4's `explicit` ones left
+  in - which is what `construct_object`'s `direct` says, because 5.2.9p4's cast
+  and 13.3.3.1.2's conversion reach it the same way with one operand already
+  read and want opposite answers - or, where the operand's own class reaches the
+  target, a conversion function 12.3.2p2 lets a cast name however it was
+  declared. 12.8p31 threads through it: `creates_its_object` reads the temporary
+  standing under the cast, so the object the cast is worth is built where the
+  place asking for it named storage. A cast to a *reference* whose operand is a
+  prvalue is what asked for the temporary the reference binds, so 12.2p1 names
+  that storage `refcall`; an argument written around such a cast binds the
+  object the glvalue already names and materializes nothing of its own.
+- **8.5p8's zero is over the storage the bases and the members hold**
+  (`TypeTable::has_zeroed_storage`, settled in the layout walk beside 9p6's
+  `empty`), so a class every subobject of which holds nothing is zeroed by
+  writing no byte however many bytes 1.8p5 gives an object of it. 5.3.4's zero
+  is a different one: what stands at a new-expression's address is the storage
+  the allocation obtained, and the scalar form covers its whole extent as the
+  array form already did.
 - 4p3's contextual conversion is one call - `contextual_bool` - reached by a
   condition, `!`, `&&`, `||` and `?:`, with 12.3.2p2's `explicit` left in;
   6.4.2p2's is `contextual_integral`, with it left out; 5.3.5p2's is
@@ -164,7 +203,8 @@ answers the question it belongs to.
   nested-name-specifier is a second line describing one object, and only the
   line that lays the storage out may write the image.
 
-Facts PA17 adds: `SemaFact::object`, `SemaFact::destruction`,
+Facts PA17 adds: `TypeTable::passes_indirectly`, `::has_zeroed_storage`,
+`UserType::base`, `::zeroed_storage`, `SemaFact::object`, `SemaFact::destruction`,
 `UserType::trivial_destruction`, `SemaEntity::transfer`, `::transfers`, `::conversion_function`,
 `::conversions`, `::conversions_above`, `::empty_body`, `::nonthrowing`,
 `UserType::copy_deleted`, `TypeTable::returns_indirectly`, `RefQualifier` on the
@@ -180,52 +220,46 @@ out of the analyzer so each layer asks them once - `observable_expression`,
 
 ## Current Failure Map
 
-34 fixtures fail, grouped by the compiler behaviour they are waiting on and by
-the message each one stops at today.
+24 fixtures fail, grouped by the compiler behaviour they are waiting on.
 
 | group | n | what is missing |
 | --- | --- | --- |
-| 12.8p31 / 8.5.3p5 placement diffs | 13 | a copy written where the reference elides one, the slot an argument's temporary is named after, the materialization a cast to an rvalue reference asks for, and the ABI's `pass=by_address` for a class 12.4p5 and 12.8p12 make non-trivial for a call |
 | 8.5.4 braced-init-list of a non-aggregate | 5 | 13.3.1.7's constructor call from a list, and a braced-init-list written as a call argument at all |
 | 12.6.2p6 delegating constructors | 3 | a mem-initializer naming the class itself |
-| 9.5 unions | 3 | variant lifetime and p1's one default member initializer |
+| 9.5 unions | 3 | variant lifetime and p1's one default member initializer, which a mem-initializer for another member replaces rather than joins |
 | 12.8p15 array member / other | 3 | an array of a class whose transfer needs a call, a reference member's copy, and a move-only member's implicit assignment |
-| 5.2.9p4 cast to a class type | 2 | a cast to a class reads the operand's bytes instead of direct-initializing a prvalue of it, which has to reach `construct_object` with 13.3.1.4's explicit constructors left in |
-| 8.5p8's zero of a class whose subobjects build themselves | 2 | `iterator()` writes `store i8 0` over a class whose only member is an empty class with a user-provided constructor, where the reference writes nothing: 8.5p8's zero is over the storage the members and bases hold, and a subobject that holds nothing holds none of it. The C6 audit closed the arm-lifetime half of both fixtures |
-| 8.4.2 out-of-class defaulted definitions | 1 | `S::~S() = default;` written outside the class is not parsed, so the unit is refused whole |
+| 12.2p3 / 12.8p31 lifetime and placement | 4 | 12.8p31's NRVO of a named local a return names; a conditional's prvalue arm whose temporary is never ended; 5.16p3's arm chosen by the *copy* where an xvalue member is one operand; and 12.8p31's elision through 13.3.1.4's conversion function into a new-expression's storage |
+| 5.16p3's cv-different glvalue arms | 1 | the fixtures pin a prvalue result copied per arm where 5.16p3's reference binding would give one lvalue |
+| 5.2.9p4 cast to a class reference | 1 | `static_cast<const W&>(t)` binds a temporary a converting constructor of `W` builds, which `cast_to_reference` still lets bind the operand itself |
+| 8.5p16 direct-init of a class from a class | 1 | the fixtures let `T(e)` reach 13.3.1.4's `explicit` conversion function of the operand's class, which the standard's copy-initialization of the constructor's parameter does not |
 | 13.3.1.1.2 surrogate call functions | 1 | an object whose conversion yields a function pointer, called |
+| 8.4.2 out-of-class defaulted definitions | 1 | `S::~S() = default;` written outside the class is not parsed |
 | 3.4.3.2 using-directive ambiguity | 1 | two namespaces one level reaches declare one name |
 
 Four holes earlier sweeps found that no fixture covers and that are not this
 milestone's: 9.2p1's refusal of a member declared twice in one class, 5.5's
-`.*` in the lowering, which member pointers being out of scope leaves, 13.5.6's
-overloaded `operator->`, which `object_region` refuses along with every other
-`->` on a class operand, and 10.3's virtual dispatch, which the README puts
-after this milestone outright.
+`.*` in the lowering, 13.5.6's overloaded `operator->`, and 10.3's virtual
+dispatch, which the README puts after this milestone outright. A fifth is now
+recorded: an `obj<>` parameter of a class with a non-trivial destructor is
+destroyed by neither side, which the reference binary does too and which no
+fixture reaches.
 
 ## Active Checkpoint
 
-None open. C6 is complete and swept at 194 / 228, with pa1-pa16 unchanged: the
-audit at `67babaa8` found and fixed eight blockers, three of which wrote a
-destructor call for an object that was not standing.
+None open. C7 is complete at 204 / 228 with pa1-pa16 unchanged.
 
-The next checkpoint is **C7: 12.8p31 and 8.5.3p5's placement**, at 13 fixtures
-and by far the largest group left. Its owner is the lowering's
-`place_class_object` and `class_value_slot`, which already decide where a class
-prvalue is built and what its storage is named after; what the group adds is
-the other half of the ABI the C6 turn opened - 5.2.2p4's by-value parameter of
-a class 12.4p5 or 12.8p12 makes non-trivial for a call is passed by address,
-which `open_signature` already answers for 6.6.3p2's returned object and has
-no answer for yet: `int byval(T);` for a class with a destructor is declared
-`(%arg0 : obj<4x4>)` where the reference writes `(%arg0 : ptr [pass=by_address])`
-and the caller passes the slot rather than its address, which the C6 audit's
-sweep confirmed is the whole of the difference on the simplest probe of the
-group. Its data flow is one further fact of `UserType` read by the signature,
-the call and the parameter's own entry; its expected complexity is one probe per
-parameter; its validation is the group's own 13 fixtures plus a differential
-sweep of the four class shapes (trivial, copy-declared, destructor-declared,
-wide) through both binaries, with `pass=` diffed beside the text because the
-comparison strips it.
+The next checkpoint is **C8: 8.5.4's braced-init-list of a non-aggregate**, at
+5 fixtures and the largest group left. Its owner is `sema_lifetime.cpp`'s
+`read_initializer`, which already tells 8.5.1's aggregate clauses from 8.5p14's
+one expression and has no third reading for 13.3.1.7's "the clauses are the
+constructor's arguments"; the analysis's `list_initialize` is where a
+braced-init-list written as a *call argument* has to become a value at all. Its
+data flow is one further `WrittenInitializer` form read once from the syntax and
+one argument shape in `sema_overload.cpp`; its expected complexity is one probe
+per clause; its validation is the group's five fixtures plus a differential
+sweep of `T{...}`, `T t{...}`, `f({...})` and a defaulted `= {}` argument
+through the reference binary, with the aggregate and non-aggregate shapes of
+each written side by side.
 
 ## Performance Model
 
@@ -349,6 +383,22 @@ host, at 250/500/1000/2000 unless said otherwise.
   destructors are defined after their uses are 0.02/0.04/0.10/0.22 s and 21 n
   lines, which is the same time and byte-identical output to the same program
   with the definitions written first.
+- **5.2.2p4's boundary is one probe of two flags per parameter, and what it
+  owes at the other end is one destruction per by-address parameter per exit.**
+  n functions each taking two such parameters, each with two returns, and each
+  called are 38 n lines in 0.04/0.08/0.15/0.31 s; one function with n such
+  parameters is 2 n lines in 0.00/0.01/0.01/0.03 s; one with three of them and
+  400 returns is 6023 lines in 0.01 s - the source's own k x m and no walk of
+  the parameter list per return.
+- **8.5p8's answer is one field of the class, settled in the layout walk beside
+  9p6's `empty`, so a class asks its subobjects once and never again.** A chain
+  of classes nested n deep whose innermost member is an empty class with a
+  constructor is 11 n lines in 0.01/0.03/0.06/0.13 s at 250/500/1000/2000 -
+  linear in the depth, which is what says the answer is carried and not walked
+  for at each use.
+- 5.2.9p4's cast writes one temporary node per cast and no second reading of the
+  operand: n casts of an integer to a class with a converting constructor are
+  8 n lines in 0.01/0.02/0.04/0.08 s.
 - 6.6.3p2's boundary is one probe of the type, and 12.8p31's result object is
   one operand threaded down the initializer - no node is read twice and no
   instruction is rewritten once written. **The threading is linear in nesting
@@ -432,3 +482,4 @@ host, at 250/500/1000/2000 unless said otherwise.
 | C4 | 8.3.5p1's ref-qualifiers, end to end. The ref-qualifier is a field of the *function type*, interned beside 8.3.5p7's cv-qualifier-seq, so `declarator_type` writes it once and the declaration, the out-of-class definition, `member_signature`'s key, a using-declaration's brought-in copy, the Itanium name and a pointer to member all read the one fact; 8.3.5p6 refuses it on a non-member, a static member, a constructor and a destructor, and 13.1p2 refuses a set that mixes it with the unqualified spelling under any of the four cv-qualifications, because 8.3.5p4's parameter-type-list is what the rule is keyed on. `Value::object_category` carries what 9.3.1p3's pointer drops, and `object_match` is where 13.3.1p4's viability and 13.3.3.2p3's ordering are read off it - reached by a member access, a call with no object expression, an operator's left operand and 13.3.1.5's own candidate set alike, so a conversion function's ref-qualifier is ranked by the same question; 5.2.5p4 is what a member access hands it, which makes a reference member an lvalue before it makes a subobject an xvalue. The Itanium `R`/`O` qualifier joins `K` and `V` in the object name, and the two qualifiers written after the parameter-clause are spelled on the type the declarator wrote and not a second time on the form 9.3.1p3 lowered. 9.3p2's sibling hole closed with it: a definition written with a qualified declarator-id defines a declaration that region already made, so `int X::f() &&` against a declared `int X::f() &` - and equally a mistyped parameter list or cv-qualifier-seq - is refused rather than declaring a second member. Audited at `9f693145`: four blockers found and fixed, which carried the ref-qualifier through a using-declaration's rebuilt type, spanned 13.1p2's probe across the cv-qualifications, put both qualifiers back in PA11's description and took the ref-qualifier out of PA12's, and gave a reference member 5.2.5p4's lvalue category | 149 -> **163 / 228**; pa1-pa16 1494 / 1494; no regressions |
 | C5 | 5.3.4 and 5.3.5, end to end, in `sema_allocation.cpp`. 3.7.4.1p2/3.7.4.2p2's four functions are declared in the global namespace before the unit is read, so a program that writes one redeclares it and the object file names it `cppgm_builtin_operator_*`; `operator new` and `operator delete` are the two operator-function-ids a use spells with a space, and the id-expression's spelling is packed to the one the declaration is bound under. 5.3.4p6's first array-suffix is read as the one bound that need not be a constant, the bytes are scaled in the count's own type and reach the parameter through 5.2.2p4's conversion, the ABI's count is written in front of an array of class type and read back off it by `delete[]`, and 12.6p1's construction is one loop with 15.2p2's handler and 5.3.4p18's deallocation behind it; 8.5p7's `()` over a scalar array is one byte loop. 5.3.5 is 12.4p3's end of a lifetime and 3.7.4.2's return of the storage, with 5.3.5p9's lookup, 12.5p4's usual deallocation function, 5.3.5p2's `contextual_pointer` and the null test written where a class type leaves something to guard. 15.4p1's `nonthrowing` joins the declaration, and 5.3.4p15's test is written where 15.4 *and* 18.6.1.1p3's `std::nothrow_t` both say the call reports failure with a value. Three defects the group exposed: 9.4.2p2's second line describing one object let a declaration write the image, so 3.1p2 became a fact of the line; 8.5p14's initialization folded a widening to an unsigned type the rest of 4 spells out; and 3.9.1p2's two eight-byte integral types share one LowIR spelling and are still two types a copy stands between. Audited at `6c785249`: seven blockers and one refusal found and fixed, which made 5.3.4p6's count a fact of its own rather than a zero sentinel, wrote 8.5p7's zero as one instruction over an extent the translation knows, gave 8.5p7's value-initialization of an array the vacuity exit 8.5p6's already had, made `vacuous_construction` 12.4p8's walk of the subobject tree the other way round, settled 5.3.4p15's test once for both forms, named 15.2p2's cleanup destructor by the ABI's complete-object entry, put `unwind=no` back on every reserved builtin, and let 5.3.5p5's incomplete class be deleted rather than refused | 163 -> **186 / 228**; pa1-pa16 1494 / 1494; no regressions |
 | C6 | 12.2p3's full-expression boundary and 15.2p2's handler in an ordinary body. `sema_lifetime.cpp` holds one frame per open full-expression and `Fact::object` makes 12.2p1's object a fact of the node that produced the prvalue, so a call and a conditional that hand one back name the object every reader reaches; 12.2p5 moves a temporary a reference binds into the block that declared the reference rather than leaving it in both places, and 6.4p3's condition-declaration becomes an object of the region the selection statement opened, so a path that never reached the declaration no longer destroys what it never built. 12.2p3's end is written where the full-expression ends - inline for a statement, an initializer, a mem-initializer and a loop-continuation portion, and on the two edges out of a condition, which is what makes an `if` whose condition holds a temporary lower its `&&` as a value rather than as its own control flow. The handler machinery 15.2p2 gave 12.6.2's subobjects now covers every object standing in a body: a region opens where the step that made a throwing call began, closes where the standing set changes or the full-expression does, is written again on each block a step spans, owes what stood when it *opened* rather than at its close, and names a block an earlier step wrote wherever the two owe the same objects. Four defects the group exposed: 15.4p1's exception-specification was read off no constructor's, destructor's or conversion function's declarator; 12.4p5 did not join 12.8p12 in saying which classes the ABI hands back in registers; 5.16p3's prvalue arm was ended twice, once as the conditional's result object and once as a temporary of its own; and 8.3.2p5's condition declaring a reference read no conversion function of the class it named. Audited at `67babaa8`: eight blockers found and fixed, three of which wrote a destructor call for an object that was not standing - the region closing after 3.8p1's ends rather than in front of them, a handler block named again after the objects it owed had been destroyed, and 5.14p1/5.16p1's conditionally-evaluated operands having no frame of their own; the fourth was the standing list copied once per region a lifetime ended inside, which was quadratic under linear output; and the machinery was split into `lowir_lower_unwind.cpp` at 15.2p2's own seam | 186 -> **194 / 228**; pa1-pa16 1494 / 1494; no regressions |
+| C7 | 5.2.2p4's class argument at the boundary, and the placement facts swept beside it. `TypeTable::passes_indirectly` is 6.6.3p2's other half and `describe_parameter` the one writer a declaration, a definition and a call through a pointer all read: a class the ABI cannot carry as bytes is `ptr [pass=by_address]`, the caller passes the address of the object it built, the callee reaches it through that address, 8.5.3p5 names the storage `arg`, and 12.4p5 says the function owes its destruction at every return and where the body falls off its end. 4.2p1's decay of an array a reference names is marked where the name stands. 5.2.9p4's cast to a class type became the initialization it is - `construct_object` learned 13.3.1.4's question about the place that asked, `creates_its_object` reads the temporary standing under the cast so 12.8p31 elides through it, a conversion function of the operand's own class is reached where one exists, and a cast to a reference names the temporary it binds `refcall` while an argument around it binds the glvalue rather than materializing one. 8.5p8's zero became one over the storage the bases and members hold, with 5.3.4's zero of the storage an allocation obtained told apart from it. The reference binary settled the boundary's own reading of 12.8p12: it is of the base class subobject where the class has one, and the destructor says nothing there | 194 -> **204 / 228**; pa1-pa16 1494 / 1494; no regressions |
