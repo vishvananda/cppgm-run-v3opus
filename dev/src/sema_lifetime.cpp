@@ -2228,7 +2228,13 @@ void SemaAnalyzer::write_transfer_steps(const Pending& pending, DumpNode& line,
 		}
 	}
 	std::size_t first = 0;
-	if (base == nullptr)
+	// 10.3p1 and 12.8p12: a class that added the vpointer has it standing in
+	// front of its members, and the vpointer of the object being written into
+	// names that object's own class rather than the source's - so there is no
+	// leading run to carry and each member is carried on its own.
+	const bool added_vptr =
+		members.owner != nullptr && members.owner->introduces_vptr;
+	if (base == nullptr && !added_vptr)
 	{
 		// 12.8p15: the members carried as storage are carried in one piece, and
 		// the piece is only the object's own storage where nothing stands

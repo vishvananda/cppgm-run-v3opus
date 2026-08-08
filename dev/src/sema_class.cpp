@@ -1350,7 +1350,13 @@ void SemaAnalyzer::settle_transfers(SemaEntity& entity, Scope& scope)
 			// it is, and nothing about the class makes it trivial.
 			continue;
 		}
-		bool trivial = true;
+		// 12.8p12 and p25: a class with a virtual function has no trivial
+		// transfer member, because the definition the standard gives it leaves
+		// the vpointer of the object written into naming that object's own
+		// class - which the bytes of the source do not hold wherever the two
+		// are of different classes.  It is asked here rather than of each
+		// subobject, because the vpointer is a fact of *this* class's storage.
+		bool trivial = !entity.polymorphic;
 		bool deleted = member->deleted;
 		// 15.4p14: the exception-specification of a member the standard defines
 		// is what the members its definition directly invokes allow, which for

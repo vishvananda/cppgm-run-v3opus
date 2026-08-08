@@ -1660,15 +1660,18 @@ private:
 	// was written on rather than the one that declared the member, which is
 	// what a using-declaration makes it: the subobject the member belongs to is
 	// still named, and the base-specifier's own access is not asked about.
+	// `wrote_arrow` is 5.2.5p1's `E1->E2`, whose step to a base subobject moves
+	// the pointer `E1` holds rather than naming an object that is there.
 	Value member_value(SemaEntity& member, const Value& object_written,
 	                   const std::string& payload, DumpNode& node,
-	                   bool checked_base = true);
+	                   bool checked_base = true, bool wrote_arrow = false);
 	// 9.5p1: the objects an anonymous class declared that stand between an
 	// object expression and `member`.  A class written inside another anonymous
 	// one leaves a chain of them, and the access holds each in turn from the
 	// outermost in - which is the order the offsets add up in.
 	Value through_anonymous_storage(const SemaEntity& member, Value object,
-	                                bool checked_base);
+	                                bool checked_base,
+	                                bool wrote_arrow = false);
 	// 5.16p3: an operand of a conditional whose result is an lvalue of a base
 	// class of that operand's own class.
 	void convert_arm_to_base(Value& arm, TypeId result);
@@ -1682,7 +1685,7 @@ private:
 	// 4.10p3 and 10p1: the base class subobject of the object an operand
 	// denotes, written as one node holding the operand's own line.
 	Value base_value(const Value& object, SemaEntity& base,
-	                 bool checked = true);
+	                 bool checked = true, bool wrote_arrow = false);
 	// 11.2p4: a conversion from a derived class to a base class of it is well
 	// formed only where the base-specifier's access reaches, which is what
 	// makes a private base unreachable from outside the class that declared it.
@@ -1713,7 +1716,8 @@ private:
 	// which is the base subobject of the class that declared it.
 	Value object_in_declaring_class(const Value& object,
 	                                const SemaEntity& member,
-	                                bool checked = true);
+	                                bool checked = true,
+	                                bool wrote_arrow = false);
 	// The object a member named with no object expression is a member of.
 	Value implied_object(const SemaEntity& member, DumpNode& line);
 	// 5.3.1p3: `&C::x`, where `entity` is the member of a class the qualified-id

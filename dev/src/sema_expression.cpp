@@ -721,10 +721,14 @@ SemaAnalyzer::Value SemaAnalyzer::member_expression(const AstNode& node,
 	// which is itself a member of the class named here, so the access the
 	// object expression wrote holds one more - the same object a member named
 	// with no object expression is reached through.
-	object = through_anonymous_storage(member, object, checked_base);
+	// 5.2.5p1 and 4.10p3: `E1->E2` steps to the base subobject on the pointer
+	// `E1` holds, which is a pointer the program could have written a null into.
+	const bool wrote_arrow = node.token == OP_ARROW;
+	object = through_anonymous_storage(member, object, checked_base,
+	                                   wrote_arrow);
 	return member_value(member, object,
 	                    std::string(ast_token_type_name(node.token)) + ":" +
-	                    id.text, line, checked_base);
+	                    id.text, line, checked_base, wrote_arrow);
 }
 
 // 5.3.1p3: the address of the object a member function is called on, written
@@ -762,6 +766,10 @@ void SemaAnalyzer::address_of_object(Value& object, DumpNode& node,
 	}
 	object.type = object.spelled = types_.pointer_to(object.type);
 	object.category = ValueCategory::PRValue;
+	// 5.3.1p3: `E1.f()` passes the address of the object `E1` named, which is
+	// an object that is there - so 4.10p3's conversion of it to a base
+	// subobject is the address itself, exactly as it is for 9.3.2p1's `this`.
+	object.nonnull = true;
 	object.entity = nullptr;
 	object.what = "unary-expression";
 	object.op = OP_AMP;
@@ -982,10 +990,11 @@ void SemaAnalyzer::member_callee(const AstNode& callee, const Context& ctx,
 	DumpNode& access = model_.open_node(line, std::string());
 	access.children.push_back(object_line.children[0]);
 	object.node = access.children[0];
-	object = through_anonymous_storage(member, object, checked_base);
+	object = through_anonymous_storage(member, object, checked_base,
+	                                   through_pointer);
 	target = member_value(member, object,
 	                      std::string(ast_token_type_name(callee.token)) + ":" +
-	                      id.text, access, checked_base);
+	                      id.text, access, checked_base, through_pointer);
 	object = Value();
 }
 
@@ -1025,7 +1034,8 @@ void SemaAnalyzer::implicit_object_argument(
 // to the base subobject itself, which is as cv-qualified as the object it is
 // part of and is an lvalue exactly where the object was one.
 SemaAnalyzer::Value SemaAnalyzer::base_value(const Value& object,
-                                             SemaEntity& base, bool checked)
+                                             SemaEntity& base, bool checked,
+                                             bool wrote_arrow)
 {
 	Value value = object;
 	const bool through_pointer =
@@ -1061,9 +1071,14 @@ SemaAnalyzer::Value SemaAnalyzer::base_value(const Value& object,
 	value.node = &model_.wrap_node(*object.node, std::string());
 	respell(value);
 	// 4.10p3: a pointer the program could have written a null into converts to
-	// the null pointer value of the base's type, and only a *pointer* asks it -
-	// an object converted to its base subobject is an object that is there.
-	value.node->fact.null_preserving = through_pointer && !object.nonnull;
+	// the null pointer value of the base's type, so what asks the question is
+	// which pointer value the step moves.  A *pointer* operand is one, and so is
+	// 5.2.5p1's `E1->E2`, whose step is on the pointer `E1` holds rather than on
+	// the object it addresses - `E1.E2` names an object, which is there.  `this`
+	// and 5.3.1p3's `&x` are addresses of objects, so a step off either is the
+	// address itself and never a branch.
+	value.node->fact.null_preserving =
+		(through_pointer || wrote_arrow) && !object.nonnull;
 	return value;
 }
 
@@ -1074,7 +1089,8 @@ SemaAnalyzer::Value SemaAnalyzer::base_value(const Value& object,
 // and 4.10p3 writes the one node every other derived-to-base conversion writes.
 // A member the walk never reaches belongs to the object as it stands.
 SemaAnalyzer::Value SemaAnalyzer::object_in_declaring_class(
-	const Value& object, const SemaEntity& member, bool checked)
+	const Value& object, const SemaEntity& member, bool checked,
+	bool wrote_arrow)
 {
 	const SemaEntity* const named =
 		member.storage != nullptr ? member.storage : &member;
@@ -1094,7 +1110,7 @@ SemaAnalyzer::Value SemaAnalyzer::object_in_declaring_class(
 	{
 		return object;
 	}
-	return base_value(object, *reached, checked);
+	return base_value(object, *reached, checked, wrote_arrow);
 }
 
 // 5.1.1p1: a parameter named the way the program would name it, which is what
@@ -1127,12 +1143,13 @@ SemaAnalyzer::Value SemaAnalyzer::member_value(SemaEntity& member,
                                                const Value& object_written,
                                                const std::string& payload,
                                                DumpNode& node,
-                                               bool checked_base)
+                                               bool checked_base,
+                                               bool wrote_arrow)
 {
 	// 10.2: the member may have been declared in a base of the object's class,
 	// and what it is a member of is that class's base subobject.
-	const Value object =
-		object_in_declaring_class(object_written, member, checked_base);
+	const Value object = object_in_declaring_class(object_written, member,
+	                                               checked_base, wrote_arrow);
 	if (member.kind != SemaKind::Variable)
 	{
 		// 5.2.5p4 gives a member function the meaning only a call of it has, and
@@ -1178,18 +1195,24 @@ SemaAnalyzer::Value SemaAnalyzer::member_value(SemaEntity& member,
 // and the access holds each in turn from the outermost in, which is the order
 // the offsets add up in.
 SemaAnalyzer::Value SemaAnalyzer::through_anonymous_storage(
-	const SemaEntity& member, Value object, bool checked_base)
+	const SemaEntity& member, Value object, bool checked_base,
+	bool wrote_arrow)
 {
 	std::vector<SemaEntity*> chain;
 	for (SemaEntity* at = member.storage; at != nullptr; at = at->storage)
 	{
 		chain.push_back(at);
 	}
+	// 5.2.5p1: the arrow is written on the object expression, so the one step
+	// that may move the pointer it holds is the first of these - what each of
+	// them names afterwards is an object standing in the one before it.
+	bool arrow = wrote_arrow;
 	for (std::size_t index = chain.size(); index-- > 0;)
 	{
 		object = member_value(*chain[index], object, chain[index]->name,
 		                      model_.wrap_node(*object.node, std::string()),
-		                      checked_base);
+		                      checked_base, arrow);
+		arrow = false;
 	}
 	return object;
 }
@@ -1970,6 +1993,10 @@ SemaAnalyzer::Value SemaAnalyzer::unary_expression(const AstNode& node,
 		{
 			value.type = types_.pointer_to(operand.type);
 		}
+		// 5.3.1p3: the result is the address of the object the operand names,
+		// so it holds an object and never 4.10p1's null pointer value - which
+		// is what leaves 4.10p3's conversion of it the address and not a test.
+		value.nonnull = true;
 		break;
 
 	case OP_STAR:

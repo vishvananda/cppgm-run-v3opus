@@ -312,7 +312,12 @@ void SemaAnalyzer::lay_out_class(SemaEntity& entity, Scope& scope, bool is_union
 	// walk with this class's own declaration left out of it: 5.2.2p4's boundary
 	// carries an object of a derived class the way the subobjects it is made of
 	// are carried, so what it reads is what the base and the members are.
-	bool subobject_bytes = true;
+	// 12.8p12 again over the one thing in that storage no subobject accounts
+	// for: a class that dispatches holds a vpointer, and the pointer the bytes
+	// of the source hold is the source's own class's - so the storage of a
+	// polymorphic class is not carried by its bytes however its base and its
+	// members are carried.
+	bool subobject_bytes = !entity.polymorphic;
 	// 8.5p8: what zero-initializing an object of this class writes is what its
 	// base subobject and its non-static data members hold, so a class every
 	// subobject of which holds nothing has no byte to write - which 1.8p5's

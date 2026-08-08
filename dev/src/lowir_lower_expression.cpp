@@ -344,7 +344,14 @@ Operand LowirFunctionLowering::field_at(const Operand& at,
 LowValue LowirFunctionLowering::base_conversion(const DumpNode& node)
 {
 	TypeTable& types = unit_.types();
-	const LowValue held = expression(*node.children[0], true);
+	// A conversion of a *pointer* reads the pointer value its operand holds,
+	// and one of an object reads the storage the operand names.  5.16p4 makes
+	// `c ? p : q` an lvalue of pointer type, so asking for the object where a
+	// pointer converted would name the slot the conditional chose rather than
+	// the pointer standing in it.
+	const bool converts_pointer =
+		types.kind(types.strip_cv(node.fact.type)) == TypeKind::Pointer;
+	const LowValue held = expression(*node.children[0], !converts_pointer);
 	const Operand from =
 		types.kind(types.strip_cv(held.type)) == TypeKind::Pointer
 			? rvalue(held)
