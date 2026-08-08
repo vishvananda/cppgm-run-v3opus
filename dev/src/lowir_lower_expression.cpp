@@ -29,13 +29,6 @@ std::string decimal(unsigned long long value)
 	return out.str();
 }
 
-std::string signed_decimal(long long value)
-{
-	std::ostringstream out;
-	out << value;
-	return out.str();
-}
-
 Operand named_operand(Operand::Kind kind, const std::string& text)
 {
 	Operand operand;
