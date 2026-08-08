@@ -233,9 +233,13 @@ SemaAnalyzer::Value SemaAnalyzer::delete_expression(const AstNode& node,
 	}
 	// 5.3.5p2: the object destroyed is the one the pointer points to, and the
 	// cv-qualification the pointer carried says nothing about what destroying
-	// it comes to.
-	const TypeId destroyed = types_.strip_cv(types_.target(operand.type));
-	if (types_.is_incomplete(destroyed))
+	// it comes to.  For the array form the operand points at the first element
+	// of the array, and 8.3.4p1's elements of an array of arrays are the
+	// objects of the ultimate element type - which is what the count in front
+	// of them counts and what one destructor call ends.
+	const TypeId pointed = types_.strip_cv(types_.target(operand.type));
+	const TypeId destroyed = array ? element_of(pointed) : pointed;
+	if (types_.is_incomplete(pointed))
 	{
 		throw std::runtime_error("a delete-expression destroys an object of the "
 		                         "incomplete type " +

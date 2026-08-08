@@ -706,7 +706,16 @@ Operand LowirFunctionLowering::convert_scalar(const Operand& operand,
 	TypeTable& types = unit_.types();
 	const lowir_model::LowType source = unit_.low_type(from);
 	const lowir_model::LowType target = unit_.low_type(to);
-	if (source.text == target.text)
+	// 3.9.1p2: LowIR spells both eight byte integral types `i64` and says which
+	// operator reads a value as unsigned, so two types the same width apart in
+	// signedness share one spelling.  4.7p2's conversion between them is still
+	// a reading of the value at another type, which LowIR names with a copy -
+	// what shares a spelling and nothing else is the same bits and not the same
+	// operand.
+	if (source.text == target.text &&
+	    (unit_.is_signed(from) == unit_.is_signed(to) ||
+	     !types.is_integral(types.strip_cv(from)) ||
+	     !types.is_integral(types.strip_cv(to))))
 	{
 		return operand;
 	}
@@ -869,23 +878,15 @@ Operand LowirFunctionLowering::converted(const LowValue& value, TypeId target)
 	return convert_scalar(operand, value.type, wanted);
 }
 
-// 8.5p14 and 5.19: the value an initializer gives the object it initializes.
-// An initialization writes what the initializer is worth as the type the object
-// holds, so where that is a constant the conversion is the value it produces
-// and nothing computes it; 4.12's conversion to `bool` is a comparison rather
-// than a value read at another width, and is written where it stands.
+// 8.5p14: the value an initializer gives the object it initializes, which is
+// what the initializer is worth read as the type the object holds.  That is
+// 4's conversion and nothing else, so it is asked for in the one place every
+// other reading of a value at another type asks: an immediate read at a width
+// it names the same value at is that immediate, and a widening to an unsigned
+// type or 4.12's comparison with zero is the operation that produces it.
 Operand LowirFunctionLowering::initializer_value(const LowValue& value,
                                                  TypeId target)
 {
-	TypeTable& types = unit_.types();
-	const TypeId wanted = types.strip_cv(target);
-	if (value.constant && types.is_integral(wanted) &&
-	    types.kind(wanted) == TypeKind::Fundamental &&
-	    types.fundamental_type(wanted) != FT_BOOL &&
-	    types.is_integral(types.strip_cv(value.type)))
-	{
-		return literal_operand(wanted, value.value);
-	}
 	return converted(value, target);
 }
 

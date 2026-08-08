@@ -2035,10 +2035,11 @@ void SemaAnalyzer::declare_object_declarator(const AstNode* initializer,
 	// of it however it was written, so the one that defines it is the one
 	// written outside the class, which is the one whose declarator-id carries
 	// the nested-name-specifier that named the class.
-	entity.object_definition = entity.object_definition ||
-		((target.scope->kind != ScopeKind::Class || spelled.qualified()) &&
-		 (!specifiers.is_extern ||
-		  (initializer != nullptr && !initializer->children.empty())));
+	const bool defines_object =
+		(target.scope->kind != ScopeKind::Class || spelled.qualified()) &&
+		(!specifiers.is_extern ||
+		 (initializer != nullptr && !initializer->children.empty()));
+	entity.object_definition = entity.object_definition || defines_object;
 	record_storage(entity, prior, specifiers, target, type);
 	// 9.4.2p2: a definition written with a nested-name-specifier declares
 	// nothing where it names, so the line it writes is not one of that region's:
@@ -2062,6 +2063,7 @@ void SemaAnalyzer::declare_object_declarator(const AstNode* initializer,
 	                           types_.description(type), FactKind::Variable);
 	line.fact.entity = &entity;
 	line.fact.type = type;
+	line.fact.object_definition = line.fact.object_definition || defines_object;
 	const AstNode* const clause =
 		initializer == nullptr || initializer->children.empty()
 			? nullptr

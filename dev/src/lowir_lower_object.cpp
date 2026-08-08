@@ -1183,6 +1183,26 @@ LowValue LowirFunctionLowering::temporary_object(const DumpNode& node,
 // a slot, a global, a subobject of one - and this one stands at a value, so the
 // address the call produced is passed to the same construction rather than an
 // address being taken around a name.
+// 5.3.4p15 and 18.6.1.3p2: whether the call of this allocation function may
+// hand back a null pointer for the expression to leave uninitialized.
+//
+// 15.4 is what says so: a function that may throw has already left the
+// expression where it stands if it obtained nothing.  18.6.1.3p2's
+// non-allocating form is the one exception - it obtains no storage at all and
+// returns the address it was handed, so a program writing `new (p) T` gets the
+// object at `p` and never a test of it.
+bool LowirFunctionLowering::allocation_may_fail(const SemaEntity& entity) const
+{
+	if (!entity.nonthrowing)
+	{
+		return false;
+	}
+	const std::vector<TypeId>& parameters = unit_.types().parameters(entity.type);
+	return entity.object_member || parameters.size() != 2 ||
+		parameters[1] != unit_.types().pointer_to(
+			unit_.types().fundamental(FT_VOID));
+}
+
 LowValue LowirFunctionLowering::new_expression(const DumpNode& node)
 {
 	TypeTable& types = unit_.types();
@@ -1202,17 +1222,45 @@ LowValue LowirFunctionLowering::new_expression(const DumpNode& node)
 		return value;
 	}
 	const DumpNode& initialization = *node.children[1];
+	// 5.3.4p15: an allocation function 15.4 says throws nothing says so by
+	// returning null, and the object at a null address is not initialized.  One
+	// that may throw has already left the expression where it stands if it
+	// obtained nothing, so there is nothing for a test to be about.
+	const DumpNode& callee = *node.children[0]->children[0];
+	const bool guarded = callee.fact.kind == FactKind::Callee &&
+		callee.fact.entity != nullptr && allocation_may_fail(*callee.fact.entity);
+	std::string done;
+	if (guarded)
+	{
+		const std::string live = reserve_block("new_init");
+		done = reserve_block("new_end");
+		Instruction test;
+		test.kind = Instruction::IK_CMP;
+		test.op = "ne";
+		test.type.text = "ptr";
+		test.first = allocated.operand;
+		test.second = named_operand(Operand::OP_INTEGER, "0");
+		branch(emit(test), live, done);
+		open_block(live);
+	}
 	if (initialization.fact.kind == FactKind::ConstructorAction)
 	{
 		// 12.1p5: the object's lifetime begins with the call of its
 		// constructor, which is written even where the constructor does
 		// nothing, because the call is the only mark that it has.
 		constructor_call(allocated.operand, initialization, true);
-		return value;
 	}
-	const TypeId created = types.target(node.fact.type);
-	const LowValue held = expression(initialization);
-	store(converted(held, created), allocated.operand, created);
+	else
+	{
+		const TypeId created = types.target(node.fact.type);
+		const LowValue held = expression(initialization);
+		store(converted(held, created), allocated.operand, created);
+	}
+	if (guarded)
+	{
+		jump(done);
+		open_block(done);
+	}
 	return value;
 }
 
@@ -1417,13 +1465,9 @@ void LowirFunctionLowering::construct_array_new_run(const DumpNode& node,
 	test.second = count;
 	branch(emit(test), body, end);
 	open_block(body);
+	// 8.5p7's zero, where the element was value-initialized, is one element's
+	// worth of bytes and not the array's - which is what `element` says.
 	const Operand address = element_at_value(data, at, stride);
-	if (action.fact.zero_initialized)
-	{
-		// 8.5p7: the element's storage is zero before the constructor the
-		// standard gave its class runs, which is one element's worth of bytes.
-		zero_object(address, element);
-	}
 	emit_handler(false, cleanup);
 	constructor_call(address, action, false, element);
 	emit_handler_end();

@@ -1,6 +1,6 @@
 # PA17 Plan — `cppgm++ --emit-lowir` value semantics
 
-PA17 stands at **163 / 228** of its fixtures, with pa1-pa16 at **1494 / 1494**
+PA17 stands at **186 / 228** of its fixtures, with pa1-pa16 at **1494 / 1494**
 and the file audit passing with the three recorded header-weight warnings it
 already had.
 
@@ -43,6 +43,16 @@ answers the question it belongs to.
   both that and `open_special_member_body` do. It also owns **12.8p31's
   elision**, written once as `creates_its_object` and read by both the analysis
   and the lowering.
+- `sema_allocation.cpp` owns 5.3.4 and 5.3.5, and owns them as *actions over
+  storage the expression already names* rather than as a second object model:
+  what `new` adds is where the storage came from and what `delete` adds is who
+  gives it back. 3.7.4.1p2's four functions are declared in the global
+  namespace before the unit is read, so 17.6.4.6's replacement is a definition
+  of one of them and not a second function of the same name; 5.3.4p6's first
+  array-suffix is the one bound that need not be a constant, and the bytes it
+  asks for are scaled in the count's own type; 5.3.5p9 and 12.5p4 say who takes
+  the storage back, and 12.4p5's triviality - not 12.4p8's - is what says
+  whether a destructor call stands in front of that.
 - `sema_overload.cpp` owns 13.3. Which of the four transfers a value transfer
   chooses is the argument's value category; **which user-defined conversion an
   argument takes runs in both directions** - 13.3.3.1.2's converting
@@ -78,8 +88,9 @@ answers the question it belongs to.
   that form and PA11's description of the declarator's own type spells both.
 - 4p3's contextual conversion is one call - `contextual_bool` - reached by a
   condition, `!`, `&&`, `||` and `?:`, with 12.3.2p2's `explicit` left in;
-  6.4.2p2's is `contextual_integral`, with it left out. 5.2.9p4, 5.4p4 and
-  8.5p16 reach `explicit_conversion`, which is the same question with
+  6.4.2p2's is `contextual_integral`, with it left out; 5.3.5p2's is
+  `contextual_pointer`, over the pointer types a class reaches. 5.2.9p4, 5.4p4
+  and 8.5p16 reach `explicit_conversion`, which is the same question with
   13.3.1.5p1's restriction that an `explicit` candidate reach the destination
   by a qualification conversion and no further. A cast is `cast_conversion`,
   which is that question with the refusal in it: an operand of class type no
@@ -92,63 +103,68 @@ answers the question it belongs to.
   5p4's "the left operand is read where it is written" is the other: a built-in
   operator takes the left operand's value before the right operand runs, which
   is a difference only where the right operand is something that runs at all.
+  **4's conversion of a value to another type is one answer** - `converted` -
+  so an initialization asks it the same way an argument and an assignment do,
+  and 3.9.1p2's two eight-byte integral types sharing one LowIR spelling are
+  still two types a copy stands between.
 - 6.6.3p2's boundary is one answer, written by `LowirUnitLowering::open_signature`
   and read by the declaration, the definition and a call through a pointer.
 - 8.5.3p5's name for the storage a class prvalue with no object of its own is
   given is what asked for the object, and the analysis writes it on the node.
+- **3.1p2's "which declaration defines the object" is a fact of the line**, not
+  of the entity under it: 9.4.2p2's definition written with a
+  nested-name-specifier is a second line describing one object, and only the
+  line that lays the storage out may write the image.
 
 Facts PA17 adds: `SemaEntity::transfer`, `::transfers`, `::conversion_function`,
-`::conversions`, `::conversions_above`, `::empty_body`, `UserType::copy_deleted`,
-`TypeTable::returns_indirectly`, `RefQualifier` on the function type,
-`Value::object_category`, `Fact::subobject_step`, `FactKind::StorageTransfer`,
-`AstKind::CarriedTypeId` (12.3.2p1's conversion-type-id, carried beside the
-syntax as 7.1.6.2p1's decltype operand already is), and the four questions
-lifted out of the analyzer so each layer asks them once -
-`observable_expression`, `creates_its_object`, `vacuous_destruction` and
-`writes_no_statement`.
+`::conversions`, `::conversions_above`, `::empty_body`, `::nonthrowing`,
+`UserType::copy_deleted`, `TypeTable::returns_indirectly`, `RefQualifier` on the
+function type, `Value::object_category`, `Fact::subobject_step`,
+`Fact::array_form`, `Fact::object_definition`, `FactKind::StorageTransfer`,
+`FactKind::DeleteExpression`, `AstKind::CarriedTypeId` (12.3.2p1's
+conversion-type-id, carried beside the syntax as 7.1.6.2p1's decltype operand
+already is), and the five questions lifted out of the analyzer so each layer
+asks them once - `observable_expression`, `creates_its_object`,
+`vacuous_destruction`, `vacuous_construction` and `writes_no_statement`.
 
 ## Current Failure Map
 
-65 fixtures fail, grouped by the compiler behaviour they are waiting on and by
+42 fixtures fail, grouped by the compiler behaviour they are waiting on and by
 the message each one stops at today.
 
 | group | n | what is missing |
 | --- | --- | --- |
-| 5.3.4/5.3.5 new and delete | 20 | the array form, the class-specific and placement allocation functions, `::operator new` and `::operator new[]` in scope at all, the null a nothrow allocation returns, and a `new` whose bound PA11 will not evaluate |
-| 12.8p31 / 8.5.3p5 placement diffs | 14 | a copy written where the reference elides one, the slot an argument's temporary is named after, and the materialization a cast to an rvalue reference asks for |
+| 12.8p31 / 8.5.3p5 placement diffs | 15 | a copy written where the reference elides one, the slot an argument's temporary is named after, and the materialization a cast to an rvalue reference asks for |
 | 12.2p3 full-expression temporaries | 9 | the lowering marks no full-expression boundary, so a temporary whose destructor does something is refused outright; 12.2p5's lifetime extension through a reference is the other half |
-| 8.5.4 braced-init-list of a non-aggregate | 6 | 13.3.1.7's constructor call from a list, and a braced-init-list written as a call argument at all |
-| 5.2.9p4 cast to a class type | 3 | a cast to a class reads the operand's bytes instead of direct-initializing a prvalue of it, which has to reach `construct_object` with 13.3.1.4's explicit constructors left in |
+| 8.5.4 braced-init-list of a non-aggregate | 5 | 13.3.1.7's constructor call from a list, and a braced-init-list written as a call argument at all |
 | 12.6.2p6 delegating constructors | 3 | a mem-initializer naming the class itself |
 | 9.5 unions | 3 | variant lifetime and p1's one default member initializer |
 | 12.8p15 array member / other | 3 | an array of a class whose transfer needs a call, a reference member's copy, and a move-only member's implicit assignment |
-| 4.7 conversion spelling | 1 | an `int` operand of a compound assignment is folded rather than written as the `convert` the reference writes |
+| 5.2.9p4 cast to a class type | 2 | a cast to a class reads the operand's bytes instead of direct-initializing a prvalue of it, which has to reach `construct_object` with 13.3.1.4's explicit constructors left in |
 | 8.4.2 out-of-class defaulted definitions | 1 | `S::~S() = default;` written outside the class is not parsed, so the unit is refused whole |
 | 13.3.1.1.2 surrogate call functions | 1 | an object whose conversion yields a function pointer, called |
 | 3.4.3.2 using-directive ambiguity | 1 | two namespaces one level reaches declare one name |
 
-Four holes the C4 sweep and its audit found that no fixture covers and that are
-not this milestone's: 9.2p1's refusal of a member declared twice in one class,
-5.5's `.*` in the lowering, which member pointers being out of scope leaves,
-13.5.6's overloaded `operator->`, which `object_region` refuses along with every
-other `->` on a class operand, and 10.3's virtual dispatch, which the README
-puts after this milestone outright.
+Four holes earlier sweeps found that no fixture covers and that are not this
+milestone's: 9.2p1's refusal of a member declared twice in one class, 5.5's
+`.*` in the lowering, which member pointers being out of scope leaves, 13.5.6's
+overloaded `operator->`, which `object_region` refuses along with every other
+`->` on a class operand, and 10.3's virtual dispatch, which the README puts
+after this milestone outright.
 
 ## Active Checkpoint
 
-None open. C4 is complete, swept, audited at `9f693145` and its four blockers
-fixed; its ledger row is below.
+None open. C5 is complete and its ledger row is below; it has not been swept or
+audited yet, which is the next turn's first work.
 
-The next checkpoint is **C5: 5.3.4/5.3.5's new and delete**, at 20 fixtures and
-the largest group left. It is a subsystem rather than one fact: 3.7.4.1's
-allocation functions as declarations a unit has whether or not it wrote them,
-12.5's class-specific ones and the lookup order 5.3.4p9 gives them, 5.3.4p1's
-array form with its cookie and its element loop, 5.3.4p15's suppression of
-initialization after a non-throwing allocation returns null, and 5.3.5's
-deallocation with 12.5p4's usual-deallocation selection. Its owner is
-`sema_lifetime.cpp`, which already lowers construction and destruction as
-actions over explicit storage, so what `new` adds is where the storage came
-from and what `delete` adds is who gives it back - not a second object model.
+The next checkpoint after that sweep is **C6: 12.2p3's full-expression
+boundary**, at 9 fixtures and the largest group left that is one fact rather
+than a set of diffs. It is the point a temporary's destructor runs, which
+12.2p5's binding of a reference to a temporary then moves to the end of the
+reference's scope; its owner is `sema_lifetime.cpp`, which already owns every
+other end of a lifetime, and the lowering already writes destructor actions
+over explicit storage - so what the group adds is *where* the action stands and
+not a second lifetime model.
 
 ## Performance Model
 
@@ -217,6 +233,29 @@ host, at 250/500/1000/2000 unless said otherwise.
   brought in by n using-declarations are 0.01/0.03/0.06/0.13 s and 11 n + 9
   lines, and a using-declaration chained n classes deep writes **41 lines at
   every size** in under 0.01 s at 400.
+- **5.3.4p1's array form is one loop however many elements there are.**
+  `new T[N]` for a class with a constructor and a destructor, followed by
+  `delete[]`, is **93 lines and under 0.01 s at N = 100, 1000, 10000 and
+  100000** - the count is a value the expression carries and never a list of
+  elements. A local `T a[N]` still writes 8.5.1p7's elements out to
+  `kArrayLoopLimit` (49/89/169 lines at 4/8/16) and becomes one loop past it
+  (47 lines at 32), which is the form the checked-in fixtures ask for there.
+  n array new/delete pairs whose bound is a call are 0.04/0.08/0.16/0.32 s and
+  92 n lines.
+- **5.3.4's lookup is one probe of a region and one walk of a name's chain.**
+  3.7.4.1p2's four declarations are made once before the unit is read, so a
+  program that writes none pays four declarations in all; 5.3.4p9's class
+  lookup is 10.2's, and a hierarchy n deep whose root declares
+  `operator new`/`operator delete` with the allocation written at the leaf is
+  **30 lines at every size** in 0.00/0.01/0.04/0.10 s - the same time as the
+  same hierarchy with no allocation function in it, so the lookup costs the
+  depth the source wrote and nothing more. n scalar new/delete pairs are
+  0.01/0.02/0.04/0.09 s and 15 n lines.
+- **3.7.4p2's spelling costs one scan of a name and no search.** `operator new`
+  and `operator delete` are the only names an id-expression writes a space in,
+  so every other name is answered by one `find(' ')` before any substring
+  search runs: n distinct long local names, each declared and used, are
+  0.01/0.01/0.03/0.06 s and 6 n lines.
 - 12.4p8's `vacuous_destruction` is one walk of the subobject tree, held per
   type: 20 objects of a class whose members nest n deep, each with an empty
   destructor, are 0.01/0.01/0.02/0.03 s at 50/100/200/400 and **19 lines at
@@ -256,3 +295,4 @@ host, at 250/500/1000/2000 unless said otherwise.
 | C2 | 6.6.3p2's returned object and 12.8p31's result object: `TypeTable::returns_indirectly` as one fact of the type, `open_signature` as the one writer of the boundary a declaration, a definition and an indirect call all read, `%ret [pass=indirect_result]` bound in the body, and result-object placement threaded through initialization, return, argument, conditional arm and discarded value. 12.8p31's return-slot local settled by one walk of the body; 12.8p32's access check for the copy the elision removed; 1.9p12's operand of an empty-class transfer still evaluated where evaluating it is observable. `lowir_lower_body.cpp` split at the statement/expression seam. Audited at `be9d930d`: seven blockers found and fixed, which added 5.16p3's initialization of a conditional's result object, made `creates_its_object` the one answer both layers read, and brought 3.6.2p2's namespace-scope initialization into the same hand-off | 88 -> 112 -> **117 / 228**; pa1-pa16 1494 / 1494; no regressions |
 | C3 | 12.3.2's conversion functions, end to end. The conversion-type-id travels with the name as `CarriedTypeId`, so 12.3.2p1's "two spellings of one type are one function" holds at the declaration, at the out-of-class definition and at `a.operator T()`; the class holds its own conversions and chains the classes above it; the ABI's `cv` terminal names them. 13.3.1.5/13.3.3.1.2 run the user-defined conversion sequence the other direction under `standard_only_`, with 13.3.3.2p3's second standard sequence ordering the candidates; 8.5.3p5 binds a reference to the lvalue a conversion returns; 4p3 and 6.4.2p2's contextual conversions answer a condition, a condition-declaration, `!`, `&&` and `?:`; 5.2.9p4/5.4p4/8.5p16's explicit conversion is allowed with 13.3.1.5p1's qualification-only restriction; 13.6's built-in candidates are gathered from the operand's class and ranked against the operator function 13.3 chose. Two lowering defects the group exposed: 5.7p5 read `n + p` as a pointer difference, and 5p4's left operand was read after the right ran. 12.4p8's `vacuous_destruction` made the end of a lifetime one question. Audited at `8c59f91a`: six blockers found and fixed, which set 13.3.3.1.2p1's one-conversion flag in the converting-constructor direction too, moved 8.5.3p5's hook above the refusal of a temporary, took 12.4p8's `empty_body` out of the unit's syntax instead of out of the read order, ordered 13.3.1.5's candidates by where the conversion gets to, gave a cast no conversion answers a refusal instead of the object's bytes, and let 13.6p3/p5's `++E` be reached | 117 -> 149 -> **149 / 228**; pa1-pa16 1494 / 1494; no regressions |
 | C4 | 8.3.5p1's ref-qualifiers, end to end. The ref-qualifier is a field of the *function type*, interned beside 8.3.5p7's cv-qualifier-seq, so `declarator_type` writes it once and the declaration, the out-of-class definition, `member_signature`'s key, a using-declaration's brought-in copy, the Itanium name and a pointer to member all read the one fact; 8.3.5p6 refuses it on a non-member, a static member, a constructor and a destructor, and 13.1p2 refuses a set that mixes it with the unqualified spelling under any of the four cv-qualifications, because 8.3.5p4's parameter-type-list is what the rule is keyed on. `Value::object_category` carries what 9.3.1p3's pointer drops, and `object_match` is where 13.3.1p4's viability and 13.3.3.2p3's ordering are read off it - reached by a member access, a call with no object expression, an operator's left operand and 13.3.1.5's own candidate set alike, so a conversion function's ref-qualifier is ranked by the same question; 5.2.5p4 is what a member access hands it, which makes a reference member an lvalue before it makes a subobject an xvalue. The Itanium `R`/`O` qualifier joins `K` and `V` in the object name, and the two qualifiers written after the parameter-clause are spelled on the type the declarator wrote and not a second time on the form 9.3.1p3 lowered. 9.3p2's sibling hole closed with it: a definition written with a qualified declarator-id defines a declaration that region already made, so `int X::f() &&` against a declared `int X::f() &` - and equally a mistyped parameter list or cv-qualifier-seq - is refused rather than declaring a second member. Audited at `9f693145`: four blockers found and fixed, which carried the ref-qualifier through a using-declaration's rebuilt type, spanned 13.1p2's probe across the cv-qualifications, put both qualifiers back in PA11's description and took the ref-qualifier out of PA12's, and gave a reference member 5.2.5p4's lvalue category | 149 -> **163 / 228**; pa1-pa16 1494 / 1494; no regressions |
+| C5 | 5.3.4 and 5.3.5, end to end, in `sema_allocation.cpp`. 3.7.4.1p2/3.7.4.2p2's four functions are declared in the global namespace before the unit is read, so a program that writes one redeclares it and the object file names it `cppgm_builtin_operator_*`; `operator new` and `operator delete` are the two operator-function-ids a use spells with a space, and the id-expression's spelling is packed to the one the declaration is bound under. 5.3.4p6's first array-suffix is read as the one bound that need not be a constant, the bytes are scaled in the count's own type and reach the parameter through 5.2.2p4's conversion, the ABI's count is written in front of an array of class type and read back off it by `delete[]`, and 12.6p1's construction is one loop with 15.2p2's handler and 5.3.4p18's deallocation behind it; 8.5p7's `()` over a scalar array is one byte loop. 5.3.5 is 12.4p3's end of a lifetime and 3.7.4.2's return of the storage, with 5.3.5p9's lookup, 12.5p4's usual deallocation function, 5.3.5p2's `contextual_pointer` and the null test written where a class type leaves something to guard. 15.4p1's `nonthrowing` joins the declaration and 5.3.4p15 reads it, with 18.6.1.3p2's non-allocating placement form left untested. Three defects the group exposed: 9.4.2p2's second line describing one object let a declaration write the image, so 3.1p2 became a fact of the line; 8.5p14's initialization folded a widening to an unsigned type the rest of 4 spells out; and 3.9.1p2's two eight-byte integral types share one LowIR spelling and are still two types a copy stands between | 163 -> **186 / 228**; pa1-pa16 1494 / 1494; no regressions |

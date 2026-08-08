@@ -780,7 +780,7 @@ void LowirUnitLowering::global_variable(const DumpNode& node)
 {
 	SemaEntity& entity = *node.fact.entity;
 	const std::string symbol = global_symbol(entity);
-	if (!entity.object_definition)
+	if (!node.fact.object_definition)
 	{
 		// 3.1p2 and 3.2p3: the declaration defines nothing, so the object it
 		// names is another unit's.  What this unit owes the program is a name

@@ -2487,6 +2487,7 @@ void SemaAnalyzer::inject_anonymous_members(SemaEntity* entity,
 			                           FactKind::Variable);
 			line.fact.entity = storage;
 			line.fact.type = entity->type;
+			line.fact.object_definition = at_namespace;
 			construct_object(*storage, line, nullptr, ctx);
 		}
 		// 9.2p1: a union written in a class declares an object that is a member

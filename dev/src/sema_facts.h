@@ -168,6 +168,7 @@ struct SemaFact
 		, base_subobject(false)
 		, subobject_step(false)
 		, array_form(false)
+		, object_definition(false)
 		, elements(0)
 		, value(0)
 	{}
@@ -237,6 +238,12 @@ struct SemaFact
 	// 5.3.5p2 makes writing one for the other undefined, so which one this is,
 	// is a fact of the expression and not of the type its operand has.
 	bool array_form;
+	// 3.1p2: whether *this* declaration of the object is the one that defines
+	// it.  Whether the object is defined at all is a fact of the declaration it
+	// stands for, and 9.4.2p2's definition written with a nested-name-specifier
+	// is a second line describing one object - so which of the lines lays the
+	// storage out is a fact of the line and not of the entity under it.
+	bool object_definition;
 	// 8.5.1p7: how many consecutive elements of the array it stands in this
 	// `constructor-action` builds.  An element a clause reached is one object
 	// and this is zero; the elements no clause reached are all value-

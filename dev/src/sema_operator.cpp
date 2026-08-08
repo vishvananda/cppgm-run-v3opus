@@ -123,6 +123,12 @@ bool SemaAnalyzer::allocation_function_name(const std::string& name)
 // is what keeps this one probe of the tail rather than a rewriting of names.
 std::string SemaAnalyzer::allocation_function_spelling(const std::string& written)
 {
+	// The two names are the only ones an id-expression writes a space in, so
+	// one scan for a space answers every other name before any search runs.
+	if (written.find(' ') == std::string::npos)
+	{
+		return written;
+	}
 	const std::string::size_type at = written.rfind("operator");
 	if (at == std::string::npos || written.find(' ', at) == std::string::npos)
 	{

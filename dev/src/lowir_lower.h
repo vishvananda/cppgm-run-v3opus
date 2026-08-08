@@ -819,6 +819,9 @@ private:
 	// so nothing here allocates a slot and the object is built at a value
 	// rather than at a name.
 	LowValue new_expression(const DumpNode& node);
+	// 5.3.4p15 and 18.6.1.3p2: whether a call of this allocation function may
+	// hand back null, which is what 5.3.4p15's test of the address is about.
+	bool allocation_may_fail(const SemaEntity& entity) const;
 	// 5.3.4p1: the array form, which asks the allocation function for every
 	// element at once, writes the count 5.3.5p2 will read in front of them,
 	// and gives 12.6p1's construction to each of them in one loop.
