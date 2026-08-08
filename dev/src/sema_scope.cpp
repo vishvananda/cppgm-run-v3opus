@@ -670,6 +670,25 @@ SemaEntity* SemaModel::search_declarers(Scope& in, const std::string& name,
 // A level that wrote no directive and holds nothing pending costs one probe of
 // the name and nothing else, so a lookup answered where it stands pays that one
 // level and never the chain above it.
+
+// A region a directive already reached, held until the walk arrives at the
+// level 7.3.4p2 puts it at.  The list is what an already-taken region is looked
+// for in, because `walk_reached` below owns the visit stamp a scope carries -
+// and it holds only the regions that have been reached and not yet placed,
+// which is one entry per directive the chain wrote and never one per region a
+// directive could reach.
+void SemaModel::take_pending(Scope& declaring)
+{
+	for (std::size_t index = 0; index < placed_.size(); ++index)
+	{
+		if (placed_[index] == &declaring)
+		{
+			return;
+		}
+	}
+	placed_.push_back(&declaring);
+}
+
 SemaEntity* SemaModel::lookup(Scope& from, const std::string& name,
                               LookupKind filter,
                               std::vector<SemaEntity*>* found_set)
@@ -695,7 +714,6 @@ SemaEntity* SemaModel::lookup(Scope& from, const std::string& name,
 	// written here reaches at each level rather than which one it reaches
 	// first.
 	placed_.clear();
-	++visit_;
 	for (Scope* scope = &from; scope != nullptr; scope = scope->parent)
 	{
 		SemaEntity* found = merge_found(nullptr, find(*scope, name, filter),
@@ -716,17 +734,40 @@ SemaEntity* SemaModel::lookup(Scope& from, const std::string& name,
 			// somewhere on the chain from here outward.  A region with no
 			// directive nominating it appears only where it was written, which
 			// the walk finds where it stands.
-			for (std::size_t index = 0; index < regions->size(); ++index)
+			//
+			// There are two ways to ask which those regions are, and the cheaper
+			// one is whichever set is smaller: the regions this level reaches,
+			// or the regions that declare the name.  So the walk of the first
+			// runs on a budget of the second's size and gives up when it is the
+			// larger, which makes a level cost the smaller of the two however
+			// lopsided they are - n blocks each nominating one of n namespaces
+			// that all declare one name is one reached region per lookup and not
+			// n probes of the declaring list.
+			if (walk_reached(*scope, regions->size()))
 			{
-				Scope& declaring = *(*regions)[index];
-				if (declaring.visit == visit_ ||
-				    declaring.nominated_by.empty() ||
-				    !reaches(*scope, declaring))
+				for (std::size_t index = 0; index < reached_.size(); ++index)
 				{
-					continue;
+					Scope& declaring = *reached_[index];
+					if (&declaring == scope ||
+					    find(declaring, name, filter) == nullptr)
+					{
+						continue;
+					}
+					take_pending(declaring);
 				}
-				declaring.visit = visit_;
-				placed_.push_back(&declaring);
+			}
+			else
+			{
+				for (std::size_t index = 0; index < regions->size(); ++index)
+				{
+					Scope& declaring = *(*regions)[index];
+					if (declaring.nominated_by.empty() ||
+					    !reaches(*scope, declaring))
+					{
+						continue;
+					}
+					take_pending(declaring);
+				}
 			}
 		}
 		for (std::size_t index = 0; index < placed_.size();)

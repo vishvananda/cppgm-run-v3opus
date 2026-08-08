@@ -753,6 +753,9 @@ private:
 	// Gathers `declaring.searchers`, following only the using-directives
 	// written since the last gathering.
 	void gather_searchers(Scope& declaring);
+	// 7.3.4p2: hold `declaring` until the walk outward reaches the level its
+	// declarations appear at, unless it is already being held.
+	void take_pending(Scope& declaring);
 	// 3.4p1 and 3.4p2: the one entity a lookup that reached two declarations
 	// found, the set it found when both of them are functions, or the error that
 	// they are two entities.
