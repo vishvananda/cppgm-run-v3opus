@@ -173,6 +173,7 @@ struct SemaFact
 		, object_definition(false)
 		, counted(false)
 		, may_fail(false)
+		, full_expression_end(false)
 		, elements(0)
 		, value(0)
 	{}
@@ -276,6 +277,14 @@ struct SemaFact
 	// pointer, which is what makes an address there something to test before
 	// anything is initialized at it.
 	bool may_fail;
+	// 1.9p10 and 12.2p3: whether this `destructor-action` is the end of a
+	// temporary of the full-expression that created it, rather than 3.8p1's end
+	// of an object a block control leaves declared.  The two stand side by side
+	// under one statement - a `return` ends its operand's temporaries and then
+	// every block it leaves - and 15.2p2's handler tells them apart: it stands
+	// around the full-expression, so what the full-expression ends is destroyed
+	// inside it and what the blocks end is destroyed after it comes off.
+	bool full_expression_end;
 	// 8.5.1p7: how many consecutive elements of the array it stands in this
 	// `constructor-action` builds.  An element a clause reached is one object
 	// and this is zero; the elements no clause reached are all value-

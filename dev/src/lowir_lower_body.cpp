@@ -82,6 +82,7 @@ LowirFunctionLowering::LowirFunctionLowering(LowirUnitLowering& unit,
 	, return_slot_local_(nullptr)
 	, unwinding_(false)
 	, unwind_dispatch_live_(0)
+	, ended_lifetimes_(0)
 	, region_open_(false)
 	, region_pending_(false)
 	, call_since_mark_(false)
@@ -89,7 +90,6 @@ LowirFunctionLowering::LowirFunctionLowering(LowirUnitLowering& unit,
 	, full_expressions_(0)
 	, pending_calls_(0)
 	, step_depth_(0)
-	, ended_lifetimes_(0)
 {}
 
 // ---------------------------------------------------------------- emission
@@ -1479,6 +1479,13 @@ void LowirFunctionLowering::statement(const DumpNode& node)
 	}
 
 	case FactKind::DestructorAction:
+		if (!node.fact.full_expression_end)
+		{
+			// 12.2p3: this is 3.8p1's end of an object the block declared, and
+			// no part of the full-expression before it, so the handler that
+			// stood around that full-expression comes off in front of it.
+			close_region();
+		}
 		// 3.8p1: the program wrote this end of a lifetime, so nothing after it
 		// owes one - which is asked before the call, because a handler around
 		// the call itself would owe the object it is destroying.
@@ -1861,10 +1868,14 @@ void LowirFunctionLowering::branch_on_condition(const DumpNode& node,
 	// short-circuit writes one edge per operand.
 	const LowValue value = condition_value(*node.children[0]);
 	const Operand tested = truth_for_branch(value);
+	// 15.2p2: the value is the last of the full-expression, so the handler that
+	// stood around it comes off before the edges out of it are named - the
+	// blocks that destroy its temporaries are reached by the branch and are no
+	// part of what an exception in the condition owes.
+	close_full_expression();
 	const std::string on_true_cleanup = reserve_block("cond_true_cleanup");
 	const std::string on_false_cleanup = reserve_block("cond_false_cleanup");
 	branch(tested, on_true_cleanup, on_false_cleanup);
-	close_full_expression();
 	open_block(on_true_cleanup);
 	leave_blocks(node);
 	jump(on_true);
@@ -1894,8 +1905,13 @@ void LowirFunctionLowering::branch_on_value(const DumpNode& node,
 	// never named: the operator is its own control flow, so the operands
 	// branch straight to where the statement goes rather than through a slot
 	// that is then tested.
+	// 12.2p3 is what keeps one of them out of that form: an operand whose
+	// temporaries end where it ends has one place to write those ends, and it
+	// is the block the value form gives that operand and not the edges a
+	// short-circuit writes one of per operand.
 	if (node.fact.kind == FactKind::Binary &&
-	    (node.fact.op == OP_LAND || node.fact.op == OP_LOR))
+	    (node.fact.op == OP_LAND || node.fact.op == OP_LOR) &&
+	    !ends_temporaries(node))
 	{
 		const bool conjunction = node.fact.op == OP_LAND;
 		const std::string rhs = reserve_block(conjunction ? "land_rhs" : "lor_rhs");
@@ -2031,6 +2047,21 @@ void LowirFunctionLowering::do_statement(const DumpNode& node)
 
 void LowirFunctionLowering::for_statement(const DumpNode& node)
 {
+	// 6.5.3p1: the for-init-statement runs once before the loop and is no part
+	// of it, so what it writes stands in front of the blocks the loop is - and
+	// any block of its own is numbered before them.
+	for (std::size_t index = 0; index < node.children.size(); ++index)
+	{
+		const DumpNode& child = *node.children[index];
+		if (child.fact.kind != FactKind::ForInit)
+		{
+			continue;
+		}
+		for (std::size_t at = 0; at < child.children.size(); ++at)
+		{
+			statement(*child.children[at]);
+		}
+	}
 	const std::string cond_label = reserve_block("for_cond");
 	const std::string body_label = reserve_block("for_body");
 	const std::string iter_label = reserve_block("for_iter");
@@ -2044,10 +2075,6 @@ void LowirFunctionLowering::for_statement(const DumpNode& node)
 		switch (child.fact.kind)
 		{
 		case FactKind::ForInit:
-			for (std::size_t at = 0; at < child.children.size(); ++at)
-			{
-				statement(*child.children[at]);
-			}
 			break;
 		case FactKind::Condition:
 			condition = &child;

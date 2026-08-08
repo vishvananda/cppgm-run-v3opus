@@ -2342,7 +2342,23 @@ SemaAnalyzer::Value SemaAnalyzer::binary_expression(const AstNode& node,
 {
 	DumpNode& line = model_.open_node(parent, std::string());
 	Value left = expression(*node.children[0], ctx, line);
+	// 1.9p10, 5.14p1 and 5.15p1: the built-in `&&` and `||` evaluate the right
+	// operand only where the left one did not decide the answer, so a temporary
+	// the right one creates is one that may never exist - and 12.2p3's end of
+	// it is written where that operand ends rather than where the whole
+	// full-expression does, which is a path every other operand also takes.
+	const bool short_circuit =
+		node.token == OP_LAND || node.token == OP_LOR;
+	if (short_circuit)
+	{
+		open_full_expression();
+	}
 	Value right = expression(*node.children[1], ctx, line);
+	std::vector<SemaEntity*> conditional_temporaries;
+	if (short_circuit)
+	{
+		conditional_temporaries = take_full_expression();
+	}
 
 	Value value;
 	// 13.5p1: an operand of class or enumeration type makes the operator a
@@ -2352,8 +2368,15 @@ SemaAnalyzer::Value SemaAnalyzer::binary_expression(const AstNode& node,
 	operands.push_back(right);
 	if (operator_expression(node.token, ctx, line, operands, false, value))
 	{
+		// 13.5.7: an overloaded `operator&&` is a call, and a call evaluates
+		// every argument - so the operand was not conditional after all and
+		// what it created ends where the full-expression does.
+		keep_temporaries(conditional_temporaries);
 		return value;
 	}
+	// The built-in operator it is, so the operand stands on a path of its own
+	// and what it created is destroyed where that path ends.
+	end_temporaries(conditional_temporaries, line);
 	// 13.6: an operand of class type reaches the built-in operator through a
 	// conversion function of its class, which is what the operands now are.
 	left = operands[0];
@@ -2420,7 +2443,8 @@ void SemaAnalyzer::convert_arm_to_base(Value& arm, TypeId result)
 // arm of a conditional is a copy.  A class whose copy carries nothing but bytes
 // is left to the copy of the bytes, which is what the result object already is.
 void SemaAnalyzer::transfer_arm_to_result(Value& arm, TypeId result,
-                                          const Context& ctx)
+                                          const Context& ctx,
+                                          std::vector<SemaEntity*>& frame)
 {
 	if (arm.node == nullptr)
 	{
@@ -2430,9 +2454,9 @@ void SemaAnalyzer::transfer_arm_to_result(Value& arm, TypeId result,
 	{
 		// 12.8p31: an operand that is a prvalue creates its object where the
 		// result stands, so what it made is the conditional's own object -
-		// 12.2p3 ends that one where the full-expression ends and not this one
+		// 12.2p3 ends that one where the full-expression ends and not this arm
 		// as well.
-		release_temporary(arm);
+		release_temporary(arm, frame);
 		return;
 	}
 	if (types_.is_trivially_copied(types_.strip_cv(result)))
@@ -2796,8 +2820,16 @@ SemaAnalyzer::Value SemaAnalyzer::conditional_expression(const AstNode& node,
 	{
 		throw std::runtime_error("the condition of ?: has no conversion to bool");
 	}
+	// 1.9p10 and 5.16p1: only one of the second and third operands is
+	// evaluated, so each stands on a path of its own and a temporary it created
+	// exists only there - 12.2p3's end of that temporary belongs to the arm and
+	// not to the full-expression every path through the conditional reaches.
+	open_full_expression();
 	Value left = expression(*node.children[1], ctx, line);
+	std::vector<SemaEntity*> left_temporaries = take_full_expression();
+	open_full_expression();
 	Value right = expression(*node.children[2], ctx, line);
+	std::vector<SemaEntity*> right_temporaries = take_full_expression();
 	require_complete_value(left);
 	require_complete_value(right);
 
@@ -2856,9 +2888,13 @@ SemaAnalyzer::Value SemaAnalyzer::conditional_expression(const AstNode& node,
 	{
 		// 5.16p3: the result object is one object however many operands could
 		// have filled it, and each of them fills it where it stands.
-		transfer_arm_to_result(left, value.type, ctx);
-		transfer_arm_to_result(right, value.type, ctx);
+		transfer_arm_to_result(left, value.type, ctx, left_temporaries);
+		transfer_arm_to_result(right, value.type, ctx, right_temporaries);
 	}
+	// 12.2p3: what an arm created is destroyed where that arm ends, which is
+	// the one path it was created on.
+	end_arm_temporaries(left_temporaries, line, FactKind::Then, "then-ends");
+	end_arm_temporaries(right_temporaries, line, FactKind::Else, "else-ends");
 	value.spelled = value.type;
 	value.node = &line;
 	value.what = "conditional-expression";

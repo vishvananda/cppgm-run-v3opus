@@ -13,6 +13,15 @@ struct DumpNode;
 struct SemaEntity;
 class LowirFunctionLowering;
 
+// 12.4p8 and 15.2p2: how many destructions a handler still writes out as the
+// destructions they are.  Each of them needs the ones behind it as its own
+// cleanup, which is n(n+1)/2 calls; beyond this the same order is written as a
+// chain of n blocks, each running one destruction and entering the next,
+// because past here the calls stop being a description of the objects and the
+// order starts being it.  The destructor's own suffix and 15.2p2's handler in
+// an ordinary body write the same chain, so they read one limit.
+const std::size_t kUnwindSuffixLimit = 16;
+
 
 // The PA15 source-to-LowIR lowering.
 //
@@ -1157,6 +1166,9 @@ private:
 	// 5.16 where the value is thrown away: the arms are still alternatives and
 	// still run, but neither has a value for a slot to hold.
 	void discarded_conditional(const DumpNode& node);
+	// 12.2p3 and 5.16p1: the end of the temporaries the arm control took
+	// created, written where that arm's own block ends.
+	void end_conditional_arm(const DumpNode& node, unsigned arm);
 	// 5.14p1 and 5.15p1: whether the left operand alone decides a short
 	// circuit, which is what keeps the right one - and every symbol it names -
 	// out of the program entirely.
@@ -1361,10 +1373,14 @@ private:
 	// entry stays good while those objects do: a lifetime ending takes the
 	// entries past it away, and one beginning leaves the ones before it alone.
 	std::vector<std::string> dispatch_cache_;
-	// 3.8p1: how many lifetimes the program has ended, and what was standing
-	// before the first of them that fell inside the region now open.
+	// 3.8p1: how many lifetimes the program has ended, and the objects the
+	// program's own ends have taken out of the standing list since the region
+	// now open opened - each with the place it stood at, which is what puts it
+	// back where a handler wants it.  What the region owes is what stood when
+	// it opened, and an end of a lifetime is one entry rather than a copy of
+	// the whole list, so n ends inside n regions cost n and not n².
 	unsigned long long ended_lifetimes_;
-	std::vector<LowUnwind> standing_before_end_;
+	std::vector<std::pair<std::size_t, LowUnwind> > ended_in_region_;
 	// The region now standing around what is being written, in an ordinary
 	// body: whether there is one, what it is, and whether the last close left
 	// one for the next instruction to open.

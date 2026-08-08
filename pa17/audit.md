@@ -5,126 +5,112 @@ define, lower.
 
 ## Current Checkpoint Review
 
-**C5, reviewed at `6c785249`.** The architecture holds and is the right one.
-5.3.4 and 5.3.5 are actions over storage the expression already names, not a
-second object model: `sema_allocation.cpp` owns the two lookups and the two
-sizes, the initialization is the one 8.5 would give an object of the type
-declared with the same initializer, and the destruction is 12.4p3's own action.
-3.7.4.1p2's four functions being ordinary declarations made in the global
-namespace before the unit is read is the right shape too - a program that writes
-one redeclares it, 13.3 chooses among them beside whatever the program declared,
-and the object file names them what the implementation calls them. Nothing
-walks for the lookup: a hierarchy 2000 deep whose root declares
-`operator new`/`operator delete` with the allocation written at the leaf costs
-the same 0.08 s and the same 30 lines as the identical hierarchy with no
-allocation function in it.
+**C6, reviewed at `67babaa8`.** The architecture holds and is the right one.
+12.2p3's boundary belongs to the analysis and 15.2p2's handler to the lowering,
+and they meet at one fact of a node: `Fact::object` names the object a prvalue
+of class type *is*, `Fact::destruction` names what ending it comes to, and every
+reader of that prvalue - a member access, an argument bound to a reference, the
+end of the full-expression, the handler - reaches the one object through the one
+address. A region over the code between two changes of the standing set is the
+right shape for the handler too, and 12.6.2p10's chain is what keeps n standing
+objects at n destructions rather than n(n+1)/2.
 
-What the review found is seven defects, and they are two patterns. Four are the
-first: **the array form asked the running program for what the translation had
-already settled** - the count, the extent of 8.5p7's zero, and whether building
-one element comes to anything at all. Three are the second: **a fact was written
-in one place and read in fewer places than own the question** - 5.3.4p15's test,
-the ABI entry 15.2p2's cleanup names, and the boundary C5's own `nonthrowing`
-took off the reserved builtins. The last two of those are attributes the relaxed
-comparison strips before it compares, so no fixture could ever have failed on
-them; they were found by diffing that metadata by hand.
+What the review found is eight defects, and they are three patterns. Three are
+the first: **a handler owed a set of objects that was not the set standing where
+it was named** - the region stood around 3.8p1's own ends, a handler block was
+named again for objects it no longer described, and a temporary was destroyed on
+a path that never created it. Two are the second: **an order the oracle fixes
+was decided by whoever asked first** - the blocks a condition's edges are
+numbered against, and the for-init-statement's. Two are the third: **a walk the
+checkpoint's own model calls constant is not** - the standing list was copied
+once per region, and the file the machinery grew went past the audit's limit
+with one of its constants defined twice. The first pattern is the one that
+matters: each of the three writes a destructor call for an object that is not
+there, which no fixture failed on and which `valgrind` cannot see because it is
+the *emitted program* that would run it.
 
-**1. A count of zero was read as a count the translation does not know.**
-`Fact::elements` carried both "how many elements" and, by being zero, "the bound
-is not a constant" - so `new T[0]` took the run-time path: a slot for the bytes
-the call was asked for, a `sub` and a `udiv` to get the count back out of them,
-and all of that twice for a class array, to arrive at the zero the source wrote.
-5.3.4p6's bound is the one array bound the standard does not require to be
-constant, so whether it *is* one is a fact of its own; `Fact::counted` is that
-fact and a bound of zero is now a bound like any other.
+**1. 15.2p2's handler stood around 3.8p1's ends of the objects a block
+declared.** A `return` writes 12.2p3's ends of its operand's temporaries and
+then 6.6p2's ends of every block it leaves, and the lowering wrote both inside
+the open region and closed it afterwards - so the call that destroys `b` stood
+under a handler that destroys `b` and `a`, and a destructor that throws would
+have destroyed them twice. The reference closes the region in front of those
+ends, and the whole rest of the block - down to the block numbering - already
+matched. The two ends are not one question: 12.2p3's belongs to the
+full-expression the handler covers and 3.8p1's is reached on the one path that
+leaves, so `SemaFact::full_expression_end` is what tells them apart, written by
+`close_full_expression` and read by `leave_blocks` and by `statement`. A
+temporary 12.2p5 moved into a block is 3.8p1's end and gets the same answer.
 
-**2. 8.5p7's zero over an extent the translation knows was written as a loop.**
-`new int[4]()` wrote a three-block byte-at-a-time loop over sixteen bytes where
-the reference writes one `zeroinit 16x4`. The same code zeroed `bytes` rather
-than `bytes - 8` for a class array with a run-time bound, so it ran eight bytes
-past the last element - the count 5.3.4p1 writes in front of them is part of
-what the call asked for and no part of what they stand in. The zero now asks
-the count what the extent is: one instruction over an extent the
-translation knows, the spans `zero_object` writes where the elements are objects
-of class type, and the loop only where the bound is a value.
+**2. A handler block was named again for a set of objects it no longer
+described.** `dispatch_cache_` holds the block already written for each number
+of standing objects, and `end_object_lifetime` drops the entries past the one
+that ended - but `close_unwind_region` then put the closing region's entry back
+under its *own* count, after that end. Two statements were enough:
+`use(T(1)); use(T(2));` named the first temporary's handler for the second, so
+an exception out of `use(T(2))` destroyed the object the program had already
+destroyed and left the one standing. The same block came back across an
+if/else, where it destroyed the other arm's temporary. A handler is a good name
+for a later step only while the objects it owes still stand, so a region a
+lifetime ended inside is no longer cached at all - which is `region.ended` asked
+one more time, and costs the reuse nothing where nothing ended.
 
-**3. 8.5p7's value-initialization of an array had no vacuity exit at all.**
-`array_new_initialization` asked `vacuous_construction` only where *no*
-initializer was written, so `new T[n]()` always wrote a per-element constructor
-loop with 15.2p2's handler and 5.3.4p18's deallocation behind it - for
-`struct Triv { int a; };`, n calls of a constructor 12.1p6 makes trivial, and a
-cleanup for an exception none of them can throw. It is the sibling of the exit
-the checkpoint did write. 8.5p7 gives the question two halves and both are now
-asked in the one place: the storage is zeroed where the default constructor is
-neither user-provided nor deleted, and the constructor is called only where
-12.1p6 left it something to do.
+**3. A temporary an operand created was destroyed on the paths that never
+created it.** `sema_analyzer.h` says of the frames that "an operand that may not
+run is one whose temporary may not exist, so what it created is ended where it
+ends rather than where the whole expression does" - and no operand had a frame.
+`if (use(T(1)) && use(T(2)))` destroyed the second temporary on the
+short-circuit edge, where its constructor had never run and the temporary
+naming it was not even defined; `c ? use(T(1)) : use(T(2))` destroyed both at
+the end of the conditional. 5.14p1 and 5.16p1's operands now each take a frame,
+`take_full_expression` hands it back, and what it holds is either ended where
+that operand ends or - where 13.5.7 made the operator a call, and a call
+evaluates every argument - handed back to the enclosing full-expression. An arm
+writes its ends under a node of its own, so the lowering has one place to write
+them and it is the arm's own block. This is what the failure map called the
+group's first half: both fixtures now agree with their reference everywhere
+except 8.5p8's zero.
 
-**4. `vacuous_construction` was not the walk of the subobject tree its
-counterpart is.** The plan lists it beside `vacuous_destruction` as one of the
-questions each layer asks once, but where 12.4p8's walks the class's bases
-and members, this one asked whether the class *holds nothing at all*
-(`empty_class && base == nullptr`). So `struct Y { int a; Y(){} }` - a
-constructor whose definition does nothing over a class with nothing to build -
-was built element by element in a loop in which nothing happens, and so was a
-class whose only member is one of those. It is now the same walk, held per type,
-with the two things that make a definition come to something counted: 12.6.2p8's
-brace-or-equal-initializer on a member, and a mem-initializer-list, which
-`writes_no_statement` now reads beside the compound-statement. 3.4.1p8's
-definition written outside the class is taken from the unit's syntax the way a
-destructor's already was, so `Y::Y(){}` written after the body asking about it
-gets the same answer as one written before - but only where one constructor of
-the class is still waiting for a definition. A class's destructor has one
-unqualified name and its constructors *share* one, so with two of them waiting
-the syntax cannot say which definition defines which, and taking the first would
-give the default constructor another's body: `struct S { int a; S(); S(int); };`
-with `S::S(int){}` written before `S::S(){ a = 7; }` and both after the use had
-the array built with no constructor call at all. Where two are waiting the
-answer waits for the read to reach them.
+**4. The region kept a copy of the whole standing list, once per region.** The
+performance model says the list "is kept once, by the first end of a lifetime
+that falls inside a region" - and that is once *per region*, so a body with n
+objects standing while n temporaries are made and ended copied n entries n
+times. n locals followed by n temporary statements was 0.03/0.08/0.27/1.13 s at
+250/500/1000/2000 with output linear in n at 34 n lines, which is the shape a
+suite cannot see. What a close needs is the objects that stood at the open, so
+the one entry each end takes out of the list is kept with the place it stood at
+and the list is rebuilt only in the branch that is about to write one
+destruction per object anyway. The same sizes are now 0.03/0.05/0.10/0.19 s and
+the output is byte-identical.
 
-**5. 5.3.4p15's test of the address was written for the wrong set of allocation
-functions, and never for the array form.** The gate was "15.4 says it throws
-nothing, and it is not 18.6.1.3p2's `(size_t, void*)`". That wrote a branch
-around every `new (tag) T` whose placement function happened to be `noexcept`
-and around a class's own `operator new(size_t) noexcept`, where the reference
-writes none - and wrote none at all around `new (std::nothrow) T[n]`, where the
-reference does. 18.6.1.1p3 is the half of the answer that was missing:
-`std::nothrow_t` is the argument a program writes to ask for the form that
-reports failure with a value rather than an exception, and a placement form that
-merely promises not to throw obtains its storage from wherever the program said
-and has no failure of its own to report. The question is settled once, in the
-analysis, as `Fact::may_fail`, and both forms read it; the array form holds its
-value in an object of its own, because the step past 5.3.4p1's count is itself
-under the test.
+**5. 8.5.3p5's name for the storage of a discarded prvalue.** `T(1);` as a
+statement named its slot `tmpobj` where the reference names it `discard`, which
+is what the same storage is named when a *call* hands the object back. What
+asked for the object is the statement throwing its value away either way, so
+`register_discarded_object` writes the name where it registers the lifetime.
 
-**6. The array-new cleanup destroyed complete objects through the ABI's
-base-object entry.** 15.2p2's handler destroys the elements already built, and
-each of those is a complete object of the element's class - but nothing on that
-path told the analysis so. The cleanup writes no destructor-action of its own
-and the lowering derives the destructor from the constructor, so a class whose
-destructor no *other* use reached was named `_ZN1CD2Ev` where the reference and
-the ABI write `_ZN1CD1Ev`. The relaxed comparison strips `object=` and pairs
-functions by it, so no fixture could ever have seen this. `array_new_initialization`
-now notes the complete-object entry the way `delete_expression` does.
+**6. 12.2p3's edges out of a condition were numbered before the region closed.**
+The two blocks that destroy a condition's temporaries were reserved before the
+branch, and the block the region goes on in was reserved inside it - so the
+three came out in the reverse of the reference's order and every `if`, `while`
+and `do` whose condition holds a temporary differed by nothing but its block
+numbers. The handler comes off where the value is taken, which is before the
+edges out of it are named at all.
 
-**7. C5's own `nonthrowing` fact took `unwind=no` off every reserved builtin.**
-The line `describe_builtin` writes was `CUM_NO` outright before C5 and became
-`entity.nonthrowing ? CUM_NO : CUM_DEFAULT` - and `reserved_function` sets no
-such fact, so `__builtin_memcpy`, `__builtin_memmove`, `__builtin_strlen` and
-`__builtin_unreachable` all silently lost the boundary 17.6.5.12 gives them.
-`unwind=` is one of the attributes the comparison strips, so the suite stayed
-green. 15.4p14 says of them what 15.4p1 says of a program's `noexcept`, so the
-fact is now written on each declaration where it is made; and a definition the
-program wrote with a non-throwing exception-specification carries the boundary
-over its body, which it did not before. The reference writes it on a definition
-and not on a declaration of a function the program wrote, and now so do we.
+**7. 6.5.3p1's for-init-statement was lowered after the loop's own blocks were
+numbered.** The four loop labels were reserved first, so an init-statement that
+opened a block of its own - which after C6 is any that holds a temporary -
+numbered it after the loop it runs before.
 
-**Refusals the checkpoint made that neither oracle makes.** 5.3.5p5 leaves
-`delete` of a pointer to an incomplete class - and 5.3.5p2's `void*` with it -
-undefined rather than ill-formed: what the program loses is the destructor call
-the definition would have named, and the storage still goes back. Both were
-refused outright. The expression is now written for what the type does say,
-which for an incomplete type is one deallocation and no test of the address,
-because there is nothing under it to guard.
+**8. The file the handler machinery grew went past the audit's size limit, and
+one of its constants had two definitions.** `lowir_lower_object.cpp` reached
+3029 lines. 15.2p2's handler in a body is its own question - what an exception
+thrown while objects stand has to end - and it is now `lowir_lower_unwind.cpp`,
+which leaves the object model at 2581 lines; `kUnwindSuffixLimit` was defined in
+both files and is now one declaration in `lowir_lower.h`, read by the
+destructor's own suffix and by the handler chain, which are the same chain.
+Beside them, C6's constructor initialized `ended_lifetimes_` out of declaration
+order, which is the one `-Wreorder` the tree had.
 
 ## Evidence
 
@@ -133,46 +119,99 @@ best of three, at the end of the review.
 
 | axis | sizes | time | output |
 | --- | --- | --- | --- |
-| n scalar `new`/`delete` pairs of a class with a constructor and a destructor | 250/500/1000/2000 | 0.02/0.03/0.06/0.11 s | 15 n + 27 lines |
-| n array `new T[3]`/`delete[]` pairs | 250/500/1000/2000 | 0.04/0.07/0.14/0.28 s | 83 n + 27 lines |
-| n array pairs whose bound is a call | 250/500/1000/2000 | 0.05/0.09/0.17/0.33 s | 91 n + 28 lines |
-| n classes each declaring their own `operator new`/`operator delete`, each used | 250/500/1000/2000 | 0.06/0.11/0.22/0.44 s | 36 n + 6 lines |
-| hierarchy n deep, root declaring `operator new`/`delete`, allocated at the leaf | 250/500/1000/2000 | 0.02/0.03/0.04/0.08 s | 30 lines |
-| the same hierarchy with **no** allocation function in it | 250/500/1000/2000 | 0.02/0.03/0.04/0.08 s | 30 lines |
-| `new T[N]`/`delete[]` for a class with a constructor and a destructor | 100/1000/10000/100000 | 0.01 s at every N | 110 lines |
-| `new int[N]()` | 100/1000/10000/100000 | 0.01 s at every N | 15 lines |
-| `new Triv[N]()` for a trivial class | 100/1000/10000/100000 | 0.01/0.01/0.01/0.03 s | 27 lines |
-| conditionals nested n deep inside an array bound | 50/100/200/400 | 0.01/0.01/0.01/0.02 s | 14 n + 17 lines |
-| members nested n deep under `new L[4]()` | 50/100/200/400 | 0.01/0.01/0.02/0.03 s | 26 lines |
+| n statements each creating and ending a temporary | 250/500/1000/2000 | 0.02/0.03/0.05/0.10 s | 19 n lines |
+| n temporaries in one full-expression | 250/500/1000/2000 | 0.02/0.03/0.05/0.10 s | 18 n lines |
+| n standing objects, each with a call after it | 250/500/1000/2000 | 0.02/0.03/0.07/0.14 s | 22 n lines |
+| n reference-bound temporaries, each used | 250/500/1000/2000 | 0.02/0.04/0.07/0.14 s | 24 n lines |
+| **n standing objects, then n temporaries made and ended under them** | 250/500/1000/2000 | **0.02/0.03/0.05/0.09 s** | 34 n lines |
+| the same, before finding 4 | 250/500/1000/2000 | 0.03/0.08/0.27/**1.13 s** | 34 n lines |
+| n conditionals each holding a temporary in each arm | 250/500/1000/2000 | 0.03/0.06/0.12/0.23 s | 53 n lines |
+| n `if` conditions each holding a temporary | 250/500/1000/2000 | 0.02/0.04/0.08/0.14 s | 35 n lines |
+| conditional arms nested n deep, each with a temporary | 50/100/200/400 | 0.01/0.01/0.02/0.03 s | 33 n lines |
+| `&&` right operands nested n deep, each with a temporary | 50/100/200/400 | 0.01/0.01/0.02/0.03 s | 33 n lines |
+| blocks nested n deep, each declaring an object | 50/100/200/400 | 0.01/0.01/0.02/0.04 s | 23 n lines |
+| calls nested n deep, each with a temporary argument | 50/100/200 | 0.01/0.01/0.01 s | 9 n lines |
 
-Rows seven to nine are findings 1, 2 and 3 together, and they are the point of
-all three: the count is a value the expression carries, so `new T[100000]` is
-the same 110 lines as `new T[100]`; 8.5p7's zero over 400 000 bytes is one
-instruction; and a trivial class's elements are zeroed rather than constructed
-one at a time. Before the review the second of those was a byte loop and the
-third was a per-element call at every size. Row ten is the analysis asking 5.19
-for the bound before reading it as a value: the two readings are linear in the
-depth of the operand and not exponential in it. Row eleven is finding 4's walk,
-held per type, over a subobject tree that comes to nothing at every depth. Rows
-five and six are the checkpoint's own invariant, re-measured: 5.3.4p9's lookup
-costs the depth the source wrote and nothing more.
+Row five against row six is finding 4, and it is the only quadratic the review
+found: the output is the same 34 n lines at every size either way, so nothing in
+the suite or in the emitted program could have said so. Rows nine to eleven are
+the depth sweep - 12.2p3's frames, 15.2p2's regions and 5.16p1's arms are all
+linear in nesting depth and not exponential in it. Past 340 nested calls the
+parser refuses the unit; `pa17/cppgm++-ref` segfaults there.
 
-`valgrind` is clean on all 200 lowering probes, refusals included.
+`valgrind` is clean over all 110 lowering probes, over the depth-100 nestings of
+each of the three shapes above, and over 250 standing objects with 250
+temporaries made under them.
 
-The reference was used as a differential oracle over those 200 probes, run
-through the harness's own relaxed comparison, and `g++` was the third oracle on
-every verdict the two disagreed about. Every probe on which the reference and we
-both accept now produces LowIR the harness accepts as equal, save the two named
-under Open Gaps where `g++` agrees with us against the reference. The attributes
-the comparison strips - `object=`, `binding=`, `unwind=`, `role=`, `effects=` -
-were diffed separately over the same corpus, which is what findings 6 and 7 were
-found by, and the only differences left there are the ones Open Gaps names.
+The reference was used as a differential oracle over those 110 probes, run
+through the harness's own relaxed comparison, and `g++` and the checked-in
+`.ref` files were the third oracle on every verdict the two disagreed about. The
+attributes the comparison strips - `object=`, `binding=`, `pass=`, `unwind=`,
+`role=`, `effects=` - were diffed separately over the same corpus, and the four
+probes that differ there are all named under Open Gaps or belong to C7's
+placement group. Every probe that fails now is one Open Gaps names.
 
 The file audit passes with the three recorded header-weight warnings it already
-had, pa1-pa16 stand at 1494 / 1494, and pa17 at 186 / 228 with the failure set
+had, pa1-pa16 stand at 1494 / 1494, and pa17 at 194 / 228 with the failure set
 unchanged.
 
 ## Open Gaps
+
+**The reference binary and the checked-in `.ref` files disagree about 12.4p8's
+empty destructor, and we follow the files.** For `struct T { ~T() {} };` the
+binary writes a call of `~T` at every end of a lifetime and the checked-in
+outputs of the eleven fixtures that declare one write none, which is
+`vacuous_destruction`'s own rule - a destructor whose body writes no statement
+comes to what its subobjects come to. `g++` writes the call. This is the one
+place where the binary is not the oracle the fixtures are, and a differential
+sweep run against the binary alone reads it as a defect in every program that
+declares such a destructor.
+
+**The reference leaves a temporary an arm created undestroyed.** For
+`c ? use(T(1)) : use(T(2))` `pa17/cppgm++-ref` writes no destructor call at all
+and declares no destructor; `g++` and the checked-in `.ref` files of
+`400-conditional-return-branch-temporary-lifetime` and
+`400-conditional-prvalue-member-temporary-lifetime` end the temporary at the end
+of the arm, which is what we now write.
+
+**The reference leaves a 12.2p5-extended temporary out of the handler's list.**
+`const T& r = T(1);` puts the temporary in the block's objects for the normal
+path and in no handler, so an exception while the reference bound to it stands
+leaks it. We destroy it, which `g++` agrees with, and it is the whole of the
+difference on the three probes that bind two references or bind one in an inner
+block.
+
+**The reference writes a handler that owes nothing, and one around a call that
+throws nothing.** `use(c ? T(1) : T(2))` gets an `eh_try`/`resume` pair around
+the conditional's setup with no destruction in it, and a call of a constructor
+declared `throw()` gets a region where 15.4p1 says no exception leaves. We write
+neither.
+
+**The reference's mem-initializer regions nest where ours stand in sequence.**
+For `W::W() : m(1), b(use(T(2))) {}` the reference opens the step's region and
+then a second one inside it for the temporary; we close the first and open the
+second. Both destroy the same objects on the same paths; the block numbering
+differs.
+
+**The reference never destroys the elements of a local array of class type.**
+`T a[3] = { T(1), T(2), T(3) };` costs it no destructor call at the end of the
+block. `g++` destroys them and so do we. It predates this milestone.
+
+**3.6.2p2's namespace-scope initializer is a full-expression this milestone does
+not mark.** `int g = use(T(1));` is refused with the message 12.2p3's unmarked
+points carry. The five places a full-expression is marked are all inside a
+function body; the dynamic initialization of a namespace-scope object is the
+sixth and it is written into an initialization function the lowering builds
+elsewhere.
+
+**6.4p4's condition-declaration of a class that answers no conversion is not
+refused.** `if (T c = make())` where `T` declares no conversion to `bool` is
+accepted; `condition_of_declaration` says the caller refuses it and the caller
+refuses only the expression form. It predates this milestone.
+
+**A discarded id-expression of class type writes one `addr` where the reference
+writes two.** `(s, 2)` costs the reference one `addr $s` for the operand it
+discards and one for the object; we write one.
 
 **5.3.4p19's `::`-qualified cleanup: the reference looks the deallocation
 function up in the class.** For `::new C[3]` where `C` declares its own
@@ -265,10 +304,6 @@ that milestone's own scope limit.
 makes `pa17/cppgm++-ref` write no call at all; `g++` calls it, and 1.9p12 says
 it must. We write the call.
 
-**A discarded id-expression of class type writes no `addr`.** `(s, 2)` costs the
-reference one `addr $s` for the operand it discards and costs us none. It
-belongs with 12.2p3's full-expression group.
-
 **Pointer to member is outside the PA15 lowering subset**, so a conversion
 function to one is refused at its use rather than at its declaration.
 
@@ -295,3 +330,4 @@ and the form is the loop 12.6p1 and 12.4p8 already use.
 | C3 | 12.3.2's conversion functions, end to end | `8c59f91a` | 6 / 6: 13.3.3.1.2p1's one-user-defined-conversion flag set for the conversion function's direction and not the converting constructor's (which refused every `B b(s);`), 8.5.3p5's conversion-to-an-lvalue hook standing below the refusal of a temporary (which refused every non-const lvalue reference bound through one), 12.4p8's `empty_body` read before the out-of-class definition that writes it and the wrong answer then memoized for the unit, 13.3.1.5's candidates ordered by the object argument ahead of where the conversion gets to (a base's exact-match conversion losing to a nearer base's, and the result truncated), a cast of a class operand no conversion answers reading the object's bytes instead of being refused, and 13.6p3/p5's `++E` gated out on a rule that is not true | **149 / 228** unchanged; pa1-pa16 1494 / 1494; file audit passes |
 | C4 | 8.3.5p1's ref-qualifiers, end to end | `9f693145` | 4 / 4: a using-declaration rebuilding the brought-in member's type without the ref-qualifier, so 13.3.1p4 made an `&&`-qualified base member viable on an lvalue and 7.3.3p14 could not see the derived class's own declaration of the same spelling as hiding it; 13.1p2's refusal probed for the one cv-qualification the declaration wrote instead of all four, so every `f() const` beside `f() &&` was accepted; the two qualifiers written after the parameter-clause dropped from PA11's `--emit-types` and spelled a second time on the form 9.3.1p3 had already lowered in PA12's `--emit-semantics`; and 5.2.5p4's first clause missed, so a reference member of a non-lvalue object was an xvalue and reached an `&&`-qualified member | **163 / 228** unchanged; pa1-pa16 1494 / 1494; file audit passes |
 | C5 | 5.3.4 and 5.3.5, end to end | `6c785249` | 7 / 7 + 1 refusal: `Fact::elements == 0` read as "the bound is not a constant", so `new T[0]` recomputed a count the source wrote from the bytes the call was asked for; 8.5p7's zero over an extent the translation knows written as a byte loop, and over `bytes` rather than `bytes - 8` past a class array's count; 8.5p7's value-initialization of an array given no vacuity exit, so `new Triv[n]()` wrote n calls of a trivial constructor with 15.2p2's handler around them; `vacuous_construction` asking whether the class holds nothing at all instead of walking the subobject tree 12.4p8's counterpart walks, and reading neither a mem-initializer-list nor 3.4.1p8's out-of-class definition; 5.3.4p15's test gated on 15.4 alone rather than on 18.6.1.1p3's `std::nothrow_t`, so it stood around placement forms the reference leaves alone and around no array form at all; 15.2p2's cleanup naming the ABI's base-object destructor for elements that are complete objects; and C5's own `nonthrowing` fact taking `unwind=no` off every reserved builtin. The refusal: 5.3.5p5 leaves `delete` of an incomplete class - and `void*` with it - undefined and not ill-formed | **186 / 228** unchanged; pa1-pa16 1494 / 1494; file audit passes |
+| C6 | 12.2p3's full-expression boundary and 15.2p2's handler in an ordinary body | `67babaa8` | 8 / 8: 15.2p2's region closed after 3.8p1's ends of the objects a block declares rather than in front of them, so every `return` and every block end wrote a destructor call under a handler that destroys the same object; `close_unwind_region` putting a handler back in the cache keyed on a count after the objects that made it good had been destroyed, so `use(T(1)); use(T(2));` named the first temporary's handler for the second and an if/else arm named the other arm's; 5.14p1 and 5.16p1's conditionally-evaluated operands having no frame, so a temporary an arm or a short-circuited right operand created was destroyed on the paths that never created it; the standing list copied once per region a lifetime ended inside, which was quadratic (1.13 s at 2000) under output linear at 34 n lines; 8.5.3p5's name for the storage of a discarded prvalue; 12.2p3's two cleanup edges out of a condition numbered before the region they leave was closed; 6.5.3p1's for-init-statement lowered after the loop's own blocks were numbered; and `lowir_lower_object.cpp` past the audit's 3000-line limit with `kUnwindSuffixLimit` defined twice, split at 15.2p2's own seam into `lowir_lower_unwind.cpp` | **194 / 228** unchanged; pa1-pa16 1494 / 1494; file audit passes |

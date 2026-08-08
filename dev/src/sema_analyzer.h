@@ -736,6 +736,19 @@ private:
 	std::vector<std::vector<SemaEntity*> > temporaries_;
 	void open_full_expression();
 	void close_full_expression(DumpNode& line);
+	// The same two halves apart, for 5.14p1 and 5.16p1's operands that are
+	// evaluated only where control reaches them: the frame is taken where the
+	// operand ends, and what it holds is either ended there - which is what
+	// makes a temporary an arm created one the arm destroys - or handed back to
+	// the enclosing full-expression where the operator turned out to be a call
+	// and every operand of it ran.
+	std::vector<SemaEntity*> take_full_expression();
+	void end_temporaries(const std::vector<SemaEntity*>& frame, DumpNode& line);
+	void keep_temporaries(const std::vector<SemaEntity*>& frame);
+	// 5.16p1's arm, whose ends stand under a node of their own so the lowering
+	// writes them where that arm's own block ends and nowhere else.
+	void end_arm_temporaries(const std::vector<SemaEntity*>& frame,
+	                         DumpNode& line, FactKind arm, const char* text);
 	// 12.2p1: the object a prvalue of class type standing in storage of its own
 	// is, made where the node that produced it is first asked for one.  Null
 	// where the node is worth no such object.
@@ -756,7 +769,11 @@ private:
 	void extend_bound_temporary(TypeId declared, const Context& ctx,
 	                            DumpNode& line);
 	// 12.4p3: the end of a temporary's lifetime, written under `parent`.
-	void temporary_destruction(SemaEntity& object, DumpNode& parent);
+	// `full_expression` says it is 12.2p3's end - the one 15.2p2's handler
+	// stands around - rather than 3.8p1's end of an object a block declared,
+	// which is what a temporary 12.2p5 moved into a block gets.
+	void temporary_destruction(SemaEntity& object, DumpNode& parent,
+	                           bool full_expression);
 	// 5p11 and 12.2p1: the object a statement whose value nothing reads still
 	// created, which the full-expression it stands in ends.  5.2.9p4's cast to
 	// void is what a program writes to throw one away, so the object is looked
@@ -1023,6 +1040,8 @@ private:
 	// 12.2p3: takes `value`'s object back out of the open full-expression,
 	// where the place that read the prvalue is what ends its lifetime.
 	void release_temporary(const Value& value);
+	void release_temporary(const Value& value,
+	                       std::vector<SemaEntity*>& frame);
 	// The typed facts of a node the analysis builds rather than reads out of an
 	// expression the program wrote.
 	static void set_fact(DumpNode& node, FactKind kind, TypeId type,
@@ -1407,7 +1426,8 @@ private:
 	void convert_arm_to_base(Value& arm, TypeId result);
 	// 5.16p3: an operand of a conditional whose result is a prvalue of class
 	// type, which copy-initializes the result object from that operand.
-	void transfer_arm_to_result(Value& arm, TypeId result, const Context& ctx);
+	void transfer_arm_to_result(Value& arm, TypeId result, const Context& ctx,
+	                            std::vector<SemaEntity*>& frame);
 	// 5.9p2: an operand of a built-in binary operator whose composite pointer
 	// type is a pointer to a base of its own class.
 	void convert_operand_to_base(Value& operand, TypeId operands);

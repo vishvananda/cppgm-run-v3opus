@@ -1054,6 +1054,10 @@ LowValue LowirFunctionLowering::logical_expression(const DumpNode& node)
 	rhs_store.first = truth.operand;
 	rhs_store.second = storage;
 	emit_void(rhs_store);
+	// 12.2p3: a temporary the right operand created exists only on this path,
+	// so this is where its lifetime ends - the short-circuit edge reaches an
+	// object that was never built.
+	leave_blocks(node);
 	jump(end_label);
 
 	open_block(short_label);
@@ -1213,6 +1217,7 @@ LowValue LowirFunctionLowering::conditional_expression(const DumpNode& node,
 		                              : converted(written, node.fact.type);
 		instruction.second = storage;
 		emit_void(instruction);
+		end_conditional_arm(node, arm);
 		jump(end_label);
 	}
 
@@ -1259,10 +1264,28 @@ LowValue LowirFunctionLowering::conditional_object(const DumpNode& node,
 	{
 		open_block(arm == 0 ? then_label : else_label);
 		place_class_object(at, type, *node.children[arm + 1]);
+		end_conditional_arm(node, arm);
 		jump(end_label);
 	}
 	open_block(end_label);
 	return held;
+}
+
+// 12.2p3 and 5.16p1: the temporaries the arm control took created, destroyed
+// where that arm ends.  The other arm never made them, so the end of the
+// conditional is no place to write these: it is reached both ways.
+void LowirFunctionLowering::end_conditional_arm(const DumpNode& node,
+                                                unsigned arm)
+{
+	const FactKind wanted = arm == 0 ? FactKind::Then : FactKind::Else;
+	for (std::size_t index = 3; index < node.children.size(); ++index)
+	{
+		if (node.children[index]->fact.kind == wanted)
+		{
+			leave_blocks(*node.children[index]);
+			return;
+		}
+	}
 }
 
 void LowirFunctionLowering::discarded_conditional(const DumpNode& node)
@@ -1278,6 +1301,7 @@ void LowirFunctionLowering::discarded_conditional(const DumpNode& node)
 		expression(*node.children[arm + 1]);
 		if (!terminated())
 		{
+			end_conditional_arm(node, arm);
 			jump(end_label);
 		}
 	}

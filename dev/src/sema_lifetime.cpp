@@ -867,7 +867,8 @@ void SemaAnalyzer::name_argument_temporary(const Value& value,
 // to.  The object is one no declaration named, so what the destruction names is
 // the node that produced it - the same object every other reader of that
 // prvalue reaches, and the one piece of storage the lowering gave it.
-void SemaAnalyzer::temporary_destruction(SemaEntity& object, DumpNode& parent)
+void SemaAnalyzer::temporary_destruction(SemaEntity& object, DumpNode& parent,
+                                         bool full_expression)
 {
 	SemaEntity* const destructor = class_destructor(element_of(object.type));
 	if (destructor == nullptr || vacuous_destruction(object.type))
@@ -878,6 +879,7 @@ void SemaAnalyzer::temporary_destruction(SemaEntity& object, DumpNode& parent)
 	DumpNode& action = model_.open_node(
 		parent, "destructor-action " + destructor->dump_name);
 	action.fact.kind = FactKind::DestructorAction;
+	action.fact.full_expression_end = full_expression;
 	action.fact.entity = destructor;
 	action.fact.type = object.type;
 	DumpNode& named = model_.open_node(
@@ -989,12 +991,20 @@ SemaEntity* SemaAnalyzer::register_temporary(DumpNode& node, const Scope* from,
 
 void SemaAnalyzer::release_temporary(const Value& value)
 {
-	if (value.node == nullptr || value.node->fact.object == nullptr ||
-	    temporaries_.empty())
+	if (temporaries_.empty())
 	{
 		return;
 	}
-	std::vector<SemaEntity*>& frame = temporaries_.back();
+	release_temporary(value, temporaries_.back());
+}
+
+void SemaAnalyzer::release_temporary(const Value& value,
+                                     std::vector<SemaEntity*>& frame)
+{
+	if (value.node == nullptr || value.node->fact.object == nullptr)
+	{
+		return;
+	}
 	for (std::size_t index = frame.size(); index-- > 0;)
 	{
 		if (frame[index] == value.node->fact.object)
@@ -1023,6 +1033,14 @@ void SemaAnalyzer::register_discarded_object(const Value& value, DumpNode& line,
 	{
 		written = written->children[0];
 	}
+	if (written->fact.kind == FactKind::TemporaryObject)
+	{
+		// 8.5.3p5: the storage the object stands in is named after what asked
+		// for it, and what asked for this one is a statement throwing its value
+		// away - the same name a call handing one back is given where nothing
+		// else asked.
+		written->fact.spelling = "discard";
+	}
 	register_temporary(*written, ctx.scope);
 }
 
@@ -1031,17 +1049,65 @@ void SemaAnalyzer::open_full_expression()
 	temporaries_.push_back(std::vector<SemaEntity*>());
 }
 
-// 12.2p3: the temporaries created during a full-expression are destroyed at its
-// end, in the reverse of the order they were created in.
-void SemaAnalyzer::close_full_expression(DumpNode& line)
+std::vector<SemaEntity*> SemaAnalyzer::take_full_expression()
 {
 	std::vector<SemaEntity*> frame;
 	frame.swap(temporaries_.back());
 	temporaries_.pop_back();
+	return frame;
+}
+
+// 12.2p3: the temporaries created during a full-expression are destroyed at its
+// end, in the reverse of the order they were created in.
+void SemaAnalyzer::end_temporaries(const std::vector<SemaEntity*>& frame,
+                                   DumpNode& line)
+{
 	for (std::size_t index = frame.size(); index-- > 0;)
 	{
-		temporary_destruction(*frame[index], line);
+		temporary_destruction(*frame[index], line, true);
 	}
+}
+
+void SemaAnalyzer::close_full_expression(DumpNode& line)
+{
+	const std::vector<SemaEntity*> frame = take_full_expression();
+	end_temporaries(frame, line);
+}
+
+// 5.14p1 and 13.5p1: an operand this expression turned out to evaluate however
+// the answer came - an overloaded operator's, which is an argument of a call -
+// so what it created is the enclosing full-expression's to end after all.
+void SemaAnalyzer::keep_temporaries(const std::vector<SemaEntity*>& frame)
+{
+	if (temporaries_.empty() || frame.empty())
+	{
+		return;
+	}
+	temporaries_.back().insert(temporaries_.back().end(), frame.begin(),
+	                           frame.end());
+}
+
+// 12.2p3 and 5.16p1: what an arm created, ended under a node of the arm's own,
+// which is what lets the lowering write those ends at the end of the block that
+// arm is and on no other path out of the conditional.
+void SemaAnalyzer::end_arm_temporaries(const std::vector<SemaEntity*>& frame,
+                                       DumpNode& line, FactKind arm,
+                                       const char* text)
+{
+	bool ends_in_something = false;
+	for (std::size_t index = 0; index < frame.size(); ++index)
+	{
+		ends_in_something = ends_in_something ||
+			(class_destructor(element_of(frame[index]->type)) != nullptr &&
+			 !vacuous_destruction(frame[index]->type));
+	}
+	if (!ends_in_something)
+	{
+		// 12.4p8: nothing the arm created comes to anything at its end, so the
+		// arm needs no place to write one.
+		return;
+	}
+	end_temporaries(frame, open_fact(line, text, arm));
 }
 
 // 8.5.3p5: the temporary a reference initializer bound.  A binding to a base
@@ -1147,8 +1213,10 @@ void SemaAnalyzer::destructor_action(SemaEntity& entity, DumpNode& parent,
 	{
 		// 12.2p5: the object is a temporary a reference extended into this
 		// block, which no declaration named - so what the destruction names is
-		// the object itself and not an id-expression there is none of.
-		temporary_destruction(entity, parent);
+		// the object itself and not an id-expression there is none of.  What
+		// ends it is the block and not the full-expression that created it,
+		// which is what 12.2p5 moved.
+		temporary_destruction(entity, parent, false);
 		return;
 	}
 	note_destruction_entry(*destructor, where == Placement::Base);

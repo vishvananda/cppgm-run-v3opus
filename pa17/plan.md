@@ -118,21 +118,32 @@ answers the question it belongs to.
   the prvalue (`Fact::object`), so a call and a conditional that hand one back
   name the object every reader of that prvalue reaches. 12.2p5 *moves* a
   temporary a reference binds out of that frame and into the block that declared
-  the reference, so the two ends are one end. What the lowering reads is
-  `Fact::destruction`: the destructor the object whose lifetime this node begins
-  ends in, written on the declaration and on the prvalue alike, because an
-  exception has to end a lifetime wherever it began and not only where the
-  program wrote its end.
+  the reference, so the two ends are one end. **An operand that may not run
+  holds a frame of its own** - 5.14p1's right operand and each of 5.16p1's arms
+  - because a temporary it created exists on that path alone, so what it made is
+  ended where that operand ends and not where every path through the expression
+  arrives; 13.5.7's overloaded operator is a call and a call evaluates every
+  argument, so there the frame is handed back to the enclosing full-expression.
+  What the lowering reads is `Fact::destruction`: the destructor the object
+  whose lifetime this node begins ends in, written on the declaration and on the
+  prvalue alike, because an exception has to end a lifetime wherever it began
+  and not only where the program wrote its end. **Which of the two ends an
+  action is, is a fact of the action** (`Fact::full_expression_end`), because a
+  `return` writes both under one line and 15.2p2 tells them apart.
 - **15.2p2's handler is one region at a time, and what it owes is what stood
-  when it opened.** A region opens where the step that made a throwing call
-  began, closes where the set of standing objects changes, where the
-  full-expression ends, or where the block does, and is written again on each
-  block a step spans. 12.2p3's end of a temporary is written *inside* the region
-  that covered it, so the list is taken at the open; and the handlers already
-  written are held per number of standing objects, so a step needing exactly
-  what an earlier one needed names that block again. 6.6p2's jump puts back what
-  it destroyed on its own path, because the code after it is reached by paths
-  where those objects still stand.
+  when it opened - `lowir_lower_unwind.cpp` owns it.** A region opens where the
+  step that made a throwing call began, closes where the set of standing objects
+  changes, where the full-expression ends, or where the block does, and is
+  written again on each block a step spans. 12.2p3's end of a temporary is
+  written *inside* the region that covered it and 3.8p1's end of a block's
+  object *after* it, which is what a full-expression covering the one and not
+  the other means. The handlers already written are held per number of standing
+  objects, so a step needing exactly what an earlier one needed names that block
+  again - and **a region a lifetime ended inside is no such block**, because
+  what it destroys is no longer what stands. What an end of a lifetime takes out
+  of the list is one entry with the place it stood at, never a copy of the list.
+  6.6p2's jump puts back what it destroyed on its own path, because the code
+  after it is reached by paths where those objects still stand.
 - `lowir_lower*.cpp` reads only the resolved tree. Its one shape rule is
   **result-object placement**: the storage an object of class type will stand in
   is named *before* the initializer that fills it runs, and handed to it.
@@ -159,6 +170,7 @@ Facts PA17 adds: `SemaFact::object`, `SemaFact::destruction`,
 `UserType::copy_deleted`, `TypeTable::returns_indirectly`, `RefQualifier` on the
 function type, `Value::object_category`, `Fact::subobject_step`,
 `Fact::array_form`, `Fact::object_definition`, `Fact::counted`, `Fact::may_fail`,
+`Fact::full_expression_end`,
 `FactKind::StorageTransfer`, `FactKind::DeleteExpression`,
 `AstKind::CarriedTypeId` (12.3.2p1's conversion-type-id, carried beside the
 syntax as 7.1.6.2p1's decltype operand already is), and the six questions lifted
@@ -179,7 +191,7 @@ the message each one stops at today.
 | 9.5 unions | 3 | variant lifetime and p1's one default member initializer |
 | 12.8p15 array member / other | 3 | an array of a class whose transfer needs a call, a reference member's copy, and a move-only member's implicit assignment |
 | 5.2.9p4 cast to a class type | 2 | a cast to a class reads the operand's bytes instead of direct-initializing a prvalue of it, which has to reach `construct_object` with 13.3.1.4's explicit constructors left in |
-| 12.2p3 temporaries of an arm | 2 | 5.16's arm is where a temporary it created is ended, which the analysis has no frame for; 8.5p8's zero of a class whose subobjects all build themselves is the other half of both |
+| 8.5p8's zero of a class whose subobjects build themselves | 2 | `iterator()` writes `store i8 0` over a class whose only member is an empty class with a user-provided constructor, where the reference writes nothing: 8.5p8's zero is over the storage the members and bases hold, and a subobject that holds nothing holds none of it. The C6 audit closed the arm-lifetime half of both fixtures |
 | 8.4.2 out-of-class defaulted definitions | 1 | `S::~S() = default;` written outside the class is not parsed, so the unit is refused whole |
 | 13.3.1.1.2 surrogate call functions | 1 | an object whose conversion yields a function pointer, called |
 | 3.4.3.2 using-directive ambiguity | 1 | two namespaces one level reaches declare one name |
@@ -193,8 +205,9 @@ after this milestone outright.
 
 ## Active Checkpoint
 
-None open. C6 is complete at 194 / 228, with pa1-pa16 unchanged; it has not
-been swept, and the sweep is what an audit turn owes it.
+None open. C6 is complete and swept at 194 / 228, with pa1-pa16 unchanged: the
+audit at `67babaa8` found and fixed eight blockers, three of which wrote a
+destructor call for an object that was not standing.
 
 The next checkpoint is **C7: 12.8p31 and 8.5.3p5's placement**, at 13 fixtures
 and by far the largest group left. Its owner is the lowering's
@@ -203,11 +216,16 @@ prvalue is built and what its storage is named after; what the group adds is
 the other half of the ABI the C6 turn opened - 5.2.2p4's by-value parameter of
 a class 12.4p5 or 12.8p12 makes non-trivial for a call is passed by address,
 which `open_signature` already answers for 6.6.3p2's returned object and has
-no answer for yet. Its data flow is one further fact of `UserType` read by the
-signature, the call and the parameter's own entry; its expected complexity is
-one probe per parameter; its validation is the group's own 13 fixtures plus a
-differential sweep of the four class shapes (trivial, copy-declared,
-destructor-declared, wide) through both binaries.
+no answer for yet: `int byval(T);` for a class with a destructor is declared
+`(%arg0 : obj<4x4>)` where the reference writes `(%arg0 : ptr [pass=by_address])`
+and the caller passes the slot rather than its address, which the C6 audit's
+sweep confirmed is the whole of the difference on the simplest probe of the
+group. Its data flow is one further fact of `UserType` read by the signature,
+the call and the parameter's own entry; its expected complexity is one probe per
+parameter; its validation is the group's own 13 fixtures plus a differential
+sweep of the four class shapes (trivial, copy-declared, destructor-declared,
+wide) through both binaries, with `pass=` diffed beside the text because the
+comparison strips it.
 
 ## Performance Model
 
@@ -360,20 +378,45 @@ host, at 250/500/1000/2000 unless said otherwise.
   `T() + (pick ? T() : T())` full-expressions, each holding two temporaries
   across a branch, are 0.03/0.05/0.11/0.23 s and 47 n lines.
 - **n standing objects cost n destructions and not n(n+1)/2, in the output and
-  in the walk.** `T a0; g(); T a1; g(); ...` is 18 n lines and
-  0.01/0.02/0.04/0.11/0.20 s at 250/500/1000/2000/4000, because 12.6.2p10's
-  chain holds past `kUnwindSuffixLimit` and because a region keeps no copy of
-  the standing list: it keeps the one entry the chain needs, and the list as it
-  was is kept once, by the first end of a lifetime that falls inside a region.
-  Copying the list per region instead was **1.60 s at 2000** and quadratic.
+  in the walk.** `T a0; g(); T a1; g(); ...` is 22 n lines and
+  0.02/0.03/0.07/0.14 s at 250/500/1000/2000, because 12.6.2p10's chain holds
+  past `kUnwindSuffixLimit` and because **a region keeps no copy of the standing
+  list at all**: it keeps the one entry the chain needs, and what an end of a
+  lifetime takes out of the list is one entry with the place it stood at.
+  Copying the list per region was **1.60 s at 2000**; copying it once per region
+  a lifetime ended *inside* was the same shape one step down - n standing
+  objects with n temporaries made and ended under them was 0.03/0.08/0.27/**1.13
+  s** at 250/500/1000/2000 with the output linear at 34 n lines, and is
+  0.02/0.03/0.05/0.09 s for the same bytes now.
 - **The list a handler destroys from is the one that stood when it opened, and
-  it is held rather than indexed.** Reading it back off the standing objects at
-  the close read past the end of that vector wherever 12.2p3's end of a
-  temporary fell inside the region - which is every argument bound to a
-  reference - and a call nested 20 deep crashed on it. n nested
-  `f(make(), f(make(), ... ))` are 17 n lines in 0.00/0.00/0.01/0.02 s at
-  50/100/200/400, and valgrind is clean over that, over 40 standing objects and
-  over 20 conditionals holding temporaries across a branch.
+  it is rebuilt only where a destruction per object is about to be written.**
+  Reading it back off the standing objects at the close read past the end of
+  that vector wherever 12.2p3's end of a temporary fell inside the region -
+  which is every argument bound to a reference - and a call nested 20 deep
+  crashed on it. n nested `f(make(), f(make(), ... ))` are 9 n lines in
+  0.01/0.01/0.01 s at 50/100/200, and valgrind is clean over that, over 250
+  standing objects with 250 temporaries under them, and over the depth-100
+  nestings of an arm, a right operand and a block.
+- **A handler block is named again only while what it destroys still stands.**
+  The block written for k standing objects is held per k, and a region a
+  lifetime ended inside is not held at all: what it destroys is what stood then,
+  so a later step with the same count would name a handler that destroys an
+  object the program has already destroyed and leaves the one that took its
+  place standing. n statements each making and ending a temporary are 19 n lines
+  in 0.02/0.03/0.05/0.10 s, which is one fresh handler per statement and the
+  reuse the shape allows.
+- **12.2p3's frames are linear in nesting depth, not exponential in it, and an
+  operand that may not run costs one more frame and no more walks.** Conditional
+  arms nested n deep each holding a temporary are 33 n lines in
+  0.01/0.01/0.02/0.03 s at 50/100/200/400, `&&` right operands the same, and
+  blocks nested n deep each declaring an object are 23 n lines in
+  0.01/0.01/0.02/0.04 s. n conditionals each holding a temporary in each arm are
+  53 n lines in 0.03/0.06/0.12/0.23 s; n `if` conditions each holding one are
+  35 n lines in 0.02/0.04/0.08/0.14 s.
+- 6.6p2's own shape is the one quadratic left, and it is the source's: n
+  returns, each leaving n blocks, are n² destructions because each return
+  destroys everything standing. It predates this milestone and the reference
+  writes the same n².
 - **`begins_lifetime` is one walk of an expression and not one per call in it.**
   It is what says a call stands under a handler and needs its value stored where
   a block that handler reaches can name it; the answer is held per node, so a
@@ -388,4 +431,4 @@ host, at 250/500/1000/2000 unless said otherwise.
 | C3 | 12.3.2's conversion functions, end to end. The conversion-type-id travels with the name as `CarriedTypeId`, so 12.3.2p1's "two spellings of one type are one function" holds at the declaration, at the out-of-class definition and at `a.operator T()`; the class holds its own conversions and chains the classes above it; the ABI's `cv` terminal names them. 13.3.1.5/13.3.3.1.2 run the user-defined conversion sequence the other direction under `standard_only_`, with 13.3.3.2p3's second standard sequence ordering the candidates; 8.5.3p5 binds a reference to the lvalue a conversion returns; 4p3 and 6.4.2p2's contextual conversions answer a condition, a condition-declaration, `!`, `&&` and `?:`; 5.2.9p4/5.4p4/8.5p16's explicit conversion is allowed with 13.3.1.5p1's qualification-only restriction; 13.6's built-in candidates are gathered from the operand's class and ranked against the operator function 13.3 chose. Two lowering defects the group exposed: 5.7p5 read `n + p` as a pointer difference, and 5p4's left operand was read after the right ran. 12.4p8's `vacuous_destruction` made the end of a lifetime one question. Audited at `8c59f91a`: six blockers found and fixed, which set 13.3.3.1.2p1's one-conversion flag in the converting-constructor direction too, moved 8.5.3p5's hook above the refusal of a temporary, took 12.4p8's `empty_body` out of the unit's syntax instead of out of the read order, ordered 13.3.1.5's candidates by where the conversion gets to, gave a cast no conversion answers a refusal instead of the object's bytes, and let 13.6p3/p5's `++E` be reached | 117 -> 149 -> **149 / 228**; pa1-pa16 1494 / 1494; no regressions |
 | C4 | 8.3.5p1's ref-qualifiers, end to end. The ref-qualifier is a field of the *function type*, interned beside 8.3.5p7's cv-qualifier-seq, so `declarator_type` writes it once and the declaration, the out-of-class definition, `member_signature`'s key, a using-declaration's brought-in copy, the Itanium name and a pointer to member all read the one fact; 8.3.5p6 refuses it on a non-member, a static member, a constructor and a destructor, and 13.1p2 refuses a set that mixes it with the unqualified spelling under any of the four cv-qualifications, because 8.3.5p4's parameter-type-list is what the rule is keyed on. `Value::object_category` carries what 9.3.1p3's pointer drops, and `object_match` is where 13.3.1p4's viability and 13.3.3.2p3's ordering are read off it - reached by a member access, a call with no object expression, an operator's left operand and 13.3.1.5's own candidate set alike, so a conversion function's ref-qualifier is ranked by the same question; 5.2.5p4 is what a member access hands it, which makes a reference member an lvalue before it makes a subobject an xvalue. The Itanium `R`/`O` qualifier joins `K` and `V` in the object name, and the two qualifiers written after the parameter-clause are spelled on the type the declarator wrote and not a second time on the form 9.3.1p3 lowered. 9.3p2's sibling hole closed with it: a definition written with a qualified declarator-id defines a declaration that region already made, so `int X::f() &&` against a declared `int X::f() &` - and equally a mistyped parameter list or cv-qualifier-seq - is refused rather than declaring a second member. Audited at `9f693145`: four blockers found and fixed, which carried the ref-qualifier through a using-declaration's rebuilt type, spanned 13.1p2's probe across the cv-qualifications, put both qualifiers back in PA11's description and took the ref-qualifier out of PA12's, and gave a reference member 5.2.5p4's lvalue category | 149 -> **163 / 228**; pa1-pa16 1494 / 1494; no regressions |
 | C5 | 5.3.4 and 5.3.5, end to end, in `sema_allocation.cpp`. 3.7.4.1p2/3.7.4.2p2's four functions are declared in the global namespace before the unit is read, so a program that writes one redeclares it and the object file names it `cppgm_builtin_operator_*`; `operator new` and `operator delete` are the two operator-function-ids a use spells with a space, and the id-expression's spelling is packed to the one the declaration is bound under. 5.3.4p6's first array-suffix is read as the one bound that need not be a constant, the bytes are scaled in the count's own type and reach the parameter through 5.2.2p4's conversion, the ABI's count is written in front of an array of class type and read back off it by `delete[]`, and 12.6p1's construction is one loop with 15.2p2's handler and 5.3.4p18's deallocation behind it; 8.5p7's `()` over a scalar array is one byte loop. 5.3.5 is 12.4p3's end of a lifetime and 3.7.4.2's return of the storage, with 5.3.5p9's lookup, 12.5p4's usual deallocation function, 5.3.5p2's `contextual_pointer` and the null test written where a class type leaves something to guard. 15.4p1's `nonthrowing` joins the declaration, and 5.3.4p15's test is written where 15.4 *and* 18.6.1.1p3's `std::nothrow_t` both say the call reports failure with a value. Three defects the group exposed: 9.4.2p2's second line describing one object let a declaration write the image, so 3.1p2 became a fact of the line; 8.5p14's initialization folded a widening to an unsigned type the rest of 4 spells out; and 3.9.1p2's two eight-byte integral types share one LowIR spelling and are still two types a copy stands between. Audited at `6c785249`: seven blockers and one refusal found and fixed, which made 5.3.4p6's count a fact of its own rather than a zero sentinel, wrote 8.5p7's zero as one instruction over an extent the translation knows, gave 8.5p7's value-initialization of an array the vacuity exit 8.5p6's already had, made `vacuous_construction` 12.4p8's walk of the subobject tree the other way round, settled 5.3.4p15's test once for both forms, named 15.2p2's cleanup destructor by the ABI's complete-object entry, put `unwind=no` back on every reserved builtin, and let 5.3.5p5's incomplete class be deleted rather than refused | 163 -> **186 / 228**; pa1-pa16 1494 / 1494; no regressions |
-| C6 | 12.2p3's full-expression boundary and 15.2p2's handler in an ordinary body. `sema_lifetime.cpp` holds one frame per open full-expression and `Fact::object` makes 12.2p1's object a fact of the node that produced the prvalue, so a call and a conditional that hand one back name the object every reader reaches; 12.2p5 moves a temporary a reference binds into the block that declared the reference rather than leaving it in both places, and 6.4p3's condition-declaration becomes an object of the region the selection statement opened, so a path that never reached the declaration no longer destroys what it never built. 12.2p3's end is written where the full-expression ends - inline for a statement, an initializer, a mem-initializer and a loop-continuation portion, and on the two edges out of a condition, which is what makes an `if` whose condition holds a temporary lower its `&&` as a value rather than as its own control flow. The handler machinery 15.2p2 gave 12.6.2's subobjects now covers every object standing in a body: a region opens where the step that made a throwing call began, closes where the standing set changes or the full-expression does, is written again on each block a step spans, owes what stood when it *opened* rather than at its close, and names a block an earlier step wrote wherever the two owe the same objects. Four defects the group exposed: 15.4p1's exception-specification was read off no constructor's, destructor's or conversion function's declarator; 12.4p5 did not join 12.8p12 in saying which classes the ABI hands back in registers; 5.16p3's prvalue arm was ended twice, once as the conditional's result object and once as a temporary of its own; and 8.3.2p5's condition declaring a reference read no conversion function of the class it named | 186 -> **194 / 228**; pa1-pa16 1494 / 1494; no regressions |
+| C6 | 12.2p3's full-expression boundary and 15.2p2's handler in an ordinary body. `sema_lifetime.cpp` holds one frame per open full-expression and `Fact::object` makes 12.2p1's object a fact of the node that produced the prvalue, so a call and a conditional that hand one back name the object every reader reaches; 12.2p5 moves a temporary a reference binds into the block that declared the reference rather than leaving it in both places, and 6.4p3's condition-declaration becomes an object of the region the selection statement opened, so a path that never reached the declaration no longer destroys what it never built. 12.2p3's end is written where the full-expression ends - inline for a statement, an initializer, a mem-initializer and a loop-continuation portion, and on the two edges out of a condition, which is what makes an `if` whose condition holds a temporary lower its `&&` as a value rather than as its own control flow. The handler machinery 15.2p2 gave 12.6.2's subobjects now covers every object standing in a body: a region opens where the step that made a throwing call began, closes where the standing set changes or the full-expression does, is written again on each block a step spans, owes what stood when it *opened* rather than at its close, and names a block an earlier step wrote wherever the two owe the same objects. Four defects the group exposed: 15.4p1's exception-specification was read off no constructor's, destructor's or conversion function's declarator; 12.4p5 did not join 12.8p12 in saying which classes the ABI hands back in registers; 5.16p3's prvalue arm was ended twice, once as the conditional's result object and once as a temporary of its own; and 8.3.2p5's condition declaring a reference read no conversion function of the class it named. Audited at `67babaa8`: eight blockers found and fixed, three of which wrote a destructor call for an object that was not standing - the region closing after 3.8p1's ends rather than in front of them, a handler block named again after the objects it owed had been destroyed, and 5.14p1/5.16p1's conditionally-evaluated operands having no frame of their own; the fourth was the standing list copied once per region a lifetime ended inside, which was quadratic under linear output; and the machinery was split into `lowir_lower_unwind.cpp` at 15.2p2's own seam | 186 -> **194 / 228**; pa1-pa16 1494 / 1494; no regressions |
