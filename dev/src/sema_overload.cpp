@@ -2453,7 +2453,13 @@ void SemaAnalyzer::initialize_from_list(Value& value, TypeId target,
 // The operand has to be the name of a non-volatile automatic object of the
 // function's own returned type.  A block-scope object of static storage
 // duration is one the declaration itself refuses in this milestone, so a name
-// a block declared is automatic.
+// a block declared is automatic.  **An lvalue reference names no such object**:
+// 3.9p9 leaves a reference no object at all, and the one its name reaches was
+// declared somewhere this function cannot see the end of - so `V& r = v;
+// return r;` and a `V&` parameter alike are the copy 12.8p15 gives an lvalue,
+// which is what the reference binary and g++ both write.  An rvalue reference
+// is the one kind of reference this reads through, because the object it binds
+// is one nothing after the return can name.
 void SemaAnalyzer::return_as_rvalue(Value& value, TypeId target)
 {
 	if (value.category != ValueCategory::LValue || value.entity == nullptr ||
@@ -2466,6 +2472,7 @@ void SemaAnalyzer::return_as_rvalue(Value& value, TypeId target)
 	    named.region == nullptr ||
 	    (named.region->kind != ScopeKind::Block &&
 	     named.region->kind != ScopeKind::Function) ||
+	    types_.kind(named.type) == TypeKind::LValueReference ||
 	    (types_.cv(value.type) & kCvVolatile) != 0 ||
 	    !types_.is_class(types_.strip_cv(target)) ||
 	    types_.strip_cv(value.type) != types_.strip_cv(target))
