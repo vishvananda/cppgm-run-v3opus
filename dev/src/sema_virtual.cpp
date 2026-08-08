@@ -321,20 +321,25 @@ void SemaAnalyzer::settle_vtable_ownership(SemaEntity& entity, Scope& scope)
 	}
 	// 12.1, 12.4 and the ABI: every class this one is built out of takes part in
 	// a polymorphic object now, and the entries the object file owes for a
-	// member of one the *program itself wrote* are both of them - a complete
-	// object of that class can be created wherever its definition is seen, and
-	// the definition every unit shares is the one this unit holds.  A member the
-	// standard gave the class is not one a program named, so it stands under the
-	// one entry this unit's own code asked for.
+	// member of one the *program itself wrote here* are both of them - a
+	// complete object of that class can be created wherever its definition is
+	// seen, and this unit's own source is what wrote the definition every unit
+	// shares.  A member the standard gave the class is not one a program named,
+	// and 2.2p1's included file is one every unit that includes it holds a
+	// definition of too - so each stands under the one entry this unit's own
+	// code asked for.  A definition written outside its class without `inline`
+	// is this unit's alone whichever file it stands in, and `writes_base_entry`
+	// already owes both of the ABI's names for it.
 	for (SemaEntity* at = entity.base; at != nullptr; at = at->base)
 	{
 		for (SemaEntity* made = at->constructor; made != nullptr;
 		     made = made->next)
 		{
-			made->complete_object_entry =
-				made->complete_object_entry || made->user_provided;
+			made->complete_object_entry = made->complete_object_entry ||
+				(made->user_provided && made->own_source_definition);
 		}
-		if (at->destructor != nullptr && at->destructor->user_provided)
+		if (at->destructor != nullptr && at->destructor->user_provided &&
+		    at->destructor->own_source_definition)
 		{
 			at->destructor->complete_object_entry = true;
 		}

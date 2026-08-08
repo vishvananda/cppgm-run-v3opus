@@ -321,6 +321,11 @@ public:
 	// 12.1 and 12.4: which of the ABI's two entry points a constructor or a
 	// destructor stands under here, which is what this unit ran it as.
 	unsigned abi_variant(const SemaEntity& entity);
+
+	// 3.5p9: the name the object file gives `entity` under one of 12.1's entry
+	// points, encoded once per pair however often it is asked for.
+	const std::string& object_symbol_of(const SemaEntity& entity,
+	                                    unsigned variant);
 	// Whether this unit writes the base-object entry of `entity` as a definition
 	// of its own, which is what a constructor or destructor a complete object
 	// and a base subobject both asked for needs.
@@ -564,6 +569,13 @@ private:
 	// apart from `entity_symbols_` because one declaration then stands under two
 	// names, and which of them a call writes is a fact about the call.
 	std::unordered_map<std::uint32_t, std::string> base_entry_symbols_;
+	// 3.5p9: the *object file's* name for each of those, keyed by the
+	// declaration and which of 12.1's entry points is being named.  The
+	// encoding of one name is proportional to what it spells - 9.8p1's local
+	// name repeats the whole encoding of the function whose body declared the
+	// class - so a member asked about twice is encoded once here rather than
+	// once per question.
+	std::unordered_map<std::uint64_t, std::string> object_symbols_;
 	// 3.2p3 and 7.1.2p4: the definitions this unit holds that belong to every
 	// unit needing one rather than to this one - an inline function, a member
 	// function defined in its class, and the constructor 12.1p5 gives a class -

@@ -1,0 +1,439 @@
+declare global @__external_rtti_vtable____class_type_info [binding=strong, object=_ZTVN10__cxxabiv117__class_type_infoE]
+declare global @__external_rtti_vtable____si_class_type_info [binding=strong, object=_ZTVN10__cxxabiv120__si_class_type_infoE]
+
+global @__typeinfo_name__struct_written_base [storage=readonly, binding=weak, object=_ZTS12written_base] = {
+  i8 49
+  i8 50
+  i8 119
+  i8 114
+  i8 105
+  i8 116
+  i8 116
+  i8 101
+  i8 110
+  i8 95
+  i8 98
+  i8 97
+  i8 115
+  i8 101
+  i8 0
+}
+global @__rtti_struct_written_base [storage=readonly, binding=weak, object=_ZTI12written_base] = {
+  ptr addr @__external_rtti_vtable____class_type_info + 16
+  ptr addr @__typeinfo_name__struct_written_base
+}
+global @written_base__vtable [storage=readonly, binding=weak, object=_ZTV12written_base] = {
+  i64 0
+  ptr addr @__rtti_struct_written_base
+  ptr addr @written_base__here
+}
+global @__typeinfo_name__struct_shared_derived [storage=readonly, binding=weak, object=_ZTS14shared_derived] = {
+  i8 49
+  i8 52
+  i8 115
+  i8 104
+  i8 97
+  i8 114
+  i8 101
+  i8 100
+  i8 95
+  i8 100
+  i8 101
+  i8 114
+  i8 105
+  i8 118
+  i8 101
+  i8 100
+  i8 0
+}
+global @__typeinfo_name__struct_shared_base [storage=readonly, binding=weak, object=_ZTS11shared_base] = {
+  i8 49
+  i8 49
+  i8 115
+  i8 104
+  i8 97
+  i8 114
+  i8 101
+  i8 100
+  i8 95
+  i8 98
+  i8 97
+  i8 115
+  i8 101
+  i8 0
+}
+global @__rtti_struct_shared_base [storage=readonly, binding=weak, object=_ZTI11shared_base] = {
+  ptr addr @__external_rtti_vtable____class_type_info + 16
+  ptr addr @__typeinfo_name__struct_shared_base
+}
+global @__rtti_struct_shared_derived [storage=readonly, binding=weak, object=_ZTI14shared_derived] = {
+  ptr addr @__external_rtti_vtable____si_class_type_info + 16
+  ptr addr @__typeinfo_name__struct_shared_derived
+  ptr addr @__rtti_struct_shared_base
+}
+global @shared_derived__vtable [storage=readonly, binding=strong, object=_ZTV14shared_derived] = {
+  i64 0
+  ptr addr @__rtti_struct_shared_derived
+  ptr addr @shared_derived__value
+}
+global @__typeinfo_name__struct_written_derived [storage=readonly, binding=weak, object=_ZTS15written_derived] = {
+  i8 49
+  i8 53
+  i8 119
+  i8 114
+  i8 105
+  i8 116
+  i8 116
+  i8 101
+  i8 110
+  i8 95
+  i8 100
+  i8 101
+  i8 114
+  i8 105
+  i8 118
+  i8 101
+  i8 100
+  i8 0
+}
+global @__rtti_struct_written_derived [storage=readonly, binding=weak, object=_ZTI15written_derived] = {
+  ptr addr @__external_rtti_vtable____si_class_type_info + 16
+  ptr addr @__typeinfo_name__struct_written_derived
+  ptr addr @__rtti_struct_written_base
+}
+global @written_derived__vtable [storage=readonly, binding=strong, object=_ZTV15written_derived] = {
+  i64 0
+  ptr addr @__rtti_struct_written_derived
+  ptr addr @written_derived__here
+}
+global @shared_base__vtable [storage=readonly, binding=weak, object=_ZTV11shared_base] = {
+  i64 0
+  ptr addr @__rtti_struct_shared_base
+  ptr addr @shared_base__value
+}
+global @__typeinfo_name__struct_own_base [storage=readonly, binding=weak, object=_ZTS8own_base] = {
+  i8 56
+  i8 111
+  i8 119
+  i8 110
+  i8 95
+  i8 98
+  i8 97
+  i8 115
+  i8 101
+  i8 0
+}
+global @__rtti_struct_own_base [storage=readonly, binding=weak, object=_ZTI8own_base] = {
+  ptr addr @__external_rtti_vtable____class_type_info + 16
+  ptr addr @__typeinfo_name__struct_own_base
+}
+global @own_base__vtable [storage=readonly, binding=weak, object=_ZTV8own_base] = {
+  i64 0
+  ptr addr @__rtti_struct_own_base
+  ptr addr @own_base__mine
+}
+global @__typeinfo_name__struct_own_derived [storage=readonly, binding=weak, object=_ZTS11own_derived] = {
+  i8 49
+  i8 49
+  i8 111
+  i8 119
+  i8 110
+  i8 95
+  i8 100
+  i8 101
+  i8 114
+  i8 105
+  i8 118
+  i8 101
+  i8 100
+  i8 0
+}
+global @__rtti_struct_own_derived [storage=readonly, binding=weak, object=_ZTI11own_derived] = {
+  ptr addr @__external_rtti_vtable____si_class_type_info + 16
+  ptr addr @__typeinfo_name__struct_own_derived
+  ptr addr @__rtti_struct_own_base
+}
+global @own_derived__vtable [storage=readonly, binding=weak, object=_ZTV11own_derived] = {
+  i64 0
+  ptr addr @__rtti_struct_own_derived
+  ptr addr @own_derived__mine
+}
+
+function @written_base__written_base__base_entry(%this : ptr) -> void [binding=strong, object=_ZN12written_baseC2Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = addr @written_base__vtable
+    %t3 = index i8 %t2, 16
+    store ptr %t3, %t1
+    return void
+}
+function @written_base__written_base(%this : ptr) -> void [binding=strong, object=_ZN12written_baseC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = addr @written_base__vtable
+    %t3 = index i8 %t2, 16
+    store ptr %t3, %t1
+    return void
+}
+function @shared_derived__shared_derived__base_entry(%this : ptr) -> void [binding=strong, object=_ZN14shared_derivedC2Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    call void @shared_base__shared_base__base_entry(%t2)
+    %t3 = load ptr $this
+    %t4 = addr @shared_derived__vtable
+    %t5 = index i8 %t4, 16
+    store ptr %t5, %t3
+    %t6 = load ptr $this
+    %t7 = index i8 [projection=field] %t6, 8
+    store i32 10, %t7
+    return void
+}
+function @shared_derived__shared_derived(%this : ptr) -> void [binding=strong, object=_ZN14shared_derivedC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    call void @shared_base__shared_base__base_entry(%t2)
+    %t3 = load ptr $this
+    %t4 = addr @shared_derived__vtable
+    %t5 = index i8 %t4, 16
+    store ptr %t5, %t3
+    %t6 = load ptr $this
+    %t7 = index i8 [projection=field] %t6, 8
+    store i32 10, %t7
+    return void
+}
+function @shared_derived__value(%this : ptr) -> i32 [binding=strong, object=_ZNK14shared_derived5valueEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 8
+    %t3 = load i32 %t2
+    return i32 %t3
+}
+function @written_derived__written_derived__base_entry(%this : ptr) -> void [binding=strong, object=_ZN15written_derivedC2Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    call void @written_base__written_base__base_entry(%t2)
+    %t3 = load ptr $this
+    %t4 = addr @written_derived__vtable
+    %t5 = index i8 %t4, 16
+    store ptr %t5, %t3
+    %t6 = load ptr $this
+    %t7 = index i8 [projection=field] %t6, 8
+    store i32 20, %t7
+    return void
+}
+function @written_derived__written_derived(%this : ptr) -> void [binding=strong, object=_ZN15written_derivedC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    call void @written_base__written_base__base_entry(%t2)
+    %t3 = load ptr $this
+    %t4 = addr @written_derived__vtable
+    %t5 = index i8 %t4, 16
+    store ptr %t5, %t3
+    %t6 = load ptr $this
+    %t7 = index i8 [projection=field] %t6, 8
+    store i32 20, %t7
+    return void
+}
+function @written_derived__here(%this : ptr) -> i32 [binding=strong, object=_ZNK15written_derived4hereEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 8
+    %t3 = load i32 %t2
+    return i32 %t3
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $first : obj<16x8>
+  slot $second : obj<16x8>
+  slot $third : obj<16x8>
+  slot $one : ptr
+  slot $two : ptr
+  slot $three : ptr
+  slot $cond__1 : i32
+  slot $land__2 : i64
+  slot $land__3 : i64
+
+  block ^entry:
+    %t1 = addr $first
+    call void @shared_derived__shared_derived(%t1)
+    %t2 = addr $second
+    call void @written_derived__written_derived(%t2)
+    %t3 = addr $third
+    call void @own_derived__own_derived(%t3)
+    %t4 = addr $first
+    %t5 = index i8 [projection=base_subobject] %t4, 0
+    store ptr %t5, $one
+    %t6 = addr $second
+    %t7 = index i8 [projection=base_subobject] %t6, 0
+    store ptr %t7, $two
+    %t8 = addr $third
+    %t9 = index i8 [projection=base_subobject] %t8, 0
+    store ptr %t9, $three
+    %t10 = load ptr $one
+    %t11 = load ptr %t10
+    %t12 = load ptr %t11
+    %t13 = call i32 %t12(%t10) as (%arg0 : ptr) -> i32
+    %t14 = cmp eq i32 %t13, 10
+    branch %t14, ^land_rhs_7, ^land_short_8
+
+  block ^land_rhs_7:
+    %t15 = load ptr $two
+    %t16 = load ptr %t15
+    %t17 = load ptr %t16
+    %t18 = call i32 %t17(%t15) as (%arg0 : ptr) -> i32
+    %t19 = cmp eq i32 %t18, 20
+    %t20 = cmp ne i64 %t19, 0
+    store i64 %t20, $land__3
+    jump ^land_end_9
+
+  block ^land_short_8:
+    store i64 0, $land__3
+    jump ^land_end_9
+
+  block ^land_end_9:
+    %t21 = load i64 $land__3
+    branch %t21, ^land_rhs_4, ^land_short_5
+
+  block ^land_rhs_4:
+    %t22 = load ptr $three
+    %t23 = load ptr %t22
+    %t24 = load ptr %t23
+    %t25 = call i32 %t24(%t22) as (%arg0 : ptr) -> i32
+    %t26 = cmp eq i32 %t25, 40
+    %t27 = cmp ne i64 %t26, 0
+    store i64 %t27, $land__2
+    jump ^land_end_6
+
+  block ^land_short_5:
+    store i64 0, $land__2
+    jump ^land_end_6
+
+  block ^land_end_6:
+    %t28 = load i64 $land__2
+    branch %t28, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t29 = load i32 $cond__1
+    return i32 %t29
+}
+function @shared_base__shared_base__base_entry(%this : ptr) -> void [binding=weak, object=_ZN11shared_baseC2Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = addr @shared_base__vtable
+    %t3 = index i8 %t2, 16
+    store ptr %t3, %t1
+    return void
+}
+function @shared_base__value(%this : ptr) -> i32 [binding=weak, object=_ZNK11shared_base5valueEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    return i32 1
+}
+function @written_base__here(%this : ptr) -> i32 [binding=weak, object=_ZNK12written_base4hereEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    return i32 2
+}
+function @own_base__mine(%this : ptr) -> i32 [binding=weak, object=_ZNK8own_base4mineEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    return i32 4
+}
+function @own_derived__own_derived(%this : ptr) -> void [binding=weak, object=_ZN11own_derivedC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    call void @own_base__own_base__base_entry(%t2)
+    %t3 = load ptr $this
+    %t4 = addr @own_derived__vtable
+    %t5 = index i8 %t4, 16
+    store ptr %t5, %t3
+    %t6 = load ptr $this
+    %t7 = index i8 [projection=field] %t6, 8
+    store i32 40, %t7
+    return void
+}
+function @own_derived__mine(%this : ptr) -> i32 [binding=weak, object=_ZNK11own_derived4mineEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 8
+    %t3 = load i32 %t2
+    return i32 %t3
+}
+function @own_base__own_base__base_entry(%this : ptr) -> void [binding=weak, object=_ZN8own_baseC2Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = addr @own_base__vtable
+    %t3 = index i8 %t2, 16
+    store ptr %t3, %t1
+    return void
+}
+function @own_base__own_base(%this : ptr) -> void [binding=weak, object=_ZN8own_baseC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = addr @own_base__vtable
+    %t3 = index i8 %t2, 16
+    store ptr %t3, %t1
+    return void
+}
+alias object _ZN12written_baseC2Ev = @written_base__written_base
+alias object _ZN14shared_derivedC2Ev = @shared_derived__shared_derived
+alias object _ZN15written_derivedC2Ev = @written_derived__written_derived
+alias object _ZN11own_derivedC2Ev = @own_derived__own_derived
+alias object _ZN8own_baseC2Ev = @own_base__own_base

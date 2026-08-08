@@ -65,6 +65,9 @@ void emit_lowir(const std::string& outfile,
 		// 9.2p13's layout in phase 7, so what the stream recorded about where
 		// it stood travels with the tree that was parsed from it.
 		analyzer.set_packing(tokens.packs());
+		// 2.2p1: which of the definitions this unit read are the ones its own
+		// source wrote is a phase 4 fact too, and the same stream recorded it.
+		analyzer.set_sources(tokens.sources());
 		analyzer.run(*root);
 		builder.add_unit(analyzer.resolved(), analyzer.types());
 	}

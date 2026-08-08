@@ -81,6 +81,7 @@ SemaAnalyzer::SemaAnalyzer(SemaDialect dialect)
 	: reading_(nullptr)
 	, dialect_(dialect)
 	, packs_(nullptr)
+	, sources_(nullptr)
 	, anonymous_enums_(0)
 	, local_types_(0)
 	, self_(nullptr)
@@ -1662,6 +1663,15 @@ unsigned long long SemaAnalyzer::packing_of(const AstNode& node) const
 	return packs_ == nullptr || packs_->empty()
 		? 0
 		: packs_->at(node.completed);
+}
+
+// 2.2p1: whether the reading was in this unit's own source where `node` begins.
+// A unit that includes nothing has an empty table and answers without a search,
+// and so does every mode that hands the analysis no table at all.
+bool SemaAnalyzer::own_source(const AstNode& node) const
+{
+	return sources_ == nullptr || sources_->empty() ||
+		sources_->own_at(node.begin);
 }
 
 void SemaAnalyzer::simple_declaration(const AstNode& node, const Context& ctx)

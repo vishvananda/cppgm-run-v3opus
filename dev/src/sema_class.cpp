@@ -646,6 +646,11 @@ void SemaAnalyzer::open_special_member_body(
 	const std::string& written, const std::vector<Parameter>& parameters)
 {
 	entity.defined = true;
+	// 2.2p1: which file this definition was read from, which is what says
+	// whether the object file owes the ABI's entry points for it or only the
+	// ones this unit's own code named.  It is read here for the same reason
+	// 12.4p8 is: the definition is in front of the walk exactly once.
+	entity.own_source_definition = own_source(node);
 	// 12.4p8: whether the definition writes any statement is what says whether
 	// running this function comes to anything.  It is read here for the
 	// definition written in the class body; one written outside it stands

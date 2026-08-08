@@ -202,6 +202,35 @@ unsigned long long PackTable::at(std::size_t index) const
 	return low == 0 ? 0 : regions_[low - 1].alignment;
 }
 
+void IncludeTable::add(std::size_t begin, bool own)
+{
+	Region region;
+	region.begin = begin;
+	region.own = own;
+	regions_.push_back(region);
+}
+
+bool IncludeTable::own_at(std::size_t index) const
+{
+	// The regions are appended in stream order, so the one in force is the last
+	// that begins at or before `index`, exactly as the packing alignment's is.
+	std::size_t low = 0;
+	std::size_t high = regions_.size();
+	while (low < high)
+	{
+		const std::size_t middle = low + (high - low) / 2;
+		if (regions_[middle].begin <= index)
+		{
+			low = middle + 1;
+		}
+		else
+		{
+			high = middle;
+		}
+	}
+	return low == 0 ? true : regions_[low - 1].own;
+}
+
 bool AstTokenStream::string_value(std::size_t index, std::string& out) const
 {
 	const std::unordered_map<std::size_t, std::string>::const_iterator found =
@@ -222,11 +251,22 @@ void AstTokenStream::build(SourceFileTable& files, const PreprocessorOptions& op
 
 	PostToken token;
 	unsigned long long pack_epoch = preprocessor.pack_epoch();
+	bool own_source = true;
 	while (tokenizer.next(token))
 	{
 		if (token.kind == PostTokenKind::EndOfFile)
 		{
 			break;
+		}
+		// 2.2p1: this token was read wherever the reading is now, because an
+		// inclusion opens its file before the first token of it arrives and the
+		// file is not closed until the reading needs the token after its last.
+		// The test is one comparison per token and the record is one per
+		// inclusion that changed the answer.
+		if ((preprocessor.source_depth() <= 1) != own_source)
+		{
+			own_source = !own_source;
+			sources_.add(tokens_.size(), own_source);
 		}
 		// 16.6: every directive before this token has run, so what the packing
 		// alignment is here is what the token's own class definition asks.  The

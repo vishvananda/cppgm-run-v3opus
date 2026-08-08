@@ -455,6 +455,14 @@ struct SemaEntity
 	// its class body and 12.1p5 an implicitly declared constructor.  It is what
 	// says the definition binds weakly and is emitted only where it is used.
 	bool inline_function;
+	// 2.2p1: whether the definition this translation unit holds of this
+	// function was written in the unit's own source file rather than in a file
+	// it included.  A definition read from an included file is one every unit
+	// including that file also holds, so the object file owes only the entry
+	// points this unit's own code named; one written here is this unit's
+	// contribution and owes what the ABI gives the declaration.  False for a
+	// declaration this unit defines nowhere.
+	bool own_source_definition;
 	// 12.4p8: whether the definition this declaration was given in this
 	// translation unit writes no statement at all.  Every definition is read
 	// before any body is, so the fact stands wherever a use of the function is

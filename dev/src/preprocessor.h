@@ -55,6 +55,13 @@ public:
 	unsigned long long pack_alignment() const { return pack_; }
 	unsigned long long pack_epoch() const { return pack_epoch_; }
 
+	// 2.2p1 and 16.2p4: how many source files are open, which is one for the
+	// unit's own source and one more for each `#include` reached from it.  It
+	// is a fact of a *position* the same way the packing alignment is, and it
+	// is what says whether a definition the parse reads is one this unit alone
+	// writes or one every unit including that header also holds.
+	std::size_t source_depth() const { return open_.size(); }
+
 protected:
 	void run_directive_line(const MacroToken* begin, const MacroToken* end) override;
 	bool pop_source() override;

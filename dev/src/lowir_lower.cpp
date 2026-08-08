@@ -302,7 +302,7 @@ const std::string& LowirUnitLowering::function_symbol(const SemaEntity& entity,
 		// what makes a second unit's declaration of one function reach the
 		// symbol this one named.
 		held = symbols_.function_symbol(
-			entity, abi_symbol_of(entity, types_, kCompleteObjectAbi));
+			entity, object_symbol_of(entity, kCompleteObjectAbi));
 		if (abi_variant(entity) == kBaseObjectAbi)
 		{
 			held += "__base_entry";
@@ -333,12 +333,25 @@ void LowirUnitLowering::describe_symbol(const SemaEntity& entity,
 	// 3.5p9: the object file names the entity, and PA14's encoder is what says
 	// how.  The internal LowIR symbol is a spelling of this program alone, so
 	// the object name is carried only where the two differ.
-	const std::string object = abi_symbol_of(
-		entity, types_, base_entry ? kBaseObjectAbi : abi_variant(entity));
+	const std::string& object =
+		object_symbol_of(entity, base_entry ? kBaseObjectAbi : abi_variant(entity));
 	if (object != symbol)
 	{
 		metadata.object_symbol = object;
 	}
+}
+
+const std::string& LowirUnitLowering::object_symbol_of(const SemaEntity& entity,
+                                                       unsigned variant)
+{
+	const std::uint64_t key =
+		(static_cast<std::uint64_t>(entity.id) << 8) | variant;
+	std::string& held = object_symbols_[key];
+	if (held.empty())
+	{
+		held = abi_symbol_of(entity, types_, variant);
+	}
+	return held;
 }
 
 void LowirProgramBuilder::add_unit(const DumpNode& unit, TypeTable& types)

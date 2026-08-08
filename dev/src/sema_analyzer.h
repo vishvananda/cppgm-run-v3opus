@@ -17,6 +17,7 @@
 struct AstNode;
 struct PostToken;
 class PackTable;
+class IncludeTable;
 
 // An expression that is not one of the constant expressions 5.19 defines, or
 // not one of the subset of them PA11 evaluates.
@@ -67,6 +68,11 @@ public:
 	// tree was parsed from.  Borrowed rather than copied, and left null by a
 	// caller with no such table, which is what says no class is packed.
 	void set_packing(const PackTable& packs) { packs_ = &packs; }
+
+	// 2.2p1: which positions of that stream this unit's own source wrote.
+	// Borrowed the same way, and left null by a caller with no such table,
+	// which is what says every definition read is this unit's own.
+	void set_sources(const IncludeTable& sources) { sources_ = &sources; }
 
 	// Analyses `unit`, a PA10 `translation-unit`.  Throws for a program the
 	// assignment gives no meaning to.
@@ -1358,6 +1364,9 @@ private:
 		const std::vector<std::pair<TypeId, unsigned long long> >& holes);
 	// 16.6: the packing alignment in force where `node` was written.
 	unsigned long long packing_of(const AstNode& node) const;
+	// 2.2p1: whether `node` was written in this unit's own source file rather
+	// than in a file it included.
+	bool own_source(const AstNode& node) const;
 	// 9.6p2: the storage unit the bit-fields of a class are being allocated
 	// into while it is laid out.  A unit is opened by the first field that
 	// cannot share the one before it, and the fields declared with its own type
@@ -2144,6 +2153,9 @@ private:
 	// from the stream the tree was parsed from.  Null where the caller has
 	// none, which is every mode but the lowering.
 	const PackTable* packs_;
+	// 2.2p1: which positions of that stream this unit's own source wrote,
+	// borrowed the same way and null in the same modes.
+	const IncludeTable* sources_;
 	TypeTable types_;
 	SemaModel model_;
 	// The unnamed enumerations declared so far, which are numbered rather than

@@ -69,6 +69,38 @@ private:
 	std::vector<Region> regions_;
 };
 
+// 2.2p1 and 16.2p4: whether the reading was in this unit's own source file, at
+// each position of a token stream.
+//
+// `#include` is a phase 4 fact and which unit owes a definition is a phase 7
+// question, so what carries it between them is the one thing both name: a
+// position in the stream.  It is the same shape as `PackTable` and for the same
+// reason - only the positions the answer changes at are stored, so a unit that
+// includes nothing stores nothing and a unit with n inclusions stores at most
+// 2n, and the answer anywhere is one binary search.
+class IncludeTable
+{
+public:
+	bool empty() const { return regions_.empty(); }
+
+	// Records that the reading becomes `own` at `begin`.  Positions arrive in
+	// stream order.
+	void add(std::size_t begin, bool own);
+
+	// Whether the token at `index` was read from this unit's own source file.
+	// True where no inclusion was ever recorded, because then every token was.
+	bool own_at(std::size_t index) const;
+
+private:
+	struct Region
+	{
+		std::size_t begin;
+		bool own;
+	};
+
+	std::vector<Region> regions_;
+};
+
 // The terminals of one translation unit, with the spellings the dump needs.
 //
 // PA10 spells a name back out in several places - a template-id, a qualified
@@ -107,6 +139,9 @@ public:
 	// 16.6: what `#pragma pack` asked for, by position in this stream.
 	const PackTable& packs() const { return packs_; }
 
+	// 2.2p1: which tokens this unit's own source wrote, by position.
+	const IncludeTable& sources() const { return sources_; }
+
 	// The characters of a narrow string literal, as phase 7 decoded them.
 	// False for every other token.  One rule - the language a
 	// linkage-specification names - wants a literal's value rather than its
@@ -119,6 +154,7 @@ private:
 
 	std::vector<AstToken> tokens_;
 	PackTable packs_;
+	IncludeTable sources_;
 	std::vector<std::string> pool_;
 	std::unordered_map<std::string, std::uint32_t> interned_;
 	// By token index, for the string literals only: most tokens have no value
