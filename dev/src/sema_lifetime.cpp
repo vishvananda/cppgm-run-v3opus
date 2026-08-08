@@ -925,10 +925,26 @@ SemaEntity* SemaAnalyzer::register_temporary(DumpNode& node, const Scope* from,
 {
 	const bool known = node.fact.object != nullptr;
 	SemaEntity* const object = prvalue_object(node);
-	if (object == nullptr || known)
+	if (object == nullptr || (known && !extended))
 	{
 		// The prvalue was already given an object, so the lifetime it has is
 		// already held by whichever region was asked for it first.
+		return object;
+	}
+	if (known)
+	{
+		// 12.2p5: the full-expression that created this temporary was holding
+		// the end of its lifetime, and the reference it has just been bound to
+		// holds it now - so it moves out of the one and into the other rather
+		// than being ended twice.
+		Value written;
+		written.node = &node;
+		release_temporary(written);
+		if (!lifetimes_.empty())
+		{
+			lifetimes_.back().push_back(object);
+			++live_destructions_;
+		}
 		return object;
 	}
 	if (vacuous_destruction(object->type))

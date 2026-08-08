@@ -1023,7 +1023,13 @@ void LowirFunctionLowering::begin_object_lifetime(
 	// under one too: the set it owes has changed, so the region it stood in
 	// ends and another begins.  Where none stood, nothing yet asks for one.
 	region_pending_ = covered && full_expressions_ != 0;
-	unwind_mark_.active = false;
+	// The step that built the object is over and the next one begins here, so
+	// a handler the code after it needs stands where that code does.
+	unwind_mark_.active = true;
+	unwind_mark_.at_call = false;
+	unwind_mark_.block = current_;
+	unwind_mark_.at = out_.blocks[current_].instructions.size();
+	call_since_mark_ = false;
 }
 
 // 3.8p1: the program wrote the end of this object's lifetime, so an exception

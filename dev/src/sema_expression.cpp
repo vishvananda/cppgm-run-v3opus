@@ -2413,8 +2413,20 @@ void SemaAnalyzer::convert_arm_to_base(Value& arm, TypeId result)
 void SemaAnalyzer::transfer_arm_to_result(Value& arm, TypeId result,
                                           const Context& ctx)
 {
-	if (arm.node == nullptr || arm.category == ValueCategory::PRValue ||
-	    types_.is_trivially_copied(types_.strip_cv(result)))
+	if (arm.node == nullptr)
+	{
+		return;
+	}
+	if (arm.category == ValueCategory::PRValue)
+	{
+		// 12.8p31: an operand that is a prvalue creates its object where the
+		// result stands, so what it made is the conditional's own object -
+		// 12.2p3 ends that one where the full-expression ends and not this one
+		// as well.
+		release_temporary(arm);
+		return;
+	}
+	if (types_.is_trivially_copied(types_.strip_cv(result)))
 	{
 		return;
 	}

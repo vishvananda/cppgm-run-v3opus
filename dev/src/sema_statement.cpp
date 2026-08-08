@@ -444,13 +444,20 @@ void SemaAnalyzer::condition_of_declaration(DumpNode& declaration,
 		return;
 	}
 	SemaEntity* const declared = declaration.children[0]->fact.entity;
-	if (declared == nullptr ||
-	    !types_.is_class(types_.strip_cv(declared->type)))
+	// 8.3.2p5: a condition may declare a reference, and what the statement
+	// branches on is what the object it is bound to holds - so the class the
+	// conversion is looked for in is the one the reference names.
+	const TypeId held = declared == nullptr
+		? kNoType
+		: (types_.is_reference(declared->type)
+		       ? types_.target(declared->type)
+		       : declared->type);
+	if (declared == nullptr || !types_.is_class(types_.strip_cv(held)))
 	{
 		return;
 	}
 	Value named;
-	named.type = named.spelled = declared->type;
+	named.type = named.spelled = held;
 	named.category = ValueCategory::LValue;
 	named.entity = declared;
 	named.what = "id-expression";
