@@ -5,89 +5,126 @@ define, lower.
 
 ## Current Checkpoint Review
 
-**C4, reviewed at `9f693145`.** The architecture holds and is the right one.
-8.3.5p1 says the ref-qualifier is part of the function type, and the checkpoint
-puts it there: one field of the interned node, beside 8.3.5p7's cv-qualifier-seq
-and in the same step of `shape_of`'s key, so `declarator_type` writes it once and
-the declaration, the out-of-class definition, 13.1's signature, the Itanium name
-and a pointer to member all read the one fact. All ten cv/ref manglings agree
-with `g++` and with the reference byte for byte. `Value::object_category` is the
-right shape too: 9.3.1p3 holds the implicit object parameter as a pointer, and
-`object_match` is the one place the pointer's conversion and the reference's
-binding are asked together, reached by a member access, a call with no object
-expression, an operator's left operand and 13.3.1.5's own candidate set alike.
-Nothing in the checkpoint is a second pipeline and nothing walks for the
-qualifier: a hierarchy 2000 deep whose root declares `&`, `const &` and `&&` and
-is called three ways costs the same 0.11 s and the same constant output as the
-identical hierarchy with no ref-qualifier at all.
+**C5, reviewed at `6c785249`.** The architecture holds and is the right one.
+5.3.4 and 5.3.5 are actions over storage the expression already names, not a
+second object model: `sema_allocation.cpp` owns the two lookups and the two
+sizes, the initialization is the one 8.5 would give an object of the type
+declared with the same initializer, and the destruction is 12.4p3's own action.
+3.7.4.1p2's four functions being ordinary declarations made in the global
+namespace before the unit is read is the right shape too - a program that writes
+one redeclares it, 13.3 chooses among them beside whatever the program declared,
+and the object file names them what the implementation calls them. Nothing
+walks for the lookup: a hierarchy 2000 deep whose root declares
+`operator new`/`operator delete` with the allocation written at the leaf costs
+the same 0.08 s and the same 30 lines as the identical hierarchy with no
+allocation function in it.
 
-What the review found is four defects, and they are one pattern seen four times:
-a fact hung on the function type has to be read by *every* layer that rebuilds
-or spells that type, and three rebuilders were updated while a fourth was not,
-and two dumps spell the type the analyzer has and were never asked what they
-now print.
+What the review found is seven defects, and they are two patterns. Four are the
+first: **the array form asked the running program for what the translation had
+already settled** - the count, the extent of 8.5p7's zero, and whether building
+one element comes to anything at all. Three are the second: **a fact was written
+in one place and read in fewer places than own the question** - 5.3.4p15's test,
+the ABI entry 15.2p2's cleanup names, and the boundary C5's own `nonthrowing`
+took off the reserved builtins. The last two of those are attributes the relaxed
+comparison strips before it compares, so no fixture could ever have failed on
+them; they were found by diffing that metadata by hand.
 
-**1. A using-declaration rebuilt the shadow's type without the ref-qualifier.**
-13.3.3.1p4 makes a member a using-declaration brought into a derived class a
-member of *that* class where the implicit object parameter is concerned, so
-`declare_using_member` rebuilds the base's function type with the derived
-class's object pointer in front. It rebuilt it with `function_of` alone, which
-drops 8.3.5p1's qualifier - the one rebuilder of a member function type that C4
-did not carry it through, where `with_object_parameter`, `member_pointer_of` and
-`substitute` all do. Both readers of the fact then read the wrong one.
-13.3.1p4's viability: `struct B { int f() && ; }; struct D : B { using B::f; };`
-made `D d; d.f();` call `B::f() &&` on an lvalue, which the reference and `g++`
-both refuse. And 7.3.3p14's hiding, which is keyed on the same signature: a
-derived class that declared `int f() &` of its own no longer hid the base's
-`int f() &`, so `d.f()` was refused as ambiguous where both oracles call the
-derived one. The shadow now carries the qualifier over with the rest of the
-type, and the two questions read the one fact again.
+**1. A count of zero was read as a count the translation does not know.**
+`Fact::elements` carried both "how many elements" and, by being zero, "the bound
+is not a constant" - so `new T[0]` took the run-time path: a slot for the bytes
+the call was asked for, a `sub` and a `udiv` to get the count back out of them,
+and all of that twice for a class array, to arrive at the zero the source wrote.
+5.3.4p6's bound is the one array bound the standard does not require to be
+constant, so whether it *is* one is a fact of its own; `Fact::counted` is that
+fact and a bound of zero is now a bound like any other.
 
-**2. 13.1p2 was asked of one cv-qualification instead of all four.**
-`require_uniform_ref_qualifiers` probed the chain's index for the signature the
-other ref-spelling would have given *with the object parameter the declaration
-wrote*. But 13.1p2 is keyed on the name and 8.3.5p4's parameter-type-list, and
-8.3.5p7's cv-qualifier-seq is no part of that list - so `void f() const;` beside
-`void f() &&;` is a set the rule refuses just as `void f();` beside
-`void f() &&;` is. Every cv mismatch was accepted: `f() &`/`f() const`,
-`f() volatile`/`f() const &`, `operator int() const`/`operator int() &&` and
-`f(int) const`/`f(int) &&` are each refused by `g++` and were each accepted
-here. The probe now asks for each of the four qualifications, which is four or
-eight reads of a map per declaration and no walk: one class declaring 2000
-member functions is 0.10 s, the same shape it was.
+**2. 8.5p7's zero over an extent the translation knows was written as a loop.**
+`new int[4]()` wrote a three-block byte-at-a-time loop over sixteen bytes where
+the reference writes one `zeroinit 16x4`. The same code zeroed `bytes` rather
+than `bytes - 8` for a class array with a run-time bound, so it ran eight bytes
+past the last element - the count 5.3.4p1 writes in front of them is part of
+what the call asked for and no part of what they stand in. The zero now asks
+the count what the extent is: one instruction over an extent the
+translation knows, the spans `zero_object` writes where the elements are objects
+of class type, and the loop only where the bound is a value.
 
-**3. The two qualifiers written after the parameter-clause were spelled in the
-wrong assignment's dump - both ways.** `declarator_type` wrote them onto the
-function type only under `semantics()`, so PA11's `--emit-types` described
-`int f() &;` as `function of () returning int` and `typedef int F() const;` as
-`function of () returning int`, where the reference writes `function of () &
-returning int` and `function of () const returning int`. That hole was there for
-the cv-qualifier-seq before C4 and no pa11 fixture covers it; C4's new field
-joined it. In the other direction, C4 made PA12's `--emit-semantics` spell the
-ref-qualifier on the form 9.3.1p3 has *already* lowered - `function-definition
-S::f function of (pointer to struct S) & returning int` where the reference
-writes no `&`, because the cv-qualifier-seq beside it has by then moved onto the
-object parameter and the ref-qualifier is carried as a fact rather than spelled
-twice. Both are one rule: the qualifiers are spelled on the type the declarator
-wrote, and the lowered form spells the object parameter instead. The guard is
-gone, so a typedef, a pointer to function and a pointer to member all hold and
-spell both; `function_description` is the one reader that leaves the
-ref-qualifier unspelled where the object parameter already stands for it, used
-by the four lines that name a function's own type. PA11 and PA12 now agree with
-the reference on every ref-qualified and cv-qualified shape probed.
+**3. 8.5p7's value-initialization of an array had no vacuity exit at all.**
+`array_new_initialization` asked `vacuous_construction` only where *no*
+initializer was written, so `new T[n]()` always wrote a per-element constructor
+loop with 15.2p2's handler and 5.3.4p18's deallocation behind it - for
+`struct Triv { int a; };`, n calls of a constructor 12.1p6 makes trivial, and a
+cleanup for an exception none of them can throw. It is the sibling of the exit
+the checkpoint did write. 8.5p7 gives the question two halves and both are now
+asked in the one place: the storage is zeroed where the default constructor is
+neither user-provided nor deleted, and the constructor is called only where
+12.1p6 left it something to do.
 
-**4. A reference member of a non-lvalue object was given the xvalue category.**
-5.2.5p4 answers `E1.E2` in two steps, and the first is that a member declared to
-have reference type makes the expression an lvalue whatever E1 was - what such a
-member names is the object it is bound to and not a subobject of E1. Only after
-that does the rule that a member of a non-lvalue object is an xvalue apply.
-`member_value` already gave a reference member the *type* the first step gives
-it and then took its *category* from the second, so
-`struct S { M& m; }; S(g).m.f()` reached `M::f() &&`, which the reference and
-`g++` both refuse. It is the README's "xvalue propagation through non-static
-data-member access" read one clause short, and the clause it missed is the one
-13.3.1p4 then binds by. The category now comes from the same step the type
-does.
+**4. `vacuous_construction` was not the walk of the subobject tree its
+counterpart is.** The plan lists it beside `vacuous_destruction` as one of the
+questions each layer asks once, but where 12.4p8's walks the class's bases
+and members, this one asked whether the class *holds nothing at all*
+(`empty_class && base == nullptr`). So `struct Y { int a; Y(){} }` - a
+constructor whose definition does nothing over a class with nothing to build -
+was built element by element in a loop in which nothing happens, and so was a
+class whose only member is one of those. It is now the same walk, held per type,
+with the two things that make a definition come to something counted: 12.6.2p8's
+brace-or-equal-initializer on a member, and a mem-initializer-list, which
+`writes_no_statement` now reads beside the compound-statement. 3.4.1p8's
+definition written outside the class is taken from the unit's syntax the way a
+destructor's already was, so `Y::Y(){}` written after the body asking about it
+gets the same answer as one written before - but only where one constructor of
+the class is still waiting for a definition. A class's destructor has one
+unqualified name and its constructors *share* one, so with two of them waiting
+the syntax cannot say which definition defines which, and taking the first would
+give the default constructor another's body: `struct S { int a; S(); S(int); };`
+with `S::S(int){}` written before `S::S(){ a = 7; }` and both after the use had
+the array built with no constructor call at all. Where two are waiting the
+answer waits for the read to reach them.
+
+**5. 5.3.4p15's test of the address was written for the wrong set of allocation
+functions, and never for the array form.** The gate was "15.4 says it throws
+nothing, and it is not 18.6.1.3p2's `(size_t, void*)`". That wrote a branch
+around every `new (tag) T` whose placement function happened to be `noexcept`
+and around a class's own `operator new(size_t) noexcept`, where the reference
+writes none - and wrote none at all around `new (std::nothrow) T[n]`, where the
+reference does. 18.6.1.1p3 is the half of the answer that was missing:
+`std::nothrow_t` is the argument a program writes to ask for the form that
+reports failure with a value rather than an exception, and a placement form that
+merely promises not to throw obtains its storage from wherever the program said
+and has no failure of its own to report. The question is settled once, in the
+analysis, as `Fact::may_fail`, and both forms read it; the array form holds its
+value in an object of its own, because the step past 5.3.4p1's count is itself
+under the test.
+
+**6. The array-new cleanup destroyed complete objects through the ABI's
+base-object entry.** 15.2p2's handler destroys the elements already built, and
+each of those is a complete object of the element's class - but nothing on that
+path told the analysis so. The cleanup writes no destructor-action of its own
+and the lowering derives the destructor from the constructor, so a class whose
+destructor no *other* use reached was named `_ZN1CD2Ev` where the reference and
+the ABI write `_ZN1CD1Ev`. The relaxed comparison strips `object=` and pairs
+functions by it, so no fixture could ever have seen this. `array_new_initialization`
+now notes the complete-object entry the way `delete_expression` does.
+
+**7. C5's own `nonthrowing` fact took `unwind=no` off every reserved builtin.**
+The line `describe_builtin` writes was `CUM_NO` outright before C5 and became
+`entity.nonthrowing ? CUM_NO : CUM_DEFAULT` - and `reserved_function` sets no
+such fact, so `__builtin_memcpy`, `__builtin_memmove`, `__builtin_strlen` and
+`__builtin_unreachable` all silently lost the boundary 17.6.5.12 gives them.
+`unwind=` is one of the attributes the comparison strips, so the suite stayed
+green. 15.4p14 says of them what 15.4p1 says of a program's `noexcept`, so the
+fact is now written on each declaration where it is made; and a definition the
+program wrote with a non-throwing exception-specification carries the boundary
+over its body, which it did not before. The reference writes it on a definition
+and not on a declaration of a function the program wrote, and now so do we.
+
+**Refusals the checkpoint made that neither oracle makes.** 5.3.5p5 leaves
+`delete` of a pointer to an incomplete class - and 5.3.5p2's `void*` with it -
+undefined rather than ill-formed: what the program loses is the destructor call
+the definition would have named, and the storage still goes back. Both were
+refused outright. The expression is now written for what the type does say,
+which for an incomplete type is one deallocation and no test of the address,
+because there is nothing under it to guard.
 
 ## Evidence
 
@@ -96,80 +133,132 @@ best of three, at the end of the review.
 
 | axis | sizes | time | output |
 | --- | --- | --- | --- |
-| n classes each declaring `f() &` and `f() &&`, both called | 250/500/1000/2000 | 0.04/0.09/0.19/0.40 s | 32 n + 7 lines |
-| one class declaring n such pairs, all 2 n calls written | 250/500/1000/2000 | 0.02/0.05/0.10/0.22 s | 22 n + 17 lines |
-| one class declaring n **unqualified** members, all called | 250/500/1000/2000 | 0.01/0.02/0.05/0.10 s | 10 n + 9 lines |
-| hierarchy n deep, root declaring `&`, `const &`, `&&`, called three ways | 250/500/1000/2000 | 0.01/0.01/0.04/0.11 s | 54 lines |
-| the same hierarchy with **no** ref-qualifier at all | 250/500/1000/2000 | 0.00/0.01/0.04/0.11 s | 47 lines |
-| n members brought in by n using-declarations, all called | 250/500/1000/2000 | 0.01/0.03/0.06/0.13 s | 11 n + 9 lines |
-| a using-declaration chained n classes deep, called both ways | 50/100/200/400 | 0.00/0.00/0.01/0.01 s | 41 lines |
-| n chained calls of `f() &` returning `S&` | 50/100/200/400 | under 0.01 s | n + 19 lines |
-| n nested calls of `g() &&` returning a class by value | 50/100/200/400 | under 0.01 s | 4 n + 26 lines |
+| n scalar `new`/`delete` pairs of a class with a constructor and a destructor | 250/500/1000/2000 | 0.02/0.03/0.06/0.11 s | 15 n + 27 lines |
+| n array `new T[3]`/`delete[]` pairs | 250/500/1000/2000 | 0.04/0.07/0.14/0.28 s | 83 n + 27 lines |
+| n array pairs whose bound is a call | 250/500/1000/2000 | 0.05/0.09/0.17/0.33 s | 91 n + 28 lines |
+| n classes each declaring their own `operator new`/`operator delete`, each used | 250/500/1000/2000 | 0.06/0.11/0.22/0.44 s | 36 n + 6 lines |
+| hierarchy n deep, root declaring `operator new`/`delete`, allocated at the leaf | 250/500/1000/2000 | 0.02/0.03/0.04/0.08 s | 30 lines |
+| the same hierarchy with **no** allocation function in it | 250/500/1000/2000 | 0.02/0.03/0.04/0.08 s | 30 lines |
+| `new T[N]`/`delete[]` for a class with a constructor and a destructor | 100/1000/10000/100000 | 0.01 s at every N | 110 lines |
+| `new int[N]()` | 100/1000/10000/100000 | 0.01 s at every N | 15 lines |
+| `new Triv[N]()` for a trivial class | 100/1000/10000/100000 | 0.01/0.01/0.01/0.03 s | 27 lines |
+| conditionals nested n deep inside an array bound | 50/100/200/400 | 0.01/0.01/0.01/0.02 s | 14 n + 17 lines |
+| members nested n deep under `new L[4]()` | 50/100/200/400 | 0.01/0.01/0.02/0.03 s | 26 lines |
 
-The third row is what finding 2 costs: every one of those n declarations now
-pays 13.1p2's eight probes instead of two, and the axis is the same time it was.
-The sixth and seventh are finding 1's: the shadow carries one more field, the
-chain of using-declarations writes a constant number of lines at every depth, and
-neither the type nor the signature is rebuilt per use. Rows four and five are
-the checkpoint's own invariant, re-measured: the ref-qualifier is carried and
-never walked for, so declaring three spellings at the root of a 2000-deep
-hierarchy costs the same time as declaring none.
+Rows seven to nine are findings 1, 2 and 3 together, and they are the point of
+all three: the count is a value the expression carries, so `new T[100000]` is
+the same 110 lines as `new T[100]`; 8.5p7's zero over 400 000 bytes is one
+instruction; and a trivial class's elements are zeroed rather than constructed
+one at a time. Before the review the second of those was a byte loop and the
+third was a per-element call at every size. Row ten is the analysis asking 5.19
+for the bound before reading it as a value: the two readings are linear in the
+depth of the operand and not exponential in it. Row eleven is finding 4's walk,
+held per type, over a subobject tree that comes to nothing at every depth. Rows
+five and six are the checkpoint's own invariant, re-measured: 5.3.4p9's lookup
+costs the depth the source wrote and nothing more.
 
-`valgrind` is clean on all 75 lowering probes and on 20 `--emit-types` /
-`--emit-semantics` probes, refusals included. The nesting sweeps above are
-linear in depth, not exponential in it.
+`valgrind` is clean on all 200 lowering probes, refusals included.
 
-The reference was used as a differential oracle over 75 lowering probes and 20
-declaration-dump probes, run through the harness's own relaxed comparison. Every
-probe now agrees with `g++` on the verdict, and every probe on which the
-reference and we both accept produces LowIR the harness accepts as equal, save
-the one virtual-dispatch probe named under Open Gaps. Ten are refusals the
-reference does not make - a ref-qualifier on a constructor, a destructor and a
-friend, five declarations mixing a cv-qualification with a ref-qualifier, an
-out-of-class definition whose ref-qualifier matches none, and an assignment on
-an rvalue - and `g++` refuses all ten with us.
-Findings 1 and 4 were settled by the reference and `g++` agreeing against us;
-findings 2 and 3 by `g++` and by the standard's own wording where the reference
-is lenient.
+The reference was used as a differential oracle over those 200 probes, run
+through the harness's own relaxed comparison, and `g++` was the third oracle on
+every verdict the two disagreed about. Every probe on which the reference and we
+both accept now produces LowIR the harness accepts as equal, save the two named
+under Open Gaps where `g++` agrees with us against the reference. The attributes
+the comparison strips - `object=`, `binding=`, `unwind=`, `role=`, `effects=` -
+were diffed separately over the same corpus, which is what findings 6 and 7 were
+found by, and the only differences left there are the ones Open Gaps names.
 
 The file audit passes with the three recorded header-weight warnings it already
-had, pa1-pa16 stand at 1494 / 1494, and pa17 at 163 / 228 with the failure set
+had, pa1-pa16 stand at 1494 / 1494, and pa17 at 186 / 228 with the failure set
 unchanged.
 
 ## Open Gaps
 
-**The reference ignores 8.3.5p1 on the assignment path.** `S() = 5` for
-`struct S { S& operator=(int) & ; }` and `a = b` for a class whose member's
-`operator=` is `&&`-qualified are both accepted by `pa17/cppgm++-ref` and
-refused by `g++`; we refuse. The reference also accepts a ref-qualifier on a
-constructor, a destructor and a friend declaration, and an out-of-class
-definition whose ref-qualifier matches no declaration. These are the reference
-being lenient and are left that way.
+**5.3.4p19's `::`-qualified cleanup: the reference looks the deallocation
+function up in the class.** For `::new C[3]` where `C` declares its own
+`operator delete[]`, 5.3.4p19 says the name is looked up in the *global* scope
+because the new-expression begins with `::`; `g++` emits `_ZdaPv` and we do too,
+and `pa17/cppgm++-ref` emits `_ZN1CdaEPv`. This is the reference being wrong and
+is left that way. It is visible only on the 15.2p2 cleanup edge, which no
+checked-in fixture reaches.
+
+**A constructor defined outside a class that declares two of them is read as
+coming to something.** 12.1p5's question of whether a definition does nothing
+is taken from the unit's syntax under the constructor's unqualified name, which
+every constructor of the class shares, so it is asked only where one of them is
+still waiting for a definition. `struct S { S(); S(int); }; ... S::S(){}` writes
+the loop where the reference elides it. 8.3.5p4's parameter-type-list is what
+would tell the definitions apart, and matching on it belongs with the checkpoint
+that next reads an out-of-class definition out of the syntax.
+
+**5.3.4p18/p20's matching placement deallocation function is not chosen.** For
+`new (buf) T[n]` the cleanup calls the *usual* `operator delete[]` where p20
+says a placement allocation function is matched only by a placement deallocation
+function of the same parameter types, and that where none matches, none is
+called. The reference does the same, so we follow it.
+
+**The reference refuses a redeclaration whose exception-specification differs;
+`g++` and we accept it.** `void operator delete(void*) {}` and
+`void* operator new(unsigned long) noexcept;` both mismatch the
+exception-specification 3.7.4.1p2/3.7.4.2p2 gave the implicit declaration.
+`pa17/cppgm++-ref` refuses them under 15.4p4; `g++` accepts both with a warning,
+and so do we. 15.4p4's compatibility rule is not implemented for any function.
+
+**15.4p8's `std::unexpected` filter is not written.** The reference wraps the
+body of a function declared `throw()` in an `eh_filter` dispatch that calls
+`__cxa_call_unexpected`, and writes `unwind=no` for `noexcept`; we write
+`unwind=no` for both spellings and no filter for either.
+
+**15.4p14's exception-specification of an implicitly declared special member is
+not computed.** The reference writes `unwind=no, trivial_lifecycle=yes` over an
+implicit trivial constructor or destructor; we write neither attribute anywhere.
+
+**The reference unrolls without bound where we cap.** `kArrayLoopLimit` makes
+8.5.1p7's elements a loop past sixteen of them and `kZeroSpanLimit` makes 8.5p6's
+zero one `zeroinit` past sixty-four bytes; the reference writes n calls and n/2
+stores at every size (`new Triv[100]()` costs it fifty `store i64` and costs us
+one `zeroinit 400x4`). Both caps predate this milestone and the checked-in
+fixtures ask for the unrolled form only below them.
+
+**The floating zero an object is value-initialized with is spelled twice.** The
+analysis spells it `0.0F` for `f32`, as the reference does; the lowering
+re-spells it `0.0f` through `spell_floating`, so `float d{}` and `new float()`
+both differ. The global image is the other half of the same seam: we write the
+program's own digits (`1.0f`) where the reference re-renders the value (`1f`).
+Both predate this milestone and no fixture covers either.
+
+**4.4's qualification conversion to `volatile` is refused.** `int* q;
+volatile int* p = q;` is "an expression has no conversion to the type it
+initialises". `const` is accepted. It predates this milestone.
+
+**5.3.4p6's non-integral bound and 5.3.5p2's non-object operand are refusals the
+reference does not make.** `new int[1.5]`, `delete` of a pointer to function and
+`delete` of an object whose destructor is deleted are each refused by `g++` and
+by us and accepted by the reference.
+
+**The reference ignores 8.3.5p1 on the assignment path**, accepts a
+ref-qualifier on a constructor, a destructor and a friend, and accepts an
+out-of-class definition whose ref-qualifier matches none. `g++` refuses all of
+them with us.
 
 **A ref-qualifier written twice, or written before the cv-qualifier-seq, is
 accepted.** `void f() & &&;` and `void f() & const;` are refused by `g++` and
 accepted by the reference and by us; the parser takes the suffixes in any order
-and any number, which it already did for the cv-qualifier-seq before C4. Both
-readers of the qualifier take the first one written, so they cannot disagree.
+and any number, as it already did for the cv-qualifier-seq. Both readers of the
+qualifier take the first one written, so they cannot disagree.
 
 **13.5.6's overloaded `operator->` is not implemented.** `object_region` refuses
-a `->` whose operand is of class type, so a ref-qualified `operator->` is
-refused with every other one. No fixture covers it.
+a `->` whose operand is of class type. No fixture covers it.
 
 **10.3's virtual dispatch is outside this milestone**, which the README says
-outright, so a ref-qualified override is called non-virtually and no vtable is
-written. No fixture covers it.
+outright, so an override is called non-virtually and no vtable is written.
 
-**Class templates are outside this milestone**: `S<int>` names no declaration,
-so a ref-qualified member of a class template is refused at the use.
+**Class templates are outside this milestone**: `S<int>` names no declaration.
 
 **The reference writes a `function-declaration` line for every member function a
-class declares** and we write none. It is unrelated to the ref-qualifier - a
-class with no qualifier at all shows the same - and no pa12 fixture covers it.
-
-**PA11's reference refuses a conversion function outright** ("unsupported
-declaration kind special-member-declaration") where we describe it. That is the
-reference's own scope limit at that milestone.
+class declares** and we write none; no pa12 fixture covers it. **PA11's
+reference refuses a conversion function outright** where we describe it, which is
+that milestone's own scope limit.
 
 **The reference drops an observable conversion of an empty class.** For
 `struct T {}; struct U { operator T() { ++calls; return T(); } };`, `T t = u;`
@@ -205,3 +294,4 @@ and the form is the loop 12.6p1 and 12.4p8 already use.
 | C2 | 6.6.3p2's returned object and 12.8p31's result object | `be9d930d` | 7 / 7: 5.16p3's result object never initialized from a glvalue operand (which refused two fixtures), 12.8p31's elision and the lowering's placement as two answers to one question, 3.6.2p2's namespace-scope initialization read as an array of clauses (a refusal one way and silently dropped initialization the other), 12.1p5's "nothing to do" answered a second time and wrong for a trivial copy, a discarded conditional as one object per arm and its storage named by the lowering rather than by what asked, a trivial transfer giving a returned value storage one copy too late, and 9p6's empty class with no byte to hand back | 112 -> **117 / 228**; pa1-pa16 1494 / 1494; file audit passes |
 | C3 | 12.3.2's conversion functions, end to end | `8c59f91a` | 6 / 6: 13.3.3.1.2p1's one-user-defined-conversion flag set for the conversion function's direction and not the converting constructor's (which refused every `B b(s);`), 8.5.3p5's conversion-to-an-lvalue hook standing below the refusal of a temporary (which refused every non-const lvalue reference bound through one), 12.4p8's `empty_body` read before the out-of-class definition that writes it and the wrong answer then memoized for the unit, 13.3.1.5's candidates ordered by the object argument ahead of where the conversion gets to (a base's exact-match conversion losing to a nearer base's, and the result truncated), a cast of a class operand no conversion answers reading the object's bytes instead of being refused, and 13.6p3/p5's `++E` gated out on a rule that is not true | **149 / 228** unchanged; pa1-pa16 1494 / 1494; file audit passes |
 | C4 | 8.3.5p1's ref-qualifiers, end to end | `9f693145` | 4 / 4: a using-declaration rebuilding the brought-in member's type without the ref-qualifier, so 13.3.1p4 made an `&&`-qualified base member viable on an lvalue and 7.3.3p14 could not see the derived class's own declaration of the same spelling as hiding it; 13.1p2's refusal probed for the one cv-qualification the declaration wrote instead of all four, so every `f() const` beside `f() &&` was accepted; the two qualifiers written after the parameter-clause dropped from PA11's `--emit-types` and spelled a second time on the form 9.3.1p3 had already lowered in PA12's `--emit-semantics`; and 5.2.5p4's first clause missed, so a reference member of a non-lvalue object was an xvalue and reached an `&&`-qualified member | **163 / 228** unchanged; pa1-pa16 1494 / 1494; file audit passes |
+| C5 | 5.3.4 and 5.3.5, end to end | `6c785249` | 7 / 7 + 1 refusal: `Fact::elements == 0` read as "the bound is not a constant", so `new T[0]` recomputed a count the source wrote from the bytes the call was asked for; 8.5p7's zero over an extent the translation knows written as a byte loop, and over `bytes` rather than `bytes - 8` past a class array's count; 8.5p7's value-initialization of an array given no vacuity exit, so `new Triv[n]()` wrote n calls of a trivial constructor with 15.2p2's handler around them; `vacuous_construction` asking whether the class holds nothing at all instead of walking the subobject tree 12.4p8's counterpart walks, and reading neither a mem-initializer-list nor 3.4.1p8's out-of-class definition; 5.3.4p15's test gated on 15.4 alone rather than on 18.6.1.1p3's `std::nothrow_t`, so it stood around placement forms the reference leaves alone and around no array form at all; 15.2p2's cleanup naming the ABI's base-object destructor for elements that are complete objects; and C5's own `nonthrowing` fact taking `unwind=no` off every reserved builtin. The refusal: 5.3.5p5 leaves `delete` of an incomplete class - and `void*` with it - undefined and not ill-formed | **186 / 228** unchanged; pa1-pa16 1494 / 1494; file audit passes |
