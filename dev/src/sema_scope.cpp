@@ -658,60 +658,18 @@ SemaEntity* SemaModel::search_declarers(Scope& in, const std::string& name,
 // where several regions declare one name: two at one level are 3.4p1's
 // ambiguity and one at a nearer level simply hides the rest.
 //
-// The chain is walked once and each region that declares the name is placed on
-// it, which is the cheaper of the two questions by the same reading `declarers`
-// already makes: a name is declared in few regions and a directive may reach
-// many, so this asks of each declaration where it appears rather than walking
-// every namespace the directives reach.  7.3.4p4's transitivity is
-// `reaches`, and the innermost region of the chain that reaches a declaration
-// is the directive 7.3.4p2's "nearest" is measured from.
-void SemaModel::place_declarers(Scope& from, const std::vector<Scope*>& regions)
-{
-	chain_.clear();
-	placed_.clear();
-	++visit_;
-	bool directives = false;
-	for (Scope* scope = &from; scope != nullptr; scope = scope->parent)
-	{
-		// A region of the chain is a level of its own, so a declaration it
-		// holds is one the walk outward finds where it stands.
-		scope->visit = visit_;
-		chain_.push_back(scope);
-		directives = directives || !scope->nominated.empty();
-	}
-	if (!directives)
-	{
-		// No using-directive stands anywhere around this lookup, so nothing
-		// appears anywhere but in the region that declared it.
-		return;
-	}
-	for (std::size_t index = 0; index < regions.size(); ++index)
-	{
-		Scope& declaring = *regions[index];
-		if (declaring.visit == visit_ || declaring.nominated_by.empty())
-		{
-			continue;
-		}
-		std::size_t at = 0;
-		while (at < chain_.size() && !reaches(*chain_[at], declaring))
-		{
-			++at;
-		}
-		// 7.3.4p2: the directive nearest the lookup is the one its names
-		// appear through, so the region enclosing both is measured from there
-		// and never from further in.
-		while (at < chain_.size() && !encloses(*chain_[at], declaring))
-		{
-			++at;
-		}
-		if (at < chain_.size())
-		{
-			placed_.push_back(
-				std::make_pair(static_cast<std::uint32_t>(at), &declaring));
-		}
-	}
-}
-
+// So the chain is walked outward exactly as an unqualified lookup already walks
+// it, and each region that declares the name is placed on it as the walk goes
+// by: a level that wrote a directive reaching one takes it up as pending, and
+// the first level from there that *encloses* it is where 7.3.4p2 says its
+// declarations appear.  Asking of each declaration where it appears rather than
+// walking every namespace the directives reach is the cheaper of the two by the
+// same measure `declarers` already takes - a name is declared in few regions and
+// a directive may reach many - and 7.3.4p4's transitivity is `reaches`.
+//
+// A level that wrote no directive and holds nothing pending costs one probe of
+// the name and nothing else, so a lookup answered where it stands pays that one
+// level and never the chain above it.
 SemaEntity* SemaModel::lookup(Scope& from, const std::string& name,
                               LookupKind filter,
                               std::vector<SemaEntity*>* found_set)
@@ -726,6 +684,8 @@ SemaEntity* SemaModel::lookup(Scope& from, const std::string& name,
 	}
 	if (regions->size() == 1)
 	{
+		// One region declares the name, so every level it appears at holds the
+		// one declaration and 3.4p1 has nothing to tell apart.
 		return merge_found(nullptr,
 		                   lookup_unique(from, nullptr, name, filter,
 		                                 *(*regions)[0]),
@@ -734,32 +694,56 @@ SemaEntity* SemaModel::lookup(Scope& from, const std::string& name,
 	// Several regions declare the name, so 3.4p1 asks which of them a lookup
 	// written here reaches at each level rather than which one it reaches
 	// first.
-	place_declarers(from, *regions);
-	for (std::size_t level = 0; level < chain_.size(); ++level)
+	placed_.clear();
+	++visit_;
+	for (Scope* scope = &from; scope != nullptr; scope = scope->parent)
 	{
-		Scope& scope = *chain_[level];
-		SemaEntity* found = merge_found(nullptr, find(scope, name, filter),
+		SemaEntity* found = merge_found(nullptr, find(*scope, name, filter),
 		                                found_set);
 		// 10.2p2 and 3.4.1p8: what a base class declares is found from a member
 		// of the derived class, and hides what the region around the class
 		// declares rather than being hidden by it.  7.3.4p1 writes no
 		// using-directive in a class, so a level a class stands at holds
 		// nothing else.
-		for (Scope* at = scope.base; at != nullptr && found == nullptr;
+		for (Scope* at = scope->base; at != nullptr && found == nullptr;
 		     at = at->base)
 		{
 			found = merge_found(found, find(*at, name, filter), found_set);
 		}
-		for (std::size_t index = 0; index < placed_.size(); ++index)
+		if (!scope->nominated.empty())
 		{
-			if (placed_[index].first == level)
+			// A directive stands at this level, so a region it reaches appears
+			// somewhere on the chain from here outward.  A region with no
+			// directive nominating it appears only where it was written, which
+			// the walk finds where it stands.
+			for (std::size_t index = 0; index < regions->size(); ++index)
 			{
-				// 7.3.4p2: this declaration appears at this level, so it is one
-				// of the level's own as far as 3.4p1 is concerned.
-				found = merge_found(found, find(*placed_[index].second, name,
-				                                filter),
-				                    found_set);
+				Scope& declaring = *(*regions)[index];
+				if (declaring.visit == visit_ ||
+				    declaring.nominated_by.empty() ||
+				    !reaches(*scope, declaring))
+				{
+					continue;
+				}
+				declaring.visit = visit_;
+				placed_.push_back(&declaring);
 			}
+		}
+		for (std::size_t index = 0; index < placed_.size();)
+		{
+			Scope& declaring = *placed_[index];
+			if (!encloses(*scope, declaring))
+			{
+				++index;
+				continue;
+			}
+			// 7.3.4p2: this is the nearest region enclosing both the directive
+			// and the namespace it named, so what that namespace declares is
+			// one of this level's own as far as 3.4p1 is concerned.
+			found = merge_found(found, find(declaring, name, filter),
+			                    found_set);
+			placed_[index] = placed_.back();
+			placed_.pop_back();
 		}
 		if (found != nullptr)
 		{

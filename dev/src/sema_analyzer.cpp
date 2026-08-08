@@ -713,25 +713,19 @@ void SemaAnalyzer::using_directive(const AstNode& node, const Context& ctx)
 	const AstNode* target = child_of(node, AstKind::Target);
 	SemaEntity& space =
 		require(resolve(target->text, ctx, LookupKind::Space), target->text);
-	// 7.3.4p2: the nominated namespace's declarations appear in the nearest
-	// enclosing namespace that holds both it and the directive.  A directive
-	// written in a block therefore does not put them in the block, so a name
-	// an enclosing namespace declares still hides them.
-	Scope* nominated = model_.region_of(space);
-	Scope* where = ctx.scope;
-	while (where->kind != ScopeKind::Namespace && where->parent != nullptr)
-	{
-		// A directive written in a namespace stays there, because 3.4.3.2p2
-		// also looks through it for a qualified name.  One written in a block
-		// is only ever read by unqualified lookup, so it is recorded where
-		// 7.3.4p2 says its names appear.
-		where = where->parent;
-		while (where->parent != nullptr && !encloses(*where, *nominated))
-		{
-			where = where->parent;
-		}
-	}
-	model_.nominate(*where, *nominated);
+	// 7.3.4p2: the directive is recorded where the program wrote it, because
+	// that is what the rule turns on at both ends - the names it nominates can
+	// be used *in the scope the directive appears in*, and they appear at the
+	// level of the nearest enclosing namespace holding both it and the
+	// namespace it named.  A lookup asks the first question of the region chain
+	// it stands in and the second of that chain's levels, which is one reading
+	// in `SemaModel::lookup`.  Recording it at the level instead answers the
+	// second and loses the first: a directive written in one function's block
+	// would then reach every lookup in the namespace around it, so
+	// `int g() { using namespace R; } int h() { return q; }` would find `R::q`
+	// in `h`, and two functions each nominating a different namespace that
+	// declares one name would make every use of that name ambiguous.
+	model_.nominate(*ctx.scope, *model_.region_of(space));
 }
 
 void SemaAnalyzer::using_declaration(const AstNode& node, const Context& ctx)

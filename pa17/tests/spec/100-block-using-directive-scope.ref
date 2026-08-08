@@ -1,0 +1,38 @@
+global @Left__value : i32 [binding=strong, object=_ZN4Left5valueE] = 1
+global @Right__value : i32 [binding=strong, object=_ZN5Right5valueE] = 2
+
+function @from_left() -> i32 [binding=strong, object=_Z9from_leftv] {
+  block ^entry:
+    %t1 = load i32 @Left__value
+    return i32 %t1
+}
+function @from_right() -> i32 [binding=strong, object=_Z10from_rightv] {
+  block ^entry:
+    %t1 = load i32 @Right__value
+    return i32 %t1
+}
+function @nested() -> i32 [binding=strong, object=_Z6nestedv] {
+  slot $total : i32
+
+  block ^entry:
+    store i32 0, $total
+    %t1 = load i32 $total
+    %t2 = load i32 @Left__value
+    %t3 = binary add i32 %t1, %t2
+    store i32 %t3, $total
+    %t4 = load i32 $total
+    %t5 = load i32 @Right__value
+    %t6 = binary add i32 %t4, %t5
+    store i32 %t6, $total
+    %t7 = load i32 $total
+    return i32 %t7
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    %t1 = call i32 @from_left()
+    %t2 = call i32 @from_right()
+    %t3 = binary add i32 %t1, %t2
+    %t4 = call i32 @nested()
+    %t5 = binary add i32 %t3, %t4
+    return i32 %t5
+}

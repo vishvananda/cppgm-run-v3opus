@@ -753,14 +753,6 @@ private:
 	// Gathers `declaring.searchers`, following only the using-directives
 	// written since the last gathering.
 	void gather_searchers(Scope& declaring);
-	// 7.3.4p2: the regions around `from`, innermost first, in `chain_`, and in
-	// `placed_` each of `regions` a using-directive makes appear at a level of
-	// that chain, with the level - which is the nearest region enclosing both
-	// the directive and the region declaring, and not the region that wrote the
-	// directive.  A region no lookup from here reaches, and one the chain
-	// itself holds and the walk outward therefore finds where it stands, is
-	// left out.
-	void place_declarers(Scope& from, const std::vector<Scope*>& regions);
 	// 3.4p1 and 3.4p2: the one entity a lookup that reached two declarations
 	// found, the set it found when both of them are functions, or the error that
 	// they are two entities.
@@ -812,15 +804,13 @@ private:
 	// Scratch of one bounded walk, kept between walks so that a lookup in a
 	// region with no using-directive allocates nothing.
 	std::vector<Scope*> reached_;
-	// Scratch of one unqualified lookup: the regions around the one it was
-	// written in, innermost first, and the regions a using-directive puts at a
-	// level of that chain other than their own, each with the level 7.3.4p2
-	// puts it at - which is what says whether two declarations are one level's
-	// ambiguity or one hiding the other.  A program that writes no
-	// using-directive leaves the second empty, so a lookup pays the chain and
-	// nothing else.
-	std::vector<Scope*> chain_;
-	std::vector<std::pair<std::uint32_t, Scope*> > placed_;
+	// Scratch of one unqualified lookup: the regions a using-directive already
+	// passed reaches and which the walk outward has not yet arrived at the
+	// level 7.3.4p2 puts them at - the nearest region enclosing both the
+	// directive and the region declaring.  A level that wrote no directive and
+	// holds nothing pending leaves this empty, so a lookup answered where it
+	// stands allocates nothing and walks nothing.
+	std::vector<Scope*> placed_;
 	std::uint64_t visit_;
 };
 
