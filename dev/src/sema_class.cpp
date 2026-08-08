@@ -782,6 +782,11 @@ SemaEntity& SemaAnalyzer::declare_conversion(const AstNode& node,
 	                                      true);
 	entity.object_member = true;
 	entity.conversion_function = true;
+	// 15.4p1: a conversion function's declarator writes an
+	// exception-specification where every other member function's does, and
+	// what it says is what 15.2p2 reads to leave a handler out around a call.
+	entity.nonthrowing =
+		entity.nonthrowing || declarator_nonthrowing(*declarator);
 	return entity;
 }
 

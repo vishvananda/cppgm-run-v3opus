@@ -696,16 +696,13 @@ void LowirFunctionLowering::constructor_call(const Operand& address,
 	// 12.2p1's temporary and 5.3.4p12's object - which is no subobject of
 	// anything and leaves the step whose clause it was written in still
 	// looking for its own call.
-	const bool subobject = !always;
+	// 15.2p2's partly built object exists only while 12.6.2's initializations
+	// run, so a constructor call written anywhere else - a declaration in a
+	// body, a temporary - is no step of one however the general machinery has
+	// marked where it began.
+	const bool subobject = !always && unwinding_;
 	const UnwindMark mark = subobject ? unwind_mark_ : UnwindMark();
-	if (subobject)
-	{
-		// The mark this step left is taken here, so a constructor call an
-		// argument of this one makes finds none.  What names the subobject is
-		// what has been written since the mark, which is the address and
-		// nothing else - the arguments are read below, after this.
-		unwind_mark_ = UnwindMark();
-	}
+
 	std::vector<Instruction> named;
 	if (mark.active && mark.block == current_)
 	{
@@ -823,6 +820,21 @@ void LowirFunctionLowering::constructor_call(const Operand& address,
 		Operand::OP_GLOBAL,
 		unit_.function_symbol(constructor, node.fact.base_subobject));
 	out.args.push_back(address);
+	// 15.2p2: the step this call belongs to, and the fact that a call is still
+	// to be made here - which is what says a temporary an argument creates is
+	// one this call could throw past.
+	// 12.6.2's step already marked where it began, and what names the subobject
+	// is what has been written since that mark - so this call joins the step
+	// rather than opening one, and an argument's own call finds it taken.
+	const bool step = subobject ? false : mark_call_step();
+	if (subobject)
+	{
+		++step_depth_;
+	}
+	if (!constructor.nonthrowing)
+	{
+		++pending_calls_;
+	}
 	// 12.6.2: whatever else the constructor was chosen with is passed after the
 	// object, in the order the resolved call wrote them.
 	const std::vector<TypeId>& parameters = types.parameters(constructor.type);
@@ -835,7 +847,19 @@ void LowirFunctionLowering::constructor_call(const Operand& address,
 		out.args.push_back(
 			passed_operand(*call.children[index], argument, parameters, at));
 	}
+	if (!constructor.nonthrowing)
+	{
+		--pending_calls_;
+	}
+	if (region.dispatch.empty())
+	{
+		// 15.2p2 in an ordinary body: the objects standing here are the ones a
+		// declaration and 12.2p1's temporaries began, and the handler that ends
+		// them is opened where this step began.
+		note_call(!constructor.nonthrowing);
+	}
 	emit_void(out);
+	release_call_step(step);
 	if (!region.dispatch.empty())
 	{
 		close_unwind_region(region);
@@ -859,6 +883,175 @@ void LowirFunctionLowering::mark_unwind_step(bool at_call)
 	unwind_mark_.at_call = at_call;
 	unwind_mark_.block = current_;
 	unwind_mark_.at = out_.blocks[current_].instructions.size();
+	call_since_mark_ = false;
+}
+
+// 15.2p2: the step one call belongs to.  A call written as the operand of
+// another - an argument, the object a member call is made on - stands inside
+// the step the outer call opened, because what the handler owes is everything
+// the outer call has already brought into being.  So the outermost call of an
+// expression takes the mark and the ones under it find it taken.
+bool LowirFunctionLowering::mark_call_step()
+{
+	const bool take = step_depth_ == 0;
+	++step_depth_;
+	if (!take)
+	{
+		return false;
+	}
+	unwind_mark_.active = true;
+	unwind_mark_.at_call = false;
+	unwind_mark_.block = current_;
+	unwind_mark_.at = out_.blocks[current_].instructions.size();
+	call_since_mark_ = false;
+	return true;
+}
+
+void LowirFunctionLowering::release_call_step(bool)
+{
+	if (step_depth_ != 0)
+	{
+		--step_depth_;
+	}
+}
+
+// 15.2p2 and 15.4p1: a call about to be written.  Where objects stand whose
+// lifetimes an exception out of it would have to end, the handler that ends
+// them is opened where this step began.
+void LowirFunctionLowering::note_call(bool throwing)
+{
+	if (!throwing)
+	{
+		return;
+	}
+	call_since_mark_ = true;
+	settle_pending_region();
+	if (region_open_ || unwind_live_.empty() || !unwind_mark_.active ||
+	    unwind_mark_.block != current_)
+	{
+		return;
+	}
+	region_ = open_unwind_region(unwind_mark_);
+	region_open_ = true;
+}
+
+// The region a close left for whatever is written next.  A close that nothing
+// follows leaves no region at all, which is what keeps a handler out of the end
+// of a full-expression that has nothing more to do.
+void LowirFunctionLowering::settle_pending_region()
+{
+	if (!region_pending_ || closing_region_)
+	{
+		return;
+	}
+	region_pending_ = false;
+	if (unwind_live_.empty() || full_expressions_ == 0)
+	{
+		return;
+	}
+	UnwindMark here;
+	here.active = true;
+	here.block = current_;
+	here.at = out_.blocks[current_].instructions.size();
+	region_ = open_unwind_region(here);
+	region_open_ = true;
+}
+
+void LowirFunctionLowering::close_region()
+{
+	region_pending_ = false;
+	if (!region_open_)
+	{
+		return;
+	}
+	region_open_ = false;
+	closing_region_ = true;
+	close_unwind_region(region_);
+	closing_region_ = false;
+	region_ = UnwindRegion();
+}
+
+void LowirFunctionLowering::open_full_expression()
+{
+	++full_expressions_;
+}
+
+// 12.2p3: the full-expression is over, so the objects it created have been
+// destroyed and the handler that stood around it comes off.
+void LowirFunctionLowering::close_full_expression()
+{
+	if (full_expressions_ != 0)
+	{
+		--full_expressions_;
+	}
+	close_region();
+}
+
+// 3.8p1 and 15.2p2: the object `node` began a lifetime for joins the ones an
+// exception has to end.  The set has changed, so the handler that stood around
+// what came before it ends and a new one covers what comes after; where none
+// stood, the step that built the object gets one of its own exactly where a
+// call still to be made in this full-expression could throw past it.
+void LowirFunctionLowering::begin_object_lifetime(
+	const DumpNode& node, const UnwindMark& mark, const Operand& at,
+	const std::vector<Instruction>& address)
+{
+	if (node.fact.destruction == nullptr)
+	{
+		return;
+	}
+	if (!region_open_ && call_since_mark_ && pending_calls_ != 0 &&
+	    mark.active && mark.block == current_)
+	{
+		// A call still to be written in this full-expression is a place the
+		// object could be left standing by, and the step that built it is what
+		// the handler for that has to cover.
+		region_ = open_unwind_region(mark);
+		region_open_ = true;
+	}
+	const bool covered = region_open_;
+	close_region();
+	LowUnwind live;
+	live.destructor = node.fact.destruction;
+	live.object = node.fact.object != nullptr ? node.fact.object
+	                                          : node.fact.entity;
+	live.base_subobject = false;
+	live.address = address;
+	live.at = at;
+	unwind_live_.push_back(live);
+	// Where a handler already stood, the rest of the full-expression stands
+	// under one too: the set it owes has changed, so the region it stood in
+	// ends and another begins.  Where none stood, nothing yet asks for one.
+	region_pending_ = covered && full_expressions_ != 0;
+	unwind_mark_.active = false;
+}
+
+// 3.8p1: the program wrote the end of this object's lifetime, so an exception
+// after it no longer owes one.
+void LowirFunctionLowering::end_object_lifetime(const DumpNode& node)
+{
+	const SemaEntity* const object =
+		node.children.empty() ? nullptr : node.children[0]->fact.entity;
+	if (object == nullptr)
+	{
+		return;
+	}
+	for (std::size_t index = unwind_live_.size(); index-- > 0;)
+	{
+		if (unwind_live_[index].object == object)
+		{
+			unwind_live_.erase(unwind_live_.begin() +
+			                   static_cast<std::ptrdiff_t>(index));
+			// Every handler written for more objects than stand below this one
+			// destroys an object that no longer stands, so those are no longer
+			// blocks a later step may name.
+			if (dispatch_cache_.size() > index + 1)
+			{
+				dispatch_cache_.resize(index + 1);
+			}
+			return;
+		}
+	}
 }
 
 // 15.2p2: the handler the subobjects already built need, pushed where the step
@@ -869,14 +1062,12 @@ LowirFunctionLowering::UnwindRegion LowirFunctionLowering::open_unwind_region(
 	const UnwindMark& mark)
 {
 	UnwindRegion region;
-	region.fresh =
-		unwind_dispatch_.empty() || unwind_dispatch_live_ != unwind_live_.size();
-	region.dispatch = region.fresh ? reserve_block("call_unwind_dispatch")
-	                               : unwind_dispatch_;
-	if (region.fresh)
-	{
-		region.end = reserve_block("call_unwind_end");
-	}
+	region.live = unwind_live_.size();
+	const bool held = region.live < dispatch_cache_.size() &&
+		!dispatch_cache_[region.live].empty();
+	region.fresh = !held;
+	region.dispatch = held ? dispatch_cache_[region.live]
+	                       : reserve_block("call_unwind_dispatch");
 	Instruction open;
 	open.kind = Instruction::IK_EH_TRY;
 	open.first = named_operand(Operand::OP_LABEL, region.dispatch);
@@ -891,19 +1082,24 @@ LowirFunctionLowering::UnwindRegion LowirFunctionLowering::open_unwind_region(
 
 // The end of that region on the path the step took without throwing, and the
 // block the other path runs.
-void LowirFunctionLowering::close_unwind_region(const UnwindRegion& region)
+void LowirFunctionLowering::close_unwind_region(const UnwindRegion& held)
 {
 	emit_handler_end();
-	if (!region.fresh)
+	if (!held.fresh)
 	{
 		return;
 	}
+	// The block the step goes on in is named here rather than where the region
+	// opened, because a step that opened blocks of its own - an arm, a loop -
+	// numbered those first.
+	UnwindRegion region = held;
+	region.end = reserve_block("call_unwind_end");
 	jump(region.end);
 	const std::string behind = unwind_dispatch_;
 	const std::size_t behind_live = unwind_dispatch_live_;
 	open_block(region.dispatch);
-	if (unwind_live_.size() > kUnwindSuffixLimit && !behind.empty() &&
-	    behind_live + 1 == unwind_live_.size())
+	if (region.live > kUnwindSuffixLimit && !behind.empty() &&
+	    behind_live + 1 == region.live)
 	{
 		// 12.6.2p10 again, written as the chain 12.4p8's suffix is written as:
 		// what this handler owes is the subobject the step before it built plus
@@ -915,7 +1111,7 @@ void LowirFunctionLowering::close_unwind_region(const UnwindRegion& region)
 	}
 	else
 	{
-		for (std::size_t index = unwind_live_.size(); index-- > 0;)
+		for (std::size_t index = region.live; index-- > 0;)
 		{
 			// 12.6.2p10: a subobject is destroyed in the reverse of the order it
 			// was created in, which an exception does not change.
@@ -925,7 +1121,12 @@ void LowirFunctionLowering::close_unwind_region(const UnwindRegion& region)
 	}
 	open_block(region.end);
 	unwind_dispatch_ = region.dispatch;
-	unwind_dispatch_live_ = unwind_live_.size();
+	unwind_dispatch_live_ = region.live;
+	if (dispatch_cache_.size() <= region.live)
+	{
+		dispatch_cache_.resize(region.live + 1);
+	}
+	dispatch_cache_[region.live] = region.dispatch;
 }
 
 // One of those destructions.  The instructions that named the subobject where
@@ -1182,7 +1383,11 @@ LowValue LowirFunctionLowering::temporary_object(const DumpNode& node,
 	// alike.  Naming the slot again instead would be a second description of
 	// one place.
 	placed_[entity.id] = at;
+	const UnwindMark opened = unwind_mark_;
 	constructor_call(at, action, true);
+	// 12.2p1 and 15.2p2: the temporary's lifetime has begun, so an exception
+	// out of anything written while it stands has to end it.
+	begin_object_lifetime(node, opened, at, std::vector<Instruction>());
 	value.operand = at;
 	return value;
 }
@@ -1821,7 +2026,11 @@ LowValue LowirFunctionLowering::class_object_slot(const DumpNode& node,
 		// initializer that fills the storage runs.
 		placed_[node.fact.object->id] = into;
 	}
-	return place_class_object(into, type, node);
+	const UnwindMark opened = unwind_mark_;
+	const LowValue standing = place_class_object(into, type, node);
+	// 12.2p1: the object stands, so 15.2p2 owes its destruction from here on.
+	begin_object_lifetime(node, opened, into, std::vector<Instruction>());
+	return standing;
 }
 
 Operand LowirFunctionLowering::class_argument(const DumpNode& node, TypeId type)
@@ -2142,6 +2351,7 @@ void LowirFunctionLowering::leave_blocks(const DumpNode& node)
 	{
 		if (node.children[index]->fact.kind == FactKind::DestructorAction)
 		{
+			end_object_lifetime(*node.children[index]);
 			destructor_call(*node.children[index]);
 		}
 	}

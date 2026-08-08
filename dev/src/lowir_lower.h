@@ -595,6 +595,9 @@ private:
 	static bool holds_label(const DumpNode& node);
 	void declaration_statement(const DumpNode& node);
 	void local_variable(const DumpNode& node);
+	// The storage and the initialization one declaration writes, which is the
+	// whole of it but 3.8p1's beginning of a lifetime.
+	void declare_local(const DumpNode& node);
 	// 6.4p4: the condition of a selection or iteration statement, lowered as
 	// the branch it is rather than as a value that is then tested.
 	void branch_on_condition(const DumpNode& node, const std::string& on_true,
@@ -983,12 +986,19 @@ private:
 	{
 		LowUnwind()
 			: destructor(nullptr)
+			, object(nullptr)
 			, base_subobject(false)
 			, elements(0)
 			, stride(0)
 		{}
 
 		const SemaEntity* destructor;
+		// 3.8p1: the object this entry ends, where a declaration or a prvalue
+		// named one - which is what says the entry goes away again when the
+		// program's own end of that lifetime is written.  Null for 12.6.2's
+		// subobjects, which no name reaches and whose entries the whole
+		// constructor holds.
+		const SemaEntity* object;
 		bool base_subobject;
 		std::vector<lowir_model::Instruction> address;
 		lowir_model::Operand at;
@@ -1028,11 +1038,18 @@ private:
 	{
 		UnwindRegion()
 			: fresh(false)
+			, live(0)
 		{}
 
 		std::string dispatch;
 		std::string end;
 		bool fresh;
+		// 15.2p2: how many objects were standing when the region opened, which
+		// is what its handler owes.  It is read at the open and not at the
+		// close because 12.2p3's end of a temporary's lifetime is written
+		// inside the region that covered the temporary: an exception out of
+		// the code before that end still has the object to destroy.
+		std::size_t live;
 	};
 	// 12.6p1 and 8.5.1p7: `count` consecutive elements standing at `base`, each
 	// built by the one call `action` names, written as the loop that one call
@@ -1044,8 +1061,45 @@ private:
 	                           unsigned long long stride, TypeId element,
 	                           const UnwindMark& mark);
 	void mark_unwind_step(bool at_call = false);
+	// 15.2p2 in an ordinary body.  A handler stands around whatever is being
+	// written whenever some object's lifetime is open and a call that may throw
+	// is written under it: the objects are the ones a declaration or 12.2p1's
+	// temporary began, the region begins where the step that made the call
+	// began, and it ends where the set of live objects changes, where the
+	// full-expression ends, or where the block does.
+	//
+	// The step a call belongs to, taken by the outermost call of an expression
+	// so that a call written as its operand stands inside the same region.
+	// Answers whether this caller took it.
+	bool mark_call_step();
+	void release_call_step(bool taken);
+	// One call about to be written.  15.4p1's non-throwing call is not a place
+	// an exception leaves by, so it needs no handler around it.
+	void note_call(bool throwing);
+	// 1.9p10: a full-expression opened and closed, which is where 12.2p3 ends
+	// the temporaries it created and where the region around it ends.
+	void open_full_expression();
+	void close_full_expression();
+	// The region now standing, closed - and, where objects are still alive
+	// inside an open full-expression, a new one left pending for whatever is
+	// written next.  A pending region that nothing follows is no region.
+	void close_region();
+	void settle_pending_region();
+	// 3.8p1: the object `node` begins a lifetime for joins the ones an
+	// exception has to end, and the region around the step that built it is
+	// written where a later call in the same full-expression would find it.
+	void begin_object_lifetime(const DumpNode& node, const UnwindMark& mark,
+	                           const lowir_model::Operand& at,
+	                           const std::vector<lowir_model::Instruction>& address);
+	// 3.8p1: the program's own end of that lifetime, which takes the object
+	// back out of the set an exception would end.
+	void end_object_lifetime(const DumpNode& node);
+	// 15.2p2: whether a call stands under a handler, and whether lowering an
+	// expression begins a lifetime something after it has to end.
+	bool guarded_call(const DumpNode& node);
+	bool begins_lifetime(const DumpNode& node);
 	UnwindRegion open_unwind_region(const UnwindMark& mark);
-	void close_unwind_region(const UnwindRegion& region);
+	void close_unwind_region(const UnwindRegion& held);
 	// The subobject `address` names, destroyed in a block of its own.
 	void replay_unwind(const LowUnwind& live);
 	// 15.2p2: the subobject this step built joins the ones an exception out of
@@ -1283,4 +1337,35 @@ private:
 	// before it names that block again rather than writing a second copy.
 	std::string unwind_dispatch_;
 	std::size_t unwind_dispatch_live_;
+	// 15.2p2: the handler already written for each number of standing objects,
+	// which is what lets a step needing exactly what an earlier one needed name
+	// that block again.  The list is a prefix of the standing objects, so an
+	// entry stays good while those objects do: a lifetime ending takes the
+	// entries past it away, and one beginning leaves the ones before it alone.
+	std::vector<std::string> dispatch_cache_;
+	// The region now standing around what is being written, in an ordinary
+	// body: whether there is one, what it is, and whether the last close left
+	// one for the next instruction to open.
+	UnwindRegion region_;
+	bool region_open_;
+	bool region_pending_;
+	// Whether a call that may throw has been written since the mark, which is
+	// what says the step 15.2p2's handler would cover holds anything.
+	bool call_since_mark_;
+	// Whether the region machinery is writing its own instructions, so that the
+	// jump and the handler-stack instructions a close writes do not re-enter it.
+	bool closing_region_;
+	// 1.9p10: how many full-expressions are open, and how many calls that may
+	// throw are still being lowered around the point being written.  A
+	// temporary created where a call is still to be made is one that call may
+	// throw past, which is what says the step that built it needs a handler.
+	unsigned full_expressions_;
+	unsigned pending_calls_;
+	// How deep the lowering stands inside the call that opened the current
+	// step.  A call written as an operand of another belongs to the step that
+	// one opened, so only the outermost of them marks where the step began.
+	unsigned step_depth_;
+	// The answer `begins_lifetime` gave for a node, so an expression whose
+	// operands nest n deep is walked once rather than once per call in it.
+	std::unordered_map<const DumpNode*, bool> begins_lifetime_;
 };

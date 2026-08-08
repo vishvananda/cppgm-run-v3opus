@@ -934,9 +934,14 @@ SemaEntity* SemaAnalyzer::register_temporary(DumpNode& node, const Scope* from,
 	if (vacuous_destruction(object->type))
 	{
 		// 12.4p8: the end of this object's lifetime comes to nothing at all, so
-		// no region has to hold it to write one.
-		return object;
+		// no region has to hold it to write one, and nothing says it began.
+		node.fact.object = nullptr;
+		return nullptr;
 	}
+	// 15.2p2: an exception thrown while this object stands ends its lifetime
+	// wherever it goes on to, so the call is written on the place the lifetime
+	// began as well as on the place it ends.
+	node.fact.destruction = class_destructor(element_of(object->type));
 	// 12.4p11 and 12.2p3: the lifetime ends in a call of the destructor of the
 	// object's class, wherever the region that holds it writes that call.  A
 	// place that reaches this with no region of its own to ask from is one the
@@ -1810,6 +1815,10 @@ void SemaAnalyzer::record_lifetime(SemaEntity& entity, const Context& target,
 		if (ends_in_call(entity))
 		{
 			++live_destructions_;
+			// 15.2p2: the declaration begins a lifetime an exception out of
+			// anything after it has to end, so the line that begins it names
+			// the destructor as well as the line that ends it.
+			line.fact.destruction = class_destructor(element_of(entity.type));
 		}
 	}
 }

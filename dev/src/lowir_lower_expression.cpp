@@ -487,6 +487,20 @@ LowValue LowirFunctionLowering::call_expression(const DumpNode& node,
 	call.kind = Instruction::IK_CALL;
 	const DumpNode& callee = *node.children[0];
 	const bool direct = callee.fact.kind == FactKind::Callee;
+	// 15.4p1: a call of a function that says it throws nothing is not a place
+	// an exception leaves this step by; every other call is, including one
+	// through a pointer, whose declaration says nothing about the function.
+	const bool throwing =
+		!direct || callee.fact.entity == nullptr ||
+		!callee.fact.entity->nonthrowing;
+	// 15.2p2: the step this call belongs to, which a call written as one of its
+	// operands stands inside rather than opening one of its own.
+	const bool step = mark_call_step();
+	if (throwing)
+	{
+		++pending_calls_;
+	}
+
 	// What the call boundary is, is known from the callee's resolved type
 	// before anything is emitted, which is what lets the arguments be lowered
 	// where the source wrote them: before the callee they are passed to.
@@ -498,6 +512,15 @@ LowValue LowirFunctionLowering::call_expression(const DumpNode& node,
 	const std::vector<TypeId>& parameters = types.parameters(function);
 	const TypeId result = types.target(function);
 	const bool indirect = types.returns_indirectly(result);
+	// The value the call hands back is stored where the function can name it
+	// again, wherever it stands under a handler: a block a handler reaches is
+	// not one another block's temporaries are named in.  The storage is named
+	// before the operands are lowered, because whether it is needed is a fact
+	// of the call and not of the order the operands took.
+	const bool has_value = !indirect && !types.is_void(types.strip_cv(result));
+	const std::string spilled = throwing && has_value && guarded_call(node)
+		? add_generated_slot("call", unit_.low_type(result))
+		: std::string();
 	Operand destination;
 	if (indirect)
 	{
@@ -578,12 +601,18 @@ LowValue LowirFunctionLowering::call_expression(const DumpNode& node,
 	}
 	LowValue value;
 	value.type = types.is_reference(result) ? types.target(result) : result;
+	note_call(throwing);
+	if (throwing)
+	{
+		--pending_calls_;
+	}
 	if (indirect)
 	{
 		// 6.6.3p2: the call wrote its object into the storage the destination
 		// names, so what the call is worth is that object.
 		call.type.text = "void";
 		emit_void(call);
+		release_call_step(step);
 		value.lvalue = true;
 		value.operand = destination;
 		return value;
@@ -592,9 +621,17 @@ LowValue LowirFunctionLowering::call_expression(const DumpNode& node,
 	if (types.is_void(types.strip_cv(result)))
 	{
 		emit_void(call);
+		release_call_step(step);
 		return value;
 	}
-	const Operand produced = emit(call);
+	Operand produced = emit(call);
+	if (!spilled.empty())
+	{
+		const Operand slot = named_operand(Operand::OP_SLOT, spilled);
+		store(produced, slot, result);
+		produced = load(slot, result);
+	}
+	release_call_step(step);
 	if (types.is_reference(result))
 	{
 		// 5.2.2p10: a call of a function returning a reference is an lvalue,
@@ -603,6 +640,47 @@ LowValue LowirFunctionLowering::call_expression(const DumpNode& node,
 	}
 	value.operand = produced;
 	return value;
+}
+
+// 15.2p2: whether this call stands under a handler, which is what says the
+// value it hands back has to be named by something a block the handler reaches
+// can name too.  It does where an object's lifetime is already open, and where
+// one this call's own operands begin will be open by the time it runs.
+bool LowirFunctionLowering::guarded_call(const DumpNode& node)
+{
+	if (!unwind_live_.empty())
+	{
+		return true;
+	}
+	for (std::size_t index = 1; index < node.children.size(); ++index)
+	{
+		if (begins_lifetime(*node.children[index]))
+		{
+			return true;
+		}
+	}
+	return !node.children.empty() && begins_lifetime(*node.children[0]);
+}
+
+// 3.8p1: whether lowering `node` begins the lifetime of an object something
+// after it has to end.  The analysis wrote the answer on the node that produces
+// the object, so this is one walk of the operands and never a second reading of
+// what they mean.
+bool LowirFunctionLowering::begins_lifetime(const DumpNode& node)
+{
+	const std::unordered_map<const DumpNode*, bool>::const_iterator found =
+		begins_lifetime_.find(&node);
+	if (found != begins_lifetime_.end())
+	{
+		return found->second;
+	}
+	bool answer = node.fact.destruction != nullptr;
+	for (std::size_t index = 0; !answer && index < node.children.size(); ++index)
+	{
+		answer = begins_lifetime(*node.children[index]);
+	}
+	begins_lifetime_[&node] = answer;
+	return answer;
 }
 
 LowValue LowirFunctionLowering::unary_expression(const DumpNode& node)

@@ -82,6 +82,13 @@ LowirFunctionLowering::LowirFunctionLowering(LowirUnitLowering& unit,
 	, return_slot_local_(nullptr)
 	, unwinding_(false)
 	, unwind_dispatch_live_(0)
+	, region_open_(false)
+	, region_pending_(false)
+	, call_since_mark_(false)
+	, closing_region_(false)
+	, full_expressions_(0)
+	, pending_calls_(0)
+	, step_depth_(0)
 {}
 
 // ---------------------------------------------------------------- emission
@@ -104,6 +111,9 @@ Operand LowirFunctionLowering::temp()
 
 Operand LowirFunctionLowering::emit(Instruction& instruction)
 {
+	// 15.2p2: a handler a change in the live objects left for whatever came
+	// next stands around this instruction, because this is what came next.
+	settle_pending_region();
 	const Operand result = temp();
 	instruction.dest = result.text;
 	out_.blocks[current_].instructions.push_back(instruction);
@@ -112,11 +122,20 @@ Operand LowirFunctionLowering::emit(Instruction& instruction)
 
 void LowirFunctionLowering::emit_void(Instruction& instruction)
 {
+	settle_pending_region();
 	out_.blocks[current_].instructions.push_back(instruction);
 }
 
 void LowirFunctionLowering::terminate(Instruction& instruction)
 {
+	// 15.2p2: control leaves this block, so the handler that stood around what
+	// it held comes off before it does - and a handler left pending for a next
+	// instruction that never came is no handler at all.
+	if (!closing_region_)
+	{
+		region_pending_ = false;
+		close_region();
+	}
 	out_.blocks[current_].instructions.push_back(instruction);
 	open_ = false;
 }
@@ -139,6 +158,14 @@ void LowirFunctionLowering::open_block(const std::string& label)
 	out_.blocks.push_back(block);
 	current_ = out_.blocks.size() - 1;
 	open_ = true;
+	// 15.2p2: a handler is written inside the block it covers, so a step whose
+	// region has still to be opened begins again where this block does.
+	unwind_mark_.active = true;
+	unwind_mark_.at_call = false;
+	unwind_mark_.block = current_;
+	unwind_mark_.at = 0;
+	call_since_mark_ = false;
+	step_depth_ = 0;
 }
 
 void LowirFunctionLowering::jump(const std::string& label)
@@ -1055,7 +1082,24 @@ void LowirFunctionLowering::run(const DumpNode& node, TypeId type)
 		{
 			unwinding_ = false;
 		}
+		if (!unwinding_ || (child.fact.kind != FactKind::ConstructorAction &&
+		                    child.fact.kind != FactKind::MemberInitialization))
+		{
+			statement(child);
+			continue;
+		}
+		// 1.9p10 and 12.6.2: one mem-initializer is a full-expression, so the
+		// temporaries it wrote are destroyed once the subobject it built
+		// stands - which is what the actions written after it are.
+		open_full_expression();
 		statement(child);
+		while (index + 1 < body_end &&
+		       node.children[index + 1]->fact.kind == FactKind::DestructorAction)
+		{
+			++index;
+			statement(*node.children[index]);
+		}
+		close_full_expression();
 	}
 	unwinding_ = false;
 	if (!epilogue_.empty())
@@ -1351,9 +1395,17 @@ void LowirFunctionLowering::statement(const DumpNode& node)
 			throw std::runtime_error("a break statement leaves no statement");
 		}
 		// 3.8p1: the objects of the blocks the jump leaves are destroyed before
-		// control reaches the statement it jumps to.
-		leave_blocks(node);
-		jump(breaks_.back());
+		// control reaches the statement it jumps to - on the path the jump
+		// takes.  The code after it is reached by other paths, where those
+		// objects still stand, so what an exception there owes is unchanged.
+		{
+			const std::vector<LowUnwind> standing = unwind_live_;
+			const std::vector<std::string> handlers = dispatch_cache_;
+			leave_blocks(node);
+			unwind_live_ = standing;
+			dispatch_cache_ = handlers;
+			jump(breaks_.back());
+		}
 		return;
 
 	case FactKind::Continue:
@@ -1361,8 +1413,14 @@ void LowirFunctionLowering::statement(const DumpNode& node)
 		{
 			throw std::runtime_error("a continue statement leaves no loop");
 		}
-		leave_blocks(node);
-		jump(continues_.back());
+		{
+			const std::vector<LowUnwind> standing = unwind_live_;
+			const std::vector<std::string> handlers = dispatch_cache_;
+			leave_blocks(node);
+			unwind_live_ = standing;
+			dispatch_cache_ = handlers;
+			jump(continues_.back());
+		}
 		return;
 
 	case FactKind::Label:
@@ -1420,6 +1478,10 @@ void LowirFunctionLowering::statement(const DumpNode& node)
 	}
 
 	case FactKind::DestructorAction:
+		// 3.8p1: the program wrote this end of a lifetime, so nothing after it
+		// owes one - which is asked before the call, because a handler around
+		// the call itself would owe the object it is destroying.
+		end_object_lifetime(node);
 		destructor_call(node);
 		return;
 
@@ -1447,10 +1509,15 @@ void LowirFunctionLowering::compound_statement(const DumpNode& node)
 
 void LowirFunctionLowering::declaration_statement(const DumpNode& node)
 {
+	// 1.9p10: the initializer of a declaration is a full-expression, and the
+	// temporaries it created are destroyed once the object it initialized
+	// stands.
+	open_full_expression();
 	for (std::size_t index = 0; index < node.children.size(); ++index)
 	{
 		statement(*node.children[index]);
 	}
+	close_full_expression();
 }
 
 void LowirFunctionLowering::arm(const DumpNode& node)
@@ -1474,9 +1541,12 @@ void LowirFunctionLowering::expression_statement(const DumpNode& node)
 		// nothing this milestone reaches.
 		return;
 	}
+	// 1.9p10: the expression a statement writes is a full-expression.
+	open_full_expression();
 	if (discarded_class_object(*written))
 	{
 		leave_blocks(node);
+		close_full_expression();
 		return;
 	}
 	if (written->fact.kind == FactKind::Conditional)
@@ -1485,6 +1555,7 @@ void LowirFunctionLowering::expression_statement(const DumpNode& node)
 		// statement keeps.
 		discarded_conditional(*written);
 		leave_blocks(node);
+		close_full_expression();
 		return;
 	}
 	// 6.2p1: the value is computed and discarded.
@@ -1492,6 +1563,7 @@ void LowirFunctionLowering::expression_statement(const DumpNode& node)
 	// 12.2p3: the temporaries the full-expression created are destroyed at its
 	// end, in the reverse of the order they were created in.
 	leave_blocks(node);
+	close_full_expression();
 }
 
 // 5p11 and 12.2p1: the value of the expression is thrown away, but an object of
@@ -1528,6 +1600,44 @@ bool LowirFunctionLowering::stands_in_no_storage(const DumpNode& node)
 }
 
 void LowirFunctionLowering::local_variable(const DumpNode& node)
+{
+	const UnwindMark opened = unwind_mark_;
+	declare_local(node);
+	if (node.fact.destruction == nullptr)
+	{
+		return;
+	}
+	// 3.8p1 and 15.2p2: the declaration began a lifetime, so an exception out
+	// of anything after it has to end that lifetime - naming the object the way
+	// the declaration named it, because a block a handler reaches names no
+	// temporary another block produced.
+	std::vector<Instruction> address;
+	Operand at;
+	const std::unordered_map<std::uint32_t, Operand>::const_iterator standing =
+		placed_.find(node.fact.entity->id);
+	if (standing != placed_.end())
+	{
+		at = standing->second;
+	}
+	else
+	{
+		const std::unordered_map<std::uint32_t, std::string>::const_iterator
+			found = slots_.find(node.fact.entity->id);
+		if (found == slots_.end())
+		{
+			return;
+		}
+		Instruction named;
+		named.kind = Instruction::IK_ADDR;
+		named.first = named_operand(Operand::OP_SLOT, found->second);
+		named.dest = "declared:" + found->second;
+		address.push_back(named);
+		at = named_operand(Operand::OP_TEMP, named.dest);
+	}
+	begin_object_lifetime(node, opened, at, address);
+}
+
+void LowirFunctionLowering::declare_local(const DumpNode& node)
 {
 	TypeTable& types = unit_.types();
 	SemaEntity& entity = *node.fact.entity;
@@ -1630,6 +1740,11 @@ void LowirFunctionLowering::local_variable(const DumpNode& node)
 void LowirFunctionLowering::return_statement(const DumpNode& node)
 {
 	TypeTable& types = unit_.types();
+	const std::vector<LowUnwind> standing = unwind_live_;
+	const std::vector<std::string> handlers = dispatch_cache_;
+	// 1.9p10 and 6.6.3p2: the operand of a return is a full-expression, and the
+	// temporaries it created end once the returned object stands.
+	open_full_expression();
 	Instruction instruction;
 	instruction.kind = Instruction::IK_RETURN;
 	instruction.type = out_.return_type;
@@ -1687,6 +1802,11 @@ void LowirFunctionLowering::return_statement(const DumpNode& node)
 		}
 	}
 	leave_blocks(node);
+	close_full_expression();
+	// 3.8p1: the return ended those lifetimes on the path it takes; every
+	// other path through the function still has the objects standing.
+	unwind_live_ = standing;
+	dispatch_cache_ = handlers;
 	if (!epilogue_.empty())
 	{
 		// 12.4p8 and 15.2p2: the return leaves the destructor's own body, so
@@ -1727,9 +1847,12 @@ void LowirFunctionLowering::branch_on_condition(const DumpNode& node,
                                                 const std::string& on_true,
                                                 const std::string& on_false)
 {
+	// 1.9p10 and 6.4p1: the condition is a full-expression of its own.
+	open_full_expression();
 	if (!ends_temporaries(node))
 	{
 		branch_on_value(*node.children[0], on_true, on_false);
+		close_full_expression();
 		return;
 	}
 	// The value is taken as a value rather than as 5.14's own control flow,
@@ -1740,6 +1863,7 @@ void LowirFunctionLowering::branch_on_condition(const DumpNode& node,
 	const std::string on_true_cleanup = reserve_block("cond_true_cleanup");
 	const std::string on_false_cleanup = reserve_block("cond_false_cleanup");
 	branch(tested, on_true_cleanup, on_false_cleanup);
+	close_full_expression();
 	open_block(on_true_cleanup);
 	leave_blocks(node);
 	jump(on_true);
@@ -1831,6 +1955,10 @@ void LowirFunctionLowering::if_statement(const DumpNode& node)
 	if (reached)
 	{
 		open_block(end_label);
+		// 6.4p3 and 3.8p1: an object the condition declared belongs to the
+		// region the statement opened, so its lifetime ends where the statement
+		// does and not where the block around the statement ends.
+		leave_blocks(node);
 	}
 }
 
@@ -1962,6 +2090,7 @@ void LowirFunctionLowering::for_statement(const DumpNode& node)
 	open_block(iter_label);
 	if (iteration != nullptr)
 	{
+		open_full_expression();
 		for (std::size_t at = 0; at < iteration->children.size(); ++at)
 		{
 			if (iteration->children[at]->fact.kind ==
@@ -1974,6 +2103,7 @@ void LowirFunctionLowering::for_statement(const DumpNode& node)
 		// 12.2p3: the loop-continuation portion is a full-expression of its
 		// own, so its temporaries end with it and not with the loop.
 		leave_blocks(*iteration);
+		close_full_expression();
 	}
 	jump(cond_label);
 	open_block(end_label);

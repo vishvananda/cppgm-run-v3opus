@@ -161,6 +161,7 @@ struct SemaFact
 		, op(0)
 		, operands(kNoType)
 		, entity(nullptr)
+		, destruction(nullptr)
 		, object(nullptr)
 		, constant(false)
 		, zero_initialized(false)
@@ -191,6 +192,13 @@ struct SemaFact
 	TypeId operands;
 	// The declaration a name, a callee, a variable or a parameter stands for.
 	SemaEntity* entity;
+	// 12.4p3 and 15.2p2: the destructor the object whose lifetime this node
+	// begins ends in.  A declaration and a prvalue of class type each begin
+	// one, and an exception thrown while the object stands has to end it
+	// wherever it goes on to - so the call is a fact of the place the lifetime
+	// began and not only of the place it ends.  Null where the end of the
+	// lifetime comes to nothing, which is what says no handler owes it.
+	SemaEntity* destruction;
 	// 12.2p1 and 12.2p3: the object a prvalue of class type that stands in
 	// storage of its own *is*.  A `temporary-object` names one the analysis
 	// wrote; a call and a conditional that hand back a class prvalue name none,
