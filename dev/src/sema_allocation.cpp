@@ -426,6 +426,12 @@ bool SemaAnalyzer::vacuous_construction(TypeId element)
 				// 12.6.2p10: the base class subobject is built first.
 				nothing = vacuous_construction(owner->base->type);
 			}
+			// 9.5p1 and 12.6.2p8: a variant member no mem-initializer
+			// designated and no brace-or-equal-initializer reaches is not
+			// initialized at all, so what building an object of a union comes
+			// to is what the one member its constructor names comes to - and a
+			// constructor whose ctor-initializer named none builds nothing.
+			const bool variant = one_storage(owner->type);
 			for (std::size_t index = 0;
 			     nothing && owner->scope != nullptr &&
 			     index < owner->scope->declarations.size(); ++index)
@@ -433,7 +439,7 @@ bool SemaAnalyzer::vacuous_construction(TypeId element)
 				const SemaEntity& member = *owner->scope->declarations[index];
 				nothing = !declares_subobject(member, *owner->scope) ||
 					(!member_initializers_.count(member.id) &&
-					 (types_.is_reference(member.type) ||
+					 (variant || types_.is_reference(member.type) ||
 					  vacuous_construction(member.type)));
 			}
 		}

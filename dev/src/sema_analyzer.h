@@ -763,10 +763,11 @@ private:
 	// default constructor is one it cannot write, which deletes the
 	// constructor.
 	bool undefinable_default(Scope& scope);
-	// 12.6.2p2: whether a mem-initializer-id names the base class rather than a
-	// non-static data member.
-	bool names_the_base(const std::string& written, const SemaEntity& base,
-	                    const Context& ctx);
+	// 12.6.2p2 and p6: whether a mem-initializer-id denotes the class `named` -
+	// the base for p2's base subobject, the constructor's own class for p6's
+	// delegation - rather than a non-static data member or some other class.
+	bool names_the_class(const std::string& written, const SemaEntity& named,
+	                     const Context& ctx);
 	// 12.4p8: the destructor calls for the members of the class a destructor
 	// belongs to, in reverse declaration order, written after its body.
 	void write_member_destructions(Scope& members, DumpNode& line);
@@ -1214,6 +1215,15 @@ private:
 	// another, so the list is walked rather than iterated.
 	void write_pending_definitions();
 	void write_definition(Pending& pending);
+	// 9.5p1: whether the members of this class stand in one storage, so that at
+	// most one of them holds an object at a time.  It is one question with one
+	// owner because every walk of a class's members reads it and each reads it
+	// for a different rule: 8.5.1p15's aggregate takes the first member alone,
+	// 12.6.2p8's constructor initializes the one a mem-initializer designated,
+	// 12.4p8's destructor destroys none of them, and 12.8p15/p28's transfer
+	// carries the object representation rather than a member at a time.  False
+	// for anything that is not a class.
+	bool one_storage(TypeId type);
 	// 9.2p2 and the course ABI: the size and alignment of a completed class,
 	// with `requested` the alignment 7.6.2 asked for, or zero for none, and
 	// `packed` the one 16.6 caps every subobject at, or zero for none.

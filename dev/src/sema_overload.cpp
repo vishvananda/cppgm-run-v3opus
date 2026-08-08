@@ -1738,7 +1738,7 @@ void SemaAnalyzer::aggregate_members(TypeId type, Clauses& clauses,
 {
 	SemaEntity& owner = *model_.type_owner(type);
 	Scope& region = *owner.scope;
-	const bool is_union = types_.class_tag(type) == ClassTag::Union;
+	const bool is_union = one_storage(type);
 	for (std::size_t index = 0; index < region.declarations.size(); ++index)
 	{
 		SemaEntity& member = *region.declarations[index];
@@ -2260,7 +2260,7 @@ unsigned long long SemaAnalyzer::clause_capacity(TypeId type)
 		if (owner != nullptr && owner->scope != nullptr && owner->aggregate)
 		{
 			Scope& region = *owner->scope;
-			const bool is_union = types_.class_tag(bare) == ClassTag::Union;
+			const bool is_union = one_storage(bare);
 			total = 0;
 			for (std::size_t index = 0; index < region.declarations.size();
 			     ++index)

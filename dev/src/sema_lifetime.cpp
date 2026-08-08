@@ -554,8 +554,7 @@ SemaEntity* SemaAnalyzer::member_constructor(TypeId type)
 	// the one subobject a parameter of this constructor carries.  Every member
 	// of a union stands in the same storage, and a parameter list holding all
 	// of them would write each of them into it in turn.
-	const bool is_union =
-		types_.class_tag(types_.strip_cv(type)) == ClassTag::Union;
+	const bool is_union = one_storage(type);
 	std::vector<TypeId> types;
 	types.push_back(types_.pointer_to(owner->type));
 	std::vector<Parameter> named;
@@ -1448,22 +1447,23 @@ void SemaAnalyzer::destructor_action(SemaEntity& entity, DumpNode& parent,
 	}
 }
 
-// 12.6.2p2: whether a mem-initializer-id spells the base class of the
-// constructor's own class.  The base has a name of its own and every alias of
-// it names it too, so the question is asked of what the name denotes rather
-// than of the characters it was written with.
-bool SemaAnalyzer::names_the_base(const std::string& written,
-                                  const SemaEntity& base, const Context& ctx)
+// 12.6.2p2 and 12.6.2p6: whether a mem-initializer-id spells `named` - the base
+// class of the constructor's own class for p2, the constructor's own class for
+// p6.  A class has a name of its own and every alias of it names it too, so the
+// question is asked of what the name denotes rather than of the characters it
+// was written with, and both paragraphs ask it the same way.
+bool SemaAnalyzer::names_the_class(const std::string& written,
+                                   const SemaEntity& named, const Context& ctx)
 {
 	try
 	{
 		SemaEntity* const found = resolve(written, ctx, LookupKind::Type);
 		return found != nullptr && names_a_type(*found) &&
-			types_.strip_cv(found->type) == types_.strip_cv(base.type);
+			types_.strip_cv(found->type) == types_.strip_cv(named.type);
 	}
 	catch (const std::runtime_error&)
 	{
-		// A name that reaches no region names no base either, and the
+		// A name that reaches no region names no class either, and the
 		// mem-initializer it was written in is refused where it is read.
 		return false;
 	}
@@ -1535,6 +1535,20 @@ const AstNode* SemaAnalyzer::delegating_initializer(
 	const std::string own = QualifiedName(types_.user_name(owner->type)).last();
 	std::unordered_map<std::string, MemInitializer>::iterator wrote =
 		named.find(own);
+	if (wrote != named.end() &&
+	    QualifiedName(wrote->second.spelled).qualified() &&
+	    !names_the_class(wrote->second.spelled, *owner, inner))
+	{
+		// 12.6.2p2: the index the list was read into is keyed on the last
+		// component of each mem-initializer-id, and a nested-name-specifier
+		// reaches a class of its own - `struct S : N::S` writes `N::S(...)` for
+		// its base and the component is the same `S` this class is called.  So
+		// a spelling that wrote one is asked what it denotes before it is read
+		// as 12.6.2p6's delegation; an unqualified one is not, because 12.6.2p2
+		// looks it up in the scope of the constructor's class first and this
+		// class's own injected-class-name is what stands there.
+		wrote = named.end();
+	}
 	if (wrote == named.end())
 	{
 		if (named.size() != 1)
@@ -1561,7 +1575,7 @@ const AstNode* SemaAnalyzer::delegating_initializer(
 		{
 			return nullptr;
 		}
-		if (!names_the_base(only->second.spelled, *owner, inner))
+		if (!names_the_class(only->second.spelled, *owner, inner))
 		{
 			return nullptr;
 		}
@@ -1704,7 +1718,7 @@ void SemaAnalyzer::write_base_initialization(
 		// one lookup per mem-initializer it wrote.
 		for (wrote = named.begin(); wrote != named.end(); ++wrote)
 		{
-			if (names_the_base(wrote->second.spelled, *base, inner))
+			if (names_the_class(wrote->second.spelled, *base, inner))
 			{
 				break;
 			}
@@ -1766,8 +1780,7 @@ void SemaAnalyzer::write_member_initializations(const Pending& pending,
 	// ctor-initializer designated another.  Which of the two it is, is one probe
 	// of the class's region per mem-initializer the list held.
 	const bool is_union =
-		members.owner != nullptr &&
-		types_.class_tag(types_.strip_cv(members.owner->type)) == ClassTag::Union;
+		members.owner != nullptr && one_storage(members.owner->type);
 	bool designated_variant = false;
 	for (std::unordered_map<std::string, MemInitializer>::const_iterator at =
 	         named.begin();
@@ -1963,6 +1976,19 @@ void SemaAnalyzer::write_transfer_steps(const Pending& pending, DumpNode& line,
 		                         "parameter to carry its object from");
 	}
 	const unsigned char kind = function.transfer;
+	if (members.owner != nullptr && one_storage(members.owner->type))
+	{
+		// 12.8p15 and p28: the member the standard defines for a union copies
+		// the object representation of it and nothing else.  9.5p1's one
+		// storage is why there is no other form: at most one of the members
+		// declared holds an object, the transfer cannot ask which, and a walk
+		// of the declarations would carry every one of them through the one
+		// storage in turn - reading bytes no lifetime wrote and writing over
+		// the bytes the step before it carried.
+		write_storage_transfer(*parameter, line, 0,
+		                       types_.object_size(members.owner->type), kNoType);
+		return;
+	}
 	const bool assigning = kind == kCopyAssignmentTransfer ||
 		kind == kMoveAssignmentTransfer;
 	SemaEntity* const base =
@@ -2273,9 +2299,19 @@ void SemaAnalyzer::write_member_parameters(const Pending& pending,
 }
 
 // 12.4p8: after a destructor's body has run, the destructors of the class's
-// members run, in the reverse of the order the members were constructed in.
+// **non-variant** members run, in the reverse of the order the members were
+// constructed in.  9.5p1's one storage is what that word is there for: a
+// constructor of a union says which of its members stands in that storage and
+// the destructor cannot ask, so the members a union declares are not objects
+// whose lifetimes this end ends - walking them would call a destructor on
+// storage no lifetime began in, which is what 12.6.2p8's reading of the same
+// storage already refuses to write the construction of.
 void SemaAnalyzer::write_member_destructions(Scope& members, DumpNode& line)
 {
+	if (members.owner != nullptr && one_storage(members.owner->type))
+	{
+		return;
+	}
 	for (std::size_t index = members.declarations.size(); index-- > 0;)
 	{
 		SemaEntity& member = *members.declarations[index];
@@ -2633,8 +2669,14 @@ bool SemaAnalyzer::vacuous_destruction(TypeId type)
 			// 12.4p8: the base class subobject is destroyed too.
 			nothing = vacuous_destruction(owner->base->type);
 		}
+		// 12.4p8: the members whose destructors run are the non-variant ones, so
+		// a union's end of a lifetime is its body and nothing else - the same
+		// 9.5p1 reading `write_member_destructions` writes, asked here so the
+		// question and the code it decides give one answer.
+		const bool variant = owner != nullptr && one_storage(owner->type);
 		for (std::size_t index = 0;
-		     nothing && owner != nullptr && owner->scope != nullptr &&
+		     nothing && !variant && owner != nullptr &&
+		     owner->scope != nullptr &&
 		     index < owner->scope->declarations.size(); ++index)
 		{
 			const SemaEntity& member = *owner->scope->declarations[index];

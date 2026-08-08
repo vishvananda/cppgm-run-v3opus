@@ -295,6 +295,16 @@ bool SemaAnalyzer::declares_copy_constructor(const SemaEntity& entity,
 	return false;
 }
 
+// 9.5p1: the members of a union all begin at the same address, so the storage
+// is one storage and at most one member holds an object in it.  Every rule that
+// walks a class's members has to know it, and each of them wants a different
+// consequence of it, so the fact itself is asked here and nowhere else.
+bool SemaAnalyzer::one_storage(TypeId type)
+{
+	const TypeId bare = types_.strip_cv(type);
+	return types_.is_class(bare) && types_.class_tag(bare) == ClassTag::Union;
+}
+
 // `packed` is 16.6's cap in force where the definition of the class ends, which
 // is where 9.2p2 completes it and where this settles its layout - so a
 // directive written between two of its members reaches every one of them.
@@ -1854,6 +1864,16 @@ void SemaAnalyzer::settle_transfers(SemaEntity& entity, Scope& scope)
 		}
 		member->trivial = trivial && !deleted;
 		member->deleted = deleted;
+		if (one_storage(entity.type))
+		{
+			// 12.8p15 and p28: the definition the standard gives a union copies
+			// the object representation and invokes the transfer member of no
+			// subobject's class, so 15.4p14 has nothing for it to allow.  p11's
+			// deletion and p12's triviality go on asking every variant member,
+			// because those are questions about the members the class declares
+			// and not about what its definition calls.
+			nonthrowing = true;
+		}
 		if (!member->wrote_exception_specification)
 		{
 			// 15.4p14: an implicitly declared member, and one `= default`
@@ -2505,6 +2525,14 @@ bool SemaAnalyzer::trivial_default_construction(Scope& scope)
 // triviality is, asked of a different fact of the same members.
 bool SemaAnalyzer::destruction_nonthrowing(Scope& scope)
 {
+	if (scope.owner != nullptr && one_storage(scope.owner->type))
+	{
+		// 12.4p8: a union's destructor destroys none of its members, so there
+		// is no destructor it directly invokes and nothing for 15.4p14 to
+		// allow - the same reading `write_member_destructions` writes and
+		// `vacuous_destruction` answers.
+		return true;
+	}
 	if (scope.owner != nullptr && scope.owner->base != nullptr)
 	{
 		const SemaEntity* const base = scope.owner->base->destructor;

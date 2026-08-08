@@ -1776,10 +1776,30 @@ void SemaAnalyzer::declare_function_declarator(
 		// of is ill formed.  8.4.2p1 makes the first of them implicitly inline,
 		// so the definition it stands for belongs to every translation unit
 		// that needs one rather than to the one that wrote the class.
+		//
+		// 8.4.2p2 and 3.4.3p3: written outside the class, on a declarator-id
+		// that declares nothing new, it is a definition of the declaration the
+		// class already made - and 7.1.2p2 leaves that definition non-inline,
+		// so this unit is the one that holds it.  A copy or move assignment
+		// operator reaches 8.4.2p2 here and a constructor or a destructor
+		// reaches it in `special_member_definition`; the two say the same
+		// thing, because whether the definition is this unit's is a fact of
+		// where it was written and not of which special member it defines.
+		const bool outside_the_class = spelled.qualified();
+		if (outside_the_class && (function.defaulted || function.deleted ||
+		                          function.defined))
+		{
+			// 3.2p1: a definition written outside the class defines the
+			// declaration that class already made, and no function has two
+			// definitions - which `special_member_definition` says of a
+			// constructor and a destructor in the same words.
+			throw std::runtime_error(name + " is defined twice");
+		}
 		function.deleted = initializer->children[0]->text == "delete";
 		function.defaulted = !function.deleted;
 		function.defined = false;
-		function.inline_function = true;
+		function.inline_function =
+			function.inline_function || !outside_the_class;
 		// 12.8p28: the definition the standard gives this declaration names the
 		// object it reads from throughout, and the declarator is what said what
 		// that name is - so the parameters it wrote travel to the definition,
@@ -1787,6 +1807,13 @@ void SemaAnalyzer::declare_function_declarator(
 		// the definition to give it a name of its own.
 		std::vector<Parameter> named = spelled_parameters;
 		constructor_parameters_[function.id].swap(named);
+		if (outside_the_class && !function.deleted && semantics())
+		{
+			// 3.2p4: the definition this unit was told to write is written
+			// whether or not anything here names the function, because another
+			// unit's use of it is what a non-inline definition is for.
+			demand_transfer_definition(function);
+		}
 	}
 	record_default_arguments(function, spelled_parameters, target.scope);
 	if (function.template_parameters != nullptr)

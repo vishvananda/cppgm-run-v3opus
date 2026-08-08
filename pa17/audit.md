@@ -5,125 +5,111 @@ define, lower.
 
 ## Current Checkpoint Review
 
-**C8, reviewed at `bc50cabb`.** The architecture is the right one and the
-checkpoint's own sentence names it: 13.3.3.1.5p1's argument is not an
-expression, so it travels as the list with the line it will be written on
-holding its place, `match_list` answers what it converts to from the parameter
-alone, and the clauses are read once - where 8.5.4 has a type to read them for.
-That is one reading of one list, and it is what makes 2^20 leaves cost 27 lines.
+**C9, reviewed at `39fa3bf7`.** The architecture is the right one and the
+checkpoint's own sentence names it: what a ctor-initializer means is a reading
+of the *list* and not of one entry, so 12.6.2p6's delegation is answered before
+the base and the members are walked at all, and 9.5p1's one storage is what a
+union's constructor says which member stands in. Both are the same move - the
+class the list is read against, rather than the entry, is what says what the
+entry means - and `Placement::Delegate`, `delegates_to` and the one colouring of
+the constructors that delegate are the right three pieces for it.
 
-What the review found is that **the list a class is built from had two owners
-and they answered 8.5.1 differently.** `aggregate_from_list` writes the
-subobjects where they stand and walks 8.5.1p11's elided braces; the constructor
-`member_constructor` gives an aggregate takes one clause per member and walks
-nothing. A declaration reaches the first and a prvalue reaches the second, and
-C8 pointed every braced *argument* at the second. Five of the six defects below
-are that seam or the parameter list on the far side of it, and every one of them
-is wrong output or a wrong refusal on a shape no fixture covers.
+What the review found is that **the checkpoint answered each of its three rules
+at one reader and left the siblings of that reader asking the old question.**
+9.5p1's one storage reached construction and neither destruction nor the
+transfer; 8.4.2p2's out-of-class `= default` reached the parse path constructors
+and destructors take and not the one the assignment operators take; and
+12.6.2p6's own reading of a name compared the characters of its last component
+where it had to ask what the name denotes. Every one of the four below is wrong
+output or a wrong refusal on a shape no fixture covers, and the reference binary
+and `g++` agree against us on all four.
 
-**1. 8.5.1p6's capacity counted a subobject that holds nothing as no clause.**
-`clause_capacity` summed each member's own capacity, so `struct Empty {}` added
-zero and `struct Holder { Empty tag; int value; }` had capacity 1. 8.5.1p11 says
-the braces around a subobject *may* be left out - which means they may equally
-be written, and a written `{}` is one clause however little it holds. So
-`take({{}, 7})` and `take({{}})` were refused where the reference binary and
-`g++` both accept them. `clauses_a_subobject_takes` is now the one question a
-member and an array element both ask, and it is the subobject's own capacity or
-the one clause its braces are, never nothing.
+**1. 12.6.2p6 read the last component of a name and not the class it denotes.**
+`read_mem_initializers` keys its index on `QualifiedName(id).last()`, so a base
+class whose own last component is the derived class's name - `struct S : N::S`,
+writing `S() : N::S(3) {}` for its base - answered `named.find("S")` and was
+read as a delegation to `S`. The program was refused outright with "no
+declaration of S accepts the arguments of a call", and a `S(int)` that happened
+to exist would have been called on an object with no base built. A qualified
+spelling is now asked what it denotes - `names_the_class`, which is the one
+question 12.6.2p2's base and p6's own class both ask - before it is read as a
+delegation; an unqualified one is not, because 12.6.2p2 looks it up in the scope
+of the constructor's class first and this class's own injected-class-name is
+what stands there. So the probe stays one probe for every ctor-initializer that
+writes no nested-name-specifier, which is nearly all of them.
 
-**2. 8.5.1p11's elided braces reached the subobject walk and never the
-parameter list.** `construct_from_members` gave `initialize` one clause per
-parameter, so `Outer{Pair pair; int z;}` built from `{1, 2, 3}` handed `1` to a
-parameter of type `Pair` and refused it. `Outer o = {1, 2, 3}` had been right
-since C1, because that is the other owner. The fix is `construct_from_clauses`,
-which takes the same `Clauses` cursor the subobject walk takes: a member whose
-braces were left out is one object of its class, built where the parameter
-carrying it stands by the constructor 8.5.1 gives *that* class, out of the run
-of clauses its own subobjects take. That is the shape the reference writes -
-`Pair::Pair(%t2, 1, 2)` into an `argobj` slot, then `Outer::Outer(%t1, $argobj,
-3)` - and it recurses, so the two-deep nesting the reference refuses is one more
-step and not a second mechanism.
+**2. 12.4p8's word is *non-variant*, and a union's destructor destroyed every
+member it declared.** `union U { int a; D d; U() {} ~U() {} };` wrote a call of
+`D::~D` on the one storage - at the end of every lifetime of a `U`, inside every
+15.2p2 handler that covered one, under `delete`, and per element of a
+`new U[n]`. That is a destructor call on storage no lifetime began in, and it is
+the destruction half of exactly the reading C9 wrote for construction: a variant
+member no constructor designated holds no object, so there is no end of one to
+run. `one_storage` is now the one owner of 9.5p1 and its three destruction
+readers agree - `write_member_destructions` writes no member, `vacuous_destruction`
+answers what the body alone comes to, and `destruction_nonthrowing` has nothing
+for 15.4p14 to allow, so the calls that fix removes take their handlers with
+them. The reference's own `~U` body is empty and `g++` writes no call either.
 
-**3. The elision question had no bound, so a subaggregate that holds nothing ate
-a clause.** `aggregate_subobject` read "the clause does not initialize the whole
-subaggregate" as "its braces were left out", which for `struct Empty {}` is a
-subaggregate with no subobject for the clause to reach: `Holder h = {7}` over
-`{Empty, int}` was accepted, with `7` walking past `tag` into `value`, where
-`g++` says the initializer for `Empty` must be brace-enclosed and the reference
-refuses the call. `elides_its_braces` is now the one place that question is
-asked - by the walk that writes the subobject where it stands *and* by the walk
-that passes it as a parameter - and it is bounded by `clause_capacity`: a
-subaggregate that takes no clause has no braces to leave out.
+**3. 12.8p15's transfer walked the members of a union too, and twice over the
+same bytes.** The member the standard defines for `union U { int a; D d; }`
+wrote the leading `copyobj` of the trivial prefix *and then* a copy call per
+variant member into the same four bytes - reading bytes no lifetime wrote and
+writing over the bytes the step before it had just carried. p15 and p28 give a
+union one copy of its object representation and no memberwise walk at all, which
+is now what `write_transfer_steps` writes before it asks for a base or a field.
+This was the milestone's one output that grew with a *union's* member count: a
+union with n class members was 33 n lines and is **39 lines at every size**.
 
-**4. 8.5.1p2's constructor left out a reference member and a bit-field
-member.** `member_constructor` returned null for a class holding either, which
-left every prvalue of it - a `T{...}`, a braced argument, an element of an array
-of it - with no constructor the clauses could reach and a refusal that said no
-declaration accepted the arguments. Neither is a member 8.3.5p5 has anything to
-say about: a reference parameter is the address it binds and a bit-field's
-parameter is its underlying type, which is what the reference writes and what
-`adjust_parameter` already gives. **This is what
-`general/300-refmember-copy-constructor-binds-storage` was waiting on** - the
-one fixture this review turns, 209 -> 210.
-
-**5. 8.5.1p15's union got a parameter per member and wrote each of them into the
-one storage a union is.** `union Held { In in; long long raw; };` was given
-`Held(Held*, In, long long)`, whose body copied the `In` into the union and then
-stored a zero over it. `clause_capacity` and `aggregate_members` both stop at a
-union's first member; the constructor and the definition that writes it now stop
-there too, and the definition stops on the parameter list rather than on a
-second reading of the rule, so the two cannot drift apart again.
-
-**6. 13.3.3.1.5p1's list was viable against an ellipsis.** An argument past the
-last parameter was given `kEllipsis` and passed as it stood, so a
-braced-init-list arrived at `require_complete_value` with no type and was
-reported as an overloaded function name no target chose between. 13.3.3.1.5
-gives a list a conversion sequence for a *parameter*, and the ellipsis is not
-one; `g++` refuses the program outright. The ellipsis match is now unviable for
-a list, so a candidate that does name a parameter for it is chosen instead, and
-the refusal that is left says what it is.
-
-The one shape this review leaves is the seventh, and it is recorded rather than
-fixed: **an aggregate holding an array member has no by-value parameter list**,
-because 8.3.5p5 adjusts an array parameter to the pointer it decays to and what
-the member holds is the array. The reference declares that parameter as the
-array and marks it `[pass=decay]`, which is a boundary convention this
-translation writes nowhere else. `build_temporary` now says exactly that rather
-than reporting that no constructor accepted the arguments.
+**4. 8.4.2p2 reached the constructor and the destructor and not the assignment
+operators.** `X& X::operator=(const X&) = default;` is the same rule written on
+the other of the two paths a special member is parsed by - the ordinary
+init-declarator, where a constructor and a destructor never go - and it got none
+of the three answers C9 gave the first path. 7.1.2p2's non-inline definition:
+we left it inline, so the symbol was `binding=weak` where the reference and
+`g++` both write a strong one. 3.2p4's "this unit holds it whether or not
+anything here names it": we demanded nothing, so **a unit whose only definition
+was that line emitted no `_ZN1XaSERKS_` at all** and every unit that linked
+against it was left with an undefined symbol. And 3.2p1's one definition: a
+second `= default` for the same operator was accepted where the reference and
+`g++` refuse it and where `special_member_definition` already refused the
+constructor form. All three are now keyed on 3.4.3p3's qualified declarator-id,
+which is the same thing "written outside the class" means on the other path.
 
 ## Evidence
 
 Measured with `cppgm++ --emit-lowir -O0` on synthesized inputs, this host, best
-of three, against the pre-audit binary built from `bc50cabb` on the same shapes.
+of three, against the pre-audit binary built from `39fa3bf7` on the same shapes.
 
 | axis | sizes | before | after | output |
 | --- | --- | --- | --- | --- |
-| n calls each passing a fully braced list to a nested aggregate | 250/500/1000/2000 | 0.01/0.02/0.05/0.10 s | 0.01/0.02/0.05/0.10 s | 10 n + 60 lines |
-| n calls each passing a list whose inner braces are left out | 250/500/1000/2000 | refused | 0.01/0.03/0.05/0.10 s | 10 n + 60 lines |
-| one elided list through n aggregates nested n deep | 25/50/100/200 | refused | 0.00/0.01/0.01/0.03 s | 24 n + 34 lines |
-| the same, whose first clause is a 40-deep chain of calls | 25/50/100/200 | refused | 0.01/0.01/0.02/0.05 s | 24 n + 82 lines |
-| `f({})` against a class whose members double at each of n levels | 8/12/16/20 | 27 lines, under 0.01 s | 27 lines, under 0.01 s | 27 lines at every n |
+| a union with n class members, copied and destroyed | 250/500/1000/2000 | 0.01/0.03/0.06/0.12 s, 33 n + 412 lines | 0.00/0.00/0.00/0.01 s | **39 lines at every size** |
+| a union with n scalar members, copied, assigned and destroyed | 250/2000 | 0.00/0.01 s, 42 lines | 0.00/0.01 s | 42 lines at every size |
+| n classes each defaulting ctor, dtor, copy ctor and `operator=` outside the class | 250/500/1000/2000 | 0.05/0.10/0.21/0.42 s, 52 n + 4 lines | 0.06/0.13/0.25/0.52 s | 65 n + 4 lines |
+| n classes each with one delegating constructor and one use | 250/500/1000/2000 | 0.04/0.08/0.17/0.36 s | 0.04/0.08/0.17/0.37 s | 33 n + 8 lines |
 
-The elided walk is **linear in nesting depth and not exponential in it**, and
-the row that says so is the fourth: the clause the descent probes is the same
-clause at every level, so a first clause that is itself expensive is read once
-per level and the total stays linear - 0.05 s at depth 200 with 40 calls under
-the probe. `clause_capacity` is still one memoized walk per type, which is what
-holds the fifth row at 27 lines for 2^20 leaves after the capacity of a
-subobject changed. The first row is the shape both binaries already built, and
-it is at parity.
+The first row is the one that mattered: a union's transfer and its destruction
+were each one step per *declared* member, so the output grew with a count that
+says nothing about how many objects there are - at most one - and every one of
+those steps but the first wrote over the bytes the step before it carried. It is
+now one `copyobj` and no destruction at all, constant in the member count.
+The third row is 13 n lines *more* than before and that is the defect being
+fixed: the assignment-operator definition this unit owes and did not write. The
+fourth says the delegation paths are untouched by any of this.
 
-`valgrind` is clean over the depth-200 elided nesting, the 2000-call
-multiplicity, the union, the reference member and the 40-call probe.
+`valgrind` is clean over the 200-member unions of both shapes, the 100-class
+out-of-class defaults, the 100-class delegations, and every probe of this review.
 
-The reference binary was the differential oracle over the 37 probes of this
+The reference binary was the differential oracle over the 49 probes of this
 review, run through the harness's own relaxed comparison, with the checked-in
-`.ref` files first and `g++` as the third oracle wherever the binary and we
-disagreed - which is how findings 1, 3 and 6 were settled. 25 of the 37 now
-agree exactly; the rest are named under Open Gaps.
+`.ref` files first and `g++` as the third oracle - which is how all four findings
+were settled, all four the same way by both. 40 of the 49 now agree exactly - 35
+byte for byte after canonicalization and 5 refusing the same program; the nine
+that remain are named under Open Gaps, and five of those nine are the one
+12.4p8 reading below.
 
 The file audit passes with the three recorded header-weight warnings it already
-had, pa1-pa16 stand at 1494 / 1494, and pa17 at **210 / 228**.
+had, pa1-pa16 stand at 1494 / 1494, and pa17 at **217 / 228**.
 
 ## Open Gaps
 
@@ -135,6 +121,18 @@ outputs of the eleven fixtures that declare one write none, which is
 where the binary is not the oracle the fixtures are, and a differential sweep
 run against the binary alone reads it as a defect in every program that declares
 such a destructor. It is durable: every later sweep has to discount it.
+
+C9's review widened it by one class of shape. **A union whose destructor writes
+no statement is vacuous for us and not for the reference**, because 12.4p8's
+`non-variant` means its class-typed variant members are not what it comes to -
+so `union U { int a; D d; U() {} ~U() {} };` is passed and returned by value
+here, and needs no call at any end, where the binary passes it by address and
+calls a `~U` whose body it has itself written empty. The same reading reaches a
+class holding such a union as a *named* member, whose own empty-bodied
+destructor then comes to nothing too. The binary is inconsistent with itself
+here and we are not; `g++` cannot settle it, because its rule is 12.4p5's
+triviality - it calls the empty `~T` above as well - which is the rule the
+fixtures already say this translation does not use.
 
 **An aggregate holding an array member has no by-value parameter list**, so a
 prvalue of one - `Holder{{1, 2}, 3}`, a braced argument of that type, an element
@@ -182,6 +180,29 @@ one call fewer. Both end with the same object.
 the reference builds an array temporary and decays it, which is `initializer_list`
 machinery this milestone has no other trace of.
 
+**8.5p7's zero stands in front of a default constructor the standard defines,
+and the reference writes none.** `Z y{}` over `struct Z { int a = 5; long long
+b; }` - and equally over a union with a brace-or-equal-initializer - zeroes the
+storage and then calls the constructor, because the class's default constructor
+is neither user-provided nor deleted and 8.5p7 says both steps. `g++` writes the
+zero too. It predates C9 and is not a union question: the same shape over a
+non-union class writes the same extra store.
+
+**An `inline` `= default` written outside the class is emitted only where
+something names it.** `inline X::X() = default;` is 7.1.2's inline definition,
+so 3.2p4 asks for one only in a unit that odr-uses it, and 12.1p5 leaves nothing
+to odr-use; the reference and `g++` both write the weak definition anyway. The
+non-inline spelling C9 landed is not affected - that one this unit owes outright
+and writes. It predates C9's audit and is `owe_internal_definition`'s policy for
+every definition, not a fact of 8.4.2p2.
+
+**A constructor takes a member's address for an anonymous union member it then
+writes nothing into.** `struct H { int t; union { int a; D d; }; H() {...} };`
+leaves one dead `index` in `H::H`. Anonymous unions are already outside this
+milestone - 12.6.2p2's mem-initializer that designates a member of one is the
+recorded hole - and this is the same seam seen from the lowering; it predates
+C9.
+
 **Outside this milestone**, unchanged: 10.3's virtual dispatch, which the README
 puts after it; class templates; 13.5.6's overloaded `operator->`; pointer to
 member in the PA15 lowering subset; 9.2p1's refusal of a member declared twice
@@ -199,3 +220,4 @@ in one class; and 5.5's `.*`.
 | C6 | 12.2p3's full-expression boundary and 15.2p2's handler in an ordinary body | `67babaa8` | 8 / 8: 15.2p2's region closed after 3.8p1's ends of the objects a block declares rather than in front of them, so every `return` and every block end wrote a destructor call under a handler that destroys the same object; `close_unwind_region` putting a handler back in the cache keyed on a count after the objects that made it good had been destroyed, so `use(T(1)); use(T(2));` named the first temporary's handler for the second and an if/else arm named the other arm's; 5.14p1 and 5.16p1's conditionally-evaluated operands having no frame, so a temporary an arm or a short-circuited right operand created was destroyed on the paths that never created it; the standing list copied once per region a lifetime ended inside, which was quadratic (1.13 s at 2000) under output linear at 34 n lines; 8.5.3p5's name for the storage of a discarded prvalue; 12.2p3's two cleanup edges out of a condition numbered before the region they leave was closed; 6.5.3p1's for-init-statement lowered after the loop's own blocks were numbered; and `lowir_lower_object.cpp` past the audit's 3000-line limit with `kUnwindSuffixLimit` defined twice, split at 15.2p2's own seam into `lowir_lower_unwind.cpp` | **194 / 228** unchanged; pa1-pa16 1494 / 1494; file audit passes |
 | C7 | 5.2.2p4's class argument at the boundary, and the placement facts swept beside it | `ba854b1d` | 8 / 8: 12.4p5's triviality read where this translation's own end of a lifetime is 12.4p8's vacuity, so a class with an empty-bodied destructor was passed by address and returned indirectly where the reference does neither; 5.2.2p4's copy half read off the base class subobject alone, so a derived class with a member whose copy is a call was passed as raw bytes; 12.8p12 asked without 12.4p8 by every other reader, so a class whose destructor comes to something was copied with `copyobj` and the copy constructor 12.8p15 defines for it was never written at all; 15.4p14's exception-specification never computed, which the calls that fix exposed would have wrapped in handlers the reference does not write; 5.2.2p4's parameter ended at one exit of three, so a constructor and every member function defined in its class body leaked the object the caller built and 15.2p2's handler owed nothing for it; the caller owing that same end a second time, naming the ABI's base-object destructor for a complete object; 5.2.9p4's cast of a glvalue to its own class refused outright wherever the class wrote a copy constructor; and `creates_its_object` compared the cast's cv-qualified type where the lowering stripped it, so `(const W)a` copied where `(W)a` elided | **204 / 228** unchanged; pa1-pa16 1494 / 1494; file audit passes |
 | C8 | 8.5.4's braced-init-list of a class, and 13.3.3.1.5's sequence for an argument that is one | `bc50cabb` | 6 / 6 + 1 recorded refusal: 8.5.1p6's capacity counted a subobject that holds nothing as no clause, so `f({{}, 7})` was refused; 8.5.1p11's elided braces reached the walk that writes a subobject where it stands and never the by-value parameter list a prvalue is built by, so `f({1, 2, 3})` into `{Pair, int}` was refused and so were `Outer{1, 2, 3}` and an element of an array of one; that elision question had no bound, so `Holder h = {7}` over `{Empty, int}` walked a clause past a subaggregate with nothing to take it, which `g++` and the reference both refuse; 8.5.1p2's synthesized constructor left out a reference member and a bit-field member, so every prvalue of such an aggregate was refused; 8.5.1p15's union got a parameter per member and its definition wrote each of them into the one storage a union is; and 13.3.3.1.5p1's list was a viable ellipsis argument that then reached `require_complete_value` with no type. The refusal: an aggregate holding an array member has no by-value parameter list, because 8.3.5p5 adjusts the parameter to a pointer and the member is the array | 209 -> **210 / 228**; pa1-pa16 1494 / 1494; file audit passes |
+| C9 | 12.6.2p6's delegating constructors, 9.5's unions and 8.4.2p2's out-of-class `= default` | `39fa3bf7` | 4 / 4, every one of them a sibling of the reader the checkpoint answered at: 12.6.2p6's delegation keyed on the last component of a mem-initializer-id rather than on the class it denotes, so `struct S : N::S` writing `N::S(3)` for its base was read as a delegation and the program refused; 12.4p8's *non-variant* missed, so a union's destructor called the destructor of every class-typed member it declared - on storage no lifetime began in, at every end of a lifetime, in every 15.2p2 handler, under `delete` and per element of a `new U[n]` - and `vacuous_destruction` and `destruction_nonthrowing` answered off the same walk; 12.8p15/p28's transfer walked those members too, writing the trivial prefix's `copyobj` and then a copy call per variant member over the same bytes, which was 33 n lines in a union's member count and is now 39 at every size; and 8.4.2p2 reached only the parse path a constructor and a destructor take, so `X& X::operator=(const X&) = default;` was left inline, was never demanded - a unit holding only that line emitted no definition at all - and a second one was accepted | **217 / 228** unchanged; pa1-pa16 1494 / 1494; file audit passes |
