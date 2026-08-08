@@ -946,6 +946,17 @@ private:
 	// clauses of `list` initialize the members with.
 	void construct_from_members(SemaEntity& constructor, const AstNode& list,
 	                            const Context& ctx, DumpNode& parent);
+	// The same call, taking what it needs out of a walk the caller still holds,
+	// which is what 8.5.1p11's elided braces make of a nested aggregate.
+	void construct_from_clauses(SemaEntity& constructor, Clauses& clauses,
+	                            const Context& ctx, DumpNode& parent);
+	// 8.5.1p11: whether the member's own braces were left out, so that the
+	// clauses standing next initialize its members rather than it.
+	bool elides_its_braces(TypeId type, Clauses& clauses, const Context& ctx);
+	// 8.5.1p11: that subaggregate, built where the parameter carrying it
+	// stands, out of the clauses its own subobjects take.
+	void elided_subaggregate(TypeId type, Clauses& clauses, const Context& ctx,
+	                         DumpNode& call);
 	// 8.5.1p11: whether the clause initializes the whole subaggregate rather
 	// than the first of its members, which is what says the braces around it
 	// were left out.  Only a value of the subaggregate's own class type - or of
@@ -1749,6 +1760,10 @@ private:
 	// of `f({1,2})`.  Held per type, so a class is walked once however many
 	// lists ask.
 	unsigned long long clause_capacity(TypeId type);
+	// 8.5.1p11: what one subobject of that type takes out of the enclosing
+	// list, which is its own capacity or the one clause its written braces are
+	// - never nothing, however little the subobject holds.
+	unsigned long long clauses_a_subobject_takes(TypeId type);
 	std::unordered_map<TypeId, unsigned long long> clause_capacity_;
 	// 8.5.4: what the list is worth once the type it initializes is known -
 	// an object of a class 13.3.1.7 or 8.5.1 built, or the value 13.3.3.1.5p6

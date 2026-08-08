@@ -286,6 +286,16 @@ TypeId SemaAnalyzer::decayed(const Value& value)
 
 void SemaAnalyzer::require_complete_value(const Value& value)
 {
+	if (value.braced != nullptr)
+	{
+		// 5.2.2p7 and 13.3.3.1.5p1: what an ellipsis is passed is the argument
+		// as it stands, and a braced-init-list is not an expression to pass -
+		// 13.3.3.1.5 gives one a conversion sequence for a parameter, and the
+		// ellipsis is not one of those.
+		throw std::runtime_error("a braced-init-list stands where a function "
+		                         "declared an ellipsis, which no implicit "
+		                         "conversion sequence reaches");
+	}
 	// 13.4p1: an overloaded function name has no type until a target chooses
 	// between its declarations, so an operand position that offers none is the
 	// one place the name means nothing.

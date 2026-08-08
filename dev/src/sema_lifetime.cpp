@@ -535,6 +535,12 @@ SemaEntity* SemaAnalyzer::member_constructor(TypeId type)
 		return owner->member_constructor;
 	}
 	Scope& scope = *owner->scope;
+	// 8.5.1p15: a union is initialized by its first member alone, so that is
+	// the one subobject a parameter of this constructor carries.  Every member
+	// of a union stands in the same storage, and a parameter list holding all
+	// of them would write each of them into it in turn.
+	const bool is_union =
+		types_.class_tag(types_.strip_cv(type)) == ClassTag::Union;
 	std::vector<TypeId> types;
 	types.push_back(types_.pointer_to(owner->type));
 	std::vector<Parameter> named;
@@ -546,14 +552,12 @@ SemaEntity* SemaAnalyzer::member_constructor(TypeId type)
 			continue;
 		}
 		const TypeId bare = types_.strip_cv(member.type);
-		if (member.bit_field || types_.is_reference(member.type) ||
-		    types_.kind(bare) == TypeKind::Array)
+		if (types_.kind(bare) == TypeKind::Array)
 		{
-			// 9.6p1, 8.3.2p4 and 8.3.5p5: none of these is a member a by-value
-			// parameter carries what the member holds - a bit-field and a
-			// reference are no object of their own, and an array parameter is
-			// the pointer 8.3.5p5 adjusts it to.  The class is given no such
-			// constructor and 8.5.1 initializes its subobjects where they are.
+			// 8.3.5p5: an array parameter is the pointer the adjustment leaves,
+			// and what the member holds is the array - so no by-value parameter
+			// carries it.  The class is given no such constructor and 8.5.1
+			// initializes its subobjects where they are.
 			return nullptr;
 		}
 		if (types_.is_class(bare) &&
@@ -572,6 +576,10 @@ SemaEntity* SemaAnalyzer::member_constructor(TypeId type)
 		one.name = member.name;
 		named.push_back(one);
 		types.push_back(one.type);
+		if (is_union)
+		{
+			break;
+		}
 	}
 	const std::string spelled =
 		QualifiedName(types_.user_name(owner->type)).last();
@@ -634,6 +642,25 @@ void SemaAnalyzer::construct_from_members(SemaEntity& constructor,
                                           const AstNode& list,
                                           const Context& ctx, DumpNode& parent)
 {
+	Clauses clauses(list);
+	construct_from_clauses(constructor, clauses, ctx, parent);
+	if (!clauses.spent())
+	{
+		// 8.5.1p6: a clause that reached no member initializes nothing.
+		throw std::runtime_error("an initializer list has more clauses than the "
+		                         "aggregate has subobjects");
+	}
+}
+
+// The same call, taking what it needs out of a list the caller is still
+// walking: 8.5.1p11 lets a subaggregate's braces be left out, and then the
+// clauses of the enclosing list initialize its members, so how many of them
+// this one takes is what its own walk arrives at rather than a count anything
+// worked out in front of it.
+void SemaAnalyzer::construct_from_clauses(SemaEntity& constructor,
+                                          Clauses& clauses, const Context& ctx,
+                                          DumpNode& parent)
+{
 	Scope& scope = *constructor.region;
 	const std::vector<TypeId>& parameters = types_.parameters(constructor.type);
 	DumpNode& action = model_.open_node(
@@ -656,7 +683,6 @@ void SemaAnalyzer::construct_from_members(SemaEntity& constructor,
 	// element of the array, the storage a temporary took - so the call holds
 	// the place that argument stands in and nothing else.
 	model_.open_node(call, std::string());
-	Clauses clauses(list);
 	std::size_t at = 1;
 	for (std::size_t index = 0; index < scope.declarations.size(); ++index)
 	{
@@ -664,6 +690,14 @@ void SemaAnalyzer::construct_from_members(SemaEntity& constructor,
 		if (!declares_subobject(member, scope))
 		{
 			continue;
+		}
+		if (at >= parameters.size())
+		{
+			// 8.5.1p15: the constructor holds one parameter per member it
+			// carries, and a union carries its first member alone - every other
+			// member of it stands in that same storage and no clause reaches
+			// one.  The parameter list is what says how far the walk goes.
+			break;
 		}
 		if (clauses.spent())
 		{
@@ -678,21 +712,94 @@ void SemaAnalyzer::construct_from_members(SemaEntity& constructor,
 			++at;
 			continue;
 		}
+		if (elides_its_braces(member.type, clauses, ctx))
+		{
+			// 8.5.1p11: the braces the member's own clauses would have stood in
+			// were left out, so what initializes it is the run of clauses its
+			// subobjects take out of this list - and the parameter carrying it
+			// is one object of its class, built where the argument stands by
+			// the constructor 8.5.1 gives that class from its members.
+			elided_subaggregate(member.type, clauses, ctx, call);
+			++at;
+			continue;
+		}
 		initialize(clauses.next(), parameters[at], ctx, call, true,
 		           Requested::Argument);
 		++clauses.at;
 		++at;
 	}
-	if (!clauses.spent())
-	{
-		// 8.5.1p6: a clause that reached no member initializes nothing.
-		throw std::runtime_error("an initializer list has more clauses than the "
-		                         "aggregate has subobjects");
-	}
 	// 12.1 and the ABI: what the action creates is a complete object, so it
 	// runs the complete-object entry of the constructor.
 	constructor.complete_object_entry = true;
 	demand_constructor_definition(constructor);
+}
+
+// 8.5.1p11: whether this member is one whose braces the program left out, so
+// that the clauses standing next initialize *its* members rather than it.  Only
+// a subaggregate has braces to leave out, and only a clause that could not have
+// been the whole of one is one of the clauses left standing - which is the same
+// question `aggregate_subobject` asks where the subobject is written where it
+// stands rather than passed as a parameter.
+bool SemaAnalyzer::elides_its_braces(TypeId type, Clauses& clauses,
+                                     const Context& ctx)
+{
+	const TypeId bare = types_.strip_cv(type);
+	if (clauses.spent() || clauses.next().kind == AstKind::BracedInitList ||
+	    !types_.is_class(bare) || !aggregate_type(bare))
+	{
+		return false;
+	}
+	if (clause_capacity(bare) == 0)
+	{
+		// 8.5.1p11: what elided braces leave standing are the clauses the
+		// subaggregate's own subobjects take, so a subaggregate that holds
+		// nothing has no braces to leave out - the clause standing here reaches
+		// past it to nothing, and writing `{}` is the only way to name it.
+		return false;
+	}
+	if (braced_prvalue_of(clauses.next(), bare, ctx) != nullptr)
+	{
+		// 5.2.3p3: the clause is `T{...}` for the member's own class, so its
+		// braces are written and it is the whole of the subaggregate.
+		return false;
+	}
+	return !clause_initializes_class(bare, clauses.next(), ctx);
+}
+
+// 8.5.1p11 and 8.5.1p2: the subaggregate whose braces were left out, standing
+// where the parameter carrying it does.  It is an object of its own - the
+// clauses initialize *its* members and not the enclosing object's - so it is
+// built the way every other prvalue of an aggregate class is, by the one
+// constructor 8.5.1 gives the class, taking what it needs out of the same walk.
+void SemaAnalyzer::elided_subaggregate(TypeId type, Clauses& clauses,
+                                       const Context& ctx, DumpNode& call)
+{
+	const TypeId object_type = types_.strip_cv(type);
+	SemaEntity* const from_members = member_constructor(object_type);
+	if (from_members == nullptr)
+	{
+		throw std::runtime_error("a braced-init-list leaves out the braces of a "
+		                         "subobject of " +
+		                         types_.description(object_type) +
+		                         ", which no by-value parameter list describes");
+	}
+	DumpNode& line = model_.open_node(call, std::string());
+	SemaEntity& object = model_.create(SemaKind::Variable, std::string(),
+	                                   object_type);
+	object.object_member = false;
+	set_fact(line, FactKind::TemporaryObject, object_type,
+	         ValueCategory::PRValue);
+	line.fact.entity = &object;
+	// 8.5.3p5: what asked for the object is the argument, so that is what its
+	// storage is named after.
+	line.fact.spelling = requested_prefix(Requested::Argument, false,
+	                                      object_type);
+	construct_from_clauses(*from_members, clauses, ctx, line);
+	// 12.2p3: the object stands until the end of the full-expression the list
+	// was written in, exactly as a `T{...}` argument of the same class does.
+	register_temporary(line, ctx.scope);
+	line.text = spell("temporary-object", ValueCategory::PRValue, object_type,
+	                  std::string());
 }
 
 // 8.5.1p2 and 8.5.1p7: one subobject of an aggregate whose type is a class the
@@ -842,15 +949,29 @@ SemaAnalyzer::Value SemaAnalyzer::build_temporary(TypeId type, DumpNode& line,
 	// into, so the clauses initialize its members through the constructor 8.5.1
 	// gives the class from them - the same one an element of an array of the
 	// class is built by, declared once and held on the class.
-	SemaEntity* const from_members =
+	const bool from_clauses =
 		given == nullptr && written != nullptr &&
 		written->kind == AstKind::BracedInitList &&
-		!written->children.empty() && aggregate_type(object_type)
-			? member_constructor(object_type)
-			: nullptr;
+		!written->children.empty() && aggregate_type(object_type);
+	SemaEntity* const from_members =
+		from_clauses ? member_constructor(object_type) : nullptr;
 	if (from_members != nullptr)
 	{
 		construct_from_members(*from_members, *written, ctx, line);
+	}
+	else if (from_clauses)
+	{
+		// 8.5.1p2: the class is an aggregate, so the clauses initialize its
+		// members and no constructor it declared is what takes them - but the
+		// object is one of its own here, and 8.3.5p5 leaves the class with no
+		// by-value parameter list that carries an array member.  This is the
+		// one shape of 8.5.4 the milestone still leaves, and saying so is not
+		// the same as saying no constructor accepted the arguments.
+		throw std::runtime_error("a braced-init-list builds an object of the "
+		                         "aggregate " +
+		                         types_.description(object_type) +
+		                         ", whose members no by-value parameter list "
+		                         "describes");
 	}
 	else
 	{

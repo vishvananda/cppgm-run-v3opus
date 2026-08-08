@@ -1289,8 +1289,10 @@ SemaEntity* SemaAnalyzer::select_overload(
 			if (index >= declared)
 			{
 				// 13.3.3.1.3: an argument matched by the ellipsis converts with
-				// the worst rank there is.
-				match.viable = true;
+				// the worst rank there is - and 13.3.3.1.5p1's braced-init-list
+				// is not an argument the ellipsis reaches at all, because every
+				// sequence 13.3.3.1.5 gives one is keyed on a parameter.
+				match.viable = arguments[index].braced == nullptr;
 				match.rank = kEllipsis;
 			}
 			else
@@ -1875,14 +1877,13 @@ void SemaAnalyzer::aggregate_subobject(TypeId type, Clauses& clauses,
 			++clauses.at;
 			return;
 		}
-		if (owner->aggregate && !clauses.spent() &&
-		    !clause_initializes_class(bare, clauses.next(), ctx))
+		if (elides_its_braces(bare, clauses, ctx))
 		{
 			// 8.5.1p11: the braces around the member's own clauses may be left
 			// out, and then the clauses of the enclosing list initialize it.
-			// Only a clause that cannot initialize the whole subaggregate is
-			// one of them: a value of its own class type initializes it, which
-			// 8.5.1p2 copy-initializes it from.
+			// Which clause is one of those is one question, asked here where
+			// the subobject stands where it is and asked again where a by-value
+			// parameter carries it - so it is one answer and not two.
 			aggregate_members(bare, clauses, ctx, node);
 			return;
 		}
@@ -2207,6 +2208,17 @@ SemaAnalyzer::Value SemaAnalyzer::argument_expression(const AstNode& node,
 	return value;
 }
 
+// 8.5.1p11: how many clauses of the *enclosing* list a subobject of `type` can
+// take.  Its braces may have been left out, and then it takes its own capacity;
+// they may equally have been written, and then it takes the one clause they
+// are - so a subobject that holds nothing at all still takes a clause, which is
+// what makes `{ {}, 7 }` two clauses of a class whose first member is empty.
+unsigned long long SemaAnalyzer::clauses_a_subobject_takes(TypeId type)
+{
+	const unsigned long long own = clause_capacity(type);
+	return own == 0 ? 1 : own;
+}
+
 // 8.5.1p6 and 8.5.1p11: how many clauses an object of `type` can take at most.
 // A subobject that is itself an aggregate or an array may have had its braces
 // left out, so what it contributes is its own capacity rather than one clause;
@@ -2236,11 +2248,10 @@ unsigned long long SemaAnalyzer::clause_capacity(TypeId type)
 		else
 		{
 			const unsigned long long each =
-				clause_capacity(types_.target(bare));
+				clauses_a_subobject_takes(types_.target(bare));
 			const unsigned long long bound = types_.bound(bare);
-			total = bound > kUnboundedClauses / (each == 0 ? 1 : each)
-				? kUnboundedClauses
-				: bound * each;
+			total = bound > kUnboundedClauses / each ? kUnboundedClauses
+			                                         : bound * each;
 		}
 	}
 	else if (types_.is_class(bare))
@@ -2259,7 +2270,8 @@ unsigned long long SemaAnalyzer::clause_capacity(TypeId type)
 				{
 					continue;
 				}
-				const unsigned long long each = clause_capacity(member.type);
+				const unsigned long long each =
+					clauses_a_subobject_takes(member.type);
 				total = total > kUnboundedClauses - each ? kUnboundedClauses
 				                                         : total + each;
 				if (is_union)
