@@ -7,6 +7,14 @@ header-weight warnings it inherited. The milestone gives the PA16/PA17 object
 model a vpointer, a vtable and dynamic dispatch, for the single-inheritance
 slice the README's Assignment Boundary names.
 
+The pa1-pa17 report takes **10.3 s** and no test in it is near its limit. It was
+not so before the C2 audit's review: `pa9/300-binary-calculator` ran 6.84 s
+against a 10 s limit and timed out whenever the machine was loaded, because
+CY86's one writable and executable segment let a `data` statement put the
+program's variables in a cache line it also fetched instructions from. That is
+fixed in `cy86_codegen.cpp` and the margin is now 9 s rather than 3 s, so a
+failure of that check is a real regression again and not weather.
+
 `pa18/cppgm++-ref` is a wrapper and the README calls the checked-in `.ref` files
 the oracle, but `reference-binaries/cppgm++` is a full PA18 compiler and is the
 oracle for everything the fixtures do not reach. All 36 checked-in `.ref` files
@@ -135,8 +143,17 @@ of the reference binary rather than missing compiler behaviour:
 
 ## Performance Model
 
-Measured on the seven shapes the milestone makes scaling-sensitive, each timed
-twice, `cppgm++ --emit-lowir -O0`:
+Measured on the eight shapes the milestone makes scaling-sensitive, each timed
+twice, `cppgm++ --emit-lowir -O0`. The eighth is the *unit count*, which is what
+`LowirProgramBuilder::finish`'s settlement scales in and what the first seven -
+all single-unit - never reach:
+
+| shape | 8 | 16 | 32 | 64 | 128 | 256 | 512 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| n units, the shared class's key function in the last | 0.00 s | 0.01 s | 0.01 s | 0.03 s | 0.06 s | 0.11 s | 0.22 s |
+| the LowIR that emits, in lines | 1047 | 2046 | 4046 | 8046 | 16075 | 32203 | 64459 |
+
+and on the seven single-unit shapes:
 
 | shape | 32 | 64 | 128 | 256 | 512 |
 | --- | --- | --- | --- | --- | --- |
@@ -160,8 +177,24 @@ base chain could have made quadratic - it stops at the first base that already
 dispatches, and only the class that introduces the vpointer pays for the
 prefix - and it is linear. A table, a record and a name string are emitted once
 per class and memoised; a record walks the derivation once and memoises each
-class on the way. Valgrind is clean over all 39 fixtures, over all seven scaling
-shapes and over every multi-unit probe.
+class on the way.
+
+The eighth shape is linear in both the units and the output, with the rename
+path active throughout: `settle_vtable_names` returns before walking wherever
+the units agree on a table's name, which is every single-unit program, and walks
+the finished program once where they do not; `settle_external_declarations` is
+two hash-set builds over the finished program and runs for every program.
+
+`cy86`'s image layout is the one place a *generated* program's speed was the
+risk rather than the compiler's. A `data` statement beside code put the
+program's variables in a line it also fetched instructions from, which x86
+answers with a machine clear: 43.9 s against 0.885 s on a loop whose counter
+shares a line with its body, and 28.1 s against 0.33 s on the same shape written
+the other way round. Code that follows data is now emitted on the next 64-byte
+line behind a `jmp rel32` that leaves the label byte-exact, and separating by
+4096 bytes instead measures the same, so no line is shared. Valgrind is clean
+over all 39 fixtures, over all eight scaling shapes, over every multi-unit probe
+and over `cy86` on the layout probes.
 
 ## Completed Checkpoints
 
@@ -171,3 +204,4 @@ shapes and over every multi-unit probe.
 | C1 audit | the exits a question about dispatch has at the forms C1 never reached, and the readers of a fact it widened: 9.2p8's virt-specifier placement over every form of declaration, 9.4.1p2's static member function, 12.4p9's pure virtual destructor, 10.3p7's accessible base, 12.8p12's other two readers, and 4.10p3 asked of the pointer value rather than of the operand's type | 7 / 7; 6 / 29 -> **9 / 32**, three of them regression tests; pa1-pa17 1732 / 1732; 99 accept/reject probes and 40 lowering probes |
 | C2 | the emitted polymorphic object model: `lowir_vtable.cpp`'s tables, type-information records and name strings with the ABI's three record kinds and `__cxa_pure_virtual`; the key function deciding which unit owes the table and `__external_vtable__` where another does; 12.1p11/12.4p11's vpointer stores; 12.4's D1/D2/D0 triple with 5.3.5p3's deallocation as the last step of 12.4p8's suffix; 10.3p12's dispatch on `SemaFact::dispatches` with 5.2.2p1's qualified-id suppressing it; 5.3.5p3's `delete` through the deleting slot; 12.4p11 read into `vacuous_destruction` and 12.1p11 into `construction_writes_nothing`; 5.4p4's cast of a null pointer constant folded where 4.10p1 and not 5.2.10p5 is the conversion | 9 / 32 -> **30 / 32**, plus 4 new regression tests all passing (34 / 36); pa1-pa17 1732 / 1732; 20 emission probes against the reference binary |
 | C2 audit | the boundary a fact of the *program* was settled at, the third reader of a fact C2 widened, and the sibling spellings of a rule it landed at one: the table's name and `__cxa_pure_virtual` and a use's declaration settled in `LowirProgramBuilder::finish` rather than per unit, 12.1p11 read into `vacuous_construction`, 15.2p2's handler opened only where the element constructor can throw, 12.6.2p6's delegating constructor left without a vpointer store, and 5.2.10p5's `reinterpret_cast` left out of 5.4p4's fold | 7 / 7; 34 / 36 -> **37 / 39**, three of them regression tests; pa1-pa17 1732 / 1732; all 36 checked `.ref` files regenerated from the reference binary, 44 lowering probes, four multi-unit shapes, seven scaling shapes, valgrind clean |
+| C2 audit review | the increment re-derived rather than taken on its commit message, and the blocker sitting under the whole report: all seven of C2's audit fixes hold and are order-free over two and three units, and `pa9/300-binary-calculator`'s 6.84 s against the reference's 0.35 s was a cache line shared between a store and an instruction fetch, not load - fixed in `cy86_codegen.cpp` the way the reference does it, with the label held byte-exact by a `jmp rel32` | 1 / 1; pa18 holds **37 / 39**; pa1-pa17 1732 / 1732 in 10.3 s where pa9 alone took 15.3 s; nine multi-unit programs valid, a unit-count sweep to 512, valgrind clean |
