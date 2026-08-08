@@ -252,6 +252,27 @@ std::string abi_symbol_of(const SemaEntity& entity, TypeTable& types,
 	// not an encoding of the declaration the analysis made to describe it.
 	if (entity.builtin != kNotBuiltin)
 	{
+		// 3.7.4.1p2: the four allocation and deallocation functions are named
+		// by what the implementation calls them, which is not a name any
+		// spelling of the declaration derives - a program that replaces one
+		// writes `operator delete` and defines this symbol.
+		switch (entity.builtin)
+		{
+		case kBuiltinOperatorNew:
+			return "cppgm_builtin_operator_new";
+
+		case kBuiltinOperatorNewArray:
+			return "cppgm_builtin_operator_new_array";
+
+		case kBuiltinOperatorDelete:
+			return "cppgm_builtin_operator_delete";
+
+		case kBuiltinOperatorDeleteArray:
+			return "cppgm_builtin_operator_delete_array";
+
+		default:
+			break;
+		}
 		return "cppgm_builtin_" + entity.name.substr(sizeof("__builtin_") - 1);
 	}
 	// 7.5p6 and 3.6.1p1: a name another translation unit reaches by its C

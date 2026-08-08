@@ -207,6 +207,14 @@ void SemaAnalyzer::run(const AstNode& unit)
 		SemaEntity& entity = model_.create(SemaKind::Typedef, "nullptr_t",
 		                                   types_.fundamental(FT_NULLPTR_T));
 		model_.bind(*ctx.scope, entity.name, entity);
+		// 3.7.4.1p2 and 3.7.4.2p2: the four allocation and deallocation
+		// functions are declared in the global namespace of every translation
+		// unit whether or not the unit wrote them, so they are bound before it
+		// is read.  A program that writes one of the four writes another
+		// declaration of *this* function, which is what lets 17.6.4.6's
+		// replacement be a definition of it rather than a second function of
+		// the same name.  Nothing is emitted for a declaration no use reaches.
+		declare_allocation_functions(*ctx.scope);
 		// 3.4.1p8 and 9.3p2: a member defined outside its class settles facts a
 		// body written before it already asks about, and the syntax of the
 		// whole unit is in hand here.
@@ -1705,6 +1713,10 @@ void SemaAnalyzer::declare_function_declarator(
 		declare_function(name, type, target, false,
 		                 granting != nullptr && !spelled.qualified(),
 		                 type != written_type);
+	// 15.4p1: one declaration written with a non-throwing
+	// exception-specification is what says the function throws nothing,
+	// however the others were written.
+	function.nonthrowing = function.nonthrowing || declarator_nonthrowing(node);
 	function.object_member = type != written_type;
 	if (!function.object_member)
 	{
@@ -2241,6 +2253,8 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 		                 granting != nullptr && !spelled.qualified(),
 		                 type != written_type,
 		                 spelled.qualified() && granting == nullptr);
+	entity.nonthrowing =
+		entity.nonthrowing || declarator_nonthrowing(declarator);
 	entity.object_member = type != written_type;
 	if (!entity.object_member)
 	{

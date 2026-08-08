@@ -590,14 +590,19 @@ SemaEntity& SemaAnalyzer::require(SemaEntity* entity, const std::string& name)
 	return *entity;
 }
 
-SemaEntity* SemaAnalyzer::resolve(const std::string& name, const Context& ctx,
+SemaEntity* SemaAnalyzer::resolve(const std::string& spelling, const Context& ctx,
                                   LookupKind filter,
                                   std::vector<SemaEntity*>* found)
 {
-	if (name.empty())
+	if (spelling.empty())
 	{
 		return nullptr;
 	}
+	// 3.7.4p2: `operator new` and `operator delete` are the only names an
+	// operator-function-id needs a space in, so a use written as an
+	// id-expression carries the space the tokens had and the declaration does
+	// not.  One is the name of the other.
+	const std::string name = allocation_function_spelling(spelling);
 	const QualifiedName written(name);
 	if (!written.qualified())
 	{

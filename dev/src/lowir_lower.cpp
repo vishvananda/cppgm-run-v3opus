@@ -1982,10 +1982,22 @@ void LowirUnitLowering::describe_builtin(
 	{
 		return;
 	}
-	// 15.4p14 and 17.6.5.12: none of them propagates an exception.
-	declaration.boundary.unwind = lowir_model::CUM_NO;
+	// 15.4p14 and 17.6.5.12: none of them propagates an exception, and
+	// 3.7.4.2p3 says the same of the two deallocation functions.  3.7.4.1p3
+	// leaves an allocation function free to throw, which is the one thing a
+	// call of one may do that a call of the rest may not.
+	declaration.boundary.unwind = entity.nonthrowing ? lowir_model::CUM_NO
+	                                                 : lowir_model::CUM_DEFAULT;
 	switch (entity.builtin)
 	{
+	case kBuiltinOperatorNew:
+	case kBuiltinOperatorNewArray:
+	case kBuiltinOperatorDelete:
+	case kBuiltinOperatorDeleteArray:
+		// 3.7.4.1p2: what the storage a call of one of these obtained is worth
+		// is nothing a caller may assume, so no further fact is stated of it.
+		return;
+
 	case kBuiltinMemcpy:
 	case kBuiltinMemmove:
 		// 17.6.5.6: the copy reads and writes the storage its two pointers

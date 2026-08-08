@@ -997,6 +997,11 @@ private:
 	// their own function type instead of taking the one the declarator walk
 	// built.
 	static RefQualifier declarator_ref_qualifier(const AstNode& declarator);
+	// 15.4p1: whether the exception-specification written after the
+	// parameter-clause says the function throws nothing.  C++11 leaves it out
+	// of the function type, so it is read off the declarator once and held on
+	// the declaration 5.3.4p15 asks it of.
+	static bool declarator_nonthrowing(const AstNode& declarator);
 	// 9.4p1: whether `where` declares `name` as a static member function whose
 	// declarator wrote `type`.
 	bool declares_static_member(Scope& where, const std::string& name,
@@ -1005,6 +1010,10 @@ private:
 	// deallocation functions, which a class declares as a static member of
 	// itself whether or not `static` was written.
 	static bool allocation_function_name(const std::string& name);
+	// 3.7.4p2: the same name with the space an id-expression written
+	// `operator new` or `operator delete` carried taken out of it, which is the
+	// spelling the declaration of one is bound under.  Every other name stands.
+	static std::string allocation_function_spelling(const std::string& written);
 	// 12.8p1: whether the program wrote a copy constructor of the class
 	// `entity` whose members `scope` declares, which is what says a copy of an
 	// object of it is not the copy of its bytes.
@@ -1407,8 +1416,46 @@ private:
 	// namespace alone; any other looks in the class first and falls back to the
 	// global namespace where the class declares none.  `found` takes the whole
 	// overload set, which 13.3 then chooses from.
-	SemaEntity* allocation_function(bool global, TypeId created,
+	SemaEntity* allocation_function(bool global, TypeId created, bool array,
 	                                std::vector<SemaEntity*>& found);
+	// 5.3.5: `delete p`, which is 12.4p3's end of the lifetime of the object
+	// `p` points to and 3.7.4.2's return of the storage it stood in.
+	Value delete_expression(const AstNode& node, const Context& ctx,
+	                        DumpNode& parent);
+	// 3.7.4.2p2, 5.3.5p9 and 12.5p4: the deallocation function a
+	// delete-expression calls, or the one 5.3.4p18 pairs with an allocation.
+	// The class of the object is searched first for a delete-expression written
+	// without `::`, and 12.5p4's usual one is chosen from what was found.
+	SemaEntity* deallocation_function(bool global, TypeId destroyed, bool array,
+	                                  std::vector<SemaEntity*>& found);
+	// 5.3.5p2: an operand of class type where a delete-expression asked for a
+	// pointer, which its class shall have exactly one conversion function to.
+	void contextual_pointer(Value& value, const Context& ctx);
+	// 5.3.4p6: the type a new-expression creates, with the first array-suffix
+	// of a new-declarator handed back as the expression that says how many
+	// objects of it there are, or null where none was written.
+	TypeId new_type(const AstNode& type_id, const Context& ctx,
+	                const AstNode*& bound);
+	// 5.3.4p8: one object's worth of bytes, as the literal 2.14.2p2 gives it.
+	Value object_size_value(unsigned long long bytes, DumpNode& parent);
+	// 5.3.4p8 for the array form: the bytes `bound` elements of `element` and
+	// `cookie` bytes of count in front of them occupy, and how many objects
+	// that is where the count is one the translation knows.
+	Value array_new_size(const AstNode& bound, TypeId element,
+	                     unsigned long long cookie, const Context& ctx,
+	                     DumpNode& parent, unsigned long long& elements);
+	// 8.3.4p1: how many objects of its ultimate element type one element of an
+	// array whose element type is `element` holds.
+	unsigned long long array_element_count(TypeId element);
+	// 5.3.4p15: what the elements of an array a new-expression creates come to,
+	// written as one description of one element beside the deallocation
+	// function 5.3.4p18's cleanup gives the storage back to.
+	void array_new_initialization(TypeId created, const AstNode* written,
+	                              bool global, const Context& ctx,
+	                              DumpNode& line);
+	// 8.5p6 and 12.1p5: whether default-initializing one object of `element`
+	// comes to nothing, which is what the array form's loop is written over.
+	bool vacuous_construction(TypeId element);
 	// 8.5: the initializer written for a declarator, in each of the three forms
 	// 8.5p1 gives it.  `image` says 3.6.2 gives the object its value rather than
 	// a function building it, which is what an object with static storage
@@ -1465,6 +1512,11 @@ private:
 	// lookup; a name the implementation reserves nothing for leaves it null.
 	SemaEntity* reserved_function(const std::string& written,
 	                              std::vector<SemaEntity*>* found);
+	// 3.7.4.1p2 and 3.7.4.2p2: the four allocation and deallocation functions
+	// every translation unit declares in the global namespace whether or not it
+	// wrote them, bound there before the unit is read so a definition the
+	// program writes is a definition of one of them.
+	void declare_allocation_functions(Scope& where);
 
 	// Templates (sema_template.cpp).
 	//

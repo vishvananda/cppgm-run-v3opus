@@ -227,7 +227,7 @@ Operand LowirFunctionLowering::zero_operand(TypeId type)
 // ------------------------------------------------------------------- slots
 
 std::string LowirFunctionLowering::add_slot(const SemaEntity& entity,
-                                            TypeId type)
+                                            TypeId type, const char* unnamed)
 {
 	// 3.3.3p4: a name declared in a block hides one of the same name outside
 	// it, so two slots of one function can be named after one identifier.  The
@@ -236,7 +236,7 @@ std::string LowirFunctionLowering::add_slot(const SemaEntity& entity,
 	std::string name = entity.name;
 	if (name.empty())
 	{
-		name = "__param" + decimal(out_.params.size());
+		name = std::string(unnamed) + decimal(out_.params.size());
 	}
 	// The suffix already given to that identifier is where the next one starts,
 	// so a function that declares one name in n blocks names n slots in n
@@ -995,7 +995,15 @@ void LowirFunctionLowering::run(const DumpNode& node, TypeId type)
 			// was bound to, which the boundary says rather than the type.
 			parameter.metadata.passing = lowir_model::PPM_REFERENCE;
 		}
-		parameter.name = add_slot(*child.fact.entity, written);
+		// 1.4p8 and 3.7.4.2p2: a program that replaces one of the functions the
+		// implementation declared writes another declaration of it, and a
+		// parameter its definition left unnamed keeps the name the
+		// implementation's own declaration already gave it.
+		parameter.name = add_slot(*child.fact.entity, written,
+		                          node.fact.entity != nullptr &&
+		                                  node.fact.entity->builtin != kNotBuiltin
+		                              ? "arg"
+		                              : "__param");
 		taken_.insert(parameter.name);
 		out_.params.push_back(parameter);
 		if (types.is_class(types.strip_cv(written)))

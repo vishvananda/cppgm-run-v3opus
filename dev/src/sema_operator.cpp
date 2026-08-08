@@ -115,6 +115,31 @@ bool SemaAnalyzer::allocation_function_name(const std::string& name)
 		written == "delete[]";
 }
 
+// 3.7.4p2 and 13.5p1: the same name with the whitespace an id-expression
+// carried taken out of it.  `operator new` and `operator delete` are the two
+// operator-function-ids whose operator is a keyword, so they are the two a use
+// has to be written with a space in - and a declaration of one is bound under
+// the spelling that has none.  Every other name is returned as it stands, which
+// is what keeps this one probe of the tail rather than a rewriting of names.
+std::string SemaAnalyzer::allocation_function_spelling(const std::string& written)
+{
+	const std::string::size_type at = written.rfind("operator");
+	if (at == std::string::npos || written.find(' ', at) == std::string::npos)
+	{
+		return written;
+	}
+	std::string packed;
+	for (std::string::size_type index = at; index < written.size(); ++index)
+	{
+		if (written[index] != ' ')
+		{
+			packed.push_back(written[index]);
+		}
+	}
+	return allocation_function_name(packed) ? written.substr(0, at) + packed
+	                                        : written;
+}
+
 namespace
 {
 

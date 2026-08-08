@@ -325,17 +325,13 @@ Operand LowirFunctionLowering::element_at_value(const Operand& base,
                                                 const Operand& index,
                                                 unsigned long long stride)
 {
-	Operand offset = index;
-	if (stride != 1)
-	{
-		Instruction scale;
-		scale.kind = Instruction::IK_BINARY;
-		scale.op = "mul";
-		scale.type.text = "i64";
-		scale.first = index;
-		scale.second = named_operand(Operand::OP_INTEGER, decimal(stride));
-		offset = emit(scale);
-	}
+	Instruction scale;
+	scale.kind = Instruction::IK_BINARY;
+	scale.op = "mul";
+	scale.type.text = "i64";
+	scale.first = index;
+	scale.second = named_operand(Operand::OP_INTEGER, decimal(stride));
+	const Operand offset = emit(scale);
 	Instruction move;
 	move.kind = Instruction::IK_INDEX;
 	move.type.text = "i8";
@@ -531,19 +527,22 @@ void LowirFunctionLowering::destroy_array_loop(const Operand& base,
                                                unsigned long long stride,
                                                const SemaEntity& destructor,
                                                bool base_subobject, bool guarded,
-                                               const std::string* after)
+                                               const std::string* after,
+                                               const char* blocks,
+                                               const char* counter_name)
 {
 	TypeTable& types = unit_.types();
 	const TypeId counter = types.fundamental(FT_LONG_INT);
-	const std::string cond = reserve_block("array_dtor_cond");
-	const std::string body = reserve_block("array_dtor_body");
-	const std::string end = reserve_block("array_dtor_end");
+	const std::string named(blocks);
+	const std::string cond = reserve_block((named + "_cond").c_str());
+	const std::string body = reserve_block((named + "_body").c_str());
+	const std::string end = reserve_block((named + "_end").c_str());
 	const std::string cleanup =
-		guarded ? reserve_block("array_dtor_cleanup") : std::string();
+		guarded ? reserve_block((named + "_cleanup").c_str()) : std::string();
 	const std::string past =
-		guarded ? reserve_block("array_dtor_cont") : std::string();
+		guarded ? reserve_block((named + "_cont").c_str()) : std::string();
 	const std::string index =
-		add_generated_slot("array_dtor_index", unit_.low_type(counter));
+		add_generated_slot(counter_name, unit_.low_type(counter));
 	const Operand cursor = named_operand(Operand::OP_SLOT, index);
 	unit_.declare_call_target(destructor, base_subobject);
 	store(count, cursor, counter);
@@ -595,7 +594,7 @@ void LowirFunctionLowering::destroy_array_loop(const Operand& base,
 	// The index was written back before the call, so what it holds is how many
 	// elements stand below the one that threw - which is the same loop again.
 	destroy_array_loop(base, load(cursor, counter), stride, destructor,
-	                   base_subobject, false, nullptr);
+	                   base_subobject, false, nullptr, blocks, counter_name);
 	if (after != nullptr)
 	{
 		jump(*after);
@@ -1187,6 +1186,10 @@ LowValue LowirFunctionLowering::temporary_object(const DumpNode& node,
 LowValue LowirFunctionLowering::new_expression(const DumpNode& node)
 {
 	TypeTable& types = unit_.types();
+	if (node.fact.array_form)
+	{
+		return array_new_expression(node);
+	}
 	const LowValue allocated = expression(*node.children[0]);
 	LowValue value;
 	value.type = node.fact.type;
@@ -1211,6 +1214,367 @@ LowValue LowirFunctionLowering::new_expression(const DumpNode& node)
 	const LowValue held = expression(initialization);
 	store(converted(held, created), allocated.operand, created);
 	return value;
+}
+
+// 5.3.4p1's array form: one call of the allocation function for every element
+// at once, the count 5.3.5p2 will need written in front of them, and 12.6p1's
+// construction given to each of them by one loop.
+//
+// The bytes the call asked for are the one thing about the allocation the
+// expression still needs after it has returned - the count is derived from
+// them, and 8.5p7's zero covers exactly them - so where they are not a number
+// the translation knows, the function keeps them in an object of its own.
+LowValue LowirFunctionLowering::array_new_expression(const DumpNode& node)
+{
+	TypeTable& types = unit_.types();
+	const TypeId counter = types.fundamental(FT_LONG_INT);
+	const TypeId created = types.strip_cv(types.target(node.fact.type));
+	std::vector<TypeId> dimensions;
+	std::vector<unsigned long long> bounds;
+	array_dimensions(created, dimensions, bounds);
+	const TypeId element = dimensions.empty()
+		? created
+		: types.strip_cv(types.target(dimensions.back()));
+	const unsigned long long stride = types.object_size(element);
+	// The ABI writes the count in front of an array of class type and nothing
+	// else, which is what the analysis asked the allocation function for.
+	const bool cookie = types.is_class(element);
+	const DumpNode* action = nullptr;
+	const DumpNode* release = nullptr;
+	for (std::size_t index = 1; index < node.children.size(); ++index)
+	{
+		const DumpNode& child = *node.children[index];
+		if (child.fact.kind == FactKind::ConstructorAction)
+		{
+			action = &child;
+		}
+		else if (child.fact.kind == FactKind::Callee)
+		{
+			release = &child;
+		}
+	}
+	const bool keeps_bytes =
+		node.fact.elements == 0 && (cookie || node.fact.zero_initialized);
+	std::string kept;
+	const LowValue allocated =
+		call_expression(*node.children[0], nullptr, keeps_bytes ? &kept : nullptr);
+	Operand bytes;
+	if (!kept.empty())
+	{
+		bytes = load(named_operand(Operand::OP_SLOT, kept), counter);
+	}
+	LowValue value;
+	value.type = node.fact.type;
+	value.operand = allocated.operand;
+	if (cookie)
+	{
+		Instruction move;
+		move.kind = Instruction::IK_INDEX;
+		move.type.text = "i8";
+		move.first = allocated.operand;
+		move.second =
+			named_operand(Operand::OP_INTEGER, decimal(kArrayCookieBytes));
+		value.operand = emit(move);
+		store(array_element_count(node, bytes, stride), allocated.operand,
+		      counter);
+	}
+	if (action != nullptr)
+	{
+		construct_array_new_run(node, *action, release, allocated.operand,
+		                        value.operand,
+		                        array_element_count(node, bytes, stride), stride,
+		                        element);
+	}
+	if (node.fact.zero_initialized)
+	{
+		// 8.5p7: `()` value-initializes every element, which for an array of no
+		// class type is the zero of every byte the allocation covers.
+		zero_storage_loop(value.operand,
+		                  keeps_bytes
+		                      ? bytes
+		                      : literal_operand(counter,
+		                                        node.fact.elements * stride));
+	}
+	return value;
+}
+
+// 5.3.4p1 and the ABI: how many elements the array holds.  A count the
+// translation knows is that number; one it does not is what is left of the
+// bytes the allocation function was asked for once the count in front of the
+// elements is taken off, which is the one place that number survives the call.
+Operand LowirFunctionLowering::array_element_count(const DumpNode& node,
+                                                   const Operand& bytes,
+                                                   unsigned long long stride)
+{
+	TypeTable& types = unit_.types();
+	const TypeId counter = types.fundamental(FT_LONG_INT);
+	if (node.fact.elements != 0)
+	{
+		// 5.3.3p6: the number is one the translation computed rather than one
+		// the program wrote, and LowIR names such a value with `const`.
+		Instruction known;
+		known.kind = Instruction::IK_CONST;
+		known.type = unit_.low_type(counter);
+		known.first = literal_operand(counter, node.fact.elements);
+		return emit(known);
+	}
+	Instruction without;
+	without.kind = Instruction::IK_BINARY;
+	without.op = "sub";
+	without.type = unit_.low_type(counter);
+	without.first = bytes;
+	without.second =
+		named_operand(Operand::OP_INTEGER, decimal(kArrayCookieBytes));
+	Instruction divided;
+	divided.kind = Instruction::IK_BINARY;
+	divided.op = "udiv";
+	divided.type = unit_.low_type(counter);
+	divided.first = emit(without);
+	divided.second = named_operand(Operand::OP_INTEGER, decimal(stride));
+	return emit(divided);
+}
+
+// 8.5p7 over storage a value says the size of: every byte of it set to zero.
+void LowirFunctionLowering::zero_storage_loop(const Operand& data,
+                                              const Operand& bytes)
+{
+	TypeTable& types = unit_.types();
+	const TypeId counter = types.fundamental(FT_LONG_INT);
+	const TypeId byte = types.fundamental(FT_SIGNED_CHAR);
+	const std::string cond = reserve_block("zeroinit_cond");
+	const std::string body = reserve_block("zeroinit_body");
+	const std::string end = reserve_block("zeroinit_end");
+	const std::string index =
+		add_generated_slot("zeroinit_offset", unit_.low_type(counter));
+	const Operand cursor = named_operand(Operand::OP_SLOT, index);
+	store(named_operand(Operand::OP_INTEGER, "0"), cursor, counter);
+	jump(cond);
+	open_block(cond);
+	const Operand at = load(cursor, counter);
+	Instruction test;
+	test.kind = Instruction::IK_CMP;
+	test.op = "ult";
+	test.type = unit_.low_type(counter);
+	test.first = at;
+	test.second = bytes;
+	branch(emit(test), body, end);
+	open_block(body);
+	Instruction move;
+	move.kind = Instruction::IK_INDEX;
+	move.type.text = "i8";
+	move.first = data;
+	move.second = at;
+	store(literal_operand(byte, 0), emit(move), byte);
+	Instruction next;
+	next.kind = Instruction::IK_BINARY;
+	next.op = "add";
+	next.type = unit_.low_type(counter);
+	next.first = at;
+	next.second = named_operand(Operand::OP_INTEGER, "1");
+	store(emit(next), cursor, counter);
+	jump(cond);
+	open_block(end);
+}
+
+// 12.6p1 over the elements a new-expression created: the one constructor every
+// element is given, run over the count the allocation carries.
+//
+// 15.2p2 is what the handler is for: an exception out of one element leaves the
+// ones before it standing, so the loop's own index says how many those are, and
+// 5.3.4p18 gives the storage they stood in back through the deallocation
+// function that pairs with the allocation this expression made.
+void LowirFunctionLowering::construct_array_new_run(const DumpNode& node,
+                                                    const DumpNode& action,
+                                                    const DumpNode* release,
+                                                    const Operand& storage,
+                                                    const Operand& data,
+                                                    const Operand& count,
+                                                    unsigned long long stride,
+                                                    TypeId element)
+{
+	TypeTable& types = unit_.types();
+	const TypeId counter = types.fundamental(FT_LONG_INT);
+	const DumpNode& call = *action.children[0];
+	const SemaEntity& constructor = *call.children[0]->fact.entity;
+	const SemaEntity* const destructor = subobject_destructor(constructor);
+	const std::string cond = reserve_block("array_new_ctor_cond");
+	const std::string body = reserve_block("array_new_ctor_body");
+	const std::string end = reserve_block("array_new_ctor_end");
+	const std::string cleanup = reserve_block("array_new_ctor_cleanup");
+	const std::string past = reserve_block("array_new_ctor_cont");
+	const std::string index =
+		add_generated_slot("array_new_index", unit_.low_type(counter));
+	const Operand cursor = named_operand(Operand::OP_SLOT, index);
+	store(named_operand(Operand::OP_INTEGER, "0"), cursor, counter);
+	jump(cond);
+	open_block(cond);
+	const Operand at = load(cursor, counter);
+	Instruction test;
+	test.kind = Instruction::IK_CMP;
+	test.op = "ult";
+	test.type = unit_.low_type(counter);
+	test.first = at;
+	test.second = count;
+	branch(emit(test), body, end);
+	open_block(body);
+	const Operand address = element_at_value(data, at, stride);
+	if (action.fact.zero_initialized)
+	{
+		// 8.5p7: the element's storage is zero before the constructor the
+		// standard gave its class runs, which is one element's worth of bytes.
+		zero_object(address, element);
+	}
+	emit_handler(false, cleanup);
+	constructor_call(address, action, false, element);
+	emit_handler_end();
+	Instruction next;
+	next.kind = Instruction::IK_BINARY;
+	next.op = "add";
+	next.type = unit_.low_type(counter);
+	next.first = at;
+	next.second = named_operand(Operand::OP_INTEGER, "1");
+	store(emit(next), cursor, counter);
+	jump(cond);
+	open_block(end);
+	jump(past);
+	open_block(cleanup);
+	const Operand built = load(cursor, counter);
+	if (destructor != nullptr)
+	{
+		destroy_array_loop(data, built, stride, *destructor, false, false,
+		                   nullptr);
+	}
+	if (release != nullptr)
+	{
+		deallocation_call(*release, storage, types.object_size(element));
+	}
+	emit_resume();
+	unwind_dispatch_.clear();
+	open_block(past);
+	(void)node;
+}
+
+// 5.3.5: the end of the lifetime of the object the operand points to, and the
+// return of the storage it stood in.
+//
+// 5.3.5p2 says nothing happens where the pointer is null, and for an object of
+// class type there is something for that to be about: the destructor runs on
+// the object, and 5.3.4p1's count stands in front of an array of one.  For
+// every other type the deallocation function is the whole of what the
+// expression does, and 3.7.4.2p3 already says a null pointer leaves it nothing
+// to do - so the test is written where there is something to guard and nowhere
+// else.
+LowValue LowirFunctionLowering::delete_expression(const DumpNode& node)
+{
+	TypeTable& types = unit_.types();
+	const TypeId counter = types.fundamental(FT_LONG_INT);
+	// 5.3.5p2: what this expression is about is the object it destroys, whose
+	// type the node carries as the one it was written over.
+	const TypeId destroyed = types.strip_cv(node.fact.spelled);
+	const unsigned long long stride = types.object_size(destroyed);
+	const DumpNode* release = nullptr;
+	const DumpNode* ends = nullptr;
+	for (std::size_t index = 1; index < node.children.size(); ++index)
+	{
+		const DumpNode& child = *node.children[index];
+		if (child.fact.kind == FactKind::DestructorAction)
+		{
+			ends = &child;
+		}
+		else if (child.fact.kind == FactKind::Callee)
+		{
+			release = &child;
+		}
+	}
+	const LowValue operand = expression(*node.children[0]);
+	const Operand pointer = rvalue(operand);
+	LowValue value;
+	value.type = node.fact.type;
+	if (!types.is_class(destroyed))
+	{
+		if (release != nullptr)
+		{
+			deallocation_call(*release, pointer, stride);
+		}
+		return value;
+	}
+	const char* const guard = node.fact.array_form ? "array_delete_nonnull"
+	                                               : "delete_nonnull";
+	const char* const after =
+		node.fact.array_form ? "array_delete_end" : "delete_end";
+	const std::string live = reserve_block(guard);
+	const std::string done = reserve_block(after);
+	Instruction test;
+	test.kind = Instruction::IK_CMP;
+	test.op = "ne";
+	test.type.text = "ptr";
+	test.first = pointer;
+	test.second = named_operand(Operand::OP_INTEGER, "0");
+	branch(emit(test), live, done);
+	open_block(live);
+	Operand storage = pointer;
+	if (node.fact.array_form)
+	{
+		// 5.3.5p2 and the ABI: the operand points at the first element, and the
+		// storage the allocation handed back begins at the count written in
+		// front of it - which is also how many lifetimes this expression ends.
+		Instruction back;
+		back.kind = Instruction::IK_INDEX;
+		back.type.text = "i8";
+		back.first = pointer;
+		back.second = named_operand(Operand::OP_INTEGER,
+		                            "-" + decimal(kArrayCookieBytes));
+		storage = emit(back);
+		const Operand held = load(storage, counter);
+		if (ends != nullptr)
+		{
+			destroy_array_loop(pointer, held, stride, *ends->fact.entity, false,
+			                   false, nullptr, "array_delete_dtor",
+			                   "array_delete_index");
+		}
+	}
+	else if (ends != nullptr)
+	{
+		unit_.declare_call_target(*ends->fact.entity, false);
+		Instruction out;
+		out.kind = Instruction::IK_CALL;
+		out.type.text = "void";
+		out.first = named_operand(
+			Operand::OP_GLOBAL, unit_.function_symbol(*ends->fact.entity, false));
+		out.args.push_back(pointer);
+		emit_void(out);
+	}
+	if (release != nullptr)
+	{
+		deallocation_call(*release, storage, stride);
+	}
+	jump(done);
+	open_block(done);
+	return value;
+}
+
+// 3.7.4.2p2 and 12.5p4: the call that gives the storage back.  The one the
+// analysis chose takes the storage alone or the storage and the size of the
+// object that stood in it, and which of the two it is, is what its declaration
+// says rather than a second fact this expression carries.
+void LowirFunctionLowering::deallocation_call(const DumpNode& callee,
+                                              const Operand& storage,
+                                              unsigned long long bytes)
+{
+	TypeTable& types = unit_.types();
+	SemaEntity& entity = *callee.fact.entity;
+	unit_.declare_entity(entity);
+	Instruction out;
+	out.kind = Instruction::IK_CALL;
+	out.type.text = "void";
+	out.first = named_operand(Operand::OP_GLOBAL, unit_.function_symbol(entity));
+	out.args.push_back(storage);
+	const std::vector<TypeId>& parameters = types.parameters(entity.type);
+	if (parameters.size() > 1)
+	{
+		out.args.push_back(literal_operand(parameters[1], bytes));
+	}
+	emit_void(out);
 }
 
 // 8.5p14 and 12.8p31: whether this initializer builds at the destination rather

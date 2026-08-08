@@ -713,11 +713,17 @@ private:
 	// left standing and only the loop's own index knows how many those are.
 	// `cleanup` is the handler each of those destructions stands under, which
 	// 12.4p8's suffix has and the other three callers do not.
+	// `blocks` and `counter` name the blocks and the index this loop writes,
+	// which 5.3.5p2's array delete spells for itself: a loop the same shape in
+	// two places is still two places, and the output names each after what it
+	// is a step of.
 	void destroy_array_loop(const lowir_model::Operand& base,
 	                        const lowir_model::Operand& count,
 	                        unsigned long long stride,
 	                        const SemaEntity& destructor, bool base_subobject,
-	                        bool guarded, const std::string* after);
+	                        bool guarded, const std::string* after,
+	                        const char* blocks = "array_dtor",
+	                        const char* counter = "array_dtor_index");
 	// The address of the element at `index` of the array at `base`, counted in
 	// the bytes an element occupies - which is what LowIR indexes an element
 	// with no register width by.
@@ -813,6 +819,38 @@ private:
 	// so nothing here allocates a slot and the object is built at a value
 	// rather than at a name.
 	LowValue new_expression(const DumpNode& node);
+	// 5.3.4p1: the array form, which asks the allocation function for every
+	// element at once, writes the count 5.3.5p2 will read in front of them,
+	// and gives 12.6p1's construction to each of them in one loop.
+	LowValue array_new_expression(const DumpNode& node);
+	// 5.3.5: a delete-expression, which is 12.4p3's end of a lifetime and
+	// 3.7.4.2's return of the storage, over the object the operand points to.
+	LowValue delete_expression(const DumpNode& node);
+	// 3.7.4.2p2: the call that gives `storage` back, made through the
+	// deallocation function `callee` names.  12.5p4's two-parameter form is
+	// handed the size of the object as well, which is a number of the type.
+	void deallocation_call(const DumpNode& callee,
+	                       const lowir_model::Operand& storage,
+	                       unsigned long long bytes);
+	// 5.3.4p1 and the ABI: how many elements the array standing at `data`
+	// holds, read from the count in front of them or written as the number the
+	// translation knows.
+	lowir_model::Operand array_element_count(const DumpNode& node,
+	                                         const lowir_model::Operand& bytes,
+	                                         unsigned long long stride);
+	// 8.5p7 over an array: every byte of `bytes` bytes standing at `data` set
+	// to zero, written as the loop the count is a value makes it.
+	void zero_storage_loop(const lowir_model::Operand& data,
+	                       const lowir_model::Operand& bytes);
+	// 12.6p1 over the elements a new-expression created, with 15.2p2's handler
+	// around them: `storage` is what the allocation handed back, `data` where
+	// the elements begin, and `release` the deallocation the handler makes.
+	void construct_array_new_run(const DumpNode& node, const DumpNode& action,
+	                             const DumpNode* release,
+	                             const lowir_model::Operand& storage,
+	                             const lowir_model::Operand& data,
+	                             const lowir_model::Operand& count,
+	                             unsigned long long stride, TypeId element);
 	// 12.8p15: one class object copied into another, which for a class that
 	// holds nothing moves nothing at all.  `stored` says the source is the
 	// value a call handed back rather than the storage an object stands in,
@@ -1005,8 +1043,14 @@ private:
 	// storage the caller of the call named for a returned object the ABI hands
 	// back through a destination; where the call returns one and no place asked
 	// for it, the function gives it storage of its own.
+	// `keep` is 5.3.4p1's one addition: the array form of a new-expression
+	// reads the bytes it asked the allocation function for again once the call
+	// has returned - for the count it writes in front of the elements and for
+	// 8.5p7's zero - so the value the first argument came to is stored in an
+	// object of the function where it is computed, and this takes its name.
 	LowValue call_expression(const DumpNode& node,
-	                         const lowir_model::Operand* into = nullptr);
+	                         const lowir_model::Operand* into = nullptr,
+	                         std::string* keep = nullptr);
 	LowValue unary_expression(const DumpNode& node);
 	LowValue increment_expression(const DumpNode& node, bool postfix);
 	LowValue binary_expression(const DumpNode& node);
@@ -1119,7 +1163,11 @@ private:
 	bool terminated() const;
 	// The slot a declaration is given, named after it and kept distinct from
 	// every slot the function already has.
-	std::string add_slot(const SemaEntity& entity, TypeId type);
+	// `unnamed` is what a parameter the declaration left unnamed is called,
+	// which is the implementation's own `arg0` for a function 1.4p8 reserved
+	// and this translation's `__param0` for every other.
+	std::string add_slot(const SemaEntity& entity, TypeId type,
+	                     const char* unnamed = "__param");
 	std::string add_generated_slot(const char* prefix, TypeId type);
 	std::string add_generated_slot(const char* prefix,
 	                               const lowir_model::LowType& type);

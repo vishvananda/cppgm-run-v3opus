@@ -58,6 +58,15 @@ const unsigned char kBuiltinMemcpy = 1;
 const unsigned char kBuiltinMemmove = 2;
 const unsigned char kBuiltinStrlen = 3;
 const unsigned char kBuiltinUnreachable = 4;
+// 3.7.4.1p2 and 3.7.4.2p2: the four allocation and deallocation functions every
+// translation unit declares whether or not it wrote them.  A program may
+// replace any of them, and a definition of one is a definition of the same
+// function this declaration made - so the object file names them by what the
+// implementation calls them and not by 3.7.4p2's encoding of the declaration.
+const unsigned char kBuiltinOperatorNew = 5;
+const unsigned char kBuiltinOperatorNewArray = 6;
+const unsigned char kBuiltinOperatorDelete = 7;
+const unsigned char kBuiltinOperatorDeleteArray = 8;
 
 enum class SemaKind
 {
@@ -206,6 +215,12 @@ struct SemaEntity
 	// declaration a program wrote, which is all but the few the analysis makes
 	// when a use of a reserved name reaches nothing the program declared.
 	unsigned char builtin;
+	// 15.4p1: whether the exception-specification this function was declared
+	// with says it throws nothing.  C++11 leaves it out of the function type,
+	// so it is a fact of the declaration; 5.3.4p15 is the one question this
+	// milestone asks of it, and the answer decides whether a new-expression
+	// tests the address before it initializes an object there.
+	bool nonthrowing;
 	// 12.3.1p2: a constructor declared `explicit`, which only
 	// direct-initialization may choose.  12.3.2p2 gives a conversion function
 	// declared `explicit` the same fact, and 13.3.1.5 the same reading of it.

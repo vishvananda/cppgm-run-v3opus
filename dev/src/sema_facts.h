@@ -19,6 +19,14 @@ struct SemaEntity;
 // array was written in.
 const unsigned long long kArrayLoopLimit = 16;
 
+// 5.3.4p1, 5.3.5p2 and the ABI: the bytes the array form of a new-expression
+// asks for in front of the elements, which hold how many elements there are.
+// 5.3.5p2's array delete is handed the pointer to the first element and has to
+// run one destructor per element, so the count is the one thing about the
+// allocation that has to outlive the expression that made it.  Only an array of
+// class type carries one: nothing else has a lifetime for the count to bound.
+const unsigned long long kArrayCookieBytes = 8;
+
 // 3.10: what an expression denotes.
 enum class ValueCategory
 {
@@ -63,6 +71,13 @@ enum class FactKind : unsigned char
 	// pointer the call returned, so the object is built at an address the tree
 	// already produced rather than in storage of the function's own.
 	NewExpression,
+	// 5.3.5: a delete-expression, which is 12.4p3's end of the lifetime of the
+	// object its operand points to and 3.7.4.2's return of the storage that
+	// object stood in.  Both act on storage the operand already names, so the
+	// node holds the destruction as its own action and the deallocation
+	// function 5.3.5p9 chose as `entity`: the one argument that call takes is
+	// the pointer, which is what the operand under this node is worth.
+	DeleteExpression,
 	BracedInitList,
 	Label,
 	Goto,
@@ -152,6 +167,7 @@ struct SemaFact
 		, elided_prvalue(false)
 		, base_subobject(false)
 		, subobject_step(false)
+		, array_form(false)
 		, elements(0)
 		, value(0)
 	{}
@@ -214,6 +230,13 @@ struct SemaFact
 	// object of it is carried, and says nothing about the constructor 12.8p15
 	// itself selected for a subobject one step in.
 	bool subobject_step;
+	// 5.3.4p1 and 5.3.5p2: whether this `new-expression` or `delete-expression`
+	// is the array form, which asks for one object per element rather than one
+	// object, keeps the count of them beside the storage, and ends as many
+	// lifetimes as it began.  The two forms call different functions and
+	// 5.3.5p2 makes writing one for the other undefined, so which one this is,
+	// is a fact of the expression and not of the type its operand has.
+	bool array_form;
 	// 8.5.1p7: how many consecutive elements of the array it stands in this
 	// `constructor-action` builds.  An element a clause reached is one object
 	// and this is zero; the elements no clause reached are all value-

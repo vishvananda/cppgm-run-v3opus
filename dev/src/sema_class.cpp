@@ -2638,6 +2638,47 @@ RefQualifier SemaAnalyzer::declarator_ref_qualifier(const AstNode& declarator)
 	return RefQualifier::None;
 }
 
+// 15.4p1: whether the exception-specification the declarator wrote says the
+// function throws nothing.  The grammar spells it with the same node the
+// ref-qualifier uses, so which one this is, is what it was written as: `throw`
+// with an empty type-id-list, or `noexcept` with no constant-expression or with
+// one that is the `true` the translation reads without evaluating anything.
+// Any other spelling leaves the answer no, which is the reading that changes
+// nothing about what a program written with it comes to.
+bool SemaAnalyzer::declarator_nonthrowing(const AstNode& declarator)
+{
+	for (std::size_t index = 0; index < declarator.children.size(); ++index)
+	{
+		const AstNode& part = *declarator.children[index];
+		if (part.kind == AstKind::NestedDeclarator && declarator_nonthrowing(part))
+		{
+			return true;
+		}
+		if (part.kind != AstKind::FunctionQualifier)
+		{
+			continue;
+		}
+		if (part.text == "throw()")
+		{
+			return true;
+		}
+		if (part.text.compare(0, 8, "noexcept") != 0)
+		{
+			continue;
+		}
+		if (part.children.empty() || part.children[0] == nullptr)
+		{
+			return true;
+		}
+		if (part.children[0]->kind == AstKind::KeywordLiteral &&
+		    part.children[0]->token == KW_TRUE)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
 // 9.4p1: whether `where` declares `name` as a static member function whose
 // declarator wrote `type`.  That declaration is the one a definition written
 // outside the class redeclares, and 9.4.1p2 makes it the only place `static` is

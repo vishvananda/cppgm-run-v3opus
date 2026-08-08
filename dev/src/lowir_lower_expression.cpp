@@ -106,6 +106,9 @@ LowValue LowirFunctionLowering::expression(const DumpNode& node,
 	case FactKind::NewExpression:
 		return new_expression(node);
 
+	case FactKind::DeleteExpression:
+		return delete_expression(node);
+
 	case FactKind::BracedInitList:
 	{
 		// 8.5.4 over a scalar: the value is what its one clause says, and an
@@ -476,7 +479,8 @@ LowValue LowirFunctionLowering::cast_expression(const DumpNode& node,
 }
 
 LowValue LowirFunctionLowering::call_expression(const DumpNode& node,
-                                                const Operand* into)
+                                                const Operand* into,
+                                                std::string* keep)
 {
 	TypeTable& types = unit_.types();
 	Instruction call;
@@ -527,6 +531,14 @@ LowValue LowirFunctionLowering::call_expression(const DumpNode& node,
 		const LowValue argument = expression(*node.children[index], bound);
 		call.args.push_back(
 			passed_operand(*node.children[index], argument, parameters, at));
+		if (keep != nullptr && at == 0)
+		{
+			// 5.3.4p1: the array form reads this argument again once the call
+			// has returned, so the function keeps it where it was computed.
+			*keep = add_generated_slot("array_new_size", parameter);
+			store(call.args.back(), named_operand(Operand::OP_SLOT, *keep),
+			      parameter);
+		}
 	}
 	if (direct)
 	{

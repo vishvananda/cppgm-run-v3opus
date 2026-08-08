@@ -144,6 +144,7 @@ SemaEntity& SemaModel::create(SemaKind kind, const std::string& name, TypeId typ
 	entity.internal_linkage = false;
 	entity.thread_storage = false;
 	entity.builtin = kNotBuiltin;
+	entity.nonthrowing = false;
 	entity.promotion = kNoType;
 	entity.value = 0;
 	entity.next = nullptr;

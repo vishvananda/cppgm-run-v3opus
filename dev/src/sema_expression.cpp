@@ -172,6 +172,7 @@ FactKind SemaAnalyzer::fact_kind(const char* what)
 		{"base-conversion", FactKind::BaseConversion},
 		{"temporary-object", FactKind::TemporaryObject},
 		{"new-expression", FactKind::NewExpression},
+		{"delete-expression", FactKind::DeleteExpression},
 		{"sizeof-expression", FactKind::Sizeof}
 	};
 	for (std::size_t index = 0; index < sizeof(kKinds) / sizeof(kKinds[0]);
@@ -347,6 +348,9 @@ SemaAnalyzer::Value SemaAnalyzer::dispatch_expression(const AstNode& node,
 
 	case AstKind::NewExpression:
 		return new_expression(node, ctx, parent);
+
+	case AstKind::DeleteExpression:
+		return delete_expression(node, ctx, parent);
 
 	case AstKind::SubscriptExpression:
 		return subscript_expression(node, ctx, parent);
@@ -1887,6 +1891,48 @@ SemaEntity* SemaAnalyzer::reserved_function(const std::string& written,
 		found->push_back(&entity);
 	}
 	return &entity;
+}
+
+// 3.7.4.1p2 and 3.7.4.2p2: the four allocation and deallocation functions the
+// implementation declares in the global namespace of every translation unit.
+// They are ordinary declarations, so 13.3 chooses among them beside whatever
+// the program declared, a definition the program writes redeclares the one of
+// them it matches, and the lowering writes nothing for the ones no use reaches.
+// 3.7.4.2p3 gives the two deallocation functions a non-throwing
+// exception-specification, which is what 5.3.4p15 reads of them.
+void SemaAnalyzer::declare_allocation_functions(Scope& where)
+{
+	const TypeId size = types_.fundamental(FT_UNSIGNED_LONG_INT);
+	const TypeId storage = types_.pointer_to(types_.fundamental(FT_VOID));
+	Context global;
+	global.scope = &where;
+	global.dump = where.dump;
+	static const struct
+	{
+		const char* name;
+		unsigned char builtin;
+		bool allocates;
+	} kReserved[] = {
+		{"operatornew", kBuiltinOperatorNew, true},
+		{"operatornew[]", kBuiltinOperatorNewArray, true},
+		{"operatordelete", kBuiltinOperatorDelete, false},
+		{"operatordelete[]", kBuiltinOperatorDeleteArray, false},
+	};
+	for (std::size_t index = 0;
+	     index < sizeof(kReserved) / sizeof(kReserved[0]); ++index)
+	{
+		std::vector<TypeId> parameters;
+		parameters.push_back(kReserved[index].allocates ? size : storage);
+		SemaEntity& entity = declare_function(
+			kReserved[index].name,
+			types_.function_of(kReserved[index].allocates
+			                       ? storage
+			                       : types_.fundamental(FT_VOID),
+			                   parameters, false),
+			global, false);
+		entity.builtin = kReserved[index].builtin;
+		entity.nonthrowing = !kReserved[index].allocates;
+	}
 }
 
 // 5.19 and the course builtins: `__builtin_constant_p` answers whether its
