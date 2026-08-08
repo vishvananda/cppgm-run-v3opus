@@ -2162,6 +2162,15 @@ void LowirFunctionLowering::leave_blocks(const DumpNode& node)
 			// full-expression owes.
 			close_region();
 		}
+		if (return_slot_local_ != nullptr && !action.children.empty() &&
+		    action.children[0]->fact.entity == return_slot_local_)
+		{
+			// 12.8p31: this object is the one standing in the destination the
+			// caller named, so it *is* the returned object - its lifetime is
+			// one the caller ends, and no path out of this function writes an
+			// end for it.
+			continue;
+		}
 		end_object_lifetime(action);
 		destructor_call(action);
 	}

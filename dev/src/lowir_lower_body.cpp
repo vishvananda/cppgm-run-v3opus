@@ -1155,12 +1155,19 @@ void LowirFunctionLowering::run(const DumpNode& node, TypeId type)
 const SemaEntity* LowirFunctionLowering::returned_local(const DumpNode& node)
 {
 	// 3.8p1: a lifetime ends where control leaves the block that named the
-	// object, and the actions that end one stand under the return - so a return
-	// that carries any of them is one whose returned object cannot be the local
-	// this destroys on the way out.
-	if (node.children.size() != 1)
+	// object, and the actions that end one stand under the return.  They are
+	// no bar to 12.8p31: the object this return names is one of them, and what
+	// the elision says is that its end is the caller's and not this one's.
+	if (node.children.empty())
 	{
 		return nullptr;
+	}
+	for (std::size_t index = 1; index < node.children.size(); ++index)
+	{
+		if (node.children[index]->fact.kind != FactKind::DestructorAction)
+		{
+			return nullptr;
+		}
 	}
 	if (node.children[0]->fact.kind == FactKind::Id)
 	{
