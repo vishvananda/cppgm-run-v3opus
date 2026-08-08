@@ -463,6 +463,66 @@ bool specialized_component(const std::vector<const SemaEntity*>& owners,
 	return types.is_specialization(owner->type);
 }
 
+// 9.4.2p1: the components a static data member's name is written from, where
+// one of the classes it is named through is a specialization.
+//
+// A data name is otherwise one spelling the encoder splits for itself, and
+// that is what a class the program wrote needs.  A specialization cannot be
+// split back out of its spelling, so the components are handed over instead,
+// with the member's own name standing where a function's terminal does.
+void build_data_name(const SemaEntity& entity, TypeTable& types,
+                     LocalContexts& contexts,
+                     abi_mangle::AbiTargetRecord& target,
+                     std::vector<abi_mangle::AbiFunctionRecord>& records)
+{
+	const std::vector<const SemaEntity*> owners = owning_classes(entity);
+	bool specialized = false;
+	for (std::size_t index = 0; index < owners.size(); ++index)
+	{
+		specialized = specialized || types.is_specialization(owners[index]->type);
+	}
+	if (!specialized)
+	{
+		return;
+	}
+	const std::vector<std::string> components =
+		name_components(abi_qualified_name(entity));
+	target.function.kind = abi_mangle::ABI_FUNCTION_TARGET_ENCODING;
+	for (std::size_t index = 0; index + 1 < components.size(); ++index)
+	{
+		abi_mangle::AbiFunctionRecord region;
+		const SemaEntity* owner = nullptr;
+		if (specialized_component(owners, types, index, components.size(), owner))
+		{
+			region.kind = abi_mangle::ABI_FUNCTION_RECORD_NAME_TEMPLATE;
+			region.name =
+				name_components(types.template_name(owner->type)).back();
+			const std::vector<TypeId>& arguments =
+				types.template_arguments(owner->type);
+			for (std::size_t at = 0; at < arguments.size(); ++at)
+			{
+				region.argument_refs.push_back(contexts.argument_of(arguments[at]));
+			}
+		}
+		else
+		{
+			region.kind = abi_mangle::ABI_FUNCTION_RECORD_NAME_SOURCE;
+			region.name = components[index];
+		}
+		records.push_back(region);
+	}
+	// The encoder drops the last *name* component where a terminal names the
+	// entity, so the components before it stay the regions they are.
+	abi_mangle::AbiFunctionRecord placeholder;
+	placeholder.kind = abi_mangle::ABI_FUNCTION_RECORD_NAME_SOURCE;
+	placeholder.name = entity.name;
+	records.push_back(placeholder);
+	abi_mangle::AbiFunctionRecord written;
+	written.kind = abi_mangle::ABI_FUNCTION_RECORD_TERMINAL_SOURCE;
+	written.source_name = components.back();
+	records.push_back(written);
+}
+
 // The typed facts one function declaration is encoded from: what names it, the
 // regions it is named through, its cv-qualifiers and its parameter types.
 //
@@ -809,6 +869,10 @@ std::string abi_symbol_of(const SemaEntity& entity, TypeTable& types,
 		target.kind = abi_mangle::ABI_TARGET_FACT_VARIABLE;
 		target.qualified_name = abi_qualified_name(entity);
 		target.internal_linkage = entity.internal_linkage;
+		// 9.4.2p1 and 14.2: a static data member of a specialization is named
+		// through the template and the arguments that made it, which no
+		// spelling of the name can be split back into.
+		build_data_name(entity, types, contexts, target, records);
 		return abi_mangle::mangle_target(target, records,
 		                                 contexts.definitions());
 	}

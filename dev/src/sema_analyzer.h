@@ -1847,6 +1847,18 @@ private:
 	// the function it just declared, so that 14.7.1p1 can read it again.
 	void record_function_template(SemaEntity& entity, Scope& parameters,
 	                              Scope& region);
+	// 14.5.1.3p1: the class template a definition written outside its class is
+	// a member of, found from the template-id its declarator-id was qualified
+	// with.  Null for a declaration that is a member of no such template.
+	SemaEntity* member_definition_owner(const AstNode& node,
+	                                    const Context& ctx);
+	// 14.3p1: a region binding each of `info`'s parameters to the argument
+	// beside it, which is what a pattern is read against.
+	Scope& open_template_bindings(const TemplateInfo& info,
+	                              const std::vector<TypeId>& arguments);
+	// 14.5.1.3p1: reads `pattern` - a member definition written outside its
+	// class - against the arguments `specialization` was made from.
+	void instantiate_member(SemaEntity& specialization, const AstNode& pattern);
 
 	// 8.5: initialising an object of `target` from `node`, which is what a
 	// variable, a condition, a return statement and an argument all do.

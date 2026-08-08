@@ -1646,6 +1646,15 @@ void Encoder::encode_target(const AbiTargetRecord & target,
     return;
   case ABI_TARGET_FACT_VARIABLE:
     put("_Z");
+    if(!records.empty()) {
+      // A data name whose components say more than a spelling can - a class
+      // template specialization, a local context - is written as the same
+      // `<nested-name>` a function is, with no bare-function-type after it.
+      FunctionShape shape;
+      build_shape(target.function, records, shape);
+      emit_function_name(shape);
+      return;
+    }
     emit_data_name(target.qualified_name, target.internal_linkage);
     return;
   case ABI_TARGET_FACT_TYPEINFO:

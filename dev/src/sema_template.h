@@ -36,4 +36,12 @@ struct TemplateInfo
 	std::vector<std::string> parameters;
 	std::vector<const AstNode*> defaults;
 	bool supported;
+	// 14.5.1.3p1: the members of the template a definition outside its class
+	// wrote, in the order they were written.  They are not members of the
+	// pattern's own syntax, so a specialization reads them after the body and
+	// one written after a specialization was already made is read for it then.
+	std::vector<const AstNode*> members;
+	// 14.7.1p1: the specializations made so far, which is what a member
+	// definition read after them is read against.
+	std::vector<SemaEntity*> specializations;
 };

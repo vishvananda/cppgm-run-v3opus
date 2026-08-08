@@ -818,7 +818,22 @@ bool SemaAnalyzer::record_template(const AstNode& node, const Context& ctx)
 	if (declared->kind != AstKind::ClassSpecifier &&
 	    declared->kind != AstKind::ClassForwardDeclaration)
 	{
-		return false;
+		// 14.5.1.3p1: a definition written outside its class belongs to the
+		// template that class is one of, and is read for a specialization
+		// after the body - including for one the unit already made.
+		SemaEntity* const owner = member_definition_owner(*declared, ctx);
+		if (owner == nullptr)
+		{
+			return false;
+		}
+		owner->templated->members.push_back(declared);
+		for (std::size_t index = 0;
+		     index < owner->templated->specializations.size(); ++index)
+		{
+			instantiate_member(*owner->templated->specializations[index],
+			                   *declared);
+		}
+		return true;
 	}
 	const QualifiedName spelled(declared->text);
 	if (spelled.qualified() || declared->text.empty())
@@ -1103,6 +1118,7 @@ SemaEntity& SemaAnalyzer::instantiate_class(SemaEntity& primary,
 	                                      qualified);
 	made = &model_.create(SemaKind::Class, spelled, type);
 	made->primary = &primary;
+	made->template_arguments = list;
 	made->region = info.region;
 	made->access = primary.access;
 	model_.own_type(type, *made);
@@ -1120,28 +1136,22 @@ SemaEntity& SemaAnalyzer::instantiate_class(SemaEntity& primary,
 	}
 
 	Context inner;
-	inner.scope = &model_.open(ScopeKind::TemplateParameters, *info.region,
-	                           nullptr, info.dump);
+	inner.scope = &open_template_bindings(info, arguments);
 	inner.dump = info.dump;
 	inner.node = nullptr;
-	for (std::size_t index = 0;
-	     index < info.parameters.size() && index < arguments.size(); ++index)
-	{
-		if (info.parameters[index].empty())
-		{
-			continue;
-		}
-		SemaEntity& bound = model_.create(SemaKind::Typedef,
-		                                  info.parameters[index],
-		                                  arguments[index]);
-		model_.bind(*inner.scope, bound.name, bound);
-		model_.declare_in(*inner.scope, bound);
-	}
 	Span span;
 	span.begin = info.pattern->begin;
 	span.end = info.pattern->end;
 	class_declaration(*info.pattern, inner, span, true, std::string(), made,
 	                  &spelled);
+	// 14.5.1.3p1: what the template's members were defined as outside its
+	// class is read now that the class is complete, and a definition written
+	// after this specialization was made is read for it where it is written.
+	primary.templated->specializations.push_back(made);
+	for (std::size_t index = 0; index < info.members.size(); ++index)
+	{
+		instantiate_member(*made, *info.members[index]);
+	}
 	return *made;
 }
 
@@ -1218,4 +1228,97 @@ void SemaAnalyzer::record_function_template(SemaEntity& entity,
 		info.parameters.push_back(parameter.name);
 		info.defaults.push_back(nullptr);
 	}
+}
+
+// 14.5.1.3p1: the class template a definition written outside its class is a
+// member of.
+//
+// The declarator-id names it, and 14.5.1.3p1 makes the nested-name-specifier a
+// template-id over the same parameters the head declared - so the owner is the
+// template the first such component reaches.  Null where the declaration is a
+// member of no template, which is every ordinary out-of-class definition.
+SemaEntity* SemaAnalyzer::member_definition_owner(const AstNode& node,
+                                                  const Context& ctx)
+{
+	const AstNode* id = nullptr;
+	if (node.kind == AstKind::FunctionDefinition && node.children.size() > 1)
+	{
+		id = declarator_id(*node.children[1]);
+	}
+	else
+	{
+		for (std::size_t index = 0; id == nullptr &&
+		     index < node.children.size(); ++index)
+		{
+			const AstNode& child = *node.children[index];
+			if (child.kind != AstKind::InitDeclaratorList)
+			{
+				continue;
+			}
+			for (std::size_t at = 0; id == nullptr &&
+			     at < child.children.size(); ++at)
+			{
+				if (!child.children[at]->children.empty())
+				{
+					id = declarator_id(*child.children[at]->children[0]);
+				}
+			}
+		}
+	}
+	if (id == nullptr)
+	{
+		return nullptr;
+	}
+	const QualifiedName spelled(id->text);
+	for (std::size_t index = 0; index + 1 < spelled.size(); ++index)
+	{
+		const TemplateId written(spelled.part(index));
+		if (!written.valid())
+		{
+			continue;
+		}
+		SemaEntity* const named =
+			model_.lookup(*ctx.scope, written.name(), LookupKind::Type);
+		if (named != nullptr && named->kind == SemaKind::Class &&
+		    named->templated != nullptr)
+		{
+			return named;
+		}
+	}
+	return nullptr;
+}
+
+Scope& SemaAnalyzer::open_template_bindings(const TemplateInfo& info,
+                                            const std::vector<TypeId>& arguments)
+{
+	Scope& bindings = model_.open(ScopeKind::TemplateParameters, *info.region,
+	                              nullptr, info.dump);
+	for (std::size_t index = 0;
+	     index < info.parameters.size() && index < arguments.size(); ++index)
+	{
+		if (info.parameters[index].empty())
+		{
+			continue;
+		}
+		SemaEntity& bound = model_.create(SemaKind::Typedef,
+		                                  info.parameters[index],
+		                                  arguments[index]);
+		model_.bind(bindings, bound.name, bound);
+		model_.declare_in(bindings, bound);
+	}
+	return bindings;
+}
+
+void SemaAnalyzer::instantiate_member(SemaEntity& specialization,
+                                      const AstNode& pattern)
+{
+	const TemplateInfo& info = *specialization.primary->templated;
+	Context inner;
+	inner.scope = &open_template_bindings(
+		info, types_.type_list_at(specialization.template_arguments));
+	inner.dump = info.dump;
+	// 9.4.2p1 and 9.3p2: the definition declares into the class the
+	// declarator-id names, and writes its lines where that class writes them.
+	inner.node = &model_.unit();
+	declaration(pattern, inner);
 }
