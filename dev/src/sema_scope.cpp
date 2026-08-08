@@ -178,6 +178,8 @@ SemaEntity& SemaModel::create(SemaKind kind, const std::string& name, TypeId typ
 	entity.overridden = nullptr;
 	entity.vtable_index = kNoVtableIndex;
 	entity.vtable.clear();
+	entity.key_function = nullptr;
+	entity.deleting_release = nullptr;
 	entity.polymorphic = false;
 	entity.introduces_vptr = false;
 	entity.abstract = false;

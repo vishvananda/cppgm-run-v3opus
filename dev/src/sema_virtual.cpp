@@ -279,6 +279,86 @@ void SemaAnalyzer::settle_virtual_members(SemaEntity& entity, Scope& scope)
 			break;
 		}
 	}
+	settle_vtable_ownership(entity, scope);
+}
+
+// The ABI's two questions about the *emitted* table, asked here because both
+// are questions about the class as its own body left it.
+//
+// A table is data, and 3.2p3 gives the program one definition of it however
+// many units need one.  The ABI answers that with the key function: the first
+// virtual member the class declares that is neither pure nor inline is one
+// exactly one unit defines, so that unit is the one that holds the table and
+// every other unit names it.  A class with no such member - every virtual
+// member of it defined in its own body - has no such unit, so every unit that
+// needs the table holds a copy of it and the linker keeps one.
+//
+// The second question is the deleting entry's.  5.3.5p9 looks the deallocation
+// function up in the class of the object being destroyed, and the entry the ABI
+// asks for is a definition the translation writes with no delete-expression
+// under it - so the lookup happens here, where the class is complete, rather
+// than where the entry is lowered.
+void SemaAnalyzer::settle_vtable_ownership(SemaEntity& entity, Scope& scope)
+{
+	if (entity.vtable.empty())
+	{
+		return;
+	}
+	for (std::size_t index = 0; index < scope.declarations.size(); ++index)
+	{
+		SemaEntity& member = *scope.declarations[index];
+		if (!dispatchable_member(member) || !member.virtual_function ||
+		    member.pure_virtual || member.inline_function)
+		{
+			continue;
+		}
+		// 7.1.2p2 and 9.3p2: what makes the declaration inline is the class
+		// body holding its definition or the specifier written on it, both of
+		// which stand where the class is completed - so the answer this reads
+		// is the one the ABI asks for and no later definition changes it.
+		entity.key_function = &member;
+		break;
+	}
+	// 12.1, 12.4 and the ABI: every class this one is built out of takes part in
+	// a polymorphic object now, and the entries the object file owes for a
+	// member of one the *program itself wrote* are both of them - a complete
+	// object of that class can be created wherever its definition is seen, and
+	// the definition every unit shares is the one this unit holds.  A member the
+	// standard gave the class is not one a program named, so it stands under the
+	// one entry this unit's own code asked for.
+	for (SemaEntity* at = entity.base; at != nullptr; at = at->base)
+	{
+		for (SemaEntity* made = at->constructor; made != nullptr;
+		     made = made->next)
+		{
+			made->complete_object_entry =
+				made->complete_object_entry || made->user_provided;
+		}
+		if (at->destructor != nullptr && at->destructor->user_provided)
+		{
+			at->destructor->complete_object_entry = true;
+		}
+		if (at->polymorphic)
+		{
+			// A base that already dispatches settled this same question about
+			// its own bases where 9.2p2 completed it, so the walk stops there
+			// and a chain n deep costs n steps in all rather than n per class.
+			break;
+		}
+	}
+	SemaEntity* const destructor = entity.destructor;
+	if (destructor != nullptr && destructor->virtual_function)
+	{
+		// 12.4, 3.2p2 and the ABI: the table's own entry is the complete-object
+		// one, because a `delete` of a base pointer reaches it on an object that
+		// is no subobject of anything - so the table naming the slot is a use of
+		// that entry however little else in the program names it, and 12.4p6
+		// gives the destructor a definition here as any other use would.
+		note_destruction_entry(*destructor, false);
+		std::vector<SemaEntity*> found;
+		destructor->deleting_release =
+			deallocation_function(false, entity.type, false, found);
+	}
 }
 
 // 12.4p9 and the ABI: the destructor's place in the table.

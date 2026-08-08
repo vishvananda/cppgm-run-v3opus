@@ -244,6 +244,50 @@ std::string abi_thread_wrapper_of(const SemaEntity& entity)
 	                                 abi_mangle::AbiDefinitionMap());
 }
 
+namespace
+{
+
+// The three names the polymorphic object model gives a class, which differ only
+// in the record kind the encoder is handed.
+std::string abi_type_target(TypeId type, TypeTable& types,
+                            abi_mangle::AbiTargetFactKind kind)
+{
+	abi_mangle::AbiTargetRecord target;
+	target.kind = kind;
+	target.type = abi_type(types, types.strip_cv(type));
+	return abi_mangle::mangle_target(target,
+	                                 std::vector<abi_mangle::AbiFunctionRecord>(),
+	                                 abi_mangle::AbiDefinitionMap());
+}
+
+}  // namespace
+
+std::string abi_vtable_symbol_of(TypeId type, TypeTable& types)
+{
+	return abi_type_target(type, types, abi_mangle::ABI_TARGET_FACT_VTABLE);
+}
+
+std::string abi_typeinfo_symbol_of(TypeId type, TypeTable& types)
+{
+	return abi_type_target(type, types, abi_mangle::ABI_TARGET_FACT_TYPEINFO);
+}
+
+std::string abi_typeinfo_name_symbol_of(TypeId type, TypeTable& types)
+{
+	return abi_type_target(type, types,
+	                       abi_mangle::ABI_TARGET_FACT_TYPEINFO_NAME);
+}
+
+// The type's own encoding, which is what the name string holds: 5.2.8p14 makes
+// `type_info::name` an implementation-defined spelling, and the ABI's is the
+// encoded type - the `_ZTS` name with the four characters that say what the
+// name is for taken off the front.
+std::string abi_type_name_of(TypeId type, TypeTable& types)
+{
+	const std::string named = abi_typeinfo_name_symbol_of(type, types);
+	return named.compare(0, 4, "_ZTS") == 0 ? named.substr(4) : named;
+}
+
 std::string abi_symbol_of(const SemaEntity& entity, TypeTable& types,
                           unsigned variant)
 {
@@ -350,8 +394,11 @@ std::string abi_symbol_of(const SemaEntity& entity, TypeTable& types,
 			written.terminal = entity.special == kConstructorFunction
 				? (variant == kBaseObjectAbi ? "constructor-base"
 				                             : "constructor-complete")
-				: (variant == kBaseObjectAbi ? "destructor-base"
-				                             : "destructor-complete");
+				: (variant == kBaseObjectAbi
+				       ? "destructor-base"
+				       : (variant == kDeletingObjectAbi
+				              ? "destructor-deleting"
+				              : "destructor-complete"));
 		}
 		else if (entity.conversion_function)
 		{

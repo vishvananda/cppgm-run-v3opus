@@ -29,14 +29,13 @@ std::string decimal(unsigned long long value)
 	return out.str();
 }
 
-// The internal LowIR symbol of a namespace-scope name: the regions it is
-// declared in, written with `__` where the source writes `::`, and every other
-// character an identifier cannot hold written as one `_`.  Dropping those
-// characters instead would leave two names one symbol: 12.4p1's `~C` and 12.1's
-// `C` are two functions of one class with one qualified name, and 13.5's
-// `operator+` and `operator-` are two of one arity and one parameter list.  One
-// `_` per character is also what the references write.
-std::string flatten_name(const std::string& name)
+}  // namespace
+
+// The internal LowIR symbol of a namespace-scope name.  13.5's `operator+` and
+// `operator-` are two functions of one arity and one parameter list, so one `_`
+// per character rather than none is what keeps two names two symbols - and it
+// is what the references write.
+std::string flatten_symbol_name(const std::string& name)
 {
 	std::string symbol;
 	for (std::size_t index = 0; index < name.size(); ++index)
@@ -56,12 +55,10 @@ std::string flatten_name(const std::string& name)
 	return symbol;
 }
 
-}  // namespace
-
 std::string LowirSymbolTable::function_symbol(const SemaEntity& entity,
                                               const std::string& identity)
 {
-	const std::string base = flatten_name(abi_qualified_name(entity));
+	const std::string base = flatten_symbol_name(abi_qualified_name(entity));
 	std::unordered_map<std::string, std::size_t>& seen = overloads_[base];
 	// 13.1 lets one name have as many declarations as the program writes, so
 	// which of them a function is, is a probe rather than a walk of the ones
@@ -74,7 +71,7 @@ std::string LowirSymbolTable::function_symbol(const SemaEntity& entity,
 
 std::string LowirSymbolTable::object_symbol(const SemaEntity& entity)
 {
-	return flatten_name(abi_qualified_name(entity));
+	return flatten_symbol_name(abi_qualified_name(entity));
 }
 
 LowirProgramBuilder::LowirProgramBuilder()
@@ -1722,7 +1719,13 @@ bool LowirUnitLowering::construction_writes_nothing(const SemaEntity& constructo
 	held = kEmptyOpen;
 	const std::unordered_map<std::uint32_t, const DumpNode*>::const_iterator
 		found = bodies_.find(constructor.id);
-	bool nothing = found != bodies_.end();
+	// 12.1p11: constructing an object of a polymorphic class writes the
+	// vpointer of the class whose constructor is running, whatever its body
+	// comes to - so a call of one is never a call that does nothing.
+	bool nothing = found != bodies_.end() &&
+		!(constructor.region != nullptr &&
+		  constructor.region->owner != nullptr &&
+		  constructor.region->owner->polymorphic);
 	if (nothing)
 	{
 		const DumpNode& body = *found->second;
@@ -1841,12 +1844,73 @@ void LowirUnitLowering::demand_definition_by_id(std::uint32_t entity)
 
 void LowirUnitLowering::drain_demanded()
 {
-	while (!demanded_.empty())
+	while (!demanded_.empty() || !deleting_owed_.empty())
 	{
-		const DumpNode& node = *demanded_.back();
-		demanded_.pop_back();
-		function_definition(node);
+		if (!demanded_.empty())
+		{
+			const DumpNode& node = *demanded_.back();
+			demanded_.pop_back();
+			function_definition(node);
+			continue;
+		}
+		// 12.4 and 5.3.5p3: a table named the ABI's third entry point over a
+		// destructor's definition - the one that runs it on a complete object
+		// and then gives the storage back.  No call in the program names it, so
+		// the table is the only thing that asks, and it asks here rather than
+		// beside the definition because the two can be written in either order.
+		const SemaEntity& destructor = *deleting_owed_.back();
+		deleting_owed_.pop_back();
+		deleting_definition(destructor);
 	}
+}
+
+// 12.4 and 5.3.5p3: the deleting entry, which is the destructor's own
+// definition with one more step in 12.4p8's suffix.  It is a second body over
+// one definition rather than a second name for one body, so it is lowered
+// again; a destructor this unit does not define leaves the entry to the unit
+// that does, and the object file names it.
+void LowirUnitLowering::deleting_definition(const SemaEntity& entity)
+{
+	const std::string symbol = function_symbol(entity) + "__deleting_entry";
+	const std::unordered_map<std::uint32_t, const DumpNode*>::const_iterator
+		found = bodies_.find(entity.id);
+	if (found == bodies_.end())
+	{
+		if (declared_.insert(symbol).second)
+		{
+			lowir_model::FunctionDeclaration declaration;
+			declaration.name = symbol;
+			lowir_model::Parameter self;
+			self.name = "arg0";
+			self.type.text = "ptr";
+			declaration.params.push_back(self);
+			declaration.return_type.text = "void";
+			describe_symbol(entity, declaration.metadata, symbol);
+			declaration.metadata.object_symbol =
+				abi_symbol_of(entity, types_, kDeletingObjectAbi);
+			program_.function_declarations.push_back(declaration);
+		}
+		return;
+	}
+	if (!builder_.emitted_functions_.insert(symbol).second)
+	{
+		return;
+	}
+	const DumpNode& node = *found->second;
+	program_.functions.push_back(lowir_model::Function());
+	lowir_model::Function& out = program_.functions.back();
+	out.name = symbol;
+	const TypeId type = node.fact.type;
+	open_signature(types_.target(type), out.params, out.return_type);
+	if (entity.nonthrowing)
+	{
+		out.boundary.unwind = lowir_model::CUM_NO;
+	}
+	describe_symbol(entity, out.metadata, symbol);
+	out.metadata.object_symbol =
+		abi_symbol_of(entity, types_, kDeletingObjectAbi);
+	LowirFunctionLowering body(*this, out);
+	body.run(node, type, kDeletingObjectAbi);
 }
 
 // 3.7.2p2: the runtime function a destruction that runs at the end of a thread
@@ -2108,6 +2172,14 @@ void LowirUnitLowering::function_definition(const DumpNode& node)
 		// know as a role rather than as a name it recognises.
 		out.metadata.role = lowir_model::SR_ENTRY;
 		out.metadata.keep_internal_alias = true;
+	}
+	if (entity.region != nullptr && entity.region->owner != nullptr &&
+	    entity.region->owner->key_function == &entity)
+	{
+		// 3.2p3 and the ABI: this unit holds the one definition of the class's
+		// key function, so it is the unit that owes the program the class's
+		// table - whether or not anything here creates an object of the class.
+		vtable_symbol(*entity.region->owner);
 	}
 	LowirFunctionLowering body(*this, out);
 	body.run(node, type);

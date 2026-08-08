@@ -3,6 +3,7 @@
 #include <sstream>
 #include <stdexcept>
 
+#include "lowir_abi.h"
 #include "sema_scope.h"
 #include "token_model.h"
 
@@ -82,6 +83,7 @@ LowirFunctionLowering::LowirFunctionLowering(LowirUnitLowering& unit,
 	, returned_object_open_(false)
 	, return_slot_local_(nullptr)
 	, element_runs_(0)
+	, destroyed_class_(kNoType)
 	, unwinding_(false)
 	, unwind_dispatch_live_(0)
 	, ended_lifetimes_(0)
@@ -1033,7 +1035,8 @@ Operand LowirFunctionLowering::truth_value(const LowValue& value)
 
 // -------------------------------------------------------------- statements
 
-void LowirFunctionLowering::run(const DumpNode& node, TypeId type)
+void LowirFunctionLowering::run(const DumpNode& node, TypeId type,
+                                unsigned variant)
 {
 	TypeTable& types = unit_.types();
 	returns_ = types.target(type);
@@ -1053,6 +1056,23 @@ void LowirFunctionLowering::run(const DumpNode& node, TypeId type)
 	// are read before the body is, because the two blocks they stand between
 	// are numbered before the blocks the body opens.
 	const std::size_t body_end = collect_epilogue(node);
+	const SemaEntity* const written = node.fact.entity;
+	if (written != nullptr && written->special == kDestructorFunction &&
+	    written->region != nullptr && written->region->owner != nullptr)
+	{
+		destroyed_class_ = written->region->owner->type;
+	}
+	if (variant == kDeletingObjectAbi && written != nullptr &&
+	    written->deleting_release != nullptr)
+	{
+		// 5.3.5p3: this entry point runs the destructor on the complete object
+		// and then gives its storage back, so the deallocation is the last step
+		// of 12.4p8's suffix - which is what makes 15.2p2's handler for every
+		// step before it end with the storage going back too.
+		LowDestruction release;
+		release.release = written->deleting_release;
+		epilogue_.push_back(release);
+	}
 	if (!epilogue_.empty())
 	{
 		destructor_cleanup_ = reserve_block("destructor_cleanup");
@@ -1133,6 +1153,22 @@ void LowirFunctionLowering::run(const DumpNode& node, TypeId type)
 		// subobject of which is still alive.
 		emit_handler(true, destructor_cleanup_);
 	}
+	// 12.4p11: an object being destroyed is an object of the class whose
+	// destructor is running, from the moment that destructor begins - so the
+	// vpointer names this class's table before the body runs and before the
+	// base subobject's own destructor names the base's.
+	const SemaEntity* vpointer_owner =
+		written != nullptr && written->region != nullptr &&
+			written->special != kOrdinaryFunction &&
+			written->region->owner != nullptr &&
+			written->region->owner->polymorphic
+		? written->region->owner
+		: nullptr;
+	if (vpointer_owner != nullptr && written->special == kDestructorFunction)
+	{
+		write_vpointer(*vpointer_owner);
+		vpointer_owner = nullptr;
+	}
 	// 15.2p2: 12.6.2's initializations are the one place a partly built object
 	// exists, so the steps before the body are the ones a handler stands around
 	// and the body itself is not.
@@ -1141,6 +1177,17 @@ void LowirFunctionLowering::run(const DumpNode& node, TypeId type)
 	for (; index < body_end; ++index)
 	{
 		const DumpNode& child = *node.children[index];
+		if (vpointer_owner != nullptr &&
+		    !(child.fact.kind == FactKind::ConstructorAction &&
+		      child.fact.base_subobject))
+		{
+			// 12.6.2p10 and 12.7p3: the base subobject is built first and is an
+			// object of the base while its own constructor runs, so the store
+			// stands between that step and everything this class's own
+			// constructor then initializes.
+			write_vpointer(*vpointer_owner);
+			vpointer_owner = nullptr;
+		}
 		if (child.fact.kind == FactKind::Compound)
 		{
 			unwinding_ = false;
@@ -1165,6 +1212,12 @@ void LowirFunctionLowering::run(const DumpNode& node, TypeId type)
 		close_full_expression();
 	}
 	unwinding_ = false;
+	if (vpointer_owner != nullptr)
+	{
+		// A constructor whose class initializes nothing after its base still
+		// leaves the object one of this class.
+		write_vpointer(*vpointer_owner);
+	}
 	if (!epilogue_.empty())
 	{
 		if (!terminated())
@@ -1177,8 +1230,7 @@ void LowirFunctionLowering::run(const DumpNode& node, TypeId type)
 		{
 			// 15.2p2: the exception left the body, so every subobject is still
 			// alive and every one of them is destroyed.
-			destruction_step(*epilogue_[at].action, epilogue_[at].element,
-			                 epilogue_[at].index, epilogue_[at].count);
+			epilogue_step(epilogue_[at]);
 		}
 		emit_handler_end();
 		emit_resume();

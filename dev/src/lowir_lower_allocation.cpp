@@ -22,6 +22,7 @@ namespace {
 
 using lowir_model::Instruction;
 using lowir_model::Operand;
+using lowir_model::Parameter;
 
 std::string decimal(unsigned long long value)
 {
@@ -537,6 +538,31 @@ LowValue LowirFunctionLowering::delete_expression(const DumpNode& node)
 			                   "array_delete_index");
 		}
 	}
+	else if (ends != nullptr && ends->fact.entity->virtual_function)
+	{
+		// 3.2p2 and 5.3.5p8: the expression names the destructor whether or not
+		// the call written for it is the one the table holds, so the definition
+		// it names is one this unit owes exactly as a direct call would be.
+		unit_.declare_call_target(*ends->fact.entity, false);
+		// 5.3.5p3: the object's dynamic type may be a class derived from the one
+		// the operand points to, and only that class knows what ends its own
+		// lifetime and which deallocation function 5.3.5p9 chose in it.  Both
+		// stand behind one entry of its table, so this expression is that one
+		// indirect call and nothing else.
+		Instruction out;
+		out.kind = Instruction::IK_CALL;
+		out.type.text = "void";
+		out.has_call_signature = true;
+		out.first =
+			dispatch_slot(pointer, ends->fact.entity->vtable_index + 1);
+		out.args.push_back(pointer);
+		Parameter self;
+		self.name = "arg0";
+		self.type.text = "ptr";
+		out.call_params.push_back(self);
+		out.call_return_type.text = "void";
+		emit_void(out);
+	}
 	else if (ends != nullptr)
 	{
 		unit_.declare_call_target(*ends->fact.entity, false);
@@ -548,7 +574,9 @@ LowValue LowirFunctionLowering::delete_expression(const DumpNode& node)
 		out.args.push_back(pointer);
 		emit_void(out);
 	}
-	if (release != nullptr)
+	if (release != nullptr &&
+	    !(ends != nullptr && !node.fact.array_form &&
+	      ends->fact.entity->virtual_function))
 	{
 		deallocation_call(*release, storage, stride);
 	}
@@ -565,8 +593,15 @@ void LowirFunctionLowering::deallocation_call(const DumpNode& callee,
                                               const Operand& storage,
                                               unsigned long long bytes)
 {
+	deallocation_call(*callee.fact.entity, storage, bytes);
+}
+
+void LowirFunctionLowering::deallocation_call(const SemaEntity& release,
+                                              const Operand& storage,
+                                              unsigned long long bytes)
+{
 	TypeTable& types = unit_.types();
-	SemaEntity& entity = *callee.fact.entity;
+	const SemaEntity& entity = release;
 	unit_.declare_entity(entity);
 	Instruction out;
 	out.kind = Instruction::IK_CALL;

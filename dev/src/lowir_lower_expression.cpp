@@ -538,6 +538,20 @@ LowValue LowirFunctionLowering::cast_expression(const DumpNode& node,
 	if (types.kind(types.strip_cv(value.type)) == TypeKind::Pointer &&
 	    types.is_integral(types.strip_cv(source.type)))
 	{
+		if (node.fact.op != 0 && source.constant && source.value == 0 &&
+		    types.kind(types.strip_cv(source.type)) != TypeKind::Enum)
+		{
+			// 5.4p4 and 4.10p1: a cast the program wrote whose operand is a
+			// null pointer constant - a constant expression of *integer* type
+			// that evaluates to zero, which an enumerator is not - is 4.10p1's
+			// conversion and not 5.2.10p5's reading of an address.  What it
+			// produces is the null pointer value, and nothing computes that.
+			// A conversion the program did not write is one 8.5.3p5 may have to
+			// hold a temporary for, so it keeps the value an instruction names.
+			value.constant = true;
+			value.operand = named_operand(Operand::OP_INTEGER, "0");
+			return value;
+		}
 		// 5.2.10p5: the cast reads the integer as an address, which is the same
 		// bits under another type.
 		Instruction instruction;
@@ -681,7 +695,20 @@ LowValue LowirFunctionLowering::call_expression(const DumpNode& node,
 			      parameter);
 		}
 	}
-	if (direct)
+	if (direct && callee.fact.dispatches)
+	{
+		// 10.3p12: the call runs the final overrider the object's own class has
+		// for this slot, which the object says and the declaration does not.
+		// The declaration is still what the boundary is written from: 10.3p7
+		// lets an override hand back a pointer to a class derived from the one
+		// this call was resolved against, and what the caller reads is the type
+		// it named.
+		SemaEntity& entity = *callee.fact.entity;
+		call.has_call_signature = true;
+		call.first = dispatch_slot(call.args[indirect ? 1 : 0],
+		                           entity.vtable_index);
+	}
+	else if (direct)
 	{
 		SemaEntity& entity = *callee.fact.entity;
 		unit_.declare_entity(entity);

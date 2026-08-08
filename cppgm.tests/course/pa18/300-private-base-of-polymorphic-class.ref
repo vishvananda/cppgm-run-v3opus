@@ -1,0 +1,109 @@
+declare global @__external_rtti_vtable____class_type_info [binding=strong, object=_ZTVN10__cxxabiv117__class_type_infoE]
+declare global @__external_rtti_vtable____vmi_class_type_info [binding=strong, object=_ZTVN10__cxxabiv121__vmi_class_type_infoE]
+
+global @__typeinfo_name__struct_Wrapper [storage=readonly, binding=weak, object=_ZTS7Wrapper] = {
+  i8 55
+  i8 87
+  i8 114
+  i8 97
+  i8 112
+  i8 112
+  i8 101
+  i8 114
+  i8 0
+}
+global @__typeinfo_name__struct_Held [storage=readonly, binding=weak, object=_ZTS4Held] = {
+  i8 52
+  i8 72
+  i8 101
+  i8 108
+  i8 100
+  i8 0
+}
+global @__rtti_struct_Held [storage=readonly, binding=weak, object=_ZTI4Held] = {
+  ptr addr @__external_rtti_vtable____class_type_info + 16
+  ptr addr @__typeinfo_name__struct_Held
+}
+global @__rtti_struct_Wrapper [storage=readonly, binding=weak, object=_ZTI7Wrapper] = {
+  ptr addr @__external_rtti_vtable____vmi_class_type_info + 16
+  ptr addr @__typeinfo_name__struct_Wrapper
+  i32 0
+  i32 1
+  ptr addr @__rtti_struct_Held
+  i64 2048
+}
+global @Wrapper__vtable [storage=readonly, binding=weak, object=_ZTV7Wrapper] = {
+  i64 0
+  ptr addr @__rtti_struct_Wrapper
+  ptr addr @Wrapper__read
+}
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $object : obj<16x8>
+
+  block ^entry:
+    %t1 = addr $object
+    call void @Wrapper__Wrapper(%t1)
+    %t2 = addr $object
+    %t3 = load ptr %t2
+    %t4 = load ptr %t3
+    %t5 = call i32 %t4(%t2) as (%arg0 : ptr) -> i32
+    %t6 = binary sub i32 %t5, 3
+    return i32 %t6
+}
+function @Wrapper__Wrapper(%this : ptr) -> void [binding=weak, object=_ZN7WrapperC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 8
+    call void @Held__Held__base_entry(%t2)
+    %t3 = load ptr $this
+    %t4 = addr @Wrapper__vtable
+    %t5 = index i8 %t4, 16
+    store ptr %t5, %t3
+    return void
+}
+function @Wrapper__read(%this : ptr) -> i32 [binding=weak, object=_ZNK7Wrapper4readEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 8
+    %t3 = call i32 @Held__get(%t2)
+    return i32 %t3
+}
+function @Held__Held__base_entry(%this : ptr) -> void [binding=weak, object=_ZN4HeldC2Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    store i32 3, %t2
+    return void
+}
+function @Held__Held(%this : ptr) -> void [binding=weak, object=_ZN4HeldC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    store i32 3, %t2
+    return void
+}
+function @Held__get(%this : ptr) -> i32 [binding=weak, object=_ZNK4Held3getEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i32 %t2
+    return i32 %t3
+}
+alias object _ZN7WrapperC2Ev = @Wrapper__Wrapper
+alias object _ZN4HeldC2Ev = @Held__Held

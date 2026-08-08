@@ -181,6 +181,7 @@ struct SemaFact
 		, binds_temporary(false)
 		, base_subobject(false)
 		, null_preserving(false)
+		, dispatches(false)
 		, subobject_step(false)
 		, array_form(false)
 		, object_definition(false)
@@ -285,6 +286,13 @@ struct SemaFact
 	// begin where the object does is the answer a branch rather than the
 	// address itself.
 	bool null_preserving;
+	// 5.2.2p1 and 10.3p12: whether this `callee` names the function to run or
+	// only the slot to read it out of.  A virtual function called on an object
+	// runs the final overrider that object's own class has, which is a fact of
+	// the object rather than of the declaration overload resolution chose - and
+	// 5.2.2p1's qualified-id says the program wants the declaration it named.
+	// The two are one line in the dump, so this is what tells them apart.
+	bool dispatches;
 	// 12.8p15 and 12.6.2p10: whether this `constructor-action` builds a
 	// subobject of an object rather than a complete object of its own.  What
 	// the two part company over is 8.4.3p2: the class's copy constructor being

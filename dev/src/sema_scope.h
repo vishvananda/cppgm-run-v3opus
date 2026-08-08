@@ -124,6 +124,12 @@ const unsigned kNoVtableIndex = static_cast<unsigned>(-1);
 // at the start of every object of it.
 const unsigned long long kVpointerBytes = 8;
 
+// The ABI: the two words a virtual function table holds in front of its slots -
+// 10p1's offset from the vpointer back to the start of the complete object,
+// which single inheritance leaves at zero, and 5.2.8's record naming the type.
+// A vpointer addresses the first slot, so it is the table's address plus these.
+const unsigned long long kVtablePrefixBytes = 16;
+
 // 10.3p10 and the ABI: one entry of a class's virtual function table.
 //
 // The entry names the final overrider that class has for the slot, which is
@@ -254,6 +260,19 @@ struct SemaEntity
 	// order of the members that introduce them.  Empty for every class that
 	// dispatches nothing, which is nearly all of them.
 	std::vector<VirtualSlot> vtable;
+	// Class and the ABI: the first virtual member function this class declares
+	// that is neither pure nor inline, which is what says *which* translation
+	// unit owes the program this class's table.  A class that has one holds
+	// its table in the unit that defines that function alone; a class that has
+	// none - every virtual member of it defined in its own body - holds a
+	// table in every unit that needs one.  Null for both of those.
+	SemaEntity* key_function;
+	// Destructor: 5.3.5p9 and 12.5p4's deallocation function, resolved where
+	// 9.2p2 completes the class because that is where the destructor becomes
+	// virtual and the ABI's deleting entry starts owing a call of it.  The
+	// entry is a definition the translation writes with no expression under
+	// it, so the lookup cannot be left to the place the call is written.
+	SemaEntity* deleting_release;
 	// Class: 10.3p1, whether an object of this class carries a vpointer -
 	// because the class declares a virtual function or because a base does.
 	bool polymorphic;

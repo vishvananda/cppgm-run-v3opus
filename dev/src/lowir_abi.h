@@ -23,9 +23,25 @@ struct SemaEntity;
 // under two names, and a caller asks for whichever of them it is naming.
 const unsigned kCompleteObjectAbi = 0;
 const unsigned kBaseObjectAbi = 1;
+// 12.4 and 5.3.5p3: the third entry point a *virtual* destructor has, which
+// runs the destructor on the complete object and then gives its storage back.
+// It is the entry a `delete` of a pointer to a base reaches, because only the
+// object's own class knows which deallocation function 5.3.5p9 chose.
+const unsigned kDeletingObjectAbi = 2;
 
 std::string abi_symbol_of(const SemaEntity& entity, TypeTable& types,
                           unsigned variant = kCompleteObjectAbi);
+
+// 10.3 and the ABI: the object-file names the polymorphic object model gives a
+// class - its virtual function table, its type information record, and the
+// string that record names the type by.  None of the three is a declaration any
+// program wrote, so each is named from the type alone.
+std::string abi_vtable_symbol_of(TypeId type, TypeTable& types);
+std::string abi_typeinfo_symbol_of(TypeId type, TypeTable& types);
+std::string abi_typeinfo_name_symbol_of(TypeId type, TypeTable& types);
+// The bytes that string holds, which are the encoding of the type itself - the
+// `_ZTS` name without the prefix that says what the name is for.
+std::string abi_type_name_of(TypeId type, TypeTable& types);
 
 // 3.7.2p2: the object-file name of the wrapper function the ABI gives a
 // variable with thread storage duration.  It is named after the variable

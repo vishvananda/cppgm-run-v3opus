@@ -2938,7 +2938,20 @@ bool SemaAnalyzer::vacuous_destruction(TypeId type)
 		note_definition_body(*destructor, *owner);
 	}
 	bool nothing = destructor == nullptr || destructor->trivial;
-	if (!nothing && !destructor->deleted &&
+	// 12.4p11 and 10.3p10: a *virtual* destructor is one the class's table
+	// names, and running it writes the vpointer of the class it belongs to
+	// whatever else its body comes to - so running one is never nothing,
+	// however little the program wrote in it and however vacuous every
+	// subobject of the class is.  A polymorphic class whose destructor 12.4p5
+	// leaves trivial has no such body, and destroying an object of it is the
+	// nothing 12.4p5 already says it is.
+	const bool dispatches = destructor != nullptr &&
+		destructor->virtual_function;
+	if (dispatches)
+	{
+		nothing = false;
+	}
+	if (!nothing && !dispatches && !destructor->deleted &&
 	    (destructor->empty_body || destructor->defaulted))
 	{
 		// 12.4p8: what a destructor comes to is its body and then the

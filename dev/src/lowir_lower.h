@@ -145,6 +145,13 @@ struct LowObject
 	std::vector<ElementStep> elements;
 };
 
+// The internal LowIR spelling of a qualified name: the regions it is declared
+// in written with `__` where the source writes `::`, and every other character
+// an identifier cannot hold written as one `_`.  Dropping those characters
+// instead would leave two names one symbol: 12.4p1's `~C` and 12.1's `C` are two
+// functions of one class with one qualified name.
+std::string flatten_symbol_name(const std::string& name);
+
 // The symbols one LowIR program names, which outlive the translation unit that
 // first named them: 3.5 makes a name with external linkage one entity across
 // units, so a second unit that declares it again must reach the same symbol.
@@ -321,6 +328,14 @@ public:
 	// or object this unit does not define.  A use of a function whose definition
 	// belongs to every unit that needs one also asks for that definition here.
 	void declare_entity(const SemaEntity& entity);
+	// 10.3p10 and the ABI: the internal symbol of `owner`'s virtual function
+	// table, which a constructor or destructor of the class writes into the
+	// object.  The table is emitted here the first time one is asked for -
+	// or declared, where the class's key function says another unit owes the
+	// program the definition - so a program that creates no polymorphic object
+	// holds no table at all.
+	const std::string& vtable_symbol(const SemaEntity& owner);
+
 	// 3.2p2 and 3.5p4: the definition a use named even though this lowering
 	// wrote no call of it.  A definition every unit that needs one may hold is
 	// nobody's to owe where no call survives; one with internal linkage is this
@@ -551,6 +566,44 @@ private:
 	std::unordered_map<std::uint32_t, unsigned char> empty_construction_;
 	// Those a use has asked for and that are not lowered yet.
 	std::vector<const DumpNode*> demanded_;
+
+	// -- 10.3p10 and the ABI: the polymorphic object model's own data --------
+
+	// 3.4.3: whether a qualified name reaches `owner` from the namespace it
+	// stands under, which is what lets the internal spelling of its table be
+	// that name.  A class a function declares is reached by no such name, and
+	// two functions can declare two of one spelling, so those are spelled by
+	// the encoding of the type instead.
+	static bool named_from_namespace_scope(const SemaEntity& owner);
+	// The internal spelling of the class - `class_B`, `struct_N__S`, or the
+	// encoded type for one no qualified name reaches.
+	std::string class_tag(const SemaEntity& owner);
+	// 5.2.8: the type-information record of `owner`, and the string it names
+	// the type by, emitted on demand.  A base class has one wherever a class
+	// below it does, whether or not the base itself dispatches.
+	const std::string& rtti_symbol(const SemaEntity& owner);
+	// The ABI's own type-information class vtables, which every record points
+	// into and no unit defines.
+	const std::string& external_rtti_vtable(unsigned bases);
+	// 10.4p2: the ABI's stand-in for a slot whose final overrider is pure,
+	// declared with the signature of the first such slot the unit emits.
+	const std::string& pure_virtual_symbol(const SemaEntity& member);
+	// The slots of `owner`'s table, written into the global `into`.
+	void write_vtable_slots(const SemaEntity& owner,
+	                        lowir_model::GlobalDefinition& into);
+	// 12.4 and 5.3.5p3: the deleting entry over a destructor's definition,
+	// which is that definition with the deallocation added to 12.4p8's suffix.
+	void deleting_definition(const SemaEntity& entity);
+	// The tables this unit has named, so one class's is emitted once.
+	std::unordered_map<std::uint32_t, std::string> vtable_symbols_;
+	std::unordered_map<std::uint32_t, std::string> rtti_symbols_;
+	std::string pure_virtual_;
+	// The destructors a table has named the deleting entry of and that are not
+	// written yet, and the ones already asked for - the table and the
+	// definition can be reached in either order, so the ask is recorded rather
+	// than acted on where it is made.
+	std::vector<const SemaEntity*> deleting_owed_;
+	std::unordered_set<std::uint32_t> deleting_entries_;
 };
 
 // One function body, lowered.
@@ -563,8 +616,11 @@ public:
 	LowirFunctionLowering(LowirUnitLowering& unit, lowir_model::Function& out);
 
 	// Lowers the parameters and body written under `node`, which is a
-	// `function-definition` of the resolved tree.
-	void run(const DumpNode& node, TypeId type);
+	// `function-definition` of the resolved tree.  `variant` says which of the
+	// ABI's entry points this body stands under, which for `kDeletingObjectAbi`
+	// adds 5.3.5p3's deallocation to what the destructor's own definition does.
+	void run(const DumpNode& node, TypeId type,
+	         unsigned variant = 0 /* kCompleteObjectAbi */);
 
 	// A body with no source declaration behind it: an entry block is opened,
 	// or the one a previous translation unit left open is taken up again, and
@@ -907,6 +963,12 @@ private:
 	void deallocation_call(const DumpNode& callee,
 	                       const lowir_model::Operand& storage,
 	                       unsigned long long bytes);
+	// The same over the declaration 5.3.5p9 chose rather than over a line the
+	// analysis wrote, which is what the ABI's deleting entry has: no
+	// delete-expression stands under it.
+	void deallocation_call(const SemaEntity& release,
+	                       const lowir_model::Operand& storage,
+	                       unsigned long long bytes);
 	// 5.3.4p1 and the ABI: how many elements the array standing at `data`
 	// holds, read from the count in front of them or written as the number the
 	// translation knows.
@@ -1028,6 +1090,7 @@ private:
 			, element(false)
 			, index(0)
 			, count(0)
+			, release(nullptr)
 		{}
 
 		const DumpNode* action;
@@ -1037,13 +1100,39 @@ private:
 		// or single element every other entry is, and the whole bound for an
 		// array written as the loop 12.4p8's order is.
 		unsigned long long count;
+		// 5.3.5p3: the deallocation function this entry is a call of, for the
+		// one entry of the ABI's deleting destructor that ends no lifetime.  It
+		// stands last, so every subobject is gone before the storage is - and
+		// 15.2p2 makes it the step every handler of the ones before it ends
+		// with, which is what the same list already writes for a destruction.
+		const SemaEntity* release;
 	};
 	// The destructions after the body, with the handler each of them needs for
 	// the subobjects still standing behind it.
 	void destructor_epilogue();
+	// One entry of that list, which is a destruction for every entry but the
+	// deallocation the ABI's deleting entry ends with.
+	void epilogue_step(const LowDestruction& step,
+	                   const std::string* cleanup = nullptr,
+	                   bool suffix = false);
 	// Reads that list off the definition and answers where the body ends among
 	// its children.
 	std::size_t collect_epilogue(const DumpNode& node);
+	// 12.1p11 and 12.4p11: the store that makes the object being built or torn
+	// down an object of `owner` - written after the base subobject was built and
+	// before this class's members are, and at the head of what a destructor
+	// does, because between those two points 10.3p12 dispatches on this class.
+	void write_vpointer(const SemaEntity& owner);
+	// 5.3.5p3 and 12.5p4: the call the ABI's deleting entry ends with, which
+	// gives the storage of the complete object back to the function 5.3.5p9
+	// chose in the class the destructor belongs to.
+	void deleting_release_call(const SemaEntity& release, TypeId destroyed);
+	// 10.3p12: the address of the final overrider the object standing at
+	// `object` has for the table entry `slot`, read out of that object's own
+	// vpointer.  Which class the object turns out to be is what the vpointer
+	// says, so nothing here names one.
+	lowir_model::Operand dispatch_slot(const lowir_model::Operand& object,
+	                                   unsigned slot);
 
 	// 15.2p2: one subobject the constructor being lowered has already built,
 	// held as the instructions that named it rather than as the address they
@@ -1478,6 +1567,10 @@ private:
 	std::vector<LowDestruction> epilogue_;
 	std::string destructor_cleanup_;
 	std::string destructor_end_;
+	// 5.3.5p3 and 12.5p4: the class whose destructor this body is, which is
+	// what says how much storage the ABI's deleting entry gives back.  No type
+	// for every other function.
+	TypeId destroyed_class_;
 	// Whether the walk is inside 12.6.2's initialization of the subobjects of
 	// the object a constructor was called on, which is the one place 15.2p2's
 	// partly built object exists.

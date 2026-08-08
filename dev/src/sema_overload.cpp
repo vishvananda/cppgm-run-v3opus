@@ -2659,6 +2659,14 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
 	// not a function at all.
 	const bool adl = callee.kind == AstKind::IdExpression && !parenthesized &&
 		!QualifiedName(callee.text).qualified() && allows_adl(named);
+	// 5.2.2p1 and 10.3p12: a virtual function called through a qualified-id is
+	// the declaration that id names and not the final overrider the object's own
+	// class has, and only the two forms that can name a member of an object can
+	// name it either way at all.
+	const bool named_by_qualified_id =
+		(callee.kind != AstKind::MemberExpression &&
+		 callee.kind != AstKind::IdExpression) ||
+		QualifiedName(called).qualified();
 	// Where nothing was found at all, the name is settled once the arguments
 	// are known, and the line the callee will be written on holds its place
 	// before them until then.
@@ -2733,6 +2741,19 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
 		SemaEntity& chosen = declared_member(selected);
 		name_function(target, chosen, "callee");
 		function = target.type;
+		if (target.node != nullptr)
+		{
+			// 5.2.2p1: the call runs the final overrider the object's own class
+			// has, wherever the program named the member on an object and left
+			// the name unqualified.  5.2.4's explicit destructor call is named
+			// on an object whose class the program wrote, and the references
+			// run the declaration it named; every other special member is
+			// reached through no name at all.
+			target.node->fact.dispatches = chosen.virtual_function &&
+				chosen.special == kOrdinaryFunction &&
+				!named_by_qualified_id && chosen.object_member &&
+				object.node != nullptr;
+		}
 		if (chosen.special == kDestructorFunction)
 		{
 			// 5.2.4 and the ABI: a destructor a call names is named on an

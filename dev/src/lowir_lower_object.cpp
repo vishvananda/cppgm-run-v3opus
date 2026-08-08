@@ -1123,20 +1123,15 @@ void LowirFunctionLowering::destructor_epilogue()
 		{
 			// Nothing stands behind the last one but its own elements, which
 			// an array written as a loop still owes.
-			destruction_step(*step.action, step.element, step.index, step.count,
-			                 nullptr, true);
+			epilogue_step(step, nullptr, true);
 			break;
 		}
-		destruction_step(*step.action, step.element, step.index, step.count,
-		                 &cleanups[index], true);
+		epilogue_step(step, &cleanups[index], true);
 		jump(nexts[index]);
 		open_block(cleanups[index]);
 		if (chained)
 		{
-			destruction_step(*epilogue_[index + 1].action,
-			                 epilogue_[index + 1].element,
-			                 epilogue_[index + 1].index,
-			                 epilogue_[index + 1].count);
+			epilogue_step(epilogue_[index + 1]);
 			if (index + 2 < total)
 			{
 				jump(cleanups[index + 1]);
@@ -1148,14 +1143,93 @@ void LowirFunctionLowering::destructor_epilogue()
 		{
 			for (std::size_t at = index + 1; at < total; ++at)
 			{
-				destruction_step(*epilogue_[at].action, epilogue_[at].element,
-				                 epilogue_[at].index, epilogue_[at].count);
+				epilogue_step(epilogue_[at]);
 			}
 		}
 		emit_handler_end();
 		emit_resume();
 		open_block(nexts[index]);
 	}
+}
+
+// One entry of that list.  Every entry but one is 12.4p8's end of a subobject's
+// lifetime; the one 5.3.5p3 adds to the ABI's deleting entry gives the storage
+// back, and stands last, so it is never the step a handler is opened around.
+void LowirFunctionLowering::epilogue_step(const LowDestruction& step,
+                                          const std::string* cleanup,
+                                          bool suffix)
+{
+	if (step.release == nullptr)
+	{
+		destruction_step(*step.action, step.element, step.index, step.count,
+		                 cleanup, suffix);
+		return;
+	}
+	deleting_release_call(*step.release, destroyed_class_);
+}
+
+// 10.3p12: which function a call on an object of a polymorphic class runs is a
+// fact of that object and not of the declaration overload resolution chose - so
+// the address is read out of the object, at the slot the ABI gave the chosen
+// declaration and every declaration below it that overrides it.
+Operand LowirFunctionLowering::dispatch_slot(const Operand& object,
+                                             unsigned slot)
+{
+	TypeTable& types = unit_.types();
+	const TypeId any = types.pointer_to(types.fundamental(FT_VOID));
+	Operand at = load(object, any);
+	if (slot != 0)
+	{
+		Instruction step;
+		step.kind = Instruction::IK_INDEX;
+		step.type.text = "i8";
+		step.first = at;
+		step.second = named_operand(Operand::OP_INTEGER,
+		                            decimal(slot * kVpointerBytes));
+		at = emit(step);
+	}
+	return load(at, any);
+}
+
+// 12.1p11 and 12.4p11: while a constructor or destructor of `owner` runs, the
+// object it runs on is an object of `owner` - so its vpointer names `owner`'s
+// table and a virtual call written in either body reaches `owner`'s overriders
+// and not the ones of the class the complete object turns out to be.
+void LowirFunctionLowering::write_vpointer(const SemaEntity& owner)
+{
+	TypeTable& types = unit_.types();
+	// 9.3.2p1: the object is the one the entry was called on, which the body
+	// already holds in the slot its object parameter was stored into.
+	const Operand at =
+		load(named_operand(Operand::OP_SLOT, out_.params[0].name),
+		     types.pointer_to(owner.type));
+	Instruction table;
+	table.kind = Instruction::IK_ADDR;
+	table.first =
+		named_operand(Operand::OP_GLOBAL, unit_.vtable_symbol(owner));
+	Instruction slot;
+	slot.kind = Instruction::IK_INDEX;
+	slot.type.text = "i8";
+	slot.first = emit(table);
+	slot.second =
+		named_operand(Operand::OP_INTEGER, decimal(kVtablePrefixBytes));
+	store(emit(slot), at, types.pointer_to(types.fundamental(FT_VOID)));
+}
+
+// 5.3.5p3: the ABI's deleting entry ends by giving the storage of the complete
+// object back, through the function 5.3.5p9 chose in the destroyed object's own
+// class - which is why the entry exists at all: a `delete` written on a pointer
+// to a base cannot know which function that is.
+void LowirFunctionLowering::deleting_release_call(const SemaEntity& release,
+                                                  TypeId destroyed)
+{
+	TypeTable& types = unit_.types();
+	const Operand at =
+		load(named_operand(Operand::OP_SLOT, out_.params[0].name),
+		     types.pointer_to(destroyed));
+	// 12.5p4's two-parameter form is handed how much storage the object stood
+	// in, which for the complete object is what its own class occupies.
+	deallocation_call(release, at, types.object_size(types.strip_cv(destroyed)));
 }
 
 // 12.2p1: a prvalue of class type is an object, and no declaration named it, so

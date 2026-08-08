@@ -1,0 +1,22 @@
+declare global @__external_vtable__KeyElsewhere [binding=strong, object=_ZTV12KeyElsewhere]
+
+function @use() -> i32 [binding=strong, object=_Z3usev] {
+  slot $object : obj<8x8>
+
+  block ^entry:
+    %t1 = addr $object
+    call void @KeyElsewhere__KeyElsewhere(%t1)
+    return i32 0
+}
+function @KeyElsewhere__KeyElsewhere(%this : ptr) -> void [binding=weak, object=_ZN12KeyElsewhereC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = addr @__external_vtable__KeyElsewhere
+    %t3 = index i8 %t2, 16
+    store ptr %t3, %t1
+    return void
+}
+alias object _ZN12KeyElsewhereC2Ev = @KeyElsewhere__KeyElsewhere

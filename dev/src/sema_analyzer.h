@@ -620,6 +620,10 @@ private:
 	// table holds, and whether a final overrider of it is still pure.
 	void settle_virtual_members(SemaEntity& entity, Scope& scope);
 	void settle_virtual_destructor(SemaEntity& entity, SemaEntity& destructor);
+	// The ABI, read once the table is settled: which unit owes the program this
+	// class's table, and what the deleting entry of its destructor gives the
+	// storage back to.
+	void settle_vtable_ownership(SemaEntity& entity, Scope& scope);
 	// 10.3p4, 10.3p5 and 10.3p7: what an overriding declaration has to agree
 	// with, and what a declaration that overrides nothing may not have written.
 	void require_overridable(const SemaEntity& member,

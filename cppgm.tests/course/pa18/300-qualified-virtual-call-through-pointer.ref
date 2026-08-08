@@ -1,0 +1,108 @@
+declare global @__external_rtti_vtable____class_type_info [binding=strong, object=_ZTVN10__cxxabiv117__class_type_infoE]
+declare global @__external_rtti_vtable____si_class_type_info [binding=strong, object=_ZTVN10__cxxabiv120__si_class_type_infoE]
+
+global @__typeinfo_name__struct_Base [storage=readonly, binding=weak, object=_ZTS4Base] = {
+  i8 52
+  i8 66
+  i8 97
+  i8 115
+  i8 101
+  i8 0
+}
+global @__rtti_struct_Base [storage=readonly, binding=weak, object=_ZTI4Base] = {
+  ptr addr @__external_rtti_vtable____class_type_info + 16
+  ptr addr @__typeinfo_name__struct_Base
+}
+global @Base__vtable [storage=readonly, binding=weak, object=_ZTV4Base] = {
+  i64 0
+  ptr addr @__rtti_struct_Base
+  ptr addr @Base__f
+}
+global @__typeinfo_name__struct_Derived [storage=readonly, binding=weak, object=_ZTS7Derived] = {
+  i8 55
+  i8 68
+  i8 101
+  i8 114
+  i8 105
+  i8 118
+  i8 101
+  i8 100
+  i8 0
+}
+global @__rtti_struct_Derived [storage=readonly, binding=weak, object=_ZTI7Derived] = {
+  ptr addr @__external_rtti_vtable____si_class_type_info + 16
+  ptr addr @__typeinfo_name__struct_Derived
+  ptr addr @__rtti_struct_Base
+}
+global @Derived__vtable [storage=readonly, binding=weak, object=_ZTV7Derived] = {
+  i64 0
+  ptr addr @__rtti_struct_Derived
+  ptr addr @Derived__f
+}
+
+function @through_pointer(%object : ptr) -> i32 [binding=strong, object=_Z15through_pointerPK7Derived] {
+  slot $object : ptr
+
+  block ^entry:
+    store ptr %object, $object
+    %t1 = load ptr $object
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    %t3 = call i32 @Base__f(%t2)
+    %t4 = load ptr $object
+    %t5 = load ptr %t4
+    %t6 = load ptr %t5
+    %t7 = call i32 %t6(%t4) as (%arg0 : ptr) -> i32
+    %t8 = binary add i32 %t3, %t7
+    return i32 %t8
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $object : obj<8x8>
+
+  block ^entry:
+    %t1 = addr $object
+    call void @Derived__Derived(%t1)
+    %t2 = addr $object
+    %t3 = call i32 @through_pointer(%t2)
+    %t4 = binary sub i32 %t3, 3
+    return i32 %t4
+}
+function @Base__f(%this : ptr) -> i32 [binding=weak, object=_ZNK4Base1fEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    return i32 1
+}
+function @Derived__Derived(%this : ptr) -> void [unwind=no, binding=weak, object=_ZN7DerivedC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    call void @Base__Base__base_entry(%t2)
+    %t3 = load ptr $this
+    %t4 = addr @Derived__vtable
+    %t5 = index i8 %t4, 16
+    store ptr %t5, %t3
+    return void
+}
+function @Derived__f(%this : ptr) -> i32 [binding=weak, object=_ZNK7Derived1fEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    return i32 2
+}
+function @Base__Base__base_entry(%this : ptr) -> void [unwind=no, binding=weak, object=_ZN4BaseC2Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = addr @Base__vtable
+    %t3 = index i8 %t2, 16
+    store ptr %t3, %t1
+    return void
+}
+alias object _ZN7DerivedC2Ev = @Derived__Derived
