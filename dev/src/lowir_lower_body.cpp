@@ -1039,8 +1039,14 @@ void LowirFunctionLowering::run(const DumpNode& node, TypeId type)
 			// 5.2.2p4: the parameter is the object the caller built, standing
 			// where the caller put it - so the body reaches it through the
 			// address it was passed and nothing is copied into a second place.
-			placed_[child.fact.entity->id] =
-				named_operand(Operand::OP_TEMP, parameter.name);
+			const Operand at = named_operand(Operand::OP_TEMP, parameter.name);
+			placed_[child.fact.entity->id] = at;
+			// 15.2p2 and 12.4p5: it stands from the moment the body begins and
+			// its end is this function's to write, so an exception out of
+			// anything the body does has to end it - the same standing object a
+			// declaration would have made, entered where the function does.
+			begin_object_lifetime(child, unwind_mark_, at,
+			                      std::vector<Instruction>());
 			continue;
 		}
 		if (types.is_class(types.strip_cv(written)))

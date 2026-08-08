@@ -188,9 +188,13 @@ public:
 	// `zeroed_storage` is 8.5p8's answer for the same class: whether any byte
 	// of an object of it is written by zero-initialization, which is what its
 	// bases and members hold rather than what its size comes to.
+	// `subobject_bytes` is 12.8p12 over the storage the layout just walked -
+	// whether the base subobject and every member is carried by its own bytes -
+	// which 5.2.2p4's boundary reads for a class that derives from something.
 	void complete_class(TypeId type, unsigned long long size,
 	                    unsigned long long align, bool empty,
-	                    bool trivially_copied, bool zeroed_storage);
+	                    bool trivially_copied, bool zeroed_storage,
+	                    bool subobject_bytes);
 
 	// 8.5p8: whether zero-initializing an object of `type` writes anything at
 	// all.  It is over the storage the bases and the non-static data members
@@ -205,22 +209,19 @@ public:
 	// copy of one moves no bytes.  False for every type that is not a class.
 	bool is_empty_class(TypeId type) const;
 
-	// 12.8p11 and p12: what the class's copy constructor is - whether a copy of
-	// an object of it is the copy of its bytes, and whether 8.4.3p2 leaves the
-	// program no copy of one at all.  The layout writes a first answer to the
-	// first of them from the declarations the class holds; both are settled
-	// where the class's copy constructor is settled, which is one step later
-	// than the layout and is the answer every reader wants.
-	// `trivial_destruction` is 12.4p5's answer for the same class, which the
-	// ABI reads beside the copy: a class one of whose lifetimes ends in
-	// something is not one a call may hand back in registers, because the bytes
-	// alone are not the object.
-	// `base` is 10p1's base class subobject the object of this class begins
-	// with, which the boundary reads beside them; `kNoType` where the class has
-	// none.
+	// 12.8p11, p12 and 12.4p8: what the class's copy constructor is - whether a
+	// copy of an object of it is the copy of its bytes, and whether 8.4.3p2
+	// leaves the program no copy of one at all - and what the end of an object
+	// of it comes to.  The layout writes a first answer to the first of them
+	// from the declarations the class holds; all three are settled where the
+	// class's copy constructor is, which is one step later than the layout and
+	// is the answer every reader wants.  `derived` is 10p1's question of whether
+	// the class has a base class subobject, which is what says the boundary
+	// reads the storage the class is laid out over rather than the class's own
+	// copy constructor.
 	void settle_copy_facts(TypeId type, bool trivially_copied,
-	                       bool copy_deleted, bool trivial_destruction,
-	                       TypeId base);
+	                       bool copy_deleted, bool vacuous_destruction,
+	                       bool derived);
 
 	// 8.4.3p2 and 12.8p11: whether the copy constructor of the class is one no
 	// program may name, which is what says a transfer of an object of it is the
@@ -233,6 +234,23 @@ public:
 	// or holds a subobject whose copy is not.  True for every type that is not
 	// a class.
 	bool is_trivially_copied(TypeId type) const;
+
+	// 12.4p8: whether the end of the lifetime of an object of the class comes
+	// to nothing at all - which is broader than 12.4p5's triviality by exactly
+	// the clause that says so, because a destructor whose body writes no
+	// statement runs nothing however the program declared it.  True for every
+	// type that is not a class.
+	bool has_vacuous_destruction(TypeId type);
+
+	// 12.8p12 and 12.4p8 as one question: whether the bytes of an object of the
+	// class stand for the object.  They do exactly where a copy of one is the
+	// copy of its bytes *and* nothing runs when one ends - an object something
+	// runs at the end of is one the program can watch, so a second object made
+	// out of its bytes is a second thing to run at the end of and not a copy.
+	// This is what an initialization, an argument, a returned object, a
+	// conditional's arm and 12.8p31's elision all ask.  True for every type
+	// that is not a class.
+	bool bytes_stand_for_object(TypeId type);
 
 	// 6.6.3p2 and 5.2.2p4: whether an object of this type is returned in
 	// storage the caller gives the function rather than as a value the call
@@ -247,14 +265,14 @@ public:
 
 	// 5.2.2p4: whether a parameter of this type is passed as the address of the
 	// object the caller built rather than as the bytes that object holds.  A
-	// class 12.8p12 says a copy of is not the copy of its bytes, or 12.4p5 says
-	// the end of an object of is a call, is a class the boundary cannot carry
-	// as a value: the caller has to be able to name the object it built and the
-	// callee has to be able to name the one it was given, so the two name one
-	// object.  It is the other half of `returns_indirectly` and read at the same
-	// three places - the declaration, the definition and the call - except that
-	// width says nothing here, because an argument the caller already laid out
-	// costs nothing to point at however narrow it is.
+	// class whose bytes do not stand for the object is one the boundary cannot
+	// carry as a value: the caller has to be able to name the object it built
+	// and the callee has to be able to name the one it was given, so the two
+	// name one object.  It is the other half of `returns_indirectly` and read at
+	// the same three places - the declaration, the definition and the call -
+	// except that width says nothing here, because an argument the caller
+	// already laid out costs nothing to point at however narrow it is, and that
+	// the copy half is `carried_by_bytes` rather than the class's own copy.
 	bool passes_indirectly(TypeId type);
 
 	bool is_class(TypeId type) const { return kind(type) == TypeKind::Class; }
@@ -398,9 +416,6 @@ private:
 		bool complete;
 		unsigned long long size;
 		unsigned long long align;
-		// 12.4p5: whether the end of the lifetime of an object of the class is
-		// nothing at all, which the ABI reads beside the copy.
-		bool trivial_destruction = true;
 		// 9p6 and 12.8p15: whether an object of the class holds nothing - no
 		// base subobject with storage and no non-static data member.  1.8p5
 		// still gives it a byte, so its size does not say so, and a memberwise
@@ -410,6 +425,21 @@ private:
 		// is the copy of its bytes, which the program writing a copy
 		// constructor of its own - here or in a subobject - makes it not.
 		bool trivially_copied;
+		// 12.8p12 over the storage the class is laid out over: whether the base
+		// class subobject and every non-static data member is carried by its
+		// own bytes, which is the same walk with the class's *own* declaration
+		// of a copy constructor left out of it.
+		bool subobject_bytes = true;
+		// 12.8p12 as 5.2.2p4's boundary reads it: whether the boundary carries
+		// an object of the class as its bytes.  It is the class's own copy fact
+		// where the class derives from nothing, and 10p1's storage it is laid
+		// out over where it derives from something - a derived class is carried
+		// the way the subobjects it is made of are.
+		bool carried_by_bytes = true;
+		// 12.4p8: whether the end of the lifetime of an object of the class
+		// comes to nothing, which the ABI and every copy read beside the copy
+		// fact: bytes stand for an object only while nothing runs at its end.
+		bool vacuous_destruction = true;
 		// 8.5p8: whether any byte of an object of the class is written by
 		// zero-initialization, which is what its bases and members hold.
 		bool zeroed_storage = true;
@@ -417,11 +447,6 @@ private:
 		// no program able to name, which is what says an object of it is
 		// carried by the member the program declared and not by its bytes.
 		bool copy_deleted;
-		// 10p1: the base class subobject an object of this class begins with,
-		// which 5.2.2p4's boundary reads because an object of a derived class
-		// is carried the way the storage it is laid out over is.  `kNoType`
-		// where the class derives from nothing.
-		TypeId base = kNoType;
 	};
 
 	// What makes two types the same type.

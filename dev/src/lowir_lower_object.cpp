@@ -703,15 +703,16 @@ void LowirFunctionLowering::constructor_call(const Operand& address,
 		named.assign(written.begin() + static_cast<std::ptrdiff_t>(mark.at),
 		             written.end());
 	}
+	// 12.6p1: what this call builds is one object, which for an array of class
+	// type is the element being constructed rather than the array around it -
+	// so every question about the class asked below is asked of that one.
+	const TypeId written = zeroed == kNoType ? node.fact.type : zeroed;
 	if (node.fact.zero_initialized)
 	{
 		// 8.5p7: the object was value-initialized and its class wrote no
 		// constructor, so its storage is zero before the one the standard gave
 		// it runs - and that zero is the whole initialization where the
-		// constructor is the trivial one.  What is zeroed is one object, which
-		// for an array of class type is the element being constructed rather
-		// than every byte the array occupies.
-		const TypeId written = zeroed == kNoType ? node.fact.type : zeroed;
+		// constructor is the trivial one.
 		if (storage)
 		{
 			// 5.3.4p15: what stands here is the storage the allocation
@@ -736,12 +737,18 @@ void LowirFunctionLowering::constructor_call(const Operand& address,
 		 constructor.transfer == kMoveConstructorTransfer) &&
 		call.children.size() > 2;
 	if (transfers_value && constructor.trivial &&
+	    types.has_vacuous_destruction(written) &&
 	    (node.fact.subobject_step ||
-	     !types.is_copy_deleted(types.strip_cv(node.fact.type))))
+	     !types.is_copy_deleted(types.strip_cv(written))))
 	{
-		// 12.8p12: the copy or move the standard defines for this class does
-		// nothing but carry the bytes of the object it reads from, so the
-		// transfer is that copy and no call stands for it.  A trivial
+		// 12.8p12 and 12.4p8: the copy or move the standard defines for this
+		// class does nothing but carry the bytes of the object it reads from,
+		// so the transfer is that copy and no call stands for it.  Which member
+		// was chosen is what 12.8p25's triviality is asked of - a class whose
+		// copy is the bytes and whose move is not is carried by whichever of
+		// them 13.3 picked - and 12.4p8 is asked beside it, because bytes stand
+		// for an object only while nothing runs at the end of one: a second
+		// object made out of them would be a second end to run.  A trivial
 		// constructor with nothing to read from is 12.1p5's, which leaves the
 		// storage holding what it held; this one leaves it holding an object.
 		//
@@ -753,7 +760,7 @@ void LowirFunctionLowering::constructor_call(const Operand& address,
 		// that initialization - 12.8p15 chose the constructor there, and where
 		// that one is trivial the subobject is its bytes.
 		unit_.owe_internal_definition(constructor);
-		if (types.is_empty_class(types.strip_cv(node.fact.type)))
+		if (types.is_empty_class(types.strip_cv(written)))
 		{
 			// 9p6: an object of a class that holds nothing has no bytes to
 			// carry, so nothing is read out of the object this transfer reads
@@ -775,8 +782,8 @@ void LowirFunctionLowering::constructor_call(const Operand& address,
 		// storage of its own is that object already, and giving it storage
 		// first would be one copy more than the copy asked for.
 		const LowValue source = expression(*call.children[2]);
-		copy_object_storage(address, class_copy_source(source),
-		                    node.fact.type, holds_class_value(source));
+		copy_object_storage(address, class_copy_source(source), written,
+		                    holds_class_value(source));
 		return;
 	}
 	if (!always && !transfers_value &&
@@ -1564,7 +1571,8 @@ bool LowirFunctionLowering::creates_object(const DumpNode& node, TypeId type)
 		// object each of its operands initializes is this destination.
 		return node.fact.category == ValueCategory::PRValue;
 	}
-	if (node.fact.kind == FactKind::Cast && creates_its_object(node))
+	if (node.fact.kind == FactKind::Cast &&
+	    creates_its_object(node, unit_.types()))
 	{
 		// 5.2.9p4: the cast is the direct-initialization of the temporary
 		// standing under it, so where that temporary builds is where the cast
@@ -1572,7 +1580,7 @@ bool LowirFunctionLowering::creates_object(const DumpNode& node, TypeId type)
 		// question and not the cast's.
 		return creates_object(*node.children[0], type);
 	}
-	if (!creates_its_object(node))
+	if (!creates_its_object(node, unit_.types()))
 	{
 		return false;
 	}
@@ -1694,15 +1702,15 @@ Operand LowirFunctionLowering::class_argument(const DumpNode& node, TypeId type)
 //
 // This is the one place an object of class type is copied - an initialization,
 // an argument, a returned object, an arm of a conditional and a parameter's
-// entry all reach it - so it is where 12.8p25 is asked whether the copy the
-// program wrote is the copy of the bytes.
+// entry all reach it - so it is where 12.8p12 and 12.4p8 are asked together
+// whether the bytes stand for the object the program wrote a copy of.
 void LowirFunctionLowering::copy_class_object(const Operand& destination,
                                               const Operand& source,
                                               TypeId type, bool stored)
 {
 	TypeTable& types = unit_.types();
 	const TypeId bare = types.strip_cv(type);
-	if (!types.is_trivially_copied(bare))
+	if (!types.bytes_stand_for_object(bare))
 	{
 		// 12.8p1: the copy is a call of the copy constructor the program wrote,
 		// which this milestone does not select or pass an object to.  Writing

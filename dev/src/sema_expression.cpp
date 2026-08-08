@@ -1919,6 +1919,7 @@ SemaEntity* SemaAnalyzer::reserved_function(const std::string& written,
 	// program writing `noexcept` states of its own - so it is written on the
 	// declaration and read where any other declaration's is.
 	entity.nonthrowing = true;
+	entity.wrote_exception_specification = true;
 	if (found != nullptr)
 	{
 		found->push_back(&entity);
@@ -1965,6 +1966,7 @@ void SemaAnalyzer::declare_allocation_functions(Scope& where)
 			global, false);
 		entity.builtin = kReserved[index].builtin;
 		entity.nonthrowing = !kReserved[index].allocates;
+		entity.wrote_exception_specification = true;
 	}
 }
 
@@ -2470,7 +2472,7 @@ void SemaAnalyzer::transfer_arm_to_result(Value& arm, TypeId result,
 		release_temporary(arm, frame);
 		return;
 	}
-	if (types_.is_trivially_copied(types_.strip_cv(result)))
+	if (types_.bytes_stand_for_object(types_.strip_cv(result)))
 	{
 		return;
 	}

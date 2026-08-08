@@ -661,6 +661,10 @@ private:
 	// `scope` declares does nothing, so that no call has to be made for one.
 	bool trivial_default_construction(Scope& scope);
 	bool trivial_destruction(Scope& scope);
+	// 15.4p14 and 12.4p3: whether the destructor of the class `scope` declares
+	// throws nothing, which is the same walk asked of what each subobject's own
+	// destructor allows rather than of what running it comes to.
+	bool destruction_nonthrowing(Scope& scope);
 	// 12.6.2: the member initializations of one constructor, in the declaration
 	// order 12.6.2p10 gives them whatever order the mem-initializers were
 	// written in.  Each is written under the constructor's own definition.
@@ -1098,6 +1102,11 @@ private:
 	// of the function type, so it is read off the declarator once and held on
 	// the declaration 5.3.4p15 asks it of.
 	static bool declarator_nonthrowing(const AstNode& declarator);
+	// 15.4p14: whether that declarator wrote an exception-specification at all,
+	// which is what says the function keeps what it wrote rather than taking
+	// the one an implicit declaration of it would have had.
+	static bool declarator_writes_exception_specification(
+		const AstNode& declarator);
 	// 9.4p1: whether `where` declares `name` as a static member function whose
 	// declarator wrote `type`.
 	bool declares_static_member(Scope& where, const std::string& name,

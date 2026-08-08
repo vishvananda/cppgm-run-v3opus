@@ -491,7 +491,8 @@ void TypeTable::rename(TypeId type, const std::string& name,
 
 void TypeTable::complete_class(TypeId type, unsigned long long size,
                                unsigned long long align, bool empty,
-                               bool trivially_copied, bool zeroed_storage)
+                               bool trivially_copied, bool zeroed_storage,
+                               bool subobject_bytes)
 {
 	UserType& record = user_types_[nodes_[type].user];
 	record.complete = true;
@@ -500,6 +501,8 @@ void TypeTable::complete_class(TypeId type, unsigned long long size,
 	record.empty = empty;
 	record.trivially_copied = trivially_copied;
 	record.zeroed_storage = zeroed_storage;
+	record.subobject_bytes = subobject_bytes;
+	record.carried_by_bytes = trivially_copied;
 }
 
 bool TypeTable::has_zeroed_storage(TypeId type)
@@ -515,14 +518,19 @@ bool TypeTable::has_zeroed_storage(TypeId type)
 }
 
 void TypeTable::settle_copy_facts(TypeId type, bool trivially_copied,
-                                  bool copy_deleted, bool trivial_destruction,
-                                  TypeId base)
+                                  bool copy_deleted, bool vacuous_destruction,
+                                  bool derived)
 {
 	UserType& record = user_types_[nodes_[type].user];
 	record.trivially_copied = trivially_copied;
 	record.copy_deleted = copy_deleted;
-	record.trivial_destruction = trivial_destruction;
-	record.base = base;
+	record.vacuous_destruction = vacuous_destruction;
+	// 10p1: what an object of a derived class is carried by at 5.2.2p4's
+	// boundary is what the storage it is laid out over is carried by, so the
+	// copy half of that boundary is the subobjects' answer and not this class's
+	// own copy constructor.  A class that derives from nothing reads its own.
+	record.carried_by_bytes =
+		derived ? record.subobject_bytes : trivially_copied;
 }
 
 bool TypeTable::is_copy_deleted(TypeId type) const
@@ -544,12 +552,10 @@ bool TypeTable::returns_indirectly(TypeId type)
 	}
 	// The course ABI hands back an object of two words or less as the bytes it
 	// occupies, and everything wider through a destination the caller names.
-	// 12.4p5 joins 12.8p12 in saying which classes those bytes do not stand
-	// for: an object whose lifetime ends in a call of a destructor is one the
-	// caller has to be able to name, so it is handed back through a place and
-	// never in registers.
-	return !user_at(bare).trivially_copied ||
-		!user_at(bare).trivial_destruction ||
+	// A class whose bytes do not stand for the object is handed back through a
+	// place and never in registers, because the caller has to be able to name
+	// the object a copy or a destruction of it would run on.
+	return !bytes_stand_for_object(bare) ||
 		object_size(bare) > kDirectReturnBytes;
 }
 
@@ -560,21 +566,28 @@ bool TypeTable::passes_indirectly(TypeId type)
 	{
 		return false;
 	}
-	// 12.8p12 and 12.4p5: the boundary carries an object of the class as its
-	// bytes only where those bytes are the whole of what a copy of it is and
-	// where the end of its lifetime is nothing at all.  Either one failing makes
-	// the parameter and the argument one object standing in the caller's
-	// storage, which the call names by its address.
-	//
-	// 10p1: what a copy of an object of a *derived* class comes to at the
-	// boundary is what a copy of the storage it is laid out over comes to, so
-	// the copy read here is the base class subobject's - the checked-in ABI
-	// carries an object of a class with a base as its bytes wherever a copy of
-	// that base is the copy of its bytes, however the derived class writes its
-	// own.  A class that derives from nothing reads its own.
-	const UserType& carried =
-		user_at(bare).base != kNoType ? user_at(user_at(bare).base) : user_at(bare);
-	return !carried.trivially_copied || !user_at(bare).trivial_destruction;
+	// 12.8p12 and 12.4p8: the boundary carries an object of the class as its
+	// bytes exactly where those bytes stand for the object - where they are the
+	// whole of what a copy of it is and where the end of its lifetime comes to
+	// nothing.  Either one failing makes the parameter and the argument one
+	// object standing in the caller's storage, which the call names by its
+	// address.  `carried_by_bytes` is the copy half as this boundary reads it,
+	// which for a derived class is 10p1's storage it is laid out over.
+	return !user_at(bare).carried_by_bytes ||
+		!user_at(bare).vacuous_destruction;
+}
+
+bool TypeTable::has_vacuous_destruction(TypeId type)
+{
+	const TypeId bare = strip_cv(type);
+	return kind(bare) != TypeKind::Class || user_at(bare).vacuous_destruction;
+}
+
+bool TypeTable::bytes_stand_for_object(TypeId type)
+{
+	const TypeId bare = strip_cv(type);
+	return kind(bare) != TypeKind::Class ||
+		(user_at(bare).trivially_copied && user_at(bare).vacuous_destruction);
 }
 
 bool TypeTable::is_empty_class(TypeId type) const

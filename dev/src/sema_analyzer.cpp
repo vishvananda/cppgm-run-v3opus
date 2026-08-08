@@ -442,6 +442,14 @@ void SemaAnalyzer::write_definition(Pending& pending)
 		declare_parameters(pending.parameters, function.type, inner, &line,
 		                   pending.self != nullptr ? 1 : 0);
 	}
+	std::vector<SemaEntity*> enclosing_parameters;
+	enclosing_parameters.swap(parameter_objects_);
+	// 5.2.2p4: a definition read here owes the end of a parameter of class type
+	// exactly as one read where it was written does - a constructor, a member
+	// function defined in its class body and a member the standard defined are
+	// all handed an object the caller built - so the lines just written are read
+	// for those parameters here too.
+	open_parameter_lifetimes(line);
 
 	// 9.2p2: the body is read where the class is complete, which is here, so
 	// what the walk of the class left behind is put back for it.
@@ -520,6 +528,11 @@ void SemaAnalyzer::write_definition(Pending& pending)
 		// 12.4p8: after the body, the members are destroyed.
 		write_member_destructions(*pending.members, line);
 	}
+	// 6.6.3p2 and 3.8p1: control reaching the end of the definition leaves the
+	// function as a return does, and what the parameters the boundary handed it
+	// owe is owed after everything else the definition writes.
+	end_parameter_lifetimes(line);
+	parameter_objects_.swap(enclosing_parameters);
 	self_ = enclosing_self;
 	returns_ = enclosing_return;
 	breakable_ = breakable;
@@ -1717,6 +1730,9 @@ void SemaAnalyzer::declare_function_declarator(
 	// exception-specification is what says the function throws nothing,
 	// however the others were written.
 	function.nonthrowing = function.nonthrowing || declarator_nonthrowing(node);
+	function.wrote_exception_specification =
+		function.wrote_exception_specification ||
+		declarator_writes_exception_specification(node);
 	function.object_member = type != written_type;
 	if (!function.object_member)
 	{
@@ -2260,6 +2276,9 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 		                 spelled.qualified() && granting == nullptr);
 	entity.nonthrowing =
 		entity.nonthrowing || declarator_nonthrowing(declarator);
+	entity.wrote_exception_specification =
+		entity.wrote_exception_specification ||
+		declarator_writes_exception_specification(declarator);
 	entity.object_member = type != written_type;
 	if (!entity.object_member)
 	{

@@ -126,7 +126,7 @@ bool SemaAnalyzer::element_constructed(TypeId type, const AstNode* written)
 		(is_initializer_list(written->kind) && written->children.empty());
 }
 
-bool creates_its_object(const DumpNode& node)
+bool creates_its_object(const DumpNode& node, TypeTable& types)
 {
 	switch (node.fact.kind)
 	{
@@ -145,11 +145,15 @@ bool creates_its_object(const DumpNode& node)
 		// 5.2.9p4: a cast to a class type *is* the direct-initialization of a
 		// temporary of it, so the object the cast is worth is the one standing
 		// under it and the cast creates it wherever that one is created.
+		// 3.10p9 leaves the cv-qualification of a class prvalue on the node the
+		// cast wrote and off the object under it, and one object is what they
+		// both name - which is the same reading the lowering's own cast makes.
 		return node.fact.category == ValueCategory::PRValue &&
 			!node.children.empty() &&
 			node.children[0]->fact.kind == FactKind::TemporaryObject &&
-			node.children[0]->fact.type == node.fact.type &&
-			creates_its_object(*node.children[0]);
+			types.strip_cv(node.children[0]->fact.type) ==
+				types.strip_cv(node.fact.type) &&
+			creates_its_object(*node.children[0], types);
 
 	default:
 		break;
@@ -318,8 +322,8 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 		if (types_.strip_cv(source.type) == types_.strip_cv(object_type) &&
 		    !member && source.category == ValueCategory::PRValue &&
 		    source.node != nullptr &&
-		    (creates_its_object(*source.node) ||
-		     types_.is_trivially_copied(types_.strip_cv(object_type))))
+		    (creates_its_object(*source.node, types_) ||
+		     types_.bytes_stand_for_object(types_.strip_cv(object_type))))
 		{
 			// 12.8p31: the initializer is a prvalue of the object's own class
 			// that creates the object it is worth, so the object it creates and
@@ -1591,12 +1595,16 @@ void SemaAnalyzer::write_transfer_steps(const Pending& pending, DumpNode& line,
 	{
 		// 12.8p15: the members carried as storage are carried in one piece, and
 		// the piece is only the object's own storage where nothing stands
-		// before them in it.
+		// before them in it.  9p6's member that holds nothing holds none of
+		// that storage, so it ends the run rather than joining it: what a
+		// transfer of it comes to is its own question, asked below.
 		unsigned long long span = 0;
 		for (; first < fields.size(); ++first)
 		{
 			const SemaEntity& field = *fields[first];
-			if (field.bit_field || !carried_as_storage(field.type, kind))
+			if (field.bit_field ||
+			    types_.is_empty_class(member_copy_type(field.type)) ||
+			    !carried_as_storage(field.type, kind))
 			{
 				break;
 			}
@@ -1698,7 +1706,9 @@ void SemaAnalyzer::write_transfer_steps(const Pending& pending, DumpNode& line,
 // 12.8p15 and p28: whether a subobject of this type is carried by a copy of its
 // bytes rather than by a call.  Anything that is not of class type is; a class
 // is where the member its own class has for this transfer is one that does
-// nothing but copy those bytes.
+// nothing but copy those bytes, and where 12.4p8 leaves nothing to run at the
+// end of an object of it - because a second object made out of those bytes is
+// a second end to run, which is what says the bytes are not the whole of it.
 bool SemaAnalyzer::carried_as_storage(TypeId type, unsigned char kind)
 {
 	const TypeId bare = member_copy_type(type);
@@ -1706,17 +1716,23 @@ bool SemaAnalyzer::carried_as_storage(TypeId type, unsigned char kind)
 	{
 		return true;
 	}
+	if (!vacuous_destruction(bare))
+	{
+		return false;
+	}
 	const SemaEntity* const carried = selected_transfer(bare, kind);
 	return carried != nullptr && carried->trivial && !carried->deleted;
 }
 
 // 9p6 and 12.8p15: whether carrying a subobject of this type comes to nothing
-// at all - the class holds nothing, so there are no bytes, and the member its
-// own class has for this transfer does nothing, so there is no call either.
+// at all - the class holds nothing, so there are no bytes, the member its own
+// class has for this transfer does nothing, so there is no call either, and
+// 12.4p8 leaves nothing at the end of the object it builds.
 bool SemaAnalyzer::carries_nothing(TypeId type, unsigned char kind)
 {
 	const TypeId bare = member_copy_type(type);
-	if (!types_.is_class(bare) || !types_.is_empty_class(bare))
+	if (!types_.is_class(bare) || !types_.is_empty_class(bare) ||
+	    !vacuous_destruction(bare))
 	{
 		return false;
 	}
@@ -1977,7 +1993,7 @@ void SemaAnalyzer::open_parameter_lifetimes(DumpNode& line)
 {
 	for (std::size_t index = 0; index < line.children.size(); ++index)
 	{
-		const DumpNode& child = *line.children[index];
+		DumpNode& child = *line.children[index];
 		if (child.fact.kind != FactKind::Parameter)
 		{
 			break;
@@ -2001,6 +2017,12 @@ void SemaAnalyzer::open_parameter_lifetimes(DumpNode& line)
 		{
 			continue;
 		}
+		// 15.2p2: the object stands from the moment the body begins, so an
+		// exception out of anything the body does has to end it - which is the
+		// same end, written on the place the lifetime began as well as on the
+		// places it is reached.
+		child.fact.destruction = destructor;
+		note_destruction_entry(*destructor, false);
 		parameter_objects_.push_back(child.fact.entity);
 	}
 }

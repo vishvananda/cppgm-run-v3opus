@@ -221,6 +221,12 @@ struct SemaEntity
 	// milestone asks of it, and the answer decides whether a new-expression
 	// tests the address before it initializes an object there.
 	bool nonthrowing;
+	// 15.4p14 and 12.4p3: whether any declaration of this function wrote an
+	// exception-specification at all.  Where none did, a special member - and a
+	// destructor however the program wrote it - has the one an implicit
+	// declaration would, which is what the members its definition invokes
+	// allow; where one did, what it wrote is what the function says.
+	bool wrote_exception_specification;
 	// 12.3.1p2: a constructor declared `explicit`, which only
 	// direct-initialization may choose.  12.3.2p2 gives a conversion function
 	// declared `explicit` the same fact, and 13.3.1.5 the same reading of it.
@@ -457,7 +463,9 @@ bool observable_expression(const DumpNode& node);
 // about the resolved tree - the analysis asks it to decide whether the copy is
 // written at all, and the lowering asks it to decide where the initializer
 // builds - so it is one answer rather than two that can disagree.
-bool creates_its_object(const DumpNode& node);
+// `types` answers 3.10p9's cv-qualification of a class prvalue, which the cast
+// carries on its own node and the object standing under it does not.
+bool creates_its_object(const DumpNode& node, TypeTable& types);
 
 // One line-oriented scope of the dump.
 //

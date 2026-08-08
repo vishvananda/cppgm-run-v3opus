@@ -559,8 +559,16 @@ void SemaAnalyzer::cast_conversion(Value& source, TypeId target,
                                    const Context& ctx)
 {
 	const TypeId wanted = types_.strip_cv(target);
+	// 12.8p31: a prvalue of the target's own class already *is* the object the
+	// cast is worth, so there is nothing between the two and no second one to
+	// build.  Every other operand names an object that goes on existing, which
+	// is what leaves 5.2.9p4 an initialization to run - including one of the
+	// target's own class, whose initialization is the copy or move constructor
+	// 13.3 chooses for it.
+	const bool same_class = types_.strip_cv(source.type) == wanted;
 	if (types_.is_class(wanted) && !types_.is_reference(target) &&
-	    source.node != nullptr && types_.strip_cv(source.type) != wanted)
+	    source.node != nullptr &&
+	    (!same_class || source.category != ValueCategory::PRValue))
 	{
 		// 5.2.9p4: the cast is well formed exactly where `T t(e);` is for an
 		// invented temporary, so a cast to a class type *is* that
@@ -571,8 +579,10 @@ void SemaAnalyzer::cast_conversion(Value& source, TypeId target,
 		// 12.3.2p2: where the operand's own class reaches the target through a
 		// conversion function of its own, a cast may name that function however
 		// the class declared it - which converts the operand rather than
-		// constructing an object of the target's class from it.
-		if (types_.is_class(types_.strip_cv(source.type)) &&
+		// constructing an object of the target's class from it.  A cast to the
+		// operand's own class reaches no such function: 12.3.2p1 leaves a class
+		// no conversion to itself, so what it names is a constructor.
+		if (!same_class && types_.is_class(types_.strip_cv(source.type)) &&
 		    explicit_conversion(source, target, ctx))
 		{
 			return;
@@ -1577,15 +1587,15 @@ void SemaAnalyzer::apply_conversion(Value& value, TypeId target,
 	    types_.strip_cv(value.type) == types_.strip_cv(target))
 	{
 		if (value.category != ValueCategory::PRValue && value.node != nullptr &&
-		    !types_.is_trivially_copied(types_.strip_cv(target)))
+		    !types_.bytes_stand_for_object(types_.strip_cv(target)))
 		{
 			// 5.2.2p4 and 6.6.3p2: the parameter and the returned object are
 			// objects of their own, and the argument names one that goes on
 			// existing - so what fills the new one is the copy or move
 			// constructor 12.8p15 gives the class, chosen by 13.3 from the
-			// value category the argument has.  A class whose copy carries
-			// nothing but bytes is left to the copy of the bytes, which is
-			// what the storage this asked for already is.
+			// value category the argument has.  A class whose bytes stand for
+			// the object is left to the copy of the bytes, which is what the
+			// storage this asked for already is.
 			const TypeId wanted = types_.strip_cv(target);
 			Value source = value;
 			DumpNode& line = model_.wrap_node(*value.node, std::string());
@@ -1603,6 +1613,17 @@ void SemaAnalyzer::apply_conversion(Value& value, TypeId target,
 		name_argument_temporary(
 			value, requested_prefix(by, false, types_.strip_cv(target)), ctx,
 			false);
+		if (by == Requested::Argument && value.node != nullptr &&
+		    types_.passes_indirectly(types_.strip_cv(target)))
+		{
+			// 5.2.2p4 and 12.4p5: the object standing here *is* the parameter,
+			// and the function called is what ends it - at every return and
+			// where its body falls off the end.  So this side owes nothing for
+			// it on any path: neither 12.2p3's end of the full-expression, which
+			// the release above took away, nor 15.2p2's handler, which reads the
+			// end written on the node that began the lifetime.
+			value.node->fact.destruction = nullptr;
+		}
 	}
 	if (match.materialized != kNoType && value.node != nullptr)
 	{

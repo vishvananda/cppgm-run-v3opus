@@ -323,6 +323,11 @@ void SemaAnalyzer::lay_out_class(SemaEntity& entity, Scope& scope, bool is_union
 	// own, nor where any subobject's copy is not, because 12.8p15 makes the
 	// copy memberwise and each member's own copy constructor is what copies it.
 	bool trivially_copied = !declares_copy_constructor(entity, scope);
+	// 12.8p12 over the storage this class is laid out over, which is the same
+	// walk with this class's own declaration left out of it: 5.2.2p4's boundary
+	// carries an object of a derived class the way the subobjects it is made of
+	// are carried, so what it reads is what the base and the members are.
+	bool subobject_bytes = true;
 	// 8.5p8: what zero-initializing an object of this class writes is what its
 	// base subobject and its non-static data members hold, so a class every
 	// subobject of which holds nothing has no byte to write - which 1.8p5's
@@ -338,6 +343,7 @@ void SemaAnalyzer::lay_out_class(SemaEntity& entity, Scope& scope, bool is_union
 		if (!types_.is_trivially_copied(types_.strip_cv(entity.base->type)))
 		{
 			trivially_copied = false;
+			subobject_bytes = false;
 		}
 		if (types_.has_zeroed_storage(entity.base->type))
 		{
@@ -380,6 +386,7 @@ void SemaAnalyzer::lay_out_class(SemaEntity& entity, Scope& scope, bool is_union
 		if (!types_.is_trivially_copied(member_copy_type(member.type)))
 		{
 			trivially_copied = false;
+			subobject_bytes = false;
 		}
 		if (types_.has_zeroed_storage(member.type))
 		{
@@ -450,7 +457,7 @@ void SemaAnalyzer::lay_out_class(SemaEntity& entity, Scope& scope, bool is_union
 	// 1.8p5: a complete object has a size of at least one byte.
 	size = round_up(size, align);
 	types_.complete_class(entity.type, size == 0 ? 1 : size, align, empty,
-	                      trivially_copied, zeroed_storage);
+	                      trivially_copied, zeroed_storage, subobject_bytes);
 }
 // The ABI: where the empty class subobjects of an object of `type` standing at
 // `at` are, appended to `holes`.  A type that is no class has none, and a class
@@ -800,6 +807,9 @@ SemaEntity& SemaAnalyzer::declare_conversion(const AstNode& node,
 	// what it says is what 15.2p2 reads to leave a handler out around a call.
 	entity.nonthrowing =
 		entity.nonthrowing || declarator_nonthrowing(*declarator);
+	entity.wrote_exception_specification =
+		entity.wrote_exception_specification ||
+		declarator_writes_exception_specification(*declarator);
 	return entity;
 }
 
@@ -984,6 +994,10 @@ void SemaAnalyzer::special_member(const AstNode& node, const Context& ctx)
 		entity->nonthrowing =
 			written_declarator != nullptr &&
 			declarator_nonthrowing(*written_declarator);
+		entity->wrote_exception_specification =
+			entity->wrote_exception_specification ||
+			(written_declarator != nullptr &&
+			 declarator_writes_exception_specification(*written_declarator));
 	}
 	// 7.1.2p3 and 9.3p2: a special member function *defined* in its class body
 	// is inline, so its definition belongs to every translation unit that needs
@@ -1375,6 +1389,15 @@ void SemaAnalyzer::declare_special_members(SemaEntity& entity, Scope& scope)
 	{
 		entity.destructor->trivial = trivial_destruction(scope);
 	}
+	// 12.4p3 and 15.4p14: a destructor declared with no exception-specification
+	// of its own has the one an implicit declaration would - which is what the
+	// destructors it directly invokes allow - whether the program wrote the
+	// declaration or the standard did.  It is settled here, where the class is
+	// complete and every subobject's own destructor has been settled.
+	if (!entity.destructor->wrote_exception_specification)
+	{
+		entity.destructor->nonthrowing = destruction_nonthrowing(scope);
+	}
 	settle_transfers(entity, scope);
 }
 
@@ -1717,6 +1740,12 @@ void SemaAnalyzer::settle_transfers(SemaEntity& entity, Scope& scope)
 		}
 		bool trivial = true;
 		bool deleted = member->deleted;
+		// 15.4p14: the exception-specification of a member the standard defines
+		// is what the members its definition directly invokes allow, which for
+		// 12.8p15's memberwise transfer is the one member each subobject of
+		// class type is carried by.  A subobject of any other type is carried
+		// by its storage and invokes nothing.
+		bool nonthrowing = true;
 		const bool assignment = kind == kCopyAssignmentTransfer ||
 			kind == kMoveAssignmentTransfer;
 		if (entity.base != nullptr)
@@ -1729,6 +1758,7 @@ void SemaAnalyzer::settle_transfers(SemaEntity& entity, Scope& scope)
 			else
 			{
 				trivial = trivial && carried->trivial;
+				nonthrowing = nonthrowing && carried->nonthrowing;
 				if (!accessible(*carried, scope))
 				{
 					deleted = true;
@@ -1780,26 +1810,39 @@ void SemaAnalyzer::settle_transfers(SemaEntity& entity, Scope& scope)
 				continue;
 			}
 			trivial = trivial && carried->trivial;
+			nonthrowing = nonthrowing && carried->nonthrowing;
 		}
 		member->trivial = trivial && !deleted;
 		member->deleted = deleted;
+		if (!member->wrote_exception_specification)
+		{
+			// 15.4p14: an implicitly declared member, and one `= default`
+			// declared it, throws what the members it invokes throw.  One the
+			// program wrote an exception-specification on keeps what it wrote.
+			member->nonthrowing = nonthrowing;
+		}
 	}
-	// 12.8p11 and p12: what an object of this class is carried by is what its
-	// copy constructor is, and the layout wrote a first answer for it before
-	// this class had one.  Both halves are settled here so that the layout of a
-	// class holding one of these, 5.2.2p4's argument and the lowering's copy of
-	// an object all read the one fact rather than each asking the declarations
-	// again: whether the bytes stand for the copy, and whether the program has
-	// a copy of an object of this class at all.
+	// 12.8p11, p12 and 12.4p8: what an object of this class is carried by is
+	// what its copy constructor is *and* what the end of its lifetime is, and
+	// the layout wrote a first answer for the first of them before this class
+	// had one.  All three are settled here so that the layout of a class
+	// holding one of these, 5.2.2p4's argument, 6.6.3p2's returned object and
+	// the lowering's copy of an object all read the one fact rather than each
+	// asking the declarations again: whether the bytes are the copy, whether the
+	// program has a copy of an object of this class at all, and whether
+	// anything runs when one of them ends.
+	//
+	// The end of the lifetime is 12.4p8's question and not 12.4p5's, because
+	// what says the bytes are not the whole of the object is that something
+	// *runs* when one ends - and a destructor 12.4p5 calls non-trivial whose
+	// body writes no statement runs nothing, which is the answer every other
+	// end of a lifetime in this translation already reads.
 	const SemaEntity* const copy = entity.transfers[kCopyConstructorTransfer - 1];
 	const bool deleted_copy = copy == nullptr || copy->deleted;
 	types_.settle_copy_facts(types_.strip_cv(entity.type),
 	                         !deleted_copy && copy->trivial, deleted_copy,
-	                         entity.destructor == nullptr ||
-	                             entity.destructor->trivial,
-	                         entity.base != nullptr
-	                             ? types_.strip_cv(entity.base->type)
-	                             : kNoType);
+	                         vacuous_destruction(entity.type),
+	                         entity.base != nullptr);
 }
 
 // 11.2p1: whether a member of another class may be named from inside `scope`,
@@ -2415,6 +2458,38 @@ bool SemaAnalyzer::trivial_default_construction(Scope& scope)
 	return true;
 }
 
+// 15.4p14 and 12.4p3: whether the destructor of the class this region declares
+// throws nothing.  What its definition directly invokes is the destructor of
+// the base class subobject and of each member of class type, so the answer is
+// yes exactly where every one of those says so - the same walk 12.4p5's
+// triviality is, asked of a different fact of the same members.
+bool SemaAnalyzer::destruction_nonthrowing(Scope& scope)
+{
+	if (scope.owner != nullptr && scope.owner->base != nullptr)
+	{
+		const SemaEntity* const base = scope.owner->base->destructor;
+		if (base != nullptr && !base->nonthrowing)
+		{
+			return false;
+		}
+	}
+	for (std::size_t index = 0; index < scope.declarations.size(); ++index)
+	{
+		const SemaEntity& member = *scope.declarations[index];
+		if (!declares_subobject(member, scope))
+		{
+			continue;
+		}
+		const SemaEntity* const destructor =
+			class_destructor(element_of(member.type));
+		if (destructor != nullptr && !destructor->nonthrowing)
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
 // 12.4p3: whether destroying an object of the class this region declares does
 // nothing at all, which it does when every member's own destruction does.
 bool SemaAnalyzer::trivial_destruction(Scope& scope)
@@ -2707,6 +2782,35 @@ bool SemaAnalyzer::declarator_nonthrowing(const AstNode& declarator)
 		}
 		if (part.children[0]->kind == AstKind::KeywordLiteral &&
 		    part.children[0]->token == KW_TRUE)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+// 15.4p14: whether the declarator wrote an exception-specification at all,
+// whatever it says.  It is the other half of the question above: where a
+// declaration wrote one, what it wrote is what the function says; where none
+// did, 12.4p3 and 15.4p14 give a special member the one an implicit
+// declaration would have had.
+bool SemaAnalyzer::declarator_writes_exception_specification(
+	const AstNode& declarator)
+{
+	for (std::size_t index = 0; index < declarator.children.size(); ++index)
+	{
+		const AstNode& part = *declarator.children[index];
+		if (part.kind == AstKind::NestedDeclarator &&
+		    declarator_writes_exception_specification(part))
+		{
+			return true;
+		}
+		if (part.kind != AstKind::FunctionQualifier)
+		{
+			continue;
+		}
+		if (part.text.compare(0, 5, "throw") == 0 ||
+		    part.text.compare(0, 8, "noexcept") == 0)
 		{
 			return true;
 		}
