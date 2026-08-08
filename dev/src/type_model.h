@@ -459,6 +459,12 @@ public:
 	                  const std::unordered_map<TypeId, TypeId>& bindings,
 	                  std::unordered_map<TypeId, TypeId>& memo);
 
+	// 14.6.2p1: whether the type is written in terms of a template parameter,
+	// which is what makes a name that mentions it dependent.  A specialization
+	// is dependent when one of the arguments that made it is, so the walk asks
+	// the arguments the type records rather than the class's members.
+	bool is_dependent(TypeId type) const;
+
 	// The type in the form PA2 and PA7 print it in.
 	std::string description(TypeId type) const;
 

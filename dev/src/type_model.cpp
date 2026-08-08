@@ -1001,6 +1001,57 @@ unsigned long long TypeTable::object_align(TypeId type) const
 	}
 }
 
+bool TypeTable::is_dependent(TypeId type) const
+{
+	switch (kind(type))
+	{
+	case TypeKind::TemplateParameter:
+		return true;
+
+	case TypeKind::Pointer:
+	case TypeKind::LValueReference:
+	case TypeKind::RValueReference:
+	case TypeKind::Array:
+		return is_dependent(target(type));
+
+	case TypeKind::MemberPointer:
+		return is_dependent(member_class(type)) || is_dependent(target(type));
+
+	case TypeKind::Function:
+	{
+		if (is_dependent(target(type)))
+		{
+			return true;
+		}
+		const std::vector<TypeId>& given = parameters(type);
+		for (std::size_t index = 0; index < given.size(); ++index)
+		{
+			if (is_dependent(given[index]))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	case TypeKind::Class:
+	{
+		const std::vector<TypeId>& arguments = user_at(type).template_arguments;
+		for (std::size_t index = 0; index < arguments.size(); ++index)
+		{
+			if (is_dependent(arguments[index]))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	default:
+		return false;
+	}
+}
+
 std::string TypeTable::description(TypeId type) const
 {
 	std::string text;

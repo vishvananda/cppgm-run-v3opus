@@ -428,7 +428,7 @@ SemaEntity& SemaAnalyzer::specialize(SemaEntity& primary,
 		}
 		std::unordered_map<TypeId, TypeId> memo;
 		made = &model_.create(SemaKind::Function, primary.name,
-		                      types_.substitute(primary.type, bindings, memo));
+		                      substituted(primary.type, bindings, memo));
 		made->primary = &primary;
 		made->region = primary.region;
 		made->object_member = primary.object_member;
@@ -559,9 +559,35 @@ bool SemaAnalyzer::deduce(TypeId pattern, TypeId argument,
 		return true;
 	}
 
+	case TypeKind::Class:
+		// 14.8.2.5p4: `A<T>` against `A<int>` deduces `T` from `int`, which is
+		// the one class-typed pattern that holds a parameter at all.  The two
+		// facts a specialization records - the template it was made of and the
+		// arguments that made it - are what the match is over.
+		if (pattern != argument && types_.is_specialization(pattern) &&
+		    types_.is_specialization(argument) &&
+		    types_.template_name(pattern) == types_.template_name(argument))
+		{
+			const std::vector<TypeId>& wanted = types_.template_arguments(pattern);
+			const std::vector<TypeId>& given = types_.template_arguments(argument);
+			if (wanted.size() != given.size())
+			{
+				return false;
+			}
+			for (std::size_t index = 0; index < wanted.size(); ++index)
+			{
+				if (!deduce(wanted[index], given[index], bindings))
+				{
+					return false;
+				}
+			}
+			return true;
+		}
+		return pattern == argument;
+
 	default:
-		// A fundamental type, a class or an enumeration holds no parameter to
-		// deduce, so the two agree exactly when they are the same type.
+		// A fundamental type or an enumeration holds no parameter to deduce,
+		// so the two agree exactly when they are the same type.
 		return pattern == argument;
 	}
 }
@@ -581,8 +607,18 @@ SemaEntity* SemaAnalyzer::deduce_specialization(
 	{
 		// 13.4p1: an argument that is an unresolved overload set has no type of
 		// its own, and 14.8.2.1p6 leaves it deducing nothing.
+		// 14.8.2.1p2: where the parameter is a reference, what deduces the
+		// arguments is the type it refers to, and the argument's own type is
+		// used as it stands rather than decayed.
+		const TypeKind kind = types_.kind(pattern[index]);
+		const bool reference = kind == TypeKind::LValueReference ||
+			kind == TypeKind::RValueReference;
+		const TypeId expected =
+			reference ? types_.target(pattern[index]) : pattern[index];
+		const TypeId given =
+			reference ? arguments[index].type : decayed(arguments[index]);
 		if (arguments[index].type == kNoType ||
-		    !deduce(pattern[index], decayed(arguments[index]), bindings))
+		    !deduce(expected, given, bindings))
 		{
 			return nullptr;
 		}
@@ -815,17 +851,14 @@ bool SemaAnalyzer::record_template(const AstNode& node, const Context& ctx)
 	{
 		return false;
 	}
-	if (declared->kind != AstKind::ClassSpecifier &&
-	    declared->kind != AstKind::ClassForwardDeclaration)
+	// 14.5.1.3p1: a definition written outside its class belongs to the
+	// template that class is one of, and is read for a specialization after
+	// the body - including for one the unit already made.  A class-head-name
+	// with a nested-name-specifier is one of those, so the question is asked
+	// before the class tier's.
+	SemaEntity* const owner = member_definition_owner(*declared, ctx);
+	if (owner != nullptr)
 	{
-		// 14.5.1.3p1: a definition written outside its class belongs to the
-		// template that class is one of, and is read for a specialization
-		// after the body - including for one the unit already made.
-		SemaEntity* const owner = member_definition_owner(*declared, ctx);
-		if (owner == nullptr)
-		{
-			return false;
-		}
 		owner->templated->members.push_back(declared);
 		for (std::size_t index = 0;
 		     index < owner->templated->specializations.size(); ++index)
@@ -835,11 +868,16 @@ bool SemaAnalyzer::record_template(const AstNode& node, const Context& ctx)
 		}
 		return true;
 	}
+	if (declared->kind != AstKind::ClassSpecifier &&
+	    declared->kind != AstKind::ClassForwardDeclaration)
+	{
+		return false;
+	}
 	const QualifiedName spelled(declared->text);
 	if (spelled.qualified() || declared->text.empty())
 	{
-		// 14.5.1.3's out-of-class member definition and an unnamed class-head
-		// are not what a class template declares.
+		// A class-head-name with a nested-name-specifier that reaches no class
+		// template is not what a class template declares.
 		return false;
 	}
 	const std::string& name = declared->text;
@@ -904,6 +942,15 @@ bool SemaAnalyzer::record_template(const AstNode& node, const Context& ctx)
 			{
 				entity->templated->defaults[index] = head.defaults[index];
 			}
+		}
+		// 14.7.1p1: a specialization the unit named before the definition
+		// arrived is an incomplete class until here, and the definition is
+		// what completes it.
+		for (std::size_t index = 0;
+		     index < entity->templated->specializations.size(); ++index)
+		{
+			complete_specialization(
+				*entity->templated->specializations[index]);
 		}
 	}
 	// The dump names the template where it was written, as the declaration it
@@ -1127,32 +1174,47 @@ SemaEntity& SemaAnalyzer::instantiate_class(SemaEntity& primary,
 	types_.set_template_arguments(type, abi_name(*info.region, primary.name),
 	                              arguments);
 	model_.hold_specialization(primary, list, *made);
-	if (info.pattern == nullptr ||
-	    info.pattern->kind != AstKind::ClassSpecifier)
-	{
-		// 14.7.1p1: a template the unit only declared instantiates an
-		// incomplete class, which is all a pointer or a reference to it needs.
-		return *made;
-	}
+	// 14.7.1p1: the specialization exists whether or not the template has a
+	// definition yet; a template the unit only declared makes an incomplete
+	// class, which is all a pointer or a reference to it needs, and the
+	// definition completes it where it arrives.
+	primary.templated->specializations.push_back(made);
+	complete_specialization(*made);
+	return *made;
+}
 
+void SemaAnalyzer::complete_specialization(SemaEntity& made)
+{
+	const TemplateInfo& info = *made.primary->templated;
+	if (made.defined || info.pattern == nullptr ||
+	    info.pattern->kind != AstKind::ClassSpecifier ||
+	    types_.is_dependent(made.type))
+	{
+		// 14.6.2p1: a template-id written inside a template over that
+		// template's own parameters names no class yet.  It is a declaration
+		// of one - which is what deduction matches and what a reference or a
+		// pointer to it needs - and the specialization the arguments make of
+		// it is completed where they are known.
+		return;
+	}
 	Context inner;
-	inner.scope = &open_template_bindings(info, arguments);
+	inner.scope = &open_template_bindings(
+		info, types_.type_list_at(made.template_arguments));
 	inner.dump = info.dump;
 	inner.node = nullptr;
 	Span span;
 	span.begin = info.pattern->begin;
 	span.end = info.pattern->end;
-	class_declaration(*info.pattern, inner, span, true, std::string(), made,
+	const std::string spelled = made.name;
+	class_declaration(*info.pattern, inner, span, true, std::string(), &made,
 	                  &spelled);
 	// 14.5.1.3p1: what the template's members were defined as outside its
 	// class is read now that the class is complete, and a definition written
-	// after this specialization was made is read for it where it is written.
-	primary.templated->specializations.push_back(made);
+	// after this specialization was made is read for it where it stands.
 	for (std::size_t index = 0; index < info.members.size(); ++index)
 	{
-		instantiate_member(*made, *info.members[index]);
+		instantiate_member(made, *info.members[index]);
 	}
-	return *made;
 }
 
 // 14.2: the specialization a name written as a template-id denotes.
@@ -1241,7 +1303,17 @@ SemaEntity* SemaAnalyzer::member_definition_owner(const AstNode& node,
                                                   const Context& ctx)
 {
 	const AstNode* id = nullptr;
-	if (node.kind == AstKind::FunctionDefinition && node.children.size() > 1)
+	std::string spelling;
+	if (node.kind == AstKind::ClassSpecifier ||
+	    node.kind == AstKind::ClassForwardDeclaration ||
+	    node.kind == AstKind::SpecialMemberDefinition ||
+	    node.kind == AstKind::SpecialMemberDeclaration)
+	{
+		// 9.1p2 and 12.1p1: a class-head-name and a constructor's declarator-id
+		// are the name the node itself carries.
+		spelling = node.text;
+	}
+	else if (node.kind == AstKind::FunctionDefinition && node.children.size() > 1)
 	{
 		id = declarator_id(*node.children[1]);
 	}
@@ -1265,11 +1337,15 @@ SemaEntity* SemaAnalyzer::member_definition_owner(const AstNode& node,
 			}
 		}
 	}
-	if (id == nullptr)
+	if (id != nullptr)
+	{
+		spelling = id->text;
+	}
+	if (spelling.empty())
 	{
 		return nullptr;
 	}
-	const QualifiedName spelled(id->text);
+	const QualifiedName spelled(spelling);
 	for (std::size_t index = 0; index + 1 < spelled.size(); ++index)
 	{
 		const TemplateId written(spelled.part(index));
@@ -1321,4 +1397,100 @@ void SemaAnalyzer::instantiate_member(SemaEntity& specialization,
 	// declarator-id names, and writes its lines where that class writes them.
 	inner.node = &model_.unit();
 	declaration(pattern, inner);
+}
+
+TypeId SemaAnalyzer::substituted(
+	TypeId type, const std::unordered_map<TypeId, TypeId>& bindings,
+	std::unordered_map<TypeId, TypeId>& memo)
+{
+	if (!types_.is_dependent(type))
+	{
+		return type;
+	}
+	const std::unordered_map<TypeId, TypeId>::const_iterator held =
+		memo.find(type);
+	if (held != memo.end())
+	{
+		return held->second;
+	}
+	TypeId out = type;
+	const unsigned cv = types_.cv(type);
+	const TypeId bare = types_.strip_cv(type);
+	switch (types_.kind(bare))
+	{
+	case TypeKind::Class:
+	{
+		// 14.7.1p1: the arguments of the specialization are what the bindings
+		// reach, and the class they then name is one an instantiation makes.
+		SemaEntity* const made = model_.type_owner(bare);
+		if (made == nullptr || made->primary == nullptr)
+		{
+			break;
+		}
+		const std::vector<TypeId>& written = types_.template_arguments(bare);
+		std::vector<TypeId> arguments;
+		arguments.reserve(written.size());
+		for (std::size_t index = 0; index < written.size(); ++index)
+		{
+			arguments.push_back(substituted(written[index], bindings, memo));
+		}
+		out = types_.qualified(
+			instantiate_class(*made->primary, arguments).type, cv);
+		break;
+	}
+
+	case TypeKind::Pointer:
+		out = types_.qualified(
+			types_.pointer_to(substituted(types_.target(bare), bindings, memo)),
+			cv);
+		break;
+
+	case TypeKind::LValueReference:
+	case TypeKind::RValueReference:
+		out = types_.reference_to(
+			substituted(types_.target(bare), bindings, memo),
+			types_.kind(bare) == TypeKind::RValueReference);
+		break;
+
+	case TypeKind::Array:
+		out = types_.array_of(substituted(types_.target(bare), bindings, memo),
+		                      types_.bounded(bare), types_.bound(bare));
+		break;
+
+	case TypeKind::MemberPointer:
+		out = types_.qualified(
+			types_.member_pointer_to(
+				substituted(types_.member_class(bare), bindings, memo),
+				substituted(types_.target(bare), bindings, memo)),
+			cv);
+		break;
+
+	case TypeKind::Function:
+	{
+		const std::vector<TypeId>& given = types_.parameters(bare);
+		std::vector<TypeId> parameters;
+		parameters.reserve(given.size());
+		for (std::size_t index = 0; index < given.size(); ++index)
+		{
+			parameters.push_back(substituted(given[index], bindings, memo));
+		}
+		TypeId built = types_.function_of(
+			substituted(types_.target(bare), bindings, memo), parameters,
+			types_.variadic(bare));
+		// 8.3.5p7 and 8.3.5p1: what a member function's declarator wrote after
+		// its parameter-clause is part of the type and is not a qualifier
+		// `qualified` would carry.
+		built = types_.qualified_function(built, cv);
+		out = types_.ref_qualified_function(built,
+		                                    types_.function_ref_qualifier(bare));
+		break;
+	}
+
+	default:
+		// A template parameter itself, which is what the bindings name.
+		out = types_.substitute(type, bindings, memo);
+		break;
+	}
+	memo.insert(std::make_pair(type, out));
+	return out;
 }

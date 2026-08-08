@@ -1859,6 +1859,20 @@ private:
 	// 14.5.1.3p1: reads `pattern` - a member definition written outside its
 	// class - against the arguments `specialization` was made from.
 	void instantiate_member(SemaEntity& specialization, const AstNode& pattern);
+	// 14.7.1p1: reads the template's class body for `made`, which is what
+	// completes it.  A specialization named before its template was defined is
+	// a declaration of an incomplete class until the definition arrives, and
+	// this is what the definition then does to it.
+	void complete_specialization(SemaEntity& made);
+	// 14.3p1 and 14.8.2: `type` with every template parameter `bindings` names
+	// replaced by the type bound to it.  The type table rebuilds every
+	// category that is only made of types; a specialization is the one that is
+	// not - `A<T>` with `T` bound to `int` is the class `A<int>` names, which
+	// only an instantiation can make - so the walk belongs here and delegates
+	// the rest.  `memo` holds the answers of one substitution.
+	TypeId substituted(TypeId type,
+	                   const std::unordered_map<TypeId, TypeId>& bindings,
+	                   std::unordered_map<TypeId, TypeId>& memo);
 
 	// 8.5: initialising an object of `target` from `node`, which is what a
 	// variable, a condition, a return statement and an argument all do.
