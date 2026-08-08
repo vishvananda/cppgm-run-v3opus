@@ -177,6 +177,7 @@ struct SemaFact
 		, zero_initialized(false)
 		, reverse_elements(false)
 		, elided_prvalue(false)
+		, boundary_object(false)
 		, base_subobject(false)
 		, subobject_step(false)
 		, array_form(false)
@@ -249,6 +250,15 @@ struct SemaFact
 	// asks for copies nothing and the reference elides the construction of the
 	// prvalue with it.
 	bool elided_prvalue;
+	// 5.2.2p4 and 6.6.3p2: whether the object this `constructor-action` builds
+	// is one a *boundary* made to carry a value across it - the parameter a
+	// call passes by value, the object a return hands back - rather than one an
+	// expression the program wrote asked for.  What fills such an object where
+	// 12.8p12 makes the class's bytes stand for it is the copy of those bytes
+	// the boundary already is, and every other object standing at an address
+	// alone has the member 13.3 chose written as the call that begins its
+	// lifetime.
+	bool boundary_object;
 	// 12.6.2p5 and 12.4p8: whether this `constructor-action` or
 	// `destructor-action` acts on the base class subobject of the object the
 	// function it stands in was called on.  The ABI gives a constructor and a

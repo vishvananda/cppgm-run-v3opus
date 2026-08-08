@@ -1098,6 +1098,13 @@ private:
 	// constructors in: 5.2.9p4's cast is one and 13.3.3.1.2's conversion is
 	// not, and the two reach here the same way - with the one operand already
 	// read.
+	// `into_temporary` says the object being initialized is one the analysis
+	// made to hold a prvalue rather than one that stands of its own, which is
+	// what 12.8p31's elision asks about the destination.
+	// `boundary_object` says which kind of temporary that is: 5.2.2p4's
+	// parameter and 6.6.3p2's returned object are made by a boundary to carry
+	// a value across it, and the rest are objects an expression the program
+	// wrote asked for.
 	// `chosen`, where given, is left holding the constructor 13.3 picked, which
 	// 12.6.2p6's chain of delegations is walked over.
 	void construct_object(SemaEntity& variable, DumpNode& line,
@@ -1106,7 +1113,9 @@ private:
 	                      bool copied = false, const Value* given = nullptr,
 	                      bool value_init = false,
 	                      const std::vector<SemaEntity*>* forwarded = nullptr,
-	                      bool direct = false, SemaEntity** chosen = nullptr);
+	                      bool direct = false, bool into_temporary = false,
+	                      bool boundary_object = false,
+	                      SemaEntity** chosen = nullptr);
 	// 8.5p15/p16 and 5.2.3p1: which of 8.5's forms the initializer an object of
 	// class type was written with is - a list whose clauses are the
 	// constructor's arguments, one expression a converting constructor answers,
@@ -1142,10 +1151,19 @@ private:
 	// 12.8p31: whether the transfer 13.3 chose for this initialization is one
 	// whose argument creates the very object being initialized, which makes the
 	// two objects one and leaves the transfer unwritten.  The initializer the
-	// line then holds is the one that creates it.
+	// line then holds is the one that creates it.  `into_temporary` is what the
+	// elision asks about the *destination*: a temporary the analysis made for a
+	// prvalue is storage the enclosing initialization has not settled yet, so
+	// the transfer into one is a call the program can watch run.
 	bool elide_transfer(const SemaEntity& constructor,
 	                    std::vector<Value>& arguments, TypeId object_type,
-	                    DumpNode& line, DumpNode& action);
+	                    DumpNode& line, DumpNode& action, bool into_temporary);
+	// The three lines an initialization of an object of class type leaves once
+	// 13.3 has chosen: the `constructor-action` that says the lifetime begins
+	// here, the call that runs the constructor and the callee that names it.
+	void write_constructor_action(DumpNode& action, DumpNode& call,
+	                              DumpNode& callee, SemaEntity& constructor,
+	                              const SemaEntity& head, bool value_init);
 	// 5.1.1p1: a parameter named as the program would name it, written into a
 	// node of its own under `parent`.
 	Value parameter_value(SemaEntity& parameter, DumpNode& parent);
@@ -1180,11 +1198,15 @@ private:
 	// temporary, passed through to the initialization.
 	// `copy_list` says the place that asked wrote `= {...}` or passed the list
 	// as an argument, which 8.5.4p3 refuses an `explicit` constructor for.
+	// `boundary` says the object is one 5.2.2p4's or 6.6.3p2's boundary made to
+	// carry a value across it rather than one the program's own expression
+	// asked for, which is what says whether 12.8p12's bytes are the transfer
+	// into it or the member 13.3 chose is a call.
 	Value build_temporary(TypeId type, DumpNode& line, const AstNode* written,
 	                      const Value* given, const Context& ctx,
 	                      const char* prefix, bool value_init,
 	                      bool owned = true, bool direct = false,
-	                      bool copy_list = false);
+	                      bool copy_list = false, bool boundary = false);
 	// 8.5.3p5 and 13.3.3.1.2: a temporary an argument conversion made is named
 	// after the argument it was made for, unless something already read it as
 	// the object it is.  `owned` says the same thing it says above: an argument
@@ -1867,7 +1889,12 @@ private:
 	                          const Context& ctx, Requested by);
 	// 13.3.3.1 over the PA12 conversion subset.
 	Match match_argument(const Value& argument, TypeId parameter);
-	Match match_by_value(const Value& argument, TypeId parameter);
+	// `direct` is 13.3.1.4p1's context: the parameter is a reference to the
+	// class an object is being direct-initialized of, so the temporary this
+	// converts into is one that initialization asked for and 12.3.2p2's
+	// `explicit` conversion functions of the argument's class reach it.
+	Match match_by_value(const Value& argument, TypeId parameter,
+	                     bool direct = false);
 	Match match_reference(const Value& argument, TypeId parameter);
 	// 13.3.1p4 and p5: how the implied object argument reaches a member
 	// candidate's implicit object parameter, which is the pointer conversion
@@ -2144,6 +2171,15 @@ private:
 	// so a class whose conversion reaches another class whose conversion
 	// reaches it back is one probe rather than a walk that does not end.
 	bool standard_only_;
+	// 13.3.1.4p1: the class an object is being direct-initialized of, while
+	// 13.3.1.3's candidates are being measured over its one written argument.
+	// A temporary bound to the first parameter of a constructor of that class,
+	// where the parameter is a reference to it, is initialized in the context
+	// of that direct-initialization - so 12.3.2p2's `explicit` conversion
+	// functions of the argument's own class are candidates for it, exactly as
+	// they are for a cast.  `kNoType` everywhere else, which is every
+	// copy-initialization and every call with any other number of arguments.
+	TypeId direct_initialized_;
 	// 7.5p1 and 7.5p4: the language linkage of the linkage-specification the
 	// declaration being read is written inside, which is the innermost one.
 	bool c_linkage_;

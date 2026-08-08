@@ -1,0 +1,122 @@
+declare function @heavy___heavy(%arg0 : ptr) -> void [binding=strong, object=_ZN5heavyD1Ev]
+declare function @heavy__heavy__ov3(%arg0 : ptr, %arg1 : ptr [pass=reference]) -> void [binding=strong, object=_ZN5heavyC1EOS_]
+declare function @hold(%arg0 : ptr [pass=reference]) -> void [binding=strong, object=_Z4holdRK5heavy]
+declare function @maker__operatorheavy(%ret : ptr [pass=indirect_result], %arg0 : ptr) -> void [binding=strong, object=_ZNK5makercv5heavyEv]
+declare function @sink(%arg0 : obj<1x1>) -> void [binding=strong, object=_Z4sink5empty]
+declare function @source__operatorempty(%arg0 : ptr) -> obj<1x1> [binding=strong, object=_ZNK6sourcecv5emptyEv]
+
+function @carried_by_bytes(%s : obj<1x1>) -> obj<1x1> [binding=strong, object=_Z16carried_by_bytes6source] {
+  slot $s : obj<1x1>
+  slot $retobj__1 : obj<1x1>
+  slot $arg__2 : obj<1x1>
+
+  block ^entry:
+    %t1 = addr $retobj__1
+    %t2 = addr $arg__2
+    %t3 = addr $s
+    %t4 = call obj<1x1> @source__operatorempty(%t3)
+    copyobj 1x1 %t4, %t2
+    call void @empty__empty__ov3(%t1, %t2)
+    return obj<1x1> $retobj__1
+}
+function @carried_by_address(%ret : ptr [pass=indirect_result], %m : obj<1x1>) -> void [binding=strong, object=_Z18carried_by_address5maker] {
+  slot $m : obj<1x1>
+  slot $arg__1 : obj<1x1>
+
+  block ^entry:
+    eh_try ^call_unwind_dispatch_1
+    %t1 = addr $arg__1
+    %t2 = addr $m
+    call void @maker__operatorheavy(%t1, %t2)
+    eh_end
+    jump ^call_unwind_end_2
+
+  block ^call_unwind_dispatch_1:
+    resume
+
+  block ^call_unwind_end_2:
+    eh_try ^call_unwind_dispatch_3
+    call void @heavy__heavy__ov3(%ret, %t1)
+    call void @heavy___heavy(%t1)
+    eh_end
+    jump ^call_unwind_end_4
+
+  block ^call_unwind_dispatch_3:
+    call void @heavy___heavy(%t1)
+    resume
+
+  block ^call_unwind_end_4:
+    return void
+}
+function @as_argument(%s : obj<1x1>) -> void [binding=strong, object=_Z11as_argument6source] {
+  slot $s : obj<1x1>
+  slot $argobj__1 : obj<1x1>
+  slot $arg__2 : obj<1x1>
+
+  block ^entry:
+    %t1 = addr $argobj__1
+    %t2 = addr $arg__2
+    %t3 = addr $s
+    %t4 = call obj<1x1> @source__operatorempty(%t3)
+    copyobj 1x1 %t4, %t2
+    call void @empty__empty__ov3(%t1, %t2)
+    call void @sink($argobj__1)
+    return void
+}
+function @as_reference_argument(%m : obj<1x1>) -> void [binding=strong, object=_Z21as_reference_argument5maker] {
+  slot $m : obj<1x1>
+  slot $arg__1 : obj<1x1>
+  slot $arg__2 : obj<1x1>
+
+  block ^entry:
+    eh_try ^call_unwind_dispatch_1
+    %t1 = addr $arg__1
+    %t2 = addr $arg__2
+    %t3 = addr $m
+    call void @maker__operatorheavy(%t2, %t3)
+    eh_end
+    jump ^call_unwind_end_2
+
+  block ^call_unwind_dispatch_1:
+    resume
+
+  block ^call_unwind_end_2:
+    eh_try ^call_unwind_dispatch_3
+    call void @heavy__heavy__ov3(%t1, %t2)
+    eh_end
+    jump ^call_unwind_end_4
+
+  block ^call_unwind_dispatch_3:
+    call void @heavy___heavy(%t2)
+    resume
+
+  block ^call_unwind_end_4:
+    eh_try ^call_unwind_dispatch_5
+    call void @hold(%t1)
+    call void @heavy___heavy(%t1)
+    call void @heavy___heavy(%t2)
+    eh_end
+    jump ^call_unwind_end_6
+
+  block ^call_unwind_dispatch_5:
+    call void @heavy___heavy(%t1)
+    call void @heavy___heavy(%t2)
+    resume
+
+  block ^call_unwind_end_6:
+    return void
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    return i32 0
+}
+function @empty__empty__ov3(%this : ptr, %other : ptr [pass=reference]) -> void [unwind=no, binding=weak, object=_ZN5emptyC1EOS_, trivial_lifecycle=yes] {
+  slot $this : ptr
+  slot $other : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    store ptr %other, $other
+    return void
+}
+alias object _ZN5emptyC2EOS_ = @empty__empty__ov3

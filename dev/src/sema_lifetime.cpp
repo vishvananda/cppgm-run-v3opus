@@ -14,6 +14,26 @@ namespace
 // bounded rather than being a search of the initializer.
 const unsigned kBoundTemporaryDepth = 8;
 
+// 13.3.1.4p1: holds the class an object is being direct-initialized of while
+// 13.3 measures its candidates, and puts back what stood before however the
+// resolution leaves - a refusal is one of the probes above catches and goes on
+// asking questions past.
+struct DirectInitialization
+{
+	DirectInitialization(TypeId& held, TypeId type)
+		: held_(held)
+		, outer_(held)
+	{
+		held_ = type;
+	}
+
+	~DirectInitialization() { held_ = outer_; }
+
+private:
+	TypeId& held_;
+	const TypeId outer_;
+};
+
 // The child of `node` of a kind, or null.
 const AstNode* child_of(const AstNode& node, AstKind kind)
 {
@@ -252,12 +272,26 @@ DumpNode& SemaAnalyzer::created_object_node(DumpNode& node)
 bool SemaAnalyzer::elide_transfer(const SemaEntity& constructor,
                                   std::vector<Value>& arguments,
                                   TypeId object_type, DumpNode& line,
-                                  DumpNode& action)
+                                  DumpNode& action, bool into_temporary)
 {
 	if (arguments.size() != 1 ||
 	    (constructor.transfer != kCopyConstructorTransfer &&
 	     constructor.transfer != kMoveConstructorTransfer))
 	{
+		return false;
+	}
+	if (into_temporary)
+	{
+		// 12.8p31: the destination is itself a temporary this expression made
+		// for a prvalue, so what the elision would do is take the source's
+		// object out of the frame that holds it and put it in storage the
+		// enclosing initialization has not settled - the destination's own
+		// place is still being decided, and 8.5.3p5 has already bound the
+		// source to the reference this constructor's parameter is.  What the
+		// elision reaches is a destination that stands of its own: a
+		// declaration's storage, 5.3.4p12's allocated storage, a subobject of
+		// one of those.  So the source is materialized where the argument
+		// stands and the transfer 13.3 chose is a call like any other.
 		return false;
 	}
 	Value& source = arguments[0];
@@ -355,7 +389,8 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
                                     Placement where, bool copied,
                                     const Value* given, bool value_init,
                                     const std::vector<SemaEntity*>* forwarded,
-                                    bool direct, SemaEntity** chosen)
+                                    bool direct, bool into_temporary,
+                                    bool boundary_object, SemaEntity** chosen)
 {
 	const bool member = where == Placement::Member || where == Placement::Base;
 	// 12.6p1: an array of class type is initialized element by element, and
@@ -457,6 +492,7 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 	action.fact.kind = FactKind::ConstructorAction;
 	action.fact.type = variable.type;
 	action.fact.elided_prvalue = elided_prvalue;
+	action.fact.boundary_object = boundary_object;
 	action.fact.base_subobject = where == Placement::Base;
 	action.fact.subobject_step = member;
 	DumpNode& call = model_.open_node(action, std::string());
@@ -501,6 +537,20 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 	}
 
 	std::vector<SemaEntity*> candidates(1, head);
+	// 13.3.1.4p1: this is a direct-initialization of an object of the class
+	// written with one argument, so the temporary bound to the first parameter
+	// of a constructor of that class is initialized in the context of this
+	// initialization - which is what lets 12.3.2p2's `explicit` conversion
+	// functions of the argument's own class reach it.  The class is what the
+	// question is asked about, so it is what is carried; a copy-initialization
+	// and a call with any other number of arguments carry nothing.
+	// The context stands over the conversions below as well as over the choice,
+	// because 13.3 measures each argument's sequence once to choose and once to
+	// apply, and the two have to be the one answer.
+	const DirectInitialization direct_context(
+		direct_initialized_,
+		!converting && arguments.size() == 1 ? types_.strip_cv(object_type)
+		                                     : kNoType);
 	SemaEntity& constructor = *select_overload(candidates, arguments,
 	                                           head->name, &object, converting);
 	require_access(constructor, ctx.scope);
@@ -559,7 +609,8 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 		                 Requested::Argument);
 	}
 	if (!member && where != Placement::Base &&
-	    elide_transfer(constructor, arguments, object_type, line, action))
+	    elide_transfer(constructor, arguments, object_type, line, action,
+	                   into_temporary))
 	{
 		// 12.8p31: the constructor 13.3 chose carries an object into this one,
 		// and what it was given is a prvalue that creates its own object - so
@@ -573,6 +624,25 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 		// been written where the argument is missing.
 		write_default_argument(constructor, index, call);
 	}
+	write_constructor_action(action, call, callee, constructor, *head,
+	                         value_init);
+	if (chosen != nullptr)
+	{
+		*chosen = &constructor;
+	}
+}
+
+// The three lines an initialization leaves once 13.3 has chosen: the action
+// that says an object's lifetime begins here, the call that runs the
+// constructor and the callee that names it.  Every reader of the initialization
+// - the lowering, 15.2p2's handler, 12.8p31's elision - reads those three, so
+// they are written in one place however the initialization reached its choice.
+void SemaAnalyzer::write_constructor_action(DumpNode& action, DumpNode& call,
+                                            DumpNode& callee,
+                                            SemaEntity& constructor,
+                                            const SemaEntity& head,
+                                            bool value_init)
+{
 	action.text = "constructor-action " + constructor.dump_name;
 	action.fact.entity = &constructor;
 	// 8.5p7: a non-union class with no user-provided constructor is
@@ -580,7 +650,7 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 	// initialization chose - runs on it.  The zero is what the object holds
 	// wherever that constructor leaves a member alone, so it is written even
 	// where the constructor itself does nothing at all.
-	action.fact.zero_initialized = value_init && !user_provided_constructor(*head);
+	action.fact.zero_initialized = value_init && !user_provided_constructor(head);
 	call.text = spell("call-expression", ValueCategory::PRValue,
 	                  types_.target(constructor.type), std::string());
 	set_fact(call, FactKind::Call, types_.target(constructor.type),
@@ -589,10 +659,6 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 		types_.description(constructor.type);
 	set_fact(callee, FactKind::Callee, constructor.type, ValueCategory::LValue);
 	callee.fact.entity = &constructor;
-	if (chosen != nullptr)
-	{
-		*chosen = &constructor;
-	}
 	demand_constructor_definition(constructor);
 }
 
@@ -1046,7 +1112,8 @@ SemaAnalyzer::Value SemaAnalyzer::build_temporary(TypeId type, DumpNode& line,
                                                   const Context& ctx,
                                                   const char* prefix,
                                                   bool value_init, bool owned,
-                                                  bool direct, bool copy_list)
+                                                  bool direct, bool copy_list,
+                                                  bool boundary)
 {
 	const TypeId object_type = types_.strip_cv(type);
 	SemaEntity& object = model_.create(SemaKind::Variable, std::string(),
@@ -1087,8 +1154,11 @@ SemaAnalyzer::Value SemaAnalyzer::build_temporary(TypeId type, DumpNode& line,
 	}
 	else
 	{
+		// 12.8p31: what this builds is an object the analysis made to hold a
+		// prvalue, which is no destination the elision reaches - the place that
+		// asked for the prvalue is what settles where it stands.
 		construct_object(object, line, written, ctx, Placement::Named, copy_list,
-		                 given, value_init, nullptr, direct);
+		                 given, value_init, nullptr, direct, true, boundary);
 	}
 	if (owned)
 	{
@@ -1758,7 +1828,7 @@ void SemaAnalyzer::write_delegating_initialization(const Pending& pending,
 	// it was written for has returned.
 	open_full_expression();
 	construct_object(owner, line, written, inner, Placement::Delegate, false,
-	                 nullptr, false, nullptr, false, &target);
+	                 nullptr, false, nullptr, false, false, false, &target);
 	close_full_expression(line);
 	if (target == nullptr)
 	{

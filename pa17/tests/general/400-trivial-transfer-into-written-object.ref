@@ -1,0 +1,81 @@
+declare function @operator_new(%arg0 : i64) -> ptr [binding=strong, object=cppgm_builtin_operator_new]
+declare function @take(%arg0 : obj<4x4>) -> void [binding=strong, object=_Z4take5value]
+
+function @allocated(%a : obj<4x4>) -> ptr [binding=strong, object=_Z9allocated5value] {
+  slot $a : obj<4x4>
+
+  block ^entry:
+    %t1 = addr $a
+    copyobj 4x4 %a, %t1
+    %t2 = convert sext i64 i32 4
+    %t3 = call ptr @operator_new(%t2)
+    %t4 = addr $a
+    call void @value__value__ov2(%t3, %t4)
+    return ptr %t3
+}
+function @written(%a : obj<4x4>) -> void [binding=strong, object=_Z7written5value] {
+  slot $a : obj<4x4>
+  slot $argobj__1 : obj<4x4>
+  slot $argobj__2 : obj<4x4>
+
+  block ^entry:
+    %t1 = addr $a
+    copyobj 4x4 %a, %t1
+    %t2 = addr $argobj__1
+    %t3 = addr $a
+    call void @value__value__ov2(%t2, %t3)
+    call void @take($argobj__1)
+    %t4 = addr $argobj__2
+    %t5 = addr $a
+    call void @value__value__ov2(%t4, %t5)
+    call void @take($argobj__2)
+    return void
+}
+function @implied(%a : obj<4x4>) -> void [binding=strong, object=_Z7implied5value] {
+  slot $a : obj<4x4>
+  slot $b : obj<4x4>
+  slot $c : obj<4x4>
+  slot $argobj__1 : obj<4x4>
+  slot $argobj__2 : obj<4x4>
+  slot $argobj__3 : obj<4x4>
+
+  block ^entry:
+    %t1 = addr $a
+    copyobj 4x4 %a, %t1
+    %t2 = addr $b
+    %t3 = addr $a
+    copyobj 4x4 %t3, %t2
+    %t4 = addr $c
+    %t5 = addr $a
+    copyobj 4x4 %t5, %t4
+    %t6 = addr $argobj__1
+    %t7 = addr $a
+    copyobj 4x4 %t7, %t6
+    call void @take($argobj__1)
+    %t8 = addr $argobj__2
+    %t9 = addr $b
+    copyobj 4x4 %t9, %t8
+    call void @take($argobj__2)
+    %t10 = addr $argobj__3
+    %t11 = addr $c
+    copyobj 4x4 %t11, %t10
+    call void @take($argobj__3)
+    return void
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    return i32 0
+}
+function @value__value__ov2(%this : ptr, %other : ptr [pass=reference]) -> void [unwind=no, binding=weak, object=_ZN5valueC1ERKS_, trivial_lifecycle=yes] {
+  slot $this : ptr
+  slot $other : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    store ptr %other, $other
+    %t1 = load ptr $this
+    %t2 = load ptr $other
+    copyobj 4x4 %t2, %t1
+    return void
+}
+alias object _ZN5valueC2ERKS_ = @value__value__ov2

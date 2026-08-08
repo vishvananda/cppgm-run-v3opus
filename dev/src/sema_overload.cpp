@@ -183,7 +183,7 @@ bool SemaAnalyzer::pointer_convertible(TypeId from, TypeId to, int& rank,
 }
 
 SemaAnalyzer::Match SemaAnalyzer::match_by_value(const Value& argument,
-                                                 TypeId parameter)
+                                                 TypeId parameter, bool direct)
 {
 	Match match;
 	const TypeId target = types_.strip_cv(parameter);
@@ -215,7 +215,7 @@ SemaAnalyzer::Match SemaAnalyzer::match_by_value(const Value& argument,
 		// 13.3.1.4p1: the other half of that candidate set is the conversion
 		// functions of the argument's own class, which reach the parameter's
 		// class where no constructor of it takes the argument.
-		return conversion_match(argument, parameter, false);
+		return conversion_match(argument, parameter, direct);
 	}
 	if (types_.is_class(types_.strip_cv(argument.type)))
 	{
@@ -960,6 +960,14 @@ SemaAnalyzer::Match SemaAnalyzer::match_reference(const Value& argument,
 		bare_type(source) == bare_type(referenced) || to_base != nullptr;
 	const bool const_lvalue_ref = (types_.cv(referenced) & kCvConst) != 0 &&
 		(types_.cv(referenced) & kCvVolatile) == 0;
+	// 13.3.1.4p1: this reference is the first parameter of a constructor of the
+	// class an object is being direct-initialized of, and the temporary bound to
+	// it is initialized in the context of that direct-initialization - so the
+	// `explicit` conversion functions of the argument's class are candidates for
+	// it, which is the same set 5.2.9p4's cast to that class reaches.  Every
+	// other reference measures a copy-initialization and reaches none of them.
+	const bool direct = direct_initialized_ != kNoType &&
+		types_.strip_cv(referenced) == direct_initialized_;
 	if (related &&
 	    (types_.object_cv(source) & ~types_.object_cv(referenced)) == 0)
 	{
@@ -999,7 +1007,7 @@ SemaAnalyzer::Match SemaAnalyzer::match_reference(const Value& argument,
 		// *to* the referenced type would make: an lvalue a conversion function
 		// handed back is an object of its own, and a non-const lvalue
 		// reference binds one.
-		const Match reached = conversion_match(argument, parameter, false);
+		const Match reached = conversion_match(argument, parameter, direct);
 		if (reached.viable)
 		{
 			return reached;
@@ -1015,7 +1023,7 @@ SemaAnalyzer::Match SemaAnalyzer::match_reference(const Value& argument,
 
 	// The argument is converted to the referenced type and the reference binds
 	// the temporary that holds it.
-	const Match converted = match_by_value(argument, referenced);
+	const Match converted = match_by_value(argument, referenced, direct);
 	if (!converted.viable)
 	{
 		return match;
@@ -1594,7 +1602,8 @@ void SemaAnalyzer::apply_conversion(Value& value, TypeId target,
 		line.children.clear();
 		value = build_temporary(wanted, line, nullptr, &source, ctx,
 		                        requested_prefix(by, match.reference, wanted), false,
-		                        match.reference);
+		                        match.reference, false, false,
+		                        by != Requested::Written);
 		return;
 	}
 	if (by != Requested::Written && match.reference && !match.binds_lvalue &&
@@ -1629,7 +1638,7 @@ void SemaAnalyzer::apply_conversion(Value& value, TypeId target,
 			line.children.clear();
 			value = build_temporary(wanted, line, nullptr, &source, ctx,
 			                        requested_prefix(by, false, wanted), false,
-		                        false);
+			                        false, false, false, true);
 			return;
 		}
 		// 12.8p31: the argument is a prvalue of the parameter's own class, so

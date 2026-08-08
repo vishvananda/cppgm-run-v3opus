@@ -104,6 +104,7 @@ SemaAnalyzer::SemaAnalyzer(SemaDialect dialect)
 	, live_destructions_(0)
 	, returns_(kNoType)
 	, standard_only_(false)
+	, direct_initialized_(kNoType)
 	, c_linkage_(false)
 {}
 

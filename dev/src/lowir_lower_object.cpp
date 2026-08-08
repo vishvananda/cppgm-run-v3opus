@@ -904,11 +904,17 @@ void LowirFunctionLowering::constructor_call(const Operand& address,
 		(constructor.transfer == kCopyConstructorTransfer ||
 		 constructor.transfer == kMoveConstructorTransfer) &&
 		call.children.size() > 2;
-	if (transfers_value && constructor.trivial &&
-	    types.has_vacuous_destruction(written) &&
+	if ((!always || node.fact.boundary_object) && transfers_value &&
+	    constructor.trivial && types.has_vacuous_destruction(written) &&
 	    (node.fact.subobject_step ||
 	     !types.is_copy_deleted(types.strip_cv(written))))
 	{
+		// `always` is the bound 12.1p5's reading below already has: an object
+		// standing at an address alone - 12.2p1's temporary, 5.2.9p4's cast,
+		// 5.3.4p12's storage - has the call as the one mark its lifetime began.
+		// What reads the bytes is an initialization of an object a declaration
+		// named, each subobject step inside one, and 5.2.2p4's parameter, whose
+		// whole meaning where the bytes stand for the object is that copy.
 		// 12.8p12 and 12.4p8: the copy or move the standard defines for this
 		// class does nothing but carry the bytes of the object it reads from,
 		// so the transfer is that copy and no call stands for it.  Which member
