@@ -178,6 +178,7 @@ struct SemaFact
 		, reverse_elements(false)
 		, elided_prvalue(false)
 		, boundary_object(false)
+		, binds_temporary(false)
 		, base_subobject(false)
 		, subobject_step(false)
 		, array_form(false)
@@ -259,6 +260,16 @@ struct SemaFact
 	// alone has the member 13.3 chose written as the call that begins its
 	// lifetime.
 	bool boundary_object;
+	// 8.5.3p5 and 5.2.10p11: whether the reference this cast to a reference
+	// type is worth binds a *temporary* holding the conversion of the operand,
+	// or names the storage the operand already named under another type.  The
+	// two spell the same two types and the cast's own line stands for the
+	// lvalue either way, so this is the one thing that tells them apart: a
+	// `reinterpret_cast`, and an lvalue reference that is not to a non-volatile
+	// const, name the operand's storage; every other cast to a reference the
+	// operand is reference-related to nothing of is 5.2.9p4's `T t(e);` and the
+	// address of `t`.
+	bool binds_temporary;
 	// 12.6.2p5 and 12.4p8: whether this `constructor-action` or
 	// `destructor-action` acts on the base class subobject of the object the
 	// function it stands in was called on.  The ABI gives a constructor and a

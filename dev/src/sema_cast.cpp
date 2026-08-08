@@ -248,8 +248,14 @@ SemaAnalyzer::Value SemaAnalyzer::cast_to_reference(TypeId target, Value& source
 		// and 5.4p4 falls to reinterpreting the object the operand named, which
 		// is the cast's own line below.  Converting there would bind a
 		// non-const lvalue reference to a temporary of this function.
+		//
+		// 5.2.10p11's reinterpret_cast is that same reinterpretation written by
+		// name: what it produces refers to the object the operand named, under
+		// another type, and never to a temporary holding a conversion of it - so
+		// it is no such initialization however const the referenced type is.
 		const bool binds_temporary =
-			types_.kind(target) != TypeKind::LValueReference || const_lvalue;
+			(types_.kind(target) != TypeKind::LValueReference || const_lvalue) &&
+			value.op != KW_REINTERPET_CAST;
 		if (!binds_temporary && value.op == KW_STATIC_CAST)
 		{
 			// 5.2.9p4: a static_cast is well formed exactly where `T t(e);` is,
@@ -322,9 +328,23 @@ SemaAnalyzer::Value SemaAnalyzer::cast_to_reference(TypeId target, Value& source
 			apply_conversion(source, referenced, match, ctx,
 			                 Requested::Written);
 		}
-		// A conversion to any other type is a value, and the temporary holding
-		// it begins no lifetime the program can watch - so the cast's own line
-		// is the whole of what stands for it, as it always was.
+		// **Which of 5.4p4's two readings a cast is, is a fact of the node.**
+		// The cast's own line is what stands for the lvalue either way and the
+		// two spell the same two types, so the reader below cannot tell an
+		// 8.5.3p5 binding from 5.2.10p11's reinterpretation without being told:
+		// `reinterpret_cast<const float&>(i)` names the `int`'s own storage
+		// under another type, and `(const int&)d` over a `double` is
+		// `const int t(d);` and the address of `t`.  Handing on the operand's
+		// address for the second reads the bytes of another type's
+		// representation through a reference the program may keep.
+		//
+		// A temporary of a type that is not a class begins no lifetime the
+		// program can watch, so nothing but the storage is owed for it and
+		// 12.2p3 has no end to hold - which is why the fact stands on the cast's
+		// own line rather than being an object of the analysis.
+		line.fact.binds_temporary = binds_temporary;
+		// A conversion to any other type is a value, and the cast's own line is
+		// the whole of what stands for it, as it always was.
 		value.payload.clear();
 		value.node = &line;
 		respell(value);

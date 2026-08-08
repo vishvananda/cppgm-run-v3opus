@@ -177,9 +177,12 @@ bool creates_its_object(const DumpNode& node, TypeTable& types)
 		// 3.10p9 leaves the cv-qualification of a class prvalue on the node the
 		// cast wrote and off the object under it, and one object is what they
 		// both name - which is the same reading the lowering's own cast makes.
+		// Which node stands under the cast is no part of the question: a call
+		// of a function returning this class hands back an object it creates
+		// exactly as a `temporary-object` written here does, and 5.2.9p4's cast
+		// over either of them is one more spelling of the same object.
 		return node.fact.category == ValueCategory::PRValue &&
 			!node.children.empty() &&
-			node.children[0]->fact.kind == FactKind::TemporaryObject &&
 			types.strip_cv(node.children[0]->fact.type) ==
 				types.strip_cv(node.fact.type) &&
 			creates_its_object(*node.children[0], types);

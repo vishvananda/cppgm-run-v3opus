@@ -50,7 +50,7 @@ FRONTEND_OBJ_BASENAMES_cppgm++ := source_charset source_reader pptoken_lexer \
 	types_emit \
 	semantics_emit abi_mangle lowir_abi lowir_text lowir_validate lowir_write \
 	lowir_lower lowir_lower_body lowir_lower_expression \
-	lowir_lower_object lowir_lower_unwind lowir_emit
+	lowir_lower_object lowir_lower_allocation lowir_lower_unwind lowir_emit
 FRONTEND_OBJ_BASENAMES_lowiropt :=
 FRONTEND_OBJ_BASENAMES_lowir2cy86 := lowir_text lowir_validate lowir_cy86
 FRONTEND_OBJ_BASENAMES_lowir2native :=

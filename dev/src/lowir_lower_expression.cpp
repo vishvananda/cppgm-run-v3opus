@@ -407,11 +407,41 @@ LowValue LowirFunctionLowering::cast_expression(const DumpNode& node,
 	{
 		return value;
 	}
-	const bool object_result = as_object || to_void ||
+	// 5.2.9p4 and 12.8p31: the object standing under the cast is the object the
+	// cast direct-initialized, whatever node the prvalue was written as - a
+	// `temporary-object` the program wrote and a call handing back an object of
+	// this class alike - so the cast is worth that object and reads it as one.
+	const bool creates_under = types.is_class(types.strip_cv(value.type)) &&
+		creates_its_object(node, types);
+	const bool object_result = as_object || to_void || creates_under ||
 		node.fact.category != ValueCategory::PRValue;
 	const LowValue source = expression(*node.children[0], object_result);
 	if (node.fact.category != ValueCategory::PRValue)
 	{
+		if (node.fact.binds_temporary &&
+		    !types.is_class(types.strip_cv(value.type)))
+		{
+			// 8.5.3p5: what this reference binds is a temporary holding the
+			// *conversion* of the operand and not the storage the operand
+			// named, which is an object of this function like the one an
+			// argument bound to a reference parameter already materializes.
+			// Which of 5.4p4's two readings this is, is the fact the analysis
+			// wrote: the types below say nothing, because 5.2.10p11's
+			// reinterpretation spells exactly the same two.
+			//
+			// A class referenced type is not one of these: there the conversion
+			// made an object the analysis already named storage for, and the
+			// operand's line is that object.
+			const TypeId wanted = types.strip_cv(value.type);
+			const std::string slot = add_generated_slot("refcast", wanted);
+			const Operand storage = named_operand(Operand::OP_SLOT, slot);
+			store(convert_scalar(rvalue(source), types.strip_cv(source.type),
+			                     wanted),
+			      storage, wanted);
+			value.lvalue = true;
+			value.operand = storage;
+			return value;
+		}
 		// 5.2.9p1 and 5.2.11: a cast to a reference names the object the
 		// operand named, so what it produces is that storage.
 		value.lvalue = true;
@@ -464,9 +494,10 @@ LowValue LowirFunctionLowering::cast_expression(const DumpNode& node,
 	}
 	if (types.is_class(types.strip_cv(value.type)))
 	{
-		if (node.children[0]->fact.kind == FactKind::TemporaryObject &&
-		    types.strip_cv(node.children[0]->fact.type) ==
-		        types.strip_cv(value.type))
+		if (creates_under ||
+		    (node.children[0]->fact.kind == FactKind::TemporaryObject &&
+		     types.strip_cv(node.children[0]->fact.type) ==
+		         types.strip_cv(value.type)))
 		{
 			// 5.2.9p4 and 12.8p31: the operand is the object the cast
 			// direct-initialized, so the cast is worth that object and no copy
