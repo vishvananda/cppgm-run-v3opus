@@ -1638,8 +1638,24 @@ bool SemaAnalyzer::writes_no_statement(const AstNode& node)
 {
 	const AstNode* const body =
 		node.children.empty() ? nullptr : node.children.back();
-	return body != nullptr && body->kind == AstKind::CompoundStatement &&
-		body->children.empty();
+	if (body == nullptr || body->kind != AstKind::CompoundStatement ||
+	    !body->children.empty())
+	{
+		return false;
+	}
+	// 12.6.2p8: a mem-initializer initializes a subobject however empty the
+	// compound-statement written after it is, so a definition that writes one
+	// comes to something even where it writes no statement at all.  A
+	// destructor has none to write, which leaves this the same question for
+	// both members that ask it.
+	for (std::size_t index = 0; index + 1 < node.children.size(); ++index)
+	{
+		if (node.children[index]->kind == AstKind::CtorInitializer)
+		{
+			return false;
+		}
+	}
+	return true;
 }
 
 // 3.4.1p8 and 9.3p2: the definitions of members written outside their class,
@@ -1674,25 +1690,26 @@ void SemaAnalyzer::collect_unit_definitions(const AstNode& node)
 	}
 }
 
-// 12.4p8: whether the definition this unit gives `destructor` writes a
+// 12.4p8 and 12.1p5: whether the definition this unit gives `member` writes a
 // statement, asked where that definition may not have been read yet.
 //
-// A class's destructor has one unqualified name, so the definitions to consider
-// are the ones the walk collected under it - one, in any program that defines
-// it once - and 3.4.1p8's prefix, resolved against the class itself, says which
-// of them defines this one rather than another class's of the same name.  A
-// prefix that reaches the class only through a name some other region binds is
-// found by none of this, and the destruction is written as the call it is.
-void SemaAnalyzer::note_definition_body(SemaEntity& destructor,
+// A class's destructor has one unqualified name and its constructors share
+// one, so the definitions to consider are the ones the walk collected under it
+// - one, in any program that defines it once - and 3.4.1p8's prefix, resolved
+// against the class itself, says which of them defines this one rather than
+// another class's of the same name.  A prefix that reaches the class only
+// through a name some other region binds is found by none of this, and the
+// action is written as the call it is.
+void SemaAnalyzer::note_definition_body(SemaEntity& member,
                                         const SemaEntity& owner)
 {
-	if (destructor.defined || owner.scope == nullptr)
+	if (member.defined || owner.scope == nullptr)
 	{
 		return;
 	}
 	const std::unordered_map<std::string,
 	                         std::vector<const AstNode*> >::const_iterator
-		found = unit_definitions_.find(destructor.name);
+		found = unit_definitions_.find(member.name);
 	if (found == unit_definitions_.end())
 	{
 		return;
@@ -1719,7 +1736,7 @@ void SemaAnalyzer::note_definition_body(SemaEntity& destructor,
 		{
 			continue;
 		}
-		destructor.empty_body = writes_no_statement(node);
+		member.empty_body = writes_no_statement(node);
 		return;
 	}
 }

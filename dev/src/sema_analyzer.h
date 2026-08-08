@@ -763,7 +763,7 @@ private:
 	// class's destructor - which is what settles 12.4p8's question wherever the
 	// definition was written.
 	void collect_unit_definitions(const AstNode& node);
-	void note_definition_body(SemaEntity& destructor, const SemaEntity& owner);
+	void note_definition_body(SemaEntity& member, const SemaEntity& owner);
 	// 12.4p8: whether the definition `node` gives a function writes any
 	// statement, which is the one reading of a body both of those ask.
 	static bool writes_no_statement(const AstNode& node);
@@ -1418,6 +1418,10 @@ private:
 	// overload set, which 13.3 then chooses from.
 	SemaEntity* allocation_function(bool global, TypeId created, bool array,
 	                                std::vector<SemaEntity*>& found);
+	// 5.3.4p15 and 18.6.1.1p3: whether a call of this allocation function says
+	// it obtained no storage by handing back null, which 15.4's non-throwing
+	// exception-specification and `std::nothrow_t` together are what say.
+	bool nothrow_allocation(const SemaEntity& function);
 	// 5.3.5: `delete p`, which is 12.4p3's end of the lifetime of the object
 	// `p` points to and 3.7.4.2's return of the storage it stood in.
 	Value delete_expression(const AstNode& node, const Context& ctx,
@@ -1443,7 +1447,8 @@ private:
 	// that is where the count is one the translation knows.
 	Value array_new_size(const AstNode& bound, TypeId element,
 	                     unsigned long long cookie, const Context& ctx,
-	                     DumpNode& parent, unsigned long long& elements);
+	                     DumpNode& parent, unsigned long long& elements,
+	                     bool& counted);
 	// 8.3.4p1: how many objects of its ultimate element type one element of an
 	// array whose element type is `element` holds.
 	unsigned long long array_element_count(TypeId element);
@@ -1453,8 +1458,13 @@ private:
 	void array_new_initialization(TypeId created, const AstNode* written,
 	                              bool global, const Context& ctx,
 	                              DumpNode& line);
+	// 12.1p5: the constructor 8.5p6 default-initializes an object of `element`
+	// with, or null where the class declares none taking no argument or leaves
+	// 13.3 two to choose between.
+	SemaEntity* default_constructor(TypeId element);
 	// 8.5p6 and 12.1p5: whether default-initializing one object of `element`
 	// comes to nothing, which is what the array form's loop is written over.
+	// It is 12.4p8's walk of the subobject tree the other way round.
 	bool vacuous_construction(TypeId element);
 	// 8.5: the initializer written for a declarator, in each of the three forms
 	// 8.5p1 gives it.  `image` says 3.6.2 gives the object its value rather than
@@ -1833,6 +1843,10 @@ private:
 	// subobjects are n deep is walked once and not once per object of it whose
 	// lifetime ends.
 	std::unordered_map<TypeId, unsigned char> vacuous_;
+	// 12.1p5: the answer `vacuous_construction` gave for a type, held for the
+	// same reason - the array form of a new-expression asks it once per
+	// expression and the walk below it is the same subobject tree.
+	std::unordered_map<TypeId, unsigned char> vacuous_construction_;
 	// 3.4.1p8: the unit's out-of-class special member definitions, keyed by the
 	// unqualified name each defines, so the one that defines a given class's
 	// destructor is found in one probe rather than a walk of the unit per

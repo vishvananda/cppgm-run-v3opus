@@ -169,6 +169,8 @@ struct SemaFact
 		, subobject_step(false)
 		, array_form(false)
 		, object_definition(false)
+		, counted(false)
+		, may_fail(false)
 		, elements(0)
 		, value(0)
 	{}
@@ -244,6 +246,18 @@ struct SemaFact
 	// is a second line describing one object - so which of the lines lays the
 	// storage out is a fact of the line and not of the entity under it.
 	bool object_definition;
+	// 5.3.4p6: whether the number of elements this `new-expression`'s array
+	// form creates is one the translation knows.  It is the one array bound the
+	// standard does not require to be a constant, so `elements` says how many
+	// there are only when this is true - a count of zero is a count like any
+	// other, and reading `elements == 0` as "not known" would make the one
+	// bound the source wrote plainest the one the program computes at run time.
+	bool counted;
+	// 5.3.4p15 and 18.6.1.1p3: whether a call of the allocation function this
+	// `new-expression` chose says it obtained no storage by handing back a null
+	// pointer, which is what makes an address there something to test before
+	// anything is initialized at it.
+	bool may_fail;
 	// 8.5.1p7: how many consecutive elements of the array it stands in this
 	// `constructor-action` builds.  An element a clause reached is one object
 	// and this is zero; the elements no clause reached are all value-

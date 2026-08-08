@@ -85,6 +85,42 @@ SemaEntity* SemaAnalyzer::allocation_function(bool global, TypeId created,
 	return model_.lookup_in(model_.global(), name, LookupKind::Any, &found);
 }
 
+// 5.3.4p15 and 18.6.1.1p3: whether a call of this allocation function says it
+// obtained no storage by handing back a null pointer, which is what makes the
+// address something to test before an object is created at it.
+//
+// 15.4 is half the answer: a function that may throw has already left the
+// expression where it stands if it obtained nothing, so there is nothing for a
+// test to be about.  The other half is 18.6.1.1p3's `std::nothrow_t`, which is
+// the argument a program writes to ask for the form that reports failure with a
+// value instead of an exception.  A placement form that merely promises to
+// throw nothing obtains its storage from wherever the program said and has no
+// failure of its own to report, so a use of one is not written with a test.
+bool SemaAnalyzer::nothrow_allocation(const SemaEntity& function)
+{
+	if (!function.nonthrowing)
+	{
+		return false;
+	}
+	const std::vector<TypeId>& parameters = types_.parameters(function.type);
+	for (std::size_t index = 0; index < parameters.size(); ++index)
+	{
+		TypeId at = types_.strip_cv(parameters[index]);
+		if (types_.is_reference(at))
+		{
+			at = types_.strip_cv(types_.target(at));
+		}
+		SemaEntity* const owner =
+			types_.is_class(at) ? model_.type_owner(at) : nullptr;
+		if (owner != nullptr && owner->name == "nothrow_t" &&
+		    owner->region != nullptr && owner->region->prefix == "std::")
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
 // 3.7.4.2p2 and 12.5p4: the deallocation function a delete-expression calls, or
 // the one 5.3.4p18 pairs with a new-expression's allocation.
 //
@@ -237,14 +273,14 @@ SemaAnalyzer::Value SemaAnalyzer::delete_expression(const AstNode& node,
 	// of the array, and 8.3.4p1's elements of an array of arrays are the
 	// objects of the ultimate element type - which is what the count in front
 	// of them counts and what one destructor call ends.
+	//
+	// 5.3.5p5 leaves an object whose class is incomplete here - and 5.3.5p2's
+	// `void` with it - undefined rather than ill-formed: what the program loses
+	// is the destructor call the definition would have named, and the storage
+	// still goes back.  So the expression is written for what the type does
+	// say, which for an incomplete type is one deallocation and nothing else.
 	const TypeId pointed = types_.strip_cv(types_.target(operand.type));
 	const TypeId destroyed = array ? element_of(pointed) : pointed;
-	if (types_.is_incomplete(pointed))
-	{
-		throw std::runtime_error("a delete-expression destroys an object of the "
-		                         "incomplete type " +
-		                         types_.description(destroyed));
-	}
 	// 5.3.5p1: the expression itself is worth nothing, so the type it has says
 	// nothing about what it does - and the type of the object it destroys says
 	// all of it.  `spelled` is that type, which is what every reader of this
@@ -293,22 +329,15 @@ SemaAnalyzer::Value SemaAnalyzer::delete_expression(const AstNode& node,
 	return value;
 }
 
-// 8.5p6 and 12.1p5: whether default-initializing one object of `element` comes
-// to nothing.  It is 12.4p8's question the other way round, and it is asked in
-// one place only: the array form of a new-expression writes one loop for
-// however many elements there are, and a loop whose body is a call that does
-// nothing is written as nothing at all.
-//
-// A constructor 12.1p5 made trivial does nothing by 12.1p6.  One the program
-// wrote does nothing where its body writes no statement and its class holds no
-// subobject for a mem-initializer to name - which is what makes "holds nothing"
-// the whole of the test rather than a walk of what a definition initializes.
-bool SemaAnalyzer::vacuous_construction(TypeId element)
+// 12.1p5: the constructor 8.5p6 default-initializes an object of `element`
+// with, or null where the class declares none that takes no argument or leaves
+// 13.3 two to choose between.  Which of two runs is not a question the callers
+// of this ask, so a set that needs 13.3 is answered by no one constructor.
+SemaEntity* SemaAnalyzer::default_constructor(TypeId element)
 {
-	SemaEntity* const owner = model_.type_owner(types_.strip_cv(element));
-	if (owner == nullptr)
+	if (model_.type_owner(types_.strip_cv(element)) == nullptr)
 	{
-		return true;
+		return nullptr;
 	}
 	SemaEntity* const head = class_constructors(types_.strip_cv(element));
 	SemaEntity* chosen = nullptr;
@@ -323,18 +352,94 @@ bool SemaAnalyzer::vacuous_construction(TypeId element)
 		}
 		if (chosen != nullptr)
 		{
-			// 13.3 has two candidates to choose between, and which of them
-			// runs is not a question this one asks.
-			return false;
+			return nullptr;
 		}
 		chosen = at;
 	}
-	if (chosen == nullptr || chosen->deleted)
+	return chosen;
+}
+
+// 8.5p6 and 12.1p5: whether default-initializing one object of `element` comes
+// to nothing.
+//
+// It is 12.4p8's question the other way round, and it is answered the same way,
+// because 12.6.2p10 builds exactly the subobjects 12.4p8 destroys: one walk of
+// the subobject tree, held per type.  A constructor 12.1p5 made trivial does
+// nothing by 12.1p6; one the program wrote does nothing where its definition
+// writes neither a statement nor a mem-initializer and every subobject under it
+// comes to nothing itself - a base, a member of class type, and 12.6.2p8's
+// brace-or-equal-initializer, which initializes a member however empty the body
+// above it is.  3.4.1p8 lets that definition stand after the body asking this,
+// so it is taken from the unit's syntax the way a destructor's already is.
+bool SemaAnalyzer::vacuous_construction(TypeId element)
+{
+	const TypeId bare = element_of(element);
+	const std::unordered_map<TypeId, unsigned char>::const_iterator held =
+		vacuous_construction_.find(bare);
+	if (held != vacuous_construction_.end())
 	{
-		return false;
+		return held->second != 0;
 	}
-	return chosen->trivial ||
-		(chosen->empty_body && owner->empty_class && owner->base == nullptr);
+	SemaEntity* const owner = model_.type_owner(bare);
+	if (owner == nullptr)
+	{
+		// 8.5p6 over an object of no class type is no initialization at all.
+		return true;
+	}
+	// The answer is written before the walk so a class reached from its own
+	// subobject tree - which 9.2p8 leaves only a member of reference or pointer
+	// type to be - is answered rather than walked again.
+	vacuous_construction_[bare] = 0u;
+	SemaEntity* const chosen = default_constructor(bare);
+	bool nothing = false;
+	if (chosen != nullptr && !chosen->deleted)
+	{
+		// 3.4.1p8: the definition may stand after the body asking this, so it is
+		// taken from the unit's syntax - but the syntax is keyed on the
+		// unqualified name, and 12.1p2 lets a class declare that name as many
+		// times as it likes.  The name says which declaration a definition
+		// under it defines only where one constructor of the class is still
+		// waiting for one; where two are, 8.3.5p4's parameter-type-list is what
+		// would tell them apart, and until the read reaches the definition a
+		// constructor this unit has not defined comes to something.
+		SemaEntity* awaiting = nullptr;
+		bool one = true;
+		for (SemaEntity* at = owner->constructor; at != nullptr; at = at->next)
+		{
+			if (at->defined || at->defaulted || at->deleted)
+			{
+				continue;
+			}
+			one = one && awaiting == nullptr;
+			awaiting = at;
+		}
+		if (one && awaiting == chosen)
+		{
+			note_definition_body(*chosen, *owner);
+		}
+		nothing = chosen->trivial;
+		if (!nothing && (chosen->empty_body || chosen->defaulted))
+		{
+			nothing = owner->scope != nullptr;
+			if (nothing && owner->base != nullptr)
+			{
+				// 12.6.2p10: the base class subobject is built first.
+				nothing = vacuous_construction(owner->base->type);
+			}
+			for (std::size_t index = 0;
+			     nothing && owner->scope != nullptr &&
+			     index < owner->scope->declarations.size(); ++index)
+			{
+				const SemaEntity& member = *owner->scope->declarations[index];
+				nothing = !declares_subobject(member, *owner->scope) ||
+					(!member_initializers_.count(member.id) &&
+					 (types_.is_reference(member.type) ||
+					  vacuous_construction(member.type)));
+			}
+		}
+	}
+	vacuous_construction_[bare] = nothing ? 1u : 0u;
+	return nothing;
 }
 
 // 5.3.4p15: what the elements of an array a new-expression creates come to.
@@ -368,7 +473,19 @@ void SemaAnalyzer::array_new_initialization(TypeId created,
 		line.fact.zero_initialized = value_initialized;
 		return;
 	}
-	if (!value_initialized && vacuous_construction(element))
+	// 8.5p7 over a class: the object is zero-initialized where its default
+	// constructor is neither user-provided nor deleted, and then
+	// default-initialized only where 12.1p6 left that constructor something to
+	// do.  Both halves are the same question 8.5p6 asks with no initializer
+	// written, so they are asked in the one place - which is what keeps a class
+	// whose construction comes to nothing from being built one element at a
+	// time in a loop that does nothing however many elements there are.
+	SemaEntity* const chosen = default_constructor(element);
+	line.fact.zero_initialized = value_initialized && chosen != nullptr &&
+		!chosen->deleted && !chosen->user_provided;
+	const bool trivially_built =
+		value_initialized && chosen != nullptr && chosen->trivial;
+	if (trivially_built || vacuous_construction(element))
 	{
 		return;
 	}
@@ -377,6 +494,29 @@ void SemaAnalyzer::array_new_initialization(TypeId created,
 	object.object_member = false;
 	construct_object(object, line, nullptr, ctx, Placement::Named, false,
 	                 nullptr, value_initialized);
+	for (std::size_t index = 0; index < line.children.size(); ++index)
+	{
+		// 8.5p7's zero covers the storage the *elements* stand in and is one
+		// span over all of them, written by the line that owns the allocation.
+		// The action below it builds one element, so it carries none of it -
+		// which is what keeps the zero out of the loop it is written over.
+		if (line.children[index]->fact.kind == FactKind::ConstructorAction)
+		{
+			line.children[index]->fact.zero_initialized = false;
+		}
+	}
+	// 15.2p2 and 5.3.4p18: an exception out of one element leaves the elements
+	// before it standing, and each of those is a *complete* object of the
+	// element's class - so the cleanup names 12.4's complete-object entry, and
+	// this is where the unit is told it owes that name.  Nothing else on this
+	// path says so: the cleanup writes no destructor-action of its own, and a
+	// class whose destructor no other use reaches would otherwise be named by
+	// the base-object entry the ABI gives a subobject.
+	SemaEntity* const ends = class_destructor(element);
+	if (ends != nullptr && !ends->trivial)
+	{
+		note_destruction_entry(*ends, false);
+	}
 	std::vector<SemaEntity*>& reached = model_.open_overloads();
 	SemaEntity* const given =
 		deallocation_function(global, element, true, reached);
@@ -477,18 +617,20 @@ SemaAnalyzer::Value SemaAnalyzer::object_size_value(unsigned long long bytes,
 // parameter through the one conversion 5.2.2p4 gives any argument - which is
 // what makes `n * sizeof(T)` for an `unsigned` count the unsigned arithmetic a
 // program writing it would get.  A count the translation knows is one number,
-// and `elements` hands back how many objects that is so the initialization and
-// the count written in front of them need no second reading of the operand.
+// and `elements` hands back how many objects that is, with `counted` saying so
+// - a count of zero is a count like any other - so the initialization and the
+// count written in front of them need no second reading of the operand.
 SemaAnalyzer::Value SemaAnalyzer::array_new_size(const AstNode& bound,
                                                  TypeId element,
                                                  unsigned long long cookie,
                                                  const Context& ctx,
                                                  DumpNode& parent,
-                                                 unsigned long long& elements)
+                                                 unsigned long long& elements,
+                                                 bool& counted)
 {
 	const unsigned long long stride = size_of(element);
-	bool known = false;
 	unsigned long long count = 0;
+	counted = false;
 	try
 	{
 		// 5.19: a count the translation knows makes the bytes one number too,
@@ -496,7 +638,7 @@ SemaAnalyzer::Value SemaAnalyzer::array_new_size(const AstNode& bound,
 		// for before anything is written, because a constant leaves no
 		// arithmetic in the tree at all.
 		count = evaluate(bound, ctx).bits;
-		known = true;
+		counted = true;
 	}
 	catch (const std::runtime_error&)
 	{
@@ -504,7 +646,7 @@ SemaAnalyzer::Value SemaAnalyzer::array_new_size(const AstNode& bound,
 		// standard does not require to be a constant expression, so an
 		// expression the constant layer cannot fold is read as a value here.
 	}
-	if (known)
+	if (counted)
 	{
 		elements = count * array_element_count(element);
 		return object_size_value(count * stride + cookie, parent);
@@ -520,8 +662,8 @@ SemaAnalyzer::Value SemaAnalyzer::array_new_size(const AstNode& bound,
 		stride == 1 ? nullptr : &model_.open_node(*under, std::string());
 	under = product != nullptr ? product : under;
 	Value value = expression(bound, ctx, *under);
-	const TypeId counted = types_.strip_cv(value.type);
-	if (!types_.is_integral(counted) && types_.kind(counted) != TypeKind::Enum)
+	const TypeId written = types_.strip_cv(value.type);
+	if (!types_.is_integral(written) && types_.kind(written) != TypeKind::Enum)
 	{
 		throw std::runtime_error("the number of elements a new-expression "
 		                         "creates is not of integral type");
@@ -648,8 +790,9 @@ SemaAnalyzer::Value SemaAnalyzer::new_expression(const AstNode& node,
 		array && types_.is_class(element_of(created)) ? kArrayCookieBytes : 0;
 	std::vector<Value> arguments;
 	unsigned long long elements = 0;
+	bool counted = false;
 	const Value size = array
-		? array_new_size(*bound, created, cookie, ctx, call, elements)
+		? array_new_size(*bound, created, cookie, ctx, call, elements, counted)
 		: object_size_value(size_of(created), call);
 	arguments.push_back(size);
 	const AstNode* const written_placement =
@@ -706,6 +849,12 @@ SemaAnalyzer::Value SemaAnalyzer::new_expression(const AstNode& node,
 	respell(value);
 	line.fact.array_form = array;
 	line.fact.elements = elements;
+	line.fact.counted = counted;
+	// 5.3.4p15: whether the call the expression just made says it obtained no
+	// storage by handing back null, which is the one thing that makes the
+	// address something to test before anything is initialized at it.
+	line.fact.may_fail =
+		target.entity != nullptr && nothrow_allocation(*target.entity);
 
 	if (array)
 	{

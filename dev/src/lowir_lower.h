@@ -819,9 +819,6 @@ private:
 	// so nothing here allocates a slot and the object is built at a value
 	// rather than at a name.
 	LowValue new_expression(const DumpNode& node);
-	// 5.3.4p15 and 18.6.1.3p2: whether a call of this allocation function may
-	// hand back null, which is what 5.3.4p15's test of the address is about.
-	bool allocation_may_fail(const SemaEntity& entity) const;
 	// 5.3.4p1: the array form, which asks the allocation function for every
 	// element at once, writes the count 5.3.5p2 will read in front of them,
 	// and gives 12.6p1's construction to each of them in one loop.
@@ -845,6 +842,15 @@ private:
 	// to zero, written as the loop the count is a value makes it.
 	void zero_storage_loop(const lowir_model::Operand& data,
 	                       const lowir_model::Operand& bytes);
+	// 8.5p7 over the elements a new-expression's array form created: the zero
+	// of the storage they stand in, over an extent the translation knows where
+	// 5.3.4p6's count is one it knows, and over the bytes the call was asked
+	// for where it is not.
+	void zero_new_elements(const DumpNode& node,
+	                       const lowir_model::Operand& data,
+	                       const lowir_model::Operand& bytes,
+	                       unsigned long long stride, TypeId element,
+	                       bool cookie);
 	// 12.6p1 over the elements a new-expression created, with 15.2p2's handler
 	// around them: `storage` is what the allocation handed back, `data` where
 	// the elements begin, and `release` the deallocation the handler makes.
@@ -905,6 +911,11 @@ private:
 	// as one `zeroinit` where there are more of them than a reader wants to
 	// count; a class that holds nothing has none and is written nothing.
 	void zero_object(const lowir_model::Operand& address, TypeId type);
+	// 8.5p6's zero over a span of storage, written as the widest stores the
+	// bytes take and as one `zeroinit` past the point where that stops being
+	// the shorter of the two.
+	void zero_span(const lowir_model::Operand& address, unsigned long long size,
+	               unsigned long long align);
 	// 12.4p3: the destructor call the end of an object's lifetime is.
 	void destructor_call(const DumpNode& node);
 	// One call of that destructor: on the object the action names, or on the

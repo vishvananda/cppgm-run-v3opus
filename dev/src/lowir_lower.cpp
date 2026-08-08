@@ -1982,10 +1982,12 @@ void LowirUnitLowering::describe_builtin(
 	{
 		return;
 	}
-	// 15.4p14 and 17.6.5.12: none of them propagates an exception, and
-	// 3.7.4.2p3 says the same of the two deallocation functions.  3.7.4.1p3
-	// leaves an allocation function free to throw, which is the one thing a
-	// call of one may do that a call of the rest may not.
+	// 15.4p14 and 17.6.5.12: whether a call of one of them may unwind is 15.4p1
+	// read of a declaration this unit made rather than of one the program
+	// wrote, which is why it is stated where a declaration alone is written: a
+	// program's own is stated over the body, because that is where the
+	// exception-specification it wrote has to hold.  3.7.4.1p3 is what leaves
+	// an allocation function free to throw where the rest are not.
 	declaration.boundary.unwind = entity.nonthrowing ? lowir_model::CUM_NO
 	                                                 : lowir_model::CUM_DEFAULT;
 	switch (entity.builtin)
@@ -2052,6 +2054,13 @@ void LowirUnitLowering::function_definition(const DumpNode& node)
 	if (types_.variadic(type))
 	{
 		out.boundary.arity = lowir_model::CAM_VARIADIC;
+	}
+	// 15.4p1: the definition says the same of the function its declaration
+	// does, so the boundary a caller reads and the one written over the body
+	// are the one fact.
+	if (entity.nonthrowing)
+	{
+		out.boundary.unwind = lowir_model::CUM_NO;
 	}
 	describe_symbol(entity, out.metadata, symbol);
 	if (entity.special != kOrdinaryFunction &&

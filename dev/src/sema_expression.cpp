@@ -1886,6 +1886,11 @@ SemaEntity* SemaAnalyzer::reserved_function(const std::string& written,
 	SemaEntity& entity = declare_function(
 		name, types_.function_of(result, parameters, false), global, false);
 	entity.builtin = which;
+	// 15.4p14 and 17.6.5.12: none of the functions the implementation provides
+	// under a reserved name propagates an exception, which is the same fact a
+	// program writing `noexcept` states of its own - so it is written on the
+	// declaration and read where any other declaration's is.
+	entity.nonthrowing = true;
 	if (found != nullptr)
 	{
 		found->push_back(&entity);

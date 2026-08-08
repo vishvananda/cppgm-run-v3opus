@@ -1183,26 +1183,6 @@ LowValue LowirFunctionLowering::temporary_object(const DumpNode& node,
 // a slot, a global, a subobject of one - and this one stands at a value, so the
 // address the call produced is passed to the same construction rather than an
 // address being taken around a name.
-// 5.3.4p15 and 18.6.1.3p2: whether the call of this allocation function may
-// hand back a null pointer for the expression to leave uninitialized.
-//
-// 15.4 is what says so: a function that may throw has already left the
-// expression where it stands if it obtained nothing.  18.6.1.3p2's
-// non-allocating form is the one exception - it obtains no storage at all and
-// returns the address it was handed, so a program writing `new (p) T` gets the
-// object at `p` and never a test of it.
-bool LowirFunctionLowering::allocation_may_fail(const SemaEntity& entity) const
-{
-	if (!entity.nonthrowing)
-	{
-		return false;
-	}
-	const std::vector<TypeId>& parameters = unit_.types().parameters(entity.type);
-	return entity.object_member || parameters.size() != 2 ||
-		parameters[1] != unit_.types().pointer_to(
-			unit_.types().fundamental(FT_VOID));
-}
-
 LowValue LowirFunctionLowering::new_expression(const DumpNode& node)
 {
 	TypeTable& types = unit_.types();
@@ -1222,13 +1202,10 @@ LowValue LowirFunctionLowering::new_expression(const DumpNode& node)
 		return value;
 	}
 	const DumpNode& initialization = *node.children[1];
-	// 5.3.4p15: an allocation function 15.4 says throws nothing says so by
-	// returning null, and the object at a null address is not initialized.  One
-	// that may throw has already left the expression where it stands if it
-	// obtained nothing, so there is nothing for a test to be about.
-	const DumpNode& callee = *node.children[0]->children[0];
-	const bool guarded = callee.fact.kind == FactKind::Callee &&
-		callee.fact.entity != nullptr && allocation_may_fail(*callee.fact.entity);
+	// 5.3.4p15: an allocation function that says it obtained no storage by
+	// handing back null leaves the object at that address uninitialized, which
+	// the analysis settled once where it chose the function.
+	const bool guarded = node.fact.may_fail;
 	std::string done;
 	if (guarded)
 	{
@@ -1302,18 +1279,48 @@ LowValue LowirFunctionLowering::array_new_expression(const DumpNode& node)
 		}
 	}
 	const bool keeps_bytes =
-		node.fact.elements == 0 && (cookie || node.fact.zero_initialized);
+		!node.fact.counted && (cookie || node.fact.zero_initialized);
+	// 5.3.4p15: the address is tested before anything is written at it, so what
+	// the expression is worth has to be settled on both edges of that test.
+	// Where the count stands in front of the elements the value is a step past
+	// the address the call handed back, and that step is under the test - so it
+	// is held in an object of its own and left null where the call obtained
+	// nothing.  Where there is no count the value *is* what the call returned,
+	// which needs no object to survive in.
+	const std::string result = node.fact.may_fail && cookie
+		? add_generated_slot("array_new_result", unit_.low_type(node.fact.type))
+		: std::string();
+	const bool guarded = node.fact.may_fail;
 	std::string kept;
 	const LowValue allocated =
 		call_expression(*node.children[0], nullptr, keeps_bytes ? &kept : nullptr);
+	LowValue value;
+	value.type = node.fact.type;
+	value.operand = allocated.operand;
+	std::string done;
+	if (guarded)
+	{
+		if (!result.empty())
+		{
+			store(named_operand(Operand::OP_INTEGER, "0"),
+			      named_operand(Operand::OP_SLOT, result), node.fact.type);
+		}
+		const std::string live = reserve_block("new_init");
+		done = reserve_block("new_end");
+		Instruction test;
+		test.kind = Instruction::IK_CMP;
+		test.op = "ne";
+		test.type.text = "ptr";
+		test.first = allocated.operand;
+		test.second = named_operand(Operand::OP_INTEGER, "0");
+		branch(emit(test), live, done);
+		open_block(live);
+	}
 	Operand bytes;
 	if (!kept.empty())
 	{
 		bytes = load(named_operand(Operand::OP_SLOT, kept), counter);
 	}
-	LowValue value;
-	value.type = node.fact.type;
-	value.operand = allocated.operand;
 	if (cookie)
 	{
 		Instruction move;
@@ -1326,6 +1333,19 @@ LowValue LowirFunctionLowering::array_new_expression(const DumpNode& node)
 		store(array_element_count(node, bytes, stride), allocated.operand,
 		      counter);
 	}
+	if (!result.empty())
+	{
+		store(value.operand, named_operand(Operand::OP_SLOT, result),
+		      node.fact.type);
+	}
+	if (node.fact.zero_initialized)
+	{
+		// 8.5p7: the elements are value-initialized, which begins with the zero
+		// of the storage they stand in - the bytes the allocation obtained,
+		// less the count 5.3.4p1 wrote in front of them.
+		zero_new_elements(node, value.operand, bytes, stride, element,
+		                  cookie != 0);
+	}
 	if (action != nullptr)
 	{
 		construct_array_new_run(node, *action, release, allocated.operand,
@@ -1333,17 +1353,70 @@ LowValue LowirFunctionLowering::array_new_expression(const DumpNode& node)
 		                        array_element_count(node, bytes, stride), stride,
 		                        element);
 	}
-	if (node.fact.zero_initialized)
+	if (guarded)
 	{
-		// 8.5p7: `()` value-initializes every element, which for an array of no
-		// class type is the zero of every byte the allocation covers.
-		zero_storage_loop(value.operand,
-		                  keeps_bytes
-		                      ? bytes
-		                      : literal_operand(counter,
-		                                        node.fact.elements * stride));
+		jump(done);
+		open_block(done);
+		if (!result.empty())
+		{
+			value.operand = load(named_operand(Operand::OP_SLOT, result),
+			                     node.fact.type);
+		}
 	}
 	return value;
+}
+
+// 8.5p7 over the elements a new-expression's array form created: the zero of
+// the storage they stand in.
+//
+// An object of class type is zeroed the way every other object of one is, by
+// the spans `zero_object` writes over what the type occupies, so a class array
+// costs the same zero one object of it does times its count.  An array of no
+// class type is 8.5p7's zero of storage and nothing about any object, which
+// LowIR names with one `zeroinit` over the extent.  Either way an extent the
+// translation does not know is a loop over the bytes the call was asked for,
+// which is the one place that number survives it.
+void LowirFunctionLowering::zero_new_elements(const DumpNode& node,
+                                              const Operand& data,
+                                              const Operand& bytes,
+                                              unsigned long long stride,
+                                              TypeId element, bool cookie)
+{
+	TypeTable& types = unit_.types();
+	const TypeId counter = types.fundamental(FT_LONG_INT);
+	if (!node.fact.counted)
+	{
+		if (!cookie)
+		{
+			zero_storage_loop(data, bytes);
+			return;
+		}
+		Instruction without;
+		without.kind = Instruction::IK_BINARY;
+		without.op = "sub";
+		without.type = unit_.low_type(counter);
+		without.first = bytes;
+		without.second =
+			named_operand(Operand::OP_INTEGER, decimal(kArrayCookieBytes));
+		zero_storage_loop(data, emit(without));
+		return;
+	}
+	const unsigned long long span = node.fact.elements * stride;
+	if (span == 0)
+	{
+		return;
+	}
+	if (types.is_class(element))
+	{
+		zero_span(data, span, types.object_align(element));
+		return;
+	}
+	Instruction zero;
+	zero.kind = Instruction::IK_ZEROINIT;
+	zero.byte_count = static_cast<std::size_t>(span);
+	zero.byte_alignment = static_cast<std::size_t>(types.object_align(element));
+	zero.first = data;
+	emit_void(zero);
 }
 
 // 5.3.4p1 and the ABI: how many elements the array holds.  A count the
@@ -1356,7 +1429,7 @@ Operand LowirFunctionLowering::array_element_count(const DumpNode& node,
 {
 	TypeTable& types = unit_.types();
 	const TypeId counter = types.fundamental(FT_LONG_INT);
-	if (node.fact.elements != 0)
+	if (node.fact.counted)
 	{
 		// 5.3.3p6: the number is one the translation computed rather than one
 		// the program wrote, and LowIR names such a value with `const`.
@@ -1515,7 +1588,13 @@ LowValue LowirFunctionLowering::delete_expression(const DumpNode& node)
 	// 5.3.5p2: what this expression is about is the object it destroys, whose
 	// type the node carries as the one it was written over.
 	const TypeId destroyed = types.strip_cv(node.fact.spelled);
-	const unsigned long long stride = types.object_size(destroyed);
+	// 5.3.5p5: a class the unit never completed says neither what one object of
+	// it occupies nor what ending its lifetime comes to, so there is nothing
+	// under the test and the storage goes back the way any other does.
+	const bool incomplete = types.is_incomplete(destroyed);
+	const bool complete = types.is_class(destroyed) && !incomplete;
+	const unsigned long long stride =
+		incomplete ? 0 : types.object_size(destroyed);
 	const DumpNode* release = nullptr;
 	const DumpNode* ends = nullptr;
 	for (std::size_t index = 1; index < node.children.size(); ++index)
@@ -1534,7 +1613,7 @@ LowValue LowirFunctionLowering::delete_expression(const DumpNode& node)
 	const Operand pointer = rvalue(operand);
 	LowValue value;
 	value.type = node.fact.type;
-	if (!types.is_class(destroyed))
+	if (!complete)
 	{
 		if (release != nullptr)
 		{
@@ -1909,7 +1988,16 @@ void LowirFunctionLowering::zero_object(const Operand& address, TypeId type)
 	{
 		return;
 	}
-	const unsigned long long size = types.object_size(bare);
+	zero_span(address, types.object_size(bare), types.object_align(bare));
+}
+
+// 8.5p6's zero over a span of storage: the widest write the bytes left will
+// take, until there are none, and one `zeroinit` past the point where writing
+// them out stops being shorter than saying how many there are.
+void LowirFunctionLowering::zero_span(const Operand& address,
+                                      unsigned long long size,
+                                      unsigned long long align)
+{
 	if (size == 0)
 	{
 		return;
@@ -1919,7 +2007,7 @@ void LowirFunctionLowering::zero_object(const Operand& address, TypeId type)
 		Instruction zero;
 		zero.kind = Instruction::IK_ZEROINIT;
 		zero.byte_count = static_cast<std::size_t>(size);
-		zero.byte_alignment = static_cast<std::size_t>(types.object_align(bare));
+		zero.byte_alignment = static_cast<std::size_t>(align);
 		zero.first = address;
 		emit_void(zero);
 		return;
