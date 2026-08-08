@@ -1,18 +1,20 @@
 # PA17 Plan — `cppgm++ --emit-lowir` value semantics
 
-PA17 stands at **217 / 228** of its fixtures, with pa1-pa16 at **1494 / 1494**
+PA17 stands at **222 / 228** of its fixtures, with pa1-pa16 at **1494 / 1494**
 and the file audit passing with the three recorded header-weight warnings it
 already had.
 
-`reference-binaries/cppgm++` accepts PA17 input, so the milestone has a
-differential oracle beside its checked-in fixtures: the README's "no external
-reference binary" means no *ref-test* target, not no binary. Probe it before
-guessing at a rule the fixtures pin only one point of - it is what settled
-5.2.2p4's boundary below, and what showed 5.3.4's zero is not 8.5p8's. It is a
-second oracle and not the first: where it and the checked-in `.ref` files
-disagree, the files win, and `pa17/scripts/probe_diff.pl` runs one synthesized
-unit through both under the harness's own relaxed comparison so a sweep says
-which of the two a shape is pinned by.
+`reference-binaries/cppgm++` accepts PA17 input, and **it reproduces every
+checked-in fixture exactly**: `pa17/scripts/ref_vs_fixtures.pl` runs it over the
+whole suite under the harness's own relaxed comparison and reports 206 same, 0
+different, 0 exit-status different - the other 22 tests are the ones whose
+`.ref.exit_status` is a refusal. So the binary is not merely a second oracle:
+where it and a fixture could disagree they do not, and a synthesized shape it
+answers differently from us is a defect until judged otherwise.
+`pa17/scripts/probe_diff.pl` runs one synthesized unit through both. Probe it
+before guessing at a rule the fixtures pin only one point of - it is what
+settled 5.2.2p4's boundary below, what showed 5.3.4's zero is not 8.5p8's, and
+what settled every rule C10 wrote.
 
 ## Stage Design
 
@@ -121,14 +123,26 @@ answers the question it belongs to.
   8.5p7's zero goes on asking `user_provided` alone. 3.4.1p8's collection takes
   these declarations beside the bodies, so 12.4p8's vacuity is settled from the
   syntax before a body reading earlier asks it.
+- **An end of a lifetime asks one of two questions, and which one is which kind
+  of object is ending.** An object a *declaration* named - a local leaving its
+  block, a namespace-scope object, a subobject of a synthesized destructor - is
+  one the program can watch leave, and 12.4p8's `vacuous_destruction` says what
+  running its destructor comes to. An object the *translation* made - 12.2p1's
+  temporary, the one 12.2p5 moved into a block, and the object a
+  delete-expression ends - is reached through an address alone, so the call is
+  the one mark its end has and it is written wherever the program declared a
+  destructor below its class at all (`TypeTable::declared_destruction`, settled
+  where the class completes off the same subobjects 12.4p8 walks, so every
+  reader is one field read).  `ends_in_call` is where the two meet, keyed on an
+  object with no name being the translation's; the one temporary that asks
+  12.4p8 instead is 13.3.3.1.5p5's, the one a braced-init-list was written into,
+  which demands no definition of its own.
 - `sema_lifetime.cpp` owns what running the four comes to, and what *ending* an
   object's lifetime comes to. 12.8p15/p28's definition is one walk of the same
   subobject list 12.6.2p10 and 12.4p8 walk. 12.4p8's `vacuous_destruction` is
-  the one question every end of a lifetime asks - a local leaving its block, a
-  temporary, a subobject of a synthesized destructor - and it is broader than
-  12.4p5's triviality by exactly the clause that says so: a destructor whose
-  body writes no statement, or which 12.4p4 gave no body, comes to what its
-  subobjects come to. **That fact is about a definition, and 3.4.1p8 lets a
+  broader than 12.4p5's triviality by exactly the clause that says so: a
+  destructor whose body writes no statement, or which 12.4p4 gave no body,
+  comes to what its subobjects come to. **That fact is about a definition, and 3.4.1p8 lets a
   definition stand after a body that asks about it**, so the unit's
   out-of-class definitions are taken from the syntax once before the first
   declaration is read and `writes_no_statement` is the one reading of a
@@ -138,7 +152,23 @@ answers the question it belongs to.
   is. **A constructor asks the same two questions a destructor does**, so
   `note_definition_body` is asked of both. It also owns **12.8p31's
   elision**, written once as `creates_its_object` and read by both the analysis
-  and the lowering.
+  and the lowering - and `elide_transfer` is that elision asked **after** 13.3
+  has chosen, because which constructor an initializer reaches is what says
+  there is a copy here at all: an argument that reaches the copy constructor
+  through a conversion function of its own class is a prvalue of this class only
+  once that conversion has been applied, and a class declaring a constructor
+  taking the argument's own type reaches no copy for the elision to remove.
+  5.3.4p12's storage is storage the new-expression owns, so the elision reaches
+  it exactly as it reaches a declaration's slot.
+- **12.8p32's first resolution is `selected_transfer`.** A return whose operand
+  names a non-volatile automatic object of the function's own returned type -
+  a parameter included, by p32's own wording - reads that object as an rvalue,
+  so 13.3 chooses the move member of its class where the class declares one;
+  the ordinary lvalue reading is what stands where the first chose no
+  constructor taking an rvalue reference, which is the one question 12.8p15
+  already settled on the class.  A name a block declared is automatic here,
+  because a block-scope object of static storage duration is one the
+  declaration itself refuses.
 - `sema_allocation.cpp` owns 5.3.4 and 5.3.5, and owns them as *actions over
   storage the expression already names* rather than as a second object model:
   what `new` adds is where the storage came from and what `delete` adds is who
@@ -322,8 +352,31 @@ answers the question it belongs to.
   so an initialization asks it the same way an argument and an assignment do,
   and 3.9.1p2's two eight-byte integral types sharing one LowIR spelling are
   still two types a copy stands between.
+- **Which destination a hand-off is, is what decides whether 5.16p3's selection
+  is written once or per path.** A conditional that selects among *glvalues* of
+  class type hands back one of two objects, and only one exists on each path -
+  so `place_class_object`, and the raw-`copyobj` transfer beside it, write the
+  transfer into the destination on the path that chose the object it reads.
+  `selecting_conditional` is that one question and it is asked at the hand-off
+  and nowhere else, which is exactly what leaves a destination the *program*
+  declared filled where its declaration stands: 6.6.3p2's returned object,
+  5.2.2p4's argument object and 12.2p1's temporary are the translation's, and a
+  local of class type with a constructor call on it is not.  `selected_arms_`
+  makes an arm stand where the conditional does while its path is written, so
+  each leaf is one transfer and nothing is read twice.
 - 6.6.3p2's boundary is one answer, written by `LowirUnitLowering::open_signature`
   and read by the declaration, the definition and a call through a pointer.
+- **12.8p31's NRVO is the object standing in the destination, and every end of
+  it is the caller's.** `returned_name` is the one reading of the operand both
+  spellings of a return make - the transfer member's argument and the bare name
+  a copy of the bytes carries - so a class the ABI hands back as bytes is laid
+  out in `%ret` too; and 3.8p1's actions standing under the return are no bar to
+  it, because the object the return names is one of them.  `leave_blocks` writes
+  no end for the return-slot local at a return, at a block's end, or in 15.2p2's
+  handler.  What the elision does *not* remove is 3.2p2: the definition the
+  standard gives the constructor it left out odr-uses the transfer member of
+  every subobject, which is the same reading `owe_elided_construction` makes of
+  an elided subobject step.
 - 8.5.3p5's name for the storage a class prvalue with no object of its own is
   given is what asked for the object, and the analysis writes it on the node.
 - **3.1p2's "which declaration defines the object" is a fact of the line**, not
@@ -345,23 +398,25 @@ function type, `Value::object_category`, `Fact::subobject_step`,
 `SemaEntity::delegates_to`, `Placement::Delegate`,
 `FactKind::StorageTransfer`, `FactKind::DeleteExpression`,
 `AstKind::CarriedTypeId` (12.3.2p1's conversion-type-id, carried beside the
-syntax as 7.1.6.2p1's decltype operand already is), and the nine questions
+syntax as 7.1.6.2p1's decltype operand already is),
+`UserType::declared_destruction` with `TypeTable::has_declared_destruction`,
+`LowirFunctionLowering::selected_arms_`, and the eleven questions
 lifted out of the analyzer so each layer asks them once - `observable_expression`,
-`creates_its_object`, `vacuous_destruction`, `vacuous_construction`,
+`creates_its_object`, `vacuous_destruction`, `declared_destruction`,
+`vacuous_construction`,
 `default_constructor`, `writes_no_statement`, `elides_its_braces`,
-`names_the_class` and `one_storage`.
+`names_the_class`, `one_storage` and `selecting_conditional`.
 
 ## Current Failure Map
 
-11 fixtures fail, grouped by the compiler behaviour they are waiting on.
+6 fixtures fail, grouped by the compiler behaviour they are waiting on.
 
 | group | n | what is missing |
 | --- | --- | --- |
-| 12.2p3 / 12.8p31 lifetime and placement | 4 | 12.8p31's NRVO of a named local a return names; a conditional's prvalue arm whose temporary is ended after the arm chose it; 12.8p31's elision through 13.3.1.4's conversion function into a new-expression's storage; and an aggregate returned by value, whose members the reference writes straight into `%ret` where we build one local and copy |
-| 12.8p15 array member / other | 2 | an array of a class whose transfer needs a call, and a move-only member's implicit assignment |
-| 5.16p3's cv-different glvalue arms | 1 | the fixtures pin a prvalue result copied per arm where 5.16p3's reference binding would give one lvalue |
+| 12.8p15's array member | 1 | `struct Owner { Value values[1]; };` - the four transfers walk an array member as one object and hand the whole array to a member taking one element. The reference unrolls it: one step per element, both sides subscripted, which is the shape the destination side already writes for 12.6p1's construction. What is missing is the *source* element - `constructor_call` and `write_transfer_assignment` pass the argument as written, and it has to be indexed by the same element the destination is |
+| 12.4p8 / 15.2p2 in a conditional arm | 1 | two readings at once: the reference chooses the *copy* member for an arm that is `Result(...).member` where we choose the move (its 5.2.5p4 is an xvalue for 13.3 and an lvalue for the arm's own copy-initialization), and it opens no 15.2p2 region around the construction of 6.6.3p2's returned object where only a block's objects stand |
 | 5.2.9p4 cast to a class reference | 1 | `static_cast<const W&>(t)` binds a temporary a converting constructor of `W` builds, which `cast_to_reference` still lets bind the operand itself |
-| 8.5p16 direct-init of a class from a class | 1 | the fixtures let `T(e)` reach 13.3.1.4's `explicit` conversion function of the operand's class, which the standard's copy-initialization of the constructor's parameter does not |
+| 8.5p16 direct-init of a class from a class | 1 | the fixtures let `T(e)` reach 13.3.1.4's `explicit` conversion function of the operand's class, which the standard's copy-initialization of the constructor's parameter does not. The reference materializes the conversion's result and *calls* the move constructor on it rather than eliding, because the conversion hands its object back as bytes |
 | 13.3.1.1.2 surrogate call functions | 1 | an object whose conversion yields a function pointer, called |
 | 3.4.3.2 using-directive ambiguity | 1 | two namespaces one level reaches declare one name |
 
@@ -421,6 +476,24 @@ default constructor the standard defines, which the reference omits, and a dead
 address the lowering takes for an **anonymous union** member it writes nothing
 into.
 
+C10's sweep left three more, all judged and left as they stand. **The
+reference's own end-of-lifetime answer is contagious**, which is what bounds
+`declared_destruction` above: it writes the call for a by-value parameter of a
+class whose destructor is declared and trivial only where some *other* use in
+the same unit already demanded that destructor's definition - `void qb(B b) {}`
+alone writes none and the same function beside `delete (B*)p` writes one - so
+5.2.2p4's boundary keeps 12.4p5's triviality and does not join the question the
+temporary asks. The same contagion is what makes 13.3.3.1.5p5's braced
+temporary the one exception on the temporary side. **`W w(s)` where `W`'s
+constructor takes a by-value `R` and `s` reaches it through a conversion
+function is refused here** - "an object of the class type struct R is copied" -
+and accepted by the reference; it predates C10 and is the by-value parameter
+object of a *constructor* argument, not of a call. And **`V v = c ? a : b;
+return v;`** puts `v` in a slot and moves it into `%ret` where the reference
+gives the declaration the destination straight away: `return_slot_local` reads
+the outermost block's declarations, and this one's initializer is the hand-off
+`place_class_object` would have made.
+
 The sweeps of C8 and of its audit left these disagreements with the reference
 binary, and g++ settles every one our way: 8.5.4p7's narrowing of `f({1.5})`
 into an `int` member; 8.5.4p3's refusal of a copy-list-initialization that
@@ -438,31 +511,30 @@ constructor and write one call fewer.
 
 ## Active Checkpoint
 
-None open. C9 is complete, swept and audited at 217 / 228 with pa1-pa16
-unchanged.
+None open. C10 is complete and swept at 222 / 228 with pa1-pa16 unchanged.
 
-The next checkpoint is **C10: 12.2p3 and 12.8p31's remaining placement**, at 4
-fixtures - the largest group left, and one whose four shapes are all the same
-question asked at a different place: *where does the object an initializer
-fills already stand*. Its owner is `lowir_lower_object.cpp`'s
-`place_class_object` beside `sema_lifetime.cpp`'s `creates_its_object`, which
-are the two halves of the one hand-off C2 built and which four places still
-answer independently: 12.8p31's NRVO of a named local a `return` names (the
-local is laid out in a slot of its own and copied into `%ret` where 6.6.3p2
-already named storage for it); a conditional whose selected arm is a prvalue,
-whose temporary is ended after the arm chose it rather than with the
-full-expression; 12.8p31's elision through 13.3.1.4's conversion function into a
-new-expression's storage; and an aggregate returned by value, whose members the
-reference writes straight into `%ret`. Its data flow is the destination operand
-already threaded down the initializer - no new fact, one more reader each for
-the return statement, the conditional's arm and the new-expression - with
-`Fact::object` saying which node the storage belongs to so nothing is copied
-twice. Its expected complexity is one probe per return and per arm, linear in
-the nesting the source wrote and no second walk of a body. Its validation is
-the group's four fixtures plus a differential sweep of a named local returned
-from a function with two returns, a conditional returned by value, a
-new-expression whose initializer is a call, and an aggregate with a class member
-returned by value, run through the reference binary and g++.
+The next checkpoint is **C11: 12.8p15's array member and the two readings a
+conditional arm makes**, at 2 fixtures - the two that are still this
+milestone's own object model rather than a lookup rule or a surrogate call.
+Its owner is `sema_lifetime.cpp`'s `write_transfer_steps` beside
+`lowir_lower_object.cpp`'s `array_lifecycle`, which already agree about the
+*destination* of an array member's per-element step and not about its source.
+Its data flow is one element index threaded from `array_lifecycle` into
+`constructor_call`'s argument, and the same index into
+`write_transfer_assignment`'s call - no new fact on a node, because the action
+already names the array and the bound already says how many elements it is.
+Its expected complexity is one step per element up to `kArrayLoopLimit` and one
+loop past it, matching what 8.5.1p7's local array already writes, so a member of
+n elements is O(n) output below the limit and O(1) above it. Its validation is
+`300-synthesized-array-member-special-members` plus a differential sweep of an
+array member of 1, 2 and 64 elements under all four transfers, an array member
+of a class carried by its bytes (which the leading storage run must still take
+whole), and a two-dimensional array member. The second fixture is the arm
+reading: whether 5.2.5p4's member of a class prvalue is the *copy*'s lvalue that
+the reference makes it inside a conditional arm while staying 13.3's xvalue
+everywhere else, and whether the construction of 6.6.3p2's returned object opens
+a 15.2p2 region at all - both settled by probing the binary over an arm that is a
+cast, an arm that is a member access, and a return with a block object standing.
 
 ## Performance Model
 
@@ -663,13 +735,37 @@ host, at 250/500/1000/2000 unless said otherwise.
   a class by value are 3 n + 14 lines in under 0.02 s, and conditionals of
   class type nested n deep are 11 n + 19 lines in 0.02 s.
 - 12.8p31's return-slot local is settled by **one** walk of the function body,
-  done once per function that returns indirectly and only then. n functions each
-  with two returns are 0.03/0.06/0.11/0.22 s and 27 n lines; one function with n
-  returns is 0.02/0.02/0.04/0.07 s and 11 n lines.
-- 5.16p3's copy of a glvalue operand is one transfer chosen per operand:
-  n conditionals each with a glvalue arm are 0.03/0.05/0.09/0.18 s and 24 n
-  lines. One class with n class members each initialized from a call is
+  done once per function that returns indirectly and only then, and reading past
+  3.8p1's actions costs one kind test per action. n functions each with two
+  returns of one local are 0.02/0.04/0.09/0.18 s and 18 n lines; one function
+  with n returns of one local is 0.01/0.01/0.03/0.06 s and 11 n lines - the
+  same time as before the elision reached them, with the output the elision
+  leaves. n functions each returning a named local of a class with a destructor
+  are 0.01/0.02/0.05/0.10 s and **5 n lines where they were 22 n**, which is
+  what the elided copy and the elided end come to.
+- **5.16p3's selection is one transfer per leaf and one probe per hand-off.**
+  n conditionals each with two glvalue arms, each returned by value, are
+  0.02/0.04/0.08/0.17 s and 25 n lines; a conditional nested n deep, whose
+  n + 1 leaves are all glvalues, is 12 n + 15 lines in under 0.01 s at
+  25/50/100/200 - **linear in the nesting the source wrote, not exponential in
+  it**, because an arm standing in for the conditional is what stops
+  `selecting_conditional` finding the same one again and each leaf is written
+  once. One class with n class members each initialized from a call is
   0.02/0.03/0.05/0.09 s and 12 n lines.
+- **12.4p3's answer is one field of the class**, settled where it completes off
+  the base and the members it already walks, so a temporary of a class whose
+  members nest n deep asks one read: 20 objects of such a chain, each class
+  declaring a destructor, are **31 lines at every depth** in 0.00/0.00/0.00/0.01 s
+  at 50/100/200/400.
+- 12.8p31's elision of the transfer 13.3 chose is one probe of the chosen
+  constructor and of the argument already converted - no second resolution and
+  no second reading of the initializer: n direct-initializations of a class from
+  a class through a conversion function are 0.01/0.02/0.05/0.11 s and 10 n lines.
+- 12.8p32's first resolution is one read of the class's settled transfer per
+  return, so a return costs one probe whether or not it moves: n returns of a
+  named local are 0.01/0.02/0.05/0.10 s (the same line above), and an aggregate
+  returned by value through 12.8p31's byte copy is 0.01/0.02/0.05/0.10 s and
+  10 n lines.
 - 9.6p2's storage unit is carried once however many bit-fields share it: n
   one-bit fields are n/32 units, 0.00/0.00/0.01/0.01 s.
 - 8.3.6p1's "does this parameter have a default argument" and 8.4.3p2's refusal
@@ -775,3 +871,4 @@ host, at 250/500/1000/2000 unless said otherwise.
 | C7 | 5.2.2p4's class argument at the boundary, and the placement facts swept beside it. `TypeTable::passes_indirectly` is 6.6.3p2's other half and `describe_parameter` the one writer a declaration, a definition and a call through a pointer all read: a class the ABI cannot carry as bytes is `ptr [pass=by_address]`, the caller passes the address of the object it built, the callee reaches it through that address, 8.5.3p5 names the storage `arg`, and 12.4p5 says the function owes its destruction at every return and where the body falls off its end. 4.2p1's decay of an array a reference names is marked where the name stands. 5.2.9p4's cast to a class type became the initialization it is - `construct_object` learned 13.3.1.4's question about the place that asked, `creates_its_object` reads the temporary standing under the cast so 12.8p31 elides through it, a conversion function of the operand's own class is reached where one exists, and a cast to a reference names the temporary it binds `refcall` while an argument around it binds the glvalue rather than materializing one. 8.5p8's zero became one over the storage the bases and members hold, with 5.3.4's zero of the storage an allocation obtained told apart from it. The reference binary settled the boundary's own reading of 12.8p12. Audited at `ba854b1d`: eight blockers found and fixed, which made 12.4p8's vacuity the destructor half of every ABI and every copy rather than 12.4p5's triviality, read 5.2.2p4's copy half off the base *and* the members a derived class is laid out over, gave 12.8p12's readers 12.4p8 beside it so a class whose destructor comes to something is copied by the member 12.8p15 defines, computed 15.4p14's exception-specification so those calls need no handler, ended the parameter at every exit the function has instead of one, took that same end out of the caller's handler, made 5.2.9p4's cast of a glvalue to its own class the initialization it is rather than a refusal, and gave `creates_its_object` the cv-qualification both its readers strip | 194 -> **204 / 228**; pa1-pa16 1494 / 1494; no regressions |
 | C8 | 8.5.4's braced-init-list of a class, and 13.3.3.1.5's sequence for an argument that is one. `Value::braced` carries the list past 13.3 with the line it will be written on holding its place, `match_list` answers what it converts to from the parameter alone - p3/p4's user-defined conversion sequence keyed on the class it initializes, p5's reference to the temporary named after the argument, p6's one clause - and the clauses are read once, where 8.5.4 has a type to read them for. 8.5.1p6's `clause_capacity` bounds an aggregate candidate and is held per type; 13.3.3.1p4's third bullet keeps a class's own copy constructor out of `X{ {a, b} }`; 5.17p9's `x = {...}` is that call's argument and reaches no built-in operator. `AstNode::braced` tells 5.2.3p3's `T{a}` from 5.2.3p1's `T({a})`, which the tree could not, and over a non-class type the two are one. 8.5.1p2's aggregate constructor took a class member by value and moves it into place; 6.6.3p2's returned object became one slot per function; 12.8p32 now asks for the constructor the copy 12.8p31 elided would have called. Swept differentially against the reference binary and g++ over 26 synthesized units, with the four disagreements judged and recorded, and valgrind clean over the depth-200 nesting and the 2000-return function. Audited at `bc50cabb`: six blockers found and fixed and one shape recorded as a refusal, all of them the one seam where 8.5.4's reading of a list for a class had two owners - 8.5.1p6's capacity gave a subobject that holds nothing no clause; 8.5.1p11's elided braces reached the walk that writes a subobject where it stands and never the by-value parameter list a prvalue is built by; that elision question had no bound, so a clause walked past a subaggregate with nothing to take it; 8.5.1p2's constructor left out a reference member and a bit-field member, which is what the reference-member fixture was waiting on; 8.5.1p15's union got a parameter per member and wrote each of them into the one storage a union is; and 13.3.3.1.5p1's list was a viable ellipsis argument | 204 -> 209 -> **210 / 228**; pa1-pa16 1494 / 1494; no regressions |
 | C9 | 12.6.2p6's delegating constructors, 9.5's unions and 8.4.2p2's out-of-class `= default`, which are one boundary: what a ctor-initializer means and who wrote the definition under it. `delegating_initializer` reads the *list* rather than an entry - the class's own name in one probe, any other spelling of it in one lookup and only where p6's own rule already bounds the list to one - and `Placement::Delegate` makes the object the one the constructor is already running on, so `this` is passed to the target's complete-object entry as it stands and no subobject step is written; `SemaEntity::delegates_to` is the edge and p6's cycle is one colouring of the constructors that delegate, run where the unit has been read. 9.5p1's one storage became 12.6.2p8's reading: a variant member's brace-or-equal-initializer is used only where no *other* variant member was designated, one neither reaches is not initialized at all, and 9.5p2's "at most one" is refused in the layout walk. 8.4.2p2's `= default` outside the class is parsed as the definition it is, read against the declaration the class made, left non-inline so this unit holds it, and collected with the bodies so 12.4p8's vacuity is settled from the syntax - which split "who wrote the declaration" from "who wrote the definition" for both readers of 12.1p5's elided call. Swept differentially against the reference binary and g++ over 23 synthesized units, with three disagreements judged and recorded and valgrind clean over the delegation, union and out-of-class shapes. Audited at `39fa3bf7`: four blockers found and fixed, every one of them a sibling of the reader the checkpoint answered at - 12.6.2p6's delegation keyed on the last component of a mem-initializer-id rather than on the class it denotes, so a base spelled `N::S` under a derived `S` was read as a delegation and the program refused; 12.4p8's `non-variant` missed, so a union's destructor called the destructor of every class-typed member it declared, on storage no lifetime began in, and `vacuous_destruction` and `destruction_nonthrowing` answered off that same walk; 12.8p15/p28's transfer walked those members too, writing the trivial prefix and then a copy call per variant member over the same bytes; and 8.4.2p2 reached only the parse path a constructor and a destructor take, so an out-of-class `= default` on an assignment operator was left inline, never demanded and never refused a second time. `one_storage` and `names_the_class` are the two questions that came out of it | 210 -> **217 / 228**; pa1-pa16 1494 / 1494; no regressions |
+| C10 | 12.8p31's remaining placement, and which of two questions an end of a lifetime asks. 5.16p3's conditional that selects among glvalues is a selection among *objects*, so a destination the translation named - 6.6.3p2's returned object, 5.2.2p4's argument object, 12.2p1's temporary - is filled on the path that chose the object it reads; `selecting_conditional` is asked at `place_class_object`, the hand-off itself, which is what leaves a destination the *program* declared filled where its declaration stands. 12.8p31's NRVO reached a class the ABI carries as bytes (`returned_name` is the one reading of the operand both spellings of a return make) and reached past 3.8p1's actions standing under the return, because the object the return names is one of them - and `leave_blocks` then writes no end for it anywhere, since with the elision the lifetime the callee began is the caller's to end. 12.8p31's elision of the transfer 13.3 chose became `elide_transfer`, asked once *after* the choice, so an argument reaching the copy constructor through a conversion function of its own class is the object being initialized - and 5.3.4p12's storage is storage a new-expression owns, so the elision reaches it as it reaches a slot. 12.8p32 joined it at both ends: a return naming an automatic object of the function's own returned type is read as an rvalue first, and the definition the elided constructor would have run is still one this unit owes what it would have called. 12.4p3 became `TypeTable::declared_destruction` beside 12.4p8's vacuity, with `ends_in_call` the one place the two meet: an object a declaration named reads what running its destructor comes to, and an object the translation made reads whether the program declared one at all. Swept differentially against the reference binary over the conditional, NRVO, conversion-elision and destruction shapes, with three disagreements judged and recorded and valgrind clean over the depth-200 nesting and the 2000-return function | 217 -> **222 / 228**; pa1-pa16 1494 / 1494; no regressions |
