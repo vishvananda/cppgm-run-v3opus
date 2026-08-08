@@ -10,6 +10,25 @@ namespace
 // widest alignment a literal can ask for.
 const unsigned long long kImageAddress = 0x401000;
 
+// The line a body of code is moved to when the statement before it placed
+// data.  The image is one writable and executable segment, so the instructions
+// after a `data` statement would otherwise be fetched from the line the data is
+// stored into, and x86 answers a store into a line it is fetching instructions
+// from with a machine clear: a loop whose counter shares a line with its own
+// body runs about fifty times slower than the same loop whose counter does not.
+//
+// The image address is a multiple of this, so aligning the image offset aligns
+// the address.
+const std::size_t kCodeAlignment = 64;
+
+// The `jmp rel32` that carries a label across that gap, and its length.  A
+// label's address is what the program computes distances from - the length of a
+// string is the label after it minus the label on it - so the label stays where
+// the data left it and this jump stands there in its place, rather than the
+// code being aligned by moving the label off the end of the data.
+const unsigned char kJumpRel32 = 0xE9;
+const std::size_t kJumpRel32Size = 5;
+
 // The address of a label no statement carries.  No statement can sit there, so
 // one table answers both where a label is and whether it is anywhere.
 const unsigned long long kUnplaced = ~0ULL;
@@ -70,6 +89,14 @@ std::size_t alignment_of(const Cy86Statement& statement)
 		return statement.opcode->width / 8;
 	}
 	return 1;
+}
+
+// Whether a statement places bytes the program reads and writes rather than
+// bytes it executes.  A literal and a `data` instruction are the two forms
+// that do; `alignment_of` above draws the same line.
+bool places_data(const Cy86Statement& statement)
+{
+	return statement.is_literal || statement.opcode->family == CY_DATA;
 }
 
 // The x87 memory forms, as the escape byte and the ModRM digit that name them
@@ -135,9 +162,26 @@ void Cy86Codegen::run()
 		emit_exit();
 	}
 
+	// Only a move between two statements is a transition.  The prologue is code
+	// and runs once, so nothing is gained by moving the program's first
+	// statement off its line, and 2.14's alignment is measured from where that
+	// statement lands: the first data statement stays where the prologue left
+	// it, and the first run therefore begins at the offset it always did.
+	bool data_before = program_->statements.empty()
+		|| places_data(program_->statements[0]);
+
 	for (std::size_t index = 0; index < program_->statements.size(); ++index)
 	{
 		const Cy86Statement& statement = program_->statements[index];
+		const bool data_here = places_data(statement);
+		// Data after code moves whole onto its own line: nothing computes a
+		// distance forward from a label on an instruction, so the run may carry
+		// its labels with it, and starting it aligned leaves every alignment
+		// inside it the one the statement asked for.
+		if (data_here && !data_before)
+		{
+			pad_to(kCodeAlignment);
+		}
 		pad_to(alignment_of(statement));
 		const unsigned long long here = base() + image_.size();
 		if (index == 0)
@@ -148,6 +192,13 @@ void Cy86Codegen::run()
 		{
 			addresses_[statement.labels[label]] = here;
 		}
+		// The labels are placed, so the body may move off the data's line now
+		// without any of them moving with it.
+		if (!data_here && data_before)
+		{
+			jump_to_code_alignment();
+		}
+		data_before = data_here;
 		emit_statement(statement);
 	}
 
@@ -189,6 +240,29 @@ void Cy86Codegen::pad_to(std::size_t alignment)
 		return;
 	}
 	while ((image_.size() % alignment) != 0)
+	{
+		assembler_.byte(0);
+	}
+}
+
+void Cy86Codegen::jump_to_code_alignment()
+{
+	// The jump has to fit before the line it jumps to, so the target is the
+	// first aligned offset the whole instruction is behind.
+	const std::size_t after = image_.size() + kJumpRel32Size;
+	std::size_t target = after;
+	while ((target % kCodeAlignment) != 0)
+	{
+		++target;
+	}
+
+	const std::size_t displacement = target - after;
+	assembler_.byte(kJumpRel32);
+	for (std::size_t index = 0; index < 4; ++index)
+	{
+		assembler_.byte(static_cast<unsigned char>((displacement >> (8 * index)) & 0xFF));
+	}
+	while (image_.size() < target)
 	{
 		assembler_.byte(0);
 	}

@@ -53,6 +53,10 @@ private:
 	void emit_exit();
 	void emit_statement(const Cy86Statement& statement);
 	void pad_to(std::size_t alignment);
+	// A `jmp` onto the next aligned line, emitted where a body of code follows
+	// data so that the two are never fetched and stored in one line.  The
+	// labels on the statement stay in front of it.
+	void jump_to_code_alignment();
 	void resolve();
 	unsigned long long address_of(NameId label) const;
 	void relocate(std::size_t offset, std::size_t size, NameId label);
