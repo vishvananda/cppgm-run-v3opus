@@ -1,25 +1,22 @@
 # PA18 Plan — `cppgm++ --emit-lowir` scoped polymorphism
 
-PA18 **passes**, at **41 / 41** - all 32 checked-in fixtures, the four
-regression tests C2 added, the three the C2 audit added and one each from C3 and
-C4 - with pa1-pa17 at **1732 / 1732** and the file audit passing with the three
-recorded header-weight warnings it inherited. The milestone gives the PA16/PA17
-object model a vpointer, a vtable and dynamic dispatch, for the
+PA18 **passes** and is complete, at **45 / 45** - all 32 checked-in fixtures and
+13 regression tests - with pa1-pa17 at **1732 / 1732** and the file audit
+passing with the four header-weight warnings it inherited. The milestone gives
+the PA16/PA17 object model a vpointer, a vtable and dynamic dispatch, for the
 single-inheritance slice the README's Assignment Boundary names.
 
-The pa1-pa17 report takes **10.3 s** and no test in it is near its limit. It was
-not so before the C2 audit's review: `pa9/300-binary-calculator` ran 6.84 s
-against a 10 s limit and timed out whenever the machine was loaded, because
-CY86's one writable and executable segment let a `data` statement put the
-program's variables in a cache line it also fetched instructions from. That is
-fixed in `cy86_codegen.cpp` and the margin is now 9 s rather than 3 s, so a
-failure of that check is a real regression again and not weather.
+The pa1-pa18 report takes **9.3 s** and no test in it is near its limit;
+`pa9/300-binary-calculator`, the one that was, runs in 1.15 s against 10 s.
 
 `pa18/cppgm++-ref` is a wrapper and the README calls the checked-in `.ref` files
 the oracle, but `reference-binaries/cppgm++` is a full PA18 compiler and is the
-oracle for everything the fixtures do not reach. All 36 checked-in `.ref` files
-regenerate byte-identically from it, so no fixture holds our own output. Two
-facts about the relaxed comparison shape everything below, both read out of
+oracle for everything the fixtures do not reach; g++ is the third, and where the
+two agree against us it is a defect rather than a judgment call. **Every checked
+`.ref` file in the repository regenerates byte-identically from the reference
+binaries**, so no fixture holds our own output.
+
+Two facts about the relaxed comparison shape everything below, both read out of
 `scripts/compare_results_common.pl`:
 
 - **Function symbols are paired, global symbols are not.** `@name` is rewritten
@@ -51,6 +48,12 @@ that class, and read by name afterwards.
   layout question, and `settle_virtual_members` inside `declare_special_members`
   after 12.1p5's and 12.4p3's implicit declarations exist and before their
   triviality is asked.
+- **Override matching reads the class that introduced the slot.** A slot's index
+  is fixed where the name first took one and every class below copies the table
+  with that index, so `introduced_slots_` records only what each class
+  *introduces*, keyed by the interned name and 13.1's `member_signature` in one
+  word, and `inherited_slot` walks the derivation. The records are linear in the
+  declarations rather than quadratic in the derivation.
 - **`settle_vtable_ownership` closes that settlement with the ABI's two
   questions about the *emitted* table**: which unit owes it - the key function,
   the first virtual member the class declares that is neither pure nor inline -
@@ -76,20 +79,29 @@ that class, and read by name afterwards.
 - **A vpointer is in the storage but is no subobject of it**, so every reading of
   12.8p12 asks the class and not its parts; and **12.1p11 and 12.4p11 are read
   wherever a milestone asks whether building or ending a lifetime comes to
-  nothing** - `vacuous_construction`, `vacuous_destruction` and
-  `construction_writes_nothing` are the three, and a polymorphic class answers
-  "something" at every one of them.
+  nothing** - `vacuous_construction`, `vacuous_destruction`,
+  `construction_writes_nothing` and 3.6.2p2's image are the four, and a
+  polymorphic class answers "something" at every one of them.
+- **An object whose whole storage is the vpointer holds it in the image.**
+  9p6 leaves a class declaring no data member holding nothing but what 10.3p1
+  gave it, so `vpointer_image` folds 12.1p11's store into the static
+  initializer of a namespace-scope object and the program runs nothing before
+  it. A byte the vpointer does not cover, an array, or a constructor the program
+  itself wrote each keeps 3.6.2p2's action.
 - **4.10p3 is asked of the pointer value the base step moves**, not of its type:
   `basecast_null`/`basecast_adjust` only where the base subobject does not begin
   where the object does and the pointer could hold a null.
-- **Override matching is one hash lookup per member**, keyed by the name and
-  13.1's `member_signature`.
 - **`lowir_vtable.cpp` owns the emitted data.** A table, a type-information
   record and the string that names the type are the three globals a polymorphic
   class owns; each is emitted **on demand and memoised**, so a program that
   creates no polymorphic object holds none of them. The demand has exactly two
   sources: a constructor or destructor body writing the vpointer, and this unit
   holding the definition of the class's key function.
+- **The deleting entry is a fact of the definition, not of the table.** A table
+  this unit writes asks for it, and so does a definition of a virtual destructor
+  no other unit may hold - because 10.4p2's pure slots name the runtime's own
+  function and ask for nothing, and a class whose key function stands elsewhere
+  has its table in that unit. `owe_deleting_entry` is the one place both ask.
 - **What a *program* names is settled by the program.** A unit is read before
   the ones after it, so no unit can answer which name the program gives a class's
   table, whether the runtime's `__cxa_pure_virtual` is already declared, or
@@ -103,115 +115,137 @@ that class, and read by name afterwards.
   class's own members (12.6.2p10), and at the head of what a destructor does
   (12.4p11) - so the shared AST that PA10-PA12 dump is untouched. A *delegating*
   constructor writes none: 12.6.2p6 gives the whole initialization to the target.
-- **The deleting entry is a second body over one definition.** 12.4p8's suffix
-  gains one step - 5.3.5p3's deallocation - and 15.2p2's handler for every step
-  before it ends with the storage going back too, which is what the existing
-  `destructor_epilogue` already writes for a destruction.
 - **The region says which function a declaration is local to.** `Scope`
-  carries 9.8p1's enclosing function and the occurrence number of the class
-  between it and the region, each inherited when the region is opened, so
-  `declare_in` settles both on the declaration with one read and no walk
-  outwards. `TypeTable` carries the same pair for the class or enumeration,
-  because `abi_type` is handed a `TypeId` and 3.5p8 leaves nothing else to tell
-  two functions' `struct L`s apart. `named_from_namespace_scope` is now that
-  one read.
+  carries 9.8p1's enclosing function, the occurrence number of the class
+  between it and the region and whether that class has a spelling at all, each
+  inherited when the region is opened, so `declare_in` settles all three on the
+  declaration with one read and no walk outwards. `TypeTable` carries the same
+  triple for the class or enumeration, because `abi_type` is handed a `TypeId`
+  and 3.5p8 leaves nothing else to tell two functions' `struct L`s apart.
+  `named_from_namespace_scope` is now that one read.
+- **A type the body left unnamed is named by its place, not by a spelling.**
+  Nothing binds such a declaration in a region, so `settle_unnamed_local_name`
+  settles it where the declaration is read, and PA14's encoder writes the ABI's
+  `<unnamed-type-name>` - `Ut_`, `Ut0_`, ... - where a source name would stand.
+  A number this unit counted for itself would be another unit's other class.
 - **Which entry points a special member owes is a question about its
   definition, and the two are asked apart.** The base-object entry is owed
   where a base subobject named it or where the definition is one no other unit
   may hold - `writes_base_entry`'s reading of 9.3p2. The complete-object entry
   is owed where a complete object named it, where the definition is that same
-  one this unit alone holds, or where a base's user-provided definition was
-  written in this unit's own source: 2.2p1's included file is one every unit
-  that includes it also defines, so this unit owes only what it named.
+  one this unit alone holds, or where this unit's own source wrote a
+  user-provided definition for one of the classes **below the vpointer** - the
+  class that introduces it and the non-polymorphic classes under it, which is
+  what `settle_shared_entry_points` walks. A class whose base already dispatches
+  adds none: every unit that can create a complete object of it can define its
+  members for itself.
 - **Dispatch is a fact of the callee node.** `SemaFact::dispatches` is set where
   overload resolution names the member, from 5.2.2p1's three conditions: the
   function is virtual, an object expression named it, and the id was not
   qualified. Codegen never rediscovers polymorphism from syntax.
+- **A value a call hands back in registers needs no second place to stand when
+  it is an object.** 12.2p1 already gives it a temporary and the copy into it
+  stands in the step the call belongs to, and `load`/`store` have no lowered
+  type that spells an object.
 
 ## Current Failure Map
 
-No fixture fails. Two shapes no fixture reaches are known divergences from
-`reference-binaries/cppgm++`, both about definitions read from an included file
-and both left as they are:
+No fixture fails. Seven shapes no fixture reaches are known divergences from
+`reference-binaries/cppgm++`; g++ is the third oracle wherever it has an
+opinion, and all seven are left as they are.
 
 | shape | what differs | why it is left |
 | --- | --- | --- |
-| a class nested inside a local class | the reference drops the enclosing local class - `_ZTSZ1fvE5inner` where we and g++ write `_ZTSZ1fvEN1L5innerE` | 5.1.6's `<local-name>` is a `<name>`, which a `<nested-name>` is one of, and g++ agrees; the handout says to prefer the standard where no fixture gates it |
+| a class nested inside a local class | the reference drops the enclosing local class - `_ZTSZ1fvE5inner` where we and g++ write `_ZTSZ1fvEN1L5innerE` | 5.1.6's `<local-name>` is a `<name>`, which a `<nested-name>` is one of, and g++ agrees |
+| a local class of an `extern "C"` function | the reference writes `Z6ext_fnvE`, we and g++ write `Z6ext_fnE` | 3.5p9 names the function by its own spelling, so there is no bare-function-type to write; g++ agrees |
+| an unnamed enumeration declared before an unnamed class in one function | the reference numbers the class `Ut_`, we and g++ number it `Ut0_` | the ABI counts a region's unnamed types in one sequence whatever their class-key; g++ agrees |
+| a local class of a constructor or destructor body | the reference emits the class's table, record and members **twice**, once per entry point, with a discriminator on the second | one class is one entity; the second copy is the reference lowering the body twice |
 | a user-provided destructor an included file defines | `f2` keeps a destructor call the identical program written in one file (`f1`) elides, so the reference reads 12.4p8's empty body only for its own source | the elision is right in both, and following the reference would mean *not* reading a definition this unit holds |
-| a *non*-polymorphic base whose user-provided constructor this unit's source wrote | the reference gives it both entry points (`n1`); we give it the one that was used | the complete-entry rule below lives in `settle_vtable_ownership`, which PA18 owns and which runs only for a class that dispatches; widening it to every base is PA16/PA17 surface with no fixture behind it |
+| an `inline` destructor defined outside its class and never used | the reference emits an unused `D1`; we and g++ emit nothing | 3.2p3 puts an inline definition in the program where a use asks |
+| a class-typed value a call hands back, read through a member access | the reference closes the step after the copy and re-opens one for the field read; we leave the read in the step the call stands in | neither `index` nor `load` can throw, so the two are the same program written two ways |
 
-## Active Checkpoint
+One more difference is not a divergence but a **harness limitation**, and it
+strikes the reference identically: `lowir_destructor_entry_from_object_symbol`
+reads any `D0`/`D1`/`D2` in an object symbol as a destructor entry, so a class
+local to a *destructor* body - whose members are named `_ZZN6HolderD1EvEN1L1fEv`
+- makes `validate_lowir_vtable_destructor_slot_order` refuse both compilers'
+output. No fixture writes that shape.
 
-None. The next turn's is an audit of the two checkpoints this one landed:
-the sibling paths of 9.8p1's local name (a local class as a parameter type, as a
-return type, in a template argument; a local enumeration; an unnamed local
-class, which still takes the namespace-scope naming because no region records
-it) and the readers of `own_source_definition` (`writes_base_entry`,
-`abi_variant` and 12.4p8's `empty_body`, which the `f2` row above says the
-reference answers differently for an included definition).
+Four shapes are refused outright and belong to later milestones by their own
+READMEs: a block-scope static (pa15 puts "function-local static objects and
+guard variables" out of scope and pa21 owns them), `try`/`catch`/`throw` (pa22),
+a pointer to member function, and multiple inheritance (PA18 Out Of Scope).
+The reference accepts all four; it also **accepts two programs the standard
+refuses** - an override of a `final` function and an object of an abstract
+class - which is its error recovery and not an oracle.
 
 ## Performance Model
 
-Measured on the eight shapes the milestone makes scaling-sensitive, each timed
-twice, `cppgm++ --emit-lowir -O0`. The eighth is the *unit count*, which is what
-`LowirProgramBuilder::finish`'s settlement scales in and what the first seven -
-all single-unit - never reach:
+The dominant operations are the settlement of one class's table, which is a copy
+of the base's plus this class's own declarations, and the emission of one table,
+which is one ABI name per slot. Both are linear in what they name; what is
+superlinear is superlinear in the *program*.
 
-| shape | 8 | 16 | 32 | 64 | 128 | 256 | 512 |
+Measured on the eleven shapes the milestone makes scaling-sensitive, each timed
+twice, `cppgm++ --emit-lowir -O0`:
+
+| shape | 32 | 64 | 128 | 256 | 512 |
+| --- | --- | --- | --- | --- | --- |
+| 16 *new* virtuals per level | 0.03 s | 0.07 s | 0.19 s | 0.59 s | 2.23 s |
+| 64 virtuals *overridden* per level | 0.07 s | 0.14 s | 0.29 s | 0.60 s | 1.31 s |
+| n objects of an n-deep polymorphic chain | 0.02 s | 0.03 s | 0.05 s | 0.11 s | 0.24 s |
+| n `new`/`delete` pairs over that chain | 0.02 s | 0.03 s | 0.05 s | 0.10 s | 0.21 s |
+| n polymorphic classes over one n-deep non-polymorphic chain | 0.01 s | 0.02 s | 0.05 s | 0.11 s | 0.29 s |
+| n array-`new`/`delete[]` pairs of a polymorphic element | 0.02 s | 0.03 s | 0.06 s | 0.12 s | 0.25 s |
+| n functions each declaring a *named* local polymorphic class | 0.02 s | 0.03 s | 0.05 s | 0.11 s | 0.22 s |
+| n functions each declaring an *unnamed* one | 0.02 s | 0.03 s | 0.05 s | 0.11 s | 0.21 s |
+| n unnamed local classes in **one** function | 0.02 s | 0.03 s | 0.05 s | 0.10 s | 0.20 s |
+| one n-parameter function holding an n-member local class | 0.01 s | 0.01 s | 0.03 s | 0.12 s | 0.47 s |
+| n namespace-scope polymorphic objects | 0.01 s | 0.02 s | 0.04 s | 0.08 s | 0.16 s |
+
+and on the twelfth, the *unit count*, which is what
+`LowirProgramBuilder::finish`'s settlement scales in and what the eleven
+single-unit shapes never reach:
+
+| units | 8 | 16 | 32 | 64 | 128 | 256 | 512 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| n units, the shared class's key function in the last | 0.00 s | 0.01 s | 0.01 s | 0.03 s | 0.06 s | 0.11 s | 0.22 s |
-| the LowIR that emits, in lines | 1047 | 2046 | 4046 | 8046 | 16075 | 32203 | 64459 |
+| `--emit-lowir` over all of them | 0.01 s | 0.01 s | 0.02 s | 0.04 s | 0.07 s | 0.14 s | 0.28 s |
+| the LowIR that emits, in lines | 1221 | 2355 | 4627 | 9171 | 18287 | 36591 | 73199 |
 
-and on the seven single-unit shapes:
+Nine of the eleven are linear in the source. The two that are not are quadratic
+in the *program*, measured rather than argued:
 
-| shape | 32 | 64 | 128 | 256 | 512 |
-| --- | --- | --- | --- | --- | --- |
-| 16 *new* virtuals per level | 0.02 s | 0.05 s | 0.13 s | 0.40 s | 1.54 s |
-| 64 virtuals *overridden* per level | 0.03 s | 0.08 s | 0.14 s | 0.30 s | 0.61 s |
-| n objects of an n-deep polymorphic chain | 0.02 s | 0.04 s | 0.07 s | 0.16 s | 0.37 s |
-| the same with a throwing call after each | 0.02 s | 0.04 s | 0.08 s | 0.18 s | - |
-| n `new`/`delete` pairs over that chain | 0.02 s | 0.04 s | 0.08 s | 0.18 s | 0.43 s |
-| n polymorphic classes over one n-deep non-polymorphic chain | 0.02 s | 0.03 s | 0.06 s | 0.13 s | 0.28 s |
-| n array-`new`/`delete[]` pairs of a polymorphic element | 0.01 s | 0.02 s | 0.03 s | 0.06 s | 0.15 s |
+- **16 new virtuals per level** emits 16 K, 48 K, 162 K, 587 K and **2.2 M**
+  lines at the five sizes, because 12.1p11 makes every base constructor write
+  its own vpointer and creating one object of the deepest class therefore
+  demands all 512 tables - 16*n(n+1)/2 slots in all. The reference emits the
+  same program: 162 648 lines against our 162 520 at n=128, in **13.88 s against
+  our 0.19 s**, and it does not finish at all past that. The *settlement* alone,
+  with no object created, is 0.44 s at n=512.
+- **one n-parameter function holding an n-member local class** is 9.8p1's name
+  repeating the whole encoding of the function whose body declared the class, so
+  n members of an n-parameter function is n^2 bytes of object-file name - 408 KB
+  of LowIR at n=512, against the reference's 435 KB in 0.26 s. What was
+  avoidable was asking for one of those names more than once: `object_symbols_`
+  holds it per declaration and entry point.
 
-Six of the seven are linear in the source. The first is superlinear in the
-*settlement* and not in the output: a derived class's table is the base's with
-the overridden slots replaced, so n classes each introducing 16 virtuals cost
-16*n(n+1)/2 slot copies - 2.1 million at n=512, in 1.5 s - while the emitted
-LowIR stays linear, because only a class an object is created of has its table
-written. That cost is what "the vtable is a fact of the class" buys: the call
-site is one load, one index and one load, with no walk of the dynamic type. The
-sixth shape is the one `settle_vtable_ownership`'s walk over a non-polymorphic
-base chain could have made quadratic - it stops at the first base that already
-dispatches, and only the class that introduces the vpointer pays for the
-prefix - and it is linear. A table, a record and a name string are emitted once
-per class and memoised; a record walks the derivation once and memoises each
-class on the way.
+What the audit removed from the settlement was the 40 % it spent building keys
+it read once: 10.3p2's match had rebuilt a `std::unordered_map<std::string,
+unsigned>` over *every* inherited slot for every class - 2.1 million string
+constructions at n=512 - to answer sixteen questions. The slot a name has never
+moves, so the record now belongs to the class that introduced the name and a
+class below reads it: 1.12 s -> **0.44 s** on the settlement, with the records
+linear in the declarations rather than quadratic in the derivation.
 
-C3 and C4 add three shapes, each timed twice the same way:
+`settle_shared_entry_points` is the other walk that could have been quadratic in
+a polymorphic chain and is not: it runs only for the class that introduces the
+vpointer, over the non-polymorphic classes under it, so each class in a
+derivation is asked once for the program.
 
-| shape | 32 | 64 | 128 | 256 | 512 |
-| --- | --- | --- | --- | --- | --- |
-| n `#include`s, each a polymorphic base/derived pair | 0.01 s | 0.02 s | 0.05 s | 0.10 s | 0.21 s |
-| n functions each declaring a local polymorphic class | 0.01 s | 0.02 s | 0.03 s | 0.07 s | 0.14 s |
-| one n-parameter function holding an n-member local class | 0.00 s | 0.01 s | 0.03 s | 0.10 s | 0.41 s |
-
-The first two are linear. The third is quadratic and unavoidably so: 9.8p1's
-name repeats the whole encoding of the function whose body declared the class,
-so n members of an n-parameter function's local class is n^2 bytes of
-object-file name - 408 KB of LowIR at n=512, against the reference's 435 KB in
-0.26 s. What was avoidable was asking for one of those names more than once:
-`function_symbol` and `describe_symbol` each encoded it, so `object_symbols_`
-now holds it per declaration and entry point and the shape went from 0.81 s to
-0.41 s. `IncludeTable` costs one comparison per token to build, one record per
-inclusion that changed the answer, and one binary search per special member's
-definition; a unit that includes nothing stores nothing and answers with none.
-
-The eighth shape is linear in both the units and the output, with the rename
-path active throughout: `settle_vtable_names` returns before walking wherever
-the units agree on a table's name, which is every single-unit program, and walks
-the finished program once where they do not; `settle_external_declarations` is
-two hash-set builds over the finished program and runs for every program.
+Depth is linear and bounded: a 512-deep expression nesting and a 64-deep nest of
+class definitions each cost the same 114 ms the empty program does, and
+`parse_depth.h`'s guard refuses 1024 rather than recursing into the stack. The
+reference does not finish a 32-deep expression nesting.
 
 `cy86`'s image layout is the one place a *generated* program's speed was the
 risk rather than the compiler's. A `data` statement beside code put the
@@ -219,10 +253,60 @@ program's variables in a line it also fetched instructions from, which x86
 answers with a machine clear: 43.9 s against 0.885 s on a loop whose counter
 shares a line with its body, and 28.1 s against 0.33 s on the same shape written
 the other way round. Code that follows data is now emitted on the next 64-byte
-line behind a `jmp rel32` that leaves the label byte-exact, and separating by
-4096 bytes instead measures the same, so no line is shared. Valgrind is clean
-over all 39 fixtures, over all eight scaling shapes, over every multi-unit probe
-and over `cy86` on the layout probes.
+line behind a `jmp rel32` that leaves the label byte-exact.
+`pa9/300-binary-calculator` runs in 1.15 s against its 10 s limit.
+
+## Architecture Review
+
+The stage was reconstructed from the source rather than from the checkpoints,
+and traced end to end on the three facts the milestone adds.
+
+**What a class dispatches** is settled in one place and read by name. The
+parse writes `virtual`, the virt-specifiers and the pure-specifier onto the
+declaration; `require_virtual_placement` is the single reading of where they may
+stand; `settle_virtual_members` is the single settlement, run once per class
+where 9.2p2 completes it; and everything after it - the layout, the lowering,
+5.2.2p1's dispatch decision, 10.4p2's refusals - reads a field. There is no
+second path and no re-derivation from syntax.
+
+**The vpointer** is one fact with four readers, and the audit added the fourth:
+`vacuous_construction`, `vacuous_destruction`, `construction_writes_nothing` and
+3.6.2p2's image all ask the class rather than its parts, and all four now answer
+"something" for a polymorphic class.
+
+**The name the object file gives an entity** is one path: `abi_symbol_of` over
+records PA14's encoder reads, with `object_symbols_` memoising the answer per
+declaration and entry point. 9.8p1's local name and the ABI's unnamed-type name
+both enter it as facts of the *region*, settled where the declaration is read.
+
+**What the program names** is settled once, in `LowirProgramBuilder::finish`,
+over the finished program: two linear passes, order-free over every permutation
+of two and three units.
+
+**Ownership is not duplicated.** The deleting entry had two demands and now has
+one place that records them. The complete-object entry had one walk repeated by
+every derived class and now has one walk run by the class that introduces the
+vpointer. Override matching had one index rebuilt per class and now has one
+record per introduction.
+
+## Final Architecture Review
+
+The whole stage passes the audit's own gates:
+
+- **No fallback path, source-specific gate, fixture name, environment variable
+  or file-audit bypass** is anywhere in `dev/src`; there is no `#if 0`, no
+  `TODO`, no `FIXME`. The file audit passes with the four header-weight warnings
+  the shared headers have carried since C3.
+- **No skipped phase, no embedded output, no interpreter substitute.** The
+  lowering writes LowIR text from the resolved tree; `lowir2cy86` remains the
+  optional execution scaffold the README names.
+- **No timeout workaround.** The whole pa1-pa18 report is 9.3 s and the slowest
+  generated program runs in 1.15 s against a 10 s limit.
+- **No weakened check.** The two programs the reference accepts and we refuse -
+  an override of a `final` function and an object of an abstract class - are
+  ill-formed, and g++ and clang refuse them too.
+- Every checked `.ref` file in the repository regenerates byte-identically from
+  the reference binaries, so no fixture holds our own output.
 
 ## Completed Checkpoints
 
@@ -233,5 +317,6 @@ and over `cy86` on the layout probes.
 | C2 | the emitted polymorphic object model: `lowir_vtable.cpp`'s tables, type-information records and name strings with the ABI's three record kinds and `__cxa_pure_virtual`; the key function deciding which unit owes the table and `__external_vtable__` where another does; 12.1p11/12.4p11's vpointer stores; 12.4's D1/D2/D0 triple with 5.3.5p3's deallocation as the last step of 12.4p8's suffix; 10.3p12's dispatch on `SemaFact::dispatches` with 5.2.2p1's qualified-id suppressing it; 5.3.5p3's `delete` through the deleting slot; 12.4p11 read into `vacuous_destruction` and 12.1p11 into `construction_writes_nothing`; 5.4p4's cast of a null pointer constant folded where 4.10p1 and not 5.2.10p5 is the conversion | 9 / 32 -> **30 / 32**, plus 4 new regression tests all passing (34 / 36); pa1-pa17 1732 / 1732; 20 emission probes against the reference binary |
 | C2 audit | the boundary a fact of the *program* was settled at, the third reader of a fact C2 widened, and the sibling spellings of a rule it landed at one: the table's name and `__cxa_pure_virtual` and a use's declaration settled in `LowirProgramBuilder::finish` rather than per unit, 12.1p11 read into `vacuous_construction`, 15.2p2's handler opened only where the element constructor can throw, 12.6.2p6's delegating constructor left without a vpointer store, and 5.2.10p5's `reinterpret_cast` left out of 5.4p4's fold | 7 / 7; 34 / 36 -> **37 / 39**, three of them regression tests; pa1-pa17 1732 / 1732; all 36 checked `.ref` files regenerated from the reference binary, 44 lowering probes, four multi-unit shapes, seven scaling shapes, valgrind clean |
 | C2 audit review | the increment re-derived rather than taken on its commit message, and the blocker sitting under the whole report: all seven of C2's audit fixes hold and are order-free over two and three units, and `pa9/300-binary-calculator`'s 6.84 s against the reference's 0.35 s was a cache line shared between a store and an instruction fetch, not load - fixed in `cy86_codegen.cpp` the way the reference does it, with the label held byte-exact by a `jmp rel32` | 1 / 1; pa18 holds **37 / 39**; pa1-pa17 1732 / 1732 in 10.3 s where pa9 alone took 15.3 s; nine multi-unit programs valid, a unit-count sweep to 512, valgrind clean |
-| C4 | 2.2p1's file a definition was read from: `Preprocessor::source_depth` recorded by position in a run-length `IncludeTable` beside `PackTable`, read where a special member's body is read into `SemaEntity::own_source_definition`, and `settle_vtable_ownership` owing the complete-object entry for a base's user-provided constructor or destructor only where this unit's own source wrote it; the object-file name of a declaration memoised per entry point | 39 / 40 -> **41 / 41**, one of them a regression test, PA18 complete; pa1-pa17 1732 / 1732; 14 entry-point probes against `reference-binaries/cppgm++`, of which 12 agree and the two that do not are in the Failure Map; three scaling shapes, valgrind clean |
 | C3 | 9.8p1's `<local-name>`: the function whose body declares a class settled on the declaration and on the type where the region is read, the ABI's discriminator counted per function and name, the encoder's `<local-name>` context carrying the records that describe its function so a const member function and a variadic one are spellable, `Z <source-name> E` for a function the object file names by its own spelling, and the `N`/`E` of a nested local name put inside the context where g++ and 5.1.6 put it | 37 / 39 -> **39 / 40**, one of them a regression test; pa1-pa17 1732 / 1732; 14 naming probes against `reference-binaries/cppgm++` and g++, which agree on all but a class nested inside a local class |
+| C4 | 2.2p1's file a definition was read from: `Preprocessor::source_depth` recorded by position in a run-length `IncludeTable` beside `PackTable`, read where a special member's body is read into `SemaEntity::own_source_definition`, and `settle_vtable_ownership` owing the complete-object entry for a base's user-provided constructor or destructor only where this unit's own source wrote it; the object-file name of a declaration memoised per entry point | 39 / 40 -> **41 / 41**, one of them a regression test, PA18 complete; pa1-pa17 1732 / 1732; 14 entry-point probes against `reference-binaries/cppgm++`, of which 12 agree and the two that do not are in the Failure Map; three scaling shapes, valgrind clean |
+| final audit | the whole stage re-derived from the source, and the six blockers that survived every checkpoint: the ABI's `<unnamed-type-name>` for a class a body left unnamed (a **cross-unit miscompile**), `load obj<NxM>` as **invalid LowIR** for a class-typed call result under a handler, 15.4p14 unasked of the implicit default constructor, the deleting entry owed by the table rather than by the definition, the complete-object entry owed by every derived class rather than by the vpointer's own, 12.1p11 unread by 3.6.2p2's image, and 10.3p2's override index rebuilt per class | 6 / 6; 41 / 41 -> **45 / 45**, four of them regression tests; pa1-pa17 1732 / 1732; **1777 / 1777** through pa18 in 9.3 s; file audit passes; every checked `.ref` in the repository regenerates byte-identically; 102 differential probes, 16 multi-unit programs in every order, twelve scaling shapes, a depth sweep to 512 and valgrind clean over all of them |
