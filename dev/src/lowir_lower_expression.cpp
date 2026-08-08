@@ -349,19 +349,83 @@ LowValue LowirFunctionLowering::base_conversion(const DumpNode& node)
 		types.kind(types.strip_cv(held.type)) == TypeKind::Pointer
 			? rvalue(held)
 			: address_of(held);
+	LowValue value;
+	value.type = node.fact.type;
+	value.named = true;
+	value.lvalue =
+		types.kind(types.strip_cv(value.type)) != TypeKind::Pointer;
+	value.operand = node.fact.null_preserving && node.fact.value != 0
+		? null_preserving_base_step(from, node.fact.value)
+		: base_step(from, node.fact.value);
+	return value;
+}
+
+// 10p1: the address of the base subobject of the object `from` points at, which
+// is that address moved on by the place the derived class gave its base.
+Operand LowirFunctionLowering::base_step(const Operand& from,
+                                         unsigned long long offset)
+{
 	Instruction step;
 	step.kind = Instruction::IK_INDEX;
 	step.type.text = "i8";
 	step.index_projection = lowir_model::IPK_BASE_SUBOBJECT;
 	step.first = from;
-	step.second = named_operand(Operand::OP_INTEGER, decimal(node.fact.value));
-	LowValue value;
-	value.type = node.fact.type;
-	value.operand = emit(step);
-	value.named = true;
-	value.lvalue =
-		types.kind(types.strip_cv(value.type)) != TypeKind::Pointer;
-	return value;
+	step.second = named_operand(Operand::OP_INTEGER, decimal(offset));
+	return emit(step);
+}
+
+// 4.10p3: the same conversion of a pointer the program could have written a
+// null into.  A null pointer converts to the null pointer value of the base's
+// type, so where the base subobject does not begin where the object does the
+// conversion is a test and not an address: moving a null on by the offset would
+// hand back a pointer to storage no object stands in.  Only a nonzero offset
+// reaches here, so no program pays for the branch that PA17's layout gave every
+// base subobject.
+Operand LowirFunctionLowering::null_preserving_base_step(
+	const Operand& from, unsigned long long offset)
+{
+	lowir_model::LowType pointer;
+	pointer.text = "ptr";
+	const std::string slot = add_generated_slot("basecast", pointer);
+	const Operand storage = named_operand(Operand::OP_SLOT, slot);
+	const std::string null_label = reserve_block("basecast_null");
+	const std::string adjust_label = reserve_block("basecast_adjust");
+	const std::string end_label = reserve_block("basecast_end");
+	Instruction test;
+	test.kind = Instruction::IK_CMP;
+	test.op = "eq";
+	test.type.text = "ptr";
+	test.first = from;
+	test.second = named_operand(Operand::OP_INTEGER, "0");
+	branch(emit(test), null_label, adjust_label);
+
+	open_block(null_label);
+	store_pointer(named_operand(Operand::OP_INTEGER, "0"), storage);
+	jump(end_label);
+
+	open_block(adjust_label);
+	store_pointer(base_step(from, offset), storage);
+	jump(end_label);
+
+	open_block(end_label);
+	Instruction read;
+	read.kind = Instruction::IK_LOAD;
+	read.type.text = "ptr";
+	read.first = storage;
+	return emit(read);
+}
+
+// One `store` of a pointer, which the two arms above write into the one slot
+// the conversion's value is read back out of.
+void LowirFunctionLowering::store_pointer(const Operand& value,
+                                          const Operand& storage)
+{
+	Instruction instruction;
+	instruction.kind = Instruction::IK_STORE;
+	instruction.type.text = "ptr";
+	instruction.first = value;
+	instruction.second = storage;
+	emit_void(instruction);
 }
 
 LowValue LowirFunctionLowering::member_expression(const DumpNode& node)

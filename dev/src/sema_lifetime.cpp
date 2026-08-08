@@ -1119,6 +1119,10 @@ SemaAnalyzer::Value SemaAnalyzer::build_temporary(TypeId type, DumpNode& line,
                                                   bool boundary)
 {
 	const TypeId object_type = types_.strip_cv(type);
+	// 10.4p2: a temporary is an object, which a class with a pure final
+	// overrider has none of - so 5.2.3's explicit type conversion and every
+	// other place that builds one is refused here rather than at each of them.
+	require_creatable_object(object_type, "a temporary");
 	SemaEntity& object = model_.create(SemaKind::Variable, std::string(),
 	                                   object_type);
 	object.object_member = false;

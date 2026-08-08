@@ -180,6 +180,7 @@ struct SemaFact
 		, boundary_object(false)
 		, binds_temporary(false)
 		, base_subobject(false)
+		, null_preserving(false)
 		, subobject_step(false)
 		, array_form(false)
 		, object_definition(false)
@@ -276,6 +277,14 @@ struct SemaFact
 	// destructor one entry point for a complete object and one for a base
 	// subobject, and this is what says which of them this call is of.
 	bool base_subobject;
+	// 4.10p3: whether this `base-conversion` has to hand back the null pointer
+	// value where its operand holds one.  A conversion of an *object* to its
+	// base subobject names storage that is there, and `this` is 9.3.2p1's
+	// address of an object - so only a pointer the program could have written a
+	// null into asks the question, and only where the base subobject does not
+	// begin where the object does is the answer a branch rather than the
+	// address itself.
+	bool null_preserving;
 	// 12.8p15 and 12.6.2p10: whether this `constructor-action` builds a
 	// subobject of an object rather than a complete object of its own.  What
 	// the two part company over is 8.4.3p2: the class's copy constructor being

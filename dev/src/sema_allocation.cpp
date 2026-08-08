@@ -779,6 +779,9 @@ SemaAnalyzer::Value SemaAnalyzer::new_expression(const AstNode& node,
 		                         "incomplete type " +
 		                         types_.description(created));
 	}
+	// 5.3.4p4 and 10.4p2: the type shall not be an abstract class or an array
+	// of one, because the objects the expression creates are objects.
+	require_creatable_object(created, "a new-expression");
 	DumpNode& line = model_.open_node(parent, std::string());
 
 	// 5.3.4p8: the allocation function is called with the number of bytes the

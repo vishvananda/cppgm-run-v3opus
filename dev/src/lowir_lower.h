@@ -711,6 +711,14 @@ private:
 	// denotes, as the storage of that object at the place its class gave the
 	// base.
 	LowValue base_conversion(const DumpNode& node);
+	// 10p1 and 4.10p3: the address of a base subobject, and the same address
+	// asked of a pointer that may hold 4.10p1's null pointer value.
+	lowir_model::Operand base_step(const lowir_model::Operand& from,
+	                               unsigned long long offset);
+	lowir_model::Operand null_preserving_base_step(
+		const lowir_model::Operand& from, unsigned long long offset);
+	void store_pointer(const lowir_model::Operand& value,
+	                   const lowir_model::Operand& storage);
 	// 12.1p5: the constructor call an object of class type is initialized by,
 	// on the address of that object.  `always` says the object has no other
 	// mark of its lifetime beginning, so even a constructor that does nothing

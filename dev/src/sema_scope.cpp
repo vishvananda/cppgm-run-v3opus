@@ -171,6 +171,17 @@ SemaEntity& SemaModel::create(SemaKind kind, const std::string& name, TypeId typ
 	entity.base = nullptr;
 	entity.base_access = kPublicAccess;
 	entity.empty_class = true;
+	entity.virtual_function = false;
+	entity.pure_virtual = false;
+	entity.final_virtual = false;
+	entity.override_written = false;
+	entity.overridden = nullptr;
+	entity.vtable_index = kNoVtableIndex;
+	entity.vtable.clear();
+	entity.polymorphic = false;
+	entity.introduces_vptr = false;
+	entity.abstract = false;
+	entity.base_offset = 0;
 	entity.special = kOrdinaryFunction;
 	entity.transfer = kNotTransfer;
 	for (unsigned index = 0; index < kTransferKinds; ++index)

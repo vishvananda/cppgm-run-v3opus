@@ -145,6 +145,14 @@ private:
 		// 4.10p1: an integral constant expression prvalue that evaluates to
 		// zero, which is the only integral operand a pointer accepts.
 		bool null_constant;
+		// 9.3.2p1: a pointer this translation knows holds the address of an
+		// object - `this`, which is the object a member function was called on.
+		// 4.10p3 has to hand back the null pointer value where the source of a
+		// derived-to-base conversion holds one, and where the conversion moves
+		// the address at all that test is a branch the program pays for; a
+		// pointer that cannot be null needs neither.  False for every pointer a
+		// program wrote, which is all but the one the analysis makes.
+		bool nonnull;
 		bool constant;
 		unsigned long long value;
 		// The declaration a name stands for, and the token an operator was
@@ -307,6 +315,10 @@ private:
 		// 7.1.2p2: the definition of this function may be written in more than
 		// one translation unit, so no one unit owns the one the program has.
 		bool is_inline;
+		// 10.3p1: the member function this sequence declares is dispatched
+		// through the object's own class rather than through the name a call
+		// wrote, which 9.2p2 settles for the class as a whole.
+		bool is_virtual;
 		// 3.7.2p1 and 7.1.1p1: the variable this sequence declares has thread
 		// storage duration - one object per thread rather than one per program.
 		bool is_thread_local;
@@ -600,6 +612,38 @@ private:
 	// 12.8p11/p12/p23/p25: whether each of them is one the standard can define
 	// and whether its definition is the copy of an object's bytes.
 	void settle_transfers(SemaEntity& entity, Scope& scope);
+	// 10.3p1 read before 9.2p13 lays the class out: whether an object of the
+	// class carries a vpointer, and whether this class is the one that adds it.
+	void note_polymorphism(SemaEntity& entity, Scope& scope);
+	// 10.3p2/p10 and 10.4p2, settled after the class has every member it will
+	// have: which of them are virtual, which slot each has, what the class's
+	// table holds, and whether a final overrider of it is still pure.
+	void settle_virtual_members(SemaEntity& entity, Scope& scope);
+	void settle_virtual_destructor(SemaEntity& entity, SemaEntity& destructor);
+	// 10.3p4, 10.3p5 and 10.3p7: what an overriding declaration has to agree
+	// with, and what a declaration that overrides nothing may not have written.
+	void require_overridable(const SemaEntity& member,
+	                         const SemaEntity& overridden);
+	static void require_dispatches(const SemaEntity& member);
+	static void require_no_virtual_specifier(const SemaEntity& member);
+	static void require_virtual_placement(bool wrote_virtual, const Scope& where,
+	                                      bool qualified,
+	                                      const std::string& name);
+	bool covariant_return(TypeId overriding, TypeId overridden);
+	// 10p1: where the base class subobject stands inside an object of the
+	// derived class, which every class but one that added a vpointer gave the
+	// place its own object begins at.
+	unsigned long long base_subobject_offset(TypeId from,
+	                                         const SemaEntity& base);
+	// 10.4p2/p3: whether an object of the type can be created at all, and the
+	// two boundaries of a function declaration where one may not stand.
+	bool abstract_class_type(TypeId type);
+	void require_no_abstract_boundary(TypeId type, const std::string& name);
+	void require_creatable_object(TypeId type, const std::string& name);
+	// 9.2 and 10.3: `override`, `final` and 10.4p2's pure-specifier, which a
+	// member function's declarator writes rather than its specifiers.
+	void read_virt_specifiers(SemaEntity& function, const AstNode& declarator,
+	                          const AstNode* initializer);
 	// 12.8p15/p28: the value-transfer member one subobject of class type is
 	// carried by, which for a move falls back on the class's copy member.
 	SemaEntity* selected_transfer(TypeId type, unsigned char kind);

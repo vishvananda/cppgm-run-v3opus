@@ -115,6 +115,7 @@ SemaAnalyzer::Value::Value()
 	, name(nullptr)
 	, what(nullptr)
 	, null_constant(false)
+	, nonnull(false)
 	, constant(false)
 	, value(0)
 	, entity(nullptr)
@@ -1347,11 +1348,18 @@ SemaEntity& SemaAnalyzer::class_declaration(const AstNode& node,
 	// 9.2p2: the class is complete here, so 7.3.3p14 can be asked of what it
 	// declares rather than of what the body had written so far.
 	hide_using_members(scope);
+	// 10.3p1: whether the object holds a vpointer is a layout question, so it
+	// is asked before 9.2p13 places anything.  What the declarations already
+	// say is enough for it; which function each slot holds is settled once the
+	// class has the members no declaration wrote.
+	note_polymorphism(*entity, scope);
 	lay_out_class(*entity, scope, tag == ClassTag::Union,
 	              requested_alignment(node, inner), packing_of(node));
-	// 8.5.1p1: a class with a base class is not an aggregate, so a
-	// braced-init-list initializing an object of it chooses a constructor.
-	entity->aggregate = entity->base == nullptr && aggregate_class(scope);
+	// 8.5.1p1: a class with a base class or a virtual function is not an
+	// aggregate, so a braced-init-list initializing an object of it chooses a
+	// constructor.
+	entity->aggregate = entity->base == nullptr && !entity->polymorphic &&
+		aggregate_class(scope);
 	if (semantics())
 	{
 		declare_special_members(*entity, scope);
@@ -1725,6 +1733,21 @@ void SemaAnalyzer::declare_function_declarator(
 		function.wrote_exception_specification ||
 		declarator_writes_exception_specification(node);
 	function.object_member = type != written_type;
+	// 10.3p1 and 7.1.2p1: `virtual` is a fact of the function rather than of one
+	// declaration of it - a definition written outside the class repeats
+	// neither the keyword nor the virt-specifiers - so it accumulates over the
+	// declarations, exactly as 7.1.2p2's `inline` beside it does, and the one
+	// declaration that may write it is the one the class body makes.  9.4p1's
+	// static member is the class's own to refuse, where the class is complete.
+	require_virtual_placement(specifiers.is_virtual, *target.scope,
+	                          spelled.qualified(), name);
+	function.virtual_function =
+		function.virtual_function || specifiers.is_virtual;
+	read_virt_specifiers(function, node, initializer);
+	// 10.4p3: an abstract class shall not be used as a parameter type or as a
+	// function return type, which is asked of the type the declarator built and
+	// therefore of every declaration alike.
+	require_no_abstract_boundary(written_type, name);
 	if (!function.object_member)
 	{
 		require_operator_operand(name, type,
@@ -1938,6 +1961,13 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 		return;
 	}
 	require_mutable_data_member(specifiers, target, name, type);
+	// 7.1.2p1: `virtual` says how a call of a *function* is dispatched, so a
+	// declarator that declares anything else may not carry it.
+	if (specifiers.is_virtual && types_.kind(type) != TypeKind::Function)
+	{
+		throw std::runtime_error(name + " is declared `virtual` and is not a "
+		                         "function");
+	}
 	// 11.3p6: what a friend declaration declares belongs to the region around
 	// the class, so the declarator is read against that region and the class
 	// gets the grant.
@@ -2074,6 +2104,16 @@ void SemaAnalyzer::declare_object_declarator(const AstNode* initializer,
 		(!specifiers.is_extern ||
 		 (initializer != nullptr && !initializer->children.empty()));
 	entity.object_definition = entity.object_definition || defines_object;
+	// 10.4p2: a class with a pure final overrider has no objects, so the
+	// declarations that lay one out are refused.  9.4.2p2's declaration of a
+	// static data member lays none out - the definition written outside the
+	// class does, and that one is a definition like any other - while 9.2p1's
+	// non-static data member is an object of every object of its class.
+	if (defines_object ||
+	    (target.scope->kind == ScopeKind::Class && !specifiers.is_static))
+	{
+		require_creatable_object(type, name);
+	}
 	record_storage(entity, prior, specifiers, target, type);
 	// 9.4.2p2: a definition written with a nested-name-specifier declares
 	// nothing where it names, so the line it writes is not one of that region's:
@@ -2298,6 +2338,17 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 		entity.wrote_exception_specification ||
 		declarator_writes_exception_specification(declarator);
 	entity.object_member = type != written_type;
+	// 10.3p1 and 10.3p4/p5: the definition is a declaration like any other, so
+	// what it wrote about dispatch stands for the function whether or not
+	// another declaration of it wrote the same thing - and 7.1.2p1 lets the one
+	// written in the class body write `virtual` and the one written outside it
+	// not.
+	require_virtual_placement(specifiers.is_virtual, *target.scope,
+	                          spelled.qualified(), name);
+	entity.virtual_function =
+		entity.virtual_function || specifiers.is_virtual;
+	read_virt_specifiers(entity, declarator, nullptr);
+	require_no_abstract_boundary(written_type, name);
 	if (!entity.object_member)
 	{
 		require_operator_operand(name, type,

@@ -1049,12 +1049,21 @@ SemaAnalyzer::Value SemaAnalyzer::base_value(const Value& object,
 	value.name = nullptr;
 	value.constant = false;
 	value.null_constant = false;
-	value.value = 0;
+	// 10p1: where the base subobject stands inside the object, which is the sum
+	// of the places each class in the chain gave its own direct base.  Every
+	// class but the polymorphic one that added a vpointer gave its base offset
+	// zero, so the walk is the derivation the conversion already names and the
+	// sum is nearly always zero.
+	value.value = base_subobject_offset(from, base);
 	value.op = 0;
 	value.what = "base-conversion";
 	value.payload.clear();
 	value.node = &model_.wrap_node(*object.node, std::string());
 	respell(value);
+	// 4.10p3: a pointer the program could have written a null into converts to
+	// the null pointer value of the base's type, and only a *pointer* asks it -
+	// an object converted to its base subobject is an object that is there.
+	value.node->fact.null_preserving = through_pointer && !object.nonnull;
 	return value;
 }
 
@@ -1233,6 +1242,9 @@ SemaAnalyzer::Value SemaAnalyzer::this_value(DumpNode& parent)
 	value.spelled = value.type;
 	value.category = ValueCategory::PRValue;
 	value.what = "id-expression";
+	// 9.3.2p1: `this` is the address of the object the member function was
+	// called on, so it holds an object and never 4.10p1's null pointer value.
+	value.nonnull = true;
 	// 9.3.2p1: `this` is the object parameter 9.3.1p3 gave the function, which
 	// is the declaration a use of it names.
 	value.entity = self_;

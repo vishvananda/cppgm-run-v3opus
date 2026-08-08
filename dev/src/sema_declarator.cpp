@@ -42,6 +42,7 @@ SemaAnalyzer::Specifiers::Specifiers()
 	, is_extern(false)
 	, is_static(false)
 	, is_inline(false)
+	, is_virtual(false)
 	, is_thread_local(false)
 	, is_friend(false)
 	, is_mutable(false)
@@ -196,6 +197,13 @@ void SemaAnalyzer::read_type_specifier(const AstNode& node, Specifiers& out,
 		// rather than to the program, so every thread that names it names one
 		// of its own.
 		out.is_thread_local = true;
+		return;
+
+	case KW_VIRTUAL:
+		// 10.3p1: a call of the member function this declares runs the final
+		// overrider the object's own class has, so the class the declaration is
+		// written in dispatches through a table rather than through the name.
+		out.is_virtual = true;
 		return;
 
 	case KW_FRIEND:

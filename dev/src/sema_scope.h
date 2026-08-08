@@ -112,6 +112,34 @@ enum class LookupKind
 
 class Scope;
 
+struct SemaEntity;
+
+// The slot index a virtual function has in every vtable that holds it, or
+// `kNoVtableIndex` for a declaration that is not virtual.  The index a base
+// assigns is the one every class below it keeps, so it is a fact of the
+// declaration rather than of one class's table.
+const unsigned kNoVtableIndex = static_cast<unsigned>(-1);
+
+// The ABI: the size and the alignment of the vpointer a polymorphic class puts
+// at the start of every object of it.
+const unsigned long long kVpointerBytes = 8;
+
+// 10.3p10 and the ABI: one entry of a class's virtual function table.
+//
+// The entry names the final overrider that class has for the slot, which is
+// the function a call through an object of it runs.  A slot whose overrider is
+// pure carries no function at all in the emitted table; the fact is on the
+// declaration, so the slot does not repeat it.
+struct VirtualSlot
+{
+	SemaEntity* overrider;
+	// The ABI gives a virtual destructor two consecutive slots: the first runs
+	// the destructor on the object, and this one runs it and then frees the
+	// storage.  Both name the same declaration, so which of the two an entry
+	// is, is the one thing the entry itself has to say.
+	bool deleting;
+};
+
 // One declared entity.
 //
 // A name is bound to an entity, and several names can be bound to the same
@@ -195,6 +223,55 @@ struct SemaEntity
 	// completed from the base's list and each member's, and empty for a class
 	// with no empty subobject at all - which is nearly every class.
 	std::vector<std::pair<TypeId, unsigned long long> > empty_subobjects;
+	// 10.3p1: whether this member function is virtual, which a declaration
+	// written `virtual` says and which 10.3p2 also gives one that overrides a
+	// virtual function of a base - so the fact is settled where 9.2p2 completes
+	// the class and not where the declarator was read.
+	bool virtual_function;
+	// 10.4p2: whether the declaration wrote a pure-specifier, which leaves the
+	// class abstract unless something below it overrides the function.  The
+	// emitted slot of one is the ABI's `__cxa_pure_virtual` rather than a body.
+	bool pure_virtual;
+	// 10.3p4: whether the declaration wrote `final`, which no class below may
+	// override.
+	bool final_virtual;
+	// 10.3p5: whether the declaration wrote `override`, which asks the class to
+	// refuse it where it overrides nothing.  It is read at class completion and
+	// says nothing afterwards.
+	bool override_written;
+	// 10.3p2: the virtual function of a base class this one overrides, or null
+	// where it overrides none.  It is what 10.3p4's `final` and 10.3p7's
+	// covariant return are asked about, and what tells a declaration that
+	// merely reuses a name from one that takes a slot the base already has.
+	SemaEntity* overridden;
+	// The slot this virtual function has in the vtable of its own class and of
+	// every class below it, or `kNoVtableIndex` where it has none.  A
+	// destructor's two entries are this index and the one after it.
+	unsigned vtable_index;
+	// Class: 10.3, the final overriders of this class in ABI slot order - the
+	// derived class's table is the base's with each overridden entry replaced
+	// in place, followed by the slots this class introduces in the declaration
+	// order of the members that introduce them.  Empty for every class that
+	// dispatches nothing, which is nearly all of them.
+	std::vector<VirtualSlot> vtable;
+	// Class: 10.3p1, whether an object of this class carries a vpointer -
+	// because the class declares a virtual function or because a base does.
+	bool polymorphic;
+	// Class: whether this class is the one that *adds* the vpointer, which is a
+	// polymorphic class whose base carries none.  The ABI gives it the first
+	// eight bytes of the object and lays the base subobject and the members out
+	// after them, so 9.2p13 asks this before it places anything.
+	bool introduces_vptr;
+	// Class: 10.4p2, whether any final overrider of this class is pure - which
+	// 10.4p3 forbids as a parameter type, as a return type and as the type of
+	// an object.
+	bool abstract;
+	// Class: 10p1 and 9.2p13, where the direct base subobject begins inside an
+	// object of this class.  Zero for every class the ABI puts its base at the
+	// start of, which is all of them but the polymorphic class whose base
+	// carries no vpointer of its own: 4.10p3's conversion to that base has to
+	// walk past the pointer this class added.
+	unsigned long long base_offset;
 	// 12.1 and 12.4: which special member function this declaration declares,
 	// as one of the `kOrdinaryFunction` constants.
 	unsigned char special;
