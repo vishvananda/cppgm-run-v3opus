@@ -161,6 +161,7 @@ struct SemaFact
 		, op(0)
 		, operands(kNoType)
 		, entity(nullptr)
+		, object(nullptr)
 		, constant(false)
 		, zero_initialized(false)
 		, reverse_elements(false)
@@ -190,6 +191,15 @@ struct SemaFact
 	TypeId operands;
 	// The declaration a name, a callee, a variable or a parameter stands for.
 	SemaEntity* entity;
+	// 12.2p1 and 12.2p3: the object a prvalue of class type that stands in
+	// storage of its own *is*.  A `temporary-object` names one the analysis
+	// wrote; a call and a conditional that hand back a class prvalue name none,
+	// and where the place asking for the value needs an object rather than a
+	// value the function gives them one - so the object is a fact of the node
+	// that produced it and not of any declaration.  It is what the end of the
+	// lifetime 12.2p3 gives that object names, and null wherever the prvalue
+	// reached a destination something else had already named.
+	SemaEntity* object;
 	// 5.19: the value the translation knows, for a literal, an enumerator and
 	// a constant the constant layer folded.
 	bool constant;

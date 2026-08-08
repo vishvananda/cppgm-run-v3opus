@@ -599,6 +599,13 @@ private:
 	// the branch it is rather than as a value that is then tested.
 	void branch_on_condition(const DumpNode& node, const std::string& on_true,
 	                         const std::string& on_false);
+	// The same over the expression the condition wrote, which 5.14 and 5.15
+	// lower as their own control flow.
+	void branch_on_value(const DumpNode& node, const std::string& on_true,
+	                     const std::string& on_false);
+	// 3.8p1 and 12.2p3: whether any object's lifetime ends where this construct
+	// does, which is what makes the edges out of it places that end one.
+	static bool ends_temporaries(const DumpNode& node);
 	// 6.4p3: what a condition is worth, which for a condition-declaration is
 	// the object it declared and whose lifetime the statement holds.
 	LowValue condition_value(const DumpNode& node);

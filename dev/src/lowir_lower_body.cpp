@@ -1468,8 +1468,15 @@ void LowirFunctionLowering::expression_statement(const DumpNode& node)
 	{
 		return;
 	}
+	if (written->fact.kind == FactKind::DestructorAction)
+	{
+		// The statement wrote no expression at all, so what stands under it is
+		// nothing this milestone reaches.
+		return;
+	}
 	if (discarded_class_object(*written))
 	{
+		leave_blocks(node);
 		return;
 	}
 	if (written->fact.kind == FactKind::Conditional)
@@ -1477,10 +1484,14 @@ void LowirFunctionLowering::expression_statement(const DumpNode& node)
 		// 6.2p1 and 5.16: both arms still run, and neither has a value the
 		// statement keeps.
 		discarded_conditional(*written);
+		leave_blocks(node);
 		return;
 	}
 	// 6.2p1: the value is computed and discarded.
 	expression(*written);
+	// 12.2p3: the temporaries the full-expression created are destroyed at its
+	// end, in the reverse of the order they were created in.
+	leave_blocks(node);
 }
 
 // 5p11 and 12.2p1: the value of the expression is thrown away, but an object of
@@ -1707,9 +1718,52 @@ LowValue LowirFunctionLowering::condition_value(const DumpNode& node)
 	return storage_of(*declared.fact.entity);
 }
 
+// 6.4p4 and 12.2p3: the condition of a selection or iteration statement, as the
+// branch it is.  Where the condition's own full-expression left temporaries,
+// the two edges out of it are where 12.2p3 ends them - so the branch goes to a
+// block of its own on each side, which destroys them and then goes where the
+// statement does.
 void LowirFunctionLowering::branch_on_condition(const DumpNode& node,
                                                 const std::string& on_true,
                                                 const std::string& on_false)
+{
+	if (!ends_temporaries(node))
+	{
+		branch_on_value(*node.children[0], on_true, on_false);
+		return;
+	}
+	// The value is taken as a value rather than as 5.14's own control flow,
+	// because every edge out of it has the same temporaries to end and a
+	// short-circuit writes one edge per operand.
+	const LowValue value = condition_value(*node.children[0]);
+	const Operand tested = truth_for_branch(value);
+	const std::string on_true_cleanup = reserve_block("cond_true_cleanup");
+	const std::string on_false_cleanup = reserve_block("cond_false_cleanup");
+	branch(tested, on_true_cleanup, on_false_cleanup);
+	open_block(on_true_cleanup);
+	leave_blocks(node);
+	jump(on_true);
+	open_block(on_false_cleanup);
+	leave_blocks(node);
+	jump(on_false);
+}
+
+// 3.8p1: whether any object's lifetime ends where this construct does.
+bool LowirFunctionLowering::ends_temporaries(const DumpNode& node)
+{
+	for (std::size_t index = 0; index < node.children.size(); ++index)
+	{
+		if (node.children[index]->fact.kind == FactKind::DestructorAction)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+void LowirFunctionLowering::branch_on_value(const DumpNode& node,
+                                            const std::string& on_true,
+                                            const std::string& on_false)
 {
 	// 5.14 and 5.15 in the one context where the value of `&&` or `||` is
 	// never named: the operator is its own control flow, so the operands
@@ -1720,10 +1774,10 @@ void LowirFunctionLowering::branch_on_condition(const DumpNode& node,
 	{
 		const bool conjunction = node.fact.op == OP_LAND;
 		const std::string rhs = reserve_block(conjunction ? "land_rhs" : "lor_rhs");
-		branch_on_condition(*node.children[0], conjunction ? rhs : on_true,
-		                    conjunction ? on_false : rhs);
+		branch_on_value(*node.children[0], conjunction ? rhs : on_true,
+		                conjunction ? on_false : rhs);
 		open_block(rhs);
-		branch_on_condition(*node.children[1], on_true, on_false);
+		branch_on_value(*node.children[1], on_true, on_false);
 		return;
 	}
 	const LowValue value = condition_value(node);
@@ -1742,7 +1796,7 @@ void LowirFunctionLowering::if_statement(const DumpNode& node)
 		const DumpNode& child = *node.children[index];
 		if (child.fact.kind == FactKind::Condition)
 		{
-			branch_on_condition(*child.children[0], then_label, else_label);
+			branch_on_condition(child, then_label, else_label);
 		}
 		else if (child.fact.kind == FactKind::Then)
 		{
@@ -1791,8 +1845,7 @@ void LowirFunctionLowering::while_statement(const DumpNode& node)
 	{
 		if (node.children[index]->fact.kind == FactKind::Condition)
 		{
-			branch_on_condition(*node.children[index]->children[0], body_label,
-			                    end_label);
+			branch_on_condition(*node.children[index], body_label, end_label);
 		}
 	}
 	open_block(body_label);
@@ -1841,8 +1894,7 @@ void LowirFunctionLowering::do_statement(const DumpNode& node)
 	{
 		if (node.children[index]->fact.kind == FactKind::Condition)
 		{
-			branch_on_condition(*node.children[index]->children[0], body_label,
-			                    end_label);
+			branch_on_condition(*node.children[index], body_label, end_label);
 		}
 	}
 	open_block(end_label);
@@ -1888,7 +1940,7 @@ void LowirFunctionLowering::for_statement(const DumpNode& node)
 	open_block(cond_label);
 	if (condition != nullptr)
 	{
-		branch_on_condition(*condition->children[0], body_label, end_label);
+		branch_on_condition(*condition, body_label, end_label);
 	}
 	else
 	{
@@ -1912,8 +1964,16 @@ void LowirFunctionLowering::for_statement(const DumpNode& node)
 	{
 		for (std::size_t at = 0; at < iteration->children.size(); ++at)
 		{
+			if (iteration->children[at]->fact.kind ==
+			    FactKind::DestructorAction)
+			{
+				continue;
+			}
 			expression(*iteration->children[at]);
 		}
+		// 12.2p3: the loop-continuation portion is a full-expression of its
+		// own, so its temporaries end with it and not with the loop.
+		leave_blocks(*iteration);
 	}
 	jump(cond_label);
 	open_block(end_label);

@@ -199,8 +199,12 @@ public:
 	// first of them from the declarations the class holds; both are settled
 	// where the class's copy constructor is settled, which is one step later
 	// than the layout and is the answer every reader wants.
+	// `trivial_destruction` is 12.4p5's answer for the same class, which the
+	// ABI reads beside the copy: a class one of whose lifetimes ends in
+	// something is not one a call may hand back in registers, because the bytes
+	// alone are not the object.
 	void settle_copy_facts(TypeId type, bool trivially_copied,
-	                       bool copy_deleted);
+	                       bool copy_deleted, bool trivial_destruction);
 
 	// 8.4.3p2 and 12.8p11: whether the copy constructor of the class is one no
 	// program may name, which is what says a transfer of an object of it is the
@@ -366,6 +370,9 @@ private:
 		bool complete;
 		unsigned long long size;
 		unsigned long long align;
+		// 12.4p5: whether the end of the lifetime of an object of the class is
+		// nothing at all, which the ABI reads beside the copy.
+		bool trivial_destruction = true;
 		// 9p6 and 12.8p15: whether an object of the class holds nothing - no
 		// base subobject with storage and no non-static data member.  1.8p5
 		// still gives it a byte, so its size does not say so, and a memberwise

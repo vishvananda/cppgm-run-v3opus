@@ -956,6 +956,17 @@ void SemaAnalyzer::special_member(const AstNode& node, const Context& ctx)
 	}
 	name_in_region(*entity, *ctx.scope, written);
 	entity->object_member = true;
+	// 15.4p1: a constructor and a destructor carry an exception-specification
+	// the same way every other member function does, and it is written on the
+	// same declarator - so what says the function throws nothing is read here
+	// too, and 15.2p2's handler is left out around a call of one that does not.
+	{
+		const AstNode* const written_declarator =
+			child_of(node, AstKind::Declarator);
+		entity->nonthrowing =
+			written_declarator != nullptr &&
+			declarator_nonthrowing(*written_declarator);
+	}
 	// 7.1.2p3 and 9.3p2: a special member function *defined* in its class body
 	// is inline, so its definition belongs to every translation unit that needs
 	// one.  One the class only declares is defined elsewhere or nowhere, and
@@ -1765,7 +1776,9 @@ void SemaAnalyzer::settle_transfers(SemaEntity& entity, Scope& scope)
 	const SemaEntity* const copy = entity.transfers[kCopyConstructorTransfer - 1];
 	const bool deleted_copy = copy == nullptr || copy->deleted;
 	types_.settle_copy_facts(types_.strip_cv(entity.type),
-	                         !deleted_copy && copy->trivial, deleted_copy);
+	                         !deleted_copy && copy->trivial, deleted_copy,
+	                         entity.destructor == nullptr ||
+	                             entity.destructor->trivial);
 }
 
 // 11.2p1: whether a member of another class may be named from inside `scope`,

@@ -662,6 +662,14 @@ Scope& SemaAnalyzer::object_region(const AstNode& node, Value& object)
 	{
 		throw std::runtime_error("a member is named of an incomplete class");
 	}
+	if (object.node != nullptr)
+	{
+		// 5.2.5p1 and 12.2p1: naming a member is naming part of an object, so
+		// an operand that is a prvalue of class type is an object from here on
+		// - one no declaration named, whose lifetime 12.2p3 ends where the
+		// full-expression this member access stands in does.
+		register_temporary(*object.node, nullptr);
+	}
 	return *owner->scope;
 }
 
@@ -2418,7 +2426,8 @@ void SemaAnalyzer::transfer_arm_to_result(Value& arm, TypeId result,
 	DumpNode& line = model_.wrap_node(*arm.node, std::string());
 	source.node = line.children[0];
 	line.children.clear();
-	arm = build_temporary(wanted, line, nullptr, &source, ctx, "condobj", false);
+	arm = build_temporary(wanted, line, nullptr, &source, ctx, "condobj", false,
+	                      false);
 }
 
 // 5.9p2: an operand brought to the composite pointer type of two pointers to

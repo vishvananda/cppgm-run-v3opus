@@ -1523,7 +1523,8 @@ void SemaAnalyzer::apply_conversion(Value& value, TypeId target,
 		source.node = line.children[0];
 		line.children.clear();
 		value = build_temporary(wanted, line, nullptr, &source, ctx,
-		                        requested_prefix(by, match.reference), false);
+		                        requested_prefix(by, match.reference), false,
+		                        match.reference);
 		return;
 	}
 	if (by != Requested::Written && match.reference && !match.binds_lvalue)
@@ -1533,7 +1534,7 @@ void SemaAnalyzer::apply_conversion(Value& value, TypeId target,
 		// argument is what asked for its storage.  A base subobject of it was
 		// already read above, which is what leaves that temporary named after
 		// the expression that wrote it rather than after this argument.
-		name_argument_temporary(value, requested_prefix(by, true));
+		name_argument_temporary(value, requested_prefix(by, true), ctx, true);
 	}
 	if (by != Requested::Written && !match.reference &&
 	    types_.is_class(types_.strip_cv(target)) &&
@@ -1555,14 +1556,14 @@ void SemaAnalyzer::apply_conversion(Value& value, TypeId target,
 			source.node = line.children[0];
 			line.children.clear();
 			value = build_temporary(wanted, line, nullptr, &source, ctx,
-			                        requested_prefix(by, false), false);
+			                        requested_prefix(by, false), false, false);
 			return;
 		}
 		// 12.8p31: the argument is a prvalue of the parameter's own class, so
 		// the temporary it is may be created in the storage the call passes -
 		// and then there is one object rather than an object and a copy of it.
 		// A returned prvalue is the same rule read at the other end.
-		name_argument_temporary(value, requested_prefix(by, false));
+		name_argument_temporary(value, requested_prefix(by, false), ctx, false);
 	}
 	if (match.materialized != kNoType && value.node != nullptr)
 	{

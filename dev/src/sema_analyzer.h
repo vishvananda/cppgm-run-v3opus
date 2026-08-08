@@ -727,6 +727,42 @@ private:
 	// The objects an open block has declared whose destructors run when control
 	// leaves it, innermost frame last.
 	std::vector<std::vector<SemaEntity*> > lifetimes_;
+	// 12.2p3: the temporaries each open full-expression has created, whose
+	// lifetimes end where that full-expression does.  The frames nest for the
+	// same reason 5.16's arms and 5.14's right operand need their own: an
+	// operand that may not run is one whose temporary may not exist, so what it
+	// created is ended where it ends rather than where the whole expression
+	// does.
+	std::vector<std::vector<SemaEntity*> > temporaries_;
+	void open_full_expression();
+	void close_full_expression(DumpNode& line);
+	// 12.2p1: the object a prvalue of class type standing in storage of its own
+	// is, made where the node that produced it is first asked for one.  Null
+	// where the node is worth no such object.
+	SemaEntity* prvalue_object(DumpNode& node);
+	// 12.2p3: `node`'s object joins the temporaries the open full-expression
+	// ends, or - where 12.2p5's reference binding extended it - the objects the
+	// enclosing block ends.  Answers the object, or null where the node is
+	// worth none.
+	SemaEntity* register_temporary(DumpNode& node, const Scope* from,
+	                               bool extended = false);
+	// 8.5.3p5 and 12.2p5: the temporary a reference initializer bound, which is
+	// the prvalue under whatever conversion the binding wrote over it.
+	DumpNode* bound_temporary(DumpNode& node);
+	// 12.2p5: a reference declared by `entity` binds a temporary the
+	// initializer under `line` created, so that temporary is destroyed where
+	// the reference goes out of scope rather than where its full-expression
+	// ends.
+	void extend_bound_temporary(TypeId declared, const Context& ctx,
+	                            DumpNode& line);
+	// 12.4p3: the end of a temporary's lifetime, written under `parent`.
+	void temporary_destruction(SemaEntity& object, DumpNode& parent);
+	// 5p11 and 12.2p1: the object a statement whose value nothing reads still
+	// created, which the full-expression it stands in ends.  5.2.9p4's cast to
+	// void is what a program writes to throw one away, so the object is looked
+	// for under it as well as at the statement's own operand.
+	void register_discarded_object(const Value& value, DumpNode& line,
+	                               const Context& ctx);
 	// 15.2p2: the destructors of the subobjects the constructor being read
 	// builds, in the order its steps build them.  A step with a step after it
 	// leaves its subobject standing wherever that later one throws, so all but
@@ -968,13 +1004,25 @@ private:
 	// which is what an argument conversion needs: the argument keeps the place
 	// it had among the operands of the call and the temporary is written around
 	// it rather than beside it.
+	// `owned` says 12.2p3's end of the lifetime is the full-expression's to
+	// write.  It is not for the two objects a temporary is written for that
+	// something else already ends: 5.2.2p4's by-value parameter object, which
+	// the function called is what destroys, and 5.16p3's result object, which
+	// each arm builds and whoever reads the conditional holds.
 	Value build_temporary(TypeId type, DumpNode& line, const AstNode* written,
 	                      const Value* given, const Context& ctx,
-	                      const char* prefix, bool value_init);
+	                      const char* prefix, bool value_init,
+	                      bool owned = true);
 	// 8.5.3p5 and 13.3.3.1.2: a temporary an argument conversion made is named
 	// after the argument it was made for, unless something already read it as
-	// the object it is.
-	void name_argument_temporary(const Value& value, const char* prefix);
+	// the object it is.  `owned` says the same thing it says above: an argument
+	// that becomes the parameter object is one the call rather than the
+	// full-expression ends the lifetime of.
+	void name_argument_temporary(const Value& value, const char* prefix,
+	                             const Context& ctx, bool owned);
+	// 12.2p3: takes `value`'s object back out of the open full-expression,
+	// where the place that read the prvalue is what ends its lifetime.
+	void release_temporary(const Value& value);
 	// The typed facts of a node the analysis builds rather than reads out of an
 	// expression the program wrote.
 	static void set_fact(DumpNode& node, FactKind kind, TypeId type,

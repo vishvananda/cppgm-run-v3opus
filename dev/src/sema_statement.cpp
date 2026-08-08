@@ -63,9 +63,22 @@ void SemaAnalyzer::semantic_statement(const AstNode& node, const Context& ctx,
 		                           FactKind::ExpressionStatement);
 		if (!node.children.empty())
 		{
+			// 1.9p10 and 12.2p3: the expression a statement writes is a
+			// full-expression, so the temporaries it creates are destroyed
+			// where it ends.
+			open_full_expression();
 			// 6.2p1: the value is discarded, which is still no target for
 			// 13.4 to resolve an overloaded name against.
-			require_complete_value(expression(*node.children[0], ctx, line));
+			const Value value =
+				expression(*node.children[0], ctx, line);
+			require_complete_value(value);
+			// 5p11 and 12.2p1: a prvalue of class type whose value is thrown
+			// away is still an object, standing in storage of the function's -
+			// so the full-expression that made it is what ends it.  A cast to
+			// void is how a program says it is throwing one away, and the
+			// object is the operand under it.
+			register_discarded_object(value, line, ctx);
+			close_full_expression(line);
 		}
 		return;
 	}
@@ -201,7 +214,12 @@ void SemaAnalyzer::semantic_statement(const AstNode& node, const Context& ctx,
 	{
 		inner.node = &parent;
 	}
+	// 1.9p10 and 12.2p3: the initializer of a declaration is a full-expression,
+	// so a temporary it created is destroyed after the object it initialized
+	// has been - which is where the declaration's own line ends.
+	open_full_expression();
 	declaration(node, inner);
+	close_full_expression(*inner.node);
 }
 
 void SemaAnalyzer::block_statement(const AstNode& node, const Context& ctx,
@@ -231,6 +249,11 @@ void SemaAnalyzer::selection_statement(const AstNode& node, const Context& ctx,
 	// encloses both substatements.
 	Context held = ctx;
 	held.scope = &model_.open(ScopeKind::Block, *ctx.scope, nullptr, ctx.dump);
+	// 6.4p3 and 3.8p1: that region is the one an object the condition declares
+	// belongs to, so its lifetime ends where the statement does and on every
+	// path that leaves the statement - not where the block around the statement
+	// ends, which a path that never reached the declaration also reaches.
+	open_lifetimes();
 	for (std::size_t index = 0; index < node.children.size(); ++index)
 	{
 		const AstNode& child = *node.children[index];
@@ -254,6 +277,7 @@ void SemaAnalyzer::selection_statement(const AstNode& node, const Context& ctx,
 		}
 		semantic_statement(child, substatement_scope(held), line);
 	}
+	close_lifetimes(line);
 }
 
 void SemaAnalyzer::loop_statement(const AstNode& node, const Context& ctx,
@@ -329,11 +353,15 @@ void SemaAnalyzer::for_statement(const AstNode& node, const Context& ctx,
 		if (child.kind == AstKind::Iteration)
 		{
 			DumpNode& step = open_fact(line, "iteration", FactKind::Iteration);
+			// 1.9p10: the expression of the loop-continuation portion is a
+			// full-expression of its own, run once per iteration.
+			open_full_expression();
 			for (std::size_t at = 0; at < child.children.size(); ++at)
 			{
 				require_complete_value(
 					expression(*child.children[at], held, step));
 			}
+			close_full_expression(step);
 			continue;
 		}
 		semantic_statement(child, substatement_scope(held), line);
@@ -349,6 +377,11 @@ void SemaAnalyzer::condition(const AstNode& node, const Context& ctx,
                              DumpNode& parent, bool integral)
 {
 	DumpNode& line = open_fact(parent, "condition", FactKind::Condition);
+	// 1.9p10 and 6.4p1: the condition is a full-expression, so the temporaries
+	// it created are destroyed before the substatement it selects runs.  6.4p3's
+	// declaration is not one of them: the object it declares belongs to the
+	// region the statement opened and outlives every path out of the condition.
+	open_full_expression();
 	for (std::size_t index = 0; index < node.children.size(); ++index)
 	{
 		const AstNode& child = *node.children[index];
@@ -395,6 +428,7 @@ void SemaAnalyzer::condition(const AstNode& node, const Context& ctx,
 			                         "its statement needs");
 		}
 	}
+	close_full_expression(line);
 }
 
 // 6.4p4: the value of a condition that declared a name, where that name is of
@@ -485,6 +519,10 @@ void SemaAnalyzer::return_statement(const AstNode& node, const Context& ctx,
 {
 	DumpNode& line = open_fact(parent, "return-statement", FactKind::Return);
 	line.fact.type = returns_;
+	// 1.9p10 and 6.6.3p2: the operand of a return is a full-expression, and its
+	// temporaries are destroyed once the returned object has been created from
+	// them - before the blocks the return leaves end their own objects.
+	open_full_expression();
 	if (!node.children.empty())
 	{
 		if (types_.is_void(returns_))
@@ -507,6 +545,7 @@ void SemaAnalyzer::return_statement(const AstNode& node, const Context& ctx,
 			           Requested::Returned);
 		}
 	}
+	close_full_expression(line);
 	// 6.6p2: a return leaves every block between it and the function, and
 	// 3.8p1 ends the lifetime of every object those blocks declared - after the
 	// returned value has been read, which is why the actions stand under the

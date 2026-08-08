@@ -502,11 +502,12 @@ void TypeTable::complete_class(TypeId type, unsigned long long size,
 }
 
 void TypeTable::settle_copy_facts(TypeId type, bool trivially_copied,
-                                  bool copy_deleted)
+                                  bool copy_deleted, bool trivial_destruction)
 {
 	UserType& record = user_types_[nodes_[type].user];
 	record.trivially_copied = trivially_copied;
 	record.copy_deleted = copy_deleted;
+	record.trivial_destruction = trivial_destruction;
 }
 
 bool TypeTable::is_copy_deleted(TypeId type) const
@@ -528,7 +529,13 @@ bool TypeTable::returns_indirectly(TypeId type)
 	}
 	// The course ABI hands back an object of two words or less as the bytes it
 	// occupies, and everything wider through a destination the caller names.
-	return !user_at(bare).trivially_copied || object_size(bare) > kDirectReturnBytes;
+	// 12.4p5 joins 12.8p12 in saying which classes those bytes do not stand
+	// for: an object whose lifetime ends in a call of a destructor is one the
+	// caller has to be able to name, so it is handed back through a place and
+	// never in registers.
+	return !user_at(bare).trivially_copied ||
+		!user_at(bare).trivial_destruction ||
+		object_size(bare) > kDirectReturnBytes;
 }
 
 bool TypeTable::is_empty_class(TypeId type) const

@@ -7,6 +7,12 @@
 namespace
 {
 
+// 8.5.3p5: how many conversions may stand between the line a reference
+// initializer left and the prvalue whose object 12.2p5 extends.  A binding
+// writes a fixed number of them - a base class subobject of the temporary, a
+// member of it, the cast a conversion made - so the walk down to the object is
+// bounded rather than being a search of the initializer.
+const unsigned kBoundTemporaryDepth = 8;
 
 // The child of `node` of a kind, or null.
 const AstNode* child_of(const AstNode& node, AstKind kind)
@@ -772,7 +778,7 @@ SemaAnalyzer::Value SemaAnalyzer::build_temporary(TypeId type, DumpNode& line,
                                                   const Value* given,
                                                   const Context& ctx,
                                                   const char* prefix,
-                                                  bool value_init)
+                                                  bool value_init, bool owned)
 {
 	const TypeId object_type = types_.strip_cv(type);
 	SemaEntity& object = model_.create(SemaKind::Variable, std::string(),
@@ -802,14 +808,11 @@ SemaAnalyzer::Value SemaAnalyzer::build_temporary(TypeId type, DumpNode& line,
 		construct_object(object, line, written, ctx, Placement::Named, false,
 		                 given, value_init);
 	}
-	if (!vacuous_destruction(object_type))
+	if (owned)
 	{
-		// 12.2p3 ends the temporary's lifetime at the end of the
-		// full-expression, which is a place this milestone does not mark.
-		throw std::runtime_error(
-			"a temporary of the class type " + types_.description(object_type) +
-			" is created, whose destructor 12.2p3 runs at a point this "
-			"milestone does not mark");
+		// 12.2p3: the temporary is destroyed at the end of the full-expression
+		// it was created in, so the open full-expression is what holds it.
+		register_temporary(line, ctx.scope);
 	}
 	line.text = spell("temporary-object", ValueCategory::PRValue, object_type,
 	                  std::string());
@@ -833,7 +836,8 @@ SemaAnalyzer::Value SemaAnalyzer::build_temporary(TypeId type, DumpNode& line,
 // asked for the object is what its storage is named after, wherever the object
 // came from.
 void SemaAnalyzer::name_argument_temporary(const Value& value,
-                                           const char* prefix)
+                                           const char* prefix,
+                                           const Context& ctx, bool owned)
 {
 	if (value.node == nullptr)
 	{
@@ -848,6 +852,231 @@ void SemaAnalyzer::name_argument_temporary(const Value& value,
 	{
 		value.node->fact.spelling = prefix;
 	}
+	if (!owned)
+	{
+		release_temporary(value);
+		return;
+	}
+	// 8.5.3p5 and 12.2p3: the reference binds a temporary, so the object that
+	// temporary is has a lifetime, and the full-expression this argument stands
+	// in is what ends it.
+	register_temporary(*value.node, ctx.scope);
+}
+
+// 12.2p3: what the end of the full-expression a temporary was created in comes
+// to.  The object is one no declaration named, so what the destruction names is
+// the node that produced it - the same object every other reader of that
+// prvalue reaches, and the one piece of storage the lowering gave it.
+void SemaAnalyzer::temporary_destruction(SemaEntity& object, DumpNode& parent)
+{
+	SemaEntity* const destructor = class_destructor(element_of(object.type));
+	if (destructor == nullptr || vacuous_destruction(object.type))
+	{
+		return;
+	}
+	note_destruction_entry(*destructor, false);
+	DumpNode& action = model_.open_node(
+		parent, "destructor-action " + destructor->dump_name);
+	action.fact.kind = FactKind::DestructorAction;
+	action.fact.entity = destructor;
+	action.fact.type = object.type;
+	DumpNode& named = model_.open_node(
+		action, spell("temporary-object", ValueCategory::PRValue, object.type,
+		              std::string()));
+	set_fact(named, FactKind::TemporaryObject, object.type,
+	         ValueCategory::PRValue);
+	named.fact.entity = &object;
+	named.fact.object = &object;
+}
+
+// 12.2p1: the object a prvalue of class type standing in storage of its own is.
+// A `temporary-object` is one the analysis already declared; a call and a
+// conditional hand back a prvalue no object was declared for, and the first
+// place that needs an object rather than a value is where one is made.
+SemaEntity* SemaAnalyzer::prvalue_object(DumpNode& node)
+{
+	if (node.fact.object != nullptr)
+	{
+		return node.fact.object;
+	}
+	if (node.fact.kind == FactKind::TemporaryObject)
+	{
+		node.fact.object = node.fact.entity;
+		return node.fact.object;
+	}
+	const bool own_storage =
+		(node.fact.kind == FactKind::Call ||
+		 node.fact.kind == FactKind::Conditional) &&
+		node.fact.category == ValueCategory::PRValue &&
+		types_.is_class(types_.strip_cv(node.fact.type));
+	if (!own_storage)
+	{
+		return nullptr;
+	}
+	SemaEntity& object = model_.create(SemaKind::Variable, std::string(),
+	                                   types_.strip_cv(node.fact.type));
+	object.object_member = false;
+	node.fact.object = &object;
+	return &object;
+}
+
+SemaEntity* SemaAnalyzer::register_temporary(DumpNode& node, const Scope* from,
+                                             bool extended)
+{
+	const bool known = node.fact.object != nullptr;
+	SemaEntity* const object = prvalue_object(node);
+	if (object == nullptr || known)
+	{
+		// The prvalue was already given an object, so the lifetime it has is
+		// already held by whichever region was asked for it first.
+		return object;
+	}
+	if (vacuous_destruction(object->type))
+	{
+		// 12.4p8: the end of this object's lifetime comes to nothing at all, so
+		// no region has to hold it to write one.
+		return object;
+	}
+	// 12.4p11 and 12.2p3: the lifetime ends in a call of the destructor of the
+	// object's class, wherever the region that holds it writes that call.  A
+	// place that reaches this with no region of its own to ask from is one the
+	// declaration the prvalue came from already asked for.
+	if (from != nullptr)
+	{
+		require_destruction_access(*object, from);
+	}
+	if (extended)
+	{
+		// 12.2p5: the reference the temporary was bound to is what its lifetime
+		// now follows, so the block that declared the reference ends it.
+		lifetimes_.back().push_back(object);
+		++live_destructions_;
+		return object;
+	}
+	if (temporaries_.empty())
+	{
+		// 12.2p3's end of the lifetime is the end of the full-expression, and
+		// this prvalue stands where this milestone marks none.
+		throw std::runtime_error(
+			"a temporary of the class type " + types_.description(object->type) +
+			" is created, whose destructor 12.2p3 runs at a point this "
+			"milestone does not mark");
+	}
+	temporaries_.back().push_back(object);
+	return object;
+}
+
+void SemaAnalyzer::release_temporary(const Value& value)
+{
+	if (value.node == nullptr || value.node->fact.object == nullptr ||
+	    temporaries_.empty())
+	{
+		return;
+	}
+	std::vector<SemaEntity*>& frame = temporaries_.back();
+	for (std::size_t index = frame.size(); index-- > 0;)
+	{
+		if (frame[index] == value.node->fact.object)
+		{
+			frame.erase(frame.begin() + static_cast<std::ptrdiff_t>(index));
+			return;
+		}
+	}
+}
+
+void SemaAnalyzer::register_discarded_object(const Value& value, DumpNode& line,
+                                             const Context& ctx)
+{
+	DumpNode* written = value.node;
+	if (written == nullptr && !line.children.empty())
+	{
+		written = line.children[0];
+	}
+	if (written == nullptr)
+	{
+		return;
+	}
+	if (written->fact.kind == FactKind::Cast &&
+	    types_.is_void(types_.strip_cv(written->fact.type)) &&
+	    !written->children.empty())
+	{
+		written = written->children[0];
+	}
+	register_temporary(*written, ctx.scope);
+}
+
+void SemaAnalyzer::open_full_expression()
+{
+	temporaries_.push_back(std::vector<SemaEntity*>());
+}
+
+// 12.2p3: the temporaries created during a full-expression are destroyed at its
+// end, in the reverse of the order they were created in.
+void SemaAnalyzer::close_full_expression(DumpNode& line)
+{
+	std::vector<SemaEntity*> frame;
+	frame.swap(temporaries_.back());
+	temporaries_.pop_back();
+	for (std::size_t index = frame.size(); index-- > 0;)
+	{
+		temporary_destruction(*frame[index], line);
+	}
+}
+
+// 8.5.3p5: the temporary a reference initializer bound.  A binding to a base
+// class subobject of the temporary, and one written through a conversion the
+// initialization made, each stand over the prvalue that made the object - so
+// what the reference extends is found under them rather than at the line the
+// initializer left.
+DumpNode* SemaAnalyzer::bound_temporary(DumpNode& node)
+{
+	DumpNode* at = &node;
+	for (unsigned steps = 0; steps < kBoundTemporaryDepth; ++steps)
+	{
+		if (at->fact.kind == FactKind::TemporaryObject)
+		{
+			return at;
+		}
+		if ((at->fact.kind == FactKind::Call ||
+		     at->fact.kind == FactKind::Conditional) &&
+		    at->fact.category == ValueCategory::PRValue &&
+		    types_.is_class(types_.strip_cv(at->fact.type)))
+		{
+			return at;
+		}
+		if ((at->fact.kind == FactKind::BaseConversion ||
+		     at->fact.kind == FactKind::Cast ||
+		     at->fact.kind == FactKind::Member) &&
+		    !at->children.empty())
+		{
+			at = at->children[0];
+			continue;
+		}
+		return nullptr;
+	}
+	return nullptr;
+}
+
+// 12.2p5: a reference bound to a temporary keeps that temporary alive for its
+// own lifetime, so the block that declared the reference is what ends the
+// temporary rather than the full-expression that created it.
+void SemaAnalyzer::extend_bound_temporary(TypeId declared, const Context& ctx,
+                                          DumpNode& line)
+{
+	if (!types_.is_reference(declared) || line.children.empty() ||
+	    lifetimes_.empty() ||
+	    !types_.is_class(types_.strip_cv(types_.target(declared))))
+	{
+		// 3.7.1: a reference no block declared has no block for 12.2p5 to end
+		// the temporary with, so what it binds is left where it was created.
+		return;
+	}
+	DumpNode* const written = bound_temporary(*line.children.back());
+	if (written == nullptr)
+	{
+		return;
+	}
+	register_temporary(*written, ctx.scope, true);
 }
 
 // 9.3.2p1: the type `this` has in the body of a member function, which is a
@@ -891,6 +1120,14 @@ void SemaAnalyzer::destructor_action(SemaEntity& entity, DumpNode& parent,
 	}
 	if (vacuous_destruction(entity.type))
 	{
+		return;
+	}
+	if (where == Placement::Named && entity.name.empty())
+	{
+		// 12.2p5: the object is a temporary a reference extended into this
+		// block, which no declaration named - so what the destruction names is
+		// the object itself and not an id-expression there is none of.
+		temporary_destruction(entity, parent);
 		return;
 	}
 	note_destruction_entry(*destructor, where == Placement::Base);
@@ -1063,7 +1300,12 @@ void SemaAnalyzer::write_member_initializations(const Pending& pending,
 		}
 		if (written != nullptr || !trivially_constructed(base->type))
 		{
+			// 1.9p10 and 12.6.2: a mem-initializer's expression-list is a
+			// full-expression, so a temporary written in it is destroyed once
+			// the subobject it built has been.
+			open_full_expression();
 			construct_object(*base, line, written, inner, Placement::Base);
+			close_full_expression(line);
 		}
 	}
 	for (std::size_t index = 0; index < members.declarations.size(); ++index)
@@ -1114,7 +1356,9 @@ void SemaAnalyzer::write_member_initializations(const Pending& pending,
 			}
 			// The action names the member through `this`, so it needs no line
 			// of its own to say which subobject is being initialized.
+			open_full_expression();
 			construct_object(member, line, written, where, Placement::Member);
+			close_full_expression(line);
 			continue;
 		}
 		if (written == nullptr)
@@ -1158,10 +1402,14 @@ void SemaAnalyzer::write_member_initializations(const Pending& pending,
 				                         " passes more than one argument to a "
 				                         "member of non-class type");
 			}
+			open_full_expression();
 			initialize(*written->children[0], type, where, node);
+			close_full_expression(line);
 			continue;
 		}
+		open_full_expression();
 		initialize(*written, type, where, node);
+		close_full_expression(line);
 	}
 	// 12.6.2p2: a mem-initializer-id shall name a non-static data member of the
 	// constructor's class or one of its bases, so one that named neither is

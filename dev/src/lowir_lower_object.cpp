@@ -808,9 +808,13 @@ void LowirFunctionLowering::constructor_call(const Operand& address,
 	// 12.6.2 and 12.6p1 name a subobject with.
 	UnwindMark opened = mark;
 	opened.at_call = mark.at_call && call.children.size() > 2;
+	// 15.4p1: a call of a function whose exception-specification says it throws
+	// nothing is not a place an exception leaves this step by, so nothing the
+	// steps before it built needs a handler around this one.
 	const UnwindRegion region =
-		mark.active && !unwind_live_.empty() ? open_unwind_region(opened)
-		                                    : UnwindRegion();
+		mark.active && !unwind_live_.empty() && !constructor.nonthrowing
+			? open_unwind_region(opened)
+			: UnwindRegion();
 	unit_.declare_entity(constructor);
 	Instruction out;
 	out.kind = Instruction::IK_CALL;
@@ -1172,6 +1176,12 @@ LowValue LowirFunctionLowering::temporary_object(const DumpNode& node,
 	const Operand at = written.fact.kind == FactKind::None
 		? address_of(held)
 		: expression(written).operand;
+	// 12.2p1: every later reader of this temporary reads the one object, so the
+	// address the construction named it by is the address they all use - a
+	// member of it, an argument bound to it, and 12.2p3's end of its lifetime
+	// alike.  Naming the slot again instead would be a second description of
+	// one place.
+	placed_[entity.id] = at;
 	constructor_call(at, action, true);
 	value.operand = at;
 	return value;
@@ -1801,11 +1811,17 @@ LowValue LowirFunctionLowering::class_object_slot(const DumpNode& node,
 	// initializer creates its object in it.  8.5.3p5's name for that storage is
 	// what asked for the object, which is the name the analysis wrote on it
 	// where an argument or a binding asked, and this place otherwise.
-	return place_class_object(
-		open_object_slot(type, node.fact.spelling.empty()
-		                           ? prefix
-		                           : node.fact.spelling.c_str()),
-		type, node);
+	const Operand into = open_object_slot(
+		type, node.fact.spelling.empty() ? prefix : node.fact.spelling.c_str());
+	if (node.fact.object != nullptr)
+	{
+		// 12.2p3: the analysis gave this prvalue an object because some region
+		// holds the end of its lifetime, and the storage it was just given is
+		// what that end names - so the two are bound here, once, before the
+		// initializer that fills the storage runs.
+		placed_[node.fact.object->id] = into;
+	}
+	return place_class_object(into, type, node);
 }
 
 Operand LowirFunctionLowering::class_argument(const DumpNode& node, TypeId type)

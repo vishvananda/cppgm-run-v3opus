@@ -2130,6 +2130,9 @@ void SemaAnalyzer::declare_object_declarator(const AstNode* initializer,
 	                  entity.object_definition &&
 	                  (target.scope->kind == ScopeKind::Namespace ||
 	                   target.scope->kind == ScopeKind::Class));
+	// 12.2p5: where that initializer bound this reference to a temporary, the
+	// temporary's lifetime is the reference's from here on.
+	extend_bound_temporary(type, ctx, line);
 }
 
 void SemaAnalyzer::write_initializer(const AstNode& initializer, TypeId type,
