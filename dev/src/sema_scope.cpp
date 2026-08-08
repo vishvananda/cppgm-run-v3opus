@@ -173,6 +173,7 @@ SemaEntity& SemaModel::create(SemaKind kind, const std::string& name, TypeId typ
 	entity.base_object_entry = false;
 	entity.shadowed = nullptr;
 	entity.inherited = nullptr;
+	entity.delegates_to = nullptr;
 	entity.friend_definition = false;
 	entity.user_provided = false;
 	entity.deleted = false;

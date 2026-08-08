@@ -333,6 +333,9 @@ void SemaAnalyzer::lay_out_class(SemaEntity& entity, Scope& scope, bool is_union
 	// subobject of which holds nothing has no byte to write - which 1.8p5's
 	// size for it cannot say, because a size it has either way.
 	bool zeroed_storage = false;
+	// 9.5p2: how many members of this union wrote a brace-or-equal-initializer,
+	// which is at most one.  Zero for every class that is not a union.
+	unsigned default_initializers = 0;
 	if (entity.base != nullptr)
 	{
 		// 10p1 and the course ABI: the direct base subobject begins where the
@@ -405,6 +408,22 @@ void SemaAnalyzer::lay_out_class(SemaEntity& entity, Scope& scope, bool is_union
 			member.offset = 0;
 			member.bit_offset = 0;
 			size = member_size > size ? member_size : size;
+			if (member.default_initializer)
+			{
+				// 9.5p2: at most one variant member of a union may have a
+				// brace-or-equal-initializer, because every one of them stands
+				// in the one storage and a second would say what that storage
+				// holds a second time.  The walk already has the members in
+				// declaration order, so the second one is refused where it is
+				// laid out rather than by a scan of its own.
+				if (default_initializers)
+				{
+					throw std::runtime_error(
+						"a union declares a brace-or-equal-initializer for "
+						"more than one of its members");
+				}
+				++default_initializers;
+			}
 			continue;
 		}
 		if (member.bit_field)
@@ -1171,6 +1190,27 @@ void SemaAnalyzer::special_member_definition(const AstNode& node,
 		{
 			entity->inline_function = true;
 		}
+	}
+	const AstNode* const explicitly = child_of(node, AstKind::Initializer);
+	if (explicitly != nullptr && !explicitly->children.empty())
+	{
+		// 8.4.2p2: `= default` written on a declaration outside the class is a
+		// definition of the function, and what it defines is the one the
+		// standard describes.  8.4.2p5 leaves the function user-provided - the
+		// class's own declaration was its first and wrote neither - so 12.1p5's
+		// triviality and 8.5.1p1's aggregate read exactly what they read
+		// before, and 7.1.2p2 leaves the definition non-inline, so this unit is
+		// the one that holds it rather than every unit that needs one.
+		entity->deleted = explicitly->children[0]->text == "delete";
+		entity->defaulted = !entity->deleted;
+		if (!entity->deleted)
+		{
+			// 3.2p4: the definition this unit was told to write is written
+			// whether or not anything here names the function, because another
+			// unit's use of it is what it is for.
+			demand_constructor_definition(*entity);
+		}
+		return;
 	}
 	open_special_member_body(node, *entity, target, written, parameters);
 }

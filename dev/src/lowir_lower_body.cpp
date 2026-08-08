@@ -1487,9 +1487,12 @@ void LowirFunctionLowering::statement(const DumpNode& node)
 		}
 		// 12.6.2: a subobject of class type is initialized by running its
 		// constructor on it, and the action already names the subobject.
+		// 12.6.2p6's delegation names the whole object instead, which `this`
+		// already points at - so what the call is passed is what that parameter
+		// holds and not the storage holding it.
 		mark_unwind_step();
 		const LowValue object = expression(*node.children[0]->children[1]);
-		constructor_call(object.operand, node);
+		constructor_call(rvalue(object), node);
 		return;
 	}
 

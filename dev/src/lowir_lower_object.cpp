@@ -788,14 +788,17 @@ void LowirFunctionLowering::constructor_call(const Operand& address,
 	}
 	if (!always && !transfers_value &&
 	    (constructor.trivial ||
-	     (!constructor.user_provided &&
+	     (!(constructor.user_provided && !constructor.defaulted) &&
 	      unit_.construction_writes_nothing(constructor))))
 	{
 		// 12.1p5: there is nothing for a call of this constructor to do.  A
 		// constructor the program wrote is called wherever the program says
 		// so, however empty its body; one the standard gave the class is the
 		// steps 12.6.2 gives it, and where each of those comes to nothing the
-		// whole construction does.
+		// whole construction does.  8.4.2p5 leaves a constructor explicitly
+		// defaulted *after* its first declaration user-provided while the body
+		// is still the standard's, so what the question is asked of is who
+		// wrote the definition and not who wrote the declaration.
 		//
 		// 3.2p2: the initialization named it whether or not a call of it is
 		// written, and 3.5p4's internal linkage makes the definition one no

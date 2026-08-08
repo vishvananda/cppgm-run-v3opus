@@ -249,7 +249,12 @@ private:
 		Named,
 		Member,
 		Base,
-		Parameter
+		Parameter,
+		// 12.6.2p6: the object the constructor being written is already running
+		// on, which its ctor-initializer delegates the whole of to another
+		// constructor of the same class.  It is no subobject of anything, so
+		// what the call is passed is `this` as it stands.
+		Delegate
 	};
 
 	// 12.2p1: what asked a conversion for the temporary it made, which is what
@@ -690,11 +695,42 @@ private:
 	// written in.  Each is written under the constructor's own definition.
 	void write_member_initializations(const Pending& pending, DumpNode& line,
 	                                  const Context& inner);
+	// 12.6.2p10 and 12.9p8: what the base class subobject is initialized with,
+	// which is settled before any member is however the ctor-initializer was
+	// ordered.
+	void write_base_initialization(
+		const Pending& pending, DumpNode& line,
+		std::unordered_map<std::string, MemInitializer>& named,
+		const Context& inner);
 	// 12.6.2p10 and 12.6.2p6: which mem-initializer names each member, as one
 	// index built once per definition and keyed by the unqualified name.
 	void read_mem_initializers(
 		const Pending& pending,
 		std::unordered_map<std::string, MemInitializer>& named);
+	// 12.6.2p6: whether this ctor-initializer delegates - whether one of its
+	// mem-initializer-ids names the constructor's own class rather than a base
+	// or a member of it - and, where it does, the arguments that one wrote.  The
+	// class's own name answers it in one probe; a name that reaches the class
+	// some other way is looked up only where the list holds the one entry p6
+	// allows a delegating ctor-initializer and that entry names no member and
+	// no base by its own name.  Null where nothing delegates.
+	const AstNode* delegating_initializer(
+		const Pending& pending,
+		std::unordered_map<std::string, MemInitializer>& named,
+		const Context& inner);
+	// 12.6.2p6: what a delegating constructor does before its body - one call of
+	// the constructor 13.3 chose, on the object this one is already running on.
+	// No base and no member of its own is initialized here: the constructor it
+	// delegates to initializes every one of them.
+	void write_delegating_initialization(const Pending& pending, DumpNode& line,
+	                                     const AstNode* written,
+	                                     const Context& inner);
+	// 12.6.2p6: a constructor shall not delegate to itself, directly or
+	// indirectly.  Every edge is known once the unit has been read, and each
+	// constructor has at most one, so the whole check is one colouring of the
+	// constructors that delegate - each visited once however many chains run
+	// through it.
+	void check_delegation_cycles();
 	// 8.5.1p2: what the constructor an aggregate class was given does - each
 	// member initialized with the parameter of the same name.
 	void write_member_parameters(const Pending& pending, DumpNode& line,
@@ -874,6 +910,11 @@ private:
 	// 12.1p5: whether default-initializing an object of `type` does nothing at
 	// all, so that a subobject of it needs no action written.
 	bool trivially_constructed(TypeId type);
+	// 12.6.2p6: the constructors of this unit whose ctor-initializer delegates,
+	// in the order their definitions were read.  It is the vertex set of the
+	// graph p6's cycle would be in - every other constructor is a chain's end -
+	// so the whole unit is checked in one walk of it.
+	std::vector<SemaEntity*> delegations_;
 	// 3.6.3p1: the namespace-scope objects this unit constructed, whose
 	// destructors run in reverse order when the program ends.
 	std::vector<SemaEntity*> static_lifetimes_;
@@ -1033,13 +1074,15 @@ private:
 	// constructors in: 5.2.9p4's cast is one and 13.3.3.1.2's conversion is
 	// not, and the two reach here the same way - with the one operand already
 	// read.
+	// `chosen`, where given, is left holding the constructor 13.3 picked, which
+	// 12.6.2p6's chain of delegations is walked over.
 	void construct_object(SemaEntity& variable, DumpNode& line,
 	                      const AstNode* written, const Context& ctx,
 	                      Placement where = Placement::Named,
 	                      bool copied = false, const Value* given = nullptr,
 	                      bool value_init = false,
 	                      const std::vector<SemaEntity*>* forwarded = nullptr,
-	                      bool direct = false);
+	                      bool direct = false, SemaEntity** chosen = nullptr);
 	// 8.5p15/p16 and 5.2.3p1: which of 8.5's forms the initializer an object of
 	// class type was written with is - a list whose clauses are the
 	// constructor's arguments, one expression a converting constructor answers,

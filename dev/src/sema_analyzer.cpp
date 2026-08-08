@@ -247,6 +247,10 @@ void SemaAnalyzer::run(const AstNode& unit)
 		                  *thread_lifetimes_[index].line, Placement::Named);
 	}
 	write_pending_definitions();
+	// 12.6.2p6: every delegation this unit wrote is settled now, so the chain
+	// each one heads is walked here rather than at each definition, where a
+	// constructor further along may not have been read yet.
+	check_delegation_cycles();
 }
 
 bool SemaAnalyzer::accepts_arity(const SemaEntity& function,
@@ -607,10 +611,12 @@ void SemaAnalyzer::declaration(const AstNode& node, const Context& ctx)
 		return;
 
 	case AstKind::SpecialMemberDefinition:
+	case AstKind::SpecialMemberDeclaration:
 		// 9.3p2: a constructor or a destructor defined outside its class, whose
 		// declarator-id names the class it belongs to.  A definition written in
 		// a class body is read where that body is, so one reaching here is
-		// written outside every class.
+		// written outside every class.  8.4.2p2's `= default` is a definition
+		// like any other: what differs is that the standard writes the body.
 		if (semantics())
 		{
 			special_member_definition(node, ctx);

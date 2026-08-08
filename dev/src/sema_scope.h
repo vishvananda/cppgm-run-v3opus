@@ -277,6 +277,14 @@ struct SemaEntity
 	// subobject is what its definition does.  Null for a constructor a
 	// declaration wrote and for 12.1p5's implicit one.
 	SemaEntity* inherited;
+	// 12.6.2p6: the constructor of this constructor's own class that its
+	// ctor-initializer delegates to, chosen by 13.3 from the arguments the one
+	// mem-initializer wrote.  A constructor that delegates initializes no base
+	// and no member of its own: the target does all of that and its own body
+	// runs after.  Null for every constructor whose ctor-initializer named a
+	// base or a member, which is all but the few that delegate - so the chain
+	// p6 forbids a cycle in is walked over those alone.
+	SemaEntity* delegates_to;
 	// 11.3p5: whether this unit's definition of the function was written in a
 	// friend declaration inside a class body, which defines a member of the
 	// enclosing namespace where no ordinary lookup finds its name.  The class

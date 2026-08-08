@@ -79,6 +79,15 @@ void SemaAnalyzer::write_constructed_object(SemaEntity& variable,
 		object = base_value(this_value(call), variable, false);
 		return;
 	}
+	if (where == Placement::Delegate)
+	{
+		// 12.6.2p6: the object this constructor is already running on, whole.
+		// It is no subobject of anything, so `this` is the address the target
+		// constructor is passed exactly as it stands - neither an address taken
+		// around a name nor a conversion to a base.
+		object = this_value(call);
+		return;
+	}
 	// 5.3.1p3 writes the address around the object, so the object's own line
 	// stands under the one the address takes rather than in place of it.
 	DumpNode& node = model_.open_node(call, std::string());
@@ -263,9 +272,9 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
                                     Placement where, bool copied,
                                     const Value* given, bool value_init,
                                     const std::vector<SemaEntity*>* forwarded,
-                                    bool direct)
+                                    bool direct, SemaEntity** chosen)
 {
-	const bool member = where != Placement::Named;
+	const bool member = where == Placement::Member || where == Placement::Base;
 	// 12.6p1: an array of class type is initialized element by element, and
 	// each element is one object of the element's class.  The one constructor
 	// every element is given is chosen once, here, from the type of an element;
@@ -359,7 +368,7 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 	action.fact.type = variable.type;
 	action.fact.elided_prvalue = elided_prvalue;
 	action.fact.base_subobject = where == Placement::Base;
-	action.fact.subobject_step = where != Placement::Named;
+	action.fact.subobject_step = member;
 	DumpNode& call = model_.open_node(action, std::string());
 	DumpNode& callee = model_.open_node(call, std::string());
 	Value object;
@@ -436,10 +445,12 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 	{
 		constructor.base_object_entry = true;
 	}
-	if (where != Placement::Named && !constructor.trivial)
+	if (member && !constructor.trivial)
 	{
 		// 15.2p2: this step builds a subobject an exception out of a later one
-		// leaves standing, which is what odr-uses its destructor.
+		// leaves standing, which is what odr-uses its destructor.  12.6.2p6's
+		// delegation builds no subobject: it builds the whole object, and after
+		// it there is no later step for an exception to leave it standing at.
 		record_unwind_subobject(variable.type);
 	}
 	const std::vector<TypeId>& parameters = types_.parameters(constructor.type);
@@ -480,6 +491,10 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 		types_.description(constructor.type);
 	set_fact(callee, FactKind::Callee, constructor.type, ValueCategory::LValue);
 	callee.fact.entity = &constructor;
+	if (chosen != nullptr)
+	{
+		*chosen = &constructor;
+	}
 	demand_constructor_definition(constructor);
 }
 
@@ -1497,6 +1512,220 @@ void SemaAnalyzer::read_mem_initializers(
 	}
 }
 
+// 12.6.2p6: a mem-initializer-id that names the constructor's own class is not
+// 12.6.2p2's base or member at all - it delegates the whole initialization to
+// another constructor of the same class.  The class's own name is what such a
+// mem-initializer nearly always writes, so it is asked for in one probe of the
+// index the list was already read into; a name that reaches the class some
+// other way - a typedef-name, an injected-class-name of a class this one is
+// nested in - costs one lookup, and only where p6's own rule already says the
+// list is the one entry a delegating ctor-initializer may hold and that entry
+// names neither a member nor the base under its own name.
+const AstNode* SemaAnalyzer::delegating_initializer(
+	const Pending& pending,
+	std::unordered_map<std::string, MemInitializer>& named,
+	const Context& inner)
+{
+	SemaEntity* const owner =
+		pending.members != nullptr ? pending.members->owner : nullptr;
+	if (owner == nullptr || named.empty())
+	{
+		return nullptr;
+	}
+	const std::string own = QualifiedName(types_.user_name(owner->type)).last();
+	std::unordered_map<std::string, MemInitializer>::iterator wrote =
+		named.find(own);
+	if (wrote == named.end())
+	{
+		if (named.size() != 1)
+		{
+			return nullptr;
+		}
+		std::unordered_map<std::string, MemInitializer>::iterator only =
+			named.begin();
+		const std::unordered_map<std::string, Binding>::const_iterator found =
+			pending.members->names.find(only->first);
+		if (found != pending.members->names.end() &&
+		    found->second.ordinary != nullptr &&
+		    declares_subobject(*found->second.ordinary, *pending.members))
+		{
+			// 12.6.2p2: the name is a non-static data member of the class, so
+			// the mem-initializer names that member rather than the class.  A
+			// typedef-name the class declares is not one of those, and naming
+			// the class through it is exactly what this reading is for.
+			return nullptr;
+		}
+		if (owner->base != nullptr &&
+		    QualifiedName(types_.user_name(owner->base->type)).last() ==
+			    only->first)
+		{
+			return nullptr;
+		}
+		if (!names_the_base(only->second.spelled, *owner, inner))
+		{
+			return nullptr;
+		}
+		wrote = only;
+	}
+	if (named.size() != 1)
+	{
+		// 12.6.2p6: a delegating mem-initializer shall be the only
+		// mem-initializer of its ctor-initializer, because the constructor it
+		// names initializes every base and every member itself.
+		throw std::runtime_error("a delegating constructor of " +
+		                         types_.description(pending.function->type) +
+		                         " writes a second mem-initializer");
+	}
+	wrote->second.used = true;
+	return wrote->second.written;
+}
+
+// 12.6.2p6: what a delegating constructor does before its body - one call of
+// the constructor 13.3 chose out of the class's own set, on the object this one
+// was itself called on.  4.10p3 converts nothing: `this` already points at the
+// complete object, and the target runs its complete-object entry on it.
+void SemaAnalyzer::write_delegating_initialization(const Pending& pending,
+                                                   DumpNode& line,
+                                                   const AstNode* written,
+                                                   const Context& inner)
+{
+	SemaEntity& owner = *pending.members->owner;
+	SemaEntity* target = nullptr;
+	// 1.9p10 and 12.6.2: the mem-initializer's expression-list is a
+	// full-expression, so a temporary written in it is destroyed once the call
+	// it was written for has returned.
+	open_full_expression();
+	construct_object(owner, line, written, inner, Placement::Delegate, false,
+	                 nullptr, false, nullptr, false, &target);
+	close_full_expression(line);
+	if (target == nullptr)
+	{
+		return;
+	}
+	if (target == pending.function)
+	{
+		// 12.6.2p6: the one cycle a single definition can close on its own,
+		// caught where it is written rather than left to the walk below.
+		throw std::runtime_error("a constructor of " +
+		                         types_.description(owner.type) +
+		                         " delegates to itself");
+	}
+	pending.function->delegates_to = target;
+	delegations_.push_back(pending.function);
+}
+
+// 12.6.2p6: no constructor shall delegate to itself, however many delegations
+// stand between.  Each constructor has at most one delegation, so the graph is
+// a forest of chains and the whole unit is one walk of the constructors that
+// delegate: a chain is followed until it reaches one already walked or one that
+// delegates to nothing, and a constructor met twice on the chain being walked
+// is the cycle.  Every constructor is coloured once, so n delegations cost n
+// steps however the chains run through each other.
+void SemaAnalyzer::check_delegation_cycles()
+{
+	const unsigned char kOnChain = 1;
+	const unsigned char kWalked = 2;
+	std::unordered_map<std::uint32_t, unsigned char> colour;
+	std::vector<SemaEntity*> chain;
+	for (std::size_t index = 0; index < delegations_.size(); ++index)
+	{
+		SemaEntity* at = delegations_[index];
+		chain.clear();
+		while (at != nullptr)
+		{
+			unsigned char& mark = colour[at->id];
+			if (mark == kWalked)
+			{
+				break;
+			}
+			if (mark == kOnChain)
+			{
+				throw std::runtime_error("a constructor of " +
+				                         types_.description(at->type) +
+				                         " delegates to itself");
+			}
+			mark = kOnChain;
+			chain.push_back(at);
+			at = at->delegates_to;
+		}
+		for (std::size_t at_chain = 0; at_chain < chain.size(); ++at_chain)
+		{
+			colour[chain[at_chain]->id] = kWalked;
+		}
+	}
+}
+
+// 12.6.2p10: the base class subobject is initialized first, whatever place its
+// mem-initializer was written in and whether or not one was.  12.9p8's
+// inheriting constructor writes no ctor-initializer at all and initializes it
+// from its own parameters instead.
+void SemaAnalyzer::write_base_initialization(
+	const Pending& pending, DumpNode& line,
+	std::unordered_map<std::string, MemInitializer>& named,
+	const Context& inner)
+{
+	SemaEntity* const base = pending.members->owner != nullptr
+		? pending.members->owner->base
+		: nullptr;
+	if (base == nullptr)
+	{
+		return;
+	}
+	if (pending.function->inherited != nullptr)
+	{
+		// 12.9p8: an inheriting constructor initializes the base subobject by
+		// calling the constructor it was declared from, with its own parameters
+		// as the arguments.  The parameters are the declarations the definition
+		// just made, in the order the declaration wrote them.
+		std::vector<SemaEntity*> forwarded;
+		for (std::size_t index = 0;
+		     index < pending.scope->declarations.size(); ++index)
+		{
+			SemaEntity& parameter = *pending.scope->declarations[index];
+			if (parameter.kind == SemaKind::Parameter)
+			{
+				forwarded.push_back(&parameter);
+			}
+		}
+		construct_object(*base, line, nullptr, inner, Placement::Base, false,
+		                 nullptr, false, &forwarded);
+		return;
+	}
+	const AstNode* written = nullptr;
+	const std::string spelled =
+		QualifiedName(types_.user_name(base->type)).last();
+	std::unordered_map<std::string, MemInitializer>::iterator wrote =
+		named.find(spelled);
+	if (wrote == named.end())
+	{
+		// 12.6.2p2: the mem-initializer-id may be any name for the base class,
+		// which a typedef-name is one of.  Its own name is asked about first,
+		// so only a ctor-initializer that spelled the base some other way costs
+		// one lookup per mem-initializer it wrote.
+		for (wrote = named.begin(); wrote != named.end(); ++wrote)
+		{
+			if (names_the_base(wrote->second.spelled, *base, inner))
+			{
+				break;
+			}
+		}
+	}
+	if (wrote != named.end())
+	{
+		written = wrote->second.written;
+		wrote->second.used = true;
+	}
+	if (written != nullptr || !trivially_constructed(base->type))
+	{
+		// 1.9p10 and 12.6.2: a mem-initializer's expression-list is a
+		// full-expression, so a temporary written in it is destroyed once the
+		// subobject it built has been.
+		open_full_expression();
+		construct_object(*base, line, written, inner, Placement::Base);
+		close_full_expression(line);
+	}
+}
+
 void SemaAnalyzer::write_member_initializations(const Pending& pending,
                                                 DumpNode& line,
                                                 const Context& inner)
@@ -1520,66 +1749,37 @@ void SemaAnalyzer::write_member_initializations(const Pending& pending,
 	}
 	std::unordered_map<std::string, MemInitializer> named;
 	read_mem_initializers(pending, named);
-	// 12.6.2p10: the base class subobject is initialized first, whatever place
-	// its mem-initializer was written in and whether or not one was.
-	SemaEntity* const base =
-		members.owner != nullptr ? members.owner->base : nullptr;
-	if (base != nullptr && pending.function->inherited != nullptr)
+	const AstNode* const delegated =
+		delegating_initializer(pending, named, inner);
+	if (delegated != nullptr)
 	{
-		// 12.9p8: an inheriting constructor initializes the base subobject by
-		// calling the constructor it was declared from, with its own parameters
-		// as the arguments, and writes no ctor-initializer of its own.  The
-		// parameters are the declarations the definition just made, in the
-		// order the declaration wrote them.
-		std::vector<SemaEntity*> forwarded;
-		for (std::size_t index = 0;
-		     index < pending.scope->declarations.size(); ++index)
-		{
-			SemaEntity& parameter = *pending.scope->declarations[index];
-			if (parameter.kind == SemaKind::Parameter)
-			{
-				forwarded.push_back(&parameter);
-			}
-		}
-		construct_object(*base, line, nullptr, inner, Placement::Base, false,
-		                 nullptr, false, &forwarded);
+		// 12.6.2p6: the constructor this one names initializes every base and
+		// every member, so this definition writes that one call and no step of
+		// its own.
+		write_delegating_initialization(pending, line, delegated, inner);
+		return;
 	}
-	else if (base != nullptr)
+	// 9.5p1 and 12.6.2p8: every member of a union stands in the one storage, so
+	// a constructor of one initializes at most one of them - the variant member
+	// a mem-initializer designated, else the one 9.5p2 let write a
+	// brace-or-equal-initializer, and no member at all where the
+	// ctor-initializer designated another.  Which of the two it is, is one probe
+	// of the class's region per mem-initializer the list held.
+	const bool is_union =
+		members.owner != nullptr &&
+		types_.class_tag(types_.strip_cv(members.owner->type)) == ClassTag::Union;
+	bool designated_variant = false;
+	for (std::unordered_map<std::string, MemInitializer>::const_iterator at =
+	         named.begin();
+	     is_union && !designated_variant && at != named.end(); ++at)
 	{
-		const AstNode* written = nullptr;
-		const std::string spelled =
-			QualifiedName(types_.user_name(base->type)).last();
-		std::unordered_map<std::string, MemInitializer>::iterator wrote =
-			named.find(spelled);
-		if (wrote == named.end())
-		{
-			// 12.6.2p2: the mem-initializer-id may be any name for the base
-			// class, which a typedef-name is one of.  Its own name is asked
-			// about first, so only a ctor-initializer that spelled the base some
-			// other way costs one lookup per mem-initializer it wrote.
-			for (wrote = named.begin(); wrote != named.end(); ++wrote)
-			{
-				if (names_the_base(wrote->second.spelled, *base, inner))
-				{
-					break;
-				}
-			}
-		}
-		if (wrote != named.end())
-		{
-			written = wrote->second.written;
-			wrote->second.used = true;
-		}
-		if (written != nullptr || !trivially_constructed(base->type))
-		{
-			// 1.9p10 and 12.6.2: a mem-initializer's expression-list is a
-			// full-expression, so a temporary written in it is destroyed once
-			// the subobject it built has been.
-			open_full_expression();
-			construct_object(*base, line, written, inner, Placement::Base);
-			close_full_expression(line);
-		}
+		const std::unordered_map<std::string, Binding>::const_iterator found =
+			members.names.find(at->first);
+		designated_variant = found != members.names.end() &&
+			found->second.ordinary != nullptr &&
+			declares_subobject(*found->second.ordinary, members);
 	}
+	write_base_initialization(pending, line, named, inner);
 	for (std::size_t index = 0; index < members.declarations.size(); ++index)
 	{
 		SemaEntity& member = *members.declarations[index];
@@ -1596,10 +1796,15 @@ void SemaAnalyzer::write_member_initializations(const Pending& pending,
 			written = wrote->second.written;
 			wrote->second.used = true;
 		}
-		if (written == nullptr && member.default_initializer)
+		if (written == nullptr && member.default_initializer &&
+		    !designated_variant)
 		{
 			// 12.6.2p8 and 9.2p2: a brace-or-equal-initializer is read in the
-			// class it was written in, which is a complete-class context.
+			// class it was written in, which is a complete-class context.  In a
+			// union it is read only where no *other* variant member was
+			// designated: what the ctor-initializer named is what the one
+			// storage holds, and the initializer written on the member the
+			// constructor did not name says nothing about it.
 			const std::unordered_map<std::uint32_t, Default>::const_iterator
 				found = member_initializers_.find(member.id);
 			if (found != member_initializers_.end())
@@ -1608,6 +1813,16 @@ void SemaAnalyzer::write_member_initializations(const Pending& pending,
 				where.scope = found->second.scope;
 				where.dump = where.scope->dump;
 			}
+		}
+		if (is_union && written == nullptr)
+		{
+			// 12.6.2p8: a variant member no mem-initializer designated and no
+			// brace-or-equal-initializer reaches is not initialized at all -
+			// not default-initialized, which is what an ordinary member of the
+			// same type would be.  9.5p1's one storage is what makes the
+			// difference: the constructor says which member stands in it, and
+			// one that says nothing leaves it holding no member of any of them.
+			continue;
 		}
 		where.node = nullptr;
 		const TypeId type = member.type;
@@ -2253,6 +2468,15 @@ bool SemaAnalyzer::ends_in_call(const SemaEntity& entity)
 // syntax ahead of the read cannot answer differently.
 bool SemaAnalyzer::writes_no_statement(const AstNode& node)
 {
+	if (node.kind == AstKind::SpecialMemberDeclaration)
+	{
+		// 8.4.2p2: the definition is `= default`, so 12.4p4 and 12.6.2 write
+		// what it comes to and the program wrote no statement of its own.
+		// `= delete` is no definition at all and nothing runs it.
+		const AstNode* const explicitly = child_of(node, AstKind::Initializer);
+		return explicitly != nullptr && !explicitly->children.empty() &&
+			explicitly->children[0]->text == "default";
+	}
 	const AstNode* const body =
 		node.children.empty() ? nullptr : node.children.back();
 	if (body == nullptr || body->kind != AstKind::CompoundStatement ||
@@ -2293,8 +2517,12 @@ void SemaAnalyzer::collect_unit_definitions(const AstNode& node)
 	{
 		return;
 	}
-	if (node.kind == AstKind::SpecialMemberDefinition)
+	if (node.kind == AstKind::SpecialMemberDefinition ||
+	    node.kind == AstKind::SpecialMemberDeclaration)
 	{
+		// 8.4.2p2: a declaration written outside the class carries `= default`
+		// or `= delete`, either of which settles what running the member comes
+		// to as surely as a body does - so it is collected with the bodies.
 		const QualifiedName spelled(node.text);
 		if (spelled.qualified())
 		{

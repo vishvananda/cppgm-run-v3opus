@@ -1796,7 +1796,13 @@ void LowirUnitLowering::owe_elided_construction(const SemaEntity& constructor,
 			owe_internal_definition(*built);
 			continue;
 		}
-		if (!built->user_provided && construction_writes_nothing(*built))
+		// 8.4.2p5: the question is who wrote the *definition*, which is the
+		// standard wherever the declaration was defaulted - on its first
+		// declaration or on a later one - so this reads what
+		// `constructor_call` reads and the two never disagree about whether a
+		// call was left out.
+		if (!(built->user_provided && !built->defaulted) &&
+		    construction_writes_nothing(*built))
 		{
 			owe_internal_definition(*built);
 			owe_elided_construction(*built, depth + 1);

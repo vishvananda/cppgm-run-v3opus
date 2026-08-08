@@ -510,7 +510,13 @@ AstNode* AstParser::parse_special_member(bool in_class)
 	}
 	declarator->add(clause);
 	parse_function_suffixes(declarator);
-	if (in_class)
+	// 8.4.2p2: `= default` and `= delete` may stand on a declaration written
+	// outside the class as readily as on the one the class body wrote, and a
+	// definition is what such a declaration is.  Outside the class it is the
+	// only `;` form there is - 3.4.3p3's qualified declarator-id declares
+	// nothing new - so the tail is tried there only where one of the two was
+	// written and a bare `;` still reaches no rule.
+	if (in_class || (at(OP_ASS) && (peek(1) == KW_DEFAULT || peek(1) == KW_DELETE)))
 	{
 		AstNode* declaration =
 			parse_special_member_tail(specifiers, declarator, conversion);
