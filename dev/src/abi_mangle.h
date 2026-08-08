@@ -184,6 +184,12 @@ struct AbiType
   std::string expression_ref;
   std::string context_ref;
   std::string discriminator;
+  // `<unnamed-type-name>`: which of the unnamed types of the region around it
+  // this one is, written in decimal and counted from zero.  Empty wherever the
+  // name has a spelling, which is where the components of `name` are read.  A
+  // name of more than one component carries it for the first of them, because
+  // that is the one the region declared.
+  std::string unnamed_index;
   AbiArrayBound array_bound;
   std::size_t index = 0;
   bool is_const = false;
@@ -269,6 +275,10 @@ struct AbiFunctionRecord
   std::string context_ref;
   std::string source_name;
   std::string discriminator;
+  // `<unnamed-type-name>`: the same fact about a component of a function's own
+  // name - the entity a `<local-name>` stands for is written `Ut <number> _`
+  // rather than as a source name wherever the region gave it no spelling.
+  std::string unnamed_index;
   std::string terminal;
   std::string literal_suffix;
   AbiType type;

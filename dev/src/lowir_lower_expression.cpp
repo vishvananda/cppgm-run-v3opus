@@ -656,7 +656,13 @@ LowValue LowirFunctionLowering::call_expression(const DumpNode& node,
 	// not one another block's temporaries are named in.  The storage is named
 	// before the operands are lowered, because whether it is needed is a fact
 	// of the call and not of the order the operands took.
-	const bool has_value = !indirect && !types.is_void(types.strip_cv(result));
+	//
+	// 12.2p1 already gives an object of class type a temporary of its own, and
+	// the copy into it stands in the step this call belongs to - so a value the
+	// call hands back in registers rather than in storage needs no second place
+	// to stand, and `load` and `store` have no lowered type to spell it with.
+	const bool has_value = !indirect && !types.is_void(types.strip_cv(result)) &&
+		!types.is_class(types.strip_cv(result));
 	const std::string spilled = throwing && has_value && guarded_call(node)
 		? add_generated_slot("call", unit_.low_type(result))
 		: std::string();

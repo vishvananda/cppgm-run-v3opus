@@ -194,7 +194,7 @@ public:
 	// where the declaration is read, because the region it was written in is
 	// the only thing that says either.
 	void set_local_name(TypeId type, const SemaEntity* function,
-	                    unsigned occurrence);
+	                    unsigned occurrence, bool unnamed);
 	const SemaEntity* local_function(TypeId type) const
 	{
 		return user_at(type).local_function;
@@ -202,6 +202,12 @@ public:
 	unsigned local_occurrence(TypeId type) const
 	{
 		return user_at(type).local_occurrence;
+	}
+	// The ABI's `<unnamed-type-name>`: whether the region gave the type no name
+	// at all, so that the number above is what names it there.
+	bool local_unnamed(TypeId type) const
+	{
+		return user_at(type).local_unnamed;
 	}
 
 	// 9.2p2: the class becomes complete at the end of its member specification,
@@ -495,6 +501,7 @@ private:
 		// namespace or class scope.
 		const SemaEntity* local_function = nullptr;
 		unsigned local_occurrence = 0;
+		bool local_unnamed = false;
 	};
 
 	// What makes two types the same type.

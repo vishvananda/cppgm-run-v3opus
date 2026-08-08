@@ -991,6 +991,15 @@ void SemaAnalyzer::declare_special_members(SemaEntity& entity, Scope& scope)
 			// the class has none - which is what 8.5p6's default-initialization
 			// of an object of the class then names.
 			at->deleted = at->deleted || undefinable_default(scope);
+			if (!at->wrote_exception_specification)
+			{
+				// 15.4p14: the specification of a member the standard defines is
+				// what the members its definition directly invokes allow, and
+				// this is the one of the six that is settled here rather than
+				// beside 12.8p15's transfer members - the class is complete, so
+				// every subobject's own constructor has been settled.
+				at->nonthrowing = default_construction_nonthrowing(scope);
+			}
 		}
 	}
 	if (entity.destructor->defaulted)
@@ -2118,6 +2127,48 @@ bool SemaAnalyzer::trivial_default_construction(Scope& scope)
 		const SemaEntity* const constructor =
 			class_constructors(element_of(member.type));
 		if (constructor != nullptr && !constructor->trivial)
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+// 15.4p14 and 12.1p5: whether the default constructor of the class this region
+// declares throws nothing.  What its definition directly invokes is the default
+// constructor of the base class subobject and of each member of class type, so
+// the answer is yes exactly where every one of those says so - the same walk
+// 12.1p5's triviality is, asked of a different fact of the same members.
+//
+// A member with a brace-or-equal-initializer is initialized by 12.6.2p8 from
+// whatever the program wrote there, which is an expression rather than a
+// declaration this can read - so it allows every exception, as 15.4p14 says a
+// member function it cannot see the specification of does.
+bool SemaAnalyzer::default_construction_nonthrowing(Scope& scope)
+{
+	if (scope.owner != nullptr && scope.owner->base != nullptr)
+	{
+		const SemaEntity* const base =
+			default_constructor(scope.owner->base->type);
+		if (base != nullptr && !base->nonthrowing)
+		{
+			return false;
+		}
+	}
+	for (std::size_t index = 0; index < scope.declarations.size(); ++index)
+	{
+		const SemaEntity& member = *scope.declarations[index];
+		if (!declares_subobject(member, scope))
+		{
+			continue;
+		}
+		if (member.default_initializer)
+		{
+			return false;
+		}
+		const SemaEntity* const constructor =
+			default_constructor(element_of(member.type));
+		if (constructor != nullptr && !constructor->nonthrowing)
 		{
 			return false;
 		}

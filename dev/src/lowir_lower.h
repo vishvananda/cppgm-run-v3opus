@@ -481,6 +481,14 @@ private:
 	// definition is taken off the deferred map as it is asked for, which makes
 	// one use of a name lower it and every later use cost a probe.
 	void demand_definition(const SemaEntity& entity);
+	// 3.6.2p2 and 12.1p11: whether the image of a namespace-scope object holds
+	// what constructing it comes to, which it does where the whole object is the
+	// vpointer the standard's own default constructor writes.
+	bool vpointer_image(const SemaEntity& built, TypeId type);
+	// 12.4 and 5.3.5p3: this unit owes the destructor's deleting entry, whether
+	// a table it writes named the slot or the definition it holds is one no
+	// other unit may define.
+	void owe_deleting_entry(const SemaEntity& entity);
 	void demand_definition_by_id(std::uint32_t entity);
 	// 3.2p2 and 3.2p3: the functions the resolved tree names anywhere, which is
 	// what odr-uses them - a body this unit does not write still uses what it

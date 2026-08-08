@@ -319,38 +319,7 @@ void SemaAnalyzer::settle_vtable_ownership(SemaEntity& entity, Scope& scope)
 		entity.key_function = &member;
 		break;
 	}
-	// 12.1, 12.4 and the ABI: every class this one is built out of takes part in
-	// a polymorphic object now, and the entries the object file owes for a
-	// member of one the *program itself wrote here* are both of them - a
-	// complete object of that class can be created wherever its definition is
-	// seen, and this unit's own source is what wrote the definition every unit
-	// shares.  A member the standard gave the class is not one a program named,
-	// and 2.2p1's included file is one every unit that includes it holds a
-	// definition of too - so each stands under the one entry this unit's own
-	// code asked for.  A definition written outside its class without `inline`
-	// is this unit's alone whichever file it stands in, and `writes_base_entry`
-	// already owes both of the ABI's names for it.
-	for (SemaEntity* at = entity.base; at != nullptr; at = at->base)
-	{
-		for (SemaEntity* made = at->constructor; made != nullptr;
-		     made = made->next)
-		{
-			made->complete_object_entry = made->complete_object_entry ||
-				(made->user_provided && made->own_source_definition);
-		}
-		if (at->destructor != nullptr && at->destructor->user_provided &&
-		    at->destructor->own_source_definition)
-		{
-			at->destructor->complete_object_entry = true;
-		}
-		if (at->polymorphic)
-		{
-			// A base that already dispatches settled this same question about
-			// its own bases where 9.2p2 completed it, so the walk stops there
-			// and a chain n deep costs n steps in all rather than n per class.
-			break;
-		}
-	}
+	settle_shared_entry_points(entity);
 	SemaEntity* const destructor = entity.destructor;
 	if (destructor != nullptr && destructor->virtual_function)
 	{
@@ -363,6 +332,49 @@ void SemaAnalyzer::settle_vtable_ownership(SemaEntity& entity, Scope& scope)
 		std::vector<SemaEntity*> found;
 		destructor->deleting_release =
 			deallocation_function(false, entity.type, false, found);
+	}
+}
+
+// 12.1, 12.4 and the ABI: which of a class's own special members the object
+// file owes both of the ABI's entry points for.
+//
+// The classes a polymorphic object is built out of that this unit's own source
+// wrote are the one the vpointer starts at and the non-polymorphic classes
+// under it - the derivation below the vpointer.  A complete object of any of
+// them can be created wherever its definition is seen, and this unit's source
+// is what wrote the definition every unit shares.  A class whose base already
+// dispatches adds none of them: the vpointer it carries is one its base's own
+// completion already asked this of, and every unit that can create a complete
+// object of it can define its members for itself.
+//
+// A member the standard gave the class is not one a program named, and 2.2p1's
+// included file is one every unit that includes it holds a definition of too -
+// so each of those stands under the one entry this unit's own code asked for.
+// A definition written outside its class without `inline` is this unit's alone
+// whichever file it stands in, and `writes_base_entry` already owes both of the
+// ABI's names for it.
+void SemaAnalyzer::settle_shared_entry_points(SemaEntity& entity)
+{
+	if (!entity.introduces_vptr)
+	{
+		return;
+	}
+	// 10p1: a class with no polymorphic base has none above it either, so this
+	// walk is the whole derivation below the vpointer and costs each class in it
+	// once for the program rather than once per class derived from it.
+	for (SemaEntity* at = &entity; at != nullptr; at = at->base)
+	{
+		for (SemaEntity* made = at->constructor; made != nullptr;
+		     made = made->next)
+		{
+			made->complete_object_entry = made->complete_object_entry ||
+				(made->user_provided && made->own_source_definition);
+		}
+		if (at->destructor != nullptr && at->destructor->user_provided &&
+		    at->destructor->own_source_definition)
+		{
+			at->destructor->complete_object_entry = true;
+		}
 	}
 }
 

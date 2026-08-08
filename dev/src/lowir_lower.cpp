@@ -621,6 +621,20 @@ void LowirUnitLowering::collect_definitions(const DumpNode& node)
 			// definition says, so every definition is indexed by what it
 			// defines whether or not a use has asked for it yet.
 			bodies_[child.fact.entity->id] = &child;
+			// 12.4, 5.3.5p3 and 9.3p2: the deleting entry is a second body over
+			// this one definition, so a definition no other unit may hold is one
+			// only this unit can write it from.  A table this unit emits asks
+			// for it too, but the table is a fact of the class and the entry is
+			// a fact of the definition: 10.4p2's pure slots name the runtime's
+			// own function and ask for nothing, and a class whose key function
+			// stands elsewhere has its table in the unit that holds that
+			// function rather than in the one that holds this body.
+			if (child.fact.entity->special == kDestructorFunction &&
+			    child.fact.entity->virtual_function &&
+			    !child.fact.entity->inline_function)
+			{
+				owe_deleting_entry(*child.fact.entity);
+			}
 			if (child.fact.entity->inline_function &&
 			    !(child.fact.entity->friend_definition &&
 			      child.fact.entity->internal_linkage))
@@ -1018,18 +1032,36 @@ void LowirUnitLowering::global_variable(const DumpNode& node)
 		// action would name reaches no storage a constructor could write - and
 		// where the constructor writes nothing either, the initialization is
 		// the image and there is no action for the program to run before it.
+		// 12.1p11: an object whose whole storage is the vpointer holds what the
+		// standard's own definition of its default constructor writes, which
+		// the image can spell as the address of the table - so that
+		// initialization is data too, and the program runs nothing before it.
 		const SemaEntity& built = *written->children[0]->children[0]->fact.entity;
 		const bool trivial = built.trivial;
 		const bool nothing_to_do = trivial &&
 			(written->fact.zero_initialized ||
 			 types_.kind(types_.strip_cv(type)) == TypeKind::Array ||
 			 types_.is_empty_class(types_.strip_cv(type)));
-		if (nothing_to_do)
+		const bool vpointer = !nothing_to_do && vpointer_image(built, type);
+		if (vpointer)
+		{
+			global.data_items.clear();
+			lowir_model::GlobalDefinition::DataItem address;
+			address.kind = lowir_model::GlobalDefinition::DataItem::ITEM_ADDR;
+			address.type = low("ptr");
+			address.symbol = vtable_symbol(*built.region->owner);
+			address.addr_addend = static_cast<long long>(kVtablePrefixBytes);
+			global.data_items.push_back(address);
+			// 3.2p2: the initialization named the constructor, whose definition
+			// the program still needs however little of it the image kept.
+			demand_definition(built);
+		}
+		else if (nothing_to_do)
 		{
 			// 3.2p2: the initialization still named the constructor.
 			owe_internal_definition(built);
 		}
-		dynamic = nothing_to_do ? nullptr : written;
+		dynamic = nothing_to_do || vpointer ? nullptr : written;
 		written = nullptr;
 	}
 	else if (written != nullptr &&
@@ -1972,6 +2004,39 @@ void LowirUnitLowering::owe_internal_definition(const SemaEntity& entity)
 	if (entity.internal_linkage)
 	{
 		demand_definition(entity);
+	}
+}
+
+// 3.6.2p2 and 12.1p11: whether the image of an object with static storage
+// duration can hold what constructing it comes to.
+//
+// It can where the whole of the object is the vpointer: 9p6 leaves a class that
+// declares no data member and derives from none holding nothing but what 10.3p1
+// gave it, so the definition the standard writes for its default constructor
+// writes that one pointer and 12.6.2p10 has no subobject to build before it.  A
+// constructor the program itself wrote may do anything at all, and an object
+// with a byte the vpointer does not cover has a value 3.6.2p1's zero is not.
+bool LowirUnitLowering::vpointer_image(const SemaEntity& built, TypeId type)
+{
+	const TypeId bare = types_.strip_cv(type);
+	if (built.user_provided || built.region == nullptr ||
+	    built.region->owner == nullptr || !built.region->owner->polymorphic ||
+	    types_.kind(bare) != TypeKind::Class)
+	{
+		return false;
+	}
+	return types_.object_size(bare) ==
+		types_.object_size(types_.pointer_to(types_.fundamental(FT_VOID)));
+}
+
+// 12.4 and 5.3.5p3: this unit writes the destructor's deleting entry, once
+// however many things ask for it - a table it emits naming the slot, and the
+// definition it holds of a destructor no other unit may define.
+void LowirUnitLowering::owe_deleting_entry(const SemaEntity& entity)
+{
+	if (deleting_entries_.insert(entity.id).second)
+	{
+		deleting_owed_.push_back(&entity);
 	}
 }
 

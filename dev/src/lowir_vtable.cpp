@@ -266,10 +266,7 @@ void LowirUnitLowering::write_vtable_slots(const SemaEntity& owner,
 			// 12.4 and 5.3.5p3: the entry that runs the destructor and then
 			// gives the storage back, which no call in the program names
 			// directly - so the table is what asks this unit to write it.
-			if (deleting_entries_.insert(at->id).second)
-			{
-				deleting_owed_.push_back(at);
-			}
+			owe_deleting_entry(*at);
 			declare_call_target(*at, false);
 			into.data_items.push_back(
 				address_item(function_symbol(*at) + "__deleting_entry"));

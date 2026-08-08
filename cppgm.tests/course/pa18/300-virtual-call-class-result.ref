@@ -1,0 +1,453 @@
+declare global @__external_rtti_vtable____class_type_info [binding=strong, object=_ZTVN10__cxxabiv117__class_type_infoE]
+declare global @__external_rtti_vtable____si_class_type_info [binding=strong, object=_ZTVN10__cxxabiv120__si_class_type_infoE]
+declare function @operator_delete(%arg0 : ptr) -> void [unwind=no, binding=strong, object=cppgm_builtin_operator_delete]
+declare function @operator_delete__(%arg0 : ptr) -> void [unwind=no, binding=strong, object=cppgm_builtin_operator_delete_array]
+declare function @operator_new__(%arg0 : i64) -> ptr [binding=strong, object=cppgm_builtin_operator_new_array]
+
+global @__typeinfo_name__struct_source [storage=readonly, binding=weak, object=_ZTS6source] = {
+  i8 54
+  i8 115
+  i8 111
+  i8 117
+  i8 114
+  i8 99
+  i8 101
+  i8 0
+}
+global @__rtti_struct_source [storage=readonly, binding=weak, object=_ZTI6source] = {
+  ptr addr @__external_rtti_vtable____class_type_info + 16
+  ptr addr @__typeinfo_name__struct_source
+}
+global @source__vtable [storage=readonly, binding=weak, object=_ZTV6source] = {
+  i64 0
+  ptr addr @__rtti_struct_source
+  ptr addr @source__made
+  ptr addr @source___source
+  ptr addr @source___source__deleting_entry
+}
+global @__typeinfo_name__struct_other_source [storage=readonly, binding=weak, object=_ZTS12other_source] = {
+  i8 49
+  i8 50
+  i8 111
+  i8 116
+  i8 104
+  i8 101
+  i8 114
+  i8 95
+  i8 115
+  i8 111
+  i8 117
+  i8 114
+  i8 99
+  i8 101
+  i8 0
+}
+global @__rtti_struct_other_source [storage=readonly, binding=weak, object=_ZTI12other_source] = {
+  ptr addr @__external_rtti_vtable____si_class_type_info + 16
+  ptr addr @__typeinfo_name__struct_other_source
+  ptr addr @__rtti_struct_source
+}
+global @other_source__vtable [storage=readonly, binding=weak, object=_ZTV12other_source] = {
+  i64 0
+  ptr addr @__rtti_struct_other_source
+  ptr addr @other_source__made
+  ptr addr @other_source___other_source
+  ptr addr @other_source___other_source__deleting_entry
+}
+global @__typeinfo_name__struct_element [storage=readonly, binding=weak, object=_ZTS7element] = {
+  i8 55
+  i8 101
+  i8 108
+  i8 101
+  i8 109
+  i8 101
+  i8 110
+  i8 116
+  i8 0
+}
+global @__rtti_struct_element [storage=readonly, binding=weak, object=_ZTI7element] = {
+  ptr addr @__external_rtti_vtable____class_type_info + 16
+  ptr addr @__typeinfo_name__struct_element
+}
+global @element__vtable [storage=readonly, binding=weak, object=_ZTV7element] = {
+  i64 0
+  ptr addr @__rtti_struct_element
+  ptr addr @element__value
+  ptr addr @element___element
+  ptr addr @element___element__deleting_entry
+}
+
+function @through_a_pointer() -> i32 [binding=strong, object=_Z17through_a_pointerv] {
+  slot $live : obj<8x8>
+  slot $polymorphic : ptr
+  slot $got : obj<4x4>
+
+  block ^entry:
+    %t1 = addr $live
+    call void @other_source__other_source(%t1)
+    %t2 = addr $live
+    %t3 = index i8 [projection=base_subobject] %t2, 0
+    store ptr %t3, $polymorphic
+    %t4 = addr $got
+    eh_try ^call_unwind_dispatch_1
+    %t5 = load ptr $polymorphic
+    %t6 = load ptr %t5
+    %t7 = load ptr %t6
+    %t8 = call obj<4x4> %t7(%t5) as (%arg0 : ptr) -> obj<4x4>
+    copyobj 4x4 %t8, %t4
+    eh_end
+    jump ^call_unwind_end_2
+
+  block ^call_unwind_dispatch_1:
+    %t9 = addr $live
+    call void @other_source___other_source(%t9)
+    resume
+
+  block ^call_unwind_end_2:
+    %t10 = addr $got
+    %t11 = index i8 [projection=field] %t10, 0
+    %t12 = load i32 %t11
+    %t13 = addr $live
+    call void @other_source___other_source(%t13)
+    return i32 %t12
+}
+function @over_a_run() -> i32 [binding=strong, object=_Z10over_a_runv] {
+  slot $run : ptr
+  slot $array_new_index__1 : i64
+  slot $total : i32
+  slot $array_delete_index__2 : i64
+
+  block ^entry:
+    %t1 = convert sext i64 i32 56
+    %t2 = call ptr @operator_new__(%t1)
+    %t3 = index i8 %t2, 8
+    %t4 = const i64 3
+    store i64 %t4, %t2
+    %t5 = const i64 3
+    store i64 0, $array_new_index__1
+    jump ^array_new_ctor_cond_1
+
+  block ^array_new_ctor_cond_1:
+    %t6 = load i64 $array_new_index__1
+    %t7 = cmp ult i64 %t6, %t5
+    branch %t7, ^array_new_ctor_body_2, ^array_new_ctor_end_3
+
+  block ^array_new_ctor_body_2:
+    %t8 = binary mul i64 %t6, 16
+    %t9 = index i8 %t3, %t8
+    call void @element__element(%t9)
+    %t10 = binary add i64 %t6, 1
+    store i64 %t10, $array_new_index__1
+    jump ^array_new_ctor_cond_1
+
+  block ^array_new_ctor_end_3:
+    store ptr %t3, $run
+    %t11 = load ptr $run
+    %t12 = binary mul i64 0, 16
+    %t13 = index i8 [projection=array_element] %t11, %t12
+    %t14 = load ptr %t13
+    %t15 = load ptr %t14
+    %t16 = call i32 %t15(%t13) as (%arg0 : ptr) -> i32
+    %t17 = load ptr $run
+    %t18 = binary mul i64 2, 16
+    %t19 = index i8 [projection=array_element] %t17, %t18
+    %t20 = load ptr %t19
+    %t21 = load ptr %t20
+    %t22 = call i32 %t21(%t19) as (%arg0 : ptr) -> i32
+    %t23 = binary add i32 %t16, %t22
+    store i32 %t23, $total
+    %t24 = load ptr $run
+    %t25 = cmp ne ptr %t24, 0
+    branch %t25, ^array_delete_nonnull_4, ^array_delete_end_5
+
+  block ^array_delete_nonnull_4:
+    %t26 = index i8 %t24, -8
+    %t27 = load i64 %t26
+    store i64 %t27, $array_delete_index__2
+    jump ^array_delete_dtor_cond_6
+
+  block ^array_delete_dtor_cond_6:
+    %t28 = load i64 $array_delete_index__2
+    %t29 = cmp ne i64 %t28, 0
+    branch %t29, ^array_delete_dtor_body_7, ^array_delete_dtor_end_8
+
+  block ^array_delete_dtor_body_7:
+    %t30 = binary sub i64 %t28, 1
+    store i64 %t30, $array_delete_index__2
+    %t31 = binary mul i64 %t30, 16
+    %t32 = index i8 %t24, %t31
+    call void @element___element(%t32)
+    jump ^array_delete_dtor_cond_6
+
+  block ^array_delete_dtor_end_8:
+    call void @operator_delete__(%t26)
+    jump ^array_delete_end_5
+
+  block ^array_delete_end_5:
+    %t33 = load i32 $total
+    return i32 %t33
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $cond__1 : i32
+  slot $land__2 : i64
+
+  block ^entry:
+    %t1 = call i32 @through_a_pointer()
+    %t2 = cmp eq i32 %t1, 2
+    branch %t2, ^land_rhs_4, ^land_short_5
+
+  block ^land_rhs_4:
+    %t3 = call i32 @over_a_run()
+    %t4 = cmp eq i32 %t3, 8
+    %t5 = cmp ne i64 %t4, 0
+    store i64 %t5, $land__2
+    jump ^land_end_6
+
+  block ^land_short_5:
+    store i64 0, $land__2
+    jump ^land_end_6
+
+  block ^land_end_6:
+    %t6 = load i64 $land__2
+    branch %t6, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t7 = load i32 $cond__1
+    return i32 %t7
+}
+function @source__made(%this : ptr) -> obj<4x4> [binding=weak, object=_ZNK6source4madeEv] {
+  slot $this : ptr
+  slot $out : obj<4x4>
+  slot $retobj__1 : obj<4x4>
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = addr $out
+    %t2 = addr $out
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 1, %t3
+    %t4 = addr $retobj__1
+    %t5 = addr $out
+    copyobj 4x4 %t5, %t4
+    return obj<4x4> $retobj__1
+}
+function @source___source__base_entry(%this : ptr) -> void [binding=weak, object=_ZN6sourceD2Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = addr @source__vtable
+    %t3 = index i8 %t2, 16
+    store ptr %t3, %t1
+    return void
+}
+function @source___source__deleting_entry(%this : ptr) -> void [binding=weak, object=_ZN6sourceD0Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    eh_cleanup ^destructor_cleanup_1
+    %t1 = load ptr $this
+    %t2 = addr @source__vtable
+    %t3 = index i8 %t2, 16
+    store ptr %t3, %t1
+    eh_end
+    %t4 = load ptr $this
+    call void @operator_delete(%t4)
+    jump ^destructor_end_2
+
+  block ^destructor_cleanup_1:
+    %t5 = load ptr $this
+    call void @operator_delete(%t5)
+    eh_end
+    resume
+
+  block ^destructor_end_2:
+    return void
+}
+function @source___source(%this : ptr) -> void [binding=weak, object=_ZN6sourceD1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = addr @source__vtable
+    %t3 = index i8 %t2, 16
+    store ptr %t3, %t1
+    return void
+}
+function @other_source__other_source(%this : ptr) -> void [unwind=no, binding=weak, object=_ZN12other_sourceC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    call void @source__source__base_entry(%t2)
+    %t3 = load ptr $this
+    %t4 = addr @other_source__vtable
+    %t5 = index i8 %t4, 16
+    store ptr %t5, %t3
+    return void
+}
+function @other_source___other_source__deleting_entry(%this : ptr) -> void [binding=weak, object=_ZN12other_sourceD0Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    eh_cleanup ^destructor_cleanup_1
+    %t1 = load ptr $this
+    %t2 = addr @other_source__vtable
+    %t3 = index i8 %t2, 16
+    store ptr %t3, %t1
+    eh_end
+    eh_cleanup ^destructor_suffix_cleanup_3
+    %t4 = load ptr $this
+    %t5 = index i8 [projection=base_subobject] %t4, 0
+    call void @source___source__base_entry(%t5)
+    eh_end
+    jump ^destructor_suffix_next_4
+
+  block ^destructor_suffix_cleanup_3:
+    %t6 = load ptr $this
+    call void @operator_delete(%t6)
+    eh_end
+    resume
+
+  block ^destructor_suffix_next_4:
+    %t7 = load ptr $this
+    call void @operator_delete(%t7)
+    jump ^destructor_end_2
+
+  block ^destructor_cleanup_1:
+    %t8 = load ptr $this
+    %t9 = index i8 [projection=base_subobject] %t8, 0
+    call void @source___source__base_entry(%t9)
+    %t10 = load ptr $this
+    call void @operator_delete(%t10)
+    eh_end
+    resume
+
+  block ^destructor_end_2:
+    return void
+}
+function @other_source___other_source(%this : ptr) -> void [binding=weak, object=_ZN12other_sourceD1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    eh_cleanup ^destructor_cleanup_1
+    %t1 = load ptr $this
+    %t2 = addr @other_source__vtable
+    %t3 = index i8 %t2, 16
+    store ptr %t3, %t1
+    eh_end
+    %t4 = load ptr $this
+    %t5 = index i8 [projection=base_subobject] %t4, 0
+    call void @source___source__base_entry(%t5)
+    jump ^destructor_end_2
+
+  block ^destructor_cleanup_1:
+    %t6 = load ptr $this
+    %t7 = index i8 [projection=base_subobject] %t6, 0
+    call void @source___source__base_entry(%t7)
+    eh_end
+    resume
+
+  block ^destructor_end_2:
+    return void
+}
+function @element__element(%this : ptr) -> void [unwind=no, binding=weak, object=_ZN7elementC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = addr @element__vtable
+    %t3 = index i8 %t2, 16
+    store ptr %t3, %t1
+    return void
+}
+function @element__value(%this : ptr) -> i32 [binding=weak, object=_ZNK7element5valueEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    return i32 4
+}
+function @element___element__deleting_entry(%this : ptr) -> void [binding=weak, object=_ZN7elementD0Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    eh_cleanup ^destructor_cleanup_1
+    %t1 = load ptr $this
+    %t2 = addr @element__vtable
+    %t3 = index i8 %t2, 16
+    store ptr %t3, %t1
+    eh_end
+    %t4 = load ptr $this
+    call void @operator_delete(%t4)
+    jump ^destructor_end_2
+
+  block ^destructor_cleanup_1:
+    %t5 = load ptr $this
+    call void @operator_delete(%t5)
+    eh_end
+    resume
+
+  block ^destructor_end_2:
+    return void
+}
+function @element___element(%this : ptr) -> void [binding=weak, object=_ZN7elementD1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = addr @element__vtable
+    %t3 = index i8 %t2, 16
+    store ptr %t3, %t1
+    return void
+}
+function @other_source__made(%this : ptr) -> obj<4x4> [binding=weak, object=_ZNK12other_source4madeEv] {
+  slot $this : ptr
+  slot $out : obj<4x4>
+  slot $retobj__1 : obj<4x4>
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = addr $out
+    %t2 = addr $out
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 2, %t3
+    %t4 = addr $retobj__1
+    %t5 = addr $out
+    copyobj 4x4 %t5, %t4
+    return obj<4x4> $retobj__1
+}
+function @source__source__base_entry(%this : ptr) -> void [unwind=no, binding=weak, object=_ZN6sourceC2Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = addr @source__vtable
+    %t3 = index i8 %t2, 16
+    store ptr %t3, %t1
+    return void
+}
+alias object _ZN6sourceD2Ev = @source___source
+alias object _ZN12other_sourceC2Ev = @other_source__other_source
+alias object _ZN12other_sourceD2Ev = @other_source___other_source
+alias object _ZN7elementC2Ev = @element__element
+alias object _ZN7elementD2Ev = @element___element

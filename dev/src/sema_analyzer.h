@@ -514,6 +514,11 @@ private:
 	SemaEntity& class_declaration(const AstNode& node, const Context& ctx,
 	                              const Span& span, bool define,
 	                              const std::string& named_by);
+	// 9.1p2: the declaration a class-head names - one an earlier declaration in
+	// the region already made, or one this class-head makes.
+	SemaEntity* class_head_entity(const Context& ctx, ClassTag tag,
+	                              const QualifiedName& spelled,
+	                              const std::string& written, bool define);
 	SemaEntity& enum_declaration(const AstNode& node, const Context& ctx,
 	                             bool elaborated, const std::string& named_by);
 	void enumerators(const AstNode& node, SemaEntity& entity,
@@ -630,6 +635,10 @@ private:
 	// class's table, and what the deleting entry of its destructor gives the
 	// storage back to.
 	void settle_vtable_ownership(SemaEntity& entity, Scope& scope);
+	// 12.1, 12.4 and the ABI: which of the classes below the vpointer this unit's
+	// own source wrote a special member's definition for, which is what says the
+	// object file owes both of the ABI's entry points for it.
+	static void settle_shared_entry_points(SemaEntity& entity);
 	// 10.3p4, 10.3p5 and 10.3p7: what an overriding declaration has to agree
 	// with, and what a declaration that overrides nothing may not have written.
 	void require_overridable(const SemaEntity& member,
@@ -753,6 +762,10 @@ private:
 	// throws nothing, which is the same walk asked of what each subobject's own
 	// destructor allows rather than of what running it comes to.
 	bool destruction_nonthrowing(Scope& scope);
+	// 15.4p14 and 12.1p5: the same reading of the default constructor - what the
+	// default constructor of the base subobject and of each member of class type
+	// allows, which is what the definition the standard gives it invokes.
+	bool default_construction_nonthrowing(Scope& scope);
 	// 12.6.2: the member initializations of one constructor, in the declaration
 	// order 12.6.2p10 gives them whatever order the mem-initializers were
 	// written in.  Each is written under the constructor's own definition.

@@ -1,0 +1,1097 @@
+declare global @__external_rtti_vtable____class_type_info [binding=strong, object=_ZTVN10__cxxabiv117__class_type_infoE]
+declare global @__external_rtti_vtable____si_class_type_info [binding=strong, object=_ZTVN10__cxxabiv120__si_class_type_infoE]
+declare function @operator_delete(%arg0 : ptr) -> void [unwind=no, binding=strong, object=cppgm_builtin_operator_delete]
+
+global @__typeinfo_name_type_Z10two_in_onevEUt_ [storage=readonly, binding=weak, object=_ZTSZ10two_in_onevEUt_] = {
+  i8 90
+  i8 49
+  i8 48
+  i8 116
+  i8 119
+  i8 111
+  i8 95
+  i8 105
+  i8 110
+  i8 95
+  i8 111
+  i8 110
+  i8 101
+  i8 118
+  i8 69
+  i8 85
+  i8 116
+  i8 95
+  i8 0
+}
+global @__typeinfo_name__struct_base [storage=readonly, binding=weak, object=_ZTS4base] = {
+  i8 52
+  i8 98
+  i8 97
+  i8 115
+  i8 101
+  i8 0
+}
+global @__rtti_struct_base [storage=readonly, binding=weak, object=_ZTI4base] = {
+  ptr addr @__external_rtti_vtable____class_type_info + 16
+  ptr addr @__typeinfo_name__struct_base
+}
+global @__rtti_type_Z10two_in_onevEUt_ [storage=readonly, binding=weak, object=_ZTIZ10two_in_onevEUt_] = {
+  ptr addr @__external_rtti_vtable____si_class_type_info + 16
+  ptr addr @__typeinfo_name_type_Z10two_in_onevEUt_
+  ptr addr @__rtti_struct_base
+}
+global @__vtable_type_Z10two_in_onevEUt_ [storage=readonly, binding=weak, object=_ZTVZ10two_in_onevEUt_] = {
+  i64 0
+  ptr addr @__rtti_type_Z10two_in_onevEUt_
+  ptr addr @__local_type1__value
+  ptr addr @__local_type1_____local_type1
+  ptr addr @__local_type1_____local_type1__deleting_entry
+}
+global @__typeinfo_name_type_Z10two_in_onevEUt0_ [storage=readonly, binding=weak, object=_ZTSZ10two_in_onevEUt0_] = {
+  i8 90
+  i8 49
+  i8 48
+  i8 116
+  i8 119
+  i8 111
+  i8 95
+  i8 105
+  i8 110
+  i8 95
+  i8 111
+  i8 110
+  i8 101
+  i8 118
+  i8 69
+  i8 85
+  i8 116
+  i8 48
+  i8 95
+  i8 0
+}
+global @__rtti_type_Z10two_in_onevEUt0_ [storage=readonly, binding=weak, object=_ZTIZ10two_in_onevEUt0_] = {
+  ptr addr @__external_rtti_vtable____si_class_type_info + 16
+  ptr addr @__typeinfo_name_type_Z10two_in_onevEUt0_
+  ptr addr @__rtti_struct_base
+}
+global @__vtable_type_Z10two_in_onevEUt0_ [storage=readonly, binding=weak, object=_ZTVZ10two_in_onevEUt0_] = {
+  i64 0
+  ptr addr @__rtti_type_Z10two_in_onevEUt0_
+  ptr addr @__local_type2__value
+  ptr addr @__local_type2_____local_type2
+  ptr addr @__local_type2_____local_type2__deleting_entry
+}
+global @__typeinfo_name_type_Z8one_morevEUt_ [storage=readonly, binding=weak, object=_ZTSZ8one_morevEUt_] = {
+  i8 90
+  i8 56
+  i8 111
+  i8 110
+  i8 101
+  i8 95
+  i8 109
+  i8 111
+  i8 114
+  i8 101
+  i8 118
+  i8 69
+  i8 85
+  i8 116
+  i8 95
+  i8 0
+}
+global @__rtti_type_Z8one_morevEUt_ [storage=readonly, binding=weak, object=_ZTIZ8one_morevEUt_] = {
+  ptr addr @__external_rtti_vtable____si_class_type_info + 16
+  ptr addr @__typeinfo_name_type_Z8one_morevEUt_
+  ptr addr @__rtti_struct_base
+}
+global @__vtable_type_Z8one_morevEUt_ [storage=readonly, binding=weak, object=_ZTVZ8one_morevEUt_] = {
+  i64 0
+  ptr addr @__rtti_type_Z8one_morevEUt_
+  ptr addr @__local_type3__value
+  ptr addr @__local_type3_____local_type3
+  ptr addr @__local_type3_____local_type3__deleting_entry
+}
+global @__typeinfo_name_type_Z14across_a_blockvEUt_ [storage=readonly, binding=weak, object=_ZTSZ14across_a_blockvEUt_] = {
+  i8 90
+  i8 49
+  i8 52
+  i8 97
+  i8 99
+  i8 114
+  i8 111
+  i8 115
+  i8 115
+  i8 95
+  i8 97
+  i8 95
+  i8 98
+  i8 108
+  i8 111
+  i8 99
+  i8 107
+  i8 118
+  i8 69
+  i8 85
+  i8 116
+  i8 95
+  i8 0
+}
+global @__rtti_type_Z14across_a_blockvEUt_ [storage=readonly, binding=weak, object=_ZTIZ14across_a_blockvEUt_] = {
+  ptr addr @__external_rtti_vtable____si_class_type_info + 16
+  ptr addr @__typeinfo_name_type_Z14across_a_blockvEUt_
+  ptr addr @__rtti_struct_base
+}
+global @__vtable_type_Z14across_a_blockvEUt_ [storage=readonly, binding=weak, object=_ZTVZ14across_a_blockvEUt_] = {
+  i64 0
+  ptr addr @__rtti_type_Z14across_a_blockvEUt_
+  ptr addr @__local_type4__value
+  ptr addr @__local_type4_____local_type4
+  ptr addr @__local_type4_____local_type4__deleting_entry
+}
+global @__typeinfo_name_type_Z14across_a_blockvEUt0_ [storage=readonly, binding=weak, object=_ZTSZ14across_a_blockvEUt0_] = {
+  i8 90
+  i8 49
+  i8 52
+  i8 97
+  i8 99
+  i8 114
+  i8 111
+  i8 115
+  i8 115
+  i8 95
+  i8 97
+  i8 95
+  i8 98
+  i8 108
+  i8 111
+  i8 99
+  i8 107
+  i8 118
+  i8 69
+  i8 85
+  i8 116
+  i8 48
+  i8 95
+  i8 0
+}
+global @__rtti_type_Z14across_a_blockvEUt0_ [storage=readonly, binding=weak, object=_ZTIZ14across_a_blockvEUt0_] = {
+  ptr addr @__external_rtti_vtable____si_class_type_info + 16
+  ptr addr @__typeinfo_name_type_Z14across_a_blockvEUt0_
+  ptr addr @__rtti_struct_base
+}
+global @__vtable_type_Z14across_a_blockvEUt0_ [storage=readonly, binding=weak, object=_ZTVZ14across_a_blockvEUt0_] = {
+  i64 0
+  ptr addr @__rtti_type_Z14across_a_blockvEUt0_
+  ptr addr @__local_type5__value
+  ptr addr @__local_type5_____local_type5
+  ptr addr @__local_type5_____local_type5__deleting_entry
+}
+global @base__vtable [storage=readonly, binding=weak, object=_ZTV4base] = {
+  i64 0
+  ptr addr @__rtti_struct_base
+  ptr addr @base__value
+  ptr addr @base___base
+  ptr addr @base___base__deleting_entry
+}
+global @__typeinfo_name_type_ZNK6holder6memberEvEUt_ [storage=readonly, binding=weak, object=_ZTSZNK6holder6memberEvEUt_] = {
+  i8 90
+  i8 78
+  i8 75
+  i8 54
+  i8 104
+  i8 111
+  i8 108
+  i8 100
+  i8 101
+  i8 114
+  i8 54
+  i8 109
+  i8 101
+  i8 109
+  i8 98
+  i8 101
+  i8 114
+  i8 69
+  i8 118
+  i8 69
+  i8 85
+  i8 116
+  i8 95
+  i8 0
+}
+global @__rtti_type_ZNK6holder6memberEvEUt_ [storage=readonly, binding=weak, object=_ZTIZNK6holder6memberEvEUt_] = {
+  ptr addr @__external_rtti_vtable____si_class_type_info + 16
+  ptr addr @__typeinfo_name_type_ZNK6holder6memberEvEUt_
+  ptr addr @__rtti_struct_base
+}
+global @__vtable_type_ZNK6holder6memberEvEUt_ [storage=readonly, binding=weak, object=_ZTVZNK6holder6memberEvEUt_] = {
+  i64 0
+  ptr addr @__rtti_type_ZNK6holder6memberEvEUt_
+  ptr addr @holder____local_type6__value
+  ptr addr @holder____local_type6_____local_type6
+  ptr addr @holder____local_type6_____local_type6__deleting_entry
+}
+
+function @two_in_one() -> i32 [binding=strong, object=_Z10two_in_onev] {
+  slot $first : obj<8x8>
+  slot $second : obj<8x8>
+  slot $one : ptr
+  slot $other : ptr
+  slot $call__1 : i32
+  slot $call__2 : i32
+
+  block ^entry:
+    %t1 = addr $first
+    call void @__local_type1____local_type1(%t1)
+    %t2 = addr $second
+    call void @__local_type2____local_type2(%t2)
+    %t3 = addr $first
+    %t4 = index i8 [projection=base_subobject] %t3, 0
+    store ptr %t4, $one
+    %t5 = addr $second
+    %t6 = index i8 [projection=base_subobject] %t5, 0
+    store ptr %t6, $other
+    eh_try ^call_unwind_dispatch_1
+    %t7 = load ptr $one
+    %t8 = load ptr %t7
+    %t9 = load ptr %t8
+    %t10 = call i32 %t9(%t7) as (%arg0 : ptr) -> i32
+    store i32 %t10, $call__1
+    %t11 = load i32 $call__1
+    %t12 = load ptr $other
+    %t13 = load ptr %t12
+    %t14 = load ptr %t13
+    %t15 = call i32 %t14(%t12) as (%arg0 : ptr) -> i32
+    store i32 %t15, $call__2
+    %t16 = load i32 $call__2
+    %t17 = binary add i32 %t11, %t16
+    eh_end
+    jump ^call_unwind_end_2
+
+  block ^call_unwind_dispatch_1:
+    %t18 = addr $second
+    call void @__local_type2_____local_type2(%t18)
+    %t19 = addr $first
+    call void @__local_type1_____local_type1(%t19)
+    resume
+
+  block ^call_unwind_end_2:
+    %t20 = addr $second
+    call void @__local_type2_____local_type2(%t20)
+    %t21 = addr $first
+    call void @__local_type1_____local_type1(%t21)
+    return i32 %t17
+}
+function @one_more() -> i32 [binding=strong, object=_Z8one_morev] {
+  slot $only : obj<8x8>
+  slot $polymorphic : ptr
+  slot $call__1 : i32
+
+  block ^entry:
+    %t1 = addr $only
+    call void @__local_type3____local_type3(%t1)
+    %t2 = addr $only
+    %t3 = index i8 [projection=base_subobject] %t2, 0
+    store ptr %t3, $polymorphic
+    eh_try ^call_unwind_dispatch_1
+    %t4 = load ptr $polymorphic
+    %t5 = load ptr %t4
+    %t6 = load ptr %t5
+    %t7 = call i32 %t6(%t4) as (%arg0 : ptr) -> i32
+    store i32 %t7, $call__1
+    %t8 = load i32 $call__1
+    eh_end
+    jump ^call_unwind_end_2
+
+  block ^call_unwind_dispatch_1:
+    %t9 = addr $only
+    call void @__local_type3_____local_type3(%t9)
+    resume
+
+  block ^call_unwind_end_2:
+    %t10 = addr $only
+    call void @__local_type3_____local_type3(%t10)
+    return i32 %t8
+}
+function @across_a_block() -> i32 [binding=strong, object=_Z14across_a_blockv] {
+  slot $outer : obj<8x8>
+  slot $first : ptr
+  slot $total : i32
+  slot $call__1 : i32
+  slot $inner : obj<8x8>
+  slot $second : ptr
+  slot $call__2 : i32
+
+  block ^entry:
+    %t1 = addr $outer
+    call void @__local_type4____local_type4(%t1)
+    %t2 = addr $outer
+    %t3 = index i8 [projection=base_subobject] %t2, 0
+    store ptr %t3, $first
+    eh_try ^call_unwind_dispatch_1
+    %t4 = load ptr $first
+    %t5 = load ptr %t4
+    %t6 = load ptr %t5
+    %t7 = call i32 %t6(%t4) as (%arg0 : ptr) -> i32
+    store i32 %t7, $call__1
+    %t8 = load i32 $call__1
+    store i32 %t8, $total
+    eh_end
+    jump ^call_unwind_end_2
+
+  block ^call_unwind_dispatch_1:
+    %t9 = addr $outer
+    call void @__local_type4_____local_type4(%t9)
+    resume
+
+  block ^call_unwind_end_2:
+    %t10 = addr $inner
+    call void @__local_type5____local_type5(%t10)
+    %t11 = addr $inner
+    %t12 = index i8 [projection=base_subobject] %t11, 0
+    store ptr %t12, $second
+    %t13 = load i32 $total
+    eh_try ^call_unwind_dispatch_3
+    %t14 = load ptr $second
+    %t15 = load ptr %t14
+    %t16 = load ptr %t15
+    %t17 = call i32 %t16(%t14) as (%arg0 : ptr) -> i32
+    store i32 %t17, $call__2
+    %t18 = load i32 $call__2
+    %t19 = binary add i32 %t13, %t18
+    store i32 %t19, $total
+    eh_end
+    jump ^call_unwind_end_4
+
+  block ^call_unwind_dispatch_3:
+    %t20 = addr $inner
+    call void @__local_type5_____local_type5(%t20)
+    %t21 = addr $outer
+    call void @__local_type4_____local_type4(%t21)
+    resume
+
+  block ^call_unwind_end_4:
+    %t22 = addr $inner
+    call void @__local_type5_____local_type5(%t22)
+    %t23 = load i32 $total
+    %t24 = addr $outer
+    call void @__local_type4_____local_type4(%t24)
+    return i32 %t23
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $cond__1 : i32
+  slot $land__2 : i64
+  slot $land__3 : i64
+  slot $land__4 : i64
+  slot $tmpobj__5 : obj<1x1>
+
+  block ^entry:
+    %t1 = call i32 @two_in_one()
+    %t2 = cmp eq i32 %t1, 3
+    branch %t2, ^land_rhs_10, ^land_short_11
+
+  block ^land_rhs_10:
+    %t3 = call i32 @one_more()
+    %t4 = cmp eq i32 %t3, 4
+    %t5 = cmp ne i64 %t4, 0
+    store i64 %t5, $land__4
+    jump ^land_end_12
+
+  block ^land_short_11:
+    store i64 0, $land__4
+    jump ^land_end_12
+
+  block ^land_end_12:
+    %t6 = load i64 $land__4
+    branch %t6, ^land_rhs_7, ^land_short_8
+
+  block ^land_rhs_7:
+    %t7 = addr $tmpobj__5
+    call void @holder__holder(%t7)
+    %t8 = call i32 @holder__member(%t7)
+    %t9 = cmp eq i32 %t8, 8
+    %t10 = cmp ne i64 %t9, 0
+    store i64 %t10, $land__3
+    jump ^land_end_9
+
+  block ^land_short_8:
+    store i64 0, $land__3
+    jump ^land_end_9
+
+  block ^land_end_9:
+    %t11 = load i64 $land__3
+    branch %t11, ^land_rhs_4, ^land_short_5
+
+  block ^land_rhs_4:
+    %t12 = call i32 @across_a_block()
+    %t13 = cmp eq i32 %t12, 48
+    %t14 = cmp ne i64 %t13, 0
+    store i64 %t14, $land__2
+    jump ^land_end_6
+
+  block ^land_short_5:
+    store i64 0, $land__2
+    jump ^land_end_6
+
+  block ^land_end_6:
+    %t15 = load i64 $land__2
+    branch %t15, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t16 = load i32 $cond__1
+    return i32 %t16
+}
+function @__local_type1__value(%this : ptr) -> i32 [binding=weak, object=_ZZ10two_in_onevENKUt_5valueEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    return i32 1
+}
+function @__local_type1____local_type1(%this : ptr) -> void [unwind=no, binding=weak, object=_ZZ10two_in_onevENUt_C1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    call void @base__base__base_entry(%t2)
+    %t3 = load ptr $this
+    %t4 = addr @__vtable_type_Z10two_in_onevEUt_
+    %t5 = index i8 %t4, 16
+    store ptr %t5, %t3
+    return void
+}
+function @__local_type1_____local_type1__deleting_entry(%this : ptr) -> void [binding=weak, object=_ZZ10two_in_onevENUt_D0Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    eh_cleanup ^destructor_cleanup_1
+    %t1 = load ptr $this
+    %t2 = addr @__vtable_type_Z10two_in_onevEUt_
+    %t3 = index i8 %t2, 16
+    store ptr %t3, %t1
+    eh_end
+    eh_cleanup ^destructor_suffix_cleanup_3
+    %t4 = load ptr $this
+    %t5 = index i8 [projection=base_subobject] %t4, 0
+    call void @base___base__base_entry(%t5)
+    eh_end
+    jump ^destructor_suffix_next_4
+
+  block ^destructor_suffix_cleanup_3:
+    %t6 = load ptr $this
+    call void @operator_delete(%t6)
+    eh_end
+    resume
+
+  block ^destructor_suffix_next_4:
+    %t7 = load ptr $this
+    call void @operator_delete(%t7)
+    jump ^destructor_end_2
+
+  block ^destructor_cleanup_1:
+    %t8 = load ptr $this
+    %t9 = index i8 [projection=base_subobject] %t8, 0
+    call void @base___base__base_entry(%t9)
+    %t10 = load ptr $this
+    call void @operator_delete(%t10)
+    eh_end
+    resume
+
+  block ^destructor_end_2:
+    return void
+}
+function @__local_type1_____local_type1(%this : ptr) -> void [binding=weak, object=_ZZ10two_in_onevENUt_D1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    eh_cleanup ^destructor_cleanup_1
+    %t1 = load ptr $this
+    %t2 = addr @__vtable_type_Z10two_in_onevEUt_
+    %t3 = index i8 %t2, 16
+    store ptr %t3, %t1
+    eh_end
+    %t4 = load ptr $this
+    %t5 = index i8 [projection=base_subobject] %t4, 0
+    call void @base___base__base_entry(%t5)
+    jump ^destructor_end_2
+
+  block ^destructor_cleanup_1:
+    %t6 = load ptr $this
+    %t7 = index i8 [projection=base_subobject] %t6, 0
+    call void @base___base__base_entry(%t7)
+    eh_end
+    resume
+
+  block ^destructor_end_2:
+    return void
+}
+function @__local_type2__value(%this : ptr) -> i32 [binding=weak, object=_ZZ10two_in_onevENKUt0_5valueEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    return i32 2
+}
+function @__local_type2____local_type2(%this : ptr) -> void [unwind=no, binding=weak, object=_ZZ10two_in_onevENUt0_C1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    call void @base__base__base_entry(%t2)
+    %t3 = load ptr $this
+    %t4 = addr @__vtable_type_Z10two_in_onevEUt0_
+    %t5 = index i8 %t4, 16
+    store ptr %t5, %t3
+    return void
+}
+function @__local_type2_____local_type2__deleting_entry(%this : ptr) -> void [binding=weak, object=_ZZ10two_in_onevENUt0_D0Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    eh_cleanup ^destructor_cleanup_1
+    %t1 = load ptr $this
+    %t2 = addr @__vtable_type_Z10two_in_onevEUt0_
+    %t3 = index i8 %t2, 16
+    store ptr %t3, %t1
+    eh_end
+    eh_cleanup ^destructor_suffix_cleanup_3
+    %t4 = load ptr $this
+    %t5 = index i8 [projection=base_subobject] %t4, 0
+    call void @base___base__base_entry(%t5)
+    eh_end
+    jump ^destructor_suffix_next_4
+
+  block ^destructor_suffix_cleanup_3:
+    %t6 = load ptr $this
+    call void @operator_delete(%t6)
+    eh_end
+    resume
+
+  block ^destructor_suffix_next_4:
+    %t7 = load ptr $this
+    call void @operator_delete(%t7)
+    jump ^destructor_end_2
+
+  block ^destructor_cleanup_1:
+    %t8 = load ptr $this
+    %t9 = index i8 [projection=base_subobject] %t8, 0
+    call void @base___base__base_entry(%t9)
+    %t10 = load ptr $this
+    call void @operator_delete(%t10)
+    eh_end
+    resume
+
+  block ^destructor_end_2:
+    return void
+}
+function @__local_type2_____local_type2(%this : ptr) -> void [binding=weak, object=_ZZ10two_in_onevENUt0_D1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    eh_cleanup ^destructor_cleanup_1
+    %t1 = load ptr $this
+    %t2 = addr @__vtable_type_Z10two_in_onevEUt0_
+    %t3 = index i8 %t2, 16
+    store ptr %t3, %t1
+    eh_end
+    %t4 = load ptr $this
+    %t5 = index i8 [projection=base_subobject] %t4, 0
+    call void @base___base__base_entry(%t5)
+    jump ^destructor_end_2
+
+  block ^destructor_cleanup_1:
+    %t6 = load ptr $this
+    %t7 = index i8 [projection=base_subobject] %t6, 0
+    call void @base___base__base_entry(%t7)
+    eh_end
+    resume
+
+  block ^destructor_end_2:
+    return void
+}
+function @__local_type3__value(%this : ptr) -> i32 [binding=weak, object=_ZZ8one_morevENKUt_5valueEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    return i32 4
+}
+function @__local_type3____local_type3(%this : ptr) -> void [unwind=no, binding=weak, object=_ZZ8one_morevENUt_C1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    call void @base__base__base_entry(%t2)
+    %t3 = load ptr $this
+    %t4 = addr @__vtable_type_Z8one_morevEUt_
+    %t5 = index i8 %t4, 16
+    store ptr %t5, %t3
+    return void
+}
+function @__local_type3_____local_type3__deleting_entry(%this : ptr) -> void [binding=weak, object=_ZZ8one_morevENUt_D0Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    eh_cleanup ^destructor_cleanup_1
+    %t1 = load ptr $this
+    %t2 = addr @__vtable_type_Z8one_morevEUt_
+    %t3 = index i8 %t2, 16
+    store ptr %t3, %t1
+    eh_end
+    eh_cleanup ^destructor_suffix_cleanup_3
+    %t4 = load ptr $this
+    %t5 = index i8 [projection=base_subobject] %t4, 0
+    call void @base___base__base_entry(%t5)
+    eh_end
+    jump ^destructor_suffix_next_4
+
+  block ^destructor_suffix_cleanup_3:
+    %t6 = load ptr $this
+    call void @operator_delete(%t6)
+    eh_end
+    resume
+
+  block ^destructor_suffix_next_4:
+    %t7 = load ptr $this
+    call void @operator_delete(%t7)
+    jump ^destructor_end_2
+
+  block ^destructor_cleanup_1:
+    %t8 = load ptr $this
+    %t9 = index i8 [projection=base_subobject] %t8, 0
+    call void @base___base__base_entry(%t9)
+    %t10 = load ptr $this
+    call void @operator_delete(%t10)
+    eh_end
+    resume
+
+  block ^destructor_end_2:
+    return void
+}
+function @__local_type3_____local_type3(%this : ptr) -> void [binding=weak, object=_ZZ8one_morevENUt_D1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    eh_cleanup ^destructor_cleanup_1
+    %t1 = load ptr $this
+    %t2 = addr @__vtable_type_Z8one_morevEUt_
+    %t3 = index i8 %t2, 16
+    store ptr %t3, %t1
+    eh_end
+    %t4 = load ptr $this
+    %t5 = index i8 [projection=base_subobject] %t4, 0
+    call void @base___base__base_entry(%t5)
+    jump ^destructor_end_2
+
+  block ^destructor_cleanup_1:
+    %t6 = load ptr $this
+    %t7 = index i8 [projection=base_subobject] %t6, 0
+    call void @base___base__base_entry(%t7)
+    eh_end
+    resume
+
+  block ^destructor_end_2:
+    return void
+}
+function @__local_type4__value(%this : ptr) -> i32 [binding=weak, object=_ZZ14across_a_blockvENKUt_5valueEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    return i32 16
+}
+function @__local_type4____local_type4(%this : ptr) -> void [unwind=no, binding=weak, object=_ZZ14across_a_blockvENUt_C1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    call void @base__base__base_entry(%t2)
+    %t3 = load ptr $this
+    %t4 = addr @__vtable_type_Z14across_a_blockvEUt_
+    %t5 = index i8 %t4, 16
+    store ptr %t5, %t3
+    return void
+}
+function @__local_type4_____local_type4__deleting_entry(%this : ptr) -> void [binding=weak, object=_ZZ14across_a_blockvENUt_D0Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    eh_cleanup ^destructor_cleanup_1
+    %t1 = load ptr $this
+    %t2 = addr @__vtable_type_Z14across_a_blockvEUt_
+    %t3 = index i8 %t2, 16
+    store ptr %t3, %t1
+    eh_end
+    eh_cleanup ^destructor_suffix_cleanup_3
+    %t4 = load ptr $this
+    %t5 = index i8 [projection=base_subobject] %t4, 0
+    call void @base___base__base_entry(%t5)
+    eh_end
+    jump ^destructor_suffix_next_4
+
+  block ^destructor_suffix_cleanup_3:
+    %t6 = load ptr $this
+    call void @operator_delete(%t6)
+    eh_end
+    resume
+
+  block ^destructor_suffix_next_4:
+    %t7 = load ptr $this
+    call void @operator_delete(%t7)
+    jump ^destructor_end_2
+
+  block ^destructor_cleanup_1:
+    %t8 = load ptr $this
+    %t9 = index i8 [projection=base_subobject] %t8, 0
+    call void @base___base__base_entry(%t9)
+    %t10 = load ptr $this
+    call void @operator_delete(%t10)
+    eh_end
+    resume
+
+  block ^destructor_end_2:
+    return void
+}
+function @__local_type4_____local_type4(%this : ptr) -> void [binding=weak, object=_ZZ14across_a_blockvENUt_D1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    eh_cleanup ^destructor_cleanup_1
+    %t1 = load ptr $this
+    %t2 = addr @__vtable_type_Z14across_a_blockvEUt_
+    %t3 = index i8 %t2, 16
+    store ptr %t3, %t1
+    eh_end
+    %t4 = load ptr $this
+    %t5 = index i8 [projection=base_subobject] %t4, 0
+    call void @base___base__base_entry(%t5)
+    jump ^destructor_end_2
+
+  block ^destructor_cleanup_1:
+    %t6 = load ptr $this
+    %t7 = index i8 [projection=base_subobject] %t6, 0
+    call void @base___base__base_entry(%t7)
+    eh_end
+    resume
+
+  block ^destructor_end_2:
+    return void
+}
+function @__local_type5__value(%this : ptr) -> i32 [binding=weak, object=_ZZ14across_a_blockvENKUt0_5valueEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    return i32 32
+}
+function @__local_type5____local_type5(%this : ptr) -> void [unwind=no, binding=weak, object=_ZZ14across_a_blockvENUt0_C1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    call void @base__base__base_entry(%t2)
+    %t3 = load ptr $this
+    %t4 = addr @__vtable_type_Z14across_a_blockvEUt0_
+    %t5 = index i8 %t4, 16
+    store ptr %t5, %t3
+    return void
+}
+function @__local_type5_____local_type5__deleting_entry(%this : ptr) -> void [binding=weak, object=_ZZ14across_a_blockvENUt0_D0Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    eh_cleanup ^destructor_cleanup_1
+    %t1 = load ptr $this
+    %t2 = addr @__vtable_type_Z14across_a_blockvEUt0_
+    %t3 = index i8 %t2, 16
+    store ptr %t3, %t1
+    eh_end
+    eh_cleanup ^destructor_suffix_cleanup_3
+    %t4 = load ptr $this
+    %t5 = index i8 [projection=base_subobject] %t4, 0
+    call void @base___base__base_entry(%t5)
+    eh_end
+    jump ^destructor_suffix_next_4
+
+  block ^destructor_suffix_cleanup_3:
+    %t6 = load ptr $this
+    call void @operator_delete(%t6)
+    eh_end
+    resume
+
+  block ^destructor_suffix_next_4:
+    %t7 = load ptr $this
+    call void @operator_delete(%t7)
+    jump ^destructor_end_2
+
+  block ^destructor_cleanup_1:
+    %t8 = load ptr $this
+    %t9 = index i8 [projection=base_subobject] %t8, 0
+    call void @base___base__base_entry(%t9)
+    %t10 = load ptr $this
+    call void @operator_delete(%t10)
+    eh_end
+    resume
+
+  block ^destructor_end_2:
+    return void
+}
+function @__local_type5_____local_type5(%this : ptr) -> void [binding=weak, object=_ZZ14across_a_blockvENUt0_D1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    eh_cleanup ^destructor_cleanup_1
+    %t1 = load ptr $this
+    %t2 = addr @__vtable_type_Z14across_a_blockvEUt0_
+    %t3 = index i8 %t2, 16
+    store ptr %t3, %t1
+    eh_end
+    %t4 = load ptr $this
+    %t5 = index i8 [projection=base_subobject] %t4, 0
+    call void @base___base__base_entry(%t5)
+    jump ^destructor_end_2
+
+  block ^destructor_cleanup_1:
+    %t6 = load ptr $this
+    %t7 = index i8 [projection=base_subobject] %t6, 0
+    call void @base___base__base_entry(%t7)
+    eh_end
+    resume
+
+  block ^destructor_end_2:
+    return void
+}
+function @base__base__base_entry(%this : ptr) -> void [unwind=no, binding=weak, object=_ZN4baseC2Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = addr @base__vtable
+    %t3 = index i8 %t2, 16
+    store ptr %t3, %t1
+    return void
+}
+function @base__value(%this : ptr) -> i32 [binding=weak, object=_ZNK4base5valueEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    return i32 0
+}
+function @base___base__base_entry(%this : ptr) -> void [binding=weak, object=_ZN4baseD2Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = addr @base__vtable
+    %t3 = index i8 %t2, 16
+    store ptr %t3, %t1
+    return void
+}
+function @base___base__deleting_entry(%this : ptr) -> void [binding=weak, object=_ZN4baseD0Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    eh_cleanup ^destructor_cleanup_1
+    %t1 = load ptr $this
+    %t2 = addr @base__vtable
+    %t3 = index i8 %t2, 16
+    store ptr %t3, %t1
+    eh_end
+    %t4 = load ptr $this
+    call void @operator_delete(%t4)
+    jump ^destructor_end_2
+
+  block ^destructor_cleanup_1:
+    %t5 = load ptr $this
+    call void @operator_delete(%t5)
+    eh_end
+    resume
+
+  block ^destructor_end_2:
+    return void
+}
+function @base___base(%this : ptr) -> void [binding=weak, object=_ZN4baseD1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = addr @base__vtable
+    %t3 = index i8 %t2, 16
+    store ptr %t3, %t1
+    return void
+}
+function @holder__holder(%this : ptr) -> void [unwind=no, binding=weak, object=_ZN6holderC1Ev, trivial_lifecycle=yes] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    return void
+}
+function @holder__member(%this : ptr) -> i32 [binding=weak, object=_ZNK6holder6memberEv] {
+  slot $this : ptr
+  slot $object : obj<8x8>
+  slot $polymorphic : ptr
+  slot $call__1 : i32
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = addr $object
+    call void @holder____local_type6____local_type6(%t1)
+    %t2 = addr $object
+    %t3 = index i8 [projection=base_subobject] %t2, 0
+    store ptr %t3, $polymorphic
+    eh_try ^call_unwind_dispatch_1
+    %t4 = load ptr $polymorphic
+    %t5 = load ptr %t4
+    %t6 = load ptr %t5
+    %t7 = call i32 %t6(%t4) as (%arg0 : ptr) -> i32
+    store i32 %t7, $call__1
+    %t8 = load i32 $call__1
+    eh_end
+    jump ^call_unwind_end_2
+
+  block ^call_unwind_dispatch_1:
+    %t9 = addr $object
+    call void @holder____local_type6_____local_type6(%t9)
+    resume
+
+  block ^call_unwind_end_2:
+    %t10 = addr $object
+    call void @holder____local_type6_____local_type6(%t10)
+    return i32 %t8
+}
+function @holder____local_type6____local_type6(%this : ptr) -> void [unwind=no, binding=weak, object=_ZZNK6holder6memberEvENUt_C1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    call void @base__base__base_entry(%t2)
+    %t3 = load ptr $this
+    %t4 = addr @__vtable_type_ZNK6holder6memberEvEUt_
+    %t5 = index i8 %t4, 16
+    store ptr %t5, %t3
+    return void
+}
+function @holder____local_type6__value(%this : ptr) -> i32 [binding=weak, object=_ZZNK6holder6memberEvENKUt_5valueEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    return i32 8
+}
+function @holder____local_type6_____local_type6__deleting_entry(%this : ptr) -> void [binding=weak, object=_ZZNK6holder6memberEvENUt_D0Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    eh_cleanup ^destructor_cleanup_1
+    %t1 = load ptr $this
+    %t2 = addr @__vtable_type_ZNK6holder6memberEvEUt_
+    %t3 = index i8 %t2, 16
+    store ptr %t3, %t1
+    eh_end
+    eh_cleanup ^destructor_suffix_cleanup_3
+    %t4 = load ptr $this
+    %t5 = index i8 [projection=base_subobject] %t4, 0
+    call void @base___base__base_entry(%t5)
+    eh_end
+    jump ^destructor_suffix_next_4
+
+  block ^destructor_suffix_cleanup_3:
+    %t6 = load ptr $this
+    call void @operator_delete(%t6)
+    eh_end
+    resume
+
+  block ^destructor_suffix_next_4:
+    %t7 = load ptr $this
+    call void @operator_delete(%t7)
+    jump ^destructor_end_2
+
+  block ^destructor_cleanup_1:
+    %t8 = load ptr $this
+    %t9 = index i8 [projection=base_subobject] %t8, 0
+    call void @base___base__base_entry(%t9)
+    %t10 = load ptr $this
+    call void @operator_delete(%t10)
+    eh_end
+    resume
+
+  block ^destructor_end_2:
+    return void
+}
+function @holder____local_type6_____local_type6(%this : ptr) -> void [binding=weak, object=_ZZNK6holder6memberEvENUt_D1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    eh_cleanup ^destructor_cleanup_1
+    %t1 = load ptr $this
+    %t2 = addr @__vtable_type_ZNK6holder6memberEvEUt_
+    %t3 = index i8 %t2, 16
+    store ptr %t3, %t1
+    eh_end
+    %t4 = load ptr $this
+    %t5 = index i8 [projection=base_subobject] %t4, 0
+    call void @base___base__base_entry(%t5)
+    jump ^destructor_end_2
+
+  block ^destructor_cleanup_1:
+    %t6 = load ptr $this
+    %t7 = index i8 [projection=base_subobject] %t6, 0
+    call void @base___base__base_entry(%t7)
+    eh_end
+    resume
+
+  block ^destructor_end_2:
+    return void
+}
+alias object _ZZ10two_in_onevENUt_C2Ev = @__local_type1____local_type1
+alias object _ZZ10two_in_onevENUt_D2Ev = @__local_type1_____local_type1
+alias object _ZZ10two_in_onevENUt0_C2Ev = @__local_type2____local_type2
+alias object _ZZ10two_in_onevENUt0_D2Ev = @__local_type2_____local_type2
+alias object _ZZ8one_morevENUt_C2Ev = @__local_type3____local_type3
+alias object _ZZ8one_morevENUt_D2Ev = @__local_type3_____local_type3
+alias object _ZZ14across_a_blockvENUt_C2Ev = @__local_type4____local_type4
+alias object _ZZ14across_a_blockvENUt_D2Ev = @__local_type4_____local_type4
+alias object _ZZ14across_a_blockvENUt0_C2Ev = @__local_type5____local_type5
+alias object _ZZ14across_a_blockvENUt0_D2Ev = @__local_type5_____local_type5
+alias object _ZN4baseD2Ev = @base___base
+alias object _ZN6holderC2Ev = @holder__holder
+alias object _ZZNK6holder6memberEvENUt_C2Ev = @holder____local_type6____local_type6
+alias object _ZZNK6holder6memberEvENUt_D2Ev = @holder____local_type6_____local_type6

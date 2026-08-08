@@ -191,7 +191,18 @@ AbiType abi_type(TypeTable& types, TypeId type, LocalContexts& contexts)
 		{
 			out.kind = abi_mangle::ABI_TYPE_LOCAL_TYPE;
 			out.context_ref = contexts.context_of(*function);
-			out.discriminator = decimal(types.local_occurrence(type));
+			if (types.local_unnamed(type))
+			{
+				// The body wrote no name at all, so the spelling `out.name`
+				// carries is one this unit made up and another unit gives to a
+				// class of its own: what the object file names it by is its
+				// place among the types that function left unnamed.
+				out.unnamed_index = decimal(types.local_occurrence(type));
+			}
+			else
+			{
+				out.discriminator = decimal(types.local_occurrence(type));
+			}
 			return out;
 		}
 		// 3.4.3: the type is named from outside every region that encloses its
@@ -428,8 +439,18 @@ void build_function_name(const SemaEntity& entity, TypeTable& types,
 				// the way a member of any class does.
 				region.kind = abi_mangle::ABI_FUNCTION_RECORD_LOCAL_CONTEXT;
 				region.context_ref = contexts.context_of(*entity.local_function);
-				region.source_name = components[index];
-				region.discriminator = decimal(entity.local_occurrence);
+				if (entity.local_unnamed)
+				{
+					// The class this member is named through has no spelling of
+					// its own, so what stands here is its place among the types
+					// the function left unnamed.
+					region.unnamed_index = decimal(entity.local_occurrence);
+				}
+				else
+				{
+					region.source_name = components[index];
+					region.discriminator = decimal(entity.local_occurrence);
+				}
 			}
 			else
 			{

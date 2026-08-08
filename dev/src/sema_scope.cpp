@@ -17,6 +17,7 @@ Scope::Scope(ScopeKind scope_kind, Scope* enclosing, SemaEntity* scope_owner,
 	, unnamed_region(enclosing != nullptr && enclosing->unnamed_region)
 	, local_function(nullptr)
 	, local_occurrence(0)
+	, local_unnamed(false)
 	, visit(0)
 	, base(nullptr)
 	, inheriting_constructors(false)
@@ -123,11 +124,13 @@ Scope& SemaModel::open(ScopeKind kind, Scope& parent, SemaEntity* owner,
 		// among what the function declared that its name carries.
 		scope.local_function = owner->local_function;
 		scope.local_occurrence = owner->local_occurrence;
+		scope.local_unnamed = owner->local_unnamed;
 	}
 	else
 	{
 		scope.local_function = parent.local_function;
 		scope.local_occurrence = parent.local_occurrence;
+		scope.local_unnamed = parent.local_unnamed;
 	}
 	return scope;
 }
@@ -251,6 +254,7 @@ SemaEntity& SemaModel::create(SemaKind kind, const std::string& name, TypeId typ
 	entity.dump_name = name;
 	entity.local_function = nullptr;
 	entity.local_occurrence = 0;
+	entity.local_unnamed = false;
 	return entity;
 }
 
@@ -456,6 +460,7 @@ void SemaModel::settle_local_name(Scope& where, SemaEntity& entity)
 		// A member of a local class stands under the class the function
 		// declared, and it is that class the occurrence number belongs to.
 		entity.local_occurrence = where.local_occurrence;
+		entity.local_unnamed = where.local_unnamed;
 		return;
 	}
 	// 3.5p8 leaves a local class without linkage, so nothing but the name and
@@ -473,6 +478,33 @@ void SemaModel::settle_local_name(Scope& where, SemaEntity& entity)
 	key[3] = static_cast<char>((function >> 24) & 0xff);
 	key += entity.name;
 	entity.local_occurrence = local_occurrences_[key]++;
+}
+
+// 9.8p1 and the ABI's `<unnamed-type-name>`: the same two facts for a type the
+// function's body gave no name to.
+//
+// Nothing binds such a declaration in the region, so `declare_in` never sees
+// it, and the name a declarator lends it says nothing about it: 3.5p8 leaves it
+// without linkage, so what the object file names it by is the function and its
+// place among the unnamed types the function declares.  A number this unit
+// counted for itself would be a different type's in another unit.
+void SemaModel::settle_unnamed_local_name(Scope& where, SemaEntity& entity)
+{
+	if (where.kind != ScopeKind::Function && where.kind != ScopeKind::Block)
+	{
+		// A type a local class's own body left unnamed stands under that class,
+		// which is the component the function declared and the one the number
+		// belongs to - so this is a question about the region a function's body
+		// is, and no other.
+		return;
+	}
+	entity.local_function = where.local_function;
+	if (entity.local_function == nullptr)
+	{
+		return;
+	}
+	entity.local_unnamed = true;
+	entity.local_occurrence = local_unnamed_[entity.local_function->id]++;
 }
 
 void SemaModel::nominate(Scope& where, Scope& space)

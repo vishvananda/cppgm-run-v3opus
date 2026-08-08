@@ -554,8 +554,16 @@ struct SemaEntity
 	// Which occurrence of that name the function's body declares this is,
 	// counted from zero, which is the ABI's discriminator.  A member of a local
 	// class carries the class's own number rather than one of its own, because
-	// the number belongs to the component the function declared.
+	// the number belongs to the component the function declared.  For a type the
+	// function's body left unnamed it is the ABI's `<unnamed-type-name>` number
+	// instead, which is the one sequence the region's unnamed types are counted
+	// in whatever their class-key.
 	unsigned local_occurrence;
+	// 9.8p1 and the ABI's `<unnamed-type-name>`: whether the entity the function
+	// declared has no spelling at all, so that the number above is what names it
+	// and no spelling of this unit's own may stand in the object file - two units
+	// number the classes they declare from their own beginnings.
+	bool local_unnamed;
 };
 
 // The name the object file encodes this declaration from, which is the dump's
@@ -686,6 +694,10 @@ public:
 	// this region - the class a local class's members are named through.  Zero
 	// for the function's own body and for every region outside one.
 	unsigned local_occurrence;
+	// Whether that outermost entity is one the function's body left unnamed, so
+	// that the number above is the ABI's `<unnamed-type-name>` rather than its
+	// discriminator.  False for every region outside a function.
+	bool local_unnamed;
 	// Scratch of one walk: the walk that reached this region, so that one with
 	// several paths into one namespace holds it once.
 	std::uint64_t visit;
@@ -894,6 +906,15 @@ private:
 	// its place among what that function declares.
 	void settle_local_name(Scope& where, SemaEntity& entity);
 
+public:
+	// 9.8p1 and the ABI's `<unnamed-type-name>`: the same two facts for a class
+	// or enumeration a function's body declared under no name at all.  It is
+	// settled where the declaration is read rather than in `declare_in`, because
+	// a declaration with no name is bound in no region.
+	void settle_unnamed_local_name(Scope& where, SemaEntity& entity);
+
+private:
+
 	std::deque<Scope> scopes_;
 	std::deque<SemaEntity> entities_;
 	std::deque<DumpScope> dumps_;
@@ -934,6 +955,11 @@ private:
 	// every function declares no type at all - the map grows only for the ones
 	// that do.
 	std::unordered_map<std::string, unsigned> local_occurrences_;
+	// The ABI's `<unnamed-type-name>` number: how many types each function's
+	// body has already declared under no name, keyed by the function.  The
+	// region counts them in one sequence whatever their class-key, so a class
+	// and an enumeration share it.
+	std::unordered_map<std::uint32_t, unsigned> local_unnamed_;
 	// The using-directives written so far, as the pair of region identifiers in
 	// one word, so writing the same one twice costs a probe rather than a scan.
 	std::unordered_set<std::uint64_t> nominations_;

@@ -1131,25 +1131,19 @@ SemaEntity* SemaAnalyzer::redeclared(const Context& ctx, const std::string& name
 	return found;
 }
 
-SemaEntity& SemaAnalyzer::class_declaration(const AstNode& node,
-                                            const Context& ctx, const Span& span,
-                                            bool define,
-                                            const std::string& named_by)
+// 9.1p2 and 9.2p2: the declaration a class-head names, which is the one an
+// earlier declaration of the same name in the same region already made and
+// otherwise one this class-head makes.
+//
+// 3.5p4 and 9.8p1 are read here too, because both are facts of where the
+// declaration stands rather than of what its body holds: the regions the object
+// file writes around the name, and the function whose body wrote it.
+SemaEntity* SemaAnalyzer::class_head_entity(const Context& ctx, ClassTag tag,
+                                            const QualifiedName& spelled,
+                                            const std::string& written,
+                                            bool define)
 {
-	const ClassTag tag = tag_of(node);
-	// 7.1.3p2: a class its specifiers left unnamed is named by the first
-	// declarator of the declaration it belongs to, before its body is read, so
-	// every line the body writes spells it the way the program will.  A class
-	// defined in a function is named by the convention instead: 3.5p8 gives a
-	// local class no linkage, so no other translation unit can name it and the
-	// name a declarator would lend it says nothing about it.
-	const bool local = ctx.scope->kind == ScopeKind::Block ||
-		ctx.scope->kind == ScopeKind::Function;
-	const std::string written =
-		node.text.empty() ? (local ? std::string() : named_by) : node.text;
-	const QualifiedName spelled(written);
 	const std::string name = spelled.last();
-
 	SemaEntity* entity = nullptr;
 	if (spelled.qualified())
 	{
@@ -1184,34 +1178,66 @@ SemaEntity& SemaAnalyzer::class_declaration(const AstNode& node,
 		{
 			throw std::runtime_error("a class is defined twice");
 		}
+		return entity;
+	}
+	const std::uint32_t id = model_.type_entity_id();
+	// The dump spells a class by the named namespaces around it, which is
+	// a fact about the declaration rather than about the use, so the type
+	// carries it.
+	const std::string qualified = dump_name(*ctx.scope, name);
+	// 3.5p4: the object file names it by the regions the ABI writes, which
+	// is the same string but for 7.3.1.1p1's unnamed namespace - so the
+	// type carries both, and every name encoded from a use of it reads the
+	// second.
+	const TypeId type = types_.class_type(
+		id, tag, semantics() ? qualified : name, abi_name(*ctx.scope, name));
+	entity = &model_.create(SemaKind::Class, name, type);
+	model_.own_type(type, *entity);
+	if (!name.empty())
+	{
+		model_.bind(*ctx.scope, name, *entity);
+		model_.declare_in(*ctx.scope, *entity);
 	}
 	else
 	{
-		const std::uint32_t id = model_.type_entity_id();
-		// The dump spells a class by the named namespaces around it, which is
-		// a fact about the declaration rather than about the use, so the type
-		// carries it.
-		const std::string qualified = dump_name(*ctx.scope, name);
-		// 3.5p4: the object file names it by the regions the ABI writes, which
-		// is the same string but for 7.3.1.1p1's unnamed namespace - so the
-		// type carries both, and every name encoded from a use of it reads the
-		// second.
-		const TypeId type = types_.class_type(
-			id, tag, semantics() ? qualified : name, abi_name(*ctx.scope, name));
-		entity = &model_.create(SemaKind::Class, name, type);
-		model_.own_type(type, *entity);
-		if (!name.empty())
-		{
-			model_.bind(*ctx.scope, name, *entity);
-			model_.declare_in(*ctx.scope, *entity);
-			// 9.8p1: the declaration is what says the class is local to a
-			// function, and the type is what a use of it - as a parameter, as
-			// the type an object-file name for its table is written from -
-			// reads afterwards, so the two carry the same answer.
-			types_.set_local_name(type, entity->local_function,
-			                      entity->local_occurrence);
-		}
+		// 9.8p1 and the ABI's `<unnamed-type-name>`: a class the function's
+		// body left unnamed is bound in no region, so `declare_in` never sees
+		// it - and the spelling this unit lends it below is one it counted for
+		// itself, which another unit gives to a class of its own.  What the
+		// object file names it by is the function and its place among the types
+		// that function left unnamed.
+		model_.settle_unnamed_local_name(*ctx.scope, *entity);
 	}
+	// 9.8p1: the declaration is what says the class is local to a function, and
+	// the type is what a use of it - as a parameter, as the type an object-file
+	// name for its table is written from - reads afterwards, so the two carry
+	// the same answer.
+	types_.set_local_name(type, entity->local_function,
+	                      entity->local_occurrence, entity->local_unnamed);
+	return entity;
+}
+
+SemaEntity& SemaAnalyzer::class_declaration(const AstNode& node,
+                                            const Context& ctx, const Span& span,
+                                            bool define,
+                                            const std::string& named_by)
+{
+	const ClassTag tag = tag_of(node);
+	// 7.1.3p2: a class its specifiers left unnamed is named by the first
+	// declarator of the declaration it belongs to, before its body is read, so
+	// every line the body writes spells it the way the program will.  A class
+	// defined in a function is named by the convention instead: 3.5p8 gives a
+	// local class no linkage, so no other translation unit can name it and the
+	// name a declarator would lend it says nothing about it.
+	const bool local = ctx.scope->kind == ScopeKind::Block ||
+		ctx.scope->kind == ScopeKind::Function;
+	const std::string written =
+		node.text.empty() ? (local ? std::string() : named_by) : node.text;
+	const QualifiedName spelled(written);
+	const std::string name = spelled.last();
+
+	SemaEntity* const entity =
+		class_head_entity(ctx, tag, spelled, written, define);
 
 	if (!name.empty())
 	{
@@ -1525,8 +1551,17 @@ SemaEntity& SemaAnalyzer::enum_declaration(const AstNode& node,
 		model_.declare_in(*ctx.scope, *entity);
 		// 9.8p1 read of an enumeration: a function's body declares it too, and
 		// the object file names it after that function for the same reason.
+		if (unnamed)
+		{
+			// 7.2p1 gave this one no name, so the spelling bound above is one
+			// this unit counted for itself; the ABI's `<unnamed-type-name>` is
+			// what the object file names it by, in the one sequence the region
+			// counts its classes and its enumerations in.
+			model_.settle_unnamed_local_name(*ctx.scope, *entity);
+		}
 		types_.set_local_name(type, entity->local_function,
-		                      entity->local_occurrence);
+		                      entity->local_occurrence,
+		                      entity->local_unnamed);
 	}
 	else if (types_.target(entity->type) != underlying)
 	{

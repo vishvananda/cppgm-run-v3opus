@@ -202,6 +202,17 @@ string function_qualifier_codes(const vector<AbiFunctionQualifier> & quals)
 
 // `<discriminator>`: a local name carries one only from its second occurrence
 // on, spelled `_ <number>` below ten and `__ <number> _` from ten up.
+// `<unnamed-type-name> ::= Ut [<number>] _`: which of the unnamed types of the
+// region around it this one is, counted from zero.  A region declares them in
+// one sequence whatever their class-keys, so the number is what tells two of
+// them apart and no discriminator follows it.
+string unnamed_type_name(const string & index)
+{
+  return indexed_code("Ut", index.empty()
+                              ? (size_t)0
+                              : (size_t)strtoull(index.c_str(), 0, 10));
+}
+
 string local_discriminator(const string & occurrence)
 {
   if(occurrence.empty() || occurrence == "0") { return ""; }
@@ -275,7 +286,12 @@ private:
     COMPONENT_SOURCE,
     COMPONENT_TEMPLATE,
     COMPONENT_CLOSURE,
-    COMPONENT_LOCAL_CLASS
+    COMPONENT_LOCAL_CLASS,
+    // `<unnamed-type-name>`: a class or enumeration the region declared under
+    // no name at all, written as its place among the unnamed types there.  It
+    // stands where a local class's source name does and takes no
+    // discriminator, because the number already tells two of them apart.
+    COMPONENT_UNNAMED_TYPE
   };
 
   struct NameComponent
@@ -830,14 +846,26 @@ void Encoder::emit_local_type(const AbiType & type)
   // components and not the function that it delimits.
   const vector<string> parts = split_qualified_name(type.name);
   const bool nested = parts.size() > 1;
+  // A region that gave the type no name at all writes its place among the
+  // unnamed types there where the source name would stand, and the number is
+  // already what tells two of them apart - so no discriminator follows it.
+  const bool unnamed = !type.unnamed_index.empty();
   if(nested) { put_out("N"); }
   for(size_t i = 0; i + 1 < parts.size(); ++i) {
-    put(source_name(parts[i]));
-    if(i == 0) { put(local_discriminator(type.discriminator)); }
+    if(i == 0 && unnamed) {
+      put(unnamed_type_name(type.unnamed_index));
+    } else {
+      put(source_name(parts[i]));
+      if(i == 0) { put(local_discriminator(type.discriminator)); }
+    }
     close_candidate(base);
   }
-  put(source_name(parts.back()) + abi_tag_suffix(type.abi_tags));
-  if(!nested) { put(local_discriminator(type.discriminator)); }
+  if(!nested && unnamed) {
+    put(unnamed_type_name(type.unnamed_index) + abi_tag_suffix(type.abi_tags));
+  } else {
+    put(source_name(parts.back()) + abi_tag_suffix(type.abi_tags));
+    if(!nested) { put(local_discriminator(type.discriminator)); }
+  }
   if(nested) { put_out("E"); }
 }
 
@@ -1262,9 +1290,14 @@ void Encoder::apply_record(const AbiFunctionRecord & record,
   case ABI_FUNCTION_RECORD_LOCAL_CONTEXT:
     shape.local_wrapper = true;
     shape.context_ref = record.context_ref;
-    component.kind = COMPONENT_LOCAL_CLASS;
-    component.name = record.source_name;
-    component.discriminator = record.discriminator;
+    if(record.unnamed_index.empty()) {
+      component.kind = COMPONENT_LOCAL_CLASS;
+      component.name = record.source_name;
+      component.discriminator = record.discriminator;
+    } else {
+      component.kind = COMPONENT_UNNAMED_TYPE;
+      component.name = record.unnamed_index;
+    }
     shape.components.push_back(component);
     return;
   case ABI_FUNCTION_RECORD_LAMBDA_CONTEXT:
@@ -1499,6 +1532,9 @@ void Encoder::emit_component_chain(const FunctionShape & shape)
       put(source_name(component.name));
       put(local_discriminator(component.discriminator));
       break;
+    case COMPONENT_UNNAMED_TYPE:
+      put(unnamed_type_name(component.name));
+      break;
     }
     close_candidate(base);
   }
@@ -1510,6 +1546,8 @@ void Encoder::emit_component_chain(const FunctionShape & shape)
       if(!component.standard_includes_arguments) {
         emit_template_arguments(component.argument_refs);
       }
+    } else if(component.kind == COMPONENT_UNNAMED_TYPE) {
+      put(unnamed_type_name(component.name) + abi_tag_suffix(shape.abi_tags));
     } else {
       put(source_name(component.name) + abi_tag_suffix(shape.abi_tags));
       if(component.kind == COMPONENT_TEMPLATE) {
