@@ -631,32 +631,135 @@ SemaEntity* SemaAnalyzer::deduce_specialization(
 			kind == TypeKind::RValueReference;
 		const TypeId expected =
 			reference ? types_.target(pattern[index]) : pattern[index];
+		if (arguments[index].type == kNoType)
+		{
+			// 14.8.2.1p6: an argument that is an overload set has no type of its
+			// own, so the deduction is tried against each declaration in it and
+			// stands only where exactly one of them deduces.  A set holding a
+			// template is left alone: 13.4p1 has no target type here to make one
+			// of its specializations, so the parameter deduces nothing at all.
+			if (!deduce_overload_set(arguments[index], expected, bindings,
+			                         reference))
+			{
+				return nullptr;
+			}
+			continue;
+		}
 		const TypeId given =
 			reference ? arguments[index].type : decayed(arguments[index]);
-		if (arguments[index].type == kNoType ||
-		    !deduce(expected, given, bindings, reference))
+		if (!deduce(expected, given, bindings, reference))
 		{
 			return nullptr;
 		}
 	}
 
-	// 14.8.2p5: a parameter no argument deduced leaves the specialization
-	// unmade, because there is nothing to substitute for it.
+	std::vector<TypeId> deduced;
+	if (!deduced_arguments(primary, bindings, deduced))
+	{
+		return nullptr;
+	}
+	return &specialize(primary, deduced);
+}
+
+// 14.8.2p5: the argument each parameter of `primary` was deduced, or false
+// where one of them was left without a value - which leaves the specialization
+// unmade, because there is nothing to substitute for it.
+bool SemaAnalyzer::deduced_arguments(
+	const SemaEntity& primary,
+	const std::unordered_map<TypeId, TypeId>& bindings,
+	std::vector<TypeId>& out)
+{
 	const std::vector<SemaEntity*>& parameters =
 		primary.template_parameters->declarations;
-	std::vector<TypeId> deduced;
-	deduced.reserve(parameters.size());
+	out.reserve(parameters.size());
 	for (std::size_t index = 0; index < parameters.size(); ++index)
 	{
 		const std::unordered_map<TypeId, TypeId>::const_iterator bound =
 			bindings.find(parameters[index]->type);
 		if (bound == bindings.end())
 		{
-			return nullptr;
+			return false;
 		}
-		deduced.push_back(bound->second);
+		out.push_back(bound->second);
 	}
-	return &specialize(primary, deduced);
+	return true;
+}
+
+// 14.8.2.1p6: the deduction one parameter gets from an argument that is an
+// unresolved overload set.  Each declaration in the set is tried on a copy of
+// the bindings so far, and the deduction stands only where exactly one of them
+// succeeded - two that both deduce leave the parameter as ambiguous as the name
+// was.  A set holding a function template names no one type to try, so the
+// parameter is left deducing nothing rather than refused.
+bool SemaAnalyzer::deduce_overload_set(
+	const Value& argument, TypeId expected,
+	std::unordered_map<TypeId, TypeId>& bindings, bool reference)
+{
+	if (argument.functions == nullptr)
+	{
+		// 13.3.3.1.5p1's braced-init-list is the other value with no type, and
+		// it names nothing a parameter can be deduced from.
+		return false;
+	}
+	std::unordered_map<TypeId, TypeId> only;
+	std::size_t deduced = 0;
+	for (std::size_t index = 0; index < argument.functions->size(); ++index)
+	{
+		for (SemaEntity* at = (*argument.functions)[index]; at != nullptr;
+		     at = at->next)
+		{
+			if (at->template_parameters != nullptr || at->object_member)
+			{
+				// 13.4p1 chooses between the non-member declarations of the name;
+				// a member's pointer is a pointer to member, which 14.8.2.5 makes
+				// a pair of its own that this argument did not write.
+				continue;
+			}
+			// 4.3p1: what the name stands for where it is passed is a pointer to
+			// the function, which is what a non-reference parameter is deduced
+			// from and what a reference parameter refers to.
+			std::unordered_map<TypeId, TypeId> tried(bindings);
+			if (!deduce(expected, reference ? at->type
+			                                : types_.pointer_to(at->type),
+			            tried, reference))
+			{
+				continue;
+			}
+			++deduced;
+			only.swap(tried);
+		}
+	}
+	if (deduced != 1)
+	{
+		// 14.8.2.1p6: a set no member of deduces, and one two members deduce
+		// differently, both leave the parameter a non-deduced context - so what
+		// it is written over is deduced from the arguments elsewhere and 13.4p1
+		// then picks the declaration the substituted parameter names.
+		return true;
+	}
+	bindings.swap(only);
+	return true;
+}
+
+SemaEntity* SemaAnalyzer::deduce_target(SemaEntity& primary, TypeId wanted)
+{
+	// 14.8.2.2p1: the target type is the one A the deduction is over, so the
+	// result type and every parameter type of the template are matched against
+	// it at once - which is what `deduce` does with a function type.
+	std::unordered_map<TypeId, TypeId> bindings;
+	if (!deduce(primary.type, wanted, bindings))
+	{
+		return nullptr;
+	}
+	std::vector<TypeId> deduced;
+	if (!deduced_arguments(primary, bindings, deduced))
+	{
+		return nullptr;
+	}
+	SemaEntity& made = specialize(primary, deduced);
+	// 14.8.2.2p2: what the target names is a declaration of exactly that type,
+	// so a substitution that produced another one chose nothing.
+	return made.type == wanted ? &made : nullptr;
 }
 
 void SemaAnalyzer::instantiate(SemaEntity& function)

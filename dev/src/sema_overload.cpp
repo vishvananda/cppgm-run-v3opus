@@ -1146,6 +1146,7 @@ SemaEntity* SemaAnalyzer::resolve_target(const Value& value, TypeId target)
 	{
 		return nullptr;
 	}
+	SemaEntity* found = nullptr;
 	for (std::size_t index = 0; index < value.functions->size(); ++index)
 	{
 		for (SemaEntity* at = (*value.functions)[index]; at != nullptr;
@@ -1155,9 +1156,18 @@ SemaEntity* SemaAnalyzer::resolve_target(const Value& value, TypeId target)
 			{
 				return at;
 			}
+			// 13.4p1 and 14.8.2.2p1: a function template in the set is one of
+			// the declarations the target chooses between through the
+			// specialization the target type deduces.  13.4p1 leaves a
+			// declaration the program wrote ahead of every such specialization,
+			// so a deduced one is kept and the walk goes on.
+			if (at->template_parameters != nullptr && found == nullptr)
+			{
+				found = deduce_target(*at, wanted);
+			}
 		}
 	}
-	return nullptr;
+	return found;
 }
 
 // 13.3.3p1: one candidate is better than another when its conversion for every

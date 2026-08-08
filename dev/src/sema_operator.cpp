@@ -507,6 +507,18 @@ bool SemaAnalyzer::operator_expression(unsigned token, const Context& ctx,
 			listed = true;
 			continue;
 		}
+		if (operands[index].type == kNoType &&
+		    operands[index].functions != nullptr &&
+		    operands[index].node != nullptr)
+		{
+			// 13.4p1: an overloaded name has no type of its own, so it says
+			// nothing about whether 13.3.1.2p2 leaves this the built-in
+			// operator - and an operator function's parameter is exactly the
+			// target type that chooses one of its declarations.  So the
+			// candidates are gathered and 13.3 asks each of them; what makes
+			// the operator a call has to be another operand.
+			continue;
+		}
 		if (operands[index].type == kNoType || operands[index].node == nullptr)
 		{
 			// 13.4p1: an operand that is still an overloaded name has no type
@@ -526,8 +538,9 @@ bool SemaAnalyzer::operator_expression(unsigned token, const Context& ctx,
 	std::size_t singles = 0;
 	// 13.3.1.2p3: the member candidates are what a lookup of the name in the
 	// class of the left operand finds, which 10.2 also searches its bases for.
-	SemaEntity* const owner =
-		model_.type_owner(types_.strip_cv(operands[0].type));
+	SemaEntity* const owner = operands[0].type == kNoType
+		? nullptr
+		: model_.type_owner(types_.strip_cv(operands[0].type));
 	std::vector<SemaEntity*>& members = model_.open_overloads();
 	if (owner != nullptr && owner->scope != nullptr)
 	{

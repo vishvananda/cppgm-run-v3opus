@@ -1777,6 +1777,22 @@ private:
 	// deduce, or null when they deduce none.
 	SemaEntity* deduce_specialization(SemaEntity& primary,
 	                                  const std::vector<Value>& arguments);
+	// 14.8.2.2: the specialization of `primary` that a target type of the
+	// function type `wanted` deduces, or null when it deduces none.  13.4p1's
+	// target is one type rather than a list, so the whole function type - the
+	// result and every parameter - is the one pair the deduction is over.
+	SemaEntity* deduce_target(SemaEntity& primary, TypeId wanted);
+	// 14.8.2p5: the arguments `bindings` gave every parameter of `primary`, or
+	// false where one of them was left without a value.
+	bool deduced_arguments(const SemaEntity& primary,
+	                       const std::unordered_map<TypeId, TypeId>& bindings,
+	                       std::vector<TypeId>& out);
+	// 14.8.2.1p6: the deduction a parameter gets from an argument that is an
+	// unresolved overload set, which stands where exactly one declaration in
+	// the set deduces it.
+	bool deduce_overload_set(const Value& argument, TypeId expected,
+	                         std::unordered_map<TypeId, TypeId>& bindings,
+	                         bool reference);
 	// 14.8.2.5: the bindings the argument type `argument` gives the template
 	// parameters `pattern` is written over, added to `bindings`.  False when
 	// the two do not agree, which is a deduction that failed.
