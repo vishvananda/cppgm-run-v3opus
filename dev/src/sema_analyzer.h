@@ -1517,9 +1517,16 @@ private:
 	               bool integral);
 	// 6.4p4 and 4p3: the value of a condition that declared an object of class
 	// type, which is that object converted by a conversion function of its
-	// class.
-	void condition_of_declaration(DumpNode& declaration, const Context& ctx,
-	                              bool integral);
+	// class.  What it hands back is the type of the value the statement
+	// branches on, which is `kNoType` where the declaration declared nothing.
+	TypeId condition_of_declaration(DumpNode& declaration, const Context& ctx,
+	                                bool integral);
+	// 6.4p4 and 6.4.2p2: the type a condition has to be worth for the statement
+	// it stands in - bool for a selection or iteration statement, an integral or
+	// enumeration type for a switch.  One reading for both spellings of a
+	// condition, because a class object no conversion function answered is
+	// nothing either of them can branch on.
+	void require_condition_type(TypeId type, bool integral) const;
 	// The region a substatement that is not a compound-statement opens (6.4p1).
 	Context substatement_scope(const Context& ctx);
 

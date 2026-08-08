@@ -399,7 +399,8 @@ void SemaAnalyzer::condition(const AstNode& node, const Context& ctx,
 			// conversion function of that class hands back.  The declaration
 			// stands first and the value of it after, so the statement reads one
 			// and then the other.
-			condition_of_declaration(declaration, ctx, integral);
+			require_condition_type(
+				condition_of_declaration(declaration, ctx, integral), integral);
 			continue;
 		}
 		Value value = expression(child, ctx, line);
@@ -416,32 +417,48 @@ void SemaAnalyzer::condition(const AstNode& node, const Context& ctx,
 		{
 			contextual_bool(value, ctx);
 		}
-		// 6.4p4 and 6.4.2p2: an `if` or loop condition is contextually
-		// converted to bool, and a switch condition to an integral or
-		// enumeration type.
-		const bool ok = integral
-			? types_.is_integral(value.type)
-			: types_.contextually_bool(value.type);
-		if (!ok)
-		{
-			throw std::runtime_error("a condition has no conversion to the type "
-			                         "its statement needs");
-		}
+		require_condition_type(value.type, integral);
 	}
 	close_full_expression(line);
+}
+
+// 6.4p4 and 6.4.2p2: an `if` or loop condition is contextually converted to
+// bool and a `switch` condition to an integral or enumeration type, so a
+// condition of class type no conversion function answers is one the statement
+// has nothing to branch on.  Which of the two the statement needs is the one
+// question, asked of the value an expression is worth and of the object a
+// condition-declaration declared alike - reading the object's own storage where
+// no conversion answered is not a branch the machine below can be given.
+void SemaAnalyzer::require_condition_type(TypeId type, bool integral) const
+{
+	if (type == kNoType)
+	{
+		// The declaration declared nothing this reading could take a value of,
+		// which whatever refused it has already said.
+		return;
+	}
+	const bool ok = integral
+		? types_.is_integral(type)
+		: types_.contextually_bool(type);
+	if (!ok)
+	{
+		throw std::runtime_error("a condition has no conversion to the type "
+		                         "its statement needs");
+	}
 }
 
 // 6.4p4: the value of a condition that declared a name, where that name is of
 // class type and the statement needs a value of a built-in one.  4p3's
 // conversion is written under the condition-declaration, after the declaration
 // it converts, so the reader of the condition runs the declaration and then the
-// value the statement branches on.
-void SemaAnalyzer::condition_of_declaration(DumpNode& declaration,
-                                            const Context& ctx, bool integral)
+// value the statement branches on.  What it hands back is the type of that
+// value, which is what 6.4p4's own reading above is asked of.
+TypeId SemaAnalyzer::condition_of_declaration(DumpNode& declaration,
+                                              const Context& ctx, bool integral)
 {
-	if (!lowering() || declaration.children.empty())
+	if (declaration.children.empty())
 	{
-		return;
+		return kNoType;
 	}
 	SemaEntity* const declared = declaration.children[0]->fact.entity;
 	// 8.3.2p5: a condition may declare a reference, and what the statement
@@ -454,7 +471,9 @@ void SemaAnalyzer::condition_of_declaration(DumpNode& declaration,
 		       : declared->type);
 	if (declared == nullptr || !types_.is_class(types_.strip_cv(held)))
 	{
-		return;
+		// 8.3.2p5 and 6.4p4: what the statement branches on is what the object
+		// holds, which for anything but a class is the declared type itself.
+		return held;
 	}
 	Value named;
 	named.type = named.spelled = held;
@@ -479,10 +498,12 @@ void SemaAnalyzer::condition_of_declaration(DumpNode& declaration,
 	if (types_.is_class(types_.strip_cv(named.type)))
 	{
 		// No conversion answered, so the name written here says nothing the
-		// object's own storage does not, and the caller's check is what refuses
-		// the condition.
+		// object's own storage does not - and 6.4p4's own reading above is what
+		// refuses the condition, because a class object is nothing the statement
+		// can branch on.
 		declaration.children.resize(written);
 	}
+	return named.type;
 }
 
 void SemaAnalyzer::case_statement(const AstNode& node, const Context& ctx,
