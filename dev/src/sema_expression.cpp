@@ -1560,7 +1560,7 @@ SemaAnalyzer::Value SemaAnalyzer::sizeof_expression(const AstNode& node,
 		// The operand is unevaluated, so nothing it names is written, but it is
 		// still looked up: 5.3.3p1 needs its type.
 		DumpNode scratch;
-		const Value read = expression(operand, ctx, scratch);
+		const Value read = probe_expression(operand, ctx, scratch);
 		require_complete_value(read);
 		if (read.node != nullptr && read.node->fact.kind == FactKind::Member &&
 		    read.node->fact.entity != nullptr &&
@@ -2006,7 +2006,7 @@ bool SemaAnalyzer::builtin_call(const std::string& name, const AstNode& node,
 			// The operand is unevaluated but still has to name what it names.
 			if (!known)
 			{
-				expression(*list->children[0], ctx, scratch);
+				probe_expression(*list->children[0], ctx, scratch);
 			}
 		}
 		out = Value();

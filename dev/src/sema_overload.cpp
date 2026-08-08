@@ -1795,7 +1795,7 @@ bool SemaAnalyzer::string_initialized(TypeId array, Clauses& clauses,
 		return false;
 	}
 	DumpNode scratch;
-	const Value literal = expression(clauses.next(), ctx, scratch);
+	const Value literal = probe_expression(clauses.next(), ctx, scratch);
 	if (types_.kind(types_.strip_cv(literal.type)) != TypeKind::Array ||
 	    literal.node == nullptr || literal.node->fact.spelling.empty())
 	{

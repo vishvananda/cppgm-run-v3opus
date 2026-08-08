@@ -210,6 +210,45 @@ void SemaAnalyzer::require_elided_transfer(TypeId type, const Context& ctx)
 // copy for the elision to remove.  What the elision removes is the call; 12.8p32
 // already asked for access to the constructor above, and `select_overload` and
 // `require_access` are what asked.
+// 12.8p31 and 12.2p3: the object an elided prvalue creates *is* the object
+// being initialized, so the full-expression that was holding the end of its
+// lifetime holds it no longer - the one end it has is the destination's own,
+// written where the destination's declaration or its boundary says.  The
+// object stands under whatever 5.2.9p4's cast wrote over the prvalue, which is
+// where `creates_its_object` reads it from, so this walks to the same node
+// rather than to the one the elision happened to be handed: a cast left in the
+// frame is an end written on the storage the destination stands in, which
+// destroys the object the initialization has just built.  15.2p2 reads the
+// same fact, so the node keeps neither it nor the object.
+void SemaAnalyzer::elide_created_object(DumpNode& node)
+{
+	DumpNode& at = created_object_node(node);
+	Value created;
+	created.node = &at;
+	release_temporary(created);
+	at.fact.destruction = nullptr;
+	at.fact.object = nullptr;
+}
+
+// 5.2.9p4 and 12.2p1: the node the object a prvalue creates stands on.  A cast
+// to a class type *is* the direct-initialization of the object under it, so
+// the two name one object and the fact of it is written on the one below - and
+// every reader that has to reach the object rather than the value walks there,
+// because a question asked of the cast alone is answered about a node that
+// holds no object at all.
+DumpNode& SemaAnalyzer::created_object_node(DumpNode& node)
+{
+	DumpNode* at = &node;
+	while (at->fact.object == nullptr && at->fact.kind == FactKind::Cast &&
+	       at->fact.category == ValueCategory::PRValue && !at->children.empty() &&
+	       types_.strip_cv(at->children[0]->fact.type) ==
+	           types_.strip_cv(at->fact.type))
+	{
+		at = at->children[0];
+	}
+	return *at;
+}
+
 bool SemaAnalyzer::elide_transfer(const SemaEntity& constructor,
                                   std::vector<Value>& arguments,
                                   TypeId object_type, DumpNode& line,
@@ -235,9 +274,7 @@ bool SemaAnalyzer::elide_transfer(const SemaEntity& constructor,
 	// 12.2p3: the object this line creates is the one being initialized, so
 	// its lifetime is the one the declaration holds and no full-expression ends
 	// it - and 15.2p2 reads the same one end, so the node keeps neither.
-	release_temporary(source);
-	source.node->fact.destruction = nullptr;
-	source.node->fact.object = nullptr;
+	elide_created_object(*source.node);
 	line.children.pop_back();
 	line.children.push_back(source.node);
 	return true;
@@ -404,6 +441,13 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 			// the program wrote and can watch run.  12.8p12's is not: where the
 			// class carries an object by its bytes there is no call to leave
 			// out, and the two objects are one.
+			if (creates_its_object(*source.node, types_))
+			{
+				// 12.2p3: the object the prvalue creates is this one, so the
+				// full-expression that was holding the end of its lifetime is
+				// not what ends it - the destination's own end is.
+				elide_created_object(*source.node);
+			}
 			require_elided_transfer(object_type, ctx);
 			return;
 		}
@@ -688,7 +732,7 @@ bool SemaAnalyzer::clause_initializes_class(TypeId type, const AstNode& clause,
 	Value value;
 	try
 	{
-		value = expression(clause, ctx, scratch);
+		value = probe_expression(clause, ctx, scratch);
 	}
 	catch (const std::runtime_error&)
 	{
@@ -1208,6 +1252,15 @@ SemaEntity* SemaAnalyzer::register_temporary(DumpNode& node, const Scope* from,
 	// wherever it goes on to, so the call is written on the place the lifetime
 	// began as well as on the place it ends.
 	node.fact.destruction = class_destructor(element_of(object->type));
+	if (node.fact.destruction != nullptr)
+	{
+		// 12.4p6 and 3.2p4: that call is an odr-use of the destructor whether
+		// or not any statement writes a second one - an argument object the
+		// callee ends, and one 12.8p31 elides into a destination, are both ends
+		// 15.2p2 alone reaches - so this is where the unit says which entry the
+		// object file owes and asks for the definition the standard gives.
+		note_destruction_entry(*node.fact.destruction, false);
+	}
 	// 12.4p11 and 12.2p3: the lifetime ends in a call of the destructor of the
 	// object's class, wherever the region that holds it writes that call.  A
 	// place that reaches this with no region of its own to ask from is one the
@@ -1249,13 +1302,19 @@ void SemaAnalyzer::release_temporary(const Value& value)
 void SemaAnalyzer::release_temporary(const Value& value,
                                      std::vector<SemaEntity*>& frame)
 {
-	if (value.node == nullptr || value.node->fact.object == nullptr)
+	// 5.2.9p4: the object the prvalue is worth stands under whatever cast was
+	// written over it, so what is taken out of the frame is that object and
+	// not the node the reader happened to be holding.
+	const SemaEntity* const object =
+		value.node == nullptr ? nullptr
+		                      : created_object_node(*value.node).fact.object;
+	if (object == nullptr)
 	{
 		return;
 	}
 	for (std::size_t index = frame.size(); index-- > 0;)
 	{
-		if (frame[index] == value.node->fact.object)
+		if (frame[index] == object)
 		{
 			frame.erase(frame.begin() + static_cast<std::ptrdiff_t>(index));
 			return;
@@ -1303,6 +1362,31 @@ std::vector<SemaEntity*> SemaAnalyzer::take_full_expression()
 	frame.swap(temporaries_.back());
 	temporaries_.pop_back();
 	return frame;
+}
+
+// 12.2p3: the read is a question and not one of the program's initializations,
+// and the node it is written into is dropped as soon as it is answered - so
+// every temporary it created is dropped with it.  A frame of its own is what
+// says so: an object left standing in the enclosing full-expression is an end
+// of a lifetime written on storage nothing was ever asked to name, which the
+// lowering has no object to end.  It is also what lets the question be asked
+// where no full-expression is open at all.
+SemaAnalyzer::Value SemaAnalyzer::probe_expression(const AstNode& node,
+                                                   const Context& ctx,
+                                                   DumpNode& scratch)
+{
+	open_full_expression();
+	try
+	{
+		const Value value = expression(node, ctx, scratch);
+		take_full_expression();
+		return value;
+	}
+	catch (...)
+	{
+		take_full_expression();
+		throw;
+	}
 }
 
 // 12.2p3: the temporaries created during a full-expression are destroyed at its

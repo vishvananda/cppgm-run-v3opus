@@ -834,6 +834,15 @@ private:
 	// the enclosing full-expression where the operator turned out to be a call
 	// and every operand of it ran.
 	std::vector<SemaEntity*> take_full_expression();
+	// 12.2p3: a read that answers a question rather than writing one of the
+	// program's initializations - 5.3.3p1 and 7.1.6.2p4's unevaluated operands,
+	// and 8.5.1p11's probe of what a clause initializes - is written into a
+	// node nothing keeps, so 12.2p1's temporaries it creates are held in a
+	// frame of its own and dropped with that node.  Left in the enclosing
+	// full-expression they are ends of lifetimes of objects the lowering was
+	// never asked to give storage to.
+	Value probe_expression(const AstNode& node, const Context& ctx,
+	                       DumpNode& scratch);
 	void end_temporaries(const std::vector<SemaEntity*>& frame, DumpNode& line);
 	void keep_temporaries(const std::vector<SemaEntity*>& frame);
 	// 5.16p1's arm, whose ends stand under a node of their own so the lowering
@@ -1122,6 +1131,14 @@ private:
 	WrittenInitializer read_initializer(const AstNode* written,
 	                                    TypeId object_type, const Context& ctx,
 	                                    bool value_init);
+	// 12.8p31 and 12.2p3: the prvalue's object and the object being
+	// initialized are one, so the full-expression that was holding the end of
+	// the first holds it no longer.  Reached through 5.2.9p4's cast, because
+	// the object stands under it and not on it.
+	void elide_created_object(DumpNode& node);
+	// 5.2.9p4: the node the object a prvalue creates stands on, which is the
+	// one under whatever cast to the same class was written over it.
+	DumpNode& created_object_node(DumpNode& node);
 	// 12.8p31: whether the transfer 13.3 chose for this initialization is one
 	// whose argument creates the very object being initialized, which makes the
 	// two objects one and leaves the transfer unwritten.  The initializer the

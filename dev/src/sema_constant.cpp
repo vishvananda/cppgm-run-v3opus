@@ -539,7 +539,8 @@ TypeId SemaAnalyzer::decltype_type(const AstNode& node, const Context& ctx)
 		// xvalue.  PA12 types every expression of its subset, so the question
 		// is the same one the expression layer already answers.
 		DumpNode scratch;
-		const Value value = SemaAnalyzer::expression(*expression, ctx, scratch);
+		const Value value =
+			SemaAnalyzer::probe_expression(*expression, ctx, scratch);
 		require_complete_value(value);
 		if (value.category == ValueCategory::LValue)
 		{
