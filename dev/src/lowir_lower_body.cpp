@@ -1831,6 +1831,26 @@ void LowirFunctionLowering::return_statement(const DumpNode& node)
 			{
 				place_class_object(result_object_, type, *written);
 			}
+			else if (written->fact.kind == FactKind::TemporaryObject &&
+			         !written->children.empty())
+			{
+				// 12.8p32 and 3.2p2: the transfer this elision leaves out is
+				// still one the program wrote, so the constructor 13.3 chose
+				// for it is odr-used - and the definition the standard gives
+				// that constructor odr-uses the transfer member of every
+				// subobject.  Nothing calls the constructor itself, so this
+				// unit owes no definition of it; what its definition would have
+				// called is owed all the same.
+				const DumpNode& action = *written->children[0];
+				if (action.fact.kind == FactKind::ConstructorAction &&
+				    !action.children.empty() &&
+				    !action.children[0]->children.empty() &&
+				    action.children[0]->children[0]->fact.entity != nullptr)
+				{
+					unit_.owe_elided_construction(
+						*action.children[0]->children[0]->fact.entity);
+				}
+			}
 		}
 		else
 		{

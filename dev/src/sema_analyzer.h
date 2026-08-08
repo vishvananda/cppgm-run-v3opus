@@ -1789,6 +1789,10 @@ private:
 	Value initialize(const AstNode& node, TypeId target, const Context& ctx,
 	                 DumpNode& parent, bool listed = false,
 	                 Requested by = Requested::Written, bool direct = false);
+	// 12.8p32: a return whose operand names an automatic object of the
+	// function's own returned type reads that object as an rvalue, so 13.3
+	// chooses the move member of its class where the class has one.
+	void return_as_rvalue(Value& value, TypeId target);
 	// 8.5.4p7: the error that a clause narrows to the type it initialises.
 	void require_no_narrowing(const AstNode& written, const Value& value,
 	                          TypeId target, const Context& ctx);

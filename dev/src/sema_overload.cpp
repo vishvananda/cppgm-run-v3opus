@@ -2440,6 +2440,48 @@ void SemaAnalyzer::initialize_from_list(Value& value, TypeId target,
 	}
 }
 
+// 12.8p32: where the criteria 12.8p31 gives for eliding the copy into the
+// returned object are met - or would be met but for the operand naming a
+// parameter - the resolution that chooses the constructor runs first as if the
+// operand were an rvalue, so an object of the function's own is *moved* out of
+// the function and not copied.  The second resolution p32 then describes is the
+// ordinary lvalue one, run where the first chose no constructor taking an
+// rvalue reference to the class: `selected_transfer` is that first resolution,
+// because 12.8p15 already settled which of the two members a class hands an
+// rvalue of itself to.
+//
+// The operand has to be the name of a non-volatile automatic object of the
+// function's own returned type.  A block-scope object of static storage
+// duration is one the declaration itself refuses in this milestone, so a name
+// a block declared is automatic.
+void SemaAnalyzer::return_as_rvalue(Value& value, TypeId target)
+{
+	if (value.category != ValueCategory::LValue || value.entity == nullptr ||
+	    value.node == nullptr || value.node->fact.kind != FactKind::Id)
+	{
+		return;
+	}
+	const SemaEntity& named = *value.entity;
+	if ((named.kind != SemaKind::Variable && named.kind != SemaKind::Parameter) ||
+	    named.region == nullptr ||
+	    (named.region->kind != ScopeKind::Block &&
+	     named.region->kind != ScopeKind::Function) ||
+	    (types_.cv(value.type) & kCvVolatile) != 0 ||
+	    !types_.is_class(types_.strip_cv(target)) ||
+	    types_.strip_cv(value.type) != types_.strip_cv(target))
+	{
+		return;
+	}
+	const SemaEntity* const chosen =
+		selected_transfer(target, kMoveConstructorTransfer);
+	if (chosen == nullptr || chosen->transfer != kMoveConstructorTransfer)
+	{
+		return;
+	}
+	value.category = ValueCategory::XValue;
+	respell(value);
+}
+
 SemaAnalyzer::Value SemaAnalyzer::initialize(const AstNode& node, TypeId target,
                                              const Context& ctx,
                                              DumpNode& parent, bool listed,
@@ -2461,6 +2503,13 @@ SemaAnalyzer::Value SemaAnalyzer::initialize(const AstNode& node, TypeId target,
 		return value;
 	}
 	Value value = expression(node, ctx, parent);
+	if (by == Requested::Returned)
+	{
+		// 12.8p32: the returned object is initialized from an object of the
+		// function's own, which is about to end - so the resolution that
+		// chooses the transfer runs first as if the operand were an rvalue.
+		return_as_rvalue(value, target);
+	}
 	if (direct)
 	{
 		// 8.5p16 and 12.3.2p2: a direct-initialization may choose a conversion
