@@ -1835,6 +1835,8 @@ private:
 	// is what asks for it, which `require_definition` is.
 	void queue_definition(const Pending& pending);
 	void require_definition(SemaEntity& function);
+	// 10.3p10: the virtual members every table this instantiation made names.
+	void require_table_definitions(SemaEntity& made);
 	// 14.6p8: the reading a class template's definition, and an out-of-class
 	// member definition of it, each get where they stand.
 	void read_class_pattern(SemaEntity& primary);

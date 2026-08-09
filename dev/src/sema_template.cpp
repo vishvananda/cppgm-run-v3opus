@@ -1534,20 +1534,7 @@ void SemaAnalyzer::complete_specialization(SemaEntity& made)
 		                  &spelled);
 		read_held_pattern_bodies(mark);
 	}
-	// 10.3p10 and 14.7.1p1: a virtual member function is named by the table of
-	// every class that has one, and 3.2p3 has no expression to point at for
-	// that use - so the class being complete is what asks for it, which is the
-	// note the clause hangs on an implementation instantiating one eagerly.
-	for (std::size_t index = 0;
-	     made.scope != nullptr && index < made.scope->declarations.size();
-	     ++index)
-	{
-		SemaEntity& member = *made.scope->declarations[index];
-		if (member.kind == SemaKind::Function && member.virtual_function)
-		{
-			require_definition(member);
-		}
-	}
+	require_table_definitions(made);
 	// 14.5.1.3p1: what the template's members were defined as outside its
 	// class is read now that the class is complete, and a definition written
 	// after this specialization was made is read for it where it stands.  The
@@ -1769,13 +1756,24 @@ void SemaAnalyzer::explicit_instantiation_declarator(const AstNode& target,
 	{
 		reached.scope = resolve_prefix(spelled, ctx);
 		reached.dump = reached.scope->dump;
-		instantiated_region = reached.scope->owner != nullptr &&
-			reached.scope->owner->primary != nullptr;
-		if (instantiated_region)
+		// 14.7.2p1: what makes this declaration name a specialization is that
+		// an instantiation is what declared it, and a class the pattern nests
+		// inside its body is made by that same instantiation - so the question
+		// is asked of the class the prefix named and of every class it stands
+		// in, rather than of the innermost one alone.
+		for (Scope* at = reached.scope;
+		     at != nullptr && at->kind == ScopeKind::Class &&
+		         !instantiated_region;
+		     at = at->parent)
 		{
+			if (at->owner == nullptr || at->owner->primary == nullptr)
+			{
+				continue;
+			}
+			instantiated_region = true;
 			// 14.7.1p1: a specialization holds no member until something asks
 			// for its completion, and 14.7.2p2's declaration names one of them.
-			require_specialization(*reached.scope->owner);
+			require_specialization(*at->owner);
 		}
 	}
 	std::string ignored;
@@ -1812,6 +1810,10 @@ void SemaAnalyzer::explicit_instantiation_declarator(const AstNode& target,
 		return;
 	}
 	made->explicitly_instantiated = true;
+	// 14.7.1p1: the definition an instantiation put aside waits for the use
+	// that names the member, and this declaration is the one demand 3.2p3 has
+	// no use to point at - so it asks for the body here as a call would.
+	require_definition(*made);
 	if (made->primary != nullptr &&
 	    made->primary->template_parameters != nullptr)
 	{
@@ -2413,6 +2415,40 @@ void SemaAnalyzer::require_definition(SemaEntity& function)
 	const Pending granted = held->second;
 	held_definitions_.erase(held);
 	pending_.push_back(granted);
+}
+
+// 10.3p10 and 14.7.1p1: the table of a class that has one names its virtual
+// members, and 3.2p3 has no expression to point at for that use - so the class
+// being complete is what asks for them, which is the note the clause hangs on
+// an implementation instantiating a virtual member eagerly.
+//
+// A table is a fact of every class this instantiation completed and not of the
+// specialization alone: a class the pattern nests inside its body is made here
+// too, and its own table names its own members.  So the ask is over the region
+// each class opened rather than over one list of declarations, which is the
+// walk 14.7.2p8's explicit instantiation already takes.
+void SemaAnalyzer::require_table_definitions(SemaEntity& made)
+{
+	if (made.scope == nullptr)
+	{
+		return;
+	}
+	for (std::size_t index = 0; index < made.scope->declarations.size();
+	     ++index)
+	{
+		SemaEntity& member = *made.scope->declarations[index];
+		if (member.kind == SemaKind::Function && member.virtual_function)
+		{
+			require_definition(member);
+		}
+		else if (member.kind == SemaKind::Class && member.scope != nullptr &&
+		         member.scope != made.scope)
+		{
+			// 9p2's injected-class-name is the class itself, which the region
+			// declares and which no walk of it descends into again.
+			require_table_definitions(member);
+		}
+	}
 }
 
 // 14.6.2p3: the base-specifier named a type a template parameter is what

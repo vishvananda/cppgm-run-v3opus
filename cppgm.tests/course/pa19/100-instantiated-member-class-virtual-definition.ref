@@ -1,0 +1,70 @@
+declare global @__external_rtti_vtable____class_type_info [binding=strong, object=_ZTVN10__cxxabiv117__class_type_infoE]
+
+global @__typeinfo_name__struct_holder_int___node [storage=readonly, binding=weak, object=_ZTSN6holderIiE4nodeE] = {
+  i8 78
+  i8 54
+  i8 104
+  i8 111
+  i8 108
+  i8 100
+  i8 101
+  i8 114
+  i8 73
+  i8 105
+  i8 69
+  i8 52
+  i8 110
+  i8 111
+  i8 100
+  i8 101
+  i8 69
+  i8 0
+}
+global @__rtti_struct_holder_int___node [storage=readonly, binding=weak, object=_ZTIN6holderIiE4nodeE] = {
+  ptr addr @__external_rtti_vtable____class_type_info + 16
+  ptr addr @__typeinfo_name__struct_holder_int___node
+}
+global @holder_int___node__vtable [storage=readonly, binding=weak, object=_ZTVN6holderIiE4nodeE] = {
+  i64 0
+  ptr addr @__rtti_struct_holder_int___node
+  ptr addr @holder_int___node__tag
+}
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $made : obj<8x8>
+
+  block ^entry:
+    %t1 = addr $made
+    call void @holder_int___holder(%t1)
+    return i32 0
+}
+function @holder_int___holder(%this : ptr) -> void [unwind=no, binding=weak, object=_ZN6holderIiEC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    call void @holder_int___node__node(%t2)
+    return void
+}
+function @holder_int___node__node(%this : ptr) -> void [unwind=no, binding=weak, object=_ZN6holderIiE4nodeC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = addr @holder_int___node__vtable
+    %t3 = index i8 %t2, 16
+    store ptr %t3, %t1
+    return void
+}
+function @holder_int___node__tag(%this : ptr) -> i32 [binding=weak, object=_ZN6holderIiE4node3tagEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    return i32 41
+}
+alias object _ZN6holderIiEC2Ev = @holder_int___holder
+alias object _ZN6holderIiE4nodeC2Ev = @holder_int___node__node
