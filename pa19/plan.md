@@ -1,8 +1,9 @@
 # PA19 Plan — `cppgm++ --emit-lowir` first-tier templates
 
-PA19 stands at **264 / 313** (48 spec + 216 general), from a
-turn-start baseline of 261 / 310, with pa1-pa18 at **1777 / 1777** and the file
-audit passing with the five header-weight warnings it inherited.
+PA19 stands at **272 / 321** (48 spec + 224 general), from a
+turn-start baseline of 266 / 315, with pa1-pa18 at **1777 / 1777** and the file
+audit passing with the five header-weight warnings it inherited.  The build
+itself prints none.
 
 The milestone gives the PA16-PA18 object model its first template tier: a
 template-declaration records a pattern instead of declaring anything, and
@@ -201,8 +202,15 @@ Three facts about the harness shape what has to be right, read out of
 - **What a definition did not write, the other declarations of the same entity
   did.**  8.3.5p10 leaves a parameter's name out of the function's type, so the
   name is a fact of the *function*: the record each declaration already leaves
-  about its parameters (`Default`) carries the name beside the
+  about its parameters (`ParameterRecord`) carries the name beside the
   default-argument, first-namer wins, and the definition's own name beats both.
+  A definition the *standard* writes - 12.8p28's and 12.9p8's - has no
+  declarator to spell its places with, so it asks that record where it makes its
+  objects, which is after the whole unit has been read, and asks the base's
+  record where the constructor is an inherited one.  14.7.1p1 asks a narrower
+  question for a specialization: it is a declaration nothing wrote, so the
+  spelling is the template's *first* declaration's and no later one's, and
+  `spelled_for` is the one place the two questions are told apart.
   9.4.2p3 is the same shape over an object: the class wrote the
   brace-or-equal-initializer and the definition at namespace scope shall write
   none, so the storage that definition lays out holds what the class wrote -
@@ -224,7 +232,7 @@ Three facts about the harness shape what has to be right, read out of
 
 ## Current Failure Map
 
-49 of 313 fail, the same 49 by name that C6 left.  Grouped by the compiler
+49 of 321 fail, the same 49 by name that C6 left.  Grouped by the compiler
 behaviour that owns them:
 
 | n | group | what is missing |
@@ -249,13 +257,13 @@ incomplete (`sizeof` comes out 1 against g++'s and the reference's 4), and
 `deferred_conversion<incomplete>` reads a conversion function nothing called
 and refuses `sizeof(T)`.
 
-The C6 audit hands C7 two things that are 14.7.1p1's rather than 8.3.5p10's:
-12.9p1's inherited-constructor candidate set, where the reference and g++ both
-keep the base constructor's arity and apply its default at the call and this
-compiler forms the shortened candidate 12.9p1 describes; and `defaults_`, which
-`required_parameters` and `has_default_argument` still key by `function.id`
-where every other reader asks `wrote_defaults`, unobservable only while 12.8p12
-keeps special members out of the tier.
+C7 inherits one thing that is 14.7.1p1's rather than 8.3.5p10's: 12.9p1's
+inherited-constructor candidate set, where the reference and g++ both keep the
+base constructor's arity and apply its default at the call and this compiler
+forms the shortened candidate 12.9p1 describes.  `defaults_`'s two keys are no
+longer among them: `primary` is written only for a specialization of a template
+itself, so a member of a class template specialization has one key at every
+reader, and the shapes where the keys differ are ones 12.8p12 keeps out.
 
 - **owner**: `sema_template.cpp`.  `require_specialization` is the one place an
   instantiation asks for a specialization, and `complete_specialization` is
@@ -340,27 +348,31 @@ same inputs, so this is the milestone's shape rather than the tier's; g++ does
 n = 20 in 0.06 s because it never materialises the spelling. Fixing it means not
 storing a specialization's written-out name at all.
 
-C6 added one fact per parameter to the record each declaration already leaves,
-which is the only thing it made grow. Measured against a worktree build of the
-pre-C6 commit, each shape timed twice:
+8.3.5p10's record is the only thing the last two turns made grow, and what asks
+it is bounded by the declarations and definitions the program writes. Measured
+against a worktree build of `d6700f4a`, each shape timed twice:
 
-| shape | n = 128 | n = 512 |
-| --- | --- | --- |
-| n functions declared and then defined, 4 parameters each | 0.01 s / 8.21 MB -> 0.01 s / 8.58 MB | 0.03 s / 16.12 MB -> 0.04 s / 16.54 MB |
-| n member declarations of one class template, each defined out of class | 0.01 s / 8.74 MB -> 0.01 s / 9.21 MB | 0.04 s / 16.41 MB -> 0.04 s / 16.88 MB |
-| n specializations reading one static data member's constant | 0.01 s / 9.02 MB -> 0.01 s / 9.04 MB | 0.05 s / 17.93 MB -> 0.05 s / 18.42 MB |
+| shape | n = 32 | n = 128 | n = 512 |
+| --- | --- | --- | --- |
+| n functions each defined with an unnamed place and named by a declaration below | 0.00 s | 0.00 s | 0.02 s |
+| n declarations of one function template, then a definition and a call | 0.00 s | 0.00 s | 0.01 s |
+| n classes each with an out-of-class defaulted copy constructor, all copied | 0.01 s | 0.03 s | 0.13 s |
+| n derived classes each inheriting one base constructor and building one object | 0.00 s | 0.02 s | 0.08 s |
 
-All three are linear and the record costs about 3% of the run's memory at
-n = 512. Nothing C6 touched is asked more than once per declaration: the name
-merge is one pass over the parameters a declaration already walked, the
-constant read is two comparisons on an entity the lowering already had in hand,
-and 8.5p8's "holds nothing" is a fact the layout settled.
+All four are where the pre-audit build left them, within 1% of its peak RSS, and
+`reference-binaries/cppgm++` is 0.60-1.30 s on all twelve points. The waiting
+list holds one pointer per object a definition leaves unnamed and is cleared by
+the first namer, so it is O(places) and not O(readings); the pattern's spelling
+is settled by one assignment at the first declaration of a place, where it had
+been a pass over the whole record at every template definition; and the names a
+definition the standard writes reads its objects through are one walk of that
+definition's parameters, taken once where the definition is written.
 
-Valgrind is clean over all 313 fixtures under `pa19/tests`.  A 20000-deep parenthesized
+Valgrind is clean over all 321 fixtures under `pa19/tests`.  A 20000-deep parenthesized
 expression is refused by the parser at about 1000, so the definition-time walk's
 recursion is bounded by the same limit the expression layer already is.
 
-`dev/src/sema_analyzer.h` sits at 2393 lines against the audit's 2400: the next
+`dev/src/sema_analyzer.h` sits at 2388 lines against the audit's 2400: the next
 checkpoint that adds to it has to move a record out first, as C5 moved
 9.6p2's bit-field storage unit to `sema_declaration.h` and 3.4.2p2's associated
 regions to `sema_value.h`.
@@ -388,3 +400,4 @@ one, which 9.4.2p3 and 5.19p2 leave as objects to read.
 | C5 audit | the region a member definition's head names stand in, and the two facts a dependent name is written from: 14.1p2's out-of-class head read against a region of its own, standing between the class and the one it was completed against, so a head spelling the class's places in another order is no longer read against the class's own spelling and no name it binds outlives it; 9.2p2's held bodies drained back to the mark rather than walked once, and a function template's own reading draining what its body held; 14.6.2p1's dependent member name kept as the prefix and the name the ABI writes apart, one type per component; and 14.7.1p1's specialization spelled the way a program writes an argument list | 254 / 308 -> **256 / 310**, the two new tests being the two regressions these leave and the failing 54 the same 54; pa1-pa18 1777 / 1777; file audit passes; every checked `.ref` regenerates byte-identically; 73 synthesized programs through three compilers with 56 compared as emitted LowIR; the dependent-member names byte-identical to `reference-binaries/cppgm++` *and* to g++; `object=` differences 7 and the last passing test that hid one now green in that sweep; fourteen scaling shapes measured against a pre-C5 worktree build; valgrind clean over all 308 fixtures under `pa19/tests` |
 | C6 | what a definition takes from the other declarations of the same entity, and what it owes the object file: 9.4.2p3's in-class brace-or-equal-initializer read as the value the definition's storage holds and, through 3.2p3, as what a read of the member *is* rather than a load of it, while its address still names the object; 8.3.5p10's parameter name made a fact of the function, held beside the default-argument each declaration already records, first-namer winning and the definition beating both, and asked of 12.1p1's constructor too; 8.3.5p5's array and function parameters made the pointer objects they are, with the cv-qualifiers the clause drops kept on the object so 13.3 still sees a `const` by-value parameter; and 8.5p8's "holds nothing" read of the whole object, so a class whose one member is of an empty class owes no `[role=init]` entry | 256 -> **261 / 310**; pa1-pa18 1777 / 1777; file audit passes; 44 synthesized programs swept against `reference-binaries/cppgm++` with the three surviving disagreements decided against it by g++ and 9.4.2p3; three scaling shapes measured against a pre-C6 worktree build, all linear at about 3% more memory; valgrind clean |
 | C6 audit | the declaration a specialization is not one of: 8.3.5p10's "any declaration" narrowed by 14.7.1p1, so a declaration of a *template* written below the pattern's definition declares the template and renames no object a specialization has already made - the pattern's spelling frozen where the definition giving it a body is read, and the waiting list of objects a definition leaves unnamed restricted to the ones a program's own declaration made | 262 / 311 -> **264 / 313**, the two new tests pinning the regression C6 shipped and the failing 49 the same 49; pa1-pa18 1777 / 1777; file audit passes; every `.ref` regenerates byte-identically over all 313 fixtures; 30 synthesized programs through the pre-audit binary, `reference-binaries/cppgm++` and g++, 15 of them moved onto the reference by C6 and 2 off it, all 17 now agreeing; three scaling shapes at n = 32, 128 and 512 unchanged against a pre-audit worktree build at about 2% more memory; valgrind clean over all 313 fixtures |
+| C6 audit review | the declaration a specialization's places are spelled by, and the definition the standard writes them for: 14.7.1p1's spelling frozen at the template's *first* declaration rather than at its definition, which is what the reference does and what 16 of 120 declaration orderings told apart; and 8.3.5p10 asked where 12.8p28's and 12.9p8's definitions make their objects, so a defaulted special member and an inherited constructor spell a place the declaration their parameter list came from left unnamed, however far below them the declaration that named it stands | 266 / 315 -> **272 / 321**, the six new tests being the six shapes these leave and the failing 49 the same 49; pa1-pa18 1777 / 1777; file audit passes and the build prints nothing; every `.ref` regenerates byte-identically over all 321 fixtures; 240 declaration orderings and 55 further shapes through this compiler, the pre-audit binary and `reference-binaries/cppgm++`, all six regressions failing against the pre-audit binary; four scaling shapes at n = 32, 128 and 512 unchanged against a pre-audit worktree build within 1% of its memory; valgrind clean over all 321 fixtures |

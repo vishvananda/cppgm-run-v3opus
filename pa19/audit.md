@@ -5,147 +5,136 @@ settle, instantiate, name, lower.
 
 ## Current Checkpoint Review
 
-**C6, reviewed at `955dce9f`** — what a definition takes from the other
-declarations of the same entity, and what it owes the object file: 9.4.2p3's
-in-class brace-or-equal-initializer read as the value the definition's storage
-holds and, through 3.2p3, as what a read of the member *is*; 8.3.5p10's
-parameter name made a fact of the function, held beside the default-argument
-each declaration already records, first-namer winning and the definition beating
-both, and asked of 12.1p1's constructor too; 8.3.5p5's array and function
-parameters made the pointer objects they are, with the cv-qualifiers the clause
-drops kept on the object; and 8.5p8's "holds nothing" read of the whole object.
+**The C6 audit, reviewed at `d6700f4a`** — 8.3.5p10's parameter name made a
+fact of the function rather than of any one of its declarations: the record each
+declaration already leaves about a parameter (`ParameterRecord`, split out of
+the old `Default` beside `HeldInitializer` in `sema_declaration.h`) carries the
+name, a definition's own declarator beats it, the objects a definition left
+unnamed wait on the record for the first declaration to name them, and 14.7.1p1
+narrows which of the template's declarations a *specialization* is spelled from.
 
-The increment's shape is right, and the fact it identifies is the one 8.3.5p10
-actually describes. A parameter's name is no part of the function's type, so it
-is not a fact of any one declaration - and the object file has to write *one*
-spelling for a place several declarations may each have spelled differently or
-not at all. Making that a fact of the function, held at the place the function
-type gives the parameter, is the only structure that answers it, and it is the
-structure the default-argument was already held in. Merging the two into one
-`ParameterRecord` beside `HeldInitializer` (`sema_declaration.h`) is what the
-data was; the old `Default` was two facts sharing a name.
+The shape is right and the split is the one the data wanted. The name a place is
+spelled with is not a fact of a declaration - no two declarations of one
+function need agree about it and one may write none - so the only structure that
+answers what the object file writes is a fact of the function held at the place
+its type gives. The waiting list is the same fact read the other way round: a
+declaration that first names a place may stand below the definition that already
+made the object, and the object is the only thing left to carry the spelling to.
 
-**The blocker is who counts as a declaration of the function.** C6 read
-8.3.5p10's "any declaration" as any declaration at all, including one written
-*below* the definition, and made it rename the object the definition had already
-made. For a function the program declares that is right and the reference agrees.
-For a specialization it is wrong, and it was **a regression C6 shipped**: a
-declaration of a *template* written below the pattern's definition declares the
-template, not the specialization, and 14.7.1p1 leaves the specialization a
-declaration nothing wrote.
+**Two blockers, both of them the same fact asked at fewer places than have it.**
+14.7.1p1's narrowing landed at one of the two events that could freeze a
+specialization's spelling, and the widened fact reached the declarator path and
+not the path a definition the standard writes takes.
 
 ### Findings
 
-**1. A declaration below a template's definition renamed the specialization's
-parameter object.** 14.7.1p1 makes a specialization a declaration nothing wrote,
-so the declarations that could have said anything about its parameters are the
-template's - but only the ones that had been read when the pattern's definition
-was. C6 held the name on the function's record and let any later declaration be
-the first namer, retroactively spelling every object already made for the place.
-So
+**1. A specialization is spelled from the template's *first* declaration, not
+from the first one that named the place.** The C6 audit froze the pattern's
+spelling where the definition giving it a body is read. Swept over all 120
+orderings of an unnamed declaration `U`, two differently named ones `A`/`B`, an
+unnamed definition `D` and a call `C`, this compiler disagrees with
+`reference-binaries/cppgm++` on the **16 whose first declaration is `U`** -
+every one where a name arrives after an unnamed declaration and before or after
+the definition alike. `template<class T> T zero(T); template<class T> T
+zero(T alpha); template<class T> T zero(T) { return T(); }` emitted `%alpha`
+where the reference emits `%__param0`, and the rule is per *place*:
+`two(T, T b)` followed by `two(T a, T)` is `__param0, b` in the reference and
+was `a, b` here. The **same 120 orderings over an ordinary function agree in
+every one**, so first-namer-wins is right for a function the program declares
+and wrong for a specialization, which is a declaration nothing wrote. The freeze
+is now where the template is first declared, and `check_template_definition`
+owns none.
 
-```
-template<class T> T zero_of(T) { return T(); }
-template<class T> T zero_of(T sample);
-int main() { return zero_of(41); }
-```
+**2. A definition the standard writes was handed one declaration's names and
+asked nothing else.** 12.8p28's and 12.9p8's definitions have no declarator of
+their own, so `write_definition` builds their objects from the parameter list
+some declaration wrote - and a place *that* declaration left unnamed came out
+`__param1` where the reference spells it with the name another declaration of
+the same function gave. Three shapes, the reference on the other side of each:
+`box::box(const box&) = default;` below a class body that named the place;
+an out-of-class `= default` naming a place the class did not, where the
+definition's own name is what wins; and 12.9p8's inherited constructor whose
+base constructor is *defined below* the using-declaration that inherited it, so
+the snapshot `inherit_constructor` takes predates the name. `= default` written
+outside the class also recorded nothing, being the one declaration form that
+returns before `record_declared_parameters`.
 
-emitted `function @zero_of(%sample : i32)` with `slot $sample` where
-`reference-binaries/cppgm++` emits `%__param0`, and the two-specialization form
-of the same program emitted it twice. This is **a difference the suite compares**
-- parameter names are not masked the way `object=` is - and no fixture had the
-declaration below the definition, so C6's own sweep, which is where the rule was
-established, never wrote one. The pattern's spelling is now frozen where the
-definition that gives it a body is read (`check_template_definition`), a
-specialization takes that rather than re-asking the record, and only a
-program's own declaration puts an object on the waiting list.
-
-**2. Beside it, the two readers that kept asking the old question.** C6 moved
-the record's key from `function.id` to `wrote_defaults(function).id` at the
-writer and at two of the four readers. `required_parameters` and
-`has_default_argument` (`sema_class.cpp`) still ask `function.id`, so 12.9's
-inherited-constructor candidate set and 12.8p2's "still a copy constructor"
-would both read an empty record for any function the two keys differ on. They
-are **unobservable today** - both are asked only of constructors and assignment
-operators, which 12.8p12 leaves out of the template tier, so `primary` and
-`shadowed` are null wherever they are called, and probes through the pre-audit
-and post-audit binaries emit identical LowIR. Recorded rather than changed: a
-key that is right at three call sites and vestigial at two is the shape the next
-checkpoint should not build on, and 14.7.1p1's inherited constructors are C7's.
+The fix asks the record once, in `write_definition`, which runs after the whole
+unit has been read - and asks the *base's* record too where the constructor is
+an inherited one, so the answer no longer depends on where the using-declaration
+stands. Which of the two spellings the record holds is this function's is one
+question with two readers now, so `spelled_for` answers it for the declarator
+path and for this one alike.
 
 ### Changes
 
 | what | where |
 | --- | --- |
-| 14.7.1p1's pattern spelling frozen where the definition that gives it a body is read | `sema_template.cpp` |
-| a specialization taking the pattern's spelling rather than re-asking the function's record | `sema_analyzer.cpp`, `sema_declaration.h` |
-| the waiting list restricted to the objects a program's own declaration made | `sema_function.cpp` |
+| 14.7.1p1's pattern spelling frozen where the template is first declared | `sema_analyzer.cpp`, `sema_declaration.h` |
+| the freeze `check_template_definition` no longer owns | `sema_template.cpp` |
+| 8.3.5p10 asked where a definition the standard writes makes its objects | `sema_analyzer.cpp`, `sema_analyzer.h` |
+| `= default` outside the class recording what its declarator spelled | `sema_class.cpp` |
 
-Two regression tests:
-`300-declaration-below-a-template-definition-names-no-specialization`,
-`300-two-specializations-below-a-template-definition-take-no-name`. Finding 2
-leaves no program either oracle answers differently, so it is recorded in Open
-Gaps rather than pinned.
+Six regression tests, one per shape:
+`300-a-templates-first-declaration-spells-its-places`,
+`300-defaulted-member-definition-takes-the-declared-name`,
+`300-defaulted-definition-names-the-place-the-class-did-not`,
+`300-defaulted-definition-outspells-the-class-declaration`,
+`300-defaulted-assignment-definition-takes-the-declared-name`,
+`300-an-inherited-constructor-takes-the-bases-later-name`.  All six fail against
+the pre-audit binary built from `d6700f4a`.
 
 ### Performance Evidence
 
-Three shapes over the surface this audit owns, `--emit-lowir -O0`, n = 32, 128
-and 512, each against the pre-audit binary built from `955dce9f` in a worktree
-with `make build`: n functions each defined with an unnamed parameter and named
-by a declaration below, 0.00 / 0.00 / 0.02 s before and after; one function with
-n unnamed parameter places named by one declaration below, 0.00 / 0.00 / 0.01 s
-before and after; n specializations of one template with an unnamed place,
-0.00 / 0.01 / 0.05 s before and after. `reference-binaries/cppgm++` is 0.10 s on
-each of the first two at every n and 0.50 s on the last at n = 512.
+Four shapes over the surface this audit owns, `--emit-lowir -O0`, n = 32, 128
+and 512, each timed twice against the pre-audit binary built from `d6700f4a` in
+a worktree with `make build`: n functions each defined with an unnamed place and
+named by a declaration below, 0.00 / 0.00 / 0.02 s before and after; n
+declarations of one function template then a definition and a call,
+0.00 / 0.00 / 0.01 s before and after; n classes each with an out-of-class
+defaulted copy constructor, all copied, 0.01 / 0.03 / 0.13 s before and after; n
+derived classes each inheriting one base constructor and building one object,
+0.00 / 0.02 / 0.08 s before and after.  Peak RSS is within 1% of the pre-audit
+build at every point, and `reference-binaries/cppgm++` is 0.60-1.30 s on all
+twelve.
 
-What the audit adds is bounded by what it replaces. The waiting list holds one
-pointer per object a definition leaves unnamed and is cleared by the first
-namer, so it is O(places) and not O(readings) - and the guard this audit adds is
-what makes that true, because a specialization used to add one pointer per
-instantiation to the template's list and never drain it. The freeze is one pass
-over a record whose length is the parameter count, once per template definition.
-Peak RSS at n = 512 is 11264 -> 11524 KB, 8104 -> 8336 KB and 19204 -> 19432 KB,
-which is the one extra `std::string` per parameter place and about 2%.
+Nothing here is asked more than once per definition. The freeze became one
+assignment at the first declaration of a place, where it had been a pass over
+the whole record at every template definition; `name_recorded_parameters` is one
+walk of the parameters of a definition that is about to be written, and it is
+the *only* walk - `inherit_constructor` keeps taking its snapshot and no longer
+tries to name it.
 
 ### Validation
 
-- **1777 / 1777** through pa18, unchanged, and pa19 **262 / 311 -> 264 / 313**
-  with the two new tests, the failing 49 the same 49 by name.
+- **1777 / 1777** through pa18, unchanged, and pa19 **266 / 315 -> 272 / 321**
+  with the six new tests, the failing 49 the same 49 by name.
 - **File audit passes** for pa19 over `dev/src` with the five header-weight
   warnings the shared headers have carried since PA18, and no suppression.
-  `sema_analyzer.h` is 2381 lines against the audit's 2400.
-- **Every `.ref` regenerates byte-identically** over all 313 fixtures through
+  `sema_analyzer.h` is 2388 lines against the audit's 2400.
+- **Every `.ref` regenerates byte-identically** over all 321 fixtures through
   `make ref-test-pa19`; no committed fixture moved.
-- **The differential probe.** 30 synthesized programs over the surface
-  8.3.5p10 owns - a naming declaration above and below the definition, two and
-  three of them naming differently, one place and three, the middle place named
-  alone, a member and a constructor and an out-of-class member definition, a
-  class template's member and its static member, a function template and an
-  explicit specialization of one, an array parameter and a reference one, a
-  reopened namespace, an operator, a default argument on the naming declaration,
-  and a name colliding with a local, with a global and with a template
-  parameter - through the pre-audit binary, `reference-binaries/cppgm++` and
-  g++. All 30 compile in all three, and g++ accepts the one C6 had been
-  refusing. Against the pre-audit binary, 15 of the 30 moved onto the reference
-  and none off it; C6 alone had moved 2 off, which finding 1 is.
-- **What is left disagreeing is the reference, twice.** It binds a body's name
-  to a parameter place 3.3.4 ends at another declarator - `int chosen = 7; int
-  pick(int) { return chosen - 2; } int pick(int chosen);` loads `$chosen`, the
-  parameter, where this compiler and g++ both load the global, and the
-  reference's program returns the wrong value. And it writes `binding=strong`
-  for an explicit specialization this compiler writes `weak` for. Neither is
-  C6's and neither can be a committed fixture. The third and last divergence in
-  the 30 is an out-of-class constructor the reference writes as one function
-  plus an `alias object` line and this compiler writes as two entries - which
-  the comparison strips, and which is C7's C1/C2 question rather than this
-  path's.
-- **Valgrind clean** with `--error-exitcode` over all 313 fixtures under
+- **The order cross-product, run twice.** All 120 orderings of `U`, `A`, `B`,
+  `D` and `C` over a function template and all 120 over an ordinary function,
+  through this compiler and `reference-binaries/cppgm++`: 16 template orderings
+  disagreed and 0 ordinary ones; all 240 agree now. Beside them 40 shapes over
+  members, constructors, operators, static members, array and reference and
+  function parameters, namespaces, default arguments, class templates and
+  two-place templates, and 15 over the special members and inherited
+  constructors, each through both compilers.
+- **What is left disagreeing is not the name.** `s07`/`s08`'s difference is
+  emission order and an `alias object` line, both of which the comparison
+  strips; `s29` is the reference binding a body's name to a parameter place
+  3.3.4 ends at another declarator, which g++ and this compiler both read as the
+  global and which the C6 audit already recorded. 12.9p1's inherited-constructor
+  arity and the entry points an instantiated constructor owes are unchanged and
+  still C7's.
+- **Valgrind clean** with `--error-exitcode` over all 321 fixtures under
   `pa19/tests`.
-- **The sibling readers, probed rather than assumed.** The two `function.id`
-  readers of finding 2 were driven through 12.9's inherited constructors from a
-  class template base and 12.8p2's copy constructor with a defaulted second
-  parameter; the pre-audit and post-audit binaries emit identical LowIR on both,
-  which is what makes the vestigial key unobservable rather than latent.
+- **The build prints nothing.** Two `-Wall` warnings C4 left - a reference bound
+  to `declare_type_alias`'s result and read nowhere, and four members
+  initialized out of declaration order - are gone, so the next one that appears
+  is about the change that made it.
 
 ## Open Gaps
 
@@ -261,16 +250,33 @@ pointer type it *has*, which a template has none of until a deduction makes one.
 it, so it is recorded where the rest of 14.8.2.5's pointer-to-member pairs are.
 
 **The parameter record is keyed two ways.** C6 moved `defaults_` from
-`function.id` to `wrote_defaults(function).id` at the writer and at `accepts_arity`
-and `write_default_argument`; `required_parameters` and `has_default_argument`
-(`sema_class.cpp`) still ask `function.id`. Nothing observes it: both are asked
-only of constructors and assignment operators, which 12.8p12 keeps out of the
-template tier, so `primary` and `shadowed` are null wherever they are called and
-the pre-audit and post-audit binaries emit identical LowIR through 12.9's
-inherited constructors from a class template base and 12.8p2's copy constructor
-with a defaulted second parameter. It is left as one key per reader rather than
-unified because C7 owns 14.7.1p1's instantiated declarations, which is what would
-make the two keys differ.
+`function.id` to `wrote_defaults(function).id` at the writer and at
+`accepts_arity` and `write_default_argument`; `required_parameters` and
+`has_default_argument` (`sema_class.cpp`) still ask `function.id`. The two keys
+differ only where `primary` or `shadowed` is set, and **a member of a class
+template specialization has neither** - `primary` is written at exactly two
+places, both of them a specialization of a template *itself*, so an instantiated
+constructor's record is its own and the two readers find it. What is left is a
+function-template specialization and a using-declaration's copy, and 12.8p12
+keeps both out of what those two readers are asked about; 12.9's inherited
+constructors from a class template base and 12.8p2's copy constructor with a
+defaulted second parameter emit identical LowIR either way. It is left as one
+key per reader rather than unified because C7 owns 14.7.1p1's instantiated
+declarations, which is what would make a member's two keys differ.
+
+**A `= default` copy constructor is trivial in the reference and user-provided
+here.** 8.4.2p5 leaves a function explicitly defaulted on a declaration that is
+not its first one *user-provided*, so `struct box { box(const box&); ... };`
+with `box::box(const box&) = default;` has a non-trivial copy constructor and a
+copy of a `box` is a call of it. `reference-binaries/cppgm++` writes `copyobj`
+at the copy and marks the definition `trivial_lifecycle=yes`. Beside it, an
+*in-class* `= default` copy constructor of a trivially copyable class: the
+reference emits the weak definition and this compiler emits none, so a call from
+another unit would find nothing to link to. Both predate this tier - they are
+PA16-PA18 lifecycle questions rather than 8.3.5p10's - and no fixture reaches
+either, so they are recorded where the rest of 12.8's triviality is. A fixture
+over a defaulted definition has to make the class non-trivially copyable for
+another reason, which the six this audit adds do.
 
 **Two places the reference is alone, found sweeping 8.3.5p10.** It binds a body's
 name to a parameter place 3.3.4 ends at another declarator: in
@@ -279,7 +285,9 @@ reference loads the parameter slot where this compiler and `g++ -std=c++11` both
 load the global, and the reference's program returns the wrong value. And it
 writes `binding=strong` for an explicit specialization of a function template
 where this compiler writes `weak`, which the comparison strips. Neither can be a
-committed fixture and neither is C6's.
+committed fixture and neither is C6's.  The first survives the 240-ordering
+cross-product this audit ran, where it is the only shape of an ordinary
+function's parameter names the two compilers disagree about.
 
 **12.9p1's inherited constructor keeps its arity in both other compilers.** For
 `base_of<int>(int, int = 0)` inherited through `using base_of<int>::base_of;`,
@@ -307,3 +315,4 @@ to be reproduced with scalars and pointers before it is a finding.
 | C4 | the reading a template definition gets where it stands: 14.6p8's body read once at its own point in the PA11 dialect and again for each specialization, 14.7.1p1's naming made a declaration rather than a use, 14.6.1p6's redeclared template parameter, 9.2p1's member type declared twice, `FunctionReading` and `DialectReading`, and `sema_declaration.h`/`sema_function.cpp` split out | `fa07d078` | 5 / 5, all of them the reading's own edges - **the reading left something behind, and the two questions it added landed at some of the places a declaration binds a name and not the rest**: a template-id written in a definition being read makes a specialization, and it went onto the list that is not an inventory but what a *later* declaration is read for - 14.5.1.3p1's out-of-class member definition and the definition the template itself gets - so a specialization no instantiation asked for was completed and given a member, and where the member definition arrived after the reading it was completed from inside `instantiate_member` and the member was declared twice: **`m is defined twice` on a program both oracles compile**; 14.6p8's walk reached an expression written as a statement and stopped at every declaration's initializer, so `int y = nowhere;`, `for (int i = nowhere; ...)` and `S s = { nowhere };` were accepted; 3.4.2p2 was read as leaving *every* callee to the instantiation, where a fundamental type associates no namespace and `nowhere_at_all()` and `nowhere(1)` name what nothing declares; 14.6.1p6 reached a typedef, an alias, an object and a class-scope using-declaration and not a class, an enumeration, an elaborated declaration, a namespace-alias, an enumerator, a parameter, a function or a template's own name; and 9.2p1's question landed on the typedef-name side alone, so `typedef int A; struct A {};` and its enum and elaborated forms declared one name as two kinds of type in a class, a namespace and a block alike. Both oracles refuse the first three and the type-name over a typedef-name; g++ refuses the six 14.6.1p6 shapes the reference accepts, beside the two this checkpoint already refused | 235 / 301 → **242 / 308**, the seven new tests being the seven regressions these leave and the failing 66 the same 66; pa1-pa18 1777 / 1777; file audit passes; every checked `.ref` regenerates byte-identically; 95 synthesized programs through `dev/cppgm++`, the reference and g++, with 19 of them compared as emitted LowIR and byte-identical to the reference; two units each naming a specialization no call instantiates emit only what they asked for, in either order; `object=` differences 9 → 7 tests and `binding=` 12 → 10, every survivor a test that already fails but the recorded unnamed-namespace one; every scaling shape where the checkpoint left it, including the two 13.3p1 quadratics and the exponential spelling; valgrind clean over all 308 fixtures; the pa1-pa19 report 10.4 s |
 | C5 | the class a template makes of its own parameters: 14.6.1p1's current instantiation read once against a kept parameter region, 14.5.1.3p1's out-of-class member definitions read against the same two with 14.1p2's own head names, 14.6.2p1's dependent qualified name and 14.6.2p3's dependent base, 9.2p2's held bodies, 9.4.2p1's qualified class-head, 9.3.1p3's object parameter for a pattern, and 15.4p1 | `277a48bb` | 3 / 3 + 1 beside them, all of them **what the reading kept and what it did not keep**: 14.1p2 leaves each declaration of one template free to spell its parameters as it likes, and the names an out-of-class member definition's head wrote were bound in the one region the class was completed against - the region every reading of its members looks names up through - so they outlived the definition, and a head spelling those places in another order was refused there and read against the class's own spelling instead: `template<class U, class T> void A<U,T>::f() { U a; T b; }` over `A<int,char>` emitted `i8` and `i32` where the reference and g++ emit `i32` and `i8`, in a return type as much as in a body, and where two heads permute one another the second was `V does not name a type` on a program both oracles compile, and a name only the definition before it wrote was still standing; 9.2p2's held bodies were taken off the list and walked once, so a class declared *in* a body being read held bodies above the mark again that nobody ever read - `struct local { int reach() { return nowhere_at_all(); } }` in a function template was accepted - and `check_template_definition` never drained the list at all; and 14.6.2p1's dependent member name kept its spelling rather than the two facts the object file writes it from, so `typename T::car_type` was `T_` where **`reference-binaries/cppgm++` and g++ both write `NT_8car_typeE`**. Beside them, on the naming path the tier already owned: a specialization's argument list was spelled without the space a program writes, so a static data member of a two-argument one was `@A_int_char___v` against the reference's `@A_int__char___v` - a global name, which the comparison does not mask | 254 / 308 → **256 / 310**, the two new tests being the two regressions these leave and the failing 54 the same 54; pa1-pa18 1777 / 1777; file audit passes; every checked `.ref` regenerates byte-identically; 73 synthesized programs through `dev/cppgm++`, the reference and g++, 56 of them compared as emitted LowIR with every comparison agreeing but the two the exception-specification gap owns; the dependent-member names byte-identical to the reference *and* to g++ at two and at three components; two units with differently-spelled member heads order-free; `object=` differences 7 and `binding=` 10, every survivor a test that already fails but the recorded unnamed-namespace one; eleven scaling shapes measured against a pre-C5 worktree build and each where the checkpoint left it, plus the 14.5.1.3p1 quadratic the checkpoint made reachable, on which the reference is slower; valgrind clean over all 308 fixtures under `pa19/tests` |
 | C6 | what a definition takes from the other declarations of the same entity, and what it owes the object file: 9.4.2p3's in-class brace-or-equal-initializer as the value the definition's storage holds and as what a read of the member is, 8.3.5p10's parameter name made a fact of the function held beside the default-argument, 8.3.5p5's array and function parameters made the pointer objects they are, and 8.5p8's "holds nothing" read of the whole object | `955dce9f` | 1 found, 1 fixed: a declaration written below a *template's* definition renamed the parameter objects every specialization had already made, so `template<class T> T zero_of(T) {...}` followed by `template<class T> T zero_of(T sample);` emitted `%sample` where the reference emits `%__param0` - **a regression C6 shipped**, on a difference the suite compares, that no fixture had the shape for. 14.7.1p1 leaves a specialization a declaration nothing wrote, so the pattern's spelling is frozen where the definition giving it a body is read and only a program's own declaration puts an object on the waiting list.  Recorded, not fixed: `required_parameters` and `has_default_argument` still key the record by `function.id` where C6 moved the writer to `wrote_defaults`, which is vestigial today because 12.8p12 keeps special members out of the template tier | 262 / 311 -> **264 / 313**, the two new tests being the regression this fixes and the failing 49 the same 49 by name; pa1-pa18 1777 / 1777; file audit passes; every `.ref` regenerates byte-identically over all 313 fixtures; 30 synthesized programs through the pre-audit binary, `reference-binaries/cppgm++` and g++, of which C6 moved 15 onto the reference and 2 off it and all 17 now agree; the three left disagreeing are metadata the comparison strips and one the reference is alone on against g++; three scaling shapes at n = 32, 128 and 512 unchanged against a pre-audit worktree build at about 2% more memory; valgrind clean over all 313 fixtures under `pa19/tests` |
+| C6 audit | 8.3.5p10's parameter name made a fact of the function rather than of any one of its declarations: `ParameterRecord` split out of `Default` beside `HeldInitializer`, a definition's own declarator beating the record, the objects a definition left unnamed waiting for the first declaration to name them, and 14.7.1p1 narrowing which of the template's declarations a specialization is spelled from | `d6700f4a` | 2 / 2, both of them **the same fact asked at fewer places than have it**: 14.7.1p1's narrowing froze a specialization's spelling where the pattern's *definition* is read, where `reference-binaries/cppgm++` freezes it at the template's *first declaration* - over all 120 orderings of an unnamed declaration, two differently named ones, an unnamed definition and a call, this compiler disagreed on the **16 whose first declaration is the unnamed one**, per place as well as per function (`two(T, T b)` then `two(T a, T)` is `__param0, b` and not `a, b`), while **the same 120 orderings over an ordinary function agree in every one**; and the widened fact reached the declarator path and not the one 12.8p28's and 12.9p8's definitions take, which have no declarator and are handed one declaration's list - so `box::box(const box&) = default;` below a class that named the place, an out-of-class `= default` naming a place the class did not, and an inherited constructor whose base is defined below the using-declaration each wrote `__param1` where the reference writes the name, and `= default` outside the class recorded nothing at all, being the one declaration form that returns before `record_declared_parameters` | 266 / 315 -> **272 / 321**, the six new tests being the six shapes these leave and the failing 49 the same 49 by name; pa1-pa18 1777 / 1777; file audit passes; every `.ref` regenerates byte-identically over all 321 fixtures; 240 declaration orderings plus 55 shapes over members, constructors, operators, static members, array/reference/function parameters, default arguments, class templates, special members and inherited constructors, through this compiler, the pre-audit binary and `reference-binaries/cppgm++`, with all six regressions failing against the pre-audit binary; what is left disagreeing is emission order, an `alias object` line and the one place the reference binds a body's name to a parameter 3.3.4 ends elsewhere; four scaling shapes at n = 32, 128 and 512 unchanged against a pre-audit worktree build within 1% of its memory; valgrind clean over all 321 fixtures; the build's two `-Wall` warnings gone |
