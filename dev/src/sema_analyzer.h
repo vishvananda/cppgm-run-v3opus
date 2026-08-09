@@ -2287,30 +2287,18 @@ private:
 	// only a constructor's declaration adds to this.
 	std::unordered_map<std::uint32_t, std::vector<Parameter> >
 		constructor_parameters_;
-	// 8.3.6p4 and 8.3.6p9: the default-arguments each function has been
-	// declared with so far, and for each the region its own declaration was
-	// written in.  Several declarations of one function each add the defaults
-	// they wrote, and p9 reads one in the region that introduced it rather than
-	// in the one the call is written in, so the region travels per parameter.
-	struct Default
-	{
-		Default()
-			: written(nullptr)
-			, scope(nullptr)
-		{}
-
-		const AstNode* written;
-		Scope* scope;
-		std::string name;
-	};
-
-	std::unordered_map<std::uint32_t, std::vector<Default> > defaults_;
+	// What the declarations of each function have said about its parameters so
+	// far, in the order its type gives them (`sema_declaration.h`).  Keyed by
+	// the function, because 8.3.6p4's default-argument and 8.3.5p10's name are
+	// each facts of the function that any one of its declarations may be the
+	// one to give.
+	std::unordered_map<std::uint32_t, std::vector<ParameterRecord> > defaults_;
 	// 12.6.2p8: the brace-or-equal-initializer each non-static data member was
 	// declared with, and the region it was written in, which 9.2p2 makes the
 	// complete-class context it is read in.  It is keyed by the member because
 	// it is a fact about that one declaration, and it is read once by every
 	// constructor whose mem-initializers do not name the member.
-	std::unordered_map<std::uint32_t, Default> member_initializers_;
+	std::unordered_map<std::uint32_t, HeldInitializer> member_initializers_;
 	// 9.3.2p1: the implicit object parameter of the function whose body is
 	// being read, which is what `this` and a member named with no object
 	// expression denote.  Null outside a member function.

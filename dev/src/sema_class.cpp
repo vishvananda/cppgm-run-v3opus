@@ -834,7 +834,7 @@ void SemaAnalyzer::special_member_definition(const AstNode& node,
 std::size_t SemaAnalyzer::required_parameters(const SemaEntity& function) const
 {
 	const std::size_t declared = types_.parameters(function.type).size();
-	const std::unordered_map<std::uint32_t, std::vector<Default> >::const_iterator
+	const std::unordered_map<std::uint32_t, std::vector<ParameterRecord> >::const_iterator
 		found = defaults_.find(function.id);
 	if (found == defaults_.end())
 	{
@@ -843,7 +843,7 @@ std::size_t SemaAnalyzer::required_parameters(const SemaEntity& function) const
 	for (std::size_t index = 0; index < declared; ++index)
 	{
 		if (index < found->second.size() &&
-		    found->second[index].written != nullptr)
+		    found->second[index].initializer.written != nullptr)
 		{
 			return index;
 		}
@@ -1146,10 +1146,10 @@ unsigned char SemaAnalyzer::transfer_kind(const SemaEntity& function,
 bool SemaAnalyzer::has_default_argument(const SemaEntity& function,
                                         std::size_t index)
 {
-	const std::unordered_map<std::uint32_t, std::vector<Default> >::const_iterator
+	const std::unordered_map<std::uint32_t, std::vector<ParameterRecord> >::const_iterator
 		found = defaults_.find(function.id);
 	return found != defaults_.end() && index < found->second.size() &&
-		found->second[index].written != nullptr;
+		found->second[index].initializer.written != nullptr;
 }
 
 // 12.8: the four value-transfer members the program itself declared, recorded

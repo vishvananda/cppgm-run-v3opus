@@ -1,0 +1,12 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    %t1 = call i32 @ignore(2)
+    return i32 %t1
+}
+function @ignore(%amount : i32) -> i32 [binding=weak, object=_Z6ignoreIiEii] {
+  slot $amount : i32
+
+  block ^entry:
+    store i32 %amount, $amount
+    return i32 0
+}

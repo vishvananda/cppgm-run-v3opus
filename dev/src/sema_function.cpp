@@ -132,14 +132,36 @@ void SemaAnalyzer::declare_parameters(const std::vector<Parameter>& parameters,
 		const TypeId held = semantics()
 			? types_.parameter_object(parameters[index].type)
 			: parameters[index].type;
-		SemaEntity& parameter =
-			model_.create(SemaKind::Parameter, parameters[index].name, held);
-		if (!parameter.name.empty())
+		// 8.3.5p10: the object is spelled with the function's name for the
+		// place, which is this clause's own where it wrote one and otherwise
+		// the first name any declaration of the function gave.  Only the
+		// spelling travels: what a declarator did not write is bound nowhere
+		// and 14.6.1p6 is asked about nothing, because 3.3.4 ends a
+		// declaration's parameter names at its own declarator.
+		SemaEntity& parameter = model_.create(
+			SemaKind::Parameter,
+			parameters[index].name.empty() ? parameters[index].object_name
+			                               : parameters[index].name,
+			held);
+		if (!parameters[index].name.empty())
 		{
-			require_no_template_parameter(parameter.name, *inner.scope);
-			model_.bind(*inner.scope, parameter.name, parameter);
+			require_no_template_parameter(parameters[index].name, *inner.scope);
+			model_.bind(*inner.scope, parameters[index].name, parameter);
 		}
 		model_.declare_in(*inner.scope, parameter);
+		if (lowering() && parameter.name.empty() &&
+		    inner.scope->kind == ScopeKind::Function &&
+		    inner.scope->owner != nullptr)
+		{
+			// No declaration read so far named this place, and one written
+			// below this definition may still be the first to - so the object
+			// waits on the function's own record for that name.
+			std::vector<ParameterRecord>& record =
+				defaults_[wrote_defaults(*inner.scope->owner).id];
+			const std::size_t at = index + implicit;
+			record.resize(at + 1 > record.size() ? at + 1 : record.size());
+			record[at].objects.push_back(&parameter);
+		}
 		if (node != nullptr)
 		{
 			DumpNode& line = open_fact(*node, "parameter " + parameter.name + " " +

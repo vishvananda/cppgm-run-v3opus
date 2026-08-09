@@ -109,6 +109,46 @@ struct DeclaredParameter
 	// 8.3.6p1: the default-argument this parameter was written with, which
 	// a call that omits the argument uses in its place.
 	const AstNode* initializer;
+	// 8.3.5p10: the name the object file spells this place with where this
+	// clause wrote none.  It is the function's name for the place rather than
+	// this declaration's, so it names the object and binds nothing: 3.3.4 ends
+	// a declaration's parameter names at its own declarator.  Empty where this
+	// clause named the place itself, or where no declaration has yet.
+	std::string object_name;
+};
+
+// An initializer as written, and the region it is read in - which is not the
+// region whatever asks for it stands in.  8.3.6p9 reads a default-argument in
+// the region the declaration that gave it was written in, and 9.2p2 reads a
+// brace-or-equal-initializer in the complete-class context of its class, so the
+// region travels beside the syntax in both.
+struct HeldInitializer
+{
+	HeldInitializer()
+		: written(nullptr)
+		, scope(nullptr)
+	{}
+
+	const AstNode* written;
+	Scope* scope;
+};
+
+// What every declaration of one function has said about one of the parameters
+// its type gives a place to, kept per function rather than per declaration.
+//
+// 8.3.6p4: the default-argument belongs to the declaration that first gave it,
+// which a later one does not move.
+//
+// 8.3.5p10: the name is no part of the type, so no two declarations need agree
+// about it and only the object file asks - the first name any declaration gave,
+// with a definition's own name beating it.  A declaration may name the place
+// after a definition has already made the object for it, so the objects that
+// definition left unnamed wait here for that name.
+struct ParameterRecord
+{
+	HeldInitializer initializer;
+	std::string name;
+	std::vector<SemaEntity*> objects;
 };
 
 // A definition the dump writes at the end of the translation unit.

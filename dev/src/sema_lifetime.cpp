@@ -2043,7 +2043,7 @@ void SemaAnalyzer::write_member_initializations(const Pending& pending,
 			// designated: what the ctor-initializer named is what the one
 			// storage holds, and the initializer written on the member the
 			// constructor did not name says nothing about it.
-			const std::unordered_map<std::uint32_t, Default>::const_iterator
+			const std::unordered_map<std::uint32_t, HeldInitializer>::const_iterator
 				found = member_initializers_.find(member.id);
 			if (found != member_initializers_.end())
 			{

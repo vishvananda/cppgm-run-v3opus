@@ -260,7 +260,7 @@ bool SemaAnalyzer::accepts_arity(const SemaEntity& function,
 	// the base's - and a later declaration of the base's function may add one,
 	// so the question is asked of that declaration rather than of a copy made
 	// where the using-declaration stood.
-	const std::unordered_map<std::uint32_t, std::vector<Default> >::const_iterator
+	const std::unordered_map<std::uint32_t, std::vector<ParameterRecord> >::const_iterator
 		found = defaults_.find(wrote_defaults(function).id);
 	if (found == defaults_.end())
 	{
@@ -269,7 +269,7 @@ bool SemaAnalyzer::accepts_arity(const SemaEntity& function,
 	for (std::size_t index = given; index < declared; ++index)
 	{
 		if (index >= found->second.size() ||
-		    found->second[index].written == nullptr)
+		    found->second[index].initializer.written == nullptr)
 		{
 			return false;
 		}
@@ -286,6 +286,13 @@ void SemaAnalyzer::record_declared_parameters(
 	// declarations of the function said about each parameter is held at the
 	// place the function type gives that parameter, which is what every arity
 	// question asks about.
+	// 14.7.1p1: a specialization is a declaration nothing wrote, so the
+	// declarations that said anything about its parameters are the template's -
+	// which is the entity `wrote_defaults` already answers with, and the one
+	// every reader of this record asks.  Reading the body of a specialization
+	// re-reads the pattern's own declarator, so a name the template's *other*
+	// declaration wrote is only there.
+	const std::uint32_t held_by = wrote_defaults(function).id;
 	const std::size_t total = types_.parameters(function.type).size();
 	const std::size_t implicit =
 		total > declared.size() ? total - declared.size() : 0;
@@ -294,11 +301,10 @@ void SemaAnalyzer::record_declared_parameters(
 		// 8.3.5p10: a parameter's name is no part of the function's type, so no
 		// two declarations of one function need agree about it and one that
 		// wrote none still declares the parameter.  The name the object file
-		// writes is therefore the function's rather than the declaration's: the
-		// one this declaration gave, and where it gave none the first name any
-		// declaration of the function did.  It is only the object file that
-		// asks, so the earlier dialects, whose dumps describe declarations one
-		// at a time, are left writing what each of them wrote.
+		// writes is therefore the function's rather than the declaration's, and
+		// the first one any declaration gave is it.  It is only the object file
+		// that asks, so the earlier dialects, whose dumps describe declarations
+		// one at a time, are left writing what each of them wrote.
 		const bool names = lowering() && !declared[index].name.empty();
 		const bool takes = lowering() && declared[index].name.empty();
 		if (declared[index].initializer == nullptr && !names && !takes)
@@ -306,25 +312,38 @@ void SemaAnalyzer::record_declared_parameters(
 			continue;
 		}
 		const std::size_t at = index + implicit;
-		std::vector<Default>& held = defaults_[function.id];
+		std::vector<ParameterRecord>& held = defaults_[held_by];
 		held.resize(at + 1 > held.size() ? at + 1 : held.size());
 		if (names && held[at].name.empty())
 		{
 			held[at].name = declared[index].name;
+			// The definitions read above left the object for this place
+			// unnamed, because nothing had named it yet.  This declaration is
+			// the first namer, so it is this place's spelling in the object
+			// file however far below those definitions it stands.  It binds
+			// nothing there: 3.3.4 ends a declaration's parameter names at its
+			// own declarator, so a body already read never named this one.
+			for (std::size_t which = 0; which < held[at].objects.size(); ++which)
+			{
+				held[at].objects[which]->name = declared[index].name;
+			}
+			held[at].objects.clear();
 		}
 		else if (takes)
 		{
-			declared[index].name = held[at].name;
+			// The object this declarator makes for the place is spelled with
+			// the function's name for it, which no clause of this one wrote.
+			declared[index].object_name = held[at].name;
 		}
 		if (declared[index].initializer == nullptr ||
-		    held[at].written != nullptr)
+		    held[at].initializer.written != nullptr)
 		{
 			// 8.3.6p4: a parameter's default-argument belongs to the
 			// declaration that first gave it, which a later one does not move.
 			continue;
 		}
-		held[at].written = declared[index].initializer;
-		held[at].scope = region;
+		held[at].initializer.written = declared[index].initializer;
+		held[at].initializer.scope = region;
 	}
 }
 
@@ -333,15 +352,15 @@ void SemaAnalyzer::write_default_argument(const SemaEntity& function,
 {
 	// 7.3.3p1: the default-argument stands on the declaration the base wrote,
 	// which is the one this call runs.
-	const std::unordered_map<std::uint32_t, std::vector<Default> >::const_iterator
+	const std::unordered_map<std::uint32_t, std::vector<ParameterRecord> >::const_iterator
 		found = defaults_.find(wrote_defaults(function).id);
 	if (found == defaults_.end() || index >= found->second.size() ||
-	    found->second[index].written == nullptr)
+	    found->second[index].initializer.written == nullptr)
 	{
 		throw std::runtime_error("a call omits an argument the declaration "
 		                         "gives no default for");
 	}
-	const AstNode& written = *found->second[index].written;
+	const AstNode& written = *found->second[index].initializer.written;
 	if (written.children.empty() || written.children[0]->children.empty())
 	{
 		throw std::runtime_error("a default-argument is written with no value");
@@ -353,7 +372,7 @@ void SemaAnalyzer::write_default_argument(const SemaEntity& function,
 	// against is a region of its own binding each of them to the argument this
 	// specialization was made from, exactly as its body is read.
 	Context where;
-	where.scope = found->second[index].scope;
+	where.scope = found->second[index].initializer.scope;
 	if (function.primary != nullptr &&
 	    function.primary->templated != nullptr &&
 	    where.scope != nullptr &&
@@ -2311,7 +2330,7 @@ void SemaAnalyzer::declare_object_declarator(const AstNode* initializer,
 			// 12.6.2p8 and 9.2p2: the initializer is read by every constructor
 			// that does not name the member, in the complete-class context the
 			// member was declared in rather than where the constructor is.
-			Default& held = member_initializers_[entity.id];
+			HeldInitializer& held = member_initializers_[entity.id];
 			held.written = initializer->children[0];
 			held.scope = target.scope;
 		}
