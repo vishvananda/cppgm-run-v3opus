@@ -1050,13 +1050,19 @@ void LowirUnitLowering::global_variable(const DumpNode& node)
 		// standard's own definition of its default constructor writes, which
 		// the image can spell as the address of the table - so that
 		// initialization is data too, and the program runs nothing before it.
+		// 8.5p8 again: holding nothing is a fact of the whole object rather than
+		// of the class the declaration named, because a class whose one member is
+		// of an empty class is not itself empty and still has no byte a trivial
+		// constructor could put anything in.  The vpointer is asked about first,
+		// because a class that dispatches accounts for none of its storage by a
+		// subobject and the pointer is still there to be written.
 		const SemaEntity& built = *written->children[0]->children[0]->fact.entity;
 		const bool trivial = built.trivial;
-		const bool nothing_to_do = trivial &&
+		const bool vpointer = vpointer_image(built, type);
+		const bool nothing_to_do = trivial && !vpointer &&
 			(written->fact.zero_initialized ||
 			 types_.kind(types_.strip_cv(type)) == TypeKind::Array ||
-			 types_.is_empty_class(types_.strip_cv(type)));
-		const bool vpointer = !nothing_to_do && vpointer_image(built, type);
+			 !types_.has_zeroed_storage(type));
 		if (vpointer)
 		{
 			global.data_items.clear();
