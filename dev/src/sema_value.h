@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "sema_scope.h"
@@ -164,4 +165,26 @@ struct OverloadMatch
 	// hold the same constructor or conversion function.  `kNoType` for a
 	// sequence that is not one.
 	TypeId list_class;
+};
+
+// 3.4.2p2: the namespaces and classes the argument types of one call are
+// associated with, each once and in the order they were reached.
+struct AssociatedRegions
+{
+	std::vector<Scope*> spaces;
+	std::vector<Scope*> classes;
+	// Which regions the two lists already hold.  A namespace and a class are
+	// never one region, so one probe answers for both, and gathering costs the
+	// regions the types reach rather than their square.
+	std::unordered_set<const Scope*> held;
+	// The classes whose own base chain the walk has already followed, which is
+	// what lets a second argument of one type stop at once.  It is not the same
+	// question as `held`: 3.4.2p2 also associates the class a nested type is a
+	// member of, and associates none of its bases.
+	std::unordered_set<const SemaEntity*> walked;
+	// The specializations whose template arguments the walk has already
+	// followed.  A specialization holds only types made before it, so this
+	// keeps a nest whose arguments repeat to one visit each rather than one per
+	// path through it.
+	std::unordered_set<TypeId> arguments;
 };
