@@ -1,9 +1,9 @@
 # PA19 Plan — `cppgm++ --emit-lowir` first-tier templates
 
-PA19 stands at **235 / 301** (65 spec + 234 general + 2 course), from a
-turn-start baseline of 227 / 299, with pa1-pa18 at **1777 / 1777** and the file
+PA19 stands at **242 / 308** (65 spec + 241 general + 2 course), from a
+turn-start baseline of 235 / 301, with pa1-pa18 at **1777 / 1777** and the file
 audit passing with the five header-weight warnings it inherited. The whole
-pa1-pa19 report runs in 10.3 s.
+pa1-pa19 report runs in 10.4 s.
 
 The milestone gives the PA16-PA18 object model its first template tier: a
 template-declaration records a pattern instead of declaring anything, and
@@ -38,7 +38,7 @@ Three facts about the harness shape what has to be right, read out of
   (`sema_template.h`) is the syntax the template-declaration parameterises, the
   region it was written in, the parameters its head declared with 14.1p9's
   defaults beside them, 14.5.1.3p1's out-of-class member definitions, and the
-  specializations made so far. It hangs off the declaration
+  specializations an instantiation asked for. It hangs off the declaration
   (`SemaEntity::templated`), because the declaration is what a use finds.
   `record_template` writes it under `SemaDialect::Lowering` only: PA11 and PA12
   describe what a template-declaration *says* and instantiate nothing.
@@ -102,27 +102,43 @@ Three facts about the harness shape what has to be right, read out of
   is the *PA11* one: a type that depends on a parameter has no layout, no
   conversion and no overload set until an argument arrives, so what the pattern
   can be asked is what its declarations say and 3.4p1's lookup of the names it
-  writes.  14.6.2p1's member name, 14.2's template-id and 3.4.2p2's callee are
-  the three the instantiation is left.
+  writes.  14.6.2p1's member name, 14.2's template-id and the callee 3.4.2p2 can
+  reach a namespace for are the three the instantiation is left.
 - **The reading leaves nothing behind.**  Its lines stand in a dump nothing
   reads, and 14.7.1p1 makes a template-id it names a declaration rather than a
-  use requiring a definition - so `instantiate_class` makes the specialization
-  and completes it where an instantiation asks.  `templating()` is what says the
-  template layer answers during it, where `lowering()` used to.
+  use requiring a definition.  `TemplateInfo::specializations` is not an
+  inventory of what exists: it is what a declaration arriving *later* is read
+  for - 14.5.1.3p1's out-of-class member definition and the definition the
+  template itself gets - so `require_specialization` is where a specialization
+  an instantiation asked for joins it, and one only a reading ever named is on
+  it nowhere.  `templating()` is what says the template layer answers during the
+  reading, where `lowering()` used to.
+- **What the reading asks is 3.4p1 of every expression the definition writes**,
+  which is a declaration's initializer as much as a statement's operand.  The
+  one it leaves alone is 14.6.2p1's: a member name, a template-id, and the
+  callee of a call whose arguments 3.4.2p2 associates a namespace with - which
+  none but literals do, so a call written with no arguments is looked up here.
 - **One body's facts belong to that body.**  `FunctionReading` puts aside what
   the reading around it knew, because naming a specialization in the middle of a
   body is what asks for another body to be read; `DialectReading` does the same
   for which of the three dialects the walk is in.
 - **A template parameter is redeclared by a fact of the regions.**  14.6.1p6
   refuses a declaration of a parameter's name anywhere in the template, so the
-  question is asked where a name is bound and the template-parameter regions
-  standing over a region are chained as they are opened - it costs the number of
-  template heads above the declaration and not the block nesting it happens to
-  be written at.
-- **A class may not declare a member type twice.**  7.1.3p3 lets a namespace
-  redeclare a typedef-name for the same type and 9.2p1 does not let a class
-  declare a member twice, so `declare_type_alias` is where both are asked;
-  7.1.3p6's redefinition of a *class*-name is the one a class does allow.
+  question is asked at *every* declaration that binds a name - through
+  `declare_type_alias` and `declare_type_name` for the two kinds of type-name,
+  and at the object, parameter, function, enumerator, using-member and
+  namespace-alias bindings - and the template-parameter regions standing over a
+  region are chained as they are opened, so it costs the number of template
+  heads above the declaration and not the block nesting it happens to be written
+  at.  The one name no region can be asked about is the template's own, bound
+  before its head is read, so `record_template` asks the head directly.
+- **A name is declared once as one kind of type.**  7.1.3p3 lets a region
+  redeclare a *typedef-name* and 7.1.3p6 lets a class redeclare a class-name as
+  one, and neither runs the other way - what 3.3.10p2 binds a class-name as is
+  the tag an elaborated-type-specifier reaches.  So `declare_type_alias` refuses
+  a typedef-name a class already declares (9.2p1) and `declare_type_name`
+  refuses a class-name or an enum-name where a typedef-name of that spelling
+  already stands, in every region alike.
 - **A specialization has a second point of instantiation at the end of the
   unit.** 14.6.4.1p1: the pending entry a name leaves is settled where the walk
   reaches it, so the definition the template has by the end of the unit is the
@@ -142,7 +158,7 @@ Three facts about the harness shape what has to be right, read out of
 
 ## Current Failure Map
 
-66 of 301 fail. Grouped by the compiler behaviour that owns them:
+66 of 308 fail. Grouped by the compiler behaviour that owns them:
 
 | n | group | what is missing |
 | --- | --- | --- |
@@ -186,88 +202,75 @@ definition, `typename base<T>::type`, and the declarations the five accepted
   dependent type (`value_type is written after a name that is not a namespace`).
   The first is a deferral and the other two are 14.6.2p1, so the checkpoint has
   to carry the dependent-name half with it rather than after it.
+- **what the C4 audit leaves it**: the pattern class is read under `checking_`
+  like a function template's body, so it inherits both seams already there - a
+  template-id it names asks for no specialization, and every declaration it
+  makes binds its name through `declare_type_alias`/`declare_type_name`, which
+  is what makes the five accepted `-bad` fixtures fail the moment the body is
+  read at all.
 - **validation**: the five accepted `-bad` fixtures, then 14.6.2p3's unqualified
   name that must skip a dependent base, then the pa19 report and pa1-pa18.
 
 ## Performance Model
 
 The dominant operation is one reading of one pattern per specialization, which
-is linear in the pattern. What is superlinear is superlinear in the *program*.
+is linear in the pattern, plus 14.6p8's one reading per template *definition*.
+What is superlinear is superlinear in the *program*.
 
 Measured on the shapes the tier makes scaling-sensitive, each timed twice,
 `cppgm++ --emit-lowir -O0`:
 
 | shape | 32 | 64 | 128 | 256 | 512 |
 | --- | --- | --- | --- | --- | --- |
-| n distinct specializations of one class template, each with a member function | 0.01 s | 0.01 s | 0.02 s | 0.05 s | 0.10 s |
-| one specialization named n times | 0.01 s | 0.01 s | 0.01 s | 0.01 s | 0.03 s |
-| an n-member class template, four specializations, `sizeof` of each | 0.00 s | 0.00 s | 0.01 s | 0.01 s | 0.01 s |
-| an n-deep nest of template-ids as arguments | 0.01 s | 0.01 s | 0.01 s | 0.02 s | 0.06 s |
-| n deductions of one function template over n distinct classes | 0.01 s | 0.01 s | 0.02 s | 0.05 s | 0.09 s |
-| n calls deducing one specialization from a `W<int>&` parameter | 0.00 s | 0.01 s | 0.01 s | 0.01 s | 0.02 s |
-| n classes a specialization declares, each a parameter type of a member | 0.01 s | 0.01 s | 0.01 s | 0.02 s | 0.05 s |
-| two templates that tie, ordered by 14.5.6.2 at n call sites | 0.01 s | 0.01 s | 0.01 s | 0.01 s | 0.02 s |
-| an overload set of n declarations deduced against a template parameter | 0.01 s | 0.01 s | 0.01 s | 0.02 s | 0.04 s |
-| n declarations of one template name, none of them called | 0.01 s | 0.01 s | 0.01 s | 0.02 s | 0.04 s |
-| n specializations each named above the definition of its template | 0.01 s | 0.01 s | 0.02 s | 0.03 s | 0.06 s |
-| an n-deep specialization as an ADL argument, named n times | 0.01 s | 0.01 s | 0.02 s | 0.05 s | - |
-| **n function templates overloading one name, each called once** | 0.01 s | 0.01 s | 0.03 s | 0.06 s | 0.18 s |
-| **n target types each choosing among n function templates** | 0.01 s | 0.01 s | 0.03 s | 0.06 s | 0.15 s |
+| n distinct specializations of one class template, each with a member function | 0.00 s | 0.01 s | 0.01 s | 0.03 s | 0.07 s |
+| one specialization named n times | 0.00 s | 0.00 s | 0.00 s | 0.01 s | 0.02 s |
+| n specializations of one class template over n classes, through a call | 0.01 s | 0.01 s | 0.02 s | 0.06 s | 0.12 s |
+| n function templates, each an 8-statement body of initializers, none called | 0.00 s | 0.00 s | 0.01 s | 0.02 s | 0.05 s |
+| n template bodies each calling a name through literal arguments | 0.00 s | 0.00 s | 0.00 s | 0.01 s | 0.01 s |
+| n nested blocks in a function template, each declaring a name | 0.00 s | 0.00 s | 0.00 s | 0.00 s | 0.01 s |
+| a function template of n parameters | 0.00 s | 0.00 s | 0.00 s | 0.00 s | 0.00 s |
+| n declarations of one template name, none of them called | 0.00 s | 0.00 s | 0.00 s | 0.01 s | 0.02 s |
+| n classes declared in one region | 0.00 s | 0.00 s | 0.00 s | 0.01 s | 0.01 s |
+| **n function templates overloading one name, each called once** | 0.01 s | 0.01 s | 0.03 s | 0.08 s | 0.24 s |
+| **n target types each choosing among n function templates** | 0.00 s | 0.01 s | 0.03 s | 0.06 s | 0.16 s |
 
-The second and the sixth are what say the memos work; the eighth is the
-ordering memo, kept per pair of declarations, so n call sites cost what one
-does. The tenth is what the signature answers: whether two declarations declare
-one template is a fact of each declaration, so declaring the nth overload of a
-template name costs what declaring the nth ordinary overload does - it was 0.36 s
-at n = 512 and 1.57 s at n = 1024 when the question was asked of every pair, and
-each of those pairs instantiated a specialization where a parameter was written
-over a class template (44.8 MB against 15.8 MB now).
+The second is what says the memos work; the eighth is what the 14.5.6.1p5
+signature answers, so declaring the nth overload of a template name costs what
+declaring the nth ordinary overload does - it was 0.36 s at n = 512 and 1.57 s at
+n = 1024 when the question was asked of every pair, and each of those pairs
+instantiated a specialization where a parameter was written over a class
+template (44.8 MB against 15.8 MB now).
 
 The last two are quadratic and are 13.3p1's own shape: a call - and a target
 type - gathers every declaration of the name, so n of them over an
-n-declaration chain are n^2 candidates however they are ranked. The ADL nest is
-linear in the source and the walk over a specialization's template arguments is
-0.03 s of the 0.05 s at n = 256.
+n-declaration chain are n^2 candidates however they are ranked.
+
+Everything 14.6p8's reading costs is linear in the source and independent of how
+many specializations the unit makes: it is one walk of each definition's syntax,
+one ordinary lookup per name it writes, and one hash probe per declaration it
+makes.  The fourth and fifth rows are what measure the initializer reading and
+the callee lookup; the sixth is what 14.6.1p6 is measured by, because the
+question is asked of every declaration in every program - a walk outwards would
+cost the block nesting the declaration is written at, and chaining the
+template-parameter regions as they are opened makes it cost the number of
+template heads instead - at 1024 nested blocks under a template head the whole
+compile is 0.02 s, which is not measurably more than the walk the check rides
+on.
 
 **One shape is exponential and it is the spelling.** `typedef P<t,t>` repeated
 n times names a class whose written-out spelling doubles at every level, and a
-specialization is named by that spelling: 0.01 s, 0.16 s, 0.62 s and 2.50 s at
+specialization is named by that spelling: 0.01 s, 0.15 s, 0.62 s and 2.54 s at
 n = 12, 16, 18 and 20 in 23 lines of source. `reference-binaries/cppgm++` is
 0.19 s, 2.85 s, 12.28 s and **46.31 s** on the same inputs, so this is the
 milestone's shape rather than the tier's; g++ does n = 20 in 0.06 s because it
 never materialises the spelling. Fixing it means not storing a specialization's
 written-out name at all.
 
-14.6p8's reading of a definition is one reading per template *definition* and
-not per specialization, so what it adds is linear in the source however many
-specializations the unit makes:
-
-| shape | 32 | 64 | 128 | 256 | 512 |
-| --- | --- | --- | --- | --- | --- |
-| n function templates, each an 8-statement body, none of them called | 0.01 s | 0.01 s | 0.01 s | 0.02 s | 0.03 s |
-| one function template of n statements, one specialization | 0.00 s | 0.01 s | 0.01 s | 0.01 s | 0.02 s |
-| n nested blocks in a function template, each declaring a name | 0.00 s | 0.01 s | 0.01 s | 0.02 s | 0.04 s |
-| a class template of n member typedefs, one specialization | 0.00 s | 0.00 s | 0.00 s | 0.01 s | 0.01 s |
-| n specializations of one function template over n classes | 0.01 s | 0.01 s | 0.02 s | 0.04 s | 0.09 s |
-
-The third is what 14.6.1p6 is measured by: the question is asked of every
-declaration in every program, so a walk outwards would cost the block nesting
-the declaration is written at.  Chaining the template-parameter regions as they
-are opened makes it cost the number of template heads instead - at 1024 nested
-blocks 0.10 s -> **0.08 s**, which is what the same nest without a template head
-over it costs, so the check is no longer measurable.
-
-Valgrind is clean over the 73 inputs this checkpoint newly reaches - every
-`-bad` fixture, the template fixtures whose bodies are now read at their own
-point, the two course tests and the scaling shapes above - and was clean over
-all 299 fixtures at the end of the C3 audit.  The whole pa1-pa19 report is
-10.3 s.  A 20000-deep parenthesized expression is refused by the parser at about
-1000, so the definition-time walk's recursion is bounded by the same limit the
-expression layer already is.  Two of the rules
-this checkpoint added have no fixture of their own, so `cppgm.tests/course/pa19`
-holds one each - 14.6.1p6 over an alias-declaration in an uninstantiated
-function template body, and 9.2p1's member type declared twice beside the
-namespace redeclaration 7.1.3p3 allows - regenerated through `make ref-test`.
+Valgrind is clean over all 308 fixtures and over the 95 probe programs the C4
+audit synthesized.  A 20000-deep parenthesized expression is refused by the
+parser at about 1000, so the definition-time walk's recursion - over statements
+and now over initializers - is bounded by the same limit the expression layer
+already is.
 
 ## Completed Checkpoints
 
@@ -280,3 +283,4 @@ namespace redeclaration 7.1.3p3 allows - regenerated through `make ref-test`.
 | C3 | the call a template joins: 14.8.2.5p3's parameter written over no template parameter, 14.8.2.1p4's reference top, 8.3.6p1's unwritten trailing arguments read against the arguments the specialization was made from, 13.3.1.2p4's first operand and 13.4p1's overloaded name left standing where an operator gathers its candidates, 14.8.2.2's target type, 14.8.2.1p6's overload set, 3.4.2p2's template arguments, 13.5p6 asked of the specialization rather than the template, 14.5.6.2's ordering of two templates whose conversions tie, 14.5.6.1p5's equivalent declarations, and 8.5.3p5's temporary for a literal a reference binds; 8.5.1's aggregate walk and 8.5.4's list-initialization split into `sema_init_list.cpp` | 200 -> **223 / 295**; pa1-pa18 1777 / 1777; file audit passes; valgrind clean over the newly reached paths and the four new scaling shapes |
 | C3 audit | the declaration a target type chooses, the clauses an ordering strips, and the definition a name written above it still gets: 14.5.6.2p4's ordering as one question with 13.3.3p1's tie and 13.4p1's target as its two readers, 14.5.6.2p9 and p10 beneath the p5 and p7 that strip what they order by, 14.8.2.1p3's lvalue reference collapsed by 8.3.2p6, 5.3.3p2 and 5.3.6p3 over a reference type-id, 14.6.4.1p1's point of instantiation at the end of the unit for a specialization named above its template's definition, and 14.5.6.1p5's equivalence as a signature each declaration has on its own | 223 -> **227 / 299**; pa1-pa18 1777 / 1777; file audit passes; every checked `.ref` regenerates byte-identically; 60 run-and-compare programs agreeing with `reference-binaries/cppgm++` and g++; declaring 512 overloads of one template name 0.36 s -> 0.04 s and 44.8 MB -> 15.8 MB; valgrind clean |
 | C4 | the reading a template definition gets where it stands: 14.6p8's body read once at its own point in the PA11 dialect and again for each specialization, with 14.6.2p1's member name, 14.2's template-id and 3.4.2p2's callee left to the instantiation; 14.7.1p1's naming made a declaration and not a use, so a specialization is completed where an instantiation asks; 14.6.1p6's redeclared template parameter as a fact of the chained template-parameter regions; 9.2p1's member type declared twice against 7.1.3p3's namespace redeclaration; `FunctionReading` and `DialectReading` over the three readings of one body; `sema_declaration.h` and `sema_function.cpp` split out | 227 / 299 -> **235 / 301**; pa1-pa18 1777 / 1777; file audit passes; `reference-binaries/cppgm++` and g++ agree on every new rejection except one the reference accepts and g++ refuses (14.6.1p6 over `typedef int T`); 1024 nested blocks under a template head 0.10 s -> 0.08 s; valgrind clean |
+| C4 audit | the reading's own edges: 14.7.1p1's list of the specializations an *instantiation* asked for, so 14.5.1.3p1's out-of-class member definition and the template's own definition are read for those and not for one only a reading ever named; 14.6p8 over a declaration's initializer as well as a statement's operand; 3.4.2p2's callee looked up where the arguments associate nothing; 14.6.1p6 asked wherever a declaration binds a name, through `declare_type_name` for a class and an enumeration and at the enumerator, parameter, function and namespace-alias bindings; and 3.3.10p2's type-name refused where a typedef-name of that spelling already stands | 235 / 301 -> **242 / 308**, the seven new tests being the seven regressions these leave and the failing 66 the same 66; pa1-pa18 1777 / 1777; file audit passes; every checked `.ref` regenerates byte-identically; 95 synthesized programs through `dev/cppgm++`, `reference-binaries/cppgm++` and g++, 19 of them compared as emitted LowIR and byte-identical to the reference; `object=` differences 9 -> 7 tests and `binding=` 12 -> 10; every scaling shape where C4 left it; valgrind clean over all 308 fixtures |
