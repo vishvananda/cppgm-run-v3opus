@@ -113,24 +113,33 @@ void SemaAnalyzer::declare_parameters(const std::vector<Parameter>& parameters,
                                       DumpNode* node, std::size_t implicit)
 {
 	// 8.4.1p1: the parameters the declarator's own parameter-clause declared,
-	// which the type it built already read.  The line writes the adjusted type
-	// 8.3.5p5 put in the function type, while the object keeps the type it was
-	// declared with.  9.3.1p3 put the implicit object parameter before them, so
-	// the two lists start apart.
+	// which the type it built already read.  9.3.1p3 put the implicit object
+	// parameter before them, so the two lists start apart.
 	const std::vector<TypeId>& adjusted = types_.parameters(type);
 	for (std::size_t index = 0; index < parameters.size(); ++index)
 	{
-		SemaEntity& parameter = model_.create(
-			SemaKind::Parameter, parameters[index].name, parameters[index].type);
+		const TypeId written = index + implicit < adjusted.size()
+			? adjusted[index + implicit]
+			: parameters[index].type;
+		// 8.3.5p5: a parameter written as an array or as a function is a pointer,
+		// so the object the body names is one - which is what says a use of it
+		// loads the pointer the caller passed rather than 4.2's or 4.3's view of
+		// an object standing where the parameter does.  The cv-qualifiers that
+		// clause drops are dropped from the *function type* and not from the
+		// object: a by-value parameter written `const` is a const object, and
+		// which of 13.3's overloads a call on it reaches is that object's
+		// question.  PA11 describes the declarator as it was written.
+		const TypeId held = semantics()
+			? types_.parameter_object(parameters[index].type)
+			: parameters[index].type;
+		SemaEntity& parameter =
+			model_.create(SemaKind::Parameter, parameters[index].name, held);
 		if (!parameter.name.empty())
 		{
 			require_no_template_parameter(parameter.name, *inner.scope);
 			model_.bind(*inner.scope, parameter.name, parameter);
 		}
 		model_.declare_in(*inner.scope, parameter);
-		const TypeId written = index + implicit < adjusted.size()
-			? adjusted[index + implicit]
-			: parameters[index].type;
 		if (node != nullptr)
 		{
 			DumpNode& line = open_fact(*node, "parameter " + parameter.name + " " +

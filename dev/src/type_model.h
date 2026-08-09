@@ -406,6 +406,10 @@ public:
 	// function type.  An array becomes a pointer to its element, a function
 	// becomes a pointer to itself, and top level cv-qualification is dropped.
 	TypeId adjust_parameter(TypeId type);
+	// 8.3.5p5 over the object a parameter is rather than over the function
+	// type: the array and the function become pointers, and the top-level
+	// cv-qualifiers the clause drops from the type stay on the object.
+	TypeId parameter_object(TypeId type);
 
 	TypeKind kind(TypeId type) const { return nodes_[type].kind; }
 	unsigned cv(TypeId type) const { return nodes_[type].cv; }

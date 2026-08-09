@@ -800,6 +800,26 @@ TypeId TypeTable::adjust_parameter(TypeId type)
 	return unqualified(type);
 }
 
+// 8.3.5p5 over the object rather than over the function type: the array and the
+// function become pointers here too, because that is what the parameter *is* -
+// but the top-level cv-qualifiers stay, because the clause drops them from the
+// type of the function and not from the object the body names.  A by-value
+// parameter written `const` is a const object, and 13.3 asks that object which
+// of an overload set a call on it reaches.
+TypeId TypeTable::parameter_object(TypeId type)
+{
+	const TypeId bare = strip_cv(type);
+	if (kind(bare) == TypeKind::Array)
+	{
+		return pointer_to(target(bare));
+	}
+	if (kind(bare) == TypeKind::Function)
+	{
+		return pointer_to(bare);
+	}
+	return type;
+}
+
 TypeId TypeTable::substitute(TypeId type,
                              const std::unordered_map<TypeId, TypeId>& bindings,
                              std::unordered_map<TypeId, TypeId>& memo)
