@@ -1394,12 +1394,17 @@ SemaEntity& SemaAnalyzer::instantiate_class(SemaEntity& primary,
 		return *made;
 	}
 	const TemplateInfo& info = *primary.templated;
+	// 14.7.1p1: the spelling a specialization is named by, which the LowIR
+	// symbol for a global it declares is built from.  A comma is written the
+	// way a program writes one - with the space after it - because that
+	// spelling is what a global name is compared between two compilers by, and
+	// only a function's is masked before they are compared.
 	std::string spelled = primary.name + "<";
 	for (std::size_t index = 0; index < arguments.size(); ++index)
 	{
 		if (index != 0)
 		{
-			spelled += ",";
+			spelled += ", ";
 		}
 		spelled += type_spelling(arguments[index]);
 	}
