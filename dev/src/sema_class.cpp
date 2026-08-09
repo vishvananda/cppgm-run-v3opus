@@ -2515,7 +2515,8 @@ TypeId SemaAnalyzer::with_object_parameter(TypeId type,
 		!(qualified &&
 		  declares_static_member(
 			  where, name,
-			  types_.ref_qualified_function(type, RefQualifier::None)));
+			  types_.ref_qualified_function(type, RefQualifier::None),
+			  target.template_head));
 	if (!object_member)
 	{
 		if (ref != RefQualifier::None)
@@ -2671,18 +2672,30 @@ bool SemaAnalyzer::declarator_writes_exception_specification(
 // not name.  The chain the name heads is indexed by the parameter type list, so
 // the question is a probe rather than a walk of the declarations already made.
 bool SemaAnalyzer::declares_static_member(Scope& where, const std::string& name,
-                                          TypeId type)
+                                          TypeId type, Scope* head)
 {
-	SemaEntity* const head = model_.find(where, name, LookupKind::Any);
-	if (head == nullptr || head->kind != SemaKind::Function)
+	SemaEntity* const declared = model_.find(where, name, LookupKind::Any);
+	if (declared == nullptr || declared->kind != SemaKind::Function)
 	{
 		return false;
+	}
+	// 14.5.2 and 14.5.6.1p5: a member template's definition writes a head of its
+	// own, so the declaration it redeclares carries a type over *those*
+	// parameters and 13.1's index - which is keyed by the list as written -
+	// cannot find it.  The question is the one `equivalent_template` answers:
+	// which declaration of this name has the same type once each head's
+	// parameters stand for the places they were declared in.
+	if (head != nullptr)
+	{
+		const SemaEntity* const templated =
+			equivalent_template(*declared, *head, type);
+		return templated != nullptr && !templated->object_member;
 	}
 	// 13.1's index of a class's chain is keyed by the list the declarator wrote,
 	// and a definition of a static member function writes the same list its
 	// declaration did.
 	const SemaEntity* const prior =
-		model_.overload_of(*head, member_signature(type, false));
+		model_.overload_of(*declared, member_signature(type, false));
 	return prior != nullptr && !prior->object_member;
 }
 

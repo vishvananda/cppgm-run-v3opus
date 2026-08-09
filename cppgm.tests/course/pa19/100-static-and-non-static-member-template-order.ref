@@ -1,0 +1,41 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $one : obj<4x4>
+  slot $two : i32
+
+  block ^entry:
+    %t1 = addr $one
+    %t2 = addr $one
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 38, %t3
+    store i32 2, $two
+    %t4 = addr $one
+    %t5 = addr $two
+    %t6 = call i32 @counter__reach__ov2(%t4, %t5)
+    %t7 = call i32 @counter__reach__ov3(2)
+    %t8 = binary add i32 %t6, %t7
+    %t9 = binary sub i32 %t8, 42
+    return i32 %t9
+}
+function @counter__reach__ov2(%this : ptr, %step : ptr) -> i32 [binding=weak, object=_ZN7counter5reachIiEEiPT_] {
+  slot $this : ptr
+  slot $step : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    store ptr %step, $step
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i32 %t2
+    %t4 = load ptr $step
+    %t5 = load i32 %t4
+    %t6 = binary add i32 %t3, %t5
+    return i32 %t6
+}
+function @counter__reach__ov3(%step : i32) -> i32 [binding=weak, object=_ZN7counter5reachIiEEiT_] {
+  slot $step : i32
+
+  block ^entry:
+    store i32 %step, $step
+    %t1 = load i32 $step
+    return i32 %t1
+}

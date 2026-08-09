@@ -294,7 +294,16 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 	// 9.3.1p3: a member function is called on an object its declarator does not
 	// write, whether it is defined in its class or after it.
 	const TypeId written_type = type;
-	type = with_object_parameter(type, declarator, target, specifiers.is_static,
+	// 14.7.1p1: what a *specialization* is called on is the declaration the
+	// template already made and no question about the class.  The region this
+	// reading stands in binds arguments rather than parameters, so neither
+	// 13.1's index nor 14.5.6.1p5's signature can find the declaration a
+	// substituted type came from - and 9.4p1's static member is one of those,
+	// called on no object with no `static` written where it is defined.
+	type = with_object_parameter(type, declarator, target,
+	                             specializing != nullptr
+		                             ? !specializing->object_member
+		                             : specifiers.is_static,
 	                             name, spelled.qualified());
 
 	bool redeclares = false;

@@ -1,7 +1,7 @@
 # PA19 Plan — `cppgm++ --emit-lowir` first-tier templates
 
-PA19 stands at **322 / 346** (65 spec + 254 general + 27 course), from a
-turn-start baseline of 310 / 340, with pa1-pa18 at **1778 / 1778** and the file
+PA19 stands at **327 / 351** (65 spec + 254 general + 32 course), from a
+turn-start baseline of 322 / 346, with pa1-pa18 at **1778 / 1778** and the file
 audit passing with the five header-weight warnings it inherited.  The build
 itself prints none.
 
@@ -399,22 +399,43 @@ Three facts about the harness shape what has to be right, read out of
   the declaration that region already has, and 9.4.2p1 refuses one it does not.
   3.4.3p1's own rule is beneath both - each component of a
   nested-name-specifier is looked up in the region the one before it reached,
-  which is what finds `v::S<T>::f`'s owner.
-- **14.5.2's member template declares a member.**  Which region a declaration
-  belongs to is `declaring_region`'s answer and not the region it is read in,
-  so 9.3.1p3 gives a member template the object parameter every other
-  non-static member has - and 14.8.2.1p1's P/A pairs begin after it, because no
-  argument is written for that place and its type is the class's, which a class
-  template's own argument list settled before this head declared anything.
+  which is what finds `v::S<T>::f`'s owner, with the empty first component of a
+  name written `::v::...` naming the global namespace and `region_of` answering
+  for a typedef-name that has no region of its own.
+- **14.5.2's member template declares a member, and its object parameter has
+  four readers.**  Which region a declaration belongs to is `declaring_region`'s
+  answer and not the region it is read in, so 9.3.1p3 gives a member template
+  the object parameter every other non-static member has - and 14.8.2.1p1's P/A
+  pairs begin after it, because no argument is written for that place and its
+  type is the class's, which a class template's own argument list settled before
+  this head declared anything.  The other three are questions that used to be
+  answered from a function type and cannot be, because 14.1p2 gives each head
+  parameters of its own: 9.4.1p2's "which declaration does this out-of-class
+  definition redeclare" is 14.5.6.1p5's signature and not 13.1's index of the
+  list as written; what a *specialization* is called on is the template's own
+  declaration's fact, because the region 14.7.1p1 reads a pattern under binds
+  arguments rather than parameters and neither question can be asked there at
+  all; and 14.5.6.2p2's ordering is over the places the two declarators wrote -
+  `ordering_parameters` gives the one non-static member a reference where the
+  other declaration wrote its own first operand, and drops it against 13.3.1p4's
+  static member of the same class, whose implicit object parameter matches any
+  object and orders nothing.
 - **14.8.1p2's written arguments belong to the name, not to the use.**  A
   template-id may write a leading part of the list and leave the rest to be
   deduced, so what it names is neither the template nor a specialization: it is
   a declaration of its own (`SemaEntity::partial_of`), made once per template
-  and written list, carrying that list in `template_arguments`.  A call and
-  13.4p1's target type each start their deduction from it - the written
-  arguments are substituted into the type *before* the pairs are read, which is
-  what leaves a parameter they made non-dependent to 13.3's conversion rather
-  than to a deduction that would refuse the argument.
+  and written list, carrying that list in `template_arguments`.  A call,
+  13.4p1's target type and 14.7.2p1's explicit instantiation each start their
+  deduction from it - the written arguments are substituted into the type
+  *before* the pairs are read, which is what leaves a parameter they made
+  non-dependent to 13.3's conversion rather than to a deduction that would
+  refuse the argument.  **And the clause's other arm is 14.1p9's default**: a
+  trailing argument may be omitted where it can be deduced *or* obtained from a
+  default, so a place a deduction leaves empty takes the type-id its head wrote,
+  kept beside the parameter's own declaration because 14.1p2 lets each
+  declaration spell its places as it likes, read in the region the head declared
+  them in because 14.1p9 lets a default name the places before it, and
+  substituted with what the deduction has settled so far.
 - **8.2p7 is answered by 3.4 and not by the grammar.**  `T (X)` in a
   parameter-declaration-clause is a parameter of function type where `X` names
   a type and redundant parentheses around the declarator-id where it does not,
@@ -425,9 +446,9 @@ Three facts about the harness shape what has to be right, read out of
 
 ## Current Failure Map
 
-24 of 346 fail - the 30 C9 left less the five C10 took and the one 14.5.2's
-object parameter took (`100-lazy-rshift-member-lookup`), with the six tests
-C10 added all passing.  Grouped by the compiler behaviour that owns them:
+24 of 351 fail - the same 24 by name the C10 audit found, with the six tests C10
+added and the five its audit added all passing.  Grouped by the compiler
+behaviour that owns them:
 
 | n | group | what is missing |
 | --- | --- | --- |
@@ -437,11 +458,15 @@ C10 added all passing.  Grouped by the compiler behaviour that owns them:
 | 3 | 14.1p10 and 3.4.2p2's remainder | a later redeclaration's default template argument, and two decltype-through-an-inline-namespace lookups |
 | 2 | an expression the reading types where a parameter stands in the way | 5.3.3p1's `sizeof(test((From)0))` written as an enumerator of a class template, where `(From)0` is read as a type-id rather than a cast; and a call of a member whose spelling a *namespace-scope class template* also declares, which 3.4.1 answers with the member |
 
-Beside them, three shapes C10's sweep found that no fixture reaches and both
-other compilers accept: `s.f<int>(2)` - a template-id after a member access -
-which **our parser refuses outright**, `template<class T> template<class U> int
-S<T>::f(U)`'s two clauses, and 12.3.2p1's conversion function template.  All
-three are 14.5.2's, which is what C11 is.
+Beside them, three shapes no fixture reaches and both other compilers accept,
+left standing by C10 and by its audit: `s.f<int>(2)` - a template-id after a
+member access - which **our parser refuses outright**,
+`template<class T> template<class U> int S<T>::f(U)`'s two clauses, and
+12.3.2p1's conversion function template.  All three are 14.5.2's, which is what
+C11 is; the audit landed everything else that clause's object parameter reaches
+- 9.4p1's static member template defined out of class, 14.7.1p1's reading of
+that definition, and 14.5.6.2p2's ordering of a member template against a static
+one and against a non-member.
 
 ## Active Checkpoint
 
@@ -622,6 +647,26 @@ first of those flat - a name written twice reaches one candidate, so the
 substitution its arguments make is done once however many times the list is
 written.
 
+C10's audit adds two questions and both are per *declaration*.  14.5.6.1p5's
+signature is already computed once per declaration and memoised, so n
+out-of-class static member template definitions in one class are 0.02 s at
+n = 512, and 14.1p9's default is one type-id read per place a deduction leaves
+empty, so n calls of such a template are 0.01 s.  Measured against a `0b3f72b8`
+worktree build at n = 32, 128 and 512, every shape the ordering path already
+carried is unchanged to the hundredth and within 1% of its memory: n function
+templates overloading one name (0.35 s at 512 against 0.37 s, 29.3 MB in both),
+n target types each choosing among n of them (0.15 s), n member templates of one
+class each called (0.05 s, 20.5 -> 20.6 MB), n distinct specializations (0.05 s)
+and n partial explicit lists (0.05 s).  `ordering_parameters` returns the
+written list itself wherever 14.5.6.2p2 has nothing to change, so only the mixed
+pair costs an adjusted one.  The shape the audit makes compilable is **n member
+operator templates each ordered against a non-member**, 0.63 s at n = 512, which
+is 13.3p1's own quadratic over the ADL-reachable declarations rather than the
+ordering's: the same call count written with two *non-member* operator templates
+per class - which the pre-audit binary already compiled - is 1.17 s in both
+binaries, and `reference-binaries/cppgm++` is 21.01 s at n = 128 on the member
+form against our 0.05 s.
+
 The lookup C7 added - one probe per prefix in force, and only for a name every
 open scope and every region around it has already missed - is at the pre-C7
 build's times to the hundredth: n-deep namespaces named from the innermost,
@@ -734,3 +779,4 @@ directly roots it in all three.
 | C9 | the region a declarator's own places stand in, and the type an argument list reads: 3.3.7p1's function prototype scope, each place declared as its declarator-id is read so that a later parameter's type-id and 8.3.5p2's trailing-return-type name it, with the clause a trailing-return-type follows read for those names before the type is and the type still built from the last suffix inwards; 3.3.2p6 keeping a class an elaborated-type-specifier in the clause first declares out of that region; 5.1.1p3's `this` over a member declarator's trailing-return-type; 14.6.2.2p1's type-dependent decltype-specifier made a type of its own, kept beside the specifier and the region, and answered by 14.7.1p1 reading the same expression again against those regions rebuilt over the arguments; 14.2's template-id carrying 7.1.6.1p1's cv-qualifier read as two words, and 5.1.1p8's id-expression read where a template argument spells a decltype-specifier; and the specialization a definition is read for taken before its own specifiers, so a dependent qualified return type that instantiates a class no longer gives every member that class defines in its body the type of the reading around it | 297 -> **304 / 334**, the whole decltype group and the failing 30 all named by C8's map; pa1-pa18 1778 / 1778; file audit passes and the build prints nothing; 26 synthesized shapes through this compiler, `reference-binaries/cppgm++` and g++, with the five the reference alone refuses decided by g++ and by the checked-in fixtures, and the symbols byte-identical to g++ in every shape but the ABI's decltype encoding; a two-unit call of one such specialization sharing one definition; seven scaling shapes at n = 32, 128 and 512 against an `e067d2e9` worktree build, three of them new and all linear to n = 2048; valgrind clean over all 334 fixtures |
 | C9 audit | the type a decltype-specifier stands for made a fact of the expression rather than of the reading: 14.4p1's key - the specifier as written, the shape of 14.1p1's and 3.3.7p1's regions standing over it, and the region outside them - so a declaration and the definition below it declare one template and 14.5.1.3p1's out-of-class member definition writes one return type; 3.3.7p1 bounding the region 14.7.1p1's second reading rebuilds to the declarations that stood when the specifier was read; 5.1.1p3's `this` given to the declarators a decl-specifier-seq leaves declaring a member function and to no others; and 7.1.6.2p4's class member access arm, which names the entity's declared type as its id-expression arm does.  Beside them 8.1p1's reading of a type-id out of a spelling split into `sema_type_id.cpp` | 304 / 334 -> **310 / 340**, the six new tests being the six shapes these leave and the failing 30 the same 30 by name; pa1-pa18 1778 / 1778; the file audit passes, which it did not - `sema_template.cpp` reached 3029 lines against the limit of 3000 - and the build prints nothing; every `.ref` regenerates byte-identically over all 319 fixtures under `pa19/tests` and all 12 checked-in under `cppgm.tests/course/pa19`; 52 synthesized shapes through this compiler, the `1b135271` pre-audit and `e067d2e9` pre-C9 builds and `reference-binaries/cppgm++` with g++ beside them, 42 compared as emitted LowIR and identical to the reference in 41; a unit writing all three forms run through `lowir2cy86` to the 42 g++ builds it to return; two units defining one such specialization order-free; seven scaling shapes at n = 32, 128 and 512 against a `1b135271` worktree build, unchanged but for n declarations of one template 0.04 s -> 0.02 s; valgrind clean over all 340 fixtures |
 | C10 | the region a qualified declarator-id declares into, the member a member template declares, and the arguments a template-id left out: 9.4.2p1's class-head-name and 3.4.1p8's declarator-id recording their pattern on the declaration the region that name reaches already has, with 14.1p1's own head opened *inside* that region while the declarator and the body are read - so `T` is found before a typedef-name of that spelling the region declares, `declaring_region` still steps out for the declaration, and 14.7.1p1's instantiation reads the same definition with the bindings standing where the head did; 3.4.3p1's prefix walked component by component, which is what finds `v::S<T>::f`'s owner; 14.5.2's member template given 9.3.1p3's object parameter, with 14.8.2.1p1's pairs beginning after it; 14.8.1p2's partly written argument list made a declaration of its own that a call and 13.4p1's target each deduce the rest from; and 8.2p7's `T (X)` read back as the declarator 3.4 says it is | 310 / 340 -> **322 / 346**, the six new tests being six of the shapes these leave and the failing 24 the 30 C9 left less the six taken; pa1-pa18 1778 / 1778; the file audit passes, which it did not - `sema_analyzer.h` reached 2409 lines against the limit of 2400 - and the build prints nothing; every `.ref` regenerates byte-identically over all 319 fixtures under `pa19/tests`; 48 synthesized shapes through this compiler, `reference-binaries/cppgm++` and g++, 36 compared as emitted LowIR and identical to the reference in all 36 and identical in `object=`, `binding=` and `linkage=` - which the comparison strips - in all 35 both compilers accept, with the shapes only the reference accepts decided against it by g++ and the two it alone refuses left as its own; two units defining one qualified class template and one member template, order-free and symbol for symbol and `object=` for `object=` the reference's; a unit writing all four rules run through `lowir2cy86` to the 0 g++ builds it to return; six scaling shapes linear to n = 2048 and four common ones unchanged against an `e7eb1c1a` worktree build; valgrind clean over all 346 fixtures |
+| C10 audit | the readers 14.5.2's object parameter was not given, and 14.8.1p2's other arm: 9.4.1p2's out-of-class definition of a **static** member template matched to its declaration by 14.5.6.1p5's signature rather than by 13.1's index of the list as written; 14.7.1p1's specialization saying what it is called on, because the region it is read under binds arguments and neither question can be asked there; 14.5.6.2p2's places two templates are ordered by, which gives the one non-static member a reference where the other wrote its own first operand and drops it against 13.3.1p4's static member of the same class; 14.1p9's default filling the trailing argument 14.8.1p2 lets a use omit; 3.4.3p1's leading `::` and typedef-name component in a member definition's prefix; and 14.8.1p2's partial list deduced from at 14.7.2p1's explicit instantiation | 322 / 346 -> **327 / 351**, the five new tests being five of the shapes these leave and the failing 24 the same 24 by name, with the ordering one a **regression C10 shipped** - it passes against the pre-C10 `e7eb1c1a` build; pa1-pa18 1778 / 1778; the file audit passes and the build prints nothing, `sema_analyzer.h` at 2391 against the limit of 2400; every `.ref` regenerates byte-identically over all 319 fixtures under `pa19/tests` and all 27 checked-in under `cppgm.tests/course/pa19`; 96 synthesized shapes through this compiler, the `0b3f72b8` pre-audit and `e7eb1c1a` pre-C10 builds and `reference-binaries/cppgm++` with g++ beside them, 80 compared as emitted LowIR and identical to the reference in all 80, with no shape in the sweep accepted by both oracles and refused here and six the reference alone refuses; one unit writing all six rules run through `lowir2cy86` to the 42 g++ builds it to return; two units order-free and `object=` for `object=`; nine scaling shapes at n = 32, 128 and 512 against a `0b3f72b8` worktree build, unchanged within 1% of their memory, and the one the audit makes compilable measured against the same call count the pre-audit binary already compiled; valgrind clean over all 351 fixtures |

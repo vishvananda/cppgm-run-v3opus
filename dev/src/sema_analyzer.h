@@ -1072,9 +1072,11 @@ private:
 	static bool declarator_writes_exception_specification(
 		const AstNode& declarator);
 	// 9.4p1: whether `where` declares `name` as a static member function whose
-	// declarator wrote `type`.
+	// declarator wrote `type`.  `head`, where this declaration is a template's,
+	// is the region its own head declared its parameters in - 14.5.6.1p5's
+	// question rather than 13.1's index answers it there.
 	bool declares_static_member(Scope& where, const std::string& name,
-	                            TypeId type);
+	                            TypeId type, Scope* head);
 	// 3.7.4p2 and 12.5p1: whether the name is one of the allocation and
 	// deallocation functions, which a class declares as a static member of
 	// itself whether or not `static` was written.
@@ -2269,6 +2271,11 @@ private:
 	// list stand for, keyed by the two - so a name written twice reaches one
 	// candidate and a use that deduces the rest makes one specialization.
 	std::unordered_map<std::uint64_t, SemaEntity*> partial_templates_;
+	// 14.1p9: the type-id a head wrote as one parameter's default, kept by that
+	// parameter's own declaration because 14.8.1p2 leaves a trailing argument to
+	// be deduced *or* taken from here, and a function template's pattern is
+	// recorded from its definition rather than from its head.
+	std::unordered_map<std::uint32_t, const AstNode*> parameter_defaults_;
 	// 14p1: the declaration the template-declaration being read parameterises,
 	// and the dump its lines stand in, while its declarators are read.  Null
 	// wherever the walk is not inside one.

@@ -1487,6 +1487,50 @@ int SemaAnalyzer::compare_matches(const Match& left, const Match& right)
 	return 0;
 }
 
+namespace
+{
+
+// 14.5.6.2p2 and 13.3.1p4: the parameter types `entity` is ordered against
+// `other` by, which are the places its own declarator wrote wherever the two
+// declarations declare the same kind of function.
+//
+// 9.3.1p3 put a non-static member's object parameter in its type as a pointer
+// to the class, and it is the one place the two lists can part company.
+// 14.5.6.2p2 is what lines them up: where only one of the two is a non-static
+// member, that one is considered to have a first parameter of "reference to cv
+// A" - which is the place the other declaration wrote its own first operand in,
+// and is what lets 13.5p6's member operator be ordered against the non-member
+// beside it.  9.4p1's static member of the same class is the exception: 13.3.1p4
+// gives it an implicit object parameter that matches any object, so it tells the
+// two apart by nothing and the object parameter is dropped from both.
+//
+// The list the declaration wrote is what most pairs are ordered by, so
+// `adjusted` is filled only where 14.5.6.2p2 has something to change.
+const std::vector<TypeId>& ordering_parameters(TypeTable& types,
+                                               const SemaEntity& entity,
+                                               const SemaEntity& other,
+                                               std::vector<TypeId>& adjusted)
+{
+	const std::vector<TypeId>& written = types.parameters(entity.type);
+	if (!entity.object_member || other.object_member || written.empty())
+	{
+		return written;
+	}
+	adjusted.assign(written.begin(), written.end());
+	if (entity.region != nullptr && entity.region == other.region &&
+	    entity.region->kind == ScopeKind::Class)
+	{
+		adjusted.erase(adjusted.begin());
+	}
+	else
+	{
+		adjusted[0] = types.reference_to(types.target(adjusted[0]), false);
+	}
+	return adjusted;
+}
+
+}
+
 // 14.5.6.2p2 and p8: whether the parameter types `right` was written over are
 // every one of them deduced from the type `left` wrote in the same place, with
 // `left`'s own parameters standing for types of their own.
@@ -1506,8 +1550,12 @@ bool SemaAnalyzer::at_least_as_specialized(SemaEntity& left, SemaEntity& right)
 	{
 		return held->second;
 	}
-	const std::vector<TypeId>& wrote = types_.parameters(left.type);
-	const std::vector<TypeId>& against = types_.parameters(right.type);
+	std::vector<TypeId> adjusted_left;
+	std::vector<TypeId> adjusted_right;
+	const std::vector<TypeId>& wrote =
+		ordering_parameters(types_, left, right, adjusted_left);
+	const std::vector<TypeId>& against =
+		ordering_parameters(types_, right, left, adjusted_right);
 	bool answer = wrote.size() == against.size();
 	std::unordered_map<TypeId, TypeId> bindings;
 	for (std::size_t index = 0; answer && index < against.size(); ++index)
@@ -1539,8 +1587,12 @@ bool SemaAnalyzer::at_least_as_specialized(SemaEntity& left, SemaEntity& right)
 // neither.
 int SemaAnalyzer::reference_order(SemaEntity& left, SemaEntity& right)
 {
-	const std::vector<TypeId>& wrote = types_.parameters(left.type);
-	const std::vector<TypeId>& against = types_.parameters(right.type);
+	std::vector<TypeId> adjusted_left;
+	std::vector<TypeId> adjusted_right;
+	const std::vector<TypeId>& wrote =
+		ordering_parameters(types_, left, right, adjusted_left);
+	const std::vector<TypeId>& against =
+		ordering_parameters(types_, right, left, adjusted_right);
 	int order = 0;
 	for (std::size_t index = 0; index < wrote.size() && index < against.size();
 	     ++index)
@@ -1579,14 +1631,13 @@ int SemaAnalyzer::reference_order(SemaEntity& left, SemaEntity& right)
 }
 
 // 14.5.6.2p4: `left` is more specialized than `right` when it is at least as
-// specialized and `right` is not.  9.3.1p3 put a member's object parameter in
-// its type and left a non-member's first operand out of its own, so the two
-// lists only name the same places where both templates declared the same kind
-// of function.
+// specialized and `right` is not.  Which places the two are compared at is
+// `ordering_parameters`' answer, so a pair whose lists name different places -
+// a member against a non-member that wrote no operand for the object - is left
+// unordered by the deduction failing rather than by a question asked here.
 bool SemaAnalyzer::more_specialized(SemaEntity& left, SemaEntity& right)
 {
-	if (&left == &right || left.object_member != right.object_member ||
-	    !at_least_as_specialized(left, right))
+	if (&left == &right || !at_least_as_specialized(left, right))
 	{
 		return false;
 	}

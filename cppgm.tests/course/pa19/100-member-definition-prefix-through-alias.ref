@@ -1,0 +1,48 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $one : obj<4x4>
+
+  block ^entry:
+    %t1 = addr $one
+    %t2 = addr $one
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 6, %t3
+    %t4 = addr $one
+    %t5 = call i32 @vessel__real__held_int___twice(%t4)
+    %t6 = addr $one
+    %t7 = call i32 @vessel__real__held_int___thrice(%t6)
+    %t8 = binary add i32 %t5, %t7
+    %t9 = binary sub i32 %t8, 30
+    return i32 %t9
+}
+function @vessel__real__held_int___thrice(%this : ptr) -> i32 [binding=weak, object=_ZN6vessel4real4heldIiE6thriceEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i32 %t2
+    %t4 = load ptr $this
+    %t5 = index i8 [projection=field] %t4, 0
+    %t6 = load i32 %t5
+    %t7 = binary add i32 %t3, %t6
+    %t8 = load ptr $this
+    %t9 = index i8 [projection=field] %t8, 0
+    %t10 = load i32 %t9
+    %t11 = binary add i32 %t7, %t10
+    return i32 %t11
+}
+function @vessel__real__held_int___twice(%this : ptr) -> i32 [binding=weak, object=_ZN6vessel4real4heldIiE5twiceEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i32 %t2
+    %t4 = load ptr $this
+    %t5 = index i8 [projection=field] %t4, 0
+    %t6 = load i32 %t5
+    %t7 = binary add i32 %t3, %t6
+    return i32 %t7
+}

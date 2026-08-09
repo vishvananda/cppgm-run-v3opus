@@ -473,9 +473,16 @@ SemaEntity* SemaAnalyzer::deduce_specialization(
 	return &specialize(made_of, deduced);
 }
 
-// 14.8.2p5: the argument each parameter of `primary` was deduced, or false
-// where one of them was left without a value - which leaves the specialization
-// unmade, because there is nothing to substitute for it.
+// 14.8.2p5 and 14.1p9: the argument each parameter of `primary` was deduced or,
+// where the deduction reached none, the one its head wrote a default for - which
+// is 14.8.1p2's other arm, a trailing argument being omitted where it can be
+// deduced *or* obtained from a default.  False where a place is left with
+// neither, because there is nothing to substitute for it.
+//
+// A default is read in the region the head declared its parameters in, because
+// 14.1p9 lets it name the places before it, and what the deduction has settled
+// so far is substituted into it - so `class U = T` takes what `T` deduced and a
+// later default takes what an earlier one filled.
 bool SemaAnalyzer::deduced_arguments(
 	const SemaEntity& primary,
 	const std::unordered_map<TypeId, TypeId>& bindings,
@@ -484,15 +491,39 @@ bool SemaAnalyzer::deduced_arguments(
 	const std::vector<SemaEntity*>& parameters =
 		primary.template_parameters->declarations;
 	out.reserve(parameters.size());
+	std::unordered_map<TypeId, TypeId> filled;
+	bool defaulted = false;
 	for (std::size_t index = 0; index < parameters.size(); ++index)
 	{
+		const std::unordered_map<TypeId, TypeId>& settled =
+			defaulted ? filled : bindings;
 		const std::unordered_map<TypeId, TypeId>::const_iterator bound =
-			bindings.find(parameters[index]->type);
-		if (bound == bindings.end())
+			settled.find(parameters[index]->type);
+		if (bound != settled.end())
+		{
+			out.push_back(bound->second);
+			continue;
+		}
+		const std::unordered_map<std::uint32_t, const AstNode*>::const_iterator
+			written = parameter_defaults_.find(parameters[index]->id);
+		if (written == parameter_defaults_.end())
 		{
 			return false;
 		}
-		out.push_back(bound->second);
+		if (!defaulted)
+		{
+			filled = bindings;
+			defaulted = true;
+		}
+		Context inner;
+		inner.scope = primary.template_parameters;
+		inner.dump = inner.scope->dump;
+		inner.node = nullptr;
+		std::unordered_map<TypeId, TypeId> memo;
+		const TypeId given =
+			substituted(type_id_type(*written->second, inner), filled, memo);
+		filled.insert(std::make_pair(parameters[index]->type, given));
+		out.push_back(given);
 	}
 	return true;
 }
@@ -1427,10 +1458,20 @@ SemaEntity* SemaAnalyzer::instantiation_named(const std::string& written,
 		template_specializations(written, ctx, found);
 		for (std::size_t index = 0; index < found.size(); ++index)
 		{
-			if (found[index]->type ==
-			    (found[index]->object_member ? member : declared))
+			const TypeId wanted =
+				found[index]->object_member ? member : declared;
+			// 14.8.1p2: a list that wrote only a leading part of the arguments
+			// leaves the rest to be deduced here as much as at a call, so what
+			// this declaration names is 14.8.2.2's answer over the type the
+			// declaration wrote - which is the arm below, asked of a name that
+			// wrote no list at all.
+			SemaEntity* const one =
+				found[index]->partial_of != nullptr
+					? deduce_target(*found[index], wanted)
+					: (found[index]->type == wanted ? found[index] : nullptr);
+			if (one != nullptr)
 			{
-				return found[index];
+				return one;
 			}
 		}
 		return nullptr;
@@ -1803,6 +1844,13 @@ SemaEntity* SemaAnalyzer::member_definition_owner(const AstNode& node,
 		const TemplateId written(spelled.part(index));
 		const std::string component =
 			written.valid() ? written.name() : spelled.part(index);
+		if (index == 0 && component.empty())
+		{
+			// 3.4.3p1: a name written `::x` names what the global namespace
+			// declares, which is the region the component before it reached.
+			reached = &model_.global();
+			continue;
+		}
 		SemaEntity* const named =
 			reached == nullptr
 				? model_.lookup(*ctx.scope, component, LookupKind::Region)
@@ -1816,7 +1864,11 @@ SemaEntity* SemaAnalyzer::member_definition_owner(const AstNode& node,
 		{
 			return named;
 		}
-		reached = named->scope;
+		// 3.4.3p1 again: a component may name a class through a typedef-name of
+		// it, which is a declaration with no region of its own - so the region
+		// walked into is `region_of`'s answer, exactly as it is for the same
+		// prefix read by `resolve_prefix`.
+		reached = model_.region_of(*named);
 		if (reached == nullptr)
 		{
 			return nullptr;

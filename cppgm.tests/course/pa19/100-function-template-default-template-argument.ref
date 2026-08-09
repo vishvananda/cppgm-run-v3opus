@@ -1,0 +1,45 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    %t1 = call i32 @widened(20)
+    %t2 = call i32 @paired(20)
+    %t3 = binary add i32 %t1, %t2
+    %t4 = call i32 @written(1)
+    %t5 = binary add i32 %t3, %t4
+    %t6 = binary sub i32 %t5, 42
+    return i32 %t6
+}
+function @widened(%step : i32) -> i32 [binding=weak, object=_Z7widenedIilEiT_] {
+  slot $step : i32
+  slot $held : i64
+
+  block ^entry:
+    store i32 %step, $step
+    %t1 = load i32 $step
+    %t2 = convert sext i64 i32 %t1
+    store i64 %t2, $held
+    %t3 = load i64 $held
+    %t4 = convert trunc i32 i64 %t3
+    return i32 %t4
+}
+function @paired(%step : i32) -> i32 [binding=weak, object=_Z6pairedIiiEiT_] {
+  slot $step : i32
+  slot $held : i32
+
+  block ^entry:
+    store i32 %step, $step
+    %t1 = load i32 $step
+    store i32 %t1, $held
+    %t2 = load i32 $held
+    return i32 %t2
+}
+function @written(%step : i32) -> i32 [binding=weak, object=_Z7writtenIciEiT0_] {
+  slot $step : i32
+
+  block ^entry:
+    store i32 %step, $step
+    %t1 = load i32 $step
+    %t2 = const i64 1
+    %t3 = convert trunc i32 i64 %t2
+    %t4 = binary add i32 %t1, %t3
+    return i32 %t4
+}

@@ -1358,6 +1358,20 @@ void SemaAnalyzer::template_parameter(const AstNode& node, const Context& ctx)
 	SemaEntity& entity = model_.create(SemaKind::TemplateType, id->text, type);
 	model_.bind(*ctx.scope, id->text, entity);
 	model_.declare_in(*ctx.scope, entity);
+	// 14.1p9: the argument this place takes where the use wrote none and no
+	// deduction reached it.  It is the parameter's own fact - 14.1p2 lets each
+	// declaration of one template spell its places as it likes - so it is kept
+	// beside the declaration and read where a deduction finds the place empty.
+	const AstNode* const written =
+		child_of(node, AstKind::DefaultTemplateArgument);
+	if (written != nullptr)
+	{
+		const AstNode* const carried = child_of(*written, AstKind::TypeId);
+		if (carried != nullptr)
+		{
+			parameter_defaults_.insert(std::make_pair(entity.id, carried));
+		}
+	}
 	write_line(*ctx.dump, "type", id->text, type);
 }
 
