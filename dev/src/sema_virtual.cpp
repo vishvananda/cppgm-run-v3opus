@@ -25,9 +25,6 @@ bool dispatchable_member(const SemaEntity& member)
 	return member.kind == SemaKind::Function && member.object_member &&
 		member.special != kConstructorFunction && member.shadowed == nullptr &&
 		member.surrogate_for == nullptr && member.inherited == nullptr;
-
-
-
 }
 
 // 9.4.1p2: a declaration of this class's own that declares a static member
@@ -146,7 +143,8 @@ void require_no_virtual_specifier(const SemaEntity& member)
 		                         "`override`, `final` or pure");
 	}
 }
-}
+
+}  // namespace
 
 // 10.3p1 read before 9.2p13 lays the class out: whether an object of this class
 // carries a vpointer, and whether this class is the one that adds it.
@@ -440,7 +438,6 @@ void SemaAnalyzer::settle_vtable_ownership(SemaEntity& entity, Scope& scope)
 	}
 }
 
-
 // 12.4p9 and the ABI: the destructor's place in the table.
 //
 // A destructor overrides the base's by being a destructor - 10.3p6 - and not by
@@ -496,7 +493,6 @@ void SemaAnalyzer::require_overridable(const SemaEntity& member,
 		                         "whose return type it is not covariant with");
 	}
 }
-
 
 // 7.1.2p1 and 9.2p8: `virtual` and the virt-specifiers beside it are written
 // only on the declaration a class body makes.  A member function defined
@@ -562,7 +558,6 @@ void SemaAnalyzer::require_special_virtual_placement(const AstNode& node,
 	}
 	require_virtual_placement(wrote_virtual, declarator, where, qualified, name);
 }
-
 
 // 10.4p2: whether an object of `type` cannot be created because a final
 // overrider of its class is pure.

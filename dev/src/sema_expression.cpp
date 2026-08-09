@@ -352,6 +352,16 @@ SemaAnalyzer::Value SemaAnalyzer::expression(const AstNode& node,
 	// already recorded it, and recording the same facts again writes the same
 	// ones.
 	record(value);
+	// And it is the one place 3.9p5 is asked about an expression.  14.7.1p1: an
+	// expression of class type stands for an object of that class, and
+	// 3.4.2p2's associated classes, 13.3.1.2p3's member candidates,
+	// 13.3.1.1.2's surrogate calls, 13.3.1.4's conversion functions and
+	// 12.4p11's destructor are each read off it - so a specialization a name
+	// left declared is asked for its definition here, once this expression's
+	// own line is written and before anything reads what the class has.  A
+	// pointer, a reference and a function type are none of them, so the
+	// question is two tests in the common case.
+	require_complete_type(value.type);
 	return value;
 }
 
@@ -2706,7 +2716,6 @@ SemaAnalyzer::Value SemaAnalyzer::assignment_expression(const AstNode& node,
 	respell(value);
 	return value;
 }
-
 
 SemaAnalyzer::Value SemaAnalyzer::conditional_expression(const AstNode& node,
                                                          const Context& ctx,

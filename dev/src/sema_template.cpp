@@ -74,7 +74,6 @@ private:
 	Scope* const head_;
 };
 
-
 // 5.2.3p1 and Table 10: whether a spelling standing where a callee does is a
 // simple-type-specifier written out of keywords, which the parser leaves as the
 // text of an id-expression.  An explicit type conversion written that way names
@@ -1232,31 +1231,38 @@ SemaEntity& SemaAnalyzer::instantiate_class(SemaEntity& primary,
 // 14.7.1p1: what naming a specialization comes to where the name stands.
 //
 // A class template specialization is implicitly instantiated where it is used
-// in a context that requires a completely-defined object type, and 7.1.3p1's
-// typedef-name and 8.3.5p6's function declaration are not such contexts - the
-// one names a type the program may only have declared, and the other writes a
-// return type or a parameter type no definition is being given.  So the name
-// leaves the declaration standing and marks the specialization as owing a
-// definition, and `require_complete_type` is the demand every context that
-// *does* require one makes of it.  Which contexts those are is 3.9p5's list
-// read at the places this analysis already asks whether a class is complete.
+// in a context that requires a completely-defined object type **and nowhere
+// else** - so writing the name is never that context.  7.1.3p1's typedef-name,
+// 7.1.3p2's alias-declaration, 8.3.5p6's parameter and return type of a
+// function nobody is defining, a pointer, a reference, a template argument, a
+// cast's type-id and a condition that declares one are each a name and no
+// demand, and telling them apart by where the walk happens to stand asks the
+// question once per spelling the grammar has.  So the name marks the
+// specialization as owing a definition, however many times it is written, and
+// `require_complete_type` is the one demand every context that *does* require
+// one makes of it - 3.9p5's list, read at the places this analysis already
+// asks whether a class is complete.
 void SemaAnalyzer::asked_specialization(SemaEntity& made)
 {
-	if (declaring_only_ > 0 && !made.defined && !made.declared_only)
+	if (made.defined || made.declared_only)
 	{
-		made.declared_only = true;
-		++declared_only_;
 		return;
 	}
-	require_specialization(made);
+	made.declared_only = true;
+	++declared_only_;
 }
 
 // The demand itself, asked wherever 3.9p5 requires a complete type.  A unit
-// that never wrote a declaration requiring none pays one integer test here.
+// that named no specialization pays one integer test here.
 void SemaAnalyzer::require_complete_type(TypeId type)
 {
-	if (declared_only_ == 0)
+	if (declared_only_ == 0 || checking_ > 0)
 	{
+		// 14.6p8: a definition read where it stands is no use of anything it
+		// names, so the reading asks for no definition - which is the same
+		// answer `instantiate_class` gives a template-id written there.  A
+		// reading that completed one would read the pattern in the checking
+		// dialect and leave a class with none of 12.1's members it is owed.
 		return;
 	}
 	TypeId bare = types_.strip_cv(type);
@@ -1308,11 +1314,6 @@ void SemaAnalyzer::require_specialization(SemaEntity& made)
 
 void SemaAnalyzer::complete_specialization(SemaEntity& made)
 {
-	// 14.7.1p1: what this reading is asked is what the pattern's own
-	// declarations say, so the declaration that demanded it - which may be one
-	// requiring no complete type of what it names - is put aside for as long as
-	// the reading stands.
-	const ReadingHeld reading(declaring_only_);
 	const TemplateInfo& info = *made.primary->templated;
 	// 14.6.1p1: the current instantiation is the one specialization over
 	// dependent arguments that *is* read, because it is what the template's own

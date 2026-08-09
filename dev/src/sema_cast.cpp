@@ -54,7 +54,6 @@ void lift_operand(DumpNode& parent, DumpNode& line)
 
 }  // namespace
 
-
 SemaAnalyzer::Value SemaAnalyzer::cast_expression(const AstNode& node,
                                                   const Context& ctx,
                                                   DumpNode& parent)

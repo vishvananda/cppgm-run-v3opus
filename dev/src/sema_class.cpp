@@ -83,7 +83,8 @@ RefQualifier declarator_ref_qualifier(const AstNode& declarator)
 	}
 	return RefQualifier::None;
 }
-}
+
+}  // namespace
 
 // What a class is, what its objects hold, and when their lifetimes end.
 //
@@ -2595,8 +2596,6 @@ TypeId SemaAnalyzer::with_object_parameter(TypeId type,
 		                   types_.variadic(type)),
 		ref);
 }
-
-
 
 // 15.4p1: whether the exception-specification the declarator wrote says the
 // function throws nothing.  The grammar spells it with the same node the

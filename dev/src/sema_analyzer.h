@@ -2287,12 +2287,10 @@ private:
 	// declaration the program has, so nothing it reads is declared into the
 	// output and nothing it names demands an instantiation.
 	unsigned checking_;
-	// 14.7.1p1: the depth of a declaration that requires no complete type of
-	// what it names, and how many specializations a template-id written under
-	// one has left declared.  A demand for a definition costs the count being
-	// zero at every place the standard requires a complete type, which is what
-	// it is in a unit that wrote no such declaration.
-	unsigned declaring_only_;
+	// 14.7.1p1: how many specializations a name has left declared, waiting for
+	// the first context that requires a completely-defined type.  A demand for
+	// a definition costs the count being zero at every place the standard
+	// requires one, which is what it is in a unit that named no specialization.
 	unsigned declared_only_;
 	// 12.9p8: the parameters each constructor was declared with, which the
 	// inheriting constructor a using-declaration declares takes as its own -

@@ -423,28 +423,3 @@ private:
 
 	unsigned& depth_;
 };
-
-// The same fact read the other way: a depth put *aside* while a reading of its
-// own stands, because what asked for that reading says nothing about it.
-class ReadingHeld
-{
-public:
-	explicit ReadingHeld(unsigned& depth)
-		: depth_(depth)
-		, held_(depth)
-	{
-		depth_ = 0;
-	}
-
-	~ReadingHeld()
-	{
-		depth_ = held_;
-	}
-
-private:
-	ReadingHeld(const ReadingHeld&);
-	ReadingHeld& operator=(const ReadingHeld&);
-
-	unsigned& depth_;
-	const unsigned held_;
-};

@@ -89,7 +89,6 @@ SemaAnalyzer::SemaAnalyzer(SemaDialect dialect)
 	, template_pattern_dump_(nullptr)
 	, instantiating_(nullptr)
 	, checking_(0)
-	, declaring_only_(0)
 	, declared_only_(0)
 	, self_(nullptr)
 	, naming_(nullptr)
@@ -2067,18 +2066,8 @@ void SemaAnalyzer::simple_declaration(const AstNode& node, const Context& ctx)
 	// being declared has, which for a static data member defined outside its
 	// class reaches what the class declared private.
 	const Naming naming(*this, naming_context(declared, ctx));
-	Specifiers specifiers;
-	{
-		// 14.7.1p1: what a simple-declaration's decl-specifier-seq names is a
-		// type and not yet an object, so a template-id written there declares
-		// the specialization and asks for no definition of it - 7.1.3p1's
-		// typedef-name and 8.3.5p6's function declaration each write a type the
-		// program may only have declared.  `init_declarator` is where the
-		// demand is made, because the declarator is what says whether this
-		// declaration lays anything out.
-		const ReadingDepth declaring(declaring_only_);
-		specifiers = read_specifiers(*node.children[0], ctx, span, true, declared);
-	}
+	const Specifiers specifiers =
+		read_specifiers(*node.children[0], ctx, span, true, declared);
 	if (list == nullptr)
 	{
 		if (specifiers.is_friend)
@@ -2379,15 +2368,6 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 		type = types_.array_of(types_.target(type), true,
 		                       initializer->children[0]->children.size());
 	}
-	if (!specifiers.is_typedef && types_.kind(type) != TypeKind::Function)
-	{
-		// 3.9p5 and 14.7.1p1: this declarator lays storage out, which is the
-		// context that requires the class it names to be completely defined -
-		// so a specialization the decl-specifier-seq left declared is asked for
-		// its definition here, where the arguments it was made from have
-		// whatever the program has since said about them.
-		require_complete_type(type);
-	}
 	const std::string name = spelled.last();
 	if (name.empty())
 	{
@@ -2571,6 +2551,12 @@ void SemaAnalyzer::declare_object_declarator(const AstNode* initializer,
 	if (defines_object ||
 	    (target.scope->kind == ScopeKind::Class && !specifiers.is_static))
 	{
+		// 3.9p5 and 14.7.1p1: the declared type of an object shall be complete
+		// where the object is *defined*, which is the same declarator 10.4p2 is
+		// asked about - so a specialization a name left declared is asked for
+		// its definition here, and 3.1p2's `extern` declaration and 9.4.2p2's
+		// declaration a class writes of its static data member ask for nothing.
+		require_complete_type(type);
 		require_creatable_object(type, name);
 	}
 	record_storage(entity, prior, specifiers, target, type);

@@ -116,6 +116,12 @@ void SemaAnalyzer::declare_parameters(const std::vector<Parameter>& parameters,
 	// which the type it built already read.  9.3.1p3 put the implicit object
 	// parameter before them, so the two lists start apart.
 	const std::vector<TypeId>& adjusted = types_.parameters(type);
+	// 8.3.5p6 and 14.7.1p1: the return type and the parameter types of a
+	// function *definition* shall be complete, and this is the one walk only a
+	// definition makes - a declaration writes the same types and lays no object
+	// out.  So a specialization a declaration left standing is asked for its
+	// definition here, before the objects the body names are built from it.
+	require_complete_type(types_.target(type));
 	for (std::size_t index = 0; index < parameters.size(); ++index)
 	{
 		const TypeId written = index + implicit < adjusted.size()
@@ -132,6 +138,7 @@ void SemaAnalyzer::declare_parameters(const std::vector<Parameter>& parameters,
 		const TypeId held = semantics()
 			? types_.parameter_object(parameters[index].type)
 			: parameters[index].type;
+		require_complete_type(held);
 		// 8.3.5p10: the object is spelled with the function's name for the
 		// place, which is this clause's own where it wrote one and otherwise
 		// the first name any declaration of the function gave.  Only the

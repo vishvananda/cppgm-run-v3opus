@@ -1,0 +1,49 @@
+function @consume(%x : obj<4x4>) -> i32 [binding=strong, object=_Z7consume6holderI3boxE] {
+  slot $x : obj<4x4>
+
+  block ^entry:
+    %t1 = addr $x
+    copyobj 4x4 %x, %t1
+    %t2 = addr $x
+    %t3 = index i8 [projection=field] %t2, 0
+    %t4 = load i32 %t3
+    return i32 %t4
+}
+function @produce() -> obj<4x4> [binding=strong, object=_Z7producev] {
+  slot $h : obj<4x4>
+  slot $retobj__1 : obj<4x4>
+
+  block ^entry:
+    %t1 = addr $h
+    %t2 = addr $h
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 39, %t3
+    %t4 = addr $retobj__1
+    %t5 = addr $h
+    copyobj 4x4 %t5, %t4
+    return obj<4x4> $retobj__1
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $cond__1 : i32
+  slot $argobj__2 : obj<4x4>
+
+  block ^entry:
+    %t1 = addr $argobj__2
+    %t2 = call obj<4x4> @produce()
+    copyobj 4x4 %t2, %t1
+    %t3 = call i32 @consume($argobj__2)
+    %t4 = cmp eq i32 %t3, 39
+    branch %t4, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t5 = load i32 $cond__1
+    return i32 %t5
+}

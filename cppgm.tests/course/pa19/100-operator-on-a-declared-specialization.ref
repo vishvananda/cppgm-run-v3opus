@@ -1,0 +1,56 @@
+global @storage [binding=strong, object=_Z7storage] = {
+  zero 4
+}
+
+function @add(%h : ptr [pass=reference]) -> i32 [binding=strong, object=_Z3addR6holderI3boxE] {
+  slot $h : ptr
+
+  block ^entry:
+    store ptr %h, $h
+    %t1 = load ptr $h
+    %t2 = call i32 @holder_box___operator_(%t1, 3)
+    return i32 %t2
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $cond__1 : i32
+
+  block ^entry:
+    %t1 = addr @storage
+    %t2 = index i8 [projection=field] %t1, 0
+    store i32 30, %t2
+    %t3 = addr @storage
+    %t4 = call i32 @add(%t3)
+    %t5 = cmp eq i32 %t4, 39
+    branch %t5, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t6 = load i32 $cond__1
+    return i32 %t6
+}
+function @holder_box___operator_(%this : ptr, %n : i32) -> i32 [binding=weak, object=_ZN6holderI3boxEplEi] {
+  slot $this : ptr
+  slot $n : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %n, $n
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i32 %t2
+    %t4 = load i32 $n
+    %t5 = binary mul i32 %t4, 3
+    %t6 = binary add i32 %t3, %t5
+    return i32 %t6
+}
+function @__cppgm_init() -> void [role=init, binding=internal] {
+  block ^entry:
+    return void
+}
