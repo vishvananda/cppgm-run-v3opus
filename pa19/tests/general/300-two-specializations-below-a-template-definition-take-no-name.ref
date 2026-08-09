@@ -1,0 +1,22 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    %t1 = call i32 @zero_of(41)
+    %t2 = call i8 @zero_of__ov2(97)
+    %t3 = convert sext i32 i8 %t2
+    %t4 = binary add i32 %t1, %t3
+    return i32 %t4
+}
+function @zero_of(%__param0 : i32) -> i32 [binding=weak, object=_Z7zero_ofIiET_S0_] {
+  slot $__param0 : i32
+
+  block ^entry:
+    store i32 %__param0, $__param0
+    return i32 0
+}
+function @zero_of__ov2(%__param0 : i8) -> i8 [binding=weak, object=_Z7zero_ofIcET_S0_] {
+  slot $__param0 : i8
+
+  block ^entry:
+    store i8 %__param0, $__param0
+    return i8 0
+}

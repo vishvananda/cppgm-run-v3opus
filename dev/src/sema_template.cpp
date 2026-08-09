@@ -1971,6 +1971,20 @@ void SemaAnalyzer::check_template_definition(
 		// body says nothing about the regions those assignments dump.
 		return;
 	}
+	// 8.3.5p10 and 14.7.1p1: this is the definition that gives the pattern its
+	// body, so what the template's declarations have spelled each place with by
+	// now is what every specialization made from it is spelled with.  A
+	// declaration of the template written below here declares the template and
+	// not those specializations, so it names none of their objects.
+	if (inner.scope != nullptr && inner.scope->owner != nullptr)
+	{
+		std::vector<ParameterRecord>& held =
+			defaults_[wrote_defaults(*inner.scope->owner).id];
+		for (std::size_t at = 0; at < held.size(); ++at)
+		{
+			held[at].pattern_frozen = true;
+		}
+	}
 	// The reading is of a pattern rather than of a declaration this unit has,
 	// so its lines stand in a scope of their own that is dropped here.
 	DumpScope scratch;

@@ -144,10 +144,22 @@ struct HeldInitializer
 // with a definition's own name beating it.  A declaration may name the place
 // after a definition has already made the object for it, so the objects that
 // definition left unnamed wait here for that name.
+// 14.7.1p1: what the *pattern* was spelling this place with when it was read,
+// which is what a specialization made from it is spelled with.  A specialization
+// is a declaration nothing wrote, so it takes no name of its own - and a
+// declaration of the template written below the pattern's definition declares
+// the template rather than the specialization, so it is not one of the
+// declarations that could have named this place.
 struct ParameterRecord
 {
+	ParameterRecord()
+		: pattern_frozen(false)
+	{}
+
 	HeldInitializer initializer;
 	std::string name;
+	std::string pattern_name;
+	bool pattern_frozen;
 	std::vector<SemaEntity*> objects;
 };
 

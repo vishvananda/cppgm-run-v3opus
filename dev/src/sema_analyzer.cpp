@@ -333,7 +333,21 @@ void SemaAnalyzer::record_declared_parameters(
 		{
 			// The object this declarator makes for the place is spelled with
 			// the function's name for it, which no clause of this one wrote.
-			declared[index].object_name = held[at].name;
+			// For a specialization that is the pattern's spelling as the
+			// pattern was read, and not what a declaration of the template
+			// written below it went on to say.
+			declared[index].object_name = function.primary != nullptr
+				? held[at].pattern_name
+				: held[at].name;
+		}
+		if (lowering() && function.primary == nullptr &&
+		    !held[at].pattern_frozen)
+		{
+			// This declarator is one the program wrote, so what it leaves the
+			// place spelled with is what the pattern is spelling it with - until
+			// the definition that gives the pattern its body is read, after
+			// which what a specialization takes no longer moves.
+			held[at].pattern_name = held[at].name;
 		}
 		if (declared[index].initializer == nullptr ||
 		    held[at].initializer.written != nullptr)

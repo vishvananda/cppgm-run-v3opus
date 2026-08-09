@@ -151,11 +151,19 @@ void SemaAnalyzer::declare_parameters(const std::vector<Parameter>& parameters,
 		model_.declare_in(*inner.scope, parameter);
 		if (lowering() && parameter.name.empty() &&
 		    inner.scope->kind == ScopeKind::Function &&
-		    inner.scope->owner != nullptr)
+		    inner.scope->owner != nullptr &&
+		    inner.scope->owner->primary == nullptr)
 		{
 			// No declaration read so far named this place, and one written
 			// below this definition may still be the first to - so the object
 			// waits on the function's own record for that name.
+			//
+			// 14.7.1p1: a specialization waits for nothing.  Its object is
+			// made from the pattern whose definition was read, so the names
+			// it can be spelled with are the ones the template's declarations
+			// had already given - a declaration of the *template* written
+			// below that definition declares the template, and renames
+			// nothing the specialization has already made.
 			std::vector<ParameterRecord>& record =
 				defaults_[wrote_defaults(*inner.scope->owner).id];
 			const std::size_t at = index + implicit;
