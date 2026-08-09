@@ -1,7 +1,7 @@
 # PA19 Plan — `cppgm++ --emit-lowir` first-tier templates
 
-PA19 stands at **297 / 334** (53 spec + 223 general + 15 course), from a
-turn-start baseline of 294 / 331, with pa1-pa18 at **1778 / 1778** and the file
+PA19 stands at **304 / 334** (54 spec + 235 general + 15 course), from a
+turn-start baseline of 297 / 334, with pa1-pa18 at **1778 / 1778** and the file
 audit passing with the five header-weight warnings it inherited.  The build
 itself prints none.
 
@@ -235,7 +235,13 @@ Three facts about the harness shape what has to be right, read out of
 - **A type-id's spelling is read as a declarator, not as a word list.**
   `split_type_id` keeps a name whole, and
   `type_id_words`/`abstract_declarator_words`/`suffix_words` read 8.1p1's
-  type-specifier-seq and 8.3p1's abstract-declarator from what is left.
+  type-specifier-seq and 8.3p1's abstract-declarator from what is left.  What
+  belongs to the name after a template-argument-list or a decltype-specifier is
+  what a `::` joins to it and nothing else, because 7.1.6.1p1's cv-qualifier
+  may be written after a template-id and PA10 spells the two with no space
+  between.  And the operand such a spelled decltype-specifier can answer for is
+  5.1.1p8's id-expression, which 3.4 looks up here as it looks up any other
+  name: an expression written there was never read as one.
 - **What a definition did not write, the other declarations of the same entity
   did.**  8.3.5p10 leaves a parameter's name out of the function's type, so the
   name is a fact of the *function*: the record each declaration already leaves
@@ -261,6 +267,42 @@ Three facts about the harness shape what has to be right, read out of
   from; the top-level cv-qualifiers the same clause drops are dropped from the
   function type alone, because a by-value parameter written `const` is a const
   object and 13.3 asks that object which overload a call on it reaches.
+- **A declarator's own places are a region, and it is gone with the
+  declarator.**  3.3.7p1 makes a place's potential scope begin at its
+  declarator-id and end with the *function declarator*, so a later parameter's
+  own type-id and 8.3.5p2's trailing-return-type name what the clause has
+  already declared - and the clause a trailing-return-type follows is read for
+  those names before the type is read, though the type is still built from the
+  last suffix inwards, so the clause is read once and 8.3p1's order is
+  untouched.  The region is opened where a name could reach it and nowhere
+  else: the last place of a clause nothing follows has nothing left to name it.
+  Nothing it binds outlives the declarator - 8.3.5p10 leaves a parameter's name
+  out of the function's type and 8.4.1p1's definition declares its own objects
+  again - so 3.3.2p6 keeps a class an elaborated-type-specifier in the clause
+  first declares out of it, which is the same question 14.1p1 already asked of
+  a template head's region and is answered in the same place.  5.1.1p3 stands
+  over the same span: `this` is a member function's from its cv-qualifier-seq
+  to the end of its declarator, and the object it names is built from the class
+  the declarator-id reaches and the qualifiers written beside the clause,
+  because the declaration 9.3.1p3 would take it from has not been made yet.
+- **A decltype-specifier over a dependent expression is a type, and the
+  instantiation reads the expression.**  14.6.2.2p1 makes an expression
+  type-dependent exactly where a name it writes can reach a type an argument
+  list has yet to say, and the regions that carry such a type are the
+  template-parameter ones standing over the reading - so the same walk tells a
+  definition apart from every reading of it that has the arguments.  While it
+  is one, 7.1.6.2p4 has no answer and the specifier stands for a type of its
+  own, kept beside the specifier and the region it was written in; 14.7.1p1
+  answers it by reading that expression *again*, against those regions rebuilt
+  with every name they bind standing for what the substitution made of it.
+  Nothing is substituted into the expression, which is the tier's rule
+  everywhere else, and what comes out is substituted in its turn - a
+  specialization over a dependent argument list is one of these readings.
+- **What a definition is being read *for* belongs to that reading.**  14.7.1p1's
+  specialization is taken before the definition's own specifiers and declarator
+  are read, because reading either can name another specialization: a dependent
+  qualified return type instantiates the class it is a member of, and every
+  member function that class defines in its body is read there and then.
 - **What a declarator declares is the type its declarator-id ends up under.**
   8.3p1 builds it outside in - the ptr-operators of a level are applied before
   its suffixes, and the suffixes from the last inwards - so the constructor the
@@ -313,59 +355,54 @@ Three facts about the harness shape what has to be right, read out of
 
 ## Current Failure Map
 
-37 of 334 fail - the same 37 by name that C8 left, with the three this audit
-adds passing and no test moved the other way.  Grouped by the compiler
-behaviour that owns them:
+30 of 334 fail - the 37 C8's audit left, less the whole decltype group C9
+took, and no test moved the other way.  Grouped by the compiler behaviour that
+owns them:
 
 | n | group | what is missing |
 | --- | --- | --- |
-| 8 | 7.1.6.2p1's decltype-specifier written in a declarator | `-> decltype(y - x)` and `decltype(begin(*t))*` read where 3.3.7p1 has already put the declarator's own parameters in scope; `decltype(object)::executor_type` and `basic_regex<BidiIter> const` read as a *type-id* where a template-argument list spells one, which today is a word split rather than a declarator parse; and `decltype(declval<F>()())` over a call whose callee is dependent |
 | 7 | a name written in a template that only the argument list settles | `typename Iter::owner::later` deferred to a typedef written later, a nested member's base alias, a member `operator>>` reached lazily, an elaborated argument named in an enclosing scope, 13.5p6's builtin beating a class operator, `__alignof` over an instantiation, 12.9p1 through an alias template |
 | 5 | a template declared or defined with a qualified name | `template<class T> class v::C {...}`, `template<class T> int n::f(T) {...}`, `types::item<int>(value)` as a parameter-declaration, `fusion::remove<X>` as a dependent qualified return, 14.8.1p2's partial explicit argument list |
 | 8 | 12.1/12.8/8.5p7: the definitions a class owes and what an initialization writes | the reference emits an explicitly-defaulted copy constructor this unit elides everywhere and elides an out-of-class defaulted one this unit calls; a reference member left memberwise; 8.5p7's zero written before a constructor call the reference writes alone; the complete-object entry of a base constructor (see the probe below); `this` recomputed |
 | 6 | what an instantiation writes that nothing runs | two spurious empty `[role=init]` entries - one from a specialization completed while its argument was incomplete, one over a static data member of POD class type; a global emitted for a *dependent* specialization (`@v_T_T_`); a branch left unfolded; `0` where a pointer parameter wants `nullptr`; a temporary named for an argument where a return names it |
 | 3 | 14.1p10 and 3.4.2p2's remainder | a later redeclaration's default template argument, and two decltype-through-an-inline-namespace lookups |
+| 2 | an expression the reading types where a parameter stands in the way | 5.3.3p1's `sizeof(test((From)0))` written as an enumerator of a class template, where `(From)0` is read as a type-id rather than a cast; and a call of a member whose spelling a *namespace-scope class template* also declares, which 3.4.1 answers with the member |
 
 ## Active Checkpoint
 
-**C9 - 7.1.6.2p1's decltype-specifier, and the region a declarator's own
-parameters stand in**: this is the largest group left and the one with a single
-owner.  Two clauses meet in it.  3.3.7p1 makes a parameter's potential scope
-begin at its declarator-id and run to the end of the *function declarator*, so
-`-> decltype(y - x)` and `decltype(dep::begin(*t))*` are read with `x`, `y` and
-`t` already declared - today the parameter list is built into a
-`std::vector<Parameter>` and nothing is bound until `declare_parameters` opens
-the function's own region, so both are `no declaration of ... is in scope`.
-And 14.2's template-argument list reaches the semantic layer as the *spelling*
-inside a name, which `split_type_id` splits into words - so
-`decltype(object)::executor_type` is looked up as a name and
-`basic_regex<BidiIter> const` loses the cv-qualifier a template-id may carry.
+**C10 - a template declared or defined with a qualified name**: five tests, one
+owner, and the one group left whose whole failure is that the declaration is
+never made.  3.4.1p8 and 9.4.2p1 say the rest of a declarator whose
+declarator-id is qualified is read in the region that name reaches, and 14.1p2
+says the head standing over it spelled that template's places itself - so
+`template<class T> class v::C {...}` and `template<class T> int n::f(T) {...}`
+have to declare into `v` and `n` while the names their heads bound stand over
+the reading, and today `record_template` refuses a qualified class-head-name
+outright and `declare_function` reaches the namespace with the head's names no
+longer in force (`no declaration of T is in scope`).  Beside them 14.8.1p2's
+partial explicit argument list, which deduces the parameters the list stopped
+short of instead of refusing.
 
-- **owner**: `sema_declarator.cpp` for the region, `sema_template.cpp` for the
-  spelling.  `declarator_type` is where 8.3.5p1's parameter-clause is read and
-  where a trailing-return-type and a later parameter's own type-id are read
-  after it; `type_id_words` is the one place a template argument's spelling is
-  turned back into a type.
-- **data flow**: `read_parameters` builds the list -> a region of its own is
-  opened over the declaration's, each place bound as it is read -> the
-  trailing-return-type and every later parameter-declaration are read from that
-  region -> the region is closed and `declare_parameters` goes on declaring the
-  objects the body names.  For the spelling: `type_id_words` sees a word
-  beginning `decltype(` -> the operand is read as an expression against the
-  region the argument list stands in -> what follows `::` is looked up in the
-  type it named, and a trailing `const`/`volatile` qualifies it.
-- **expected complexity**: one region per function declarator that writes a
-  parameter, opened only where one is written, and one expression reading per
-  decltype-specifier - so a declarator with no decltype in it costs one branch.
-- **known obstacle**: 8.3p1's declarator is read outside in and a nested
-  parameter-clause may stand under another (C7's `T (*f(P))(Q)`), so the region
-  belongs to the clause that spells the places rather than to the declarator,
-  and it has to be gone before the declaration is made - 8.3.5p10 leaves a
-  parameter's name out of the function's type, and nothing the head bound may
-  outlive it.
-- **validation**: the eight fixtures of the first group, then a declarator
-  writing a decltype over a parameter of an *enclosing* clause, then the pa19
-  report and pa1-pa18.
+- **owner**: `sema_template.cpp` for the head and the pattern, `sema_function.cpp`
+  for the declaration a qualified declarator-id makes.  `record_template` is
+  where a template-declaration's target is decided; `resolve_prefix` is what the
+  head is read against.
+- **data flow**: the class-head-name or declarator-id is split -> the prefix is
+  resolved from the region the declaration stands in -> the pattern is recorded
+  on the declaration that region already has, or a new one is made there ->
+  the head's region is chained over that region for as long as the declarator
+  and the body are read, and is gone afterwards, exactly as C5's
+  `open_member_parameters` does for 14.5.1.3p1's out-of-class member definition.
+- **expected complexity**: one prefix resolution per qualified template
+  declaration and no change to any other declaration; the head region is the one
+  the ordinary path already opens.
+- **known obstacle**: 14.5.2's member template writes a second head, and
+  `record_template` refuses two clauses today - a qualified declarator-id of a
+  member of a class template is the same shape, so the two have to be told apart
+  by what the prefix reaches rather than by how many clauses were written.
+- **validation**: the five fixtures of the group, then a qualified definition
+  whose head spells the places in another order, then the pa19 report and
+  pa1-pa18.
 
 ## Performance Model
 
@@ -417,66 +454,56 @@ against our 0.10 s on n distinct specializations.
 **One shape is exponential and it is the spelling.** `typedef P<t,t>` repeated
 n times names a class whose written-out spelling doubles at every level, and a
 specialization is named by that spelling: 0.01 s, 0.16 s, 0.67 s and 2.75 s at
-n = 12, 16, 18 and 20 in 23 lines of source - unchanged by this checkpoint and
-by its audit.
+n = 12, 16, 18 and 20 in 23 lines of source - unchanged since it was measured.
 `reference-binaries/cppgm++` is 0.19 s, 2.85 s, 12.28 s and **46.31 s** on the
 same inputs, so this is the milestone's shape rather than the tier's; g++ does
 n = 20 in 0.06 s because it never materialises the spelling. Fixing it means not
 storing a specialization's written-out name at all.
 
-C8's own risk is two: one hash probe per name that becomes a function value,
-and one held body per member of every specialization.  Measured against a
-worktree build of `4ec3d164`, each shape timed twice, `-O0`:
+C8 measured what 14.7.1p1's held definitions are worth: 512 specializations of
+a 16-member class template with one member called is 8192 body readings before
+and 512 after - 0.28 s and 68.0 MB against 0.15 s and 47.5 MB - and the probe
+itself is free, because `require_definition` returns on an empty map.  Its
+audit measured the table walk, which costs the *members* of a specialization
+and not its uses: 512 sibling member classes with a virtual member each moved
+0.09 -> 0.10 s and 24.3 -> 26.2 MB.  The one shape that moved back is **a class
+nest n deep, each level virtual**, 0.40 s at n = 512 - the pre-C8 binary's time,
+quadratic in the nesting *depth* and not the count (0.41 s and 1.51 s at 512 and
+1024) because a body granted at depth n looks its names up through an n-deep
+chain, which is 3.4.1p1's own quadratic; the same nest with no virtual member is
+0.06 s, and `reference-binaries/cppgm++` is 0.03 s because it emits a class's
+table only where an object of it is built.  A class nest 512 deep is not a
+translation unit, so the narrower rule is recorded in `audit.md` rather than
+landed.
+
+C9's own risk is two: one region and one declaration per place a declarator
+binds, and one region chain rebuilt and one expression read again per
+decltype-specifier an instantiation reaches.  Measured against a worktree build
+of `e067d2e9`, each shape timed twice, `-O0` (`-` where the pre-C9 binary
+refuses the shape, which is the checkpoint):
 
 | shape | n = 32 | n = 128 | n = 512 | before |
 | --- | --- | --- | --- | --- |
-| n specializations of one class template, each with a member | 0.00 s | 0.01 s | 0.05 s | 0.06 s |
-| n member bodies in one class template | 0.00 s | 0.00 s | 0.01 s | same |
-| n class templates, each deriving from the previous one | 0.00 s | 0.00 s | 0.01 s | same |
-| n specializations over n classes, through a call | 0.00 s | 0.02 s | 0.08 s | same |
-| one specialization named n times | 0.00 s | 0.00 s | 0.02 s | same |
-| **n specializations of a 16-member class template, one member called** | 0.01 s | 0.03 s | **0.15 s** | 0.06, **0.28 s** |
-| n ordinary calls in a unit that also holds a specialization | 0.00 s | 0.01 s | 0.03 s | same |
-| n out-of-class member definitions with n specializations | 0.03 s | 0.12 s (n=64) | 0.48 s (n=128) | 0.03, 0.11, 0.47 s |
+| n function definitions of one parameter | 0.00 s | 0.01 s | 0.02 s | same |
+| n declarations of two named parameters | 0.00 s | 0.01 s | 0.01 s | same |
+| n definitions with a trailing-return-type over their own places | 0.01 s | 0.01 s | 0.03 s | - |
+| n member functions with a trailing-return-type in one class | 0.00 s | 0.01 s | 0.02 s | same |
+| n function templates with a dependent decltype return, each called | 0.01 s | 0.02 s | 0.07 s | - |
+| one such template called over n classes | 0.01 s | 0.02 s | 0.09 s | - |
+| n specializations of one class template, each with a member | 0.01 s | 0.03 s | 0.10 s | same |
 
-The sixth is what 14.7.1p1 is worth: 512 specializations of a class with 16
-members, one of which is called, is 8192 body readings before and 512 after -
-0.28 s and 68.0 MB against 0.15 s and 47.5 MB.  The seventh is what says the
-probe is free: `require_definition` returns on an empty map, and a unit that
-holds one specialization pays one hash lookup per function name.  The last is
-14.5.1.3p1's reading, which C8 does not defer and which is unchanged: an
-out-of-class member definition is read where it stands, for every
-specialization already made, so it is still the milestone's one quadratic in
-the *tier* rather than in the program.
-
-This audit's own risk is one walk of a specialization's regions per
-instantiation and one hash probe per explicit instantiation.  Measured against a
-worktree build of `43aa2aa0`, each shape timed twice:
-
-| shape | n = 32 | n = 128 | n = 512 | before |
-| --- | --- | --- | --- | --- |
-| n specializations of a 16-member class template, one member called | 0.01 s | 0.03 s | 0.13 s | same |
-| n member classes in one class template, each with a virtual member | 0.00 s | 0.02 s | 0.10 s | 0.09 s |
-| n virtual members in one specialization | 0.00 s | 0.00 s | 0.02 s | same |
-| n specializations of one class template, each with a member | 0.00 s | 0.02 s | 0.08 s | same |
-| n members of one specialization, each explicitly instantiated | 0.00 s | 0.00 s | 0.02 s | 0.01 s |
-| n ordinary calls in a unit that also holds a specialization | 0.00 s | 0.00 s | 0.02 s | same |
-| n class templates deriving from a dependent base | 0.00 s | 0.02 s | 0.09 s | same |
-| **a class nest n deep, each level virtual** | 0.00 s | 0.03 s | **0.40 s** | 0.00, 0.01, 0.06 s |
-
-The table walk costs the *members* of a specialization and not its uses, so 512
-sibling member classes with a virtual member each is 0.09 s -> 0.10 s and
-24.3 MB -> 26.2 MB and 512 virtual members of one class is unchanged.  The last
-shape is the one that moves, and it moves back: 0.40 s is the pre-C8 binary's
-0.39 s, and the 0.06 s the pre-audit build spent there it bought by writing an
-unresolved symbol instead of the body.  It is quadratic in the nesting *depth*
-and not in the count - 0.41 s and 1.51 s at 512 and 1024 - because a body
-granted at depth n looks its names up through an n-deep chain, which is
-3.4.1p1's own quadratic again; the same nest with no virtual member in it is
-0.06 s before and after, and `reference-binaries/cppgm++` is 0.03 s and 0.06 s
-because it emits a class's table only where an object of it is built.  A class
-nest 512 deep is not a translation unit, so the narrower rule is recorded in
-`audit.md` rather than landed.
+Every one of them is linear and stays linear: the three shapes the checkpoint
+opens are 0.03, 0.07 and 0.09 s at n = 512 and 0.13, 0.29 and 0.39 s at
+n = 2048, and one such specialization *named* 2048 times is 0.05 s and 18.7 MB
+- which is what an ordinary function called 2048 times costs in this binary and
+in the pre-C9 one alike, so naming a specialization again reads nothing again.  What the region costs is memory rather than
+time: 2048 declarations of two named parameters are 0.04 s before and after and
+15.2 MB -> 18.2 MB, about 1.5 KB for each declarator that binds a place - one
+`Scope` and one declaration, on the same terms as the region a function
+*definition* already opens for its own.  The narrower rule - open it only where
+the rest of the declarator can hold an expression, which is the only way a name
+can reach a place - is left unlanded, because telling that apart costs a walk of
+the syntax the reading is about to do anyway.
 
 The lookup C7 added - one probe per prefix in force, and only for a name every
 open scope and every region around it has already missed - is at the pre-C7
@@ -497,11 +524,28 @@ recursion is bounded by the same limit the expression layer already is; a
 declarator's own parenthesis nest is refused between 8000 and 16000, which is
 what bounds every walk that reads one.
 
-`dev/src/sema_analyzer.h` sits at 2393 lines against the audit's 2400: C8 moved
-8.5.1p2's `InitializerClauses` to `sema_declaration.h` before adding to it, as
-C5 moved 9.6p2's bit-field storage unit and 3.4.2p2's associated regions and as
-the C7 audit moved 8.5p16's `WrittenInitializer`.  Seven lines are left, so the
-next checkpoint that adds to the header has to move another record out first.
+`dev/src/sema_analyzer.h` sits at 2387 lines against the audit's 2400: C9 moved
+3.7.2p2's `ThreadLifetime`, 8.5p1's `ObjectPlacement` and 12.2p1's
+`TemporaryRequest` to `sema_declaration.h` before adding to it, as C8 moved
+8.5.1p2's `InitializerClauses` and as C5 moved 9.6p2's bit-field storage unit
+and 3.4.2p2's associated regions.
+
+Two disagreements C9 leaves standing, both in what no fixture compares.  The
+ABI writes a function template's decltype return type as the *expression*
+- `_Z3addIiEDTplfp_fp0_ET_S1_` in `reference-binaries/cppgm++` and in g++ alike
+- where this compiler writes the type the substitution made, `T_`; the encoding
+needs 5's whole expression grammar in `abi_mangle.cpp`, the two oracles disagree
+with each other on two of the three shapes swept (`Dt` against `DT`, and how a
+call on a temporary of dependent class type is written), and `object=` is
+stripped before the comparison, so it is recorded rather than half-landed.  It
+costs one thing that is not cosmetic: two templates of one name and one
+parameter list whose return types differ only in the decltype would be named
+alike - a shape all three compilers refuse the moment both are called, because
+13.3 has nothing to order them by.  And the operand a spelled
+decltype-specifier can answer for is 5.1.1p8's id-expression alone, so
+`Hold<decltype(o.v)>` is refused here and accepted by both oracles: 14.2's
+argument list reaches this layer as text, and a member access written there is
+an expression the parser would have to have kept.
 
 Two more disagreements were decided against the reference by C8, on the same
 grounds.  14.6.2p3 is one rule about *every* unqualified name, and the
@@ -561,3 +605,4 @@ directly roots it in all three.
 | C7 audit | the walk a landed rule was not asked at, the target it left a `return` on, and the fact it carried as a terminal: 8.3p1's binding clause read at the level the declarator-id ends up at rather than at the outermost one, so `T (*f(P))(Q)` spells `P`'s places and `T (f)(P)` still takes the clause beside it; and 14.7.2p1's simple-declaration target read for the type it writes and resolved - 14.8.1's explicit argument list, 14.8.2.2's deduction from that type, and the member a class template specialization already made - with 14.7.2p2 refusing a declaration that names none; and 14.7.2p1's definition form given a node of its own, so the PA10 dump spells it `explicit-instantiation-definition` as the reference does rather than hanging `KW_TEMPLATE` on the declaration node.  Beside them 8.5p16's `WrittenInitializer` moved to `sema_declaration.h` | 283 / 326 -> **288 / 331**, the five new tests being five of the six shapes these leave and the failing 43 the same 43 by name; pa1-pa18 1777 -> **1778 / 1778** with the sixth, which is the pa10 dump; file audit passes and the build prints nothing; every `.ref` regenerates byte-identically over all 319 fixtures under `pa19/tests` and all 12 under `cppgm.tests/course/pa19`; 20 declarator shapes now agreeing with g++ in every one, 21 explicit-instantiation shapes agreeing with `reference-binaries/cppgm++` symbol for symbol and root for root in twenty, and 15 lookup shapes agreeing everywhere; four later-PA `.ref` files that were missing `object_root=yes` now matching; a function returning a function pointer run through `lowir2cy86` to the value g++ builds it to return; seven scaling shapes at n = 32, 128 and 512 and a parenthesis nest measured to the 8000 the parser accepts; the PA10 dump byte-identical to the reference for both explicit instantiation forms and over 58 of the 59 swept shapes; valgrind clean over all 332 fixtures |
 | C8 | what a name in an instantiated body reaches, and which of a specialization's bodies an instantiation reads: 14.6.2p3's dependent base left off 3.4.1's chain for the *specialization* as well as for the definition, as a fact of the base-specifier the program wrote once, with 3.4.3 and 3.4.5 walking the same chain unchanged and the link dropped only where the search reaches the class from inside it; and 14.7.1p1's instantiation of the *declarations* of a class's members, each body held on `held_definitions_` for the use that names it - a callee, an `&`, a target type's chosen declaration, the demand a constructor gets where its object is built, the entry every end of a lifetime notes, and the class being complete for 10.3p10's table.  Beside them 8.5.1p2's `InitializerClauses` moved to `sema_declaration.h` and the `Scope` constructor's two out-of-order initializers put back | 288 -> **294 / 331**; pa1-pa18 1778 / 1778; file audit passes and the build prints nothing, which it did not before; the failing 37 are 37 of the same 43 by name; 17 synthesized shapes through this compiler, `reference-binaries/cppgm++` and g++, agreeing symbol for symbol with the reference in all 17 and telling the two disagreements above apart by g++; eight scaling shapes at n = 32, 128 and 512 against a `4ec3d164` worktree build, with 512 specializations of a 16-member class template 0.28 s -> **0.15 s** and 68.0 MB -> 47.5 MB and every other shape unchanged; valgrind clean over all 331 fixtures |
 | C8 audit | the two demands a held definition has no expression behind: 10.3p10's table asked of every class the instantiation made rather than of the specialization's own declarations, so a virtual member of a class nested in the pattern is defined and not just declared; 14.7.2p1's explicit instantiation asking the instantiation for the body it put aside, which is the one declaration 3.2p3 has no use to point at; and that same clause's target read from every class region its prefix reaches, so a member of a nested class is named as the specialization's | 294 / 331 -> **297 / 334**, the three new tests being the three shapes these leave and the failing 37 the same 37 by name; pa1-pa18 1778 / 1778; file audit passes and the build prints nothing; every `.ref` regenerates byte-identically over all 319 fixtures under `pa19/tests` and all 12 checked-in under `cppgm.tests/course/pa19`; thirty use shapes swept for a symbol some entry names that no definition writes, all clean here and matching the reference's definition count where `43aa2aa0` leaves two unresolved; eight 14.6.2p3 shapes picking the reference's callee in every one with g++ compiling all eight; a rooted explicit instantiation run through `lowir2cy86` to the 42 g++ builds it to return; eight scaling shapes against a `43aa2aa0` worktree build, unchanged but for the class nest 512 deep that returns to the pre-C8 0.40 s; valgrind clean over all 334 fixtures |
+| C9 | the region a declarator's own places stand in, and the type an argument list reads: 3.3.7p1's function prototype scope, each place declared as its declarator-id is read so that a later parameter's type-id and 8.3.5p2's trailing-return-type name it, with the clause a trailing-return-type follows read for those names before the type is and the type still built from the last suffix inwards; 3.3.2p6 keeping a class an elaborated-type-specifier in the clause first declares out of that region; 5.1.1p3's `this` over a member declarator's trailing-return-type; 14.6.2.2p1's type-dependent decltype-specifier made a type of its own, kept beside the specifier and the region, and answered by 14.7.1p1 reading the same expression again against those regions rebuilt over the arguments; 14.2's template-id carrying 7.1.6.1p1's cv-qualifier read as two words, and 5.1.1p8's id-expression read where a template argument spells a decltype-specifier; and the specialization a definition is read for taken before its own specifiers, so a dependent qualified return type that instantiates a class no longer gives every member that class defines in its body the type of the reading around it | 297 -> **304 / 334**, the whole decltype group and the failing 30 all named by C8's map; pa1-pa18 1778 / 1778; file audit passes and the build prints nothing; 26 synthesized shapes through this compiler, `reference-binaries/cppgm++` and g++, with the five the reference alone refuses decided by g++ and by the checked-in fixtures, and the symbols byte-identical to g++ in every shape but the ABI's decltype encoding; a two-unit call of one such specialization sharing one definition; seven scaling shapes at n = 32, 128 and 512 against an `e067d2e9` worktree build, three of them new and all linear to n = 2048; valgrind clean over all 334 fixtures |

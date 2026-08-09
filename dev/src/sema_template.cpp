@@ -290,6 +290,65 @@ void append_specifier(std::string& out, const std::string& word)
 
 }
 
+// 7.1.6.2p1 and 14.2: a decltype-specifier standing where a template argument
+// writes a type.
+//
+// The argument list reaches this layer as the spelling inside a name, so the
+// expression the specifier holds was never read as an expression - and the one
+// operand a spelling can answer for is 5.1.1p8's id-expression, which 3.4 looks
+// up here exactly as it looks up any other name.  7.1.6.2p4 is then what the
+// type is, and every component written after it is 3.4.3's question about the
+// region that type opens.
+TypeId SemaAnalyzer::spelled_decltype_type(const std::string& spelling,
+                                           const Context& ctx)
+{
+	const std::string::size_type open = spelling.find('(');
+	const std::string::size_type close = balanced_end(spelling, open);
+	if (close == std::string::npos)
+	{
+		throw std::runtime_error(spelling + " is not a type-id this milestone "
+		                         "reads");
+	}
+	std::string operand = spelling.substr(open + 1, close - open - 2);
+	// 7.1.6.2p4: a parenthesized id-expression is an lvalue named again, and
+	// the type is a reference to what it names.
+	bool parenthesized = false;
+	while (operand.size() > 1 && operand[0] == '(' &&
+	       balanced_end(operand, 0) == operand.size())
+	{
+		parenthesized = true;
+		operand = operand.substr(1, operand.size() - 2);
+	}
+	const SemaEntity& named =
+		require(resolve(operand, ctx, LookupKind::Any), operand);
+	TypeId head = named.type;
+	switch (named.kind)
+	{
+	case SemaKind::Variable:
+	case SemaKind::Parameter:
+	case SemaKind::Function:
+		// 3.10p1: an id-expression naming an object or a function is an lvalue.
+		head = parenthesized ? types_.reference_to(head, false) : head;
+		break;
+
+	case SemaKind::Enumerator:
+		break;
+
+	default:
+		throw std::runtime_error(operand + " stands inside a decltype-specifier "
+		                         "written as a template argument and is not an "
+		                         "object, function or enumerator");
+	}
+	if (close == spelling.size())
+	{
+		return head;
+	}
+	return require(qualified_in_type(types_.strip_cv(head),
+	                                 QualifiedName(spelling), ctx,
+	                                 LookupKind::Type, nullptr),
+	               spelling).type;
+}
+
 TypeId SemaAnalyzer::template_argument_type(const std::string& spelling,
                                             const Context& ctx)
 {
@@ -348,12 +407,17 @@ TypeId SemaAnalyzer::type_id_words(const std::vector<std::string>& words,
 	TypeId type = keyword_type(written);
 	if (type == kNoType)
 	{
-		const QualifiedName spelled(written);
-		SemaEntity* const named =
-			written.compare(0, 8, "typename") == 0
-				? resolve(written.substr(written.find_first_not_of(' ', 8)), ctx,
-				          LookupKind::Type)
-				: resolve(written, ctx, LookupKind::Type);
+		// 7.1.5p2: `typename` says the name is a type, and is no part of it.
+		const std::string name = written.compare(0, 8, "typename") == 0
+			? written.substr(written.find_first_not_of(' ', 8))
+			: written;
+		if (name.compare(0, 9, "decltype(") == 0)
+		{
+			return abstract_declarator_words(
+				types_.qualified(spelled_decltype_type(name, ctx), cv), words, at,
+				end, spelling, ctx);
+		}
+		SemaEntity* const named = resolve(name, ctx, LookupKind::Type);
 		if (named == nullptr || !names_a_type(*named))
 		{
 			throw std::runtime_error(spelling + " does not name a type");

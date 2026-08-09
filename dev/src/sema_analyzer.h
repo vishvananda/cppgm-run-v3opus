@@ -1336,6 +1336,15 @@ private:
 	                                    LookupKind filter,
 	                                    std::vector<SemaEntity*>* found = nullptr);
 	TypeId decltype_qualified_type(const AstNode& node, const Context& ctx);
+	// 3.4.3 over a prefix that named a type rather than a region a spelling
+	// reaches, which the two readings of a decltype-specifier share.
+	SemaEntity* qualified_in_type(TypeId head, const QualifiedName& written,
+	                              const Context& ctx, LookupKind filter,
+	                              std::vector<SemaEntity*>* found);
+	// 7.1.6.2p1 and 14.2: the type such a specifier names where 14.2's argument
+	// list left it as a spelling, which 3.4 answers for an id-expression alone.
+	TypeId spelled_decltype_type(const std::string& spelling,
+	                             const Context& ctx);
 	SemaEntity& require(SemaEntity* entity, const std::string& name);
 
 	// Constant expressions and decltype (sema_constant.cpp).

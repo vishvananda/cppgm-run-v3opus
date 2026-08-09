@@ -979,7 +979,19 @@ SemaEntity* SemaAnalyzer::decltype_qualified_name(
 	const AstNode& node, const Context& ctx, LookupKind filter,
 	std::vector<SemaEntity*>* found)
 {
-	const TypeId head = types_.strip_cv(decltype_type(node, ctx));
+	return qualified_in_type(types_.strip_cv(decltype_type(node, ctx)),
+	                         QualifiedName(node.text), ctx, filter, found);
+}
+
+// 3.4.3: the components a name writes after a prefix that named a type rather
+// than a region the spelling can be looked up in, which 7.1.6.2p1's
+// decltype-specifier is the one form of.
+SemaEntity* SemaAnalyzer::qualified_in_type(TypeId head,
+                                            const QualifiedName& written,
+                                            const Context& ctx,
+                                            LookupKind filter,
+                                            std::vector<SemaEntity*>* found)
+{
 	SemaEntity* const owner = model_.type_owner(head);
 	Scope* const region = owner == nullptr ? nullptr : model_.region_of(*owner);
 	if (region == nullptr)
@@ -987,7 +999,6 @@ SemaEntity* SemaAnalyzer::decltype_qualified_name(
 		throw std::runtime_error("a decltype-specifier written before `::` "
 		                         "names no class or enumeration");
 	}
-	const QualifiedName written(node.text);
 	SemaEntity* const named =
 		model_.lookup_in(*resolve_prefix(written, ctx, region), written.last(),
 		                 filter, found);
