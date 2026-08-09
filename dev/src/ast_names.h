@@ -228,10 +228,16 @@ private:
 	struct Region
 	{
 		std::unordered_map<std::string, NameKind> names;
+		// The `C::` each region this scope stands in reaches - the class an
+		// out-of-class definition's declarator-id names, and 10.2p2's bases.
+		std::vector<std::string> nominated;
 		// The `N::` each using-directive written here reaches, which is how a
 		// name that is declared in the nominated namespace and written without
-		// its prefix is answered.
-		std::vector<std::string> nominated;
+		// its prefix is answered.  7.3.4p2 puts those names in the namespace
+		// enclosing both the directive and what it nominates, so they are
+		// answered after every region a name written here is *in*, which is
+		// what keeps them apart from the two above.
+		std::vector<std::string> directives;
 	};
 
 	// The prefix a class was remembered under, found by trying the prefixes in

@@ -30,13 +30,38 @@ bool is_operator_token(unsigned type)
 	}
 }
 
+// 13p1: the kinds a declaration of a name can add to an overload set rather
+// than replace it with.  Only a function and a function template overload, so
+// these two are the pair 14.2p3 asks its question of.
+bool overloadable(NameKind kind)
+{
+	return kind == NameKind::Value || kind == NameKind::FunctionTemplate;
+}
+
+// The one answer a second declaration of a spelling leaves.
+NameKind overloaded(NameKind held, NameKind kind)
+{
+	return overloadable(held) && overloadable(kind) &&
+			(held == NameKind::FunctionTemplate ||
+			 kind == NameKind::FunctionTemplate)
+		? NameKind::FunctionTemplate
+		: kind;
+}
+
 }
 
 void DeclaredNames::declare(const std::string& name, NameKind kind)
 {
 	if (!name.empty())
 	{
-		scopes_.back().names[name] = kind;
+		// 14.2p3: a `<` after a name lookup answers with a set of overloaded
+		// functions *any* member of which is a function template opens a
+		// template-argument-list, so the two kinds a function name can be
+		// declared as are one answer rather than the later declaration's.
+		// 3.3.10p2 keeps the other pairs at the later one: a class-name a
+		// function of that spelling hides is hidden however it was declared.
+		NameKind& held = scopes_.back().names[name];
+		held = overloaded(held, kind);
 		// 6.8p1: what the spelling was declared as, wherever in the unit that
 		// declaration stood.  A name no declaration of which named a type is
 		// one that cannot begin a declaration, which is what settles the
@@ -51,7 +76,8 @@ void DeclaredNames::declare_member(const std::string& name, NameKind kind)
 	declare(name, kind);
 	if (!prefix_.empty() && !name.empty())
 	{
-		qualified_[prefix_ + name] = kind;
+		NameKind& held = qualified_[prefix_ + name];
+		held = overloaded(held, kind);
 		++version_;
 	}
 }
@@ -69,7 +95,7 @@ void DeclaredNames::nominate(const std::string& target)
 {
 	if (!target.empty())
 	{
-		scopes_.back().nominated.push_back(target + "::");
+		scopes_.back().directives.push_back(target + "::");
 		++version_;
 	}
 }
@@ -312,6 +338,35 @@ NameKind DeclaredNames::kind_of(const std::string& name) const
 			for (std::size_t at = 0; at < nominated.size(); ++at)
 			{
 				const NameKind kind = reached_through(nominated[at], name);
+				if (kind != NameKind::Unknown)
+				{
+					return kind;
+				}
+			}
+		}
+		// 7.3.4p2 puts the names a using-directive reaches in the namespace
+		// that encloses both the directive and what it nominates, so every
+		// region the name is written *inside* is searched before them.  The
+		// scopes above answer that for the regions this parse still has open;
+		// a namespace closed and reopened has none, and what it declared is
+		// the spelling the prefixes in force give the name.  Asking it costs
+		// one probe per prefix in force, and only for a name every open scope
+		// and every region around it has already missed.
+		if (!qualified)
+		{
+			const NameKind kind = reached_kind(name);
+			if (kind != NameKind::Unknown)
+			{
+				return kind;
+			}
+		}
+		for (std::size_t index = scopes_.size(); index-- > 0; )
+		{
+			const std::vector<std::string>& directives =
+				scopes_[index].directives;
+			for (std::size_t at = 0; at < directives.size(); ++at)
+			{
+				const NameKind kind = reached_through(directives[at], name);
 				if (kind != NameKind::Unknown)
 				{
 					return kind;

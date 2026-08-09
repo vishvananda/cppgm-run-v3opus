@@ -519,16 +519,54 @@ AstNode* AstParser::parse_noexcept_qualifier()
 
 // True when a declarator declares a function, which is what tells a function
 // definition apart from a declaration with a braced initializer.
-bool AstParser::declares_function(const AstNode* declarator)
+//
+// 8.3p1 builds the type outside in, so which constructor the declarator-id
+// ends up under is not the same question as which suffixes the declarator
+// wrote.  A declarator hands its direct-declarator the type its ptr-operators
+// made, and a direct-declarator hands its core the type its *outermost* suffix
+// made - and the outermost is the last one, so the constructor the core is
+// left with is the *first* suffix at its own level, or whatever the level
+// around it handed down where that level wrote none.  `int (*f)(int)` is the
+// pointer its own level makes of the parameter-clause above it, and
+// `int (&f(int))[2]` is the function its own parameter-clause makes however
+// many suffixes stand outside it.
+bool AstParser::declares_function(const AstNode* declarator, bool inherited)
 {
+	std::size_t core = declarator->children.size();
 	for (std::size_t index = 0; index < declarator->children.size(); ++index)
 	{
-		if (declarator->children[index]->kind == AstKind::ParameterClause)
+		const AstKind kind = declarator->children[index]->kind;
+		if (kind == AstKind::PtrOperator)
 		{
-			return true;
+			inherited = false;
+		}
+		if (kind == AstKind::Identifier || kind == AstKind::NestedDeclarator)
+		{
+			core = index;
+			break;
 		}
 	}
-	return false;
+	if (core == declarator->children.size())
+	{
+		return false;
+	}
+	for (std::size_t index = core + 1;
+	     index < declarator->children.size(); ++index)
+	{
+		const AstKind kind = declarator->children[index]->kind;
+		if (kind == AstKind::ParameterClause || kind == AstKind::ArraySuffix)
+		{
+			inherited = kind == AstKind::ParameterClause;
+			break;
+		}
+	}
+	const AstNode* node = declarator->children[core];
+	if (node->kind != AstKind::NestedDeclarator)
+	{
+		return inherited;
+	}
+	return !node->children.empty() &&
+		declares_function(node->children[0], inherited);
 }
 
 AstNode* AstParser::parse_trailing_return_type()

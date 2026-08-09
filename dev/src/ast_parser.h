@@ -231,7 +231,8 @@ private:
 	AstNode* parse_parameter_declaration();
 	AstNode* parse_trailing_return_type();
 	AstNode* parse_noexcept_qualifier();
-	static bool declares_function(const AstNode* declarator);
+	static bool declares_function(const AstNode* declarator,
+	                              bool inherited = false);
 	static bool declares_bare_function(const AstNode* declarator);
 	AstNode* parse_init_declarator_list();
 	AstNode* parse_initializer();

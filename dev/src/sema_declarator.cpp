@@ -443,11 +443,15 @@ TypeId SemaAnalyzer::declarator_type(const AstNode& node, TypeId base,
 		*name = core->text;
 		return type;
 	}
-	// 8.4.1p1: the parameter-clause of a function definition is written on the
-	// declarator itself, so a nested one names nothing the definition binds.
+	// 8.3p1: the places a declarator spells are the ones of the *first*
+	// parameter-clause the declarator-id stands under, which is a clause of
+	// the nested declarator wherever the level around it wrote none - so
+	// `T (&f(P))[2]` declares the function `f(P)` and binds `P`'s name, while
+	// `T (*f)(P)` has had its clause taken here already and hands the nested
+	// declarator nothing to spell.
 	return core->children.empty()
 		? type
-		: declarator_type(*core->children[0], type, ctx, name);
+		: declarator_type(*core->children[0], type, ctx, name, declared);
 }
 
 TypeId SemaAnalyzer::apply_pointer(const AstNode& node, TypeId type,
