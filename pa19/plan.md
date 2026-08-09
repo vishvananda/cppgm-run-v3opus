@@ -1,9 +1,9 @@
 # PA19 Plan — `cppgm++ --emit-lowir` first-tier templates
 
 PA19 stands at **235 / 301** (65 spec + 234 general + 2 course), from a
-turn-start baseline of 227 / 299, with pa1-pa18 at **1777 / 1777** and the file audit passing with
-the five header-weight warnings it inherited. The whole pa1-pa19 report runs in
-10.3 s.
+turn-start baseline of 227 / 299, with pa1-pa18 at **1777 / 1777** and the file
+audit passing with the five header-weight warnings it inherited. The whole
+pa1-pa19 report runs in 10.3 s.
 
 The milestone gives the PA16-PA18 object model its first template tier: a
 template-declaration records a pattern instead of declaring anything, and
