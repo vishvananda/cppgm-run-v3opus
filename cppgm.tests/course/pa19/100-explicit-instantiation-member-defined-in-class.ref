@@ -1,0 +1,11 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    return i32 0
+}
+function @tester_int___test__ov2(%this : ptr) -> i32 [binding=weak, object=_ZN6testerIiE4testEv, object_root=yes] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    return i32 7
+}
