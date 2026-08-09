@@ -159,6 +159,10 @@ private:
 	void namespace_alias(const AstNode& node, const Context& ctx);
 	void using_directive(const AstNode& node, const Context& ctx);
 	void using_declaration(const AstNode& node, const Context& ctx);
+	// 12.9p1 over 3.4.3.1p2: the using-declaration that names the constructors
+	// of the class its nested-name-specifier nominates.
+	void inheriting_declaration(const QualifiedName& written,
+	                            const Context& ctx);
 	// 7.3.3p1: the members a using-declaration written in a class declares -
 	// one per declaration `named` heads - and 7.3.3p14's rule that a
 	// declaration the class itself made of the same name and parameter list
@@ -308,6 +312,9 @@ private:
 	                              const QualifiedName& spelled,
 	                              const std::string& written, bool define,
 	                              Scope* declaring);
+	// 14.6.2.1p9: a class or enumeration the current instantiation declares is
+	// a dependent type, which is a fact of the region it was declared in.
+	void note_nested_in_dependent(TypeId type, const Scope& where);
 	SemaEntity& enum_declaration(const AstNode& node, const Context& ctx,
 	                             bool elaborated, const std::string& named_by);
 	void enumerators(const AstNode& node, SemaEntity& entity,
@@ -1053,14 +1060,6 @@ private:
 	TypeId with_object_parameter(TypeId type, const AstNode& declarator,
 	                             const Context& target, bool is_static,
 	                             const std::string& name, bool qualified);
-	// 8.3.5p5: the cv-qualifier-seq written after a declarator's
-	// parameter-clause, which is what 9.3.1p3's object parameter is qualified
-	// by.
-	static unsigned declarator_function_cv(const AstNode& declarator);
-	// 8.3.5p1: the ref-qualifier written there, for the declarations that build
-	// their own function type instead of taking the one the declarator walk
-	// built.
-	static RefQualifier declarator_ref_qualifier(const AstNode& declarator);
 	// 15.4p1: whether the exception-specification written after the
 	// parameter-clause says the function throws nothing.  C++11 leaves it out
 	// of the function type, so it is read off the declarator once and held on
@@ -1637,8 +1636,6 @@ private:
 	// two coincide, and is asked for separately because a comparison and a
 	// pointer subtraction have result types their operands do not share.
 	TypeId binary_operand_type(unsigned op, const Value& left, const Value& right);
-	// 5.17p7: the built-in operator a compound assignment is written from.
-	static unsigned compound_operator(unsigned op);
 	Value cast_expression(const AstNode& node, const Context& ctx,
 	                      DumpNode& parent);
 	// 5.2.9p1 and 5.4p4: what a cast to a reference type makes of its operand,
@@ -1646,9 +1643,6 @@ private:
 	// the name of the type.
 	Value cast_to_reference(TypeId target, Value& source, DumpNode& parent,
 	                        DumpNode& line, Value value, const Context& ctx);
-	// Puts what `line` holds in the place `line` itself has under `parent`, for
-	// the casts 5.2.9 gives the operand's own line to.
-	static void lift_operand(DumpNode& parent, DumpNode& line);
 	Value sizeof_expression(const AstNode& node, const Context& ctx,
 	                        DumpNode& parent);
 	// 5.3.6p1: the alignment an object of the operand's type requires.
@@ -1731,6 +1725,10 @@ private:
 	TypeId type_id_words(const std::vector<std::string>& words, std::size_t& at,
 	                     std::size_t end, const std::string& spelling,
 	                     const Context& ctx);
+	// 7.1.6.3p1 and 3.3.2p6: the class or enumeration a class-key written
+	// before a name reaches, declaring one where a class-key reaches none.
+	TypeId elaborated_spelled_type(const std::string& key,
+	                               const std::string& name, const Context& ctx);
 	TypeId abstract_declarator_words(TypeId base,
 	                                 const std::vector<std::string>& words,
 	                                 std::size_t& at, std::size_t end,

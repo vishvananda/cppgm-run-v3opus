@@ -506,6 +506,15 @@ void TypeTable::set_template_index(TypeId type, unsigned index)
 	user_types_[nodes_[type].user].template_index = index;
 }
 
+void TypeTable::set_nested_in_dependent(TypeId type)
+{
+	user_types_[nodes_[type].user].nested_in_dependent = true;
+	// The answer this type had before the flag is not the answer it has now.
+	// Nothing holds it yet - it was made a moment ago - so its own entry is
+	// the only stale one.
+	dependent_.erase(type);
+}
+
 void TypeTable::set_dependent_member(TypeId type, TypeId owner,
                                      const std::string& member)
 {
@@ -1090,6 +1099,12 @@ bool TypeTable::dependent_walk(TypeId type) const
 
 	case TypeKind::Class:
 	{
+		// 14.6.2.1p9: a nested class of the current instantiation is dependent
+		// whatever its own declaration wrote, because the class around it is.
+		if (user_at(type).nested_in_dependent)
+		{
+			return true;
+		}
 		const std::vector<TypeId>& arguments = user_at(type).template_arguments;
 		for (std::size_t index = 0; index < arguments.size(); ++index)
 		{
@@ -1100,6 +1115,11 @@ bool TypeTable::dependent_walk(TypeId type) const
 		}
 		return false;
 	}
+
+	case TypeKind::Enum:
+		// 14.6.2.1p9 again: a nested enumeration of the current instantiation
+		// is dependent for the same reason a nested class is.
+		return user_at(type).nested_in_dependent;
 
 	default:
 		return false;

@@ -519,6 +519,17 @@ unsigned long long SemaAnalyzer::array_bound(const AstNode& node,
 	}
 	if (value.bits == 0)
 	{
+		if (checking_ > 0)
+		{
+			// 14.6p8 over 8.3.4p1: how many elements the array has, an argument
+			// list is what says wherever the bound was computed from a type
+			// that depends on a template parameter - `size_of` stood one value
+			// in for that type's size, so the quotient a reading arrives at is
+			// no bound at all.  The reading stands one element in its place and
+			// the specialization computes the bound its arguments make, which
+			// is where 8.3.4p1 is asked.
+			return 1;
+		}
 		// 8.3.4p1: the bound shall be greater than zero.
 		throw std::runtime_error("an array bound is zero");
 	}

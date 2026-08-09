@@ -239,6 +239,12 @@ public:
 		return user_at(type).dependent_member;
 	}
 
+	// 14.6.2.1p9: a class or enumeration nested in the current instantiation is
+	// a dependent type, however plainly its own declaration is written - what
+	// an object of it holds and what its members are is what the enclosing
+	// argument list says.  A nest of them is answered by the one flag, because
+	// the level above was asked the same question when it was made.
+	void set_nested_in_dependent(TypeId type);
 	// 9.1p2 and 14.2: the declaration this class or enumeration was made by.
 	// The spelling `user_qualified_name` carries names every region around it
 	// in one string, and a component of it that a template made cannot be
@@ -595,6 +601,9 @@ private:
 		// name.
 		std::string template_name;
 		std::vector<TypeId> template_arguments;
+		// 14.6.2.1p9: whether the region this class or enumeration was
+		// declared in is one an argument list has yet to settle.
+		bool nested_in_dependent = false;
 		// 14.1p2: which parameter of its template a template parameter is.
 		unsigned template_index = 0;
 		// 14.6.2p1: the prefix a dependent member name stands after and the

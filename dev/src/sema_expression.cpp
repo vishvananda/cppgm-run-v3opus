@@ -35,6 +35,26 @@ const AstNode* child_kind(const AstNode& node, AstKind kind)
 	return nullptr;
 }
 
+// 5.17p7: the built-in operator a compound assignment is written from.
+unsigned compound_operator(unsigned op)
+{
+	switch (op)
+	{
+	case OP_PLUSASS: return OP_PLUS;
+	case OP_MINUSASS: return OP_MINUS;
+	case OP_STARASS: return OP_STAR;
+	case OP_DIVASS: return OP_DIV;
+	case OP_MODASS: return OP_MOD;
+	case OP_XORASS: return OP_XOR;
+	case OP_BANDASS: return OP_AMP;
+	case OP_BORASS: return OP_BOR;
+	case OP_LSHIFTASS: return OP_LSHIFT;
+	case OP_RSHIFTASS: return OP_RSHIFT;
+	default: break;
+	}
+	throw std::runtime_error("an assignment operator is outside the PA12 subset");
+}
+
 // The argument-list of a call, in either of the two forms PA10 builds: a call
 // written with a parenthesized expression-list, and one whose callee named a
 // type, which the grammar reads as a functional cast.
@@ -2683,25 +2703,6 @@ SemaAnalyzer::Value SemaAnalyzer::assignment_expression(const AstNode& node,
 	return value;
 }
 
-// 5.17p7: the built-in operator a compound assignment is written from.
-unsigned SemaAnalyzer::compound_operator(unsigned op)
-{
-	switch (op)
-	{
-	case OP_PLUSASS: return OP_PLUS;
-	case OP_MINUSASS: return OP_MINUS;
-	case OP_STARASS: return OP_STAR;
-	case OP_DIVASS: return OP_DIV;
-	case OP_MODASS: return OP_MOD;
-	case OP_XORASS: return OP_XOR;
-	case OP_BANDASS: return OP_AMP;
-	case OP_BORASS: return OP_BOR;
-	case OP_LSHIFTASS: return OP_LSHIFT;
-	case OP_RSHIFTASS: return OP_RSHIFT;
-	default: break;
-	}
-	throw std::runtime_error("an assignment operator is outside the PA12 subset");
-}
 
 SemaAnalyzer::Value SemaAnalyzer::conditional_expression(const AstNode& node,
                                                          const Context& ctx,

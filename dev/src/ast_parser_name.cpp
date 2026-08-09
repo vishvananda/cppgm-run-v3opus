@@ -382,6 +382,16 @@ NameKind DeclaredNames::kind_of(const std::string& name) const
 	{
 		return NameKind::Value;
 	}
+	// 1.4p8 again, over the two spellings 2.12 leaves identifiers and this
+	// implementation reads as 5.3.6's operator: `__alignof(T)` is that operator
+	// applied to a type-id, so the spelling names no type and the
+	// type-specifier reading of it - which would take `(T)` for an
+	// abstract-declarator and make a function type - is not one the grammar
+	// offers.
+	if (name == "__alignof" || name == "__alignof__")
+	{
+		return NameKind::Value;
+	}
 	// 6.8p1: a statement that can be read as a declaration is one, and a
 	// declaration needs its decl-specifier-seq to name a type.  No scope in
 	// force declares this name, so what says whether it could be a type is

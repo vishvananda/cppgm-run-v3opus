@@ -318,12 +318,21 @@ AstNode* AstParser::parse_unary_expression()
 		node->add(operand);
 		return node;
 	}
-	if (at(KW_TYPEID) || at(KW_ALIGNOF) || at(KW_NOEXCEPT))
+	// 1.4p8 and 5.3.6: `__alignof` and `__alignof__` are the spellings this
+	// implementation reserves for the operator 5.3.6 spells `alignof`, and 2.12
+	// leaves them identifiers - so the tree carries the keyword the operator is
+	// and the spelling the program wrote, which is what the reference dumps.
+	// Neither takes an operand that is not parenthesized, so a `__alignof` that
+	// no `(` follows is the identifier it was lexed as.
+	const bool gnu_alignof = at(TT_IDENTIFIER) && peek(1) == OP_LPAREN &&
+		(spelling() == "__alignof" || spelling() == "__alignof__");
+	if (gnu_alignof || at(KW_TYPEID) || at(KW_ALIGNOF) || at(KW_NOEXCEPT))
 	{
 		AstNode* node = make(AstKind::TypeTraitExpression);
-		node->token = static_cast<std::uint16_t>(peek());
+		node->token = static_cast<std::uint16_t>(gnu_alignof ? KW_ALIGNOF
+		                                                     : peek());
 		node->text = spelling();
-		const bool prefer_type = at(KW_ALIGNOF);
+		const bool prefer_type = gnu_alignof || at(KW_ALIGNOF);
 		++pos_;
 		AstNode* operand = parse_parenthesized_operand(prefer_type);
 		if (operand == nullptr)

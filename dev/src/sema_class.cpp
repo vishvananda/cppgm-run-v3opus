@@ -32,6 +32,57 @@ const AstNode* child_of(const AstNode& node, AstKind kind)
 	return nullptr;
 }
 
+// 8.3.5p5: the cv-qualifier-seq a declarator wrote after its parameter-clause,
+// which is what 9.3.1p3 qualifies the object parameter by.  The parser hangs it
+// on the declarator beside the declarator-id, so what tells it from a qualifier
+// the specifiers wrote is that it stands after that id.
+unsigned declarator_function_cv(const AstNode& declarator)
+{
+	unsigned cv = kCvNone;
+	bool after_id = false;
+	for (std::size_t index = 0; index < declarator.children.size(); ++index)
+	{
+		const AstNode& part = *declarator.children[index];
+		if (part.kind == AstKind::Identifier ||
+		    part.kind == AstKind::NestedDeclarator)
+		{
+			after_id = true;
+			continue;
+		}
+		if (after_id && part.kind == AstKind::CvQualifier)
+		{
+			cv |= part.token == KW_CONST ? kCvConst : kCvVolatile;
+		}
+	}
+	return cv;
+}
+
+// 8.3.5p1: the ref-qualifier written there, for the two declarations that build
+// their own function type rather than taking the one an ordinary declarator
+// walk built - 12.3.2p1's conversion function, whose declarator writes no type,
+// and 12.1/12.4's constructor and destructor, which write no return type.
+RefQualifier declarator_ref_qualifier(const AstNode& declarator)
+{
+	for (std::size_t index = 0; index < declarator.children.size(); ++index)
+	{
+		const AstNode& part = *declarator.children[index];
+		// The grammar spells an exception-specification with the same node, so
+		// which one this is is what it was written as.
+		if (part.kind != AstKind::FunctionQualifier)
+		{
+			continue;
+		}
+		if (part.text == "&")
+		{
+			return RefQualifier::LValue;
+		}
+		if (part.text == "&&")
+		{
+			return RefQualifier::RValue;
+		}
+	}
+	return RefQualifier::None;
+}
 }
 
 // What a class is, what its objects hold, and when their lifetimes end.
@@ -2542,57 +2593,7 @@ TypeId SemaAnalyzer::with_object_parameter(TypeId type,
 		ref);
 }
 
-// 8.3.5p5: the cv-qualifier-seq a declarator wrote after its parameter-clause,
-// which is what 9.3.1p3 qualifies the object parameter by.  The parser hangs it
-// on the declarator beside the declarator-id, so what tells it from a qualifier
-// the specifiers wrote is that it stands after that id.
-unsigned SemaAnalyzer::declarator_function_cv(const AstNode& declarator)
-{
-	unsigned cv = kCvNone;
-	bool after_id = false;
-	for (std::size_t index = 0; index < declarator.children.size(); ++index)
-	{
-		const AstNode& part = *declarator.children[index];
-		if (part.kind == AstKind::Identifier ||
-		    part.kind == AstKind::NestedDeclarator)
-		{
-			after_id = true;
-			continue;
-		}
-		if (after_id && part.kind == AstKind::CvQualifier)
-		{
-			cv |= part.token == KW_CONST ? kCvConst : kCvVolatile;
-		}
-	}
-	return cv;
-}
 
-// 8.3.5p1: the ref-qualifier written there, for the two declarations that build
-// their own function type rather than taking the one an ordinary declarator
-// walk built - 12.3.2p1's conversion function, whose declarator writes no type,
-// and 12.1/12.4's constructor and destructor, which write no return type.
-RefQualifier SemaAnalyzer::declarator_ref_qualifier(const AstNode& declarator)
-{
-	for (std::size_t index = 0; index < declarator.children.size(); ++index)
-	{
-		const AstNode& part = *declarator.children[index];
-		// The grammar spells an exception-specification with the same node, so
-		// which one this is is what it was written as.
-		if (part.kind != AstKind::FunctionQualifier)
-		{
-			continue;
-		}
-		if (part.text == "&")
-		{
-			return RefQualifier::LValue;
-		}
-		if (part.text == "&&")
-		{
-			return RefQualifier::RValue;
-		}
-	}
-	return RefQualifier::None;
-}
 
 // 15.4p1: whether the exception-specification the declarator wrote says the
 // function throws nothing.  The grammar spells it with the same node the

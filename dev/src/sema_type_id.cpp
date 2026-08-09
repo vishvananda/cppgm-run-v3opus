@@ -59,6 +59,27 @@ std::string::size_type balanced_end(const std::string& spelling,
 	return std::string::npos;
 }
 
+// 7.1.6.3p1: the class-key or `enum` an elaborated-type-specifier is written
+// with, and the name after it.  False for every other type-specifier-seq,
+// which is nearly all of them - a spelling that holds no space at all cannot
+// be one, and that is the common case.
+bool split_elaborated(const std::string& written, std::string& key,
+                      std::string& name)
+{
+	const std::string::size_type space = written.find(' ');
+	if (space == std::string::npos)
+	{
+		return false;
+	}
+	key = written.substr(0, space);
+	if (key != "class" && key != "struct" && key != "union" && key != "enum")
+	{
+		return false;
+	}
+	name = written.substr(written.find_first_not_of(' ', space));
+	return true;
+}
+
 // The terminals a type-id was written from, recovered from the spelling PA10
 // handed on.  A template-argument reaches here inside a name rather than as a
 // tree of its own, so the one place that turns a spelling back into what was
@@ -263,6 +284,59 @@ TypeId SemaAnalyzer::template_argument_type(const std::string& spelling,
 	return type;
 }
 
+// 7.1.6.3p1 and 3.4.4p2: the class or enumeration an elaborated-type-specifier
+// written in a type-id names.  The lookup ignores every declaration that is not
+// a type, which is what lets `struct S` reach the class an object of that
+// spelling hides; and 3.3.2p6 makes a class-key that reaches no class at all a
+// *declaration* of one, in the smallest namespace or block scope around the
+// declaration the specifier belongs to - not in the class or the
+// parameter-clause it happens to be written inside, and not in the region
+// 14.1p1 gave the head, which is gone with the template-declaration.
+// 7.2p3 leaves `enum` no such arm: an elaborated enum-specifier names an
+// enumeration that has already been declared.
+TypeId SemaAnalyzer::elaborated_spelled_type(const std::string& key,
+                                             const std::string& name,
+                                             const Context& ctx)
+{
+	SemaEntity* const found = resolve(name, ctx, LookupKind::Type);
+	const bool enumeration = key == "enum";
+	if (found != nullptr &&
+	    found->kind == (enumeration ? SemaKind::Enum : SemaKind::Class))
+	{
+		// 7.1.6.3p3: the class-key shall agree with the declaration it reached.
+		if (!enumeration &&
+		    (types_.class_tag(found->type) == ClassTag::Union) !=
+			    (key == "union"))
+		{
+			throw std::runtime_error(key + " " + name + " names a class whose "
+			                         "declaration wrote another class-key");
+		}
+		return found->type;
+	}
+	if (enumeration || QualifiedName(name).qualified())
+	{
+		// 3.4.4p3: an elaborated-type-specifier with a nested-name-specifier
+		// declares nothing - the name it writes shall reach a class.
+		throw std::runtime_error(key + " " + name + " does not name a " +
+		                         (enumeration ? "enumeration" : "class"));
+	}
+	Context where = ctx;
+	while (where.scope->parent != nullptr &&
+	       (where.scope->kind == ScopeKind::TemplateParameters ||
+	        where.scope->kind == ScopeKind::Prototype ||
+	        where.scope->kind == ScopeKind::Class))
+	{
+		where.scope = where.scope->parent;
+	}
+	where.dump = where.scope->dump;
+	const ClassTag tag = key == "class"
+		? ClassTag::Class
+		: (key == "union" ? ClassTag::Union : ClassTag::Struct);
+	return class_head_entity(where, tag, QualifiedName(name), name, false,
+	                         where.scope)
+		->type;
+}
+
 // 8.1p1: a type-id is a type-specifier-seq and an abstract-declarator, read
 // from the words the spelling was split into.  `at` is left one past the last
 // word read, which is what lets a parameter-clause read its list one type-id
@@ -311,6 +385,17 @@ TypeId SemaAnalyzer::type_id_words(const std::vector<std::string>& words,
 			return abstract_declarator_words(
 				types_.qualified(spelled_decltype_type(name, ctx), cv), words, at,
 				end, spelling, ctx);
+		}
+		// 7.1.6.3p1: a class-key or `enum` before the name makes an
+		// elaborated-type-specifier, which 3.4.4p2 looks up as a type alone -
+		// and 3.3.2p6 makes one that reaches no class a declaration of it.
+		std::string key;
+		std::string keyed;
+		if (split_elaborated(name, key, keyed))
+		{
+			return abstract_declarator_words(
+				types_.qualified(elaborated_spelled_type(key, keyed, ctx), cv),
+				words, at, end, spelling, ctx);
 		}
 		SemaEntity* const named = resolve(name, ctx, LookupKind::Type);
 		if (named == nullptr || !names_a_type(*named))

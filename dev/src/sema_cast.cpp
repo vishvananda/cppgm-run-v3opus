@@ -40,12 +40,10 @@ const AstNode* child_kind(const AstNode& node, AstKind kind)
 	return nullptr;
 }
 
-}  // namespace
-
 // The operand's line takes the place the cast's would have had, in the order
 // the parent already holds: 5.2.9p1 gives the two the same one node wherever
 // the cast converts nothing the output describes.
-void SemaAnalyzer::lift_operand(DumpNode& parent, DumpNode& line)
+void lift_operand(DumpNode& parent, DumpNode& line)
 {
 	parent.children.pop_back();
 	for (std::size_t index = 0; index < line.children.size(); ++index)
@@ -53,6 +51,9 @@ void SemaAnalyzer::lift_operand(DumpNode& parent, DumpNode& line)
 		parent.children.push_back(line.children[index]);
 	}
 }
+
+}  // namespace
+
 
 SemaAnalyzer::Value SemaAnalyzer::cast_expression(const AstNode& node,
                                                   const Context& ctx,

@@ -844,6 +844,34 @@ void SemaAnalyzer::using_directive(const AstNode& node, const Context& ctx)
 	model_.nominate(*ctx.scope, *model_.region_of(space));
 }
 
+// 12.9p1: the using-declaration whose name 3.4.3.1p2 turned into the
+// constructors of the class its nested-name-specifier nominates.
+//
+// Which of the base's constructors are inherited is a question about the
+// complete class - it leaves out the ones this class declares itself, and a
+// member declaration standing after this one declares them just as one standing
+// before it does.  So the class records that it asked, and 9.2p2's completion
+// settles it.  14.6p8's reading of the pattern has no answer to give: 14.6.2p3
+// leaves a dependent base off the class, so what the specialization derives
+// from is what says whose constructors these are.
+void SemaAnalyzer::inheriting_declaration(const QualifiedName& written,
+                                          const Context& ctx)
+{
+	if (checking_ > 0 && ctx.scope->owner->base == nullptr)
+	{
+		return;
+	}
+	Scope* const nominated = resolve_prefix(written, ctx);
+	if (nominated->owner == nullptr ||
+	    ctx.scope->owner->base != nominated->owner)
+	{
+		throw std::runtime_error(
+			"a using-declaration names the constructors of a class "
+			"that is not a direct base of the one it is written in");
+	}
+	ctx.scope->inheriting_constructors = true;
+}
+
 void SemaAnalyzer::using_declaration(const AstNode& node, const Context& ctx)
 {
 	const AstNode* target = child_of(node, AstKind::Target);
@@ -859,9 +887,28 @@ void SemaAnalyzer::using_declaration(const AstNode& node, const Context& ctx)
 		// 7.3.3p5: a using-declaration shall not name a template-id.
 		throw std::runtime_error("a using-declaration names a template-id");
 	}
+	const std::string name = written.last();
+	// 3.4.3.1p2's second arm: in a using-declaration that is a
+	// member-declaration, a name that is the identifier - or the template-name
+	// of the simple-template-id - the last component of its
+	// nested-name-specifier was written with names the *constructors* of the
+	// class that specifier nominates, and is not looked up in that class at
+	// all.  So a typedef-name standing for a base declares the base's
+	// constructors exactly as its injected-class-name below does, and
+	// `Alias::Alias` reaches a name no member of `Alias` has.
+	if (written.qualified() && ctx.scope->kind == ScopeKind::Class &&
+	    ctx.scope->owner != nullptr)
+	{
+		const std::string component = written.part(written.size() - 2);
+		const TemplateId id(component);
+		if (name == (id.valid() ? id.name() : component))
+		{
+			inheriting_declaration(written, ctx);
+			return;
+		}
+	}
 	SemaEntity& entity =
 		require(resolve(spelling, ctx, LookupKind::Any), spelling);
-	const std::string name = written.last();
 	if (ctx.scope->kind == ScopeKind::Class && ctx.scope->owner != nullptr)
 	{
 		// 7.3.3p1 read in a class: what the using-declaration makes is a
@@ -872,22 +919,11 @@ void SemaAnalyzer::using_declaration(const AstNode& node, const Context& ctx)
 		if (entity.kind == SemaKind::Class && written.qualified() &&
 		    entity.scope == resolve_prefix(written, ctx))
 		{
-			// 12.9p1: the unqualified-id names the class the
-			// nested-name-specifier named, so what it names is that class's
+			// 3.4.3.1p2's first arm: the name looked up in the class the
+			// nested-name-specifier nominates is that class's
+			// injected-class-name, so what it names is the class's
 			// constructors rather than a member of it.
-			if (ctx.scope->owner->base != &entity)
-			{
-				throw std::runtime_error(
-					"a using-declaration names the constructors of a class "
-					"that is not a direct base of the one it is written in");
-			}
-			// 12.9p1: which of the base's constructors are inherited is a
-			// question about the complete class - it leaves out the ones this
-			// class declares itself, and a member declaration standing after
-			// this one declares them just as one standing before it does.  So
-			// the class records that it asked, and 9.2p2's completion settles
-			// it.
-			ctx.scope->inheriting_constructors = true;
+			inheriting_declaration(written, ctx);
 			return;
 		}
 		declare_using_members(entity, *ctx.scope, name);
@@ -1389,6 +1425,22 @@ SemaEntity* SemaAnalyzer::redeclared(const Context& ctx, const std::string& name
 	return found;
 }
 
+// 14.6.2.1p9: a class or an enumeration declared in the current instantiation
+// is itself a dependent type, because what its members come to and what an
+// object of it holds is what the enclosing argument list settles - so a
+// template-id written over it names no class yet, and a base-specifier that
+// writes one is 14.6.2p3's dependent base.  The question is asked of the region
+// the declaration belongs to and answered once, where the type is made: a class
+// nested two deep is reached through a level that was asked the same question.
+void SemaAnalyzer::note_nested_in_dependent(TypeId type, const Scope& where)
+{
+	if (where.kind == ScopeKind::Class && where.owner != nullptr &&
+	    types_.is_dependent(where.owner->type))
+	{
+		types_.set_nested_in_dependent(type);
+	}
+}
+
 // 9.1p2 and 9.2p2: the declaration a class-head names, which is the one an
 // earlier declaration of the same name in the same region already made and
 // otherwise one this class-head makes.
@@ -1450,6 +1502,7 @@ SemaEntity* SemaAnalyzer::class_head_entity(const Context& ctx, ClassTag tag,
 		id, tag, semantics() ? qualified : name, abi_name(*ctx.scope, name));
 	entity = &model_.create(SemaKind::Class, name, type);
 	own_type(type, *entity);
+	note_nested_in_dependent(type, *ctx.scope);
 	if (!name.empty())
 	{
 		declare_type_name(name, *ctx.scope);
@@ -1580,7 +1633,15 @@ SemaEntity& SemaAnalyzer::class_declaration(const AstNode& node,
 	const AstNode* const bases = child_of(node, AstKind::BaseClause);
 	if (bases != nullptr)
 	{
-		read_base_clause(*bases, *entity, scope, ctx, header);
+		// 3.4.1p8: a name written in the base-clause of a class defined outside
+		// the class it is a member of is looked up in the region its
+		// class-head-name reached, and not in the one the definition stands in
+		// - so a member type of the enclosing class is found there, and 3.3.2p5
+		// puts this class's own name in that region too, because a class first
+		// declared by a class-head is declared immediately after its
+		// class-head-name.  The two contexts are the same wherever the
+		// class-head-name wrote no nested-name-specifier.
+		read_base_clause(*bases, *entity, scope, outer, header);
 	}
 	// 11p2: what a member with no access-specifier before it is declared under,
 	// which the class-key decides and each access-specifier changes from there.
@@ -1826,6 +1887,7 @@ SemaEntity& SemaAnalyzer::enum_declaration(const AstNode& node,
 			id, scoped, name, dump_name(*ctx.scope, name), underlying);
 		entity = &model_.create(SemaKind::Enum, name, type);
 		own_type(type, *entity);
+		note_nested_in_dependent(type, *ctx.scope);
 		declare_type_name(name, *ctx.scope);
 		model_.bind(*ctx.scope, name, *entity);
 		model_.declare_in(*ctx.scope, *entity);
