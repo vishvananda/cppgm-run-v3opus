@@ -264,7 +264,7 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 	// it.
 	entity.inline_function = entity.inline_function || specifiers.is_inline ||
 		ctx.scope->kind == ScopeKind::Class;
-	record_default_arguments(entity, parameters, target.scope);
+	record_declared_parameters(entity, parameters, target.scope);
 
 	DumpScope& dump = model_.open_dump(*target.dump, "scope function " + name);
 	Context inner;

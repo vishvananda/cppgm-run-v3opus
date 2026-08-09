@@ -2043,12 +2043,15 @@ private:
 	// the declaration that introduced it was written in.
 	void write_default_argument(const SemaEntity& function, std::size_t index,
 	                            DumpNode& parent);
-	// 8.3.6p4: the default-arguments `declared` writes are the function's from
-	// this declaration on, whether or not this one is the definition.  A
-	// parameter already given one keeps the region that introduced it.
-	void record_default_arguments(const SemaEntity& function,
-	                              const std::vector<Parameter>& declared,
-	                              Scope* region);
+	// 8.3.6p4 and 8.3.5p10: what this declaration says about each parameter of
+	// the function it declares, whether or not it is the definition.  The
+	// default-argument is the function's from this declaration on, and a
+	// parameter already given one keeps the region that introduced it; the name
+	// is no part of the type, so a parameter this declaration left unnamed takes
+	// the name the first declaration that named it gave.
+	void record_declared_parameters(const SemaEntity& function,
+	                                std::vector<Parameter>& declared,
+	                                Scope* region);
 	// 13.3.3: the one candidate no other beats, or the error that there is not
 	// one.  `candidates` are the declaration chains the lookup found, walked in
 	// declaration order within each; `arguments` are the analysed argument
@@ -2298,6 +2301,7 @@ private:
 
 		const AstNode* written;
 		Scope* scope;
+		std::string name;
 	};
 
 	std::unordered_map<std::uint32_t, std::vector<Default> > defaults_;

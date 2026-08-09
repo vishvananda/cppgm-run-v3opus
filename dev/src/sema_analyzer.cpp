@@ -277,27 +277,47 @@ bool SemaAnalyzer::accepts_arity(const SemaEntity& function,
 	return true;
 }
 
-void SemaAnalyzer::record_default_arguments(
-	const SemaEntity& function, const std::vector<Parameter>& declared,
+void SemaAnalyzer::record_declared_parameters(
+	const SemaEntity& function, std::vector<Parameter>& declared,
 	Scope* region)
 {
 	// 9.3.1p3: a member function's declarator does not write the object
-	// parameter, so the parameters it did write begin after it.  The defaults
-	// are held at the place the function type gives each parameter, which is
-	// what every arity question asks about.
+	// parameter, so the parameters it did write begin after it.  What the
+	// declarations of the function said about each parameter is held at the
+	// place the function type gives that parameter, which is what every arity
+	// question asks about.
 	const std::size_t total = types_.parameters(function.type).size();
 	const std::size_t implicit =
 		total > declared.size() ? total - declared.size() : 0;
 	for (std::size_t index = 0; index < declared.size(); ++index)
 	{
-		if (declared[index].initializer == nullptr)
+		// 8.3.5p10: a parameter's name is no part of the function's type, so no
+		// two declarations of one function need agree about it and one that
+		// wrote none still declares the parameter.  The name the object file
+		// writes is therefore the function's rather than the declaration's: the
+		// one this declaration gave, and where it gave none the first name any
+		// declaration of the function did.  It is only the object file that
+		// asks, so the earlier dialects, whose dumps describe declarations one
+		// at a time, are left writing what each of them wrote.
+		const bool names = lowering() && !declared[index].name.empty();
+		const bool takes = lowering() && declared[index].name.empty();
+		if (declared[index].initializer == nullptr && !names && !takes)
 		{
 			continue;
 		}
 		const std::size_t at = index + implicit;
 		std::vector<Default>& held = defaults_[function.id];
 		held.resize(at + 1 > held.size() ? at + 1 : held.size());
-		if (held[at].written != nullptr)
+		if (names && held[at].name.empty())
+		{
+			held[at].name = declared[index].name;
+		}
+		else if (takes)
+		{
+			declared[index].name = held[at].name;
+		}
+		if (declared[index].initializer == nullptr ||
+		    held[at].written != nullptr)
 		{
 			// 8.3.6p4: a parameter's default-argument belongs to the
 			// declaration that first gave it, which a later one does not move.
@@ -2016,7 +2036,7 @@ void SemaAnalyzer::declare_function_declarator(
 			demand_transfer_definition(function);
 		}
 	}
-	record_default_arguments(function, spelled_parameters, target.scope);
+	record_declared_parameters(function, spelled_parameters, target.scope);
 	if (function.template_parameters != nullptr)
 	{
 		templates_[function.id].swap(spelled_parameters);

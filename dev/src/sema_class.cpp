@@ -623,7 +623,7 @@ void SemaAnalyzer::special_member(const AstNode& node, const Context& ctx)
 			                     child_of(node, AstKind::Initializer));
 		}
 	}
-	record_default_arguments(*entity, parameters, ctx.scope);
+	record_declared_parameters(*entity, parameters, ctx.scope);
 	model_.declare_in(*ctx.scope, *entity);
 	if (!destructor)
 	{
