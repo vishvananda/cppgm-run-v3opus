@@ -277,6 +277,7 @@ SemaEntity& SemaModel::create(SemaKind kind, const std::string& name, TypeId typ
 	entity.template_parameters = nullptr;
 	entity.templated = nullptr;
 	entity.primary = nullptr;
+	entity.partial_of = nullptr;
 	entity.instantiated = false;
 	entity.explicitly_instantiated = false;
 	entity.template_arguments = 0;

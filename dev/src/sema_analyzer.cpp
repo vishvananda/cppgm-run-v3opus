@@ -1299,6 +1299,11 @@ void SemaAnalyzer::template_declaration(const AstNode& node, const Context& ctx)
 		&model_.open(ScopeKind::TemplateParameters, *ctx.scope, nullptr, &dump);
 	inner.dump = &dump;
 	inner.node = ctx.node;
+	// 14.1p1: the declaration this head parameterises is read here, so a
+	// declarator-id that names a region of its own still has these parameters
+	// standing over it.  A reading nested inside that declaration opens a
+	// context of its own and inherits nothing of this.
+	inner.template_head = inner.scope;
 
 	for (std::size_t index = 0; index < node.children.size(); ++index)
 	{

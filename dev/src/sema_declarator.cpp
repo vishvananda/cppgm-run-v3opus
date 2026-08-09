@@ -729,6 +729,61 @@ void SemaAnalyzer::bind_place(Context& reading, const Context& ctx,
 	model_.declare_in(*reading.scope, place);
 }
 
+// 8.2p7: `T (X)` written as a parameter-declaration is a parameter of function
+// type where `X` names a type and a parameter named `X` in redundant
+// parentheses where it does not.
+//
+// The grammar cannot tell the two apart, so the parse writes the
+// parameter-clause both spellings share and the resolution is 3.4's: what `X`
+// was declared as is what says which of the two was written.  Nothing is
+// reparsed - the declarator-id and whatever the parentheses wrote after it are
+// already nodes, and the clause is read back as the declarator they make.
+bool SemaAnalyzer::parenthesized_place(const AstNode& declarator,
+                                       const Context& ctx, std::string& name,
+                                       const AstNode*& rest)
+{
+	if (declarator.children.size() != 1 ||
+	    declarator.children[0]->kind != AstKind::ParameterClause)
+	{
+		return false;
+	}
+	const AstNode& clause = *declarator.children[0];
+	if (clause.children.size() != 1 ||
+	    clause.children[0]->kind != AstKind::ParameterDeclaration)
+	{
+		// 8.3.5p3's ellipsis and a second parameter both leave a clause no
+		// declarator-id could have been written as.
+		return false;
+	}
+	const AstNode& inner = *clause.children[0];
+	const AstNode* const seq = child_kind(inner, AstKind::DeclSpecifierSeq);
+	if (seq == nullptr || seq->children.size() != 1 ||
+	    seq->children[0]->kind != AstKind::DeclSpecifier ||
+	    seq->children[0]->token != TT_IDENTIFIER ||
+	    !seq->children[0]->children.empty() ||
+	    child_kind(inner, AstKind::DefaultArgument) != nullptr)
+	{
+		return false;
+	}
+	// 8.3.5p10 and 3.4.3p1: a place is named by an identifier and by nothing
+	// else, so a spelling no unqualified name has was written as a type.
+	const std::string& written = seq->children[0]->text;
+	if (written.empty() || QualifiedName(written).qualified())
+	{
+		return false;
+	}
+	const SemaEntity* const found = resolve(written, ctx, LookupKind::Any);
+	if (found != nullptr && names_a_type(*found))
+	{
+		return false;
+	}
+	name = written;
+	// 8.3p1: what the parentheses wrote after the declarator-id belongs to the
+	// place, so `T (X[10])` declares the array `X` and not a function.
+	rest = declarator_of(inner);
+	return true;
+}
+
 void SemaAnalyzer::read_parameters(const AstNode& clause, const Context& ctx,
                                    std::vector<Parameter>& out, bool& variadic,
                                    Context* reading)
@@ -774,7 +829,21 @@ void SemaAnalyzer::read_parameters(const AstNode& clause, const Context& ctx,
 		Parameter parameter;
 		parameter.type = specifier_type(specifiers);
 		const AstNode* declarator = declarator_of(child);
-		if (declarator != nullptr)
+		const AstNode* parenthesized = nullptr;
+		if (declarator != nullptr &&
+		    parenthesized_place(*declarator, inner, parameter.name,
+		                        parenthesized))
+		{
+			// 8.2p7: the parentheses stand around this place's own name, so
+			// what they hold after it is the rest of its declarator.
+			if (parenthesized != nullptr)
+			{
+				std::string ignored;
+				parameter.type = declarator_type(*parenthesized, parameter.type,
+				                                 inner, &ignored);
+			}
+		}
+		else if (declarator != nullptr)
 		{
 			// 8.3.5p3: `f(int...)` writes the ellipsis without a comma, so it
 			// arrives inside the last parameter's declarator rather than beside

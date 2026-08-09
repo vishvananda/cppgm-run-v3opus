@@ -27,6 +27,21 @@ const unsigned long long kArrayLoopLimit = 16;
 // class type carries one: nothing else has a lifetime for the count to bound.
 const unsigned long long kArrayCookieBytes = 8;
 
+// Which dump the walk writes.
+//
+// PA11 describes what a translation unit declares; PA12 describes what its
+// function bodies mean.  Both read the same declarations from the same tree, so
+// one walk serves both and the mode says only which tree of lines it fills and
+// which of the two assignments' rules it holds the program to.
+// PA15 adds a third: the same PA12 walk, holding the program to the same
+// rules, but also recording on each line the typed facts a lowering reads.
+enum class SemaDialect
+{
+	Types,
+	Semantics,
+	Lowering
+};
+
 // 3.10: what an expression denotes.
 enum class ValueCategory
 {

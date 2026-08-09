@@ -23,39 +23,6 @@ struct PostToken;
 class PackTable;
 class IncludeTable;
 
-// An expression that is not one of the constant expressions 5.19 defines, or
-// not one of the subset of them PA11 evaluates.
-//
-// This is not by itself a program the assignment refuses: 5.19p3 makes a const
-// object of integral type a constant only when its initializer is one, and a
-// declaration whose initializer is an ordinary expression is well formed and
-// declares an object that is not a constant.  It is what separates that from
-// the errors an expression can also hold - a name that is declared nowhere, a
-// type-id that names no type - which are facts about the program rather than
-// about the value, and which every caller lets through.
-class NotConstant : public std::runtime_error
-{
-public:
-	explicit NotConstant(const std::string& what)
-		: std::runtime_error(what)
-	{}
-};
-
-// Which dump the walk writes.
-//
-// PA11 describes what a translation unit declares; PA12 describes what its
-// function bodies mean.  Both read the same declarations from the same tree, so
-// one walk serves both and the mode says only which tree of lines it fills and
-// which of the two assignments' rules it holds the program to.
-// PA15 adds a third: the same PA12 walk, holding the program to the same
-// rules, but also recording on each line the typed facts a lowering reads.
-enum class SemaDialect
-{
-	Types,
-	Semantics,
-	Lowering
-};
-
 // The PA11 semantic pass: one walk of a PA10 syntax tree that builds the
 // scopes, declarations and types of a translation unit, and the dump of them.
 //
@@ -1301,6 +1268,12 @@ private:
 	// qualifiers are the ones written among the suffixes from `suffixes` on.
 	SemaEntity* declarator_object(const AstNode& node, std::size_t suffixes,
 	                              const Context& ctx);
+	// 8.2p7: whether the parentheses a parameter's declarator wrote stand
+	// around its declarator-id rather than around a parameter-clause of its
+	// own.  `name` takes the declarator-id and `rest` what was written after
+	// it, which is null where the parentheses held nothing else.
+	bool parenthesized_place(const AstNode& declarator, const Context& ctx,
+	                         std::string& name, const AstNode*& rest);
 	// 3.3.7p1: `reading`, where given, takes the region the rest of the
 	// declarator reads its names against, which is `ctx` where the clause bound
 	// none.
@@ -1731,6 +1704,10 @@ private:
 	// however many times it is named.
 	SemaEntity& specialize(SemaEntity& primary,
 	                       const std::vector<TypeId>& arguments);
+	// 14.8.1p2: the declaration a template-id that wrote only a leading part of
+	// `primary`'s argument list stands for, made once per template and list.
+	SemaEntity& partial_template(SemaEntity& primary,
+	                             const std::vector<TypeId>& arguments);
 	// The type a template-argument names, over the PA12 subset: a fundamental
 	// type or a type name, with cv-qualifiers, pointers and references written
 	// around it.
@@ -2280,6 +2257,10 @@ private:
 	// builds out of them, kept per declaration.
 	std::vector<TypeId> canonical_parameters_;
 	std::unordered_map<std::uint32_t, TypeId> template_signatures_;
+	// 14.8.1p2: the declaration a template and a leading part of its argument
+	// list stand for, keyed by the two - so a name written twice reaches one
+	// candidate and a use that deduces the rest makes one specialization.
+	std::unordered_map<std::uint64_t, SemaEntity*> partial_templates_;
 	// 14p1: the declaration the template-declaration being read parameterises,
 	// and the dump its lines stand in, while its declarators are read.  Null
 	// wherever the walk is not inside one.

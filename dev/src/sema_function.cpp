@@ -211,11 +211,23 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 	// 3.4.1p8: the rest of a declarator whose declarator-id is qualified is
 	// looked up in the region that name reaches.
 	Context target = ctx;
+	// 14.1p1 and 3.4.1p8: a template-declaration whose declarator-id is
+	// qualified declares into the region that name reaches, and the parameters
+	// its own head declared stand over that region for as long as the
+	// declarator and the body are read - which is the same place 14.5.1.3p1's
+	// out-of-class member definition puts its head's names.  The head is this
+	// declaration's own: a definition read inside this one opens a context of
+	// its own and stands over nothing.
+	Scope* const head =
+		spelled.qualified() && ctx.template_head == ctx.scope ? ctx.scope
+		                                                      : nullptr;
 	if (spelled.qualified())
 	{
 		target.scope = resolve_prefix(spelled, ctx);
 		target.dump = target.scope->dump;
+		target.template_head = head;
 	}
+	const EnclosedBy enclosed(*target.scope, head);
 	// 11.3p6: a friend function defined in a class body is a member of the
 	// region around the class.  3.4.1p9 still reads the names in its body as a
 	// member function's are read, so the region its parameters and body are
@@ -350,7 +362,7 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 		model_.bind(*inner.scope, self->name, *self);
 		model_.declare_in(*inner.scope, *self);
 	}
-	if (target.scope->kind == ScopeKind::TemplateParameters &&
+	if ((target.scope->kind == ScopeKind::TemplateParameters || head != nullptr) &&
 	    specializing == nullptr)
 	{
 		// 14p1 and 14.6: a template declares no function until it is
@@ -532,6 +544,12 @@ SemaEntity& SemaAnalyzer::declare_function(const std::string& name, TypeId type,
 	// declares is declared in the region around it, which is where a call of it
 	// looks and where its other declarations are.
 	Scope& where = declaring_region(*target.scope);
+	// 14.1p1 and 3.4.1p8: which head this declaration is written under, which
+	// is the region it is read in for every declarator-id but a qualified one -
+	// and for that one the head standing over the region the name reaches.
+	Scope* const head_region =
+		target.scope->kind == ScopeKind::TemplateParameters ? target.scope
+		                                                    : target.template_head;
 	// 14.6.1p6: the name is written inside the template-declaration the head
 	// parameterises, however far out the region that declares it stands - so
 	// the question is asked of where the declaration was *written* and not of
@@ -566,8 +584,7 @@ SemaEntity& SemaAnalyzer::declare_function(const std::string& name, TypeId type,
 			reveal_friend(where, name, *prior, signature);
 		}
 	}
-	if (prior == nullptr && head != nullptr &&
-	    target.scope->kind == ScopeKind::TemplateParameters)
+	if (prior == nullptr && head != nullptr && head_region != nullptr)
 	{
 		// 14.5.6.1p5: two function templates declare the same template when
 		// their heads declare the same parameters and their types agree once
@@ -575,7 +592,7 @@ SemaEntity& SemaAnalyzer::declare_function(const std::string& name, TypeId type,
 		// differ, because each head declared parameters of its own, so the
 		// chain's index of parameter type lists cannot answer this and the
 		// declarations of the name are asked one at a time.
-		prior = equivalent_template(*head, *target.scope, type);
+		prior = equivalent_template(*head, *head_region, type);
 	}
 	if (prior != nullptr)
 	{
@@ -601,7 +618,7 @@ SemaEntity& SemaAnalyzer::declare_function(const std::string& name, TypeId type,
 			// definition's syntax and the parameter names *it* wrote - against
 			// the parameters the declaration's own type is written over, which
 			// is what a deduction binds.
-			record_function_template(*prior, *target.scope, where);
+			record_function_template(*prior, *head_region, where);
 		}
 		return *prior;
 	}
@@ -627,13 +644,13 @@ SemaEntity& SemaAnalyzer::declare_function(const std::string& name, TypeId type,
 	entity.defined = define;
 	entity.c_linkage = c_linkage_;
 	entity.tail = &entity;
-	if (target.scope->kind == ScopeKind::TemplateParameters)
+	if (head_region != nullptr)
 	{
 		// 14p1: this declares a template rather than a function, and the
 		// parameters it is written over are what an instantiation of it
 		// substitutes arguments for.
-		entity.template_parameters = target.scope;
-		record_function_template(entity, *target.scope, where);
+		entity.template_parameters = head_region;
+		record_function_template(entity, *head_region, where);
 	}
 	if (hidden)
 	{

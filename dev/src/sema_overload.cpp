@@ -1171,7 +1171,11 @@ SemaEntity* SemaAnalyzer::resolve_target(const Value& value, TypeId target)
 			if (made != nullptr)
 			{
 				deduced.push_back(made);
-				patterns.push_back(at);
+				// 14.5.6.2 orders the templates and not the names a use gave
+				// them, so 14.8.1p2's partly written list is ordered as the
+				// template it wrote a part of.
+				patterns.push_back(at->partial_of != nullptr ? at->partial_of
+				                                             : at);
 			}
 		}
 	}

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -29,6 +30,7 @@ struct SemaContext
 		: scope(nullptr)
 		, dump(nullptr)
 		, node(nullptr)
+		, template_head(nullptr)
 	{}
 
 	Scope* scope;
@@ -38,6 +40,15 @@ struct SemaContext
 	// the output has no line for what a declaration declares, which is
 	// every member of a class.
 	DumpNode* node;
+	// 14.1p1: the region the template head standing over *this* declaration
+	// declared its parameters in.  It equals `scope` for every declaration a
+	// template-declaration parameterises, and 3.4.1p8 is where the two part
+	// company: a declarator-id with a nested-name-specifier is read in the
+	// region that name reaches, with the head's own names standing over it -
+	// so the head is what says the declaration declares a template however far
+	// from it that region is.  Null for a declaration no template-declaration
+	// parameterises, and for every reading nested inside one.
+	Scope* template_head;
 };
 
 // The terminals a declaration was written from, which is what names an
@@ -356,6 +367,24 @@ struct ThreadLifetime
 {
 	SemaEntity* entity;
 	DumpNode* line;
+};
+
+// An expression that is not one of the constant expressions 5.19 defines, or
+// not one of the subset of them PA11 evaluates.
+//
+// This is not by itself a program the assignment refuses: 5.19p3 makes a const
+// object of integral type a constant only when its initializer is one, and a
+// declaration whose initializer is an ordinary expression is well formed and
+// declares an object that is not a constant.  It is what separates that from
+// the errors an expression can also hold - a name that is declared nowhere, a
+// type-id that names no type - which are facts about the program rather than
+// about the value, and which every caller lets through.
+class NotConstant : public std::runtime_error
+{
+public:
+	explicit NotConstant(const std::string& what)
+		: std::runtime_error(what)
+	{}
 };
 
 // A value of the 5.19 subset: what it is worth, and the type that says how

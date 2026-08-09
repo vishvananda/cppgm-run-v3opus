@@ -518,6 +518,16 @@ struct SemaEntity
 	// template-id or the call that asked for it.
 	SemaEntity* primary;
 	bool instantiated;
+	// 14.8.1p2: the template this declaration is `partial_of` with a leading
+	// part of its argument list already written.  A template-id may leave the
+	// trailing arguments out where a use deduces them, so what such a name
+	// stands for is neither the template - the written arguments are part of
+	// what a deduction starts from - nor a specialization, because no argument
+	// list is complete yet.  It is a candidate like any other template and
+	// makes a specialization of `partial_of` over the whole list once the use
+	// has deduced the rest; `template_arguments` holds the part that was
+	// written.  Null for every declaration a program or an instantiation made.
+	SemaEntity* partial_of;
 	// 14.7.2p8: whether an explicit instantiation definition asked this unit
 	// for the definition of this function.  3.2p3 leaves an instantiated
 	// definition to the use that requires it, and an explicit instantiation is
@@ -1062,6 +1072,61 @@ bool names_a_space(const SemaEntity& entity);
 // is where a use of the template looks for it and where a class an
 // elaborated-type-specifier in a parameter-clause first declares stands.
 Scope& declaring_region(Scope& scope);
+
+// 14.5.1.3p1 and 3.4.1p8: the region standing between a region and the one
+// around it while one declaration written outside it is read, which is that
+// declaration's own head's rather than the region's.
+//
+// The region keeps the one it was opened in, because every other reading of
+// what it declares - its own body, the next definition written outside it -
+// looks names up through that one; 14.1p2 makes this reading's names the ones
+// *this* head wrote, and nothing it binds is standing when the next declaration
+// is read.
+// A null region stands nothing over anything, which is what every declaration
+// written where it belongs already has.
+class EnclosedBy
+{
+public:
+	EnclosedBy(Scope& scope, Scope* region)
+		: scope_(region == nullptr ? nullptr : &scope)
+		, region_(region)
+		, parent_(region == nullptr ? nullptr : scope.parent)
+		, head_(region == nullptr ? nullptr : scope.template_head)
+		, stood_in_(region == nullptr ? nullptr : region->parent)
+	{
+		if (scope_ == nullptr)
+		{
+			return;
+		}
+		// The head goes where the region it stands over was, so the chain out
+		// of it is that region's own however far the head was written from it:
+		// a region opened inside the one being stood over would otherwise close
+		// the walk outwards into a circle.
+		region_->parent = parent_;
+		scope_->parent = region_;
+		scope_->template_head = region_;
+	}
+
+	~EnclosedBy()
+	{
+		if (scope_ != nullptr)
+		{
+			scope_->parent = parent_;
+			scope_->template_head = head_;
+			region_->parent = stood_in_;
+		}
+	}
+
+private:
+	EnclosedBy(const EnclosedBy&);
+	EnclosedBy& operator=(const EnclosedBy&);
+
+	Scope* const scope_;
+	Scope* const region_;
+	Scope* const parent_;
+	Scope* const head_;
+	Scope* const stood_in_;
+};
 
 // Writes `scope` and everything under it, indenting two spaces per level.
 void write_dump(std::ostream& out, const DumpScope& scope, unsigned depth);
