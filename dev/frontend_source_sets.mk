@@ -46,7 +46,7 @@ FRONTEND_OBJ_BASENAMES_cppgm++ := source_charset source_reader pptoken_lexer \
 	sema_constant \
 	sema_statement sema_expression sema_cast sema_overload sema_init_list \
 	sema_operator \
-	sema_template \
+	sema_template sema_type_id \
 	sema_allocation \
 	types_emit \
 	semantics_emit abi_mangle lowir_abi lowir_text lowir_validate lowir_write \

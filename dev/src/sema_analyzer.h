@@ -1282,9 +1282,15 @@ private:
 	// parameters of its outermost parameter-clause, which 8.4.1p1 makes the one
 	// that clause declares.  Reading them here is what keeps a parameter
 	// clause read once rather than once for the type and again for the names.
+	// `member_object` says the decl-specifier-seq beside this declarator leaves
+	// it declaring a non-static member function, which is 5.1.1p3's whole
+	// question: `static`, 11.3p1's `friend` and 7.1.3's `typedef` each write a
+	// declarator in a class and declare no member function of it, and no part of
+	// the declarator says which of them was written.
 	TypeId declarator_type(const AstNode& node, TypeId base, const Context& ctx,
 	                       std::string* name,
-	                       std::vector<Parameter>* declared = nullptr);
+	                       std::vector<Parameter>* declared = nullptr,
+	                       bool member_object = false);
 	TypeId apply_pointer(const AstNode& node, TypeId type,
 	                     const Context& ctx);
 	TypeId apply_suffix(const AstNode& node, TypeId type, const Context& ctx,
@@ -1809,6 +1815,8 @@ private:
 	// bind standing for what the substitution makes of it, for a reading that
 	// has to happen again where the arguments are known.
 	Scope& substituted_region(Scope& written,
+	                          const std::vector<std::size_t>& reach,
+	                          std::size_t level,
 	                          const std::unordered_map<TypeId, TypeId>& bindings,
 	                          std::unordered_map<TypeId, TypeId>& memo);
 	// 14.6.1p1: the current instantiation of `primary`, the class its own

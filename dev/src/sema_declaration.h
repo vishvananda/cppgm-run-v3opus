@@ -96,6 +96,15 @@ struct DeclSpecifiers
 	SemaEntity* introduced;
 };
 
+// 5.1.1p3: whether the declarators of a declaration written in a class declare
+// member functions an object of it is called on, which is what stands `this`
+// over the rest of each of them.  9.4p1's `static` member is called on none,
+// 11.3p1's friend declares into the region around the class rather than a member
+// of it, and 7.1.3's typedef declares no function at all - so each of the three
+// writes a declarator in a class body that has no object to name, and no part of
+// the declarator says which of them was written.
+bool declares_object_member(const DeclSpecifiers& specifiers);
+
 // One parameter of a parameter-clause, before 8.3.5p4 drops a lone `void`.
 struct DeclaredParameter
 {
@@ -329,6 +338,13 @@ struct DependentDecltype
 
 	const AstNode* written;
 	Scope* region;
+	// 3.3.7p1: how many declarations each of those regions had made when the
+	// specifier was read, innermost first.  A place a clause declares *after* a
+	// specifier is one that specifier could not name - its potential scope
+	// begins at its own declarator-id - and its type may be this very specifier,
+	// so a second reading that rebuilt the whole region would have to know what
+	// it is about to say to say it.
+	std::vector<std::size_t> reach;
 };
 
 // 3.7.2p2: one namespace-scope object with thread storage duration, and the

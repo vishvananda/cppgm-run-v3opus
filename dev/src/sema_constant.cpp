@@ -572,6 +572,18 @@ TypeId SemaAnalyzer::decltype_type(const AstNode& node, const Context& ctx)
 		const Value value =
 			SemaAnalyzer::probe_expression(*expression, ctx, scratch);
 		require_complete_value(value);
+		if (!parenthesized && expression->kind == AstKind::MemberExpression &&
+		    value.entity != nullptr)
+		{
+			// 7.1.6.2p4: an unparenthesized class member access names an entity
+			// as much as an id-expression does, so what the specifier stands for
+			// is the type that entity was *declared* with rather than what the
+			// access is worth.  `decltype(c.v)` is the member's own type - not a
+			// reference to it, and not qualified by the object holding it - where
+			// `decltype((c.v))` is 5.2.5p4's lvalue and gets one; and a member
+			// declared of reference type keeps the reference the access took off.
+			return value.entity->type;
+		}
 		if (value.category == ValueCategory::LValue)
 		{
 			return types_.reference_to(value.type, false);

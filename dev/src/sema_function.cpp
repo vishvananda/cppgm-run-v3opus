@@ -232,7 +232,8 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 	// the class it is written in and not the namespace it declares into.
 	TypeId type = declarator_type(declarator, specifier_type(specifiers),
 	                              spelled.qualified() ? target : ctx, &ignored,
-	                              &parameters);
+	                              &parameters,
+	                              declares_object_member(specifiers));
 	if (types_.kind(type) != TypeKind::Function)
 	{
 		throw std::runtime_error("a function definition declares " + name +

@@ -1,0 +1,15 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    %t1 = call i32 @make(42)
+    %t2 = binary sub i32 %t1, 42
+    return i32 %t2
+}
+function @make(%seed : i32) -> i32 [binding=weak, object=_Z4makeIiEiT_] {
+  slot $seed : i32
+
+  block ^entry:
+    store i32 %seed, $seed
+    %t1 = load i32 $seed
+    %t2 = binary add i32 0, %t1
+    return i32 %t2
+}

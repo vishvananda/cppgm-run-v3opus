@@ -1,0 +1,18 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    %t1 = call i32 @added(20, 22)
+    %t2 = binary sub i32 %t1, 42
+    return i32 %t2
+}
+function @added(%left : i32, %right : i32) -> i32 [binding=weak, object=_Z5addedIiEDTplfp_fp0_ET_S1_] {
+  slot $left : i32
+  slot $right : i32
+
+  block ^entry:
+    store i32 %left, $left
+    store i32 %right, $right
+    %t1 = load i32 $left
+    %t2 = load i32 $right
+    %t3 = binary add i32 %t1, %t2
+    return i32 %t3
+}

@@ -2263,7 +2263,8 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 	std::vector<Parameter> spelled_parameters;
 	TypeId type = declarator_type(node, specifier_type(specifiers),
 	                              spelled.qualified() ? target : ctx, &written,
-	                              &spelled_parameters);
+	                              &spelled_parameters,
+	                              declares_object_member(specifiers));
 	// 8.3.4p3: an array declared with no bound and initialized from a braced
 	// list has as many elements as the list has clauses.
 	if (types_.kind(type) == TypeKind::Array && !types_.bounded(type) &&

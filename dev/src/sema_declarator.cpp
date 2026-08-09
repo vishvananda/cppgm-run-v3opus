@@ -374,13 +374,22 @@ const AstNode* SemaAnalyzer::declarator_id(const AstNode& node)
 	return nullptr;
 }
 
+// 5.1.1p3, declared in `sema_declaration.h` with the rest of what a
+// decl-specifier-seq says.
+bool declares_object_member(const DeclSpecifiers& specifiers)
+{
+	return !specifiers.is_static && !specifiers.is_friend &&
+		!specifiers.is_typedef;
+}
+
 // 8.3: a declarator is read from the declarator-id outwards.  The pointer
 // operators written before the id apply to what the specifiers named, the
 // suffixes written after it apply to that from the last one inwards, and a
 // nested declarator is then read against the type that comes out.
 TypeId SemaAnalyzer::declarator_type(const AstNode& node, TypeId base,
                                      const Context& ctx, std::string* name,
-                                     std::vector<Parameter>* declared)
+                                     std::vector<Parameter>* declared,
+                                     bool member_object)
 {
 	std::size_t index = 0;
 	TypeId type = base;
@@ -504,10 +513,17 @@ TypeId SemaAnalyzer::declarator_type(const AstNode& node, TypeId base,
 			// function's declarator to the end of that declarator, so the type
 			// is read the way its body will be read - and the reading around
 			// this one is put aside, because a declarator may be read while
-			// another is.
-			const FunctionReading object(*this, declarator_object(node, index,
-			                                                      ctx),
-			                             kNoType);
+			// another is.  Which declarators those are is the
+			// decl-specifier-seq beside them and no part of the declarator, so
+			// the caller says: a static member, 11.3p1's friend and a typedef
+			// each write a declarator in a class and declare no member function
+			// of it, and every other declarator is read where `this` is nothing
+			// at all - so the reading put aside is the one thing all of them
+			// need.
+			const FunctionReading object(
+				*this,
+				member_object ? declarator_object(node, index, ctx) : nullptr,
+				kNoType);
 			type = type_id_type(*part.children[0], reading);
 			continue;
 		}
@@ -562,7 +578,8 @@ TypeId SemaAnalyzer::declarator_type(const AstNode& node, TypeId base,
 	// declarator-id ends up at - which `spells_here` has already answered.
 	return core->children.empty()
 		? type
-		: declarator_type(*core->children[0], type, ctx, name, declared);
+		: declarator_type(*core->children[0], type, ctx, name, declared,
+		                  member_object);
 }
 
 TypeId SemaAnalyzer::apply_pointer(const AstNode& node, TypeId type,

@@ -1,0 +1,27 @@
+ERROR: this outside member function [top-level declaration 0 kind=class-specifier value=holder text=holder]
+Diagnostic context:
+collect_class_declaration [holder] at course/pa19/100-static-member-trailing-return-this-bad.t:5:1
+  ensure_class_reference_members [holder]
+    populate_class_reference_members [holder]
+      reference_class_member [simple-declaration] text=[] ast={simple-declaration
+  decl-specifier-seq
+    decl-specifier KW_STATIC:static
+    decl-specifier KW_AUTO:auto
+  init-declarator-list
+    init-declarator
+      declarator
+        identifier reach
+        parameter-clause
+        trailing-return-type decltype(this->slot)
+          type-id
+            type-specifier-seq
+              decltype-specifier decltype(this->slot)
+                member-expression OP_ARROW:->
+                  keyword-literal KW_THIS:this
+                  identifier slot
+}
+        analyze_expression [->] at course/pa19/100-static-member-trailing-return-this-bad.t:8:35
+          semantic_expression::analyze_expression [->] at course/pa19/100-static-member-trailing-return-this-bad.t:8:35
+            analyze_member_expression [->] at course/pa19/100-static-member-trailing-return-this-bad.t:8:35
+              analyze_expression [this] at course/pa19/100-static-member-trailing-return-this-bad.t:8:35
+                semantic_expression::analyze_expression [this] at course/pa19/100-static-member-trailing-return-this-bad.t:8:35
