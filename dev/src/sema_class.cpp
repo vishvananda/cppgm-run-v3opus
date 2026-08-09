@@ -2504,12 +2504,17 @@ TypeId SemaAnalyzer::with_object_parameter(TypeId type,
 	// redeclares rather than of its own specifiers - and a static member
 	// function writes no ref-qualifier, so the declaration it is looked for
 	// among is one that carries none.
+	// 14.1p1 and 14.5.2p1: the region the declaration belongs to, which for a
+	// member template is the class the head's own region was opened in - a
+	// member template declares a member like any other, so 9.3.1p3 gives it the
+	// object parameter every non-static one has.
+	Scope& where = declaring_region(*target.scope);
 	const bool object_member =
-		target.scope->kind == ScopeKind::Class && !is_static &&
-		target.scope->owner != nullptr && !allocation_function_name(name) &&
+		where.kind == ScopeKind::Class && !is_static &&
+		where.owner != nullptr && !allocation_function_name(name) &&
 		!(qualified &&
 		  declares_static_member(
-			  *target.scope, name,
+			  where, name,
 			  types_.ref_qualified_function(type, RefQualifier::None)));
 	if (!object_member)
 	{
@@ -2527,7 +2532,7 @@ TypeId SemaAnalyzer::with_object_parameter(TypeId type,
 	}
 	std::vector<TypeId> parameters;
 	parameters.push_back(
-		types_.pointer_to(types_.qualified(target.scope->owner->type, cv)));
+		types_.pointer_to(types_.qualified(where.owner->type, cv)));
 	const std::vector<TypeId>& written = types_.parameters(type);
 	parameters.insert(parameters.end(), written.begin(), written.end());
 	return types_.ref_qualified_function(

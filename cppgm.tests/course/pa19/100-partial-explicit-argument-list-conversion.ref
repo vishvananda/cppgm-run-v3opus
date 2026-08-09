@@ -1,0 +1,23 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $wide : i64
+
+  block ^entry:
+    store i64 40, $wide
+    %t1 = load i64 $wide
+    %t2 = convert trunc i32 i64 %t1
+    %t3 = call i32 @blend(%t2, 2)
+    %t4 = binary sub i32 %t3, 42
+    return i32 %t4
+}
+function @blend(%one : i32, %two : i32) -> i32 [binding=weak, object=_Z5blendIiiEiT_T0_] {
+  slot $one : i32
+  slot $two : i32
+
+  block ^entry:
+    store i32 %one, $one
+    store i32 %two, $two
+    %t1 = load i32 $one
+    %t2 = load i32 $two
+    %t3 = binary add i32 %t1, %t2
+    return i32 %t3
+}

@@ -1,0 +1,15 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    %t1 = call i32 @holder__keep(37)
+    %t2 = binary sub i32 %t1, 42
+    return i32 %t2
+}
+function @holder__keep(%value : i32) -> i32 [binding=weak, object=_ZN6holder4keepIiEET_S1_] {
+  slot $value : i32
+
+  block ^entry:
+    store i32 %value, $value
+    %t1 = load i32 $value
+    %t2 = binary add i32 %t1, 5
+    return i32 %t2
+}

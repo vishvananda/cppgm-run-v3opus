@@ -183,6 +183,41 @@ void SemaAnalyzer::declare_parameters(const std::vector<Parameter>& parameters,
 	}
 }
 
+// 11.3p5, 3.5p3, 3.5p4 and 7.1.2p2: where a definition's name is reached from,
+// and how the object file binds what it defines.
+//
+// All four are facts of the declaration this definition *is* rather than of the
+// body it wrote: a friend definition declares a member of the enclosing
+// namespace that no lookup written there finds, so the class that granted it is
+// where this unit reads it; a `static` declaration and 7.3.1.1p1's unnamed
+// namespace each give the name internal linkage however the other declarations
+// of it were written; and 9.3p2 makes a member function defined inside its
+// class body inline exactly as `inline` does, which is a fact of where the
+// definition stands and not of the region it declares into.
+void SemaAnalyzer::record_definition_binding(SemaEntity& entity,
+                                             const Specifiers& specifiers,
+                                             const Context& ctx,
+                                             const Context& target,
+                                             const QualifiedName& spelled,
+                                             SemaEntity* granting)
+{
+	if (granting != nullptr)
+	{
+		model_.befriend(*granting, entity);
+		if (!spelled.qualified() && granting->scope != nullptr)
+		{
+			granting->scope->friend_functions.push_back(&entity);
+			entity.friend_definition =
+				entity.friend_definition || ctx.scope->kind == ScopeKind::Class;
+		}
+	}
+	entity.internal_linkage = entity.internal_linkage ||
+		target.scope->unnamed_region ||
+		(specifiers.is_static && target.scope->kind == ScopeKind::Namespace);
+	entity.inline_function = entity.inline_function || specifiers.is_inline ||
+		ctx.scope->kind == ScopeKind::Class;
+}
+
 void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 {
 	Span span;
@@ -213,21 +248,26 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 	Context target = ctx;
 	// 14.1p1 and 3.4.1p8: a template-declaration whose declarator-id is
 	// qualified declares into the region that name reaches, and the parameters
-	// its own head declared stand over that region for as long as the
-	// declarator and the body are read - which is the same place 14.5.1.3p1's
-	// out-of-class member definition puts its head's names.  The head is this
-	// declaration's own: a definition read inside this one opens a context of
-	// its own and stands over nothing.
+	// its own head declared stand inside that region for as long as the
+	// declarator and the body are read.  The head is this declaration's own: a
+	// definition read inside this one opens a context of its own and stands
+	// nowhere.
 	Scope* const head =
 		spelled.qualified() && ctx.template_head == ctx.scope ? ctx.scope
 		                                                      : nullptr;
+	// 3.4.1p8 again: where the names the declarator and the body write are
+	// looked up, which is the head where one stands and the region the
+	// declarator-id reaches otherwise.
+	Context looked_up = ctx;
 	if (spelled.qualified())
 	{
 		target.scope = resolve_prefix(spelled, ctx);
 		target.dump = target.scope->dump;
 		target.template_head = head;
+		looked_up.scope = head != nullptr ? head : target.scope;
+		looked_up.dump = target.dump;
 	}
-	const EnclosedBy enclosed(*target.scope, head);
+	const StandingIn stood(head, *target.scope);
 	// 11.3p6: a friend function defined in a class body is a member of the
 	// region around the class.  3.4.1p9 still reads the names in its body as a
 	// member function's are read, so the region its parameters and body are
@@ -243,8 +283,7 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 	// otherwise where the declaration stands, which for a friend declaration is
 	// the class it is written in and not the namespace it declares into.
 	TypeId type = declarator_type(declarator, specifier_type(specifiers),
-	                              spelled.qualified() ? target : ctx, &ignored,
-	                              &parameters,
+	                              looked_up, &ignored, &parameters,
 	                              declares_object_member(specifiers));
 	if (types_.kind(type) != TypeKind::Function)
 	{
@@ -293,40 +332,15 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 		require_operator_operand(name, type,
 		                         target.scope->kind == ScopeKind::Class);
 	}
-	if (granting != nullptr)
-	{
-		model_.befriend(*granting, entity);
-		if (!spelled.qualified() && granting->scope != nullptr)
-		{
-			granting->scope->friend_functions.push_back(&entity);
-			// 11.3p5: the definition declares a member of the enclosing
-			// namespace and is written where no ordinary lookup finds its
-			// name, so the class that wrote it is where this unit reads it.
-			entity.friend_definition =
-				entity.friend_definition || ctx.scope->kind == ScopeKind::Class;
-		}
-	}
-	// 3.5p3: one declaration written `static` gives the name internal linkage,
-	// however the others were written.
-	// 3.5p4: so does 7.3.1.1p1's unnamed namespace, which the definition may
-	// stand in without any declaration of it writing a specifier.
-	entity.internal_linkage = entity.internal_linkage ||
-		target.scope->unnamed_region ||
-		(specifiers.is_static && target.scope->kind == ScopeKind::Namespace);
-	// 7.1.2p2 and 9.3p2: `inline` says so, and so does defining a member
-	// function inside the class definition - which is where the definition is
-	// written, not the region it declares into.  A member defined outside its
-	// class declares into that class and is a definition this unit owns like
-	// any other: it binds strongly and is emitted whether or not this unit uses
-	// it.
-	entity.inline_function = entity.inline_function || specifiers.is_inline ||
-		ctx.scope->kind == ScopeKind::Class;
+	record_definition_binding(entity, specifiers, ctx, target, spelled,
+	                          granting);
 	record_declared_parameters(entity, parameters, target.scope);
 
 	DumpScope& dump = model_.open_dump(*target.dump, "scope function " + name);
 	Context inner;
 	inner.scope = &model_.open(ScopeKind::Function,
-	                           granting != nullptr ? *lexical : *target.scope,
+	                           granting != nullptr ? *lexical
+	                                              : *looked_up.scope,
 	                           &entity, &dump);
 	inner.dump = &dump;
 	inner.node = ctx.node;
@@ -554,7 +568,8 @@ SemaEntity& SemaAnalyzer::declare_function(const std::string& name, TypeId type,
 	// parameterises, however far out the region that declares it stands - so
 	// the question is asked of where the declaration was *written* and not of
 	// the region `declaring_region` steps out to.
-	require_no_template_parameter(name, *target.scope);
+	require_no_template_parameter(name, head_region != nullptr ? *head_region
+	                                                           : *target.scope);
 	SemaEntity* head = model_.find(where, name, LookupKind::Any);
 	if (head != nullptr && head->kind != SemaKind::Function)
 	{

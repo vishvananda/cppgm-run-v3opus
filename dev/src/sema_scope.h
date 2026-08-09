@@ -1073,59 +1073,44 @@ bool names_a_space(const SemaEntity& entity);
 // elaborated-type-specifier in a parameter-clause first declares stands.
 Scope& declaring_region(Scope& scope);
 
-// 14.5.1.3p1 and 3.4.1p8: the region standing between a region and the one
-// around it while one declaration written outside it is read, which is that
-// declaration's own head's rather than the region's.
+// 14.1p1 and 3.4.1p8: where a template head stands while the declaration it
+// parameterises is read through a qualified declarator-id.
 //
-// The region keeps the one it was opened in, because every other reading of
-// what it declares - its own body, the next definition written outside it -
-// looks names up through that one; 14.1p2 makes this reading's names the ones
-// *this* head wrote, and nothing it binds is standing when the next declaration
-// is read.
-// A null region stands nothing over anything, which is what every declaration
-// written where it belongs already has.
-class EnclosedBy
+// The declaration belongs to the region its name reaches, so that is the region
+// the head's own is opened inside for as long as the declarator and the body
+// are read: a name they write is looked up in the head first - 14.1p2 made
+// these parameters this declaration's own - and in the region the name reaches
+// after it, exactly as it would be for a declaration written there.  Nothing
+// the head binds outlives the declaration, so it goes back where it was
+// written afterwards.  A null head stands nowhere, which is every declaration
+// no template-declaration parameterises.
+class StandingIn
 {
 public:
-	EnclosedBy(Scope& scope, Scope* region)
-		: scope_(region == nullptr ? nullptr : &scope)
-		, region_(region)
-		, parent_(region == nullptr ? nullptr : scope.parent)
-		, head_(region == nullptr ? nullptr : scope.template_head)
-		, stood_in_(region == nullptr ? nullptr : region->parent)
+	StandingIn(Scope* head, Scope& region)
+		: head_(head)
+		, parent_(head == nullptr ? nullptr : head->parent)
 	{
-		if (scope_ == nullptr)
+		if (head_ != nullptr)
 		{
-			return;
+			head_->parent = &region;
 		}
-		// The head goes where the region it stands over was, so the chain out
-		// of it is that region's own however far the head was written from it:
-		// a region opened inside the one being stood over would otherwise close
-		// the walk outwards into a circle.
-		region_->parent = parent_;
-		scope_->parent = region_;
-		scope_->template_head = region_;
 	}
 
-	~EnclosedBy()
+	~StandingIn()
 	{
-		if (scope_ != nullptr)
+		if (head_ != nullptr)
 		{
-			scope_->parent = parent_;
-			scope_->template_head = head_;
-			region_->parent = stood_in_;
+			head_->parent = parent_;
 		}
 	}
 
 private:
-	EnclosedBy(const EnclosedBy&);
-	EnclosedBy& operator=(const EnclosedBy&);
+	StandingIn(const StandingIn&);
+	StandingIn& operator=(const StandingIn&);
 
-	Scope* const scope_;
-	Scope* const region_;
-	Scope* const parent_;
 	Scope* const head_;
-	Scope* const stood_in_;
+	Scope* const parent_;
 };
 
 // Writes `scope` and everything under it, indenting two spaces per level.

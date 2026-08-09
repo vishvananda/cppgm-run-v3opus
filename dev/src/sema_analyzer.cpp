@@ -2254,11 +2254,24 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 	// 3.4.3p3: a declarator-id with a nested-name-specifier declares into the
 	// region that names, wherever the declaration is written.
 	Context target = ctx;
+	// 14.1p1: and the parameters the head standing over *this* declaration
+	// declared stand inside that region while the declarator is read, so
+	// `template<class T> int n::f(T);` declares the template `n` declares and
+	// reads `T` where it was written.  This is the declaration form of the same
+	// rule `function_definition` reads a body under.
+	Scope* const head =
+		spelled.qualified() && ctx.template_head == ctx.scope ? ctx.scope
+		                                                      : nullptr;
+	Context looked_up = ctx;
 	if (spelled.qualified())
 	{
 		target.scope = resolve_prefix(spelled, ctx);
 		target.dump = target.scope->dump;
+		target.template_head = head;
+		looked_up.scope = head != nullptr ? head : target.scope;
+		looked_up.dump = target.dump;
 	}
+	const StandingIn stood(head, *target.scope);
 	std::string written;
 	// 14.1: a template's declarator is the pattern its instantiations write
 	// their own parameters from, and 8.3.6p4 makes a function declaration's
@@ -2266,9 +2279,8 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 	// it is the one with the body.  Both read the parameter clause the
 	// declarator already spelled, so it is captured here rather than read again.
 	std::vector<Parameter> spelled_parameters;
-	TypeId type = declarator_type(node, specifier_type(specifiers),
-	                              spelled.qualified() ? target : ctx, &written,
-	                              &spelled_parameters,
+	TypeId type = declarator_type(node, specifier_type(specifiers), looked_up,
+	                              &written, &spelled_parameters,
 	                              declares_object_member(specifiers));
 	// 8.3.4p3: an array declared with no bound and initialized from a braced
 	// list has as many elements as the list has clauses.

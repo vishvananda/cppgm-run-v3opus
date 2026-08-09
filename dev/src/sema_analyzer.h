@@ -272,6 +272,14 @@ private:
 	// from the point its type is known.  `granting` is the class a friend
 	// declaration gives this declaration the access of, and null for every
 	// other declaration.
+	// 11.3p5, 3.5p3, 3.5p4 and 7.1.2p2: where the name a definition declares is
+	// reached from and how the object file binds it, which its own declaration
+	// says and its body does not.
+	void record_definition_binding(SemaEntity& entity,
+	                               const Specifiers& specifiers,
+	                               const Context& ctx, const Context& target,
+	                               const QualifiedName& spelled,
+	                               SemaEntity* granting);
 	void declare_function_declarator(const AstNode& node,
 	                                 const std::string& name, TypeId type,
 	                                 const QualifiedName& spelled,

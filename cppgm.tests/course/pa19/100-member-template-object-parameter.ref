@@ -1,0 +1,27 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $one : obj<4x4>
+
+  block ^entry:
+    %t1 = addr $one
+    %t2 = addr $one
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 40, %t3
+    %t4 = addr $one
+    %t5 = call i32 @counter__raised(%t4, 2)
+    %t6 = binary sub i32 %t5, 42
+    return i32 %t6
+}
+function @counter__raised(%this : ptr, %step : i32) -> i32 [binding=weak, object=_ZNK7counter6raisedIiEEiT_] {
+  slot $this : ptr
+  slot $step : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %step, $step
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i32 %t2
+    %t4 = load i32 $step
+    %t5 = binary add i32 %t3, %t4
+    return i32 %t5
+}

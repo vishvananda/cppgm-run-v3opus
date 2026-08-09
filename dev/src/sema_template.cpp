@@ -37,6 +37,43 @@
 namespace
 {
 
+// 14.5.1.3p1: the region standing between a class and the one around it while
+// one out-of-class member definition of it is read, which is that definition's
+// own head's rather than the class's.  The class keeps the region it was
+// completed against, because every other reading of its members - its own body,
+// the next definition written outside it - looks names up through that one.
+//
+// It is the other half of `StandingIn`, which puts a head *inside* the region a
+// qualified declarator-id names: there the region is the program's own and the
+// head is what moves, and here the region is the head and the class is what it
+// stands over.
+class EnclosedBy
+{
+public:
+	EnclosedBy(Scope& scope, Scope& region)
+		: scope_(scope)
+		, parent_(scope.parent)
+		, head_(scope.template_head)
+	{
+		scope_.parent = &region;
+		scope_.template_head = &region;
+	}
+
+	~EnclosedBy()
+	{
+		scope_.parent = parent_;
+		scope_.template_head = head_;
+	}
+
+private:
+	EnclosedBy(const EnclosedBy&);
+	EnclosedBy& operator=(const EnclosedBy&);
+
+	Scope& scope_;
+	Scope* const parent_;
+	Scope* const head_;
+};
+
 // A depth held while one reading stands, and put back where it ends - so a
 // reading that stands inside another says so and an error thrown out of one
 // leaves the walk where it found it.
@@ -359,15 +396,25 @@ SemaEntity* SemaAnalyzer::deduce_specialization(
 	// leave the trailing parameters a default-argument stands for unwritten;
 	// those deduce nothing, and 14.8.2p5 below is what says whether what is
 	// left named every parameter.
+	//
+	// 9.3.1p3's object parameter is none of those pairs: no argument is written
+	// for it and its type is the class's, which a class template's own argument
+	// list settled before this head declared anything - so a member template
+	// deduces from the arguments after it.
+	const std::size_t implicit = made_of.object_member ? 1u : 0u;
 	const std::vector<TypeId>& pattern = types_.parameters(written_type);
-	if (arguments.size() > pattern.size() || types_.variadic(written_type) ||
-	    (arguments.size() < pattern.size() &&
-	     !accepts_arity(made_of, arguments.size())))
+	const std::size_t places =
+		pattern.size() > implicit ? pattern.size() - implicit : 0u;
+	if (arguments.size() > places || pattern.size() < implicit ||
+	    types_.variadic(written_type) ||
+	    (arguments.size() < places &&
+	     !accepts_arity(made_of, arguments.size() + implicit)))
 	{
 		return nullptr;
 	}
-	for (std::size_t index = 0; index < arguments.size(); ++index)
+	for (std::size_t at = 0; at < arguments.size(); ++at)
 	{
+		const std::size_t index = at + implicit;
 		// 14.8.2.5p3: a parameter written over no template parameter deduces
 		// nothing at all, so whether the argument reaches it is 13.3's question
 		// about a conversion rather than this one about a substitution.
@@ -385,14 +432,14 @@ SemaEntity* SemaAnalyzer::deduce_specialization(
 			kind == TypeKind::RValueReference;
 		const TypeId expected =
 			reference ? types_.target(pattern[index]) : pattern[index];
-		if (arguments[index].type == kNoType)
+		if (arguments[at].type == kNoType)
 		{
 			// 14.8.2.1p6: an argument that is an overload set has no type of its
 			// own, so the deduction is tried against each declaration in it and
 			// stands only where exactly one of them deduces.  A set holding a
 			// template is left alone: 13.4p1 has no target type here to make one
 			// of its specializations, so the parameter deduces nothing at all.
-			if (!deduce_overload_set(arguments[index], expected, bindings,
+			if (!deduce_overload_set(arguments[at], expected, bindings,
 			                         reference))
 			{
 				return nullptr;
@@ -400,7 +447,7 @@ SemaEntity* SemaAnalyzer::deduce_specialization(
 			continue;
 		}
 		TypeId given =
-			reference ? arguments[index].type : decayed(arguments[index]);
+			reference ? arguments[at].type : decayed(arguments[at]);
 		// 14.8.2.1p3: an rvalue reference written over a parameter the
 		// declarator wrote no qualifier on is deduced from "lvalue reference to
 		// A" wherever the argument is an lvalue, so 8.3.2p6's collapsing of the
@@ -408,7 +455,7 @@ SemaEntity* SemaAnalyzer::deduce_specialization(
 		if (kind == TypeKind::RValueReference &&
 		    types_.kind(expected) == TypeKind::TemplateParameter &&
 		    types_.cv(expected) == 0 &&
-		    arguments[index].category == ValueCategory::LValue)
+		    arguments[at].category == ValueCategory::LValue)
 		{
 			given = types_.reference_to(given, false);
 		}
@@ -1745,20 +1792,34 @@ SemaEntity* SemaAnalyzer::member_definition_owner(const AstNode& node,
 	{
 		return nullptr;
 	}
+	// 3.4.3p1: each component of the nested-name-specifier is looked up in the
+	// region the one before it reached, and the first of them where the
+	// declaration stands - so a class template written as `v::S<T>::` is found
+	// wherever the namespace holding it is.
 	const QualifiedName spelled(spelling);
+	Scope* reached = nullptr;
 	for (std::size_t index = 0; index + 1 < spelled.size(); ++index)
 	{
 		const TemplateId written(spelled.part(index));
-		if (!written.valid())
-		{
-			continue;
-		}
+		const std::string component =
+			written.valid() ? written.name() : spelled.part(index);
 		SemaEntity* const named =
-			model_.lookup(*ctx.scope, written.name(), LookupKind::Type);
-		if (named != nullptr && named->kind == SemaKind::Class &&
+			reached == nullptr
+				? model_.lookup(*ctx.scope, component, LookupKind::Region)
+				: model_.lookup_in(*reached, component, LookupKind::Region);
+		if (named == nullptr)
+		{
+			return nullptr;
+		}
+		if (written.valid() && named->kind == SemaKind::Class &&
 		    named->templated != nullptr)
 		{
 			return named;
+		}
+		reached = named->scope;
+		if (reached == nullptr)
+		{
+			return nullptr;
 		}
 	}
 	return nullptr;
@@ -1863,7 +1924,7 @@ void SemaAnalyzer::instantiate_member(SemaEntity& specialization,
 		declaration(*member.declaration, inner);
 		return;
 	}
-	const EnclosedBy enclosed(*specialization.scope, region);
+	const EnclosedBy enclosed(*specialization.scope, *region);
 	declaration(*member.declaration, inner);
 }
 
@@ -2482,7 +2543,7 @@ void SemaAnalyzer::read_member_pattern(SemaEntity& primary,
 	{
 		return;
 	}
-	const EnclosedBy enclosed(*info.current->scope, region);
+	const EnclosedBy enclosed(*info.current->scope, *region);
 	const FunctionReading held(*this, nullptr, kNoType);
 	const DialectReading dialect(*this);
 	Context inner;
