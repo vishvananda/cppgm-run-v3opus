@@ -172,39 +172,10 @@ private:
 	typedef OverloadMatch Match;
 
 	// Where the object an initialization or a destruction acts on stands.
-	// 8.5 initializes an object a declaration named; 12.6.2 initializes a
-	// non-static data member of the object the constructor is running on, and
-	// 12.6.2p5 that object's base class subobject.  The three differ only in how
-	// the action names the object, so one path writes all three.
-	// 5.2.2p4's parameter is a fourth: an object the *caller* built, which the
-	// function ends because the boundary says so - so it names the object the
-	// way a declaration does and 12.4p8's reading of an empty body, which is an
-	// answer about an object this translation created, does not reach it.
-	enum class Placement
-	{
-		Named,
-		Member,
-		Base,
-		Parameter,
-		// 12.6.2p6: the object the constructor being written is already running
-		// on, which its ctor-initializer delegates the whole of to another
-		// constructor of the same class.  It is no subobject of anything, so
-		// what the call is passed is `this` as it stands.
-		Delegate
-	};
-
-	// 12.2p1: what asked a conversion for the temporary it made, which is what
-	// names the storage the function gives that temporary.  An argument of
-	// class type is a copy the call owns (5.2.2p4) and a returned prvalue is
-	// the object the caller reads (6.6.3p2), so each names its own storage;
-	// every other place reads the object the expression already wrote, which
-	// keeps the name it was given where it was written.
-	enum class Requested
-	{
-		Written,
-		Argument,
-		Returned
-	};
+	// 8.5p1's placement and 12.2p1's asking place, which `sema_declaration.h`
+	// defines with the rest of the declaration layer's vocabulary.
+	typedef ObjectPlacement Placement;
+	typedef TemporaryRequest Requested;
 
 	// The prefix `Requested` gives a temporary an argument conversion made.
 	// `reference` says the place binds a reference to it rather than holding
@@ -213,11 +184,6 @@ private:
 	// has, which 5.2.2p4 reads to say whether the boundary carries it as bytes
 	// or as the address of the one object the caller and the callee share.
 	const char* requested_prefix(Requested by, bool reference, TypeId passed);
-
-
-
-
-
 
 
 	// Declarations (sema_analyzer.cpp).
@@ -864,16 +830,7 @@ private:
 	// destructors run in reverse order when the program ends.
 	std::vector<SemaEntity*> static_lifetimes_;
 	// 3.7.2p2: the namespace-scope objects with thread storage duration this
-	// unit constructed, and the line each was declared on.  One of these is
-	// destroyed when its own thread ends rather than when the program does, so
-	// the action stands under the declaration - where the initialization that
-	// hands it to the runtime is - and is written once that declaration has
-	// written everything else it holds.
-	struct ThreadLifetime
-	{
-		SemaEntity* entity;
-		DumpNode* line;
-	};
+	// unit constructed, and the line each was declared on.
 	std::vector<ThreadLifetime> thread_lifetimes_;
 	// 8.5.1p1: whether the class `scope` declares is an aggregate.
 	static bool aggregate_class(Scope& scope);
@@ -1332,8 +1289,20 @@ private:
 	                     const Context& ctx);
 	TypeId apply_suffix(const AstNode& node, TypeId type, const Context& ctx,
 	                    std::vector<Parameter>* declared);
+	std::vector<TypeId> parameter_types(const std::vector<Parameter>& parameters);
+	// 5.1.1p3: the object `this` names while a member function's declarator is
+	// read, whose class is the one the declarator-id reaches and whose
+	// qualifiers are the ones written among the suffixes from `suffixes` on.
+	SemaEntity* declarator_object(const AstNode& node, std::size_t suffixes,
+	                              const Context& ctx);
+	// 3.3.7p1: `reading`, where given, takes the region the rest of the
+	// declarator reads its names against, which is `ctx` where the clause bound
+	// none.
 	void read_parameters(const AstNode& clause, const Context& ctx,
-	                     std::vector<Parameter>& out, bool& variadic);
+	                     std::vector<Parameter>& out, bool& variadic,
+	                     Context* reading);
+	void bind_place(Context& reading, const Context& ctx,
+	                const Parameter& parameter);
 	// The declarator-id of a declarator, which a nested declarator holds.
 	static const AstNode* declarator_id(const AstNode& node);
 	// 3.4.3: `name`, which may be written with a nested-name-specifier,
@@ -1822,6 +1791,17 @@ private:
 	void check_template_definition(const AstNode& node, const Context& inner,
 	                               const std::vector<Parameter>& parameters,
 	                               TypeId type);
+	// 14.6.2.2p1: whether a name written in `scope` can reach a type an argument
+	// list has yet to say, which is what leaves 7.1.6.2p4's question to the
+	// instantiation; and the type the specifier stands for until then.
+	bool dependent_reading(const Scope& scope);
+	TypeId dependent_expression_type(const AstNode& node, const Context& ctx);
+	// 14.7.1p1: `scope` with every name it and the regions like it around it
+	// bind standing for what the substitution makes of it, for a reading that
+	// has to happen again where the arguments are known.
+	Scope& substituted_region(Scope& written,
+	                          const std::unordered_map<TypeId, TypeId>& bindings,
+	                          std::unordered_map<TypeId, TypeId>& memo);
 	// 14.6.1p1: the current instantiation of `primary`, the class its own
 	// definition is read as, beside the kept region binding each parameter to a
 	// type standing for itself - 14.5.1.3p1's out-of-class member definitions
@@ -2236,6 +2216,11 @@ private:
 	// 14.6.2p1: the declarations the readings above made for names written
 	// through a dependent prefix, keyed by that prefix and the spelling.
 	std::unordered_map<std::string, SemaEntity*> dependent_names_;
+	// 7.1.6.2p1: the same, for a decltype-specifier over an expression this
+	// reading does not type, keyed by the specifier and the region it stands in
+	// and read back by the substitution that has the arguments.
+	std::unordered_map<std::string, TypeId> dependent_expressions_;
+	std::unordered_map<TypeId, DependentDecltype> dependent_written_;
 	// 14.7.1p1: the member bodies a class template specialization has not been
 	// asked for, keyed by the declaration each defines.  Instantiating a class
 	// instantiates the *declarations* of its members and not their definitions,

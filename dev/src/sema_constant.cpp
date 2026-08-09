@@ -547,22 +547,22 @@ TypeId SemaAnalyzer::decltype_type(const AstNode& node, const Context& ctx)
 	}
 	if (expression->kind != AstKind::IdExpression)
 	{
-		if (!semantics())
+		if (!semantics() && checking_ == 0)
 		{
-			if (checking_ > 0)
-			{
-				// 14.6.2p1: a decltype-specifier over an expression a reading
-				// of the definition does not type names a type only an
-				// instantiation can name.  3.4p1 still looks up the names the
-				// expression writes, and what it stands for here is a type of
-				// its own that depends on the parameters, so nothing built from
-				// it is read as a type this unit has.
-				check_expression_names(*expression, ctx);
-				return types_.template_parameter_type(model_.type_entity_id(),
-				                                      false, "decltype");
-			}
 			throw std::runtime_error("decltype names an expression PA11 does "
 			                         "not type");
+		}
+		if (checking_ > 0 || dependent_reading(*ctx.scope))
+		{
+			// 14.6.2.2p1: a decltype-specifier over an expression that depends
+			// on a template parameter names a type only an instantiation can
+			// name - whether it stands in a definition being read for what it
+			// says or in the declarator of the template-declaration itself.
+			// 3.4p1 still looks up the names the expression writes, and what
+			// the specifier stands for until then is a type of its own, which
+			// 14.7.1p1 answers by reading the expression again.
+			check_expression_names(*expression, ctx);
+			return dependent_expression_type(node, ctx);
 		}
 		// 7.1.6.2p4: for an expression that is not an id-expression, the type
 		// is the expression's, with a reference added for an lvalue or an

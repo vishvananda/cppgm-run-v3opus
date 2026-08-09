@@ -91,7 +91,15 @@ enum class ScopeKind
 	Class,
 	Enum,
 	Function,
-	Block
+	Block,
+	// 3.3.7p1: the places a function declarator wrote, which stand from the
+	// declarator-id that named each of them to the end of that declarator - so
+	// a later parameter's own type-id and 8.3.5p2's trailing-return-type name
+	// them and nothing outside the declarator does.  It is a region of its own
+	// rather than the function's, because 8.3.5p10 leaves a parameter's name
+	// out of the function's type and a declaration that is not a definition
+	// opens no region at all.
+	Prototype
 };
 
 // Which declarations a lookup accepts.  3.4 gives contexts that see only part
@@ -1047,11 +1055,12 @@ bool names_a_type(const SemaEntity& entity);
 // True when `entity` names a namespace, which 7.3.1p3 and 7.3.2 ask for.
 bool names_a_space(const SemaEntity& entity);
 
-// 14.1p1: the region a declarator-id written in `scope` declares its name into.
+// 14.1p1 and 3.3.2p6: the region a declaration written in `scope` belongs to.
 // The region a template's parameters are declared in encloses only the
-// declaration they parameterise, so the name that declaration introduces
-// belongs to the region the template-declaration was written in, which is where
-// a use of the template looks for it.
+// declaration they parameterise, and 3.3.7p1's holds the places one declarator
+// wrote, so a name declared in either belongs to the region around it - which
+// is where a use of the template looks for it and where a class an
+// elaborated-type-specifier in a parameter-clause first declares stands.
 Scope& declaring_region(Scope& scope);
 
 // Writes `scope` and everything under it, indenting two spaces per level.

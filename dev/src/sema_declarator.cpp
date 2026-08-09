@@ -145,11 +145,18 @@ void SemaAnalyzer::read_type_specifier(const AstNode& node, Specifiers& out,
 			// 11.3p11 and 3.3.2p6: a class an elaborated-type-specifier in a
 			// friend declaration reaches nowhere is declared in the innermost
 			// enclosing namespace, not as a member of the class the friend
-			// declaration is written in.
+			// declaration is written in.  3.3.2p6 again: one written in a
+			// parameter-declaration-clause is declared in the smallest namespace
+			// or block scope around the declaration and not in 3.3.7p1's region
+			// the clause's own places stand in, so `void f(int, struct S *)`
+			// declares the `S` a later declaration redeclares.
 			Context where = ctx;
-			if (out.is_friend && where.scope != nullptr)
+			if (where.scope != nullptr &&
+			    (out.is_friend ||
+			     where.scope->kind == ScopeKind::Prototype))
 			{
-				where.scope = &friend_namespace(*where.scope);
+				where.scope = out.is_friend ? &friend_namespace(*where.scope)
+				                            : &declaring_region(*where.scope);
 				where.dump = where.scope->dump;
 			}
 			entity = &class_declaration(node, where, span,
@@ -163,6 +170,15 @@ void SemaAnalyzer::read_type_specifier(const AstNode& node, Specifiers& out,
 	}
 	if (node.kind == AstKind::EnumSpecifier)
 	{
+		if (ctx.scope != nullptr && ctx.scope->kind == ScopeKind::Prototype)
+		{
+			// 3.3.2p6 again, over 7.2p3's elaborated form.
+			Context where = ctx;
+			where.scope = &declaring_region(*where.scope);
+			where.dump = where.scope->dump;
+			read_type_specifier(node, out, where, span, named_by);
+			return;
+		}
 		// An enum-specifier with no enumerator-list inside a declaration is
 		// the elaborated form: 7.2p3 makes it name an enumeration that exists.
 		const bool elaborated = child_kind(node, AstKind::Enumerator) == nullptr;
@@ -417,6 +433,35 @@ TypeId SemaAnalyzer::declarator_type(const AstNode& node, TypeId base,
 		core->kind != AstKind::NestedDeclarator || core->children.empty() ||
 		takes_enclosing_suffix(*core->children[0]);
 
+	// 8.3.5p2 and 3.3.7p1: a trailing-return-type is part of the function
+	// declarator whose parameter-clause it follows, and the places that clause
+	// wrote stand to the end of that declarator - so the clause is read for the
+	// names it declares *before* the type is read, however the walk from the
+	// last suffix inwards would reach the two.  What comes out is kept beside
+	// it: the type is still built from the last suffix inwards, and the clause
+	// is read once.
+	std::vector<Parameter> read;
+	std::vector<Parameter>* ahead = nullptr;
+	bool ahead_variadic = false;
+	std::size_t ahead_at = node.children.size();
+	Context reading = ctx;
+	for (std::size_t suffix = node.children.size(); suffix-- > index;)
+	{
+		const AstKind kind = node.children[suffix]->kind;
+		if (kind == AstKind::TrailingReturnType)
+		{
+			ahead = spells_here && declared != nullptr ? declared : &read;
+			continue;
+		}
+		if (ahead != nullptr && kind == AstKind::ParameterClause)
+		{
+			ahead_at = suffix;
+			read_parameters(*node.children[suffix], ctx, *ahead, ahead_variadic,
+			                &reading);
+			break;
+		}
+	}
+
 	// 8.3.5p7 and 8.3.5p1: the cv-qualifier-seq and the ref-qualifier of a
 	// function declarator are written after its parameter-clause, so the walk
 	// from the last suffix inwards reaches them before the clause they qualify
@@ -446,7 +491,8 @@ TypeId SemaAnalyzer::declarator_type(const AstNode& node, TypeId base,
 			// the declarator-id rather than the one the decl-specifier-seq
 			// named, and 3.4.1p8 has already put `ctx` on the region that
 			// declarator-id reaches - which is what lets an out-of-class
-			// definition name a type its own class declares.
+			// definition name a type its own class declares.  3.3.7p1 puts the
+			// clause's own places over it.
 			if (type != kNoType)
 			{
 				throw std::runtime_error(
@@ -454,7 +500,15 @@ TypeId SemaAnalyzer::declarator_type(const AstNode& node, TypeId base,
 					"specifiers already name a type, which 8.3.5p2 requires to "
 					"be `auto`");
 			}
-			type = type_id_type(*part.children[0], ctx);
+			// 5.1.1p3: `this` stands from the cv-qualifier-seq of a member
+			// function's declarator to the end of that declarator, so the type
+			// is read the way its body will be read - and the reading around
+			// this one is put aside, because a declarator may be read while
+			// another is.
+			const FunctionReading object(*this, declarator_object(node, index,
+			                                                      ctx),
+			                             kNoType);
+			type = type_id_type(*part.children[0], reading);
 			continue;
 		}
 		if (type == kNoType)
@@ -462,7 +516,9 @@ TypeId SemaAnalyzer::declarator_type(const AstNode& node, TypeId base,
 			throw std::runtime_error("a declarator written `auto` derives a "
 			                         "type 8.3.5p2 leaves unwritten");
 		}
-		type = apply_suffix(part, type, ctx, spells_here ? declared : nullptr);
+		type = suffix == ahead_at
+			? types_.function_of(type, parameter_types(*ahead), ahead_variadic)
+			: apply_suffix(part, type, ctx, spells_here ? declared : nullptr);
 		if (part.kind == AstKind::ParameterClause)
 		{
 			// 8.3.5p1 and 8.3.5p7: both qualifiers are part of the function
@@ -573,29 +629,104 @@ TypeId SemaAnalyzer::apply_suffix(const AstNode& node, TypeId type,
 		std::vector<Parameter> read;
 		std::vector<Parameter>& parameters = declared != nullptr ? *declared : read;
 		bool variadic = false;
-		read_parameters(node, ctx, parameters, variadic);
-		std::vector<TypeId> types;
-		types.reserve(parameters.size());
-		for (std::size_t index = 0; index < parameters.size(); ++index)
-		{
-			// 8.3.5p5: an array or function parameter contributes a pointer,
-			// and top level cv-qualification is dropped, so two declarations
-			// that differ only in those declare one function.  PA11 describes
-			// the declarator as written, so only PA12 asks for it.
-			types.push_back(semantics()
-				? types_.adjust_parameter(parameters[index].type)
-				: parameters[index].type);
-		}
-		return types_.function_of(type, types, variadic);
+		read_parameters(node, ctx, parameters, variadic, nullptr);
+		return types_.function_of(type, parameter_types(parameters), variadic);
 	}
 	// A cv-qualifier, ref-qualifier, exception-specification or virt-specifier
 	// on a declarator changes no type PA11 describes.
 	return type;
 }
 
-void SemaAnalyzer::read_parameters(const AstNode& clause, const Context& ctx,
-                                   std::vector<Parameter>& out, bool& variadic)
+// 5.1.1p3: the object a declarator's own trailing-return-type names.
+//
+// The declaration has not been made yet and 9.3.1p3's object parameter is built
+// out of the type this walk is still building, so what stands for the object
+// here is made from the two facts the declarator already has: the class its
+// declarator-id reaches, and the cv-qualifier-seq written after its
+// parameter-clause, which the walk from the last suffix inwards has not reached
+// either.  Null where the declarator-id reaches no class, which is every
+// declaration but a member's.
+SemaEntity* SemaAnalyzer::declarator_object(const AstNode& node,
+                                            std::size_t suffixes,
+                                            const Context& ctx)
 {
+	if (ctx.scope == nullptr || ctx.scope->kind != ScopeKind::Class ||
+	    ctx.scope->owner == nullptr)
+	{
+		return nullptr;
+	}
+	unsigned cv = kCvNone;
+	for (std::size_t index = suffixes; index < node.children.size(); ++index)
+	{
+		const AstNode& part = *node.children[index];
+		if (part.kind == AstKind::CvQualifier)
+		{
+			cv |= part.token == KW_CONST ? kCvConst : kCvVolatile;
+		}
+	}
+	return &model_.create(
+		SemaKind::Parameter, "this",
+		types_.pointer_to(types_.qualified(ctx.scope->owner->type, cv)));
+}
+
+// 8.3.5p5: an array or function parameter contributes a pointer, and top level
+// cv-qualification is dropped, so two declarations that differ only in those
+// declare one function.  PA11 describes the declarator as written, so only PA12
+// asks for it.
+std::vector<TypeId> SemaAnalyzer::parameter_types(
+	const std::vector<Parameter>& parameters)
+{
+	std::vector<TypeId> types;
+	types.reserve(parameters.size());
+	for (std::size_t index = 0; index < parameters.size(); ++index)
+	{
+		types.push_back(semantics()
+			? types_.adjust_parameter(parameters[index].type)
+			: parameters[index].type);
+	}
+	return types;
+}
+
+// 3.3.7p1: the region a place stands in from the declarator-id that named it to
+// the end of the function declarator, opened where a name could reach it and
+// nowhere else.  The last place of a clause nothing follows has nothing left to
+// name it, so an ordinary one-parameter declaration costs one comparison; a
+// clause that binds is one region and one declaration per named place, dropped
+// with the declarator because 8.3.5p10 leaves the name out of the function's
+// type and 8.4.1p1's definition declares its own objects again.
+void SemaAnalyzer::bind_place(Context& reading, const Context& ctx,
+                              const Parameter& parameter)
+{
+	if (reading.scope == ctx.scope)
+	{
+		reading.scope = &model_.open(ScopeKind::Prototype, *ctx.scope, nullptr,
+		                             ctx.dump);
+	}
+	// 8.3.5p5 again: the object a name in the declarator reaches is the pointer
+	// the clause made of an array or a function, which is what `decltype` over
+	// it names.
+	SemaEntity& place = model_.create(
+		SemaKind::Parameter, parameter.name,
+		semantics() ? types_.parameter_object(parameter.type) : parameter.type);
+	model_.bind(*reading.scope, parameter.name, place);
+	model_.declare_in(*reading.scope, place);
+}
+
+void SemaAnalyzer::read_parameters(const AstNode& clause, const Context& ctx,
+                                   std::vector<Parameter>& out, bool& variadic,
+                                   Context* reading)
+{
+	// 3.3.7p1: the places are declared as they are read, so what the rest of
+	// the declarator writes names them.  `inner` is the region the next of them
+	// is read against, which is `ctx`'s until one of them binds a name.
+	Context inner = ctx;
+	std::size_t places = 0;
+	for (std::size_t index = 0; index < clause.children.size(); ++index)
+	{
+		places += clause.children[index]->kind == AstKind::ParameterDeclaration
+			? 1u : 0u;
+	}
+	std::size_t at = 0;
 	for (std::size_t index = 0; index < clause.children.size(); ++index)
 	{
 		const AstNode& child = *clause.children[index];
@@ -608,6 +739,7 @@ void SemaAnalyzer::read_parameters(const AstNode& clause, const Context& ctx,
 		{
 			continue;
 		}
+		++at;
 		const AstNode* seq = child_kind(child, AstKind::DeclSpecifierSeq);
 		if (seq == nullptr)
 		{
@@ -621,7 +753,7 @@ void SemaAnalyzer::read_parameters(const AstNode& clause, const Context& ctx,
 		span.begin = child.begin;
 		span.end = child.end;
 		Specifiers specifiers =
-			read_specifiers(*seq, ctx, span, true, std::string());
+			read_specifiers(*seq, inner, span, true, std::string());
 		Parameter parameter;
 		parameter.type = specifier_type(specifiers);
 		const AstNode* declarator = declarator_of(child);
@@ -634,11 +766,19 @@ void SemaAnalyzer::read_parameters(const AstNode& clause, const Context& ctx,
 			{
 				variadic = true;
 			}
-			parameter.type = declarator_type(*declarator, parameter.type, ctx,
+			parameter.type = declarator_type(*declarator, parameter.type, inner,
 			                                 &parameter.name);
 		}
 		parameter.initializer = child_kind(child, AstKind::DefaultArgument);
+		if (!parameter.name.empty() && (at < places || reading != nullptr))
+		{
+			bind_place(inner, ctx, parameter);
+		}
 		out.push_back(parameter);
+	}
+	if (reading != nullptr)
+	{
+		*reading = inner;
 	}
 	// 8.3.5p4: a parameter list of one unnamed `void` parameter is an empty
 	// parameter list, and the function takes no arguments.

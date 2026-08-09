@@ -191,7 +191,7 @@ TypeId SemaAnalyzer::special_member_type(const AstNode& node,
 		                      : child_of(*declarator, AstKind::ParameterClause);
 	if (clause != nullptr)
 	{
-		read_parameters(*clause, ctx, parameters, variadic);
+		read_parameters(*clause, ctx, parameters, variadic, nullptr);
 	}
 	if (declarator != nullptr)
 	{
@@ -327,7 +327,7 @@ SemaEntity& SemaAnalyzer::declare_conversion(const AstNode& node,
 	bool variadic = false;
 	if (clause != nullptr)
 	{
-		read_parameters(*clause, target, parameters, variadic);
+		read_parameters(*clause, target, parameters, variadic, nullptr);
 	}
 	if (!parameters.empty() || variadic)
 	{

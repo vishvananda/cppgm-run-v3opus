@@ -353,7 +353,12 @@ Scope& declaring_region(Scope& scope)
 	Scope* where = &scope;
 	// A template-declaration may parameterise another one, so the regions its
 	// parameters are declared in nest and the walk out of them is a loop.
-	while (where->kind == ScopeKind::TemplateParameters &&
+	// 3.3.2p6 asks the same of 3.3.7p1's region: it holds the places one
+	// declarator wrote and is gone with that declarator, so a class an
+	// elaborated-type-specifier in a parameter-declaration-clause first
+	// declares belongs to the region around it.
+	while ((where->kind == ScopeKind::TemplateParameters ||
+	        where->kind == ScopeKind::Prototype) &&
 	       where->parent != nullptr)
 	{
 		where = where->parent;

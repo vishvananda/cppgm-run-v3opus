@@ -281,6 +281,67 @@ struct InitializerClauses
 	const AstNode& next() const;
 };
 
+// 8.5 initializes an object a declaration named; 12.6.2 initializes a
+// non-static data member of the object the constructor is running on, and
+// 12.6.2p5 that object's base class subobject.  The three differ only in how
+// the action names the object, so one path writes all three.
+// 5.2.2p4's parameter is a fourth: an object the *caller* built, which the
+// function ends because the boundary says so - so it names the object the
+// way a declaration does and 12.4p8's reading of an empty body, which is an
+// answer about an object this translation created, does not reach it.
+enum class ObjectPlacement
+{
+	Named,
+	Member,
+	Base,
+	Parameter,
+	// 12.6.2p6: the object the constructor being written is already running
+	// on, which its ctor-initializer delegates the whole of to another
+	// constructor of the same class.  It is no subobject of anything, so
+	// what the call is passed is `this` as it stands.
+	Delegate
+};
+
+// 12.2p1: what asked a conversion for the temporary it made, which is what
+// names the storage the function gives that temporary.  An argument of class
+// type is a copy the call owns (5.2.2p4) and a returned prvalue is the object
+// the caller reads (6.6.3p2), so each names its own storage; every other place
+// reads the object the expression already wrote, which keeps the name it was
+// given where it was written.
+enum class TemporaryRequest
+{
+	Written,
+	Argument,
+	Returned
+};
+
+// 7.1.6.2p1 and 14.6.2.2p1: a decltype-specifier whose expression names a type
+// an argument list has yet to say, kept as the two facts 14.7.1p1's
+// instantiation reads it from again - the specifier as it was written, and the
+// region it was written in, whose names stand for what the arguments make of
+// them.  Nothing is substituted into the expression: it is read a second time.
+struct DependentDecltype
+{
+	DependentDecltype()
+		: written(nullptr)
+		, region(nullptr)
+	{}
+
+	const AstNode* written;
+	Scope* region;
+};
+
+// 3.7.2p2: one namespace-scope object with thread storage duration, and the
+// line it was declared on.  It is destroyed when its own thread ends rather
+// than when the program does, so the action stands under the declaration -
+// where the initialization that hands it to the runtime is - and is written
+// once that declaration has written everything else it holds.
+struct ThreadLifetime
+{
+	SemaEntity* entity;
+	DumpNode* line;
+};
+
 // A value of the 5.19 subset: what it is worth, and the type that says how
 // wide it is and whether it is signed.
 struct SemaConstant

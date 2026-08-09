@@ -191,6 +191,15 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 	const AstNode& declarator = *node.children[1];
 	const AstNode* id = declarator_id(declarator);
 	const std::string written = id == nullptr ? std::string() : id->text;
+	// 14.7.1p1: the specialization this reading is of, taken before anything
+	// else is read.  Reading a specifier or a declarator can name another
+	// specialization - a dependent qualified name in the return type
+	// instantiates the class it is a member of, and every member function that
+	// class defines in its body is read there and then - so the fact belongs to
+	// this reading rather than to the analyzer for as long as it lasts, and a
+	// definition read in the middle of this one is the ordinary one it is.
+	SemaEntity* const specializing = instantiating_;
+	instantiating_ = nullptr;
 	// 11p6: a member function defined outside its class names, in its leading
 	// return type as much as in its body, what that class gave itself.
 	const Naming naming(*this, naming_context(written, ctx));
@@ -236,10 +245,6 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 	type = with_object_parameter(type, declarator, target, specifiers.is_static,
 	                             name, spelled.qualified());
 
-	// 14.7.1p1: the specialization this reading is of, taken here so that a
-	// declaration the body itself writes is an ordinary one.
-	SemaEntity* const specializing = instantiating_;
-	instantiating_ = nullptr;
 	bool redeclares = false;
 	SemaEntity& entity =
 		declare_function(name, type, target, true,

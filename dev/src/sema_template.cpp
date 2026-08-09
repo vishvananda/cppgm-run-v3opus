@@ -212,7 +212,19 @@ bool split_type_id(const std::string& spelling, std::vector<std::string>& out)
 						return false;
 					}
 					at = closed;
-					continue;
+					// What stands after the run belongs to the name only where a
+					// `::` joins it: 7.1.6.2p1 writes one after a
+					// decltype-specifier and 14.2 after a template-id.  Anything
+					// else is a word of its own, because a template-id may carry
+					// 7.1.6.1p1's cv-qualifier written after it and PA10 spells
+					// the two with no space between - so `A<T>const` is a
+					// const-qualified `A<T>` and not a name.
+					if (spelling.compare(at, 2, "::") == 0)
+					{
+						at += 2;
+						continue;
+					}
+					break;
 				}
 				if (spelling.compare(at, 2, "::") == 0)
 				{
@@ -2155,6 +2167,106 @@ void SemaAnalyzer::instantiate_member(SemaEntity& specialization,
 	declaration(*member.declaration, inner);
 }
 
+// 14.6.2.2p1: whether an expression written in this region is type-dependent.
+//
+// It is exactly when a name it writes can reach a type an argument list has yet
+// to say, and the regions that carry such a type are the template-parameter
+// ones standing over the reading: a region binding each parameter to a type
+// standing for itself is a *pattern* being read, and one binding the arguments
+// of a specialization is not - so the same walk tells a definition apart from
+// every reading of it that has the arguments, and a specialization over a
+// dependent argument list from one over a written-out type.
+bool SemaAnalyzer::dependent_reading(const Scope& scope)
+{
+	for (const Scope* at = &scope; at != nullptr; at = at->parent)
+	{
+		if (at->kind != ScopeKind::TemplateParameters)
+		{
+			continue;
+		}
+		for (std::size_t index = 0; index < at->declarations.size(); ++index)
+		{
+			if (types_.is_dependent(at->declarations[index]->type))
+			{
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
+// 7.1.6.2p4 and 14.6p8: the type such a decltype-specifier names while the
+// definition writing it is read.
+//
+// 3.4p1 still looks up the names the expression writes; what the expression is
+// *worth* only an argument list says, so the specifier stands for a type of its
+// own - dependent, so nothing built from it is read as a type this unit has -
+// and the specifier and the region are kept beside it, because 14.7.1p1's
+// instantiation answers the question by reading the same expression again.
+// One type per specifier and region: a second reading of one declarator against
+// one region asks about one type.
+TypeId SemaAnalyzer::dependent_expression_type(const AstNode& node,
+                                               const Context& ctx)
+{
+	const std::string key = std::to_string(reinterpret_cast<std::uintptr_t>(&node))
+		+ "|" + std::to_string(ctx.scope->id);
+	const std::unordered_map<std::string, TypeId>::const_iterator held =
+		dependent_expressions_.find(key);
+	if (held != dependent_expressions_.end())
+	{
+		return held->second;
+	}
+	const TypeId type = types_.template_parameter_type(model_.type_entity_id(),
+	                                                   false, node.text);
+	DependentDecltype written;
+	written.written = &node;
+	written.region = ctx.scope;
+	dependent_written_.insert(std::make_pair(type, written));
+	dependent_expressions_.insert(std::make_pair(key, type));
+	return type;
+}
+
+// 14.7.1p1: the region such a second reading is made against.
+//
+// Nothing was substituted into the expression, so what the substitution has to
+// rebuild is what the names it writes reach: 14.1p1's parameters and 3.3.7p1's
+// places are the two kinds of region a template-declaration puts between the
+// expression and the region it was written in, and each name either binds
+// stands for what the substitution makes of the type it had.  Every region
+// outside those two is the one the definition was written in and is reached
+// unchanged, so the walk stops at the first of them.
+Scope& SemaAnalyzer::substituted_region(
+	Scope& written, const std::unordered_map<TypeId, TypeId>& bindings,
+	std::unordered_map<TypeId, TypeId>& memo)
+{
+	if ((written.kind != ScopeKind::Prototype &&
+	     written.kind != ScopeKind::TemplateParameters) ||
+	    written.parent == nullptr)
+	{
+		return written;
+	}
+	Scope& enclosing = substituted_region(*written.parent, bindings, memo);
+	Scope& region = model_.open(written.kind, enclosing, nullptr, written.dump);
+	const SemaKind kind = written.kind == ScopeKind::Prototype
+		? SemaKind::Parameter
+		: SemaKind::Typedef;
+	for (std::size_t index = 0; index < written.declarations.size(); ++index)
+	{
+		const SemaEntity& declared = *written.declarations[index];
+		if (declared.name.empty())
+		{
+			// 14.1p3 and 8.3.5p10: a place or a parameter with no identifier
+			// binds nothing, and still stands for an argument.
+			continue;
+		}
+		SemaEntity& made = model_.create(
+			kind, declared.name, substituted(declared.type, bindings, memo));
+		model_.bind(region, made.name, made);
+		model_.declare_in(region, made);
+	}
+	return region;
+}
+
 TypeId SemaAnalyzer::substituted(
 	TypeId type, const std::unordered_map<TypeId, TypeId>& bindings,
 	std::unordered_map<TypeId, TypeId>& memo)
@@ -2245,9 +2357,29 @@ TypeId SemaAnalyzer::substituted(
 	}
 
 	default:
+	{
+		// 7.1.6.2p4 and 14.7.1p1: a decltype-specifier the definition left
+		// standing is answered by reading its expression again, against the
+		// regions the arguments make of the ones it was written in.  What comes
+		// out may depend on a parameter still - a specialization over a
+		// dependent argument list is one of these readings - so it is
+		// substituted in its turn.
+		const std::unordered_map<TypeId, DependentDecltype>::const_iterator
+			expression = dependent_written_.find(bare);
+		if (expression != dependent_written_.end())
+		{
+			Context inner;
+			inner.scope = &substituted_region(*expression->second.region,
+			                                  bindings, memo);
+			inner.dump = inner.scope->dump;
+			out = types_.qualified(
+				decltype_type(*expression->second.written, inner), cv);
+			break;
+		}
 		// A template parameter itself, which is what the bindings name.
 		out = types_.substitute(type, bindings, memo);
 		break;
+	}
 	}
 	memo.insert(std::make_pair(type, out));
 	return out;
