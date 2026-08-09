@@ -1832,16 +1832,17 @@ void SemaAnalyzer::check_expression_names(const AstNode& node,
 		return;
 	}
 
-	case AstKind::SizeofExpression:
-	case AstKind::TypeTraitExpression:
-	case AstKind::NewExpression:
-	case AstKind::CastExpression:
-	case AstKind::LambdaExpression:
 	case AstKind::TypeId:
 	case AstKind::TypeSpecifierSeq:
 	case AstKind::DecltypeSpecifier:
-		// Each of these writes a type-id whose own names the declarator layer
-		// reads, and 5.3.3p1 leaves the operand of `sizeof` unevaluated.
+	case AstKind::LambdaExpression:
+		// A type-id's own names are the declarator layer's to read, and
+		// 7.1.6.2p1's decltype-specifier holds an expression that says what
+		// type it is rather than what value.  A cast, a `sizeof`, an `alignof`
+		// and a `new` each write one of those beside an expression, so the walk
+		// below reaches the expression and stops at the type-id - 5.3.3p1
+		// leaves the operand of `sizeof` unevaluated and 3.4p1 still looks its
+		// names up.
 		return;
 
 	default:
