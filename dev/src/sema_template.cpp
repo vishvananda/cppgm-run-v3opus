@@ -69,6 +69,30 @@ private:
 	Scope* const head_;
 };
 
+// A depth held while one reading stands, and put back where it ends - so a
+// reading that stands inside another says so and an error thrown out of one
+// leaves the walk where it found it.
+class Counted
+{
+public:
+	explicit Counted(unsigned& depth)
+		: depth_(depth)
+	{
+		++depth_;
+	}
+
+	~Counted()
+	{
+		--depth_;
+	}
+
+private:
+	Counted(const Counted&);
+	Counted& operator=(const Counted&);
+
+	unsigned& depth_;
+};
+
 bool is_name_char(char c)
 {
 	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
@@ -1499,9 +1523,31 @@ void SemaAnalyzer::complete_specialization(SemaEntity& made)
 	// class is complete, so the bodies this reading holds are read once the
 	// class-specifier has closed rather than where each stands.
 	const std::size_t mark = held_bodies_.size();
-	class_declaration(*info.pattern, inner, span, true, std::string(), &made,
-	                  &spelled);
-	read_held_pattern_bodies(mark);
+	{
+		// 14.7.1p1: the declarations this reading makes are the instantiation's
+		// and so is every definition it writes, so each of the latter waits for
+		// the use that names it.  A reading standing inside another - a body
+		// naming a second specialization - is the same, which is why the fact
+		// is a depth rather than a flag.
+		const Counted instantiating(instantiating_class_);
+		class_declaration(*info.pattern, inner, span, true, std::string(), &made,
+		                  &spelled);
+		read_held_pattern_bodies(mark);
+	}
+	// 10.3p10 and 14.7.1p1: a virtual member function is named by the table of
+	// every class that has one, and 3.2p3 has no expression to point at for
+	// that use - so the class being complete is what asks for it, which is the
+	// note the clause hangs on an implementation instantiating one eagerly.
+	for (std::size_t index = 0;
+	     made.scope != nullptr && index < made.scope->declarations.size();
+	     ++index)
+	{
+		SemaEntity& member = *made.scope->declarations[index];
+		if (member.kind == SemaKind::Function && member.virtual_function)
+		{
+			require_definition(member);
+		}
+	}
 	// 14.5.1.3p1: what the template's members were defined as outside its
 	// class is read now that the class is complete, and a definition written
 	// after this specialization was made is read for it where it stands.  The
@@ -2320,6 +2366,73 @@ SemaEntity& SemaAnalyzer::current_instantiation(SemaEntity& primary)
 	// writes for its own class finds it rather than starting a second reading.
 	info.current = &instantiate_class(primary, arguments);
 	return *info.current;
+}
+
+// 14.7.1p1: the implicit instantiation of a class template specialization
+// causes the implicit instantiation of the *declarations* of its members, and
+// not of their definitions.
+//
+// So a body a specialization's reading of the pattern arrives at is put aside
+// rather than written: `deferred_conversion<incomplete>` is a class whose
+// layout an object needs and whose conversion function nothing calls, and only
+// the body of that function names `sizeof(T)`.  The use that names the member
+// is what asks for it, and asking twice writes one definition, so the entry is
+// taken off the list where it is granted.  A body written for a class the
+// program itself wrote out is the unit's whatever it names, which is what
+// 9.2p2 already says: it is written at the end of the unit.
+void SemaAnalyzer::queue_definition(const Pending& pending)
+{
+	if (instantiating_class_ == 0 || pending.function == nullptr)
+	{
+		pending_.push_back(pending);
+		return;
+	}
+	held_definitions_.insert(
+		std::make_pair(pending.function->id, pending));
+}
+
+// 14.7.1p1 and 3.2p3: a use naming `function` asks this unit for its body.
+//
+// The list the end of the unit walks is what a granted definition joins, and
+// the walk is by index over a deque - so a use written inside a body being
+// written there puts the definition it names after it and the same walk
+// reaches it.  A member no use ever names stays where it was put, and the
+// output has neither a definition nor a declaration of it.
+void SemaAnalyzer::require_definition(SemaEntity& function)
+{
+	if (held_definitions_.empty())
+	{
+		return;
+	}
+	const std::unordered_map<std::uint32_t, Pending>::iterator held =
+		held_definitions_.find(function.id);
+	if (held == held_definitions_.end())
+	{
+		return;
+	}
+	const Pending granted = held->second;
+	held_definitions_.erase(held);
+	pending_.push_back(granted);
+}
+
+// 14.6.2p3: the base-specifier named a type a template parameter is what
+// settles, so no unqualified name written in the class it belongs to is looked
+// up in it.
+//
+// The clause is the program's own syntax and a reading of it does not change
+// what it says, so the answer is a fact of that clause: the definition's own
+// reading is where it is found, and every specialization the arguments make -
+// and every class an instantiated body declares - is read against it again
+// rather than asked the question a second time, which an argument list has
+// already answered the other way.
+void SemaAnalyzer::note_dependent_base(const AstNode& specifier)
+{
+	dependent_bases_.insert(&specifier);
+}
+
+bool SemaAnalyzer::wrote_dependent_base(const AstNode& specifier) const
+{
+	return dependent_bases_.find(&specifier) != dependent_bases_.end();
 }
 
 // 14.6p8: the reading a class template's definition gets where it stands.

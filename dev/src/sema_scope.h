@@ -738,6 +738,15 @@ public:
 	// Every other region leaves it null, so a program with no inheritance pays
 	// nothing for the question.
 	Scope* base;
+	// 14.6.2p3: whether the base-specifier that chain came from named a type
+	// that depends on a template parameter.  3.4.1's lookup of a name written
+	// inside this class is answered where the class was *defined*, and which
+	// class such a base is only an argument list says - so the chain is left
+	// off an unqualified lookup written in a member of this class, while
+	// 3.4.3's qualified lookup and 3.4.5's class member access, which name the
+	// object rather than read the definition, still walk it.  False for every
+	// class no template head stands over.
+	bool dependent_base;
 	// 7.3.3p1: the names a using-declaration written in this class brought a
 	// member function of a base in under.  7.3.3p14's hiding is a question only
 	// those names can answer yes to, and it is asked of the complete class -
@@ -1029,6 +1038,9 @@ bool declares_subobject(const SemaEntity& member, const Scope& scope);
 // Whether `outer` is `inner` or a region `inner` is written in, which is what
 // 7.3.4p2's "nearest enclosing namespace" is measured with.
 bool encloses(const Scope& outer, const Scope& inner);
+// 10.2p2 and 14.6.2p3: the region 3.4.1's search looks in after `scope`, which
+// is its base class's except where the base-specifier named a dependent type.
+Scope* unqualified_base(const Scope& scope);
 // True when `entity` names a type: a class, an enumeration, a typedef-name or
 // a template type parameter (3.4.4p2, 7.1.3p1, 14.1p3).
 bool names_a_type(const SemaEntity& entity);

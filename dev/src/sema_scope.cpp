@@ -14,20 +14,36 @@ Scope::Scope(ScopeKind scope_kind, Scope* enclosing, SemaEntity* scope_owner,
 	, owner(scope_owner)
 	, dump(scope_dump)
 	, id(scope_id)
-	, unnamed_region(enclosing != nullptr && enclosing->unnamed_region)
 	, template_head(enclosing == nullptr
 		? nullptr
 		: (enclosing->kind == ScopeKind::TemplateParameters
 			? enclosing
 			: enclosing->template_head))
+	, unnamed_region(enclosing != nullptr && enclosing->unnamed_region)
 	, local_function(nullptr)
 	, local_occurrence(0)
 	, local_unnamed(false)
 	, visit(0)
 	, base(nullptr)
+	, dependent_base(false)
 	, inheriting_constructors(false)
 	, searchers_at(0)
 {}
+
+// 10.2p2 and 14.6.2p3: the region 3.4.1's search of `scope` looks in after
+// `scope` itself.
+//
+// It is the base class's, except where the base-specifier named a type that
+// depends on a template parameter: which class that is only an argument list
+// says, so a name written in the class's own definition is looked up without
+// it and the specialization an argument list makes answers the same way the
+// definition did.  The link is dropped only where the search *reaches* the
+// class from inside it - the base subobject a class further down holds is
+// found through that class's own link, which no template head stands over.
+Scope* unqualified_base(const Scope& scope)
+{
+	return scope.dependent_base ? nullptr : scope.base;
+}
 
 bool encloses(const Scope& outer, const Scope& inner)
 {
@@ -689,7 +705,7 @@ SemaEntity* SemaModel::lookup_unique(Scope& from, const Scope* stop,
 		// searched after the class itself and before the region around it.  A
 		// region with no base-clause leaves the chain empty, so this costs one
 		// probe per enclosing region in a program with no inheritance.
-		for (Scope* at = scope->base; at != nullptr; at = at->base)
+		for (Scope* at = unqualified_base(*scope); at != nullptr; at = at->base)
 		{
 			if (at == &declarer)
 			{
@@ -846,7 +862,7 @@ SemaEntity* SemaModel::lookup(Scope& from, const std::string& name,
 		// declares rather than being hidden by it.  7.3.4p1 writes no
 		// using-directive in a class, so a level a class stands at holds
 		// nothing else.
-		for (Scope* at = scope->base; at != nullptr && found == nullptr;
+		for (Scope* at = unqualified_base(*scope); at != nullptr && found == nullptr;
 		     at = at->base)
 		{
 			found = merge_found(found, find(*at, name, filter), found_set);

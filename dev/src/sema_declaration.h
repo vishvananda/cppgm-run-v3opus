@@ -263,6 +263,24 @@ struct WrittenInitializer
 	bool value_init;
 };
 
+// 8.5.1p2: the initializer-clauses of one braced-init-list, and how many of
+// them the subobjects read so far have taken.  8.5.1p11 lets one list
+// initialize subobjects at several depths, so the cursor is what the walk of
+// the aggregate carries rather than a list per level.
+struct InitializerClauses
+{
+	InitializerClauses(const AstNode& written)
+		: list(&written)
+		, at(0)
+	{}
+
+	const AstNode* list;
+	std::size_t at;
+
+	bool spent() const;
+	const AstNode& next() const;
+};
+
 // A value of the 5.19 subset: what it is worth, and the type that says how
 // wide it is and whether it is signed.
 struct SemaConstant

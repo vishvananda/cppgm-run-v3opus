@@ -135,9 +135,14 @@ void SemaAnalyzer::read_base_clause(const AstNode& node, SemaEntity& entity,
 		// up in a base class that depends on a template parameter, because
 		// which class that is only an argument list says.  So the reading
 		// leaves the base off the chain, and the specialization the arguments
-		// make is read against the base they name.
+		// make is read against the base they name - with the same clause left
+		// off *its* chain, because 3.4.1 answers a name the definition wrote
+		// where the definition stands however many argument lists read it.
+		note_dependent_base(specifier);
+		scope.dependent_base = true;
 		return;
 	}
+	scope.dependent_base = wrote_dependent_base(specifier);
 	if (!names_a_type(found) || !types_.is_class(types_.strip_cv(found.type)))
 	{
 		throw std::runtime_error(named + " is named as a base class and is not "
@@ -712,7 +717,7 @@ void SemaAnalyzer::open_special_member_body(
 	pending.parameters = parameters;
 	pending.initializers = child_of(node, AstKind::CtorInitializer);
 	pending.members = ctx.scope;
-	pending_.push_back(pending);
+	queue_definition(pending);
 }
 
 // 9.3p2 and 12.1p1: a constructor or a destructor defined outside its class.

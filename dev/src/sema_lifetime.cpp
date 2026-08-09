@@ -1016,6 +1016,9 @@ void SemaAnalyzer::construct_subobject(TypeId type, const AstNode* written,
 // a definition elsewhere.
 void SemaAnalyzer::demand_constructor_definition(SemaEntity& constructor)
 {
+	// 14.7.1p1: building an object is a use of the constructor 13.3.1.3 chose,
+	// and a specialization's own is a body the instantiation put aside.
+	require_definition(constructor);
 	if (constructor.defined || constructor.deleted || !constructor.defaulted)
 	{
 		return;

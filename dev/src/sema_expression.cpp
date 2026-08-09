@@ -576,6 +576,10 @@ void SemaAnalyzer::name_function(Value& value, SemaEntity& selected,
 	// 12.8p28 and 3.2p3: naming an assignment operator the standard gave a
 	// class is what asks this unit for the definition of it.
 	demand_transfer_definition(function);
+	// 14.7.1p1: naming a member of a class template specialization - as a
+	// callee, as the operand of an `&`, as the declaration a target type chose
+	// - is what asks the instantiation for the body it put aside.
+	require_definition(function);
 	// An id-expression writes the name as the program spelled it; a callee
 	// writes the one its declaration has.  The two part company wherever a
 	// lookup crossed a region - a using-directive, a template-id - and a

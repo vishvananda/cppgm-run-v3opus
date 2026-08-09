@@ -159,6 +159,7 @@ private:
 	typedef PendingDefinition Pending;
 	typedef HeldTemplateBody HeldPatternBody;
 	typedef BitFieldUnit BitUnit;
+	typedef InitializerClauses Clauses;
 	typedef WrittenMemInitializer MemInitializer;
 	typedef SemaConstant Constant;
 	typedef AssociatedRegions Associated;
@@ -876,23 +877,6 @@ private:
 	std::vector<ThreadLifetime> thread_lifetimes_;
 	// 8.5.1p1: whether the class `scope` declares is an aggregate.
 	static bool aggregate_class(Scope& scope);
-	// 8.5.1p2: the initializer-clauses of one braced-init-list, and how many of
-	// them the subobjects read so far have taken.  8.5.1p11 lets one list
-	// initialize subobjects at several depths, so the cursor is what the walk of
-	// the aggregate carries rather than a list per level.
-	struct Clauses
-	{
-		Clauses(const AstNode& written)
-			: list(&written)
-			, at(0)
-		{}
-
-		const AstNode* list;
-		std::size_t at;
-
-		bool spent() const;
-		const AstNode& next() const;
-	};
 
 	// 8.5.1: `type` initialized from what is left of `clauses`, writing one
 	// `subobject-initialization` per member or element under `parent`.  A
@@ -1843,6 +1827,14 @@ private:
 	// type standing for itself - 14.5.1.3p1's out-of-class member definitions
 	// are read against that same one however long after the class body.
 	SemaEntity& current_instantiation(SemaEntity& primary);
+	// 14.6.2p3: records that `specifier` names a dependent base, and asks it.
+	void note_dependent_base(const AstNode& specifier);
+	bool wrote_dependent_base(const AstNode& specifier) const;
+	// 9.2p2 and 14.7.1p1: the end of the unit writes this definition, unless an
+	// instantiation is what made it - and then the use that names the member
+	// is what asks for it, which `require_definition` is.
+	void queue_definition(const Pending& pending);
+	void require_definition(SemaEntity& function);
 	// 14.6p8: the reading a class template's definition, and an out-of-class
 	// member definition of it, each get where they stand.
 	void read_class_pattern(SemaEntity& primary);
@@ -2242,6 +2234,22 @@ private:
 	// 14.6.2p1: the declarations the readings above made for names written
 	// through a dependent prefix, keyed by that prefix and the spelling.
 	std::unordered_map<std::string, SemaEntity*> dependent_names_;
+	// 14.7.1p1: the member bodies a class template specialization has not been
+	// asked for, keyed by the declaration each defines.  Instantiating a class
+	// instantiates the *declarations* of its members and not their definitions,
+	// so a body waits here for the use that names the member - which is what
+	// lets a specialization be laid out over an argument the bodies of the
+	// members nothing calls could not have been read against.
+	std::unordered_map<std::uint32_t, Pending> held_definitions_;
+	// 14.7.1p1: how many readings of a pattern for a specialization stand
+	// around this walk, which is what says whose definitions are its own.
+	unsigned instantiating_class_;
+	// 14.6.2p3: the base-specifiers a reading found to name a dependent type.
+	// It is the syntax that is dependent and not the class the arguments make
+	// of it, so the fact belongs to the clause the program wrote once - which
+	// is what lets every specialization of the template, and every class an
+	// instantiated body declares, answer 3.4.1 the way the definition did.
+	std::unordered_set<const AstNode*> dependent_bases_;
 	// 14.1: the parameters each template's declarator wrote, which an
 	// instantiation writes again with their types substituted.  It is keyed by
 	// the entity the template-declaration declared because it is a fact about

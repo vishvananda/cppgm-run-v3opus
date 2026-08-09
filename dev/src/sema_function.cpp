@@ -369,7 +369,7 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 		pending.body = &node;
 		pending.scope = inner.scope;
 		pending.parameters = parameters;
-		pending_.push_back(pending);
+		queue_definition(pending);
 		return;
 	}
 

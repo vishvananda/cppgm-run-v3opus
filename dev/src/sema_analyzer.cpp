@@ -84,6 +84,7 @@ SemaAnalyzer::SemaAnalyzer(SemaDialect dialect)
 	, sources_(nullptr)
 	, anonymous_enums_(0)
 	, local_types_(0)
+	, instantiating_class_(0)
 	, template_pattern_(nullptr)
 	, template_pattern_dump_(nullptr)
 	, instantiating_(nullptr)
@@ -461,6 +462,9 @@ void SemaAnalyzer::write_default_argument(const SemaEntity& function,
 // settled here rather than beside each of the places that end one.
 void SemaAnalyzer::note_destruction_entry(SemaEntity& destructor, bool base)
 {
+	// 14.7.1p1 and 12.4p11: ending the lifetime of an object is a use of its
+	// class's destructor, so a specialization's is asked for here.
+	require_definition(destructor);
 	if (base)
 	{
 		destructor.base_object_entry = true;

@@ -49,12 +49,12 @@ std::string decimal(unsigned long long value)
 // has come: a subobject whose braces were left out takes clauses from the
 // enclosing list, so how many are left is the state and not the recursion.
 
-bool SemaAnalyzer::Clauses::spent() const
+bool InitializerClauses::spent() const
 {
 	return at >= list->children.size();
 }
 
-const AstNode& SemaAnalyzer::Clauses::next() const
+const AstNode& InitializerClauses::next() const
 {
 	return *list->children[at];
 }
