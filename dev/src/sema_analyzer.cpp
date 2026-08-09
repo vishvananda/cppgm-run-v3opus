@@ -1249,7 +1249,7 @@ SemaEntity* SemaAnalyzer::redeclared(const Context& ctx, const std::string& name
 SemaEntity* SemaAnalyzer::class_head_entity(const Context& ctx, ClassTag tag,
                                             const QualifiedName& spelled,
                                             const std::string& written,
-                                            bool define)
+                                            bool define, Scope* declaring)
 {
 	const std::string name = spelled.last();
 	SemaEntity* entity = nullptr;
@@ -1259,8 +1259,7 @@ SemaEntity* SemaAnalyzer::class_head_entity(const Context& ctx, ClassTag tag,
 		// defines the class that region already declared, wherever the
 		// definition is written, rather than declaring a second class of that
 		// name where it stands.
-		entity = &require(model_.lookup_in(*resolve_prefix(spelled, ctx), name,
-		                                   LookupKind::Type),
+		entity = &require(model_.lookup_in(*declaring, name, LookupKind::Type),
 		                  written);
 		if (entity->kind != SemaKind::Class)
 		{
@@ -1340,8 +1339,19 @@ SemaEntity& SemaAnalyzer::class_declaration(const AstNode& node,
 	// defined in a function is named by the convention instead: 3.5p8 gives a
 	// local class no linkage, so no other translation unit can name it and the
 	// name a declarator would lend it says nothing about it.
-	const bool local = ctx.scope->kind == ScopeKind::Block ||
-		ctx.scope->kind == ScopeKind::Function;
+	// 9.4.2p1 and 3.4.1p8: a class-head-name with a nested-name-specifier
+	// defines a member of the region that name reaches, and its body is read
+	// there - so what encloses the class is that region and not the one the
+	// definition happens to be written in.  A name the body writes then reaches
+	// what the enclosing class declares, 9p2's injected-class-name included.
+	Context outer = ctx;
+	if (as == nullptr && QualifiedName(node.text).qualified())
+	{
+		outer.scope = resolve_prefix(QualifiedName(node.text), ctx);
+		outer.dump = outer.scope->dump;
+	}
+	const bool local = outer.scope->kind == ScopeKind::Block ||
+		outer.scope->kind == ScopeKind::Function;
 	const std::string pattern_name =
 		node.text.empty() ? (local ? std::string() : named_by) : node.text;
 	// 14.7.1p1: a specialization is spelled by the template-id that named it,
@@ -1353,7 +1363,9 @@ SemaEntity& SemaAnalyzer::class_declaration(const AstNode& node,
 	const std::string name = QualifiedName(pattern_name).last();
 
 	SemaEntity* const entity =
-		as != nullptr ? as : class_head_entity(ctx, tag, spelled, written, define);
+		as != nullptr ? as
+		              : class_head_entity(ctx, tag, spelled, written, define,
+		                                  outer.scope);
 
 	if (!name.empty())
 	{
@@ -1378,10 +1390,10 @@ SemaEntity& SemaAnalyzer::class_declaration(const AstNode& node,
 				(tag == ClassTag::Union ? "union" : "class") + "_type__" +
 				decimal(span.begin, false) + "_" + decimal(span.end, false)
 			: "__local_type" + decimal(++local_types_, false);
-		types_.rename(entity->type, header, abi_name(*ctx.scope, header));
+		types_.rename(entity->type, header, abi_name(*outer.scope, header));
 	}
-	DumpScope& dump = model_.open_dump(*ctx.dump, "scope class " + header);
-	Scope& scope = model_.open(ScopeKind::Class, *ctx.scope, entity, &dump);
+	DumpScope& dump = model_.open_dump(*outer.dump, "scope class " + header);
+	Scope& scope = model_.open(ScopeKind::Class, *outer.scope, entity, &dump);
 	entity->scope = &scope;
 	entity->defined = true;
 	// 9.1p2: a member is named through its class, so the dump spells a member

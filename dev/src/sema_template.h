@@ -52,7 +52,20 @@ struct TemplateInfo
 	// wrote, in the order they were written.  They are not members of the
 	// pattern's own syntax, so a specialization reads them after the body and
 	// one written after a specialization was already made is read for it then.
-	std::vector<const AstNode*> members;
+	// 14.1p2 lets each write parameter names of its own, so the head is kept
+	// beside the declaration it parameterises and is what the bindings a
+	// reading of it opens are spelled by.
+	struct Member
+	{
+		Member(const AstNode* wrote, const AstNode* declares)
+			: clause(wrote)
+			, declaration(declares)
+		{}
+
+		const AstNode* clause;
+		const AstNode* declaration;
+	};
+	std::vector<Member> members;
 	// 14.7.1p1: the specializations made so far, which is what a member
 	// definition read after them is read against.
 	std::vector<SemaEntity*> specializations;

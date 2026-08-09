@@ -348,9 +348,12 @@ private:
 	                              const std::string* spelled_as = nullptr);
 	// 9.1p2: the declaration a class-head names - one an earlier declaration in
 	// the region already made, or one this class-head makes.
+	// `declaring` is the region the class-head-name reaches, which is `ctx`'s
+	// own where no nested-name-specifier was written.
 	SemaEntity* class_head_entity(const Context& ctx, ClassTag tag,
 	                              const QualifiedName& spelled,
-	                              const std::string& written, bool define);
+	                              const std::string& written, bool define,
+	                              Scope* declaring);
 	SemaEntity& enum_declaration(const AstNode& node, const Context& ctx,
 	                             bool elaborated, const std::string& named_by);
 	void enumerators(const AstNode& node, SemaEntity& entity,
@@ -1892,12 +1895,23 @@ private:
 	SemaEntity* member_definition_owner(const AstNode& node,
 	                                    const Context& ctx);
 	// 14.3p1: a region binding each of `info`'s parameters to the argument
-	// beside it, which is what a pattern is read against.
-	Scope& open_template_bindings(const TemplateInfo& info,
-	                              const std::vector<TypeId>& arguments);
+	// beside it, which is what a pattern is read against.  `names` spells them
+	// where the declaration being read declared parameters of its own.
+	Scope& open_template_bindings(
+		const TemplateInfo& info, const std::vector<TypeId>& arguments,
+		const std::vector<std::string>* names = nullptr);
 	// 14.5.1.3p1: reads `pattern` - a member definition written outside its
 	// class - against the arguments `specialization` was made from.
-	void instantiate_member(SemaEntity& specialization, const AstNode& pattern);
+	void instantiate_member(SemaEntity& specialization,
+	                        const TemplateInfo::Member& member);
+	// 14.5.1.3p1 and 3.4.1p8: binds the names an out-of-class member
+	// definition's own head declared, beside the class's own, in the region the
+	// class stands in - which is where its body looks names up from.  Null
+	// where the head declares a different number of parameters or one whose
+	// name already stands there for another place.
+	Scope* bind_member_parameters(Scope& region, const AstNode& clause,
+	                              const std::vector<TypeId>& arguments,
+	                              SemaKind kind);
 	// 14.7.1p1: reads the template's class body for `made`, which is what
 	// completes it.  A specialization named before its template was defined is
 	// a declaration of an incomplete class until the definition arrives, and
