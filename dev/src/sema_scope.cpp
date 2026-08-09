@@ -15,6 +15,11 @@ Scope::Scope(ScopeKind scope_kind, Scope* enclosing, SemaEntity* scope_owner,
 	, dump(scope_dump)
 	, id(scope_id)
 	, unnamed_region(enclosing != nullptr && enclosing->unnamed_region)
+	, template_head(enclosing == nullptr
+		? nullptr
+		: (enclosing->kind == ScopeKind::TemplateParameters
+			? enclosing
+			: enclosing->template_head))
 	, local_function(nullptr)
 	, local_occurrence(0)
 	, local_unnamed(false)

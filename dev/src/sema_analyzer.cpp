@@ -943,6 +943,7 @@ void SemaAnalyzer::declare_using_members(SemaEntity& named, Scope& where,
 SemaEntity& SemaAnalyzer::declare_using_member(SemaEntity& target, Scope& where,
                                                const std::string& name)
 {
+	require_no_template_parameter(name, where);
 	SemaEntity& shadow = model_.create(target.kind, name, target.type);
 	const std::uint32_t id = shadow.id;
 	// The declaration says the same thing about the entity the base declared as
@@ -1022,13 +1023,70 @@ SemaEntity& SemaAnalyzer::declare_using_member(SemaEntity& target, Scope& where,
 	return shadow;
 }
 
+// 14.6.1p6: a template-parameter shall not be redeclared within its scope,
+// which is the declaration its head parameterises and every region nested in
+// that one.
+//
+// The question is a fact of the regions a declaration stands in, so it is asked
+// where the name is bound rather than at each syntax that can bind one: a
+// typedef, an alias-declaration, an object and a using-declaration all reach
+// it.  What an instantiation binds in a region of the same kind is the argument
+// and not the parameter - a typedef-name of the type an argument named - so a
+// body read for a specialization is not asked this about names its own template
+// head never declared.
+void SemaAnalyzer::require_no_template_parameter(const std::string& name,
+                                                 const Scope& where)
+{
+	for (Scope* at = where.kind == ScopeKind::TemplateParameters
+	         ? const_cast<Scope*>(&where)
+	         : where.template_head;
+	     at != nullptr; at = at->template_head)
+	{
+		const SemaEntity* const parameter =
+			model_.find(*at, name, LookupKind::Any);
+		if (parameter != nullptr && parameter->kind == SemaKind::TemplateType)
+		{
+			throw std::runtime_error(name + " redeclares a template parameter "
+			                         "within the scope of the template head "
+			                         "that declared it");
+		}
+	}
+}
+
+// 7.1.3p3 and 9.2p1: the typedef-name a `typedef` or an alias-declaration
+// declares.
+//
+// 7.1.3p3 lets a typedef-name be declared again in a region that already
+// declares it, for the same type - which is what a header included twice
+// writes - and 9.2p1 does not: a class shall not declare a member twice, and
+// the second declaration is one whether or not it names the same type.
+// 7.1.3p6's redefinition of a class-name is the one the class does allow, and
+// it is a class-name and not a typedef-name that stands there.
+SemaEntity& SemaAnalyzer::declare_type_alias(const std::string& name,
+                                             TypeId aliased, Scope& where)
+{
+	require_no_template_parameter(name, where);
+	if (where.kind == ScopeKind::Class)
+	{
+		const SemaEntity* const declared =
+			model_.find(where, name, LookupKind::Any);
+		if (declared != nullptr && declared->kind == SemaKind::Typedef)
+		{
+			throw std::runtime_error(name + " is declared twice as a member "
+			                         "type of one class");
+		}
+	}
+	SemaEntity& entity = model_.create(SemaKind::Typedef, name, aliased);
+	model_.bind(where, name, entity);
+	model_.declare_in(where, entity);
+	return entity;
+}
+
 void SemaAnalyzer::alias_declaration(const AstNode& node, const Context& ctx)
 {
 	const AstNode* type = child_of(node, AstKind::TypeId);
 	const TypeId aliased = type_id_type(*type, ctx);
-	SemaEntity& entity = model_.create(SemaKind::Typedef, node.text, aliased);
-	model_.bind(*ctx.scope, node.text, entity);
-	model_.declare_in(*ctx.scope, entity);
+	SemaEntity& entity = declare_type_alias(node.text, aliased, *ctx.scope);
 	if (semantics())
 	{
 		// 9.2p1: an alias a class declares is a member of it, and a member
@@ -2049,9 +2107,7 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 
 	if (specifiers.is_typedef)
 	{
-		SemaEntity& entity = model_.create(SemaKind::Typedef, name, type);
-		model_.bind(*target.scope, name, entity);
-		model_.declare_in(*target.scope, entity);
+		declare_type_alias(name, type, *target.scope);
 		if (semantics())
 		{
 			if (target.node != nullptr)
@@ -2133,6 +2189,7 @@ void SemaAnalyzer::declare_object_declarator(const AstNode* initializer,
 	}
 	if (declared == nullptr)
 	{
+		require_no_template_parameter(name, *target.scope);
 		entity.c_linkage = c_linkage_;
 		model_.bind(*target.scope, name, entity);
 		model_.declare_in(*target.scope, entity);

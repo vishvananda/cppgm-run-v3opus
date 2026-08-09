@@ -1,0 +1,14 @@
+ERROR: class-scope typedef-name cannot be redefined: size_type [top-level declaration 2 kind=class-specifier value=box text=box]
+Diagnostic context:
+collect_class_declaration [box] at course/pa19/100-class-scope-duplicate-member-typedef-bad.t:7:1
+  ensure_class_reference_members [box]
+    populate_class_reference_members [box]
+      reference_class_member [simple-declaration] text=[] ast={simple-declaration
+  decl-specifier-seq
+    decl-specifier KW_TYPEDEF:typedef
+    decl-specifier KW_INT:int
+  init-declarator-list
+    init-declarator
+      declarator
+        identifier size_type
+}

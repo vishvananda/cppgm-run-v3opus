@@ -1,9 +1,9 @@
 # PA19 Plan — `cppgm++ --emit-lowir` first-tier templates
 
-PA19 stands at **227 / 299** (65 spec + 234 general), from a turn-start baseline
-of 223 / 295, with pa1-pa18 at **1777 / 1777** and the file audit passing with
+PA19 stands at **235 / 301** (65 spec + 234 general + 2 course), from a
+turn-start baseline of 227 / 299, with pa1-pa18 at **1777 / 1777** and the file audit passing with
 the five header-weight warnings it inherited. The whole pa1-pa19 report runs in
-10.2 s.
+10.3 s.
 
 The milestone gives the PA16-PA18 object model its first template tier: a
 template-declaration records a pattern instead of declaring anything, and
@@ -94,6 +94,35 @@ Three facts about the harness shape what has to be right, read out of
   the place its head declared it in - is computed once and the chain is walked
   by comparing types. Asking it of a pair instead costs a substitution per pair,
   and over a class template a specialization per pair as well.
+- **A definition is read where it stands as well as where it is used.**
+  14.6p8 makes a template definition ill-formed - no diagnostic required - where
+  no valid specialization could be generated from it, so
+  `check_template_definition` reads the body once at its own point and
+  `instantiate_body` reads it again for each specialization.  The first reading
+  is the *PA11* one: a type that depends on a parameter has no layout, no
+  conversion and no overload set until an argument arrives, so what the pattern
+  can be asked is what its declarations say and 3.4p1's lookup of the names it
+  writes.  14.6.2p1's member name, 14.2's template-id and 3.4.2p2's callee are
+  the three the instantiation is left.
+- **The reading leaves nothing behind.**  Its lines stand in a dump nothing
+  reads, and 14.7.1p1 makes a template-id it names a declaration rather than a
+  use requiring a definition - so `instantiate_class` makes the specialization
+  and completes it where an instantiation asks.  `templating()` is what says the
+  template layer answers during it, where `lowering()` used to.
+- **One body's facts belong to that body.**  `FunctionReading` puts aside what
+  the reading around it knew, because naming a specialization in the middle of a
+  body is what asks for another body to be read; `DialectReading` does the same
+  for which of the three dialects the walk is in.
+- **A template parameter is redeclared by a fact of the regions.**  14.6.1p6
+  refuses a declaration of a parameter's name anywhere in the template, so the
+  question is asked where a name is bound and the template-parameter regions
+  standing over a region are chained as they are opened - it costs the number of
+  template heads above the declaration and not the block nesting it happens to
+  be written at.
+- **A class may not declare a member type twice.**  7.1.3p3 lets a namespace
+  redeclare a typedef-name for the same type and 9.2p1 does not let a class
+  declare a member twice, so `declare_type_alias` is where both are asked;
+  7.1.3p6's redefinition of a *class*-name is the one a class does allow.
 - **A specialization has a second point of instantiation at the end of the
   unit.** 14.6.4.1p1: the pending entry a name leaves is settled where the walk
   reaches it, so the definition the template has by the end of the unit is the
@@ -113,41 +142,51 @@ Three facts about the harness shape what has to be right, read out of
 
 ## Current Failure Map
 
-72 of 299 fail. Grouped by the compiler behaviour that owns them:
+66 of 301 fail. Grouped by the compiler behaviour that owns them:
 
 | n | group | what is missing |
 | --- | --- | --- |
-| 22 | exit 0, LowIR differs | the point of instantiation - a member body instantiated where the reference leaves it out, and one left out where it writes it; a static data member's in-class constant read as storage; 12.8p12 over a reference member; one that fails the harness's own validator, where a variable template's partial specialization is written `@v_T_T_` |
-| 14 | dependent names and the current instantiation | `typename base<T>::type`, a member alias of the current specialization, a nested type named through an out-of-class definition, a decltype over a qualified argument |
-| 11 | a template body checked where it stands | 14.6p8: the `-bad` fixtures that redeclare an active template parameter, name a type where a value is wanted, or name nothing at all, and are **accepted** because nothing reads the body until an instantiation asks |
+| 19 | the class template's pattern read where it stands | 14.6.1p1's current instantiation: `typename base<T>::type`, a member alias of the current specialization, a nested type named through an out-of-class definition, a decltype over a qualified argument, and the five `-bad` fixtures whose declaration stands in a class body or an out-of-class member definition rather than in a function template's |
+| 21 | exit 0, LowIR differs | the point of instantiation - a member body instantiated where the reference leaves it out, and one left out where it writes it; a static data member's in-class constant read as storage; 12.8p12 over a reference member; a variable template's partial specialization written `@v_T_T_` |
 | 6 | syntax PA10 does not parse | 14.7.2's `template struct A<int>;`, a function template-id in an expression an ordinary `<` could open, a member array-reference return |
 | 5 | the declaration context a qualified template declarator is parsed in | a namespace-qualified definition, a later redeclaration's default argument, a local declaration that a member call must beat |
-| 14 | the long tail | 14.8.1p2's partial explicit argument list, a using-declaration of a dependent base, `alignas` over an instantiation, a move-only by-value argument, an unused conversion function's body |
+| 15 | the long tail | 14.8.1p2's partial explicit argument list, a using-declaration of a dependent base, `alignas` over an instantiation, a move-only by-value argument, an unused conversion function's body |
+
+The first group is one behaviour and is the largest: 14.6.1p1's current
+instantiation is what a class template's body has to be read against, and the
+five remaining `-bad` fixtures are accepted for want of it.
 
 ## Next Substantial Checkpoint
 
-**C4 - the reading a template body gets where it stands**: 14.6p8 makes a
-template definition ill-formed where no valid specialization could be generated
-and no diagnostic is required only for the parts that depend on a parameter, so
-the body is read once at its own point and again for each specialization. It is
-the largest single group the failure map has that is one behaviour rather than a
-tail, and 11 fixtures are **accepted** today for want of it.
+**C5 - the class a template makes of its own parameters**: 14.6.1p1 names the
+current instantiation, and 14.6p8's reading of a class template's definition is
+that class.  It is what the 19-fixture group above is all of: a member alias of
+the current specialization, a nested type named through an out-of-class
+definition, `typename base<T>::type`, and the declarations the five accepted
+`-bad` fixtures write in a class body or an out-of-class member definition.
 
-- **owner**: `sema_template.cpp` reads the pattern under the template-parameter
-  region as it does today, with a dialect that declares nothing and asks the
-  ordinary PA11-PA12 questions of every name that does not depend on a
-  parameter; `TypeTable::is_dependent` is already the fact that says which.
-  `sema_analyzer.cpp:function_definition` is where the reading is skipped today
-  (`target.scope->kind == ScopeKind::TemplateParameters && specializing == 0`).
-- **data flow**: `record_template` holds the pattern -> the definition is read
-  once against the parameters themselves -> a name that reaches a dependent
-  base or a dependent type is left alone -> `complete_specialization` reads it
-  again against the arguments, unchanged.
-- **expected complexity**: one extra reading per template *definition* against
-  one per specialization today, so the cost is linear in the source and
-  independent of how many specializations are made. The reading is over the
-  pattern the declaration already holds, so nothing is reparsed.
-- **validation**: the 11 accepted `-bad` fixtures, then 14.6.2p3's unqualified
+- **owner**: `sema_template.cpp`.  `open_pattern_parameters` opens the region
+  binding each parameter to a type standing for itself - the same region an
+  out-of-class member definition is read against - and the pattern class is the
+  class `class_declaration` makes of the template's body in it.  Both hang off
+  `TemplateInfo`, because 14.5.1.3p1's member definitions arrive after the class
+  is read and are read against the same two.
+- **data flow**: `record_template` records the pattern -> the pattern class is
+  read once, in the PA11 dialect, with 9.2p2's member bodies held until the
+  class is closed -> a name that reaches a dependent base or a dependent type
+  is left alone -> `complete_specialization` reads the same syntax again against
+  the arguments, unchanged.
+- **expected complexity**: one extra reading per class template *definition*
+  against one per specialization today, so the cost is linear in the source and
+  independent of how many specializations are made.
+- **known obstacle**: a first attempt at this cost 34 fixtures, in three
+  groups - a member named in a body before the class declared it (9.2p2's
+  complete-class context, which the PA11 walk reads inline), a dependent base's
+  name (`split<T> does not name a type`), and a qualified name through a
+  dependent type (`value_type is written after a name that is not a namespace`).
+  The first is a deferral and the other two are 14.6.2p1, so the checkpoint has
+  to carry the dependent-name half with it rather than after it.
+- **validation**: the five accepted `-bad` fixtures, then 14.6.2p3's unqualified
   name that must skip a dependent base, then the pa19 report and pa1-pa18.
 
 ## Performance Model
@@ -199,8 +238,31 @@ milestone's shape rather than the tier's; g++ does n = 20 in 0.06 s because it
 never materialises the spelling. Fixing it means not storing a specialization's
 written-out name at all.
 
+14.6p8's reading of a definition is one reading per template *definition* and
+not per specialization, so what it adds is linear in the source however many
+specializations the unit makes:
+
+| shape | 32 | 64 | 128 | 256 | 512 |
+| --- | --- | --- | --- | --- | --- |
+| n function templates, each an 8-statement body, none of them called | 0.01 s | 0.01 s | 0.01 s | 0.02 s | 0.03 s |
+| one function template of n statements, one specialization | 0.00 s | 0.01 s | 0.01 s | 0.01 s | 0.02 s |
+| n nested blocks in a function template, each declaring a name | 0.00 s | 0.01 s | 0.01 s | 0.02 s | 0.04 s |
+| a class template of n member typedefs, one specialization | 0.00 s | 0.00 s | 0.00 s | 0.01 s | 0.01 s |
+| n specializations of one function template over n classes | 0.01 s | 0.01 s | 0.02 s | 0.04 s | 0.09 s |
+
+The third is what 14.6.1p6 is measured by: the question is asked of every
+declaration in every program, so a walk outwards would cost the block nesting
+the declaration is written at.  Chaining the template-parameter regions as they
+are opened makes it cost the number of template heads instead - at 1024 nested
+blocks 0.10 s -> **0.08 s**, which is what the same nest without a template head
+over it costs, so the check is no longer measurable.
+
 Valgrind is clean over all 299 fixtures, over the multi-unit programs and over
-the scaling shapes, and the whole pa1-pa19 report is 10.2 s.
+the scaling shapes, and the whole pa1-pa19 report is 10.3 s.  Two of the rules
+this checkpoint added have no fixture of their own, so `cppgm.tests/course/pa19`
+holds one each - 14.6.1p6 over an alias-declaration in an uninstantiated
+function template body, and 9.2p1's member type declared twice beside the
+namespace redeclaration 7.1.3p3 allows - regenerated through `make ref-test`.
 
 ## Completed Checkpoints
 
@@ -212,3 +274,4 @@ the scaling shapes, and the whole pa1-pa19 report is 10.2 s.
 | tier audit | the object file's name for a specialization, which this suite cannot see: the components of an encoded name walked out of the declaration's own regions rather than split out of a spelling, each owning class asked where its own declaration stands, a class named through a specialization written as a member type, the ABI's `<template-param>` made a substitution candidate, and 14.7.1p1's shared definition answered once for the three readers that follow from it; 14.6.2p1's answer kept per type | 194 -> **200 / 295**; pa1-pa18 1777 / 1777; file audit passes; every checked `.ref` and `.ref.witness` regenerates byte-identically; `object=` differences against the reference 54 -> 9 tests; 13 names byte-identical to g++; valgrind clean |
 | C3 | the call a template joins: 14.8.2.5p3's parameter written over no template parameter, 14.8.2.1p4's reference top, 8.3.6p1's unwritten trailing arguments read against the arguments the specialization was made from, 13.3.1.2p4's first operand and 13.4p1's overloaded name left standing where an operator gathers its candidates, 14.8.2.2's target type, 14.8.2.1p6's overload set, 3.4.2p2's template arguments, 13.5p6 asked of the specialization rather than the template, 14.5.6.2's ordering of two templates whose conversions tie, 14.5.6.1p5's equivalent declarations, and 8.5.3p5's temporary for a literal a reference binds; 8.5.1's aggregate walk and 8.5.4's list-initialization split into `sema_init_list.cpp` | 200 -> **223 / 295**; pa1-pa18 1777 / 1777; file audit passes; valgrind clean over the newly reached paths and the four new scaling shapes |
 | C3 audit | the declaration a target type chooses, the clauses an ordering strips, and the definition a name written above it still gets: 14.5.6.2p4's ordering as one question with 13.3.3p1's tie and 13.4p1's target as its two readers, 14.5.6.2p9 and p10 beneath the p5 and p7 that strip what they order by, 14.8.2.1p3's lvalue reference collapsed by 8.3.2p6, 5.3.3p2 and 5.3.6p3 over a reference type-id, 14.6.4.1p1's point of instantiation at the end of the unit for a specialization named above its template's definition, and 14.5.6.1p5's equivalence as a signature each declaration has on its own | 223 -> **227 / 299**; pa1-pa18 1777 / 1777; file audit passes; every checked `.ref` regenerates byte-identically; 60 run-and-compare programs agreeing with `reference-binaries/cppgm++` and g++; declaring 512 overloads of one template name 0.36 s -> 0.04 s and 44.8 MB -> 15.8 MB; valgrind clean |
+| C4 | the reading a template definition gets where it stands: 14.6p8's body read once at its own point in the PA11 dialect and again for each specialization, with 14.6.2p1's member name, 14.2's template-id and 3.4.2p2's callee left to the instantiation; 14.7.1p1's naming made a declaration and not a use, so a specialization is completed where an instantiation asks; 14.6.1p6's redeclared template parameter as a fact of the chained template-parameter regions; 9.2p1's member type declared twice against 7.1.3p3's namespace redeclaration; `FunctionReading` and `DialectReading` over the three readings of one body; `sema_declaration.h` and `sema_function.cpp` split out | 227 / 299 -> **235 / 301**; pa1-pa18 1777 / 1777; file audit passes; `reference-binaries/cppgm++` and g++ agree on every new rejection except one the reference accepts and g++ refuses (14.6.1p6 over `typedef int T`); 1024 nested blocks under a template head 0.10 s -> 0.08 s; valgrind clean |

@@ -295,6 +295,17 @@ private:
 		return entity.primary != nullptr ? *entity.primary
 		                                 : declared_member(entity);
 	}
+	// 14.6.1p6: a template-parameter shall not be redeclared within its scope,
+	// which is every region nested in the one its head declared it in.  Asked
+	// where a name is bound, so that a typedef, an alias-declaration, an object
+	// and a using-declaration each reach it.
+	void require_no_template_parameter(const std::string& name,
+	                                   const Scope& where);
+	// 7.1.3p3 and 9.2p1: declares the typedef-name `name` for `aliased` in
+	// `where`.  A class may not declare one it already declares, however the
+	// two spell the type; a namespace may.
+	SemaEntity& declare_type_alias(const std::string& name, TypeId aliased,
+	                               Scope& where);
 	void alias_declaration(const AstNode& node, const Context& ctx);
 	void static_assert_declaration(const AstNode& node, const Context& ctx);
 	void template_declaration(const AstNode& node, const Context& ctx);

@@ -683,6 +683,14 @@ public:
 	// This region among the run's, which is how a fact about a pair of them is
 	// keyed.
 	std::uint32_t id;
+	// 14.6.1p6: the nearest template-parameter region this one stands inside,
+	// and the next such region outside that one through its own link.  A
+	// declaration made anywhere in a template has to be asked whether it
+	// redeclares one of that template's parameters, so the regions that can
+	// answer are chained together as they are opened: the question then costs
+	// the number of template heads standing over the declaration rather than
+	// the block nesting it happens to be written at.
+	Scope* template_head;
 	// The `N::M::` the PA12 dump writes before a declaration of this region.
 	// 7.3.1.1p1 leaves an unnamed namespace with no name to write, so its
 	// members are spelled as the namespace around it spells its own.

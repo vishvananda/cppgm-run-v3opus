@@ -1,0 +1,22 @@
+ERROR: template parameter redeclared at course/pa19/100-function-template-alias-redeclares-parameter-bad.t:7:3 [top-level declaration 0 kind=template-declaration ast={template-declaration
+  template-parameter-clause
+    template-parameter-list
+      type-parameter
+        parameter-key KW_CLASS:class
+        identifier T
+  function-definition
+    decl-specifier-seq
+      decl-specifier KW_INT:int
+    declarator
+      identifier shadow
+      parameter-clause
+    compound-statement
+      alias-declaration T
+        type-id
+          type-specifier-seq
+            type-specifier KW_INT:int
+      return-statement
+        literal 0
+}]
+Diagnostic context:
+collect_template_declaration [template<class T>int shadow(){using T=int;return 0;}] at course/pa19/100-function-template-alias-redeclares-parameter-bad.t:4:1
