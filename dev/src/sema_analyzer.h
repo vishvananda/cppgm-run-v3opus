@@ -11,6 +11,7 @@
 
 #include "name_table.h"
 #include "parse_depth.h"
+#include "sema_declaration.h"
 #include "sema_name.h"
 #include "sema_scope.h"
 #include "sema_template.h"
@@ -90,27 +91,75 @@ public:
 	TypeTable& types() { return types_; }
 
 private:
-	// Where a declaration is read: the region it declares into, and the dump
-	// node its lines are written to.  The two part company where the standard
-	// and the output format do: a member function defined outside its class
-	// declares into the class and writes its lines there, while an enumeration
-	// defined outside its class writes its lines where it is written.
-	struct Context
+	// 6.6.1, 6.6.3 and 12.2p3: what the walk knows about the function whose
+	// body it is reading.
+	//
+	// A body is read wherever its definition can be: where the definition was
+	// written, at the end of the unit for a member read once its class is
+	// complete, and - 14.6p8 - at the definition of the template whose pattern
+	// it is.  Each of those readings can stand inside another, because naming a
+	// specialization in an expression is what asks for one, so what the
+	// enclosing reading knew is put aside here and given back when this body is
+	// done however it ends.
+	class FunctionReading
 	{
-		Context()
-			: scope(nullptr)
-			, dump(nullptr)
-			, node(nullptr)
-		{}
+	public:
+		FunctionReading(SemaAnalyzer& analyzer, SemaEntity* self, TypeId returns);
+		~FunctionReading();
 
-		Scope* scope;
-		DumpScope* dump;
-		// The PA12 node a declaration read here writes under, which at block
-		// scope is the `simple-declaration` the statement opened.  Null where
-		// the output has no line for what a declaration declares, which is
-		// every member of a class.
-		DumpNode* node;
+	private:
+		FunctionReading(const FunctionReading&);
+		FunctionReading& operator=(const FunctionReading&);
+
+		SemaAnalyzer& analyzer_;
+		SemaEntity* self_;
+		TypeId returns_;
+		unsigned breakable_;
+		unsigned continuable_;
+		unsigned switches_;
+		std::size_t live_destructions_;
+		std::vector<std::vector<SemaEntity*> > lifetimes_;
+		std::vector<std::size_t> breakable_frames_;
+		std::vector<std::size_t> continuable_frames_;
+		std::vector<SemaEntity*> parameter_objects_;
+		std::unordered_set<std::string> labels_;
+		std::vector<std::string> gotos_;
 	};
+
+	// 14.6p8: the reading of a template's pattern rather than of a declaration
+	// this unit has.
+	//
+	// What the pattern can be asked is what its declarations *say*, which is
+	// the PA11 dialect: a type that depends on a template parameter has no
+	// layout, no conversion and no overload set until an argument arrives, so
+	// the reading describes the declarations the body makes and translates
+	// none of them.  It stands inside a lowering, so the dialect is put aside
+	// here and given back however the reading ends.
+	class DialectReading
+	{
+	public:
+		explicit DialectReading(SemaAnalyzer& analyzer);
+		~DialectReading();
+
+	private:
+		DialectReading(const DialectReading&);
+		DialectReading& operator=(const DialectReading&);
+
+		SemaAnalyzer& analyzer_;
+		SemaDialect dialect_;
+	};
+
+	// 3.3, 7p1, 8.3.5p4, 12.6.2p1 and 5.19p3: the records the declaration
+	// layer passes between its steps, which `sema_declaration.h` defines.  The
+	// walk spells them by their short names, as it did while they stood here.
+	typedef SemaContext Context;
+	typedef SemaSpan Span;
+	typedef DeclSpecifiers Specifiers;
+	typedef DeclaredParameter Parameter;
+	typedef PendingDefinition Pending;
+	typedef WrittenMemInitializer MemInitializer;
+	typedef SemaConstant Constant;
+
 
 	// 5p1 and 13.3: one analysed expression and one ranked candidate, which
 	// the expression layer owns and `sema_value.h` defines.  The walk spells
@@ -161,138 +210,11 @@ private:
 	// or as the address of the one object the caller and the callee share.
 	const char* requested_prefix(Requested by, bool reference, TypeId passed);
 
-	// The terminals a declaration was written from, which is what names an
-	// unnamed class that no declarator names (9.5p2).
-	struct Span
-	{
-		std::uint32_t begin;
-		std::uint32_t end;
-	};
 
-	// A `decl-specifier-seq` or `type-specifier-seq` as read.
-	struct Specifiers
-	{
-		Specifiers();
 
-		unsigned counted[kSimpleTypeSpecifierCount];
-		unsigned builtins;
-		unsigned cv;
-		TypeId type_name;
-		bool has_type_name;
-		bool is_typedef;
-		bool is_constexpr;
-		// 3.1p2 and 7.1.1: an `extern` declaration with no initializer is not
-		// a definition of the object it declares.
-		bool is_extern;
-		// 9.4p1: a member declared `static` is not a member of an object, so it
-		// has no implicit object parameter and is reached without one.
-		bool is_static;
-		// 7.1.2p2: the definition of this function may be written in more than
-		// one translation unit, so no one unit owns the one the program has.
-		bool is_inline;
-		// 10.3p1: the member function this sequence declares is dispatched
-		// through the object's own class rather than through the name a call
-		// wrote, which 9.2p2 settles for the class as a whole.
-		bool is_virtual;
-		// 3.7.2p1 and 7.1.1p1: the variable this sequence declares has thread
-		// storage duration - one object per thread rather than one per program.
-		bool is_thread_local;
-		// 11.3p1: the declaration grants this class's access rather than
-		// declaring a member of it, so what it declares belongs to the region
-		// around the class and not to the class.
-		bool is_friend;
-		// 7.1.1p10: the non-static data members this sequence declares are not
-		// const however const the object holding them is, so a const member
-		// function may write one and 5.3.1p3 hands back a pointer to
-		// non-const.
-		bool is_mutable;
-		// 7.1.6.4p1 and 8.3.5p2: the sequence is the one type-specifier `auto`,
-		// which names no type of its own and stands for the one a
-		// trailing-return-type writes after the declarator-id.
-		bool is_auto;
-		// 7.6.2p1: the strictest alignment an alignment-specifier of this
-		// sequence asked for, or zero where it wrote none.
-		unsigned long long alignment;
-		// The class or enumeration this sequence declared.
-		SemaEntity* introduced;
-	};
 
-	// One parameter of a parameter-clause, before 8.3.5p4 drops a lone `void`.
-	struct Parameter
-	{
-		Parameter()
-			: type(kNoType)
-			, initializer(nullptr)
-		{}
 
-		std::string name;
-		TypeId type;
-		// 8.3.6p1: the default-argument this parameter was written with, which
-		// a call that omits the argument uses in its place.
-		const AstNode* initializer;
-	};
 
-	// A definition the dump writes at the end of the translation unit.
-	//
-	// 12.1p5 gives a class a constructor no declaration wrote, and 9.2p2 makes
-	// a member function's body a complete-class context, which is read after
-	// the class it is written in is closed.  Both are definitions the program
-	// has that the place they are written cannot hold, so they are held here
-	// and written where the output puts them.
-	struct Pending
-	{
-		Pending();
-
-		SemaEntity* function;
-		// The implicit object parameter of 9.3.1p3, which the dump writes as
-		// the first parameter of a member function.
-		SemaEntity* self;
-		// A member function's declarator and body, and the region its
-		// parameters were declared in.  Null for a constructor no declaration
-		// wrote, whose body is empty.
-		const AstNode* body;
-		Scope* scope;
-		std::vector<Parameter> parameters;
-		// 12.6.2: the ctor-initializer this constructor was written with, and
-		// the class whose members it initializes.  Both are null for a function
-		// that is not a constructor; `members` alone is set for the constructor
-		// 12.1p5 gives a class, whose initializations are all implied.
-		const AstNode* initializers;
-		Scope* members;
-		// 14.7.1: a specialization, which is a declaration the program did not
-		// write rather than a definition it did, and which the output writes as
-		// the declaration with the parameters of the template it was made from.
-		bool instantiation;
-	};
-
-	// 12.6.2: one mem-initializer of a ctor-initializer, indexed by the name
-	// its mem-initializer-id ends in.  `used` says a member of that name was
-	// reached, which 12.6.2p2 is what makes the mem-initializer-id name
-	// something; `spelled` is what the diagnostic names when it does not.
-	struct MemInitializer
-	{
-		MemInitializer()
-			: written(nullptr)
-			, used(false)
-		{}
-
-		const AstNode* written;
-		std::string spelled;
-		bool used;
-	};
-
-	// A value of the 5.19 subset: what it is worth, and the type that says how
-	// wide it is and whether it is signed.
-	struct Constant
-	{
-		Constant()
-			: type(kNoType)
-			, bits(0)
-		{}
-
-		TypeId type;
-		unsigned long long bits;
-	};
 
 	// Declarations (sema_analyzer.cpp).
 	void declaration(const AstNode& node, const Context& ctx);
@@ -1375,6 +1297,9 @@ private:
 	// region the definition opened.  `written` is how many parameters of the
 	// function type the declarator did not write, which is the implicit object
 	// parameter of a member function.
+	// 6.6.4p1: every label a goto names is one the function writes, asked
+	// where the body that wrote both of the lists ends.
+	void require_labelled_gotos();
 	void declare_parameters(const std::vector<Parameter>& parameters,
 	                        TypeId type, const Context& inner, DumpNode* node,
 	                        std::size_t implicit = 0);
@@ -1882,6 +1807,26 @@ private:
 	// the function it just declared, so that 14.7.1p1 can read it again.
 	void record_function_template(SemaEntity& entity, Scope& parameters,
 	                              Scope& region);
+	// 14.6p8: the reading a template definition's body gets where it stands.
+	//
+	// A template declares nothing until it is instantiated, but its definition
+	// is still a definition: 14.6p8 makes one ill-formed - no diagnostic
+	// required - where no valid specialization could be generated from it, and
+	// leaves only the parts that depend on a template parameter to the
+	// instantiation.  So the body is read once here, against the parameters
+	// themselves, and again for each specialization against its arguments.
+	// Nothing this reading finds reaches the output.
+	void check_template_definition(const AstNode& node, const Context& inner,
+	                               const std::vector<Parameter>& parameters,
+	                               TypeId type);
+	// 14.6p8 and 3.4p1: looks up the names `node` writes that no template
+	// parameter stands in the way of.  A member name, a template-id and the
+	// callee of a call are left to the instantiation, which is what 14.6.2p1
+	// and 3.4.2p2 leave them to.
+	void check_expression_names(const AstNode& node, const Context& ctx);
+	// 3.4p1 and 5.1.1p8: the one unqualified name an id-expression wrote,
+	// which shall name something, name one thing, and not name a type.
+	void check_value_name(const AstNode& node, const Context& ctx);
 	// 14.7.1p1: the body the template's definition wrote, read again against
 	// the arguments `function` was made from.  14.6.4.1p1 gives a
 	// specialization named before that definition was written a second point of
@@ -2202,6 +2147,11 @@ private:
 	std::string abi_name(const Scope& scope, const std::string& name) const;
 	bool semantics() const { return dialect_ != SemaDialect::Types; }
 	bool lowering() const { return dialect_ == SemaDialect::Lowering; }
+	// 14p1 and 14.6p8: whether the template layer answers here.  A definition
+	// read for what 14.6p8 says about it stands in the PA11 dialect - it
+	// describes what its declarations say rather than translating them - and a
+	// template-id it writes still names the specialization its arguments make.
+	bool templating() const { return lowering() || checking_ > 0; }
 
 	SemaDialect dialect_;
 	// 16.6: the packing alignment by position in the token stream, borrowed
@@ -2272,6 +2222,11 @@ private:
 	// declaration that reading is of rather than one it makes.  Null wherever
 	// the walk is reading a declaration the program wrote.
 	SemaEntity* instantiating_;
+	// 14.6p8: the depth of a definition-time reading of a template's body.
+	// Non-zero says the walk is checking a pattern rather than translating a
+	// declaration the program has, so nothing it reads is declared into the
+	// output and nothing it names demands an instantiation.
+	unsigned checking_;
 	// 12.9p8: the parameters each constructor was declared with, which the
 	// inheriting constructor a using-declaration declares takes as its own -
 	// their names as much as their types, because the definition this unit

@@ -32,7 +32,7 @@ const AstNode* declarator_of(const AstNode& node)
 
 }
 
-SemaAnalyzer::Specifiers::Specifiers()
+DeclSpecifiers::DeclSpecifiers()
 	: builtins(0)
 	, cv(kCvNone)
 	, type_name(kNoType)

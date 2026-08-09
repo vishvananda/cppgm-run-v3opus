@@ -1287,6 +1287,14 @@ SemaEntity& SemaAnalyzer::instantiate_class(SemaEntity& primary,
 	SemaEntity* made = model_.specialization_of(primary, list);
 	if (made != nullptr)
 	{
+		// 14.7.1p1: the declaration is made once, and the definition is owed
+		// wherever the specialization is used in a way that requires it - so a
+		// naming that left it a declaration does not keep the next one from
+		// completing it.
+		if (checking_ == 0)
+		{
+			complete_specialization(*made);
+		}
 		return *made;
 	}
 	const TemplateInfo& info = *primary.templated;
@@ -1325,7 +1333,14 @@ SemaEntity& SemaAnalyzer::instantiate_class(SemaEntity& primary,
 	// class, which is all a pointer or a reference to it needs, and the
 	// definition completes it where it arrives.
 	primary.templated->specializations.push_back(made);
-	complete_specialization(*made);
+	if (checking_ == 0)
+	{
+		// 14.6p8 and 14.7.1p1: a name written in a template definition being
+		// read where it stands is not a use that requires a definition; the
+		// specialization is declared here and completed where an instantiation
+		// asks for it.
+		complete_specialization(*made);
+	}
 	return *made;
 }
 
@@ -1374,7 +1389,7 @@ SemaEntity* SemaAnalyzer::template_id_entity(const std::string& component,
                                              const Context& ctx, Scope* in,
                                              LookupKind filter)
 {
-	if (!lowering() || component.find('<') == std::string::npos)
+	if (!templating() || component.find('<') == std::string::npos)
 	{
 		return nullptr;
 	}
@@ -1708,4 +1723,176 @@ TypeId SemaAnalyzer::substituted(
 	}
 	memo.insert(std::make_pair(type, out));
 	return out;
+}
+
+// 14.6p8: the reading a template definition's body gets where it stands.
+//
+// A template declares nothing until it is instantiated, but its definition is
+// still a definition.  14.6p8 makes one ill-formed - no diagnostic required -
+// if no valid specialization could be generated from it, and leaves to the
+// instantiation only what depends on a template parameter; so the body is read
+// once here, against the parameters its own head declared, and again for each
+// specialization against the arguments bound in their place.
+//
+// What that first reading asks is what the definition can answer on its own:
+// 3.3.3's regions the body opens, the declarations it makes in them, and 3.4p1's
+// lookup of every name it writes that no template parameter stands in the way
+// of.  It does not translate the body - a type that depends on a parameter has
+// no layout, no conversion and no overload set until an argument arrives - so
+// the reading is the PA11 one, which describes what a declaration says rather
+// than what it does.  Nothing it finds reaches the output: its lines are
+// written into a scope that is dropped with this call and no template-id it
+// names is instantiated.
+SemaAnalyzer::DialectReading::DialectReading(SemaAnalyzer& analyzer)
+	: analyzer_(analyzer)
+	, dialect_(analyzer.dialect_)
+{
+	analyzer_.dialect_ = SemaDialect::Types;
+	++analyzer_.checking_;
+}
+
+SemaAnalyzer::DialectReading::~DialectReading()
+{
+	--analyzer_.checking_;
+	analyzer_.dialect_ = dialect_;
+}
+
+void SemaAnalyzer::check_template_definition(
+	const AstNode& node, const Context& inner,
+	const std::vector<Parameter>& parameters, TypeId type)
+{
+	if (!lowering())
+	{
+		// PA11 and PA12 describe what a template-declaration *says*, and its
+		// body says nothing about the regions those assignments dump.
+		return;
+	}
+	// The reading is of a pattern rather than of a declaration this unit has,
+	// so its lines stand in a scope of their own that is dropped here.
+	DumpScope scratch;
+	Context reading = inner;
+	reading.dump = &scratch;
+	reading.node = nullptr;
+	const FunctionReading held(*this, nullptr, types_.target(type));
+	const DialectReading dialect(*this);
+	declare_parameters(parameters, type, reading, nullptr);
+	for (std::size_t index = 2; index < node.children.size(); ++index)
+	{
+		statement(*node.children[index], reading);
+	}
+}
+
+// 14.6p8 and 3.4p1: the names an expression written in a template definition
+// writes, looked up where the definition stands.
+//
+// Only what the definition can answer is asked.  A name written after `.`,
+// `->` or `::` is a member of whatever the prefix turned out to be, and
+// 14.6.2p1 leaves that to the instantiation; a template-id names a
+// specialization no argument list has been given yet; and 3.4.2p2 lets the
+// name of a called function be one only the arguments' own namespaces
+// declare.  What is left is the unqualified name of a value, and 3.4p1 settles
+// it here: it names something, it names one thing, and what it names is not a
+// type.
+void SemaAnalyzer::check_expression_names(const AstNode& node,
+                                          const Context& ctx)
+{
+	switch (node.kind)
+	{
+	case AstKind::IdExpression:
+	{
+		check_value_name(node, ctx);
+		return;
+	}
+
+	case AstKind::MemberExpression:
+		// 5.2.5p2 and 14.6.2p1: the object expression is an expression of this
+		// definition; the member name belongs to the class it turns out to
+		// have, which an argument is what settles.
+		if (!node.children.empty())
+		{
+			check_expression_names(*node.children[0], ctx);
+		}
+		return;
+
+	case AstKind::CallExpression:
+	{
+		// 3.4.2p2: an unqualified name written as the callee of a call is
+		// looked up in the namespaces of its arguments as well, which are
+		// classes an argument list has yet to name.  5.2.3p1's explicit type
+		// conversion is written the same way, so a type name stands there too.
+		for (std::size_t index = 0; index < node.children.size(); ++index)
+		{
+			const AstNode& child = *node.children[index];
+			if (index == 0 && child.kind == AstKind::IdExpression)
+			{
+				continue;
+			}
+			check_expression_names(child, ctx);
+		}
+		return;
+	}
+
+	case AstKind::SizeofExpression:
+	case AstKind::TypeTraitExpression:
+	case AstKind::NewExpression:
+	case AstKind::CastExpression:
+	case AstKind::LambdaExpression:
+	case AstKind::TypeId:
+	case AstKind::TypeSpecifierSeq:
+	case AstKind::DecltypeSpecifier:
+		// Each of these writes a type-id whose own names the declarator layer
+		// reads, and 5.3.3p1 leaves the operand of `sizeof` unevaluated.
+		return;
+
+	default:
+		for (std::size_t index = 0; index < node.children.size(); ++index)
+		{
+			check_expression_names(*node.children[index], ctx);
+		}
+		return;
+	}
+}
+
+void SemaAnalyzer::check_value_name(const AstNode& node, const Context& ctx)
+{
+	if (node.text.empty() || first_child(node, AstKind::CarriedExpression) != nullptr)
+	{
+		return;
+	}
+	const QualifiedName written(node.text);
+	if (written.qualified() || node.text.find('<') != std::string::npos)
+	{
+		// 3.4.3p1 reaches into a region a template parameter may stand for, and
+		// 14.2's template-id names a specialization this reading makes none of.
+		return;
+	}
+	SemaEntity* const named =
+		model_.lookup(*ctx.scope, node.text, LookupKind::Any);
+	if (named == nullptr)
+	{
+		// 1.4p8: a name the implementation reserves is declared where it is
+		// used, so the program not having written it is no error.
+		if (reserved_function(node.text, nullptr) != nullptr)
+		{
+			return;
+		}
+		throw std::runtime_error(node.text + " names nothing where the "
+		                         "template that writes it is defined");
+	}
+	switch (named->kind)
+	{
+	case SemaKind::Class:
+	case SemaKind::Enum:
+	case SemaKind::Typedef:
+	case SemaKind::TemplateType:
+	case SemaKind::Namespace:
+		// 5.1.1p8: an id-expression names a variable, a data member, a
+		// function or an enumerator, and a type-name written where one of
+		// those belongs names no value however the arguments come out.
+		throw std::runtime_error(node.text + " names a type where the template "
+		                         "that writes it uses it as a value");
+
+	default:
+		return;
+	}
 }

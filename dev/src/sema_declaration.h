@@ -1,0 +1,174 @@
+#pragma once
+
+#include <cstdint>
+#include <string>
+#include <vector>
+
+#include "sema_scope.h"
+#include "type_model.h"
+
+struct AstNode;
+
+// The typed records the declaration layer passes between its steps.
+//
+// 7p1's decl-specifier-seq, 8.3.5p4's parameter, 3.3's region a declaration is
+// read against, 12.6.2p1's mem-initializer and 5.19p3's value are what every
+// walk of a declaration hands to the next one, so they are the vocabulary of
+// that layer rather than of any one of its walks - the same split
+// `sema_value.h` makes for the expression layer.  Each holds facts and never
+// text.
+
+// Where a declaration is read: the region it declares into, and the dump
+// node its lines are written to.  The two part company where the standard
+// and the output format do: a member function defined outside its class
+// declares into the class and writes its lines there, while an enumeration
+// defined outside its class writes its lines where it is written.
+struct SemaContext
+{
+	SemaContext()
+		: scope(nullptr)
+		, dump(nullptr)
+		, node(nullptr)
+	{}
+
+	Scope* scope;
+	DumpScope* dump;
+	// The PA12 node a declaration read here writes under, which at block
+	// scope is the `simple-declaration` the statement opened.  Null where
+	// the output has no line for what a declaration declares, which is
+	// every member of a class.
+	DumpNode* node;
+};
+
+// The terminals a declaration was written from, which is what names an
+// unnamed class that no declarator names (9.5p2).
+struct SemaSpan
+{
+	std::uint32_t begin;
+	std::uint32_t end;
+};
+
+// A `decl-specifier-seq` or `type-specifier-seq` as read.
+struct DeclSpecifiers
+{
+	DeclSpecifiers();
+
+	unsigned counted[kSimpleTypeSpecifierCount];
+	unsigned builtins;
+	unsigned cv;
+	TypeId type_name;
+	bool has_type_name;
+	bool is_typedef;
+	bool is_constexpr;
+	// 3.1p2 and 7.1.1: an `extern` declaration with no initializer is not
+	// a definition of the object it declares.
+	bool is_extern;
+	// 9.4p1: a member declared `static` is not a member of an object, so it
+	// has no implicit object parameter and is reached without one.
+	bool is_static;
+	// 7.1.2p2: the definition of this function may be written in more than
+	// one translation unit, so no one unit owns the one the program has.
+	bool is_inline;
+	// 10.3p1: the member function this sequence declares is dispatched
+	// through the object's own class rather than through the name a call
+	// wrote, which 9.2p2 settles for the class as a whole.
+	bool is_virtual;
+	// 3.7.2p1 and 7.1.1p1: the variable this sequence declares has thread
+	// storage duration - one object per thread rather than one per program.
+	bool is_thread_local;
+	// 11.3p1: the declaration grants this class's access rather than
+	// declaring a member of it, so what it declares belongs to the region
+	// around the class and not to the class.
+	bool is_friend;
+	// 7.1.1p10: the non-static data members this sequence declares are not
+	// const however const the object holding them is, so a const member
+	// function may write one and 5.3.1p3 hands back a pointer to
+	// non-const.
+	bool is_mutable;
+	// 7.1.6.4p1 and 8.3.5p2: the sequence is the one type-specifier `auto`,
+	// which names no type of its own and stands for the one a
+	// trailing-return-type writes after the declarator-id.
+	bool is_auto;
+	// 7.6.2p1: the strictest alignment an alignment-specifier of this
+	// sequence asked for, or zero where it wrote none.
+	unsigned long long alignment;
+	// The class or enumeration this sequence declared.
+	SemaEntity* introduced;
+};
+
+// One parameter of a parameter-clause, before 8.3.5p4 drops a lone `void`.
+struct DeclaredParameter
+{
+	DeclaredParameter()
+		: type(kNoType)
+		, initializer(nullptr)
+	{}
+
+	std::string name;
+	TypeId type;
+	// 8.3.6p1: the default-argument this parameter was written with, which
+	// a call that omits the argument uses in its place.
+	const AstNode* initializer;
+};
+
+// A definition the dump writes at the end of the translation unit.
+//
+// 12.1p5 gives a class a constructor no declaration wrote, and 9.2p2 makes
+// a member function's body a complete-class context, which is read after
+// the class it is written in is closed.  Both are definitions the program
+// has that the place they are written cannot hold, so they are held here
+// and written where the output puts them.
+struct PendingDefinition
+{
+	PendingDefinition();
+
+	SemaEntity* function;
+	// The implicit object parameter of 9.3.1p3, which the dump writes as
+	// the first parameter of a member function.
+	SemaEntity* self;
+	// A member function's declarator and body, and the region its
+	// parameters were declared in.  Null for a constructor no declaration
+	// wrote, whose body is empty.
+	const AstNode* body;
+	Scope* scope;
+	std::vector<DeclaredParameter> parameters;
+	// 12.6.2: the ctor-initializer this constructor was written with, and
+	// the class whose members it initializes.  Both are null for a function
+	// that is not a constructor; `members` alone is set for the constructor
+	// 12.1p5 gives a class, whose initializations are all implied.
+	const AstNode* initializers;
+	Scope* members;
+	// 14.7.1: a specialization, which is a declaration the program did not
+	// write rather than a definition it did, and which the output writes as
+	// the declaration with the parameters of the template it was made from.
+	bool instantiation;
+};
+
+// 12.6.2: one mem-initializer of a ctor-initializer, indexed by the name
+// its mem-initializer-id ends in.  `used` says a member of that name was
+// reached, which 12.6.2p2 is what makes the mem-initializer-id name
+// something; `spelled` is what the diagnostic names when it does not.
+struct WrittenMemInitializer
+{
+	WrittenMemInitializer()
+		: written(nullptr)
+		, used(false)
+	{}
+
+	const AstNode* written;
+	std::string spelled;
+	bool used;
+};
+
+// A value of the 5.19 subset: what it is worth, and the type that says how
+// wide it is and whether it is signed.
+struct SemaConstant
+{
+	SemaConstant()
+		: type(kNoType)
+		, bits(0)
+	{}
+
+	TypeId type;
+	unsigned long long bits;
+};
