@@ -1,0 +1,6 @@
+ERROR: unknown class template explicit instantiation [top-level declaration 0 kind=explicit-instantiation-definition ast={explicit-instantiation-definition
+  class-forward-declaration missing_template<int>
+    class-key KW_CLASS:class
+}]
+Diagnostic context:
+collect_explicit_instantiation [template class missing_template<int>;] at course/pa19/100-explicit-instantiation-undeclared-template-bad.t:5:1

@@ -510,6 +510,13 @@ struct SemaEntity
 	// template-id or the call that asked for it.
 	SemaEntity* primary;
 	bool instantiated;
+	// 14.7.2p8: whether an explicit instantiation definition asked this unit
+	// for the definition of this function.  3.2p3 leaves an instantiated
+	// definition to the use that requires it, and an explicit instantiation is
+	// the one thing that requires it without writing a use - the definition is
+	// still the program's rather than this unit's, so what this changes is when
+	// the object file writes it and not how it binds.
+	bool explicitly_instantiated;
 	// 14.2 and the ABI's `<template-args>`: the arguments that made this
 	// specialization, as the interned list `TypeTable::type_list` keys a fact
 	// about one by.  Zero - the empty list - for every declaration no

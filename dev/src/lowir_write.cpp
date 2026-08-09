@@ -171,6 +171,10 @@ void symbol_metadata(const SymbolMetadata & metadata, MetadataText & out)
 	out.add("tls_for", metadata.tls_for_symbol.empty()
 	                       ? std::string()
 	                       : "@" + metadata.tls_for_symbol);
+	if (metadata.object_output_root)
+	{
+		out.add("object_root", "yes");
+	}
 	if (metadata.keep_internal_alias)
 	{
 		out.add("keep_alias", "yes");

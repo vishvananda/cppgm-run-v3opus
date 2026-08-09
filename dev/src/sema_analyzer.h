@@ -317,6 +317,8 @@ private:
 	void alias_declaration(const AstNode& node, const Context& ctx);
 	void static_assert_declaration(const AstNode& node, const Context& ctx);
 	void template_declaration(const AstNode& node, const Context& ctx);
+	// 14.7.2p1: a specialization named where no use of it stands.
+	void explicit_instantiation(const AstNode& node, const Context& ctx);
 	void template_parameter(const AstNode& node, const Context& ctx);
 	void simple_declaration(const AstNode& node, const Context& ctx);
 	void condition_declaration(const AstNode& node, const Context& ctx);

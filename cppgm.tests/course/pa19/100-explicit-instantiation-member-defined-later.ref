@@ -1,0 +1,11 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    return i32 0
+}
+function @late_box_int___early(%this : ptr) -> i32 [binding=weak, object=_ZNK8late_boxIiE5earlyEv, object_root=yes] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    return i32 1
+}

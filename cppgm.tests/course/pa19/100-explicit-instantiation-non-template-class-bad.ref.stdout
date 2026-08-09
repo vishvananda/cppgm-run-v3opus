@@ -1,0 +1,6 @@
+ERROR: explicit instantiation requires a class template-id [top-level declaration 1 kind=explicit-instantiation-definition ast={explicit-instantiation-definition
+  class-forward-declaration plain_class
+    class-key KW_CLASS:class
+}]
+Diagnostic context:
+collect_explicit_instantiation [template class plain_class;] at course/pa19/100-explicit-instantiation-non-template-class-bad.t:7:1

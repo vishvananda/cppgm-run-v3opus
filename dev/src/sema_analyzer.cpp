@@ -678,6 +678,10 @@ void SemaAnalyzer::declaration(const AstNode& node, const Context& ctx)
 		template_declaration(node, ctx);
 		return;
 
+	case AstKind::ExplicitInstantiationDeclaration:
+		explicit_instantiation(node, ctx);
+		return;
+
 	case AstKind::ClassSpecifier:
 	case AstKind::ClassForwardDeclaration:
 		// A class-specifier that is a whole declaration wrote no

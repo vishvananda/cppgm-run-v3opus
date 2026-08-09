@@ -107,6 +107,13 @@ AstNode* AstParser::parse_declaration(bool in_class)
 	{
 		node = parse_template_declaration(in_class);
 	}
+	else if (at(KW_TEMPLATE))
+	{
+		// 14.7.2p1: `template` with no template-parameter-clause after it is
+		// an explicit instantiation of the declaration it stands on, which is
+		// the same target `extern template` writes.
+		node = parse_explicit_instantiation();
+	}
 	else if (at(KW_STATIC_ASSERT))
 	{
 		node = parse_static_assert();
@@ -293,16 +300,43 @@ AstNode* AstParser::parse_linkage_specification()
 	return node;
 }
 
+namespace
+{
+
+// The grammar's `explicit-instantiation-target`: a class-declaration or a
+// simple-declaration, which is what 14.7.2p1 leaves room for a template-id in.
+// A declaration of any other shape declares no specialization, so `template;`
+// and `template using X = int;` are no explicit instantiation at all.
+bool is_explicit_instantiation_target(const AstNode& target)
+{
+	return target.kind == AstKind::ClassSpecifier ||
+		target.kind == AstKind::ClassForwardDeclaration ||
+		target.kind == AstKind::SimpleDeclaration;
+}
+
+}
+
 AstNode* AstParser::parse_explicit_instantiation()
 {
 	const Mark start = mark();
-	pos_ += 2;
+	// 14.7.2p1 and 14.7.2p9: the two forms differ by the one keyword written
+	// in front, which is what says whether the instantiation is a definition
+	// or a declaration that leaves the definitions to another unit.  The
+	// definition form carries that keyword, because the declaration form is
+	// the one the PA10 dump already spells with no terminal of its own.
+	const bool extern_form = accept(KW_EXTERN);
+	++pos_;
 	AstNode* target = parse_declaration(false);
-	if (target == nullptr)
+	if (target == nullptr || !is_explicit_instantiation_target(*target))
 	{
 		return fail(start);
 	}
 	AstNode* node = make(AstKind::ExplicitInstantiationDeclaration);
+	if (!extern_form)
+	{
+		node->token = KW_TEMPLATE;
+		node->text = "template";
+	}
 	node->add(target);
 	return node;
 }

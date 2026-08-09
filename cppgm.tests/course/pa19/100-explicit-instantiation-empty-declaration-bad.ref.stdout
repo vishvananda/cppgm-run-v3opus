@@ -1,0 +1,1 @@
+ERROR: expected declaration near KW_TEMPLATE:template at token 0 at course/pa19/100-explicit-instantiation-empty-declaration-bad.t:5:1

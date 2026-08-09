@@ -1,0 +1,7 @@
+ERROR: unsupported explicit instantiation declaration form [top-level declaration 0 kind=explicit-instantiation-definition ast={explicit-instantiation-definition
+  simple-declaration
+    decl-specifier-seq
+      decl-specifier KW_INT:int
+}]
+Diagnostic context:
+collect_explicit_instantiation [template int;] at course/pa19/100-explicit-instantiation-declares-nothing-bad.t:5:1

@@ -338,6 +338,12 @@ void LowirUnitLowering::describe_symbol(const SemaEntity& entity,
 		? lowir_model::SBM_INTERNAL
 		: (shared_definition(entity) ? lowir_model::SBM_WEAK
 		                             : lowir_model::SBM_STRONG);
+	// 14.7.2p8 and 3.2p3: a definition every unit may hold is one the object
+	// file writes only where a use asks for it, and an explicit instantiation
+	// is the one declaration that asks with no use to point at - so the symbol
+	// is a root of this object file however unreachable the rest of it leaves
+	// it, which is a fact the backend needs and nothing in the body says.
+	metadata.object_output_root = entity.explicitly_instantiated;
 	// 7.5p1: the language linkage a backend needs is a fact about the
 	// declaration, which no LowIR type says.
 	if (entity.c_linkage)
@@ -650,6 +656,7 @@ void LowirUnitLowering::collect_definitions(const DumpNode& node)
 				owe_deleting_entry(*child.fact.entity);
 			}
 			if (shared_definition(*child.fact.entity) &&
+			    !child.fact.entity->explicitly_instantiated &&
 			    !(child.fact.entity->friend_definition &&
 			      child.fact.entity->internal_linkage))
 			{

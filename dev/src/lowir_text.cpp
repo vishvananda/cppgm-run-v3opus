@@ -406,7 +406,8 @@ bool apply_flag_item(const MetaItem & item, SymbolMetadata & metadata, bool is_f
 {
   bool * flag = 0;
   bool functions_only = false;
-  if(item.key == "keep_alias") { flag = &metadata.keep_internal_alias; }
+  if(item.key == "object_root") { flag = &metadata.object_output_root; }
+  else if(item.key == "keep_alias") { flag = &metadata.keep_internal_alias; }
   else if(item.key == "prefer_local") { flag = &metadata.prefer_local_object_binding; }
   else if(item.key == "trivial_lifecycle") {
     flag = &metadata.object_trivial_lifecycle;
