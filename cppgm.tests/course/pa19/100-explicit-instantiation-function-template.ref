@@ -1,0 +1,12 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    return i32 0
+}
+function @carried(%value : i32) -> i32 [binding=weak, object=_Z7carriedIiET_S0_, object_root=yes] {
+  slot $value : i32
+
+  block ^entry:
+    store i32 %value, $value
+    %t1 = load i32 $value
+    return i32 %t1
+}

@@ -245,6 +245,24 @@ struct WrittenMemInitializer
 	bool used;
 };
 
+// 8.5p16 and 8.5.4: the form the initializer of an object of class type was
+// written with, read once from what the program wrote and before anything is
+// written for the initialization.
+struct WrittenInitializer
+{
+	WrittenInitializer()
+		: list(nullptr)
+		, converting(false)
+		, elided_prvalue(false)
+		, value_init(false)
+	{}
+
+	const AstNode* list;
+	bool converting;
+	bool elided_prvalue;
+	bool value_init;
+};
+
 // A value of the 5.19 subset: what it is worth, and the type that says how
 // wide it is and whether it is signed.
 struct SemaConstant

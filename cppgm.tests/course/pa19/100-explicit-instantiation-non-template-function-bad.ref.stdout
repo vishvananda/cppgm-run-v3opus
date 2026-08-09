@@ -1,0 +1,15 @@
+ERROR: unknown function template explicit instantiation [top-level declaration 1 kind=explicit-instantiation-definition ast={explicit-instantiation-definition
+  simple-declaration
+    decl-specifier-seq
+      decl-specifier KW_INT:int
+    init-declarator-list
+      init-declarator
+        declarator
+          identifier plain
+          parameter-clause
+            parameter-declaration
+              decl-specifier-seq
+                decl-specifier KW_INT:int
+}]
+Diagnostic context:
+collect_explicit_instantiation [template int plain(int);] at course/pa19/100-explicit-instantiation-non-template-function-bad.t:7:1

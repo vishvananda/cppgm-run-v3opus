@@ -1,0 +1,11 @@
+ERROR: unsupported explicit instantiation target [top-level declaration 1 kind=explicit-instantiation-definition ast={explicit-instantiation-definition
+  simple-declaration
+    decl-specifier-seq
+      decl-specifier KW_INT:int
+    init-declarator-list
+      init-declarator
+        declarator
+          identifier slot
+}]
+Diagnostic context:
+collect_explicit_instantiation [template int slot;] at course/pa19/100-explicit-instantiation-names-an-object-bad.t:7:1

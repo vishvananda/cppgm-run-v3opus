@@ -1599,6 +1599,181 @@ void demand_member_definitions(SemaEntity& made)
 	}
 }
 
+// The one declarator 14.7.2p1's simple-declaration target writes.
+const AstNode* instantiated_declarator(const AstNode& target)
+{
+	for (std::size_t index = 0; index < target.children.size(); ++index)
+	{
+		const AstNode& child = *target.children[index];
+		if (child.kind != AstKind::InitDeclaratorList ||
+		    child.children.empty() || child.children[0]->children.empty())
+		{
+			continue;
+		}
+		return child.children[0]->children[0];
+	}
+	return nullptr;
+}
+
+}
+
+// 14.7.2p2: which declaration the type an explicit instantiation wrote names.
+// 14.8.1's explicit argument list makes the specialization outright and the
+// type is what tells the declarations of the name it fits apart; where none was
+// written, 14.8.2.2 deduces the arguments from that same type.  A member of a
+// class template specialization is a third answer: it is no template of its
+// own - the class its prefix named declared it as an ordinary member - so what
+// says it is a specialization is the region it stands in, and the type is all
+// there is to match.
+SemaEntity* SemaAnalyzer::instantiation_named(const std::string& written,
+                                              const std::string& name,
+                                              TypeId declared, TypeId member,
+                                              const Context& ctx,
+                                              bool instantiated_region)
+{
+	if (TemplateId(name).valid())
+	{
+		std::vector<SemaEntity*> found;
+		template_specializations(written, ctx, found);
+		for (std::size_t index = 0; index < found.size(); ++index)
+		{
+			if (found[index]->type ==
+			    (found[index]->object_member ? member : declared))
+			{
+				return found[index];
+			}
+		}
+		return nullptr;
+	}
+	SemaEntity* first = resolve(written, ctx, LookupKind::Any);
+	if (first == nullptr && name != written)
+	{
+		// 3.4.3.1p1: a name written behind a class template specialization is a
+		// member of the class that specialization is, which is a region no
+		// spelling of the template's own name reaches.
+		first = resolve(name, ctx, LookupKind::Any);
+	}
+	SemaEntity* chosen = nullptr;
+	for (SemaEntity* at = first; at != nullptr; at = at->next)
+	{
+		// 9.3.1p3's object parameter is part of what a declaration says, so
+		// the type this matches is the one *that* declaration was recorded
+		// with: a member function carries it and a namespace-scope one does
+		// not.
+		const TypeId wanted = at->object_member ? member : declared;
+		SemaEntity* const one = at->template_parameters != nullptr
+			? deduce_target(*at, wanted)
+			: ((instantiated_region || at->primary != nullptr) &&
+			   at->type == wanted
+				? at
+				: nullptr);
+		if (one == nullptr)
+		{
+			continue;
+		}
+		if (chosen != nullptr && chosen != one)
+		{
+			// 14.7.2p2 leaves the declaration naming one specialization, and two
+			// that both deduce this type name no one of them.
+			return nullptr;
+		}
+		chosen = one;
+	}
+	return chosen;
+}
+
+// 14.7.2p1's other target: a declaration whose declarator names a function or
+// an object rather than a class.  It declares nothing - the specialization it
+// names was made by the template that has it - so the declaration is read for
+// the type it writes and the answer is looked for among the specializations of
+// its name, and what it changes is which unit's object file owes the
+// definition.
+void SemaAnalyzer::explicit_instantiation_declarator(const AstNode& target,
+                                                     const Context& ctx)
+{
+	const AstNode* const declarator = instantiated_declarator(target);
+	if (declarator == nullptr)
+	{
+		// 14.7.2p2: the declaration shall name a specialization, so one with no
+		// declarator at all names nothing.
+		throw std::runtime_error("an explicit instantiation writes a "
+		                         "declaration that declares nothing");
+	}
+	if (!templating())
+	{
+		// PA11 and PA12 describe what a declaration says and instantiate
+		// nothing, so the template layer has no specialization to answer with.
+		return;
+	}
+	const AstNode* const id = declarator_id(*declarator);
+	const std::string written = id == nullptr ? std::string() : id->text;
+	const QualifiedName spelled(written);
+	Span span;
+	span.begin = target.begin;
+	span.end = target.end;
+	const Naming naming(*this, naming_context(written, ctx));
+	const Specifiers specifiers =
+		read_specifiers(*target.children[0], ctx, span, true, written);
+	// 3.4.1p8: the rest of a declarator whose declarator-id is qualified is
+	// read in the region that name reaches, which for a member of a class
+	// template specialization is the class this names.
+	Context reached = ctx;
+	bool instantiated_region = false;
+	if (spelled.qualified())
+	{
+		reached.scope = resolve_prefix(spelled, ctx);
+		reached.dump = reached.scope->dump;
+		instantiated_region = reached.scope->owner != nullptr &&
+			reached.scope->owner->primary != nullptr;
+		if (instantiated_region)
+		{
+			// 14.7.1p1: a specialization holds no member until something asks
+			// for its completion, and 14.7.2p2's declaration names one of them.
+			require_specialization(*reached.scope->owner);
+		}
+	}
+	std::string ignored;
+	TypeId type = declarator_type(*declarator, specifier_type(specifiers),
+	                              spelled.qualified() ? reached : ctx, &ignored);
+	// 9.3.1p3: the object a member function is called on is no part of what
+	// its declarator wrote and is part of the type its declaration has, so
+	// the declaration this names is matched by the type *it* was recorded
+	// with - both spellings are built here and each candidate is asked with
+	// the one it carries.  14.7.2p1's other declarator names a static data
+	// member, which is called on nothing.
+	const TypeId member =
+		types_.kind(type) == TypeKind::Function
+			? with_object_parameter(type, *declarator, reached,
+			                        specifiers.is_static, spelled.last(),
+			                        spelled.qualified())
+			: type;
+	SemaEntity* const made =
+		instantiation_named(written, spelled.last(), type, member,
+		                    spelled.qualified() ? reached : ctx,
+		                    instantiated_region);
+	if (made == nullptr)
+	{
+		throw std::runtime_error("an explicit instantiation names " + written +
+		                         ", which is no specialization of a template");
+	}
+	// 14.7.2p8 and 3.2p3: the definition is still the program's rather than
+	// this unit's, so what this says is that this object file owes it with no
+	// use to point at.  A static data member's definition waits for no use, so
+	// naming its class is the whole of what this asks for - which is where the
+	// class form leaves one too.
+	if (made->kind != SemaKind::Function)
+	{
+		return;
+	}
+	made->explicitly_instantiated = true;
+	if (made->primary != nullptr &&
+	    made->primary->template_parameters != nullptr)
+	{
+		// 14.7.2p8: a function template's specialization is instantiated here,
+		// where a member of a class template specialization was instantiated
+		// with the class its prefix named.
+		instantiate(*made);
+	}
 }
 
 // 14.7.2p1: an explicit instantiation, which names a specialization where no
@@ -1621,17 +1796,7 @@ void SemaAnalyzer::explicit_instantiation(const AstNode& node,
 	const AstNode& target = *node.children[0];
 	if (target.kind == AstKind::SimpleDeclaration)
 	{
-		// 14.7.2p1's other target is a declaration whose declarator names a
-		// function or an object, which is the shape 14.8.1's argument list is
-		// read for; this milestone instantiates the class form.  What it still
-		// asks is 14.7.2p2's question - the declaration shall name one - so a
-		// declaration with no declarator at all is refused here rather than
-		// read as an explicit instantiation of nothing.
-		if (target.children.size() < 2)
-		{
-			throw std::runtime_error("an explicit instantiation writes a "
-			                         "declaration that declares nothing");
-		}
+		explicit_instantiation_declarator(target, ctx);
 		return;
 	}
 	if (target.kind != AstKind::ClassForwardDeclaration)

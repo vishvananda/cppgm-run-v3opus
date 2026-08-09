@@ -319,6 +319,15 @@ private:
 	void template_declaration(const AstNode& node, const Context& ctx);
 	// 14.7.2p1: a specialization named where no use of it stands.
 	void explicit_instantiation(const AstNode& node, const Context& ctx);
+	// 14.7.2p1's simple-declaration target, which names a function or an
+	// object rather than a class.
+	void explicit_instantiation_declarator(const AstNode& target,
+	                                       const Context& ctx);
+	// 14.7.2p2: the specialization the type such a declaration wrote names.
+	SemaEntity* instantiation_named(const std::string& written,
+	                                const std::string& name, TypeId declared,
+	                                TypeId member, const Context& ctx,
+	                                bool instantiated_region);
 	void template_parameter(const AstNode& node, const Context& ctx);
 	void simple_declaration(const AstNode& node, const Context& ctx);
 	void condition_declaration(const AstNode& node, const Context& ctx);
@@ -1031,23 +1040,7 @@ private:
 	// class type was written with is - a list whose clauses are the
 	// constructor's arguments, one expression a converting constructor answers,
 	// or the `T(a, b)` and `T{...}` whose arguments are the object's own
-	// because 12.8p31 leaves no prvalue standing between them.  Read once from
-	// what the program wrote, before anything is written for the
-	// initialization.
-	struct WrittenInitializer
-	{
-		WrittenInitializer()
-			: list(nullptr)
-			, converting(false)
-			, elided_prvalue(false)
-			, value_init(false)
-		{}
-
-		const AstNode* list;
-		bool converting;
-		bool elided_prvalue;
-		bool value_init;
-	};
+	// because 12.8p31 leaves no prvalue standing between them.
 	WrittenInitializer read_initializer(const AstNode* written,
 	                                    TypeId object_type, const Context& ctx,
 	                                    bool value_init);

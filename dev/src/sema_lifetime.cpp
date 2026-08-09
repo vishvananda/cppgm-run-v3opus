@@ -317,7 +317,7 @@ bool SemaAnalyzer::elide_transfer(const SemaEntity& constructor,
 	return true;
 }
 
-SemaAnalyzer::WrittenInitializer SemaAnalyzer::read_initializer(
+WrittenInitializer SemaAnalyzer::read_initializer(
 	const AstNode* written, TypeId object_type, const Context& ctx,
 	bool value_init)
 {

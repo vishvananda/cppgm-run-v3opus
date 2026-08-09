@@ -1,0 +1,14 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    return i32 0
+}
+function @doubled(%value : i64) -> i64 [binding=weak, object=_Z7doubledIlET_S0_, object_root=yes] {
+  slot $value : i64
+
+  block ^entry:
+    store i64 %value, $value
+    %t1 = load i64 $value
+    %t2 = load i64 $value
+    %t3 = binary add i64 %t1, %t2
+    return i64 %t3
+}
