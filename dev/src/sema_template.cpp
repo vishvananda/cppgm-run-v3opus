@@ -831,8 +831,6 @@ void SemaAnalyzer::instantiate_body(SemaEntity& function)
 
 void SemaAnalyzer::write_instantiation(const Pending& pending)
 {
-	// The list this walk is over grows while a body is read, so what the
-	// pending entry says is taken before anything can move it.
 	SemaEntity& asked = *pending.function;
 	if (asked.primary->defined)
 	{

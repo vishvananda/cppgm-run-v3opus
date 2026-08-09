@@ -1906,9 +1906,6 @@ private:
 	// The type standing for the `index`th place a template head declares,
 	// made once and shared by every signature.
 	TypeId canonical_parameter(std::size_t index);
-	std::vector<TypeId> canonical_parameters_;
-	// The signature above, kept per declaration.
-	std::unordered_map<std::uint32_t, TypeId> template_signatures_;
 	// 14.5.1.3p1: the class template a definition written outside its class is
 	// a member of, found from the template-id its declarator-id was qualified
 	// with.  Null for a declaration that is a member of no such template.
@@ -2261,6 +2258,11 @@ private:
 	// the other, keyed by the two declarations.  It is a fact of the pair, and
 	// 13.3.3p1 asks it of the same pair once for every comparison a call makes.
 	std::unordered_map<std::uint64_t, bool> specialization_order_;
+	// 14.5.6.1p5: the place each parameter of a template head was declared in,
+	// standing for the parameter itself, and the signature `template_signature`
+	// builds out of them, kept per declaration.
+	std::vector<TypeId> canonical_parameters_;
+	std::unordered_map<std::uint32_t, TypeId> template_signatures_;
 	// 14p1: the declaration the template-declaration being read parameterises,
 	// and the dump its lines stand in, while its declarators are read.  Null
 	// wherever the walk is not inside one.
