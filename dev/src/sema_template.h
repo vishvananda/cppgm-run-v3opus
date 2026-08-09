@@ -6,6 +6,8 @@
 struct AstNode;
 class Scope;
 struct DumpScope;
+struct SemaEntity;
+class TypeTable;
 
 // 14p1: what a template-declaration parameterises.
 //
@@ -70,3 +72,9 @@ struct TemplateInfo
 	// definition read after them is read against.
 	std::vector<SemaEntity*> specializations;
 };
+
+// 14.7.1p1 and 14.2: whether the definition a unit holds of `function` is one
+// an instantiation made rather than one the program wrote out - which a
+// specialization of a function template is, and so is every member of a class a
+// template-id named, however deeply the classes it belongs to nest.
+bool instantiated_declaration(const SemaEntity& function, TypeTable& types);

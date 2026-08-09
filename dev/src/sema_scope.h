@@ -373,6 +373,35 @@ struct SemaEntity
 	// body emitted again under its own name, which is what a base subobject's
 	// own action calls.
 	bool base_object_entry;
+	// 14.7.1p1: whether that base subobject stood in a body the program wrote
+	// out rather than in one an instantiation made.  A use the program wrote is
+	// what asks this unit for the whole of an instantiated definition, so the
+	// object file holds both of the ABI's entry points for it; a use inside
+	// another instantiation asks for the entry it names, because the
+	// instantiation that wrote it is what owes the rest.
+	bool source_base_entry;
+	// 12.1p5, 12.4p4 and 12.8p8: whether this member is one the standard
+	// declared for the class rather than one a declaration of the program's
+	// did.  14.7.1p1 is what asks: instantiating a class instantiates the
+	// declarations the *pattern* wrote, and a member the standard gives a
+	// specialization is given by the specialization's own class-specifier
+	// exactly as it is given to a class the program wrote out - so it is no
+	// part of what an instantiation made.
+	bool implicit_declaration;
+	// 8.4.2p2 and 9.3p2: whether the definition this unit holds of this special
+	// member was written outside its class.  3.2p4 makes such a definition one
+	// this unit writes whether or not a call of it stands here - 12.8p12's copy
+	// of the bytes leaves none - and the ABI's two entry points are both names
+	// the program gave a definition it wrote out.
+	bool out_of_class_definition;
+	// 14.7.1p1 and 3.2p3: whether a body an instantiation was reading named
+	// this function.  Naming it there is what made its definition, and a
+	// definition an instantiation made is one this unit holds however the use
+	// that named it is carried out - 12.8p12's copy of an object's bytes leaves
+	// no call behind and the definition still stands.  A use written outside
+	// every instantiation asks for nothing of the sort: there was no definition
+	// to make, so a copy carried as bytes there names no function at all.
+	bool instantiated_use;
 	// 7.3.3p1: the declaration a using-declaration in a class named, which this
 	// member of that class stands for.  The class declares it, so 11p1's access
 	// and 7.3.3p14's hiding are asked of this declaration, while every use of

@@ -284,6 +284,22 @@ bool LowirUnitLowering::writes_base_entry(const SemaEntity& entity)
 		// whichever of them a use here happened to write.
 		return true;
 	}
+	if (entity.defined && entity.base_object_entry &&
+	    (entity.source_base_entry || entity.instantiated_use) &&
+	    (abi_instantiated(entity, types_) || entity.out_of_class_definition))
+	{
+		// 14.7.1p1: what the use that made this instantiated definition asked
+		// for is what the object file holds.  A base subobject the program
+		// wrote out asks for the whole function, so both of the ABI's entry
+		// points stand here; so does a use whose call 12.8p12 left out, because
+		// what that use asked for was the definition and not any entry of it.
+		// A base subobject written inside another instantiation asks for the
+		// entry it names alone - the instantiation that wrote it is what owes
+		// the rest - and a member defined in the body of a class the program
+		// wrote out is 9.3p2's: the names it owes are the names this unit's own
+		// code wrote.
+		return true;
+	}
 	return entity.complete_object_entry && entity.base_object_entry;
 }
 
@@ -2108,8 +2124,19 @@ void LowirUnitLowering::owe_elided_construction(const SemaEntity& constructor,
 
 void LowirUnitLowering::owe_internal_definition(const SemaEntity& entity)
 {
-	if (entity.internal_linkage)
+	if (entity.internal_linkage || entity.instantiated_use ||
+	    (entity.out_of_class_definition && !abi_instantiated(entity, types_)))
 	{
+		// 14.7.1p1: a use inside a body an instantiation made is what made this
+		// definition, so the unit holds it whether or not the call it stood for
+		// was written - which is the same reason 3.5p4's internal linkage keeps
+		// one: a definition this unit made is one no other unit will make.
+		//
+		// 3.2p4 and 8.4.2p2: so is a definition the program wrote outside the
+		// class.  A template's out-of-class member definition is not one of
+		// those: it is the pattern of a definition, and 14.7.1p1 leaves the
+		// specialization's own to the use that requires it - which a copy
+		// carried as bytes does not.
 		demand_definition(entity);
 	}
 }

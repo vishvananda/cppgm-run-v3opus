@@ -1,0 +1,49 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $first : obj<4x4>
+  slot $second : obj<4x4>
+
+  block ^entry:
+    %t1 = addr $first
+    call void @Counted__Counted(%t1, 3)
+    %t2 = addr $second
+    %t3 = addr $first
+    call void @Counted__Counted__ov2(%t2, %t3)
+    %t4 = addr $second
+    %t5 = index i8 [projection=field] %t4, 0
+    %t6 = load i32 %t5
+    %t7 = binary sub i32 %t6, 4
+    return i32 %t7
+}
+function @Counted__Counted(%this : ptr, %v : i32) -> void [binding=weak, object=_ZN7CountedC1Ei] {
+  slot $this : ptr
+  slot $v : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %v, $v
+    %t1 = load i32 $v
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 %t1, %t3
+    return void
+}
+function @Counted__Counted__ov2(%this : ptr, %other : ptr [pass=reference]) -> void [binding=weak, object=_ZN7CountedC1ERKS_] {
+  slot $this : ptr
+  slot $other : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    store ptr %other, $other
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    %t3 = load ptr $other
+    %t4 = index i8 [projection=field] %t3, 0
+    %t5 = load i32 %t4
+    %t6 = binary add i32 %t5, 1
+    %t7 = load ptr $this
+    %t8 = index i8 [projection=field] %t7, 0
+    store i32 %t6, %t8
+    return void
+}
+alias object _ZN7CountedC2Ei = @Counted__Counted
+alias object _ZN7CountedC2ERKS_ = @Counted__Counted__ov2

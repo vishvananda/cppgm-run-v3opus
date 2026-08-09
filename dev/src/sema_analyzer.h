@@ -417,8 +417,10 @@ private:
 	void declare_transfer_member(SemaEntity& entity, Scope& scope,
 	                             unsigned char kind, bool deleted);
 	// 12.8p11/p12/p23/p25: whether each of them is one the standard can define
-	// and whether its definition is the copy of an object's bytes.
+	// and whether its definition is the copy of an object's bytes - and 8.4.2p2
+	// the same again, where a definition outside the class is what said so.
 	void settle_transfers(SemaEntity& entity, Scope& scope);
+	void resettle_defaulted_member(SemaEntity& function);
 	// 10.3p1 read before 9.2p13 lays the class out: whether an object of the
 	// class carries a vpointer, and whether this class is the one that adds it.
 	void note_polymorphism(SemaEntity& entity, Scope& scope);
@@ -643,10 +645,11 @@ private:
 	// rather than an object a declaration named.
 	void destructor_action(SemaEntity& entity, DumpNode& parent,
 	                       Placement where);
-	// 12.4 and the ABI: which of the destructor's two entry points a use of it
-	// names, and the definition 12.4p6 gives an implicitly declared one.  Every
-	// end of a lifetime asks this, whether a statement writes the call or
-	// 15.2p2 leaves it to the cleanup around a partly built object.
+	// 12.1, 12.4 and the ABI: which of the two entry points a use of a
+	// constructor or a destructor names, and the definition 12.4p6 gives an
+	// implicitly declared one.  Every beginning and end of a lifetime asks it,
+	// whether a statement writes the call or 15.2p2 leaves it to a cleanup.
+	void note_construction_entry(SemaEntity& constructor, bool base);
 	void note_destruction_entry(SemaEntity& destructor, bool base);
 	// 15.2p2: records the destructor of a subobject a constructor step has just
 	// built, for the question the caller asks once every step has been read.
@@ -1808,9 +1811,11 @@ private:
 	bool wrote_dependent_base(const AstNode& specifier) const;
 	// 9.2p2 and 14.7.1p1: the end of the unit writes this definition, unless an
 	// instantiation is what made it - and then the use that names the member
-	// is what asks for it, which `require_definition` is.
+	// is what asks for it, which `require_definition` is - or, for 3.2p3's use
+	// with no call under it, `note_instantiated_transfer`.
 	void queue_definition(const Pending& pending);
 	void require_definition(SemaEntity& function);
+	void note_instantiated_transfer(SemaEntity& constructor);
 	// 10.3p10: the virtual members every table this instantiation made names.
 	void require_table_definitions(SemaEntity& made);
 	// 14.6p8: the reading a class template's definition, and an out-of-class
@@ -2230,8 +2235,10 @@ private:
 	// members nothing calls could not have been read against.
 	std::unordered_map<std::uint32_t, Pending> held_definitions_;
 	// 14.7.1p1: how many readings of a pattern for a specialization stand
-	// around this walk, which is what says whose definitions are its own.
+	// around this walk, which says whose definitions are its own, and whether a
+	// body one made stands around it - what 3.2p3 asks of an elided use.
 	unsigned instantiating_class_;
+	unsigned instantiated_body_;
 	// 14.6.2p3: the base-specifiers a reading found to name a dependent type.
 	// It is the syntax that is dependent and not the class the arguments make
 	// of it, so the fact belongs to the clause the program wrote once - which

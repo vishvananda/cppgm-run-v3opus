@@ -576,18 +576,7 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 		                         types_.description(variable.type) +
 		                         " is what initializes an object of it");
 	}
-	if (where != Placement::Base)
-	{
-		// 12.1 and the ABI: what this action creates is a complete object -
-		// a named one, or the member subobject that is one of its own - so it
-		// runs the complete-object entry of the constructor.  A base class
-		// subobject is the one case that runs the base-object entry instead.
-		constructor.complete_object_entry = true;
-	}
-	else
-	{
-		constructor.base_object_entry = true;
-	}
+	note_construction_entry(constructor, where == Placement::Base);
 	if (member && !constructor.trivial)
 	{
 		// 15.2p2: this step builds a subobject an exception out of a later one
@@ -1019,6 +1008,7 @@ void SemaAnalyzer::demand_constructor_definition(SemaEntity& constructor)
 	// 14.7.1p1: building an object is a use of the constructor 13.3.1.3 chose,
 	// and a specialization's own is a body the instantiation put aside.
 	require_definition(constructor);
+	note_instantiated_transfer(constructor);
 	if (constructor.defined || constructor.deleted || !constructor.defaulted)
 	{
 		return;
@@ -2379,6 +2369,16 @@ void SemaAnalyzer::write_transfer_steps(const Pending& pending, DumpNode& line,
 // a second end to run, which is what says the bytes are not the whole of it.
 bool SemaAnalyzer::carried_as_storage(TypeId type, unsigned char kind)
 {
+	if (types_.is_reference(type))
+	{
+		// 8.3.2p1 and 8.5.3p2: a reference is not an object, so a subobject of
+		// reference type has no bytes of its own for a copy to carry.  What
+		// 12.8p15 gives it is the initialization of a reference, which binds
+		// the one this transfer builds to the object the source's is bound to -
+		// the read of the source the ABI's reference projection is, and the
+		// write of the binding the destination holds.
+		return false;
+	}
 	const TypeId bare = member_copy_type(type);
 	if (!types_.is_class(bare))
 	{

@@ -1,0 +1,50 @@
+function @Held__Held__ov2(%this : ptr, %__param1 : ptr [pass=reference]) -> void [unwind=no, binding=weak, object=_ZN4HeldC1ERKS_, trivial_lifecycle=yes] {
+  slot $this : ptr
+  slot $__param1 : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    store ptr %__param1, $__param1
+    %t1 = load ptr $__param1
+    %t2 = index i8 [projection=reference_field] %t1, 0
+    %t3 = load ptr %t2
+    %t4 = load ptr $this
+    %t5 = index i8 [projection=field] %t4, 0
+    store ptr %t3, %t5
+    return void
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $value : i32
+  slot $source : obj<8x8>
+  slot $copy : obj<8x8>
+
+  block ^entry:
+    store i32 6, $value
+    %t1 = addr $source
+    %t2 = addr $value
+    call void @Held__Held(%t1, %t2)
+    %t3 = addr $copy
+    %t4 = addr $source
+    copyobj 8x8 %t4, %t3
+    %t5 = addr $copy
+    %t6 = index i8 [projection=reference_field] %t5, 0
+    %t7 = load ptr %t6
+    %t8 = load i32 %t7
+    %t9 = binary sub i32 %t8, 6
+    return i32 %t9
+}
+function @Held__Held(%this : ptr, %r : ptr [pass=reference]) -> void [binding=weak, object=_ZN4HeldC1ERi] {
+  slot $this : ptr
+  slot $r : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    store ptr %r, $r
+    %t1 = load ptr $r
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store ptr %t1, %t3
+    return void
+}
+alias object _ZN4HeldC2ERKS_ = @Held__Held__ov2
+alias object _ZN4HeldC2ERi = @Held__Held

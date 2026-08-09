@@ -85,6 +85,7 @@ SemaAnalyzer::SemaAnalyzer(SemaDialect dialect)
 	, anonymous_enums_(0)
 	, local_types_(0)
 	, instantiating_class_(0)
+	, instantiated_body_(0)
 	, template_pattern_(nullptr)
 	, template_pattern_dump_(nullptr)
 	, instantiating_(nullptr)
@@ -461,6 +462,26 @@ void SemaAnalyzer::write_default_argument(const SemaEntity& function,
 // lifetime asks the same two things, whether a statement writes the call or
 // 15.2p2 leaves it to the cleanup around a partly built object, so both are
 // settled here rather than beside each of the places that end one.
+// 12.1 and the ABI: what an initialization creates is a complete object - one a
+// declaration named, or the member subobject that is one of its own - so it
+// runs the complete-object entry of the constructor.  A base class subobject is
+// the one case that runs the base-object entry instead.
+void SemaAnalyzer::note_construction_entry(SemaEntity& constructor, bool base)
+{
+	if (!base)
+	{
+		constructor.complete_object_entry = true;
+		return;
+	}
+	constructor.base_object_entry = true;
+	// 14.7.1p1: a base subobject the program itself wrote the construction of
+	// is what asks this unit for the whole of an instantiated definition, entry
+	// points and all - one written inside another instantiation asks for the
+	// entry it names, because that instantiation owes the rest.
+	constructor.source_base_entry =
+		constructor.source_base_entry || instantiated_body_ == 0;
+}
+
 void SemaAnalyzer::note_destruction_entry(SemaEntity& destructor, bool base)
 {
 	// 14.7.1p1 and 12.4p11: ending the lifetime of an object is a use of its
@@ -469,6 +490,8 @@ void SemaAnalyzer::note_destruction_entry(SemaEntity& destructor, bool base)
 	if (base)
 	{
 		destructor.base_object_entry = true;
+		destructor.source_base_entry =
+			destructor.source_base_entry || instantiated_body_ == 0;
 	}
 	else
 	{
@@ -518,7 +541,16 @@ void SemaAnalyzer::write_pending_definitions()
 	// once, so the walk ends.
 	for (std::size_t index = 0; index < pending_.size(); ++index)
 	{
+		// 14.7.1p1: a body an instantiation made is read here as one the
+		// program wrote is read where it stands, and the difference between
+		// them is what 3.2p3 asks of the uses written inside.  A body reached
+		// from this walk never stands inside another - what it names joins the
+		// list rather than being read where it is named - so the mark is set
+		// per entry rather than saved and restored around a nest.
+		instantiated_body_ =
+			instantiated_declaration(*pending_[index].function, types_) ? 1 : 0;
 		write_definition(pending_[index]);
+		instantiated_body_ = 0;
 	}
 }
 
@@ -2205,6 +2237,14 @@ void SemaAnalyzer::declare_function_declarator(
 		function.defined = false;
 		function.inline_function =
 			function.inline_function || !outside_the_class;
+		if (outside_the_class)
+		{
+			function.out_of_class_definition = true;
+			// 8.4.2p2 and 12.8p12: the class was complete before this
+			// definition was read, so what the standard's definition of the
+			// member comes to is settled again against it.
+			resettle_defaulted_member(function);
+		}
 		// 12.8p28: the definition the standard gives this declaration names the
 		// object it reads from throughout, and the declarator is what said what
 		// that name is - so the parameters it wrote travel to the definition,

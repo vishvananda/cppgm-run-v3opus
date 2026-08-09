@@ -864,13 +864,14 @@ void SemaAnalyzer::special_member_definition(const AstNode& node,
 	{
 		// 8.4.2p2: `= default` written on a declaration outside the class is a
 		// definition of the function, and what it defines is the one the
-		// standard describes.  8.4.2p5 leaves the function user-provided - the
-		// class's own declaration was its first and wrote neither - so 12.1p5's
-		// triviality and 8.5.1p1's aggregate read exactly what they read
-		// before, and 7.1.2p2 leaves the definition non-inline, so this unit is
-		// the one that holds it rather than every unit that needs one.
+		// standard describes - so 12.1p5's triviality and 12.8p12's copy are
+		// asked again of a class that now has that definition.  7.1.2p2 leaves
+		// the definition non-inline, so this unit is the one that holds it
+		// rather than every unit that needs one.
 		entity->deleted = explicitly->children[0]->text == "delete";
 		entity->defaulted = !entity->deleted;
+		entity->out_of_class_definition = true;
+		resettle_defaulted_member(*entity);
 		// 8.3.5p10: `= default` is a declaration of the constructor like any
 		// other, so the names its declarator wrote are the function's from here
 		// on - and 12.8p28's definition, which reads those objects, is written
@@ -895,6 +896,7 @@ void SemaAnalyzer::special_member_definition(const AstNode& node,
 	// class body wrote, so a parameter it left unnamed is named by whichever
 	// declaration of the constructor named it.
 	record_declared_parameters(*entity, parameters, target.scope);
+	entity->out_of_class_definition = true;
 	open_special_member_body(node, *entity, target, written, parameters);
 }
 
@@ -1400,6 +1402,7 @@ void SemaAnalyzer::declare_transfer_member(SemaEntity& entity, Scope& scope,
 	member.object_member = true;
 	member.inline_function = true;
 	member.defaulted = true;
+	member.implicit_declaration = true;
 	member.deleted = deleted;
 	member.transfer = kind;
 	member.tail = &member;
@@ -1609,6 +1612,51 @@ void SemaAnalyzer::settle_transfers(SemaEntity& entity, Scope& scope)
 	                         entity.base != nullptr);
 }
 
+// 8.4.2p2 and 12.8p12: a special member the program explicitly defaulted
+// *outside* its class has the definition the standard describes as much as one
+// defaulted where it was declared does, and the class was complete before that
+// definition was read - so what the definition comes to is settled again here.
+//
+// The three answers the class carries are one walk of its subobjects each, and
+// they are asked again rather than patched, because they are answers about the
+// class and not about the one member that changed: 12.1p5's triviality reads
+// what every subobject's own member is, and 12.8p12's copy is what says whether
+// 5.2.2p4's argument, 8.5's initialization of an object of the class and the
+// layout of a class holding one are the bytes.  It costs one walk per
+// out-of-class definition the program wrote, which is what the closing brace
+// already cost once.
+void SemaAnalyzer::resettle_defaulted_member(SemaEntity& function)
+{
+	Scope* const region = function.region;
+	if (checking_ > 0 || region == nullptr || region->owner == nullptr ||
+	    !function.defaulted)
+	{
+		return;
+	}
+	if (function.special == kConstructorFunction &&
+	    types_.parameters(function.type).size() == 1)
+	{
+		function.trivial = trivial_default_construction(*region);
+		function.deleted = function.deleted || undefinable_default(*region);
+		if (!function.wrote_exception_specification)
+		{
+			function.nonthrowing = default_construction_nonthrowing(*region);
+		}
+	}
+	else if (function.special == kDestructorFunction)
+	{
+		function.trivial = trivial_destruction(*region);
+		if (!function.wrote_exception_specification)
+		{
+			function.nonthrowing = destruction_nonthrowing(*region);
+		}
+	}
+	// 12.4p8 and 12.8p12: the end of an object's lifetime is half of what says
+	// the bytes are the copy, so the class's copy facts are written again
+	// whichever of the members the definition was for.
+	settle_transfers(*region->owner, *region);
+}
+
 // 11.2p1: whether a member of another class may be named from inside `scope`,
 // which is what 12.8p11 and p23 ask of the transfer member of every subobject.
 bool SemaAnalyzer::accessible(const SemaEntity& member, Scope& scope)
@@ -1701,6 +1749,7 @@ void SemaAnalyzer::declare_constructor(SemaEntity& entity, Scope& scope)
 	constructor.tail = &constructor;
 	constructor.special = kConstructorFunction;
 	constructor.defaulted = true;
+	constructor.implicit_declaration = true;
 	model_.declare_in(scope, constructor);
 	// 12.9p3: an inheriting using-declaration may already have put constructors
 	// on this chain, and none of them is the one this declares, so it joins
@@ -1740,6 +1789,7 @@ void SemaAnalyzer::declare_destructor(SemaEntity& entity, Scope& scope)
 	destructor.tail = &destructor;
 	destructor.special = kDestructorFunction;
 	destructor.defaulted = true;
+	destructor.implicit_declaration = true;
 	model_.declare_in(scope, destructor);
 	// 12.4p12 and 5.2.4: `x.~C()` names the destructor through the class, so
 	// the one name a lookup can reach it by is bound where it is declared.
@@ -2177,6 +2227,10 @@ bool observable_expression(const DumpNode& node)
 	case FactKind::Conditional:
 	case FactKind::Subscript:
 	case FactKind::Cast:
+	// 4.10p3 and 10p1: a base conversion is the address its operand already
+	// produced, moved to where the class put the base - so what running it does
+	// is what running the operand does and nothing more.
+	case FactKind::BaseConversion:
 		break;
 
 	default:

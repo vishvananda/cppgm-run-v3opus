@@ -251,6 +251,10 @@ SemaEntity& SemaModel::create(SemaKind kind, const std::string& name, TypeId typ
 	entity.conversions_above = nullptr;
 	entity.complete_object_entry = false;
 	entity.base_object_entry = false;
+	entity.source_base_entry = false;
+	entity.implicit_declaration = false;
+	entity.out_of_class_definition = false;
+	entity.instantiated_use = false;
 	entity.shadowed = nullptr;
 	entity.inherited = nullptr;
 	entity.delegates_to = nullptr;

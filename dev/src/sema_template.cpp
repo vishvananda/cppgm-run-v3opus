@@ -2521,6 +2521,56 @@ void SemaAnalyzer::require_definition(SemaEntity& function)
 	pending_.push_back(granted);
 }
 
+// 14.7.1p1 and 14.2: whether the definition this unit holds of the function was
+// made by an instantiation rather than written out by the program - which a
+// specialization of a function template is, and so is every member of a class a
+// template-id named, however deeply the classes it belongs to nest.  It is one
+// walk of the regions standing over the declaration, which is the nesting the
+// program wrote and not anything the instantiation makes.
+bool instantiated_declaration(const SemaEntity& function, TypeTable& types)
+{
+	if (function.primary != nullptr &&
+	    function.primary->template_parameters != nullptr)
+	{
+		return true;
+	}
+	for (const Scope* at = function.region; at != nullptr; at = at->parent)
+	{
+		if (at->kind == ScopeKind::Class && at->owner != nullptr &&
+		    types.is_specialization(at->owner->type))
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+// 3.2p3 and 14.7.1p1: naming a function inside a body an instantiation made is
+// what makes this unit hold that function's definition, and the definition is
+// held whatever the naming comes to.
+//
+// 12.8p15's transfer is the one naming with no call under it: carrying the
+// value of one object into another is work whatever the member doing it comes
+// to, so the initialization names the member where 12.8p12 leaves the bytes to
+// stand for the call, while every other constructor the standard defines has
+// 12.1p5's answer - its definition does nothing, so nothing names it.  A member
+// the standard *declared* is no part of what an instantiation made either: the
+// specialization's own class-specifier gives it, exactly as a class the program
+// wrote out is given one.  And a use written outside every instantiation asks
+// for nothing, because there was no definition to make.
+void SemaAnalyzer::note_instantiated_transfer(SemaEntity& constructor)
+{
+	if (instantiated_body_ == 0 || constructor.instantiated_use ||
+	    constructor.implicit_declaration ||
+	    (constructor.transfer != kCopyConstructorTransfer &&
+	     constructor.transfer != kMoveConstructorTransfer) ||
+	    !instantiated_declaration(constructor, types_))
+	{
+		return;
+	}
+	constructor.instantiated_use = true;
+}
+
 // 10.3p10 and 14.7.1p1: the table of a class that has one names its virtual
 // members, and 3.2p3 has no expression to point at for that use - so the class
 // being complete is what asks for them, which is the note the clause hangs on
