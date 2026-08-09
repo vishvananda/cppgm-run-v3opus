@@ -30,6 +30,45 @@ const AstNode* declarator_of(const AstNode& node)
 	return found != nullptr ? found : child_kind(node, AstKind::AbstractDeclarator);
 }
 
+// 8.3p1: whether this declarator level leaves the constructor its declarator-id
+// ends up under to the level around it.  A ptr-operator or a suffix of its own
+// is what a level takes the id for itself with; parentheses alone are not - so
+// `T (f)(P)` has its places spelled by the clause standing outside it, and
+// `T (*f(P))(Q)` and `T (&f(P))[2]` by the clause their own level wrote.
+bool takes_enclosing_suffix(const AstNode& declarator)
+{
+	std::size_t core = declarator.children.size();
+	for (std::size_t index = 0; index < declarator.children.size(); ++index)
+	{
+		const AstKind kind = declarator.children[index]->kind;
+		if (kind == AstKind::PtrOperator)
+		{
+			return false;
+		}
+		if (kind == AstKind::Identifier || kind == AstKind::NestedDeclarator)
+		{
+			core = index;
+			break;
+		}
+	}
+	if (core == declarator.children.size())
+	{
+		return false;
+	}
+	for (std::size_t index = core + 1; index < declarator.children.size();
+	     ++index)
+	{
+		const AstKind kind = declarator.children[index]->kind;
+		if (kind == AstKind::ParameterClause || kind == AstKind::ArraySuffix)
+		{
+			return false;
+		}
+	}
+	const AstNode& node = *declarator.children[core];
+	return node.kind != AstKind::NestedDeclarator ||
+		(!node.children.empty() && takes_enclosing_suffix(*node.children[0]));
+}
+
 }
 
 DeclSpecifiers::DeclSpecifiers()
@@ -362,6 +401,17 @@ TypeId SemaAnalyzer::declarator_type(const AstNode& node, TypeId base,
 		++index;
 	}
 
+	// 8.3p1: the places a *definition* spells are the ones of the
+	// parameter-clause its declarator-id ends up under, which is the first
+	// suffix at the id's own level - so a level whose nested declarator takes
+	// the id for itself hands `declared` inward rather than spending it on the
+	// clause standing beside it.  `T (*f(P))(Q)` is the function `(P)` makes
+	// and binds `P`'s names; `(Q)`'s belong to the type it returns and to
+	// nothing the body can name.
+	const bool spells_here =
+		core == nullptr || core->kind != AstKind::NestedDeclarator ||
+		core->children.empty() || takes_enclosing_suffix(*core->children[0]);
+
 	// 8.3.5p7 and 8.3.5p1: the cv-qualifier-seq and the ref-qualifier of a
 	// function declarator are written after its parameter-clause, so the walk
 	// from the last suffix inwards reaches them before the clause they qualify
@@ -407,7 +457,7 @@ TypeId SemaAnalyzer::declarator_type(const AstNode& node, TypeId base,
 			throw std::runtime_error("a declarator written `auto` derives a "
 			                         "type 8.3.5p2 leaves unwritten");
 		}
-		type = apply_suffix(part, type, ctx, declared);
+		type = apply_suffix(part, type, ctx, spells_here ? declared : nullptr);
 		if (part.kind == AstKind::ParameterClause)
 		{
 			// 8.3.5p1 and 8.3.5p7: both qualifiers are part of the function
@@ -422,7 +472,10 @@ TypeId SemaAnalyzer::declarator_type(const AstNode& node, TypeId base,
 				types_.qualified_function(type, function_cv), function_ref);
 			function_cv = kCvNone;
 			function_ref = RefQualifier::None;
-			declared = nullptr;
+			if (spells_here)
+			{
+				declared = nullptr;
+			}
 		}
 	}
 
@@ -443,12 +496,9 @@ TypeId SemaAnalyzer::declarator_type(const AstNode& node, TypeId base,
 		*name = core->text;
 		return type;
 	}
-	// 8.3p1: the places a declarator spells are the ones of the *first*
-	// parameter-clause the declarator-id stands under, which is a clause of
-	// the nested declarator wherever the level around it wrote none - so
-	// `T (&f(P))[2]` declares the function `f(P)` and binds `P`'s name, while
-	// `T (*f)(P)` has had its clause taken here already and hands the nested
-	// declarator nothing to spell.
+	// 8.3p1: the nested declarator is read against the type this level built,
+	// and it carries the places to spell wherever it is the level the
+	// declarator-id ends up at - which `spells_here` has already answered.
 	return core->children.empty()
 		? type
 		: declarator_type(*core->children[0], type, ctx, name, declared);
