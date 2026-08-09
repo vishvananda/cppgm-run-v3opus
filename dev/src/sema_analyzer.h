@@ -1252,7 +1252,15 @@ private:
 	                             bool hidden = false,
 	                             bool object_member = false,
 	                             bool redeclaration = false,
-	                             SemaEntity* as = nullptr);
+	                             SemaEntity* as = nullptr,
+	                             bool* redeclares = nullptr);
+	// 15.4p1: if any declaration of a function has an exception-specification,
+	// every one of them - the definition included - shall have one, and they
+	// shall say the same thing.  Asked of a declaration that redeclares one the
+	// region already made, which is the only place two of them meet.
+	void require_matching_exception_specification(const SemaEntity& declared,
+	                                              bool wrote, bool nothrowing,
+	                                              const std::string& name);
 	// 13.1 and 9.3.1p3: the key the chain a name heads is indexed by, which is
 	// the parameter-type-list the declarator wrote wherever the region is a
 	// class - so a static and a non-static member function whose types agree

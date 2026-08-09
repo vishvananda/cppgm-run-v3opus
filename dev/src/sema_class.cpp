@@ -687,6 +687,14 @@ void SemaAnalyzer::open_special_member_body(
 	// question of the same node out of the syntax, so a body reading earlier
 	// gets the same answer.
 	entity.empty_body = writes_no_statement(node);
+	if (checking_ > 0)
+	{
+		// 14.6p8: a reading of a template's own definition has no definition to
+		// write, and 12.6.2's mem-initializers name members whose types an
+		// argument list is what settles - so what this reading takes from the
+		// definition is what its declarator said, which is already read.
+		return;
+	}
 
 	DumpScope& dump = model_.open_dump(*ctx.dump, "scope function " + written);
 	Scope& inner = model_.open(ScopeKind::Function, *ctx.scope, &entity, &dump);
@@ -768,6 +776,16 @@ void SemaAnalyzer::special_member_definition(const AstNode& node,
 	if (entity->defined)
 	{
 		throw std::runtime_error(node.text + " is defined twice");
+	}
+	// 15.4p1: the definition is a declaration of the function like the one the
+	// class body wrote, so the two shall write the same exception-specification
+	// or neither shall write one.
+	{
+		const AstNode* const own = child_of(node, AstKind::Declarator);
+		require_matching_exception_specification(
+			*entity, own != nullptr &&
+			declarator_writes_exception_specification(*own),
+			own != nullptr && declarator_nonthrowing(*own), spelled_class);
 	}
 	// 7.1.2p3: a definition written outside the class is inline only where the
 	// program says so, which is what makes it the one definition of the
@@ -2440,10 +2458,14 @@ TypeId SemaAnalyzer::with_object_parameter(TypeId type,
                                            const std::string& name,
                                            bool qualified)
 {
-	if (!semantics())
+	if (!semantics() && checking_ == 0)
 	{
 		return type;
 	}
+	// 14.6p8: a reading of a template's own definition is asked what its
+	// declarations say, and whether a member function is called on an object is
+	// one of the things they say - 12.3.2p1's conversion function and 13.5p6's
+	// operator are both refused without it.
 	// 8.3.5p1: the ref-qualifier is already part of the function type the
 	// declarator built, and 9.3.1p3's rebuild below is what carries it over.
 	const RefQualifier ref = types_.function_ref_qualifier(type);

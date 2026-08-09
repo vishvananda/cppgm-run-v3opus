@@ -72,6 +72,26 @@ SemaAnalyzer::FunctionReading::~FunctionReading()
 	analyzer_.gotos_.swap(gotos_);
 }
 
+// 15.4p1: two declarations of one function shall agree about what it throws.
+//
+// A declaration that wrote an exception-specification and one that wrote none
+// are two different declarations of one function, which 15.4p1 refuses however
+// they are ordered - so the question is asked wherever a declaration redeclares
+// one the region already made, and what a declaration says is a fact of that
+// declaration rather than of the function they both declare.
+void SemaAnalyzer::require_matching_exception_specification(
+	const SemaEntity& declared, bool wrote, bool nothrowing,
+	const std::string& name)
+{
+	if (wrote != declared.wrote_exception_specification ||
+	    (wrote && nothrowing != declared.nonthrowing))
+	{
+		throw std::runtime_error("two declarations of " + name + " write "
+		                         "exception-specifications 15.4p1 does not "
+		                         "make the same");
+	}
+}
+
 // 6.6.4p1: every label a goto of this function names is one the function
 // writes.  The two lists are the body's own, so the question is asked where the
 // body ends and nowhere else.
@@ -181,17 +201,24 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 	// declaration the body itself writes is an ordinary one.
 	SemaEntity* const specializing = instantiating_;
 	instantiating_ = nullptr;
+	bool redeclares = false;
 	SemaEntity& entity =
 		declare_function(name, type, target, true,
 		                 granting != nullptr && !spelled.qualified(),
 		                 type != written_type,
 		                 spelled.qualified() && granting == nullptr,
-		                 specializing);
-	entity.nonthrowing =
-		entity.nonthrowing || declarator_nonthrowing(declarator);
-	entity.wrote_exception_specification =
-		entity.wrote_exception_specification ||
+		                 specializing, &redeclares);
+	const bool wrote_specification =
 		declarator_writes_exception_specification(declarator);
+	const bool nothrowing = declarator_nonthrowing(declarator);
+	if (redeclares && specializing == nullptr)
+	{
+		require_matching_exception_specification(entity, wrote_specification,
+		                                         nothrowing, name);
+	}
+	entity.nonthrowing = entity.nonthrowing || nothrowing;
+	entity.wrote_exception_specification =
+		entity.wrote_exception_specification || wrote_specification;
 	entity.object_member = type != written_type;
 	// 10.3p1 and 10.3p4/p5: the definition is a declaration like any other, so
 	// what it wrote about dispatch stands for the function whether or not
@@ -204,13 +231,8 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 		entity.virtual_function || specifiers.is_virtual;
 	read_virt_specifiers(entity, declarator, nullptr);
 	require_no_abstract_boundary(written_type, name);
-	if (!entity.object_member && (semantics() || checking_ == 0))
+	if (!entity.object_member)
 	{
-		// 13.5p6 asks whether the declaration is a non-static member, which
-		// 9.3.1p3's implicit object parameter is what answers - and a reading
-		// that describes only what a declaration says has none, so a member of
-		// a pattern would read as a static one.  14.7.1p1's declaration asks
-		// again, where the parameter is there to be seen.
 		require_operator_operand(name, type,
 		                         target.scope->kind == ScopeKind::Class);
 	}
@@ -447,7 +469,8 @@ void SemaAnalyzer::require_uniform_ref_qualifiers(const SemaEntity& head,
 SemaEntity& SemaAnalyzer::declare_function(const std::string& name, TypeId type,
                                            const Context& target, bool define,
                                            bool hidden, bool object_member,
-                                           bool redeclaration, SemaEntity* as)
+                                           bool redeclaration, SemaEntity* as,
+                                           bool* redeclares)
 {
 	if (as != nullptr)
 	{
@@ -511,6 +534,10 @@ SemaEntity& SemaAnalyzer::declare_function(const std::string& name, TypeId type,
 	}
 	if (prior != nullptr)
 	{
+		if (redeclares != nullptr)
+		{
+			*redeclares = true;
+		}
 		if (prior->type != type && prior->template_parameters == nullptr)
 		{
 			throw std::runtime_error("two declarations of " + name +

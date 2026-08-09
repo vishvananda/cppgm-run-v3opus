@@ -595,8 +595,11 @@ void SemaAnalyzer::declaration(const AstNode& node, const Context& ctx)
 		// a class body is read where that body is, so one reaching here is
 		// written outside every class.  8.4.2p2's `= default` is a definition
 		// like any other: what differs is that the standard writes the body.
-		if (semantics())
+		if (semantics() || checking_ > 0)
 		{
+			// 14.6p8: a reading of a template's own definition reads this one
+			// too, because what it says about the declaration the class made
+			// is settled where the definition stands.
 			special_member_definition(node, ctx);
 		}
 		return;
@@ -722,14 +725,20 @@ void SemaAnalyzer::using_directive(const AstNode& node, const Context& ctx)
 void SemaAnalyzer::using_declaration(const AstNode& node, const Context& ctx)
 {
 	const AstNode* target = child_of(node, AstKind::Target);
-	const QualifiedName written(target->text);
+	// 7.3.3p1 and 14.6p2: `using typename X::y` says the name is a type, which
+	// is what a nested-name-specifier that depends on a template parameter
+	// needs said - and the name the declaration targets is the one after it.
+	const std::string spelling =
+		target->text.compare(0, 9, "typename ") == 0 ? target->text.substr(9)
+		                                             : target->text;
+	const QualifiedName written(spelling);
 	if (written.names_a_template_id())
 	{
 		// 7.3.3p5: a using-declaration shall not name a template-id.
 		throw std::runtime_error("a using-declaration names a template-id");
 	}
 	SemaEntity& entity =
-		require(resolve(target->text, ctx, LookupKind::Any), target->text);
+		require(resolve(spelling, ctx, LookupKind::Any), spelling);
 	const std::string name = written.last();
 	if (ctx.scope->kind == ScopeKind::Class && ctx.scope->owner != nullptr)
 	{
@@ -1488,7 +1497,7 @@ SemaEntity& SemaAnalyzer::class_declaration(const AstNode& node,
 			// path, which would leave the member an object with an address.
 			bit_field_declaration(member, inner);
 		}
-		else if (semantics() &&
+		else if ((semantics() || checking_ > 0) &&
 		         (member.kind == AstKind::SpecialMemberDeclaration ||
 		          member.kind == AstKind::SpecialMemberDefinition))
 		{
@@ -1935,12 +1944,8 @@ void SemaAnalyzer::declare_function_declarator(
 	// function return type, which is asked of the type the declarator built and
 	// therefore of every declaration alike.
 	require_no_abstract_boundary(written_type, name);
-	if (!function.object_member && (semantics() || checking_ == 0))
+	if (!function.object_member)
 	{
-		// 13.5p6 asks whether the declaration is a non-static member, which
-		// 9.3.1p3's implicit object parameter is what answers - and a reading
-		// that describes only what a declaration says has none.  14.7.1p1's
-		// declaration asks again, where the parameter is there to be seen.
 		require_operator_operand(name, type,
 		                         target.scope->kind == ScopeKind::Class);
 	}
