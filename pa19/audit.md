@@ -41,11 +41,12 @@ the target type and walked on without asking about the rest, so
 is the same tie 13.3.3p1 sends to 14.5.6.2 when a call leaves it, answered here
 by the order the declarations were written in - and `resolve_target` is the one
 place four contexts ask through, so an initializer, an assignment, a parameter
-and a functional cast were all wrong together. Both oracles choose `pick(T *)`
-in every one of them. `more_specialized` is now the single question 13.3.3p1's
-tie and 13.4p1's target both ask, and a set that leaves two of which neither is
-more specialized names none, which is what g++ does and what `resolve_target`'s
-callers already treat as no declaration at all.
+and a cast were all wrong together. g++ chooses `pick(T *)` in every one of
+them and the reference in the three it compiles at all - it rejects a
+`static_cast` of an overload set outright. `more_specialized` is now the single
+question 13.3.3p1's tie and 13.4p1's target both ask, and a set that leaves two
+of which neither is more specialized names none, which is what g++ does and what
+`resolve_target`'s callers already treat as no declaration at all.
 
 **2. 14.5.6.2 stopped at p7, which is where its answer starts.** p5 replaces a
 reference by what it refers to and p7 drops the top-level qualifiers, so
@@ -166,6 +167,11 @@ spelling have it and the one that does not, does not.
   each run. Five apparent disagreements were this and not the frontend; run
   evidence is only evidence for programs whose parameters are scalars and
   pointers.
+- **The metadata the comparison strips, swept again.** `object=` over all 299
+  fixtures differs from the reference on **9** tests and `binding=` on **12**,
+  where the tier audit left 9 - and every one of those 21 is a test that already
+  fails, except the one that is the recorded unnamed-namespace divergence. No
+  passing test hides a name or a linkage this checkpoint changed.
 - **Multi-unit.** Two units that each choose the same specialization through a
   target type hold **one weak definition** of `_Z4pickIiEiPT_` between them and
   are canonically identical in both unit orders; `object=` and `binding=` on the
