@@ -306,6 +306,11 @@ private:
 	// two spell the type; a namespace may.
 	SemaEntity& declare_type_alias(const std::string& name, TypeId aliased,
 	                               Scope& where);
+	// 3.3.10p2, 9.2p1 and 14.6.1p6: the same two questions asked where a
+	// class-name or an enum-name is bound.  7.1.3p3's leniency belongs to a
+	// typedef-name alone, so a type-name declared where the region already
+	// declares a typedef-name of that spelling is refused.
+	void declare_type_name(const std::string& name, Scope& where);
 	void alias_declaration(const AstNode& node, const Context& ctx);
 	void static_assert_declaration(const AstNode& node, const Context& ctx);
 	void template_declaration(const AstNode& node, const Context& ctx);
@@ -1835,9 +1840,19 @@ private:
 	// callee of a call are left to the instantiation, which is what 14.6.2p1
 	// and 3.4.2p2 leave them to.
 	void check_expression_names(const AstNode& node, const Context& ctx);
+	// 3.4.2p2: whether the arguments of `call` associate any namespace beyond
+	// the ones ordinary lookup already read, which none but literals do.
+	bool arguments_associate_nothing(const AstNode& call) const;
+	// 3.4p1: what the unqualified name `node` wrote names where the definition
+	// stands, with `answered` false for the names this reading does not settle.
+	SemaEntity* definition_time_name(const AstNode& node, const Context& ctx,
+	                                 bool& answered);
 	// 3.4p1 and 5.1.1p8: the one unqualified name an id-expression wrote,
 	// which shall name something, name one thing, and not name a type.
 	void check_value_name(const AstNode& node, const Context& ctx);
+	// 3.4p1: the callee of a call 3.4.2p2 adds nothing to, which shall name
+	// something - and 5.2.3p1 lets what it names be a type.
+	void check_callee_name(const AstNode& node, const Context& ctx);
 	// 14.7.1p1: the body the template's definition wrote, read again against
 	// the arguments `function` was made from.  14.6.4.1p1 gives a
 	// specialization named before that definition was written a second point of
@@ -1879,6 +1894,12 @@ private:
 	// a declaration of an incomplete class until the definition arrives, and
 	// this is what the definition then does to it.
 	void complete_specialization(SemaEntity& made);
+	// 14.7.1p1: an instantiation asks for `made`, which puts it on its
+	// template's list of the specializations a later declaration is read for
+	// and completes it.  14.6p8's reading of a template definition names a
+	// specialization without asking for one, so what it makes stays off that
+	// list until a use arrives.
+	void require_specialization(SemaEntity& made);
 	// 14.3p1 and 14.8.2: `type` with every template parameter `bindings` names
 	// replaced by the type bound to it.  The type table rebuilds every
 	// category that is only made of types; a specialization is the one that is

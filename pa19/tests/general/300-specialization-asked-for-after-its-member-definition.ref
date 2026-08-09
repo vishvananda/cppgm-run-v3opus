@@ -1,0 +1,39 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $counted : obj<4x4>
+  slot $narrow : obj<1x1>
+
+  block ^entry:
+    %t1 = addr $counted
+    %t2 = addr $narrow
+    %t3 = addr $counted
+    %t4 = index i8 [projection=field] %t3, 0
+    store i32 0, %t4
+    %t5 = addr $narrow
+    %t6 = index i8 [projection=field] %t5, 0
+    store i8 0, %t6
+    %t7 = addr $counted
+    %t8 = call i32 @pair_of_int___size(%t7)
+    %t9 = addr $narrow
+    %t10 = call i32 @pair_of_char___size(%t9)
+    %t11 = binary add i32 %t8, %t10
+    %t12 = binary sub i32 %t11, 5
+    return i32 %t12
+}
+function @pair_of_int___size(%this : ptr) -> i32 [binding=weak, object=_ZN7pair_ofIiE4sizeEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = const i64 4
+    %t2 = convert trunc i32 i64 %t1
+    return i32 %t2
+}
+function @pair_of_char___size(%this : ptr) -> i32 [binding=weak, object=_ZN7pair_ofIcE4sizeEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = const i64 1
+    %t2 = convert trunc i32 i64 %t1
+    return i32 %t2
+}

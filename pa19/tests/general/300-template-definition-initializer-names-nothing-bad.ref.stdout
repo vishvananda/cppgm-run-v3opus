@@ -1,0 +1,32 @@
+ERROR: unknown non-dependent name in function template body nowhere_at_all at tests/general/300-template-definition-initializer-names-nothing-bad.t:14:14 [top-level declaration 0 kind=template-declaration ast={template-declaration
+  template-parameter-clause
+    template-parameter-list
+      type-parameter
+        parameter-key KW_CLASS:class
+        identifier T
+  function-definition
+    decl-specifier-seq
+      decl-specifier KW_INT:int
+    declarator
+      identifier settled
+      parameter-clause
+        parameter-declaration
+          decl-specifier-seq
+            decl-specifier TT_IDENTIFIER:T
+          declarator
+            identifier v
+    compound-statement
+      simple-declaration
+        decl-specifier-seq
+          decl-specifier KW_INT:int
+        init-declarator-list
+          init-declarator
+            declarator
+              identifier held
+            initializer
+              id-expression nowhere_at_all
+      return-statement
+        id-expression held
+}]
+Diagnostic context:
+collect_template_declaration [template<class T>int settled(T v){int held=nowhere_at_all;return held;}] at tests/general/300-template-definition-initializer-names-nothing-bad.t:11:1

@@ -104,6 +104,7 @@ void SemaAnalyzer::declare_parameters(const std::vector<Parameter>& parameters,
 			SemaKind::Parameter, parameters[index].name, parameters[index].type);
 		if (!parameter.name.empty())
 		{
+			require_no_template_parameter(parameter.name, *inner.scope);
 			model_.bind(*inner.scope, parameter.name, parameter);
 		}
 		model_.declare_in(*inner.scope, parameter);
@@ -449,6 +450,11 @@ SemaEntity& SemaAnalyzer::declare_function(const std::string& name, TypeId type,
 	// declares is declared in the region around it, which is where a call of it
 	// looks and where its other declarations are.
 	Scope& where = declaring_region(*target.scope);
+	// 14.6.1p6: the name is written inside the template-declaration the head
+	// parameterises, however far out the region that declares it stands - so
+	// the question is asked of where the declaration was *written* and not of
+	// the region `declaring_region` steps out to.
+	require_no_template_parameter(name, *target.scope);
 	SemaEntity* head = model_.find(where, name, LookupKind::Any);
 	if (head != nullptr && head->kind != SemaKind::Function)
 	{

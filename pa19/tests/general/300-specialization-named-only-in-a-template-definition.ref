@@ -1,0 +1,22 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $asked : obj<1x1>
+
+  block ^entry:
+    %t1 = addr $asked
+    %t2 = addr $asked
+    %t3 = index i8 [projection=field] %t2, 0
+    store i8 0, %t3
+    %t4 = addr $asked
+    %t5 = call i32 @mark_char___size(%t4)
+    %t6 = binary sub i32 %t5, 1
+    return i32 %t6
+}
+function @mark_char___size(%this : ptr) -> i32 [binding=weak, object=_ZN4markIcE4sizeEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = const i64 1
+    %t2 = convert trunc i32 i64 %t1
+    return i32 %t2
+}

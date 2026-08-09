@@ -1037,6 +1037,11 @@ bool SemaAnalyzer::record_template(const AstNode& node, const Context& ctx)
 			abi_name(*ctx.scope, name));
 		entity = &model_.create(SemaKind::Class, name, type);
 		own_type(type, *entity);
+		// 14.6.1p6 and 3.3.10p2: a class template's name is a class-name bound
+		// in a region like any other, and the region a template-declaration is
+		// written in is inside the scope of the parameters its own head
+		// declared.
+		declare_type_name(name, *ctx.scope);
 		model_.bind(*ctx.scope, name, *entity);
 		model_.declare_in(*ctx.scope, *entity);
 		template_patterns_.push_back(TemplateInfo());
@@ -1044,6 +1049,22 @@ bool SemaAnalyzer::record_template(const AstNode& node, const Context& ctx)
 		entity->templated->region = ctx.scope;
 		entity->templated->dump = ctx.dump;
 		read_template_head(*clause, *entity->templated);
+		// 14.1p1 and 14.6.1p6: the head's parameters are declared in a region
+		// enclosing this declaration, and this declaration's own name stands
+		// inside it - but the region is opened after the name is bound and a
+		// class template's is never opened at all, so the one name
+		// `require_no_template_parameter` cannot reach through the regions is
+		// asked of the head that declared them.
+		for (std::size_t index = 0;
+		     index < entity->templated->parameters.size(); ++index)
+		{
+			if (entity->templated->parameters[index] == name)
+			{
+				throw std::runtime_error(name + " redeclares a template "
+				                         "parameter within the scope of the "
+				                         "template head that declared it");
+			}
+		}
 	}
 	else if (define && entity->templated->pattern != nullptr &&
 	         entity->templated->pattern->kind == AstKind::ClassSpecifier)
@@ -1290,10 +1311,10 @@ SemaEntity& SemaAnalyzer::instantiate_class(SemaEntity& primary,
 		// 14.7.1p1: the declaration is made once, and the definition is owed
 		// wherever the specialization is used in a way that requires it - so a
 		// naming that left it a declaration does not keep the next one from
-		// completing it.
+		// asking for it.
 		if (checking_ == 0)
 		{
-			complete_specialization(*made);
+			require_specialization(*made);
 		}
 		return *made;
 	}
@@ -1328,20 +1349,41 @@ SemaEntity& SemaAnalyzer::instantiate_class(SemaEntity& primary,
 	types_.set_template_arguments(type, abi_name(*info.region, primary.name),
 	                              arguments);
 	model_.hold_specialization(primary, list, *made);
-	// 14.7.1p1: the specialization exists whether or not the template has a
-	// definition yet; a template the unit only declared makes an incomplete
-	// class, which is all a pointer or a reference to it needs, and the
-	// definition completes it where it arrives.
-	primary.templated->specializations.push_back(made);
 	if (checking_ == 0)
 	{
 		// 14.6p8 and 14.7.1p1: a name written in a template definition being
 		// read where it stands is not a use that requires a definition; the
-		// specialization is declared here and completed where an instantiation
-		// asks for it.
-		complete_specialization(*made);
+		// specialization is declared here and asked for where an instantiation
+		// does.
+		require_specialization(*made);
 	}
 	return *made;
+}
+
+// 14.7.1p1: an instantiation asks for this specialization.
+//
+// The declaration is made once however many times the name is written, and
+// 14.6p8's reading of a template definition writes one of those names without
+// asking for anything - so the specialization is made there for the reading to
+// have a type, and joins the template's own list of them only when a use
+// arrives.  That list is what the two readings a *later* declaration owes are
+// driven by: 14.5.1.3p1's out-of-class member definition is read for every
+// specialization already made, and so is the definition the template itself
+// gets.  A specialization no instantiation ever asked for is on neither, which
+// is what makes 14.6p8's reading leave nothing behind.
+//
+// 14.7.1p1 also leaves the specialization exists whether or not the template
+// has a definition yet: a template the unit only declared makes an incomplete
+// class, which is all a pointer or a reference to it needs, and the definition
+// completes it where it arrives.
+void SemaAnalyzer::require_specialization(SemaEntity& made)
+{
+	if (!made.instantiated)
+	{
+		made.instantiated = true;
+		made.primary->templated->specializations.push_back(&made);
+	}
+	complete_specialization(made);
 }
 
 void SemaAnalyzer::complete_specialization(SemaEntity& made)
@@ -1817,14 +1859,22 @@ void SemaAnalyzer::check_expression_names(const AstNode& node,
 	case AstKind::CallExpression:
 	{
 		// 3.4.2p2: an unqualified name written as the callee of a call is
-		// looked up in the namespaces of its arguments as well, which are
-		// classes an argument list has yet to name.  5.2.3p1's explicit type
-		// conversion is written the same way, so a type name stands there too.
+		// looked up in the namespaces its arguments are associated with as
+		// well, which are classes an argument list has yet to name - so
+		// 14.6.2p1 leaves the callee to the instantiation wherever an argument
+		// can carry a namespace this reading cannot see.  A literal cannot:
+		// 3.4.2p2 associates nothing with a fundamental type, so a call written
+		// with no arguments, or with none but literals, reaches exactly the
+		// declarations ordinary lookup does and its callee is settled here.
 		for (std::size_t index = 0; index < node.children.size(); ++index)
 		{
 			const AstNode& child = *node.children[index];
 			if (index == 0 && child.kind == AstKind::IdExpression)
 			{
+				if (arguments_associate_nothing(node))
+				{
+					check_callee_name(child, ctx);
+				}
 				continue;
 			}
 			check_expression_names(child, ctx);
@@ -1854,29 +1904,90 @@ void SemaAnalyzer::check_expression_names(const AstNode& node,
 	}
 }
 
-void SemaAnalyzer::check_value_name(const AstNode& node, const Context& ctx)
+// 3.4.2p2: whether the arguments of a call name any namespace ordinary lookup
+// has not already read.
+//
+// The associated namespaces and classes of an argument are its *type's*, and a
+// fundamental type has none - so a call written with no arguments, or with none
+// but literals, is one 3.4.2p2 adds nothing to.  Anything else may turn out to
+// be a class an argument list has yet to name, which is what 14.6.2p1 leaves
+// the callee to the instantiation for.
+bool SemaAnalyzer::arguments_associate_nothing(const AstNode& call) const
 {
-	if (node.text.empty() || first_child(node, AstKind::CarriedExpression) != nullptr)
+	for (std::size_t index = 1; index < call.children.size(); ++index)
 	{
-		return;
+		const AstNode& written = *call.children[index];
+		for (std::size_t at = 0; at < written.children.size(); ++at)
+		{
+			const AstKind kind = written.children[at]->kind;
+			if (kind != AstKind::Literal && kind != AstKind::KeywordLiteral)
+			{
+				return false;
+			}
+		}
+	}
+	return true;
+}
+
+// 3.4p1: what an unqualified name written in a template definition names where
+// that definition stands.
+//
+// `answered` is false where this reading is not the one that settles the name:
+// 3.4.3p1's qualified name reaches a region a template parameter may stand for,
+// 14.2's template-id names a specialization this reading makes none of, and
+// 1.4p8's reserved name is declared where it is used rather than where the
+// program wrote it.  Otherwise the answer is what the name names, and null says
+// nothing declares it.
+SemaEntity* SemaAnalyzer::definition_time_name(const AstNode& node,
+                                               const Context& ctx,
+                                               bool& answered)
+{
+	answered = false;
+	if (node.text.empty() ||
+	    first_child(node, AstKind::CarriedExpression) != nullptr)
+	{
+		return nullptr;
 	}
 	const QualifiedName written(node.text);
 	if (written.qualified() || node.text.find('<') != std::string::npos)
 	{
-		// 3.4.3p1 reaches into a region a template parameter may stand for, and
-		// 14.2's template-id names a specialization this reading makes none of.
-		return;
+		return nullptr;
 	}
 	SemaEntity* const named =
 		model_.lookup(*ctx.scope, node.text, LookupKind::Any);
+	if (named == nullptr && reserved_function(node.text, nullptr) != nullptr)
+	{
+		return nullptr;
+	}
+	answered = true;
+	return named;
+}
+
+// 3.4p1 and 3.4.2p2: the callee of a call this reading can look up, which shall
+// name something.  5.2.3p1's explicit type conversion is written the same way,
+// so a type-name stands here and only the first of 5.1.1p8's questions is asked.
+void SemaAnalyzer::check_callee_name(const AstNode& node, const Context& ctx)
+{
+	bool answered = false;
+	if (definition_time_name(node, ctx, answered) != nullptr || !answered)
+	{
+		return;
+	}
+	throw std::runtime_error(node.text + " names nothing where the template "
+	                         "that calls it is defined, and its arguments "
+	                         "associate no namespace 3.4.2p2 could find it in");
+}
+
+void SemaAnalyzer::check_value_name(const AstNode& node, const Context& ctx)
+{
+	bool answered = false;
+	SemaEntity* const named = definition_time_name(node, ctx, answered);
+	if (!answered)
+	{
+		return;
+	}
 	if (named == nullptr)
 	{
-		// 1.4p8: a name the implementation reserves is declared where it is
-		// used, so the program not having written it is no error.
-		if (reserved_function(node.text, nullptr) != nullptr)
-		{
-			return;
-		}
 		throw std::runtime_error(node.text + " names nothing where the "
 		                         "template that writes it is defined");
 	}

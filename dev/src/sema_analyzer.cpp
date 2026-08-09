@@ -695,6 +695,7 @@ void SemaAnalyzer::namespace_alias(const AstNode& node, const Context& ctx)
 		require(resolve(target->text, ctx, LookupKind::Space), target->text);
 	SemaEntity& entity = model_.create(SemaKind::NamespaceAlias, node.text, kNoType);
 	entity.scope = model_.region_of(space);
+	require_no_template_parameter(node.text, *ctx.scope);
 	model_.bind(*ctx.scope, node.text, entity);
 }
 
@@ -762,6 +763,13 @@ void SemaAnalyzer::using_declaration(const AstNode& node, const Context& ctx)
 		write_entity_line(*ctx.dump, entity);
 		return;
 	}
+	// 14.6.1p6 is not asked here.  A using-declaration declares no name of its
+	// own - 7.3.3p1 makes the declarations it names members of this region, and
+	// the name they are found by is the one the region it came from gave them -
+	// so `using N::T` inside a template whose head declared `T` redeclares
+	// nothing, which is what both oracles say of it.  A class-scope
+	// using-declaration is asked, because 7.3.3p1 there makes a declaration of
+	// this class that `declare_using_member` creates.
 	model_.bind(*ctx.scope, name, entity);
 	model_.declare_in(*ctx.scope, entity);
 	write_entity_line(*ctx.dump, entity);
@@ -1028,9 +1036,14 @@ SemaEntity& SemaAnalyzer::declare_using_member(SemaEntity& target, Scope& where,
 // that one.
 //
 // The question is a fact of the regions a declaration stands in, so it is asked
-// where the name is bound rather than at each syntax that can bind one: a
-// typedef, an alias-declaration, an object and a using-declaration all reach
-// it.  What an instantiation binds in a region of the same kind is the argument
+// where the name is bound rather than at each syntax that can bind one: every
+// declaration that binds a name reaches it - a typedef and an alias-declaration
+// through `declare_type_alias`, a class and an enumeration through
+// `declare_type_name`, and an object, a parameter, a function, an enumerator, a
+// class-scope using-declaration and a namespace-alias where each of those
+// binds.  The template's own declared name is bound before its head is read, so
+// `record_template` asks that one of the head itself.  What an
+// instantiation binds in a region of the same kind is the argument
 // and not the parameter - a typedef-name of the type an argument named - so a
 // body read for a specialization is not asked this about names its own template
 // head never declared.
@@ -1080,6 +1093,32 @@ SemaEntity& SemaAnalyzer::declare_type_alias(const std::string& name,
 	model_.bind(where, name, entity);
 	model_.declare_in(where, entity);
 	return entity;
+}
+
+// 3.3.10p2, 9.2p1 and 14.6.1p6: what binding a class-name or an enum-name in a
+// region owes, which is the other half of the question `declare_type_alias`
+// asks.
+//
+// 7.1.3p3's leniency is a typedef-name's alone: it lets a region declare the
+// *same* typedef-name again, and 7.1.3p6 lets a class-name be redefined as a
+// typedef-name for the type it already names.  Neither runs the other way.  A
+// class-name and an enum-name are what 3.3.10p2's tag binding holds and an
+// elaborated-type-specifier reaches, and a typedef-name is not one - so
+// declaring either where the region already declares a typedef-name of that
+// spelling declares one name as two different kinds of type.  9.2p1 is a
+// class's own reason to refuse it and 3.3p4 the reason every other region has.
+void SemaAnalyzer::declare_type_name(const std::string& name, Scope& where)
+{
+	require_no_template_parameter(name, where);
+	const SemaEntity* const declared =
+		model_.find(where, name, LookupKind::Any);
+	if (declared != nullptr && declared->kind == SemaKind::Typedef)
+	{
+		throw std::runtime_error(name + " is declared as a class or an "
+		                         "enumeration where the region it stands in "
+		                         "already declares a typedef-name of that "
+		                         "spelling");
+	}
 }
 
 void SemaAnalyzer::alias_declaration(const AstNode& node, const Context& ctx)
@@ -1264,6 +1303,7 @@ SemaEntity* SemaAnalyzer::class_head_entity(const Context& ctx, ClassTag tag,
 	own_type(type, *entity);
 	if (!name.empty())
 	{
+		declare_type_name(name, *ctx.scope);
 		model_.bind(*ctx.scope, name, *entity);
 		model_.declare_in(*ctx.scope, *entity);
 	}
@@ -1623,6 +1663,7 @@ SemaEntity& SemaAnalyzer::enum_declaration(const AstNode& node,
 			id, scoped, name, dump_name(*ctx.scope, name), underlying);
 		entity = &model_.create(SemaKind::Enum, name, type);
 		own_type(type, *entity);
+		declare_type_name(name, *ctx.scope);
 		model_.bind(*ctx.scope, name, *entity);
 		model_.declare_in(*ctx.scope, *entity);
 		// 9.8p1 read of an enumeration: a function's body declares it too, and
@@ -1719,6 +1760,7 @@ void SemaAnalyzer::enumerators(const AstNode& node, SemaEntity& entity,
 			model_.create(SemaKind::Enumerator, child.text, entity.type);
 		enumerator.constant = true;
 		enumerator.value = value;
+		require_no_template_parameter(child.text, scope);
 		model_.bind(scope, child.text, enumerator);
 		model_.declare_in(scope, enumerator);
 		if (!scoped && scope.parent != nullptr)
@@ -1726,6 +1768,7 @@ void SemaAnalyzer::enumerators(const AstNode& node, SemaEntity& entity,
 			// 7.2p10: an unscoped enumeration's enumerators are declared in the
 			// region the enumeration is declared in, which is not where the
 			// definition is written when 7.2p1 writes it outside its class.
+			require_no_template_parameter(child.text, *scope.parent);
 			model_.bind(*scope.parent, child.text, enumerator);
 			model_.declare_in(*scope.parent, enumerator);
 		}
@@ -2136,6 +2179,15 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 
 	declare_object_declarator(initializer, specifiers, ctx, target, spelled,
 	                          written, type);
+	if (checking_ > 0 && initializer != nullptr)
+	{
+		// 14.6p8 and 3.4p1: an initializer is an expression of this definition
+		// exactly as the operand of a `return` is, so the names it writes are
+		// looked up where the definition stands too.  3.3.2p1 puts its point
+		// after the declarator, which is why it is read once the declarator
+		// this one belongs to has declared its name.
+		check_expression_names(*initializer, ctx);
+	}
 }
 
 // 3.1p2 and 8.5: the object a declarator that is not a function declares, from
