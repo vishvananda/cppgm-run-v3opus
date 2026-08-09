@@ -1,0 +1,8 @@
+global @outer__holder_int___member : i32 [binding=weak, object=_ZN5outer6holderIiE6memberE] = zero
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    store i32 0, @outer__holder_int___member
+    %t1 = load i32 @outer__holder_int___member
+    return i32 %t1
+}

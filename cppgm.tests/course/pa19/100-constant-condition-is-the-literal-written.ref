@@ -1,0 +1,348 @@
+function @side() -> i32 [binding=strong, object=_Z4sidev] {
+  block ^entry:
+    return i32 1
+}
+function @written(%p : i32) -> i32 [binding=strong, object=_Z7writteni] {
+  slot $p : i32
+
+  block ^entry:
+    store i32 %p, $p
+    jump ^if_then_1
+
+  block ^if_then_1:
+    %t1 = load i32 $p
+    %t2 = binary add i32 %t1, 1
+    store i32 %t2, $p
+    jump ^if_end_3
+
+  block ^if_else_2:
+    jump ^if_end_3
+
+  block ^if_end_3:
+    %t3 = call i32 @side()
+    branch %t3, ^if_then_4, ^if_else_5
+
+  block ^if_then_4:
+    %t4 = load i32 $p
+    %t5 = binary add i32 %t4, 2
+    store i32 %t5, $p
+    jump ^if_end_6
+
+  block ^if_else_5:
+    jump ^if_end_6
+
+  block ^if_end_6:
+    %t6 = load i32 $p
+    return i32 %t6
+}
+function @cast(%p : i32) -> i32 [binding=strong, object=_Z4casti] {
+  slot $p : i32
+
+  block ^entry:
+    store i32 %p, $p
+    branch 1, ^if_then_1, ^if_else_2
+
+  block ^if_then_1:
+    %t1 = load i32 $p
+    %t2 = binary add i32 %t1, 1
+    store i32 %t2, $p
+    jump ^if_end_3
+
+  block ^if_else_2:
+    jump ^if_end_3
+
+  block ^if_end_3:
+    %t3 = load i32 $p
+    return i32 %t3
+}
+function @functional(%p : i32) -> i32 [binding=strong, object=_Z10functionali] {
+  slot $p : i32
+
+  block ^entry:
+    store i32 %p, $p
+    branch 1, ^if_then_1, ^if_else_2
+
+  block ^if_then_1:
+    %t1 = load i32 $p
+    %t2 = binary add i32 %t1, 1
+    store i32 %t2, $p
+    jump ^if_end_3
+
+  block ^if_else_2:
+    jump ^if_end_3
+
+  block ^if_end_3:
+    %t3 = load i32 $p
+    return i32 %t3
+}
+function @pointer(%p : i32) -> i32 [binding=strong, object=_Z7pointeri] {
+  slot $p : i32
+
+  block ^entry:
+    store i32 %p, $p
+    branch 0, ^if_then_1, ^if_else_2
+
+  block ^if_then_1:
+    %t1 = load i32 $p
+    %t2 = binary add i32 %t1, 1
+    store i32 %t2, $p
+    jump ^if_end_3
+
+  block ^if_else_2:
+    jump ^if_end_3
+
+  block ^if_end_3:
+    %t3 = load i32 $p
+    return i32 %t3
+}
+function @comma(%p : i32) -> i32 [binding=strong, object=_Z5commai] {
+  slot $p : i32
+
+  block ^entry:
+    store i32 %p, $p
+    branch 1, ^if_then_1, ^if_else_2
+
+  block ^if_then_1:
+    %t1 = load i32 $p
+    %t2 = binary add i32 %t1, 1
+    store i32 %t2, $p
+    jump ^if_end_3
+
+  block ^if_else_2:
+    jump ^if_end_3
+
+  block ^if_end_3:
+    %t3 = load i32 $p
+    return i32 %t3
+}
+function @value_initialized(%p : i32) -> i32 [binding=strong, object=_Z17value_initializedi] {
+  slot $p : i32
+
+  block ^entry:
+    store i32 %p, $p
+    jump ^if_else_2
+
+  block ^if_then_1:
+    %t1 = load i32 $p
+    %t2 = binary add i32 %t1, 1
+    store i32 %t2, $p
+    jump ^if_end_3
+
+  block ^if_else_2:
+    jump ^if_end_3
+
+  block ^if_end_3:
+    %t3 = load i32 $p
+    return i32 %t3
+}
+function @stopped(%p : i32) -> i32 [binding=strong, object=_Z7stoppedi] {
+  slot $p : i32
+
+  block ^entry:
+    store i32 %p, $p
+    jump ^if_else_2
+
+  block ^if_then_1:
+    %t1 = load i32 $p
+    %t2 = binary add i32 %t1, 1
+    store i32 %t2, $p
+    jump ^if_end_3
+
+  block ^if_else_2:
+    jump ^if_end_3
+
+  block ^if_end_3:
+    %t3 = call i32 @side()
+    branch %t3, ^if_then_4, ^if_else_5
+
+  block ^if_then_4:
+    %t4 = load i32 $p
+    %t5 = binary add i32 %t4, 2
+    store i32 %t5, $p
+    jump ^if_end_6
+
+  block ^if_else_5:
+    jump ^if_end_6
+
+  block ^if_end_6:
+    %t6 = load i32 $p
+    return i32 %t6
+}
+function @carried(%p : i32) -> i32 [binding=strong, object=_Z7carriedi] {
+  slot $p : i32
+
+  block ^entry:
+    store i32 %p, $p
+    %t1 = call i32 @side()
+    branch %t1, ^if_then_1, ^if_else_2
+
+  block ^if_then_1:
+    %t2 = load i32 $p
+    %t3 = binary add i32 %t2, 1
+    store i32 %t3, $p
+    jump ^if_end_3
+
+  block ^if_else_2:
+    jump ^if_end_3
+
+  block ^if_end_3:
+    %t4 = call i32 @side()
+    branch %t4, ^if_then_4, ^if_else_5
+
+  block ^if_then_4:
+    %t5 = load i32 $p
+    %t6 = binary add i32 %t5, 2
+    store i32 %t6, $p
+    jump ^if_end_6
+
+  block ^if_else_5:
+    jump ^if_end_6
+
+  block ^if_end_6:
+    %t7 = load i32 $p
+    return i32 %t7
+}
+function @nested(%p : i32) -> i32 [binding=strong, object=_Z6nestedi] {
+  slot $p : i32
+
+  block ^entry:
+    store i32 %p, $p
+    jump ^land_rhs_4
+
+  block ^land_rhs_4:
+    %t1 = call i32 @side()
+    branch %t1, ^if_then_1, ^if_else_2
+
+  block ^if_then_1:
+    %t2 = load i32 $p
+    %t3 = binary add i32 %t2, 1
+    store i32 %t3, $p
+    jump ^if_end_3
+
+  block ^if_else_2:
+    jump ^if_end_3
+
+  block ^if_end_3:
+    %t4 = call i32 @side()
+    branch %t4, ^if_then_5, ^if_else_6
+
+  block ^if_then_5:
+    %t5 = load i32 $p
+    %t6 = binary add i32 %t5, 2
+    store i32 %t6, $p
+    jump ^if_end_7
+
+  block ^if_else_6:
+    jump ^if_end_7
+
+  block ^if_end_7:
+    %t7 = load i32 $p
+    return i32 %t7
+}
+function @operand_over_a_literal(%p : i32) -> i32 [binding=strong, object=_Z22operand_over_a_literali] {
+  slot $p : i32
+
+  block ^entry:
+    store i32 %p, $p
+    branch 1, ^if_then_1, ^if_else_2
+
+  block ^if_then_1:
+    %t1 = load i32 $p
+    %t2 = binary add i32 %t1, 1
+    store i32 %t2, $p
+    jump ^if_end_3
+
+  block ^if_else_2:
+    jump ^if_end_3
+
+  block ^if_end_3:
+    %t3 = load i32 $p
+    return i32 %t3
+}
+function @looped(%p : i32) -> i32 [binding=strong, object=_Z6loopedi] {
+  slot $p : i32
+
+  block ^entry:
+    store i32 %p, $p
+    jump ^while_cond_1
+
+  block ^while_cond_1:
+    branch 1, ^while_body_2, ^while_end_3
+
+  block ^while_body_2:
+    %t1 = load i32 $p
+    %t2 = binary add i32 %t1, 1
+    store i32 %t2, $p
+    jump ^while_end_3
+
+  block ^while_end_3:
+    %t3 = load i32 $p
+    return i32 %t3
+}
+function @named_value(%p : i32) -> i32 [binding=strong, object=_Z11named_valuei] {
+  slot $p : i32
+  slot $carried : i32
+  slot $addressed : i32
+  slot $land__1 : i64
+
+  block ^entry:
+    store i32 %p, $p
+    %t1 = call i32 @side()
+    %t2 = cmp ne i64 %t1, 0
+    %t3 = call i32 @side()
+    %t4 = cmp ne i64 %t3, 0
+    %t5 = convert zext i32 u8 %t2
+    %t6 = convert zext i32 u8 %t4
+    %t7 = binary add i32 %t5, %t6
+    store i32 %t7, $carried
+    branch nullptr, ^land_rhs_1, ^land_short_2
+
+  block ^land_rhs_1:
+    %t8 = call i32 @side()
+    %t9 = cmp ne i64 %t8, 0
+    store i64 %t9, $land__1
+    jump ^land_end_3
+
+  block ^land_short_2:
+    store i64 0, $land__1
+    jump ^land_end_3
+
+  block ^land_end_3:
+    %t10 = load i64 $land__1
+    %t11 = convert zext i32 u8 %t10
+    store i32 %t11, $addressed
+    %t12 = load i32 $p
+    %t13 = load i32 $carried
+    %t14 = binary add i32 %t12, %t13
+    %t15 = load i32 $addressed
+    %t16 = binary add i32 %t14, %t15
+    return i32 %t16
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    %t1 = call i32 @written(1)
+    %t2 = call i32 @cast(1)
+    %t3 = binary add i32 %t1, %t2
+    %t4 = call i32 @functional(1)
+    %t5 = binary add i32 %t3, %t4
+    %t6 = call i32 @pointer(1)
+    %t7 = binary add i32 %t5, %t6
+    %t8 = call i32 @comma(1)
+    %t9 = binary add i32 %t7, %t8
+    %t10 = call i32 @value_initialized(1)
+    %t11 = binary add i32 %t9, %t10
+    %t12 = call i32 @stopped(1)
+    %t13 = binary add i32 %t11, %t12
+    %t14 = call i32 @carried(1)
+    %t15 = binary add i32 %t13, %t14
+    %t16 = call i32 @nested(1)
+    %t17 = binary add i32 %t15, %t16
+    %t18 = call i32 @operand_over_a_literal(1)
+    %t19 = binary add i32 %t17, %t18
+    %t20 = call i32 @looped(1)
+    %t21 = binary add i32 %t19, %t20
+    %t22 = call i32 @named_value(1)
+    %t23 = binary add i32 %t21, %t22
+    %t24 = binary sub i32 %t23, 32
+    return i32 %t24
+}

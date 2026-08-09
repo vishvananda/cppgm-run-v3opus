@@ -469,6 +469,11 @@ private:
 	bool global_subobjects(lowir_model::GlobalDefinition& global,
 	                       const DumpNode& node, unsigned long long base,
 	                       unsigned long long& at);
+	// 4.10p1: the item a subobject of pointer type whose value is zero takes,
+	// which is its storage rather than the integer a null pointer constant is
+	// written as.  Every other item is left as it stands.
+	void null_pointer_item(lowir_model::GlobalDefinition::DataItem& item,
+	                       TypeId type, unsigned long long size);
 	// 3.6.2p2: the image a `constructor-action` leaves the object holding,
 	// where the constructor's own definition is nothing but 12.6.2's member
 	// initializations of values the translation knows once its parameters hold
@@ -738,12 +743,16 @@ private:
 	void branch_on_value(const DumpNode& node, const std::string& on_true,
 	                     const std::string& on_false);
 	// The same, answering which edge the condition already stands for: 1 for
-	// the true one, -1 for the false one and 0 where a branch was written.  A
-	// folded edge is left for the caller to jump to, because an operand of
-	// `&&` or `||` that folds leaves the operator standing for its other
-	// operand rather than for a jump.
+	// the true one, -1 for the false one and 0 where a terminator was written.
+	// A folded edge is left for the caller to jump to, because a condition that
+	// is a literal is one the statement around it jumps for.
 	int branch_or_fold(const DumpNode& node, const std::string& on_true,
 	                   const std::string& on_false);
+	// 6.4p4 and 5.19: the edge a condition that *is* a literal already stands
+	// for, asked of the expression and emitting nothing - so an operand of `&&`
+	// or `||` that stands for one is known to before a block is reserved for the
+	// operand beside it.
+	int folded_edge(const DumpNode& node) const;
 	// 3.8p1 and 12.2p3: whether any object's lifetime ends where this construct
 	// does, which is what makes the edges out of it places that end one.
 	static bool ends_temporaries(const DumpNode& node);
@@ -1397,7 +1406,7 @@ private:
 	// 5.14p1 and 5.15p1: whether the left operand alone decides a short
 	// circuit, which is what keeps the right one - and every symbol it names -
 	// out of the program entirely.
-	static bool decided_logical(const DumpNode& node, unsigned long long& value);
+	bool decided_logical(const DumpNode& node, unsigned long long& value) const;
 	LowValue subscript_expression(const DumpNode& node);
 	LowValue cast_expression(const DumpNode& node, bool as_object);
 	// 5.6 to 5.13: the value a built-in binary operator computes from two

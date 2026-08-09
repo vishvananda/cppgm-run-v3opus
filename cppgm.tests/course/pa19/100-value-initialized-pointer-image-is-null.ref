@@ -1,0 +1,63 @@
+global @value_initialized : ptr [binding=strong, object=_Z17value_initialized] = nullptr
+global @written_as_zero : ptr [binding=strong, object=_Z15written_as_zero] = 0
+global @written_as_nullptr : ptr [binding=strong, object=_Z18written_as_nullptr] = nullptr
+global @subobject_written [binding=strong, object=_Z17subobject_written] = {
+  zero 8
+  i32 1
+  zero 4
+}
+global @subobject_left [binding=strong, object=_Z14subobject_left] = {
+  zero 8
+  i32 0
+  zero 4
+}
+global @reached : i32 [binding=strong, object=_Z7reached] = zero
+global @subobject_addressed [binding=strong, object=_Z19subobject_addressed] = {
+  ptr addr @reached
+  i32 2
+  zero 4
+}
+global @held_pair_of___value [binding=weak, object=_ZN4heldI7pair_ofE5valueE] = {
+  zero 16
+}
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    %t1 = load ptr @value_initialized
+    %t2 = cmp eq ptr %t1, 0
+    %t3 = load ptr @written_as_zero
+    %t4 = copy ptr nullptr
+    %t5 = cmp eq ptr %t3, %t4
+    %t6 = convert zext i32 u8 %t2
+    %t7 = convert zext i32 u8 %t5
+    %t8 = binary add i32 %t6, %t7
+    %t9 = load ptr @written_as_nullptr
+    %t10 = cmp eq ptr %t9, nullptr
+    %t11 = convert zext i32 u8 %t10
+    %t12 = binary add i32 %t8, %t11
+    %t13 = addr @subobject_written
+    %t14 = index i8 [projection=field] %t13, 8
+    %t15 = load i32 %t14
+    %t16 = binary add i32 %t12, %t15
+    %t17 = addr @subobject_left
+    %t18 = index i8 [projection=field] %t17, 0
+    %t19 = load ptr %t18
+    %t20 = cmp eq ptr %t19, 0
+    %t21 = convert zext i32 u8 %t20
+    %t22 = binary add i32 %t16, %t21
+    %t23 = addr @subobject_addressed
+    %t24 = index i8 [projection=field] %t23, 0
+    %t25 = load ptr %t24
+    %t26 = addr @reached
+    %t27 = cmp eq ptr %t25, %t26
+    %t28 = convert zext i32 u8 %t27
+    %t29 = binary add i32 %t22, %t28
+    %t30 = addr @held_pair_of___value
+    %t31 = index i8 [projection=field] %t30, 0
+    %t32 = load ptr %t31
+    %t33 = cmp eq ptr %t32, 0
+    %t34 = convert zext i32 u8 %t33
+    %t35 = binary add i32 %t29, %t34
+    %t36 = binary sub i32 %t35, 7
+    return i32 %t36
+}

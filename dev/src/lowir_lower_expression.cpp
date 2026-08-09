@@ -1183,6 +1183,21 @@ LowValue LowirFunctionLowering::logical_expression(const DumpNode& node)
 		value.operand = literal_operand(value.type, decided);
 		return value;
 	}
+	if (folded_edge(*node.children[0]) != 0)
+	{
+		// 5.14p1 and 5.15p1: the left operand is a literal that did not decide
+		// the value, so what the operator is worth is its right operand's truth
+		// - read in the block the left one was.  There is one path through it,
+		// so there is no slot holding what two of them decided and no block for
+		// a short-circuit nothing reaches.
+		LowValue value;
+		value.type = node.fact.type;
+		value.operand = truth_value(expression(*node.children[1]));
+		// 12.2p3: a temporary the right operand created ends where the operator
+		// does, and this is the only path that reaches either.
+		leave_blocks(node);
+		return value;
+	}
 	lowir_model::LowType held;
 	held.text = "i64";
 	const std::string slot =
@@ -1463,15 +1478,21 @@ void LowirFunctionLowering::discarded_conditional(const DumpNode& node)
 }
 
 bool LowirFunctionLowering::decided_logical(const DumpNode& node,
-                                            unsigned long long& value)
+                                            unsigned long long& value) const
 {
-	if (node.children.empty() || !node.children[0]->fact.constant ||
-	    !node.children[0]->fact.spelling.empty())
+	// 5.19: what says the left operand already stands for an edge is
+	// `folded_edge`, which is the one question 6.4p4's condition asks - so a
+	// literal of pointer type, whose value the operand is spelled `nullptr` at,
+	// decides nothing here either.
+	const int settled = node.children.empty()
+		? 0
+		: folded_edge(*node.children[0]);
+	if (settled == 0)
 	{
 		return false;
 	}
 	const bool conjunction = node.fact.op == OP_LAND;
-	const bool truth = node.children[0]->fact.value != 0;
+	const bool truth = settled > 0;
 	if (conjunction == truth)
 	{
 		return false;

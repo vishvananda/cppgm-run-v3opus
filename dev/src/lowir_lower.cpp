@@ -846,6 +846,26 @@ bool LowirUnitLowering::floating_image(const DumpNode& node, std::string& text)
 bool LowirUnitLowering::image_value(const DumpNode& node, TypeId type,
                                     std::string& text)
 {
+	if (types_.is_reference(type))
+	{
+		// 8.5.3p5 and 12.2p1: a reference's storage holds the address of an
+		// object, and where the initializer was a value there is no object there
+		// at all - 3.10p1 makes a prvalue a value, so what the reference binds is
+		// a temporary the program gives storage to, which is an address no image
+		// can spell and an initialization the program runs.  The value itself is
+		// no image for it: an integer written into a reference's storage is an
+		// address the program never named.
+		return false;
+	}
+	if (node.fact.zero_initialized &&
+	    types_.kind(types_.strip_cv(type)) == TypeKind::Pointer)
+	{
+		// 8.5p7 and 4.10p1: the zero is the value the *object* was initialized
+		// with rather than a literal the program wrote, so a pointer holds the
+		// null pointer value - which the image spells the way a body does.
+		text = "nullptr";
+		return true;
+	}
 	if (types_.is_floating(types_.strip_cv(type)))
 	{
 		std::string written;
@@ -1400,10 +1420,29 @@ bool LowirUnitLowering::global_subobjects(lowir_model::GlobalDefinition& global,
 				return false;
 			}
 		}
+		null_pointer_item(item, child.fact.type, stride);
 		global.data_items.push_back(item);
 		at = offset + stride;
 	}
 	return true;
+}
+
+// 4.10p1: a null pointer subobject holds no address at all, which its storage
+// says by being zero.  An item names a value of the type the storage has, and
+// the null pointer value is not the integer 4.10p1 converts from - which is the
+// same answer an element of an array of pointers already takes and the same one
+// the scalar image spells `nullptr`.
+void LowirUnitLowering::null_pointer_item(
+	lowir_model::GlobalDefinition::DataItem& item, TypeId type,
+	unsigned long long size)
+{
+	if (item.kind != lowir_model::GlobalDefinition::DataItem::ITEM_INTEGER ||
+	    types_.kind(types_.strip_cv(type)) != TypeKind::Pointer)
+	{
+		return;
+	}
+	item.kind = lowir_model::GlobalDefinition::DataItem::ITEM_ZERO;
+	item.zero_bytes = static_cast<std::size_t>(size);
 }
 
 // 3.6.2p2: the value an object with static storage duration holds before the
@@ -1525,6 +1564,7 @@ bool LowirUnitLowering::global_constructed(
 			// constructor does is what the program runs.
 			return false;
 		}
+		null_pointer_item(item, type, types_.object_size(types_.strip_cv(type)));
 		global.data_items.push_back(item);
 		at = offset + types_.object_size(types_.strip_cv(type));
 	}
@@ -1717,6 +1757,11 @@ void LowirUnitLowering::static_destructor(const DumpNode& node)
 		shutdown_ = new LowirFunctionLowering(*this, builder_.shutdown_);
 		shutdown_->open_generated(builder_.shutdown_body_);
 	}
+	// 3.6.3p1 and 3.6.2p2: the end of the lifetime of an object with static
+	// storage duration is registered where the program starts, so a unit that
+	// owes the program that end owes it the entry the registration stands in -
+	// however little the initialization beside it came to.
+	builder_.startup_owed_ = true;
 	shutdown_->add_destruction(node);
 }
 

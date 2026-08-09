@@ -1,0 +1,44 @@
+global @reached : i32 [binding=strong, object=_Z7reached] = 7
+global @elsewhere [binding=strong, object=_Z9elsewhere] = {
+  i32 8
+  i32 9
+}
+global @bound_to_a_value : ptr [binding=strong, object=_Z16bound_to_a_value] = zero
+global @bound_to_an_object : ptr [binding=strong, object=_Z18bound_to_an_object] = zero
+global @bound_to_an_element : ptr [binding=strong, object=_Z19bound_to_an_element] = zero
+global @bound_to_a_member : ptr [binding=strong, object=_Z17bound_to_a_member] = zero
+global @held_int___value : i32 [binding=weak, object=_ZN4heldIiE5valueE] = zero
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    %t1 = load ptr @bound_to_a_value
+    %t2 = load i32 %t1
+    %t3 = load ptr @bound_to_an_object
+    %t4 = load i32 %t3
+    %t5 = binary add i32 %t2, %t4
+    %t6 = load ptr @bound_to_an_element
+    %t7 = load i32 %t6
+    %t8 = binary add i32 %t5, %t7
+    %t9 = load ptr @bound_to_a_member
+    %t10 = load i32 %t9
+    %t11 = binary add i32 %t8, %t10
+    %t12 = binary sub i32 %t11, 21
+    return i32 %t12
+}
+function @__cppgm_init() -> void [role=init, binding=internal] {
+  slot $tmpref__1 : i32
+
+  block ^entry:
+    store i32 5, $tmpref__1
+    %t1 = addr $tmpref__1
+    store ptr %t1, @bound_to_a_value
+    %t2 = addr @reached
+    store ptr %t2, @bound_to_an_object
+    %t3 = addr @elsewhere
+    %t4 = unary decay ptr %t3
+    %t5 = index i32 [projection=array_element] %t4, 1
+    store ptr %t5, @bound_to_an_element
+    %t6 = addr @held_int___value
+    store ptr %t6, @bound_to_a_member
+    return void
+}

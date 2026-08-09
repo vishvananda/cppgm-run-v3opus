@@ -43,27 +43,6 @@ Operand named_operand(Operand::Kind kind, const std::string& text)
 	return operand;
 }
 
-// Which edge a terminator carrying this operand would take: 1 for the true
-// one, -1 for the false one, and 0 where the operand is no literal at all.
-//
-// Only a written-out integer answers.  A `nullptr` is spelled where an address
-// is wanted and a floating literal is compared rather than tested, so neither
-// reaches a terminator as the value it stands for.
-int literal_truth(const Operand& operand)
-{
-	if (operand.kind != Operand::OP_INTEGER || operand.text.empty())
-	{
-		return 0;
-	}
-	const std::string::size_type digits = operand.text[0] == '-' ? 1 : 0;
-	if (operand.text.find_first_not_of("0123456789", digits) != std::string::npos ||
-	    digits == operand.text.size())
-	{
-		return 0;
-	}
-	return operand.text.find_first_not_of('0', digits) == std::string::npos ? -1 : 1;
-}
-
 // The child of `node` that is the resolved expression it holds, skipping the
 // declaration wrappers the dump writes around one.
 const DumpNode* only_child(const DumpNode& node)
@@ -1047,7 +1026,11 @@ Operand LowirFunctionLowering::converted(const LowValue& value, TypeId target,
 Operand LowirFunctionLowering::initializer_value(const LowValue& value,
                                                  TypeId target)
 {
-	return converted(value, target);
+	// 12.2p1: every reader of this is an object a declaration wrote - a member
+	// 8.5.1's clause reached, a mem-initializer's, the object itself - so a
+	// reference target here binds the temporary that declaration asked for and
+	// not a call's argument, and the storage takes the declaration's name.
+	return converted(value, target, "tmpref");
 }
 
 Operand LowirFunctionLowering::truth_for_branch(const LowValue& value)
@@ -2208,17 +2191,43 @@ void LowirFunctionLowering::branch_on_value(const DumpNode& node,
 	}
 }
 
+// The edge a condition that is a literal already stands for: 1 for the true
+// one, -1 for the false one, and 0 for every other expression.
+//
+// What says a condition is a literal is the *expression*, and not the operand a
+// lowering of it would leave standing: `true` is one and `int(1)`, `(int *)0`
+// and `((void)0, 1)` are each an expression over one, which 5.19's own reading
+// of a constant expression is what would answer for.  So this asks the node and
+// emits nothing, which is what lets the answer be had before a block is
+// reserved for an operand that is never read.
+//
+// A written `nullptr` and a floating literal are no answer either: the one is
+// spelled where an address is wanted and the other is compared rather than
+// tested, so neither reaches a terminator as the value it stands for.
+int LowirFunctionLowering::folded_edge(const DumpNode& node) const
+{
+	TypeTable& types = unit_.types();
+	const TypeId held = types.strip_cv(node.fact.type);
+	if (node.fact.kind != FactKind::Literal || !node.fact.constant ||
+	    !node.fact.spelling.empty() || types.is_floating(held) ||
+	    types.kind(held) == TypeKind::Pointer)
+	{
+		return 0;
+	}
+	return node.fact.value != 0 ? 1 : -1;
+}
+
 // The edge a condition already stands for.
 //
 // A terminator that tests a literal is the jump one of its edges is, and what
-// says the operand is a literal is the operand the lowering *wrote*: `true` is
-// one and `1 == 1` is the instruction that computes it, which is where this
-// stops and 5.19's own reading of a constant expression begins.
+// says the condition is a literal is `folded_edge`.
 //
 // An operand of `&&` or `||` that folds does not fold the operator to a jump:
 // it leaves it standing for its other operand, read in the block the first one
-// was, or for itself - and the block the short-circuit reserved is opened only
-// where something reaches it.
+// was, or for itself - and the block the short-circuit reserved is not reserved
+// at all where the operand before it is what says which edge is taken, because
+// that operand is never read there and the blocks a body opens are numbered by
+// the order they were asked for.
 int LowirFunctionLowering::branch_or_fold(const DumpNode& node,
                                           const std::string& on_true,
                                           const std::string& on_false)
@@ -2236,30 +2245,39 @@ int LowirFunctionLowering::branch_or_fold(const DumpNode& node,
 	    !ends_temporaries(node))
 	{
 		const bool conjunction = node.fact.op == OP_LAND;
-		const std::string rhs = reserve_block(conjunction ? "land_rhs" : "lor_rhs");
-		const int left = branch_or_fold(*node.children[0],
-		                                conjunction ? rhs : on_true,
-		                                conjunction ? on_false : rhs);
+		const int left = folded_edge(*node.children[0]);
 		if (left == 0)
 		{
+			const std::string rhs =
+				reserve_block(conjunction ? "land_rhs" : "lor_rhs");
+			branch_or_fold(*node.children[0], conjunction ? rhs : on_true,
+			               conjunction ? on_false : rhs);
 			open_block(rhs);
 		}
 		else if ((left > 0) != conjunction)
 		{
 			// The operand the operator stops at, so 5.14p2's right one is never
-			// read and the block it would have been read in is never opened.
-			return left;
+			// read and the block it would have been read in is neither reserved
+			// nor opened.
+			jump(left > 0 ? on_true : on_false);
+			return 0;
 		}
-		return branch_or_fold(*node.children[1], on_true, on_false);
+		// 5.14p1: the value of the operator is its right operand's wherever the
+		// left one did not decide it, so the operator ends where that operand
+		// does and stands for no edge of its own.
+		const int right = branch_or_fold(*node.children[1], on_true, on_false);
+		if (right != 0)
+		{
+			jump(right > 0 ? on_true : on_false);
+		}
+		return 0;
 	}
-	const LowValue value = condition_value(node);
-	const Operand tested = truth_for_branch(value);
-	const int written = literal_truth(tested);
+	const int written = folded_edge(node);
 	if (written != 0)
 	{
 		return written;
 	}
-	branch(tested, on_true, on_false);
+	branch(truth_for_branch(condition_value(node)), on_true, on_false);
 	return 0;
 }
 

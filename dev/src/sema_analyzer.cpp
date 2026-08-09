@@ -2359,11 +2359,14 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 	// specialization a use names is what a later milestone gives storage to.
 	// What says the head is this declaration's own is the region it stands in:
 	// a name a function template's body declares belongs to a region of that
-	// body, and 9.4.2p2's static data member is defined into the class its
-	// qualified declarator-id names - which `record_template` already took as
-	// 14.5.1.3p1's member of a template.
-	if (ctx.template_head == ctx.scope && !spelled.qualified() &&
-	    target.scope->kind != ScopeKind::Class)
+	// body.  And what tells the pattern from 14.5.1.3p1's static data member is
+	// the region the declaration *belongs* to rather than the spelling that
+	// reached it: 9.4.2p2's member is defined into the class its qualified
+	// declarator-id names - which `record_template` already took - while a
+	// qualified name reaching a namespace declares the same pattern an
+	// unqualified one there does, and laying out storage for it would name an
+	// object of a type an argument list has yet to say.
+	if (ctx.template_head == ctx.scope && target.scope->kind != ScopeKind::Class)
 	{
 		return;
 	}

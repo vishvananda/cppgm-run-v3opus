@@ -1,0 +1,47 @@
+global @held_closed___value [binding=weak, object=_ZN4heldI6closedE5valueE] = {
+  zero 4
+}
+
+function @closed___closed__base_entry(%this : ptr) -> void [binding=strong, object=_ZN6closedD2Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    store i32 0, %t2
+    return void
+}
+function @closed___closed(%this : ptr) -> void [binding=strong, object=_ZN6closedD1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    store i32 0, %t2
+    return void
+}
+function @reach() -> ptr [binding=strong, object=_Z5reachv] {
+  block ^entry:
+    %t1 = addr @held_closed___value
+    return ptr %t1
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    %t1 = call ptr @reach()
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i32 %t2
+    return i32 %t3
+}
+function @__cppgm_init() -> void [role=init, binding=internal] {
+  block ^entry:
+    return void
+}
+function @__cppgm_fini() -> void [role=fini, binding=internal] {
+  block ^entry:
+    %t1 = addr @held_closed___value
+    call void @closed___closed(%t1)
+    return void
+}
+alias object _ZN6closedD2Ev = @closed___closed

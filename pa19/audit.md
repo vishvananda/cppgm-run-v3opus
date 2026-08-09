@@ -5,229 +5,298 @@ settle, instantiate, name, lower.
 
 ## Current Checkpoint Review
 
-**C10, reviewed at `0b3f72b8`** — 9.4.2p1's and 3.4.1p8's qualified
-declarator-id recording its pattern on the declaration the region that name
-reaches already has, with 14.1p1's own head standing inside that region
-(`StandingIn`); 3.4.3p1's prefix walked component by component; 14.5.2's member
-template given 9.3.1p3's object parameter; 14.8.1p2's partly written argument
-list made a declaration of its own; and 8.2p7's `T (X)` read back as the
-declarator 3.4 says it is.
+**C11, reviewed at `52c679e1`** — 14p1's template-declaration made to declare no
+*object*; 14.7.1p6's initialization of a member an instantiation defined left to
+the use that names it, so a startup body that runs nothing is no body of this
+unit's; 12.2p1's temporary a reference binds given storage of its own; 6.4's
+condition that is a literal lowered as the jump one of its edges is; 12.1p5's
+constructor of a subobject that holds nothing naming no address; 12.8p31's
+returned object taking the constructor the elision left; and 4.10p1's null
+pointer value for a value-initialized pointer.
 
-**Two of the five rules are right and swept clean, and a third is right at the
-two readers it was given.**  `StandingIn` holds over every form the qualified
-declarator-id takes - a function template defined and declared out of
-namespace, a nested namespace, a leading `::`, a class-head-name that defines
-the template a namespace declared, an out-of-class member and a static data
-member of one, and a head whose parameter name a typedef in the target region
-also spells - eight shapes agreeing with `reference-binaries/cppgm++` and
-**g++** and identical to the reference as emitted LowIR in every one.  8.2p7 is
-swept over twelve: a plain place, an array, two places, a type-name that makes
-the parameter a function, a decltype over the place beside it, a member
-function, a template, a name nothing declares, a declaration matched by a
-definition, a default argument, a redundant pointer and a place shadowing a
-global - agreeing with **g++** in all twelve and beating the reference on three
-it refuses.  14.8.1p2 is swept over eleven, including the memo, a target type,
-too many arguments, a deduction that reaches nothing, an address with no
-target, a substitution failure and a class template, which reaches this path in
-neither compiler.
+**Three of the seven rules are right and swept clean.**  12.1p5's empty
+subobject holds over an empty member, an empty base, a base with an empty member
+of its own, an array of them, a class with a vpointer beside them and 12.8p15's
+memberwise copy of each - and over the same shapes with a member that unwinds,
+where the `eh_try` region the roll-back stands inside is the reference's to the
+instruction.  12.8p31's returned object holds over a prvalue, an aggregate
+temporary, a call, a conditional whose two arms each build one, two returns in
+one function and a local the elision names, all identical to the reference: the
+mark is taken and cleared by the outermost call, and no later construction in
+the same body loses 8.5p7's zero.  `retref`, `refarg` and `tmpref` are the
+reference's names at every place a reference binds a value that this milestone
+lowers, and the startup mark is O(1) in what the body already holds.
 
-**Seven blockers, and four of them are one shape - 14.5.2's object parameter has
-readers C10 did not give it.**  A member template now carries 9.3.1p3's object
-parameter, and every question that used to be answered from a function type had
-to be asked again: 9.4.1p2's "which declaration does this definition redeclare",
-14.7.1p1's "what is a specialization called on", and 14.5.6.2p2's "which places
-are these two ordered by", which two different pairs reach.  Three of the four
-left a program both oracles compile refused - one of them a **regression C10
-shipped** - and the fourth emitted an object parameter for a member 9.4p1 calls
-on no object.  The other three blockers are 14.8.1p2's unlanded second arm, its
-third reader, and two components 3.4.3p1's new prefix walk does not reach.
+**Six blockers, and four of them are one shape - a rule landed at one reader of
+a fact and not at the others that have it.**  The condition fold asked the
+*operand a lowering wrote* where the reference asks the *expression*, so eight
+spellings of a literal under a cast, a functional cast or a comma folded here
+and stand there - and the block a short-circuit reserves was reserved even where
+the operand before it says which edge is taken, which renumbers every block
+after it.  The same fold has a sibling exit the checkpoint did not reach, 5.14's
+operator read as a *value*.  And 12.2p1's temporary and 4.10p1's null pointer
+value were landed in the body and not in the **image**: a namespace-scope
+reference bound to a literal wrote that literal as its address - a program that
+points at address 5 - and a value-initialized pointer wrote the integer `0`
+where the reference writes `nullptr` and `zero`.  Beside them, 3.6.3p1's end of
+a lifetime the unit owes dropped the entry it is registered in, and 14p1's
+pattern was told from 14.5.1.3p1's static data member by the *spelling* rather
+than by the region, which laid out a `global : void`.
 
 ### Findings
 
-**1. A static member template defined outside its class was refused.**
-`declares_static_member` asks 13.1's index of the class's chain, which is keyed
-by the parameter list *as written* - and 14.1p2 gives each head parameters of its
-own, so the definition's `int(T)` is not the declaration's.  The probe missed, so
-9.4.1p2's `static` was taken as unwritten rather than as said elsewhere, the
-definition got an object parameter its declaration has not, and
-`template<class T> int counter::raised(T)` over a `static` member was
-**`a definition of raised matches no declaration of it`** where both oracles
-compile it.  14.5.6.1p5's signature is the question that answers it - each head's
-parameters standing for the places they were declared in - which is the same
-`equivalent_template` `declare_function` asks two lines later.
+**1. The condition fold asked the operand and not the expression.**  What says a
+condition is a literal is the expression, and not what a lowering of it left
+standing: the reference leaves the terminator standing - `branch 1` or `branch 0`
+over the very operand it folded elsewhere - for `int(1)`, `(int)1`,
+`static_cast<int>(1)`, `(long)1`, `char(1)`, `unsigned(0)`, `(int *)0`,
+`(void *)0`, `((void)0, 1)`, `(1, 2)`, `(side(), 1)` and `(p = 1)`, and folds only
+where the expression *is* the literal - a written one, an enumerator, a `const`
+static data member's value, 8.5p7's zero of `int()`.  `literal_truth` read the
+`Operand`, so all twelve folded here, in an `if`, a `while`, a `do` and a `for`
+alike: **39 of the 208 swept conditions differed**, and ten of the eighteen cast
+and functional-cast forms beside them.
+`folded_edge` asks the node - `FactKind::Literal`, constant, no spelling, not
+floating, not a pointer - and emits nothing, which is what lets the answer be
+had before a block is reserved.
 
-**2. And 14.7.1p1's second reading of that definition could not ask either.**
-The region an instantiation reads a pattern under binds *arguments*, so its
-declarations are typedef-names and not template parameters: neither 13.1's index
-nor 14.5.6.1p5's signature can find the declaration a substituted type came
-from.  A specialization is a declaration nothing wrote, so what it is called on
-is the template's own declaration's fact, and `template int counter::raised<int>
-(int)` emitted `function @counter__raised(%this : ptr, %step : i32)` for a
-member 9.4p1 calls on no object.
+**2. And the block 5.14's right operand is read in was reserved where nothing
+reads it.**  A reserved block bumps the counter that names every block after it,
+so `if (true && side())` followed by any second statement that opens one
+renumbered all of them: `if_then_5` here against the reference's `if_then_4`,
+over `true &&`, `false &&`, `true ||` and `false ||`.  The reservation belongs
+after the question rather than before it, and where the left operand *stops* the
+operator the jump is written and no block is reserved at all; where the left
+operand is itself an `&&`, the operator has an edge of its own and the reference
+opens the block it reserved - `true && true && side()` is `jump ^land_rhs_4` and
+a block, in both compilers now.
 
-**3. 14.5.6.2 could not order a static member template against a non-static one
-- a regression C10 shipped.**  `more_specialized` refused any pair whose
-`object_member` differed, which before this checkpoint was never two member
-templates.  `struct c { template<class T> static int r(T); template<class T> int
-r(T *); };` called as `o.r(&two)` is **`a call of r has no best declaration`**
-here, and `reference-binaries/cppgm++`, **g++** and the pre-C10 `e7eb1c1a` build
-all choose `r(T *)`.  13.3.1p4 is why: a static member has an implicit object
-parameter that matches any object, so it tells the two apart by nothing and the
-places their declarators wrote are what is left to order them by.
+**3. 5.14's operator read as a *value* is the fold's sibling exit, and it asked
+the question a third way.**  `decided_logical` already answers the arm where the
+left operand *decides* the value; the arm where it does not leaves the operator
+standing for its right operand, and `logical_expression` still built the slot two
+paths write and the three blocks they need.  `(true && side()) + (false ||
+side())` emitted two slots and six blocks against the reference's straight line,
+and `if (true && wrap())` - where 12.2p3's temporary keeps the condition in the
+value form - emitted them around the destructor as well.  The value is the right
+operand's truth read in the block the left one was, with 12.2p3's end where the
+operator ends, because there is one path through it.  And `decided_logical`'s own
+predicate was `fact.constant` and nothing else, so a literal of *pointer* type
+decided the value here - `int q = pointer() && side();` was `store i32 0` against
+the reference's `branch nullptr` and its blocks - which is the same exclusion
+`folded_edge` makes and the reason the two now ask one question.
 
-**4. And the same guard left 13.5p6's member operator template unordered against
-the non-member beside it** - which this checkpoint's object parameter is what
-put in the candidate set at all (`e7eb1c1a` does not read a member operator
-template as an operator).  14.5.6.2p2 is the clause: where only one of two
-function templates is a non-static member, that one is considered to have a
-first parameter of "reference to cv A", which is exactly the place the
-non-member wrote its own first operand in.  9.3.1p3 wrote it as a *pointer*, so
-`ordering_parameters` is the one place the two lists are lined up - a reference
-against a non-member that wrote the operand, dropped against 9.4p1's static
-member of the same class, and left as written for every other pair, so a member
-against a non-member that wrote no operand is still ordered by nothing.
+**4. A namespace-scope reference's image held the value it binds.**  12.2p1's
+temporary is an object the *program* gives storage to, and `image_value` was
+asked for a reference's image with no question about the type: `const int & r =
+5;` wrote **`global @r : ptr = 5`** - a reference that points at address 5 -
+where the reference writes `zero` and binds a `tmpref` slot in the startup body.
+The same reader wrote `ptr 5` for 8.5.1's clause of a reference member.  A
+reference's storage holds an address and a value is no image for one, so the
+image holds nothing and the binding is an action - which is the one arm
+`add_initialization` already lowers with `bound_address`.
 
-**5. 14.1p9's default template argument never reached a function template's
-deduction.**  14.8.1p2's sentence has two arms - a trailing argument may be
-omitted where it can be **deduced or obtained from a default template-argument**
-- and the checkpoint landed the first.  `record_function_template` records
-`nullptr` for every default, so `template<class T, class U = long> int mix(T);`
-was `no declaration of mix accepts the arguments of a call` with `mix<int>(2)`
-and with a bare `mix(2)` alike.  The default is a fact of the *parameter* -
-14.1p2 lets each declaration spell its places as it likes - so it is kept beside
-the declaration `template_parameter` makes, read in the region the head declared
-its parameters in because 14.1p9 lets it name the places before it, and
-substituted with what the deduction has settled so far, so `class U = T` takes
-what `T` deduced.
+**5. And 4.10p1's null pointer value was landed in the body and not in the
+image.**  `pointer p = pointer();` is `store ptr nullptr` in a body here since
+C11 and was `= 0` as an image, where the reference writes `nullptr`; and a
+*subobject* of pointer type whose value is zero is `zero 8` in the reference -
+which the array path already answers with `ITEM_ZERO` and the member path wrote
+as `ptr 0`, for a clause the program wrote and for a member no clause reached
+alike.  The image spells the value the way a body does and the item says it by
+being storage.
 
-**6. 3.4.3p1's prefix walk did not reach two of the components it walks.**
-`member_definition_owner` looked each component up in `named->scope`, which a
-typedef-name naming a class has none of, and began at `ctx.scope` for a name
-written `::v::S<T>::f`.  Both are what `resolve_prefix` - the one place 3.4.3p1
-is answered - already does with `region_of` and the empty first component, and
-without the owner the definition's head is never stood against the class, so
-`template<class T> int ::vessel::real::held<T>::twice()` and the same through a
-typedef were `twice is written after a name that is not a namespace, class or
-enumeration` on programs both oracles compile.
+**6. The startup body was dropped where the unit owes a shutdown.**  14.7.1p6
+leaves an initialization that writes nothing owing no entry, and 3.6.3p1's end
+of the lifetime of an object with static storage duration is registered *where
+the program starts* - so a unit whose one namespace-scope object is an
+instantiated static data member of a class with a destructor emits
+`__cppgm_fini` and, in the reference, an empty `__cppgm_init` beside it.  Here
+the body was dropped: `startup_owed_` was written only where an initialization
+came to something.  A unit that owes the program 3.6.3p1's end owes it the entry
+that end is registered in.
 
-**7. 14.7.2p1's explicit instantiation is the third reader 14.8.1p2 was not
-given.**  `instantiation_named` matches the type the declaration wrote against
-`found[index]->type`, and a partly written list stands for a declaration whose
-type is still the template's own - so `template int mix<char>(double);` named no
-specialization where the arm beside it, a name that wrote no list at all,
-already deduces from that type with `deduce_target`.  **g++ accepts it** and
-`reference-binaries/cppgm++` refuses it, so it is landed on g++'s side and
-recorded with the other places the reference stands alone; it can be no
-committed fixture, because the reference is what writes one.
+**7. 14p1's pattern was told from 14.5.1.3p1's member by the spelling.**  The
+guard asked `!spelled.qualified()`, and what says a declarator under a head is a
+pattern is the region the declaration *belongs* to: a qualified declarator-id
+reaching a namespace declares the same pattern an unqualified one there does, so
+`namespace n { template<class T> T v; } template<class T> T n::v;` laid out
+**`global @n__v : void [binding=strong] = zero`** - a global of no type, which is
+not LowIR any tool below reads - where the reference emits nothing.  The region
+is what `record_template` already took for 9.4.2p2's static data member, whose
+own definition still lays out its storage.
 
 ### Changes
 
 | what | where |
 | --- | --- |
-| 14.5.6.1p5's signature answering 9.4.1p2 for a member template's definition | `sema_class.cpp`, `sema_analyzer.h` |
-| 14.7.1p1's specialization saying what it is called on | `sema_function.cpp` |
-| 14.5.6.2p2's places two templates are ordered by (`ordering_parameters`) | `sema_overload.cpp` |
-| 14.1p9's default kept beside the parameter and read where a deduction finds the place empty | `sema_analyzer.cpp`, `sema_analyzer.h`, `sema_template.cpp` |
-| 3.4.3p1's leading `::` and typedef-name component in a member definition's prefix | `sema_template.cpp` |
-| 14.8.1p2's partial list deduced from at 14.7.2p1's explicit instantiation | `sema_template.cpp` |
+| 6.4p4's condition that *is* a literal (`folded_edge`), and the block a short-circuit reserves asked for after the question | `lowir_lower_body.cpp`, `lowir_lower.h` |
+| 5.14p1's operator standing for its right operand where the value is named, and `decided_logical` asking `folded_edge` for the edge | `lowir_lower_expression.cpp`, `lowir_lower.h` |
+| 12.2p1: a reference's image holds an address, so a value is no image for one | `lowir_lower.cpp` |
+| 4.10p1's null pointer value in the scalar image and in a subobject's item (`null_pointer_item`) | `lowir_lower.cpp`, `lowir_lower.h` |
+| 12.2p1's name for the temporary an 8.5.1 clause binds (`initializer_value`) | `lowir_lower_body.cpp` |
+| 3.6.3p1's registered end owing 3.6.2p2's entry | `lowir_lower.cpp` |
+| 14p1's pattern told from 14.5.1.3p1's member by the region | `sema_analyzer.cpp` |
 
 Five regression tests under `cppgm.tests/course/pa19`, one per finding but the
-two that are one clause: `100-static-member-template-out-of-class`,
-`100-static-and-non-static-member-template-order`,
-`100-member-operator-template-order-against-non-member`,
-`100-function-template-default-template-argument`,
-`100-member-definition-prefix-through-alias`.  All five fail against the
-pre-audit binary built from `0b3f72b8` - two on a refused definition, two on
-`no best declaration` and one on a call no declaration accepts - and the
-ordering one *passes* against the pre-C10 `e7eb1c1a` build, which is what makes
-it the regression rather than a gap.  Finding 7 has no fixture: the reference is
-what writes a `.ref` and it refuses the program.
+three that are one reader: `100-constant-condition-is-the-literal-written`,
+`100-reference-image-holds-no-value`,
+`100-value-initialized-pointer-image-is-null`,
+`100-instantiated-member-end-owes-the-entry`,
+`100-qualified-variable-template-declares-no-object`.  All five fail against the
+pre-audit binary built from `52c679e1` - one on a folded branch and a renumbered
+block, two on an image holding a value, one on a missing `role=init` entry and
+one on a `global` of no type.  Finding 3's three shapes are in the first of them,
+as the two values `named_value` binds.  12.2p1's name for an aggregate clause has
+no fixture: the reference refuses every program that binds a reference member to
+a value.
 
 ### Performance Evidence
 
 Nine shapes over the surface this audit owns, `--emit-lowir -O0`, n = 32, 128
-and 512, each timed twice against the pre-audit binary built from `0b3f72b8` in
+and 512, each timed twice against the pre-audit binary built from `52c679e1` in
 a worktree with `make build`:
 
 | shape | pre-audit | now |
 | --- | --- | --- |
-| n function templates overloading one name, each called | 0.00 / 0.03 / 0.37 s | 0.00 / 0.03 / 0.35 s |
-| n target types each choosing among n function templates | 0.00 / 0.02 / 0.15 s | 0.00 / 0.02 / 0.15 s |
-| n calls of one template with a default template argument | 0.00 / 0.00 / 0.00 s | 0.00 / 0.00 / 0.01 s |
-| n out-of-class static member template definitions in one class | 0.00 / 0.00 / 0.01 s | 0.00 / 0.00 / 0.02 s |
-| n member templates of one class, each called | 0.00 / 0.01 / 0.05 s | 0.00 / 0.01 / 0.05 s |
-| n distinct specializations of one class template | 0.00 / 0.01 / 0.05 s | 0.00 / 0.01 / 0.05 s |
-| n templates each named by a partial explicit list | 0.00 / 0.01 / 0.04 s | 0.00 / 0.01 / 0.05 s |
-| n non-member operator template pairs, each called twice | 0.01 / 0.07 / 1.17 s | 0.01 / 0.07 / 1.17 s |
-| **n member operator templates ordered against a non-member, each called twice** | - | 0.01 / 0.05 / 0.63 s |
+| n functions of three folded and one written condition | 0.00 / 0.01 / 0.07 s | 0.00 / 0.01 / 0.07 s |
+| n functions of two folded short-circuit conditions | 0.00 / 0.01 / 0.06 s | 0.00 / 0.01 / 0.06 s |
+| **n `&&`/`||` values whose left operand folds** | 0.00 / 0.01 / 0.05 s | 0.00 / 0.01 / **0.04 s** |
+| n namespace-scope references bound to values | 0.00 / 0.00 / 0.01 s | 0.00 / 0.00 / 0.01 s |
+| n namespace-scope value-initialized pointers | 0.00 / 0.00 / 0.01 s | 0.00 / 0.00 / 0.01 s |
+| n pointer members in two global aggregates | 0.00 / 0.00 / 0.00 s | 0.00 / 0.00 / 0.00 s |
+| n instantiated static members with a destructor | 0.00 / 0.00 / 0.00 s | 0.00 / 0.00 / 0.00 s |
+| n variable templates defined through a qualified name | 0.00 / 0.00 / 0.01 s | 0.00 / 0.00 / 0.01 s |
+| n references bound to a conditional of two values | 0.00 / 0.01 / 0.03 s | 0.00 / 0.01 / 0.03 s |
 
-The two questions the audit adds are asked per *declaration* and not per use:
-14.5.6.1p5's signature is computed once per declaration and already memoised, so
-n static member template definitions in one class stay linear, and 14.1p9's
-default is one type-id read per place a deduction leaves empty, which is why n
-calls of such a template are 0.01 s at n = 512.  Every shape the ordering path
-already carried is where the checkpoint left it, to the hundredth and within 1%
-of its memory (n overloads of one name 29.3 MB in both binaries, n member
-templates 20.5 -> 20.6 MB): `ordering_parameters` returns the written list
-itself wherever 14.5.6.2p2 has nothing to change, so the pair that costs an
-adjusted list is the mixed one alone.
+Every question the audit adds is O(1) at the place it is asked and asked once
+per construct: `folded_edge` is four questions of one node and *replaces* the
+`condition_value` a folded condition used to be lowered through, `image_value`
+gains two type questions per item, `null_pointer_item` one, and 3.6.3p1's entry
+one flag store per registered end.  Each shape is linear to n = 2048 - the two
+condition shapes are 0.28 s and 0.24 s there, unchanged - and the one that moves
+moves down: n `&&` values whose left operand folds are **0.22 s -> 0.17 s and
+68.5 MB -> 51.5 MB** at n = 2048, because the slot and the three blocks are no
+longer built.
 
-The last shape is the one this audit makes compilable - the pre-audit binary
-**refuses it**, so its 0.06 s is an early exit and not a measurement.  Its cost
-is 13.3p1's own quadratic over the ADL-reachable `operator+` declarations, and
-the honest baseline is the row above it: the *same* call count written with two
-non-member operator templates per class, which both binaries compile in 1.17 s
-at n = 512 against this shape's 0.63 s.  `reference-binaries/cppgm++` is 0.18 s
-at n = 32 and **21.01 s** at n = 128 on it, against our 0.01 s and 0.05 s.
+The one row that costs memory is the reference bound to a value, and it costs it
+because the program now has an object it did not: 512 of them are 7.9 MB -> 9.4
+MB and 2048 are 12.8 MB -> 19.4 MB, about 3.2 KB for each temporary the startup
+body now holds where an image item stood.  That is the storage 12.2p1 says is
+there.
 
 ### Validation
 
-- **322 / 346 -> 327 / 351**, the five new tests being the five shapes these
-  leave, and the failing 24 the same 24 by name; pa1-pa18 **1778 / 1778**.
+- **343 / 358 -> 348 / 363**, the five new tests being five of the shapes these
+  leave and the failing 15 the same 15 by name; pa1-pa18 **1778 / 1778**.
 - **File audit passes** for pa19 over `dev/src` with the five header-weight
-  warnings the shared headers have carried since PA18, and no suppression.  The
-  build prints nothing.  `sema_analyzer.h` is **2391 against the limit of
-  2400**: this audit's one new member is a map and its two other questions are a
-  parameter on a declaration that already existed and a free function of the
-  file that asks it, and the next thing that header grows by owes a split.
+  warnings the shared headers have carried since PA18, and no suppression; the
+  build prints nothing.  `sema_analyzer.h` is where C10's audit left it at
+  **2391 against the limit of 2400** and `sema_template.cpp` at 2842 against
+  3000: this audit's own lines are two functions of the files that ask them and
+  it left both files 21 lines lighter than the rule it removed.
 - **Every `.ref` regenerates byte-identically** over all 319 fixtures under
-  `pa19/tests` and all 27 checked-in under `cppgm.tests/course/pa19`; no
-  committed fixture moved.  The five new `.ref` files are the reference's own
-  output.
-- **Ninety-six synthesized shapes through three binaries** - this compiler, the
-  `0b3f72b8` pre-audit and `e7eb1c1a` pre-C10 builds - with
-  `reference-binaries/cppgm++` and **g++** beside them: the object parameter a
-  member template carries over static, friend, cv-qualified, operator,
-  class-template and out-of-class forms; `StandingIn` over eight qualified
-  declarator-id forms; 3.4.3p1's prefix through a namespace, a nested namespace,
-  an alias, a typedef, a leading `::` and a class; 8.2p7 over twelve; 14.8.1p2
-  over eleven; 14.1p9's default over seven; and 14.5.6.2's ordering over fifteen.
-  **No shape in the sweep is accepted by both oracles and refused here.**  Six
-  the reference alone refuses this compiler and g++ both compile - three 8.2p7
-  places and the three forms of finding 7 - and three this compiler and g++ both
-  refuse the reference accepts, which is its error recovery: a qualified
-  class-head naming no template, one naming a typedef, and a static member
-  template with a ref-qualifier 8.3.5p6 does not allow.  The one shape left
-  where g++ alone compiles is a member operator template against a *fully
-  generic* non-member one, which g++ itself diagnoses as "ISO C++ says that
-  these are ambiguous".
-- **Eighty of them compared as emitted LowIR** against the reference after the
-  harness's own canonicalization and pairing, identical in all 80.
-- **Run evidence with scalars.**  One unit writing all six rules - a static
-  member template defined out of class through `::`, a member of a class
-  template through a typedef prefix, a defaulted template argument, a partial
-  explicit list at an explicit instantiation, and both orderings - lowered here
-  and run through `lowir2cy86` and `cy86` returns **42**, which is what g++
-  builds it to return.  The same unit without the explicit instantiation, which
-  is the one line the reference refuses, is byte-identical to the reference's
-  LowIR.
-- **Two units, both orders.**  Two units each defining one static member
-  template through a qualified declarator-id and one template with a defaulted
-  argument keep one weak copy, emit the same LowIR in either order, and agree
-  with the reference symbol for symbol and `object=` for `object=`.
-- **Valgrind clean** with `--error-exitcode=99` over all 351 fixtures.
+  `pa19/tests` and all 44 checked-in under `cppgm.tests/course/pa19`,
+  diagnostics included; no committed fixture moved.  The five new `.ref` files
+  are the reference's own output.
+- **Three hundred and seventy-nine synthesized shapes through three binaries** -
+  this compiler, the `52c679e1` pre-audit and `b95b5da0` pre-C11 builds - with
+  `reference-binaries/cppgm++` beside them and **g++** where a value can be run:
+  **208 condition expressions**, being 52 each written in an `if`, a `while`, a
+  `do` and a `for`; 62 further condition and control-flow shapes, over casts and
+  functional casts, `break`, `continue`, `goto`, a condition-declaration, a nest,
+  a temporary and the block numbering a second statement shows; 39 further
+  constant kinds and value-context short-circuits - an enumerator, a `const`
+  static data member, a wide-character literal, `sizeof`, `bool()`, `pointer()`;
+  22 reference bindings over a namespace-scope object, a member, an element, an
+  aggregate clause, a parameter, a return and a conditional; 20 image shapes over
+  pointers, members, elements, a folded constructor and the three floating
+  widths; and 28 over the empty subobject, the returned object, the startup body
+  and 14p1's pattern.  **Every shape both compilers accept is identical as
+  emitted LowIR after the harness's own canonicalization**, but for the four the
+  reference is alone on, each recorded below.
+- **Run evidence with scalars.**  One unit writing the fold rules, a reference
+  bound to a value, a widened one, and a value-initialized pointer - lowered
+  here, byte-identical to the reference's LowIR, and run through `lowir2cy86`
+  and `cy86` returns **39**, which is what g++ builds it to return.  The
+  namespace-scope forms cannot be run for a value: 12.2p5's temporary lives in
+  the startup body's frame in *both* compilers, so `const int & bound = 20;`
+  returns 152 from the reference's own LowIR as it does from ours where g++
+  returns 20 - which is recorded below rather than measured.
+- **Two units, both orders.**  Two units each binding a namespace-scope
+  reference to a value and each defining one instantiated static member with a
+  destructor emit one `__cppgm_init` and one `__cppgm_fini` that are
+  **byte-identical to the reference's**, `tmpref` slot for `tmpref` slot and
+  registration for registration, and the same LowIR in either order.
+- **Valgrind clean** with `--error-exitcode=99` over all 363 fixtures.
 
 ## Open Gaps
+
+**5.16p4's conditional a reference binds, where only g++ agrees.**  `const int &
+r = c ? 5 : 6;` binds one temporary of the conditional's own type here and one
+temporary *per arm* in `reference-binaries/cppgm++`, and the reference's arm
+binds the *arm's* type: `const long & r = c ? 5 : 6L;` gives it a `tmpref__2 :
+i32` and then reads `load i64` out of it.  Where one arm is an lvalue it binds
+that object rather than a copy - `const int & r = c ? 5 : x;` with `x = 2;` after
+it reads **2** in the reference and **1** here and in **g++**, which is 5.16p4:
+operands of different value categories make the result a prvalue, so the
+reference binds is a temporary.  Two answers against one, and one of them reads
+eight bytes out of four, so the reference is alone; the `condaddr` path this
+would take is the one it already writes for an lvalue conditional, and turning it
+on for a prvalue would be following the reference into both.
+
+**12.2p5's temporary a namespace-scope reference binds wants static storage.**
+The temporary is given a slot in the startup body's frame - by
+`reference-binaries/cppgm++` as of its own output and by this compiler as of the
+audit's fix - so `const int & bound = 20; int main() { return bound; }` runs to
+**152** through `lowir2cy86` in both and to **20** in g++, which gives the
+temporary static storage as 12.2p5 requires.  Matching the reference is what the
+suite grades and what the fix does; the storage class is a rule of its own and no
+fixture reaches it, so it is recorded rather than landed.  The block-scope
+`static` form is refused outright here, which is 6.7p4's guard variable and a
+feature of its own.
+
+**A specialization's written-out name spells a pointer and a cv-qualifier
+differently.**  `held<int *>::value` is `@held_int_____value` in
+`reference-binaries/cppgm++` and `@held_int____value` here - the reference writes
+the argument as `int *` with the space a program writes and this compiler as
+`int*` - and `held<const int *>` is `@held_int_const_____value` there against
+`@held_const_int____value` here, the reference writing 7.1.6.1p1's qualifier
+*after* the type.  A global's LowIR name is not masked by the comparison, so a
+fixture over either would fail; it is the naming path the tier audit landed
+rather than this checkpoint's, and getting it right is the whole of 8.1p1's
+declarator spelling - array, function, reference and member-pointer arguments
+included - so it is recorded with the ABI's decltype encoding.
+
+**The image spells a floating zero and an empty array differently.**  `double a =
+0.0;` is `= 0` in the reference and `= 0.0` here, with `0f` against `0.0f` and
+`0L` against `0.0L` for the other two widths, and a *body* operand is `0.0` in
+both - so the difference is the image's spelling of 2.14.4's value and not the
+value.  Beside it, `int arr[3] = {};` is three `i32 0` items there and one `zero
+12` here.  Both predate this tier (the `b95b5da0` build writes what this one
+does), both are PA14's image rather than any template rule, and no fixture writes
+either.
+
+**A static data member defined with `= T()` runs the zeroing in the reference.**
+`pair_of plain_owner::member = pair_of();` and `template<class T> T
+held<T>::value = T();` each write the zeros into `__cppgm_init` there and are the
+image here, while the *same* initializer on a namespace-scope variable is the
+image in both.  So the rule the reference is following is about 9.4.2p2's
+definition rather than about 14.7.1p1's instantiation - the difference stands
+with no template in the program - and it writes storage that 3.6.2p1's zero
+already holds.  It predates this tier and no fixture writes it.
+
+**Two stripped keys this compiler never writes.**  `trivial_lifecycle=yes`, which
+the reference puts on every definition 12.8p12 leaves trivial, and the absence of
+`unwind=no` on a destructor the reference does not mark - this compiler writes
+`unwind=no` there and the reference does not.  Both are in
+`compare_results_common.pl`'s relaxed set, so no fixture can fail on either;
+they are named here because that is the only reason they have not been noticed.
+
+**Two units of one weak global.**  Two units each defining one instantiated
+static data member emit **two** `global` lines for it in the reference and one
+here.  A link needs one, and the program builder keeping the first is what the
+recorded `object_root` gap is about; this is the same merge seen from the data
+side.
 
 **14.8.2's substitution failure ends the translation unit.**  A deduction that
 substitutes the arguments into a decltype-specifier reads the expression again,
@@ -553,3 +622,4 @@ to be reproduced with scalars and pointers before it is a finding.
 | C8 | what a name in an instantiated body reaches, and which of a specialization's bodies an instantiation reads: 14.6.2p3's dependent base left off 3.4.1's chain for the specialization as well as for the definition, as a fact of the base-specifier the program wrote once; and 14.7.1p1's instantiation of the *declarations* of a class's members, each body held on `held_definitions_` for the use that names it | `43aa2aa0` | 2 / 2 + 1 beside them, and the two are **one shape - the deferral was landed at the three places a *use* stands and neither demand that has no expression behind it was given it**, over an output where a body nobody grants is a `declare function` and no definition, which is a program that does not link and a suite that compares LowIR and never links: 10.3p10's table was asked of the specialization's own declarations and not of the classes the same reading made, so `struct Inner { virtual int f(); }` nested in a class template emitted `@Outer_int___Inner__vtable` naming `@Outer_int___Inner__f` and **nothing defined it**, at one level and at three alike, where the `4ec3d164` binary and `reference-binaries/cppgm++` both do; and 14.7.2p1's explicit instantiation - the one declaration 3.2p3 has no use to point at - set `explicitly_instantiated` on a declaration whose body was still held, so `template int tester<int>::test();` over a member defined *in* its class emitted **nothing at all** where both of those binaries emit it with `object_root=yes`.  Beside them and older, the same clause asked of the innermost class alone: `template int tester<int>::probe::test();` was refused where the reference and **g++** both root it, because what says the declaration names a specialization was read off the class the prefix named rather than off the classes that class stands in.  What is right and swept clean: 14.6.2p3 over eight shapes - unqualified, `this->`, qualified, a non-dependent base under a template head, a nested class, an out-of-class definition, a non-template class deriving from a specialization and a class below one - picks the reference's callee in every one with g++ compiling all eight, and `deferred_conversion<incomplete>`, the clause the deferral is for, compiles here and is refused by `4ec3d164` | 294 / 331 -> **297 / 334**, the three new tests being the three shapes these leave and the failing 37 the same 37 by name; pa1-pa18 1778 / 1778; file audit passes and the build prints nothing; every `.ref` regenerates byte-identically over all 319 fixtures under `pa19/tests` and all 12 checked-in under `cppgm.tests/course/pa19`; thirty use shapes - calls, `&`, conversion and operator functions, special members, uncalled and nested and inherited virtuals, all four 14.7.2 forms, subobject copy/assign/destroy, chained and cross-class bodies, target types, temporaries, arrays and two specializations - each swept for a symbol some entry names that no `function` line defines, all clean here and matching the reference's definition count where `43aa2aa0` leaves two unresolved; a rooted explicit instantiation run through `lowir2cy86` to the 42 g++ builds it to return; seven scaling shapes at n = 32, 128 and 512 against a `43aa2aa0` worktree build, unchanged but for the class nest 512 deep that returns to the pre-C8 0.40 s the pre-audit build bought with an unresolved symbol; valgrind clean over all 334 fixtures |
 | C9 | the region a declarator's own places stand in, and the type an argument list reads: 3.3.7p1's function prototype scope with each place declared as its declarator-id is read, 5.1.1p3's `this` over a member declarator's trailing-return-type, 14.6.2.2p1's type-dependent decltype-specifier made a type of its own and answered by 14.7.1p1 reading the expression again, and 14.2's argument list read for a spelled decltype-specifier | `1b135271` | 3 / 3 + 1 beside them, and the three are **one shape - the type a decltype-specifier stands for was made a fact of the *reading* and not of the expression**: keyed by the AST node and the region's id, so one function written twice had two return types and `template<class T> auto added(T a, T b) -> decltype(a + b);` with the definition below a call emitted **`declare function @added` and no definition** - a program that does not link, over a suite that compares LowIR and never links - while 14.5.1.3p1's out-of-class member definition of the same shape was refused outright, both on programs the two oracles compile; and the second reading rebuilt every declaration the region had, so a place written *after* the specifier whose own type was a decltype over that region sent the substitution back into itself - `auto differ(T a, decltype(a - a) b) -> decltype(a - b)` was a **segmentation fault** at eight places as at two, where 3.3.7p1 begins a place's potential scope at its own declarator-id and the specifier could not have named it.  14.4p1 is the key both want: the specifier as written and the declarations the names it writes reach, with what each head *spelled* left out of both - 14.1p2 lets each declaration name its parameters as it likes and 14.4p1 makes a parameter equivalent to the one at the same position, which is what `-> decltype(T() + seed)` and `-> decltype(U() + seed)` need to be one specifier.  Beside them, 5.1.1p3 was asked of the region alone, so a **static** member's and a friend's declarator each got an object of the class - the decl-specifier-seq is what says, and both oracles refuse the static form.  And older, the other arm of the sentence C9's spelled form leans on: 7.1.6.2p4's unparenthesized class member access names an entity, so `-> decltype(box.slot)` emitted `-> ptr` where the reference and **g++** emit `-> i32`.  What is right and swept clean: 3.3.7p1's region over twelve shapes - a later type-id, a default argument, a trailing-return-type, an inner clause, an unnamed place, 3.3.2p6's class - agreeing with g++ in every one and never escaping the declarator | 304 / 334 -> **310 / 340**, the six new tests being the six shapes these leave and the failing 30 the same 30 by name; pa1-pa18 1778 / 1778; the file audit passes and did not before - `sema_template.cpp` reached **3029 lines against the limit of 3000**, so 8.1p1's reading of a type-id out of a spelling is `sema_type_id.cpp` - and the build prints nothing; every `.ref` regenerates byte-identically over all 319 fixtures under `pa19/tests` and all 12 checked-in under `cppgm.tests/course/pa19`; 52 synthesized shapes through this compiler, the `1b135271` pre-audit and `e067d2e9` pre-C9 builds and `reference-binaries/cppgm++` with g++ beside them, 42 of them compared as emitted LowIR and identical to the reference in 41, the survivor a reference member's initializer the pre-audit binary differs on identically; a unit writing all three forms run through `lowir2cy86` to the 42 g++ builds it to return; two units defining one such specialization order-free; seven scaling shapes at n = 32, 128 and 512 against a `1b135271` worktree build, unchanged but for n declarations of one template 0.04 s -> 0.02 s, and the quadratic the fix opens measured to n = 512 where the pre-audit binary segfaults at 8; valgrind clean over all 340 fixtures |
 | C10 | the region a qualified declarator-id declares into, the member a member template declares, and the arguments a template-id left out: 9.4.2p1's and 3.4.1p8's class-head-name and declarator-id recording their pattern where the name reaches with 14.1p1's own head standing inside it, 3.4.3p1's prefix walked component by component, 14.5.2's member template given 9.3.1p3's object parameter, 14.8.1p2's partly written argument list made a declaration of its own, and 8.2p7's `T (X)` | `0b3f72b8` | 7 / 7, and six of them are **one shape - the object parameter a member template now carries has readers the checkpoint did not give it, and 14.8.1p2 has a third**: `declares_static_member` asks 13.1's index of the class's chain, which is keyed by the parameter list *as written*, and 14.1p2 gives each head parameters of its own - so 9.4.1p2's `static` was read as unwritten and `template<class T> int counter::raised(T)` over a static member was **`a definition of raised matches no declaration of it`** on a program both oracles compile, while 14.7.1p1's second reading of the same definition could ask neither that index nor 14.5.6.1p5's signature - the region an instantiation stands in binds arguments and not parameters - and emitted `function @counter__raised(%this : ptr, ...)` for a member 9.4p1 calls on no object.  And 14.5.6.2's ordering refused every pair whose `object_member` differed, which before this checkpoint was never two member templates: a static and a non-static member template of one name called through an object is **`a call of r has no best declaration` where the pre-C10 `e7eb1c1a` build, the reference and g++ all choose `r(T *)`** - a regression C10 shipped - and the same guard left 13.5p6's member operator template, which this checkpoint is what put in the candidate set, unordered against the non-member beside it, where 14.5.6.2p2 gives the one non-static member a first parameter of "reference to cv A" and 13.3.1p4 gives the static one an implicit one that matches any object.  Beside them 14.8.1p2's other arm - a trailing argument omitted where it is **obtained from a default template-argument** rather than deduced - was never landed at all, `record_function_template` recording `nullptr` for every default; 3.4.3p1's new prefix walk looked each component up in `named->scope`, which a typedef-name naming a class has none of, and began at `ctx.scope` for a name written `::v::S<T>::f`, both of which `resolve_prefix` already answers; and 14.7.2p1's explicit instantiation matched the written type against the *template's* own, so `template int mix<char>(double);` named no specialization where the arm beside it already deduces with `deduce_target`.  What is right and swept clean: `StandingIn` over eight qualified declarator-id forms and 8.2p7 over twelve places, agreeing with g++ in every one and with the reference wherever it compiles the shape at all | 322 / 346 -> **327 / 351**, the five new tests being five of the shapes these leave and the failing 24 the same 24 by name; pa1-pa18 1778 / 1778; the file audit passes and the build prints nothing, with `sema_analyzer.h` at **2391 against the limit of 2400**; every `.ref` regenerates byte-identically over all 319 fixtures under `pa19/tests` and all 27 checked-in under `cppgm.tests/course/pa19`; 96 synthesized shapes through this compiler, the `0b3f72b8` pre-audit and `e7eb1c1a` pre-C10 builds and `reference-binaries/cppgm++` with g++ beside them, 80 compared as emitted LowIR and identical to the reference in all 80, with **no shape in the sweep accepted by both oracles and refused here** and six the reference alone refuses; one unit writing all six rules run through `lowir2cy86` to the 42 g++ builds it to return, and the same unit less the line the reference refuses byte-identical to its LowIR; two units order-free and `object=` for `object=`; nine scaling shapes at n = 32, 128 and 512 against a `0b3f72b8` worktree build, every one where the checkpoint left it within 1% of its memory, and the one the audit makes compilable at 0.63 s at n = 512 against 1.17 s for the same call count the pre-audit binary already compiled and **21.01 s at n = 128** in the reference; valgrind clean over all 351 fixtures |
+| C11 | the LowIR an instantiated unit owes and the entries it does not: 14p1's template-declaration declaring no object, 14.7.1p6's startup body kept only where something runs, 12.2p1's temporary a reference binds given storage named after the place that asked, 6.4's condition that is a literal lowered as the jump one of its edges is, 12.1p5's constructor of a subobject that holds nothing naming no address, 12.8p31's returned object taking the constructor the elision left, and 4.10p1's null pointer value | `52c679e1` | 6 / 6, and four of them are **one shape - a rule landed at one reader of a fact and not at the others that have it**.  The fold asked the *operand a lowering wrote* where the reference asks the *expression*: `int(1)`, `(int)1`, `(long)1`, `char(1)`, `(int *)0`, `((void)0, 1)`, `(1, 2)`, `(side(), 1)` and `(p = 1)` are each an expression over a literal the reference leaves the terminator standing for, and all of them folded here - **39 of the 208 swept conditions** - while the block 5.14's right operand is read in was reserved even where the operand before it says which edge is taken, which renumbers every block after it (`if_then_5` against the reference's `if_then_4` over `true &&`, `false &&`, `true ||` and `false ||`).  `folded_edge` asks the node and emits nothing, which is what lets the reservation be asked for after the question; and the same fold's sibling exit is 5.14's operator read as a **value**, which asked the question a third way: the operand that folds leaves the operator standing for its right one - `(true && side()) + (false || side())` was two slots and six blocks against the reference's straight line and `if (true && wrap())` the same around 12.2p3's destructor - while `decided_logical`'s own `fact.constant` let a *pointer* literal decide the value, `int q = pointer() && side();` being `store i32 0` against the reference's `branch nullptr`, so the two paths now ask one question.  And 12.2p1's temporary and 4.10p1's null pointer value were landed in the body and not in the **image**: `const int & r = 5;` wrote `global @r : ptr = 5` - a reference that points at address 5 - where the reference writes `zero` and binds a `tmpref` in the startup body, and `pointer p = pointer();` wrote `= 0` against its `nullptr` with a pointer *subobject* `ptr 0` against its `zero 8`, which the array path beside it already answered.  Beside them 3.6.3p1's registered end of a lifetime dropped 3.6.2p2's entry it stands in - a unit whose one object is an instantiated static member of a class with a destructor emits `__cppgm_fini` and no `__cppgm_init` - and 14p1's pattern was told from 14.5.1.3p1's static data member by the *spelling* rather than the region, so `template<class T> T n::v;` laid out `global @n__v : void`, which is not LowIR any tool below reads.  What is right and swept clean: 12.1p5's empty subobject over an empty member, base, base-of-base, array, vpointer class and 12.8p15's copy of each, with and without a member that unwinds; 12.8p31's returned object over a prvalue, an aggregate, a call, a conditional, two returns and an elided local, the mark taken and cleared by the outermost call so no later construction loses 8.5p7's zero; and `retref`/`refarg`/`tmpref` the reference's names everywhere this milestone binds a value | 343 / 358 -> **348 / 363**, the five new tests being five of the shapes these leave and the failing 15 the same 15 by name; pa1-pa18 1778 / 1778; the file audit passes with its five inherited warnings and the build prints nothing, `sema_analyzer.h` where C10's audit left it at 2391 against 2400; every `.ref` regenerates byte-identically over all 319 fixtures under `pa19/tests` and all 44 checked-in under `cppgm.tests/course/pa19`, diagnostics included; 379 synthesized shapes through this compiler, the `52c679e1` pre-audit and `b95b5da0` pre-C11 builds and `reference-binaries/cppgm++` with g++ where a value can be run - 208 condition expressions (52 each in an `if`, a `while`, a `do` and a `for`), 62 further condition and control-flow shapes with `break`, `continue`, `goto`, a condition-declaration, a temporary and the block numbering a second statement shows, 39 further constant kinds and value-context short-circuits, 22 reference bindings, 20 image shapes and 28 over the empty subobject, the returned object, the startup body and 14p1's pattern - **every shape both compilers accept identical as emitted LowIR** but the four the reference is alone on, each recorded; one unit writing the fold rules and the bindings byte-identical to the reference's LowIR and run through `lowir2cy86` to the 39 g++ builds it to return; two units binding a namespace-scope reference and registering an instantiated member's end emitting `__cppgm_init` and `__cppgm_fini` byte-identical to the reference's and order-free; nine scaling shapes at n = 32, 128 and 512 against a `52c679e1` worktree build, every one where the checkpoint left it and linear to n = 2048, with the value-path fold **0.22 s -> 0.17 s and 68.5 -> 51.5 MB** at n = 2048 and the one memory cost 12.8 -> 19.4 MB for the temporaries 12.2p1 says the program has; valgrind clean over all 363 fixtures |
