@@ -76,6 +76,7 @@ std::string LowirSymbolTable::object_symbol(const SemaEntity& entity)
 
 LowirProgramBuilder::LowirProgramBuilder()
 	: has_startup_(false)
+	, startup_owed_(false)
 	, has_shutdown_(false)
 {}
 
@@ -398,8 +399,15 @@ void LowirProgramBuilder::finish()
 		// and the checked-in fixtures ask for it - and what the failure map
 		// names is the one place they do not, which is 9p6's object of an empty
 		// class, settled where that object's own construction is.
-		program_.functions.push_back(startup_);
+		// 14.7.1p6 is the other: a definition an instantiation made owes the
+		// entry only where something runs, so a body every one of whose
+		// initializations is one of those is no body of this unit's.
+		if (startup_owed_)
+		{
+			program_.functions.push_back(startup_);
+		}
 		has_startup_ = false;
+		startup_owed_ = false;
 		startup_ = lowir_model::Function();
 		startup_body_ = GeneratedBody();
 	}
@@ -1661,7 +1669,34 @@ void LowirUnitLowering::dynamic_initializer(const SemaEntity& entity,
 	lowir_model::Operand storage;
 	storage.kind = lowir_model::Operand::OP_GLOBAL;
 	storage.text = global_symbol(entity);
+	// 14.7.1p1 and 14.7.1p6: the definition of a static data member an
+	// instantiation made is the template's rather than this unit's, and the
+	// initialization it carries is one the use that names the member asks for -
+	// so what this unit owes the program before it starts is what that
+	// initialization *runs*, and an initialization that writes nothing leaves
+	// this unit owing no body at all.  A definition the program itself wrote
+	// owes 3.6.2p2's entry however little it does.
+	const std::pair<std::size_t, std::size_t> written = startup_mark();
 	startup_->add_initialization(storage, type, node);
+	if (!abi_instantiated(entity, types_) || startup_mark() != written)
+	{
+		builder_.startup_owed_ = true;
+	}
+}
+
+// Where the startup body stands, which is what says whether an initialization
+// added to it came to anything.
+//
+// The body only ever grows, so the block it is open at and how much that block
+// holds are the whole of the answer - which costs the same whatever the body
+// has already accumulated.
+std::pair<std::size_t, std::size_t> LowirUnitLowering::startup_mark() const
+{
+	const std::size_t blocks = builder_.startup_.blocks.size();
+	return std::make_pair(blocks,
+	                      blocks == 0
+	                          ? 0
+	                          : builder_.startup_.blocks.back().instructions.size());
 }
 
 // 3.6.3p1: the destructor of an object with static storage duration runs when

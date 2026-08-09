@@ -43,6 +43,27 @@ Operand named_operand(Operand::Kind kind, const std::string& text)
 	return operand;
 }
 
+// Which edge a terminator carrying this operand would take: 1 for the true
+// one, -1 for the false one, and 0 where the operand is no literal at all.
+//
+// Only a written-out integer answers.  A `nullptr` is spelled where an address
+// is wanted and a floating literal is compared rather than tested, so neither
+// reaches a terminator as the value it stands for.
+int literal_truth(const Operand& operand)
+{
+	if (operand.kind != Operand::OP_INTEGER || operand.text.empty())
+	{
+		return 0;
+	}
+	const std::string::size_type digits = operand.text[0] == '-' ? 1 : 0;
+	if (operand.text.find_first_not_of("0123456789", digits) != std::string::npos ||
+	    digits == operand.text.size())
+	{
+		return 0;
+	}
+	return operand.text.find_first_not_of('0', digits) == std::string::npos ? -1 : 1;
+}
+
 // The child of `node` that is the resolved expression it holds, skipping the
 // declaration wrappers the dump writes around one.
 const DumpNode* only_child(const DumpNode& node)
@@ -81,6 +102,7 @@ LowirFunctionLowering::LowirFunctionLowering(LowirUnitLowering& unit,
 	, returns_(kNoType)
 	, indirect_result_(false)
 	, returned_object_open_(false)
+	, returned_object_(false)
 	, return_slot_local_(nullptr)
 	, element_runs_(0)
 	, destroyed_class_(kNoType)
@@ -873,7 +895,36 @@ Operand LowirFunctionLowering::convert_scalar(const Operand& operand,
 	return emit(instruction);
 }
 
-Operand LowirFunctionLowering::converted(const LowValue& value, TypeId target)
+// 8.5.3p5 and 12.2p1: the address a reference's storage holds.
+//
+// Where the initializer named an object it is that object's address, and where
+// it was a value there is no object there at all: 3.10p1 makes a prvalue a
+// value, so the reference binds a temporary and the function gives that
+// temporary storage of its own.  A class prvalue is already an object, which
+// `address_of` is what materializes.
+Operand LowirFunctionLowering::bound_address(const LowValue& value)
+{
+	TypeTable& types = unit_.types();
+	const TypeId held = types.strip_cv(value.type);
+	if (value.lvalue || value.named || types.is_class(held) ||
+	    types.kind(held) == TypeKind::Array ||
+	    types.kind(held) == TypeKind::Function)
+	{
+		return address_of(value);
+	}
+	const std::string slot = add_generated_slot("tmpref", held);
+	const Operand storage = named_operand(Operand::OP_SLOT, slot);
+	store(rvalue(value), storage, held);
+	LowValue object;
+	object.type = held;
+	object.lvalue = true;
+	object.named = true;
+	object.operand = storage;
+	return address_of(object);
+}
+
+Operand LowirFunctionLowering::converted(const LowValue& value, TypeId target,
+                                         const char* bound)
 {
 	TypeTable& types = unit_.types();
 	const TypeId wanted = types.strip_cv(
@@ -892,7 +943,7 @@ Operand LowirFunctionLowering::converted(const LowValue& value, TypeId target)
 		// as much as a computed one is: 3.10p1 makes it a prvalue, which is a
 		// value and not an object, so there is nothing there to take the
 		// address of.
-		const std::string slot = add_generated_slot("refarg", wanted);
+		const std::string slot = add_generated_slot(bound, wanted);
 		const Operand storage = named_operand(Operand::OP_SLOT, slot);
 		store(convert_scalar(value.operand, value.type, wanted), storage, wanted);
 		LowValue held;
@@ -921,7 +972,7 @@ Operand LowirFunctionLowering::converted(const LowValue& value, TypeId target)
 		// or function is the pointer it converts to, and what the target asks
 		// for is asked of that pointer - which for `bool` is 4.12 and not the
 		// address itself.
-		return converted(as_value(value), target);
+		return converted(as_value(value), target, bound);
 	}
 	const Operand operand = rvalue(value);
 	if (types.strip_cv(value.type) == types.fundamental(FT_NULLPTR_T) &&
@@ -1651,8 +1702,29 @@ void LowirFunctionLowering::statement(const DumpNode& node)
 		// already points at - so what the call is passed is what that parameter
 		// holds and not the storage holding it.
 		mark_unwind_step();
+		const std::size_t opened = current_;
+		const std::size_t standing = out_.blocks[opened].instructions.size();
+		const unsigned counted = temps_;
 		const LowValue object = expression(*node.children[0]->children[1]);
+		const std::size_t addressed = out_.blocks[current_].instructions.size();
 		constructor_call(rvalue(object), node);
+		if (current_ == opened &&
+		    out_.blocks[opened].instructions.size() == addressed &&
+		    node.children[0]->children.size() <= 2)
+		{
+			// 12.1p5 and 9p6: the constructor of a subobject that holds nothing
+			// has nothing to do, so nothing runs at the address this step named
+			// - and the address is `this` and an offset, which no program can
+			// tell was computed.  The call's own roll-back is the same rule one
+			// instruction further in; this one is what the walk from `this` to
+			// the subobject costs.
+			// 12.8p15 is what keeps a transfer out of it: a constructor given an
+			// object carries a value from it, which is work whatever the bytes
+			// come to - so the subobject it writes into is named however little
+			// the memberwise copy of an empty class writes.
+			out_.blocks[opened].instructions.resize(standing);
+			temps_ = counted;
+		}
 		return;
 	}
 
@@ -1924,7 +1996,7 @@ void LowirFunctionLowering::declare_local(const DumpNode& node)
 		// 8.5.3p5: a reference binds the object its initializer names, so what
 		// the initializer is read for is that object and not its value.
 		const LowValue bound = expression(*node.children[0], true);
-		store(address_of(bound), storage, type);
+		store(bound_address(bound), storage, type);
 		return;
 	}
 	initialize_into(opened, type, *node.children[0]);
@@ -1965,6 +2037,12 @@ void LowirFunctionLowering::return_statement(const DumpNode& node)
 		// being read and copied into it.  Either way the place is named before
 		// the expression runs.
 		const TypeId type = types.strip_cv(returns_);
+		// 12.8p31: the prvalue this return wrote and the object it hands back
+		// are one object, so the construction below is the result object's own.
+		// Only a prvalue written here is: an operand that names an object
+		// already standing is 12.8p15's copy of it, and a call is a function of
+		// its own building its own result.
+		returned_object_ = written->fact.kind == FactKind::TemporaryObject;
 		if (indirect_result_)
 		{
 			// 12.8p31: where the object this return names is the object already
@@ -2025,7 +2103,10 @@ void LowirFunctionLowering::return_statement(const DumpNode& node)
 		// and there is no value for the return to carry.
 		if (!types.is_void(types.strip_cv(value.type)))
 		{
-			instruction.first = converted(value, returns_);
+			// 12.2p1: the temporary a return of a value through a reference
+			// binds is storage this function owns, and what asked for it is the
+			// return rather than any call written inside it.
+			instruction.first = converted(value, returns_, "retref");
 		}
 	}
 	leave_blocks(node);
@@ -2120,6 +2201,28 @@ void LowirFunctionLowering::branch_on_value(const DumpNode& node,
                                             const std::string& on_true,
                                             const std::string& on_false)
 {
+	const int taken = branch_or_fold(node, on_true, on_false);
+	if (taken != 0)
+	{
+		jump(taken > 0 ? on_true : on_false);
+	}
+}
+
+// The edge a condition already stands for.
+//
+// A terminator that tests a literal is the jump one of its edges is, and what
+// says the operand is a literal is the operand the lowering *wrote*: `true` is
+// one and `1 == 1` is the instruction that computes it, which is where this
+// stops and 5.19's own reading of a constant expression begins.
+//
+// An operand of `&&` or `||` that folds does not fold the operator to a jump:
+// it leaves it standing for its other operand, read in the block the first one
+// was, or for itself - and the block the short-circuit reserved is opened only
+// where something reaches it.
+int LowirFunctionLowering::branch_or_fold(const DumpNode& node,
+                                          const std::string& on_true,
+                                          const std::string& on_false)
+{
 	// 5.14 and 5.15 in the one context where the value of `&&` or `||` is
 	// never named: the operator is its own control flow, so the operands
 	// branch straight to where the statement goes rather than through a slot
@@ -2134,14 +2237,30 @@ void LowirFunctionLowering::branch_on_value(const DumpNode& node,
 	{
 		const bool conjunction = node.fact.op == OP_LAND;
 		const std::string rhs = reserve_block(conjunction ? "land_rhs" : "lor_rhs");
-		branch_on_value(*node.children[0], conjunction ? rhs : on_true,
-		                conjunction ? on_false : rhs);
-		open_block(rhs);
-		branch_on_value(*node.children[1], on_true, on_false);
-		return;
+		const int left = branch_or_fold(*node.children[0],
+		                                conjunction ? rhs : on_true,
+		                                conjunction ? on_false : rhs);
+		if (left == 0)
+		{
+			open_block(rhs);
+		}
+		else if ((left > 0) != conjunction)
+		{
+			// The operand the operator stops at, so 5.14p2's right one is never
+			// read and the block it would have been read in is never opened.
+			return left;
+		}
+		return branch_or_fold(*node.children[1], on_true, on_false);
 	}
 	const LowValue value = condition_value(node);
-	branch(truth_for_branch(value), on_true, on_false);
+	const Operand tested = truth_for_branch(value);
+	const int written = literal_truth(tested);
+	if (written != 0)
+	{
+		return written;
+	}
+	branch(tested, on_true, on_false);
+	return 0;
 }
 
 void LowirFunctionLowering::if_statement(const DumpNode& node)

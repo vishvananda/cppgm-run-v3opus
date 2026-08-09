@@ -1,0 +1,47 @@
+function @reached(%where : ptr) -> i32 [binding=strong, object=_Z7reachedPv] {
+  slot $where : ptr
+  slot $cond__1 : i32
+
+  block ^entry:
+    store ptr %where, $where
+    %t1 = load ptr $where
+    %t2 = copy ptr nullptr
+    %t3 = cmp eq ptr %t1, %t2
+    branch %t3, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t4 = load i32 $cond__1
+    return i32 %t4
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $held : ptr
+
+  block ^entry:
+    store ptr nullptr, $held
+    %t1 = call i32 @reached(nullptr)
+    %t2 = call i32 @reached(0)
+    %t3 = binary add i32 %t1, %t2
+    %t4 = load ptr $held
+    %t5 = call i32 @reached(%t4)
+    %t6 = binary add i32 %t3, %t5
+    %t7 = call i32 @through(nullptr)
+    %t8 = binary add i32 %t6, %t7
+    return i32 %t8
+}
+function @through(%where : ptr) -> i32 [binding=weak, object=_Z7throughIPvEiT_] {
+  slot $where : ptr
+
+  block ^entry:
+    store ptr %where, $where
+    %t1 = load ptr $where
+    %t2 = call i32 @reached(%t1)
+    return i32 %t2
+}

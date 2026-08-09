@@ -2353,6 +2353,21 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 		                                "with `= default` or `= delete`");
 	}
 
+	// 14p1: a template-declaration declares no object.  A declarator that is
+	// not a function names storage an argument list is what makes, so the
+	// declaration is a pattern here exactly as a class template's is, and the
+	// specialization a use names is what a later milestone gives storage to.
+	// What says the head is this declaration's own is the region it stands in:
+	// a name a function template's body declares belongs to a region of that
+	// body, and 9.4.2p2's static data member is defined into the class its
+	// qualified declarator-id names - which `record_template` already took as
+	// 14.5.1.3p1's member of a template.
+	if (ctx.template_head == ctx.scope && !spelled.qualified() &&
+	    target.scope->kind != ScopeKind::Class)
+	{
+		return;
+	}
+
 	declare_object_declarator(initializer, specifiers, ctx, target, spelled,
 	                          written, type);
 	if (checking_ > 0 && initializer != nullptr)

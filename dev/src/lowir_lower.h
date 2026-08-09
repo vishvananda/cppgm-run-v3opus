@@ -3,6 +3,7 @@
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "lowir_model.h"
@@ -227,6 +228,13 @@ private:
 	// the program starts, as the one function that runs them in order.
 	lowir_model::Function startup_;
 	bool has_startup_;
+	// 14.7.1p1 and 14.7.1p6: whether any of the initializations the body holds
+	// is one this unit owes an entry for.  A definition the program itself
+	// wrote owes one however little it does, and a definition an instantiation
+	// made owes one only where something runs - so a unit whose one
+	// namespace-scope object is an instantiated static data member of trivial
+	// type writes no body at all.
+	bool startup_owed_;
 	GeneratedBody startup_body_;
 	// 3.6.3p1: the destructors of the objects with static storage duration, as
 	// the one function that runs them when the program ends.
@@ -516,6 +524,10 @@ private:
 	// needs, added to the program's one startup function.
 	void dynamic_initializer(const SemaEntity& entity, const DumpNode& node,
 	                         TypeId type);
+	// Where the startup body stands - how many blocks it has and how much the
+	// last of them holds - which is what says whether the initialization just
+	// added to it runs anything.
+	std::pair<std::size_t, std::size_t> startup_mark() const;
 	// 3.7.2p2: the ABI's access surface for one object with thread storage
 	// duration, which is a function declaration naming the global it reaches.
 	// `object` is the name the object file gives that function, empty for a
@@ -725,6 +737,13 @@ private:
 	// lower as their own control flow.
 	void branch_on_value(const DumpNode& node, const std::string& on_true,
 	                     const std::string& on_false);
+	// The same, answering which edge the condition already stands for: 1 for
+	// the true one, -1 for the false one and 0 where a branch was written.  A
+	// folded edge is left for the caller to jump to, because an operand of
+	// `&&` or `||` that folds leaves the operator standing for its other
+	// operand rather than for a jump.
+	int branch_or_fold(const DumpNode& node, const std::string& on_true,
+	                   const std::string& on_false);
 	// 3.8p1 and 12.2p3: whether any object's lifetime ends where this construct
 	// does, which is what makes the edges out of it places that end one.
 	static bool ends_temporaries(const DumpNode& node);
@@ -1438,9 +1457,16 @@ private:
 	lowir_model::Operand decay(const LowValue& value);
 	// 5.3.1p3: the address of the object an lvalue names.
 	lowir_model::Operand address_of(const LowValue& value);
+	// 8.5.3p5 and 12.2p1: the address a reference's storage is written with -
+	// the object the initializer named, or the temporary it binds where the
+	// initializer was a value and not an object.
+	lowir_model::Operand bound_address(const LowValue& value);
 	// Clause 4: `value` converted to `target`, as the one conversion the two
-	// types call for.
-	lowir_model::Operand converted(const LowValue& value, TypeId target);
+	// types call for.  `bound` is 12.2p1's name for the storage a reference
+	// target gives the temporary it binds, which the place that asked for the
+	// conversion is what says.
+	lowir_model::Operand converted(const LowValue& value, TypeId target,
+	                               const char* bound = "refarg");
 	lowir_model::Operand convert_scalar(const lowir_model::Operand& operand,
 	                                    TypeId from, TypeId to);
 	// 4.12: the operand a branch tests, which for an integer is the value
@@ -1519,6 +1545,13 @@ private:
 	// first return needs it and named again by every other.
 	lowir_model::Operand returned_object_storage_;
 	bool returned_object_open_;
+	// 6.6.3p2 and 12.8p31: whether the construction about to be lowered is the
+	// one that builds the object the return hands back.  The prvalue the return
+	// wrote and that object are one, so what initializes the result object is
+	// the constructor the elision left standing and not 8.5p7's zero the
+	// prvalue would have held.  It is read and cleared by the one call it marks,
+	// because an argument written inside that call builds an object of its own.
+	bool returned_object_;
 	// 12.8p31: the one local object this function's returns copy into that
 	// destination, which is then the object standing in it.
 	const SemaEntity* return_slot_local_;

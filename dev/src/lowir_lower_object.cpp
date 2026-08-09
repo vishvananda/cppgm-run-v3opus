@@ -89,7 +89,7 @@ void LowirFunctionLowering::add_initialization(const Operand& storage,
 	if (types.is_reference(type))
 	{
 		const LowValue bound = expression(node, true);
-		store(address_of(bound), storage, type);
+		store(bound_address(bound), storage, type);
 		return;
 	}
 	if (types.kind(types.strip_cv(type)) == TypeKind::Array &&
@@ -875,7 +875,15 @@ void LowirFunctionLowering::constructor_call(const Operand& address,
 	// type is the element being constructed rather than the array around it -
 	// so every question about the class asked below is asked of that one.
 	const TypeId written = zeroed == kNoType ? node.fact.type : zeroed;
-	if (node.fact.zero_initialized)
+	// 6.6.3p2 and 12.8p31: the object this call builds is the one the return
+	// hands back, so the prvalue that would have held 8.5p7's zero is that
+	// object and no copy stands between them - and the initialization the
+	// result object gets is the constructor the elision left, without the zero.
+	// The mark is the outermost call's alone: an argument written inside the
+	// operand builds an object of its own.
+	const bool result = returned_object_;
+	returned_object_ = false;
+	if (node.fact.zero_initialized && !result)
 	{
 		// 8.5p7: the object was value-initialized and its class wrote no
 		// constructor, so its storage is zero before the one the standard gave
@@ -2003,7 +2011,7 @@ void LowirFunctionLowering::member_initialization(const DumpNode& node)
 		// `reference_field` a read through the reference makes it.
 		const LowValue bound = expression(written, true);
 		const Operand storage = member_storage(*node.children[0], member, true);
-		store(address_of(bound), storage, type);
+		store(bound_address(bound), storage, type);
 		return;
 	}
 	if (written.fact.kind == FactKind::AggregateInitialization ||

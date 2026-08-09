@@ -1,0 +1,72 @@
+function @made() -> obj<16x8> [binding=strong, object=_Z4madev] {
+  slot $retobj__1 : obj<16x8>
+
+  block ^entry:
+    %t1 = addr $retobj__1
+    call void @pod__pod(%t1)
+    return obj<16x8> $retobj__1
+}
+function @paired() -> obj<8x4> [binding=strong, object=_Z6pairedv] {
+  slot $retobj__1 : obj<8x4>
+
+  block ^entry:
+    %t1 = addr $retobj__1
+    call void @pair_int___pair(%t1)
+    return obj<8x4> $retobj__1
+}
+function @taken(%value : obj<16x8>) -> i32 [binding=strong, object=_Z5taken3pod] {
+  slot $value : obj<16x8>
+
+  block ^entry:
+    %t1 = addr $value
+    copyobj 16x8 %value, %t1
+    %t2 = addr $value
+    %t3 = index i8 [projection=field] %t2, 0
+    %t4 = load i32 %t3
+    return i32 %t4
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $declared : obj<16x8>
+  slot $discard__1 : obj<16x8>
+  slot $discard__2 : obj<8x4>
+  slot $argobj__3 : obj<16x8>
+
+  block ^entry:
+    %t1 = addr $declared
+    store i64 0, %t1
+    %t2 = index i8 %t1, 8
+    store i64 0, %t2
+    %t3 = addr $discard__1
+    %t4 = call obj<16x8> @made()
+    copyobj 16x8 %t4, %t3
+    %t5 = addr $discard__2
+    %t6 = call obj<8x4> @paired()
+    copyobj 8x4 %t6, %t5
+    %t7 = addr $argobj__3
+    store i64 0, %t7
+    %t8 = index i8 %t7, 8
+    store i64 0, %t8
+    call void @pod__pod(%t7)
+    %t9 = call i32 @taken($argobj__3)
+    %t10 = addr $declared
+    %t11 = index i8 [projection=field] %t10, 0
+    %t12 = load i32 %t11
+    %t13 = binary add i32 %t9, %t12
+    return i32 %t13
+}
+function @pair_int___pair(%this : ptr) -> void [unwind=no, binding=weak, object=_ZN4pairIiEC1Ev, trivial_lifecycle=yes] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    return void
+}
+function @pod__pod(%this : ptr) -> void [unwind=no, binding=weak, object=_ZN3podC1Ev, trivial_lifecycle=yes] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    return void
+}
+alias object _ZN4pairIiEC2Ev = @pair_int___pair
+alias object _ZN3podC2Ev = @pod__pod

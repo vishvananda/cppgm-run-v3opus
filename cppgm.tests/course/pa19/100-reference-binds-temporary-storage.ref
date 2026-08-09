@@ -1,0 +1,74 @@
+function @taken(%value : ptr [pass=reference]) -> i32 [binding=strong, object=_Z5takenRKl] {
+  slot $value : ptr
+
+  block ^entry:
+    store ptr %value, $value
+    %t1 = load ptr $value
+    %t2 = load i64 %t1
+    %t3 = convert trunc i32 i64 %t2
+    return i32 %t3
+}
+function @returned() -> ptr [binding=strong, object=_Z8returnedv] {
+  slot $retref__1 : i32
+
+  block ^entry:
+    store i32 5, $retref__1
+    %t1 = addr $retref__1
+    return ptr %t1
+}
+function @declared() -> i32 [binding=strong, object=_Z8declaredv] {
+  slot $held : ptr
+  slot $tmpref__1 : i64
+  slot $moved : ptr
+  slot $tmpref__2 : i32
+
+  block ^entry:
+    store i64 3, $tmpref__1
+    %t1 = addr $tmpref__1
+    store ptr %t1, $held
+    store i32 4, $tmpref__2
+    %t2 = addr $tmpref__2
+    store ptr %t2, $moved
+    %t3 = load ptr $held
+    %t4 = load i64 %t3
+    %t5 = convert trunc i32 i64 %t4
+    %t6 = load ptr $moved
+    %t7 = load i32 %t6
+    %t8 = binary add i32 %t5, %t7
+    return i32 %t8
+}
+function @converted() -> i32 [binding=strong, object=_Z9convertedv] {
+  slot $narrow : i32
+  slot $widened : ptr
+  slot $tmpref__1 : i64
+
+  block ^entry:
+    store i32 9, $narrow
+    %t1 = load i32 $narrow
+    %t2 = convert sext i64 i32 %t1
+    store i64 %t2, $tmpref__1
+    %t3 = addr $tmpref__1
+    store ptr %t3, $widened
+    %t4 = load ptr $widened
+    %t5 = load i64 %t4
+    %t6 = convert trunc i32 i64 %t5
+    return i32 %t6
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $alias : ptr
+  slot $refarg__1 : i64
+
+  block ^entry:
+    %t1 = call ptr @returned()
+    store ptr %t1, $alias
+    %t2 = load ptr $alias
+    store i64 1, $refarg__1
+    %t3 = addr $refarg__1
+    %t4 = call i32 @taken(%t3)
+    %t5 = call i32 @declared()
+    %t6 = binary add i32 %t4, %t5
+    %t7 = call i32 @converted()
+    %t8 = binary add i32 %t6, %t7
+    %t9 = binary sub i32 %t8, 17
+    return i32 %t9
+}

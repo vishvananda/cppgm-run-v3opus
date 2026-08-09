@@ -1,0 +1,51 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $built : obj<8x4>
+  slot $source : obj<1x1>
+  slot $transferred : obj<8x4>
+
+  block ^entry:
+    %t1 = addr $built
+    call void @over_int___over(%t1)
+    %t2 = addr $source
+    %t3 = addr $transferred
+    %t4 = addr $source
+    call void @over_int___over__ov2(%t3, %t4, 7)
+    %t5 = addr $built
+    %t6 = index i8 [projection=field] %t5, 4
+    %t7 = load i32 %t6
+    %t8 = addr $transferred
+    %t9 = index i8 [projection=field] %t8, 4
+    %t10 = load i32 %t9
+    %t11 = binary add i32 %t7, %t10
+    %t12 = binary sub i32 %t11, 7
+    return i32 %t12
+}
+function @over_int___over(%this : ptr) -> void [binding=weak, object=_ZN4overIiEC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 4
+    store i32 0, %t2
+    return void
+}
+function @over_int___over__ov2(%this : ptr, %given : ptr [pass=reference], %start : i32) -> void [binding=weak, object=_ZN4overIiEC1ERK5emptyi] {
+  slot $this : ptr
+  slot $given : ptr
+  slot $start : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store ptr %given, $given
+    store i32 %start, $start
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 1
+    %t3 = load i32 $start
+    %t4 = load ptr $this
+    %t5 = index i8 [projection=field] %t4, 4
+    store i32 %t3, %t5
+    return void
+}
+alias object _ZN4overIiEC2Ev = @over_int___over
+alias object _ZN4overIiEC2ERK5emptyi = @over_int___over__ov2

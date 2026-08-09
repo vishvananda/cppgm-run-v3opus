@@ -1,0 +1,115 @@
+function @side() -> i32 [binding=strong, object=_Z4sidev] {
+  block ^entry:
+    return i32 1
+}
+function @chosen() -> i32 [binding=strong, object=_Z6chosenv] {
+  block ^entry:
+    jump ^if_then_1
+
+  block ^if_then_1:
+    return i32 1
+
+  block ^if_else_2:
+    jump ^if_end_3
+
+  block ^if_end_3:
+    return i32 0
+}
+function @skipped() -> i32 [binding=strong, object=_Z7skippedv] {
+  block ^entry:
+    jump ^if_else_2
+
+  block ^if_then_1:
+    return i32 1
+
+  block ^if_else_2:
+    jump ^if_end_3
+
+  block ^if_end_3:
+    return i32 2
+}
+function @looped() -> i32 [binding=strong, object=_Z6loopedv] {
+  block ^entry:
+    jump ^while_cond_1
+
+  block ^while_cond_1:
+    jump ^while_body_2
+
+  block ^while_body_2:
+    return i32 3
+
+  block ^while_end_3:
+    return i32 0
+}
+function @once() -> i32 [binding=strong, object=_Z4oncev] {
+  block ^entry:
+    jump ^do_body_1
+
+  block ^do_body_1:
+    return i32 4
+
+  block ^do_cond_2:
+    jump ^do_end_3
+
+  block ^do_end_3:
+    return i32 0
+}
+function @left_true() -> i32 [binding=strong, object=_Z9left_truev] {
+  block ^entry:
+    %t1 = call i32 @side()
+    branch %t1, ^if_then_1, ^if_else_2
+
+  block ^if_then_1:
+    return i32 5
+
+  block ^if_else_2:
+    jump ^if_end_3
+
+  block ^if_end_3:
+    return i32 0
+}
+function @left_false() -> i32 [binding=strong, object=_Z10left_falsev] {
+  block ^entry:
+    jump ^if_else_2
+
+  block ^if_then_1:
+    return i32 6
+
+  block ^if_else_2:
+    jump ^if_end_3
+
+  block ^if_end_3:
+    return i32 7
+}
+function @computed() -> i32 [binding=strong, object=_Z8computedv] {
+  block ^entry:
+    %t1 = cmp eq i32 1, 1
+    branch %t1, ^if_then_1, ^if_else_2
+
+  block ^if_then_1:
+    return i32 8
+
+  block ^if_else_2:
+    jump ^if_end_3
+
+  block ^if_end_3:
+    return i32 0
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    %t1 = call i32 @chosen()
+    %t2 = call i32 @skipped()
+    %t3 = binary add i32 %t1, %t2
+    %t4 = call i32 @looped()
+    %t5 = binary add i32 %t3, %t4
+    %t6 = call i32 @once()
+    %t7 = binary add i32 %t5, %t6
+    %t8 = call i32 @left_true()
+    %t9 = binary add i32 %t7, %t8
+    %t10 = call i32 @left_false()
+    %t11 = binary add i32 %t9, %t10
+    %t12 = call i32 @computed()
+    %t13 = binary add i32 %t11, %t12
+    %t14 = binary sub i32 %t13, 30
+    return i32 %t14
+}

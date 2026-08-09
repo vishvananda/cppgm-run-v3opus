@@ -2425,6 +2425,11 @@ SemaAnalyzer::Value SemaAnalyzer::functional_cast(const AstNode& node,
 		value.payload = floating_zero(types_.strip_cv(target));
 		value.node = &model_.open_node(
 			parent, spell(value.what, value.category, target, value.payload));
+		// 8.5p7 and 4.10p1: the zero is the value the *object* was initialized
+		// with rather than a literal the program wrote, so a pointer holds the
+		// null pointer value - which LowIR spells `nullptr` - and not the
+		// integer a null pointer constant is written as.
+		value.node->fact.zero_initialized = true;
 		return value;
 	}
 	if (count != 1)

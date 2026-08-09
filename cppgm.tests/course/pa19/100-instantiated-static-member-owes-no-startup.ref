@@ -1,0 +1,16 @@
+global @held_tag___value [binding=weak, object=_ZN4heldI3tagE5valueE] = {
+  zero 4
+}
+
+function @reach() -> ptr [binding=strong, object=_Z5reachv] {
+  block ^entry:
+    %t1 = addr @held_tag___value
+    return ptr %t1
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    %t1 = call ptr @reach()
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i32 %t2
+    return i32 %t3
+}
