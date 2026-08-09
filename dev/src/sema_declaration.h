@@ -399,3 +399,52 @@ struct SemaConstant
 	TypeId type;
 	unsigned long long bits;
 };
+
+// A depth held while one reading stands, and put back where it ends - so a
+// reading that stands inside another says so and an error thrown out of one
+// leaves the walk where it found it.
+class ReadingDepth
+{
+public:
+	explicit ReadingDepth(unsigned& depth)
+		: depth_(depth)
+	{
+		++depth_;
+	}
+
+	~ReadingDepth()
+	{
+		--depth_;
+	}
+
+private:
+	ReadingDepth(const ReadingDepth&);
+	ReadingDepth& operator=(const ReadingDepth&);
+
+	unsigned& depth_;
+};
+
+// The same fact read the other way: a depth put *aside* while a reading of its
+// own stands, because what asked for that reading says nothing about it.
+class ReadingHeld
+{
+public:
+	explicit ReadingHeld(unsigned& depth)
+		: depth_(depth)
+		, held_(depth)
+	{
+		depth_ = 0;
+	}
+
+	~ReadingHeld()
+	{
+		depth_ = held_;
+	}
+
+private:
+	ReadingHeld(const ReadingHeld&);
+	ReadingHeld& operator=(const ReadingHeld&);
+
+	unsigned& depth_;
+	const unsigned held_;
+};

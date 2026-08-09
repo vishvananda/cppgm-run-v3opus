@@ -25,6 +25,9 @@ bool dispatchable_member(const SemaEntity& member)
 	return member.kind == SemaKind::Function && member.object_member &&
 		member.special != kConstructorFunction && member.shadowed == nullptr &&
 		member.surrogate_for == nullptr && member.inherited == nullptr;
+
+
+
 }
 
 // 9.4.1p2: a declaration of this class's own that declares a static member
@@ -54,6 +57,95 @@ bool writes_virt_specifier(const AstNode& declarator)
 	return false;
 }
 
+// 12.1, 12.4 and the ABI: which of a class's own special members the object
+// file owes both of the ABI's entry points for.
+//
+// The classes a polymorphic object is built out of that this unit's own source
+// wrote are the one the vpointer starts at and the non-polymorphic classes
+// under it - the derivation below the vpointer.  A complete object of any of
+// them can be created wherever its definition is seen, and this unit's source
+// is what wrote the definition every unit shares.  A class whose base already
+// dispatches adds none of them: the vpointer it carries is one its base's own
+// completion already asked this of, and every unit that can create a complete
+// object of it can define its members for itself.
+//
+// A member the standard gave the class is not one a program named, and 2.2p1's
+// included file is one every unit that includes it holds a definition of too -
+// so each of those stands under the one entry this unit's own code asked for.
+// A definition written outside its class without `inline` is this unit's alone
+// whichever file it stands in, and `writes_base_entry` already owes both of the
+// ABI's names for it.
+void settle_shared_entry_points(SemaEntity& entity)
+{
+	if (!entity.introduces_vptr)
+	{
+		return;
+	}
+	// 10p1: a class with no polymorphic base has none above it either, so this
+	// walk is the whole derivation below the vpointer and costs each class in it
+	// once for the program rather than once per class derived from it.
+	for (SemaEntity* at = &entity; at != nullptr; at = at->base)
+	{
+		for (SemaEntity* made = at->constructor; made != nullptr;
+		     made = made->next)
+		{
+			made->complete_object_entry = made->complete_object_entry ||
+				(made->user_provided && made->own_source_definition);
+		}
+		if (at->destructor != nullptr && at->destructor->user_provided &&
+		    at->destructor->own_source_definition)
+		{
+			at->destructor->complete_object_entry = true;
+		}
+	}
+}
+
+// 10.3p5, 9.2p8 and 10.4p2: what a member function that overrides nothing may
+// not have written.  `override` asks the class for an overridden function it
+// does not have; the other two are written only where the declaration is of a
+// virtual member function - which for one that overrides nothing means its own
+// `virtual` keyword.
+void require_dispatches(const SemaEntity& member)
+{
+	if (member.override_written)
+	{
+		throw std::runtime_error(member.name + " is declared `override` and "
+		                         "overrides no virtual function of a base "
+		                         "class");
+	}
+	if (member.virtual_function)
+	{
+		return;
+	}
+	if (member.final_virtual)
+	{
+		throw std::runtime_error(member.name + " is declared `final` and is not "
+		                         "a virtual function");
+	}
+	if (member.pure_virtual)
+	{
+		throw std::runtime_error(member.name + " is declared with a "
+		                         "pure-specifier and is not virtual");
+	}
+}
+
+// 10.3p1 and 9.3p3: `virtual`, `override` and `final` are written on a
+// non-static member function, which a constructor and a static member are not.
+void require_no_virtual_specifier(const SemaEntity& member)
+{
+	if (member.kind != SemaKind::Function || member.shadowed != nullptr ||
+	    member.inherited != nullptr)
+	{
+		return;
+	}
+	if (member.virtual_function || member.override_written ||
+	    member.final_virtual || member.pure_virtual)
+	{
+		throw std::runtime_error(member.name + " is not a non-static member "
+		                         "function and is declared `virtual`, "
+		                         "`override`, `final` or pure");
+	}
+}
 }
 
 // 10.3p1 read before 9.2p13 lays the class out: whether an object of this class
@@ -348,48 +440,6 @@ void SemaAnalyzer::settle_vtable_ownership(SemaEntity& entity, Scope& scope)
 	}
 }
 
-// 12.1, 12.4 and the ABI: which of a class's own special members the object
-// file owes both of the ABI's entry points for.
-//
-// The classes a polymorphic object is built out of that this unit's own source
-// wrote are the one the vpointer starts at and the non-polymorphic classes
-// under it - the derivation below the vpointer.  A complete object of any of
-// them can be created wherever its definition is seen, and this unit's source
-// is what wrote the definition every unit shares.  A class whose base already
-// dispatches adds none of them: the vpointer it carries is one its base's own
-// completion already asked this of, and every unit that can create a complete
-// object of it can define its members for itself.
-//
-// A member the standard gave the class is not one a program named, and 2.2p1's
-// included file is one every unit that includes it holds a definition of too -
-// so each of those stands under the one entry this unit's own code asked for.
-// A definition written outside its class without `inline` is this unit's alone
-// whichever file it stands in, and `writes_base_entry` already owes both of the
-// ABI's names for it.
-void SemaAnalyzer::settle_shared_entry_points(SemaEntity& entity)
-{
-	if (!entity.introduces_vptr)
-	{
-		return;
-	}
-	// 10p1: a class with no polymorphic base has none above it either, so this
-	// walk is the whole derivation below the vpointer and costs each class in it
-	// once for the program rather than once per class derived from it.
-	for (SemaEntity* at = &entity; at != nullptr; at = at->base)
-	{
-		for (SemaEntity* made = at->constructor; made != nullptr;
-		     made = made->next)
-		{
-			made->complete_object_entry = made->complete_object_entry ||
-				(made->user_provided && made->own_source_definition);
-		}
-		if (at->destructor != nullptr && at->destructor->user_provided &&
-		    at->destructor->own_source_definition)
-		{
-			at->destructor->complete_object_entry = true;
-		}
-	}
-}
 
 // 12.4p9 and the ABI: the destructor's place in the table.
 //
@@ -447,34 +497,6 @@ void SemaAnalyzer::require_overridable(const SemaEntity& member,
 	}
 }
 
-// 10.3p5, 9.2p8 and 10.4p2: what a member function that overrides nothing may
-// not have written.  `override` asks the class for an overridden function it
-// does not have; the other two are written only where the declaration is of a
-// virtual member function - which for one that overrides nothing means its own
-// `virtual` keyword.
-void SemaAnalyzer::require_dispatches(const SemaEntity& member)
-{
-	if (member.override_written)
-	{
-		throw std::runtime_error(member.name + " is declared `override` and "
-		                         "overrides no virtual function of a base "
-		                         "class");
-	}
-	if (member.virtual_function)
-	{
-		return;
-	}
-	if (member.final_virtual)
-	{
-		throw std::runtime_error(member.name + " is declared `final` and is not "
-		                         "a virtual function");
-	}
-	if (member.pure_virtual)
-	{
-		throw std::runtime_error(member.name + " is declared with a "
-		                         "pure-specifier and is not virtual");
-	}
-}
 
 // 7.1.2p1 and 9.2p8: `virtual` and the virt-specifiers beside it are written
 // only on the declaration a class body makes.  A member function defined
@@ -541,23 +563,6 @@ void SemaAnalyzer::require_special_virtual_placement(const AstNode& node,
 	require_virtual_placement(wrote_virtual, declarator, where, qualified, name);
 }
 
-// 10.3p1 and 9.3p3: `virtual`, `override` and `final` are written on a
-// non-static member function, which a constructor and a static member are not.
-void SemaAnalyzer::require_no_virtual_specifier(const SemaEntity& member)
-{
-	if (member.kind != SemaKind::Function || member.shadowed != nullptr ||
-	    member.inherited != nullptr)
-	{
-		return;
-	}
-	if (member.virtual_function || member.override_written ||
-	    member.final_virtual || member.pure_virtual)
-	{
-		throw std::runtime_error(member.name + " is not a non-static member "
-		                         "function and is declared `virtual`, "
-		                         "`override`, `final` or pure");
-	}
-}
 
 // 10.4p2: whether an object of `type` cannot be created because a final
 // overrider of its class is pure.

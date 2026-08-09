@@ -180,6 +180,9 @@ void SemaAnalyzer::read_base_clause(const AstNode& node, SemaEntity& entity,
 	// for - so what it names is the class the type belongs to rather than the
 	// declaration the name was bound to.
 	SemaEntity& found = require(resolve(named, ctx, LookupKind::Type), named);
+	// 10p1 and 14.7.1p1: a base class shall be a complete class type, which is
+	// what asks a specialization the base-specifier named for its definition.
+	require_complete_type(found.type);
 	if (checking_ > 0 && types_.is_dependent(types_.strip_cv(found.type)))
 	{
 		// 14.6.2p3: an unqualified name written in the definition is not looked
@@ -2717,12 +2720,17 @@ bool SemaAnalyzer::user_provided_constructor(const SemaEntity& head)
 	return false;
 }
 
+// 12.1p5 and 3.9p6: the constructors a class has, which is a question about a
+// complete class - 14.7.1p1 asks a specialization that only a typedef-name has
+// named so far for its definition here, because every place that builds an
+// object of a class asks this one first.
 SemaEntity* SemaAnalyzer::class_constructors(TypeId type)
 {
 	if (!types_.is_class(types_.strip_cv(type)))
 	{
 		return nullptr;
 	}
+	require_complete_type(type);
 	SemaEntity* const owner = model_.type_owner(types_.strip_cv(type));
 	return owner == nullptr ? nullptr : owner->constructor;
 }

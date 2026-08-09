@@ -518,6 +518,11 @@ struct SemaEntity
 	// template-id or the call that asked for it.
 	SemaEntity* primary;
 	bool instantiated;
+	// 14.7.1p1: whether this specialization was named where no complete type
+	// was required - 7.1.3p1's typedef-name, 8.3.5p6's function declaration -
+	// so that the declaration was made and the definition left to the first
+	// use that requires one.  False again the moment that use arrives.
+	bool declared_only = false;
 	// 14.8.1p2: the template this declaration is `partial_of` with a leading
 	// part of its argument list already written.  A template-id may leave the
 	// trailing arguments out where a use deduces them, so what such a name

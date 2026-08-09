@@ -778,6 +778,9 @@ SemaAnalyzer::Value SemaAnalyzer::new_expression(const AstNode& node,
 	const AstNode* bound = nullptr;
 	const TypeId created = new_type(*written_type, ctx, bound);
 	const bool array = bound != nullptr;
+	// 5.3.4p1 and 14.7.1p1: creating an object requires its class completely
+	// defined, so a specialization the type-id named is asked for here.
+	require_complete_type(created);
 	if (types_.is_incomplete(created))
 	{
 		// 5.3.4p1: the type shall be complete, which is what has the size

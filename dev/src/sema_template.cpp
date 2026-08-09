@@ -74,29 +74,6 @@ private:
 	Scope* const head_;
 };
 
-// A depth held while one reading stands, and put back where it ends - so a
-// reading that stands inside another says so and an error thrown out of one
-// leaves the walk where it found it.
-class Counted
-{
-public:
-	explicit Counted(unsigned& depth)
-		: depth_(depth)
-	{
-		++depth_;
-	}
-
-	~Counted()
-	{
-		--depth_;
-	}
-
-private:
-	Counted(const Counted&);
-	Counted& operator=(const Counted&);
-
-	unsigned& depth_;
-};
 
 // 5.2.3p1 and Table 10: whether a spelling standing where a callee does is a
 // simple-type-specifier written out of keywords, which the parser leaves as the
@@ -1201,7 +1178,7 @@ SemaEntity& SemaAnalyzer::instantiate_class(SemaEntity& primary,
 		// asking for it.
 		if (checking_ == 0)
 		{
-			require_specialization(*made);
+			asked_specialization(*made);
 		}
 		return *made;
 	}
@@ -1247,9 +1224,60 @@ SemaEntity& SemaAnalyzer::instantiate_class(SemaEntity& primary,
 		// read where it stands is not a use that requires a definition; the
 		// specialization is declared here and asked for where an instantiation
 		// does.
-		require_specialization(*made);
+		asked_specialization(*made);
 	}
 	return *made;
+}
+
+// 14.7.1p1: what naming a specialization comes to where the name stands.
+//
+// A class template specialization is implicitly instantiated where it is used
+// in a context that requires a completely-defined object type, and 7.1.3p1's
+// typedef-name and 8.3.5p6's function declaration are not such contexts - the
+// one names a type the program may only have declared, and the other writes a
+// return type or a parameter type no definition is being given.  So the name
+// leaves the declaration standing and marks the specialization as owing a
+// definition, and `require_complete_type` is the demand every context that
+// *does* require one makes of it.  Which contexts those are is 3.9p5's list
+// read at the places this analysis already asks whether a class is complete.
+void SemaAnalyzer::asked_specialization(SemaEntity& made)
+{
+	if (declaring_only_ > 0 && !made.defined && !made.declared_only)
+	{
+		made.declared_only = true;
+		++declared_only_;
+		return;
+	}
+	require_specialization(made);
+}
+
+// The demand itself, asked wherever 3.9p5 requires a complete type.  A unit
+// that never wrote a declaration requiring none pays one integer test here.
+void SemaAnalyzer::require_complete_type(TypeId type)
+{
+	if (declared_only_ == 0)
+	{
+		return;
+	}
+	TypeId bare = types_.strip_cv(type);
+	while (types_.kind(bare) == TypeKind::Array)
+	{
+		// 3.9p5: an array of an incomplete class is one too, and 12.6p1 builds
+		// each of its elements.
+		bare = types_.strip_cv(types_.target(bare));
+	}
+	if (types_.kind(bare) != TypeKind::Class)
+	{
+		return;
+	}
+	SemaEntity* const owner = model_.type_owner(bare);
+	if (owner == nullptr || !owner->declared_only)
+	{
+		return;
+	}
+	owner->declared_only = false;
+	--declared_only_;
+	require_specialization(*owner);
 }
 
 // 14.7.1p1: an instantiation asks for this specialization.
@@ -1280,6 +1308,11 @@ void SemaAnalyzer::require_specialization(SemaEntity& made)
 
 void SemaAnalyzer::complete_specialization(SemaEntity& made)
 {
+	// 14.7.1p1: what this reading is asked is what the pattern's own
+	// declarations say, so the declaration that demanded it - which may be one
+	// requiring no complete type of what it names - is put aside for as long as
+	// the reading stands.
+	const ReadingHeld reading(declaring_only_);
 	const TemplateInfo& info = *made.primary->templated;
 	// 14.6.1p1: the current instantiation is the one specialization over
 	// dependent arguments that *is* read, because it is what the template's own
@@ -1317,7 +1350,7 @@ void SemaAnalyzer::complete_specialization(SemaEntity& made)
 		// the use that names it.  A reading standing inside another - a body
 		// naming a second specialization - is the same, which is why the fact
 		// is a depth rather than a flag.
-		const Counted instantiating(instantiating_class_);
+		const ReadingDepth instantiating(instantiating_class_);
 		class_declaration(*info.pattern, inner, span, true, std::string(), &made,
 		                  &spelled);
 		read_held_pattern_bodies(mark);

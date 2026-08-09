@@ -431,16 +431,10 @@ private:
 	// class's table, and what the deleting entry of its destructor gives the
 	// storage back to.
 	void settle_vtable_ownership(SemaEntity& entity, Scope& scope);
-	// 12.1, 12.4 and the ABI: which of the classes below the vpointer this unit's
-	// own source wrote a special member's definition for, which is what says the
-	// object file owes both of the ABI's entry points for it.
-	static void settle_shared_entry_points(SemaEntity& entity);
 	// 10.3p4, 10.3p5 and 10.3p7: what an overriding declaration has to agree
 	// with, and what a declaration that overrides nothing may not have written.
 	void require_overridable(const SemaEntity& member,
 	                         const SemaEntity& overridden);
-	static void require_dispatches(const SemaEntity& member);
-	static void require_no_virtual_specifier(const SemaEntity& member);
 	// 7.1.2p1, 9.2p8 and 8.4p2: whether this declaration may say anything about
 	// dispatch at all, which only the one a class body makes may.
 	static void require_virtual_placement(bool wrote_virtual,
@@ -1348,7 +1342,7 @@ private:
 	unsigned long long array_bound(const AstNode& node, const Context& ctx);
 	TypeId decltype_type(const AstNode& node, const Context& ctx);
 	// 5.3.3 and 5.3.6 over a type-id, which is the whole of what PA11 needs.
-	unsigned long long size_of(TypeId type) const;
+	unsigned long long size_of(TypeId type);
 	bool is_signed(TypeId type) const;
 	unsigned width_of(TypeId type) const;
 	// The integral type an enumeration's values are read as.
@@ -1903,6 +1897,11 @@ private:
 	// specialization without asking for one, so what it makes stays off that
 	// list until a use arrives.
 	void require_specialization(SemaEntity& made);
+	// 14.7.1p1: naming a specialization where the name stands, which asks for
+	// it only where the context requires a completely-defined type; and the
+	// demand every context that does require one makes of what it named.
+	void asked_specialization(SemaEntity& made);
+	void require_complete_type(TypeId type);
 	// 14.3p1 and 14.8.2: `type` with every template parameter `bindings` names
 	// replaced by the type bound to it.  The type table rebuilds every
 	// category that is only made of types; a specialization is the one that is
@@ -2288,6 +2287,13 @@ private:
 	// declaration the program has, so nothing it reads is declared into the
 	// output and nothing it names demands an instantiation.
 	unsigned checking_;
+	// 14.7.1p1: the depth of a declaration that requires no complete type of
+	// what it names, and how many specializations a template-id written under
+	// one has left declared.  A demand for a definition costs the count being
+	// zero at every place the standard requires a complete type, which is what
+	// it is in a unit that wrote no such declaration.
+	unsigned declaring_only_;
+	unsigned declared_only_;
 	// 12.9p8: the parameters each constructor was declared with, which the
 	// inheriting constructor a using-declaration declares takes as its own -
 	// their names as much as their types, because the definition this unit

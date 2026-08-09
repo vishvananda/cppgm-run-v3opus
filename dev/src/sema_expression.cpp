@@ -691,6 +691,9 @@ Scope& SemaAnalyzer::object_region(const AstNode& node, Value& object)
 		throw std::runtime_error("a member is named of an operand that is not "
 		                         "of class type");
 	}
+	// 3.4.5p1 and 14.7.1p1: naming a member of an object is a context that
+	// requires its class to be completely defined.
+	require_complete_type(object.type);
 	SemaEntity* const owner = model_.type_owner(types_.strip_cv(object.type));
 	if (owner == nullptr || owner->scope == nullptr)
 	{
@@ -1665,6 +1668,7 @@ SemaAnalyzer::Value SemaAnalyzer::alignof_expression(const AstNode& node,
 	// type referred to, which is also the type p3 asks to be complete.
 	const TypeId type =
 		types_.is_reference(named) ? types_.target(named) : named;
+	require_complete_type(type);
 	if (types_.is_incomplete(type))
 	{
 		// 5.3.6p3: the type shall be complete, which is what has an alignment.

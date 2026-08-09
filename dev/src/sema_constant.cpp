@@ -491,7 +491,7 @@ SemaAnalyzer::Constant SemaAnalyzer::evaluate(const AstNode& node,
 	}
 }
 
-unsigned long long SemaAnalyzer::size_of(TypeId type) const
+unsigned long long SemaAnalyzer::size_of(TypeId type)
 {
 	if (checking_ > 0 && types_.is_dependent(type))
 	{
@@ -501,6 +501,7 @@ unsigned long long SemaAnalyzer::size_of(TypeId type) const
 		// laid out or written out.
 		return 1;
 	}
+	require_complete_type(type);
 	if (types_.is_incomplete(type))
 	{
 		// 5.3.3p1: `sizeof` shall not be applied to an incomplete type.

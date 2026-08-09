@@ -972,6 +972,10 @@ Scope* SemaAnalyzer::resolve_prefix(const QualifiedName& name,
 			head = template_id_entity(first, ctx, nullptr, LookupKind::Region);
 		}
 		named = &require(head, first);
+		// 3.4.3p1 and 14.7.1p1: a name is looked up *in* the region this
+		// component reached, which for a class template specialization is a
+		// context requiring it to be completely defined.
+		require_complete_type(named->type);
 		region = model_.region_of(*named);
 	}
 
@@ -998,6 +1002,7 @@ Scope* SemaAnalyzer::resolve_prefix(const QualifiedName& name,
 			next = template_id_entity(part, ctx, region, LookupKind::Region);
 		}
 		named = &require(next, part);
+		require_complete_type(named->type);
 		region = model_.region_of(*named);
 	}
 	if (region == nullptr)
@@ -1078,6 +1083,7 @@ SemaEntity* SemaAnalyzer::qualified_in_type(TypeId head,
                                             LookupKind filter,
                                             std::vector<SemaEntity*>* found)
 {
+	require_complete_type(head);
 	SemaEntity* const owner = model_.type_owner(head);
 	Scope* const region = owner == nullptr ? nullptr : model_.region_of(*owner);
 	if (region == nullptr)
