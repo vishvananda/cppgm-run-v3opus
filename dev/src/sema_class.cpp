@@ -552,6 +552,10 @@ bool SemaAnalyzer::conversion_function_definition(const AstNode& node,
 		}
 	}
 	entity.user_provided = true;
+	// 9.3p2 and 3.2p4: a conversion function is a member function defined
+	// outside its class like any other, so the object file holds the definition
+	// the program wrote here whether or not a conversion here names it.
+	entity.out_of_class_definition = holds_written_definitions(region);
 	const std::vector<Parameter> none;
 	open_special_member_body(node, entity, target, entity.name, none);
 	return true;
@@ -870,7 +874,11 @@ void SemaAnalyzer::special_member_definition(const AstNode& node,
 		// rather than every unit that needs one.
 		entity->deleted = explicitly->children[0]->text == "delete";
 		entity->defaulted = !entity->deleted;
-		entity->out_of_class_definition = true;
+		// 2.2p1: `= default` is a definition like a body, so which file it was
+		// read from is read here as `open_special_member_body` reads it there.
+		entity->own_source_definition = own_source(node);
+		entity->out_of_class_definition =
+			holds_written_definitions(*target.scope);
 		resettle_defaulted_member(*entity);
 		// 8.3.5p10: `= default` is a declaration of the constructor like any
 		// other, so the names its declarator wrote are the function's from here
@@ -896,7 +904,7 @@ void SemaAnalyzer::special_member_definition(const AstNode& node,
 	// class body wrote, so a parameter it left unnamed is named by whichever
 	// declaration of the constructor named it.
 	record_declared_parameters(*entity, parameters, target.scope);
-	entity->out_of_class_definition = true;
+	entity->out_of_class_definition = holds_written_definitions(*target.scope);
 	open_special_member_body(node, *entity, target, written, parameters);
 }
 
@@ -1095,6 +1103,26 @@ void SemaAnalyzer::declare_special_members(SemaEntity& entity, Scope& scope)
 	// triviality below, because 12.1p5 and 12.4p5 each ask whether the class
 	// dispatches before they say a member of it does nothing.
 	settle_virtual_members(entity, scope);
+	// 8.4.2p2: and the answers below are asked again wherever a definition
+	// written later in the unit changes one, so the class is recorded here in
+	// the order its answers were first settled - which is the order a subobject
+	// is settled before whatever holds it.
+	settled_classes_.push_back(&entity);
+	settle_class_answers(entity, scope);
+}
+
+// 9.2p2 and 12.1p5: the answers a *complete* class carries - whether each
+// member the standard defines does anything, whether it can be defined at all,
+// what it allows to be thrown, and whether the bytes of an object are its copy.
+//
+// Each is one walk of the class's subobjects, and every one of them reads what
+// those subobjects' own answers already are, so they are settled where the
+// class-specifier closes.  8.4.2p2's `= default` written outside the class is
+// the one thing that arrives later, and it asks these again rather than
+// patching one: what changed is what the standard's definition of one member
+// comes to, and each of these is an answer about the whole class.
+void SemaAnalyzer::settle_class_answers(SemaEntity& entity, Scope& scope)
+{
 	for (SemaEntity* at = entity.constructor; at != nullptr; at = at->next)
 	{
 		if (at->inherited != nullptr)
@@ -1147,8 +1175,40 @@ void SemaAnalyzer::declare_special_members(SemaEntity& entity, Scope& scope)
 	// subobjects once and a chain n deep costs n reads and not n walks.
 	types_.settle_declared_destruction(
 		types_.strip_cv(entity.type),
-		wrote_destructor || subobject_declares_destruction(entity, scope));
+		!entity.destructor->implicit_declaration ||
+			subobject_declares_destruction(entity, scope));
 	settle_transfers(entity, scope);
+}
+
+// 8.4.2p2 and 12.8p12: a definition written outside a class settles what the
+// standard's definition of that member comes to, and the classes already
+// settled *over* it read the answer it changed - so every class this unit
+// completed is asked again, in the order it was completed, which is the order
+// each one's subobjects were settled before it.
+//
+// The pass runs once, where the whole unit has been read, and only where a
+// definition of the sort was written: `settle_class_answers` is the walk the
+// closing brace already cost, so a program that writes none pays nothing and
+// one that writes any pays that walk a second time.
+void SemaAnalyzer::resettle_completed_classes()
+{
+	if (!resettle_classes_)
+	{
+		return;
+	}
+	resettle_classes_ = false;
+	// 12.4p8: what running a destructor comes to is held per type, and one of
+	// the answers below is what it was read from, so the held ones are dropped
+	// and asked again as the classes are.
+	vacuous_.clear();
+	for (std::size_t index = 0; index < settled_classes_.size(); ++index)
+	{
+		SemaEntity& entity = *settled_classes_[index];
+		if (entity.scope != nullptr)
+		{
+			settle_class_answers(entity, *entity.scope);
+		}
+	}
 }
 
 // 12.8p2, p3, p17 and p19: which of the four value-transfer special members a
@@ -1612,49 +1672,31 @@ void SemaAnalyzer::settle_transfers(SemaEntity& entity, Scope& scope)
 	                         entity.base != nullptr);
 }
 
-// 8.4.2p2 and 12.8p12: a special member the program explicitly defaulted
-// *outside* its class has the definition the standard describes as much as one
-// defaulted where it was declared does, and the class was complete before that
-// definition was read - so what the definition comes to is settled again here.
+// 8.4.2p2 and 12.8p12: a special member the program explicitly defaulted or
+// deleted *outside* its class has the definition the standard describes as much
+// as one defaulted where it was declared does, and the class was complete
+// before that definition was read - so the answers that class carries are
+// asked again here, over the class the definition arrived at.
 //
-// The three answers the class carries are one walk of its subobjects each, and
-// they are asked again rather than patched, because they are answers about the
+// They are asked again rather than patched because they are answers about the
 // class and not about the one member that changed: 12.1p5's triviality reads
 // what every subobject's own member is, and 12.8p12's copy is what says whether
 // 5.2.2p4's argument, 8.5's initialization of an object of the class and the
-// layout of a class holding one are the bytes.  It costs one walk per
-// out-of-class definition the program wrote, which is what the closing brace
-// already cost once.
+// layout of a class holding one are the bytes.  A class *already* settled over
+// this one read the answer that just changed, and `resettle_completed_classes`
+// is where those are asked again - here, where only this class's own answers
+// are known to have moved, is where a class the program writes *after* the
+// definition reads the right one.
 void SemaAnalyzer::resettle_defaulted_member(SemaEntity& function)
 {
 	Scope* const region = function.region;
 	if (checking_ > 0 || region == nullptr || region->owner == nullptr ||
-	    !function.defaulted)
+	    (!function.defaulted && !function.deleted))
 	{
 		return;
 	}
-	if (function.special == kConstructorFunction &&
-	    types_.parameters(function.type).size() == 1)
-	{
-		function.trivial = trivial_default_construction(*region);
-		function.deleted = function.deleted || undefinable_default(*region);
-		if (!function.wrote_exception_specification)
-		{
-			function.nonthrowing = default_construction_nonthrowing(*region);
-		}
-	}
-	else if (function.special == kDestructorFunction)
-	{
-		function.trivial = trivial_destruction(*region);
-		if (!function.wrote_exception_specification)
-		{
-			function.nonthrowing = destruction_nonthrowing(*region);
-		}
-	}
-	// 12.4p8 and 12.8p12: the end of an object's lifetime is half of what says
-	// the bytes are the copy, so the class's copy facts are written again
-	// whichever of the members the definition was for.
-	settle_transfers(*region->owner, *region);
+	settle_class_answers(*region->owner, *region);
+	resettle_classes_ = true;
 }
 
 // 11.2p1: whether a member of another class may be named from inside `scope`,
@@ -2207,11 +2249,6 @@ void SemaAnalyzer::require_access(const SemaEntity& member, const Scope* from,
 	}
 }
 
-bool SemaAnalyzer::observable(const DumpNode& node) const
-{
-	return observable_expression(node);
-}
-
 bool observable_expression(const DumpNode& node)
 {
 	switch (node.fact.kind)
@@ -2256,7 +2293,7 @@ bool observable_expression(const DumpNode& node)
 void SemaAnalyzer::require_droppable(const DumpNode& object,
                                      const std::string& member)
 {
-	if (observable(object))
+	if (observable_expression(object))
 	{
 		throw std::runtime_error("the object expression of " + member +
 		                         " does something, and " + member +

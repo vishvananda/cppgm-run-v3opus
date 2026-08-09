@@ -1,0 +1,58 @@
+function @Held__Held__ov2(%this : ptr, %__param1 : ptr [pass=reference]) -> void [unwind=no, binding=weak, object=_ZN4HeldC1ERKS_, trivial_lifecycle=yes] {
+  slot $this : ptr
+  slot $__param1 : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    store ptr %__param1, $__param1
+    %t1 = load ptr $this
+    %t2 = load ptr $__param1
+    copyobj 4x4 %t2, %t1
+    return void
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $first : obj<4x4>
+  slot $second : obj<4x4>
+
+  block ^entry:
+    %t1 = addr $first
+    call void @Keeps__Keeps(%t1, 3)
+    %t2 = addr $second
+    %t3 = addr $first
+    copyobj 4x4 %t3, %t2
+    %t4 = addr $second
+    %t5 = index i8 [projection=field] %t4, 0
+    %t6 = index i8 [projection=field] %t5, 0
+    %t7 = load i32 %t6
+    %t8 = binary sub i32 %t7, 3
+    return i32 %t8
+}
+function @Keeps__Keeps(%this : ptr, %v : i32) -> void [binding=weak, object=_ZN5KeepsC1Ei] {
+  slot $this : ptr
+  slot $v : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %v, $v
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i32 $v
+    call void @Held__Held(%t2, %t3)
+    return void
+}
+function @Held__Held(%this : ptr, %v : i32) -> void [binding=weak, object=_ZN4HeldC1Ei] {
+  slot $this : ptr
+  slot $v : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %v, $v
+    %t1 = load i32 $v
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 %t1, %t3
+    return void
+}
+alias object _ZN4HeldC2ERKS_ = @Held__Held__ov2
+alias object _ZN5KeepsC2Ei = @Keeps__Keeps
+alias object _ZN4HeldC2Ei = @Held__Held

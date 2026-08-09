@@ -5,228 +5,190 @@ settle, instantiate, name, lower.
 
 ## Current Checkpoint Review
 
-**C12, reviewed at `7afd0f26`** — 14.6.2.1p9's nested class of the current
-instantiation made a dependent type; 3.4.1p8's base-clause of a member class
-defined outside its class read in the region its class-head-name reached;
-7.1.6.3p1's elaborated-type-specifier where a template argument spells a
-type-id, with 3.3.2p6 declaring the class a class-key reaches none of;
-3.4.3.1p2's second arm, so a using-declaration names a base's constructors
-through a typedef-name; 5.3.6's operator under the two spellings 1.4p8 reserves;
-14.6p8 over 8.3.4p1's bound; and **14.7.1p1's point** - a specialization
-declared where it is named and defined where a completely-defined type is
-required.
+**C13, reviewed at `b60697fa`** — 8.4.2p2's `= default` written outside the
+class settling 12.8p12 again over a complete class; 8.3.2p1's reference member
+ending 12.8p15's leading run; 9p6's empty base named without reading the object
+it was written from, with 4.10p3's base conversion made unobservable; and
+**which definitions the object file holds** - 3.2p4's definition the program
+wrote outside its class, and 14.7.1p1's use written inside an instantiated body
+whose call 12.8p12 left out.
 
-**Five of the seven rules are right and swept clean.**  14.6.2.1p9 holds over a
-nested class, a nested enumeration, a class nested two deep, one forward-declared
-above the base-specifier that writes it and the base-clause each of them makes -
-identical to the reference in every one, with the flag settled where the type is
-made and the memo it invalidates its own.  3.4.1p8's base-clause finds a member
-type of the enclosing class and a template-argument-list written over one, and
-the region is the class-head-name's only where one was written.  7.1.6.3p1 holds
-over `struct`, `class` and `enum` keys, a qualified name, a simple-template-id, a
-nested class, a class 3.3.2p6 declares at namespace and at block scope, and the
-class an object of that spelling hides - with a typedef-name after `struct` and a
-class-key that disagrees each refused here and by **g++** where the reference
-alone accepts them.  3.4.3.1p2 names a base's constructors through a typedef-name
-and through a dependent base, and refuses a class that is no base in all three
-compilers.  `__alignof` and `__alignof__` are the operator where a `(` follows and
-the identifier a member declares where none does.
+**The two 12.8p15 rules are right and swept clean.**  A reference member is
+carried on its own with the runs before and after it intact, first, last, twice
+over, `const`-qualified, under a move, and inside a base subobject - identical
+to the reference in every one, and the six programs run through `lowir2cy86` to
+what g++ builds them to return.  9p6's empty base reads nothing out of its
+source, and an operand that *does* something is still evaluated, because
+`observable_expression` recurses into the conversion's operand rather than
+answering for the node.
 
-**The sixth is broader than the clause it answers, and is left standing.**
-14.6p8 over 8.3.4p1 stands one element in wherever a bound comes out zero while
-`checking_ > 0`, which is right for the quotient `size_of`'s stand-in value
-makes and also swallows a bound a reading could have answered - `template<class
-T> struct S { int a[0]; };`, which both oracles accept and this compiler now
-accepts too.  Telling the two apart means marking the evaluation that read a
-stand-in, and there is nothing to tell apart yet: an instantiation recomputes
-the bound with `checking_ == 0` and refuses a zero it really arrives at, so the
-relaxation reaches no specialization and no fixture.  What it does leave is a
-compiler that accepts `int a[0]` inside a template and refuses it outside one -
-a difference that predates this tier and is recorded under Open Gaps.
-
-**One blocker, and it is the checkpoint's own rule read at the wrong question.**
-14.7.1p1 instantiates a class template specialization where it is used in a
-context requiring a completely-defined type *and nowhere else*, and C12 landed
-the opposite default: **naming** a specialization required its definition unless
-the walk happened to stand inside a `simple-declaration`'s decl-specifier-seq.
-The grammar writes that name in a dozen other places, so **20 of 30 swept naming
-spellings instantiated a class the standard leaves declared** - and the same
-boundary left the demand missing where an expression is the first thing to ask,
-so a specialization a typedef had named was still incomplete when 13.3.1.2p3
-looked an operator up in it.  The two errors mask each other in the fixtures: the
-over-instantiation is what was completing the classes the missing demands needed.
+**The rule about which definitions the unit holds was landed at the one place
+its fixture reached.**  C13's own reading - "a definition the program wrote
+outside its class is this unit's whether or not the call 12.8p12 left out
+stands" - went in as a clause of `owe_internal_definition`, which is asked only
+where a *constructor* call is elided.  The clause the reference actually reads
+is 9.3p2's, asked of the definition rather than of a use, and every other member
+it covers was left waiting for a use it will never get.  Beside it, 8.4.2p2's
+resettling answered the class the definition arrived at and no class that had
+already read that answer.
 
 ### Findings
 
-**1. A second naming instantiated what the first left declared.**
-`asked_specialization` marked a specialization declared-only on the *first*
-naming and fell through to `require_specialization` on every one after it, so
-`typedef holder<box> a; typedef holder<box> b;` read the pattern at the second
-typedef - where `box` is still incomplete - and `holder<box>`'s
-`static const int factor = T::factor;` was
-`factor is written after a name that is not a namespace, class or enumeration`
-on a program both oracles compile.  Three typedefs, a typedef beside an alias,
-and two `extern` declarations of one object are the same shape.
+**1. Six of the seven kinds of definition 9.3p2 covers were dropped.**  A
+definition written outside its class with `inline` is deferred by
+`collect_definitions` until a use asks for it, and 12.8p12's copy of the bytes
+is exactly the use that never comes.  `inline A::~A() = default;`,
+`inline A& A::operator=(const A&) = default;`, an unused
+`inline void S::f()`, an unused `inline int S::origin()` for a static member, an
+unused `inline S::operator int()`, and a copy `= default` whose only naming is
+inside a class that carries it as bytes - **the reference emits all six and this
+compiler emitted none of them**.  The constructor C13 did land was the one its
+fixture reached.  The rule now stands where the unit's definitions are gathered:
+a member function this unit's own source defined outside its class is not
+deferred, and `owe_internal_definition` keeps 3.5p4's internal linkage and
+14.7.1p1's instantiated use alone.
 
-**2. The suppression reached one of the grammar's spellings and not the other
-twelve.**  A `simple-declaration`'s decl-specifier-seq was read under a depth and
-nothing else was, so **7.1.3p2's alias-declaration** (`using h = holder<box>;`),
-**8.3.5p6's parameter of a function nobody is defining** (`void f(holder<box>);`,
-and a member function's the same), a **trailing-return-type**, a **default
-argument**, a **cast's and a `static_cast`'s type-id**, a **`sizeof` over a
-pointer to one**, a **new-expression over a pointer to one**, a
-**condition-declaration**, a **friend declaration** and a **member
-alias-declaration** each named a specialization and instantiated it.  Every one
-of the twelve is accepted by `reference-binaries/cppgm++` and by **g++** and
-refused here.  Telling them apart by where the walk stands is a list the grammar
-keeps adding to; the clause says the demand belongs to the context that requires
-a complete type, so the naming is now never one and
-`asked_specialization` only marks.
+**2. And it is 2.2p1's question as much as 9.3p2's.**  A definition read from an
+*included* file is one every unit including that file holds, so the reference
+leaves it to the use - which `own_source_definition` already records for a
+special member and did not for any other definition.  Landing finding 1 without
+it emitted three definitions the reference does not for one header, in a single
+unit and in two.  The reference also leaves a *member class's* out-of-class
+definitions to the use, at every depth and for a special member as much as for
+an ordinary one, where it emits a namespace-scope class's; `holds_written_definitions`
+is that answer, asked of the region the class stands in, and the suite grades
+what the reference emits.
 
-**3. And the demand was landed at the declarator rather than at the definition.**
-3.9p5 requires the declared type of an object complete *where the object is
-defined*, and `init_declarator` asked it of every declarator that is not a
-typedef and not a function - so `extern holder<box> e;` and 9.4.2p2's
-`static holder<box> m;` written in a class each instantiated a class neither
-defines an object of.  The question `require_creatable_object` is already asked
-under is the same one - `defines_object`, or a non-static data member - so the
-two now stand together in `declare_object_declarator`.
+**3. 8.4.2p2's answer never reached the classes that had already read it.**
+`resettle_defaulted_member` re-settled the class the definition names, and
+12.8p12's copy is read by every class holding one, deriving from one or holding
+an array of one - each of which settled its own answer at its closing brace,
+before the definition arrived.  `struct Keeps { Held held; };` written above
+`inline Held::Held(const Held &) = default;` emitted a **call** where the
+reference emits `copyobj`, and so did `struct Extends : Held`, and so did
+`Held[2]`.  The three answers a complete class carries are now one function -
+`settle_class_answers` - called where the class-specifier closes and again over
+every class settled before the definition arrived, in that same order, which is
+the order that settles a subobject's class before whatever holds it.
 
-**4. Two contexts that do require one were asking for nothing.**  With the
-naming no longer a demand, what is left has to be the whole of 3.9p5's list this
-analysis reaches, and two of its entries had no reader at all - which the
-over-instantiation had been covering for, so each is a defect of the checkpoint
-as it stands and not of the fix.  **8.3.5p6's other
-arm**: the parameter and return types of a function *definition* shall be
-complete, and `declare_parameters` - the one walk only a definition makes - built
-the objects a body names out of a class with no layout, which emitted
-`copyobj` with a **zero byte count** that the harness's own sanity validation
-rejects.  **3.9p5 over an expression**: 3.4.2p2's associated classes,
-13.3.1.2p3's member candidates, 13.3.1.1.2's surrogate calls, 13.3.1.4's
-conversion functions and 12.4p11's destructor are each read off an expression's
-class, and a reference parameter naming a specialization a typedef had declared
-reached all of them with the class still empty -
-`an operand of + or - is neither arithmetic nor a pointer` for `h + 3` on a
-program both oracles compile.  `SemaAnalyzer::expression` is where every
-expression the layer reads leaves, so the demand is one call there and two tests
-for the pointer, the reference and the scalar it usually finds.
-
-**5. And the demand had to be told that a reading is not a use.**  14.6p8's
-reading of a template definition names specializations and asks for nothing -
-which is what `instantiate_class` already answers `checking_ == 0` with - so a
-demand reaching one while `checking_ > 0` would read the pattern in the checking
-dialect and leave a class with none of 12.1's members it is owed.
-`check_template_definition` declares the pattern's own parameters, so finding 4's
-demand fired there: `pair<const string, tag>` was completed by the reading of
-`make_pairish`'s body and
-`12.8p32 asks for a constructor the program has none of` at the call.
-`require_complete_type` returns on `checking_ > 0` for the same reason
-`asked_specialization` is never called there.
+**4. A base subobject carried as bytes was named as an entry point.**
+`note_construction_entry` marked the base-object entry of the constructor the
+step chose, and 12.8p12 turns that step into `copyobj` with no call under it -
+so a class deriving from one whose copy is the bytes emitted a second body under
+the base-object name that the reference writes as an alias.  The mark is now
+asked of what runs: a transfer the standard defines that is trivial over a class
+with 12.4p8's vacuous destruction runs no entry at all.
 
 ### Changes
 
 | what | where |
 | --- | --- |
-| 14.7.1p1: naming a specialization is never a demand, however many times it is written | `sema_template.cpp` (`asked_specialization`) |
-| 14.6p8: a reading asks for no definition (`require_complete_type` on `checking_ > 0`) | `sema_template.cpp` |
-| 3.9p5: the demand moved from the declarator to the declarator that *defines* an object | `sema_analyzer.cpp` (`declare_object_declarator`) |
-| 8.3.5p6's definition arm: the return type and the parameter objects a body names | `sema_function.cpp` (`declare_parameters`) |
-| 3.9p5 over an expression, at the one place every expression leaves | `sema_expression.cpp` (`expression`) |
-| the depth and the scaffolding the suppression needed, dropped | `sema_analyzer.cpp`, `sema_analyzer.h`, `sema_declaration.h` |
+| 9.3p2 and 2.2p1: a member function this unit's own source defined outside its class is not deferred | `lowir_lower.cpp` (`collect_definitions`) |
+| the narrower constructor-only clause it replaces, dropped | `lowir_lower.cpp` (`owe_internal_definition`) |
+| `out_of_class_definition` and `own_source_definition` recorded for every out-of-class definition, special member, conversion function and ordinary member alike | `sema_function.cpp`, `sema_class.cpp`, `sema_analyzer.cpp` |
+| 9.3p2 as the reference reads it, asked of the region the class stands in | `sema_scope.cpp`/`.h` (`holds_written_definitions`) |
+| 9.2p2's complete-class answers made one function, called at the closing brace and again where a later definition moved one | `sema_class.cpp` (`settle_class_answers`, `resettle_completed_classes`) |
+| 12.8p12: a base subobject carried as bytes names no entry point | `sema_analyzer.cpp` (`note_construction_entry`) |
+| the `observable` wrapper, dropped for its one caller's direct question | `sema_analyzer.h`, `sema_class.cpp` |
 
-Five regression tests under `cppgm.tests/course/pa19`, one per naming family and
-one per demand: `100-specialization-named-again-declares-once`,
-`100-declared-object-of-specialization-defines-none`,
-`100-function-declaration-names-no-definition`,
-`100-function-definition-completes-its-places` and
-`100-operator-on-a-declared-specialization`.  **Four of the five fail against the
-pre-audit binary built from `7afd0f26`** - three on a pattern read where its
-argument was still incomplete, and the last from the other side, `h + 3` over a
-reference parameter with no member candidates.  The fifth is the demand 8.3.5p6's
-definition arm makes, which that binary got from the naming it should not have
-instantiated at.
+Three regression tests under `cppgm.tests/course/pa19`, one per finding family:
+`100-out-of-class-definition-this-unit-holds`,
+`100-defaulted-copy-reaches-the-class-holding-it` and
+`100-defaulted-copy-settled-before-the-class-holding-it`.  **All three fail
+against the pre-audit binary built from `b60697fa`.**
 
 ### Performance Evidence
 
-The demand is one integer test where a unit named no specialization and, where
-one is outstanding, a `strip_cv`, a kind test and - for a class alone - one hash
-probe.  The one place it is asked per *node* rather than per construct is
-`SemaAnalyzer::expression`, so that is what the sweep is built around.  Each
-shape timed twice against a `7afd0f26` worktree build made with `make build`,
-`--emit-lowir -O0`:
+What the audit adds per unit is one pointer per class completed, and - only
+where the program wrote an out-of-class `= default` or `= delete` - one further
+pass of `settle_class_answers` over those classes.  That pass is the walk the
+closing brace already cost, so it is linear in the program and runs once; the
+`vacuous_` memo it drops is refilled by the same walk.  Each shape timed twice
+against a `b60697fa` worktree build made with `make build`, `--emit-lowir -O0`:
 
-| shape | 32 | 128 | 512 | 2048 | before |
-| --- | --- | --- | --- | --- | --- |
-| n arithmetic expressions in one body | 0.00 s | 0.00 s | 0.01 s | 0.07 s | same |
-| the same with one specialization outstanding | 0.00 s | 0.00 s | 0.01 s | 0.07 s | same |
-| n expressions of a specialization's own class type | 0.00 s | 0.00 s | 0.01 s | **0.05 s** | 0.06 s |
-| n specializations named by a typedef and never used | 0.00 s | 0.00 s | 0.02 s | 0.12 s | same |
-| n specializations named by a typedef and each used | 0.00 s | 0.02 s | 0.09 s | 0.43 s | same |
-| n specializations named through a pointer typedef only | 0.00 s | 0.00 s | 0.02 s | - | same |
-| n function definitions taking one by value | 0.00 s | 0.00 s | 0.02 s | 0.11 s | same |
-| n specializations of one template, each with a member | 0.00 s | 0.01 s | 0.06 s | - | same |
-| n out-of-class member definitions of one template | 0.00 s | 0.01 s | 0.03 s | - | same |
-| n class templates, each deriving from the previous | 0.00 s | 0.01 s | 0.04 s | - | same |
+| shape | 32 | 128 | 512 | before |
+| --- | --- | --- | --- | --- |
+| n classes, each holding the previous | 0.01 s | 0.01 s | 0.05 s | same |
+| the same with one out-of-class `= default` below them | 0.01 s | 0.01 s | 0.05 s | 0.08 s |
+| n classes with a copy constructor each | 0.01 s | 0.02 s | 0.05 s | same |
+| the same with one out-of-class `= default` beside them | 0.01 s | 0.02 s | 0.05 s | same |
+| n out-of-class member definitions of one class | 0.00 s | 0.01 s | 0.02 s | same |
+| n specializations of one class template, each used | 0.01 s | 0.02 s | 0.09 s | same |
+| n class templates, none instantiated | 0.00 s | 0.01 s | 0.02 s | 0.03 s |
+| n out-of-class member definitions of one template | 0.01 s | 0.01 s | 0.04 s | 0.03 s |
+| one specialization named n times | 0.01 s | 0.01 s | 0.03 s | same |
+| n specializations of one template, each with a member called | 0.01 s | 0.03 s | 0.12 s | 0.13 s |
 
-The quadratic the tier already had is unmoved: n out-of-class member definitions
-of a template with n specializations is 0.03, 0.11 and 0.47 s at n = 32, 64 and
-128 against the pre-audit 0.03, 0.11 and 0.48 s.  Peak RSS is flat at n = 2048 -
-36.2 -> 36.2 MB for the typedef-only shape, 96.7 -> 96.8 MB for the used one,
-21.4 -> 21.4 MB for the class-typed expressions - because what the change adds
-per specialization is one `bool` and one counter, and what it removes is a
-reading of a pattern per naming.
+The shape the pass is worst for is **n classes each holding the previous and each
+with an out-of-class `= default` copy**, which asks for the pass n times and the
+walk n times within it: 0.011, 0.016, 0.017, 0.017 s at n = 32, 64, 128 and 256,
+flat because each class reads its subobject's *answer* rather than walking it.
+The class chain is the one shape the audit makes faster, and for the reason the
+checkpoint's own rule gives: the copy is the bytes, so the unit stops writing a
+constructor definition per class in it.
 
 ### Validation
 
-- **360 / 369 -> 365 / 374**, the five new tests being five of the shapes these
-  leave and the failing 9 the same 9 by name; pa1-pa18 **1778 / 1778**.
+- **374 / 378 -> 377 / 381**, the three new tests being three of the shapes
+  these leave and the failing 4 the same 4 by name; pa1-pa18 **1778 / 1778**.
 - **File audit passes** for pa19 over `dev/src` with the five header-weight
   warnings the shared headers have carried since PA18, and no suppression; the
-  build prints nothing.  `sema_analyzer.h` is at **2393 against
-  the limit of 2400** and `sema_template.cpp` at 2876 against 3000; this audit
-  leaves `sema_declaration.h` 25 lines lighter and `sema_analyzer.cpp` 14, because
-  the depth and the `ReadingHeld` class the suppression needed are gone.
-- **Every `.ref` regenerates byte-identically** over all 319 fixtures under
-  `pa19/tests` and all 50 already checked in under `cppgm.tests/course/pa19`,
-  diagnostics included; no committed fixture moved.  The five new `.ref` files
-  are the reference's own output.
-- **Forty-seven synthesized shapes through three binaries** - this compiler, the
-  `7afd0f26` pre-audit build and `reference-binaries/cppgm++` - with **g++**
-  beside them: **30 contexts that name a specialization and require no complete
-  type** (three counts of typedef, two alias-declarations, a member typedef and a
-  member alias, two `extern` declarations, a static data member declaration, a
-  return type, three parameter forms, a trailing-return-type, a default argument,
-  a pointer, a reference member, two pointer typedefs, a template argument, two
-  cast type-ids, a `sizeof`, a condition, a new-expression, a friend declaration,
-  an array of pointers and a qualified member declaration) and **17 that do**
-  (an object, a data member, an array, a by-value parameter, a return by value,
-  new and delete, `sizeof`, `alignof`, copy-initialization, assignment, a base
-  class, member access through a pointer, an operator on a reference parameter,
-  ADL, a reference binding, a template argument used as a member, and a
-  definition's places).  **46 of the 47 are identical to the reference as
-  emitted LowIR after the harness's own canonicalization**; the survivor is
-  `struct d : holder<box> { };`, where the reference emits a constructor
-  definition this unit elides - the pre-audit binary emits exactly what this one
-  does, so it is 12.8p12's group and not this audit's.  The pre-audit binary
-  refuses **20 of the 30** and **1 of the 17**.  Fourteen further shapes over
-  14.7.2's explicit instantiation, a specialization nothing ever demands, a
-  static data member defined out of class, a virtual member and a destructor, a
-  nested class of a specialization, a specialization over a specialization, a
-  conversion function, an out-of-class member definition, a base that is itself
-  a specialization, a deduced call and an overload set are identical to the
-  reference in every one.
-- **Run evidence with scalars.**  One unit writing eleven namings over ten of the spellings
-  over a specialization whose own declarations need its argument complete -
-  lowered here, byte-identical to the reference's LowIR, run through
-  `lowir2cy86` and `cy86` - returns **39**, which is what g++ builds it to
-  return.  The pre-audit binary refuses that program outright.
-- **Two units, both orders.**  Two units each naming one specialization through
-  a typedef, an alias-declaration and an `extern` declaration and each using it
-  emit LowIR **identical to the reference's** in either order, and the program
-  they make runs to 0 as g++ builds it to.
-- **Valgrind clean** with `--error-exitcode=99` over all 374 fixtures.
+  build prints nothing.  `sema_analyzer.h` reached **2414 against the limit of
+  2400** as the audit landed and is at **2399**: three one-line accessors and the
+  `observable` wrapper moved to the `.cpp` that owns them.
+- **Every `.ref` regenerates byte-identically** over all 65 fixtures under
+  `pa19/tests/spec`, all 254 under `pa19/tests/general` and all 62 under
+  `cppgm.tests/course/pa19` - LowIR, exit status and the 28 diagnostics
+  included, which differ only by the path the invocation names.  The three new
+  `.ref` files are the reference's own output.
+- **49 synthesized shapes through this compiler and
+  `reference-binaries/cppgm++`**, compared as emitted LowIR after the harness's
+  own canonicalization: **25 over which definition the unit holds** (a
+  destructor, an assignment operator, a constructor body, a `= default` and a
+  `= delete` of each, a conversion function, a static member function, an
+  ordinary member, an operator, an unused free `inline`, a namespace-qualified
+  one, a namespace-scope class's, a template's pattern and its specialization, a
+  member class at one and two levels with a special member at each, a local
+  class, and the non-`inline` form of three of them); **11 over 8.4.2p2's answer
+  reaching** a holder, a base, an array, a deleted copy, a default constructor, a
+  destructor and the class written after the definition as well as before it;
+  **5 over 8.3.2p1's reference member** first, last, twice over, `const`-qualified
+  and inside a base; **4 over an instantiated body** whose transfer, assignment,
+  destruction or move has no call under it; **2 over 9p6's empty base**; and **2
+  over which ABI entry a constructor stands under**.  **48 of the 49 are
+  identical to the reference**; the survivor is the recorded base-entry gap
+  below, which the pre-audit binary and the `0d7f7fe0` build differ on
+  identically.
+- **Run evidence with scalars.**  Thirteen programs lowered here and put through
+  `lowir2cy86` and `cy86` - the four fixtures C13 moved, the three this audit
+  adds, and six of its own shapes: **every one runs to what the reference's own
+  LowIR runs to**, and ten of the thirteen to what g++ builds them to return.
+  The three that do not are a class with a user-provided copy constructor taking
+  `const &` - **252** where g++ returns 0, with and without an empty base, so the
+  base is not what does it - and one holding a reference member, which the
+  scaffold **segfaults** on.  All three do the same from the reference's LowIR,
+  so they are the scaffold and not the emission; C13's own claim that all nine of
+  its fixtures ran to the value g++ builds them to return is overstated for the
+  two of them in this group.
+- **Two units and a header.**  One header writing an out-of-class constructor, a
+  `= default` copy and an ordinary member, included by two units, emits LowIR
+  **identical to the reference's** compiled as one unit and as two.
+- **Valgrind clean** with `--error-exitcode=99` over all 381 fixtures.
 
 ## Open Gaps
+
+**A constructor only a base subobject ever ran owes the reference both entry
+points.**  `struct A { A(int v) : value(v) {} };` with `struct B : A` and no
+complete `A` anywhere emits *two* bodies in `reference-binaries/cppgm++` -
+`_ZN1AC1Ei` and `_ZN1AC2Ei` - and one here, under the base-object name alone,
+which is `abi_variant`'s reading that "a symbol nothing asked for is one this
+unit does not owe the program".  It predates this tier (the `0d7f7fe0` and
+`b60697fa` builds emit exactly what this one does) and no fixture writes it.
+Widening `writes_base_entry` to every base subobject the program wrote was
+measured and **regressed 43 tests across pa16, pa17 and pa18**, all of them
+classes whose constructor a complete object also ran, so the rule the reference
+follows is narrower than "a base subobject asked for it" and is not the one this
+compiler has.  It is the one arm of C13's entry-point rule left standing.
 
 **An array of a class that holds a class owes the reference an empty startup
 body.**  `struct box { int q; }; struct named { box v; }; named table[3];` emits
@@ -641,3 +603,4 @@ to be reproduced with scalars and pointers before it is a finding.
 | C10 | the region a qualified declarator-id declares into, the member a member template declares, and the arguments a template-id left out: 9.4.2p1's and 3.4.1p8's class-head-name and declarator-id recording their pattern where the name reaches with 14.1p1's own head standing inside it, 3.4.3p1's prefix walked component by component, 14.5.2's member template given 9.3.1p3's object parameter, 14.8.1p2's partly written argument list made a declaration of its own, and 8.2p7's `T (X)` | `0b3f72b8` | 7 / 7, and six of them are **one shape - the object parameter a member template now carries has readers the checkpoint did not give it, and 14.8.1p2 has a third**: `declares_static_member` asks 13.1's index of the class's chain, which is keyed by the parameter list *as written*, and 14.1p2 gives each head parameters of its own - so 9.4.1p2's `static` was read as unwritten and `template<class T> int counter::raised(T)` over a static member was **`a definition of raised matches no declaration of it`** on a program both oracles compile, while 14.7.1p1's second reading of the same definition could ask neither that index nor 14.5.6.1p5's signature - the region an instantiation stands in binds arguments and not parameters - and emitted `function @counter__raised(%this : ptr, ...)` for a member 9.4p1 calls on no object.  And 14.5.6.2's ordering refused every pair whose `object_member` differed, which before this checkpoint was never two member templates: a static and a non-static member template of one name called through an object is **`a call of r has no best declaration` where the pre-C10 `e7eb1c1a` build, the reference and g++ all choose `r(T *)`** - a regression C10 shipped - and the same guard left 13.5p6's member operator template, which this checkpoint is what put in the candidate set, unordered against the non-member beside it, where 14.5.6.2p2 gives the one non-static member a first parameter of "reference to cv A" and 13.3.1p4 gives the static one an implicit one that matches any object.  Beside them 14.8.1p2's other arm - a trailing argument omitted where it is **obtained from a default template-argument** rather than deduced - was never landed at all, `record_function_template` recording `nullptr` for every default; 3.4.3p1's new prefix walk looked each component up in `named->scope`, which a typedef-name naming a class has none of, and began at `ctx.scope` for a name written `::v::S<T>::f`, both of which `resolve_prefix` already answers; and 14.7.2p1's explicit instantiation matched the written type against the *template's* own, so `template int mix<char>(double);` named no specialization where the arm beside it already deduces with `deduce_target`.  What is right and swept clean: `StandingIn` over eight qualified declarator-id forms and 8.2p7 over twelve places, agreeing with g++ in every one and with the reference wherever it compiles the shape at all | 322 / 346 -> **327 / 351**, the five new tests being five of the shapes these leave and the failing 24 the same 24 by name; pa1-pa18 1778 / 1778; the file audit passes and the build prints nothing, with `sema_analyzer.h` at **2391 against the limit of 2400**; every `.ref` regenerates byte-identically over all 319 fixtures under `pa19/tests` and all 27 checked-in under `cppgm.tests/course/pa19`; 96 synthesized shapes through this compiler, the `0b3f72b8` pre-audit and `e7eb1c1a` pre-C10 builds and `reference-binaries/cppgm++` with g++ beside them, 80 compared as emitted LowIR and identical to the reference in all 80, with **no shape in the sweep accepted by both oracles and refused here** and six the reference alone refuses; one unit writing all six rules run through `lowir2cy86` to the 42 g++ builds it to return, and the same unit less the line the reference refuses byte-identical to its LowIR; two units order-free and `object=` for `object=`; nine scaling shapes at n = 32, 128 and 512 against a `0b3f72b8` worktree build, every one where the checkpoint left it within 1% of its memory, and the one the audit makes compilable at 0.63 s at n = 512 against 1.17 s for the same call count the pre-audit binary already compiled and **21.01 s at n = 128** in the reference; valgrind clean over all 351 fixtures |
 | C11 | the LowIR an instantiated unit owes and the entries it does not: 14p1's template-declaration declaring no object, 14.7.1p6's startup body kept only where something runs, 12.2p1's temporary a reference binds given storage named after the place that asked, 6.4's condition that is a literal lowered as the jump one of its edges is, 12.1p5's constructor of a subobject that holds nothing naming no address, 12.8p31's returned object taking the constructor the elision left, and 4.10p1's null pointer value | `52c679e1` | 6 / 6, and four of them are **one shape - a rule landed at one reader of a fact and not at the others that have it**.  The fold asked the *operand a lowering wrote* where the reference asks the *expression*: `int(1)`, `(int)1`, `(long)1`, `char(1)`, `(int *)0`, `((void)0, 1)`, `(1, 2)`, `(side(), 1)` and `(p = 1)` are each an expression over a literal the reference leaves the terminator standing for, and all of them folded here - **39 of the 208 swept conditions** - while the block 5.14's right operand is read in was reserved even where the operand before it says which edge is taken, which renumbers every block after it (`if_then_5` against the reference's `if_then_4` over `true &&`, `false &&`, `true ||` and `false ||`).  `folded_edge` asks the node and emits nothing, which is what lets the reservation be asked for after the question; and the same fold's sibling exit is 5.14's operator read as a **value**, which asked the question a third way: the operand that folds leaves the operator standing for its right one - `(true && side()) + (false || side())` was two slots and six blocks against the reference's straight line and `if (true && wrap())` the same around 12.2p3's destructor - while `decided_logical`'s own `fact.constant` let a *pointer* literal decide the value, `int q = pointer() && side();` being `store i32 0` against the reference's `branch nullptr`, so the two paths now ask one question.  And 12.2p1's temporary and 4.10p1's null pointer value were landed in the body and not in the **image**: `const int & r = 5;` wrote `global @r : ptr = 5` - a reference that points at address 5 - where the reference writes `zero` and binds a `tmpref` in the startup body, and `pointer p = pointer();` wrote `= 0` against its `nullptr` with a pointer *subobject* `ptr 0` against its `zero 8`, which the array path beside it already answered.  Beside them 3.6.3p1's registered end of a lifetime dropped 3.6.2p2's entry it stands in - a unit whose one object is an instantiated static member of a class with a destructor emits `__cppgm_fini` and no `__cppgm_init` - and 14p1's pattern was told from 14.5.1.3p1's static data member by the *spelling* rather than the region, so `template<class T> T n::v;` laid out `global @n__v : void`, which is not LowIR any tool below reads.  What is right and swept clean: 12.1p5's empty subobject over an empty member, base, base-of-base, array, vpointer class and 12.8p15's copy of each, with and without a member that unwinds; 12.8p31's returned object over a prvalue, an aggregate, a call, a conditional, two returns and an elided local, the mark taken and cleared by the outermost call so no later construction loses 8.5p7's zero; and `retref`/`refarg`/`tmpref` the reference's names everywhere this milestone binds a value | 343 / 358 -> **348 / 363**, the five new tests being five of the shapes these leave and the failing 15 the same 15 by name; pa1-pa18 1778 / 1778; the file audit passes with its five inherited warnings and the build prints nothing, `sema_analyzer.h` where C10's audit left it at 2391 against 2400; every `.ref` regenerates byte-identically over all 319 fixtures under `pa19/tests` and all 44 checked-in under `cppgm.tests/course/pa19`, diagnostics included; 379 synthesized shapes through this compiler, the `52c679e1` pre-audit and `b95b5da0` pre-C11 builds and `reference-binaries/cppgm++` with g++ where a value can be run - 208 condition expressions (52 each in an `if`, a `while`, a `do` and a `for`), 62 further condition and control-flow shapes with `break`, `continue`, `goto`, a condition-declaration, a temporary and the block numbering a second statement shows, 39 further constant kinds and value-context short-circuits, 22 reference bindings, 20 image shapes and 28 over the empty subobject, the returned object, the startup body and 14p1's pattern - **every shape both compilers accept identical as emitted LowIR** but the four the reference is alone on, each recorded; one unit writing the fold rules and the bindings byte-identical to the reference's LowIR and run through `lowir2cy86` to the 39 g++ builds it to return; two units binding a namespace-scope reference and registering an instantiated member's end emitting `__cppgm_init` and `__cppgm_fini` byte-identical to the reference's and order-free; nine scaling shapes at n = 32, 128 and 512 against a `52c679e1` worktree build, every one where the checkpoint left it and linear to n = 2048, with the value-path fold **0.22 s -> 0.17 s and 68.5 -> 51.5 MB** at n = 2048 and the one memory cost 12.8 -> 19.4 MB for the temporaries 12.2p1 says the program has; valgrind clean over all 363 fixtures |
 | C12 | 14.7.1p1's point, asked at the naming instead of at the demand: 14.6.2.1p9's nested class of the current instantiation, 3.4.1p8's base-clause region, 7.1.6.3p1's elaborated template argument, 3.4.3.1p2's second arm and 5.3.6's two spellings reviewed beside it | `7afd0f26` | 1 / 1, and it is **the checkpoint's own rule read at the wrong question, wrong in both directions at once**.  14.7.1p1 instantiates a specialization where a completely-defined type is required *and nowhere else*, and the checkpoint landed the opposite default - naming one required its definition unless the walk stood inside a `simple-declaration`'s decl-specifier-seq - so **20 of 30 swept naming spellings read a pattern the standard leaves declared**: 7.1.3p2's alias-declaration, 8.3.5p6's parameter of a function nobody is defining, a member function's parameter, a trailing-return-type, a default argument, a cast's and a `static_cast`'s type-id, a `sizeof` and a `new` over a pointer to one, a condition-declaration, a friend declaration and a member alias-declaration, each accepted by `reference-binaries/cppgm++` and by **g++** and refused here; a *second* naming fell through the mark the first left, so `typedef holder<box> a; typedef holder<box> b;` alone was `factor is written after a name that is not a namespace, class or enumeration`; and the demand it did make was `init_declarator`'s rather than the definition's, so 3.1p2's `extern` declaration and 9.4.2p2's static data member declaration instantiated a class neither defines an object of.  The same boundary left **two of 3.9p5's own contexts with no reader at all**, which the over-instantiation had been masking: 8.3.5p6's definition arm, where `declare_parameters` built the objects a body names out of a class with no layout and emitted `copyobj` with a **zero byte count**; 3.9p5 over an expression, where 3.4.2p2's associated classes, 13.3.1.2p3's member candidates and 12.4p11's destructor are read - `h + 3` over a reference parameter was `an operand of + or - is neither arithmetic nor a pointer`.  And a third question stands beside them - 14.6p8's reading must ask for *nothing*, because a demand answered under `checking_ > 0` reads the pattern in the checking dialect and leaves a class with none of 12.1's members.  So the naming only marks, `require_complete_type` is the one demand and returns on a reading, and the depth and its `ReadingHeld` scaffolding are gone.  What is right and swept clean: 14.6.2.1p9 over a nested class, a nested enumeration, a two-deep nest and a forward-declared one; 3.4.1p8's base-clause; 7.1.6.3p1 over four class-keys, a qualified name, a simple-template-id and 3.3.2p6's declaration at namespace and block scope, refusing a typedef-name and a disagreeing class-key with **g++** where the reference alone accepts both; 3.4.3.1p2 through a typedef-name and through a dependent base; and `__alignof`/`__alignof__` as the operator and as the identifier a member declares | 360 / 369 -> **365 / 374**, the five new tests being five of the shapes these leave and the failing 9 the same 9 by name, four of the five failing against the `7afd0f26` pre-audit build; pa1-pa18 **1778 / 1778**; file audit passes with the five header-weight warnings and the build prints nothing, `sema_analyzer.h` at 2393 against the limit of 2400; every `.ref` regenerates byte-identically over all 319 fixtures under `pa19/tests` and all 50 already checked in under `cppgm.tests/course/pa19`; **47 synthesized shapes through three binaries** - 30 that name a specialization and require no complete type and 17 that do - with `reference-binaries/cppgm++` and **g++** beside them, **46 of 47 identical as emitted LowIR** after the harness's canonicalization, the survivor a base-class copy the pre-audit build emits identically and 12.8p12's group owns, and the pre-audit build refusing 20 of the 30 and 1 of the 17; one unit writing eleven namings over ten of the spellings run through `lowir2cy86` to the **39** g++ builds it to return, which that build refuses outright; two units naming one specialization three ways, order-free and identical to the reference; ten scaling shapes at n = 32, 128, 512 and 2048 against a `7afd0f26` worktree build, every one where the checkpoint left it with the class-typed expression path 0.06 -> **0.05 s** at n = 2048 and peak RSS flat; valgrind clean over all 374 fixtures |
+| C13 | which copy is the bytes, and which definition the unit writes: 8.4.2p2's `= default` outside the class settling 12.8p12 again over a complete class, 8.3.2p1's reference member ending 12.8p15's leading run, 9p6's empty base naming only the subobject it builds with 4.10p3's base conversion made unobservable, and 3.2p4/14.7.1p1 read of the *use* for which definitions the object file holds | `b60697fa` | 4 / 4, and they are **one rule landed at the one place its fixture reached**: C13's own reading - a definition the program wrote outside its class is this unit's whether or not the call 12.8p12 left out stands - went in as a clause of `owe_internal_definition`, which is asked only where a *constructor* call is elided, so `inline A::~A() = default;`, `inline A& A::operator=(const A&) = default;`, an unused `inline void S::f()`, a static member function's, a conversion function's, and a copy `= default` whose only naming is inside a class that carries it as bytes were **six kinds of definition the reference emits and this compiler emitted none of**.  It is 9.3p2's question asked of the definition, so it now stands where the unit's definitions are gathered - and 2.2p1's beside it, because a definition read from an *included* file is one every unit including that file holds and the reference leaves that to the use, which `own_source_definition` recorded for a special member and for nothing else; the reference leaves a *member class's* out-of-class definitions to the use too, at every depth, which `holds_written_definitions` is.  Beside them, 8.4.2p2's resettling answered the class the definition arrived at and **no class that had already read that answer**, so `struct Keeps { Held held; };` written above `inline Held::Held(const Held &) = default;` emitted a call where the reference emits `copyobj`, and so did a derived class and an array - the three answers a complete class carries are now one `settle_class_answers`, called at the closing brace and again over every class settled before the definition arrived; and `note_construction_entry` marked a base-object entry for a step 12.8p12 turns into `copyobj`, which runs no entry at all.  What is right and swept clean: 8.3.2p1's reference member first, last, twice over, `const`-qualified, moved and inside a base subobject, identical to the reference in all six and running to g++'s value; 9p6's empty base reading nothing out of its source while an operand that does something is still evaluated; and `note_instantiated_transfer`'s restriction to 12.8p15's constructors, which the assignment, destruction and move siblings each confirm needs nothing | 374 / 378 -> **377 / 381**, the three new tests being three of the shapes these leave and the failing 4 the same 4 by name, all three failing against the `b60697fa` pre-audit build; pa1-pa18 **1778 / 1778**; file audit passes with the five header-weight warnings and the build prints nothing - `sema_analyzer.h` reached **2414 against the limit of 2400** as the audit landed and is at 2399, three accessors and the `observable` wrapper moved to the `.cpp` that owns them; every `.ref` regenerates byte-identically over all 65 fixtures under `pa19/tests/spec`, all 254 under `pa19/tests/general` and all 62 under `cppgm.tests/course/pa19`, the 28 diagnostics included; **49 synthesized shapes through this compiler and `reference-binaries/cppgm++`** - 25 over which definition the unit holds, 11 over 8.4.2p2's answer reaching a holder, a base, an array and the class written after the definition, 5 over 8.3.2p1's reference member, 4 over an instantiated body with no call under its transfer, and 4 over 9p6's empty base and the ABI's two entry points - **48 of 49 identical as emitted LowIR**, the survivor the base-entry gap now recorded, on which the pre-audit build differs identically; thirteen programs run through `lowir2cy86`, every one to what the *reference's* own LowIR runs to and ten to what g++ builds them to return; one header included by two units, identical to the reference as one unit and as two; ten scaling shapes at n = 32, 128 and 512 against a `b60697fa` worktree build, every one where the checkpoint left it and the class chain 0.08 -> **0.05 s**, with the pass's own worst shape flat at 0.017 s to n = 256; valgrind clean over all 381 fixtures |

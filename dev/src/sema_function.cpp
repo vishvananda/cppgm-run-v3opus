@@ -350,6 +350,17 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 	}
 	record_definition_binding(entity, specifiers, ctx, target, spelled,
 	                          granting);
+	// 2.2p1: which file this definition was read from, asked here for the same
+	// reason `open_special_member_body` asks it of a special member's.
+	entity.own_source_definition = own_source(node);
+	// 9.3p2 and 3.2p4: a member function defined outside its class is a
+	// definition the program wrote in *this* unit, so the object file holds it
+	// whether or not anything here names it - which is what tells it from a
+	// definition written in the class body, one every unit that needs one
+	// writes for itself and 3.2p3 leaves to the use that asks.
+	entity.out_of_class_definition = entity.out_of_class_definition ||
+		(spelled.qualified() && granting == nullptr &&
+		 holds_written_definitions(*target.scope));
 	record_declared_parameters(entity, parameters, target.scope);
 
 	DumpScope& dump = model_.open_dump(*target.dump, "scope function " + name);

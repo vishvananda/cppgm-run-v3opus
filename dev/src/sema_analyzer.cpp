@@ -84,6 +84,7 @@ SemaAnalyzer::SemaAnalyzer(SemaDialect dialect)
 	, sources_(nullptr)
 	, anonymous_enums_(0)
 	, local_types_(0)
+	, resettle_classes_(false)
 	, instantiating_class_(0)
 	, instantiated_body_(0)
 	, template_pattern_(nullptr)
@@ -224,6 +225,10 @@ void SemaAnalyzer::run(const AstNode& unit)
 	{
 		declaration(*unit.children[index], ctx);
 	}
+	// 8.4.2p2: every definition the program wrote outside a class has been read
+	// here, so the classes this unit completed before one of them arrived are
+	// asked their answers again before anything that reads one is written.
+	resettle_completed_classes();
 	// 3.6.3p1: the objects with static storage duration this unit constructed
 	// are destroyed when the program ends, in the reverse order of their
 	// construction.  Asking for the destructors here is what makes their
@@ -248,6 +253,22 @@ void SemaAnalyzer::run(const AstNode& unit)
 	// each one heads is walked here rather than at each definition, where a
 	// constructor further along may not have been read yet.
 	check_delegation_cycles();
+}
+
+SemaEntity& SemaAnalyzer::declared_member(SemaEntity& entity)
+{
+	return entity.shadowed != nullptr ? *entity.shadowed : entity;
+}
+
+const SemaEntity& SemaAnalyzer::declared_member(const SemaEntity& entity)
+{
+	return entity.shadowed != nullptr ? *entity.shadowed : entity;
+}
+
+const SemaEntity& SemaAnalyzer::wrote_defaults(const SemaEntity& entity)
+{
+	return entity.primary != nullptr ? *entity.primary
+	                                 : declared_member(entity);
 }
 
 bool SemaAnalyzer::accepts_arity(const SemaEntity& function,
@@ -471,6 +492,19 @@ void SemaAnalyzer::note_construction_entry(SemaEntity& constructor, bool base)
 	if (!base)
 	{
 		constructor.complete_object_entry = true;
+		return;
+	}
+	const Scope* const region = constructor.region;
+	if ((constructor.transfer == kCopyConstructorTransfer ||
+	     constructor.transfer == kMoveConstructorTransfer) &&
+	    constructor.trivial && region != nullptr && region->owner != nullptr &&
+	    types_.has_vacuous_destruction(region->owner->type))
+	{
+		// 12.8p12 and 12.4p8: what carries this base subobject is the bytes of
+		// the one it reads from, so no entry point of the member runs and the
+		// object file owes neither of them for it.  The definition it has is
+		// still the program's where the program wrote one, which is 9.3p2's
+		// question and not this one.
 		return;
 	}
 	constructor.base_object_entry = true;
@@ -2239,7 +2273,9 @@ void SemaAnalyzer::declare_function_declarator(
 			function.inline_function || !outside_the_class;
 		if (outside_the_class)
 		{
-			function.out_of_class_definition = true;
+			function.own_source_definition = own_source(node);
+			function.out_of_class_definition =
+				holds_written_definitions(*target.scope);
 			// 8.4.2p2 and 12.8p12: the class was complete before this
 			// definition was read, so what the standard's definition of the
 			// member comes to is settled again against it.

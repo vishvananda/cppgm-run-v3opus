@@ -673,6 +673,17 @@ struct DumpNode
 // nothing to carry out of - so it is one answer rather than two.
 bool observable_expression(const DumpNode& node);
 
+// 9.3p2 and 3.2p4: whether a definition the program writes outside `scope` is
+// one *this* translation unit holds, rather than one 3.2p3 leaves to the use
+// that asks for it.  A member function defined outside its class is written
+// here whatever names it here - which is what tells it from a body written in
+// the class, one every unit that needs the definition writes for itself.
+//
+// The reference compiler reads the clause of a class a namespace declares and
+// leaves a member class's definitions to the use, and the suite grades what it
+// emits, so the question is asked of the region the class stands in.
+bool holds_written_definitions(const Scope& scope);
+
 // 12.8p31: whether this expression *creates* the object it is worth, rather
 // than selecting one that something else created.  A temporary the program
 // wrote and a call whose returned object the caller names each create theirs,

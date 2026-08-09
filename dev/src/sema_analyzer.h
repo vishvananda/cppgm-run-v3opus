@@ -219,23 +219,13 @@ private:
 	// reaches, which is the one the base made.  11p1's access and 7.3.3p14's
 	// hiding are facts about the declaration the class made; everything a use
 	// of the member needs is a fact about the one it names.
-	static SemaEntity& declared_member(SemaEntity& entity)
-	{
-		return entity.shadowed != nullptr ? *entity.shadowed : entity;
-	}
-	static const SemaEntity& declared_member(const SemaEntity& entity)
-	{
-		return entity.shadowed != nullptr ? *entity.shadowed : entity;
-	}
+	static SemaEntity& declared_member(SemaEntity& entity);
+	static const SemaEntity& declared_member(const SemaEntity& entity);
 	// 8.3.6p4 and 14.7.1p1: the declaration a default-argument stands on.  A
 	// specialization is a declaration nothing wrote, so what wrote its
 	// defaults is the template it was made of; every other declaration is the
 	// one 7.3.3p1 reaches through a using-declaration.
-	static const SemaEntity& wrote_defaults(const SemaEntity& entity)
-	{
-		return entity.primary != nullptr ? *entity.primary
-		                                 : declared_member(entity);
-	}
+	static const SemaEntity& wrote_defaults(const SemaEntity& entity);
 	// 14.6.1p6: a template-parameter shall not be redeclared within its scope,
 	// which is every region nested in the one its head declared it in.  Asked
 	// where a name is bound, so that a typedef, an alias-declaration, an object
@@ -420,7 +410,12 @@ private:
 	// and whether its definition is the copy of an object's bytes - and 8.4.2p2
 	// the same again, where a definition outside the class is what said so.
 	void settle_transfers(SemaEntity& entity, Scope& scope);
+	// 9.2p2 and 8.4.2p2: the answers a complete class carries, settled where its
+	// class-specifier closes and asked again wherever a definition written later
+	// changes one - over that class, and then over every class settled before it.
+	void settle_class_answers(SemaEntity& entity, Scope& scope);
 	void resettle_defaulted_member(SemaEntity& function);
+	void resettle_completed_classes();
 	// 10.3p1 read before 9.2p13 lays the class out: whether an object of the
 	// class carries a vpointer, and whether this class is the one that adds it.
 	void note_polymorphism(SemaEntity& entity, Scope& scope);
@@ -904,11 +899,9 @@ private:
 		SemaAnalyzer& owner;
 		Scope* held;
 	};
-	// 5.2.5p1: whether evaluating an analysed expression does nothing a program
-	// can observe, so that a member access which turns out to name no subobject
-	// may leave the object expression out of the resolved tree, and the error
-	// that it may not.
-	bool observable(const DumpNode& node) const;
+	// 5.2.5p1: the error a member access which turns out to name no subobject
+	// gives where `observable_expression` says the object expression may not be
+	// left out of the resolved tree.
 	void require_droppable(const DumpNode& object, const std::string& member);
 	// 8.3.4p1: the type of one element of an array, however many dimensions it
 	// has, and the type itself for anything else.
@@ -2234,6 +2227,12 @@ private:
 	// lets a specialization be laid out over an argument the bodies of the
 	// members nothing calls could not have been read against.
 	std::unordered_map<std::uint32_t, Pending> held_definitions_;
+	// 9.2p2 and 8.4.2p2: the classes this unit completed, in the order their
+	// answers were first settled - which settles a subobject's class before
+	// whatever holds it, so asking them again in it costs one pass.  The flag is
+	// whether a later definition changed one of those answers.
+	std::vector<SemaEntity*> settled_classes_;
+	bool resettle_classes_;
 	// 14.7.1p1: how many readings of a pattern for a specialization stand
 	// around this walk, which says whose definitions are its own, and whether a
 	// body one made stands around it - what 3.2p3 asks of an elided use.

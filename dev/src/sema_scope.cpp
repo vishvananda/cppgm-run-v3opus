@@ -63,6 +63,12 @@ bool declares_subobject(const SemaEntity& member, const Scope& scope)
 		member.region == &scope && member.shadowed == nullptr;
 }
 
+bool holds_written_definitions(const Scope& scope)
+{
+	return scope.kind == ScopeKind::Class && scope.owner != nullptr &&
+		(scope.parent == nullptr || scope.parent->kind != ScopeKind::Class);
+}
+
 bool names_a_type(const SemaEntity& entity)
 {
 	switch (entity.kind)

@@ -1,9 +1,9 @@
 # PA19 Plan — `cppgm++ --emit-lowir` first-tier templates
 
-PA19 stands at **374 / 378** (65 spec + 254 general + 59 course), from a
-turn-start baseline of 365 / 374, with pa1-pa18 at **1778 / 1778** and the file
-audit passing with the five header-weight warnings it inherited.  The build
-itself prints none.
+PA19 stands at **377 / 381** (65 spec + 254 general + 62 course), from a
+turn-start baseline of 374 / 378, with pa1-pa18 at **1778 / 1778** and the file audit
+passing with the five header-weight warnings it inherited.  The build itself
+prints none.
 
 The milestone gives the PA16-PA18 object model its first template tier: a
 template-declaration records a pattern instead of declaring anything, and
@@ -588,9 +588,8 @@ Three facts about the harness shape what has to be right, read out of
 
 ## Current Failure Map
 
-4 of 378 fail - four of the nine the C12 audit left, with C13's five taken and
-the four tests C13 added all passing.  Grouped by the compiler behaviour that
-owns them:
+4 of 381 fail - the same four the C13 checkpoint left, with the audit's own
+three tests passing.  Grouped by the compiler behaviour that owns them:
 
 | n | group | what is missing |
 | --- | --- | --- |
@@ -627,6 +626,13 @@ value and we name nothing there, because the elision leaves no initialization
 behind.  Landing either means the enclosing function's own type reaching the
 demand, which is a fact the walk does not carry today.
 
+The C13 audit leaves one, recorded in `audit.md` under Open Gaps: a constructor
+**only a base subobject ever ran** stands under one of the ABI's two entry
+points here and both in the reference.  Widening `writes_base_entry` to every
+base subobject the program wrote regressed 43 tests across pa16, pa17 and pa18,
+so the rule the reference follows is narrower than that and is not the one this
+compiler has; no fixture writes the shape.
+
 What the reference accepts and this milestone is *right* to refuse is a **non-type
 template parameter**: `template<int N> int counted() { return N; }` is `N names
 nothing where the template that writes it is defined` here and compiles there,
@@ -649,8 +655,8 @@ one, so `sizeof(test((From)0))` reads `(From)0` as 5.4's cast and not as
 - **owner**: `sema_operator.cpp` for 13.3.1.2p3's candidate set and 13.6's
   built-in list, and `decl_parser_expression.cpp` with `sema_expression.cpp` for
   the `(` a unary-expression opens.
-- **data flow**: the two operand types a binary operator was written over -> the
-  candidate set 13.3.1.2 gathers (member, non-member, built-in) -> 13.3.3's
+- **data flow**: the two operand types a binary operator was written over ->
+  the candidate set 13.3.1.2 gathers (member, non-member, built-in) -> 13.3.3's
   best, whose built-in arm is 5's own conversion; and, for the second, the
   tokens after `(` -> whether the clause is a type-id or an expression -> the
   type 5.3.3p1 takes the size of.  What is missing in the first is that a class
@@ -723,25 +729,32 @@ same inputs, so this is the milestone's shape rather than the tier's; g++ does
 n = 20 in 0.06 s because it never materialises the spelling. Fixing it means not
 storing a specialization's written-out name at all.
 
-C13's own risk is three: one walk of a class's subobjects per out-of-class
-`= default`, one walk of the regions over a declaration per body an
-instantiation made and per transfer named inside one, and one more
-`abi_instantiated` per query of which ABI entries a definition owes.  Each is
-per *declaration* rather than per use.  Measured against a `0d7f7fe0` worktree
-build, each shape timed twice, `-O0`:
+C13 and its audit cost one walk of a class's subobjects per out-of-class
+`= default`, one further pass of those walks over the classes already completed
+where a unit wrote any such definition at all, one walk of the regions over a
+declaration per body an instantiation made, and one pointer per class completed.
+Each is per *declaration* rather than per use, and the pass runs once.  Measured
+against a `b60697fa` worktree build, each shape timed twice, `-O0`:
 
 | shape | 32 | 128 | 512 | before |
 | --- | --- | --- | --- | --- |
-| n classes with an out-of-class `= default` copy, each copied | 0.01 s | 0.03 s | 0.13 s | 0.22 s |
-| n classes each deriving from a distinct specialization | 0.01 s | 0.03 s | 0.15 s | 0.27 s |
-| n specializations of one template, each with a member that copies itself | 0.00 s | 0.01 s | 0.03 s | 0.06 s |
-| n distinct specializations, each with a member function | 0.00 s | 0.00 s | 0.02 s | 0.04 s |
-| one specialization copied inside n calls of one function template | 0.00 s | 0.00 s | 0.01 s | 0.02 s |
-| a class of n reference members and n scalars, moved | 0.00 s | 0.01 s | 0.03 s | 0.03 s |
+| n classes, each holding the previous | 0.01 s | 0.01 s | 0.05 s | same |
+| the same with one out-of-class `= default` below them | 0.01 s | 0.01 s | 0.05 s | 0.08 s |
+| n classes with a copy constructor each | 0.01 s | 0.02 s | 0.05 s | same |
+| the same with one out-of-class `= default` beside them | 0.01 s | 0.02 s | 0.05 s | same |
+| n out-of-class member definitions of one class | 0.00 s | 0.01 s | 0.02 s | same |
+| n out-of-class member definitions of one template | 0.01 s | 0.01 s | 0.04 s | 0.03 s |
+| n class templates, none instantiated | 0.00 s | 0.01 s | 0.02 s | 0.03 s |
+| a class of n reference members and n scalars, moved | 0.00 s | 0.01 s | 0.03 s | same |
 
-None of them moved the wrong way: the two that move are the two the checkpoint
-makes *less* work - a copy the standard defines is the bytes where it was a
-call, so the out-of-class and base-entry shapes stop writing a body per class.
+None of them moved the wrong way.  The shape the resettling pass is worst for is
+n classes each holding the previous and each with an out-of-class `= default`
+copy - the pass asked n times, the walk n times within it - and it is flat at
+0.011, 0.016, 0.017 and 0.017 s to n = 256, because each class reads its
+subobject's answer rather than walking it.  The class chain is the one shape the
+work makes faster, for the reason the checkpoint's own rule gives: a copy the
+standard defines is the bytes where it was a call, so the unit stops writing a
+constructor definition per class in the chain.
 The resettle is the closing brace's own walk done once more per out-of-class
 definition, so it costs the definitions the program wrote and not the objects it
 copies.
@@ -1024,3 +1037,4 @@ directly roots it in all three.
 | C12 | the region a name written before its arguments is looked up in, and the point an argument list settles: 14.6.2.1p9's nested class of the current instantiation made a dependent type, so a template-id over one names no class while the pattern is read, a base-specifier that writes one is 14.6.2p3's dependent base, and a bound computed from what such a type is worth is 14.6p8's rather than 8.3.4p1's; 3.4.1p8 and 3.3.2p5 reading the base-clause of a member class defined outside its class in the region its class-head-name reached; 7.1.6.3p1's elaborated-type-specifier read where 14.2 leaves a template argument as text, with 3.4.4p2's type-only lookup and 3.3.2p6 declaring the class a class-key reaches none of; 3.4.3.1p2's second arm, so a using-declaration whose name is the last component of its own nested-name-specifier names that class's constructors however that component was spelled; 14.7.1p1's instantiation asked only where a *completely-defined* type is required, so a simple-declaration's decl-specifier-seq leaves the specialization declared and `require_complete_type` is the demand 3.9p5's contexts make; and 5.3.6's operator under the two spellings 1.4p8 reserves for it | 348 / 363 -> **360 / 369**, the six new tests being six of the shapes these leave and the failing 9 nine of the same 15 by name; pa1-pa18 1778 / 1778; the file audit passes with its five inherited warnings and the build prints nothing, `sema_analyzer.h` at 2395 against 2400 and `sema_lifetime.cpp` at 2998 against 3000 after seven static members became free functions and 3.9p6's demand moved into `class_constructors`; 28 synthesized shapes through this compiler and `reference-binaries/cppgm++` sweeping every context 3.9p5 requires a complete type in - object, member, base, `sizeof`, `alignof`, `new`, qualified lookup, by-value argument, returned value, array, reference, derived-to-base, assignment, static member, two-level typedef and a specialization over one - agreeing on exit status in all 28 and as emitted LowIR in every one but the order the harness canonicalizes and the `operator new` spelling that already differed; all six new fixtures run through `lowir2cy86` to the value g++ builds them to return; five scaling shapes at n = 32, 128, 512 and 2048 against an `8515a2d4` worktree build, each linear and none moved, with memory within 0.1%; valgrind clean over the fixtures the checkpoint moved |
 | C12 audit | 14.7.1p1's point read at the demand instead of at the naming: `asked_specialization` only marks, however many times a name is written; `require_complete_type` is the one demand and is read at 3.9p5's own list - the declarator that *defines* an object rather than every declarator, 8.3.5p6's return type and parameter objects of a *definition*, and 3.9p5 over an expression at the one place every expression the layer reads leaves; and 14.6p8's reading asks for nothing, because a demand answered under `checking_` reads the pattern in the checking dialect | 360 / 369 -> **365 / 374**, four of the five new tests failing against the `7afd0f26` pre-audit build; pa1-pa18 1778 / 1778; file audit passes and the build prints nothing; every `.ref` regenerates byte-identically; 47 synthesized shapes - 30 that name a specialization and require no complete type, 17 that do - through this compiler, that build and `reference-binaries/cppgm++` with g++ beside them, 46 of 47 identical as emitted LowIR and the pre-audit build refusing 20 of the 30 and 1 of the 17; one unit writing eleven namings over ten of the spellings run through `lowir2cy86` to the 39 g++ builds it to return; two units, both orders; ten scaling shapes at n = 32, 128, 512 and 2048, each where the checkpoint left it with the class-typed expression path 0.06 -> 0.05 s at n = 2048 and peak RSS flat; valgrind clean over all 374 fixtures |
 | C13 | which copy is the bytes, and which definition the unit writes: 8.4.2p2's `= default` outside the class settling 12.8p12 again against a complete class, so a copy the standard defines there is the bytes and not a call; 8.3.2p1's reference member ending 12.8p15's leading run and taking 8.5.3's initialization of a reference; 4.10p3's base conversion made an expression whose evaluation observes only its operand, so 9p6's empty base names only the subobject it builds; 3.2p4 keeping a definition the program wrote outside its class however 12.8p12 carried the call, and 14.7.1p1 keeping one a body an instantiation made named - `note_instantiated_transfer` over `instantiated_body_`, asked of 12.8p15's transfer alone because every other constructor the standard defines has 12.1p5's answer, and of a declaration the pattern wrote rather than one the specialization's own class-specifier gave; and both of the ABI's entry points owed where the use that made the definition was one the program wrote out, `source_base_entry` telling that from a base subobject written inside another instantiation, which asks for the entry it names alone | 365 / 374 -> **374 / 378**, the four new tests being four of the shapes these leave and the failing 4 four of the same 9 by name; pa1-pa18 1778 / 1778; the file audit passes with its five inherited warnings and the build prints nothing, `sema_analyzer.h` at 2400 against 2400 and `sema_lifetime.cpp` at 2998 against 3000 after 12.1's entry marking moved beside 12.4p3's; every `.ref` regenerates byte-identically over all 319 fixtures under `pa19/tests` and all 59 under `cppgm.tests/course/pa19`; 56 synthesized shapes through this compiler and `reference-binaries/cppgm++` - defaulted, deleted, in-class, out-of-class and `inline` out-of-class copies and moves, reference members, empty bases, arrays, member classes, virtual members, and the base and complete entries under instantiated and program-written callers - identical as emitted LowIR and symbol for symbol in 51, the five differences being the two narrower rules the failure map records; the C12 audit's sixth shape, `struct d : holder<box> { };`, now among them; all four new fixtures and all five fixtures taken run through `lowir2cy86` to the value g++ builds them to return; six scaling shapes at n = 32, 128 and 512 against a `0d7f7fe0` worktree build, none moved the wrong way and two of them halved; valgrind clean over the nine fixtures the checkpoint moved |
+| C13 audit | which definitions the object file holds, asked of the definition instead of of an elided call: 9.3p2's member function this unit's own source defined outside its class never deferred, with 2.2p1's definition read from an included file and 14.7.1p1's specialization still left to the use that asks; 9.2p2's complete-class answers made one `settle_class_answers`, called where the class-specifier closes and again over every class settled before an 8.4.2p2 definition arrived, so a class holding, deriving from or holding an array of one reads the answer that moved; and 12.8p12's base subobject carried as bytes naming no entry point, because nothing runs | 374 / 378 -> **377 / 381**, the three new tests being three of the shapes these leave and the failing 4 the same 4 by name, all three failing against the `b60697fa` pre-audit build; pa1-pa18 **1778 / 1778**; the file audit passes with its five inherited warnings and the build prints nothing, `sema_analyzer.h` back to 2399 against 2400 after three accessors and the `observable` wrapper moved to the `.cpp` that owns them; every `.ref` regenerates byte-identically over all 65 fixtures under `pa19/tests/spec`, all 254 under `pa19/tests/general` and all 62 under `cppgm.tests/course/pa19`, the 28 diagnostics included; 49 synthesized shapes through this compiler and `reference-binaries/cppgm++` - 25 over which definition the unit holds, 11 over 8.4.2p2's answer reaching a holder, a base, an array and the class written after the definition, 5 over 8.3.2p1's reference member, 4 over an instantiated body with no call under its transfer, and 4 over 9p6's empty base and the ABI's two entry points - identical as emitted LowIR in 48, the survivor the base-entry gap the failure map now records; thirteen programs run through `lowir2cy86`, every one to what the reference's own LowIR runs to; one header included by two units, identical to the reference as one unit and as two; ten scaling shapes at n = 32, 128 and 512 against a `b60697fa` worktree build, none moved the wrong way and the class chain 0.08 -> 0.05 s, with the resettling pass's own worst shape flat at 0.017 s to n = 256; valgrind clean over all 381 fixtures |

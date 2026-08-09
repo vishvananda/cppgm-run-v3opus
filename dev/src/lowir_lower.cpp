@@ -682,7 +682,10 @@ void LowirUnitLowering::collect_definitions(const DumpNode& node)
 			if (shared_definition(*child.fact.entity) &&
 			    !child.fact.entity->explicitly_instantiated &&
 			    !(child.fact.entity->friend_definition &&
-			      child.fact.entity->internal_linkage))
+			      child.fact.entity->internal_linkage) &&
+			    !(child.fact.entity->out_of_class_definition &&
+			      child.fact.entity->own_source_definition &&
+			      !abi_instantiated(*child.fact.entity, types_)))
 			{
 				// 7.1.2p4: the definition is the program's rather than this
 				// unit's, and 3.2p3 puts it in the program only where a use
@@ -693,6 +696,17 @@ void LowirUnitLowering::collect_definitions(const DumpNode& node)
 			// one no other unit may hold and none of this unit's ordinary
 			// lookups reaches, so there is no use for it to wait for - the
 			// object file owes it where it stands.
+			//
+			// 9.3p2, 3.2p4 and 2.2p1: neither does a member function this
+			// unit's own source defined outside its class.  `inline` says every
+			// unit that needs the definition may hold one, and 3.2p4 still
+			// leaves this unit holding the one it was told to write - which is
+			// what 12.8p12's copy of an object's bytes would otherwise unwrite,
+			// by leaving no call of the member the program defined.  One read
+			// from an included file is a definition every unit including that
+			// file holds, so it waits for a use as a body written in the class
+			// does; and a specialization's is not one the program wrote at all,
+			// because 14.7.1p1 makes it the use that requires it.
 		}
 		else if (child.fact.kind == FactKind::Variable &&
 		         child.fact.entity != nullptr &&
@@ -2124,19 +2138,17 @@ void LowirUnitLowering::owe_elided_construction(const SemaEntity& constructor,
 
 void LowirUnitLowering::owe_internal_definition(const SemaEntity& entity)
 {
-	if (entity.internal_linkage || entity.instantiated_use ||
-	    (entity.out_of_class_definition && !abi_instantiated(entity, types_)))
+	if (entity.internal_linkage || entity.instantiated_use)
 	{
 		// 14.7.1p1: a use inside a body an instantiation made is what made this
 		// definition, so the unit holds it whether or not the call it stood for
 		// was written - which is the same reason 3.5p4's internal linkage keeps
 		// one: a definition this unit made is one no other unit will make.
 		//
-		// 3.2p4 and 8.4.2p2: so is a definition the program wrote outside the
-		// class.  A template's out-of-class member definition is not one of
-		// those: it is the pattern of a definition, and 14.7.1p1 leaves the
-		// specialization's own to the use that requires it - which a copy
-		// carried as bytes does not.
+		// A definition the program wrote outside its class never waited for a
+		// use at all - `collect_definitions` reads 9.3p2 of it where the unit's
+		// definitions are gathered - so there is nothing for an elided call to
+		// ask of it here.
 		demand_definition(entity);
 	}
 }
