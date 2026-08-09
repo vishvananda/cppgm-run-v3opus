@@ -828,6 +828,7 @@ void AstParser::declare_template_name(const AstNode* declaration)
 	{
 	case AstKind::TemplateDeclaration:
 	case AstKind::ExplicitInstantiationDeclaration:
+	case AstKind::ExplicitInstantiationDefinition:
 		if (declaration->children.size() >= 2)
 		{
 			declare_template_name(declaration->children[1]);

@@ -25,6 +25,7 @@
 	X(Inline, "inline") \
 	X(LinkageSpecification, "linkage-specification") \
 	X(ExplicitInstantiationDeclaration, "explicit-instantiation-declaration") \
+	X(ExplicitInstantiationDefinition, "explicit-instantiation-definition") \
 	X(TemplateDeclaration, "template-declaration") \
 	X(TemplateParameterClause, "template-parameter-clause") \
 	X(TemplateParameterList, "template-parameter-list") \

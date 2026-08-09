@@ -320,10 +320,9 @@ AstNode* AstParser::parse_explicit_instantiation()
 {
 	const Mark start = mark();
 	// 14.7.2p1 and 14.7.2p9: the two forms differ by the one keyword written
-	// in front, which is what says whether the instantiation is a definition
-	// or a declaration that leaves the definitions to another unit.  The
-	// definition form carries that keyword, because the declaration form is
-	// the one the PA10 dump already spells with no terminal of its own.
+	// in front, and what it says - whether this unit owes the definitions or
+	// leaves them to another - is a fact about the whole declaration rather
+	// than a terminal inside it, so each form is a node of its own.
 	const bool extern_form = accept(KW_EXTERN);
 	++pos_;
 	AstNode* target = parse_declaration(false);
@@ -331,12 +330,9 @@ AstNode* AstParser::parse_explicit_instantiation()
 	{
 		return fail(start);
 	}
-	AstNode* node = make(AstKind::ExplicitInstantiationDeclaration);
-	if (!extern_form)
-	{
-		node->token = KW_TEMPLATE;
-		node->text = "template";
-	}
+	AstNode* node = make(extern_form
+		? AstKind::ExplicitInstantiationDeclaration
+		: AstKind::ExplicitInstantiationDefinition);
 	node->add(target);
 	return node;
 }

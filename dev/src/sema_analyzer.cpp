@@ -679,6 +679,7 @@ void SemaAnalyzer::declaration(const AstNode& node, const Context& ctx)
 		return;
 
 	case AstKind::ExplicitInstantiationDeclaration:
+	case AstKind::ExplicitInstantiationDefinition:
 		explicit_instantiation(node, ctx);
 		return;
 

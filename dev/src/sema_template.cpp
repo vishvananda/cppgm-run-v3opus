@@ -1789,7 +1789,8 @@ void SemaAnalyzer::explicit_instantiation_declarator(const AstNode& target,
 void SemaAnalyzer::explicit_instantiation(const AstNode& node,
                                           const Context& ctx)
 {
-	if (node.token != KW_TEMPLATE || node.children.empty())
+	if (node.kind != AstKind::ExplicitInstantiationDefinition ||
+	    node.children.empty())
 	{
 		return;
 	}
