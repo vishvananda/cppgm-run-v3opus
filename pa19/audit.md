@@ -5,175 +5,162 @@ settle, instantiate, name, lower.
 
 ## Current Checkpoint Review
 
-**C7, reviewed at `c3f2411f`** — 8.3p1's constructor read from the level the
-declarator-id stands in, so 8.4p1's `T (&f(P))[2] {}` is a function definition;
-14.2p3 asked of the overload set rather than of the last declaration of a
-spelling; 7.3.4p2's using-directive answered after every region a name is
-written inside; and 14.7.2's explicit instantiation, with `object_root=yes` as
-the demand 3.2p3 has no use to point at.
+**C8, reviewed at `43aa2aa0`** — 14.6.2p3's dependent base left off 3.4.1's
+chain for the specialization as well as for the definition, as a fact of the
+base-specifier the program wrote once; and 14.7.1p1's instantiation of the
+*declarations* of a class's members, with each body held on `held_definitions_`
+for the use that names it.
 
-Three of the four are right and swept clean.  20 declarator shapes, 15 lookup
-shapes and 21 explicit-instantiation shapes through this compiler,
-`reference-binaries/cppgm++` and g++ leave 14.2p3's overload set and 7.3.4p2's
-directive agreeing with both oracles everywhere, and 14.7.2p8's walk of the
-region a specialization opened agreeing with **g++** at every depth - 40 nested
-member classes root 40 definitions here and 40 weak symbols in g++, where the
-reference roots none.
+**14.6.2p3 is right and swept clean.** Eight shapes through this compiler,
+`reference-binaries/cppgm++` and g++ - an unqualified name, `this->`, a
+qualified `B<T>::`, a *non*-dependent base under a template head, a class
+nested in the deriving template, an out-of-class member definition, a
+non-template class deriving from a specialization, and a class below one -
+pick the same callee as the reference in every one, and g++ compiles all eight.
+Which of them reaches the namespace and which the base is what the clause says:
+an unqualified name written in the definition - in the class body, in a class
+nested in it, in an out-of-class member definition - gets the namespace, while
+3.4.3's qualified lookup, 3.4.5's `this->`, a base no parameter stands in the
+way of, and a class *further down* each name the object rather than read the
+definition and get the base.  That last is exactly what `unqualified_base`
+dropping the link at the *innermost* hop says: `struct Below : D<int>` writes
+`call()` and reaches `B<int>::call`, because the base subobject it holds is
+found through a link no template head stands over.  And the shape the deferral
+beside it exists for - `deferred_conversion<incomplete>` - compiles here and is
+`sizeof names an incomplete type` against the `4ec3d164` binary.
 
-**Three blockers.  Two are the same shape - the rule was landed at the question
-and not at the walk that answers it - and the third is a fact carried as a
-terminal in a dump an earlier assignment is graded on.**
+**Two blockers, and they are one shape.**  14.7.1p1's deferral was landed at the
+three places a *use* stands - a name that becomes a function value, the demand a
+constructor gets, the entry every end of a lifetime notes - and the two demands
+that have **no expression behind them** were left asking a question the held list
+no longer answers.  Where a body waits and nothing grants it, the output has a
+`declare function` and no definition: a program that does not link, over a
+suite that compares LowIR and never links.
 
 ### Findings
 
-**1. 8.3p1's constructor was read at the level the id stands in for
-`declares_function` and at the outermost level for the walk that binds the
-places.** `declares_function` walks in to the declarator-id and asks which
-suffix it ends up under; `declarator_type`, which is what actually *binds* a
-definition's parameter objects, still spent `declared` on the outermost
-parameter-clause and handed the nested declarator nothing.  The two agree only
-where the level around the id wrote no clause - the `T (&f(P))[2]` C7 shipped -
-and disagree wherever it wrote one.  `char (*getter(long key))(char value)` is
-the function `(long key)` makes, and this compiler declared its type correctly
-(`_Z6getterl`) while emitting `function @getter(%value : i8)`: the body could
-name `value`, which is a place of the function type `getter` *returns*, and
-could not name `key`, which is its own.  `int (*getter(int key))(int) { return
-key > 0 ? picked : 0; }` was **refused on a program g++ compiles**, and so were
-`int (*f(int a))[2]`, `int (*(f(int a)))(int)`, `int (**f(int a))(int)` and the
-same four under a template head and as out-of-class member definitions.
-`declarator_type` now asks the same question `declares_function` does -
-`takes_enclosing_suffix` says whether a level hands its id up - so the clause
-that spells the places is the first suffix at the id's own level, or the one the
-level around it wrote where its own wrote none.  `T (f)(P)` still spells `P`.
+**1. 10.3p10's table was asked of the specialization's own declarations and not
+of the classes the instantiation made.**  A class the pattern nests inside its
+body is made by the same reading and has a table of its own, and
+`complete_specialization` walked one flat list.  `template<class T> struct Outer
+{ struct Inner { virtual int f() { return 41; } }; Inner part; };` with
+`Outer<int> o;` emits `@Outer_int___Inner__vtable`, whose slot names
+`@Outer_int___Inner__f` - and C8 wrote `declare function` for it, at one level
+and at three (`S<int>::A::B::f`) alike.  The `4ec3d164` binary and
+`reference-binaries/cppgm++` both define it.  `require_table_definitions` now
+asks over the region each class opened, which is the walk 14.7.2p8's explicit
+instantiation already takes, and the recursion stops at 9p2's injected-class-name
+the same way.
 
-**2. 14.7.2p1's other target was a `return`.**  The grammar's
-`explicit-instantiation-target` is a class-declaration *or a
-simple-declaration*, and the simple-declaration arm checked that a declarator
-existed and then did nothing at all - so `template int carried<int>(int);` was
-accepted and emitted nothing where `reference-binaries/cppgm++` **and g++** both
-emit the definition rooted, and `int slot; template int slot;` and
-`int plain(int); template int plain(int);` were **accepted** where both oracles
-refuse them.  Four checked-in `.ref` files under pa22 and pa24 pin the first
-half of that byte for byte.  The arm now reads the declaration for the type it
-writes and looks the specialization up by it: 14.8.1's explicit argument list
-where one is written, 14.8.2.2's deduction from the declared type where none is,
-and the member a class template specialization already made where the prefix
-names one.  9.3.1p3's object parameter is part of what a declaration says, so
-both spellings of the type are built and each candidate is asked with the one
-its own declaration carries.
+**2. 14.7.2's explicit instantiation is the demand 3.2p3 has no use to point at,
+and it did not ask for the held body.**  `template int tester<int>::test();`
+over a member defined *in* its class set `explicitly_instantiated` on a
+declaration whose body was still on `held_definitions_`, so the object file got
+**nothing at all** - no definition and no declaration - where the `4ec3d164`
+binary and the reference both emit it with `object_root=yes`.  The plan's own
+sentence for the class form ("An explicit instantiation naming that member
+directly roots it in all three") stopped being true the moment a body could
+wait.  `explicit_instantiation_declarator` now asks as a call does.
 
-**3. The definition form was spelled by hanging a keyword on the declaration
-node.**  14.7.2p1's `template struct box<int>;` is the same target
-`extern template` writes with one keyword fewer, and C7 carried that keyword as
-the node's own terminal - so the PA10 dump read
-`explicit-instantiation-declaration KW_TEMPLATE:template` where the reference
-writes `explicit-instantiation-definition`, and `explicit_instantiation` asked
-`node.token` to tell the two forms apart.  The shared AST is PA10's output and
-no pa10 fixture writes the definition form, so 1777 / 1777 stood over a dump
-that differs from the oracle's at the top of the declaration.  Whether this unit
-owes the definitions is a fact about the declaration rather than a terminal
-inside it, so each form is a node of its own; the dump is now byte-identical to
-the reference for both, and the regression test is a pa10 course fixture,
-because that is where the AST is graded.
+**3. Beside them, and older: 14.7.2p1's target was asked of the innermost class
+alone.**  `template int tester<int>::probe::test();` was refused -
+`no specialization of a template` - where the reference and **g++** both emit
+the definition rooted, because what says the declaration names a specialization
+was read off the class the prefix named rather than off the classes that class
+stands in.  It predates C8 (the `4ec3d164` binary refuses it too) and it is the
+same clause finding 2 lands at, so the walk is widened here: the question is
+asked of every class region the prefix reaches, and the innermost one with a
+`primary` is the specialization whose completion the declaration asks for.
 
 ### Changes
 
 | what | where |
 | --- | --- |
-| 8.3p1's binding clause read at the level the declarator-id ends up at | `sema_declarator.cpp` |
-| 14.7.2p1's simple-declaration target read and resolved | `sema_template.cpp`, `sema_analyzer.h` |
-| 14.7.2p2's refusal where that declaration names no specialization | `sema_template.cpp` |
-| 8.5p16's `WrittenInitializer` moved to the layer that owns it | `sema_declaration.h`, `sema_lifetime.cpp` |
-| 14.7.2p1's definition form given a node of its own | `ast_model.h`, `ast_parser.cpp`, `ast_parser_declarator.cpp`, `sema_analyzer.cpp` |
+| 10.3p10's table asked of every class the instantiation made | `sema_template.cpp`, `sema_analyzer.h` |
+| 14.7.2p1's demand asking the instantiation for the body it put aside | `sema_template.cpp` |
+| 14.7.2p1's instantiated region read from the classes the prefix stands in | `sema_template.cpp` |
 
-Five regression tests, one per shape:
-`100-explicit-instantiation-function-template`,
-`100-explicit-instantiation-deduced-function-template`,
-`100-explicit-instantiation-member-of-specialization`,
-`100-explicit-instantiation-names-an-object-bad`,
-`100-explicit-instantiation-non-template-function-bad`, and a sixth under
-`cppgm.tests/course/pa10`, `200-explicit-instantiation-definition`, for the dump.
-All six fail against the pre-audit binary built from `c3f2411f`.  The declarator finding has no
-fixture and cannot have one: the reference refuses every shape that tells the
-two readings apart, and the parameter name it would disagree on is one the
-comparison does not strip.
+Three regression tests under `cppgm.tests/course/pa19`, one per finding:
+`100-instantiated-member-class-virtual-definition`,
+`100-explicit-instantiation-member-defined-in-class`,
+`100-explicit-instantiation-member-of-nested-class`.  All three fail against the
+pre-audit binary built from `43aa2aa0`, the first two on an unresolved or
+missing definition and the third on a refusal.
 
 ### Performance Evidence
 
 Seven shapes over the surface this audit owns, `--emit-lowir -O0`, n = 32, 128
-and 512, each timed twice against the pre-audit binary built from `c3f2411f` in
+and 512, each timed twice against the pre-audit binary built from `43aa2aa0` in
 a worktree with `make build`:
 
 | shape | pre-audit | now |
 | --- | --- | --- |
-| n ordinary function definitions | 0.00 / 0.01 / 0.02 s | 0.00 / 0.01 / 0.02 s |
-| n definitions of `int (*f(int))(int)` | refused | 0.00 / 0.01 / 0.03 s |
-| one declarator under n redundant parentheses | 0.00 / 0.00 / 0.01 s | 0.00 / 0.00 / 0.01 s |
-| the same over `int (&f(int))[2]` | 0.00 / 0.00 / 0.01 s | 0.00 / 0.00 / 0.01 s |
-| n explicit instantiations of one template over n classes | 0.00 / 0.01 / 0.03 s | 0.01 / 0.02 / 0.07 s |
-| n explicit instantiations of one specialization | 0.00 / 0.00 / 0.01 s | 0.00 / 0.00 / 0.01 s |
-| n members of one specialization, each explicitly instantiated | 0.00 / 0.01 / 0.02 s | 0.01 / 0.01 / 0.04 s |
+| n specializations of a 16-member class template, one member called | 0.01 / 0.03 / 0.13 s | 0.01 / 0.03 / 0.13 s |
+| n member classes in one class template, each with a virtual member | 0.00 / 0.02 / 0.09 s | 0.00 / 0.02 / 0.10 s |
+| n virtual members in one specialization | 0.00 / 0.00 / 0.02 s | 0.00 / 0.00 / 0.02 s |
+| n specializations of one class template, each with a member | 0.00 / 0.02 / 0.08 s | 0.00 / 0.02 / 0.08 s |
+| n members of one specialization, each explicitly instantiated | 0.00 / 0.00 / 0.01 s | 0.00 / 0.00 / 0.02 s |
+| n ordinary calls in a unit that also holds a specialization | 0.00 / 0.00 / 0.02 s | 0.00 / 0.00 / 0.02 s |
+| n class templates deriving from a dependent base | 0.00 / 0.02 / 0.09 s | 0.00 / 0.02 / 0.09 s |
 
-`takes_enclosing_suffix` walks inward from one declarator level, and only 8.4p1's
-function definition has places to spell - so it is asked once per definition
-rather than once per level, because the level that spells them takes the places
-away from the ones inside it.  The shape that does ask it at every level is n
-parentheses around a pointer-returning definition, and it is measured to the
-depth the parser accepts: 0.03 / 0.11 / 0.42 / **1.72 s** at n = 1000, 2000,
-4000 and 8000, against 0.41 and 1.76 s for the same nest with no pointer in it,
-which asks it once.  The walk is inside the quadratic the AST walk above it
-already is, and 16000 is not a translation unit.  The three explicit
-instantiation shapes are larger than the pre-audit build's because it did
-*nothing* for them; each is linear, and the reading is one per declaration.  The two shapes
-the plan records as superlinear are where C7 left them: `typedef P<t,t>`
-eighteen deep is 0.65 s before and after, and 128 out-of-class member
-definitions over 128 specializations 0.46 s before and after.
+The table walk is one pass over the declarations each class opened, so it costs
+the *members* of a specialization and not its uses: 512 member classes each with
+a virtual member is 0.09 s -> 0.10 s and 24.3 MB -> 26.2 MB, and 512 virtual
+members of one class is unchanged.  The one shape that moves is a class nest
+512 *deep*, each level virtual: 0.06 s -> 0.40 s, which is the `4ec3d164`
+binary's own 0.39 s - the pre-audit build was fast there by writing an
+unresolved symbol instead of the body.  It is quadratic in the nesting depth
+and not in the count (0.41 s and 1.51 s at 512 and 1024), which is the same
+scope-chain quadratic 3.4.1p1 already has; the same nest with no virtual member
+in it is 0.06 s before and after.  `reference-binaries/cppgm++` is 0.03 s on it,
+which is the sharper rule recorded under Open Gaps.  Memory is within 3% on
+every shape but the explicitly-instantiated members, where the granted bodies
+are what the 10.0 MB -> 12.2 MB is.
 
 ### Validation
 
-- **1777 / 1777 -> 1778 / 1778** through pa18, the new test being the pa10 dump
-  fixture, and pa19 **283 / 326 -> 288 / 331** with the other five, the
-  failing 43 the same 43 by name.
+- **294 / 331 -> 297 / 334**, the three new tests being the three shapes these
+  leave, and the failing 37 the same 37 by name; pa1-pa18 **1778 / 1778**.
 - **File audit passes** for pa19 over `dev/src` with the five header-weight
   warnings the shared headers have carried since PA18, and no suppression.  The
-  build prints nothing.  `sema_analyzer.h` is 2383 lines against the audit's
-  2400: this checkpoint added nine and moved sixteen out, as C5's split did.
+  build prints nothing.  `sema_analyzer.h` is 2393 lines against the audit's
+  2400: this checkpoint added two.
 - **Every `.ref` regenerates byte-identically** over all 319 fixtures under
-  `pa19/tests` and all 12 under `cppgm.tests/course/pa19`, diagnostics included;
-  no committed fixture moved.  The five new pa19 fixtures and the pa10 one are
-  the reference's own output.
-- **Three cross-products through three compilers.**  20 declarator shapes -
-  parenthesized ids, pointers and references to functions and arrays, member and
-  template and trailing-return forms - where **every one now agrees with g++**
-  and eight disagree with the reference, each of them a program the reference
-  cannot find the parameter name in.  21 explicit-instantiation shapes, of which
-  **20 agree with the reference symbol for symbol and root for root**, including
-  the four forms both refuse and 14.8.1's two spellings of the argument list.
-  15 lookup shapes over 14.2p3's overload set and 7.3.4p2's directive, all three
-  compilers agreeing on every one, including the three that must *not* find the
-  name.
-- **Four checked-in later-PA `.ref` files** - `300-explicit-instantiation-func`
-  `tion`, `-free-function-emits-definition`, `-static-member-function` under
-  pa22 and `100-explicit-instantiation-after-explicit-specialization-no-effect`
-  under pa24 - go from missing `object_root=yes` to matching this compiler's
-  emitted symbols exactly.
-- **The PA10 dump is byte-identical to the reference** for both explicit
-  instantiation forms and over 58 of the 59 shapes this audit swept, the
-  exception being a trailing-return-type spelling PA10 has always left out.
-- **Run evidence with scalars.** `int (*picker(int key))(int)` returning a
-  function pointer, lowered here and run through `lowir2cy86` and `cy86`,
-  returns 42, which is what `g++` builds it to return; it did not compile at all
-  before.
-- **Two units, both orders.** An explicit instantiation in one unit and a call
-  in the other emit the same symbols and the same root as the reference in each
-  order.
-- **Valgrind clean** with `--error-exitcode` over all 331 pa19 fixtures and the
-  pa10 dump fixture.
+  `pa19/tests` and all 12 checked-in under `cppgm.tests/course/pa19`,
+  diagnostics included; no committed fixture moved.  The three new `.ref` files
+  are the reference's own output.
+- **Thirty use shapes through four binaries** - this compiler, the `43aa2aa0`
+  and `4ec3d164` builds and `reference-binaries/cppgm++`.  A call, a static call, `&` of a
+  member and of a static member, a conversion function, an operator, a
+  constructor and destructor, an uncalled virtual, a nested and a doubly-nested
+  virtual, a virtual destructor, the class and member and nested-member and
+  function-template forms of 14.7.2, a base's member, memberwise copy, assign
+  and destroy of a subobject, a chained body, a cross-class body, a target type,
+  a temporary, an array, a nested specialization, an override, an inherited
+  table, a nested class's constructor and two specializations - each checked for
+  a symbol some entry names that no `function` line defines.  Every one is clean
+  here and matches the reference's definition count; the `43aa2aa0` binary
+  leaves `@S_int___N__f` and `@S_int___A__B__f` unresolved.
+- **Eight dependent-base shapes** through this compiler,
+  `reference-binaries/cppgm++` and g++, each read for the callee its unqualified
+  name reached: the same answer as the reference in all eight, and g++ compiles
+  all eight.
+- **Run evidence with scalars.** `template int tester<int>::test();` with a call
+  beside it, lowered here and run through `lowir2cy86` and `cy86`, returns 42,
+  which is what g++ builds it to return.  The nested-table shape cannot be run
+  either way: both our LowIR and the reference's name
+  `@__external_rtti_vtable____class_type_info`, which the CY86 scaffold has no
+  definition for.
+- **Two units, both orders.**  An explicit instantiation in one and a call in
+  the other emit the same symbols in each order.  The root the reference keeps
+  when the instantiation is the *later* unit is what the program builder drops,
+  which is recorded under Open Gaps and is where the `4ec3d164` binary left it.
+- **Valgrind clean** with `--error-exitcode` over all 334 fixtures.
 
 ## Open Gaps
 
 **A trailing-return-type in a function declarator is dumped without its
-spelling.**  Found by putting all 59 shapes this audit swept through
+spelling.**  Found by putting all 59 shapes the C7 audit swept through
 `--emit-ast` against the pa10 reference: `auto f(int a) -> int` is
 `trailing-return-type` here and `trailing-return-type int` there, `-> int*` is
 `trailing-return-type int*` there, and `-> C` agrees because
@@ -202,7 +189,7 @@ what makes the two spellings `instantiation_named` asks with necessary.
 **14.7.2p5's second explicit instantiation is unasked.**  `template int f<int>
 (int);` written twice is ill-formed and **g++ refuses it**; this compiler and
 `reference-binaries/cppgm++` both accept it and emit one rooted definition.  It
-is a rule of its own rather than a reader of the one this audit landed, and no
+is a rule of its own rather than a reader of the one the C7 audit landed, and no
 fixture through pa24 writes it.
 
 **Three places the reference is alone, found sweeping 8.3p1 and 14.7.2.**  It
@@ -227,8 +214,8 @@ definition's body is read inside, and the region enclosing that class is the one
 the class body itself was read against - the one binding the class-head's names.
 Refusing here means the class scope having two enclosing regions, one for its
 own body and one for a definition written outside it, which is a change to what
-a class *is* in this model rather than to what a rule asks. The names this audit
-does settle are the ones the definition's own head wrote, which is what decides
+a class *is* in this model rather than to what a rule asks. The names the C5
+audit settled are the ones the definition's own head wrote, which is what decides
 which argument a name reaches.
 
 **15.4p1 over two declarations of one function template.**
@@ -259,12 +246,12 @@ instantiated definitions, and matching it is what turned three fixtures green.
 template's out-of-class member definitions are read once per specialization,
 wherever that specialization is completed, so n definitions and n
 specializations cost n^2 readings even where no member of any of them is called
-- 0.73 s at n = 128, against `reference-binaries/cppgm++`'s 1.00 s. 14.7.1p1
-instantiates the *declarations* a class needs and leaves each definition to the
-use that requires it, which is what would make the cost the program's uses
-rather than its square; the declarations here come from the class body and the
-definitions are what `instantiate_member` reads, so the change is which of the
-two `complete_specialization` drives.
+- 0.73 s at n = 128, against `reference-binaries/cppgm++`'s 1.00 s. C8 landed
+14.7.1p1's half of this - a member defined *in* its class waits on
+`held_definitions_` for the use that names it - and `instantiate_member`'s is
+what is left: an out-of-class definition is read where it stands, for every
+specialization already made, so it is the milestone's one quadratic in the
+*tier* rather than in the program.
 
 **Out of scope and still named.** A variable template's partial specialization
 is written into the object file as `_Z6v<T,T>`, which is not an ABI name.
@@ -339,9 +326,10 @@ constructor's record is its own and the two readers find it. What is left is a
 function-template specialization and a using-declaration's copy, and 12.8p12
 keeps both out of what those two readers are asked about; 12.9's inherited
 constructors from a class template base and 12.8p2's copy constructor with a
-defaulted second parameter emit identical LowIR either way. It is left as one
-key per reader rather than unified because C8 owns 14.7.1p1's instantiated
-declarations, which is what would make a member's two keys differ.
+defaulted second parameter emit identical LowIR either way. C8 has now landed
+14.7.1p1's instantiated declarations and the two keys still agree - a member of
+a specialization with a default argument emits the same parameter list as the
+reference - so it stays one key per reader.
 
 **A `= default` copy constructor is trivial in the reference and user-provided
 here.** 8.4.2p5 leaves a function explicitly defaulted on a declaration that is
@@ -355,7 +343,7 @@ another unit would find nothing to link to. Both predate this tier - they are
 PA16-PA18 lifecycle questions rather than 8.3.5p10's - and no fixture reaches
 either, so they are recorded where the rest of 12.8's triviality is. A fixture
 over a defaulted definition has to make the class non-trivially copyable for
-another reason, which the six this audit adds do.
+another reason, which the six the C6-audit review added do.
 
 **Two places the reference is alone, found sweeping 8.3.5p10.** It binds a body's
 name to a parameter place 3.3.4 ends at another declarator: in
@@ -365,7 +353,7 @@ load the global, and the reference's program returns the wrong value. And it
 writes `binding=strong` for an explicit specialization of a function template
 where this compiler writes `weak`, which the comparison strips. Neither can be a
 committed fixture and neither is C6's.  The first survives the 240-ordering
-cross-product this audit ran, where it is the only shape of an ordinary
+cross-product the C6 audit ran, where it is the only shape of an ordinary
 function's parameter names the two compilers disagree about.
 
 **12.9p1's inherited constructor keeps its arity in both other compilers.** For
@@ -373,11 +361,50 @@ function's parameter names the two compilers disagree about.
 `reference-binaries/cppgm++` and `g++ -std=c++11` both emit a two-parameter
 `derived::derived` and apply the default at the call, where this compiler emits
 the one-parameter candidate 12.9p1 forms by omitting the trailing defaulted
-parameter and 12.9p3 gives no default argument to. The programs agree on their
-result and the difference is in `object=`, which the comparison strips - but two
-oracles against one makes it a defect rather than a reading, and it is C8's
-because 14.7.1p1's instantiated member declarations are what the candidate set is
-formed from. Pre-existing: the pre-audit binary emits the same.
+parameter and 12.9p3 gives no default argument to - a *signature* difference the
+comparison does not strip, so a fixture over it would fail. Two oracles against
+one makes it a defect rather than a reading. It is **not C8's**, which is what
+the C7-audit ledger row guessed: the identical difference stands over
+`struct base_of { base_of(int, int = 0); };` with no template anywhere in the
+program, so what forms the candidate set is 12.9p1's own reading and not
+14.7.1p1's instantiated declarations. It is a PA16-PA18 lifecycle question and
+no fixture through pa24 writes one.
+
+**A member class's table is asked for where the specialization is completed and
+not where an object of it is built.** 10.3p10 leaves it unspecified whether a
+virtual member of a class template is instantiated where nothing else would
+instantiate it, and the walk this audit lands takes the broad reading: every
+class the instantiation made is asked for its virtual members, whether or not
+this unit ever builds an object of it and so whether or not it ever emits that
+class's table. The cost is one grant per virtual member, which is flat in the
+count - 512 sibling member classes are 0.09 s -> 0.10 s - and quadratic in the
+lexical *depth* of the nest the members stand in, because the body granted at
+depth n looks its names up through an n-deep chain: a 512-deep class nest with a
+virtual member at every level is 0.40 s and a 1024-deep one 1.51 s, against
+0.06 s for the same nest with no virtual member. Both numbers are the pre-C8
+binary's to the hundredth, so the reading is the milestone's rather than this
+audit's - what the `43aa2aa0` build saved on that shape it saved by writing an
+unresolved symbol. `reference-binaries/cppgm++` is 0.03 s and 0.06 s, which is
+the narrow reading: the table is emitted where the vpointer is stored, so the
+demand a class's slots make is the demand its *constructor* gets. Making that
+the rule means walking `entity.vtable`'s final overriders from
+`demand_constructor_definition` rather than the declarations from
+`complete_specialization`, and a 512-deep class nest is not a translation unit,
+so it is recorded rather than re-architected.
+
+**Two units defining one specialization's member keep one copy, and the root
+goes with the copy that is dropped.** `template int S<int>::m();` in one unit
+and `s.m()` in another emit three `function` entries in the reference - one per
+unit plus `main` - and two here, because the program builder keeps the first
+unit's definition of a symbol and drops the second. With the explicit
+instantiation first that is harmless; with it second, the copy kept is the one
+with no `object_root=yes` and the program loses a root it owes. The reference is
+order-dependent here too for a function template's own explicit instantiation -
+both compilers write no root when the instantiation is the later unit - so what
+this is, is one merge dropping a fact rather than choosing between two: the
+`object_root` of a dropped duplicate should join the copy that stays. It is the
+program builder's rather than this tier's and no fixture is multi-unit, so it is
+recorded with the rest of what only a link would see.
 
 **Run evidence needs scalars.** The `pa13` LowIR -> CY86 path is the only way to
 run what this milestone emits, and it hands a by-value class parameter garbage -
@@ -396,3 +423,4 @@ to be reproduced with scalars and pointers before it is a finding.
 | C6 | what a definition takes from the other declarations of the same entity, and what it owes the object file: 9.4.2p3's in-class brace-or-equal-initializer as the value the definition's storage holds and as what a read of the member is, 8.3.5p10's parameter name made a fact of the function held beside the default-argument, 8.3.5p5's array and function parameters made the pointer objects they are, and 8.5p8's "holds nothing" read of the whole object | `955dce9f` | 1 found, 1 fixed: a declaration written below a *template's* definition renamed the parameter objects every specialization had already made, so `template<class T> T zero_of(T) {...}` followed by `template<class T> T zero_of(T sample);` emitted `%sample` where the reference emits `%__param0` - **a regression C6 shipped**, on a difference the suite compares, that no fixture had the shape for. 14.7.1p1 leaves a specialization a declaration nothing wrote, so the pattern's spelling is frozen where the definition giving it a body is read and only a program's own declaration puts an object on the waiting list.  Recorded, not fixed: `required_parameters` and `has_default_argument` still key the record by `function.id` where C6 moved the writer to `wrote_defaults`, which is vestigial today because 12.8p12 keeps special members out of the template tier | 262 / 311 -> **264 / 313**, the two new tests being the regression this fixes and the failing 49 the same 49 by name; pa1-pa18 1777 / 1777; file audit passes; every `.ref` regenerates byte-identically over all 313 fixtures; 30 synthesized programs through the pre-audit binary, `reference-binaries/cppgm++` and g++, of which C6 moved 15 onto the reference and 2 off it and all 17 now agree; the three left disagreeing are metadata the comparison strips and one the reference is alone on against g++; three scaling shapes at n = 32, 128 and 512 unchanged against a pre-audit worktree build at about 2% more memory; valgrind clean over all 313 fixtures under `pa19/tests` |
 | C6 audit | 8.3.5p10's parameter name made a fact of the function rather than of any one of its declarations: `ParameterRecord` split out of `Default` beside `HeldInitializer`, a definition's own declarator beating the record, the objects a definition left unnamed waiting for the first declaration to name them, and 14.7.1p1 narrowing which of the template's declarations a specialization is spelled from | `d6700f4a` | 2 / 2, both of them **the same fact asked at fewer places than have it**: 14.7.1p1's narrowing froze a specialization's spelling where the pattern's *definition* is read, where `reference-binaries/cppgm++` freezes it at the template's *first declaration* - over all 120 orderings of an unnamed declaration, two differently named ones, an unnamed definition and a call, this compiler disagreed on the **16 whose first declaration is the unnamed one**, per place as well as per function (`two(T, T b)` then `two(T a, T)` is `__param0, b` and not `a, b`), while **the same 120 orderings over an ordinary function agree in every one**; and the widened fact reached the declarator path and not the one 12.8p28's and 12.9p8's definitions take, which have no declarator and are handed one declaration's list - so `box::box(const box&) = default;` below a class that named the place, an out-of-class `= default` naming a place the class did not, and an inherited constructor whose base is defined below the using-declaration each wrote `__param1` where the reference writes the name, and `= default` outside the class recorded nothing at all, being the one declaration form that returns before `record_declared_parameters` | 266 / 315 -> **272 / 321**, the six new tests being the six shapes these leave and the failing 49 the same 49 by name; pa1-pa18 1777 / 1777; file audit passes; every `.ref` regenerates byte-identically over all 321 fixtures; 240 declaration orderings plus 55 shapes over members, constructors, operators, static members, array/reference/function parameters, default arguments, class templates, special members and inherited constructors, through this compiler, the pre-audit binary and `reference-binaries/cppgm++`, with all six regressions failing against the pre-audit binary; what is left disagreeing is emission order, an `alias object` line and the one place the reference binds a body's name to a parameter 3.3.4 ends elsewhere; four scaling shapes at n = 32, 128 and 512 unchanged against a pre-audit worktree build within 1% of its memory; valgrind clean over all 321 fixtures; the build's two `-Wall` warnings gone |
 | C7 | the type a declarator-id ends up under, and what lookup answers before a `<`: 8.3p1's constructor read from the level the id stands in, 14.2p3 asked of the overload set, 7.3.4p2's using-directive answered after every region the name is written inside, and 14.7.2's explicit instantiation with `object_root=yes` as the demand 3.2p3 has no use to point at | `c3f2411f` | 3 / 3, two of them **a rule landed at the question and not at the walk that answers it** and the third a fact carried as a terminal in a dump an earlier assignment is graded on: `declares_function` walks in to the declarator-id and asks which suffix it ends up under, and `declarator_type` - which is what *binds* a definition's places - still spent them on the outermost parameter-clause, so the two agree only where the level around the id wrote none.  `char (*getter(long key))(char value)` declared the right type (`_Z6getterl`) and emitted `function @getter(%value : i8)`: a body that names `key` was **refused on a program g++ compiles**, and one that names `value` - a place of the type `getter` *returns* - was accepted, over eight shapes counting the pointer, the array, the redundant parentheses, the exception-specification, the out-of-class member definition and the template head.  And the grammar's `explicit-instantiation-target` is a class-declaration *or a simple-declaration*, whose arm checked that a declarator existed and then `return`ed: `template int carried<int>(int);` emitted **nothing** where `reference-binaries/cppgm++` and g++ both emit the definition rooted - which four checked-in `.ref` files under pa22 and pa24 pin byte for byte - while `int slot; template int slot;` and `int plain(int); template int plain(int);` were **accepted** where both oracles refuse them.  And that form's node was the declaration's with `KW_TEMPLATE` hung on it, so the PA10 dump the shared AST feeds read `explicit-instantiation-declaration KW_TEMPLATE:template` where the reference writes `explicit-instantiation-definition` - and no pa10 fixture writes the form, so 1777 / 1777 stood over it.  What is right and swept clean: 14.2p3's overload set and 7.3.4p2's directive agree with both oracles over 15 shapes including the three that must not find the name, and 14.7.2p8's walk of the region a specialization opened agrees with **g++** at every depth, rooting all 40 definitions of a 40-deep member-class chain where the reference roots none | 283 / 326 -> **288 / 331**, the five new tests being five of the six shapes these leave and the failing 43 the same 43 by name; pa1-pa18 1777 -> **1778 / 1778** with the sixth, which is the pa10 dump; file audit passes and the build prints nothing; every `.ref` regenerates byte-identically over all 319 fixtures under `pa19/tests` and all 12 under `cppgm.tests/course/pa19`, diagnostics included; three cross-products through this compiler, the pre-audit binary and `reference-binaries/cppgm++` with g++ beside them - 20 declarator shapes now agreeing with g++ in every one and with the reference in twelve, 21 explicit-instantiation shapes agreeing with the reference symbol for symbol and root for root in twenty, and 15 lookup shapes agreeing everywhere; four later-PA `.ref` files that were missing `object_root=yes` now matching; a function returning a function pointer run through `lowir2cy86` to the value g++ builds it to return; two units in either order; seven scaling shapes at n = 32, 128 and 512 and the parenthesis nest measured to the 8000 the parser accepts; the PA10 dump byte-identical to the reference for both explicit instantiation forms; valgrind clean over all 332 fixtures |
+| C8 | what a name in an instantiated body reaches, and which of a specialization's bodies an instantiation reads: 14.6.2p3's dependent base left off 3.4.1's chain for the specialization as well as for the definition, as a fact of the base-specifier the program wrote once; and 14.7.1p1's instantiation of the *declarations* of a class's members, each body held on `held_definitions_` for the use that names it | `43aa2aa0` | 2 / 2 + 1 beside them, and the two are **one shape - the deferral was landed at the three places a *use* stands and neither demand that has no expression behind it was given it**, over an output where a body nobody grants is a `declare function` and no definition, which is a program that does not link and a suite that compares LowIR and never links: 10.3p10's table was asked of the specialization's own declarations and not of the classes the same reading made, so `struct Inner { virtual int f(); }` nested in a class template emitted `@Outer_int___Inner__vtable` naming `@Outer_int___Inner__f` and **nothing defined it**, at one level and at three alike, where the `4ec3d164` binary and `reference-binaries/cppgm++` both do; and 14.7.2p1's explicit instantiation - the one declaration 3.2p3 has no use to point at - set `explicitly_instantiated` on a declaration whose body was still held, so `template int tester<int>::test();` over a member defined *in* its class emitted **nothing at all** where both of those binaries emit it with `object_root=yes`.  Beside them and older, the same clause asked of the innermost class alone: `template int tester<int>::probe::test();` was refused where the reference and **g++** both root it, because what says the declaration names a specialization was read off the class the prefix named rather than off the classes that class stands in.  What is right and swept clean: 14.6.2p3 over eight shapes - unqualified, `this->`, qualified, a non-dependent base under a template head, a nested class, an out-of-class definition, a non-template class deriving from a specialization and a class below one - picks the reference's callee in every one with g++ compiling all eight, and `deferred_conversion<incomplete>`, the clause the deferral is for, compiles here and is refused by `4ec3d164` | 294 / 331 -> **297 / 334**, the three new tests being the three shapes these leave and the failing 37 the same 37 by name; pa1-pa18 1778 / 1778; file audit passes and the build prints nothing; every `.ref` regenerates byte-identically over all 319 fixtures under `pa19/tests` and all 12 checked-in under `cppgm.tests/course/pa19`; thirty use shapes - calls, `&`, conversion and operator functions, special members, uncalled and nested and inherited virtuals, all four 14.7.2 forms, subobject copy/assign/destroy, chained and cross-class bodies, target types, temporaries, arrays and two specializations - each swept for a symbol some entry names that no `function` line defines, all clean here and matching the reference's definition count where `43aa2aa0` leaves two unresolved; a rooted explicit instantiation run through `lowir2cy86` to the 42 g++ builds it to return; seven scaling shapes at n = 32, 128 and 512 against a `43aa2aa0` worktree build, unchanged but for the class nest 512 deep that returns to the pre-C8 0.40 s the pre-audit build bought with an unresolved symbol; valgrind clean over all 334 fixtures |
