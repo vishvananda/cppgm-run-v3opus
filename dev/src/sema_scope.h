@@ -803,6 +803,9 @@ public:
 	// A region enclosed by `parent`, writing its lines to `dump`.
 	Scope& open(ScopeKind kind, Scope& parent, SemaEntity* owner, DumpScope* dump);
 	DumpScope& open_dump(DumpScope& parent, const std::string& header);
+	// 14.6p8: a dump node under no parent, for a reading whose lines nothing
+	// writes out and which outlives the call that started it.
+	DumpScope& detached_dump();
 	DumpNode& open_node(DumpNode& parent, const std::string& text);
 	// Puts what `node` holds under a new line of its own, in place: `node` keeps
 	// the place it already has among the lines its parent wrote, and what it

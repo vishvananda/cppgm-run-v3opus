@@ -22,12 +22,24 @@ struct TemplateInfo
 		: pattern(nullptr)
 		, region(nullptr)
 		, dump(nullptr)
+		, parameter_region(nullptr)
+		, reading_dump(nullptr)
+		, current(nullptr)
 		, supported(true)
 	{}
 
 	const AstNode* pattern;
 	Scope* region;
 	DumpScope* dump;
+	// 14.6.1p1: the region binding each parameter to a type standing for
+	// itself, and the class the definition read in it makes - the current
+	// instantiation.  They are opened once, by the first reading that needs
+	// them, and 14.5.1.3p1's out-of-class member definitions are read against
+	// the same two however long after the class they were written.  The lines
+	// of that reading stand in a dump nothing writes out.
+	Scope* parameter_region;
+	DumpScope* reading_dump;
+	SemaEntity* current;
 	// 14.1p2: the type parameters the head declared, in order, and 14.1p9's
 	// default arguments, null where the head wrote none.  A head this
 	// milestone gives no meaning to - a non-type parameter, a template

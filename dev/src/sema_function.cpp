@@ -204,8 +204,13 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 		entity.virtual_function || specifiers.is_virtual;
 	read_virt_specifiers(entity, declarator, nullptr);
 	require_no_abstract_boundary(written_type, name);
-	if (!entity.object_member)
+	if (!entity.object_member && (semantics() || checking_ == 0))
 	{
+		// 13.5p6 asks whether the declaration is a non-static member, which
+		// 9.3.1p3's implicit object parameter is what answers - and a reading
+		// that describes only what a declaration says has none, so a member of
+		// a pattern would read as a static one.  14.7.1p1's declaration asks
+		// again, where the parameter is there to be seen.
 		require_operator_operand(name, type,
 		                         target.scope->kind == ScopeKind::Class);
 	}
@@ -250,6 +255,15 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 	if (!semantics())
 	{
 		write_line(*target.dump, "function", name, type);
+		if (checking_ > 0 && ctx.scope->kind == ScopeKind::Class)
+		{
+			// 9.2p2: a member function body written inside the class body is a
+			// complete-class context, so it is read where the class is
+			// complete rather than where it stands - which is what lets it
+			// name a member the class declares below it.
+			hold_pattern_body(node, inner, parameters, type);
+			return;
+		}
 		declare_parameters(parameters, type, inner, nullptr);
 		for (std::size_t index = 2; index < node.children.size(); ++index)
 		{

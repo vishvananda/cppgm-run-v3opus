@@ -218,6 +218,16 @@ SemaAnalyzer::Constant SemaAnalyzer::id_constant(const AstNode& node,
 	SemaEntity& entity = require(resolve(node.text, ctx, LookupKind::Any), node.text);
 	if (!entity.constant)
 	{
+		if (checking_ > 0 && types_.is_dependent(entity.type))
+		{
+			// 14.6p8: what a name that depends on a template parameter is
+			// worth, an argument list is what says.  The reading stands one
+			// value in its place, as it does for the size of a dependent type.
+			Constant stood;
+			stood.type = types_.fundamental(FT_INT);
+			stood.bits = 1;
+			return stood;
+		}
 		throw NotConstant(node.text + " is not a constant expression");
 	}
 	Constant out;
@@ -483,6 +493,14 @@ SemaAnalyzer::Constant SemaAnalyzer::evaluate(const AstNode& node,
 
 unsigned long long SemaAnalyzer::size_of(TypeId type) const
 {
+	if (checking_ > 0 && types_.is_dependent(type))
+	{
+		// 14.6p8 and 5.3.3p1: how large a type that depends on a template
+		// parameter is, an argument list is what says - so a reading of the
+		// definition stands one value in its place, and nothing it declares is
+		// laid out or written out.
+		return 1;
+	}
 	if (types_.is_incomplete(type))
 	{
 		// 5.3.3p1: `sizeof` shall not be applied to an incomplete type.
@@ -531,6 +549,18 @@ TypeId SemaAnalyzer::decltype_type(const AstNode& node, const Context& ctx)
 	{
 		if (!semantics())
 		{
+			if (checking_ > 0)
+			{
+				// 14.6.2p1: a decltype-specifier over an expression a reading
+				// of the definition does not type names a type only an
+				// instantiation can name.  3.4p1 still looks up the names the
+				// expression writes, and what it stands for here is a type of
+				// its own that depends on the parameters, so nothing built from
+				// it is read as a type this unit has.
+				check_expression_names(*expression, ctx);
+				return types_.template_parameter_type(model_.type_entity_id(),
+				                                      false, "decltype");
+			}
 			throw std::runtime_error("decltype names an expression PA11 does "
 			                         "not type");
 		}

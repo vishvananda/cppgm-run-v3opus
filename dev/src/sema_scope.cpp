@@ -149,6 +149,12 @@ DumpScope& SemaModel::open_dump(DumpScope& parent, const std::string& header)
 	return scope;
 }
 
+DumpScope& SemaModel::detached_dump()
+{
+	dumps_.push_back(DumpScope());
+	return dumps_.back();
+}
+
 DumpNode& SemaModel::open_node(DumpNode& parent, const std::string& text)
 {
 	nodes_.push_back(DumpNode());

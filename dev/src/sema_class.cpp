@@ -60,7 +60,7 @@ void SemaAnalyzer::read_base_clause(const AstNode& node, SemaEntity& entity,
                                     Scope& scope, const Context& ctx,
                                     const std::string& header)
 {
-	if (!lowering())
+	if (!lowering() && checking_ == 0)
 	{
 		// The PA12 dump has no line for a base class, so a class with one would
 		// be written as the class it would have been without the base-clause,
@@ -73,8 +73,19 @@ void SemaAnalyzer::read_base_clause(const AstNode& node, SemaEntity& entity,
 		}
 		return;
 	}
+	// 14.6p8 and 10.2p2: a definition being read where it stands still reaches
+	// what its base declares, because an unqualified name its body writes is
+	// looked up in the base as well - so the base-clause is read for the
+	// pattern too, in the dialect that describes only what a declaration says.
 	if (node.children.size() != 1)
 	{
+		if (checking_ > 0)
+		{
+			// What this milestone does not lay out is refused where a
+			// specialization of it is made, not where a definition no
+			// instantiation ever reads stands.
+			return;
+		}
 		// 10p1: this milestone lays out and initializes one direct base, so a
 		// class with more than one is refused rather than described as a class
 		// holding only the first of them.
@@ -94,6 +105,10 @@ void SemaAnalyzer::read_base_clause(const AstNode& node, SemaEntity& entity,
 		const AstNode& part = *specifier.children[index];
 		if (part.kind == AstKind::Virtual)
 		{
+			if (checking_ > 0)
+			{
+				return;
+			}
 			throw std::runtime_error(header + " has a virtual base class, which "
 			                         "this milestone does not lay out");
 		}
@@ -114,6 +129,15 @@ void SemaAnalyzer::read_base_clause(const AstNode& node, SemaEntity& entity,
 	// for - so what it names is the class the type belongs to rather than the
 	// declaration the name was bound to.
 	SemaEntity& found = require(resolve(named, ctx, LookupKind::Type), named);
+	if (checking_ > 0 && types_.is_dependent(types_.strip_cv(found.type)))
+	{
+		// 14.6.2p3: an unqualified name written in the definition is not looked
+		// up in a base class that depends on a template parameter, because
+		// which class that is only an argument list says.  So the reading
+		// leaves the base off the chain, and the specialization the arguments
+		// make is read against the base they name.
+		return;
+	}
 	if (!names_a_type(found) || !types_.is_class(types_.strip_cv(found.type)))
 	{
 		throw std::runtime_error(named + " is named as a base class and is not "

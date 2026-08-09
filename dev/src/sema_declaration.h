@@ -144,6 +144,37 @@ struct PendingDefinition
 	bool instantiation;
 };
 
+// 9.6p2: the storage unit a run of bit-fields is being placed in, which one
+// member-declaration hands to the next: whether one is open, the type it was
+// declared with, the byte it begins at, and how much of it is spent.
+struct BitFieldUnit
+{
+	BitFieldUnit()
+		: open(false)
+		, type(kNoType)
+		, at(0)
+		, used(0)
+	{}
+
+	bool open;
+	TypeId type;
+	unsigned long long at;
+	unsigned long long used;
+};
+
+// 9.2p2 and 14.6p8: a member function body a reading of a template's own
+// definition has yet to read.  A body written inside a class body is a
+// complete-class context, so the reading holds each until the class-specifier
+// closes and reads them all there - which is what lets one name a member the
+// class declares below it.
+struct HeldTemplateBody
+{
+	const AstNode* node;
+	SemaContext inner;
+	std::vector<DeclaredParameter> parameters;
+	TypeId type;
+};
+
 // 12.6.2: one mem-initializer of a ctor-initializer, indexed by the name
 // its mem-initializer-id ends in.  `used` says a member of that name was
 // reached, which 12.6.2p2 is what makes the mem-initializer-id name

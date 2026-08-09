@@ -157,6 +157,8 @@ private:
 	typedef DeclSpecifiers Specifiers;
 	typedef DeclaredParameter Parameter;
 	typedef PendingDefinition Pending;
+	typedef HeldTemplateBody HeldPatternBody;
+	typedef BitFieldUnit BitUnit;
 	typedef WrittenMemInitializer MemInitializer;
 	typedef SemaConstant Constant;
 
@@ -1214,20 +1216,6 @@ private:
 	// into while it is laid out.  A unit is opened by the first field that
 	// cannot share the one before it, and the fields declared with its own type
 	// share it while their bits fit; anything else closes it.
-	struct BitUnit
-	{
-		BitUnit()
-			: open(false)
-			, type(kNoType)
-			, at(0)
-			, used(0)
-		{}
-
-		bool open;
-		TypeId type;
-		unsigned long long at;
-		unsigned long long used;
-	};
 	// 9.6p2: the share of a storage unit one bit-field takes, from the byte the
 	// layout has reached and the unit it is filling.  `packed` is 16.6's cap on
 	// where the unit may begin.
@@ -1365,9 +1353,17 @@ private:
 	                    LookupKind filter,
 	                    std::vector<SemaEntity*>* found = nullptr);
 	// The region the nested-name-specifier of `name` reaches, for a declaration
-	// that names an entity of another region.
+	// that names an entity of another region.  14.6.2p1: `dependent`, when
+	// given, takes the type of the component that names a region only an
+	// instantiation opens, and the prefix answers null rather than refusing it.
 	Scope* resolve_prefix(const QualifiedName& name, const Context& ctx,
-	                      Scope* first_region = nullptr);
+	                      Scope* first_region = nullptr,
+	                      TypeId* dependent = nullptr);
+	// 14.6.2p1: the type a qualified name written through a dependent prefix
+	// stands for while the template writing it is read - one per prefix and
+	// spelling, so one definition writes one type for one name.
+	SemaEntity& dependent_member_name(TypeId prefix,
+	                                  const std::string& spelling);
 	// 7.1.6.2p1: the declaration a name whose nested-name-specifier begins with
 	// a decltype-specifier reaches.  The expression the parser kept beside the
 	// spelling is what says which region the rest of the name is looked up in,
@@ -1823,18 +1819,31 @@ private:
 	// the function it just declared, so that 14.7.1p1 can read it again.
 	void record_function_template(SemaEntity& entity, Scope& parameters,
 	                              Scope& region);
-	// 14.6p8: the reading a template definition's body gets where it stands.
-	//
-	// A template declares nothing until it is instantiated, but its definition
-	// is still a definition: 14.6p8 makes one ill-formed - no diagnostic
-	// required - where no valid specialization could be generated from it, and
-	// leaves only the parts that depend on a template parameter to the
-	// instantiation.  So the body is read once here, against the parameters
-	// themselves, and again for each specialization against its arguments.
-	// Nothing this reading finds reaches the output.
+	// 14.6p8: the reading a template definition's body gets where it stands,
+	// against the parameters themselves - one this milestone makes ill-formed
+	// where no valid specialization could be generated from it, leaving what
+	// depends on a parameter to the instantiation.  `sema_template.cpp` holds
+	// what the reading does and does not ask.  Nothing it finds reaches the
+	// output.
 	void check_template_definition(const AstNode& node, const Context& inner,
 	                               const std::vector<Parameter>& parameters,
 	                               TypeId type);
+	// 14.6.1p1: the current instantiation of `primary`, the class its own
+	// definition is read as, beside the kept region binding each parameter to a
+	// type standing for itself - 14.5.1.3p1's out-of-class member definitions
+	// are read against that same one however long after the class body.
+	SemaEntity& current_instantiation(SemaEntity& primary);
+	// 14.6p8: the reading a class template's definition, and an out-of-class
+	// member definition of it, each get where they stand.
+	void read_class_pattern(SemaEntity& primary);
+	void read_member_pattern(SemaEntity& primary, const AstNode& clause,
+	                         const AstNode& pattern);
+	// 9.2p2: a member function body read for a pattern is read where the class
+	// is complete, so the reading holds each until the class-specifier closes.
+	void hold_pattern_body(const AstNode& node, const Context& inner,
+	                       const std::vector<Parameter>& parameters,
+	                       TypeId type);
+	void read_held_pattern_bodies(std::size_t from);
 	// 14.6p8 and 3.4p1: looks up the names `node` writes that no template
 	// parameter stands in the way of.  A member name, a template-id and the
 	// callee of a call are left to the instantiation, which is what 14.6.2p1
@@ -2219,6 +2228,13 @@ private:
 	// were asked for.  Writing one may ask for another, so the list grows while
 	// it is being walked and what is being written has to stay where it is.
 	std::deque<Pending> pending_;
+	// 9.2p2: the member function bodies a pattern reading has yet to read.  A
+	// reading can stand inside another, so each takes the entries above the
+	// mark it recorded on the way in.
+	std::vector<HeldTemplateBody> held_bodies_;
+	// 14.6.2p1: the declarations the readings above made for names written
+	// through a dependent prefix, keyed by that prefix and the spelling.
+	std::unordered_map<std::string, SemaEntity*> dependent_names_;
 	// 14.1: the parameters each template's declarator wrote, which an
 	// instantiation writes again with their types substituted.  It is keyed by
 	// the entity the template-declaration declared because it is a fact about

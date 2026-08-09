@@ -621,7 +621,19 @@ SemaEntity* SemaAnalyzer::resolve(const std::string& spelling, const Context& ct
 		return here != nullptr ? here
 		                       : template_id_entity(name, ctx, nullptr, filter);
 	}
-	Scope* const region = resolve_prefix(written, ctx);
+	// 14.6.2p1: a name written after a prefix that depends on a template
+	// parameter is a member of a class no argument list has named yet.  While
+	// the template that writes it is being read there is nothing to look it up
+	// in, so what the name stands for is the one thing the reading knows about
+	// it: that it is a type, and the same one wherever this definition writes
+	// this spelling.
+	TypeId dependent = kNoType;
+	Scope* const region = resolve_prefix(written, ctx, nullptr,
+	                                     templating() ? &dependent : nullptr);
+	if (region == nullptr)
+	{
+		return &dependent_member_name(dependent, name);
+	}
 	SemaEntity* named =
 		model_.lookup_in(*region, written.last(), filter, found);
 	if (named == nullptr)
@@ -640,11 +652,15 @@ SemaEntity* SemaAnalyzer::resolve(const std::string& spelling, const Context& ct
 // 3.4.3: each component of a nested-name-specifier is looked up in the region
 // the one before it named, the first in the scopes around the declaration.
 Scope* SemaAnalyzer::resolve_prefix(const QualifiedName& name,
-                                    const Context& ctx, Scope* first_region)
+                                    const Context& ctx, Scope* first_region,
+                                    TypeId* dependent)
 {
 	// 3.4.3p1: a name written `::x` is looked up in the global namespace.
 	const std::string first = name.part(0);
 	Scope* region = first_region;
+	// 14.6.2p1: the component that named no region, whose type is what the
+	// name written after it depends on.
+	SemaEntity* named = nullptr;
 	if (region == nullptr && first.empty())
 	{
 		region = &model_.global();
@@ -659,7 +675,8 @@ Scope* SemaAnalyzer::resolve_prefix(const QualifiedName& name,
 		{
 			head = template_id_entity(first, ctx, nullptr, LookupKind::Region);
 		}
-		region = model_.region_of(require(head, first));
+		named = &require(head, first);
+		region = model_.region_of(*named);
 	}
 
 	for (std::size_t index = 1; index + 1 < name.size(); ++index)
@@ -667,6 +684,12 @@ Scope* SemaAnalyzer::resolve_prefix(const QualifiedName& name,
 		const std::string part = name.part(index);
 		if (region == nullptr)
 		{
+			if (dependent != nullptr && named != nullptr &&
+			    types_.is_dependent(named->type))
+			{
+				*dependent = named->type;
+				return nullptr;
+			}
 			throw std::runtime_error(name.part(index - 1) + " names no region");
 		}
 		SemaEntity* next = model_.lookup_in(*region, part, LookupKind::Region);
@@ -674,15 +697,51 @@ Scope* SemaAnalyzer::resolve_prefix(const QualifiedName& name,
 		{
 			next = template_id_entity(part, ctx, region, LookupKind::Region);
 		}
-		region = model_.region_of(require(next, part));
+		named = &require(next, part);
+		region = model_.region_of(*named);
 	}
 	if (region == nullptr)
 	{
+		if (dependent != nullptr && named != nullptr &&
+		    types_.is_dependent(named->type))
+		{
+			*dependent = named->type;
+			return nullptr;
+		}
 		throw std::runtime_error(name.last() + " is written after a name that is "
 		                                       "not a namespace, class or "
 		                                       "enumeration");
 	}
 	return region;
+}
+
+// 14.6.2p1: what a name written after a prefix that depends on a template
+// parameter stands for while the template writing it is read.
+//
+// The member itself is a member of a class an argument list has yet to name, so
+// there is nothing to look up: what the reading knows is that the name is used
+// as a type and that the same spelling behind the same prefix is the same type
+// wherever this definition writes it.  So one declaration is made per prefix
+// and spelling, over a type standing for itself - which is dependent, so every
+// type built from it is dependent too and nothing an instantiation reads is
+// built from this one.
+SemaEntity& SemaAnalyzer::dependent_member_name(TypeId prefix,
+                                                const std::string& spelling)
+{
+	const std::string key = std::to_string(prefix) + "|" + spelling;
+	const std::unordered_map<std::string, SemaEntity*>::const_iterator held =
+		dependent_names_.find(key);
+	if (held != dependent_names_.end())
+	{
+		return *held->second;
+	}
+	const std::string last = QualifiedName(spelling).last();
+	const TypeId type = types_.template_parameter_type(model_.type_entity_id(),
+	                                                   false, spelling);
+	SemaEntity& entity = model_.create(SemaKind::Typedef, last, type);
+	own_type(type, entity);
+	dependent_names_.insert(std::make_pair(key, &entity));
+	return entity;
 }
 
 // 7.1.6.2p1: a nested-name-specifier whose first component is a

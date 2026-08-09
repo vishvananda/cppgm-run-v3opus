@@ -1454,7 +1454,7 @@ SemaEntity& SemaAnalyzer::class_declaration(const AstNode& node,
 			// what it added to the class.
 			continue;
 		}
-		if (semantics() && !lowering() &&
+		if (semantics() && !lowering() && checking_ == 0 &&
 		    member.kind == AstKind::BitFieldDeclaration)
 		{
 			// 9.6p1: a bit-field is a member whose width its declaration writes,
@@ -1468,7 +1468,8 @@ SemaEntity& SemaAnalyzer::class_declaration(const AstNode& node,
 		// declaration, so it is written onto whatever this member declared.
 		// One declaration declares few names, and each is reached once.
 		const std::size_t before = scope.declarations.size();
-		if (lowering() && member.kind == AstKind::BitFieldDeclaration)
+		if ((lowering() || checking_ > 0) &&
+		    member.kind == AstKind::BitFieldDeclaration)
 		{
 			// 9.6p1: the width is part of what the declaration declares, so the
 			// declarators are read against it rather than through the ordinary
@@ -1922,8 +1923,12 @@ void SemaAnalyzer::declare_function_declarator(
 	// function return type, which is asked of the type the declarator built and
 	// therefore of every declaration alike.
 	require_no_abstract_boundary(written_type, name);
-	if (!function.object_member)
+	if (!function.object_member && (semantics() || checking_ == 0))
 	{
+		// 13.5p6 asks whether the declaration is a non-static member, which
+		// 9.3.1p3's implicit object parameter is what answers - and a reading
+		// that describes only what a declaration says has none.  14.7.1p1's
+		// declaration asks again, where the parameter is there to be seen.
 		require_operator_operand(name, type,
 		                         target.scope->kind == ScopeKind::Class);
 	}

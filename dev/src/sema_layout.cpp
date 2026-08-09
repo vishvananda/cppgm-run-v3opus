@@ -156,12 +156,18 @@ void SemaAnalyzer::bit_field_declaration(const AstNode& node,
 			                         "9.6p1 does not allow");
 		}
 		const TypeId bare = types_.strip_cv(member.type);
-		if (!types_.is_integral(bare) && types_.kind(bare) != TypeKind::Enum)
+		// 9.6p1 and 14.6p8: which type a bit-field was declared with, an
+		// argument list is what says where the declaration wrote a template
+		// parameter - so a reading of the definition asks neither of 9.6p1's
+		// two questions about the type, and the specialization asks both.
+		const bool dependent = checking_ > 0 && types_.is_dependent(bare);
+		if (!dependent && !types_.is_integral(bare) &&
+		    types_.kind(bare) != TypeKind::Enum)
 		{
 			throw std::runtime_error("a bit-field does not have integral or "
 			                         "enumeration type");
 		}
-		if (value.bits > 8 * types_.object_size(bare))
+		if (!dependent && value.bits > 8 * types_.object_size(bare))
 		{
 			throw std::runtime_error("a bit-field is wider than the type it "
 			                         "was declared with");
