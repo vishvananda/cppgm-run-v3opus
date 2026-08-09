@@ -2391,6 +2391,23 @@ void SemaAnalyzer::declare_object_declarator(const AstNode* initializer,
 	// expression that computed it.
 	if (value == nullptr)
 	{
+		// 9.4.2p3: the class declared the member with a brace-or-equal-initializer
+		// and 9.4.2p2's definition at namespace scope shall write none of its own,
+		// so the object that definition gives the member holds the value the class
+		// wrote - which is a fact of the member and not of either declaration's
+		// syntax, and is what makes every unit that defines it define one object.
+		if (defines_object && declared != nullptr && entity.constant &&
+		    entity.region != nullptr &&
+		    entity.region->kind == ScopeKind::Class)
+		{
+			DumpNode& held = model_.open_node(
+				line, spell("literal", ValueCategory::PRValue, type,
+				            spell_value(type, entity.value)));
+			set_fact(held, FactKind::Literal, type, ValueCategory::PRValue);
+			held.fact.constant = true;
+			held.fact.value = entity.value;
+			return;
+		}
 		// 8.5p6: an object of any other type with no initializer holds no value
 		// the program may read, and there is nothing to describe.
 		return;

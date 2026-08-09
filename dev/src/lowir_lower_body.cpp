@@ -395,6 +395,22 @@ LowValue LowirFunctionLowering::storage_of(const SemaEntity& entity)
 			named_operand(Operand::OP_GLOBAL, unit_.global_symbol(entity));
 	}
 	TypeTable& types = unit_.types();
+	// 9.4.2p3 and 3.2p3: a non-volatile const static data member of integral or
+	// enumeration type that an initializer gave a value is a constant, and a use
+	// of it that reads nothing but that value is the value rather than a load of
+	// the object 9.4.2p2's definition gave it.  Taking its address still names
+	// that object, so the value is held *beside* the place rather than in place
+	// of it - which is the same thing an assignment leaves behind, and the same
+	// thing reading it back costs nothing.
+	const TypeId bare = types.strip_cv(entity.type);
+	if (entity.constant && entity.region != nullptr &&
+	    entity.region->kind == ScopeKind::Class &&
+	    (types.cv(entity.type) & kCvVolatile) == 0 &&
+	    (types.is_integral(bare) || types.kind(bare) == TypeKind::Enum))
+	{
+		value.has_held = true;
+		value.held = literal_operand(entity.type, entity.value);
+	}
 	if (types.is_reference(entity.type))
 	{
 		// 8.3.2p5: a name of reference type is an lvalue naming what the
