@@ -84,6 +84,10 @@ SemaAnalyzer::SemaAnalyzer(SemaDialect dialect)
 	, sources_(nullptr)
 	, anonymous_enums_(0)
 	, local_types_(0)
+	, template_pattern_(nullptr)
+	, template_pattern_dump_(nullptr)
+	, instantiating_(nullptr)
+	, checking_(0)
 	, self_(nullptr)
 	, naming_(nullptr)
 	, breakable_(0)
@@ -94,10 +98,6 @@ SemaAnalyzer::SemaAnalyzer(SemaDialect dialect)
 	, standard_only_(false)
 	, direct_initialized_(kNoType)
 	, c_linkage_(false)
-	, template_pattern_(nullptr)
-	, template_pattern_dump_(nullptr)
-	, instantiating_(nullptr)
-	, checking_(0)
 {}
 
 PendingDefinition::PendingDefinition()
@@ -1247,7 +1247,7 @@ void SemaAnalyzer::alias_declaration(const AstNode& node, const Context& ctx)
 {
 	const AstNode* type = child_of(node, AstKind::TypeId);
 	const TypeId aliased = type_id_type(*type, ctx);
-	SemaEntity& entity = declare_type_alias(node.text, aliased, *ctx.scope);
+	declare_type_alias(node.text, aliased, *ctx.scope);
 	if (semantics())
 	{
 		// 9.2p1: an alias a class declares is a member of it, and a member
