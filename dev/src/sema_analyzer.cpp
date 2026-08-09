@@ -277,6 +277,22 @@ bool SemaAnalyzer::accepts_arity(const SemaEntity& function,
 	return true;
 }
 
+namespace
+{
+
+// 8.3.5p10 and 14.7.1p1: which of the two spellings the record holds is this
+// function's name for the place.  A declaration the program wrote takes the
+// first name any declaration of the function gave; a specialization is a
+// declaration nothing wrote, so what spells its places is the template's own
+// first declaration and no later one.
+const std::string& spelled_for(const SemaEntity& function,
+                               const ParameterRecord& record)
+{
+	return function.primary != nullptr ? record.pattern_name : record.name;
+}
+
+}
+
 void SemaAnalyzer::record_declared_parameters(
 	const SemaEntity& function, std::vector<Parameter>& declared,
 	Scope* region)
@@ -333,21 +349,20 @@ void SemaAnalyzer::record_declared_parameters(
 		{
 			// The object this declarator makes for the place is spelled with
 			// the function's name for it, which no clause of this one wrote.
-			// For a specialization that is the pattern's spelling as the
-			// pattern was read, and not what a declaration of the template
-			// written below it went on to say.
-			declared[index].object_name = function.primary != nullptr
-				? held[at].pattern_name
-				: held[at].name;
+			declared[index].object_name = spelled_for(function, held[at]);
 		}
 		if (lowering() && function.primary == nullptr &&
 		    !held[at].pattern_frozen)
 		{
-			// This declarator is one the program wrote, so what it leaves the
-			// place spelled with is what the pattern is spelling it with - until
-			// the definition that gives the pattern its body is read, after
-			// which what a specialization takes no longer moves.
+			// 14.7.1p1: a specialization is a declaration nothing wrote, so
+			// what spells its places is the template's own declaration - the
+			// first one, which is where the template and the places it gives a
+			// name to begin.  A later declaration redeclares the template and
+			// says nothing about a specialization; a definition still spells
+			// the places its own declarator wrote, because the body read for a
+			// specialization is that declarator's.
 			held[at].pattern_name = held[at].name;
+			held[at].pattern_frozen = true;
 		}
 		if (declared[index].initializer == nullptr ||
 		    held[at].initializer.written != nullptr)
@@ -358,6 +373,37 @@ void SemaAnalyzer::record_declared_parameters(
 		}
 		held[at].initializer.written = declared[index].initializer;
 		held[at].initializer.scope = region;
+	}
+}
+
+// 8.3.5p10: the names the object file spells `function`'s places with, given to
+// a list of parameters taken from one of its declarations.
+//
+// A definition the standard rather than the program writes reads those objects
+// throughout and has no declarator of its own to spell them with, so it is
+// handed the list some declaration wrote - and what that one declaration left
+// unnamed is still named, by whichever declaration of the function named it.
+// Only the spelling travels, exactly as it does for a declarator: 3.3.4 ends a
+// declaration's parameter names at its own declarator, so nothing is bound.
+void SemaAnalyzer::name_recorded_parameters(const SemaEntity& function,
+                                            std::vector<Parameter>& taken,
+                                            std::size_t implicit) const
+{
+	const std::unordered_map<std::uint32_t, std::vector<ParameterRecord> >::const_iterator
+		found = defaults_.find(wrote_defaults(function).id);
+	if (found == defaults_.end())
+	{
+		return;
+	}
+	for (std::size_t index = 0; index < taken.size(); ++index)
+	{
+		const std::size_t at = index + implicit;
+		if (!taken[index].name.empty() || !taken[index].object_name.empty() ||
+		    at >= found->second.size())
+		{
+			continue;
+		}
+		taken[index].object_name = spelled_for(function, found->second[at]);
 	}
 }
 
@@ -506,8 +552,22 @@ void SemaAnalyzer::write_definition(Pending& pending)
 	}
 	if (pending.scope != nullptr)
 	{
+		const std::size_t implicit = pending.self != nullptr ? 1 : 0;
+		// 8.3.5p10: the list is the one declaration's that wrote it, and the
+		// name a place is spelled with is the function's - so it is settled
+		// here, where the objects are made, because a declaration naming a
+		// place may stand anywhere in the unit and this is written after the
+		// whole of it has been read.  12.9p8's inherited constructor takes the
+		// base's places, so the base's declarations are the ones that named
+		// them.
+		name_recorded_parameters(function, pending.parameters, implicit);
+		if (function.inherited != nullptr)
+		{
+			name_recorded_parameters(*function.inherited, pending.parameters,
+			                         implicit);
+		}
 		declare_parameters(pending.parameters, function.type, inner, &line,
-		                   pending.self != nullptr ? 1 : 0);
+		                   implicit);
 	}
 	// 9.2p2: the body is read where the class is complete, which is here, so
 	// what the walk of the class left behind is put back for it.  The frames a

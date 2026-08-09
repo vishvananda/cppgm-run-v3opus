@@ -1,0 +1,55 @@
+function @base_of__base_of__base_entry(%this : ptr, %given : i32) -> void [binding=strong, object=_ZN7base_ofC2Ei] {
+  slot $this : ptr
+  slot $given : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %given, $given
+    %t1 = load i32 $given
+    %t2 = binary add i32 %t1, 1
+    %t3 = load ptr $this
+    %t4 = index i8 [projection=field] %t3, 0
+    store i32 %t2, %t4
+    return void
+}
+function @base_of__base_of(%this : ptr, %given : i32) -> void [binding=strong, object=_ZN7base_ofC1Ei] {
+  slot $this : ptr
+  slot $given : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %given, $given
+    %t1 = load i32 $given
+    %t2 = binary add i32 %t1, 1
+    %t3 = load ptr $this
+    %t4 = index i8 [projection=field] %t3, 0
+    store i32 %t2, %t4
+    return void
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $made : obj<4x4>
+
+  block ^entry:
+    %t1 = addr $made
+    call void @derived__derived(%t1, 4)
+    %t2 = addr $made
+    %t3 = index i8 [projection=base_subobject] %t2, 0
+    %t4 = index i8 [projection=field] %t3, 0
+    %t5 = load i32 %t4
+    return i32 %t5
+}
+function @derived__derived(%this : ptr, %given : i32) -> void [binding=weak, object=_ZN7derivedC1Ei] {
+  slot $this : ptr
+  slot $given : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %given, $given
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    %t3 = load i32 $given
+    call void @base_of__base_of__base_entry(%t2, %t3)
+    return void
+}
+alias object _ZN7base_ofC2Ei = @base_of__base_of
+alias object _ZN7derivedC2Ei = @derived__derived

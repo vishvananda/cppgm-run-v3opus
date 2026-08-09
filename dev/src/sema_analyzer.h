@@ -2052,6 +2052,13 @@ private:
 	void record_declared_parameters(const SemaEntity& function,
 	                                std::vector<Parameter>& declared,
 	                                Scope* region);
+	// 8.3.5p10: the same fact given to a list of parameters copied out of one
+	// declaration - 12.8p28's and 12.9p8's definitions are written from one -
+	// so a place that declaration left unnamed is spelled with the name the
+	// function has for it rather than with one of the output's own.
+	void name_recorded_parameters(const SemaEntity& function,
+	                              std::vector<Parameter>& taken,
+	                              std::size_t implicit) const;
 	// 13.3.3: the one candidate no other beats, or the error that there is not
 	// one.  `candidates` are the declaration chains the lookup found, walked in
 	// declaration order within each; `arguments` are the analysed argument

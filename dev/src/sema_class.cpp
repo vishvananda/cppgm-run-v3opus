@@ -811,6 +811,17 @@ void SemaAnalyzer::special_member_definition(const AstNode& node,
 		// the one that holds it rather than every unit that needs one.
 		entity->deleted = explicitly->children[0]->text == "delete";
 		entity->defaulted = !entity->deleted;
+		// 8.3.5p10: `= default` is a declaration of the constructor like any
+		// other, so the names its declarator wrote are the function's from here
+		// on - and 12.8p28's definition, which reads those objects, is written
+		// from the parameters a declaration wrote rather than from a declarator
+		// of its own.
+		record_declared_parameters(*entity, parameters, target.scope);
+		if (!destructor)
+		{
+			std::vector<Parameter> named = parameters;
+			constructor_parameters_[entity->id].swap(named);
+		}
 		if (!entity->deleted)
 		{
 			// 3.2p4: the definition this unit was told to write is written

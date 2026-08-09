@@ -1,0 +1,120 @@
+function @part__part__base_entry(%this : ptr) -> void [binding=strong, object=_ZN4partC2Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    store i32 2, %t2
+    return void
+}
+function @part__part(%this : ptr) -> void [binding=strong, object=_ZN4partC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    store i32 2, %t2
+    return void
+}
+function @part__part__ov2__base_entry(%this : ptr, %copied : ptr [pass=reference]) -> void [binding=strong, object=_ZN4partC2ERKS_] {
+  slot $this : ptr
+  slot $copied : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    store ptr %copied, $copied
+    %t1 = load ptr $copied
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i32 %t2
+    %t4 = binary add i32 %t3, 1
+    %t5 = load ptr $this
+    %t6 = index i8 [projection=field] %t5, 0
+    store i32 %t4, %t6
+    return void
+}
+function @part__part__ov2(%this : ptr, %copied : ptr [pass=reference]) -> void [binding=strong, object=_ZN4partC1ERKS_] {
+  slot $this : ptr
+  slot $copied : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    store ptr %copied, $copied
+    %t1 = load ptr $copied
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i32 %t2
+    %t4 = binary add i32 %t3, 1
+    %t5 = load ptr $this
+    %t6 = index i8 [projection=field] %t5, 0
+    store i32 %t4, %t6
+    return void
+}
+function @box__box__base_entry(%this : ptr) -> void [binding=strong, object=_ZN3boxC2Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    call void @part__part(%t2)
+    return void
+}
+function @box__box(%this : ptr) -> void [binding=strong, object=_ZN3boxC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    call void @part__part(%t2)
+    return void
+}
+function @box__box__ov2__base_entry(%this : ptr, %source : ptr [pass=reference]) -> void [binding=strong, object=_ZN3boxC2ERKS_] {
+  slot $this : ptr
+  slot $source : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    store ptr %source, $source
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load ptr $source
+    %t4 = index i8 [projection=field] %t3, 0
+    call void @part__part__ov2(%t2, %t4)
+    return void
+}
+function @box__box__ov2(%this : ptr, %source : ptr [pass=reference]) -> void [binding=strong, object=_ZN3boxC1ERKS_] {
+  slot $this : ptr
+  slot $source : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    store ptr %source, $source
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load ptr $source
+    %t4 = index i8 [projection=field] %t3, 0
+    call void @part__part__ov2(%t2, %t4)
+    return void
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $first : obj<4x4>
+  slot $second : obj<4x4>
+
+  block ^entry:
+    %t1 = addr $first
+    call void @box__box(%t1)
+    %t2 = addr $second
+    %t3 = addr $first
+    call void @box__box__ov2(%t2, %t3)
+    %t4 = addr $second
+    %t5 = index i8 [projection=field] %t4, 0
+    %t6 = index i8 [projection=field] %t5, 0
+    %t7 = load i32 %t6
+    return i32 %t7
+}
+alias object _ZN4partC2Ev = @part__part
+alias object _ZN4partC2ERKS_ = @part__part__ov2
+alias object _ZN3boxC2Ev = @box__box
+alias object _ZN3boxC2ERKS_ = @box__box__ov2
