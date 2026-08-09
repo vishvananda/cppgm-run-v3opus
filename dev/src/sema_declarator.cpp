@@ -628,11 +628,22 @@ SemaEntity* SemaAnalyzer::resolve(const std::string& spelling, const Context& ct
 	// it: that it is a type, and the same one wherever this definition writes
 	// this spelling.
 	TypeId dependent = kNoType;
+	std::size_t unresolved = 0;
 	Scope* const region = resolve_prefix(written, ctx, nullptr,
-	                                     templating() ? &dependent : nullptr);
+	                                     templating() ? &dependent : nullptr,
+	                                     &unresolved);
 	if (region == nullptr)
 	{
-		return &dependent_member_name(dependent, name);
+		// 14.6.2p1: every component from the one the prefix stopped at stands
+		// after a type that depends on a parameter, so each is a member of the
+		// one before it and the last of them is what the name stands for.
+		SemaEntity* member = nullptr;
+		for (std::size_t index = unresolved; index < written.size(); ++index)
+		{
+			member = &dependent_member_name(dependent, written.part(index));
+			dependent = member->type;
+		}
+		return member;
 	}
 	SemaEntity* named =
 		model_.lookup_in(*region, written.last(), filter, found);
@@ -653,7 +664,7 @@ SemaEntity* SemaAnalyzer::resolve(const std::string& spelling, const Context& ct
 // the one before it named, the first in the scopes around the declaration.
 Scope* SemaAnalyzer::resolve_prefix(const QualifiedName& name,
                                     const Context& ctx, Scope* first_region,
-                                    TypeId* dependent)
+                                    TypeId* dependent, std::size_t* unresolved)
 {
 	// 3.4.3p1: a name written `::x` is looked up in the global namespace.
 	const std::string first = name.part(0);
@@ -688,6 +699,10 @@ Scope* SemaAnalyzer::resolve_prefix(const QualifiedName& name,
 			    types_.is_dependent(named->type))
 			{
 				*dependent = named->type;
+				if (unresolved != nullptr)
+				{
+					*unresolved = index;
+				}
 				return nullptr;
 			}
 			throw std::runtime_error(name.part(index - 1) + " names no region");
@@ -706,6 +721,10 @@ Scope* SemaAnalyzer::resolve_prefix(const QualifiedName& name,
 		    types_.is_dependent(named->type))
 		{
 			*dependent = named->type;
+			if (unresolved != nullptr)
+			{
+				*unresolved = name.size() - 1;
+			}
 			return nullptr;
 		}
 		throw std::runtime_error(name.last() + " is written after a name that is "
@@ -720,25 +739,33 @@ Scope* SemaAnalyzer::resolve_prefix(const QualifiedName& name,
 //
 // The member itself is a member of a class an argument list has yet to name, so
 // there is nothing to look up: what the reading knows is that the name is used
-// as a type and that the same spelling behind the same prefix is the same type
+// as a type and that the same name behind the same prefix is the same type
 // wherever this definition writes it.  So one declaration is made per prefix
-// and spelling, over a type standing for itself - which is dependent, so every
+// and component, over a type standing for itself - which is dependent, so every
 // type built from it is dependent too and nothing an instantiation reads is
 // built from this one.
+//
+// 14.2 and the ABI's `<unresolved-name>`: the object file writes such a type as
+// the prefix and then the name, so the type is given the two as the facts they
+// are rather than as the one spelling it is diagnosed by - which is what makes
+// `typename T::car_type` the `NT_8car_typeE` every other compiler writes rather
+// than the `T_` a parameter standing alone would be.
 SemaEntity& SemaAnalyzer::dependent_member_name(TypeId prefix,
-                                                const std::string& spelling)
+                                                const std::string& component)
 {
-	const std::string key = std::to_string(prefix) + "|" + spelling;
+	const std::string key = std::to_string(prefix) + "|" + component;
 	const std::unordered_map<std::string, SemaEntity*>::const_iterator held =
 		dependent_names_.find(key);
 	if (held != dependent_names_.end())
 	{
 		return *held->second;
 	}
-	const std::string last = QualifiedName(spelling).last();
+	const std::string spelling =
+		types_.user_name(prefix) + "::" + component;
 	const TypeId type = types_.template_parameter_type(model_.type_entity_id(),
 	                                                   false, spelling);
-	SemaEntity& entity = model_.create(SemaKind::Typedef, last, type);
+	types_.set_dependent_member(type, prefix, component);
+	SemaEntity& entity = model_.create(SemaKind::Typedef, component, type);
 	own_type(type, entity);
 	dependent_names_.insert(std::make_pair(key, &entity));
 	return entity;

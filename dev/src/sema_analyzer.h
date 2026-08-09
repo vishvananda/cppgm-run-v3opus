@@ -1367,15 +1367,18 @@ private:
 	// The region the nested-name-specifier of `name` reaches, for a declaration
 	// that names an entity of another region.  14.6.2p1: `dependent`, when
 	// given, takes the type of the component that names a region only an
-	// instantiation opens, and the prefix answers null rather than refusing it.
+	// instantiation opens, and the prefix answers null rather than refusing it;
+	// `unresolved` then takes the place of the first component standing after
+	// it, which is where the chain of member names begins.
 	Scope* resolve_prefix(const QualifiedName& name, const Context& ctx,
 	                      Scope* first_region = nullptr,
-	                      TypeId* dependent = nullptr);
-	// 14.6.2p1: the type a qualified name written through a dependent prefix
-	// stands for while the template writing it is read - one per prefix and
-	// spelling, so one definition writes one type for one name.
+	                      TypeId* dependent = nullptr,
+	                      std::size_t* unresolved = nullptr);
+	// 14.6.2p1: the type one component written after a dependent prefix stands
+	// for while the template writing it is read - one per prefix and component,
+	// so one definition writes one type for one name.
 	SemaEntity& dependent_member_name(TypeId prefix,
-	                                  const std::string& spelling);
+	                                  const std::string& component);
 	// 7.1.6.2p1: the declaration a name whose nested-name-specifier begins with
 	// a decltype-specifier reaches.  The expression the parser kept beside the
 	// spelling is what says which region the rest of the name is looked up in,
@@ -1904,23 +1907,20 @@ private:
 	SemaEntity* member_definition_owner(const AstNode& node,
 	                                    const Context& ctx);
 	// 14.3p1: a region binding each of `info`'s parameters to the argument
-	// beside it, which is what a pattern is read against.  `names` spells them
-	// where the declaration being read declared parameters of its own.
-	Scope& open_template_bindings(
-		const TemplateInfo& info, const std::vector<TypeId>& arguments,
-		const std::vector<std::string>* names = nullptr);
+	// beside it, which is what a pattern is read against.
+	Scope& open_template_bindings(const TemplateInfo& info,
+	                              const std::vector<TypeId>& arguments);
 	// 14.5.1.3p1: reads `pattern` - a member definition written outside its
 	// class - against the arguments `specialization` was made from.
 	void instantiate_member(SemaEntity& specialization,
 	                        const TemplateInfo::Member& member);
-	// 14.5.1.3p1 and 3.4.1p8: binds the names an out-of-class member
-	// definition's own head declared, beside the class's own, in the region the
-	// class stands in - which is where its body looks names up from.  Null
-	// where the head declares a different number of parameters or one whose
-	// name already stands there for another place.
-	Scope* bind_member_parameters(Scope& region, const AstNode& clause,
+	// 14.5.1.3p1 and 14.1p2: a region of one out-of-class member definition's
+	// own, binding the names *its* head wrote to the arguments their places
+	// took, opened inside `enclosing` - the region the class was completed
+	// against.  `sema_template.cpp` holds what stands where while it is read.
+	Scope* open_member_parameters(Scope& enclosing, const AstNode& clause,
 	                              const std::vector<TypeId>& arguments,
-	                              SemaKind kind);
+	                              SemaKind kind, DumpScope* dump);
 	// 14.7.1p1: reads the template's class body for `made`, which is what
 	// completes it.  A specialization named before its template was defined is
 	// a declaration of an incomplete class until the definition arrives, and

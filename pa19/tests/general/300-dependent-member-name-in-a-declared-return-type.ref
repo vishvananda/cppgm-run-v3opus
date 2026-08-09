@@ -1,0 +1,22 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $made : obj<4x4>
+
+  block ^entry:
+    %t1 = addr $made
+    %t2 = addr $made
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 0, %t3
+    %t4 = addr $made
+    %t5 = call i32 @take(%t4)
+    return i32 %t5
+}
+function @take(%from : ptr) -> i32 [binding=weak, object=_Z4takeI5outerENT_3mid4leafEPS1_] {
+  slot $from : ptr
+
+  block ^entry:
+    store ptr %from, $from
+    %t1 = load ptr $from
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i32 %t2
+    return i32 %t3
+}

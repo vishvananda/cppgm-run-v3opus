@@ -37,6 +37,38 @@
 namespace
 {
 
+// 14.5.1.3p1: the region standing between a class and the one around it while
+// one out-of-class member definition of it is read, which is that definition's
+// own head's rather than the class's.  The class keeps the region it was
+// completed against, because every other reading of its members - its own body,
+// the next definition written outside it - looks names up through that one.
+class EnclosedBy
+{
+public:
+	EnclosedBy(Scope& scope, Scope& region)
+		: scope_(scope)
+		, parent_(scope.parent)
+		, head_(scope.template_head)
+	{
+		scope_.parent = &region;
+		scope_.template_head = &region;
+	}
+
+	~EnclosedBy()
+	{
+		scope_.parent = parent_;
+		scope_.template_head = head_;
+	}
+
+private:
+	EnclosedBy(const EnclosedBy&);
+	EnclosedBy& operator=(const EnclosedBy&);
+
+	Scope& scope_;
+	Scope* const parent_;
+	Scope* const head_;
+};
+
 bool is_name_char(char c)
 {
 	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
@@ -1692,21 +1724,19 @@ SemaEntity* SemaAnalyzer::member_definition_owner(const AstNode& node,
 }
 
 Scope& SemaAnalyzer::open_template_bindings(const TemplateInfo& info,
-                                            const std::vector<TypeId>& arguments,
-                                            const std::vector<std::string>* names)
+                                            const std::vector<TypeId>& arguments)
 {
-	const std::vector<std::string>& spelled =
-		names == nullptr ? info.parameters : *names;
 	Scope& bindings = model_.open(ScopeKind::TemplateParameters, *info.region,
 	                              nullptr, info.dump);
 	for (std::size_t index = 0;
-	     index < spelled.size() && index < arguments.size(); ++index)
+	     index < info.parameters.size() && index < arguments.size(); ++index)
 	{
-		if (spelled[index].empty())
+		if (info.parameters[index].empty())
 		{
 			continue;
 		}
-		SemaEntity& bound = model_.create(SemaKind::Typedef, spelled[index],
+		SemaEntity& bound = model_.create(SemaKind::Typedef,
+		                                  info.parameters[index],
 		                                  arguments[index]);
 		model_.bind(bindings, bound.name, bound);
 		model_.declare_in(bindings, bound);
@@ -1714,44 +1744,42 @@ Scope& SemaAnalyzer::open_template_bindings(const TemplateInfo& info,
 	return bindings;
 }
 
-// 14.5.1.3p1 and 3.4.1p8: the region a definition written outside its class is
-// read in, which is the one the class it declares into looks names up through.
+// 14.5.1.3p1 and 14.1p2: the region one out-of-class member definition of a
+// class template is read in.
 //
-// 14.1p2 leaves each declaration of one template free to spell its parameters
-// as it likes, and what two heads share is the *places* the argument list is in
-// the order of.  So the names this head spelled are bound beside the ones the
-// class's head spelled, in the region the class stands in - because the body of
-// a member function defined outside its class is read from a region enclosed by
-// that class, and a name it writes has to reach the same argument the
-// declarator's did.  Null where a name the head spelled already stands there
-// for another place, which no reading can bind twice.
-Scope* SemaAnalyzer::bind_member_parameters(
-	Scope& region, const AstNode& clause,
-	const std::vector<TypeId>& arguments, SemaKind kind)
+// Each declaration of one template spells its parameters as it likes, and what
+// two heads share is the *places* the argument list is in the order of - so the
+// names this head wrote stand in a region of this definition's own, opened
+// between the class and the region the class was completed against.  A name the
+// head wrote then reaches the argument its own place took, whatever the class's
+// head called that place, and nothing this definition binds is standing when
+// the next one is read.
+//
+// Null where the head declares a different number of parameters than the class
+// takes arguments: that is 14.5.5's partial specialization, which this
+// milestone leaves out, and not a definition of a member of this template.
+Scope* SemaAnalyzer::open_member_parameters(
+	Scope& enclosing, const AstNode& clause,
+	const std::vector<TypeId>& arguments, SemaKind kind, DumpScope* dump)
 {
 	TemplateInfo head;
 	read_template_head(clause, head);
-	if (!head.supported || head.parameters.size() != arguments.size())
+	if (head.parameters.size() != arguments.size())
 	{
 		return nullptr;
 	}
+	Scope& region = model_.open(ScopeKind::TemplateParameters, enclosing,
+	                            nullptr, dump);
 	for (std::size_t index = 0; index < head.parameters.size(); ++index)
 	{
-		const std::string& name = head.parameters[index];
-		if (name.empty())
+		if (head.parameters[index].empty())
 		{
+			// 14.1p3: a parameter with no identifier binds nothing, and still
+			// stands for an argument.
 			continue;
 		}
-		SemaEntity* const standing = model_.find(region, name, LookupKind::Any);
-		if (standing != nullptr)
-		{
-			if (standing->type != arguments[index])
-			{
-				return nullptr;
-			}
-			continue;
-		}
-		SemaEntity& bound = model_.create(kind, name, arguments[index]);
+		SemaEntity& bound = model_.create(kind, head.parameters[index],
+		                                  arguments[index]);
 		model_.bind(region, bound.name, bound);
 		model_.declare_in(region, bound);
 	}
@@ -1772,16 +1800,12 @@ void SemaAnalyzer::instantiate_member(SemaEntity& specialization,
 	}
 	const std::vector<TypeId>& arguments =
 		types_.type_list_at(specialization.template_arguments);
-	Scope* region = specialization.scope->parent;
-	if (region != nullptr && region->kind == ScopeKind::TemplateParameters)
-	{
-		region = bind_member_parameters(*region, *member.clause, arguments,
-		                                SemaKind::Typedef);
-	}
-	else
-	{
-		region = nullptr;
-	}
+	Scope* const enclosing = specialization.scope->parent;
+	Scope* const region =
+		enclosing != nullptr && enclosing->kind == ScopeKind::TemplateParameters
+			? open_member_parameters(*enclosing, *member.clause, arguments,
+			                         SemaKind::Typedef, info.dump)
+			: nullptr;
 	Context inner;
 	inner.scope = region != nullptr
 		? region
@@ -1790,6 +1814,15 @@ void SemaAnalyzer::instantiate_member(SemaEntity& specialization,
 	// 9.4.2p1 and 9.3p2: the definition declares into the class the
 	// declarator-id names, and writes its lines where that class writes them.
 	inner.node = &model_.unit();
+	if (region == nullptr)
+	{
+		// A head 14.5.5 parameterises names no member of this template, so the
+		// declarator is read against the class's own parameter names and fails
+		// on whatever it wrote.
+		declaration(*member.declaration, inner);
+		return;
+	}
+	const EnclosedBy enclosed(*specialization.scope, *region);
 	declaration(*member.declaration, inner);
 }
 
@@ -1942,10 +1975,15 @@ void SemaAnalyzer::check_template_definition(
 	const FunctionReading held(*this, nullptr, types_.target(type));
 	const DialectReading dialect(*this);
 	declare_parameters(parameters, type, reading, nullptr);
+	// 9.2p2: a class this body declares writes member functions whose bodies
+	// are read where that class is complete, so this reading owns them the way
+	// a class pattern's own reading owns the ones its body held.
+	const std::size_t mark = held_bodies_.size();
 	for (std::size_t index = 2; index < node.children.size(); ++index)
 	{
 		statement(*node.children[index], reading);
 	}
+	read_held_pattern_bodies(mark);
 }
 
 // 14.6.1p1: the current instantiation of a class template, which is the class
@@ -2035,7 +2073,8 @@ void SemaAnalyzer::read_member_pattern(SemaEntity& primary,
                                        const AstNode& pattern)
 {
 	const TemplateInfo& info = *primary.templated;
-	if (info.current == nullptr || !info.current->defined)
+	if (info.current == nullptr || !info.current->defined ||
+	    info.current->scope == nullptr)
 	{
 		// 9.4.2p1 and 9.3p2: a definition outside the class declares into a
 		// class the template has to have defined, and one whose definition this
@@ -2048,14 +2087,15 @@ void SemaAnalyzer::read_member_pattern(SemaEntity& primary,
 	// standing for the places the class's head declared.  They are bound as
 	// parameters and not as typedef-names of them, because 14.6.1p6 refuses a
 	// declaration of one anywhere in the template that declared it.
-	Scope* const region = bind_member_parameters(
-		*info.parameter_region, clause,
+	Scope* const region = open_member_parameters(
+		*info.current->scope->parent, clause,
 		types_.type_list_at(info.current->template_arguments),
-		SemaKind::TemplateType);
+		SemaKind::TemplateType, info.reading_dump);
 	if (region == nullptr)
 	{
 		return;
 	}
+	const EnclosedBy enclosed(*info.current->scope, *region);
 	const FunctionReading held(*this, nullptr, kNoType);
 	const DialectReading dialect(*this);
 	Context inner;
@@ -2085,24 +2125,29 @@ void SemaAnalyzer::hold_pattern_body(const AstNode& node, const Context& inner,
 // Reading one can ask for another class to be read, whose own bodies are held
 // above this reading's mark and are that reading's to take - so the entries
 // this call owns are taken off the list before any of them is read.
+//
+// Reading one can also *hold* another: 9.4p2's class declared in a body writes
+// member functions of its own, and 9.2p2 leaves each of those where its own
+// class is complete, which is above this mark again.  So the list is drained
+// back to the mark rather than walked once, and each body is read exactly
+// where the class it was written in closed.
 void SemaAnalyzer::read_held_pattern_bodies(std::size_t from)
 {
-	if (held_bodies_.size() <= from)
+	while (held_bodies_.size() > from)
 	{
-		return;
-	}
-	std::vector<HeldPatternBody> mine(held_bodies_.begin() + from,
-	                                  held_bodies_.end());
-	held_bodies_.resize(from);
-	for (std::size_t index = 0; index < mine.size(); ++index)
-	{
-		const HeldPatternBody& held = mine[index];
-		const FunctionReading reading(*this, nullptr,
-		                              types_.target(held.type));
-		declare_parameters(held.parameters, held.type, held.inner, nullptr);
-		for (std::size_t at = 2; at < held.node->children.size(); ++at)
+		std::vector<HeldPatternBody> mine(held_bodies_.begin() + from,
+		                                  held_bodies_.end());
+		held_bodies_.resize(from);
+		for (std::size_t index = 0; index < mine.size(); ++index)
 		{
-			statement(*held.node->children[at], held.inner);
+			const HeldPatternBody& held = mine[index];
+			const FunctionReading reading(*this, nullptr,
+			                              types_.target(held.type));
+			declare_parameters(held.parameters, held.type, held.inner, nullptr);
+			for (std::size_t at = 2; at < held.node->children.size(); ++at)
+			{
+				statement(*held.node->children[at], held.inner);
+			}
 		}
 	}
 }

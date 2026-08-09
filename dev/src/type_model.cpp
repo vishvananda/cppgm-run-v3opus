@@ -506,6 +506,14 @@ void TypeTable::set_template_index(TypeId type, unsigned index)
 	user_types_[nodes_[type].user].template_index = index;
 }
 
+void TypeTable::set_dependent_member(TypeId type, TypeId owner,
+                                     const std::string& member)
+{
+	UserType& record = user_types_[nodes_[type].user];
+	record.dependent_owner = owner;
+	record.dependent_member = member;
+}
+
 void TypeTable::set_declaration(TypeId type, const SemaEntity* declaration)
 {
 	user_types_[nodes_[type].user].declaration = declaration;

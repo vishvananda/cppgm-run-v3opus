@@ -1,0 +1,106 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $made : obj<8x4>
+  slot $cond__1 : i32
+  slot $land__2 : i64
+
+  block ^entry:
+    %t1 = addr $made
+    %t2 = addr $made
+    call void @pair_of_int__char___store(%t2)
+    %t3 = addr $made
+    %t4 = index i8 [projection=field] %t3, 0
+    %t5 = load i32 %t4
+    %t6 = cmp ne i32 %t5, 300
+    branch %t6, ^if_then_1, ^lor_rhs_4
+
+  block ^lor_rhs_4:
+    %t7 = addr $made
+    %t8 = index i8 [projection=field] %t7, 4
+    %t9 = load i8 %t8
+    %t10 = convert sext i32 i8 %t9
+    %t11 = cmp ne i32 %t10, 2
+    branch %t11, ^if_then_1, ^if_else_2
+
+  block ^if_then_1:
+    return i32 1
+
+  block ^if_else_2:
+    jump ^if_end_3
+
+  block ^if_end_3:
+    %t12 = addr $made
+    call void @pair_of_int__char___load(%t12)
+    %t13 = addr $made
+    %t14 = index i8 [projection=field] %t13, 0
+    %t15 = load i32 %t14
+    %t16 = cmp eq i32 %t15, 7
+    branch %t16, ^land_rhs_8, ^land_short_9
+
+  block ^land_rhs_8:
+    %t17 = addr $made
+    %t18 = index i8 [projection=field] %t17, 4
+    %t19 = load i8 %t18
+    %t20 = convert sext i32 i8 %t19
+    %t21 = cmp eq i32 %t20, 8
+    %t22 = cmp ne i64 %t21, 0
+    store i64 %t22, $land__2
+    jump ^land_end_10
+
+  block ^land_short_9:
+    store i64 0, $land__2
+    jump ^land_end_10
+
+  block ^land_end_10:
+    %t23 = load i64 $land__2
+    branch %t23, ^cond_then_5, ^cond_else_6
+
+  block ^cond_then_5:
+    store i32 0, $cond__1
+    jump ^cond_end_7
+
+  block ^cond_else_6:
+    store i32 1, $cond__1
+    jump ^cond_end_7
+
+  block ^cond_end_7:
+    %t24 = load i32 $cond__1
+    return i32 %t24
+}
+function @pair_of_int__char___load(%this : ptr) -> void [binding=weak, object=_ZN7pair_ofIicE4loadEv] {
+  slot $this : ptr
+  slot $held : i32
+  slot $tag : i8
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 7, $held
+    store i8 8, $tag
+    %t1 = load i32 $held
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 %t1, %t3
+    %t4 = load i8 $tag
+    %t5 = load ptr $this
+    %t6 = index i8 [projection=field] %t5, 4
+    store i8 %t4, %t6
+    return void
+}
+function @pair_of_int__char___store(%this : ptr) -> void [binding=weak, object=_ZN7pair_ofIicE5storeEv] {
+  slot $this : ptr
+  slot $held : i32
+  slot $tag : i8
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 300, $held
+    store i8 2, $tag
+    %t1 = load i32 $held
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 %t1, %t3
+    %t4 = load i8 $tag
+    %t5 = load ptr $this
+    %t6 = index i8 [projection=field] %t5, 4
+    store i8 %t4, %t6
+    return void
+}

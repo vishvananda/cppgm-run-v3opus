@@ -187,6 +187,20 @@ AbiType abi_type(TypeTable& types, TypeId type, LocalContexts& contexts)
 
 	case TypeKind::TemplateParameter:
 	{
+		if (types.dependent_owner(type) != kNoType)
+		{
+			// 14.6.2p1 and the ABI's `<unresolved-name>`: a name written after
+			// a prefix that depends on a parameter is a member of that prefix,
+			// which the object file writes as the prefix and then the name -
+			// so `typename T::car_type` is `NT_8car_typeE` and not the `T_` a
+			// parameter standing on its own would be.
+			AbiType out;
+			out.kind = abi_mangle::ABI_TYPE_MEMBER;
+			out.name = types.dependent_member(type);
+			out.types.push_back(
+				abi_type(types, types.dependent_owner(type), contexts));
+			return out;
+		}
 		// 14.1p2 and `<template-param>`: a specialization's own name is
 		// encoded from the template's signature, where the parameter stands
 		// for itself and is written by its place among the ones its head

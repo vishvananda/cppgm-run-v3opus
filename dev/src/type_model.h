@@ -222,6 +222,23 @@ public:
 		return user_at(type).template_index;
 	}
 
+	// 14.6.2p1 and 14.2: the prefix a name written through a dependent one
+	// stands after, and that name.  A type made this way is a member of a class
+	// only an argument list names, and the ABI writes the two apart - the
+	// prefix and then the name - which the one spelling it is diagnosed by
+	// cannot be split back into.  `kNoType` for every type no dependent prefix
+	// made.
+	void set_dependent_member(TypeId type, TypeId owner,
+	                          const std::string& member);
+	TypeId dependent_owner(TypeId type) const
+	{
+		return user_at(type).dependent_owner;
+	}
+	const std::string& dependent_member(TypeId type) const
+	{
+		return user_at(type).dependent_member;
+	}
+
 	// 9.1p2 and 14.2: the declaration this class or enumeration was made by.
 	// The spelling `user_qualified_name` carries names every region around it
 	// in one string, and a component of it that a template made cannot be
@@ -576,6 +593,11 @@ private:
 		std::vector<TypeId> template_arguments;
 		// 14.1p2: which parameter of its template a template parameter is.
 		unsigned template_index = 0;
+		// 14.6.2p1: the prefix a dependent member name stands after and the
+		// name itself, which the ABI writes apart.  `kNoType` for every other
+		// type.
+		TypeId dependent_owner = kNoType;
+		std::string dependent_member;
 	};
 
 	// What makes two types the same type.
