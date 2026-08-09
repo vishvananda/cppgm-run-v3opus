@@ -1,9 +1,9 @@
 # PA19 Plan — `cppgm++ --emit-lowir` first-tier templates
 
-PA19 stands at **256 / 310** (47 spec + 207 general + 2 course), from a
-turn-start baseline of 254 / 308, with pa1-pa18 at **1777 / 1777** and the file
+PA19 stands at **261 / 310** (47 spec + 212 general + 2 course), from a
+turn-start baseline of 256 / 310, with pa1-pa18 at **1777 / 1777** and the file
 audit passing with the five header-weight warnings it inherited. The whole
-pa1-pa19 report is 2033 / 2087 and runs in 12.8 s.
+pa1-pa19 report is 2038 / 2087 and runs in 20.4 s.
 
 The milestone gives the PA16-PA18 object model its first template tier: a
 template-declaration records a pattern instead of declaring anything, and
@@ -199,53 +199,81 @@ Three facts about the harness shape what has to be right, read out of
   `split_type_id` keeps a name whole, and
   `type_id_words`/`abstract_declarator_words`/`suffix_words` read 8.1p1's
   type-specifier-seq and 8.3p1's abstract-declarator from what is left.
+- **What a definition did not write, the other declarations of the same entity
+  did.**  8.3.5p10 leaves a parameter's name out of the function's type, so the
+  name is a fact of the *function*: the record each declaration already leaves
+  about its parameters (`Default`) carries the name beside the
+  default-argument, first-namer wins, and the definition's own name beats both.
+  9.4.2p3 is the same shape over an object: the class wrote the
+  brace-or-equal-initializer and the definition at namespace scope shall write
+  none, so the storage that definition lays out holds what the class wrote -
+  and 3.2p3 makes a read of the member's *value* that constant rather than a
+  load, while its address still names the object.  Only the object file asks
+  either question, so PA11 and PA12 go on describing each declaration as it
+  stands.
+- **8.3.5p5 adjusts two different things.**  The array and the function become
+  pointers in the *type of the function* and in *the object the body names*
+  alike, so `parameter_object` is what `declare_parameters` builds the entity
+  from; the top-level cv-qualifiers the same clause drops are dropped from the
+  function type alone, because a by-value parameter written `const` is a const
+  object and 13.3 asks that object which overload a call on it reaches.
+- **An object owes an action only where something would run.**  8.5p8's zero is
+  what its base subobject and its non-static data members hold, so an object
+  every subobject of which holds nothing has no byte a trivial constructor
+  could write - and a class whose one member is of an empty class, which 9p6
+  leaves not empty, is one of those.  12.1p11's vpointer is asked about first.
 
 ## Current Failure Map
 
-54 of 310 fail, and they are the same 54 the checkpoint left. Grouped by the
-compiler behaviour that owns them:
+49 of 310 fail. Grouped by the compiler behaviour that owns them:
 
 | n | group | what is missing |
 | --- | --- | --- |
-| 21 | exit 0, LowIR differs | what a name in a template body resolves to once a specialization reads it: 14.6.2p3's unqualified call skipping a dependent base (3), a specialization's static data member read as storage rather than as its in-class constant (4), a decltype through an inline namespace (2), 3.4.2p2's associated classes (2), and 12.8p12 over a reference member |
-| 8 | 7.1.6.2 and 8.3.5p2: a decltype-specifier written in a declarator | `-> decltype(y - x)` over the declarator's own parameters, `decltype(object)::executor_type` as a template argument, `decltype(f(*t))*` in a parameter-declaration - the parameters are declared in a region the trailing-return-type is not read in |
-| 7 | a specialization used where a definition is required | `an object of the incomplete class type ...` and `sizeof names an incomplete type`, where the specialization the use names was declared and never completed; 14.6.1p1's own members completed in the wrong order |
-| 6 | syntax PA10 does not parse | 14.7.2's `template struct A<int>;`, a function template-id in an expression an ordinary `<` could open, a member array-reference return |
+| 17 | exit 0, LowIR differs | what a name in a template body resolves to once a specialization reads it: 14.6.2p3's unqualified call skipping a dependent base (3), a decltype through an inline namespace (2), 3.4.2p2's associated classes (2), 12.8p12 over a reference member, and 8.5p7's value-initialization of a return object, where the reference writes the trivial constructor's call and no zero |
+| 12 | the long tail of a name written in a template | 13.5p6's builtin beating a class operator, `alignas` over an instantiation, a move-only by-value argument, an inherited constructor through an alias, an elaborated argument in an enclosing scope, a member alias deferred to a later typedef |
+| 6 | syntax PA10 does not parse | 14.7.2's `template struct A<int>;` (3), a function template-id in an expression an ordinary `<` could open (2), a member array-reference return |
+| 5 | 14.7.1p1: a specialization completed where nothing asked | `an object of the incomplete class type ...` and `sizeof names an incomplete type`, where completing the class read a member body no use required |
+| 5 | 7.1.6.2 and 8.3.5p2: a decltype-specifier written in a declarator | `-> decltype(y - x)` over the declarator's own parameters, `decltype(object)::executor_type` as a template argument, `decltype(f(*t))*` in a parameter-declaration |
 | 4 | a template-id whose argument list is not matched | 14.8.1p2's partial explicit argument list, a later redeclaration's default argument, a cv-suffix after a template-id |
-| 8 | the long tail | 13.5p6's builtin beating a class operator, `alignas` over an instantiation, a move-only by-value argument, an inherited constructor through an alias, an elaborated argument in an enclosing scope |
 
 ## Active Checkpoint
 
-**C6 - the region a declarator's own parameters are declared in**: 8.3.5p2's
-trailing-return-type and 7.1.6.2's decltype-specifier are written *inside* a
-declarator, after its parameter-clause, and 3.3.2p1 puts the point of each
-parameter's declaration at the end of its own declarator - so a name either of
-them writes reaches the parameters the same declarator declared.  This walk
-reads a declarator's suffixes against the region the declaration stands in, so
-`-> decltype(y - x)` finds neither `x` nor `y`, and the eight fixtures of the
-second group are all of that.
+**C7 - the point a specialization is required at, and the definitions it owes
+there**: 14.7.1p1 makes an implicit instantiation of a class template
+specialization instantiate the *declarations* of its members and not their
+definitions, and 3.2p4 asks for it only where the completeness of the class
+affects the semantics.  This walk completes a specialization wherever a
+template-id is written, and completing it reads every member body - so
+`pair<object> generate();` lays `pair<object>` out while `object` is still
+incomplete (`sizeof` comes out 1 against g++'s and the reference's 4), and
+`deferred_conversion<incomplete>` reads a conversion function nothing called
+and refuses `sizeof(T)`.
 
-- **owner**: `sema_declarator.cpp`.  `apply_suffix` is where a function
-  declarator's parameter-clause is read and where its trailing-return-type
-  follows it, so the region the parameters are declared in is opened there and
-  the suffix after it is read in that region.  `decltype_type` and
-  `decltype_qualified_type` then answer from it unchanged.
-- **data flow**: `declarator_type` reads the parameter-clause -> the parameters
-  are declared into a `ScopeKind::Function` region opened for the declarator ->
-  the trailing-return-type, and every decltype-specifier written after the
-  parameter-clause, is read in that region -> the region is what
-  `function_definition` reuses for the body, so a parameter is one declaration
-  and not two.
-- **expected complexity**: one region per function declarator, which the
-  definition path already opens - so a declaration that is not a definition
-  gains one region and every declaration gains no lookup it did not already do.
-- **known obstacle**: the region has to be opened before the declarator's own
-  name is known, and `function_definition` opens its own afterwards from
-  `target.scope`; the two have to become one, or the parameters are declared
-  twice and 14.6.1p6 refuses the second.
-- **validation**: the eight fixtures of the second group, then 3.3.2p1's
-  parameter named in a default argument of a later parameter, then the pa19
-  report and pa1-pa18.
+- **owner**: `sema_template.cpp`.  `require_specialization` is the one place an
+  instantiation asks for a specialization, and `complete_specialization` is
+  where the pattern is read again; the demand has to reach the first from a
+  context that requires a complete type, and the second has to stop at the
+  member *declarations*, leaving each body held until a use names it.
+- **data flow**: a template-id names the specialization -> `instantiate_class`
+  makes the declaration and nothing else -> a context 3.2p4 lists (an object
+  declared, a subobject, `sizeof`, a member named, a base) calls
+  `require_specialization` -> the pattern's declarations are read ->
+  `TemplateInfo` holds each member body with the bindings region it belongs to
+  -> a use of that member reads its body once, through the same
+  `FunctionReading` a held body already uses.
+- **expected complexity**: one reading per member *declaration* per
+  specialization plus one per member *body a use named*, against today's one
+  reading of every body of every specialization - so a class template with n
+  members of which one is called costs 1 body rather than n.
+- **known obstacle**: 9.2p2's complete-class context already holds bodies until
+  the class-specifier closes, and the held list is drained there; the demand
+  form has to outlive that drain and be keyed by the member declaration rather
+  than by the reading, so a body held for a specialization is read at the point
+  the use stands and not at the end of the class.
+- **validation**: the five fixtures of the fourth group, then
+  `100-function-return-template-id-incomplete-argument`'s empty init entry,
+  then `sizeof` over a specialization laid out from an argument completed after
+  it was named, then the pa19 report and pa1-pa18.
 
 ## Performance Model
 
@@ -304,14 +332,37 @@ same inputs, so this is the milestone's shape rather than the tier's; g++ does
 n = 20 in 0.06 s because it never materialises the spelling. Fixing it means not
 storing a specialization's written-out name at all.
 
-Valgrind is clean over all 308 fixtures under `pa19/tests`.  A 20000-deep parenthesized
+C6 added one fact per parameter to the record each declaration already leaves,
+which is the only thing it made grow. Measured against a worktree build of the
+pre-C6 commit, each shape timed twice:
+
+| shape | n = 128 | n = 512 |
+| --- | --- | --- |
+| n functions declared and then defined, 4 parameters each | 0.01 s / 8.21 MB -> 0.01 s / 8.58 MB | 0.03 s / 16.12 MB -> 0.04 s / 16.54 MB |
+| n member declarations of one class template, each defined out of class | 0.01 s / 8.74 MB -> 0.01 s / 9.21 MB | 0.04 s / 16.41 MB -> 0.04 s / 16.88 MB |
+| n specializations reading one static data member's constant | 0.01 s / 9.02 MB -> 0.01 s / 9.04 MB | 0.05 s / 17.93 MB -> 0.05 s / 18.42 MB |
+
+All three are linear and the record costs about 3% of the run's memory at
+n = 512. Nothing C6 touched is asked more than once per declaration: the name
+merge is one pass over the parameters a declaration already walked, the
+constant read is two comparisons on an entity the lowering already had in hand,
+and 8.5p8's "holds nothing" is a fact the layout settled.
+
+Valgrind is clean over all 310 fixtures under `pa19/tests`.  A 20000-deep parenthesized
 expression is refused by the parser at about 1000, so the definition-time walk's
 recursion is bounded by the same limit the expression layer already is.
 
-`dev/src/sema_analyzer.h` sits at 2389 lines against the audit's 2400: the next
-checkpoint that adds to it has to move a record out first, as this one moved
+`dev/src/sema_analyzer.h` sits at 2393 lines against the audit's 2400: the next
+checkpoint that adds to it has to move a record out first, as C5 moved
 9.6p2's bit-field storage unit to `sema_declaration.h` and 3.4.2p2's associated
 regions to `sema_value.h`.
+
+Three disagreements with `reference-binaries/cppgm++` that no fixture covers
+were left standing deliberately, because the standard and g++ are on the other
+side: it writes `zero` for a static data member its class gave a
+brace-or-equal-initializer, where g++ emits the value and 9.4.2p3 says the
+object holds it; and it folds a read of a `volatile` member and of a `double`
+one, which 9.4.2p3 and 5.19p2 leave as objects to read.
 
 ## Completed Checkpoints
 
@@ -327,3 +378,4 @@ regions to `sema_value.h`.
 | C4 audit | the reading's own edges: 14.7.1p1's list of the specializations an *instantiation* asked for; 14.6p8 over a declaration's initializer as well as a statement's operand; 3.4.2p2's callee looked up where the arguments associate nothing; 14.6.1p6 asked wherever a declaration binds a name; and 3.3.10p2's type-name refused where a typedef-name of that spelling already stands | 235 / 301 -> **242 / 308**, the seven new tests being the seven regressions these leave; pa1-pa18 1777 / 1777; file audit passes; every checked `.ref` regenerates byte-identically; 95 synthesized programs through three compilers; `object=` differences 9 -> 7 tests and `binding=` 12 -> 10; valgrind clean over all 308 fixtures |
 | C5 | the class a template makes of its own parameters: 14.6.1p1's current instantiation as the class a class template's own definition declares, read once where it stands against a kept region binding each parameter to a type standing for itself; 14.5.1.3p1's out-of-class member definition read against the same two, with 14.1p2's own head names bound beside the class's where 3.4.1p8's body looks them up; 14.6.2p1's dependent qualified name given one type per prefix and spelling, 14.6.2p3's dependent base left off the lookup chain, and what a dependent type is worth stood in for; 9.2p2's complete-class context as a held-body list; 9.4.2p1's qualified class-head defining into the region its name reaches; 9.3.1p3's object parameter read for a pattern so 12.3.2p1 and 13.5p6 see the member; 15.4p1 asked wherever one declaration redeclares another; 7.3.3p1's `using typename` | 242 -> **254 / 308**, the five accepted `-bad` fixtures all refused; pa1-pa18 1777 / 1777; file audit passes; 512 class-template definitions read in 0.03 s and 512 out-of-class member definitions in 0.01 s, both linear; valgrind clean over all 306 pa19 fixtures |
 | C5 audit | the region a member definition's head names stand in, and the two facts a dependent name is written from: 14.1p2's out-of-class head read against a region of its own, standing between the class and the one it was completed against, so a head spelling the class's places in another order is no longer read against the class's own spelling and no name it binds outlives it; 9.2p2's held bodies drained back to the mark rather than walked once, and a function template's own reading draining what its body held; 14.6.2p1's dependent member name kept as the prefix and the name the ABI writes apart, one type per component; and 14.7.1p1's specialization spelled the way a program writes an argument list | 254 / 308 -> **256 / 310**, the two new tests being the two regressions these leave and the failing 54 the same 54; pa1-pa18 1777 / 1777; file audit passes; every checked `.ref` regenerates byte-identically; 73 synthesized programs through three compilers with 56 compared as emitted LowIR; the dependent-member names byte-identical to `reference-binaries/cppgm++` *and* to g++; `object=` differences 7 and the last passing test that hid one now green in that sweep; fourteen scaling shapes measured against a pre-C5 worktree build; valgrind clean over all 308 fixtures under `pa19/tests` |
+| C6 | what a definition takes from the other declarations of the same entity, and what it owes the object file: 9.4.2p3's in-class brace-or-equal-initializer read as the value the definition's storage holds and, through 3.2p3, as what a read of the member *is* rather than a load of it, while its address still names the object; 8.3.5p10's parameter name made a fact of the function, held beside the default-argument each declaration already records, first-namer winning and the definition beating both, and asked of 12.1p1's constructor too; 8.3.5p5's array and function parameters made the pointer objects they are, with the cv-qualifiers the clause drops kept on the object so 13.3 still sees a `const` by-value parameter; and 8.5p8's "holds nothing" read of the whole object, so a class whose one member is of an empty class owes no `[role=init]` entry | 256 -> **261 / 310**; pa1-pa18 1777 / 1777; file audit passes; 44 synthesized programs swept against `reference-binaries/cppgm++` with the three surviving disagreements decided against it by g++ and 9.4.2p3; three scaling shapes measured against a pre-C6 worktree build, all linear at about 3% more memory; valgrind clean |
