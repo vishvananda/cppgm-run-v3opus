@@ -408,9 +408,14 @@ TypeId SemaAnalyzer::declarator_type(const AstNode& node, TypeId base,
 	// clause standing beside it.  `T (*f(P))(Q)` is the function `(P)` makes
 	// and binds `P`'s names; `(Q)`'s belong to the type it returns and to
 	// nothing the body can name.
+	//
+	// Only 8.4p1's function definition has places to spell, and the level that
+	// spells them takes `declared` away from the ones inside it - so the walk
+	// is asked once per definition and not once per declarator level.
 	const bool spells_here =
-		core == nullptr || core->kind != AstKind::NestedDeclarator ||
-		core->children.empty() || takes_enclosing_suffix(*core->children[0]);
+		declared == nullptr || core == nullptr ||
+		core->kind != AstKind::NestedDeclarator || core->children.empty() ||
+		takes_enclosing_suffix(*core->children[0]);
 
 	// 8.3.5p7 and 8.3.5p1: the cv-qualifier-seq and the ref-qualifier of a
 	// function declarator are written after its parameter-clause, so the walk
