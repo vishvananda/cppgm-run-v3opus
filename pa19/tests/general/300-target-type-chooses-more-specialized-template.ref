@@ -1,0 +1,87 @@
+function @pick(%__param0 : ptr) -> i32 [binding=strong, object=_Z4pickPc] {
+  slot $__param0 : ptr
+
+  block ^entry:
+    store ptr %__param0, $__param0
+    return i32 4
+}
+function @through_parameter(%f : ptr) -> i32 [binding=strong, object=_Z17through_parameterPFiPiE] {
+  slot $f : ptr
+  slot $n : i32
+
+  block ^entry:
+    store ptr %f, $f
+    store i32 0, $n
+    %t1 = addr $n
+    %t2 = load ptr $f
+    %t3 = call i32 %t2(%t1) as (%arg0 : ptr) -> i32
+    return i32 %t3
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $by_initializer : ptr
+  slot $by_assignment : ptr
+  slot $over_class : ptr
+  slot $written : ptr
+  slot $b : obj<4x4>
+  slot $n : i32
+  slot $argobj__1 : obj<4x4>
+
+  block ^entry:
+    %t1 = addr @pick__ov3
+    %t2 = unary decay ptr %t1
+    store ptr %t2, $by_initializer
+    %t3 = addr @pick__ov3
+    %t4 = unary decay ptr %t3
+    store ptr %t4, $by_assignment
+    %t5 = addr @pick__ov5
+    %t6 = unary decay ptr %t5
+    store ptr %t6, $over_class
+    %t7 = addr @pick
+    %t8 = unary decay ptr %t7
+    store ptr %t8, $written
+    %t9 = addr $b
+    %t10 = addr $b
+    %t11 = index i8 [projection=field] %t10, 0
+    store i32 0, %t11
+    store i32 0, $n
+    %t12 = addr $n
+    %t13 = load ptr $by_initializer
+    %t14 = call i32 %t13(%t12) as (%arg0 : ptr) -> i32
+    %t15 = addr $n
+    %t16 = load ptr $by_assignment
+    %t17 = call i32 %t16(%t15) as (%arg0 : ptr) -> i32
+    %t18 = binary mul i32 %t17, 10
+    %t19 = binary add i32 %t14, %t18
+    %t20 = addr $argobj__1
+    %t21 = addr $b
+    copyobj 4x4 %t21, %t20
+    %t22 = load ptr $over_class
+    %t23 = call i32 %t22($argobj__1) as (%arg0 : obj<4x4>) -> i32
+    %t24 = binary mul i32 %t23, 100
+    %t25 = binary add i32 %t19, %t24
+    %t26 = load ptr $written
+    %t27 = call i32 %t26(0) as (%arg0 : ptr) -> i32
+    %t28 = binary mul i32 %t27, 1000
+    %t29 = binary add i32 %t25, %t28
+    %t30 = addr @pick__ov3
+    %t31 = unary decay ptr %t30
+    %t32 = call i32 @through_parameter(%t31)
+    %t33 = binary mul i32 %t32, 10000
+    %t34 = binary add i32 %t29, %t33
+    return i32 %t34
+}
+function @pick__ov3(%__param0 : ptr) -> i32 [binding=weak, object=_Z4pickIiEiPT_] {
+  slot $__param0 : ptr
+
+  block ^entry:
+    store ptr %__param0, $__param0
+    return i32 2
+}
+function @pick__ov5(%__param0 : obj<4x4>) -> i32 [binding=weak, object=_Z4pickIiEi3boxIT_E] {
+  slot $__param0 : obj<4x4>
+
+  block ^entry:
+    %t1 = addr $__param0
+    copyobj 4x4 %__param0, %t1
+    return i32 3
+}

@@ -1146,7 +1146,14 @@ SemaEntity* SemaAnalyzer::resolve_target(const Value& value, TypeId target)
 	{
 		return nullptr;
 	}
-	SemaEntity* found = nullptr;
+	// 13.4p1 and 14.8.2.2p1: a function template in the set is one of the
+	// declarations the target chooses between through the specialization the
+	// target type deduces.  13.4p1 leaves a declaration the program wrote ahead
+	// of every such specialization, so a deduced one is only kept and the walk
+	// goes on; several that deduce are told apart the way 13.3.3p1 tells two
+	// specializations apart, by 14.5.6.2's ordering of the templates.
+	std::vector<SemaEntity*> deduced;
+	std::vector<SemaEntity*> patterns;
 	for (std::size_t index = 0; index < value.functions->size(); ++index)
 	{
 		for (SemaEntity* at = (*value.functions)[index]; at != nullptr;
@@ -1156,18 +1163,40 @@ SemaEntity* SemaAnalyzer::resolve_target(const Value& value, TypeId target)
 			{
 				return at;
 			}
-			// 13.4p1 and 14.8.2.2p1: a function template in the set is one of
-			// the declarations the target chooses between through the
-			// specialization the target type deduces.  13.4p1 leaves a
-			// declaration the program wrote ahead of every such specialization,
-			// so a deduced one is kept and the walk goes on.
-			if (at->template_parameters != nullptr && found == nullptr)
+			if (at->template_parameters == nullptr)
 			{
-				found = deduce_target(*at, wanted);
+				continue;
+			}
+			SemaEntity* const made = deduce_target(*at, wanted);
+			if (made != nullptr)
+			{
+				deduced.push_back(made);
+				patterns.push_back(at);
 			}
 		}
 	}
-	return found;
+	if (deduced.empty())
+	{
+		return nullptr;
+	}
+	std::size_t best = 0;
+	for (std::size_t index = 1; index < deduced.size(); ++index)
+	{
+		if (more_specialized(*patterns[index], *patterns[best]))
+		{
+			best = index;
+		}
+	}
+	for (std::size_t index = 0; index < deduced.size(); ++index)
+	{
+		// 13.4p1: the target names one declaration, so a set that leaves two
+		// specializations neither of which is more specialized names none.
+		if (index != best && !more_specialized(*patterns[best], *patterns[index]))
+		{
+			return nullptr;
+		}
+	}
+	return deduced[best];
 }
 
 // 13.3.3p1: one candidate is better than another when its conversion for every
@@ -1496,6 +1525,18 @@ bool SemaAnalyzer::at_least_as_specialized(SemaEntity& left, SemaEntity& right)
 	return answer;
 }
 
+// 14.5.6.2p4: `left` is more specialized than `right` when it is at least as
+// specialized and `right` is not.  9.3.1p3 put a member's object parameter in
+// its type and left a non-member's first operand out of its own, so the two
+// lists only name the same places where both templates declared the same kind
+// of function.
+bool SemaAnalyzer::more_specialized(SemaEntity& left, SemaEntity& right)
+{
+	return &left != &right && left.object_member == right.object_member &&
+		at_least_as_specialized(left, right) &&
+		!at_least_as_specialized(right, left);
+}
+
 bool SemaAnalyzer::better_candidate(const Match* left, const Match* right,
                                     std::size_t count, bool left_written,
                                     bool right_deduced,
@@ -1521,14 +1562,8 @@ bool SemaAnalyzer::better_candidate(const Match* left, const Match* right,
 	// 13.3.3p1: two specializations whose conversions are indistinguishable are
 	// told apart by 14.5.6.2's ordering of the templates they were made from,
 	// which is a question about the two patterns and not about this call.
-	// 9.3.1p3 put a member's object parameter in its type and left a
-	// non-member's first operand out of its own, so the two lists only name the
-	// same places where both templates declared the same kind of function.
 	return left_template != nullptr && right_template != nullptr &&
-		left_template != right_template &&
-		left_template->object_member == right_template->object_member &&
-		at_least_as_specialized(*left_template, *right_template) &&
-		!at_least_as_specialized(*right_template, *left_template);
+		more_specialized(*left_template, *right_template);
 }
 
 // 12.2p1: the storage a temporary is given is named after what asked for it,

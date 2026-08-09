@@ -1,0 +1,92 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $n : i32
+  slot $b : obj<4x4>
+  slot $argobj__1 : obj<4x4>
+
+  block ^entry:
+    store i32 0, $n
+    %t1 = addr $b
+    %t2 = addr $b
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 0, %t3
+    %t4 = load i32 $n
+    %t5 = call i32 @join(%t4)
+    %t6 = addr $n
+    %t7 = call i32 @join__ov3(%t6)
+    %t8 = binary mul i32 %t7, 3
+    %t9 = binary add i32 %t5, %t8
+    %t10 = load i32 $n
+    %t11 = call i32 @join__ov4(%t10, 0)
+    %t12 = binary mul i32 %t11, 5
+    %t13 = binary add i32 %t9, %t12
+    %t14 = addr $argobj__1
+    %t15 = addr $b
+    copyobj 4x4 %t15, %t14
+    %t16 = call i32 @join__ov7($argobj__1)
+    %t17 = binary mul i32 %t16, 7
+    %t18 = binary add i32 %t13, %t17
+    %t19 = load i32 $n
+    %t20 = call i32 @join__ov5(%t19, 0)
+    %t21 = binary mul i32 %t20, 11
+    %t22 = binary add i32 %t18, %t21
+    return i32 %t22
+}
+function @join(%x : i32) -> i32 [binding=weak, object=_Z4joinIiEiT_] {
+  slot $x : i32
+
+  block ^entry:
+    store i32 %x, $x
+    %t1 = load i32 $x
+    %t2 = binary add i32 %t1, 1
+    return i32 %t2
+}
+function @join__ov3(%y : ptr) -> i32 [binding=weak, object=_Z4joinIiEiPT_] {
+  slot $y : ptr
+
+  block ^entry:
+    store ptr %y, $y
+    %t1 = load ptr $y
+    %t2 = load i32 %t1
+    %t3 = binary add i32 %t2, 2
+    return i32 %t3
+}
+function @join__ov4(%p : i32, %q : i64) -> i32 [binding=weak, object=_Z4joinIilEiT_T0_] {
+  slot $p : i32
+  slot $q : i64
+
+  block ^entry:
+    store i32 %p, $p
+    store i64 %q, $q
+    %t1 = load i32 $p
+    %t2 = load i64 $q
+    %t3 = convert sext i64 i32 %t1
+    %t4 = binary add i64 %t3, %t2
+    %t5 = binary add i64 %t4, 4
+    %t6 = convert trunc i32 i64 %t5
+    return i32 %t6
+}
+function @join__ov7(%b : obj<4x4>) -> i32 [binding=weak, object=_Z4joinIiEi3boxIT_E] {
+  slot $b : obj<4x4>
+
+  block ^entry:
+    %t1 = addr $b
+    copyobj 4x4 %b, %t1
+    %t2 = addr $b
+    %t3 = index i8 [projection=field] %t2, 0
+    %t4 = load i32 %t3
+    %t5 = binary add i32 %t4, 8
+    return i32 %t5
+}
+function @join__ov5(%w : i32, %n : i32) -> i32 [binding=weak, object=_Z4joinIiEiT_i] {
+  slot $w : i32
+  slot $n : i32
+
+  block ^entry:
+    store i32 %w, $w
+    store i32 %n, $n
+    %t1 = load i32 $w
+    %t2 = load i32 $n
+    %t3 = binary add i32 %t1, %t2
+    %t4 = binary add i32 %t3, 16
+    return i32 %t4
+}

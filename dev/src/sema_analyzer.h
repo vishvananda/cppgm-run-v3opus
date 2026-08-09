@@ -1882,14 +1882,33 @@ private:
 	// the function it just declared, so that 14.7.1p1 can read it again.
 	void record_function_template(SemaEntity& entity, Scope& parameters,
 	                              Scope& region);
+	// 14.7.1p1: the body the template's definition wrote, read again against
+	// the arguments `function` was made from.  14.6.4.1p1 gives a
+	// specialization named before that definition was written a second point of
+	// instantiation at the end of the unit, so this is reached from there as
+	// well as from the name that asked for it.
+	void instantiate_body(SemaEntity& function);
 	// 14.5.6.1p5: the declaration in the chain `head` that declares the same
 	// function template as a head declaring `parameters` and a declarator that
 	// made `type`, or null where none does.  Two such declarations write types
-	// that differ, because each head declared parameters of its own, so the
-	// question is asked by putting one head's parameters in place of the
-	// other's and comparing what is left.
+	// that differ, because each head declared parameters of its own, so what is
+	// compared is the signature below rather than the types themselves.
 	SemaEntity* equivalent_template(SemaEntity& head, Scope& parameters,
 	                                TypeId type);
+	// 14.5.6.1p5: `type` with each parameter `parameters` declared standing for
+	// the place it was declared in rather than for the declaration that made
+	// it.  Two declarations declare the same template exactly when this is the
+	// same type, so it is a fact of one declaration and not of a pair - which
+	// is what keeps declaring the nth overload of a template name from reading
+	// the n - 1 before it.  `kNoType` where a head declares a parameter that is
+	// not a type, which no substitution here stands for.
+	TypeId template_signature(const Scope& parameters, TypeId type);
+	// The type standing for the `index`th place a template head declares,
+	// made once and shared by every signature.
+	TypeId canonical_parameter(std::size_t index);
+	std::vector<TypeId> canonical_parameters_;
+	// The signature above, kept per declaration.
+	std::unordered_map<std::uint32_t, TypeId> template_signatures_;
 	// 14.5.1.3p1: the class template a definition written outside its class is
 	// a member of, found from the template-id its declarator-id was qualified
 	// with.  Null for a declaration that is a member of no such template.
@@ -2120,6 +2139,10 @@ private:
 	// and is kept, because a call over a large overload set asks it of the
 	// same pair once per comparison.
 	bool at_least_as_specialized(SemaEntity& left, SemaEntity& right);
+	// 14.5.6.2p4: whether `left` is more specialized than `right`, which is the
+	// one question 13.3.3p1's tie between two specializations and 13.4p1's
+	// target type both ask of the templates a deduction made them from.
+	bool more_specialized(SemaEntity& left, SemaEntity& right);
 	// Rewrites what the dump wrote for `value` where a conversion is visible in
 	// it: a null pointer constant, a resolved function name, and the temporary
 	// a reference binds to.  Each rewrites the line the operand already wrote,

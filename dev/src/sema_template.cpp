@@ -769,66 +769,70 @@ void SemaAnalyzer::instantiate(SemaEntity& function)
 		return;
 	}
 	function.instantiated = true;
-	SemaEntity& primary = *function.primary;
-	if (primary.defined)
+	if (function.primary->defined)
 	{
-		// 14.7.1p1: instantiating a template that has a definition instantiates
-		// the definition, which is the body read again against the arguments
-		// rather than a declaration built from them.
-		if (primary.templated == nullptr ||
-		    primary.templated->pattern == nullptr)
-		{
-			throw std::runtime_error("a function template with a definition is "
-			                         "instantiated, which this milestone does "
-			                         "not describe");
-		}
-		const TemplateInfo& info = *primary.templated;
-		const std::vector<TypeId>& arguments =
-			types_.type_list_at(function.template_arguments);
-		Context inner;
-		inner.scope = &model_.open(ScopeKind::TemplateParameters, *info.region,
-		                           nullptr, info.dump);
-		inner.dump = info.dump;
-		// 9.2p2 and 14.7.1p1: the definition is written where the output puts
-		// one the program did not write - among the pending ones, at the end of
-		// the unit - so it stands under no declaration's node.
-		inner.node = nullptr;
-		for (std::size_t index = 0;
-		     index < info.parameters.size() && index < arguments.size(); ++index)
-		{
-			if (info.parameters[index].empty())
-			{
-				continue;
-			}
-			SemaEntity& bound = model_.create(SemaKind::Typedef,
-			                                  info.parameters[index],
-			                                  arguments[index]);
-			model_.bind(*inner.scope, bound.name, bound);
-			model_.declare_in(*inner.scope, bound);
-		}
-		// 14p1 and 3.2p3: every unit that names this specialization
-		// instantiates the same definition from the same template, so the
-		// definition is not this unit's to own - it binds the way an inline
-		// one does and the program keeps one of them.
-		function.inline_function = true;
-		SemaEntity* const enclosing = instantiating_;
-		instantiating_ = &function;
-		function_definition(*info.pattern, inner);
-		instantiating_ = enclosing;
+		instantiate_body(function);
 		return;
 	}
-	// The declaration the specialization stands for is written where the output
-	// puts a definition the program did not write: at the end of the unit, in
-	// the order the specializations were asked for.
+	// 14.6.4.1p1: a specialization named where its template has no definition
+	// yet has a second point of instantiation at the end of the translation
+	// unit, and that is where this one is settled - so what stands here is the
+	// place the definition or the declaration will be written in, in the order
+	// the specializations were asked for.
 	Pending pending;
 	pending.function = &function;
 	pending.instantiation = true;
 	pending_.push_back(pending);
 }
 
+// 14.7.1p1: instantiating a template that has a definition instantiates the
+// definition, which is the body read again against the arguments rather than a
+// declaration built from them.
+void SemaAnalyzer::instantiate_body(SemaEntity& function)
+{
+	SemaEntity& primary = *function.primary;
+	if (primary.templated == nullptr ||
+	    primary.templated->pattern == nullptr)
+	{
+		throw std::runtime_error("a function template with a definition is "
+		                         "instantiated, which this milestone does "
+		                         "not describe");
+	}
+	const TemplateInfo& info = *primary.templated;
+	Context inner;
+	inner.scope = &open_template_bindings(
+		info, types_.type_list_at(function.template_arguments));
+	inner.dump = info.dump;
+	// 9.2p2 and 14.7.1p1: the definition is written where the output puts
+	// one the program did not write - among the pending ones, at the end of
+	// the unit - so it stands under no declaration's node.
+	inner.node = nullptr;
+	// 14p1 and 3.2p3: every unit that names this specialization
+	// instantiates the same definition from the same template, so the
+	// definition is not this unit's to own - it binds the way an inline
+	// one does and the program keeps one of them.
+	function.inline_function = true;
+	SemaEntity* const enclosing = instantiating_;
+	instantiating_ = &function;
+	function_definition(*info.pattern, inner);
+	instantiating_ = enclosing;
+}
+
 void SemaAnalyzer::write_instantiation(const Pending& pending)
 {
-	const SemaEntity& function = *pending.function;
+	// The list this walk is over grows while a body is read, so what the
+	// pending entry says is taken before anything can move it.
+	SemaEntity& asked = *pending.function;
+	if (asked.primary->defined)
+	{
+		// 14.6.4.1p1: the definition read here is the one the template had by
+		// the end of the translation unit, which is a definition written after
+		// the name that asked for this specialization as much as one written
+		// before it.
+		instantiate_body(asked);
+		return;
+	}
+	const SemaEntity& function = asked;
 	const SemaEntity& primary = *function.primary;
 	// 14.7.1p1: the specialization stands for a declaration of the template's
 	// own name, written with the types the arguments made of its parameters.
@@ -1425,35 +1429,66 @@ void SemaAnalyzer::record_function_template(SemaEntity& entity,
 	}
 }
 
+TypeId SemaAnalyzer::canonical_parameter(std::size_t index)
+{
+	while (canonical_parameters_.size() <= index)
+	{
+		// 14.5.6.1p5 asks whether two heads declared their parameters in the
+		// same places, so a place is what a parameter stands for here: one type
+		// per position, made once and shared by every signature.
+		canonical_parameters_.push_back(types_.template_parameter_type(
+			model_.type_entity_id(), false,
+			"#" + std::to_string(canonical_parameters_.size())));
+	}
+	return canonical_parameters_[index];
+}
+
+TypeId SemaAnalyzer::template_signature(const Scope& parameters, TypeId type)
+{
+	const std::vector<SemaEntity*>& declared = parameters.declarations;
+	std::unordered_map<TypeId, TypeId> bindings;
+	for (std::size_t index = 0; index < declared.size(); ++index)
+	{
+		if (declared[index]->kind != SemaKind::TemplateType)
+		{
+			// 14.1p1's other parameters are values rather than types, and
+			// nothing this walk substitutes stands for one - so a head that
+			// declares one is left declaring a template of its own.
+			return kNoType;
+		}
+		bindings.insert(std::make_pair(declared[index]->type,
+		                               canonical_parameter(index)));
+	}
+	std::unordered_map<TypeId, TypeId> memo;
+	return substituted(type, bindings, memo);
+}
+
 SemaEntity* SemaAnalyzer::equivalent_template(SemaEntity& head,
                                               Scope& parameters, TypeId type)
 {
-	const std::vector<SemaEntity*>& declared = parameters.declarations;
+	const TypeId wanted = template_signature(parameters, type);
+	if (wanted == kNoType)
+	{
+		return nullptr;
+	}
+	const std::size_t arity = parameters.declarations.size();
 	for (SemaEntity* at = &head; at != nullptr; at = at->next)
 	{
 		if (at->template_parameters == nullptr ||
-		    at->template_parameters == &parameters)
+		    at->template_parameters == &parameters ||
+		    at->template_parameters->declarations.size() != arity)
 		{
 			continue;
 		}
-		const std::vector<SemaEntity*>& against =
-			at->template_parameters->declarations;
-		if (against.size() != declared.size())
+		const std::pair<std::unordered_map<std::uint32_t, TypeId>::iterator,
+		                bool> held =
+			template_signatures_.insert(std::make_pair(at->id, kNoType));
+		if (held.second)
 		{
-			continue;
+			held.first->second =
+				template_signature(*at->template_parameters, at->type);
 		}
-		std::unordered_map<TypeId, TypeId> bindings;
-		bool comparable = true;
-		for (std::size_t index = 0; comparable && index < declared.size();
-		     ++index)
-		{
-			comparable = declared[index]->kind == SemaKind::TemplateType &&
-				against[index]->kind == SemaKind::TemplateType;
-			bindings.insert(std::make_pair(declared[index]->type,
-			                               against[index]->type));
-		}
-		std::unordered_map<TypeId, TypeId> memo;
-		if (comparable && substituted(type, bindings, memo) == at->type)
+		if (held.first->second == wanted)
 		{
 			return at;
 		}

@@ -1,0 +1,76 @@
+function @by_call() -> i32 [binding=strong, object=_Z7by_callv] {
+  block ^entry:
+    %t1 = call i32 @twice(1)
+    return i32 %t1
+}
+function @by_target() -> i32 [binding=strong, object=_Z9by_targetv] {
+  slot $p : ptr
+  slot $n : i32
+
+  block ^entry:
+    %t1 = addr @twice__ov3
+    %t2 = unary decay ptr %t1
+    store ptr %t2, $p
+    store i32 4, $n
+    %t3 = addr $n
+    %t4 = load ptr $p
+    %t5 = call i32 %t4(%t3) as (%arg0 : ptr) -> i32
+    return i32 %t5
+}
+function @by_member() -> i32 [binding=strong, object=_Z9by_memberv] {
+  slot $h : obj<4x4>
+
+  block ^entry:
+    %t1 = addr $h
+    %t2 = addr $h
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 8, %t3
+    %t4 = addr $h
+    %t5 = call i32 @holder_int___doubled(%t4)
+    return i32 %t5
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    %t1 = call i32 @by_call()
+    %t2 = call i32 @by_target()
+    %t3 = binary add i32 %t1, %t2
+    %t4 = call i32 @by_member()
+    %t5 = binary add i32 %t3, %t4
+    return i32 %t5
+}
+function @twice(%t : i32) -> i32 [binding=weak, object=_Z5twiceIiEiT_] {
+  slot $t : i32
+
+  block ^entry:
+    store i32 %t, $t
+    %t1 = load i32 $t
+    %t2 = load i32 $t
+    %t3 = binary add i32 %t1, %t2
+    return i32 %t3
+}
+function @twice__ov3(%t : ptr) -> i32 [binding=weak, object=_Z5twiceIiEiPT_] {
+  slot $t : ptr
+
+  block ^entry:
+    store ptr %t, $t
+    %t1 = load ptr $t
+    %t2 = load i32 %t1
+    %t3 = load ptr $t
+    %t4 = load i32 %t3
+    %t5 = binary add i32 %t2, %t4
+    return i32 %t5
+}
+function @holder_int___doubled(%this : ptr) -> i32 [binding=weak, object=_ZN6holderIiE7doubledEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i32 %t2
+    %t4 = load ptr $this
+    %t5 = index i8 [projection=field] %t4, 0
+    %t6 = load i32 %t5
+    %t7 = binary add i32 %t3, %t6
+    return i32 %t7
+}
