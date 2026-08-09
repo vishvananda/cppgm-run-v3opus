@@ -1,0 +1,75 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $mutable_object : i32
+  slot $frozen : i32
+  slot $ordered : i32
+  slot $bound : i32
+  slot $refarg__1 : i32
+
+  block ^entry:
+    store i32 0, $mutable_object
+    store i32 0, $frozen
+    %t1 = addr $mutable_object
+    %t2 = call i32 @qualified(%t1)
+    %t3 = addr $frozen
+    %t4 = call i32 @qualified__ov2(%t3)
+    %t5 = binary mul i32 %t4, 10
+    %t6 = binary add i32 %t2, %t5
+    store i32 %t6, $ordered
+    %t7 = addr $mutable_object
+    %t8 = call i32 @forwarded(%t7)
+    store i32 1, $refarg__1
+    %t9 = addr $refarg__1
+    %t10 = call i32 @forwarded__ov3(%t9)
+    %t11 = binary mul i32 %t10, 10
+    %t12 = binary add i32 %t8, %t11
+    store i32 %t12, $bound
+    %t13 = load i32 $ordered
+    %t14 = load i32 $bound
+    %t15 = binary mul i32 %t14, 100
+    %t16 = binary add i32 %t13, %t15
+    %t17 = addr $mutable_object
+    %t18 = call i32 @measured(%t17)
+    %t19 = binary mul i32 %t18, 10000
+    %t20 = binary add i32 %t16, %t19
+    return i32 %t20
+}
+function @qualified(%__param0 : ptr [pass=reference]) -> i32 [binding=weak, object=_Z9qualifiedIiEiRT_] {
+  slot $__param0 : ptr
+
+  block ^entry:
+    store ptr %__param0, $__param0
+    return i32 1
+}
+function @qualified__ov2(%__param0 : ptr [pass=reference]) -> i32 [binding=weak, object=_Z9qualifiedIiEiRKT_] {
+  slot $__param0 : ptr
+
+  block ^entry:
+    store ptr %__param0, $__param0
+    return i32 2
+}
+function @forwarded(%__param0 : ptr [pass=reference]) -> i32 [binding=weak, object=_Z9forwardedIRiEiOT_] {
+  slot $__param0 : ptr
+
+  block ^entry:
+    store ptr %__param0, $__param0
+    return i32 4
+}
+function @forwarded__ov3(%__param0 : ptr [pass=reference]) -> i32 [binding=weak, object=_Z9forwardedIiEiOT_] {
+  slot $__param0 : ptr
+
+  block ^entry:
+    store ptr %__param0, $__param0
+    return i32 4
+}
+function @measured(%__param0 : ptr [pass=reference]) -> i32 [binding=weak, object=_Z8measuredIRiEiOT_] {
+  slot $__param0 : ptr
+
+  block ^entry:
+    store ptr %__param0, $__param0
+    %t1 = const i64 4
+    %t2 = convert trunc i32 i64 %t1
+    %t3 = const i64 4
+    %t4 = convert trunc i32 i64 %t3
+    %t5 = binary add i32 %t2, %t4
+    return i32 %t5
+}

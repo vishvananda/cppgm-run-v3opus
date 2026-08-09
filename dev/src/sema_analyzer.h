@@ -2143,6 +2143,11 @@ private:
 	// one question 13.3.3p1's tie between two specializations and 13.4p1's
 	// target type both ask of the templates a deduction made them from.
 	bool more_specialized(SemaEntity& left, SemaEntity& right);
+	// 14.5.6.2p9: which of two templates the places both of them deduce leave
+	// ahead, which is what the references and the qualifiers 14.5.6.2p5 and p7
+	// took off the types still say.  Positive for `left`, negative for `right`,
+	// zero where the places do not agree or say nothing.
+	int reference_order(SemaEntity& left, SemaEntity& right);
 	// Rewrites what the dump wrote for `value` where a conversion is visible in
 	// it: a null pointer constant, a resolved function name, and the temporary
 	// a reference binds to.  Each rewrites the line the operand already wrote,

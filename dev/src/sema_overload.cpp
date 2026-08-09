@@ -1525,6 +1525,55 @@ bool SemaAnalyzer::at_least_as_specialized(SemaEntity& left, SemaEntity& right)
 	return answer;
 }
 
+// 14.5.6.2p9: where the deduction of one place succeeded in both directions the
+// two templates wrote types that are identical once 14.5.6.2p5 and p7 have
+// taken the references and the qualifiers off them - so what is left to tell
+// them apart is what those took: an lvalue reference is more specialized than
+// what is not one, and a reference to a more qualified type is more specialized
+// than a reference to a less qualified one.  14.5.6.2p10 wants one template
+// ahead at some place and behind at none, so a place answering each way leaves
+// neither.
+int SemaAnalyzer::reference_order(SemaEntity& left, SemaEntity& right)
+{
+	const std::vector<TypeId>& wrote = types_.parameters(left.type);
+	const std::vector<TypeId>& against = types_.parameters(right.type);
+	int order = 0;
+	for (std::size_t index = 0; index < wrote.size() && index < against.size();
+	     ++index)
+	{
+		if (!types_.is_reference(wrote[index]) ||
+		    !types_.is_reference(against[index]))
+		{
+			continue;
+		}
+		const bool lvalue =
+			types_.kind(wrote[index]) == TypeKind::LValueReference;
+		const bool other =
+			types_.kind(against[index]) == TypeKind::LValueReference;
+		const unsigned held = types_.cv(types_.target(wrote[index]));
+		const unsigned theirs = types_.cv(types_.target(against[index]));
+		int here = 0;
+		if (lvalue != other)
+		{
+			here = lvalue ? 1 : -1;
+		}
+		else if (held != theirs)
+		{
+			here = (theirs & ~held) == 0 ? 1 : ((held & ~theirs) == 0 ? -1 : 0);
+		}
+		if (here == 0)
+		{
+			continue;
+		}
+		if (order != 0 && order != here)
+		{
+			return 0;
+		}
+		order = here;
+	}
+	return order;
+}
+
 // 14.5.6.2p4: `left` is more specialized than `right` when it is at least as
 // specialized and `right` is not.  9.3.1p3 put a member's object parameter in
 // its type and left a non-member's first operand out of its own, so the two
@@ -1532,9 +1581,13 @@ bool SemaAnalyzer::at_least_as_specialized(SemaEntity& left, SemaEntity& right)
 // of function.
 bool SemaAnalyzer::more_specialized(SemaEntity& left, SemaEntity& right)
 {
-	return &left != &right && left.object_member == right.object_member &&
-		at_least_as_specialized(left, right) &&
-		!at_least_as_specialized(right, left);
+	if (&left == &right || left.object_member != right.object_member ||
+	    !at_least_as_specialized(left, right))
+	{
+		return false;
+	}
+	return !at_least_as_specialized(right, left) ||
+		reference_order(left, right) > 0;
 }
 
 bool SemaAnalyzer::better_candidate(const Match* left, const Match* right,

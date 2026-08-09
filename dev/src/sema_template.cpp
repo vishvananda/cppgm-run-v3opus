@@ -645,8 +645,19 @@ SemaEntity* SemaAnalyzer::deduce_specialization(
 			}
 			continue;
 		}
-		const TypeId given =
+		TypeId given =
 			reference ? arguments[index].type : decayed(arguments[index]);
+		// 14.8.2.1p3: an rvalue reference written over a parameter the
+		// declarator wrote no qualifier on is deduced from "lvalue reference to
+		// A" wherever the argument is an lvalue, so 8.3.2p6's collapsing of the
+		// two references is what makes the parameter bind it.
+		if (kind == TypeKind::RValueReference &&
+		    types_.kind(expected) == TypeKind::TemplateParameter &&
+		    types_.cv(expected) == 0 &&
+		    arguments[index].category == ValueCategory::LValue)
+		{
+			given = types_.reference_to(given, false);
+		}
 		if (!deduce(expected, given, bindings, reference))
 		{
 			return nullptr;
