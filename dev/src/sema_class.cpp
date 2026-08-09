@@ -820,6 +820,10 @@ void SemaAnalyzer::special_member_definition(const AstNode& node,
 		}
 		return;
 	}
+	// 8.3.5p10: the definition is a declaration of the function like the one the
+	// class body wrote, so a parameter it left unnamed is named by whichever
+	// declaration of the constructor named it.
+	record_declared_parameters(*entity, parameters, target.scope);
 	open_special_member_body(node, *entity, target, written, parameters);
 }
 

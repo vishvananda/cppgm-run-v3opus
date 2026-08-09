@@ -410,6 +410,11 @@ LowValue LowirFunctionLowering::storage_of(const SemaEntity& entity)
 	{
 		value.has_held = true;
 		value.held = literal_operand(entity.type, entity.value);
+		// 5.19: the value is one this translation knows, which is what lets a
+		// widening of it be written as the wider immediate rather than as a
+		// conversion of the narrower one.
+		value.constant = true;
+		value.value = entity.value;
 	}
 	if (types.is_reference(entity.type))
 	{
