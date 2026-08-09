@@ -257,8 +257,13 @@ are opened makes it cost the number of template heads instead - at 1024 nested
 blocks 0.10 s -> **0.08 s**, which is what the same nest without a template head
 over it costs, so the check is no longer measurable.
 
-Valgrind is clean over all 299 fixtures, over the multi-unit programs and over
-the scaling shapes, and the whole pa1-pa19 report is 10.3 s.  Two of the rules
+Valgrind is clean over the 73 inputs this checkpoint newly reaches - every
+`-bad` fixture, the template fixtures whose bodies are now read at their own
+point, the two course tests and the scaling shapes above - and was clean over
+all 299 fixtures at the end of the C3 audit.  The whole pa1-pa19 report is
+10.3 s.  A 20000-deep parenthesized expression is refused by the parser at about
+1000, so the definition-time walk's recursion is bounded by the same limit the
+expression layer already is.  Two of the rules
 this checkpoint added have no fixture of their own, so `cppgm.tests/course/pa19`
 holds one each - 14.6.1p6 over an alias-declaration in an uninstantiated
 function template body, and 9.2p1's member type declared twice beside the
