@@ -57,6 +57,18 @@ public:
 	           std::unordered_map<TypeId, TypeId>& bindings,
 	           bool relaxed = false, bool derived = false);
 
+	// 14.8.2.5p4 with 14.5.3p1: one list of entries against another - a
+	// template-argument-list, or 8.3.5p1's parameter list - where a trailing
+	// `P...` in the pattern is one entry standing for every argument the
+	// entries before it did not take.
+	//
+	// 14.5.5.1p1's choice between the partial specializations of one template is
+	// this same reading: a pattern is an argument list written over the places
+	// its own head declared, so what a use's list matches is asked here.
+	bool match_arguments(const std::vector<TypeId>& wanted,
+	                     const std::vector<TypeId>& given,
+	                     std::unordered_map<TypeId, TypeId>& bindings);
+
 private:
 	Deduction(const Deduction&);
 	Deduction& operator=(const Deduction&);
@@ -79,14 +91,6 @@ private:
 	// against the type of what a call put there.
 	bool match_argument(TypeId parameter, const AnalyzedValue& argument,
 	                    std::unordered_map<TypeId, TypeId>& bindings);
-
-	// 14.8.2.5p4 with 14.5.3p1: one list of entries against another - a
-	// template-argument-list, or 8.3.5p1's parameter list - where a trailing
-	// `P...` in the pattern is one entry standing for every argument the
-	// entries before it did not take.
-	bool match_arguments(const std::vector<TypeId>& wanted,
-	                     const std::vector<TypeId>& given,
-	                     std::unordered_map<TypeId, TypeId>& bindings);
 
 	// 14.8.2.1p1 over 14.5.3p4's pattern: what the one pack `expansion` names
 	// is deduced to when the pattern is matched against each of `given` in

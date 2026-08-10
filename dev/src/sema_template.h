@@ -129,6 +129,47 @@ struct TemplateInfo
 	// lookup on a number it already has and never scans them.
 	std::unordered_map<std::uint32_t, const AstNode*> explicit_classes;
 	std::unordered_map<std::uint32_t, const AstNode*> explicit_functions;
+	// 14.5.1p1: the same for a variable template, whose specialization is the
+	// constant one init-declarator evaluates to rather than a class or a body.
+	std::unordered_map<std::uint32_t, const AstNode*> explicit_variables;
+	// 14.5.5p1: a declaration of this template for a *pattern* of arguments
+	// rather than for a list of them.
+	//
+	// It is a template of its own - its head declares places nothing else
+	// declares, and the pattern is written over those - so what it adds to this
+	// one is a second body an argument list may be read from.  14.5.5.1p1 is
+	// which: the list is matched against each pattern, and the arguments the
+	// match deduced for the winner's own head are what its body is read
+	// against.  Empty for every template no head partially specialized, which
+	// is what makes the choice one test for a program that writes no trait.
+	struct Partial
+	{
+		Partial()
+			: head(nullptr)
+			, body(nullptr)
+			, signature(0)
+		{}
+
+		TemplateInfo* head;
+		std::vector<TypeId> pattern;
+		const AstNode* body;
+		// 14.5.6.1p5: the pattern with each place standing for its position,
+		// which is what tells a redeclaration of one pattern from a second
+		// pattern - two heads spell one pattern over places of their own.
+		std::uint32_t signature;
+	};
+	std::vector<Partial> partials;
+	// 14.5.5.1p1: which pattern one argument list chose, and the arguments the
+	// match deduced for that pattern's head - as the interned list every other
+	// fact about an argument list is keyed by.  The choice is a fact of the
+	// template rather than of any one naming, so it is made once and dropped
+	// whole wherever a later declaration adds a pattern it never saw.
+	struct Chosen
+	{
+		std::size_t at;
+		std::uint32_t arguments;
+	};
+	std::unordered_map<std::uint32_t, Chosen> chosen;
 };
 
 // 14.1p11 and 14.5.3p1: the place `info` declared a pack at, or the number of

@@ -71,6 +71,10 @@ private:
 	// 14.8.2: the match that turns a use of a function template into the
 	// argument list it deduces, which `sema_deduce.h` owns for the same reason.
 	friend class Deduction;
+	// 14.5.5 and 14.5.1p1: the two declarations a template head writes that are
+	// neither the primary template nor a specialization of it, which
+	// `sema_specialize.h` owns because each changes one step of the three.
+	friend class Specialization;
 
 	// 3.3, 7p1, 8.3.5p4, 12.6.2p1 and 5.19p3: the records the declaration
 	// layer passes between its steps, which `sema_declaration.h` defines.  The
@@ -1712,6 +1716,11 @@ private:
 	SemaEntity* template_id_entity(const std::string& component,
 	                               const Context& ctx, Scope* in,
 	                               LookupKind filter);
+	// 14.5.1p1: the same over a variable template, whose name is bound as an
+	// ordinary declaration and so is reached by no lookup asking for a type.
+	SemaEntity* variable_template_entity(const TemplateId& id,
+	                                     const Context& ctx, Scope* in,
+	                                     LookupKind filter);
 	// 14.3p1 and 14.7.1p1: the class `arguments` makes of the class template
 	// `primary`, made once however many times it is named.  The pattern is
 	// read against a region binding each parameter to its argument, so every

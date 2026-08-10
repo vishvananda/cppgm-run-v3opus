@@ -1,0 +1,147 @@
+#pragma once
+
+#include <cstddef>
+#include <cstdint>
+#include <string>
+#include <vector>
+
+#include "type_model.h"
+
+struct AstNode;
+class Scope;
+class SemaAnalyzer;
+struct SemaContext;
+struct SemaEntity;
+class TemplateId;
+struct TemplateInfo;
+
+// 14.5.5 and 14.5.1p1: the two declarations a template head writes that declare
+// neither the primary template nor an ordinary specialization of it.
+//
+// 14.5.5p1's partial specialization is a template whose head declares places of
+// its own and whose declarator-id writes an argument *pattern* over them.  So it
+// is not one more declaration of the primary and it makes no specialization by
+// itself: it stands beside the primary until an argument list arrives, and
+// 14.5.5.1p1 then asks which pattern that list matches - which is 14.8.2's
+// match, one list of entries against another, already owned by `sema_deduce.h`.
+// What the chosen pattern gives back is the arguments *its* head took, and the
+// body it wrote is read against those in place of the primary's.
+//
+// 14.5.1p1's variable template is the same three steps over an object rather
+// than a class: a head, a pattern, and one declaration per argument list.  What
+// differs is what an instantiation of it comes to.  A specialization of a
+// variable template is used where 5.19 asks for a constant - a template
+// argument, a `static_assert`, the value an instantiated body returns - so what
+// the reading leaves behind is the constant its initializer evaluated to, and
+// no object at all: nothing takes its address, so the object file writes none.
+//
+// The choice is a fact of the *template* rather than of any one use, so it is
+// memoised on the primary's `TemplateInfo` under the interned argument list a
+// naming already has in hand, and a template no head partially specialized -
+// which is every template a program without a trait writes - pays one test of
+// an empty vector.
+class Specialization
+{
+public:
+	explicit Specialization(SemaAnalyzer& analyzer);
+
+	// 14.5.5p1 and 14.5.1p1: records what a template-declaration whose head
+	// declared parameters wrote, where that is a partial specialization of a
+	// class or variable template, or a variable template itself.  False where
+	// the declaration is none of those, which leaves the ordinary walk to read
+	// it as it did before.
+	bool record(const AstNode& clause, const AstNode& declared,
+	            const SemaContext& ctx);
+
+	// 14.7.3p1 over 14.5.1p1's variable template: the declaration a
+	// `template<>` head wrote for one argument list, held against that list so
+	// that the reading of a specialization finds it in place of the pattern.
+	bool record_explicit(const AstNode& declared, const SemaContext& ctx);
+
+	// 14.5.5.1p1: which partial specialization of `primary` the argument list
+	// `arguments` matches, and the arguments *its* own head took.  `kNoPartial`
+	// where the list matches none, which leaves the primary's own pattern.
+	std::size_t chosen(SemaEntity& primary,
+	                   const std::vector<TypeId>& arguments,
+	                   std::vector<TypeId>& deduced);
+
+	// 14.7.1p1 over a variable template: the declaration `arguments` makes of
+	// `primary`, which is the constant its initializer evaluates to.
+	SemaEntity& variable(SemaEntity& primary,
+	                     const std::vector<TypeId>& arguments,
+	                     const SemaContext& ctx);
+
+	// 14.5.5p1: the place a list that matched no pattern stands at.
+	static const std::size_t kNoPartial = static_cast<std::size_t>(-1);
+
+private:
+	Specialization(const Specialization&);
+	Specialization& operator=(const Specialization&);
+
+	// 14.5.5p2: the argument pattern a partial specialization's declarator-id
+	// wrote, read in a region of its own binding the places its head declared.
+	// False where that head declares a place this milestone gives no meaning
+	// to, which leaves the pattern unrecorded and the primary answering.
+	bool read_pattern(SemaEntity& primary, const TemplateId& id,
+	                  const AstNode& clause, const SemaContext& ctx,
+	                  TemplateInfo*& head, std::vector<TypeId>& pattern);
+
+	// 14.5.5p2: the pattern held beside the primary, replacing the one an
+	// earlier declaration of the same pattern left.
+	void hold_pattern(TemplateInfo& info, TemplateInfo& head,
+	                  std::vector<TypeId>& pattern, const AstNode& declared);
+
+	// 14.5.6.1p5: the pattern with each place standing for its position, which
+	// is what two heads that wrote one pattern share.
+	std::uint32_t canonical_pattern(const TemplateInfo& head,
+	                                const std::vector<TypeId>& pattern);
+
+	// 14.5.1p1: the variable template a head over a plain declarator-id
+	// declares, bound in the region the head stands in.
+	bool declare_variable(const AstNode& clause, const AstNode& declared,
+	                      const AstNode& init, const std::string& name,
+	                      const SemaContext& ctx);
+
+	// 8p1: the type one init-declarator of `declared` declares, read in `ctx`.
+	TypeId declared_type(const AstNode& declared, const AstNode& init,
+	                     const SemaContext& ctx);
+
+	// 14.5.5.1p1: whether the pattern at `index` matches `arguments`, and what
+	// the places its own head declared were deduced to.
+	bool matches(const TemplateInfo& info, std::size_t index,
+	             const std::vector<TypeId>& arguments,
+	             std::vector<TypeId>& deduced);
+
+	// 14.5.5.2p1: which of `matched` every other one is at least as general as.
+	std::size_t most_specialized(const TemplateInfo& info,
+	                             const std::string& name,
+	                             const std::vector<std::size_t>& matched);
+
+	// 14.5.5.2p1: whether every argument list `left` matches is one `right`
+	// matches too, which is the rewriting of both as function templates that
+	// clause asks for, read as the one match 14.8.2.5p4 already is.
+	bool at_least_as_specialized(const TemplateInfo& info,
+	                             std::size_t left, std::size_t right);
+
+	// 14.5.1p1: the declaration a variable template's specialization is read
+	// from, and the region binding what that declaration's own head took.
+	struct Reading
+	{
+		Reading();
+
+		const AstNode* declared;
+		Scope* region;
+	};
+	Reading variable_reading(SemaEntity& primary,
+	                         const std::vector<TypeId>& arguments,
+	                         std::uint32_t list);
+
+	// 14.5.1p1 and 5.19: the type one init-declarator of a variable template
+	// declares and the constant its initializer evaluates to, read in
+	// `reading`'s region.
+	SemaEntity& read_variable(SemaEntity& primary, const Reading& reading,
+	                          const std::vector<TypeId>& arguments,
+	                          std::uint32_t list);
+
+	SemaAnalyzer& analyzer_;
+};

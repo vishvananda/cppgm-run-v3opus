@@ -7,6 +7,7 @@
 #include "ast_tokens.h"
 #include "sema_deduce.h"
 #include "sema_pack.h"
+#include "sema_specialize.h"
 #include "token_model.h"
 
 // Function templates, as far as one specialization of each.
@@ -462,6 +463,15 @@ bool SemaAnalyzer::record_template(const AstNode& node, const Context& ctx)
 		}
 		return true;
 	}
+	// 14.5.5p1 and 14.5.1p1: a head whose declaration writes an argument
+	// *pattern* declares no template of that spelling but a second body for the
+	// one it names, and a head over an object declares a variable template.
+	// Both are asked before the primary tier, because what tells them apart from
+	// it is the declarator-id alone.
+	if (Specialization(*this).record(*clause, *declared, ctx))
+	{
+		return true;
+	}
 	if (declared->kind != AstKind::ClassSpecifier &&
 	    declared->kind != AstKind::ClassForwardDeclaration)
 	{
@@ -639,7 +649,11 @@ bool SemaAnalyzer::record_explicit_specialization(const AstNode& declared,
 	if (declared.kind != AstKind::ClassSpecifier &&
 	    declared.kind != AstKind::ClassForwardDeclaration)
 	{
-		return record_explicit_function(declared, ctx);
+		// 14.5.1p1: what a `template<>` head wrote over an object is the
+		// specialization of a variable template, whose body is one
+		// init-declarator rather than a class body or a function body.
+		return Specialization(*this).record_explicit(declared, ctx) ||
+			record_explicit_function(declared, ctx);
 	}
 	const QualifiedName spelled(declared.text);
 	const TemplateId id(spelled.last());
@@ -988,7 +1002,20 @@ void SemaAnalyzer::complete_specialization(SemaEntity& made)
 		written = info.explicit_classes.find(made.template_arguments);
 	const bool specialized =
 		!pattern && written != info.explicit_classes.end();
-	const AstNode* const body = specialized ? written->second : info.pattern;
+	// 14.5.5.1p1: where no explicit specialization wrote this list out, the
+	// class is read from whichever partial specialization's pattern the list
+	// matches - and from the primary's own pattern where it matches none.
+	std::vector<TypeId> deduced;
+	const std::size_t partial =
+		made.defined || pattern || specialized || info.partials.empty() ||
+				types_.is_dependent(made.type)
+			? Specialization::kNoPartial
+			: Specialization(*this).chosen(
+				  *made.primary, types_.type_list_at(made.template_arguments),
+				  deduced);
+	const bool matched = partial != Specialization::kNoPartial;
+	const AstNode* const body = specialized ? written->second
+		: (matched ? info.partials[partial].body : info.pattern);
 	if (made.defined || body == nullptr ||
 	    body->kind != AstKind::ClassSpecifier ||
 	    (!pattern && !specialized && types_.is_dependent(made.type)))
@@ -1005,7 +1032,9 @@ void SemaAnalyzer::complete_specialization(SemaEntity& made)
 		? info.region
 		: (pattern ? info.parameter_region
 		           : &open_template_bindings(
-				         info, types_.type_list_at(made.template_arguments)));
+				         matched ? *info.partials[partial].head : info,
+				         matched ? deduced
+				                 : types_.type_list_at(made.template_arguments)));
 	inner.dump = pattern ? info.reading_dump : info.dump;
 	inner.node = nullptr;
 	Span span;
@@ -1034,10 +1063,12 @@ void SemaAnalyzer::complete_specialization(SemaEntity& made)
 	// class can only be written after it, so `record_template` is where each
 	// one's own reading stands.
 	for (std::size_t index = 0;
-	     !pattern && !specialized && index < info.members.size(); ++index)
+	     !pattern && !specialized && !matched && index < info.members.size();
+	     ++index)
 	{
-		// 14.7.3p1: a member the *template* defined outside its class is no
-		// member of a specialization the program wrote out for itself.
+		// 14.7.3p1 and 14.5.5p1: a member the *template* defined outside its
+		// class is no member of a specialization the program wrote out for
+		// itself, nor of one a partial specialization's own body declared.
 		instantiate_member(made, info.members[index]);
 	}
 	// 10.3p10's table names a virtual member whatever it is defined by, so the
@@ -1080,12 +1111,41 @@ SemaEntity* SemaAnalyzer::template_id_entity(const std::string& component,
 	if (primary == nullptr || primary->kind != SemaKind::Class ||
 	    primary->templated == nullptr)
 	{
-		return nullptr;
+		return variable_template_entity(id, ctx, in, filter);
 	}
-	static_cast<void>(filter);
 	std::vector<TypeId> arguments;
 	bind_template_arguments(*primary, id.arguments(), ctx, arguments);
 	return &instantiate_class(*primary, arguments);
+}
+
+// 14.5.1p1: the specialization a template-id written over a variable template
+// denotes, which is a constant rather than a type.
+//
+// The name it is written from is bound as an ordinary declaration and not as a
+// type-name, so the lookup above - which asks for a type, because that is what
+// nearly every template-id names - reaches nothing.  This is the second ask,
+// made only where the context accepts a declaration of any kind at all: a
+// nested-name-specifier and an elaborated-type-specifier each name a type, and
+// an object never stands there.
+SemaEntity* SemaAnalyzer::variable_template_entity(const TemplateId& id,
+                                                   const Context& ctx, Scope* in,
+                                                   LookupKind filter)
+{
+	if (filter != LookupKind::Any)
+	{
+		return nullptr;
+	}
+	SemaEntity* const primary =
+		in != nullptr ? model_.lookup_in(*in, id.name(), LookupKind::Any)
+		              : model_.lookup(*ctx.scope, id.name(), LookupKind::Any);
+	if (primary == nullptr || primary->kind != SemaKind::Variable ||
+	    primary->templated == nullptr)
+	{
+		return nullptr;
+	}
+	std::vector<TypeId> arguments;
+	bind_template_arguments(*primary, id.arguments(), ctx, arguments);
+	return &Specialization(*this).variable(*primary, arguments, ctx);
 }
 
 namespace
