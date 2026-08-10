@@ -63,6 +63,15 @@ tells the two apart is not the condition's shape but whether the reading stood a
 value in: `stood_in_` is a count, incremented at each of the four places a
 stand-in is made, and the declaration compares it across the evaluation.
 
+**What a reading puts aside is a header of its own.**  `sema_reading.h` holds
+the records 6.6.1, 12.2p3, 14.6p8 and 11p6 each leave one reading holding while
+it stands - the function it is reading, the dialect it reads in, the class a
+declaration names a member of - because every one of those readings can stand
+inside another and an error thrown out of the inner one has to leave the outer
+where it found it.  They are the same kind of record `ReadingDepth` and
+`EnclosedBy` already were, so they travel together and the walk's own header
+stops carrying them.
+
 **10p1's base is complete where the definition stands.**  14.6p8's reading asks
 for no definition, because a name written in a template definition is no use of
 anything - but a base class an argument list has already settled is one the

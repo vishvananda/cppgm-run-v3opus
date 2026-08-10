@@ -2013,7 +2013,7 @@ bool SemaAnalyzer::accessible(const SemaEntity& member, const Scope* from,
 	return false;
 }
 
-SemaAnalyzer::Naming::Naming(SemaAnalyzer& owner, Scope* region)
+Naming::Naming(SemaAnalyzer& owner, Scope* region)
 	: owner(owner)
 	, held(owner.naming_)
 {
@@ -2023,7 +2023,7 @@ SemaAnalyzer::Naming::Naming(SemaAnalyzer& owner, Scope* region)
 	}
 }
 
-SemaAnalyzer::Naming::~Naming()
+Naming::~Naming()
 {
 	owner.naming_ = held;
 }

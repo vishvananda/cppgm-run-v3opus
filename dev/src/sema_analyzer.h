@@ -13,6 +13,7 @@
 #include "parse_depth.h"
 #include "sema_declaration.h"
 #include "sema_name.h"
+#include "sema_reading.h"
 #include "sema_scope.h"
 #include "sema_template.h"
 #include "sema_value.h"
@@ -61,7 +62,7 @@ private:
 	// 6.6.1, 6.6.3, 12.2p3 and 14.6p8: what one reading of a function body and
 	// one reading of a template's pattern put aside, which `sema_declaration.h`
 	// owns beside the other records the declaration layer passes between its
-	// steps.  Each saves the walk's own state, so each is a friend of it.
+	// steps.  Each saves this walk's own state, so each is a friend of it.
 	friend class FunctionReading;
 	friend class DialectReading;
 
@@ -835,16 +836,7 @@ private:
 	// type of an out-of-class member function and the initializer of a static
 	// data member alike.  Null for a declaration that names no member.
 	Scope* naming_context(const std::string& written, const Context& ctx);
-	// Holds one while a declaration is read, and puts back the one that was
-	// there, because a declaration may be read while another is.
-	struct Naming
-	{
-		Naming(SemaAnalyzer& owner, Scope* region);
-		~Naming();
-
-		SemaAnalyzer& owner;
-		Scope* held;
-	};
+	friend struct Naming;
 	// 5.2.5p1: the error a member access which turns out to name no subobject
 	// gives where `observable_expression` says the object expression may not be
 	// left out of the resolved tree.
@@ -1289,12 +1281,11 @@ private:
 	unsigned long long array_bound(const AstNode& node, const Context& ctx);
 	TypeId decltype_type(const AstNode& node, const Context& ctx);
 	// 5.19 read out of the spelling 14.2 left a template argument as, which
-	// `sema_value_expression.cpp` owns.  The reading is a walk over text rather
-	// than over the tree, so it is a reader of its own that borrows this one
-	// for the arithmetic and the lookups.
+	// `sema_value_expression.cpp` owns: a walk over text rather than over the
+	// tree, so it is a reader of its own that borrows this one.
 	friend class TemplateArgumentReader;
 	// 14.3.2p1: the argument `spelling` binds to a value place whose declared
-	// type is `place`, as the type-table entry that holds the converted value.
+	// type is `place`, and 14.6.2p2's stand-in for one no list has settled.
 	TypeId template_argument_value(const std::string& spelling, TypeId place,
 	                               const Context& ctx);
 	TypeId dependent_value(const std::string& spelling);
@@ -1701,10 +1692,9 @@ private:
 	// then read the way the earlier assignments read it.
 	bool record_template(const AstNode& node, const Context& ctx);
 	// 14.7.3p1: the declaration a `template<>` head wrote, which declares the
-	// specialization itself.  False where it is outside the supported slice,
-	// which leaves the ordinary walk to read it.
-	bool record_explicit_specialization(const AstNode& declared,
-	                                    const Context& ctx);
+	// specialization itself.  False outside the supported slice, which leaves
+	// the ordinary walk to read it as it did before.
+	bool record_explicit_specialization(const AstNode& declared, const Context& ctx);
 	bool record_explicit_function(const AstNode& declared, const Context& ctx);
 	// 14.1p2: the parameters a template-parameter-clause declared, written
 	// onto `info`.
@@ -2292,9 +2282,9 @@ private:
 	unsigned checking_;
 	// 14.6p8: how many times a reading has stood a value in the place of one an
 	// argument list has yet to settle.  A constant expression that took one is
-	// not the expression the instantiation will evaluate, so 7p4's
-	// static_assert over it asserts nothing where the pattern stands.  It is a
-	// count and not a flag because one such reading stands inside another.
+	// not the one the instantiation will evaluate, so 7p4's static_assert over
+	// it asserts nothing where the pattern stands.  It is a count and not a
+	// flag because one such reading stands inside another.
 	unsigned stood_in_;
 	// 14.7.1p1: how many specializations a name has left declared, waiting for
 	// the first context that requires a completely-defined type.  A demand for
