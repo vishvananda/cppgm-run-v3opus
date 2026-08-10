@@ -1700,6 +1700,12 @@ private:
 	// a template-declaration whose declaration is not one of them, which is
 	// then read the way the earlier assignments read it.
 	bool record_template(const AstNode& node, const Context& ctx);
+	// 14.7.3p1: the declaration a `template<>` head wrote, which declares the
+	// specialization itself.  False where it is outside the supported slice,
+	// which leaves the ordinary walk to read it.
+	bool record_explicit_specialization(const AstNode& declared,
+	                                    const Context& ctx);
+	bool record_explicit_function(const AstNode& declared, const Context& ctx);
 	// 14.1p2: the parameters a template-parameter-clause declared, written
 	// onto `info`.
 	void read_template_head(const AstNode& clause, TemplateInfo& info);

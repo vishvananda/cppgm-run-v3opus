@@ -296,12 +296,19 @@ AstNode* AstParser::parse_template_declaration(bool in_class)
 	accept(KW_TEMPLATE);
 	AstNode* clause = nullptr;
 	AstNode* declaration = nullptr;
+	bool specialization = false;
 	{
 		ScopeGuard scope(names_);
 		clause = parse_template_parameter_clause();
 		if (clause != nullptr)
 		{
-			template_pending_ = true;
+			// 14.7.3p1: a head that declares no parameters is an explicit
+			// specialization, which declares the *specialization* and no
+			// template - so what follows names a class or a function, and a
+			// `<` written after that name later is its own argument list and
+			// not the opening of one.
+			specialization = clause->children.empty();
+			template_pending_ = !specialization;
 			declaration = parse_declaration(in_class);
 			template_pending_ = false;
 		}
@@ -312,7 +319,10 @@ AstNode* AstParser::parse_template_declaration(bool in_class)
 	}
 	// The template parameters go out of scope with the clause, but what the
 	// declaration declared does not, and what it declared is a template.
-	declare_template_name(declaration);
+	if (!specialization)
+	{
+		declare_template_name(declaration);
+	}
 	AstNode* node = make(AstKind::TemplateDeclaration);
 	node->add(clause);
 	node->add(declaration);

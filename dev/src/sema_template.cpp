@@ -601,13 +601,24 @@ void SemaAnalyzer::instantiate_body(SemaEntity& function)
 {
 	SemaEntity& primary = *function.primary;
 	if (primary.templated == nullptr ||
-	    primary.templated->pattern == nullptr)
+	    (primary.templated->pattern == nullptr &&
+	     primary.templated->explicit_functions.find(
+		     function.template_arguments) ==
+		     primary.templated->explicit_functions.end()))
 	{
 		throw std::runtime_error("a function template with a definition is "
 		                         "instantiated, which this milestone does "
 		                         "not describe");
 	}
 	const TemplateInfo& info = *primary.templated;
+	// 14.7.3p1: the body an explicit specialization wrote is what this
+	// declaration runs, in place of the pattern's.  It was written with the
+	// arguments spelled out, so the bindings stand over it and say nothing.
+	const std::unordered_map<std::uint32_t, const AstNode*>::const_iterator
+		written = info.explicit_functions.find(function.template_arguments);
+	const AstNode* const body = written != info.explicit_functions.end()
+		? written->second
+		: info.pattern;
 	Context inner;
 	inner.scope = &open_template_bindings(
 		info, types_.type_list_at(function.template_arguments));
@@ -627,7 +638,7 @@ void SemaAnalyzer::instantiate_body(SemaEntity& function)
 	function.inline_function = true;
 	SemaEntity* const enclosing = instantiating_;
 	instantiating_ = &function;
-	function_definition(*info.pattern, inner);
+	function_definition(*body, inner);
 	instantiating_ = enclosing;
 }
 
@@ -733,6 +744,15 @@ bool SemaAnalyzer::record_template(const AstNode& node, const Context& ctx)
 	if (clause == nullptr || declared == nullptr)
 	{
 		return false;
+	}
+	if (first_child(*clause, AstKind::TemplateParameterList) == nullptr &&
+	    record_explicit_specialization(*declared, ctx))
+	{
+		// 14.7.3p1: a head that declares no parameters parameterises nothing.
+		// What it wrote is a declaration of the specialization itself, which
+		// the template's own table answers for before any instantiation of the
+		// pattern is made.
+		return true;
 	}
 	// 14.5.1.3p1: a definition written outside its class belongs to the
 	// template that class is one of, and is read for a specialization after
@@ -914,6 +934,134 @@ bool SemaAnalyzer::record_template(const AstNode& node, const Context& ctx)
 	                                      ? "class "
 	                                      : "struct ")) +
 	                          name);
+	return true;
+}
+
+// 14.7.3p1: the declaration a `template<>` head wrote, which declares the
+// specialization itself and no template.
+//
+// The specialization is the same declaration an instantiation of the pattern
+// would have made - one per template and argument list - so it is reached the
+// way every other naming reaches it, and what the explicit declaration adds is
+// the *definition* it wrote: a class body read in place of the pattern's, and a
+// function body run in place of the pattern's.  Both hang off the template
+// under the interned argument list, which is the key the specialization is
+// already found by, so an instantiation asks one lookup on a number it has.
+//
+// False where the head declares something outside the supported slice, which
+// leaves the ordinary walk to read it as it did before.
+bool SemaAnalyzer::record_explicit_specialization(const AstNode& declared,
+                                                  const Context& ctx)
+{
+	if (declared.kind != AstKind::ClassSpecifier &&
+	    declared.kind != AstKind::ClassForwardDeclaration)
+	{
+		return record_explicit_function(declared, ctx);
+	}
+	const QualifiedName spelled(declared.text);
+	const TemplateId id(spelled.last());
+	if (!id.valid())
+	{
+		return false;
+	}
+	Context target = ctx;
+	if (spelled.qualified())
+	{
+		target.scope = resolve_prefix(spelled, ctx);
+		target.dump = target.scope->dump;
+	}
+	SemaEntity* const primary =
+		spelled.qualified()
+			? model_.lookup_in(*target.scope, id.name(), LookupKind::Type)
+			: model_.lookup(*target.scope, id.name(), LookupKind::Type);
+	if (primary == nullptr || primary->kind != SemaKind::Class ||
+	    primary->templated == nullptr)
+	{
+		throw std::runtime_error("an explicit specialization of " + id.name() +
+		                         " names no class template");
+	}
+	std::vector<TypeId> arguments;
+	bind_template_arguments(*primary, id.arguments(), ctx, arguments);
+	TemplateInfo& info = *primary->templated;
+	const std::uint32_t list = types_.type_list(arguments);
+	if (declared.kind == AstKind::ClassSpecifier)
+	{
+		// The body is recorded before the declaration is reached, so that a
+		// specialization the unit already named is completed from *this*
+		// definition rather than from the pattern.
+		info.explicit_classes[list] = &declared;
+	}
+	SemaEntity& made = instantiate_class(*primary, arguments);
+	if (declared.kind != AstKind::ClassSpecifier)
+	{
+		return true;
+	}
+	if (made.declared_only)
+	{
+		made.declared_only = false;
+		--declared_only_;
+	}
+	require_specialization(made);
+	ctx.dump->lines.push_back("type " + made.name + " " +
+	                          (types_.class_tag(made.type) == ClassTag::Union
+	                               ? "union "
+	                               : (types_.class_tag(made.type) == ClassTag::Class
+	                                      ? "class "
+	                                      : "struct ")) +
+	                          made.name);
+	return true;
+}
+
+// 14.7.3p1 over a function template, where the declarator-id wrote the argument
+// list the specialization is of.  14.8.2's deduction of an argument list the
+// declaration left unwritten is a later milestone, so a head that wrote none
+// leaves the declaration to the ordinary walk.
+bool SemaAnalyzer::record_explicit_function(const AstNode& declared,
+                                            const Context& ctx)
+{
+	if (declared.kind != AstKind::FunctionDefinition)
+	{
+		return false;
+	}
+	const AstNode* const id = declared.children.size() > 1
+		? declarator_id(*declared.children[1])
+		: nullptr;
+	if (id == nullptr || !TemplateId(QualifiedName(id->text).last()).valid())
+	{
+		return false;
+	}
+	std::vector<SemaEntity*> found;
+	template_specializations(id->text, ctx, found);
+	SemaEntity* chosen = nullptr;
+	for (std::size_t index = 0; index < found.size(); ++index)
+	{
+		if (found[index]->primary != nullptr &&
+		    found[index]->primary->templated != nullptr)
+		{
+			// 14.7.3p11: the declaration shall be a specialization of exactly
+			// one template, which one written argument list over one overload
+			// set leaves whenever the set holds one that fits it.
+			if (chosen != nullptr)
+			{
+				return false;
+			}
+			chosen = found[index];
+		}
+	}
+	if (chosen == nullptr)
+	{
+		return false;
+	}
+	chosen->primary->templated->explicit_functions[chosen->template_arguments] =
+		&declared;
+	// 14.7.3p6: the definition is this unit's own wherever it is named, and a
+	// use written above it has already asked for the pattern's - so the
+	// instantiation is started again from what was just written.
+	chosen->instantiated = false;
+	if (chosen->definition_required)
+	{
+		instantiate(*chosen);
+	}
 	return true;
 }
 
@@ -1137,9 +1285,17 @@ void SemaAnalyzer::complete_specialization(SemaEntity& made)
 	// dependent arguments that *is* read, because it is what the template's own
 	// definition declares - so the reading that made it is what completes it.
 	const bool pattern = &made == info.current;
-	if (made.defined || info.pattern == nullptr ||
-	    info.pattern->kind != AstKind::ClassSpecifier ||
-	    (!pattern && types_.is_dependent(made.type)))
+	// 14.7.3p1: an explicit specialization of this argument list is what the
+	// class *is*, so it is read in place of the template's pattern and against
+	// no bindings at all: the body was written with the arguments spelled out.
+	const std::unordered_map<std::uint32_t, const AstNode*>::const_iterator
+		written = info.explicit_classes.find(made.template_arguments);
+	const bool specialized =
+		!pattern && written != info.explicit_classes.end();
+	const AstNode* const body = specialized ? written->second : info.pattern;
+	if (made.defined || body == nullptr ||
+	    body->kind != AstKind::ClassSpecifier ||
+	    (!pattern && !specialized && types_.is_dependent(made.type)))
 	{
 		// 14.6.2p1: a template-id written inside a template over that
 		// template's own parameters names no class yet.  It is a declaration
@@ -1149,15 +1305,16 @@ void SemaAnalyzer::complete_specialization(SemaEntity& made)
 		return;
 	}
 	Context inner;
-	inner.scope = pattern
-		? info.parameter_region
-		: &open_template_bindings(
-			  info, types_.type_list_at(made.template_arguments));
+	inner.scope = specialized
+		? info.region
+		: (pattern ? info.parameter_region
+		           : &open_template_bindings(
+				         info, types_.type_list_at(made.template_arguments)));
 	inner.dump = pattern ? info.reading_dump : info.dump;
 	inner.node = nullptr;
 	Span span;
-	span.begin = info.pattern->begin;
-	span.end = info.pattern->end;
+	span.begin = body->begin;
+	span.end = body->end;
 	const std::string spelled = made.name;
 	// 9.2p2: a member function body written in a class body is read where the
 	// class is complete, so the bodies this reading holds are read once the
@@ -1170,7 +1327,7 @@ void SemaAnalyzer::complete_specialization(SemaEntity& made)
 		// naming a second specialization - is the same, which is why the fact
 		// is a depth rather than a flag.
 		const ReadingDepth instantiating(instantiating_class_);
-		class_declaration(*info.pattern, inner, span, true, std::string(), &made,
+		class_declaration(*body, inner, span, true, std::string(), &made,
 		                  &spelled);
 		read_held_pattern_bodies(mark);
 	}
@@ -1180,8 +1337,11 @@ void SemaAnalyzer::complete_specialization(SemaEntity& made)
 	// current instantiation has none of them yet: a definition outside the
 	// class can only be written after it, so `record_template` is where each
 	// one's own reading stands.
-	for (std::size_t index = 0; !pattern && index < info.members.size(); ++index)
+	for (std::size_t index = 0;
+	     !pattern && !specialized && index < info.members.size(); ++index)
 	{
+		// 14.7.3p1: a member the *template* defined outside its class is no
+		// member of a specialization the program wrote out for itself.
 		instantiate_member(made, info.members[index]);
 	}
 	// 10.3p10's table names a virtual member whatever it is defined by, so the

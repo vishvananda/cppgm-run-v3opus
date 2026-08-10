@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 struct AstNode;
@@ -115,6 +116,13 @@ struct TemplateInfo
 	// 14.7.1p1: the specializations made so far, which is what a member
 	// definition read after them is read against.
 	std::vector<SemaEntity*> specializations;
+	// 14.7.3p1: what an explicit specialization wrote for one argument list -
+	// the class body read in place of the pattern, and the function body run in
+	// place of the pattern's.  Both are keyed by the interned argument list the
+	// specialization is already found by, so an instantiation asks one hash
+	// lookup on a number it already has and never scans them.
+	std::unordered_map<std::uint32_t, const AstNode*> explicit_classes;
+	std::unordered_map<std::uint32_t, const AstNode*> explicit_functions;
 };
 
 // 14.7.1p1 and 14.2: whether the definition a unit holds of `function` is one

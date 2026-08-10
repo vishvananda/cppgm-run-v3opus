@@ -1,6 +1,6 @@
 # PA20 Plan — `cppgm++ --emit-lowir` compile-time metaprogramming
 
-PA20 stands at **85 / 164** (31 spec + 133 general), from a turn-start baseline
+PA20 stands at **92 / 164** (31 spec + 133 general), from a turn-start baseline
 of **39 / 164**, with pa1-pa19 at **2169 / 2169** and the file audit passing
 with the five header-weight warnings it inherited.
 
@@ -72,38 +72,38 @@ as an instantiation would.
 
 ## Current Failure Map
 
-79 failing, grouped by what would fix them:
+72 failing, grouped by what would fix them:
 
 | group | n | owner |
 | --- | --- | --- |
-| 14.5.3's parameter packs and pack expansions (`... does not instantiate`, `args names nothing`, six parse failures) | 30 | `sema_template.cpp`, `ast_parser_class.cpp` |
-| 14.7.3's explicit specialization (`template<>` parse, stale-primary refresh, LowIR mismatches) | 13 | `ast_parser_declarator.cpp`, `sema_template.cpp` |
-| deduction and overload resolution over the new places (`no declaration of f accepts the arguments of a call`) | 11 | `sema_overload.cpp` |
-| 14.6.2p1's dependent qualified value/type lookups (`is written after a name that is not a namespace...`) | 6 | `sema_template.cpp` |
-| 14.6.4.1's instantiation points and stale answers (`static_assert condition is false`, `sizeof names an incomplete type`) | 8 | `sema_template.cpp` |
-| the rest: user-defined literals, `decltype` operands, single-test shapes | 11 | mixed |
+| 14.5.3's parameter packs and pack expansions - every `200-*` failure, including six that do not parse | 35 | `sema_template.cpp`, `ast_parser_class.cpp` |
+| 14.6.2p1's dependent qualified value and type lookups (`is written after a name that is not a namespace...`, `value_type does not name a type`) | 6 | `sema_template_head.cpp`, `sema_template.cpp` |
+| 14.8.2 over the new places: deduction and overload resolution where a name is a template-id (`no declaration of ... accepts the arguments of a call`, `... is in scope`) | 12 | `sema_overload.cpp` |
+| 14.5.5's partial specialization and 14.5.1's variable-template shapes the suite writes anyway | 5 | `sema_template.cpp` |
+| 5.19 outside the integral subset: user-defined literals, wide string literals, `decltype` operands | 6 | `sema_value_expression.cpp`, `sema_constant.cpp` |
+| the rest: single-test shapes, four LowIR mismatches | 8 | mixed |
 
 ## Active Checkpoint
 
-**C2 - 14.7.3's explicit specialization.**  Selected because it is the largest
-group whose owner is settled by C1's work and because it is what makes an
-ordinary metafunction *terminate*: `fac<N>` recurses without it, and the
-recursion is currently a stack overflow rather than a diagnostic.
+**C3 - 14.5.3's template parameter packs and pack expansions.**  Selected because
+it is now every remaining `200-*` failure and half the PA: one feature, one
+owner, and the six parse failures beside it are the same feature seen from the
+grammar.
 
-- **Owner.**  `ast_parser_declarator.cpp` for what `template<>` declares - a
-  class and not a template, which is why `box<int> b;` after it does not parse -
-  and `sema_template.cpp` for the specialization table an instantiation asks
-  before it reads the primary.
-- **Data flow.**  `record_template` with an empty head records a
-  *specialization* against the primary's `TemplateInfo`, keyed by the same
-  interned argument list `instantiate_class` already keys by;
-  `instantiate_class` asks that table first and reads the primary's pattern only
-  where it misses.  14.7.3p6's late specialization refreshes a stale primary
-  instantiation through the list the template already keeps.
-- **Expected complexity.**  One hash lookup per naming, on the list id that is
-  already computed - no new walk, and no scan of the specializations.
-- **Validation.**  `300-*` and `400-*` in both suites, the `fac<N>` depth probe
-  below, and `make test-report-through-pa19`.
+- **Owner.**  `sema_template_head.cpp` for the place a pack is - one head entry
+  standing for however many arguments - and `sema_template.cpp` for what an
+  expansion comes to at an instantiation.  `ast_parser_class.cpp` owns the
+  declarator forms that do not parse yet.
+- **Data flow.**  A pack place binds a *list* rather than one argument, which
+  the type table already interns (`type_list`); `bind_template_arguments` gives
+  the trailing arguments to it, and an expansion written in a declaration, a
+  call or an initializer is read once per element of the list the pack is bound
+  to.  `sizeof...` reads that list's length.
+- **Expected complexity.**  One reading per element, no rewriting of the
+  pattern's syntax - the same monotonic rule the tier already keeps, so n
+  elements cost n readings and not n^2.
+- **Validation.**  Every `200-*` in both suites, a multiplicity sweep at 1, 2
+  and 64 elements, and `make test-report-through-pa19`.
 
 ## Performance Model
 
@@ -111,22 +111,27 @@ recursion is currently a stack overflow rather than a diagnostic.
 | --- | --- |
 | 512 distinct value arguments over two templates (1024 specializations) | **0.05 s** |
 | 4096 distinct value arguments over two templates (8192 specializations) | **0.45 s** |
-| the same argument spelling written 4096 times | one split, 4096 lookups |
+| a metafunction chain `fac<N>` evaluated to depth 200 / 400 / 800 | **0.025 / 0.038 / 0.088 s** |
+| the same chain instantiated but not evaluated, depth 2000 | **0.23 s** |
 
 The split of an argument spelling is memoised per spelling (`value_words_`), so
 one template-id written n times costs one tokenisation; the specialization
 itself is already interned by argument list, so the second naming is a hash
 lookup.  `open_parameter_region` is once per template, not once per naming, so
 `template<class T, T v>` reads its own head's syntax once however many argument
-lists bind it.
+lists bind it.  14.7.3p1's explicit definitions are keyed by the same interned
+list, so asking for one is a hash lookup on a number the caller already has.
 
-Open risk carried into C2: a recursive metafunction with no terminating
-specialization overflows the machine stack instead of being diagnosed
-(`fac<200>` at 0.24 s, SIGSEGV).  C2 both makes the ordinary case terminate and
-owes a depth guard.
+The recursion probe carried into C2 is answered: `fac<200>` with a terminating
+specialization is 0.025 s where it was a stack overflow, and the chain is linear
+in its depth.  A metafunction with *no* terminating specialization still
+overflows the machine stack rather than being diagnosed; that is a program
+outside the supported slice, and a depth guard is owed whenever a checkpoint
+touches `instantiate_class` again.
 
 ## Completed Checkpoints
 
 | # | checkpoint | result |
 | --- | --- | --- |
 | C1 | 14.1p4's non-type parameter and 14.3.2's integral argument: `TypeKind::Value` as an interned converted constant, `TemplateInfo::Parameter` as a place, 14.6.1p1's region opened once and settling every place's type, 5.19 read out of the argument spelling with 5.14/5.15/5.16's unevaluated operand, `SemaKind::TemplateValue` bound as a constant, the ABI's `<expr-primary>`, 5.8p1's shift over its own operand types, 7.1.5p9's constexpr object given 3.6.2p2's initialization, 7p4 deferred behind a counted stand-in, and 10p1's settled base completed inside 14.6p8's reading | 39 -> **85 / 164**; pa1-pa19 2169 / 2169 |
+| C2 | 14.7.3's explicit specialization: a `template<>` head declaring the specialization and no template - so the name it wrote is a class-name and a later `box<int> b;` parses - with the class body read in place of the pattern against no bindings, the function body run in place of the pattern's, and both keyed by the interned argument list the specialization is already found by | 85 -> **92 / 164**; `fac<200>` SIGSEGV -> **0.025 s** |
