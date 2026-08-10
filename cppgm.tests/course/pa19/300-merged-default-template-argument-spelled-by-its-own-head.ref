@@ -1,0 +1,11 @@
+declare function @expect(%arg0 : ptr) -> i32 [binding=strong, object=_Z6expectP8fallbackIiE]
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $ptr : ptr
+
+  block ^entry:
+    store ptr 0, $ptr
+    %t1 = load ptr $ptr
+    %t2 = call i32 @expect(%t1)
+    return i32 %t2
+}

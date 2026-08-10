@@ -470,11 +470,41 @@ SemaAnalyzer::Constant SemaAnalyzer::evaluate(const AstNode& node,
 			throw NotConstant("a constant expression holds an operator "
 			                         "PA11 does not evaluate");
 		}
-		if (node.children.empty() || node.children[0]->kind != AstKind::TypeId)
+		if (node.children.empty() ||
+		    (node.children[0]->kind != AstKind::TypeId &&
+		     (node.kind != AstKind::SizeofExpression ||
+		      (!semantics() && checking_ == 0))))
 		{
-			// 5.3.3p1: PA11 evaluates `sizeof` and `alignof` over a type-id.
+			// 5.3.3p1 gives `sizeof` an expression or a parenthesized type-id
+			// and 5.3.6p1 gives `alignof` the type-id alone; PA11 types no
+			// expression, so the first arm is one only a later dialect reads.
 			throw NotConstant("sizeof and alignof are evaluated over a "
 			                         "type-id");
+		}
+		if (node.children[0]->kind != AstKind::TypeId)
+		{
+			// 5.3.3p1: the operand is an *expression* wherever the grammar
+			// allows one, however much a parenthesized name written in it
+			// looks like a type-id, and 5.19 asks for its size and not for its
+			// value - so the operand is the unevaluated one the expression
+			// layer already reads, and this is the same question asked from a
+			// constant expression.
+			if (checking_ > 0 || dependent_reading(*ctx.scope))
+			{
+				// 14.6p8: how large the operand is, an argument list is what
+				// says, so the reading stands one value in its place and looks
+				// up the names 3.4p1 answers where the definition stands.
+				check_expression_names(*node.children[0], ctx);
+				Constant stood;
+				stood.type = types_.fundamental(FT_UNSIGNED_LONG_INT);
+				stood.bits = 1;
+				return stood;
+			}
+			DumpNode scratch;
+			Constant read;
+			read.type = types_.fundamental(FT_UNSIGNED_LONG_INT);
+			read.bits = probe_expression(node, ctx, scratch).value;
+			return read;
 		}
 		const TypeId type = type_id_type(*node.children[0], ctx);
 		Constant out;

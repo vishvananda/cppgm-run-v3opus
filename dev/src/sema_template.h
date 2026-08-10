@@ -42,13 +42,28 @@ struct TemplateInfo
 	Scope* parameter_region;
 	DumpScope* reading_dump;
 	SemaEntity* current;
+	// 14.1p9 and 14.1p10: the argument a place takes where the use wrote none.
+	// The defaults available to a use are every declaration's merged, and
+	// 14.1p2 lets each of those declarations spell the places its own way - so
+	// what a default names the places before it by is a fact of the head that
+	// wrote it, kept beside the type-id rather than looked for on whichever
+	// declaration the merge left standing.
+	struct Default
+	{
+		Default()
+			: written(nullptr)
+		{}
+
+		const AstNode* written;
+		std::vector<std::string> spelled;
+	};
 	// 14.1p2: the type parameters the head declared, in order, and 14.1p9's
-	// default arguments, null where the head wrote none.  A head this
+	// default arguments, empty where no declaration wrote one.  A head this
 	// milestone gives no meaning to - a non-type parameter, a template
 	// parameter, a pack - leaves `supported` false, so the declaration is
 	// still read and only an instantiation of it is refused.
 	std::vector<std::string> parameters;
-	std::vector<const AstNode*> defaults;
+	std::vector<Default> defaults;
 	bool supported;
 	// 14.5.1.3p1: the members of the template a definition outside its class
 	// wrote, in the order they were written.  They are not members of the

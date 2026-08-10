@@ -1,0 +1,30 @@
+function @units__combined(%flags : i32) -> i32 [binding=strong, object=_ZN5units8combinedENS_11option_typeE] {
+  slot $flags : i32
+
+  block ^entry:
+    store i32 %flags, $flags
+    %t1 = binary or i32 4, 8
+    %t2 = load i32 $flags
+    %t3 = binary and i32 %t1, %t2
+    return i32 %t3
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $cond__1 : i32
+
+  block ^entry:
+    %t1 = call i32 @units__combined(8)
+    %t2 = cmp eq i32 %t1, 8
+    branch %t2, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t3 = load i32 $cond__1
+    return i32 %t3
+}

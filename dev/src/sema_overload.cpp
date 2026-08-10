@@ -41,6 +41,16 @@ const AstNode* arguments_of(const AstNode& node)
 	return list != nullptr ? list : child_kind(node, AstKind::ParenArgumentList);
 }
 
+// 5p9 and 13.6p17: an operand the usual arithmetic conversions bring to the one
+// type a built-in arithmetic or bitwise candidate is written over.  4.5p3
+// promotes an unscoped enumeration before that question is asked, so it is one
+// of them; 7.2p9 leaves a scoped one converted by nothing at all.
+bool arithmetic_operand(const TypeTable& types, TypeId type)
+{
+	return types.is_arithmetic(type) ||
+		(types.kind(type) == TypeKind::Enum && !types.is_scoped_enum(type));
+}
+
 }
 
 // 4.4p4: a pointer to `cv1 T` converts to a pointer to `cv2 T` when every level
@@ -822,6 +832,14 @@ bool SemaAnalyzer::builtin_operands(unsigned token, const Context& ctx,
 // operand of class type is what its conversion function hands back.  A class
 // that reaches no built-in operand type has no such candidate at all, and then
 // the declaration stands.
+//
+// 13.3.1.2p1's other operand is the enumeration, and it reaches a built-in
+// candidate without asking anything of a conversion function: 13.6 writes the
+// integral operators over 4.5p3's *promoted* operands, so `E | F` is the
+// built-in `operator|(int, int)` and an `operator|` declared over a class an
+// enumerator can be converted to is a candidate that loses to it.  An operand
+// that is neither is one 13.3.1.2p2 would have left the built-in operator
+// outright, so it says nothing about whether there is a candidate here.
 bool SemaAnalyzer::better_builtin(const SemaEntity& chosen, const Value& object,
                                   const std::vector<Value>& operands)
 {
@@ -829,9 +847,12 @@ bool SemaAnalyzer::better_builtin(const SemaEntity& chosen, const Value& object,
 	bool any = false;
 	for (std::size_t index = 0; index < operands.size(); ++index)
 	{
-		if (!types_.is_class(types_.strip_cv(operands[index].type)))
+		const TypeId bare = types_.strip_cv(operands[index].type);
+		if (!types_.is_class(bare))
 		{
 			wanted[index] = decayed(operands[index]);
+			any = any || (types_.kind(bare) == TypeKind::Enum &&
+			              !types_.is_scoped_enum(bare));
 			continue;
 		}
 		wanted[index] = builtin_conversion_type(operands[index]);
@@ -845,8 +866,8 @@ bool SemaAnalyzer::better_builtin(const SemaEntity& chosen, const Value& object,
 	{
 		return false;
 	}
-	if (operands.size() == 2 && types_.is_arithmetic(wanted[0]) &&
-	    types_.is_arithmetic(wanted[1]) && wanted[0] != wanted[1])
+	if (operands.size() == 2 && arithmetic_operand(types_, wanted[0]) &&
+	    arithmetic_operand(types_, wanted[1]) && wanted[0] != wanted[1])
 	{
 		// 5p9: two arithmetic operands of a built-in operator are brought to
 		// one type, which is the type of the candidate that reads them.

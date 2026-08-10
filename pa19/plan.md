@@ -1,7 +1,7 @@
 # PA19 Plan — `cppgm++ --emit-lowir` first-tier templates
 
-PA19 stands at **377 / 381** (65 spec + 254 general + 62 course), from a
-turn-start baseline of 374 / 378, with pa1-pa18 at **1778 / 1778** and the file audit
+PA19 **passes**: **388 / 388** (65 spec + 254 general + 69 course), from a
+turn-start baseline of 377 / 381, with pa1-pa18 at **1778 / 1778** and the file audit
 passing with the five header-weight warnings it inherited.  The build itself
 prints none.
 
@@ -585,31 +585,77 @@ Three facts about the harness shape what has to be right, read out of
   both spellings share.  `parenthesized_place` reads that clause back as the
   declarator it is, keeping whatever the parentheses wrote after the id, so
   `T (X[10])` declares an array; nothing is reparsed and no node is rewritten.
+- **A plain template-name is a type-specifier at one place only.**  14.2 makes
+  a template-name say which class once an argument list is written after it, so
+  the one spelling that names a type on its own is 14.6.1p1's
+  injected-class-name - and 9p2 makes that a *member* of the class, so it
+  stands where a member of that class does: in the class's own body, in a
+  definition written on its declarator-id, and in a class derived from it.
+  `DeclaredNames::injected` is the question and the parse asks it where the
+  answer decides 6.8p1's ambiguity, so `close_impl(which);` written where no
+  class of that name encloses it is the call 3.4.1 finds and not a declaration
+  of `which`.  10.2p2's chain is what a base reaches through, and the answer is
+  kept per prefix and spelling because a class derived from a chain n deep asks
+  the question its own base already answered - a yes forever, since a
+  base-clause is read once and nothing takes one away, and a no for as long as
+  the chain it was answered over stands.
+- **13.3.1.2p1's other operand is the enumeration.**  An operator expression
+  with an operand of class *or enumeration* type is a call of an operator
+  function, so 13.6's built-in candidates are ranked beside the declarations
+  either way - and an enumeration reaches one without asking anything of a
+  conversion function, because 13.6 writes the integral operators over 4.5p3's
+  promoted operands.  `better_builtin` is where the two are ranked, so `E | F`
+  is `operator|(int, int)` and an `operator|` declared over a class an
+  enumerator converts to is a candidate that loses to it; 5p9's usual
+  arithmetic conversions are what bring the two written operands to the one
+  type a candidate is written over, and two operands of one enumeration type
+  are already that type, which is 13.6p15's own candidate.
+- **5.3.3p1's operand is an expression wherever the grammar allows one**, and
+  5.19 asks it for its size rather than for its value - so a `sizeof` written
+  in a constant expression reads the unevaluated operand the expression layer
+  already reads, however much a parenthesized name inside it looks like a
+  type-id.  14.6p8 is the one reading that cannot: how large the operand is, an
+  argument list is what says, so the pattern's reading looks the names up and
+  stands one value in its place.  5.3.6p1 gives `alignof` the type-id alone.
+- **14.1p10's defaults are every declaration's, merged.**  A head that adds a
+  default to a place an earlier one left empty is read for that alone, whether
+  or not it is the one that writes the body - so the merge and 14.1p2's
+  parameter-count check are asked of each declaration and only the *names* are
+  the definition's.  What a merged default names the places before it by is the
+  head that wrote it, kept beside the type-id (`TemplateInfo::Default`), so the
+  region 14.1p9's default is read in binds the arguments settled so far under
+  that head's own spellings and not under the ones the merge left standing.
 
 ## Current Failure Map
 
-4 of 381 fail - the same four the C13 checkpoint left, with the audit's own
-three tests passing.  Grouped by the compiler behaviour that owns them:
+**0 of 388 fail.**  C14 took the last four and its sweeps left seven fixtures
+behind.  What remains is what no fixture reaches, grouped by owner:
 
 | n | group | what is missing |
 | --- | --- | --- |
-| 2 | an expression the reading types where a parameter stands in the way | 13.5p6's builtin `&` over two enumerations losing to a class `operator|` declared in another namespace (`an operand of an integral operator is not integral`), and 5.3.3p1's `sizeof(test((From)0))` written as an enumerator of a class template, where `(From)0` is read as a type-id rather than a cast (`sizeof and alignof are evaluated over a type-id`) |
-| 1 | 8.2p7 read at a *statement* | `close_impl(which);` inside a member body, where a namespace-scope class template declares that spelling and 3.4.1 answers with the member - 6.8p1's ambiguity settled the other way declares an object of the template's name (`an object of the incomplete class type struct close_impl is declared`) |
-| 1 | 14.1p10's later declaration | a default template argument a redeclaration adds, which the use written after it may take (`a template-argument-list gives box too few arguments`) |
+| 3 | 14.5.2's second clause | `s.f<int>(2)` - a template-id after a member access - which **our parser refuses outright**, `template<class T> template<class U> int S<T>::f(U)`'s two clauses, and 12.3.2p1's conversion function template.  All three are accepted by both oracles and reached by no fixture; C10's sweep found them |
+| 1 | 9.2p2 at the *parse* | a plain class-name a member function declared *below* the use hides: `close_impl(which);` where `close_impl` is an ordinary class at namespace scope reads as a declaration here and as the member's call in both oracles, because the parse fills its name table in source order and no member body is held for the closing brace.  14.6.1p1's arm of the same question is landed - a plain *template*-name is now a type only where the injected-class-name stands |
+| 1 | 14.6p8 over a non-dependent base | a **non-dependent** specialization named as a base class in a template's own definition is not completed by the reading, so `template<class K> struct P { struct N : adaptor<int> {}; };` is refused where both oracles accept it.  Completing it there means suspending the reading - the pattern's members would otherwise be read in the checking dialect - and a base written over the current instantiation takes 14.6.2p3's arm instead |
+| 2 | the definition a use *nothing calls* makes | C13's pair, below |
+| 1 | 12.1's two entry points | the C13 audit's, recorded in `audit.md` under Open Gaps |
 
-Beside them, the three shapes C10's sweep left still stand, each accepted by
-`reference-binaries/cppgm++` and by g++ and reached by no fixture: `s.f<int>(2)`
-- a template-id after a member access - which **our parser refuses outright**,
-`template<class T> template<class U> int S<T>::f(U)`'s two clauses, and
-12.3.2p1's conversion function template.  All three are 14.5.2's.
+Four disagreements with `reference-binaries/cppgm++` that C14's own sweeps
+turned up, each decided against it by g++ and by the standard, and each reached
+by no fixture:
 
-C12 leaves one narrower rule unlanded and recorded here: a **non-dependent**
-specialization named as a base class in a template's own definition is not
-completed by 14.6p8's reading, so `template<class K> struct P { struct N :
-adaptor<int> {}; };` is refused where both oracles accept it.  Completing it
-there means suspending the reading - the pattern's members would otherwise be
-read in the checking dialect - and no fixture reaches the shape, because a base
-written over the current instantiation is dependent and takes 14.6.2p3's arm.
+- **13.6p8's unary `-` and `~` over an enumeration.** `-e` where a class
+  `operator-(W)` and `W(int)` are in scope is the built-in on the promoted
+  operand here and in g++ - which runs the program to the built-in's value -
+  and the class operator's call in the reference.  A standard conversion
+  sequence beats a user-defined one, so the fixture that would pin it cannot be
+  written from the reference's output.
+- **5.3.3p1 over a bit-field**, which shall not be measured: refused here and
+  in g++, accepted by the reference.
+- **6.4.2p2's case label**, converted to the promoted type of the condition:
+  `case sizeof(char):` is the immediate `1` here and a `const i64` operand in
+  the reference.  It predates C14 - the same difference stands for a label the
+  reading always folded - and no fixture switches on one.
+- **9.2p2 at the parse**, the row above.
 
 C13 leaves two of its own, both about a definition **nothing calls** and neither
 reached by a fixture.  Where a transfer this unit carries as bytes is named
@@ -642,36 +688,39 @@ reference over one is measuring the later milestone.
 
 ## Active Checkpoint
 
-**C14 - what an expression is worth where a parameter stands in the way**: the
-two shapes that are a *reading* rather than an emission, which is the largest
-group left and the only one whose two members share an owner.  13.6 leaves the
-built-in operators as candidates beside every one the program declared, so
-`a & b` over two enumerations is the built-in `&` on their promoted values and
-the `operator|` a class in another namespace declares is not a candidate for it
-at all; and 5.3.3p1's operand is an *expression* wherever the grammar allows
-one, so `sizeof(test((From)0))` reads `(From)0` as 5.4's cast and not as
-8.1p1's type-id, however much the parenthesized name looks like one.
+**C14 audit - the sibling exits of the four rules C14 landed**, which is the
+work a passing PA is left with: each of the four answers one question at one
+call site, and what an audit is for is the other call sites that ask the same
+question and did not learn the answer.
 
-- **owner**: `sema_operator.cpp` for 13.3.1.2p3's candidate set and 13.6's
-  built-in list, and `decl_parser_expression.cpp` with `sema_expression.cpp` for
-  the `(` a unary-expression opens.
-- **data flow**: the two operand types a binary operator was written over ->
-  the candidate set 13.3.1.2 gathers (member, non-member, built-in) -> 13.3.3's
-  best, whose built-in arm is 5's own conversion; and, for the second, the
-  tokens after `(` -> whether the clause is a type-id or an expression -> the
-  type 5.3.3p1 takes the size of.  What is missing in the first is that a class
-  candidate 3.4.2 reached is taken where 13.6's built-in wins on 4.5p3's
-  promotion, and in the second that a parenthesized name is read as a type-id at
-  a place 5.4 also allows.
-- **expected complexity**: the candidate set is already gathered once per
-  operator, and the built-in arm adds a fixed number of entries per operand pair
-  and no walk.  The parse is one clause read back rather than reparsed, on the
-  same terms as `parenthesized_place`.
-- **validation**: the two fixtures, then a sweep of 13.6's operator table over
-  enumeration, pointer and class operands and of `sizeof` over every
-  parenthesized spelling that is both a type-id and an expression, through
+- **owner**: `sema_overload.cpp` for 13.6's candidate list, `sema_constant.cpp`
+  for 5.19's readings of an operand, `ast_parser_declarator.cpp` with
+  `ast_names.h` for what a name written where a type could stand is worth, and
+  `sema_template.cpp` for what a second declaration of one template says.
+- **data flow**, one per rule: 13.6's built-in candidate is ranked in
+  `better_builtin` and *chosen* in `builtin_operands`, so the second is where a
+  conditional operator, a subscript and 13.3.1.2's other spellings ask the same
+  question of an enumeration; 5.3.3p1's operand reaches `evaluate` at seven
+  readers (an enumerator, an array bound, a bit-field width, a case label, a
+  static member's initializer, an aggregate's element, a `new` bound) and only
+  `sizeof` was widened, while 5.19's other constructs over an expression - a
+  `?:`, a comma, a call of a constexpr function - are each still `a constant
+  expression holds a construct PA11 does not evaluate`; `DeclaredNames::injected`
+  is asked at one place in `parse_specifier_seq` and `is_definite_type_id` asks
+  a neighbouring question of the same spelling; and 14.1p10's merge is a class
+  template's, where a *function* template's defaults are a fact of each
+  parameter entity and 14.1p12's "not by two declarations" is refused nowhere.
+- **expected complexity**: each is a question already asked once per construct,
+  so widening a reader costs the reader and no walk.  The one thing to keep is
+  `injected_`'s memo, which is what makes a base chain n deep n steps.
+- **validation**: a sweep of the other readers of each of the four - 13.6's
+  table under `?:`, `[]` and a compound assignment over an enumeration, 5.19's
+  other operand contexts, `is_definite_type_id` over a plain template-name, and
+  a function template's merged defaults - through
   `reference-binaries/cppgm++` with g++ beside it, each program run through
-  `lowir2cy86`; then the pa19 report and pa1-pa18.
+  `lowir2cy86`; a regeneration of every `.ref`; then the pa19 report and
+  pa1-pa18.  The four disagreements the failure map records are the shapes a
+  sweep must *not* be allowed to quietly move onto the reference.
 
 ## Performance Model
 
@@ -728,6 +777,42 @@ n = 12, 16, 18 and 20 in 23 lines of source - unchanged since it was measured.
 same inputs, so this is the milestone's shape rather than the tier's; g++ does
 n = 20 in 0.06 s because it never materialises the spelling. Fixing it means not
 storing a specialization's written-out name at all.
+
+C14's own risk is four, and three of them are O(1) at the place they are asked:
+one `kind`/`is_scoped_enum` test per non-class operand `better_builtin` ranks,
+one expression read per `sizeof` a constant expression writes over one, and one
+head read plus one merge per class template *declaration* rather than per
+definition - with 14.1p9's default now read in a region of its own head's, so a
+naming that fills k defaults opens k regions instead of one and the whole answer
+is still memoised per template and written list.  The fourth is the one that
+could have been quadratic: `DeclaredNames::injected` walks 10.2p2's base chain,
+so n classes each deriving from the one before it and each writing a base's
+injected template-name is n^2 steps - which is why the answer is kept per prefix
+and spelling.  Measured against an `fb39e2f1` worktree build made with
+`make build`, each shape timed twice, `-O0`:
+
+| shape | 32 | 128 | 512 | 2048 | before |
+| --- | --- | --- | --- | --- | --- |
+| n `E \| F` over two enumerations with a class `operator\|` in scope | 0.00 s | 0.00 s | 0.01 s | 0.05 s | refused |
+| n enumerators each `sizeof` over a call | 0.00 s | 0.00 s | 0.01 s | 0.04 s | refused |
+| the same in a class template, over a dependent cast | 0.00 s | 0.00 s | 0.01 s | 0.07 s | refused |
+| n classes in a chain, each writing a base's injected template-name | 0.00 s | 0.01 s | 0.02 s | 0.30 s | same |
+| the same writing `S<int>` instead | 0.00 s | 0.01 s | 0.02 s | 0.31 s | same |
+| n classes nested in a class template, the innermost writing `S` | 0.00 s | 0.01 s | 0.04 s | 0.42 s | 0.43 s |
+| n uses of the injected name in one member body | 0.00 s | 0.01 s | 0.01 s | 0.05 s | same |
+| n declarations of one class template | 0.00 s | 0.00 s | 0.00 s | 0.01 s | same |
+| n class templates with a defaulted parameter, each instantiated | 0.00 s | 0.01 s | 0.04 s | 0.20 s | same |
+| one template of two defaults named n times | 0.00 s | 0.00 s | 0.00 s | 0.02 s | same |
+| n class templates each named by a template-id | 0.00 s | 0.01 s | 0.05 s | 0.24 s | same |
+
+The first three are the shapes the checkpoint makes compilable at all, and each
+is linear.  Nothing else moves: the base chain is **0.30 s against 0.30 s** at
+n = 2048 with the memo and **0.59 s** without it, which is what says the memo is
+the checkpoint's and not an optimisation of the chain - `reference-binaries/cppgm++`
+is 2.46 s on the same shape at n = 512 against our 0.04 s.  Peak RSS is flat
+within 0.3% at n = 2048 on all four of the shapes that hold state: 29.9 MB
+against 29.8 for the chain, 177.1 against 177.0 for the nest, 66.7 against 66.9
+for the template-ids and 59.8 against 60.4 for the defaults.
 
 C13 and its audit cost one walk of a class's subobjects per out-of-class
 `= default`, one further pass of those walks over the classes already completed
@@ -930,9 +1015,12 @@ recursion is bounded by the same limit the expression layer already is; a
 declarator's own parenthesis nest is refused between 8000 and 16000, which is
 what bounds every walk that reads one.
 
-`dev/src/sema_analyzer.h` sits at 2395 lines against the audit's 2400,
+`dev/src/sema_analyzer.h` sits at 2399 lines against the audit's 2400,
 `dev/src/sema_lifetime.cpp` at 2998 against 3000 and
-`dev/src/sema_template.cpp` at 2875 against 3000: C12 made seven `static`
+`dev/src/sema_template.cpp` at 2958 against 3000: C14 added no declaration to
+the header at all - 5p9's arithmetic operand became a free function of
+`sema_overload.cpp`, and 14.6.1p1's injected-class-name belongs to
+`DeclaredNames` - because there was one line left.  C12 made seven `static`
 members of `SemaAnalyzer` that ask nothing of one free functions of the files
 that ask them - 8.3.5p5's and 8.3.5p1's declarator qualifiers, 5.17p7's
 compound operator, 5.2.9p1's lifted operand, and 10.3's three questions about
@@ -1038,3 +1126,4 @@ directly roots it in all three.
 | C12 audit | 14.7.1p1's point read at the demand instead of at the naming: `asked_specialization` only marks, however many times a name is written; `require_complete_type` is the one demand and is read at 3.9p5's own list - the declarator that *defines* an object rather than every declarator, 8.3.5p6's return type and parameter objects of a *definition*, and 3.9p5 over an expression at the one place every expression the layer reads leaves; and 14.6p8's reading asks for nothing, because a demand answered under `checking_` reads the pattern in the checking dialect | 360 / 369 -> **365 / 374**, four of the five new tests failing against the `7afd0f26` pre-audit build; pa1-pa18 1778 / 1778; file audit passes and the build prints nothing; every `.ref` regenerates byte-identically; 47 synthesized shapes - 30 that name a specialization and require no complete type, 17 that do - through this compiler, that build and `reference-binaries/cppgm++` with g++ beside them, 46 of 47 identical as emitted LowIR and the pre-audit build refusing 20 of the 30 and 1 of the 17; one unit writing eleven namings over ten of the spellings run through `lowir2cy86` to the 39 g++ builds it to return; two units, both orders; ten scaling shapes at n = 32, 128, 512 and 2048, each where the checkpoint left it with the class-typed expression path 0.06 -> 0.05 s at n = 2048 and peak RSS flat; valgrind clean over all 374 fixtures |
 | C13 | which copy is the bytes, and which definition the unit writes: 8.4.2p2's `= default` outside the class settling 12.8p12 again against a complete class, so a copy the standard defines there is the bytes and not a call; 8.3.2p1's reference member ending 12.8p15's leading run and taking 8.5.3's initialization of a reference; 4.10p3's base conversion made an expression whose evaluation observes only its operand, so 9p6's empty base names only the subobject it builds; 3.2p4 keeping a definition the program wrote outside its class however 12.8p12 carried the call, and 14.7.1p1 keeping one a body an instantiation made named - `note_instantiated_transfer` over `instantiated_body_`, asked of 12.8p15's transfer alone because every other constructor the standard defines has 12.1p5's answer, and of a declaration the pattern wrote rather than one the specialization's own class-specifier gave; and both of the ABI's entry points owed where the use that made the definition was one the program wrote out, `source_base_entry` telling that from a base subobject written inside another instantiation, which asks for the entry it names alone | 365 / 374 -> **374 / 378**, the four new tests being four of the shapes these leave and the failing 4 four of the same 9 by name; pa1-pa18 1778 / 1778; the file audit passes with its five inherited warnings and the build prints nothing, `sema_analyzer.h` at 2400 against 2400 and `sema_lifetime.cpp` at 2998 against 3000 after 12.1's entry marking moved beside 12.4p3's; every `.ref` regenerates byte-identically over all 319 fixtures under `pa19/tests` and all 59 under `cppgm.tests/course/pa19`; 56 synthesized shapes through this compiler and `reference-binaries/cppgm++` - defaulted, deleted, in-class, out-of-class and `inline` out-of-class copies and moves, reference members, empty bases, arrays, member classes, virtual members, and the base and complete entries under instantiated and program-written callers - identical as emitted LowIR and symbol for symbol in 51, the five differences being the two narrower rules the failure map records; the C12 audit's sixth shape, `struct d : holder<box> { };`, now among them; all four new fixtures and all five fixtures taken run through `lowir2cy86` to the value g++ builds them to return; six scaling shapes at n = 32, 128 and 512 against a `0d7f7fe0` worktree build, none moved the wrong way and two of them halved; valgrind clean over the nine fixtures the checkpoint moved |
 | C13 audit | which definitions the object file holds, asked of the definition instead of of an elided call: 9.3p2's member function this unit's own source defined outside its class never deferred, with 2.2p1's definition read from an included file and 14.7.1p1's specialization still left to the use that asks; 9.2p2's complete-class answers made one `settle_class_answers`, called where the class-specifier closes and again over every class settled before an 8.4.2p2 definition arrived, so a class holding, deriving from or holding an array of one reads the answer that moved; and 12.8p12's base subobject carried as bytes naming no entry point, because nothing runs | 374 / 378 -> **377 / 381**, the three new tests being three of the shapes these leave and the failing 4 the same 4 by name, all three failing against the `b60697fa` pre-audit build; pa1-pa18 **1778 / 1778**; the file audit passes with its five inherited warnings and the build prints nothing, `sema_analyzer.h` back to 2399 against 2400 after three accessors and the `observable` wrapper moved to the `.cpp` that owns them; every `.ref` regenerates byte-identically over all 65 fixtures under `pa19/tests/spec`, all 254 under `pa19/tests/general` and all 62 under `cppgm.tests/course/pa19`, the 28 diagnostics included; 49 synthesized shapes through this compiler and `reference-binaries/cppgm++` - 25 over which definition the unit holds, 11 over 8.4.2p2's answer reaching a holder, a base, an array and the class written after the definition, 5 over 8.3.2p1's reference member, 4 over an instantiated body with no call under its transfer, and 4 over 9p6's empty base and the ABI's two entry points - identical as emitted LowIR in 48, the survivor the base-entry gap the failure map now records; thirteen programs run through `lowir2cy86`, every one to what the reference's own LowIR runs to; one header included by two units, identical to the reference as one unit and as two; ten scaling shapes at n = 32, 128 and 512 against a `b60697fa` worktree build, none moved the wrong way and the class chain 0.08 -> 0.05 s, with the resettling pass's own worst shape flat at 0.017 s to n = 256; valgrind clean over all 381 fixtures |
+| C14 | what a name or an operand is worth where the reading has to decide before it has the answer, which is the last four: 13.3.1.2p1's *enumeration* operand reaching 13.6's built-in candidate without asking a conversion function for one, so `E \| F` is `operator\|(int, int)` on 4.5p3's promoted operands and a class `operator\|` an enumerator converts to loses to it, with 5p9's usual arithmetic conversions bringing the two written operands to the one type a candidate is written over; 5.3.3p1's operand read as the *expression* the grammar allows wherever 5.19 asks for a constant, with 14.6p8 standing one value in its place while an argument list is what says how large it is; 14.2 and 14.6.1p1 leaving a plain template-name a type-specifier only where 9p2's injected-class-name stands - the class's own body, a definition on its declarator-id, or a class derived from one - so 6.8p1's `close_impl(which);` is the call 3.4.1 finds, with 10.2p2's chain memoised per prefix and spelling; and 14.1p10's defaults merged from every declaration rather than the definition alone, each read in a region its own head spelled, with 14.1p2's parameter count now asked of a redeclaration too | 377 / 381 -> **388 / 388, the PA passing**, the seven new tests being six shapes these leave and one guard for the injected-class-name the restriction could have broken, six of the seven failing against the `fb39e2f1` pre-checkpoint build; pa1-pa18 **1778 / 1778**; the file audit passes with its five inherited warnings and the build prints nothing, `sema_analyzer.h` at 2399 against 2400 with no declaration added to it; every `.ref` regenerates byte-identically over all 319 fixtures under `pa19/tests` and all 69 under `cppgm.tests/course/pa19`; 68 synthesized shapes through this compiler, that build and `reference-binaries/cppgm++` with g++ beside them - 22 over 13.6's table against a class operator, 18 over `sizeof` in every constant-expression context, 16 over the injected-class-name and 12 over merged defaults - 39 of them moved and every shape both compilers accept identical as emitted LowIR to the reference but the four the failure map now records, each decided against it by g++ and by the standard; 58 of them run through `lowir2cy86` to the value g++ builds them to return, with the two the empty-class-by-value scaffold cannot run confirmed against the reference's own LowIR running to the same wrong value; two units naming one merged-default specialization identical to the reference and order-free; eleven scaling shapes at n = 32, 128, 512 and 2048 against that worktree build, the three the checkpoint makes compilable linear and none of the other eight moved - the base chain 0.59 s -> **0.30 s** once 9p2's answer is kept per prefix, which is the pre-checkpoint time - and peak RSS flat within 0.3%; valgrind clean over all 69 course fixtures and the four tests the checkpoint took |

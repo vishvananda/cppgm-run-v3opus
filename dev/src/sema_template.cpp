@@ -773,7 +773,7 @@ void SemaAnalyzer::read_template_head(const AstNode& clause, TemplateInfo& info)
 			// 14.5.3's pack all belong to later milestones.
 			info.supported = false;
 			info.parameters.push_back(std::string());
-			info.defaults.push_back(nullptr);
+			info.defaults.push_back(TemplateInfo::Default());
 			continue;
 		}
 		// 14.1p3: a type parameter with no identifier declares nothing a
@@ -781,9 +781,22 @@ void SemaAnalyzer::read_template_head(const AstNode& clause, TemplateInfo& info)
 		info.parameters.push_back(id == nullptr ? std::string() : id->text);
 		const AstNode* const written =
 			first_child(parameter, AstKind::DefaultTemplateArgument);
-		info.defaults.push_back(
-			written == nullptr ? nullptr
-			                   : first_child(*written, AstKind::TypeId));
+		TemplateInfo::Default fill;
+		if (written != nullptr)
+		{
+			fill.written = first_child(*written, AstKind::TypeId);
+		}
+		if (fill.written != nullptr)
+		{
+			// 14.1p9: a default argument may name the parameters written
+			// before it, and 14.1p2 leaves the names *this* head gave those
+			// places as the only ones it can have written - so they are kept
+			// with it, however the declaration the merge leaves standing
+			// spells them.
+			fill.spelled.assign(info.parameters.begin(),
+			                    info.parameters.end() - 1);
+		}
+		info.defaults.push_back(fill);
 	}
 }
 
@@ -884,6 +897,7 @@ bool SemaAnalyzer::record_template(const AstNode& node, const Context& ctx)
 		                         " names no class template that region "
 		                         "declares");
 	}
+	const bool first = entity == nullptr;
 	if (entity == nullptr)
 	{
 		const std::uint32_t id = model_.type_entity_id();
@@ -929,11 +943,14 @@ bool SemaAnalyzer::record_template(const AstNode& node, const Context& ctx)
 	{
 		throw std::runtime_error("a class template is defined twice");
 	}
-	if (define)
+	if (!first)
 	{
-		entity->templated->pattern = declared;
-		// 14.1p2: the parameter names of the definition are the ones its body
-		// wrote, whatever an earlier declaration called them.
+		// 14.1p10: the defaults available to a use are the ones the definition
+		// and every declaration in scope wrote, merged - so a head that adds a
+		// default to a place an earlier one left empty is read for that alone,
+		// whether or not it is the one that writes the body.  14.1p2 leaves
+		// each head spelling the places as it likes, so what the merged default
+		// names them by travels with it.
 		TemplateInfo head;
 		read_template_head(*clause, head);
 		if (head.parameters.size() != entity->templated->parameters.size())
@@ -942,18 +959,25 @@ bool SemaAnalyzer::record_template(const AstNode& node, const Context& ctx)
 			                         name + " write different numbers of "
 			                         "template parameters");
 		}
-		entity->templated->parameters = head.parameters;
+		if (define)
+		{
+			// 14.1p2: the parameter names of the definition are the ones its
+			// body wrote, whatever an earlier declaration called them.
+			entity->templated->parameters = head.parameters;
+		}
 		entity->templated->supported =
 			entity->templated->supported && head.supported;
-		// 14.1p10: the defaults of every declaration are merged, and the one
-		// that wrote a default keeps it.
 		for (std::size_t index = 0; index < head.defaults.size(); ++index)
 		{
-			if (head.defaults[index] != nullptr)
+			if (head.defaults[index].written != nullptr)
 			{
 				entity->templated->defaults[index] = head.defaults[index];
 			}
 		}
+	}
+	if (define)
+	{
+		entity->templated->pattern = declared;
 		// 14.6p8: the definition is read once where it stands, before any
 		// specialization is completed from it, because what it says about the
 		// names no template parameter stands in the way of is a fact about the
@@ -1127,34 +1151,42 @@ void SemaAnalyzer::bind_template_arguments(
 		out = held->second;
 		return;
 	}
-	const std::vector<TypeId> explicitly = out;
-	Context inner;
-	inner.scope = &model_.open(ScopeKind::TemplateParameters, *info.region,
-	                           nullptr, info.dump);
-	inner.dump = info.dump;
-	inner.node = nullptr;
-	for (std::size_t index = 0; index < info.parameters.size(); ++index)
+	for (std::size_t index = out.size(); index < info.parameters.size(); ++index)
 	{
-		if (index == out.size())
+		const TemplateInfo::Default& fill = info.defaults[index];
+		if (fill.written == nullptr)
 		{
-			if (info.defaults[index] == nullptr)
-			{
-				throw std::runtime_error("a template-argument-list gives " +
-				                         primary.name + " too few arguments");
-			}
-			out.push_back(type_id_type(*info.defaults[index], inner));
+			throw std::runtime_error("a template-argument-list gives " +
+			                         primary.name + " too few arguments");
 		}
-		if (!info.parameters[index].empty())
+		// 14.1p9 and 14.1p2: the default may name the places written before it,
+		// under the names the head that wrote it gave them - which are not the
+		// names the declaration this merge left standing spells those places
+		// by.  So the region it is read in is its own head's, binding each
+		// earlier place to what the list wrote there or an earlier default
+		// already filled.
+		Context inner;
+		inner.scope = &model_.open(ScopeKind::TemplateParameters, *info.region,
+		                           nullptr, info.dump);
+		inner.dump = info.dump;
+		inner.node = nullptr;
+		for (std::size_t before = 0;
+		     before < index && before < fill.spelled.size(); ++before)
 		{
+			if (fill.spelled[before].empty())
+			{
+				// 14.1p3: a place its head left unnamed is one no default can
+				// have written.
+				continue;
+			}
 			SemaEntity& bound = model_.create(SemaKind::Typedef,
-			                                  info.parameters[index],
-			                                  out[index]);
+			                                  fill.spelled[before], out[before]);
 			model_.bind(*inner.scope, bound.name, bound);
 			model_.declare_in(*inner.scope, bound);
 		}
+		out.push_back(type_id_type(*fill.written, inner));
 	}
 	default_arguments_.insert(std::make_pair(key, out));
-	static_cast<void>(explicitly);
 }
 
 // 14.7.1p1: the class `arguments` makes of the class template `primary`.
@@ -1743,7 +1775,7 @@ void SemaAnalyzer::record_function_template(SemaEntity& entity,
 		info.supported = info.supported &&
 			parameter.kind == SemaKind::TemplateType;
 		info.parameters.push_back(parameter.name);
-		info.defaults.push_back(nullptr);
+		info.defaults.push_back(TemplateInfo::Default());
 	}
 }
 

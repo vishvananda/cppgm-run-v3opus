@@ -1,0 +1,66 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $held : obj<4x4>
+  slot $cond__1 : i32
+
+  block ^entry:
+    %t1 = addr $held
+    call void @linked_streambuf__linked_streambuf(%t1)
+    %t2 = addr $held
+    call void @linked_streambuf__close(%t2, 7)
+    %t3 = addr $held
+    %t4 = index i8 [projection=field] %t3, 0
+    %t5 = load i32 %t4
+    %t6 = cmp eq i32 %t5, 7
+    branch %t6, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t7 = load i32 $cond__1
+    return i32 %t7
+}
+function @linked_streambuf__close(%this : ptr, %which : i32) -> void [binding=weak, object=_ZN16linked_streambuf5closeEi] {
+  slot $this : ptr
+  slot $which : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %which, $which
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    store i32 1, %t2
+    %t3 = load ptr $this
+    %t4 = load i32 $which
+    call void @linked_streambuf__close_impl(%t3, %t4)
+    return void
+}
+function @linked_streambuf__close_impl(%this : ptr, %given : i32) -> void [binding=weak, object=_ZN16linked_streambuf10close_implEi] {
+  slot $this : ptr
+  slot $given : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %given, $given
+    %t1 = load i32 $given
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 %t1, %t3
+    return void
+}
+function @linked_streambuf__linked_streambuf(%this : ptr) -> void [binding=weak, object=_ZN16linked_streambufC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    store i32 0, %t2
+    return void
+}
+alias object _ZN16linked_streambufC2Ev = @linked_streambuf__linked_streambuf

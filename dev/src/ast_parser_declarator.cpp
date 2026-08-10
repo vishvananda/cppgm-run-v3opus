@@ -192,8 +192,13 @@ bool AstParser::parse_name_specifier(AstNode* seq, SpecifierMode mode,
 	const NameKind named = template_name.empty()
 		? NameKind::Unknown
 		: names_.kind_of(template_name);
+	// 14.2 and 14.6.1p1: a template-name says which class only once an argument
+	// list is written after it, so a plain one is a type-specifier exactly
+	// where 14.6.1p1's injected-class-name stands - and `close_impl(which);`
+	// written where no class of that name encloses it is 6.8p1's expression and
+	// not a declaration of `which`.
 	if (kind == NameKind::Value || named == NameKind::FunctionTemplate ||
-	    (!plain && kind == NameKind::Template))
+	    (kind == NameKind::Template && (!plain || !names_.injected(text))))
 	{
 		reset(start);
 		return false;

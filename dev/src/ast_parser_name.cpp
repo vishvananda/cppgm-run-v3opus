@@ -150,6 +150,7 @@ void DeclaredNames::derive(const std::string& name, const std::string& base)
 	// A base class is complete where the base-clause names it, so the class it
 	// reaches is settled here rather than at every name looked up through it.
 	inherited_[qualify(name)].push_back(canonical(base + "::"));
+	++bases_;
 }
 
 std::string DeclaredNames::without_arguments(const std::string& spelling)
@@ -228,6 +229,95 @@ NameKind DeclaredNames::reached_through(const std::string& reached,
 		}
 	}
 	return NameKind::Unknown;
+}
+
+std::string DeclaredNames::innermost_class(const std::string& prefix)
+{
+	if (prefix.size() < 3)
+	{
+		return std::string();
+	}
+	const std::string::size_type at = prefix.rfind("::", prefix.size() - 3);
+	return without_arguments(
+		at == std::string::npos ? prefix.substr(0, prefix.size() - 2)
+		                        : prefix.substr(at + 2,
+		                                        prefix.size() - at - 4));
+}
+
+// 14.6.1p1: the injected-class-name is a member of the class it names, so it
+// stands wherever a member of that class does - in the class's own body, in a
+// definition written on its declarator-id, and in a class derived from it.  The
+// prefix in force spells the first two and the nominated prefixes the third,
+// which is the same pair `kind_of` asks and in the same order.
+bool DeclaredNames::injected(const std::string& name) const
+{
+	for (std::string::size_type at = 0; at + 2 <= prefix_.size(); )
+	{
+		const std::string::size_type end = prefix_.find("::", at);
+		if (end == std::string::npos)
+		{
+			break;
+		}
+		if (without_arguments(prefix_.substr(at, end - at)) == name)
+		{
+			return true;
+		}
+		at = end + 2;
+	}
+	for (std::size_t index = scopes_.size(); index-- > 0; )
+	{
+		const std::vector<std::string>& nominated = scopes_[index].nominated;
+		for (std::size_t at = 0; at < nominated.size(); ++at)
+		{
+			if (reaches_injected(nominated[at], name, inherited_.size() + 1))
+			{
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
+// 10.2p2 again: a base reaches what its own bases declare, so the chain is
+// followed exactly as a name looked up through it is.  The answer is kept per
+// prefix and spelling, because a class derived from a chain n deep asks the
+// question its own base has already answered - which is what keeps a chain of
+// n such classes n steps rather than n^2.
+bool DeclaredNames::reaches_injected(const std::string& prefix,
+                                     const std::string& name,
+                                     std::size_t depth) const
+{
+	if (innermost_class(prefix) == name)
+	{
+		return true;
+	}
+	if (depth == 0)
+	{
+		// A base-clause written through a cycle ends the walk rather than
+		// repeating it, and no answer of its own is kept.
+		return false;
+	}
+	const std::string key = prefix + name;
+	const std::unordered_map<std::string, Reach>::const_iterator held =
+		injected_.find(key);
+	if (held != injected_.end() &&
+	    (held->second.answer || held->second.bases == bases_))
+	{
+		return held->second.answer;
+	}
+	const std::string canonical_prefix = canonical(prefix);
+	const std::vector<std::string>* const bases = bases_of(canonical_prefix);
+	bool found = canonical_prefix != prefix &&
+		innermost_class(canonical_prefix) == name;
+	for (std::size_t at = 0; bases != nullptr && !found && at < bases->size();
+	     ++at)
+	{
+		found = reaches_injected((*bases)[at], name, depth - 1);
+	}
+	Reach& kept = injected_[key];
+	kept.answer = found;
+	kept.bases = bases_;
+	return found;
 }
 
 void DeclaredNames::inherit(const std::string& qualifier)

@@ -1,0 +1,21 @@
+ERROR: conflicting class template redeclaration at course/pa19/100-template-redeclaration-parameter-count-bad.t:12:1 [previous declaration at course/pa19/100-template-redeclaration-parameter-count-bad.t:6:1] [top-level declaration 1 kind=template-declaration ast={template-declaration
+  template-parameter-clause
+    template-parameter-list
+      type-parameter
+        parameter-key KW_CLASS:class
+        identifier T
+      type-parameter
+        parameter-key KW_CLASS:class
+        identifier U
+      type-parameter
+        parameter-key KW_CLASS:class
+        identifier V
+        default-template-argument
+          type-id
+            type-specifier-seq
+              type-specifier KW_INT:int
+  class-forward-declaration box
+    class-key KW_STRUCT:struct
+}]
+Diagnostic context:
+collect_template_declaration [template<class T,class U,class V=int>struct box;] at course/pa19/100-template-redeclaration-parameter-count-bad.t:11:1

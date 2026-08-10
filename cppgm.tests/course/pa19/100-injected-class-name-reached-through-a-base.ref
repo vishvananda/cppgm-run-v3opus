@@ -1,0 +1,73 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $built : obj<4x4>
+  slot $cond__1 : i32
+  slot $land__2 : i64
+
+  block ^entry:
+    %t1 = addr $built
+    %t2 = addr $built
+    %t3 = index i8 [projection=base_subobject] %t2, 0
+    %t4 = index i8 [projection=field] %t3, 0
+    store i32 5, %t4
+    %t5 = addr $built
+    %t6 = index i8 [projection=base_subobject] %t5, 0
+    %t7 = call ptr @direct__self(%t6)
+    %t8 = index i8 [projection=field] %t7, 0
+    %t9 = load i32 %t8
+    %t10 = cmp eq i32 %t9, 5
+    branch %t10, ^land_rhs_4, ^land_short_5
+
+  block ^land_rhs_4:
+    %t11 = addr $built
+    %t12 = call ptr @indirect__again(%t11)
+    %t13 = index i8 [projection=field] %t12, 0
+    %t14 = load i32 %t13
+    %t15 = cmp eq i32 %t14, 5
+    %t16 = cmp ne i64 %t15, 0
+    store i64 %t16, $land__2
+    jump ^land_end_6
+
+  block ^land_short_5:
+    store i64 0, $land__2
+    jump ^land_end_6
+
+  block ^land_end_6:
+    %t17 = load i64 $land__2
+    branch %t17, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t18 = load i32 $cond__1
+    return i32 %t18
+}
+function @direct__self(%this : ptr) -> ptr [binding=weak, object=_ZN6direct4selfEv] {
+  slot $this : ptr
+  slot $reached : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    store ptr %t2, $reached
+    %t3 = load ptr $reached
+    return ptr %t3
+}
+function @indirect__again(%this : ptr) -> ptr [binding=weak, object=_ZN8indirect5againEv] {
+  slot $this : ptr
+  slot $reached : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    store ptr %t2, $reached
+    %t3 = load ptr $reached
+    return ptr %t3
+}

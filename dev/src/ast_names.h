@@ -47,6 +47,7 @@ class DeclaredNames
 public:
 	DeclaredNames()
 		: version_(0)
+		, bases_(0)
 	{
 		scopes_.resize(1);
 	}
@@ -102,6 +103,15 @@ public:
 	// declaration in scope names it.  A name written with a `::` in it is a
 	// spelling rather than a name in a scope, so it is answered as one.
 	NameKind kind_of(const std::string& name) const;
+
+	// 14.6.1p1: whether the injected-class-name of a class of this spelling
+	// stands here.  Within the scope of a class template the template-name is
+	// also a class-name, so a plain template-name is a type-specifier exactly
+	// where the parse stands inside a class of that name - its own definition,
+	// a definition written on its own declarator-id, or a class derived from
+	// one - and 14.2 leaves it needing a template-argument-list everywhere
+	// else, which is what settles 6.8p1's ambiguity for `T(x);`.
+	bool injected(const std::string& name) const;
 
 	bool is_value(const std::string& name) const
 	{
@@ -254,6 +264,15 @@ private:
 	// through a cycle is answered rather than followed.
 	NameKind reached_through(const std::string& reached,
 	                         const std::string& name) const;
+	// 9p2: the class a prefix ends in, which is the one whose
+	// injected-class-name that prefix brings with it.  `v::S<T>::` is `S`.
+	static std::string innermost_class(const std::string& prefix);
+	// 9p2 and 10.2p2: whether the class `prefix` names, or one it derives
+	// from, is called `name` - the same chain `reached_through` walks, kept
+	// per prefix and name because a class derived from a chain n deep is
+	// asked the question its own base was already asked.
+	bool reaches_injected(const std::string& prefix, const std::string& name,
+	                      std::size_t depth) const;
 	// What a spelling with a nested-name-specifier names, following the
 	// namespace aliases its prefix was written through.
 	NameKind spelled_kind(const std::string& spelling) const;
@@ -294,6 +313,22 @@ private:
 	// in no entry, so a program with no inheritance pays one probe per region
 	// a name is written in.
 	std::unordered_map<std::string, std::vector<std::string> > inherited_;
+	// 9p2: whether a prefix reaches an injected-class-name of some spelling,
+	// kept per prefix and spelling.  A base-clause is read once and no
+	// declaration takes one away, so a yes stays a yes; a no holds only while
+	// the chain is the one it was answered over, which `bases_` counts.
+	struct Reach
+	{
+		Reach()
+			: answer(false)
+			, bases(0)
+		{}
+
+		bool answer;
+		unsigned long bases;
+	};
+	mutable std::unordered_map<std::string, Reach> injected_;
 	std::string prefix_;
 	unsigned long version_;
+	unsigned long bases_;
 };
