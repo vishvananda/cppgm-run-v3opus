@@ -216,6 +216,14 @@ struct PendingDefinition
 	// write rather than a definition it did, and which the output writes as
 	// the declaration with the parameters of the template it was made from.
 	bool instantiation;
+	// 14.5.1.3p1 and 14.1p2: the class an out-of-class member definition of a
+	// specialization stands inside while it is read, and the region its own
+	// head declared its places in.  14.7.1p1 leaves the body to the use that
+	// names the member, so the two are recorded here and `EnclosedBy` puts the
+	// link back where the body is finally read.  Null for every definition read
+	// where it stands.
+	Scope* stands_in;
+	Scope* head;
 };
 
 // 9.6p2: the storage unit a run of bit-fields is being placed in, which one
@@ -422,4 +430,51 @@ private:
 	ReadingDepth& operator=(const ReadingDepth&);
 
 	unsigned& depth_;
+};
+
+// 14.5.1.3p1: the region standing between a class and the one around it while
+// one out-of-class member definition of it is read, which is that definition's
+// own head's rather than the class's.  The class keeps the region it was
+// completed against, because every other reading of its members - its own body,
+// the next definition written outside it - looks names up through that one.
+//
+// It is the other half of `StandingIn`, which puts a head *inside* the region a
+// qualified declarator-id names: there the region is the program's own and the
+// head is what moves, and here the region is the head and the class is what it
+// stands over.  A body 14.7.1p1 put aside is read after the reading that made
+// it has returned, so the link is put back for it from what `PendingDefinition`
+// recorded.
+// Either scope may be null, which is a definition read where it stands and no
+// link to make.
+class EnclosedBy
+{
+public:
+	EnclosedBy(Scope* scope, Scope* region)
+		: scope_(region != nullptr ? scope : nullptr)
+		, parent_(scope_ != nullptr ? scope_->parent : nullptr)
+		, head_(scope_ != nullptr ? scope_->template_head : nullptr)
+	{
+		if (scope_ != nullptr)
+		{
+			scope_->parent = region;
+			scope_->template_head = region;
+		}
+	}
+
+	~EnclosedBy()
+	{
+		if (scope_ != nullptr)
+		{
+			scope_->parent = parent_;
+			scope_->template_head = head_;
+		}
+	}
+
+private:
+	EnclosedBy(const EnclosedBy&);
+	EnclosedBy& operator=(const EnclosedBy&);
+
+	Scope* const scope_;
+	Scope* const parent_;
+	Scope* const head_;
 };

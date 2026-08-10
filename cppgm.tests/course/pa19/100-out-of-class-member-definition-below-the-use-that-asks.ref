@@ -1,0 +1,99 @@
+function @above() -> i32 [binding=strong, object=_Z5abovev] {
+  slot $early : obj<4x4>
+
+  block ^entry:
+    %t1 = addr $early
+    %t2 = addr $early
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 2, %t3
+    %t4 = addr $early
+    %t5 = call i32 @holder_int___doubled(%t4)
+    return i32 %t5
+}
+function @below() -> i32 [binding=strong, object=_Z5belowv] {
+  slot $late : obj<1x1>
+
+  block ^entry:
+    %t1 = addr $late
+    %t2 = addr $late
+    %t3 = index i8 [projection=field] %t2, 0
+    store i8 3, %t3
+    %t4 = addr $late
+    %t5 = call i32 @holder_char___doubled(%t4)
+    return i32 %t5
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    %t1 = call i32 @above()
+    %t2 = call i32 @below()
+    %t3 = binary add i32 %t1, %t2
+    return i32 %t3
+}
+function @holder_int___doubled(%this : ptr) -> i32 [binding=weak, object=_ZN6holderIiE7doubledEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = call i32 @holder_int___quadrupled(%t1)
+    %t3 = binary div i32 %t2, 2
+    return i32 %t3
+}
+function @holder_int___quadrupled(%this : ptr) -> i32 [binding=weak, object=_ZN6holderIiE10quadrupledEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i32 %t2
+    %t4 = load ptr $this
+    %t5 = index i8 [projection=field] %t4, 0
+    %t6 = load i32 %t5
+    %t7 = binary add i32 %t3, %t6
+    %t8 = load ptr $this
+    %t9 = index i8 [projection=field] %t8, 0
+    %t10 = load i32 %t9
+    %t11 = binary add i32 %t7, %t10
+    %t12 = load ptr $this
+    %t13 = index i8 [projection=field] %t12, 0
+    %t14 = load i32 %t13
+    %t15 = binary add i32 %t11, %t14
+    return i32 %t15
+}
+function @holder_char___doubled(%this : ptr) -> i32 [binding=weak, object=_ZN6holderIcE7doubledEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = call i32 @holder_char___quadrupled(%t1)
+    %t3 = binary div i32 %t2, 2
+    return i32 %t3
+}
+function @holder_char___quadrupled(%this : ptr) -> i32 [binding=weak, object=_ZN6holderIcE10quadrupledEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i8 %t2
+    %t4 = load ptr $this
+    %t5 = index i8 [projection=field] %t4, 0
+    %t6 = load i8 %t5
+    %t7 = convert sext i32 i8 %t3
+    %t8 = convert sext i32 i8 %t6
+    %t9 = binary add i32 %t7, %t8
+    %t10 = load ptr $this
+    %t11 = index i8 [projection=field] %t10, 0
+    %t12 = load i8 %t11
+    %t13 = convert sext i32 i8 %t12
+    %t14 = binary add i32 %t9, %t13
+    %t15 = load ptr $this
+    %t16 = index i8 [projection=field] %t15, 0
+    %t17 = load i8 %t16
+    %t18 = convert sext i32 i8 %t17
+    %t19 = binary add i32 %t14, %t18
+    return i32 %t19
+}

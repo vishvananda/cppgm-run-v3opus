@@ -112,6 +112,8 @@ PendingDefinition::PendingDefinition()
 	, initializers(nullptr)
 	, members(nullptr)
 	, instantiation(false)
+	, stands_in(nullptr)
+	, head(nullptr)
 {}
 
 AnalyzedValue::AnalyzedValue()
@@ -596,6 +598,11 @@ void SemaAnalyzer::write_definition(Pending& pending)
 		write_instantiation(pending);
 		return;
 	}
+	// 14.5.1.3p1 and 14.1p2: a definition written outside its class is read
+	// with its own head standing between that class and the region around it,
+	// and 14.7.1p1 leaves the body until long after the reading that made the
+	// declaration - so the link that reading held is put back here.
+	const EnclosedBy stands_in(pending.stands_in, pending.head);
 	DumpNode& line = open_fact(model_.unit(), "function-definition " +
 	                           function.dump_name + " " +
 	                           function_description(function.type,

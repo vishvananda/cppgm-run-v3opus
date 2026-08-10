@@ -124,7 +124,8 @@ TypeId SemaAnalyzer::keyword_type(const std::string& spelling) const
 	return const_cast<TypeTable&>(types_).fundamental(table_10_type(counted));
 }
 
-const char* SemaAnalyzer::category_name(ValueCategory category)
+// 3.10: which of the three value categories a line is spelled with.
+const char* category_name(ValueCategory category)
 {
 	switch (category)
 	{
@@ -175,7 +176,7 @@ void SemaAnalyzer::respell(const Value& value) const
 // The line kinds the expression layer spells, as the node kinds the resolved
 // tree names them by.  The spelling is the one fact that says which construct
 // a line stands for, so the two are decided in one place.
-FactKind SemaAnalyzer::fact_kind(const char* what)
+FactKind fact_kind(const char* what)
 {
 	static const struct { const char* name; FactKind kind; } kKinds[] = {
 		{"literal", FactKind::Literal},

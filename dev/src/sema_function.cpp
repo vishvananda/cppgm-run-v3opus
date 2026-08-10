@@ -417,48 +417,75 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 		check_template_definition(node, inner, parameters, type);
 		return;
 	}
-	if (target.node == nullptr)
+	Pending pending;
+	pending.function = &entity;
+	pending.self = self;
+	pending.body = &node;
+	pending.scope = inner.scope;
+	pending.parameters = parameters;
+	// 14.7.1p1: a definition written outside its class and read *for a
+	// specialization* is one this instantiation made, and instantiating a class
+	// instantiates the declarations of its members and not their definitions -
+	// so it waits for the use that names the member exactly as 9.2p2's body
+	// written in the class does.  A specialization of a *function* template is
+	// the definition a use has already asked for, and 11.3p6's friend is no
+	// member of the class at all, so neither takes this arm.
+	const bool instantiated_member = instantiating_class_ > 0 &&
+		specializing == nullptr && spelled.qualified() && granting == nullptr;
+	if (target.node == nullptr || instantiated_member)
 	{
-		// 9.2p2: a member function defined in its class is read where the class
-		// is complete, which is the end of the translation unit, and the output
-		// writes it there.
-		Pending pending;
-		pending.function = &entity;
-		pending.self = self;
-		pending.body = &node;
-		pending.scope = inner.scope;
-		pending.parameters = parameters;
+		if (instantiated_member)
+		{
+			// 14.1p2: the head this definition wrote its own places in stands
+			// between the class and the region around it, and the reading that
+			// put the body aside is over by the time the body is read.
+			pending.stands_in = target.scope;
+			pending.head = target.scope->parent;
+		}
 		queue_definition(pending);
 		return;
 	}
+	read_definition_body(pending, *target.node, type);
+}
 
-	DumpNode& line = open_fact(*target.node, "function-definition " +
-	                           entity.dump_name + " " +
+void SemaAnalyzer::read_definition_body(Pending& pending, DumpNode& into,
+                                        TypeId type)
+{
+	SemaEntity& entity = *pending.function;
+	DumpNode& line = open_fact(into, "function-definition " + entity.dump_name +
+	                           " " +
 	                           function_description(type, entity.object_member),
 	                           FactKind::FunctionDefinition);
 	line.fact.entity = &entity;
 	line.fact.type = type;
-	if (self != nullptr)
+	if (pending.self != nullptr)
 	{
 		// A member function defined after its class is written where it is
 		// written, and the object it is called on is still its first parameter.
-		DumpNode& object = open_fact(line, "parameter " + self->name + " " +
-		                             types_.description(self->type),
+		DumpNode& object = open_fact(line, "parameter " + pending.self->name +
+		                             " " +
+		                             types_.description(pending.self->type),
 		                             FactKind::Parameter);
-		object.fact.entity = self;
-		object.fact.type = self->type;
+		object.fact.entity = pending.self;
+		object.fact.type = pending.self->type;
 	}
-	declare_parameters(parameters, type, inner, &line, self != nullptr ? 1 : 0);
+	const std::size_t implicit = pending.self != nullptr ? 1 : 0;
+	Context inner;
+	inner.scope = pending.scope;
+	inner.dump = pending.scope->dump;
+	inner.node = &into;
+	declare_parameters(pending.parameters, type, inner, &line, implicit);
 
 	// 6.6.3, 6.6.1 and 6.6.2 are facts about the function being read, so the
 	// walk of one body neither sees nor leaves behind what encloses it.
-	const FunctionReading reading(*this, self, types_.target(type));
+	const FunctionReading reading(*this, pending.self, types_.target(type));
 	// 5.2.2p4: the parameters of class type this definition has to end are read
 	// once, off the lines just written, before the body that may return.
 	open_parameter_lifetimes(line);
-	for (std::size_t index = 2; index < node.children.size(); ++index)
+	const AstNode& body = *pending.body;
+	for (std::size_t index = 2; index < body.children.size(); ++index)
 	{
-		semantic_statement(*node.children[index], inner, line);
+		semantic_statement(*body.children[index], inner, line);
 	}
 	// 6.6.3p2 and 3.8p1: control reaching the end of the body leaves the
 	// function as a return does, so what a return would end is ended there too.

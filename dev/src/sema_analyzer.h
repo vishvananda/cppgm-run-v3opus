@@ -185,10 +185,6 @@ private:
 	// which is where its default-arguments begin - the shortest parameter list
 	// 12.9p1's candidate set takes from this declaration.
 	std::size_t required_parameters(const SemaEntity& function) const;
-	// 12.1p5 and 12.9p3: whether this class declares a constructor of its own,
-	// which an inherited one is not - so a class that only inherits still has
-	// the default constructor 12.1p5 gives it.
-	static bool declares_own_constructor(const SemaEntity& entity);
 	// 13.1 and 7.3.3p14: what tells two declarations of one name in one class
 	// apart - 8.3.5p4's parameter-type-list and 8.3.5p7's cv-qualifier-seq.
 	// 9.3.1p3 put an object parameter in a non-static member function's type
@@ -1086,6 +1082,11 @@ private:
 	// another, so the list is walked rather than iterated.
 	void write_pending_definitions();
 	void write_definition(Pending& pending);
+	// 8.4p1: the body of a definition read where it stands, under the node the
+	// declaration was read under - which is every definition but the two the
+	// end of the unit writes, 9.2p2's member defined in its class and the one
+	// 14.7.1p1 left to the use that names it.
+	void read_definition_body(Pending& pending, DumpNode& into, TypeId type);
 	// 9.5p1: whether the members of this class stand in one storage, so that at
 	// most one of them holds an object at a time.  It is one question with one
 	// owner because every walk of a class's members reads it and each reads it
@@ -2159,10 +2160,7 @@ private:
 	// 2.14.4p1: the zero of a floating type, spelled as a literal of that type
 	// so that the suffix says which of the three widths it is a value of.
 	const char* floating_zero(TypeId type) const;
-	// The node kind the resolved tree names a line of `what` by.
-	static FactKind fact_kind(const char* what);
 	static std::string payload_of(const AstNode& node);
-	static const char* category_name(ValueCategory category);
 	// The name the PA12 dump gives a declaration of `scope`.
 	std::string dump_name(const Scope& scope, const std::string& name) const;
 	std::string abi_name(const Scope& scope, const std::string& name) const;

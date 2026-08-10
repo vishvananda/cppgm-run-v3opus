@@ -1053,7 +1053,10 @@ void SemaAnalyzer::inherit_constructor(SemaEntity& from, const SemaEntity& base,
 // which an inherited one is not - 12.9 declares it from the base's rather than
 // from anything written here, and leaves the class the default constructor it
 // would have had.
-bool SemaAnalyzer::declares_own_constructor(const SemaEntity& entity)
+// 12.1p5 and 12.9p3: whether this class declares a constructor of its own,
+// which an inherited one is not - so a class that only inherits still has the
+// default constructor 12.1p5 gives it.
+bool declares_own_constructor(const SemaEntity& entity)
 {
 	for (const SemaEntity* at = entity.constructor; at != nullptr; at = at->next)
 	{

@@ -37,43 +37,6 @@
 namespace
 {
 
-// 14.5.1.3p1: the region standing between a class and the one around it while
-// one out-of-class member definition of it is read, which is that definition's
-// own head's rather than the class's.  The class keeps the region it was
-// completed against, because every other reading of its members - its own body,
-// the next definition written outside it - looks names up through that one.
-//
-// It is the other half of `StandingIn`, which puts a head *inside* the region a
-// qualified declarator-id names: there the region is the program's own and the
-// head is what moves, and here the region is the head and the class is what it
-// stands over.
-class EnclosedBy
-{
-public:
-	EnclosedBy(Scope& scope, Scope& region)
-		: scope_(scope)
-		, parent_(scope.parent)
-		, head_(scope.template_head)
-	{
-		scope_.parent = &region;
-		scope_.template_head = &region;
-	}
-
-	~EnclosedBy()
-	{
-		scope_.parent = parent_;
-		scope_.template_head = head_;
-	}
-
-private:
-	EnclosedBy(const EnclosedBy&);
-	EnclosedBy& operator=(const EnclosedBy&);
-
-	Scope& scope_;
-	Scope* const parent_;
-	Scope* const head_;
-};
-
 // 5.2.3p1 and Table 10: whether a spelling standing where a callee does is a
 // simple-type-specifier written out of keywords, which the parser leaves as the
 // text of an id-expression.  An explicit type conversion written that way names
@@ -845,8 +808,12 @@ bool SemaAnalyzer::record_template(const AstNode& node, const Context& ctx)
 		for (std::size_t index = 0;
 		     index < owner->templated->specializations.size(); ++index)
 		{
-			instantiate_member(*owner->templated->specializations[index],
-			                   owner->templated->members.back());
+			SemaEntity& made = *owner->templated->specializations[index];
+			instantiate_member(made, owner->templated->members.back());
+			// 10.3p10: the table of a class already made names a virtual member
+			// this definition is what gives a body to, and the class was
+			// complete before the definition was written.
+			require_table_definitions(made);
 		}
 		return true;
 	}
@@ -1388,7 +1355,6 @@ void SemaAnalyzer::complete_specialization(SemaEntity& made)
 		                  &spelled);
 		read_held_pattern_bodies(mark);
 	}
-	require_table_definitions(made);
 	// 14.5.1.3p1: what the template's members were defined as outside its
 	// class is read now that the class is complete, and a definition written
 	// after this specialization was made is read for it where it stands.  The
@@ -1399,6 +1365,10 @@ void SemaAnalyzer::complete_specialization(SemaEntity& made)
 	{
 		instantiate_member(made, info.members[index]);
 	}
+	// 10.3p10's table names a virtual member whatever it is defined by, so the
+	// demand stands after the definitions written outside the class have been
+	// read and not before them.
+	require_table_definitions(made);
 }
 
 // 14.2: the specialization a name written as a template-id denotes.
@@ -1452,7 +1422,11 @@ namespace
 // of declarations.  A member a base class declares is left out, which the
 // region already answers: 10.2p2's lookup reaches those through the base and
 // the base's own region is what holds them.
-void demand_member_definitions(SemaEntity& made)
+//
+// The bodies the instantiation put aside are handed back rather than asked for
+// here, because the ask is `require_definition`'s and this walk has no analyzer.
+void demand_member_definitions(SemaEntity& made,
+                               std::vector<SemaEntity*>& demanded)
 {
 	if (made.scope == nullptr)
 	{
@@ -1477,11 +1451,12 @@ void demand_member_definitions(SemaEntity& made)
 			// Either way the binding is unchanged: what this says is whether
 			// the symbol is a root of this object file.
 			member.explicitly_instantiated = true;
+			demanded.push_back(&member);
 		}
 		else if (member.kind == SemaKind::Class &&
 		         member.scope != nullptr && member.scope != made.scope)
 		{
-			demand_member_definitions(member);
+			demand_member_definitions(member, demanded);
 		}
 	}
 }
@@ -1743,7 +1718,15 @@ void SemaAnalyzer::explicit_instantiation(const AstNode& node,
 		return;
 	}
 	require_specialization(*made);
-	demand_member_definitions(*made);
+	// 14.7.2p8 and 3.2p3: this declaration is the one demand with no use to
+	// point at, so a member whose definition the instantiation put aside is
+	// asked for it here exactly as a call would ask.
+	std::vector<SemaEntity*> demanded;
+	demand_member_definitions(*made, demanded);
+	for (std::size_t index = 0; index < demanded.size(); ++index)
+	{
+		require_definition(*demanded[index]);
+	}
 }
 
 // 14p1: the pattern a function template's declaration was written from, taken
@@ -2034,6 +2017,14 @@ void SemaAnalyzer::instantiate_member(SemaEntity& specialization,
 	// 9.4.2p1 and 9.3p2: the definition declares into the class the
 	// declarator-id names, and writes its lines where that class writes them.
 	inner.node = &model_.unit();
+	// 14.7.1p1: this reading instantiates the *declaration* the definition
+	// writes and not the definition, exactly as the reading of the class's own
+	// body does - so the body is put aside for the use that names the member.
+	// A definition written outside the class is otherwise the one member body
+	// every specialization reads whether or not anything ever calls it, which
+	// is both what the clause forbids and what makes n such definitions over n
+	// specializations n^2 bodies for the ones a program calls.
+	const ReadingDepth instantiating(instantiating_class_);
 	if (region == nullptr)
 	{
 		// A head 14.5.5 parameterises names no member of this template, so the
@@ -2042,7 +2033,7 @@ void SemaAnalyzer::instantiate_member(SemaEntity& specialization,
 		declaration(*member.declaration, inner);
 		return;
 	}
-	const EnclosedBy enclosed(*specialization.scope, *region);
+	const EnclosedBy enclosed(specialization.scope, region);
 	declaration(*member.declaration, inner);
 }
 
@@ -2520,7 +2511,11 @@ SemaEntity& SemaAnalyzer::current_instantiation(SemaEntity& primary)
 // 9.2p2 already says: it is written at the end of the unit.
 void SemaAnalyzer::queue_definition(const Pending& pending)
 {
-	if (instantiating_class_ == 0 || pending.function == nullptr)
+	// 14.6.4.1p1: a specialization named above the definition its template has
+	// by the end of the unit is instantiated there, so a definition read after
+	// the use that asked for it has nothing left to wait for.
+	if (instantiating_class_ == 0 || pending.function == nullptr ||
+	    pending.function->definition_required)
 	{
 		pending_.push_back(pending);
 		return;
@@ -2538,6 +2533,10 @@ void SemaAnalyzer::queue_definition(const Pending& pending)
 // output has neither a definition nor a declaration of it.
 void SemaAnalyzer::require_definition(SemaEntity& function)
 {
+	// The ask is a fact of the function, because a definition the program
+	// writes below it is still one this unit owes: 14.6.4.1p1's second point of
+	// instantiation is the end of the unit, and nothing asks again there.
+	function.definition_required = true;
 	if (held_definitions_.empty())
 	{
 		return;
@@ -2711,7 +2710,7 @@ void SemaAnalyzer::read_member_pattern(SemaEntity& primary,
 	{
 		return;
 	}
-	const EnclosedBy enclosed(*info.current->scope, *region);
+	const EnclosedBy enclosed(info.current->scope, region);
 	const FunctionReading held(*this, nullptr, kNoType);
 	const DialectReading dialect(*this);
 	Context inner;

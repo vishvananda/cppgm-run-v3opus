@@ -569,6 +569,14 @@ struct SemaEntity
 	// still the program's rather than this unit's, so what this changes is when
 	// the object file writes it and not how it binds.
 	bool explicitly_instantiated;
+	// 3.2p3 and 14.6.4.1p1: whether anything in this unit has asked this unit
+	// for the definition of this function.  A definition 14.7.1p1 put aside
+	// waits for that ask, and 14.6.4.1p1 gives a specialization a second point
+	// of instantiation at the end of the unit - so a definition the program
+	// writes *below* a use that already asked is one this unit owes, and it
+	// joins what the end of the unit writes rather than waiting for an ask that
+	// has already been made.
+	bool definition_required;
 	// 14.2 and the ABI's `<template-args>`: the arguments that made this
 	// specialization, as the interned list `TypeTable::type_list` keys a fact
 	// about one by.  Zero - the empty list - for every declaration no
