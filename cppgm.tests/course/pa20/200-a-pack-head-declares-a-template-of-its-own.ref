@@ -1,0 +1,102 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    %t1 = call i32 @pick(1)
+    %t2 = cmp ne i32 %t1, 1
+    branch %t2, ^if_then_1, ^if_else_2
+
+  block ^if_then_1:
+    return i32 1
+
+  block ^if_else_2:
+    jump ^if_end_3
+
+  block ^if_end_3:
+    %t3 = call i32 @pick__ov3(1, 2)
+    %t4 = cmp ne i32 %t3, 2
+    branch %t4, ^if_then_4, ^if_else_5
+
+  block ^if_then_4:
+    return i32 2
+
+  block ^if_else_5:
+    jump ^if_end_6
+
+  block ^if_end_6:
+    %t5 = call i32 @span(1, 2)
+    %t6 = cmp ne i32 %t5, 3
+    branch %t6, ^if_then_7, ^if_else_8
+
+  block ^if_then_7:
+    return i32 3
+
+  block ^if_else_8:
+    jump ^if_end_9
+
+  block ^if_end_9:
+    %t7 = call i32 @span__ov3(1)
+    %t8 = cmp ne i32 %t7, 4
+    branch %t8, ^if_then_10, ^if_else_11
+
+  block ^if_then_10:
+    return i32 4
+
+  block ^if_else_11:
+    jump ^if_end_12
+
+  block ^if_end_12:
+    %t9 = call i32 @span__ov4(1, 2, 3)
+    %t10 = cmp ne i32 %t9, 4
+    branch %t10, ^if_then_13, ^if_else_14
+
+  block ^if_then_13:
+    return i32 5
+
+  block ^if_else_14:
+    jump ^if_end_15
+
+  block ^if_end_15:
+    return i32 0
+}
+function @pick(%__param0 : i32) -> i32 [binding=weak, object=_Z4pickIiEiT_] {
+  slot $__param0 : i32
+
+  block ^entry:
+    store i32 %__param0, $__param0
+    return i32 1
+}
+function @pick__ov3(%__param0 : i32, %__param1 : i32) -> i32 [binding=weak, object=_Z4pickIJiiEEiDpT_] {
+  slot $__param0 : i32
+  slot $__param1 : i32
+
+  block ^entry:
+    store i32 %__param0, $__param0
+    store i32 %__param1, $__param1
+    return i32 2
+}
+function @span(%__param0 : i32, %__param1 : i32) -> i32 [binding=weak, object=_Z4spanIiiEiT_T0_] {
+  slot $__param0 : i32
+  slot $__param1 : i32
+
+  block ^entry:
+    store i32 %__param0, $__param0
+    store i32 %__param1, $__param1
+    return i32 3
+}
+function @span__ov3(%__param0 : i32) -> i32 [binding=weak, object=_Z4spanIJiEEiDpT_] {
+  slot $__param0 : i32
+
+  block ^entry:
+    store i32 %__param0, $__param0
+    return i32 4
+}
+function @span__ov4(%__param0 : i32, %__param1 : i32, %__param2 : i32) -> i32 [binding=weak, object=_Z4spanIJiiiEEiDpT_] {
+  slot $__param0 : i32
+  slot $__param1 : i32
+  slot $__param2 : i32
+
+  block ^entry:
+    store i32 %__param0, $__param0
+    store i32 %__param1, $__param1
+    store i32 %__param2, $__param2
+    return i32 4
+}

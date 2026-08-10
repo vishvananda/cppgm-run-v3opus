@@ -87,24 +87,15 @@ bool Deduction::match(TypeId pattern, TypeId argument,
 			match(types.target(pattern), types.target(argument), bindings);
 
 	case TypeKind::Function:
-	{
-		const std::vector<TypeId>& expected = types.parameters(pattern);
-		const std::vector<TypeId>& given = types.parameters(argument);
-		if (expected.size() != given.size() ||
-		    types.variadic(pattern) != types.variadic(argument) ||
-		    !match(types.target(pattern), types.target(argument), bindings))
-		{
-			return false;
-		}
-		for (std::size_t index = 0; index < expected.size(); ++index)
-		{
-			if (!match(expected[index], given[index], bindings))
-			{
-				return false;
-			}
-		}
-		return true;
-	}
+		// 8.3.5p1 with 14.5.3p4: a parameter list is a list of entries paired
+		// one for one, with a trailing `P...` standing for every entry the ones
+		// before it did not take - which is what a template-argument-list is,
+		// so it is the same match.  14.8.2.2's target type is the one A written
+		// over a whole function type, and this is where its parameters are read.
+		return types.variadic(pattern) == types.variadic(argument) &&
+			match(types.target(pattern), types.target(argument), bindings) &&
+			match_arguments(types.parameters(pattern),
+			                types.parameters(argument), bindings);
 
 	case TypeKind::Class:
 	{
@@ -138,10 +129,11 @@ bool Deduction::match(TypeId pattern, TypeId argument,
 	}
 }
 
-// 14.5.3p1 with 14.8.2.5p4: two argument lists, where the pattern's may end in
-// 14.5.3p4's `P...`.  That entry is one place standing for a run, so the
-// entries before it are paired one for one and every argument left is a pair of
-// its own against the expansion's pattern.
+// 14.5.3p1 with 14.8.2.5p4: two lists of entries - a template-argument-list or
+// 8.3.5p1's parameter list, which the match reads by one rule - where the
+// pattern's may end in 14.5.3p4's `P...`.  That entry is one place standing for
+// a run, so the entries before it are paired one for one and every argument
+// left is a pair of its own against the expansion's pattern.
 bool Deduction::match_arguments(const std::vector<TypeId>& wanted,
                                 const std::vector<TypeId>& given,
                                 std::unordered_map<TypeId, TypeId>& bindings)
@@ -391,10 +383,10 @@ bool Deduction::match_argument(TypeId parameter, const AnalyzedValue& argument,
 // deduced *or* obtained from a default.  False where a place is left with
 // neither, because there is nothing to substitute for it.
 //
-// A default is read in the region the head declared its parameters in, because
-// 14.1p9 lets it name the places before it, and what the deduction has settled
-// so far is substituted into it - so `class U = T` takes what `T` deduced and a
-// later default takes what an earlier one filled.
+// A default is read in a region of its own, because 14.1p9 lets it name the
+// places before it and what those name is what the deduction settled - so
+// `class U = T` takes what `T` deduced, `int M = N + 1` takes the constant `N`
+// took, and a later default takes what an earlier one filled.
 bool Deduction::arguments_of(const SemaEntity& primary,
                              const std::unordered_map<TypeId, TypeId>& bindings,
                              std::vector<TypeId>& out)
@@ -444,10 +436,33 @@ bool Deduction::arguments_of(const SemaEntity& primary,
 			filled = bindings;
 			defaulted = true;
 		}
+		// 14.1p9: the default may name the places written before it, so it is
+		// read in a region of its own binding each of them to what the
+		// deduction settled - the region the class tier's own fill opens.  A
+		// type-id could be read against the head's region and substituted
+		// afterwards, but 5.19's constant expression is *evaluated* where it
+		// stands, so a place it names has to be a constant there.
 		SemaContext inner;
-		inner.scope = primary.template_parameters;
+		inner.scope = &analyzer_.model_.open(
+			ScopeKind::TemplateParameters,
+			*primary.template_parameters->parent, nullptr,
+			primary.template_parameters->dump);
 		inner.dump = inner.scope->dump;
 		inner.node = nullptr;
+		for (std::size_t before = 0; before < index; ++before)
+		{
+			const std::unordered_map<TypeId, TypeId>::const_iterator took =
+				filled.find(parameters[before]->type);
+			if (parameters[before]->name.empty() || took == filled.end())
+			{
+				// 14.1p3: a place its head left unnamed is one no default can
+				// have written, and a pack the deduction reached with nothing
+				// stands for no argument at all.
+				continue;
+			}
+			analyzer_.bind_argument(*inner.scope, parameters[before]->name,
+			                        took->second, SemaKind::Typedef);
+		}
 		std::unordered_map<TypeId, TypeId> memo;
 		// 14.1p4: what the place *is* says how its default is read - a type
 		// place's is 8.1p1's type-id and a value place's is 5.19's constant

@@ -1826,8 +1826,10 @@ private:
 	// not a type, which no substitution here stands for.
 	TypeId template_signature(const Scope& parameters, TypeId type);
 	// The type standing for the `index`th place a template head declares,
-	// made once and shared by every signature.
-	TypeId canonical_parameter(std::size_t index);
+	// made once and shared by every signature.  14.5.3p1's place that binds a
+	// run stands for one of its own, because it is not the place a head that
+	// declared no pack wrote there.
+	TypeId canonical_parameter(std::size_t index, bool pack);
 	// 14.5.1.3p1: the class template a definition written outside its class is
 	// a member of, found from the template-id its declarator-id was qualified
 	// with.  Null for a declaration that is a member of no such template.
@@ -2244,6 +2246,7 @@ private:
 	// standing for the parameter itself, and the signature `template_signature`
 	// builds out of them, kept per declaration.
 	std::vector<TypeId> canonical_parameters_;
+	std::vector<TypeId> canonical_packs_;
 	std::unordered_map<std::uint32_t, TypeId> template_signatures_;
 	// 14.8.1p2: the declaration a template and a leading part of its argument
 	// list stand for, keyed by the two - so a name written twice reaches one

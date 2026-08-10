@@ -97,6 +97,11 @@ public:
 	// after the template's name, and each of them is a type the encoder has to
 	// be handed rather than a spelling, for the same reason a local context is.
 	const std::string& argument_of(TypeId type);
+	// 14.1p4 and `<expression>`: the identifier the encoder reads one dependent
+	// *expression* back under.  An argument at a value place no substitution
+	// has settled is written as the expression it is - the parameter, or
+	// 14.5.3p4's expansion of one - and not as the type standing for it.
+	const std::string& expression_of(TypeId type);
 
 	const abi_mangle::AbiDefinitionMap& definitions() const { return map_; }
 
@@ -108,8 +113,19 @@ private:
 	std::deque<abi_mangle::AbiDefinitionRecord> records_;
 	std::map<const SemaEntity*, std::string> ids_;
 	std::map<TypeId, std::string> arguments_;
+	std::map<TypeId, std::string> expressions_;
 	abi_mangle::AbiDefinitionMap map_;
 };
+
+// 14.1p4: whether an argument no substitution has settled stands at a *value*
+// place - a non-type parameter, or 14.5.3p4's expansion of one.  What such an
+// argument is written as is 5.19's expression and not 8.1p1's type-id, which is
+// the same question the place itself answers for a written argument.
+bool written_as_expression(TypeTable& types, TypeId type)
+{
+	return types.parameter_value_type(
+		types.is_pack_expansion(type) ? types.target(type) : type) != kNoType;
+}
 
 // 14.5.3p1 and `<template-args>`: the arguments one written list gave a
 // specialization, where the ones a pack place took are *one* argument however
@@ -929,8 +945,54 @@ const std::string& LocalContexts::argument_of(TypeId type)
 		}
 		return placed->second;
 	}
+	if (written_as_expression(types_, type))
+	{
+		// 14.1p4 and `<template-arg>`'s `X <expression> E`: a place at a value
+		// position no argument list settled is written as the expression that
+		// names it, so `S<N>` is `1SIXT_EE` rather than the `1SIT_E` a type
+		// place makes.
+		record.template_argument.kind =
+			abi_mangle::ABI_TEMPLATE_ARGUMENT_EXPRESSION;
+		record.template_argument.name = expression_of(type);
+		return placed->second;
+	}
 	record.template_argument.kind = abi_mangle::ABI_TEMPLATE_ARGUMENT_TYPE;
 	record.template_argument.type = abi_type(types_, type, *this);
+	return placed->second;
+}
+
+const std::string& LocalContexts::expression_of(TypeId type)
+{
+	const std::map<TypeId, std::string>::iterator held =
+		expressions_.find(type);
+	if (held != expressions_.end())
+	{
+		return held->second;
+	}
+	const std::string id = "expression" + decimal(expressions_.size());
+	const std::map<TypeId, std::string>::iterator placed =
+		expressions_.insert(std::make_pair(type, id)).first;
+	records_.push_back(abi_mangle::AbiDefinitionRecord());
+	abi_mangle::AbiDefinitionRecord& record = records_.back();
+	record.kind = abi_mangle::ABI_DEFINITION_EXPRESSION;
+	record.id = id;
+	map_[id] = &record;
+	if (types_.is_pack_expansion(type))
+	{
+		// 14.5.3p4 and `sp`: the pack-expansion operator over an expression,
+		// which is what `Dp` is over a type - so `S<Ns...>` is `1SIJXspT_EEE`.
+		record.expression.kind = abi_mangle::ABI_EXPRESSION_PACK_EXPANSION;
+		record.expression.expression_refs.push_back(
+			expression_of(types_.target(type)));
+		return placed->second;
+	}
+	record.expression.kind = abi_mangle::ABI_EXPRESSION_TEMPLATE_PARAMETER;
+	record.expression.index = types_.template_index(type);
+	// The ABI's compression registers a `<template-param>` written as a *type*,
+	// and neither the expression nor the `X ... E` around it is a candidate of
+	// its own - so `S<N>` written twice numbers its substitutions one lower than
+	// `S<T>` written twice does.
+	record.expression.substitutable = false;
 	return placed->second;
 }
 

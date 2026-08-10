@@ -1447,18 +1447,26 @@ void SemaAnalyzer::record_function_template(SemaEntity& entity,
 	}
 }
 
-TypeId SemaAnalyzer::canonical_parameter(std::size_t index)
+TypeId SemaAnalyzer::canonical_parameter(std::size_t index, bool pack)
 {
-	while (canonical_parameters_.size() <= index)
+	// 14.5.3p1: a place that binds a *run* is not the place that binds one
+	// argument, so the two stand for different things - otherwise
+	// `f(T)` and `f(Ts...)` are one signature, because the expansion over a
+	// place standing for no pack is the place itself.
+	std::vector<TypeId>& canonical =
+		pack ? canonical_packs_ : canonical_parameters_;
+	while (canonical.size() <= index)
 	{
 		// 14.5.6.1p5 asks whether two heads declared their parameters in the
 		// same places, so a place is what a parameter stands for here: one type
 		// per position, made once and shared by every signature.
-		canonical_parameters_.push_back(types_.template_parameter_type(
+		const TypeId made = types_.template_parameter_type(
 			model_.type_entity_id(), false,
-			"#" + std::to_string(canonical_parameters_.size())));
+			(pack ? "#..." : "#") + std::to_string(canonical.size()));
+		types_.set_template_pack(made, pack);
+		canonical.push_back(made);
 	}
-	return canonical_parameters_[index];
+	return canonical[index];
 }
 
 TypeId SemaAnalyzer::template_signature(const Scope& parameters, TypeId type)
@@ -1474,8 +1482,10 @@ TypeId SemaAnalyzer::template_signature(const Scope& parameters, TypeId type)
 			// declares one is left declaring a template of its own.
 			return kNoType;
 		}
-		bindings.insert(std::make_pair(declared[index]->type,
-		                               canonical_parameter(index)));
+		bindings.insert(std::make_pair(
+			declared[index]->type,
+			canonical_parameter(index,
+			                    types_.is_template_pack(declared[index]->type))));
 	}
 	std::unordered_map<TypeId, TypeId> memo;
 	return substituted(type, bindings, memo);

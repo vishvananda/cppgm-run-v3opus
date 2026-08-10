@@ -1,0 +1,88 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    %t1 = call i32 @width(97)
+    %t2 = cmp ne i32 %t1, 1
+    branch %t2, ^if_then_1, ^if_else_2
+
+  block ^if_then_1:
+    return i32 1
+
+  block ^if_else_2:
+    jump ^if_end_3
+
+  block ^if_end_3:
+    %t3 = call i32 @width__ov2(1)
+    %t4 = cmp ne i32 %t3, 4
+    branch %t4, ^if_then_4, ^if_else_5
+
+  block ^if_then_4:
+    return i32 2
+
+  block ^if_else_5:
+    jump ^if_end_6
+
+  block ^if_end_6:
+    %t5 = call i32 @next()
+    %t6 = cmp ne i32 %t5, 5
+    branch %t6, ^if_then_7, ^if_else_8
+
+  block ^if_then_7:
+    return i32 3
+
+  block ^if_else_8:
+    jump ^if_end_9
+
+  block ^if_end_9:
+    %t7 = call i32 @next__ov2()
+    %t8 = cmp ne i32 %t7, 9
+    branch %t8, ^if_then_10, ^if_else_11
+
+  block ^if_then_10:
+    return i32 4
+
+  block ^if_else_11:
+    jump ^if_end_12
+
+  block ^if_end_12:
+    %t9 = call i32 @held(1)
+    %t10 = cmp ne i32 %t9, 8
+    branch %t10, ^if_then_13, ^if_else_14
+
+  block ^if_then_13:
+    return i32 5
+
+  block ^if_else_14:
+    jump ^if_end_15
+
+  block ^if_end_15:
+    return i32 0
+}
+function @width(%__param0 : i8) -> i32 [binding=weak, object=_Z5widthIcLi1EEiT_] {
+  slot $__param0 : i8
+
+  block ^entry:
+    store i8 %__param0, $__param0
+    return i32 1
+}
+function @width__ov2(%__param0 : i32) -> i32 [binding=weak, object=_Z5widthIiLi4EEiT_] {
+  slot $__param0 : i32
+
+  block ^entry:
+    store i32 %__param0, $__param0
+    return i32 4
+}
+function @next() -> i32 [binding=weak, object=_Z4nextILi4ELi5EEiv] {
+  block ^entry:
+    return i32 5
+}
+function @next__ov2() -> i32 [binding=weak, object=_Z4nextILi4ELi9EEiv] {
+  block ^entry:
+    return i32 9
+}
+function @held(%__param0 : i64) -> i32 [binding=weak, object=_Z4heldIllLi8EEiT_] {
+  slot $__param0 : i64
+
+  block ^entry:
+    store i64 %__param0, $__param0
+    return i32 8
+}

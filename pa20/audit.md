@@ -10,149 +10,159 @@ the specialization it names, and the definition a program wrote for one.
 | --- | --- | --- | --- |
 | C1, C2 | `0cda3f77` | 6 / 6 + 1 perf | **the spelling a value argument arrives as, which C1 widened and no reader of one was told.**  Making an argument a *value* let 5.9's `<` and 5.8's `<<` into a name, and all three scans that split a spelling counted every `<` as opening 14.2's list - so `b<(1<2)>::n` found no `::` and `Box<0 < 1, int>` no `,`; 3.4.3p1's rooted name was read by an exit of its own that took no argument list with it; 4.12p1 was missing from the conversion 14.3.2p5 makes the argument a *converted* constant by, so `template<bool>` had one specialization for 3 and another for `true`; and 5.2.3's functional notation and 8.5p16's direct initialization - the other spellings of the cast and the constant object this milestone already folds - folded nowhere |
 | C3 | `603dcb83` | 4 / 4 | **the two kinds of settled pack, and the list the object file writes for either.**  A pack is a *run an argument list bound* or *the places one expansion of a function parameter pack declared*, and each of the four readings that meets one knew a different subset: the spelling reading walked the elements of a type that holds none and crashed; one reading of a pattern replaced the pack with an element, so a nested expansion and `sizeof...` inside that pattern found no pack at all; a run of no elements declared no place and so declared nothing, leaving `sizeof...(args)` naming nothing in `f()`; and the ABI, handed the flattened argument list 14.4p1 keys the tier by, wrote `f<int,int>(int,int)` as `_Z1fIiiEiv` - the arguments unpacked and the parameter list *void* - where g++ and the reference both write `_Z1fIJiiEEiDpT_` |
+| C4 | `fe28ba9d` | 4 / 4 | **the list a use of a function template is chosen from, and the one the object file writes.**  C4 taught a template-argument-list to end in a run and left every list beside it on the old rule: 14.8.2.2's target type paired a *parameter* list one for one, so `int (*)(int, char)` deduced nothing from `f(Ts...)`; 14.5.6.1p5's signature stood a pack place for the same thing as a single place, so `f(T)` and `f(Ts...)` were one declaration - "defined twice" - and 14.8.2.4p9 had never had to order the two; 14.1p9's default at a *value* place was read where its type-id twin is, and a constant expression is evaluated where it stands rather than substituted afterwards, so `int N = sizeof(T)` and `int B = A + 1` named nothing; and the object file wrote an unsettled non-type argument as a type, `1SIT_E` where g++ and the reference both write `1SIXT_EE` |
 
 ## Current Checkpoint Review
 
-C3 gave the tier 14.5.3's pack in three landings: the place and the run at the
-class tier, 14.8.2.1p1's deduction and 8.3.5p10's places at the function tier,
-and 14.5.3p4 over a call's argument list.  The type model is right and was
-traced end to end: `TypeKind::Pack` is one kind in two states - a run interned
-by its elements and an expansion interned by its pattern - so `is_dependent`,
-`substitute`, `append_description` and the specialization key each answer one
-question about it, two places bound to one run read one entry, and `sizeof...`
-is a vector length.  An expansion costs one reading of its pattern per element
-and rewrites no syntax, which the measurements below hold to 4096 elements.
+C4 gave 14.8.2 an owner of its own.  The reading is right and was traced end to
+end: a use of a function template names it without its arguments, so what makes
+a specialization is a *match* of a parameter type P beside the type A of what
+the use put there; the two uses that write those pairs - 14.8.2.1's call and
+14.8.2.2's target type - meet at 14.8.2p5, which is the one place that turns a
+map of places into the flat argument list 14.4p1 keys the tier by.  The four
+things the checkpoint added are each one rule: a specialization P is an argument
+*list* against another, 14.8.2.1p3's A may be a class derived from what P names,
+14.8.2.5p5's nested-name-specifier deduces nothing and is settled by the
+substitution instead, and 14.1p9's default fills a place the pairs did not
+reach.  The match walks one P and one A and never rescans the candidate set.
 
-What the review found is that *which* of the two states a pack is in was
-answered separately by every reader, and the flattened argument list the tier is
-keyed by cannot be split back into the run the object file has to write.
+What the review found is that C4 wrote its new rule - *a list may end in a run* -
+for one list and left every list beside it on the old one, and that the object
+file still writes a non-type argument no substitution has settled as a type.
 
 ### Findings
 
-**1. A pack expansion written as a spelling crashed where the pack it named was
-a function parameter pack.**  `PackReading::expand` opened its own element
-region and read each element out of `types_.pack_elements(pack.type)`;
-`element_region` - the same reading over a tree - answers both kinds.  So a
-`...` written inside a template-argument-list over 8.3.5p10's places indexed the
-parameter list of a type that holds none:
+**1. A target type could not deduce a run.**  14.8.2.2's A is one whole function
+type, so the parameter list inside it is the list the match reads - and `match`
+paired that list one entry for one entry, which is exactly the rule
+`match_arguments` had just stopped using for a template-argument-list:
 
 ```cpp
-template<unsigned long N> struct b { static const int n = (int)N; };
-template<class... Ts> int f(Ts... args) { return b<sizeof(args)...>::n; }
-int main() { return f(1) == 4 ? 0 : 1; }   // SIGSEGV; 0 in the reference and g++
+template<class... Ts> int count(Ts... args) { return (int)sizeof...(args); }
+int main() { int (*two)(int, char) = count; return two(1, 'a') - 2; }
 ```
 
-It is one rule and now has one implementation: `expand` asks `element_region`
-for the region of each element, exactly as the tree reading does.
+It is one rule and now has one implementation: 8.3.5p1's parameter list is
+matched by `match_arguments`, so a trailing `Ts...` stands for every parameter
+the entries before it did not take, at a run of none as much as at a run of two.
 
-**2. One reading of a pattern hid the pack from the pattern.**  The element is
-bound under the pack's own name, which is what makes `f<Ts>` read as this
-element - and 14.5.3p4's pattern may name that pack *as a pack* again.  A nested
-expansion is written over the whole run and 5.3.3p5's `sizeof...` counts it, so
-both found one element and refused:
+**2. A default at a value place could not name the places before it.**  C4 made
+14.1p9's default at a value place an expression rather than a type-id and read
+it where its twin is read - the head's own region, with what the deduction
+settled substituted into the answer.  A type-id survives that, because
+substituting into the type it names is the same answer; 5.19's constant
+expression does not, because it is *evaluated* where it stands and a place that
+is not a constant there names nothing:
 
 ```cpp
-template<class... T> int sum(T... t) { return add(t...); }
-template<class... T> int nested(T... t) { return sum(sum(t...) + t...); }
+template<class T, int N = (int)sizeof(T)> int width(T) { return N; }
+template<int A, int B = A + 1> int next() { return B; }
 ```
 
-An element binding now carries the declaration its run is read off
-(`pack_element_of`), which `note_name` and `length` both ask before anything
-else; and the first place of a function parameter pack is the pack's own
-declaration rather than a lookup an enclosing reading has already shadowed.
-`200-nested-call-pack-expansion-same-pack` passes.
+The first said `sizeof` names an incomplete type and the second that `A` is not
+a constant expression.  The class tier already opens a region binding each
+earlier place to what the list gave it; the function tier now opens the same
+one, so the two tiers read 14.1p9 the same way.
 
-**3. A run of no elements declared no place, and so declared nothing.**
-8.3.5p10 gives the pack's name to the *first* place its expansion made, and a
-run of none has no first place - so `sizeof...(args)` and `args...` in the body
-of `f()` said `args` named nothing, which both other compilers accept:
+**3. A head that declares a pack and one that does not were one template.**
+14.5.6.1p5 asks whether two heads declared their parameters in the same places,
+and the signature stood each place for its position alone - so a place that
+binds a *run* stood for what a place that binds one argument stands for, an
+expansion over it collapsed to the place itself, and `int(#0)` was the signature
+of both:
 
 ```cpp
-template<class... Ts> int f(Ts... args) { return sink(args...) + sizeof...(args); }
-int main() { return f() == 5 ? 0 : 1; }
+template<class T> int pick(T) { return 1; }
+template<class... Ts> int pick(Ts...) { return 2; }   // pick is defined twice
 ```
 
-The clause now declares the run itself where it declared no place: one entry of
-the parameter list that is no place of the function.  The three walks that map
-entries onto the function type's places - `parameter_types`,
-`declare_parameters` and `record_declared_parameters` - count the two apart, so
-a member function's implicit object place is still found where a clause holds
-one.
+A pack place now stands for a canonical place of its own.  That makes them two
+templates, which 14.5.6.2 then has to order, and the ordering had never been
+asked: 14.8.2.4p9 makes a run the other head wrote no argument for a place this
+one wrote singly, and a trailing `P...` in the head being deduced stands for
+every place the ones before it did not take - each of those a pair over bindings
+of its own.  `pick(1)` is now the first one's and `pick(1, 2)` the second's, and
+`span(T, U)` beats `span(Ts...)` at two arguments, as in g++ and the reference.
 
-**4. The object file named every pack specialization wrong.**  14.5.3's run is
-*one* `<template-arg>` - `J...E` - and a place written `P...` is `Dp` of its
-pattern.  The argument list is flattened, because 14.4p1 makes `f<int, char>`
-one list however it was written, so nothing downstream could split it back: the
-ABI wrote the arguments one by one, and a parameter whose type is an expansion
-fell to the encoder's default and came out as `void`.
+**4. The object file wrote an unsettled non-type argument as a type.**  14.1p4
+leaves what an argument *is* a fact of the place it fills, and the ABI writes a
+value place's argument as `X <expression> E` - the `Dp` an expansion of a type
+is written with is `sp` inside that `X`.  `argument_of` asked only whether the
+argument was a settled value or a settled run and wrote everything else as a
+type, so every signature holding an unsettled non-type argument was misnamed:
 
 | shape | before | after, g++ and the reference |
 | --- | --- | --- |
-| `f<int,int>(int,int)` from `f(Ts... args)` | `_Z1fIiiEiv` | `_Z1fIJiiEEiDpT_` |
-| `f<int,char>()` from `f()` | `_Z1fIicEiv` | `_Z1fIJicEEiv` |
-| `box<int,char>::m()` | `_ZN3boxIicE1mEv` | `_ZN3boxIJicEE1mEv` |
-| `s<1,2>::m()` over `int... Ns` | `_ZN1sILi1ELi2EE1mEv` | `_ZN1sIJLi1ELi2EEE1mEv` |
-| `box<>::m()` | `_ZN3boxIE1mEv` | `_ZN3boxIJEE1mEv` |
+| `take(S<N>)` over `int N` | `1SIT_E` | `1SIXT_EE` |
+| `take(S<Ns...>)` over `int... Ns` | `1SIJDpT_EE` | `1SIJXspT_EEE` |
+| `take(S<T, Vs...>)` over `T... Vs` | `1SIT_JDpT0_EE` | `1SIT_JXspT0_EEE` |
+| `take(S<N>, S<N>)` | `...ES2_` | `...ES1_` |
 
-The place the run begins at is the one fact that splits the list, so it is
-recorded beside the arguments (`set_template_arguments`) for a class and read
-off the head's declarations for a function template, and the three sites that
-write an argument list ask one helper.  `object=` is stripped before the LowIR
-comparison, so no fixture in either suite could have seen any of this.
+The last row is the same fact seen from the compression: a `<template-param>`
+written as a type is a substitution candidate and the expression the value place
+writes is not, so a signature holding one numbers its substitutions one lower.
+`object=` is stripped before the LowIR comparison, so no fixture in either suite
+could have seen any of this.
 
 ### What the review confirmed rather than found
 
-The typed ownership holds.  `TypeKind::Pack` was swept at every reader a new
-kind has - `substitute`, `dependent_walk`, `append_description`, `key_of`,
-`type_spelling`, `bind_argument`, `argument_of` and `abi_type` - and each
-answers it.  The two states are told apart by one question (`is_pack_expansion`
-against the new `is_settled_run`) rather than by each caller's own test, which
-is what finding 3's first attempt got wrong: an unsettled `Ts...` place *is* a
-`Pack` and is one place.  `packs_in` walks a type DAG, whose shared shapes have
-2^depth paths, and now asks each type once; the shape that would show it cannot
-be built here for an unrelated reason - one `typedef p<t22,t22> t23;` already
-costs 1 s of PA19's recorded exponential spelling - so the memo is a bound
-rather than a measured fix.
+The typed ownership holds.  `Deduction` reads types and `AnalyzedValue`s and
+nothing else, every entry point ends at `arguments_of`, and `sema_template.cpp`
+lost 437 lines to it without keeping a second copy of any of them.
+14.8.2.1p3's derived-class deduction was swept at each of its exits - by value,
+through a reference, through a pointer, down a two-link base chain, and *below*
+the top of a pair the use wrote, where it must not apply - and each answers as
+g++ does.  So were the non-deduced contexts: a member behind a dependent prefix
+paired with another argument that deduces the parameter, paired with nothing
+that does, behind a prefix a base declares, and behind one the class turns out
+not to declare, which is refused rather than quietly accepted.
 
-The complexity is what the plan claims.  A pack of 4096 elements bound, expanded
-into a base and counted, and a call forwarding 1024 places, both compile inside
-this machine's 0.11 s process floor, where `reference-binaries/cppgm++` takes
-0.41 s and 0.31 s.  Valgrind is clean over ten pack shapes with no finding of
-any kind, and a two-unit `--emit-lowir` run over a class and a function template
-with packs is identical to the reference.
+The complexity is what the plan claims, and each of the three new paths is
+linear in what it walks.  Best of seven, `-O0`, measured with the shell's own
+timer against a **0.003 s** process floor: a target type deducing a run of 256 /
+1024 / 4096 places costs 0.006 / 0.015 / 0.048 s where the reference takes
+1.01 s at 4096; 200 / 800 calls each ordering a pack head against a non-pack one
+cost 0.022 / 0.084 s against the reference's 0.71 s at 800; and 400 / 1600 /
+3200 calls each reading a value default that names an earlier place cost 0.033 /
+0.133 / 0.276 s against the reference's 1.02 s at 3200.  The region a default is
+read in is opened once per deduction that reaches one, which is what keeps that
+row linear.  Nothing else in the model moved: a pack of 4096 elements is 0.021 s
+and a call forwarding 1024 places 0.024 s, as before.
 
-The differential sweep is 21 pack shapes through this compiler, through
-`reference-binaries/cppgm++` and through g++: both kinds of pack at 0, 1, 2, 3,
-64, 512 and 4096 elements; a run bound to a base-specifier, a call's argument
-list, an explicit argument list and a member defined outside its template; a
-nested expansion over the same pack and over two; `sizeof...` in each position;
-and every mangled name above.  All are identical as canonicalized LowIR, and
-identical to g++'s symbol names.
+Valgrind is clean - no error of any kind - over the twelve shapes the findings
+are about and over the four scaling shapes.  A two-unit `--emit-lowir` run over
+a header holding all four fixed shapes writes the same five object-file names as
+g++ and the reference, so nothing here is settled per unit.
+
+The differential sweep is 71 shapes through this compiler, through
+`reference-binaries/cppgm++` and through g++: explicit argument lists that stop
+at, enter, and skip a pack place; derived-class deduction at each of its five
+exits; five non-deduced contexts; a specialization P as a type run, a value run,
+a leading fixed place, a derived class, an inconsistent pair, a consistent pair
+and an empty run; value places in the object file, alone, repeated, expanded and
+beside a type; target types, member templates, class-tier and function-tier
+defaults, a pack that is not last; partial ordering at four arities; four
+redeclaration shapes; parameter lists holding a run behind a function pointer and
+a pointer to member; and the two-unit run.  Every one agrees with g++.
 
 ### Recorded, not landed
 
-- **The reference writes an empty pack's *function template* name as if it were
-  no template at all** - `f<>()` is `_Z1fv` there and `_Z1fIJEEiDpT_` here and
-  in g++.  Its own class tier writes `_ZN3boxIJEE1mEv`, so the two disagree
-  inside the reference; the standard's reading and g++ decide it.
-- **`sizeof...` inside an argument *spelling*** - `value<I + sizeof...(I)>()...`
-  - is still refused: the spelling reader `sema_value_expression.cpp` has no
-  `sizeof...` terminal, which is a reader of its own and not this rule.
-  Finding 2 was the other half of that test and is landed.
-- **A generated place name that collides with a written one** - a parameter
-  actually named `args__pack2` beside a pack named `args` - is renamed
-  `args__pack2__shadow2` here and `args__pack2__pack2` in the reference.  Local
-  names are compared literally, so a fixture writing one would part ways; none
-  in either suite does.
-- **A pack name written without `...` is not diagnosed** where 14.5.3p4 makes
-  the program ill-formed, and the reference refuses it.  No valid program is
-  answered differently.
-- **10p1 over a base pack of more than one element** is refused rather than laid
-  out, which is this milestone's one-direct-base limit and not the pack's.
-- **A static data member's definition is written on a different demand here than
-  in the reference**, in both directions, and neither is 14.7.1p1's odr-use.  It
-  is PA19's member-demand model and is what
-  `100-nontype-template-argument-static-member-no-storage` fails on.
+- **14.8.1p9's extension of an explicit list is not read.**  A list that
+  *enters* the pack place - `count<int>(1, 2)` - should leave the pack open for
+  the call to extend, and both this compiler and the reference refuse it where
+  g++ deduces `Ts = <int, int>`.  A list that stops *at* the pack place is what
+  C4 fixed and what every fixture in either suite writes.
+- **The reference writes a settled value argument of dependent type with `Tn`.**
+  `take<int, 1, 2>` over `template<class T, T... Vs>` is `TnT_Li1E` there and
+  `Li1E` here and in g++; the two disagree and g++ decides it.
+- **PA20's own recorded items are unchanged**: the reference's empty-pack
+  *function template* name (`_Z4take1SIJEE` there, `_Z4takeIJEEi...` here and in
+  g++), `sizeof...` inside an argument *spelling*, the generated place name that
+  collides with a written one, a pack name written without `...`, 10p1 over a
+  base pack of more than one element, and the static data member's demand.  A
+  head that declares a *value* place is still left declaring a template of its
+  own by 14.5.6.1p5's signature, which no valid program in either suite tells
+  apart from the merge.
 - **PA19's recorded items are unchanged**: the exponential spelling of a
   specialization whose arguments double, the out-of-class member path's
   residual, 12.1's two constructor entry points, and the ABI's decltype return
@@ -161,58 +171,58 @@ identical to g++'s symbol names.
 
 ## Changes
 
-- **`sema_pack.cpp` — one element region for both readings.**  `expand` asks
-  `element_region`, which answers a bound run and 8.3.5p10's places alike; the
-  first place of a function parameter pack is taken rather than looked up; and
-  `packs_in` asks each type of a pattern once.
-- **`sema_scope.h`, `sema_pack.cpp`, `sema_function.cpp` — an element carries
-  its pack.**  `SemaEntity::pack_element_of` is what `note_name` and `length`
-  read, so a nested expansion and `sizeof...` inside a pattern are written over
-  the run and not over the element standing for it.
-- **`sema_declarator.cpp`, `sema_function.cpp`, `sema_analyzer.cpp` — a run of
-  no elements is declared.**  `bind_pack` declares it where a place would have
-  been bound, and the walks that map clause entries onto the function type's
-  places count the two apart.
-- **`type_model.h` — `is_settled_run`**, so the two states of a pack are one
-  question with one answer.
-- **`lowir_abi.cpp`, `type_model.*`, `sema_template.cpp` — 14.5.3 in the object
-  file.**  `argument_refs` writes the run as one `J...E` argument, `abi_type`
-  writes an expansion as `Dp` of its pattern, and the place the run begins at is
-  recorded on the specialization and read off a function template's head.
+- **`sema_deduce.cpp` — one rule for a list of entries.**  `match`'s function
+  type hands its parameter list to `match_arguments`, so 8.3.5p1's list and
+  14.2's are read by the one clause that knows about a trailing run.
+- **`sema_deduce.cpp` — 14.1p9's default is read where its places are bound.**
+  `arguments_of` opens a region of its own and `bind_argument`s every place
+  before the one it is filling, so a value default reaches them as constants and
+  a type default as typedef-names.
+- **`sema_template.cpp`, `sema_analyzer.h` — a pack place has a canonical place
+  of its own.**  `canonical_parameter` takes whether the place binds a run, so
+  14.5.6.1p5's signature tells `f(T)` from `f(Ts...)`.
+- **`sema_overload.cpp` — 14.8.2.4p9 at the ordering.**  A trailing `P...` in
+  the head being deduced stands for every place the ones before it did not take,
+  each of those a pair over bindings of its own; a run the other head wrote is
+  no argument for a place this one wrote singly.
+- **`lowir_abi.cpp` — 14.1p4 in the object file.**  `written_as_expression` asks
+  whether an argument stands at a value place, and `expression_of` writes it as
+  the `<template-param>` it names or as `sp` of one, under `X ... E`.
 - **Three fixtures** under `cppgm.tests/course/pa20`, one per finding a fixture
-  can pin, each refused or crashed by the `603dcb83` build, each with a `.ref`
-  generated from `reference-binaries/cppgm++`, and each returning 0 under g++.
+  can pin - the fourth is `object=`, which the comparison strips - each refused
+  by the `fe28ba9d` build, each with a `.ref` generated from
+  `reference-binaries/cppgm++`, and each returning 0 under g++.
 
 ## Performance Evidence
 
-Best of five, `-O0`.  This machine has a 0.11 s process floor - an empty
-translation unit measures 0.11 s through both binaries - so a row at the floor
-is a shape that costs nothing measurable.
+Best of seven, `-O0`, timed by the shell around the process itself: an empty
+translation unit is **0.003 s**, so a row is the shape's own cost.  An earlier
+turn's harness spawned two processes of its own per run and read that as a
+0.11 s floor; it is not one.
 
 | shape | here | `reference-binaries/cppgm++` |
 | --- | --- | --- |
-| a pack of 0 / 1 / 64 / 512 elements: bound, expanded into a base, counted | 0.11 s | - |
-| the same at 1024 / 2048 / 4096 elements | 0.11 s | 0.41 s at 4096 |
-| a call forwarding a parameter pack of 0 / 2 / 128 / 384 places | 0.11 s | - |
-| the same at 1024 places | 0.11 s | 0.31 s |
-| 2080 expansions over 64 nested `pack_of<id<T>::type...>` | 0.11 s | - |
-| 512 / 4096 distinct value arguments over two templates | 0.11 / 0.62 s | - |
-| `fac<200>` / `fac<800>` metafunction chain | 0.11 s | - |
-| a 2000-deep chain instantiated but not evaluated | 0.11 s | **SIGSEGV** |
-| 256- / 1024-deep `s< s< ... <int> > >` spelling | 0.11 s | **> 60 s** at 256 |
-| one template-id of 1024 arguments | 0.11 s | - |
+| a target type deducing a run of 256 / 1024 / 4096 places | 0.006 / 0.015 / **0.048 s** | 1.01 s at 4096 |
+| 200 / 800 calls ordering a pack head against a non-pack one | 0.022 / **0.084 s** | 0.71 s at 800 |
+| 400 / 1600 / 3200 calls reading a value default that names an earlier place | 0.033 / 0.133 / **0.276 s** | 1.02 s at 3200 |
+| a pack of 512 / 4096 elements: bound, expanded into a base, counted | 0.006 / **0.021 s** | 0.31 s at 4096 |
+| a call forwarding a parameter pack of 1024 places | **0.024 s** | - |
+| 300 calls deducing a run from a specialization argument | **0.017 s** | - |
 
-Nothing in the model moved against the `603dcb83` build, and the two shapes
-finding 1 and finding 3 are about went from a crash and a refusal to the floor.
+Every row is linear in what it walks.  Every row of the plan's model was
+re-measured against the `fe28ba9d` build side by side and none moved by more
+than run-to-run noise - the exponential doubling spelling included, at 0.510 s
+here and 0.499 s there.  The value-default row has no baseline: that shape did
+not compile before this turn.
 
 ## Validation
 
 - `make test-report-through-pa19`: **2169 / 2169**, 19 / 19 stages.
-- `make test-report ACTIVE_TEST_REPORT_PAS='pa20'`: **127 / 172**, from a
-  turn-start **123 / 169** - one checked-in fixture newly passes, the three
-  added here pass, and no fixture that passed at turn start fails.
+- `make test-report ACTIVE_TEST_REPORT_PAS='pa20'`: **136 / 175**, from a
+  turn-start **133 / 172** - the three added here pass and the 39 failing at
+  turn start are the same 39, name for name.
 - `perl scripts/cppgm_file_audit.pl --stage pa20 --paths dev/src`: passes with
   the five inherited `bad-division` warnings.  The build prints nothing.
-- **Valgrind clean** over ten pack shapes and the three added fixtures.
-- The five fixtures the C1/C2 audit added were regenerated from
-  `reference-binaries/cppgm++` and are unchanged.
+- **Valgrind clean** over the twelve finding shapes and the four scaling shapes.
+- Every `.ref` under `cppgm.tests/course/pa20` was regenerated from
+  `reference-binaries/cppgm++`; the eight that were already there are unchanged.

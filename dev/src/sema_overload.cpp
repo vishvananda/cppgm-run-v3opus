@@ -1563,6 +1563,11 @@ const std::vector<TypeId>& ordering_parameters(TypeTable& types,
 // qualifiers of both are dropped, so what is left is the shape each template
 // wrote.  One binding map runs the whole list, because a parameter that two
 // places deduce differently makes neither template the other's.
+//
+// 14.8.2.4p9 with 14.5.3p4: a trailing `P...` stands for every place the ones
+// before it did not take, so each of those is a pair of its own - and a place
+// the *other* template wrote as a run is no argument for one this template
+// wrote singly, which is what leaves `f(T)` more specialized than `f(Ts...)`.
 bool SemaAnalyzer::at_least_as_specialized(SemaEntity& left, SemaEntity& right)
 {
 	const std::uint64_t key =
@@ -1579,12 +1584,27 @@ bool SemaAnalyzer::at_least_as_specialized(SemaEntity& left, SemaEntity& right)
 		ordering_parameters(types_, left, right, adjusted_left);
 	const std::vector<TypeId>& against =
 		ordering_parameters(types_, right, left, adjusted_right);
-	bool answer = wrote.size() == against.size();
+	const bool packed = !against.empty() &&
+		types_.is_pack_expansion(against[against.size() - 1]);
+	const std::size_t fixed = packed ? against.size() - 1 : against.size();
+	bool answer =
+		packed ? wrote.size() >= fixed : wrote.size() == against.size();
 	std::unordered_map<TypeId, TypeId> bindings;
-	for (std::size_t index = 0; answer && index < against.size(); ++index)
+	for (std::size_t index = 0; answer && index < wrote.size(); ++index)
 	{
-		TypeId pattern = against[index];
+		const bool run = index >= fixed;
+		TypeId pattern =
+			run ? types_.target(against[against.size() - 1]) : against[index];
 		TypeId argument = wrote[index];
+		if (types_.is_pack_expansion(argument))
+		{
+			if (!run)
+			{
+				answer = false;
+				break;
+			}
+			argument = types_.target(argument);
+		}
 		if (types_.is_reference(pattern))
 		{
 			pattern = types_.target(pattern);
@@ -1593,8 +1613,18 @@ bool SemaAnalyzer::at_least_as_specialized(SemaEntity& left, SemaEntity& right)
 		{
 			argument = types_.target(argument);
 		}
+		if (!run)
+		{
+			answer = Deduction(*this).match(types_.strip_cv(pattern),
+			                                types_.strip_cv(argument), bindings);
+			continue;
+		}
+		// Each place a run stands for is a pair over bindings of its own, the
+		// way 14.8.2.1p1's run is: what the pack took at one of them says
+		// nothing about what it took at another.
+		std::unordered_map<TypeId, TypeId> one(bindings);
 		answer = Deduction(*this).match(types_.strip_cv(pattern),
-		                                types_.strip_cv(argument), bindings);
+		                                types_.strip_cv(argument), one);
 	}
 	specialization_order_.insert(std::make_pair(key, answer));
 	return answer;

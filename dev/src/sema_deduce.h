@@ -80,9 +80,10 @@ private:
 	bool match_argument(TypeId parameter, const AnalyzedValue& argument,
 	                    std::unordered_map<TypeId, TypeId>& bindings);
 
-	// 14.8.2.5p4 with 14.5.3p1: one template-argument-list against another,
-	// where a trailing `P...` in the pattern is one entry standing for every
-	// argument the entries before it did not take.
+	// 14.8.2.5p4 with 14.5.3p1: one list of entries against another - a
+	// template-argument-list, or 8.3.5p1's parameter list - where a trailing
+	// `P...` in the pattern is one entry standing for every argument the
+	// entries before it did not take.
 	bool match_arguments(const std::vector<TypeId>& wanted,
 	                     const std::vector<TypeId>& given,
 	                     std::unordered_map<TypeId, TypeId>& bindings);

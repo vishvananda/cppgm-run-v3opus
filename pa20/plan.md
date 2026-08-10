@@ -1,7 +1,7 @@
 # PA20 Plan — `cppgm++ --emit-lowir` compile-time metaprogramming
 
-PA20 stands at **133 / 172** - 125 of the 164 checked-in fixtures and the 8
-under `cppgm.tests/course/pa20` - from a turn-start baseline of **127 / 172**,
+PA20 stands at **136 / 175** - 125 of the 164 checked-in fixtures and the 11
+under `cppgm.tests/course/pa20` - from a turn-start baseline of **133 / 172**,
 with pa1-pa19 at **2169 / 2169** and the file audit passing with the five
 header-weight warnings it inherited.
 
@@ -73,6 +73,12 @@ defaults between them left every place with an argument.  The match knows
 nothing about calls, so it is a reading of its own rather than part of 14.7.1's
 instantiation.
 
+**A list of entries is one rule.**  14.2's template-argument-list and 8.3.5p1's
+parameter list are both entries paired one for one with a trailing `P...`
+standing for every entry the ones before it did not take, so `match_arguments`
+is what reads either - which is what lets 14.8.2.2's target type, whose A is one
+whole function type, deduce a run.
+
 **A specialization is a P/A pair of its own shape.**  `A<T>` against `A<int>`
 is one argument list against another (`match_arguments`), so a trailing `P...`
 in the pattern is the same run deduction a trailing parameter is - and
@@ -82,7 +88,22 @@ in the pattern is the same run deduction a trailing parameter is - and
 **A value place binds a constant, not a typedef-name.**  `bind_argument` is the
 one place a region takes an argument: a type argument is a typedef-name of it, a
 value argument is a `SemaKind::TemplateValue` declaration carrying
-`constant`/`value`, and a run is a `Pack`-typed binding of the pack's name.
+`constant`/`value`, and a run is a `Pack`-typed binding of the pack's name.  So
+14.1p9's default is read in a region that binds the places before it at *both*
+tiers: a type-id could be substituted afterwards, but 5.19's constant expression
+is evaluated where it stands and needs `A` to be a constant there.
+
+**14.1p4 reaches the object file too.**  An argument at a value place is an
+expression, so one no substitution has settled is written `X <expression> E` -
+`XT_E` for the place and `XspT_E` for 14.5.3p4's expansion of one, where a type
+place writes `T_` and `DpT_`.  The `<template-param>` inside is a substitution
+candidate and the `X ... E` around it is not.
+
+**14.5.6.1p5 tells a pack place from a single place.**  The signature two heads
+are compared by stands each parameter for its position, and a place that binds a
+*run* is a position of its own - otherwise `f(T)` and `f(Ts...)` are one
+declaration.  Two templates then need ordering, and 14.8.2.4p9 leaves the head
+that wrote a place ahead of the head that wrote a run.
 
 **14.6.2p1's dependent member is settled by the substitution.**  A name written
 after a prefix the definition could not settle is a stand-in carrying the two
@@ -101,71 +122,86 @@ aside - a specialization completed in the checking dialect is left with none of
 
 ## Current Failure Map
 
-39 failing, grouped by what would fix them:
+39 failing, grouped by what would fix them.  Every row was re-derived from the
+build's own diagnostics this turn:
 
 | group | n | owner |
 | --- | --- | --- |
+| 14.5.5's partial specialization and the variable templates beside it: `support.h`'s `is_same<A,A>` and `enable_if<true,T>`, and `same_v<char,char>` / `datasizeof_v<T>` / `flag<less<>>` naming no declaration | 7 | `sema_template.cpp`, `sema_template_head.cpp` |
+| 5.19 outside the integral subset and six single-test shapes: `B{}`, `I + sizeof...(I)`, a wide string literal, a multicharacter constant, `u"x"` initialising a `const char16_t` array, `&C::f` as a template argument, `sizeof` of a qualified static array member, a conversion through a specialized base | 8 | mixed |
 | 14.5.3p4 in the lists the call's argument list already answers for: 8.5.1's braced-init-list and array bound, 5.3.4's new-expression, 12.6.2's mem-initializer, and a `decltype` over one (`an expression is outside the PA12 subset`) | 5 | `sema_init_list.cpp`, `sema_allocation.cpp`, `sema_lifetime.cpp` |
-| 14.5.5's partial specialization, which `support.h`'s `is_same<A,A>` and `enable_if<true,T>` are (`a static_assert condition is false`), and the variable templates beside them | 7 | `sema_template.cpp`, `sema_template_head.cpp` |
-| 14.6.2p1's dependent *value* lookups: a member named before a later declaration shadows it, and a qualified value inside an argument spelling | 5 | `sema_declarator.cpp`, `sema_value_expression.cpp` |
+| 14.6.2p1's dependent *value* lookups: a member named before a later declaration shadows it, and a qualified value inside an argument spelling (`v is written after a name that is not a namespace, class or enumeration`) | 5 | `sema_declarator.cpp`, `sema_value_expression.cpp` |
 | `decltype` inside a template-argument *spelling*, where the operand is a call, an object of class type or a delete-expression | 4 | `sema_value_expression.cpp`, `sema_type_id.cpp` |
-| two packs in one function template head, which needs the flat argument list to record where each run begins | 2 | `sema_deduce.cpp`, `type_model.h` |
-| 10p1 over a base pack of more than one element | 2 | `sema_class.cpp`, `sema_layout.cpp` |
 | 2.14.8's user-defined literals and their overload sets | 3 | `sema_overload.cpp`, `literal_scan.cpp` |
 | three LowIR mismatches: PA19's static-member demand, an enum argument's vtable, a constexpr member call in an initializer | 3 | `sema_template.cpp`, `sema_lifetime.cpp` |
-| 5.19 outside the integral subset and six single-test shapes | 8 | mixed |
+| two packs in one function template head, which needs the flat argument list to record where each run begins | 2 | `sema_deduce.cpp`, `type_model.h` |
+| 10p1 over a base pack of more than one element | 2 | `sema_class.cpp`, `sema_layout.cpp` |
 
 ## Active Checkpoint
 
-This turn landed **C4**.  The next one is:
+This turn landed **C4** and its audit.  The next one is:
 
-**C5 - 14.5.3p4 in the lists 14.8.2's did not reach.**  Selected because it is
-now the largest group, it is one written form - a clause standing for a run -
-answered in four places that each walk a list of AST clauses, and three of the
-five tests need nothing else.
+**C5 - 14.5.5's partial specialization, and the variable templates beside it.**
+Selected because it is the largest group with a single owner, and because
+`support.h`'s `is_same` and `enable_if` are what every later fixture that writes
+a trait reaches through - so the seven tests are a floor rather than the whole
+of it.  The 14.5.3p4-in-lists group is tied with the dependent-value one now
+and carries no shared header with it.
 
-- **Owner.**  `sema_init_list.cpp` for `InitializerClauses`, which is the cursor
-  all four walks share, with `sema_allocation.cpp` and `sema_lifetime.cpp` for
-  the new-expression and mem-initializer lists that build their own.
-- **Data flow.**  A list holding a `PackExpansionExpression` is read once into a
-  run of (clause, element region) pairs - the same `run_of_node` /
-  `element_region` reading a call's argument list already asks - and the cursor
-  answers `next()` off that run where it has one.  8.5.1p4's deduced array bound
-  and 13.3's candidate arguments then count the run rather than the syntax.
-- **Expected complexity.**  One reading of the list per initialization, n
-  readings of one pattern for a run of n, and nothing at all for a list that
-  wrote no expansion - which is every list a program without a pack writes.
-- **Validation.**  The five tests of the group, `make test-report-through-pa19`,
-  a multiplicity sweep at 0, 1, 2 and 512 clauses, and a valgrind run of each
-  new shape.
+- **Owner.**  `sema_template_head.cpp` for the head that declares fewer places
+  than the primary takes arguments, and `sema_template.cpp` for the choice
+  between the partial specializations of one template.
+- **Data flow.**  A `template<...> struct s<pattern>` head declares its own
+  places and an argument *pattern* over them, which is the P of a match
+  `sema_deduce.h` already reads - `match_arguments` against the written list.
+  `instantiate_class` then asks which patterns the argument list matches and
+  14.5.5.2 orders them by the same `at_least_as_specialized` a function
+  template's are ordered by.  A variable template is the same head over an
+  object rather than a class, so its specialization is a declaration the region
+  holds keyed by the argument list.
+- **Expected complexity.**  One match per partial specialization of the named
+  template per distinct argument list, memoised with the specialization; nothing
+  at all for a template no head partially specialized, which is every template a
+  program without a trait writes.
+- **Validation.**  The seven tests of the group, `make test-report-through-pa19`,
+  a multiplicity sweep at 1, 2 and 64 partial specializations of one template, a
+  differential sweep of the ordering against g++ and `reference-binaries/cppgm++`,
+  and a valgrind run of each new shape.
 
 ## Performance Model
 
-Best of three or five, `-O0`, **re-measured this turn**: the process floor is
-now **0.00 s** rather than the 0.11 s an earlier turn carried forward, so a row
-below is the shape's own cost.
+Best of seven, `-O0`, timed by the shell around the process itself: an empty
+translation unit is **0.003 s**, so a row below is the shape's own cost.  A
+harness that spawns processes of its own reads this machine's floor as 0.11 s;
+it is not one.
 
 | shape | measured |
 | --- | --- |
-| a pack of 0 / 1 / 64 / 512 / 4096 elements: bound, expanded into a base, counted | **0.02 s at 4096** |
-| one template-id of 4096 arguments | **0.01 s** |
-| a call forwarding a parameter pack of 0 / 2 / 128 / 384 / 1024 places | **floor** |
-| 2080 expansions over 64 nested `pack_of<id<T>::type...>` | **floor** |
-| 512 / 4096 distinct value arguments over two templates | **floor / 0.62 s** |
-| `fac<200>` / `fac<800>` metafunction chain | **floor** |
-| a 2000-deep chain instantiated but not evaluated | **floor** |
-| 256- / 1024-deep `s< s< ... <int> > >` spelling | **floor** |
-| 14.8.2.1p3 through a 200-deep base chain | **0.01 s** |
-| 400 function templates returning `typename A<T>::type` | **0.04 s** |
-| 300 calls deducing a pack from a class argument | **0.01 s** |
+| a pack of 512 / 4096 elements: bound, expanded into a base, counted | 0.006 / **0.021 s** |
+| a call forwarding a parameter pack of 1024 places | **0.024 s** |
+| a target type deducing a run of 256 / 1024 / 4096 places | 0.006 / 0.015 / **0.048 s** |
+| 200 / 800 calls ordering a pack head against a non-pack one | 0.022 / **0.084 s** |
+| 400 / 1600 / 3200 calls reading a value default that names an earlier place | 0.033 / 0.133 / **0.276 s** |
+| 300 calls deducing a run from a specialization argument | **0.017 s** |
+| 512 / 4096 distinct value arguments over two templates | 0.048 / **0.510 s** |
+| one template-id of 4096 arguments | **0.011 s** |
+| 2080 expansions over 64 nested `pack_of<id<T>::type...>` | **0.025 s** |
+| `fac<800>` metafunction chain | **0.033 s** |
+| a 2000-deep chain instantiated but not evaluated | **0.079 s** |
+| 14.8.2.1p3 through a 200-deep base chain | **0.010 s** |
 
-An expansion is linear in the run and a run is interned by its elements, so
-`sizeof...` is a vector length.  14.8.2's match walks one P and one A and never
-rescans the candidate set: the arguments of a specialization are already a list
-on its type, `packs_in` asks each type of a pattern once, and 14.8.2.1p3's base
-search is one walk of 10p1's chain, which this milestone lays out one deep per
-class.  14.6.2p1's member lookup is one probe per distinct stand-in per
-substitution, memoised with the rest of that substitution.
+Every row was re-measured against the `fe28ba9d` build this turn and none moved
+by more than run-to-run noise; the value-default row has no baseline at all,
+because that shape did not compile before it.  Each row is linear in what it
+walks: an expansion is linear in the run and a run is interned by its elements,
+so `sizeof...` is a vector length.  14.8.2's
+match walks one P and one A and never rescans the candidate set: the arguments
+of a specialization are already a list on its type, `packs_in` asks each type of
+a pattern once, and 14.8.2.1p3's base search is one walk of 10p1's chain.
+14.5.6.2's ordering is one fact of a pair, memoised.  A default is read once per
+deduction that reaches one, in a region opened there.  The reference binary is
+20x slower on the three shapes this turn added: 1.01 s, 0.71 s and 1.02 s where
+the rows above are 0.048 s, 0.084 s and 0.276 s.
 
 The one shape that is not linear is a type whose arguments *double* -
 `typedef p<t22,t22> t23;` costs about a second - which is the exponential
@@ -185,3 +221,4 @@ whenever a checkpoint touches `instantiate_class` again.
 | C3c | 14.5.3p4 in a call's argument list, read over the tree rather than a spelling, with a function parameter pack as one of the answers; explicit argument lists counted by the pack place; and 14.3.2p1 refusing a pack of types at a non-type place | 118 -> **123 / 169**; expansion linear at 1/64/512 elements |
 | C3 audit | the two kinds of settled pack and the list the object file writes for either: one element region for a spelling and a tree alike, an element that carries the pack a nested expansion and `sizeof...` still name, a run of no elements declared where it declared no place, and 14.5.3's `J...E` and `Dp` in every mangled name | 123 / 169 -> **127 / 172** with three fixtures added; linear at 4096 elements |
 | C4 | 14.8.2 given its own owner (`sema_deduce.h`), and the four things a use it could not match needed: a specialization P matched as an argument *list* so a trailing `P...` deduces a run, 14.8.2.1p3's A that is a class derived from what P names, 14.8.2.5p5's non-deduced context, 14.1p9's default at a value place - unnamed places included - and 14.6.2p1's dependent member settled by the substitution.  10p1's base is now completed in the unit's own dialect, an explicit list that stopped at the pack place still deduces, and `user_types_` is a deque because every reader of it holds a reference while a class is completed | 127 -> **133 / 172**; pa1-pa19 2169 / 2169; floor re-measured at 0.00 s |
+| C4 audit | the list a use is chosen from and the one the object file writes: 8.3.5p1's parameter list matched by the same rule 14.2's list is, so 14.8.2.2's target type deduces a run; 14.1p9's value default read in a region binding the places before it, as the class tier already read it; 14.5.6.1p5 telling a pack place from a single one, and 14.8.2.4p9 ordering the two heads that makes; and 14.1p4's `X <expression> E` for every non-type argument no substitution has settled | 133 / 172 -> **136 / 175** with three fixtures added; every one of 71 swept shapes agrees with g++ |
