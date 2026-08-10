@@ -7,6 +7,8 @@
 
 #include "type_model.h"
 
+struct AstNode;
+class Scope;
 class SemaAnalyzer;
 struct SemaContext;
 struct SemaEntity;
@@ -66,6 +68,19 @@ public:
 	};
 	Run run_of(const std::string& pattern, const SemaContext& ctx) const;
 
+	// The same question over the tree PA10 handed on rather than over one
+	// spelling, which is what an expansion written in an expression is: the
+	// names are the ones its nodes wrote, and a function parameter pack is one
+	// of the answers here because 8.3.5p10's places are what it stands for.
+	Run run_of_node(const AstNode& node, const SemaContext& ctx) const;
+
+	// The region the `element`th reading of a pattern stands in, binding each
+	// pack the run named to what it stands for there - one element of a bound
+	// run, or the place 14.5.3p4's expansion of a function parameter pack
+	// declared for it.
+	Scope& element_region(const Run& run, std::size_t element,
+	                      const SemaContext& ctx);
+
 	// 14.5.3p4 over a type rather than over a spelling: `pattern...` where the
 	// packs are already in the type, which is what a parameter-declaration
 	// written `Args... args` and a function type built by substitution hold.
@@ -89,6 +104,10 @@ public:
 	              std::vector<TypeId>& places) const;
 
 private:
+	// One name a pattern wrote, merged into what the run so far says.
+	void note_name(const std::string& name, const SemaContext& ctx,
+	               Run& run) const;
+
 	PackReading(const PackReading&);
 	PackReading& operator=(const PackReading&);
 

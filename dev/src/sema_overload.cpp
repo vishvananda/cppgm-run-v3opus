@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "ast_model.h"
+#include "sema_pack.h"
 #include "ast_tokens.h"
 
 // Calls, the PA12 standard-conversion subset, and overload resolution.
@@ -2197,11 +2198,34 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
 	for (std::size_t index = 0; list != nullptr && index < list->children.size();
 	     ++index)
 	{
+		const AstNode& written = *list->children[index];
+		if (written.kind == AstKind::PackExpansionExpression &&
+		    !written.children.empty())
+		{
+			// 14.5.3p4: the argument list wrote one pattern standing for one
+			// argument per element of the run its packs are bound to, and each
+			// of them is that pattern read again with the packs standing for
+			// that element.
+			PackReading packs(*this);
+			const AstNode& pattern = *written.children[0];
+			const PackReading::Run run = packs.run_of_node(pattern, ctx);
+			if (!run.found || !run.settled)
+			{
+				throw std::runtime_error("an argument is expanded and names no "
+				                         "settled parameter pack");
+			}
+			for (std::size_t element = 0; element < run.length; ++element)
+			{
+				Context inner = ctx;
+				inner.scope = &packs.element_region(run, element, ctx);
+				arguments.push_back(argument_expression(pattern, inner, line));
+			}
+			continue;
+		}
 		// 13.3.3.1.5p1: an argument written as a braced-init-list is not an
 		// expression, so it is carried until 13.3 has chosen the parameter it
 		// reaches.
-		arguments.push_back(
-			argument_expression(*list->children[index], ctx, line));
+		arguments.push_back(argument_expression(written, ctx, line));
 	}
 
 	TypeId function = kNoType;

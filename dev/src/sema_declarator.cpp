@@ -866,12 +866,17 @@ void SemaAnalyzer::read_parameters(const AstNode& clause, const Context& ctx,
 				// the run holds, and 8.3.5p10 names each of them after the pack.
 				// The first keeps the pack's own name, so a use of it reaches
 				// the first place and the run is read off that declaration.
+				// 14.6.2p1: a run the reading has not settled is one entry that
+				// stands for itself, so the place it declares is one place and
+				// `sizeof...` over it is a value only the instantiation knows.
+				const bool settled = !(run.size() == 1 &&
+				                       types_.is_pack_expansion(run[0]));
 				for (std::size_t element = 0; element < run.size(); ++element)
 				{
 					Parameter one = parameter;
 					one.type = run[element];
 					one.name = pack_element_name(parameter.name, element);
-					one.pack_run = element == 0
+					one.pack_run = settled && element == 0
 						? static_cast<unsigned>(run.size())
 						: 0u;
 					if (!one.name.empty() && (at < places || reading != nullptr))

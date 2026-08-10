@@ -4,6 +4,7 @@
 #include <unordered_map>
 #include <utility>
 
+#include "ast_model.h"
 #include "sema_analyzer.h"
 
 // 14.5.3's parameter packs, read out of the spellings PA10 handed on.
@@ -244,6 +245,45 @@ void PackReading::substitute_entry(
 	}
 }
 
+void PackReading::note_name(const std::string& name, const SemaContext& ctx,
+                            Run& run) const
+{
+	SemaEntity* const found =
+		analyzer_.model_.lookup(*ctx.scope, name, LookupKind::Any);
+	if (found == nullptr)
+	{
+		return;
+	}
+	if (analyzer_.types_.is_template_pack(found->type) ||
+	    analyzer_.types_.is_pack_expansion(found->type))
+	{
+		// 14.6.2p1: the pattern names a place of the head being read, so how
+		// long the run is only an argument list says.
+		run.found = true;
+		run.settled = false;
+		return;
+	}
+	// 14.5.3p1: a pack the reading has settled is either a run of arguments or
+	// 8.3.5p10's places one expansion of a function parameter pack declared.
+	const bool declared = found->pack_run != 0;
+	if (!declared && !analyzer_.types_.is_pack(found->type))
+	{
+		return;
+	}
+	const std::size_t held =
+		declared ? found->pack_run
+		         : analyzer_.types_.pack_elements(found->type).size();
+	if (run.found && run.settled && held != run.length)
+	{
+		// 14.5.3p6: two packs expanded together shall have the same length.
+		throw std::runtime_error("a pack expansion names two parameter packs "
+		                         "of different lengths");
+	}
+	run.found = true;
+	run.length = held;
+	run.packs.push_back(found);
+}
+
 PackReading::Run PackReading::run_of(const std::string& pattern,
                                      const SemaContext& ctx) const
 {
@@ -261,40 +301,84 @@ PackReading::Run PackReading::run_of(const std::string& pattern,
 		{
 			++at;
 		}
-		const std::string name = pattern.substr(start, at - start);
-		SemaEntity* const found =
-			analyzer_.model_.lookup(*ctx.scope, name, LookupKind::Any);
-		if (found == nullptr)
-		{
-			continue;
-		}
-		if (analyzer_.types_.is_template_pack(found->type) ||
-		    analyzer_.types_.is_pack_expansion(found->type))
-		{
-			// 14.6.2p1: the pattern names a place of the head being read, so
-			// how long the run is only an argument list says.
-			run.found = true;
-			run.settled = false;
-			continue;
-		}
-		if (!analyzer_.types_.is_pack(found->type) ||
-		    analyzer_.types_.is_pack_expansion(found->type))
-		{
-			continue;
-		}
-		const std::size_t held =
-			analyzer_.types_.pack_elements(found->type).size();
-		if (run.found && run.settled && held != run.length)
-		{
-			// 14.5.3p6: two packs expanded together shall have the same length.
-			throw std::runtime_error("a pack expansion names two parameter "
-			                         "packs of different lengths");
-		}
-		run.found = true;
-		run.length = held;
-		run.packs.push_back(found);
+		note_name(pattern.substr(start, at - start), ctx, run);
 	}
 	return run;
+}
+
+namespace
+{
+
+// The names a tree wrote, which for an expression is every spelling its nodes
+// carry - an id-expression, the callee of a call, a template-id's own text.
+void names_in(const AstNode& node, std::vector<std::string>& out)
+{
+	std::string::size_type at = 0;
+	while (at < node.text.size())
+	{
+		if (!identifier_start(node.text[at]))
+		{
+			++at;
+			continue;
+		}
+		const std::string::size_type start = at;
+		while (at < node.text.size() && identifier_char(node.text[at]))
+		{
+			++at;
+		}
+		out.push_back(node.text.substr(start, at - start));
+	}
+	for (std::size_t index = 0; index < node.children.size(); ++index)
+	{
+		names_in(*node.children[index], out);
+	}
+}
+
+}
+
+PackReading::Run PackReading::run_of_node(const AstNode& node,
+                                          const SemaContext& ctx) const
+{
+	std::vector<std::string> names;
+	names_in(node, names);
+	Run run;
+	for (std::size_t index = 0; index < names.size(); ++index)
+	{
+		note_name(names[index], ctx, run);
+	}
+	return run;
+}
+
+Scope& PackReading::element_region(const Run& run, std::size_t element,
+                                   const SemaContext& ctx)
+{
+	Scope& region = analyzer_.model_.open(ScopeKind::TemplateParameters,
+	                                      *ctx.scope, nullptr, ctx.dump);
+	for (std::size_t which = 0; which < run.packs.size(); ++which)
+	{
+		SemaEntity& pack = *run.packs[which];
+		if (pack.pack_run == 0)
+		{
+			analyzer_.bind_argument(
+				region, pack.name,
+				analyzer_.types_.pack_elements(pack.type)[element],
+				SemaKind::Typedef);
+			continue;
+		}
+		// 8.3.5p10: the places the expansion declared are named after the pack,
+		// so the element is the declaration that name reaches - the pack's own
+		// name is bound to it for as long as this reading of the pattern
+		// stands.
+		SemaEntity* const place = analyzer_.model_.lookup(
+			*ctx.scope, pack_element_name(pack.name, element), LookupKind::Any);
+		if (place == nullptr)
+		{
+			throw std::runtime_error(pack.name + " is expanded and the place "
+			                         "its run declared is not in scope");
+		}
+		analyzer_.model_.bind(region, pack.name, *place);
+	}
+	return region;
 }
 
 void PackReading::expand(const std::string& pattern, const SemaContext& ctx,
@@ -353,17 +437,17 @@ long long PackReading::length(const std::string& name,
 		throw std::runtime_error(name + " is written as the operand of "
 		                         "sizeof... and names nothing");
 	}
+	if (analyzer_.types_.is_template_pack(found->type) ||
+	    analyzer_.types_.is_pack_expansion(found->type))
+	{
+		return -1;
+	}
 	if (found->pack_run != 0)
 	{
 		// 8.3.5p10: the pack's own name is the first place its expansion
 		// declared, and how many the expansion made is a fact of that
 		// declaration - so a function parameter pack answers here.
 		return static_cast<long long>(found->pack_run);
-	}
-	if (analyzer_.types_.is_template_pack(found->type) ||
-	    analyzer_.types_.is_pack_expansion(found->type))
-	{
-		return -1;
 	}
 	if (!analyzer_.types_.is_pack(found->type) ||
 	    analyzer_.types_.is_pack_expansion(found->type))
