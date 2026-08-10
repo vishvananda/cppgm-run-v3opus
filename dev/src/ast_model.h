@@ -128,6 +128,7 @@
 	X(AssignmentExpression, "assignment-expression") \
 	X(CastExpression, "cast-expression") \
 	X(SizeofExpression, "sizeof-expression") \
+	X(SizeofPackExpression, "sizeof-pack-expression") \
 	X(TypeTraitExpression, "type-trait-expression") \
 	X(NewExpression, "new-expression") \
 	X(GlobalScope, "global-scope") \

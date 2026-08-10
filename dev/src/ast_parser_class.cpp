@@ -152,7 +152,13 @@ AstNode* AstParser::parse_base_specifier()
 		return fail(start);
 	}
 	node->add(make_text(AstKind::BaseName, spelled(name)));
-	accept(OP_DOTS);
+	if (accept(OP_DOTS))
+	{
+		// 14.5.3p4: the base-specifier is a pattern rather than one base, and
+		// the class derives from one base per element of the run its packs are
+		// bound to - so which of the two was written is a fact of the syntax.
+		node->add(make_text(AstKind::ParameterPack, "..."));
+	}
 	return node;
 }
 

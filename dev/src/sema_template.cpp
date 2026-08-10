@@ -5,6 +5,7 @@
 
 #include "ast_model.h"
 #include "ast_tokens.h"
+#include "sema_pack.h"
 #include "token_model.h"
 
 // Function templates, as far as one specialization of each.
@@ -189,8 +190,31 @@ SemaEntity* SemaAnalyzer::template_specializations(const std::string& spelling,
 		arguments.reserve(id.arguments().size());
 		for (std::size_t index = 0; index < id.arguments().size(); ++index)
 		{
-			arguments.push_back(explicit_argument(*places[index],
+			std::string pattern;
+			if (written_pack_expansion(id.arguments()[index], pattern))
+			{
+				// 14.5.3p4: an expansion written in an explicit argument list
+				// fills the places the run it stands for is long, which is how
+				// `select<T...>` reaches a head of two fixed places.
+				PackReading(*this).expand(
+					pattern, ctx,
+					arguments.size() < places.size()
+						? types_.parameter_value_type(
+							  places[arguments.size()]->type)
+						: kNoType,
+					arguments);
+				continue;
+			}
+			if (arguments.size() >= places.size())
+			{
+				break;
+			}
+			arguments.push_back(explicit_argument(*places[arguments.size()],
 			                                      id.arguments()[index], ctx));
+		}
+		if (arguments.size() > places.size())
+		{
+			continue;
 		}
 		if (places.size() == arguments.size())
 		{
@@ -2393,7 +2417,14 @@ SemaEntity& SemaAnalyzer::current_instantiation(SemaEntity& primary)
 	arguments.reserve(info.parameters.size());
 	for (std::size_t index = 0; index < info.parameters.size(); ++index)
 	{
-		arguments.push_back(info.parameters[index].self);
+		// 14.6.1p1: the current instantiation is what the template's own name
+		// over its own parameters denotes, which for a pack place is the
+		// expansion `Ts...` a definition has to write - so the argument list
+		// this class is made from is the one that spelling reads back to.
+		arguments.push_back(info.parameters[index].pack
+			                    ? types_.pack_expansion(
+				                      info.parameters[index].self)
+			                    : info.parameters[index].self);
 	}
 	// The declaration is made before the body is read, so that a name the body
 	// writes for its own class finds it rather than starting a second reading.

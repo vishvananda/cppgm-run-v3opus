@@ -65,6 +65,9 @@ private:
 	// steps.  Each saves this walk's own state, so each is a friend of it.
 	friend class FunctionReading;
 	friend class DialectReading;
+	// 14.5.3: the reading that turns one pack expansion into the run it stands
+	// for, which `sema_pack.h` owns because it is a reading of its own.
+	friend class PackReading;
 
 	// 3.3, 7p1, 8.3.5p4, 12.6.2p1 and 5.19p3: the records the declaration
 	// layer passes between its steps, which `sema_declaration.h` defines.  The

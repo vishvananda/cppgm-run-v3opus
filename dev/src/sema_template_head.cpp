@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "ast_model.h"
+#include "sema_pack.h"
 #include "sema_template.h"
 
 // 14.1p2's template-parameter-clause and 14.3p1's template-argument-list.
@@ -122,8 +123,8 @@ void SemaAnalyzer::read_template_head(const AstNode& clause, TemplateInfo& info)
 		const AstNode& parameter = *list->children[index];
 		const AstNode* const id = first_child(parameter, AstKind::Identifier);
 		TemplateInfo::Parameter place;
-		if (parameter.kind == AstKind::NonTypeTemplateParameter &&
-		    first_child(parameter, AstKind::ParameterPack) == nullptr)
+		place.pack = first_child(parameter, AstKind::ParameterPack) != nullptr;
+		if (parameter.kind == AstKind::NonTypeTemplateParameter)
 		{
 			// 14.1p4: a non-type parameter names a value of the type its own
 			// declaration writes, which is read where the place is bound - the
@@ -133,11 +134,9 @@ void SemaAnalyzer::read_template_head(const AstNode& clause, TemplateInfo& info)
 			place.name = non_type_parameter_name(parameter);
 		}
 		else if (parameter.kind != AstKind::TypeParameter ||
-		         first_child(parameter, AstKind::TemplateTemplateParameter) != nullptr ||
-		         first_child(parameter, AstKind::ParameterPack) != nullptr)
+		         first_child(parameter, AstKind::TemplateTemplateParameter) != nullptr)
 		{
-			// 14.1p1's template parameter and 14.5.3's pack belong to later
-			// milestones.
+			// 14.1p1's template parameter belongs to a later milestone.
 			info.supported = false;
 			info.parameters.push_back(TemplateInfo::Parameter());
 			info.defaults.push_back(TemplateInfo::Default());
@@ -148,6 +147,15 @@ void SemaAnalyzer::read_template_head(const AstNode& clause, TemplateInfo& info)
 			// 14.1p3: a type parameter with no identifier declares nothing a
 			// dependent name can reach, but it still takes an argument.
 			place.name = id == nullptr ? std::string() : id->text;
+		}
+		if (place.pack && index + 1 != list->children.size())
+		{
+			// 14.1p11: a pack in a primary template's head is the last place it
+			// declares, because every argument after the ones the places before
+			// it take belongs to the pack.  14.5.3's other arrangement -
+			// deducing a pack from a call and taking the places after it from
+			// the arguments - is a later milestone's.
+			info.supported = false;
 		}
 		info.parameters.push_back(place);
 		const AstNode* const written =
@@ -336,7 +344,10 @@ void SemaAnalyzer::bind_template_arguments(
 		throw std::runtime_error(primary.name + " is a template whose "
 		                         "parameters PA20 does not instantiate");
 	}
-	if (written.size() > info.parameters.size())
+	// 14.5.3p1: a pack takes every argument the places before it did not, so
+	// what bounds the list is the places up to the pack rather than all of them.
+	const std::size_t places = pack_place(info);
+	if (written.size() > places && places == info.parameters.size())
 	{
 		throw std::runtime_error("a template-argument-list gives " +
 		                         primary.name + " more arguments than it has "
@@ -349,7 +360,29 @@ void SemaAnalyzer::bind_template_arguments(
 	out.reserve(info.parameters.size());
 	for (std::size_t index = 0; index < written.size(); ++index)
 	{
-		out.push_back(bound_argument(info, index, written[index], out, ctx));
+		std::string pattern;
+		if (!written_pack_expansion(written[index], pattern))
+		{
+			out.push_back(bound_argument(info, out.size(), written[index], out,
+			                             ctx));
+			continue;
+		}
+		// 14.5.3p4: the expansion is not one argument but the run its packs
+		// are bound to, which the places it lands on are the places of - a run
+		// of two given to `select<A, B>` fills both.
+		const std::size_t at = out.size() < places ? out.size() : places;
+		PackReading(*this).expand(
+			pattern, ctx,
+			at < info.parameters.size() && info.parameters[at].value
+				? place_type(info, at, out)
+				: kNoType,
+			out);
+	}
+	if (out.size() >= places && places < info.parameters.size())
+	{
+		// 14.5.3p1: a pack the list stopped short of is bound to no arguments
+		// at all, which is a run of none and not a missing argument.
+		return;
 	}
 	if (out.size() == info.parameters.size())
 	{
@@ -448,12 +481,30 @@ TypeId SemaAnalyzer::bound_argument(const TemplateInfo& info, std::size_t index,
                                     const std::vector<TypeId>& before,
                                     const Context& ctx)
 {
-	if (index >= info.parameters.size() || !info.parameters[index].value)
+	// 14.5.3p1: every argument past the places before the pack is an argument
+	// of the pack, so they all read as the one place it declared.
+	const std::size_t places = pack_place(info);
+	const std::size_t at = index < places ? index : places;
+	if (at >= info.parameters.size() || !info.parameters[at].value)
 	{
 		return template_argument_type(written, ctx);
 	}
-	return template_argument_value(written, place_type(info, index, before),
-	                               ctx);
+	return template_argument_value(written, place_type(info, at, before), ctx);
+}
+
+// 14.1p11 and 14.5.3p1: the place a pack was declared at, or the number of
+// places where the head declared none - which is how many arguments a written
+// list fills one for one before the run begins.
+std::size_t pack_place(const TemplateInfo& info)
+{
+	for (std::size_t index = 0; index < info.parameters.size(); ++index)
+	{
+		if (info.parameters[index].pack)
+		{
+			return index;
+		}
+	}
+	return info.parameters.size();
 }
 
 Scope& SemaAnalyzer::open_template_bindings(const TemplateInfo& info,
@@ -461,8 +512,9 @@ Scope& SemaAnalyzer::open_template_bindings(const TemplateInfo& info,
 {
 	Scope& bindings = model_.open(ScopeKind::TemplateParameters, *info.region,
 	                              nullptr, info.dump);
-	for (std::size_t index = 0;
-	     index < info.parameters.size() && index < arguments.size(); ++index)
+	const std::size_t places = pack_place(info);
+	for (std::size_t index = 0; index < places && index < arguments.size();
+	     ++index)
 	{
 		if (info.parameters[index].name.empty())
 		{
@@ -470,6 +522,15 @@ Scope& SemaAnalyzer::open_template_bindings(const TemplateInfo& info,
 		}
 		bind_argument(bindings, info.parameters[index].name,
 		              arguments[index], SemaKind::Typedef);
+	}
+	if (places < info.parameters.size() &&
+	    !info.parameters[places].name.empty())
+	{
+		// 14.5.3p1: the pack's name stands for the whole run the list left it,
+		// which is one entry of the type table and not one binding per element
+		// - so `sizeof...` and every expansion of it read the same fact.
+		bind_argument(bindings, info.parameters[places].name,
+		              bound_run(types_, arguments, places), SemaKind::Typedef);
 	}
 	return bindings;
 }
@@ -484,6 +545,14 @@ Scope& SemaAnalyzer::open_template_bindings(const TemplateInfo& info,
 void SemaAnalyzer::bind_argument(Scope& region, const std::string& name,
                                  TypeId argument, SemaKind kind)
 {
+	if (types_.is_pack_expansion(argument))
+	{
+		// 14.6.1p1: the current instantiation names a pack place by the
+		// expansion `Ts...`, and what a definition read against it binds is the
+		// place itself - the run is what an argument list settles, and until
+		// then the name stands for the pack the head declared.
+		argument = types_.target(argument);
+	}
 	if (!types_.is_value(argument))
 	{
 		SemaEntity& bound = model_.create(kind, name, argument);
@@ -519,13 +588,18 @@ Scope* SemaAnalyzer::open_member_parameters(
 {
 	TemplateInfo head;
 	read_template_head(clause, head);
-	if (head.parameters.size() != arguments.size())
+	// 14.5.3p1: a head whose last place is a pack takes every argument past the
+	// places before it, so what has to match is those places and not the count.
+	const std::size_t places = pack_place(head);
+	const bool packed = places < head.parameters.size();
+	if (packed ? arguments.size() < places
+	           : head.parameters.size() != arguments.size())
 	{
 		return nullptr;
 	}
 	Scope& region = model_.open(ScopeKind::TemplateParameters, enclosing,
 	                            nullptr, dump);
-	for (std::size_t index = 0; index < head.parameters.size(); ++index)
+	for (std::size_t index = 0; index < places; ++index)
 	{
 		if (head.parameters[index].name.empty())
 		{
@@ -535,6 +609,11 @@ Scope* SemaAnalyzer::open_member_parameters(
 		}
 		bind_argument(region, head.parameters[index].name, arguments[index],
 		              kind);
+	}
+	if (packed && !head.parameters[places].name.empty())
+	{
+		bind_argument(region, head.parameters[places].name,
+		              bound_run(types_, arguments, places), kind);
 	}
 	return &region;
 }
@@ -572,6 +651,12 @@ void SemaAnalyzer::open_parameter_region(TemplateInfo& info)
 			model_.type_entity_id(), false,
 			place.name.empty() ? "#" + std::to_string(index) : place.name);
 		types_.set_template_index(place.self, static_cast<unsigned>(index));
+		if (place.pack)
+		{
+			// 14.5.3p1: what the place stands for is a run, which is what makes
+			// a name written for it one an expansion has to settle.
+			types_.set_template_pack(place.self, true);
+		}
 		if (place.value)
 		{
 			place.type = non_type_parameter_type(*place.written, inner);

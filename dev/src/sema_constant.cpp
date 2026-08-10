@@ -5,6 +5,7 @@
 #include "ast_model.h"
 #include "literal_scan.h"
 #include "post_token.h"
+#include "sema_pack.h"
 #include "string_literal.h"
 
 // The 5.19 subset PA11 needs: what an array bound, an enumerator and a
@@ -542,6 +543,26 @@ SemaAnalyzer::Constant SemaAnalyzer::evaluate(const AstNode& node,
 		}
 		Constant out = convert(evaluate(*list->children[0], ctx), target);
 		out.type = target;
+		return out;
+	}
+
+	case AstKind::SizeofPackExpression:
+	{
+		// 5.3.3p5: how many elements the run bound to the pack holds, which is
+		// a constant wherever an argument list has settled it.  14.6p8 leaves
+		// it unknown where the pattern stands, and the reading stands a value
+		// in for it exactly as it does for the size of a dependent type.
+		const long long run =
+			PackReading(*this).length(node.children[0]->text, ctx);
+		Constant out;
+		out.type = types_.fundamental(FT_UNSIGNED_LONG_INT);
+		if (run < 0)
+		{
+			++stood_in_;
+			out.bits = 1;
+			return out;
+		}
+		out.bits = static_cast<unsigned long long>(run);
 		return out;
 	}
 

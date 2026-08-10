@@ -234,6 +234,12 @@ std::uint32_t TypeTable::extra_of(const Node& node)
 		// as much a part of the type as what it points to.
 		return node.user;
 
+	case TypeKind::Pack:
+		// 14.5.3p1: a bound run is what its elements are, which is a list; an
+		// expansion holds none and is told apart by the pattern `operand_of`
+		// already reads.
+		return node.parameters;
+
 	default:
 		return is_user_kind(node.kind) ? kUserTypeKeyExtra : 0;
 	}
@@ -521,6 +527,35 @@ TypeId TypeTable::value_type(TypeId type, unsigned long long bits)
 	node.bounded = true;
 	node.target = type;
 	node.bound = bits;
+	return intern(key_of(node), node);
+}
+
+void TypeTable::set_template_pack(TypeId type, bool pack)
+{
+	user_types_[nodes_[type].user].template_pack = pack;
+}
+
+// 14.5.3p1: the run of arguments bound to a pack place, interned by the
+// elements it holds the way a function type is interned by its parameters - so
+// two places bound to the same run read one entry and a fact keyed by an
+// argument list tells `Ts = <int>` from `Ts = <int, long>` apart.
+TypeId TypeTable::pack_type(const std::vector<TypeId>& elements)
+{
+	Node node = nodes_[0];
+	node.kind = TypeKind::Pack;
+	node.parameters = intern_parameters(elements);
+	return intern(key_of(node), node);
+}
+
+// 14.5.3p4: `pattern...`, which stands in a list until the run its pattern
+// names arrives.  The pattern is what tells two expansions apart, and an empty
+// element list is what tells an expansion from a run of no elements.
+TypeId TypeTable::pack_expansion(TypeId pattern)
+{
+	Node node = nodes_[0];
+	node.kind = TypeKind::Pack;
+	node.target = pattern;
+	node.parameters = intern_parameters(std::vector<TypeId>());
 	return intern(key_of(node), node);
 }
 
@@ -928,6 +963,26 @@ TypeId TypeTable::substitute(TypeId type,
 		result = value_type(substitute(target(type), bindings, memo), bound(type));
 		break;
 
+	case TypeKind::Pack:
+	{
+		// 14.5.3p4: an expansion is replaced by the run it stands for, which is
+		// a list rather than a type and so is the reading in `sema_pack.cpp`.
+		// What this walk answers is the run itself, whose elements may still
+		// name a parameter of an outer head.
+		if (target(type) != kNoType)
+		{
+			break;
+		}
+		const std::vector<TypeId>& run = pack_elements(type);
+		std::vector<TypeId> built(run.size());
+		for (std::size_t index = 0; index < run.size(); ++index)
+		{
+			built[index] = substitute(run[index], bindings, memo);
+		}
+		result = pack_type(built);
+		break;
+	}
+
 	default:
 		break;
 	}
@@ -1152,6 +1207,27 @@ bool TypeTable::dependent_walk(TypeId type) const
 		// on one, which `template<class T, T v>` writes.
 		return is_dependent(target(type));
 
+	case TypeKind::Pack:
+	{
+		// 14.5.3p4: an expansion is what its pattern is and is never settled
+		// where it stands - the run it stands for is what replaces it - so it
+		// answers dependent for as long as it exists.  A bound run is dependent
+		// exactly when one of the arguments in it is.
+		if (target(type) != kNoType)
+		{
+			return true;
+		}
+		const std::vector<TypeId>& run = pack_elements(type);
+		for (std::size_t index = 0; index < run.size(); ++index)
+		{
+			if (is_dependent(run[index]))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
 	default:
 		return false;
 	}
@@ -1302,6 +1378,20 @@ void TypeTable::append_description(TypeId type, std::string& out) const
 			out += "value ";
 			out += decimal(node.bound);
 			out += " of ";
+			break;
+
+		case TypeKind::Pack:
+			// 14.5.3: a run is described by what it holds and an expansion by
+			// the pattern it stands for, which is what a diagnostic about a
+			// pack that no argument list has settled has to name it by.
+			if (node.target == kNoType)
+			{
+				out += "pack of (";
+				append_parameters(type, out);
+				out += ")";
+				return;
+			}
+			out += "pack expansion of ";
 			break;
 		}
 		type = node.target;

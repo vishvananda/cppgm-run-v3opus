@@ -54,7 +54,18 @@ enum class TypeKind
 	// template apart, and every fact keyed by an argument list - the
 	// specialization, the substitution, the object-file name - reads that list
 	// as types.  Nothing declares an object of one.
-	Value
+	Value,
+	// 14.5.3p1: a template parameter pack, in the two forms one is ever in.
+	//
+	// A pack that an argument list has bound is the *run* of arguments it took,
+	// which is a list and not a type; a pack an argument list has yet to settle
+	// is written into a declaration as 14.5.3p4's pack-expansion `P...`, which
+	// is the pattern `P` standing for however many arguments the run holds.
+	// Both are type-table entries because every list a template tier is keyed
+	// by - the argument list, a function's parameter list - reads as types, and
+	// an expansion has to survive in one until the run arrives.  Nothing
+	// declares an object of either.
+	Pack
 };
 
 // 8.3.5p1: the ref-qualifier written after a member function's
@@ -188,6 +199,35 @@ public:
 	TypeId value_type(TypeId type, unsigned long long bits);
 	bool is_value(TypeId type) const { return kind(type) == TypeKind::Value; }
 	unsigned long long value_bits(TypeId type) const { return nodes_[type].bound; }
+
+	// 14.5.3p1: the run of arguments a template-argument-list bound to a pack
+	// place, and 14.5.3p4's expansion of a pattern that names one.  A run is
+	// interned by its elements, so `Ts` bound to `<int, long>` is one entry
+	// however many places read it; an expansion is interned by its pattern.
+	TypeId pack_type(const std::vector<TypeId>& elements);
+	TypeId pack_expansion(TypeId pattern);
+	bool is_pack(TypeId type) const { return kind(type) == TypeKind::Pack; }
+	// True for `P...` and false for a bound run: an expansion is the one of the
+	// two that still has a pattern under it.
+	bool is_pack_expansion(TypeId type) const
+	{
+		return kind(type) == TypeKind::Pack && target(type) != kNoType;
+	}
+	const std::vector<TypeId>& pack_elements(TypeId type) const
+	{
+		return *parameter_lists_[nodes_[type].parameters];
+	}
+
+	// 14.5.3p1: whether a template parameter is a pack, which says that the
+	// argument bound to it is a run rather than one argument and that a name
+	// written for it shall be expanded.  It is a fact of the type the place
+	// declared, so a substitution reaches it without the head.
+	void set_template_pack(TypeId type, bool pack);
+	bool is_template_pack(TypeId type) const
+	{
+		return kind(type) == TypeKind::TemplateParameter &&
+			user_at(type).template_pack;
+	}
 
 	// 14.1p4: the type a non-type template parameter names a value of, kept on
 	// the parameter's own type so that a region binding it - and a deduction
@@ -633,6 +673,8 @@ private:
 		bool nested_in_dependent = false;
 		// 14.1p2: which parameter of its template a template parameter is.
 		unsigned template_index = 0;
+		// 14.5.3p1: whether that parameter is a pack.
+		bool template_pack = false;
 		// 14.1p4: the type a non-type template parameter names a value of.
 		TypeId parameter_value_type = kNoType;
 		// 14.6.2p1: the prefix a dependent member name stands after and the

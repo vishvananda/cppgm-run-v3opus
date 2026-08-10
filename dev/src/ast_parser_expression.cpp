@@ -304,6 +304,23 @@ AstNode* AstParser::parse_unary_expression()
 		node->add(operand);
 		return node;
 	}
+	if (at(KW_SIZEOF) && peek(1) == OP_DOTS)
+	{
+		// 5.3.3p5: `sizeof ... ( identifier )`, whose operand is a parameter
+		// pack and never an expression - the parentheses are part of the
+		// operator rather than a primary-expression around a name.
+		pos_ += 2;
+		AstNode* node = make(AstKind::SizeofPackExpression);
+		if (!at(OP_LPAREN) || tokens_.type(pos_ + 1) != TT_IDENTIFIER ||
+		    tokens_.type(pos_ + 2) != OP_RPAREN)
+		{
+			return fail(start);
+		}
+		++pos_;
+		node->add(make_text(AstKind::Identifier, spelling()));
+		pos_ += 2;
+		return parse_postfix_suffixes(node);
+	}
 	if (at(KW_SIZEOF))
 	{
 		++pos_;

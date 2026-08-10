@@ -1486,6 +1486,10 @@ void SemaAnalyzer::template_parameter(const AstNode& node, const Context& ctx)
 	// itself and is written by its place rather than by its spelling.
 	types_.set_template_index(
 		type, static_cast<unsigned>(ctx.scope->declarations.size()));
+	// 14.5.3p1: a place declared with `...` stands for a run of arguments, and
+	// every name written for it shall be expanded - which is a fact of the type
+	// the place declared, so a reading of an expansion finds it without the head.
+	types_.set_template_pack(type, has_child(node, AstKind::ParameterPack));
 	SemaEntity& entity = model_.create(SemaKind::TemplateType, id->text, type);
 	model_.bind(*ctx.scope, id->text, entity);
 	model_.declare_in(*ctx.scope, entity);
@@ -1526,6 +1530,7 @@ void SemaAnalyzer::non_type_template_parameter(const AstNode& node,
 			: name);
 	types_.set_template_index(
 		type, static_cast<unsigned>(ctx.scope->declarations.size()));
+	types_.set_template_pack(type, has_child(node, AstKind::ParameterPack));
 	types_.set_parameter_value_type(type, non_type_parameter_type(node, ctx));
 	if (name.empty())
 	{

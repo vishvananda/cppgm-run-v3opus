@@ -76,6 +76,7 @@ struct TemplateInfo
 		Parameter()
 			: written(nullptr)
 			, value(false)
+			, pack(false)
 			, self(0)
 			, type(0)
 		{}
@@ -83,6 +84,11 @@ struct TemplateInfo
 		std::string name;
 		const AstNode* written;
 		bool value;
+		// 14.5.3p1: a place declared with `...`, which binds the run of
+		// arguments left over rather than one argument.  14.1p11 leaves it
+		// last in a primary template's head, so the places before it are the
+		// arguments before it one for one.
+		bool pack;
 		// 14.6.1p1: the type standing for this place, which the current
 		// instantiation's argument list is written from and which the type of a
 		// later value place is read over.
@@ -124,6 +130,11 @@ struct TemplateInfo
 	std::unordered_map<std::uint32_t, const AstNode*> explicit_classes;
 	std::unordered_map<std::uint32_t, const AstNode*> explicit_functions;
 };
+
+// 14.1p11 and 14.5.3p1: the place `info` declared a pack at, or the number of
+// places where it declared none.  It is what tells a written argument the place
+// it fills: the ones before it one for one, and every one after it the pack's.
+std::size_t pack_place(const TemplateInfo& info);
 
 // 14.7.1p1 and 14.2: whether the definition a unit holds of `function` is one
 // an instantiation made rather than one the program wrote out - which a

@@ -3,6 +3,7 @@
 #include <stdexcept>
 
 #include "ast_model.h"
+#include "sema_pack.h"
 
 namespace
 {
@@ -152,9 +153,15 @@ void SemaAnalyzer::read_base_clause(const AstNode& node, SemaEntity& entity,
 		? kPrivateAccess
 		: kPublicAccess;
 	std::string named;
+	bool expanded = false;
 	for (std::size_t index = 0; index < specifier.children.size(); ++index)
 	{
 		const AstNode& part = *specifier.children[index];
+		if (part.kind == AstKind::ParameterPack)
+		{
+			expanded = true;
+			continue;
+		}
 		if (part.kind == AstKind::Virtual)
 		{
 			if (checking_ > 0)
@@ -179,12 +186,50 @@ void SemaAnalyzer::read_base_clause(const AstNode& node, SemaEntity& entity,
 	}
 	// 10p1: the base-specifier names a class, which a typedef-name may stand
 	// for - so what it names is the class the type belongs to rather than the
-	// declaration the name was bound to.
-	SemaEntity& found = require(resolve(named, ctx, LookupKind::Type), named);
+	// declaration the name was bound to.  14.5.3p4 writes it as a pattern
+	// instead, and the class derives from one base per element of the run its
+	// packs are bound to - which this milestone lays out where that run holds
+	// no more bases than the one it can.
+	TypeId derived_from = kNoType;
+	if (expanded)
+	{
+		std::vector<TypeId> run;
+		PackReading(*this).expand(named, ctx, kNoType, run);
+		if (run.size() == 1 && types_.is_pack_expansion(run[0]))
+		{
+			if (checking_ > 0)
+			{
+				note_dependent_base(specifier);
+				scope.dependent_base = true;
+				return;
+			}
+			throw std::runtime_error(named + " is expanded as a base class and "
+			                                 "names an unsettled parameter pack");
+		}
+		if (run.empty())
+		{
+			// 14.5.3p4 over a run of none: the class derives from nothing.
+			scope.dependent_base = false;
+			return;
+		}
+		if (run.size() != 1)
+		{
+			throw std::runtime_error(header + " has more than one direct base "
+			                         "class, which this milestone does not lay "
+			                         "out");
+		}
+		derived_from = run[0];
+	}
+	const SemaEntity* found_name = nullptr;
+	if (derived_from == kNoType)
+	{
+		found_name = &require(resolve(named, ctx, LookupKind::Type), named);
+		derived_from = found_name->type;
+	}
 	// 10p1 and 14.7.1p1: a base class shall be a complete class type, which is
 	// what asks a specialization the base-specifier named for its definition.
-	require_settled_type(found.type);
-	if (checking_ > 0 && types_.is_dependent(types_.strip_cv(found.type)))
+	require_settled_type(derived_from);
+	if (checking_ > 0 && types_.is_dependent(types_.strip_cv(derived_from)))
 	{
 		// 14.6.2p3: an unqualified name written in the definition is not looked
 		// up in a base class that depends on a template parameter, because
@@ -198,12 +243,13 @@ void SemaAnalyzer::read_base_clause(const AstNode& node, SemaEntity& entity,
 		return;
 	}
 	scope.dependent_base = wrote_dependent_base(specifier);
-	if (!names_a_type(found) || !types_.is_class(types_.strip_cv(found.type)))
+	if ((found_name != nullptr && !names_a_type(*found_name)) ||
+	    !types_.is_class(types_.strip_cv(derived_from)))
 	{
 		throw std::runtime_error(named + " is named as a base class and is not "
 		                                 "a class");
 	}
-	SemaEntity* const base = model_.type_owner(types_.strip_cv(found.type));
+	SemaEntity* const base = model_.type_owner(types_.strip_cv(derived_from));
 	if (base == nullptr || !base->defined || base->scope == nullptr)
 	{
 		// 10p1: a base class shall be a complete class type, because the

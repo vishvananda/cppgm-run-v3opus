@@ -7,6 +7,7 @@
 #include "ast_tokens.h"
 #include "literal_scan.h"
 #include "post_token.h"
+#include "sema_pack.h"
 #include "string_literal.h"
 
 // The PA12 expression layer: 5 over the procedural, non-class subset.
@@ -420,6 +421,7 @@ SemaAnalyzer::Value SemaAnalyzer::dispatch_expression(const AstNode& node,
 		return cast_expression(node, ctx, parent);
 
 	case AstKind::SizeofExpression:
+	case AstKind::SizeofPackExpression:
 		return sizeof_expression(node, ctx, parent);
 
 	case AstKind::TypeTraitExpression:
@@ -1642,6 +1644,22 @@ SemaAnalyzer::Value SemaAnalyzer::sizeof_expression(const AstNode& node,
 	value.category = ValueCategory::PRValue;
 	value.constant = true;
 	const AstNode& operand = *node.children[0];
+	if (node.kind == AstKind::SizeofPackExpression)
+	{
+		// 5.3.3p5: `sizeof...(P)` is how many elements the run bound to `P`
+		// holds, which is a number the argument list settled and not a size.
+		const long long run = PackReading(*this).length(operand.text, ctx);
+		if (run < 0)
+		{
+			throw std::runtime_error(operand.text + " is written as the operand "
+			                         "of sizeof... where its run is not settled");
+		}
+		value.value = static_cast<unsigned long long>(run);
+		value.what = "sizeof-pack-expression";
+		value.node = &model_.open_node(
+			parent, spell(value.what, value.category, result, value.payload));
+		return value;
+	}
 	if (operand.kind == AstKind::TypeId)
 	{
 		// 5.3.3p2: applied to a reference or a reference type, the result is
