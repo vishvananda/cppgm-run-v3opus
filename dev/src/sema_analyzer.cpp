@@ -2626,8 +2626,23 @@ void SemaAnalyzer::declare_object_declarator(const AstNode* initializer,
 	SemaEntity& entity = declared != nullptr
 		? *declared
 		: model_.create(SemaKind::Variable, name, type);
-	if (initializer != nullptr && !initializer->children.empty() &&
-	    (types_.cv(type) & kCvConst) != 0 && arithmetic_type(type) != kNoType)
+	// 8.5p16 and 8.5.4p3: `T k(x)` and `T k{x}` initialize `k` with the very
+	// expression `T k = x` does, so 5.19p3's question is asked of the one
+	// clause they wrote rather than of the list that holds it.
+	const AstNode* initialized =
+		initializer == nullptr || initializer->children.empty()
+			? nullptr
+			: initializer->children[0];
+	if (initialized != nullptr &&
+	    (initialized->kind == AstKind::ParenInitializer ||
+	     initialized->kind == AstKind::BracedInitList))
+	{
+		initialized = initialized->children.size() == 1
+			? initialized->children[0]
+			: nullptr;
+	}
+	if (initialized != nullptr && (types_.cv(type) & kCvConst) != 0 &&
+	    arithmetic_type(type) != kNoType)
 	{
 		// 5.19p3: a const object of integral type initialized by a constant
 		// expression is one, and is what an array bound may be written with.
@@ -2636,8 +2651,7 @@ void SemaAnalyzer::declare_object_declarator(const AstNode* initializer,
 		// formed, so only the one failure is caught.
 		try
 		{
-			entity.value = convert(evaluate(*initializer->children[0], ctx),
-			                       type).bits;
+			entity.value = convert(evaluate(*initialized, ctx), type).bits;
 			entity.constant = true;
 		}
 		catch (const NotConstant&)

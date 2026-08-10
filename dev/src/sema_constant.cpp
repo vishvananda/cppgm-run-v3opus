@@ -132,6 +132,16 @@ SemaAnalyzer::Constant SemaAnalyzer::convert(const Constant& value,
 {
 	Constant out;
 	out.type = type;
+	if (types_.kind(type) == TypeKind::Fundamental &&
+	    types_.fundamental_type(type) == FT_BOOL)
+	{
+		// 4.12p1: a value converted to `bool` is `false` where it is zero and
+		// `true` for every other one, which keeps no low bits at all - so
+		// 14.3.2p5 makes `A<3>` and `A<true>` one specialization of
+		// `template<bool>` and `int a[(bool)5]` one element.
+		out.bits = value.bits != 0 ? 1 : 0;
+		return out;
+	}
 	const unsigned width = width_of(type);
 	if (width >= 64)
 	{
@@ -474,6 +484,64 @@ SemaAnalyzer::Constant SemaAnalyzer::evaluate(const AstNode& node,
 		const Constant value = evaluate(*node.children[1], ctx);
 		Constant out = convert(value, type);
 		out.type = type;
+		return out;
+	}
+
+	case AstKind::CallExpression:
+	{
+		// 5.2.3p1: `T(x)` is the cast `(T)x` written in functional notation,
+		// which the grammar hands on as a call because it cannot say whether
+		// the name before the parentheses is a type.  A call of a *function*
+		// is the other reading of the shape and is 5.19p2's constexpr
+		// function, so only the arm whose callee names an arithmetic type
+		// folds here.
+		const AstNode& callee = *node.children[0];
+		TypeId target = kNoType;
+		if (callee.kind == AstKind::IdExpression)
+		{
+			target = keyword_type(callee.text);
+		}
+		if (target == kNoType && callee.kind == AstKind::IdExpression)
+		{
+			// 7.1.6.2p1: the simple-type-specifier may be a typedef-name or an
+			// enum-name the program declared, which 3.4 answers for - and a
+			// name that reaches no region at all is a call and not a cast.
+			try
+			{
+				SemaEntity* const named =
+					resolve(callee.text, ctx, LookupKind::Type);
+				target = named == nullptr ? kNoType : named->type;
+			}
+			catch (const std::exception&)
+			{
+				target = kNoType;
+			}
+		}
+		// 5.2.3p3: `T{x}` is written where `T(x)` is, and the braces put
+		// 8.5.4's one initializer-clause where the operand stands.
+		const AstNode* list =
+			node.children.size() < 2 ? nullptr : node.children[1];
+		if (list != nullptr && list->braced)
+		{
+			list = list->children.empty() ? nullptr : list->children[0];
+		}
+		if (list == nullptr || target == kNoType ||
+		    arithmetic_type(target) == kNoType || list->children.size() > 1)
+		{
+			throw NotConstant("a constant expression calls something this "
+			                  "milestone does not evaluate");
+		}
+		if (list->children.empty())
+		{
+			// 5.2.3p2: `T()` is the value-initialization 8.5p7 writes, which
+			// for an arithmetic type is the zero 8.5p6 converts to it.
+			Constant out;
+			out.type = target;
+			out.bits = 0;
+			return out;
+		}
+		Constant out = convert(evaluate(*list->children[0], ctx), target);
+		out.type = target;
 		return out;
 	}
 
