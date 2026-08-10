@@ -590,6 +590,7 @@ TypeId TemplateArgumentReader::probe_type_id(const std::string& spelling)
 	{
 		return kNoType;
 	}
+	const unsigned stood = analyzer_.stood_in_;
 	try
 	{
 		const ReadingDepth probing(analyzer_.checking_);
@@ -597,6 +598,11 @@ TypeId TemplateArgumentReader::probe_type_id(const std::string& spelling)
 	}
 	catch (const std::exception&)
 	{
+		// 14.6p8's count is of the stand-ins a *reading* made, and this one was
+		// thrown away - so a `sizeof` of a dependent type met inside a spelling
+		// that turned out to be no type-id at all stood nothing in, and 7p4's
+		// static_assert is still the one this reading answers.
+		analyzer_.stood_in_ = stood;
 		return kNoType;
 	}
 }

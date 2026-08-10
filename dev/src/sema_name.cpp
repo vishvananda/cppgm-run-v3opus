@@ -9,6 +9,29 @@ bool is_identifier_char(char c)
 		(c >= '0' && c <= '9') || c == '_' || c == '$';
 }
 
+// The six characters a balanced run of a spelling is written with.  A name is
+// scanned once for every name written inside it, so every other character
+// answers one question rather than six.
+struct Brackets
+{
+	Brackets()
+	{
+		for (unsigned index = 0; index < 256; ++index)
+		{
+			written[index] = false;
+		}
+		const char* const marks = "<>()[]";
+		for (const char* mark = marks; *mark != '\0'; ++mark)
+		{
+			written[static_cast<unsigned char>(*mark)] = true;
+		}
+	}
+
+	bool written[256];
+};
+
+const Brackets kBrackets;
+
 // The offset of the first `character` of `spelling` at or after `from` that no
 // template-argument-list, parenthesis or subscript encloses, or `npos`.
 std::string::size_type outside_brackets(const std::string& spelling,
@@ -26,6 +49,10 @@ std::string::size_type outside_brackets(const std::string& spelling,
 		if (depth == 0 && grouped == 0 && c == character)
 		{
 			return at;
+		}
+		if (!kBrackets.written[static_cast<unsigned char>(c)])
+		{
+			continue;
 		}
 		if (c == '(' || c == '[')
 		{
@@ -64,19 +91,34 @@ std::string::size_type outside_brackets(const std::string& spelling,
 bool opens_template_arguments(const std::string& spelling,
                               std::string::size_type at)
 {
+	if (at == 0 || !is_identifier_char(spelling[at - 1]))
+	{
+		// 5.9p1's operand stands here rather than a name, so what the `<`
+		// writes is the operator.
+		return false;
+	}
+	if (spelling[at - 1] < '0' || spelling[at - 1] > '9')
+	{
+		// A name whose last character is not a digit did not begin with one
+		// either, so the only question left is 13.5p1's: `operator<` and its
+		// three fellows are the name and take no argument list of their own.
+		// Only a name ending in `r` can be that one, which is what keeps the
+		// comparison off every other `<` a spelling writes.
+		if (spelling[at - 1] != 'r' || at < 8 ||
+		    spelling.compare(at - 8, 8, "operator") != 0)
+		{
+			return true;
+		}
+		return at != 8 && is_identifier_char(spelling[at - 9]);
+	}
 	std::string::size_type start = at;
 	while (start != 0 && is_identifier_char(spelling[start - 1]))
 	{
 		--start;
 	}
-	if (start == at || (spelling[start] >= '0' && spelling[start] <= '9'))
-	{
-		return false;
-	}
-	// 13.5p1: `operator<`, `operator<<`, `operator<=` and `operator<<=` are the
-	// name itself and take no argument list of their own.
-	return at - start < 8 || spelling.compare(at - 8, 8, "operator") != 0 ||
-		(at != 8 && is_identifier_char(spelling[at - 9]));
+	// 2.11p1: an identifier does not open with a digit, so a run that does is
+	// 2.14.2's number and the `<` after it is 5.9's operator.
+	return spelling[start] < '0' || spelling[start] > '9';
 }
 
 std::string::size_type spelling_balanced_end(const std::string& spelling,
@@ -85,12 +127,17 @@ std::string::size_type spelling_balanced_end(const std::string& spelling,
 	const char open = spelling[at];
 	const char close = open == '<' ? '>' : (open == '(' ? ')' : ']');
 	const std::string::size_type opened = at;
+	const bool angled = open == '<';
 	unsigned depth = 0;
 	unsigned grouped = 0;
 	for (; at < spelling.size(); ++at)
 	{
 		const char c = spelling[at];
-		if (open == '<')
+		if (!kBrackets.written[static_cast<unsigned char>(c)])
+		{
+			continue;
+		}
+		if (angled)
 		{
 			if (c == '(' || c == '[')
 			{
@@ -108,12 +155,15 @@ std::string::size_type spelling_balanced_end(const std::string& spelling,
 				--grouped;
 				continue;
 			}
-			if (grouped != 0 ||
-			    (c == '<' && at != opened &&
-			     !opens_template_arguments(spelling, at)))
+			if (grouped != 0)
 			{
 				continue;
 			}
+		}
+		if (angled && c == '<' && at != opened &&
+		    !opens_template_arguments(spelling, at))
+		{
+			continue;
 		}
 		if (c == open)
 		{
