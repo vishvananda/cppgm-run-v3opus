@@ -990,6 +990,7 @@ AstNode* AstParser::parse_id_expression()
 			{
 				return fail(start);
 			}
+			keep_decltype(name, operand);
 		}
 		reset(after);
 	}

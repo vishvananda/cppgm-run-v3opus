@@ -68,6 +68,11 @@ void emit_lowir(const std::string& outfile,
 		// 2.2p1: which of the definitions this unit read are the ones its own
 		// source wrote is a phase 4 fact too, and the same stream recorded it.
 		analyzer.set_sources(tokens.sources());
+		// 7.1.6.2p1 and 14.2: a decltype-specifier written inside a
+		// template-argument-list reaches this analysis as text, and the tree
+		// the parse read for its operand is the one thing that text cannot
+		// hold - so the arena that owns the nodes travels with the tree.
+		analyzer.set_expressions(arena);
 		analyzer.run(*root);
 		builder.add_unit(analyzer.resolved(), analyzer.types());
 	}

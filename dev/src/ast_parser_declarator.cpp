@@ -151,6 +151,10 @@ bool AstParser::parse_name_specifier(AstNode* seq, SpecifierMode mode,
 			? AstKind::DeclSpecifier
 			: AstKind::DecltypeSpecifier, text);
 		node->add(expression);
+		// 14.2: a template-argument-list is read this same way and then
+		// flattened into the name around it, so this reading is kept where the
+		// parse owns it and a spelling of it can ask the tree back.
+		arena_.keep_spelled(text, node);
 		seen_type = true;
 		seq->add(node);
 		return true;
@@ -181,6 +185,7 @@ bool AstParser::parse_name_specifier(AstNode* seq, SpecifierMode mode,
 				reset(start);
 				return false;
 			}
+			keep_decltype(spelled_from, operand);
 		}
 		reset(after);
 	}

@@ -1039,6 +1039,22 @@ Scope* SemaAnalyzer::resolve_prefix(const QualifiedName& name,
 	{
 		region = &model_.global();
 	}
+	// 7.1.6.2p1: a nested-name-specifier may begin with a decltype-specifier,
+	// which no lookup of its spelling can answer - what says which region it
+	// names is the tree the parse read for its operand, exactly as it does
+	// where the same specifier stands among a declaration's type specifiers.
+	if (region == nullptr && written_ != nullptr &&
+	    first.compare(0, 9, "decltype(") == 0)
+	{
+		const AstNode* const held = written_->spelled(first);
+		if (held != nullptr)
+		{
+			const TypeId type = types_.strip_cv(decltype_type(*held, ctx));
+			require_settled_type(type);
+			named = model_.type_owner(type);
+			region = named == nullptr ? nullptr : model_.region_of(*named);
+		}
+	}
 	if (region == nullptr)
 	{
 		// 14.2: a component of a nested-name-specifier is a template-id where
@@ -1053,7 +1069,7 @@ Scope* SemaAnalyzer::resolve_prefix(const QualifiedName& name,
 		// 3.4.3p1 and 14.7.1p1: a name is looked up *in* the region this
 		// component reached, which for a class template specialization is a
 		// context requiring it to be completely defined.
-		require_complete_type(named->type);
+		require_settled_type(named->type);
 		region = model_.region_of(*named);
 	}
 
@@ -1080,7 +1096,7 @@ Scope* SemaAnalyzer::resolve_prefix(const QualifiedName& name,
 			next = template_id_entity(part, ctx, region, LookupKind::Region);
 		}
 		named = &require(next, part);
-		require_complete_type(named->type);
+		require_settled_type(named->type);
 		region = model_.region_of(*named);
 	}
 	if (region == nullptr)

@@ -1,0 +1,55 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $cond__1 : i32
+
+  block ^entry:
+    %t1 = call i32 @run()
+    %t2 = cmp eq i32 %t1, 3
+    branch %t2, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t3 = load i32 $cond__1
+    return i32 %t3
+}
+function @run() -> i32 [binding=weak, object=_Z3runI7factoryEiv] {
+  slot $make : obj<1x1>
+  slot $made : obj<4x4>
+  slot $zero : obj<4x4>
+
+  block ^entry:
+    %t1 = addr $make
+    %t2 = addr $made
+    %t3 = addr $make
+    %t4 = call obj<4x4> @factory__operator__(%t3)
+    copyobj 4x4 %t4, %t2
+    %t5 = addr $zero
+    %t6 = addr $made
+    copyobj 4x4 %t6, %t5
+    %t7 = addr $zero
+    %t8 = index i8 [projection=field] %t7, 0
+    %t9 = load i32 %t8
+    return i32 %t9
+}
+function @factory__operator__(%this : ptr) -> obj<4x4> [binding=weak, object=_ZNK7factoryclEv] {
+  slot $this : ptr
+  slot $made : obj<4x4>
+  slot $retobj__1 : obj<4x4>
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = addr $made
+    %t2 = addr $made
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 3, %t3
+    %t4 = addr $retobj__1
+    %t5 = addr $made
+    copyobj 4x4 %t5, %t4
+    return obj<4x4> $retobj__1
+}

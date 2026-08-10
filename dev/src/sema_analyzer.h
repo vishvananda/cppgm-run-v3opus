@@ -21,6 +21,7 @@
 
 struct AstNode;
 struct PostToken;
+class AstArena;
 class PackTable;
 class IncludeTable;
 
@@ -45,6 +46,11 @@ public:
 	// Borrowed the same way, and left null by a caller with no such table,
 	// which is what says every definition read is this unit's own.
 	void set_sources(const IncludeTable& sources) { sources_ = &sources; }
+
+	// 7.1.6.2p1: the trees the parse read for the decltype-specifiers it then
+	// flattened into a name, borrowed the same way.  Null says no spelling
+	// holds one, which is every mode that reads no template-argument-list.
+	void set_expressions(const AstArena& written) { written_ = &written; }
 
 	// Analyses `unit`, a PA10 `translation-unit`.  Throws for a program the
 	// assignment gives no meaning to.
@@ -1279,10 +1285,6 @@ private:
 	SemaEntity* qualified_in_type(TypeId head, const QualifiedName& written,
 	                              const Context& ctx, LookupKind filter,
 	                              std::vector<SemaEntity*>* found);
-	// 7.1.6.2p1 and 14.2: the type such a specifier names where 14.2's argument
-	// list left it as a spelling, which 3.4 answers for an id-expression alone.
-	TypeId spelled_decltype_type(const std::string& spelling,
-	                             const Context& ctx);
 	SemaEntity& require(SemaEntity* entity, const std::string& name);
 
 	// Constant expressions and decltype (sema_constant.cpp).
@@ -1647,26 +1649,10 @@ private:
 	// around it.
 	TypeId template_argument_type(const std::string& spelling,
 	                              const Context& ctx);
-	// 8.1p1, 8.3p1, 8.3.4p1 and 8.3.5p1 over the words a type-id's spelling
-	// was split into: the type its specifiers named, what an
-	// abstract-declarator makes of that, and the array bounds and
-	// parameter-clauses written after it.  `at` is left one past the last word
-	// each read, so a parameter-clause reads its list one type-id at a time.
-	TypeId type_id_words(const std::vector<std::string>& words, std::size_t& at,
-	                     std::size_t end, const std::string& spelling,
-	                     const Context& ctx);
-	// 7.1.6.3p1 and 3.3.2p6: the class or enumeration a class-key written
-	// before a name reaches, declaring one where a class-key reaches none.
-	TypeId elaborated_spelled_type(const std::string& key,
-	                               const std::string& name, const Context& ctx);
-	TypeId abstract_declarator_words(TypeId base,
-	                                 const std::vector<std::string>& words,
-	                                 std::size_t& at, std::size_t end,
-	                                 const std::string& spelling,
-	                                 const Context& ctx);
-	TypeId suffix_words(TypeId base, const std::vector<std::string>& words,
-	                    std::size_t& at, std::size_t end,
-	                    const std::string& spelling, const Context& ctx);
+	// 8.1p1, 8.3p1, 8.3.4p1, 8.3.5p1 and 7.1.6.2p1 over the words that spelling
+	// was split into, which `sema_type_id.cpp` owns: a walk over text rather
+	// than over the tree, so it is a reader of its own that borrows this one.
+	friend class SpelledTypeId;
 	// 14.7.1p1: the declaration a specialization stands for, held for the end
 	// of the translation unit, which is where the output writes it.  Naming
 	// the same specialization again writes nothing more.
@@ -2162,6 +2148,8 @@ private:
 	// 2.2p1: which positions of that stream this unit's own source wrote,
 	// borrowed the same way and null in the same modes.
 	const IncludeTable* sources_;
+	// 7.1.6.2p1: the trees the parse kept for the operands it flattened.
+	const AstArena* written_;
 	TypeTable types_;
 	SemaModel model_;
 	// The unnamed enumerations declared so far, which are numbered rather than

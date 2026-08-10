@@ -176,64 +176,46 @@ void append_specifier(std::string& out, const std::string& word)
 }
 }
 
-// 7.1.6.2p1 and 14.2: a decltype-specifier standing where a template argument
-// writes a type.
+// 8.1p1's type-id and 7.1.6.2p1's decltype-specifier, read out of the words one
+// spelling was split into.
 //
-// The argument list reaches this layer as the spelling inside a name, so the
-// expression the specifier holds was never read as an expression - and the one
-// operand a spelling can answer for is 5.1.1p8's id-expression, which 3.4 looks
-// up here exactly as it looks up any other name.  7.1.6.2p4 is then what the
-// type is, and every component written after it is 3.4.3's question about the
-// region that type opens.
-TypeId SemaAnalyzer::spelled_decltype_type(const std::string& spelling,
-                                           const Context& ctx)
+// It is a reading of its own rather than a walk of the analyzer's, for the same
+// reason `TemplateArgumentReader` is: what it reads is text, and where in those
+// words it stands is state no walk of a tree has.  The lookups, the type table
+// and the expression layer are the analyzer's, so the reader borrows it.
+class SpelledTypeId
 {
-	const std::string::size_type open = spelling.find('(');
-	const std::string::size_type close = balanced_end(spelling, open);
-	if (close == std::string::npos)
-	{
-		throw std::runtime_error(spelling + " is not a type-id this milestone "
-		                         "reads");
-	}
-	std::string operand = spelling.substr(open + 1, close - open - 2);
-	// 7.1.6.2p4: a parenthesized id-expression is an lvalue named again, and
-	// the type is a reference to what it names.
-	bool parenthesized = false;
-	while (operand.size() > 1 && operand[0] == '(' &&
-	       balanced_end(operand, 0) == operand.size())
-	{
-		parenthesized = true;
-		operand = operand.substr(1, operand.size() - 2);
-	}
-	const SemaEntity& named =
-		require(resolve(operand, ctx, LookupKind::Any), operand);
-	TypeId head = named.type;
-	switch (named.kind)
-	{
-	case SemaKind::Variable:
-	case SemaKind::Parameter:
-	case SemaKind::Function:
-		// 3.10p1: an id-expression naming an object or a function is an lvalue.
-		head = parenthesized ? types_.reference_to(head, false) : head;
-		break;
+public:
+	SpelledTypeId(SemaAnalyzer& analyzer, const SemaContext& ctx)
+		: analyzer_(analyzer)
+		, ctx_(ctx)
+	{}
 
-	case SemaKind::Enumerator:
-		break;
+	// 8.1p1: a type-id is a type-specifier-seq and an abstract-declarator, read
+	// from the words the spelling was split into.  `at` is left one past the
+	// last word read, which is what lets a parameter-clause read its list one
+	// type-id at a time.
+	TypeId read(const std::vector<std::string>& words, std::size_t& at,
+	            std::size_t end, const std::string& spelling);
 
-	default:
-		throw std::runtime_error(operand + " stands inside a decltype-specifier "
-		                         "written as a template argument and is not an "
-		                         "object, function or enumerator");
-	}
-	if (close == spelling.size())
-	{
-		return head;
-	}
-	return require(qualified_in_type(types_.strip_cv(head),
-	                                 QualifiedName(spelling), ctx,
-	                                 LookupKind::Type, nullptr),
-	               spelling).type;
-}
+private:
+	TypeId decltype_specifier(const std::string& spelling);
+	TypeId elaborated(const std::string& key, const std::string& name);
+	// 8.3p1's abstract-declarator, and 8.3.4p1's bound and 8.3.5p1's
+	// parameter-clause written after it.
+	TypeId declarator(TypeId base, const std::vector<std::string>& words,
+	                  std::size_t& at, std::size_t end,
+	                  const std::string& spelling);
+	TypeId suffix(TypeId base, const std::vector<std::string>& words,
+	              std::size_t& at, std::size_t end,
+	              const std::string& spelling);
+
+	SpelledTypeId(const SpelledTypeId&);
+	SpelledTypeId& operator=(const SpelledTypeId&);
+
+	SemaAnalyzer& analyzer_;
+	const SemaContext& ctx_;
+};
 
 TypeId SemaAnalyzer::template_argument_type(const std::string& spelling,
                                             const Context& ctx)
@@ -245,13 +227,54 @@ TypeId SemaAnalyzer::template_argument_type(const std::string& spelling,
 		                         "PA12 subset");
 	}
 	std::size_t at = 0;
-	const TypeId type = type_id_words(words, at, words.size(), spelling, ctx);
+	const TypeId type =
+		SpelledTypeId(*this, ctx).read(words, at, words.size(), spelling);
 	if (at != words.size())
 	{
 		throw std::runtime_error(spelling + " is not a type-id this milestone "
 		                         "reads");
 	}
 	return type;
+}
+
+// 7.1.6.2p1 and 14.2: a decltype-specifier standing where a template argument
+// writes a type.
+//
+// The argument list reaches this layer as the spelling inside a name, so the
+// specifier arrives as text - but 5.1.1p8's id-expression is only one of the
+// expressions 7.1.6.2p1 admits, and a call, a delete-expression or an
+// explicit type conversion says nothing a lookup of its spelling could answer.
+// So the tree the parse read for that operand is asked back (`AstArena`) and
+// the specifier is answered by the one reading that answers every other
+// decltype-specifier.  Every component written after it is then 3.4.3's
+// question about the region that type opens.
+TypeId SpelledTypeId::decltype_specifier(const std::string& spelling)
+{
+	const std::string::size_type open = spelling.find('(');
+	const std::string::size_type close = balanced_end(spelling, open);
+	if (close == std::string::npos)
+	{
+		throw std::runtime_error(spelling + " is not a type-id this milestone "
+		                         "reads");
+	}
+	const AstNode* const written = analyzer_.written_ == nullptr
+		? nullptr
+		: analyzer_.written_->spelled(spelling.substr(0, close));
+	if (written == nullptr)
+	{
+		throw std::runtime_error(spelling + " holds a decltype-specifier this "
+		                         "reading has no expression for");
+	}
+	const TypeId head = analyzer_.decltype_type(*written, ctx_);
+	if (close == spelling.size())
+	{
+		return head;
+	}
+	return analyzer_.require(
+		analyzer_.qualified_in_type(analyzer_.types_.strip_cv(head),
+		                            QualifiedName(spelling), ctx_,
+		                            LookupKind::Type, nullptr),
+		spelling).type;
 }
 
 // 7.1.6.3p1 and 3.4.4p2: the class or enumeration an elaborated-type-specifier
@@ -264,18 +287,17 @@ TypeId SemaAnalyzer::template_argument_type(const std::string& spelling,
 // 14.1p1 gave the head, which is gone with the template-declaration.
 // 7.2p3 leaves `enum` no such arm: an elaborated enum-specifier names an
 // enumeration that has already been declared.
-TypeId SemaAnalyzer::elaborated_spelled_type(const std::string& key,
-                                             const std::string& name,
-                                             const Context& ctx)
+TypeId SpelledTypeId::elaborated(const std::string& key,
+                                 const std::string& name)
 {
-	SemaEntity* const found = resolve(name, ctx, LookupKind::Type);
+	SemaEntity* const found = analyzer_.resolve(name, ctx_, LookupKind::Type);
 	const bool enumeration = key == "enum";
 	if (found != nullptr &&
 	    found->kind == (enumeration ? SemaKind::Enum : SemaKind::Class))
 	{
 		// 7.1.6.3p3: the class-key shall agree with the declaration it reached.
 		if (!enumeration &&
-		    (types_.class_tag(found->type) == ClassTag::Union) !=
+		    (analyzer_.types_.class_tag(found->type) == ClassTag::Union) !=
 			    (key == "union"))
 		{
 			throw std::runtime_error(key + " " + name + " names a class whose "
@@ -290,7 +312,7 @@ TypeId SemaAnalyzer::elaborated_spelled_type(const std::string& key,
 		throw std::runtime_error(key + " " + name + " does not name a " +
 		                         (enumeration ? "enumeration" : "class"));
 	}
-	Context where = ctx;
+	SemaContext where = ctx_;
 	while (where.scope->parent != nullptr &&
 	       (where.scope->kind == ScopeKind::TemplateParameters ||
 	        where.scope->kind == ScopeKind::Prototype ||
@@ -302,8 +324,8 @@ TypeId SemaAnalyzer::elaborated_spelled_type(const std::string& key,
 	const ClassTag tag = key == "class"
 		? ClassTag::Class
 		: (key == "union" ? ClassTag::Union : ClassTag::Struct);
-	return class_head_entity(where, tag, QualifiedName(name), name, false,
-	                         where.scope)
+	return analyzer_.class_head_entity(where, tag, QualifiedName(name), name,
+	                                   false, where.scope)
 		->type;
 }
 
@@ -311,10 +333,9 @@ TypeId SemaAnalyzer::elaborated_spelled_type(const std::string& key,
 // from the words the spelling was split into.  `at` is left one past the last
 // word read, which is what lets a parameter-clause read its list one type-id
 // at a time.
-TypeId SemaAnalyzer::type_id_words(const std::vector<std::string>& words,
-                                   std::size_t& at, std::size_t end,
-                                   const std::string& spelling,
-                                   const Context& ctx)
+TypeId SpelledTypeId::read(const std::vector<std::string>& words,
+                           std::size_t& at, std::size_t end,
+                           const std::string& spelling)
 {
 	// 7.1.6.1p1 lets a cv-qualifier stand on either side of the specifiers it
 	// qualifies, so the seq is read until the first thing a declarator writes.
@@ -343,7 +364,7 @@ TypeId SemaAnalyzer::type_id_words(const std::vector<std::string>& words,
 
 	// 7.1.6.2 Table 10 names a type by which keywords appear; anything else is
 	// a name, and 3.4 says which declaration it reached.
-	TypeId type = keyword_type(written);
+	TypeId type = analyzer_.keyword_type(written);
 	if (type == kNoType)
 	{
 		// 7.1.5p2: `typename` says the name is a type, and is no part of it.
@@ -352,9 +373,9 @@ TypeId SemaAnalyzer::type_id_words(const std::vector<std::string>& words,
 			: written;
 		if (name.compare(0, 9, "decltype(") == 0)
 		{
-			return abstract_declarator_words(
-				types_.qualified(spelled_decltype_type(name, ctx), cv), words, at,
-				end, spelling, ctx);
+			return declarator(
+				analyzer_.types_.qualified(decltype_specifier(name), cv), words, at,
+				end, spelling);
 		}
 		// 7.1.6.3p1: a class-key or `enum` before the name makes an
 		// elaborated-type-specifier, which 3.4.4p2 looks up as a type alone -
@@ -363,43 +384,44 @@ TypeId SemaAnalyzer::type_id_words(const std::vector<std::string>& words,
 		std::string keyed;
 		if (split_elaborated(name, key, keyed))
 		{
-			return abstract_declarator_words(
-				types_.qualified(elaborated_spelled_type(key, keyed, ctx), cv),
-				words, at, end, spelling, ctx);
+			return declarator(
+				analyzer_.types_.qualified(elaborated(key, keyed), cv),
+				words, at, end, spelling);
 		}
-		SemaEntity* const named = resolve(name, ctx, LookupKind::Type);
+		SemaEntity* const named = analyzer_.resolve(name, ctx_, LookupKind::Type);
 		if (named == nullptr || !names_a_type(*named))
 		{
 			throw std::runtime_error(spelling + " does not name a type");
 		}
 		type = named->type;
 	}
-	return abstract_declarator_words(types_.qualified(type, cv), words, at, end,
-	                                 spelling, ctx);
+	return declarator(analyzer_.types_.qualified(type, cv), words, at, end,
+	                  spelling);
 }
 
 // 8.3p1: the type an abstract-declarator makes of the type its specifiers
 // named.  A pointer or a reference written before it is the outermost thing
 // the declarator says and is read first, which is what makes an array of
 // pointers out of `T *[3]` and a pointer to a function out of `T (*)()`.
-TypeId SemaAnalyzer::abstract_declarator_words(
-	TypeId base, const std::vector<std::string>& words, std::size_t& at,
-	std::size_t end, const std::string& spelling, const Context& ctx)
+TypeId SpelledTypeId::declarator(TypeId base,
+                                 const std::vector<std::string>& words,
+                                 std::size_t& at, std::size_t end,
+                                 const std::string& spelling)
 {
 	if (at < end && (words[at] == "*" || words[at] == "&" || words[at] == "&&"))
 	{
 		const std::string op = words[at];
 		++at;
-		TypeId inner = op == "*" ? types_.pointer_to(base)
-		                         : types_.reference_to(base, op == "&&");
+		TypeId inner = op == "*" ? analyzer_.types_.pointer_to(base)
+		                         : analyzer_.types_.reference_to(base, op == "&&");
 		while (at < end && (words[at] == "const" || words[at] == "volatile"))
 		{
 			// 8.3.1p1: a cv-qualifier after a `*` qualifies the pointer.
-			inner = types_.qualified(
+			inner = analyzer_.types_.qualified(
 				inner, words[at] == "const" ? kCvConst : kCvVolatile);
 			++at;
 		}
-		return abstract_declarator_words(inner, words, at, end, spelling, ctx);
+		return declarator(inner, words, at, end, spelling);
 	}
 	// 8.3p1: a parenthesized declarator groups what stands inside it; a `(`
 	// that opens a parameter-clause is followed by the first type-id of a list
@@ -429,14 +451,13 @@ TypeId SemaAnalyzer::abstract_declarator_words(
 	}
 	// 8.3.4 and 8.3.5: the suffixes bind left to right, so the type they make
 	// is built from the last of them inwards.
-	TypeId built = suffix_words(base, words, at, end, spelling, ctx);
+	TypeId built = suffix(base, words, at, end, spelling);
 	if (group_end == 0)
 	{
 		return built;
 	}
 	std::size_t inner = group_begin;
-	built = abstract_declarator_words(built, words, inner, group_end, spelling,
-	                                  ctx);
+	built = declarator(built, words, inner, group_end, spelling);
 	if (inner != group_end)
 	{
 		throw std::runtime_error(spelling + " is not a type-id this milestone "
@@ -447,11 +468,10 @@ TypeId SemaAnalyzer::abstract_declarator_words(
 
 // 8.3.4p1's array bound and 8.3.5p1's parameter-clause, folded from the
 // innermost outwards: `T[2][3]` is an array of two arrays of three.
-TypeId SemaAnalyzer::suffix_words(TypeId base,
-                                  const std::vector<std::string>& words,
-                                  std::size_t& at, std::size_t end,
-                                  const std::string& spelling,
-                                  const Context& ctx)
+TypeId SpelledTypeId::suffix(TypeId base,
+                             const std::vector<std::string>& words,
+                             std::size_t& at, std::size_t end,
+                             const std::string& spelling)
 {
 	if (at >= end || (words[at] != "[" && words[at] != "("))
 	{
@@ -502,7 +522,7 @@ TypeId SemaAnalyzer::suffix_words(TypeId base,
 				++at;
 				continue;
 			}
-			parameters.push_back(type_id_words(words, at, end, spelling, ctx));
+			parameters.push_back(read(words, at, end, spelling));
 		}
 		if (at >= end)
 		{
@@ -511,12 +531,12 @@ TypeId SemaAnalyzer::suffix_words(TypeId base,
 		}
 		++at;
 		// 8.3.5p4: one unnamed `void` parameter is an empty parameter list.
-		if (parameters.size() == 1 && types_.is_plain_void(parameters[0]))
+		if (parameters.size() == 1 && analyzer_.types_.is_plain_void(parameters[0]))
 		{
 			parameters.clear();
 		}
 	}
-	const TypeId rest = suffix_words(base, words, at, end, spelling, ctx);
-	return array ? types_.array_of(rest, bounded, bound)
-	             : types_.function_of(rest, parameters, variadic);
+	const TypeId rest = suffix(base, words, at, end, spelling);
+	return array ? analyzer_.types_.array_of(rest, bounded, bound)
+	             : analyzer_.types_.function_of(rest, parameters, variadic);
 }

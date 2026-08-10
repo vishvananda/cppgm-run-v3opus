@@ -171,6 +171,17 @@ private:
 	{
 		return tokens_.flatten(start.pos, pos_);
 	}
+	// 7.1.6.2p1: the decltype-specifier that opens at `from` and whose operand
+	// the cursor now stands on the `)` of, kept where the parse owns it under
+	// the spelling it was written as - so a reading that meets that spelling
+	// inside a flattened name asks the tree back rather than the text.
+	void keep_decltype(const Mark& from, AstNode* operand)
+	{
+		AstNode* const held = make(AstKind::DecltypeSpecifier);
+		held->text = tokens_.flatten(from.pos, pos_ + 1);
+		held->add(operand);
+		arena_.keep_spelled(held->text, held);
+	}
 	AstNode* parse_id_expression();
 	AstNode* parse_declarator_id();
 	AstNode* parse_member_id();

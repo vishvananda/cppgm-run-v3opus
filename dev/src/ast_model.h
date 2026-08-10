@@ -4,6 +4,8 @@
 #include <deque>
 #include <iosfwd>
 #include <string>
+#include <unordered_map>
+#include <utility>
 #include <vector>
 
 // The syntax tree PA10 builds and later frontend assignments read.
@@ -232,8 +234,32 @@ public:
 		return &nodes_.back();
 	}
 
+	// 7.1.6.2p1 and 14.2: the tree the parse read for the operand of a
+	// decltype-specifier it then flattened into a name, keyed by the spelling
+	// of that operand.
+	//
+	// A template-argument-list is written inside a name, so a semantic
+	// assignment reads such a specifier as text - and the expression under it
+	// is the one thing text cannot hold.  What the tree says is what the
+	// terminals say and nothing else, so one spelling names one tree however
+	// many times a program writes it; the parse keeps it because the parse,
+	// and not the tree it hands back, is what owns the nodes an argument list
+	// dropped.
+	void keep_spelled(const std::string& spelling, const AstNode* operand)
+	{
+		spelled_.insert(std::make_pair(spelling, operand));
+	}
+
+	const AstNode* spelled(const std::string& spelling) const
+	{
+		const std::unordered_map<std::string, const AstNode*>::const_iterator
+			held = spelled_.find(spelling);
+		return held == spelled_.end() ? nullptr : held->second;
+	}
+
 private:
 	std::deque<AstNode> nodes_;
+	std::unordered_map<std::string, const AstNode*> spelled_;
 };
 
 // Writes the tree rooted at `root` as the assignment's line oriented dump,
