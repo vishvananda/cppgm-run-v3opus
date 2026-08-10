@@ -1,0 +1,80 @@
+global @spread [binding=strong, object=_Z6spread] = {
+  zero 4
+}
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    %t1 = const i64 4
+    %t2 = const i64 4
+    %t3 = cmp ne i64 %t1, %t2
+    branch %t3, ^if_then_1, ^if_else_2
+
+  block ^if_then_1:
+    return i32 1
+
+  block ^if_else_2:
+    jump ^if_end_3
+
+  block ^if_end_3:
+    %t4 = call i32 @flag_true___get()
+    %t5 = cmp ne i32 %t4, 1
+    branch %t5, ^if_then_4, ^if_else_5
+
+  block ^if_then_4:
+    return i32 2
+
+  block ^if_else_5:
+    jump ^if_end_6
+
+  block ^if_end_6:
+    %t6 = call i32 @flag_true___get()
+    %t7 = cmp ne i32 %t6, 1
+    branch %t7, ^if_then_7, ^if_else_8
+
+  block ^if_then_7:
+    return i32 3
+
+  block ^if_else_8:
+    jump ^if_end_9
+
+  block ^if_end_9:
+    %t8 = call i32 @flag_true___get()
+    %t9 = cmp ne i32 %t8, 1
+    branch %t9, ^if_then_10, ^if_else_11
+
+  block ^if_then_10:
+    return i32 4
+
+  block ^if_else_11:
+    jump ^if_end_12
+
+  block ^if_end_12:
+    %t10 = cmp eq u8 1, 0
+    branch %t10, ^if_then_13, ^if_else_14
+
+  block ^if_then_13:
+    return i32 5
+
+  block ^if_else_14:
+    jump ^if_end_15
+
+  block ^if_end_15:
+    %t11 = cmp ne i32 5, 0
+    %t12 = copy u8 %t11
+    %t13 = convert zext i32 u8 %t12
+    %t14 = cmp ne i32 %t13, 1
+    branch %t14, ^if_then_16, ^if_else_17
+
+  block ^if_then_16:
+    return i32 6
+
+  block ^if_else_17:
+    jump ^if_end_18
+
+  block ^if_end_18:
+    return i32 0
+}
+function @flag_true___get() -> i32 [binding=weak, object=_ZN4flagILb1EE3getEv] {
+  block ^entry:
+    return i32 1
+}
