@@ -5,6 +5,7 @@
 
 #include "ast_model.h"
 #include "ast_tokens.h"
+#include "sema_deduce.h"
 #include "sema_pack.h"
 #include "token_model.h"
 
@@ -230,7 +231,11 @@ SemaEntity* SemaAnalyzer::template_specializations(const std::string& spelling,
 		{
 			continue;
 		}
-		if (packed ? arguments.size() >= fixed
+		// 14.8.1p2 with 14.5.3p1: a list that stopped at the pack place gave the
+		// pack nothing, and a pack given nothing explicitly is still one a call
+		// deduces a run for - so it is the list that *reached* the pack that
+		// names a specialization outright.
+		if (packed ? arguments.size() > fixed
 		           : places.size() == arguments.size())
 		{
 			found.push_back(&specialize(*at, arguments));
@@ -247,440 +252,6 @@ SemaEntity* SemaAnalyzer::template_specializations(const std::string& spelling,
 		                         "list fits");
 	}
 	return found[0];
-}
-
-bool SemaAnalyzer::deduce(TypeId pattern, TypeId argument,
-                          std::unordered_map<TypeId, TypeId>& bindings,
-                          bool relaxed)
-{
-	if (types_.kind(pattern) == TypeKind::TemplateParameter)
-	{
-		// 14.8.2.5p4: the qualifiers the parameter writes are matched by the
-		// argument's own, and what is left of the argument is what the
-		// parameter names.  14.8.2.1p4 lets the top of a reference parameter
-		// write qualifiers the argument does not have, because binding the
-		// reference adds them.
-		if (!relaxed && (types_.cv(pattern) & ~types_.cv(argument)) != 0)
-		{
-			return false;
-		}
-		const TypeId deduced =
-			types_.qualified(types_.strip_cv(argument),
-			                 types_.cv(argument) & ~types_.cv(pattern));
-		const std::pair<std::unordered_map<TypeId, TypeId>::iterator, bool> held =
-			bindings.insert(std::make_pair(types_.strip_cv(pattern), deduced));
-		// 14.8.2.5p2: two arguments that deduce one parameter differently
-		// deduce nothing.
-		return held.second || held.first->second == deduced;
-	}
-	if (types_.kind(pattern) != types_.kind(argument) ||
-	    (relaxed ? (types_.cv(argument) & ~types_.cv(pattern)) != 0
-	             : types_.cv(pattern) != types_.cv(argument)))
-	{
-		return false;
-	}
-	switch (types_.kind(pattern))
-	{
-	case TypeKind::Pointer:
-	case TypeKind::LValueReference:
-	case TypeKind::RValueReference:
-		return deduce(types_.target(pattern), types_.target(argument), bindings);
-
-	case TypeKind::Array:
-		return types_.bounded(pattern) == types_.bounded(argument) &&
-			types_.bound(pattern) == types_.bound(argument) &&
-			deduce(types_.target(pattern), types_.target(argument), bindings);
-
-	case TypeKind::MemberPointer:
-		return deduce(types_.member_class(pattern), types_.member_class(argument),
-		              bindings) &&
-			deduce(types_.target(pattern), types_.target(argument), bindings);
-
-	case TypeKind::Function:
-	{
-		const std::vector<TypeId>& expected = types_.parameters(pattern);
-		const std::vector<TypeId>& given = types_.parameters(argument);
-		if (expected.size() != given.size() ||
-		    types_.variadic(pattern) != types_.variadic(argument) ||
-		    !deduce(types_.target(pattern), types_.target(argument), bindings))
-		{
-			return false;
-		}
-		for (std::size_t index = 0; index < expected.size(); ++index)
-		{
-			if (!deduce(expected[index], given[index], bindings))
-			{
-				return false;
-			}
-		}
-		return true;
-	}
-
-	case TypeKind::Class:
-		// 14.8.2.5p4: `A<T>` against `A<int>` deduces `T` from `int`, which is
-		// the one class-typed pattern that holds a parameter at all.  The two
-		// facts a specialization records - the template it was made of and the
-		// arguments that made it - are what the match is over.
-		if (pattern != argument && types_.is_specialization(pattern) &&
-		    types_.is_specialization(argument) &&
-		    types_.template_name(pattern) == types_.template_name(argument))
-		{
-			const std::vector<TypeId>& wanted = types_.template_arguments(pattern);
-			const std::vector<TypeId>& given = types_.template_arguments(argument);
-			if (wanted.size() != given.size())
-			{
-				return false;
-			}
-			for (std::size_t index = 0; index < wanted.size(); ++index)
-			{
-				if (!deduce(wanted[index], given[index], bindings))
-				{
-					return false;
-				}
-			}
-			return true;
-		}
-		return pattern == argument;
-
-	default:
-		// A fundamental type or an enumeration holds no parameter to deduce,
-		// so the two agree exactly when they are the same type.
-		return pattern == argument;
-	}
-}
-
-SemaEntity* SemaAnalyzer::deduce_specialization(
-	SemaEntity& primary, const std::vector<Value>& arguments)
-{
-	// 14.8.1p2: a template-id that wrote a leading part of the argument list
-	// names the template with those arguments already given, so the deduction
-	// begins from them: they are substituted into the type before the P/A pairs
-	// are read, which is what leaves a parameter they made non-dependent to
-	// 13.3's conversion rather than to a deduction that would refuse it.
-	SemaEntity& made_of =
-		primary.partial_of != nullptr ? *primary.partial_of : primary;
-	std::unordered_map<TypeId, TypeId> bindings;
-	TypeId written_type = primary.type;
-	if (primary.partial_of != nullptr)
-	{
-		const std::vector<TypeId>& given =
-			types_.type_list_at(primary.template_arguments);
-		const std::vector<SemaEntity*>& places =
-			made_of.template_parameters->declarations;
-		for (std::size_t index = 0;
-		     index < given.size() && index < places.size(); ++index)
-		{
-			bindings.insert(std::make_pair(places[index]->type, given[index]));
-		}
-		std::unordered_map<TypeId, TypeId> memo;
-		written_type = substituted(made_of.type, bindings, memo);
-	}
-	// 14.8.2.1p1: each parameter is deduced from the argument passed to it, so
-	// a call that passes more of them deduces nothing.  8.3.6p1 lets a call
-	// leave the trailing parameters a default-argument stands for unwritten;
-	// those deduce nothing, and 14.8.2p5 below is what says whether what is
-	// left named every parameter.
-	//
-	// 9.3.1p3's object parameter is none of those pairs: no argument is written
-	// for it and its type is the class's, which a class template's own argument
-	// list settled before this head declared anything - so a member template
-	// deduces from the arguments after it.
-	const std::size_t implicit = made_of.object_member ? 1u : 0u;
-	const std::vector<TypeId>& pattern = types_.parameters(written_type);
-	const std::size_t places =
-		pattern.size() > implicit ? pattern.size() - implicit : 0u;
-	// 14.5.3p4 and 14.8.2.1p1: a trailing parameter written `P...` is one
-	// pattern standing for every argument the places before it did not take, so
-	// what a call has to write is those places and not this one.
-	const bool packed =
-		places > 0 && types_.is_pack_expansion(pattern[pattern.size() - 1]);
-	const std::size_t fixed = packed ? places - 1 : places;
-	if (pattern.size() < implicit || types_.variadic(written_type) ||
-	    (packed ? arguments.size() < fixed
-	            : (arguments.size() > places ||
-	               (arguments.size() < places &&
-	                !accepts_arity(made_of, arguments.size() + implicit)))))
-	{
-		return nullptr;
-	}
-	for (std::size_t at = 0; at < arguments.size() && at < fixed; ++at)
-	{
-		const std::size_t index = at + implicit;
-		// 14.8.2.5p3: a parameter written over no template parameter deduces
-		// nothing at all, so whether the argument reaches it is 13.3's question
-		// about a conversion rather than this one about a substitution.
-		if (!types_.is_dependent(pattern[index]))
-		{
-			continue;
-		}
-		// 13.4p1: an argument that is an unresolved overload set has no type of
-		// its own, and 14.8.2.1p6 leaves it deducing nothing.
-		// 14.8.2.1p2: where the parameter is a reference, what deduces the
-		// arguments is the type it refers to, and the argument's own type is
-		// used as it stands rather than decayed.
-		const TypeKind kind = types_.kind(pattern[index]);
-		const bool reference = kind == TypeKind::LValueReference ||
-			kind == TypeKind::RValueReference;
-		const TypeId expected =
-			reference ? types_.target(pattern[index]) : pattern[index];
-		if (arguments[at].type == kNoType)
-		{
-			// 14.8.2.1p6: an argument that is an overload set has no type of its
-			// own, so the deduction is tried against each declaration in it and
-			// stands only where exactly one of them deduces.  A set holding a
-			// template is left alone: 13.4p1 has no target type here to make one
-			// of its specializations, so the parameter deduces nothing at all.
-			if (!deduce_overload_set(arguments[at], expected, bindings,
-			                         reference))
-			{
-				return nullptr;
-			}
-			continue;
-		}
-		TypeId given =
-			reference ? arguments[at].type : decayed(arguments[at]);
-		// 14.8.2.1p3: an rvalue reference written over a parameter the
-		// declarator wrote no qualifier on is deduced from "lvalue reference to
-		// A" wherever the argument is an lvalue, so 8.3.2p6's collapsing of the
-		// two references is what makes the parameter bind it.
-		if (kind == TypeKind::RValueReference &&
-		    types_.kind(expected) == TypeKind::TemplateParameter &&
-		    types_.cv(expected) == 0 &&
-		    arguments[at].category == ValueCategory::LValue)
-		{
-			given = types_.reference_to(given, false);
-		}
-		if (!deduce(expected, given, bindings, reference))
-		{
-			return nullptr;
-		}
-	}
-	if (packed)
-	{
-		// 14.8.2.1p1 over 14.5.3p4's trailing pattern: each argument left is a
-		// P/A pair against the same pattern, and what the pack is deduced to is
-		// the run of what its own place took in each of them.
-		const TypeId inner = types_.target(pattern[fixed + implicit]);
-		std::vector<TypeId> runs;
-		std::vector<TypeId> places_named;
-		PackReading(*this).packs_in(inner, runs, places_named);
-		if (places_named.size() != 1)
-		{
-			// 14.8.2.5p9: a pattern this milestone deduces names one pack.
-			return nullptr;
-		}
-		const bool reference = types_.is_reference(inner);
-		const TypeId expected =
-			reference ? types_.target(inner) : inner;
-		std::vector<TypeId> run;
-		for (std::size_t at = fixed; at < arguments.size(); ++at)
-		{
-			if (arguments[at].type == kNoType)
-			{
-				return nullptr;
-			}
-			TypeId given =
-				reference ? arguments[at].type : decayed(arguments[at]);
-			if (types_.kind(inner) == TypeKind::RValueReference &&
-			    types_.kind(expected) == TypeKind::TemplateParameter &&
-			    types_.cv(expected) == 0 &&
-			    arguments[at].category == ValueCategory::LValue)
-			{
-				// 14.8.2.1p3, exactly as it reads at a place written out.
-				given = types_.reference_to(given, false);
-			}
-			std::unordered_map<TypeId, TypeId> one;
-			if (!deduce(expected, given, one, reference))
-			{
-				return nullptr;
-			}
-			const std::unordered_map<TypeId, TypeId>::const_iterator took =
-				one.find(places_named[0]);
-			if (took == one.end())
-			{
-				return nullptr;
-			}
-			run.push_back(took->second);
-		}
-		bindings.insert(std::make_pair(places_named[0], types_.pack_type(run)));
-	}
-
-	std::vector<TypeId> deduced;
-	if (!deduced_arguments(made_of, bindings, deduced))
-	{
-		return nullptr;
-	}
-	return &specialize(made_of, deduced);
-}
-
-// 14.8.2p5 and 14.1p9: the argument each parameter of `primary` was deduced or,
-// where the deduction reached none, the one its head wrote a default for - which
-// is 14.8.1p2's other arm, a trailing argument being omitted where it can be
-// deduced *or* obtained from a default.  False where a place is left with
-// neither, because there is nothing to substitute for it.
-//
-// A default is read in the region the head declared its parameters in, because
-// 14.1p9 lets it name the places before it, and what the deduction has settled
-// so far is substituted into it - so `class U = T` takes what `T` deduced and a
-// later default takes what an earlier one filled.
-bool SemaAnalyzer::deduced_arguments(
-	const SemaEntity& primary,
-	const std::unordered_map<TypeId, TypeId>& bindings,
-	std::vector<TypeId>& out)
-{
-	const std::vector<SemaEntity*>& parameters =
-		primary.template_parameters->declarations;
-	out.reserve(parameters.size());
-	std::unordered_map<TypeId, TypeId> filled;
-	bool defaulted = false;
-	for (std::size_t index = 0; index < parameters.size(); ++index)
-	{
-		const std::unordered_map<TypeId, TypeId>& settled =
-			defaulted ? filled : bindings;
-		const std::unordered_map<TypeId, TypeId>::const_iterator bound =
-			settled.find(parameters[index]->type);
-		if (bound != settled.end())
-		{
-			if (types_.is_pack(bound->second) &&
-			    !types_.is_pack_expansion(bound->second))
-			{
-				// 14.5.3p1: the arguments of a specialization are one list,
-				// which a pack contributes its whole run to - so `f<int, char>`
-				// and a deduction that took the two are one argument list.
-				const std::vector<TypeId>& run =
-					types_.pack_elements(bound->second);
-				out.insert(out.end(), run.begin(), run.end());
-				continue;
-			}
-			out.push_back(bound->second);
-			continue;
-		}
-		if (types_.is_template_pack(parameters[index]->type))
-		{
-			// 14.8.2.1p1: a pack the call reached with no argument at all is
-			// bound to a run of none rather than left unsettled.
-			continue;
-		}
-		const std::unordered_map<std::uint32_t, const AstNode*>::const_iterator
-			written = parameter_defaults_.find(parameters[index]->id);
-		if (written == parameter_defaults_.end())
-		{
-			return false;
-		}
-		if (!defaulted)
-		{
-			filled = bindings;
-			defaulted = true;
-		}
-		Context inner;
-		inner.scope = primary.template_parameters;
-		inner.dump = inner.scope->dump;
-		inner.node = nullptr;
-		std::unordered_map<TypeId, TypeId> memo;
-		const TypeId given =
-			substituted(type_id_type(*written->second, inner), filled, memo);
-		filled.insert(std::make_pair(parameters[index]->type, given));
-		out.push_back(given);
-	}
-	return true;
-}
-
-// 14.8.2.1p6: the deduction one parameter gets from an argument that is an
-// unresolved overload set.  Each declaration in the set is tried on a copy of
-// the bindings so far, and the deduction stands only where exactly one of them
-// succeeded - two that both deduce leave the parameter as ambiguous as the name
-// was.  A set holding a function template names no one type to try, so the
-// parameter is left deducing nothing rather than refused.
-bool SemaAnalyzer::deduce_overload_set(
-	const Value& argument, TypeId expected,
-	std::unordered_map<TypeId, TypeId>& bindings, bool reference)
-{
-	if (argument.functions == nullptr)
-	{
-		// 13.3.3.1.5p1's braced-init-list is the other value with no type, and
-		// it names nothing a parameter can be deduced from.
-		return false;
-	}
-	std::unordered_map<TypeId, TypeId> only;
-	std::size_t deduced = 0;
-	for (std::size_t index = 0; index < argument.functions->size(); ++index)
-	{
-		for (SemaEntity* at = (*argument.functions)[index]; at != nullptr;
-		     at = at->next)
-		{
-			if (at->template_parameters != nullptr || at->object_member)
-			{
-				// 13.4p1 chooses between the non-member declarations of the name;
-				// a member's pointer is a pointer to member, which 14.8.2.5 makes
-				// a pair of its own that this argument did not write.
-				continue;
-			}
-			// 4.3p1: what the name stands for where it is passed is a pointer to
-			// the function, which is what a non-reference parameter is deduced
-			// from and what a reference parameter refers to.
-			std::unordered_map<TypeId, TypeId> tried(bindings);
-			if (!deduce(expected, reference ? at->type
-			                                : types_.pointer_to(at->type),
-			            tried, reference))
-			{
-				continue;
-			}
-			++deduced;
-			only.swap(tried);
-		}
-	}
-	if (deduced != 1)
-	{
-		// 14.8.2.1p6: a set no member of deduces, and one two members deduce
-		// differently, both leave the parameter a non-deduced context - so what
-		// it is written over is deduced from the arguments elsewhere and 13.4p1
-		// then picks the declaration the substituted parameter names.
-		return true;
-	}
-	bindings.swap(only);
-	return true;
-}
-
-SemaEntity* SemaAnalyzer::deduce_target(SemaEntity& primary, TypeId wanted)
-{
-	// 14.8.2.2p1: the target type is the one A the deduction is over, so the
-	// result type and every parameter type of the template are matched against
-	// it at once - which is what `deduce` does with a function type.
-	//
-	// 14.8.1p2's written arguments are what the deduction starts from here too:
-	// they are bound to the places their template-id gave them and substituted
-	// into the P the target is matched against.
-	SemaEntity& made_of =
-		primary.partial_of != nullptr ? *primary.partial_of : primary;
-	std::unordered_map<TypeId, TypeId> bindings;
-	TypeId written_type = primary.type;
-	if (primary.partial_of != nullptr)
-	{
-		const std::vector<TypeId>& given =
-			types_.type_list_at(primary.template_arguments);
-		const std::vector<SemaEntity*>& places =
-			made_of.template_parameters->declarations;
-		for (std::size_t index = 0;
-		     index < given.size() && index < places.size(); ++index)
-		{
-			bindings.insert(std::make_pair(places[index]->type, given[index]));
-		}
-		std::unordered_map<TypeId, TypeId> memo;
-		written_type = substituted(made_of.type, bindings, memo);
-	}
-	if (!deduce(written_type, wanted, bindings))
-	{
-		return nullptr;
-	}
-	std::vector<TypeId> deduced;
-	if (!deduced_arguments(made_of, bindings, deduced))
-	{
-		return nullptr;
-	}
-	SemaEntity& made = specialize(made_of, deduced);
-	// 14.8.2.2p2: what the target names is a declaration of exactly that type,
-	// so a substitution that produced another one chose nothing.
-	return made.type == wanted ? &made : nullptr;
 }
 
 void SemaAnalyzer::instantiate(SemaEntity& function)
@@ -1351,8 +922,13 @@ void SemaAnalyzer::require_settled_type(TypeId type)
 		require_complete_type(type);
 		return;
 	}
+	// 14.6p8's reading is put aside whole: the depth *and* the dialect it reads
+	// in, because a specialization completed in the checking dialect would be
+	// left with none of 12.1's members it is owed.
 	const unsigned held = checking_;
+	const SemaDialect spoken = dialect_;
 	checking_ = 0;
+	dialect_ = unit_dialect_;
 	if (owner->declared_only)
 	{
 		owner->declared_only = false;
@@ -1365,9 +941,11 @@ void SemaAnalyzer::require_settled_type(TypeId type)
 	catch (...)
 	{
 		checking_ = held;
+		dialect_ = spoken;
 		throw;
 	}
 	checking_ = held;
+	dialect_ = spoken;
 }
 
 // 14.7.1p1: an instantiation asks for this specialization.
@@ -1605,7 +1183,7 @@ SemaEntity* SemaAnalyzer::instantiation_named(const std::string& written,
 			// wrote no list at all.
 			SemaEntity* const one =
 				found[index]->partial_of != nullptr
-					? deduce_target(*found[index], wanted)
+					? Deduction(*this).from_target(*found[index], wanted)
 					: (found[index]->type == wanted ? found[index] : nullptr);
 			if (one != nullptr)
 			{
@@ -1631,7 +1209,7 @@ SemaEntity* SemaAnalyzer::instantiation_named(const std::string& written,
 		// not.
 		const TypeId wanted = at->object_member ? member : declared;
 		SemaEntity* const one = at->template_parameters != nullptr
-			? deduce_target(*at, wanted)
+			? Deduction(*this).from_target(*at, wanted)
 			: ((instantiated_region || at->primary != nullptr) &&
 			   at->type == wanted
 				? at
@@ -2398,6 +1976,20 @@ TypeId SemaAnalyzer::substituted(
 
 	default:
 	{
+		// 14.6.2p1 and 14.7.1p1: a name written after a prefix the definition
+		// could not settle is a member of whatever class an argument list makes
+		// of that prefix, so the substitution settles the prefix first and looks
+		// the name up in the class it names.  A prefix the bindings leave
+		// dependent - a specialization over another parameter - names no class
+		// yet, and the member stands as it was for the substitution that follows.
+		const TypeId prefix = types_.dependent_owner(bare);
+		if (prefix != kNoType)
+		{
+			const TypeId owner = substituted(prefix, bindings, memo);
+			out = dependent_member_type(owner, types_.dependent_member(bare), cv,
+			                            type);
+			break;
+		}
 		// 7.1.6.2p4 and 14.7.1p1: a decltype-specifier the definition left
 		// standing is answered by reading its expression again, against the
 		// regions the arguments make of the ones it was written in.  What comes
@@ -2424,6 +2016,31 @@ TypeId SemaAnalyzer::substituted(
 	}
 	memo.insert(std::make_pair(type, out));
 	return out;
+}
+
+// 14.6.2p1 at the substitution: the type `member` names in the class `owner`
+// turned out to be, and `written` itself where the class is one no argument
+// list has named yet or declares no such type.
+//
+// 3.4.3.1p1 asks the class for a definition first, because a member of a
+// specialization is only there once the instantiation has made it.
+TypeId SemaAnalyzer::dependent_member_type(TypeId owner,
+                                           const std::string& member,
+                                           unsigned cv, TypeId written)
+{
+	if (types_.is_dependent(owner) || !types_.is_class(types_.strip_cv(owner)))
+	{
+		return written;
+	}
+	require_complete_type(owner);
+	SemaEntity* const named = model_.type_owner(types_.strip_cv(owner));
+	Scope* const region = named == nullptr ? nullptr : model_.region_of(*named);
+	SemaEntity* const found =
+		region == nullptr ? nullptr
+		                  : model_.lookup_in(*region, member, LookupKind::Type);
+	return found == nullptr || !names_a_type(*found)
+		? written
+		: types_.qualified(found->type, cv | types_.cv(owner));
 }
 
 // 14.6p8: the reading a template definition's body gets where it stands.

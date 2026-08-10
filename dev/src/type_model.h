@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <deque>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -315,7 +316,12 @@ public:
 	                          const std::string& member);
 	TypeId dependent_owner(TypeId type) const
 	{
-		return user_at(type).dependent_owner;
+		// A stand-in for a member of a class no argument list has named is a
+		// parameter-kind entry, so every other kind - which holds no user
+		// record to read - stands after no prefix at all.
+		return kind(type) == TypeKind::TemplateParameter
+			? user_at(type).dependent_owner
+			: kNoType;
 	}
 	const std::string& dependent_member(TypeId type) const
 	{
@@ -757,7 +763,11 @@ private:
 	bool dependent_walk(TypeId type) const;
 
 	std::vector<Node> nodes_;
-	std::vector<UserType> user_types_;
+	// A record already made never moves: `user_name`, `template_arguments` and
+	// the rest are read as references, and asking a class for its definition
+	// makes types - so a vector would leave every one of those readings holding
+	// a record the next `class_type` had moved out from under it.
+	std::deque<UserType> user_types_;
 	// The array types `qualified` is between, innermost last.
 	std::vector<TypeId> dimensions_;
 	std::unordered_map<Key, TypeId, KeyHash> ids_;

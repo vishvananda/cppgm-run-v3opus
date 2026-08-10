@@ -68,6 +68,9 @@ private:
 	// 14.5.3: the reading that turns one pack expansion into the run it stands
 	// for, which `sema_pack.h` owns because it is a reading of its own.
 	friend class PackReading;
+	// 14.8.2: the match that turns a use of a function template into the
+	// argument list it deduces, which `sema_deduce.h` owns for the same reason.
+	friend class Deduction;
 
 	// 3.3, 7p1, 8.3.5p4, 12.6.2p1 and 5.19p3: the records the declaration
 	// layer passes between its steps, which `sema_declaration.h` defines.  The
@@ -1251,6 +1254,11 @@ private:
 	// 14.6.2p1: the type one component written after a dependent prefix stands
 	// for while the template writing it is read - one per prefix and component,
 	// so one definition writes one type for one name.
+	// 14.6.2p1 at a substitution: the type such a name stands for once the
+	// prefix is a class an argument list has named, and the name itself where
+	// it is not one yet.
+	TypeId dependent_member_type(TypeId owner, const std::string& member,
+	                             unsigned cv, TypeId written);
 	SemaEntity& dependent_member_name(TypeId prefix,
 	                                  const std::string& component);
 	// 7.1.6.2p1: the declaration a name whose nested-name-specifier begins with
@@ -1622,36 +1630,6 @@ private:
 	SemaEntity* template_specializations(const std::string& spelling,
 	                                     const Context& ctx,
 	                                     std::vector<SemaEntity*>& found);
-	// 14.8.2.1: the specialization of `primary` that the arguments of a call
-	// deduce, or null when they deduce none.
-	SemaEntity* deduce_specialization(SemaEntity& primary,
-	                                  const std::vector<Value>& arguments);
-	// 14.8.2.2: the specialization of `primary` that a target type of the
-	// function type `wanted` deduces, or null when it deduces none.  13.4p1's
-	// target is one type rather than a list, so the whole function type - the
-	// result and every parameter - is the one pair the deduction is over.
-	SemaEntity* deduce_target(SemaEntity& primary, TypeId wanted);
-	// 14.8.2p5: the arguments `bindings` gave every parameter of `primary`, or
-	// false where one of them was left without a value.
-	bool deduced_arguments(const SemaEntity& primary,
-	                       const std::unordered_map<TypeId, TypeId>& bindings,
-	                       std::vector<TypeId>& out);
-	// 14.8.2.1p6: the deduction a parameter gets from an argument that is an
-	// unresolved overload set, which stands where exactly one declaration in
-	// the set deduces it.
-	bool deduce_overload_set(const Value& argument, TypeId expected,
-	                         std::unordered_map<TypeId, TypeId>& bindings,
-	                         bool reference);
-	// 14.8.2.5: the bindings the argument type `argument` gives the template
-	// parameters `pattern` is written over, added to `bindings`.  False when
-	// the two do not agree, which is a deduction that failed.
-	//
-	// 14.8.2.1p4: `relaxed` is the top of a reference parameter, where the
-	// deduced argument may be more cv-qualified than what was passed - which is
-	// what lets `const T &` take an lvalue of a type nothing wrote `const` on.
-	bool deduce(TypeId pattern, TypeId argument,
-	            std::unordered_map<TypeId, TypeId>& bindings,
-	            bool relaxed = false);
 	// 14.7.1: the declaration `arguments` makes of `primary`, made once
 	// however many times it is named.
 	SemaEntity& specialize(SemaEntity& primary,
@@ -2161,6 +2139,11 @@ private:
 	bool templating() const { return lowering() || checking_ > 0; }
 
 	SemaDialect dialect_;
+	// The dialect the unit itself is read in, which no reading changes.  14.6p8
+	// puts one aside to read a pattern; an instantiation made in earnest under
+	// that reading - 10p1's base class - is read in this one instead, because
+	// what it owes is 12.1's members and a layout rather than a description.
+	const SemaDialect unit_dialect_;
 	// 16.6: the packing alignment by position in the token stream, borrowed
 	// from the stream the tree was parsed from.  Null where the caller has
 	// none, which is every mode but the lowering.

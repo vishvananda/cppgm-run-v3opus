@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "ast_model.h"
+#include "sema_deduce.h"
 #include "sema_pack.h"
 #include "ast_tokens.h"
 
@@ -1189,7 +1190,7 @@ SemaEntity* SemaAnalyzer::resolve_target(const Value& value, TypeId target)
 			{
 				continue;
 			}
-			SemaEntity* const made = deduce_target(*at, wanted);
+			SemaEntity* const made = Deduction(*this).from_target(*at, wanted);
 			if (made != nullptr)
 			{
 				deduced.push_back(made);
@@ -1283,9 +1284,9 @@ SemaEntity* SemaAnalyzer::select_overload(
 			// 14.8.3p1: a template is a candidate through the specialization
 			// the arguments deduce, and no candidate at all when they deduce
 			// none.
-			at = deduce_specialization(*candidate,
-			                           operand != nullptr &&
-			                           !candidate->object_member
+			at = Deduction(*this).from_call(*candidate,
+			                                operand != nullptr &&
+			                                !candidate->object_member
 				? operands
 				: arguments);
 			if (at == nullptr)
@@ -1592,8 +1593,8 @@ bool SemaAnalyzer::at_least_as_specialized(SemaEntity& left, SemaEntity& right)
 		{
 			argument = types_.target(argument);
 		}
-		answer = deduce(types_.strip_cv(pattern), types_.strip_cv(argument),
-		                bindings);
+		answer = Deduction(*this).match(types_.strip_cv(pattern),
+		                                types_.strip_cv(argument), bindings);
 	}
 	specialization_order_.insert(std::make_pair(key, answer));
 	return answer;

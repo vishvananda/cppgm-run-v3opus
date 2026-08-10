@@ -80,6 +80,7 @@ bool is_unnamed_namespace(const AstNode& node)
 SemaAnalyzer::SemaAnalyzer(SemaDialect dialect)
 	: reading_(nullptr)
 	, dialect_(dialect)
+	, unit_dialect_(dialect)
 	, packs_(nullptr)
 	, sources_(nullptr)
 	, anonymous_enums_(0)
@@ -1545,17 +1546,15 @@ void SemaAnalyzer::non_type_template_parameter(const AstNode& node,
 		type, static_cast<unsigned>(ctx.scope->declarations.size()));
 	types_.set_template_pack(type, has_child(node, AstKind::ParameterPack));
 	types_.set_parameter_value_type(type, non_type_parameter_type(node, ctx));
-	if (name.empty())
-	{
-		// 14.1p3: a place its head left unnamed still takes an argument, and a
-		// function template's places are counted from the region - so it is
-		// declared under a name nothing writes.
-		SemaEntity& unnamed = model_.create(SemaKind::TemplateValue, name, type);
-		model_.declare_in(*ctx.scope, unnamed);
-		return;
-	}
+	// 14.1p3: a place its head left unnamed still takes an argument, and a
+	// function template's places are counted from the region - so it is
+	// declared under a name nothing writes, and 14.1p9's default is its own
+	// however unreachable the name is.
 	SemaEntity& entity = model_.create(SemaKind::TemplateValue, name, type);
-	model_.bind(*ctx.scope, name, entity);
+	if (!name.empty())
+	{
+		model_.bind(*ctx.scope, name, entity);
+	}
 	model_.declare_in(*ctx.scope, entity);
 	const AstNode* const written =
 		child_of(node, AstKind::DefaultTemplateArgument);
