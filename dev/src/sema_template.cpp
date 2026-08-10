@@ -191,7 +191,11 @@ SemaEntity* SemaAnalyzer::template_specializations(const std::string& spelling,
 		}
 		const std::vector<SemaEntity*>& places =
 			at->template_parameters->declarations;
-		if (places.size() < id.arguments().size())
+		// 14.5.3p1: a pack takes every argument the places before it did not,
+		// so a list longer than the head fits only where the head declared one.
+		const std::size_t fixed = function_pack_place(types_, places);
+		const bool packed = fixed < places.size();
+		if (!packed && places.size() < id.arguments().size())
 		{
 			continue;
 		}
@@ -199,6 +203,8 @@ SemaEntity* SemaAnalyzer::template_specializations(const std::string& spelling,
 		arguments.reserve(id.arguments().size());
 		for (std::size_t index = 0; index < id.arguments().size(); ++index)
 		{
+			const std::size_t what =
+				arguments.size() < fixed ? arguments.size() : fixed;
 			std::string pattern;
 			if (written_pack_expansion(id.arguments()[index], pattern))
 			{
@@ -207,25 +213,25 @@ SemaEntity* SemaAnalyzer::template_specializations(const std::string& spelling,
 				// `select<T...>` reaches a head of two fixed places.
 				PackReading(*this).expand(
 					pattern, ctx,
-					arguments.size() < places.size()
-						? types_.parameter_value_type(
-							  places[arguments.size()]->type)
+					what < places.size()
+						? types_.parameter_value_type(places[what]->type)
 						: kNoType,
 					arguments);
 				continue;
 			}
-			if (arguments.size() >= places.size())
+			if (what >= places.size())
 			{
 				break;
 			}
-			arguments.push_back(explicit_argument(*places[arguments.size()],
-			                                      id.arguments()[index], ctx));
+			arguments.push_back(
+				explicit_argument(*places[what], id.arguments()[index], ctx));
 		}
-		if (arguments.size() > places.size())
+		if (!packed && arguments.size() > places.size())
 		{
 			continue;
 		}
-		if (places.size() == arguments.size())
+		if (packed ? arguments.size() >= fixed
+		           : places.size() == arguments.size())
 		{
 			found.push_back(&specialize(*at, arguments));
 			continue;

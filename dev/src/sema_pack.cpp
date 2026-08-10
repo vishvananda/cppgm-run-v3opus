@@ -258,9 +258,13 @@ void PackReading::note_name(const std::string& name, const SemaContext& ctx,
 	    analyzer_.types_.is_pack_expansion(found->type))
 	{
 		// 14.6.2p1: the pattern names a place of the head being read, so how
-		// long the run is only an argument list says.
+		// long the run is only an argument list says.  Which place it is, is
+		// settled: 14.1p4 tells a pack of types from a pack of values, and a
+		// list that wrote one where the other belongs is ill-formed however
+		// long the run turns out to be.
 		run.found = true;
 		run.settled = false;
+		run.packs.push_back(found);
 		return;
 	}
 	// 14.5.3p1: a pack the reading has settled is either a run of arguments or
@@ -394,6 +398,22 @@ void PackReading::expand(const std::string& pattern, const SemaContext& ctx,
 	}
 	if (!run.settled)
 	{
+		for (std::size_t which = 0; place != kNoType && which < run.packs.size();
+		     ++which)
+		{
+			const TypeId named = run.packs[which]->type;
+			const TypeId stands =
+				analyzer_.types_.is_pack_expansion(named)
+					? analyzer_.types_.target(named)
+					: named;
+			if (analyzer_.types_.parameter_value_type(stands) == kNoType)
+			{
+				// 14.3.2p1: a non-type place takes a value, and a pack of
+				// types holds none - so no argument list could settle this one.
+				throw std::runtime_error(pattern + " is expanded at a non-type "
+				                         "place and names a pack of types");
+			}
+		}
 		// 14.6.2p1: the expansion stands for itself until an argument list
 		// says how long it is, which is one entry of the list it was written
 		// in and not none.
