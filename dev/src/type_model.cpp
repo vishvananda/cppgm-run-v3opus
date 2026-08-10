@@ -973,6 +973,15 @@ TypeId TypeTable::substitute(TypeId type,
 		{
 			break;
 		}
+		// 14.5.3p4: a run may itself be what a substitution names, which is how
+		// one element of it is written into the type an expansion is read over.
+		const std::unordered_map<TypeId, TypeId>::const_iterator bound =
+			bindings.find(unqualified(type));
+		if (bound != bindings.end())
+		{
+			result = qualified(bound->second, qualifiers);
+			break;
+		}
 		const std::vector<TypeId>& run = pack_elements(type);
 		std::vector<TypeId> built(run.size());
 		for (std::size_t index = 0; index < run.size(); ++index)

@@ -125,6 +125,7 @@ struct DeclaredParameter
 	DeclaredParameter()
 		: type(kNoType)
 		, initializer(nullptr)
+		, pack_run(0)
 	{}
 
 	std::string name;
@@ -138,6 +139,10 @@ struct DeclaredParameter
 	// a declaration's parameter names at its own declarator.  Empty where this
 	// clause named the place itself, or where no declaration has yet.
 	std::string object_name;
+	// 14.5.3p4: how many places the expansion of a function parameter pack
+	// made, carried by the first of them because 8.3.5p10 gives it the pack's
+	// own name.  Zero for every place a clause wrote out.
+	unsigned pack_run;
 };
 
 // An initializer as written, and the region it is read in - which is not the

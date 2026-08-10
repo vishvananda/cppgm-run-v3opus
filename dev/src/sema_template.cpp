@@ -90,10 +90,19 @@ SemaEntity& SemaAnalyzer::specialize(SemaEntity& primary,
 		std::unordered_map<TypeId, TypeId> bindings;
 		const std::vector<SemaEntity*>& parameters =
 			primary.template_parameters->declarations;
-		for (std::size_t index = 0; index < arguments.size(); ++index)
+		// 14.5.3p1: the places before the pack take the arguments one for one,
+		// and the pack takes the run of every argument after them.
+		const std::size_t places = function_pack_place(types_, parameters);
+		for (std::size_t index = 0; index < places && index < arguments.size();
+		     ++index)
 		{
 			bindings.insert(std::make_pair(parameters[index]->type,
 			                               arguments[index]));
+		}
+		if (places < parameters.size())
+		{
+			bindings.insert(std::make_pair(parameters[places]->type,
+			                               bound_run(types_, arguments, places)));
 		}
 		std::unordered_map<TypeId, TypeId> memo;
 		made = &model_.create(SemaKind::Function, primary.name,
@@ -374,14 +383,21 @@ SemaEntity* SemaAnalyzer::deduce_specialization(
 	const std::vector<TypeId>& pattern = types_.parameters(written_type);
 	const std::size_t places =
 		pattern.size() > implicit ? pattern.size() - implicit : 0u;
-	if (arguments.size() > places || pattern.size() < implicit ||
-	    types_.variadic(written_type) ||
-	    (arguments.size() < places &&
-	     !accepts_arity(made_of, arguments.size() + implicit)))
+	// 14.5.3p4 and 14.8.2.1p1: a trailing parameter written `P...` is one
+	// pattern standing for every argument the places before it did not take, so
+	// what a call has to write is those places and not this one.
+	const bool packed =
+		places > 0 && types_.is_pack_expansion(pattern[pattern.size() - 1]);
+	const std::size_t fixed = packed ? places - 1 : places;
+	if (pattern.size() < implicit || types_.variadic(written_type) ||
+	    (packed ? arguments.size() < fixed
+	            : (arguments.size() > places ||
+	               (arguments.size() < places &&
+	                !accepts_arity(made_of, arguments.size() + implicit)))))
 	{
 		return nullptr;
 	}
-	for (std::size_t at = 0; at < arguments.size(); ++at)
+	for (std::size_t at = 0; at < arguments.size() && at < fixed; ++at)
 	{
 		const std::size_t index = at + implicit;
 		// 14.8.2.5p3: a parameter written over no template parameter deduces
@@ -433,6 +449,55 @@ SemaEntity* SemaAnalyzer::deduce_specialization(
 			return nullptr;
 		}
 	}
+	if (packed)
+	{
+		// 14.8.2.1p1 over 14.5.3p4's trailing pattern: each argument left is a
+		// P/A pair against the same pattern, and what the pack is deduced to is
+		// the run of what its own place took in each of them.
+		const TypeId inner = types_.target(pattern[fixed + implicit]);
+		std::vector<TypeId> runs;
+		std::vector<TypeId> places_named;
+		PackReading(*this).packs_in(inner, runs, places_named);
+		if (places_named.size() != 1)
+		{
+			// 14.8.2.5p9: a pattern this milestone deduces names one pack.
+			return nullptr;
+		}
+		const bool reference = types_.is_reference(inner);
+		const TypeId expected =
+			reference ? types_.target(inner) : inner;
+		std::vector<TypeId> run;
+		for (std::size_t at = fixed; at < arguments.size(); ++at)
+		{
+			if (arguments[at].type == kNoType)
+			{
+				return nullptr;
+			}
+			TypeId given =
+				reference ? arguments[at].type : decayed(arguments[at]);
+			if (types_.kind(inner) == TypeKind::RValueReference &&
+			    types_.kind(expected) == TypeKind::TemplateParameter &&
+			    types_.cv(expected) == 0 &&
+			    arguments[at].category == ValueCategory::LValue)
+			{
+				// 14.8.2.1p3, exactly as it reads at a place written out.
+				given = types_.reference_to(given, false);
+			}
+			std::unordered_map<TypeId, TypeId> one;
+			if (!deduce(expected, given, one, reference))
+			{
+				return nullptr;
+			}
+			const std::unordered_map<TypeId, TypeId>::const_iterator took =
+				one.find(places_named[0]);
+			if (took == one.end())
+			{
+				return nullptr;
+			}
+			run.push_back(took->second);
+		}
+		bindings.insert(std::make_pair(places_named[0], types_.pack_type(run)));
+	}
 
 	std::vector<TypeId> deduced;
 	if (!deduced_arguments(made_of, bindings, deduced))
@@ -470,7 +535,24 @@ bool SemaAnalyzer::deduced_arguments(
 			settled.find(parameters[index]->type);
 		if (bound != settled.end())
 		{
+			if (types_.is_pack(bound->second) &&
+			    !types_.is_pack_expansion(bound->second))
+			{
+				// 14.5.3p1: the arguments of a specialization are one list,
+				// which a pack contributes its whole run to - so `f<int, char>`
+				// and a deduction that took the two are one argument list.
+				const std::vector<TypeId>& run =
+					types_.pack_elements(bound->second);
+				out.insert(out.end(), run.begin(), run.end());
+				continue;
+			}
 			out.push_back(bound->second);
+			continue;
+		}
+		if (types_.is_template_pack(parameters[index]->type))
+		{
+			// 14.8.2.1p1: a pack the call reached with no argument at all is
+			// bound to a run of none rather than left unsettled.
 			continue;
 		}
 		const std::unordered_map<std::uint32_t, const AstNode*>::const_iterator
@@ -1768,6 +1850,7 @@ void SemaAnalyzer::record_function_template(SemaEntity& entity,
 		place.name = parameter.name;
 		place.self = parameter.type;
 		place.value = parameter.kind == SemaKind::TemplateValue;
+		place.pack = types_.is_template_pack(parameter.type);
 		place.type = types_.parameter_value_type(parameter.type);
 		info.parameters.push_back(place);
 		info.defaults.push_back(TemplateInfo::Default());
@@ -2245,7 +2328,8 @@ TypeId SemaAnalyzer::substituted(
 		arguments.reserve(written.size());
 		for (std::size_t index = 0; index < written.size(); ++index)
 		{
-			arguments.push_back(substituted(written[index], bindings, memo));
+			PackReading(*this).substitute_entry(written[index], bindings, memo,
+			                                   arguments);
 		}
 		out = types_.qualified(
 			instantiate_class(*made->primary, arguments).type, cv);
@@ -2285,7 +2369,8 @@ TypeId SemaAnalyzer::substituted(
 		parameters.reserve(given.size());
 		for (std::size_t index = 0; index < given.size(); ++index)
 		{
-			parameters.push_back(substituted(given[index], bindings, memo));
+			PackReading(*this).substitute_entry(given[index], bindings, memo,
+			                                   parameters);
 		}
 		TypeId built = types_.function_of(
 			substituted(types_.target(bare), bindings, memo), parameters,

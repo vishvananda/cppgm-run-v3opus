@@ -653,6 +653,12 @@ struct SemaEntity
 	// and no spelling of this unit's own may stand in the object file - two units
 	// number the classes they declare from their own beginnings.
 	bool local_unnamed;
+	// 14.5.3p4 and 8.3.5p10: how many places the expansion of a function
+	// parameter pack declared, held on the first of them because that is the
+	// one the pack's own name is bound to - so `sizeof...(args)` and `args...`
+	// read the run off the declaration the name already reaches.  Zero for
+	// every declaration that is not one.
+	unsigned pack_run;
 };
 
 // The name the object file encodes this declaration from, which is the dump's

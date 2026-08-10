@@ -4,6 +4,7 @@
 
 #include "ast_model.h"
 #include "ast_tokens.h"
+#include "sema_pack.h"
 
 // Specifiers, declarators and names: what a declaration says the type of the
 // thing it declares is, and what an identifier written in it denotes.
@@ -414,6 +415,15 @@ TypeId SemaAnalyzer::declarator_type(const AstNode& node, TypeId base,
 			? types_.qualified(type, part.token == KW_CONST ? kCvConst
 			                                               : kCvVolatile)
 			: apply_pointer(part, type, ctx);
+		++index;
+	}
+
+	if (index < node.children.size() &&
+	    node.children[index]->kind == AstKind::ParameterPack)
+	{
+		// 8.3.5p3 and 14.5.3p4: the `...` a declarator writes before its
+		// declarator-id says what the place is and derives no type of its own,
+		// so what names the place is the component after it.
 		++index;
 	}
 
@@ -845,15 +855,37 @@ void SemaAnalyzer::read_parameters(const AstNode& clause, const Context& ctx,
 		}
 		else if (declarator != nullptr)
 		{
+			const bool dots =
+				child_kind(*declarator, AstKind::ParameterPack) != nullptr;
+			parameter.type = declarator_type(*declarator, parameter.type, inner,
+			                                 &parameter.name);
+			std::vector<TypeId> run;
+			if (dots && PackReading(*this).expand_type(parameter.type, run))
+			{
+				// 14.5.3p4: the clause wrote one place standing for however many
+				// the run holds, and 8.3.5p10 names each of them after the pack.
+				// The first keeps the pack's own name, so a use of it reaches
+				// the first place and the run is read off that declaration.
+				for (std::size_t element = 0; element < run.size(); ++element)
+				{
+					Parameter one = parameter;
+					one.type = run[element];
+					one.name = pack_element_name(parameter.name, element);
+					one.pack_run = element == 0
+						? static_cast<unsigned>(run.size())
+						: 0u;
+					if (!one.name.empty() && (at < places || reading != nullptr))
+					{
+						bind_place(inner, ctx, one);
+					}
+					out.push_back(one);
+				}
+				continue;
+			}
 			// 8.3.5p3: `f(int...)` writes the ellipsis without a comma, so it
 			// arrives inside the last parameter's declarator rather than beside
 			// it, and it still says the function takes further arguments.
-			if (child_kind(*declarator, AstKind::ParameterPack) != nullptr)
-			{
-				variadic = true;
-			}
-			parameter.type = declarator_type(*declarator, parameter.type, inner,
-			                                 &parameter.name);
+			variadic = variadic || dots;
 		}
 		parameter.initializer = child_kind(child, AstKind::DefaultArgument);
 		if (!parameter.name.empty() && (at < places || reading != nullptr))

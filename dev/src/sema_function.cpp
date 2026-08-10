@@ -155,6 +155,10 @@ void SemaAnalyzer::declare_parameters(const std::vector<Parameter>& parameters,
 			require_no_template_parameter(parameters[index].name, *inner.scope);
 			model_.bind(*inner.scope, parameters[index].name, parameter);
 		}
+		// 14.5.3p4: the run this place was expanded into, carried onto the
+		// declaration the pack's own name reaches - which is what `sizeof...`
+		// and an expansion written in the body read.
+		parameter.pack_run = parameters[index].pack_run;
 		model_.declare_in(*inner.scope, parameter);
 		if (lowering() && parameter.name.empty() &&
 		    inner.scope->kind == ScopeKind::Function &&

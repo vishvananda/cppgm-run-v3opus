@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "type_model.h"
@@ -65,6 +66,28 @@ public:
 	};
 	Run run_of(const std::string& pattern, const SemaContext& ctx) const;
 
+	// 14.5.3p4 over a type rather than over a spelling: `pattern...` where the
+	// packs are already in the type, which is what a parameter-declaration
+	// written `Args... args` and a function type built by substitution hold.
+	//
+	// False where the type names no pack at all, which is 8.3.5p3's `f(int...)`
+	// and not an expansion.  Otherwise one entry is appended per element, or
+	// the expansion itself where the run is not settled.
+	bool expand_type(TypeId pattern, std::vector<TypeId>& out);
+
+	// 14.5.3p4 inside a list a substitution rebuilds: one written entry becomes
+	// however many the run its packs are bound to holds, appended to `out`.
+	// Every other entry is the one type the substitution makes of it.
+	void substitute_entry(TypeId written,
+	                      const std::unordered_map<TypeId, TypeId>& bindings,
+	                      std::unordered_map<TypeId, TypeId>& memo,
+	                      std::vector<TypeId>& out);
+
+	// The packs `pattern` is written over: the runs an argument list has
+	// bound, and the places of the head being read that it still names.
+	void packs_in(TypeId pattern, std::vector<TypeId>& runs,
+	              std::vector<TypeId>& places) const;
+
 private:
 	PackReading(const PackReading&);
 	PackReading& operator=(const PackReading&);
@@ -85,3 +108,15 @@ bool written_pack_expansion(const std::string& spelling, std::string& pattern);
 // itself and not a run of one.
 TypeId bound_run(TypeTable& types, const std::vector<TypeId>& arguments,
                  std::size_t from);
+
+// 14.1p11 and 14.5.3p1: the place a pack was declared at among the parameters a
+// function template's head declared, or their number where it declared none.
+// That head is read by the ordinary declaration path, so its places are
+// declarations and the fact is on the type each of them declared.
+std::size_t function_pack_place(const TypeTable& types,
+                                const std::vector<SemaEntity*>& parameters);
+
+// 8.3.5p10 and 14.5.3p4: the name the `index`th place of an expanded function
+// parameter pack is declared under.  The pack's own name is the first of them,
+// so a use of that name reaches the first place and the run is read off it.
+std::string pack_element_name(const std::string& name, std::size_t index);

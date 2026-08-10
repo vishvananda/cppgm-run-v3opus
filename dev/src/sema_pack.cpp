@@ -1,6 +1,8 @@
 #include "sema_pack.h"
 
 #include <stdexcept>
+#include <unordered_map>
+#include <utility>
 
 #include "sema_analyzer.h"
 
@@ -65,9 +67,182 @@ TypeId bound_run(TypeTable& types, const std::vector<TypeId>& arguments,
 	return types.pack_type(run);
 }
 
+std::size_t function_pack_place(const TypeTable& types,
+                                const std::vector<SemaEntity*>& parameters)
+{
+	for (std::size_t index = 0; index < parameters.size(); ++index)
+	{
+		if (types.is_template_pack(parameters[index]->type))
+		{
+			return index;
+		}
+	}
+	return parameters.size();
+}
+
+std::string pack_element_name(const std::string& name, std::size_t index)
+{
+	if (index == 0 || name.empty())
+	{
+		return name;
+	}
+	std::string digits;
+	std::size_t rest = index + 1;
+	while (rest != 0)
+	{
+		digits.insert(digits.begin(), static_cast<char>('0' + (rest % 10)));
+		rest /= 10;
+	}
+	return name + "__pack" + digits;
+}
+
 PackReading::PackReading(SemaAnalyzer& analyzer)
 	: analyzer_(analyzer)
 {}
+
+void PackReading::packs_in(TypeId pattern, std::vector<TypeId>& runs,
+                           std::vector<TypeId>& places) const
+{
+	TypeTable& types = analyzer_.types_;
+	if (pattern == kNoType)
+	{
+		return;
+	}
+	switch (types.kind(pattern))
+	{
+	case TypeKind::TemplateParameter:
+	{
+		if (!types.is_template_pack(pattern))
+		{
+			return;
+		}
+		const TypeId place = types.strip_cv(pattern);
+		for (std::size_t index = 0; index < places.size(); ++index)
+		{
+			if (places[index] == place)
+			{
+				return;
+			}
+		}
+		places.push_back(place);
+		return;
+	}
+
+	case TypeKind::Pack:
+		if (types.is_pack_expansion(pattern))
+		{
+			packs_in(types.target(pattern), runs, places);
+			return;
+		}
+		for (std::size_t index = 0; index < runs.size(); ++index)
+		{
+			if (runs[index] == pattern)
+			{
+				return;
+			}
+		}
+		runs.push_back(pattern);
+		return;
+
+	case TypeKind::Class:
+	{
+		// 14.6.2p1: a specialization is written over its arguments, so a pack
+		// it was named with is one this pattern names.
+		const std::vector<TypeId>& arguments = types.template_arguments(pattern);
+		for (std::size_t index = 0; index < arguments.size(); ++index)
+		{
+			packs_in(arguments[index], runs, places);
+		}
+		return;
+	}
+
+	case TypeKind::Function:
+	{
+		const std::vector<TypeId>& given = types.parameters(pattern);
+		for (std::size_t index = 0; index < given.size(); ++index)
+		{
+			packs_in(given[index], runs, places);
+		}
+		packs_in(types.target(pattern), runs, places);
+		return;
+	}
+
+	case TypeKind::MemberPointer:
+		packs_in(types.member_class(pattern), runs, places);
+		packs_in(types.target(pattern), runs, places);
+		return;
+
+	case TypeKind::Pointer:
+	case TypeKind::LValueReference:
+	case TypeKind::RValueReference:
+	case TypeKind::Array:
+	case TypeKind::Value:
+		packs_in(types.target(pattern), runs, places);
+		return;
+
+	default:
+		return;
+	}
+}
+
+bool PackReading::expand_type(TypeId pattern, std::vector<TypeId>& out)
+{
+	TypeTable& types = analyzer_.types_;
+	std::vector<TypeId> runs;
+	std::vector<TypeId> places;
+	packs_in(pattern, runs, places);
+	if (runs.empty() && places.empty())
+	{
+		return false;
+	}
+	if (!places.empty())
+	{
+		// 14.6.2p1: the expansion stands until an argument list settles the run.
+		out.push_back(types.pack_expansion(pattern));
+		return true;
+	}
+	const std::size_t length = types.pack_elements(runs[0]).size();
+	for (std::size_t index = 1; index < runs.size(); ++index)
+	{
+		if (types.pack_elements(runs[index]).size() != length)
+		{
+			// 14.5.3p6: two packs expanded together shall be the same length.
+			throw std::runtime_error("a pack expansion is written over two "
+			                         "parameter packs of different lengths");
+		}
+	}
+	for (std::size_t element = 0; element < length; ++element)
+	{
+		std::unordered_map<TypeId, TypeId> bindings;
+		for (std::size_t index = 0; index < runs.size(); ++index)
+		{
+			bindings.insert(std::make_pair(
+				runs[index], types.pack_elements(runs[index])[element]));
+		}
+		std::unordered_map<TypeId, TypeId> memo;
+		out.push_back(types.substitute(pattern, bindings, memo));
+	}
+	return true;
+}
+
+void PackReading::substitute_entry(
+	TypeId written, const std::unordered_map<TypeId, TypeId>& bindings,
+	std::unordered_map<TypeId, TypeId>& memo, std::vector<TypeId>& out)
+{
+	if (!analyzer_.types_.is_pack_expansion(written))
+	{
+		out.push_back(analyzer_.substituted(written, bindings, memo));
+		return;
+	}
+	// 14.5.3p4: the pattern is substituted first - which is what puts the run
+	// where the pack stood - and the entry is then the elements of that run.
+	const TypeId pattern =
+		analyzer_.substituted(analyzer_.types_.target(written), bindings, memo);
+	if (!expand_type(pattern, out))
+	{
+		out.push_back(pattern);
+	}
+}
 
 PackReading::Run PackReading::run_of(const std::string& pattern,
                                      const SemaContext& ctx) const
@@ -172,14 +347,21 @@ void PackReading::expand(const std::string& pattern, const SemaContext& ctx,
 long long PackReading::length(const std::string& name,
                               const SemaContext& ctx) const
 {
-	SemaEntity* const found =
-		analyzer_.model_.lookup(*ctx.scope, name, LookupKind::Any);
+	SemaEntity* const found = analyzer_.resolve(name, ctx, LookupKind::Any);
 	if (found == nullptr)
 	{
 		throw std::runtime_error(name + " is written as the operand of "
 		                         "sizeof... and names nothing");
 	}
-	if (analyzer_.types_.is_template_pack(found->type))
+	if (found->pack_run != 0)
+	{
+		// 8.3.5p10: the pack's own name is the first place its expansion
+		// declared, and how many the expansion made is a fact of that
+		// declaration - so a function parameter pack answers here.
+		return static_cast<long long>(found->pack_run);
+	}
+	if (analyzer_.types_.is_template_pack(found->type) ||
+	    analyzer_.types_.is_pack_expansion(found->type))
 	{
 		return -1;
 	}

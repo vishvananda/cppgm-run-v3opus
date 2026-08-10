@@ -195,7 +195,11 @@ FactKind fact_kind(const char* what)
 		{"temporary-object", FactKind::TemporaryObject},
 		{"new-expression", FactKind::NewExpression},
 		{"delete-expression", FactKind::DeleteExpression},
-		{"sizeof-expression", FactKind::Sizeof}
+		{"sizeof-expression", FactKind::Sizeof},
+		// 5.3.3p5: `sizeof...` yields a number the translation computed out of
+		// the run bound to a pack, which the lowering writes exactly as it
+		// writes 5.3.3p6's size - the operand of neither is evaluated.
+		{"sizeof-pack-expression", FactKind::Sizeof}
 	};
 	for (std::size_t index = 0; index < sizeof(kKinds) / sizeof(kKinds[0]);
 	     ++index)
