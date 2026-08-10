@@ -94,6 +94,9 @@ as an instantiation would.
 
 ## Active Checkpoint
 
+This turn selected and completed **C1** and **C2**, both in the ledger below.
+The next one is:
+
 **C3 - 14.5.3's template parameter packs and pack expansions.**  Selected because
 it is now every remaining `200-*` failure and half the PA: one feature, one
 owner, and the six parse failures beside it are the same feature seen from the
