@@ -1,0 +1,3 @@
+ERROR: conflicting class binding at course/pa19/300-class-name-declared-over-typedef-name-bad.t:13:1 [top-level declaration 1 kind=class-specifier value=amount text=amount]
+Diagnostic context:
+collect_class_declaration [amount] at course/pa19/300-class-name-declared-over-typedef-name-bad.t:13:1

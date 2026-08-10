@@ -1,0 +1,6 @@
+ERROR: conflicting enum binding at course/pa19/300-member-enum-declared-over-member-typedef-bad.t:13:3 [top-level declaration 0 kind=class-specifier value=holder text=holder]
+Diagnostic context:
+collect_class_declaration [holder] at course/pa19/300-member-enum-declared-over-member-typedef-bad.t:9:1
+  ensure_class_reference_members [holder]
+    populate_class_reference_members [holder]
+      reference_class_member [enum-specifier tag] text=[tag]

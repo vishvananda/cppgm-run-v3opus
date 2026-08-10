@@ -1,5 +1,0 @@
-ERROR: conflicting class binding at tests/general/300-local-class-redeclares-template-parameter-bad.t:13:3 [function shadow] [is_method no] [body_parent_scope <here>] [body_parent_bindings {types:T=int}] [body_function_scope <here>] [body_function_bindings {types:T=int} {types:T=int}]
-Diagnostic context:
-analyze_function_binding_output [shadow inst=int]
-  analyze_statement [class-specifier] at tests/general/300-local-class-redeclares-template-parameter-bad.t:13:3
-    collect_class_declaration [T] at tests/general/300-local-class-redeclares-template-parameter-bad.t:13:3

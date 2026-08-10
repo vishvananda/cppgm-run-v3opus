@@ -1,4 +1,4 @@
-ERROR: unknown non-dependent name in function template body nowhere_at_all at tests/general/300-template-definition-initializer-names-nothing-bad.t:14:14 [top-level declaration 0 kind=template-declaration ast={template-declaration
+ERROR: unknown non-dependent name in function template body nowhere_at_all at course/pa19/300-template-definition-initializer-names-nothing-bad.t:14:14 [top-level declaration 0 kind=template-declaration ast={template-declaration
   template-parameter-clause
     template-parameter-list
       type-parameter
@@ -29,4 +29,4 @@ ERROR: unknown non-dependent name in function template body nowhere_at_all at te
         id-expression held
 }]
 Diagnostic context:
-collect_template_declaration [template<class T>int settled(T v){int held=nowhere_at_all;return held;}] at tests/general/300-template-definition-initializer-names-nothing-bad.t:11:1
+collect_template_declaration [template<class T>int settled(T v){int held=nowhere_at_all;return held;}] at course/pa19/300-template-definition-initializer-names-nothing-bad.t:11:1

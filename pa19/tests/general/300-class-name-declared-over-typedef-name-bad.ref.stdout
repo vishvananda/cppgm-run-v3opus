@@ -1,3 +1,0 @@
-ERROR: conflicting class binding at tests/general/300-class-name-declared-over-typedef-name-bad.t:13:1 [top-level declaration 1 kind=class-specifier value=amount text=amount]
-Diagnostic context:
-collect_class_declaration [amount] at tests/general/300-class-name-declared-over-typedef-name-bad.t:13:1
