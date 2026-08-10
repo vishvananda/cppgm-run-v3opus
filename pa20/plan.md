@@ -1,7 +1,7 @@
 # PA20 Plan — `cppgm++ --emit-lowir` compile-time metaprogramming
 
-PA20 stands at **123 / 169** - 118 of the 164 checked-in fixtures and the 5
-under `cppgm.tests/course/pa20` - from a turn-start baseline of **103 / 169**,
+PA20 stands at **127 / 172** - 119 of the 164 checked-in fixtures and the 8
+under `cppgm.tests/course/pa20` - from a turn-start baseline of **123 / 169**,
 with pa1-pa19 at **2169 / 2169** and the file audit passing with the five
 header-weight warnings it inherited.
 
@@ -53,8 +53,12 @@ pattern is read again for each argument of the run, in a region binding the
 packs it names to that element, and nothing rewrites the pattern's syntax.  The
 same reading answers from the three shapes a list is written in - a spelling
 (`expand`), a type a declarator or a substitution built (`expand_type`), and
-the tree a call's argument list holds (`run_of_node` / `element_region`) - so a
-run of n elements costs n readings of one pattern wherever it stands.
+the tree a call's argument list holds (`run_of_node`) - so a run of n elements
+costs n readings of one pattern wherever it stands.  All three open the element
+region at `element_region`, because a pattern names *either* kind of settled
+pack however it was written.  The element binding carries the pack it stands
+for (`SemaEntity::pack_element_of`), so a pattern that names it as a pack again
+- a nested expansion, `sizeof...` - is read over the run and not the element.
 
 **A function parameter pack is places, not a type.**  8.3.5p3's `f(int...)` and
 14.5.3p4's `f(Args... args)` are told apart by whether the declarator's type
@@ -62,7 +66,17 @@ names a pack; the second declares one place per element, and 8.3.5p10 names the
 first of them after the pack itself.  So the pack's own name reaches the first
 place, `SemaEntity::pack_run` on that declaration says how many the expansion
 made, and `sizeof...(args)` and `h(args...)` both read the run off the
-declaration the name already reaches.
+declaration the name already reaches.  A run of *no* elements has no first
+place and is still a declaration, so the clause declares the run itself: one
+entry of the parameter list that is no place of the function, which the walks
+mapping entries onto places count apart.
+
+**The object file writes the run the flat list cannot be split back into.**
+14.4p1 keys the tier by one flat argument list, and 14.5.3's run is one
+`<template-arg>` - `J...E` - with a place written `P...` encoded `Dp` of its
+pattern.  So the place the run begins at is recorded beside the arguments for a
+class and read off the head's declarations for a function template, and the
+three sites of `lowir_abi.cpp` that write an argument list ask one helper.
 
 **14.8.2.1p1 deduces a pack as a run.**  A trailing `P...` is one pattern
 against every argument the fixed places did not take, and what the pack deduces
@@ -88,23 +102,23 @@ it stands, because every one of those readings can stand inside another.
 
 ## Current Failure Map
 
-46 failing, grouped by what would fix them:
+45 failing, grouped by what would fix them:
 
 | group | n | owner |
 | --- | --- | --- |
-| 14.8.2 where the callee or an argument is still dependent: deduction from a class-template argument, a template-id callee, an alias parameter (`no declaration of ... accepts the arguments of a call`, `... is in scope`) | 17 | `sema_overload.cpp`, `sema_template.cpp` |
-| 5.19 outside the integral subset, which the suite asserts on: a constexpr member call, a dependent trait's value, `B{}`, a wide literal (`a static_assert condition is false`) | 8 | `sema_constant.cpp` |
+| 14.8.2 where the callee or an argument is still dependent: deduction from a class-template argument - which four of the pack shapes need - a template-id callee, an alias or variable-template parameter (`no declaration of ... accepts the arguments of a call`, `... is in scope`) | 18 | `sema_overload.cpp`, `sema_template.cpp` |
+| the rest: a dependent non-type place's own declarator, `sizeof...` inside an argument *spelling*, a multicharacter literal, four single-test shapes | 7 | mixed |
 | 14.6.2p1's dependent qualified type and value lookups (`is written after a name that is not a namespace...`, `... does not name a type`) | 5 | `sema_template_head.cpp`, `sema_template.cpp` |
-| four LowIR mismatches: PA19's static-member demand, an enum argument's vtable, a constexpr member call in an initializer, a cooked literal | 4 | `sema_template.cpp`, `sema_lifetime.cpp` |
+| 5.19 outside the integral subset, which the suite asserts on: `B{}`, a dependent trait's value, a wide literal, two `static_assert` conditions | 4 | `sema_constant.cpp` |
+| three LowIR mismatches: PA19's static-member demand, an enum argument's vtable, a constexpr member call in an initializer | 3 | `sema_template.cpp`, `sema_lifetime.cpp` |
 | 2.14.8's user-defined literals and their overload sets | 3 | `sema_overload.cpp`, `literal_scan.cpp` |
-| 14.5.3p4 in the two lists this checkpoint left: 8.5.1's braced-init-list and 12.6.2's mem-initializer | 3 | `sema_init_list.cpp`, `sema_lifetime.cpp` |
+| 14.5.3p4 in the three lists this checkpoint left: 8.5.1's braced-init-list, 12.6.2's mem-initializer and 5.3.4's new-expression | 3 | `sema_init_list.cpp`, `sema_lifetime.cpp` |
 | 10p1 over a base pack of more than one element, which this milestone lays out one of | 2 | `sema_class.cpp`, `sema_layout.cpp` |
-| the rest: `sizeof...` inside an argument *spelling*, a dependent non-type place's own declarator, three single-test shapes | 4 | mixed |
 
 ## Active Checkpoint
 
-This turn completed **C3** in three landings, all in the ledger below.  The next
-one is:
+This turn audited **C3** and landed the four fixes in `audit.md`.  The next one
+is:
 
 **C4 - 14.8.2 over the places the last two checkpoints opened.**  Selected
 because it is now the largest group by a factor of two, it is one owner, and
@@ -113,45 +127,54 @@ every shape in it is a call whose candidate set this tier already builds.
 - **Owner.**  `sema_overload.cpp` for the candidate set a call collects when the
   callee is a template-id or an object of class type, and `sema_template.cpp`
   for `deduce` over an argument that is a specialization - `f(S<char, short>)`
-  against `S<U...>` is the one P/A pair a pack has to match through a class.
+  against `S<U...>` is the one P/A pair a pack has to match through a class,
+  and it is what `transform`, `expand`, `run` and `construct` all fail on.
 - **Data flow.**  `deduce` gains a `Class` arm that pairs the pattern's
   `template_arguments` with the argument's, splicing a trailing expansion the
   way `deduce_specialization` already splices a trailing parameter; the run it
-  binds is the same `pack_type` entry every other reader takes.
+  binds is the same `pack_type` entry every other reader takes, so the ABI's
+  pack place and `deduced_arguments`' flattening both keep answering.
 - **Expected complexity.**  One walk per P/A pair, no rescan of the candidate
-  set - the arguments of a specialization are already a list on its type.
-- **Validation.**  The 17 tests of the group, `make test-report-through-pa19`,
-  a multiplicity sweep at 1, 2 and 64 elements through the new arm, and a
-  differential run of each new shape through `reference-binaries/cppgm++`.
+  set - the arguments of a specialization are already a list on its type, and
+  `packs_in` asks each type of a pattern once.
+- **Validation.**  The 18 tests of the group, `make test-report-through-pa19`,
+  a multiplicity sweep at 0, 1, 2 and 64 elements through the new arm, and a
+  differential run of each new shape through `reference-binaries/cppgm++` with
+  its mangled name compared against g++'s.
 
 ## Performance Model
 
-Best of five, `-O0`:
+Best of five, `-O0`, re-measured this turn.  This machine has a **0.11 s process
+floor** - an empty translation unit measures 0.11 s through this binary and
+through `reference-binaries/cppgm++` alike - so a row at the floor is a shape
+that costs nothing measurable.
 
 | shape | measured |
 | --- | --- |
-| 512 distinct value arguments over two templates (1024 specializations) | **0.09 s** |
-| 4096 distinct value arguments over two templates (8192 specializations) | **0.85 s** |
-| `fac<200>` / `fac<800>` metafunction chain | **0.01 / 0.06 s** |
-| a 2000-deep chain instantiated but not evaluated | **0.09 s** |
-| 256- / 1024-deep `s<s<...<int> >` spelling | **0.02 / 0.21 s** |
-| one template-id of 1024 arguments | **0.01 s** |
-| a pack of 1 / 64 / 512 elements: bound, expanded into a base and counted | **0.00 / 0.00 / 0.01 s** |
-| 2080 expansions over 64 nested `pack_of<id<T>::type...>` | **0.02 s** |
-| a call forwarding a parameter pack of 2 / 128 / 384 places | **0.00 / 0.00 / 0.01 s** |
+| a pack of 0 / 1 / 64 / 512 / 4096 elements: bound, expanded into a base, counted | **floor** (ref 0.41 s at 4096) |
+| a call forwarding a parameter pack of 0 / 2 / 128 / 384 / 1024 places | **floor** (ref 0.31 s at 1024) |
+| 2080 expansions over 64 nested `pack_of<id<T>::type...>` | **floor** |
+| 512 / 4096 distinct value arguments over two templates | **floor / 0.62 s** |
+| `fac<200>` / `fac<800>` metafunction chain | **floor** |
+| a 2000-deep chain instantiated but not evaluated | **floor** (ref SIGSEGV) |
+| 256- / 1024-deep `s< s< ... <int> > >` spelling | **floor** (ref > 60 s at 256) |
+| one template-id of 1024 arguments | **floor** |
 
 An expansion is linear in the run: one reading of the pattern per element, one
 region per element, and no rewriting of the pattern's syntax, so n elements cost
 n readings and never n^2.  A run is interned by its elements, so two places
 bound to one run read one entry and `sizeof...` is a vector length.  The split
-of an argument spelling is memoised per spelling (`value_words_`), and
-`open_parameter_region` runs once per template, not once per naming.
+of an argument spelling is memoised per spelling (`value_words_`),
+`open_parameter_region` runs once per template rather than once per naming, and
+`packs_in` asks each type of a pattern once rather than once per path through
+it.
 
-The one shape that is not linear is the *spelling* of a deep nest, which is
-quadratic in the characters it writes and is PA19's recorded shape rather than
-this milestone's.  A metafunction with no terminating specialization still
-overflows the machine stack rather than being diagnosed; a depth guard is owed
-whenever a checkpoint touches `instantiate_class` again.
+The one shape that is not linear is a type whose arguments *double* -
+`typedef p<t22,t22> t23;` costs about a second - which is the exponential
+spelling PA19 recorded rather than this milestone's.  A metafunction with no
+terminating specialization still overflows the machine stack rather than being
+diagnosed; a depth guard is owed whenever a checkpoint touches
+`instantiate_class` again.
 
 ## Completed Checkpoints
 
@@ -163,3 +186,4 @@ whenever a checkpoint touches `instantiate_class` again.
 | C3a | 14.5.3's place and run at the class tier: `TypeKind::Pack` as both a run and an expansion, `pack_place` counting a written list, an expansion read once per element, 5.3.3p5's `sizeof...` parsed and answered, and 14.5.3p4's base-specifier pattern laid out where the run holds one base | 103 -> **108 / 169** |
 | C3b | the function tier: 14.8.2.1p1 deducing a trailing `P...` as a run, `deduced_arguments` splicing it into one flattened list, 8.3.5p3's ellipsis told from 14.5.3p4's expansion by the declarator's type, one place declared per element under 8.3.5p10's names, and a substitution splicing an expansion inside a parameter list | 108 -> **118 / 169** |
 | C3c | 14.5.3p4 in a call's argument list, read over the tree rather than a spelling, with a function parameter pack as one of the answers; explicit argument lists counted by the pack place; and 14.3.2p1 refusing a pack of types at a non-type place | 118 -> **123 / 169**; expansion linear at 1/64/512 elements |
+| C3 audit | the two kinds of settled pack and the list the object file writes for either: one element region for a spelling and a tree alike, an element that carries the pack a nested expansion and `sizeof...` still name, a run of no elements declared where it declared no place, and 14.5.3's `J...E` and `Dp` in every mangled name | 123 / 169 -> **127 / 172** with three fixtures added; linear at 4096 elements |
