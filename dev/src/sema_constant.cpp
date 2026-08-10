@@ -238,41 +238,26 @@ SemaAnalyzer::Constant SemaAnalyzer::literal_constant(const std::string& spellin
 SemaAnalyzer::Constant SemaAnalyzer::id_constant(const AstNode& node,
                                                  const Context& ctx)
 {
-	// 14.6p8: what a name that depends on a template parameter is worth, an
-	// argument list is what says.  The reading stands one value in its place,
-	// as it does for the size of a dependent type.
-	Constant stood;
-	stood.type = types_.fundamental(FT_INT);
-	stood.bits = 1;
-	SemaEntity* named = nullptr;
-	if (child_kind(node, AstKind::CarriedExpression) == nullptr)
-	{
-		named = resolve(node.text, ctx, LookupKind::Any);
-	}
-	else
-	{
-		// 7.1.6.2p1: a nested-name-specifier that begins with a
-		// decltype-specifier reaches its region through the expression the
-		// parser kept beside the name, which no spelling holds - so 5.19's
-		// reading asks the same question of an id-expression that the
-		// expression layer does.
-		const TypeId prefix = types_.strip_cv(decltype_type(node, ctx));
-		if (checking_ > 0 && types_.is_dependent(prefix))
-		{
-			// 14.6.2p1: which class the specifier names, an argument list is
-			// what says, so there is no member here to look up yet.
-			++stood_in_;
-			return stood;
-		}
-		named = qualified_in_type(prefix, QualifiedName(node.text), ctx,
-		                          LookupKind::Any, nullptr);
-	}
+	// 7.1.6.2p1: a nested-name-specifier that begins with a decltype-specifier
+	// reaches its region through the expression the parser kept beside the
+	// name, which no spelling holds - so 5.19's reading asks the same question
+	// of an id-expression that every other reader of one asks.
+	SemaEntity* const named =
+		child_kind(node, AstKind::CarriedExpression) == nullptr
+		? resolve(node.text, ctx, LookupKind::Any)
+		: decltype_qualified_name(node, ctx, LookupKind::Any);
 	SemaEntity& entity = require(named, node.text);
 	if (!entity.constant)
 	{
 		if (checking_ > 0 && types_.is_dependent(entity.type))
 		{
+			// 14.6p8: what a name that depends on a template parameter is
+			// worth, an argument list is what says.  The reading stands one
+			// value in its place, as it does for the size of a dependent type.
 			++stood_in_;
+			Constant stood;
+			stood.type = types_.fundamental(FT_INT);
+			stood.bits = 1;
 			return stood;
 		}
 		throw NotConstant(node.text + " is not a constant expression");

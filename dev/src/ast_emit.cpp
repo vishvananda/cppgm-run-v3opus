@@ -35,7 +35,8 @@ void set_build_time(PreprocessorOptions& options)
 void emit_translation_unit(std::ostream& out, SourceFileTable& files,
                            const PreprocessorOptions& options,
                            const std::string& path,
-                           void (*write_unit)(std::ostream&, const AstNode&))
+                           void (*write_unit)(std::ostream&, const AstNode&,
+                                              const AstArena&))
 {
 	AstTokenStream tokens;
 	tokens.build(files, options, path);
@@ -47,10 +48,10 @@ void emit_translation_unit(std::ostream& out, SourceFileTable& files,
 	{
 		throw std::runtime_error(path + " is not a translation unit");
 	}
-	write_unit(out, *root);
+	write_unit(out, *root, arena);
 }
 
-void write_unit_ast(std::ostream& out, const AstNode& unit)
+void write_unit_ast(std::ostream& out, const AstNode& unit, const AstArena&)
 {
 	write_ast(out, unit, 0);
 }
@@ -64,7 +65,8 @@ void emit_ast(const std::string& outfile, const std::vector<std::string>& inputs
 
 void emit_translation_units(const std::string& outfile,
                             const std::vector<std::string>& inputs,
-                            void (*write_unit)(std::ostream&, const AstNode&))
+                            void (*write_unit)(std::ostream&, const AstNode&,
+                                               const AstArena&))
 {
 	PreprocessorOptions options;
 	options.author = kAuthor;

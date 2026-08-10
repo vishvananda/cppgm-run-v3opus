@@ -1,7 +1,7 @@
 # PA20 Plan — `cppgm++ --emit-lowir` compile-time metaprogramming
 
-PA20 stands at **156 / 182** - 138 of the 164 checked-in fixtures and the 18
-under `cppgm.tests/course/pa20` - from a turn-start baseline of **147 / 180**,
+PA20 stands at **158 / 184** - 138 of the 164 checked-in fixtures and the 20
+under `cppgm.tests/course/pa20` - from a turn-start baseline of **156 / 182**,
 with pa1-pa19 at **2169 / 2169** and the file audit passing with the five
 header-weight warnings it inherited.
 
@@ -124,7 +124,11 @@ every reader that already folds one folds this.  14.5.5's pattern and 14.7.3's
 **A value place binds a constant, not a typedef-name.**  `bind_argument` is the
 one place a region takes an argument: a type argument is a typedef-name of it, a
 value argument is a `SemaKind::TemplateValue` declaration carrying
-`constant`/`value`, and a run is a `Pack`-typed binding of the pack's name.  So
+`constant`/`value`, and a run is a `Pack`-typed binding of the pack's name.  A
+place *standing for itself* - which 14.6.1p1's current instantiation puts at
+every argument, and which 14.5.1.3p1's out-of-class definition is read against -
+says which it is on its own type, so the two readings of one head bind it the
+same way.  So
 14.1p9's default is read in a region that binds the places before it at *both*
 tiers: a type-id could be substituted afterwards, but 5.19's constant expression
 is evaluated where it stands and needs `A` to be a constant there.
@@ -151,13 +155,16 @@ about what its prefix names.
 
 **A prefix an argument list has already settled is asked for its definition.**
 3.4.3p1 looks a name up *in* the region its prefix named, which for a class
-template specialization is 3.9p5's context requiring a complete type - so
-`resolve_prefix` asks `require_settled_type` and not `require_complete_type`.
-14.6p8's reading of a template definition asks for nothing, but a prefix no
-argument list can still change is one the definition itself is read against, so
-the reading is put aside for that demand exactly as 10p1's base class puts it
-aside.  A prefix that is still dependent is untouched, and 14.6.2p1 still
-answers it.
+template specialization is 3.9p5's context requiring a complete type - so the
+demand is `require_settled_type` and not `require_complete_type`.  14.6p8's
+reading of a template definition asks for nothing, but a prefix no argument list
+can still change is one the definition itself is read against, so the reading is
+put aside for that demand exactly as 10p1's base class puts it aside.  Two walks
+make that demand - `resolve_prefix` for a prefix the spelling reaches and
+`qualified_in_type` for one that is a *type*, which is 7.1.6.2p1's
+decltype-specifier - and both answer alike.  A prefix that is still dependent is
+untouched by either: every component behind it is a member of the one before it,
+which is 14.6.2p1's stand-in the substitution settles.
 
 **What this milestone cannot read is what it cannot instantiate.**  14p1 lets a
 program declare a template it never names, so a head or a pattern outside the
@@ -198,37 +205,32 @@ checking dialect is left with none of 12.1's members it is owed.
 | 10p1 over a base pack of more than one element | 2 | `sema_class.cpp`, `sema_layout.cpp` |
 | six singletons: a value place naming an incomplete current instantiation; `&C::f` as an argument; a qualified function-template call's conversion; a conversion through a specialized base; an alias rewrite whose `value_type` does not name a type; and 5.9's `<` inside an argument spelling read as 14.2's list | 6 | mixed |
 
-Outside the fixtures, the sweeps leave five shapes this milestone refuses where
+Outside the fixtures, the sweeps leave six shapes this milestone refuses where
 both oracles accept: a specialization's body cannot name its own class -
 `typedef s self;` inside `struct s<T*>` finds the primary and `s<T*>` written
 there is read as 12.1p1's constructor name and does not parse, which has been
 true of `template<>` specializations since C2; a partial specialization has no
 out-of-class member definitions; a dependent array bound is unreadable in an
 argument *spelling* (`s<T[N]>`, where `s<Arr>` over a typedef reads); a template
-template parameter is outside every head; and `typename c<true>::type` written
-in a template nobody instantiates, where `c` is only declared, is now refused
-where it stands - which g++ refuses too ([temp.res]p8) and the reference
-accepts.  Three more stand: 14.5.5p1 does not refuse a partial specialization of
-a *function* template; 14.7.3's explicit specialization of a function template is
-emitted `binding=weak` where the reference writes `binding=strong`; and an
-unnamed enumeration reached through a `decltype` is mangled
-`N1S17__anonymous_enum1E` where the reference writes the ABI's `N1SUt_E`.  All
-three are metadata the comparison strips.
+template parameter is outside every head; `typename c<true>::type` written in a
+template nobody instantiates, where `c` is only declared, is refused where it
+stands - which g++ refuses too ([temp.res]p8) and the reference accepts; and a
+decltype-specifier is outside the base-specifier grammar
+(`struct outer : decltype(mk())::inner`), which the reference refuses too.  Four
+more stand: 14.5.5p1 does not refuse a partial
+specialization of a *function* template; 14.7.3's explicit specialization of a
+function template is emitted `binding=weak` where the reference writes
+`binding=strong`; an unnamed enumeration reached through a `decltype` is mangled
+`N1S17__anonymous_enum1E` where the reference writes the ABI's `N1SUt_E`; and a
+static data member of a specialization of a template with a *non-type* parameter
+is a `load` here and in g++ where the reference folds the initializer.  The first
+three are metadata the comparison strips; the fourth is the family
+`100-nontype-template-argument-static-member-no-storage` already owns.
 
 ## Active Checkpoint
 
-**C6 - a decltype an argument list wrote, and the prefix it stands before.**
-Selected as the largest group by three, because both halves are one question -
-what a name written inside 14.2's argument list stands for when the walk that
-recovers it is neither `SpelledTypeId`'s nor 5.19's - and because the same
-reading is what four later-PA groups are written over.  **Done**: nine of its
-tests pass and the two the group did not own (`B{}`, 5.9's `<`) moved to the
-groups that do.
-
-The next one is:
-
 **C7 - 14.5.3p4 in the lists a call's argument list already answers for.**
-Selected because it is now the largest group whose members share one owner: an
+Selected because it is the largest group whose members share one owner: an
 expansion written into 8.5.1's braced-init-list, 5.3.4's new-expression and
 8.3.4p1's bound each reach a list builder that reads its clauses one for one,
 and `an expression is outside the PA12 subset` is that builder refusing the one
@@ -257,26 +259,29 @@ candidate is chosen from the same list once it is expanded.
 ## Performance Model
 
 Best of five, `-O0`, timed by the shell around the process itself: an empty
-translation unit is **0.004 s**, so a row below is the shape's own cost.  A
+translation unit is **0.003 s**, so a row below is the shape's own cost.  A
 harness that spawns a process of its own per run reads this machine's floor as
 0.11 s; it is not one, and the `pa20/cppgm++-ref` wrapper adds a further ~0.5 s
 of its own before the reference binary starts.
 
 Rows marked \* were regenerated and re-measured against this turn's build; the
-rest were measured against the C5-audit build and are carried forward, because
-this turn touched only the reading of a spelling and the demand a settled prefix
-makes.
+rest were measured against an earlier build and are carried forward, because
+this turn touched only the demand a prefix makes and the kind one place is bound
+under, both of which the marked rows bracket.
 
 | shape | here | `pa20/cppgm++-ref` |
 | --- | --- | --- |
-| \* 8192 distinct `decltype` spellings in argument lists | **0.24 s** | 4.7 s |
-| \* 8192 namings of *one* such spelling | **0.12 s** | 1.2 s |
-| \* the same at 512 / 2048 distinct | 0.01 / 0.07 s | - |
-| \* a `decltype` spelling nested 8 / 16 / 24 deep | **0.00 s** | - |
-| \* a pack of 4096 elements bound and counted | **0.04 s** | 0.5 s |
-| \* `fac<800>` metafunction chain | **0.03 s** | 0.3 s |
-| \* 256 patterns against 2048 distinct lists | **0.22 s** | 76.7 s |
-| \* 14.5.3p4's recursion over a pack of 1024 | **1.75 s** | 10.2 s |
+| \* 512 / 2048 / 8192 distinct `decltype` spellings in argument lists | 0.018 / 0.069 / **0.300 s** | 0.148 / 0.691 / 9.7 s |
+| \* 8192 namings of *one* such spelling | **0.180 s** | 0.949 s |
+| \* a `decltype` spelling nested 24 deep | **0.004 s** | 0.013 s |
+| \* 256 / 1024 / 4096 `decltype` prefixes in one template definition | 0.021 / 0.082 / **0.410 s** | 23.9 s at 4096 |
+| \* 64 names behind one dependent `decltype` prefix | **0.006 s** | 0.022 s |
+| \* 256 / 1024 / 4096 out-of-class definitions over a value place | 0.014 / 0.046 / **0.188 s** | 2.084 s at 4096 |
+| \* 256 / 2048 settled prefixes named in one definition | 0.015 / **0.119 s** | 0.250 s at 2048 |
+| \* a pack of 4096 elements bound and counted | **0.017 s** | 0.159 s |
+| \* `fac<800>` metafunction chain | **0.032 s** | 0.167 s |
+| \* 256 patterns against 2048 distinct lists | **0.063 s** | 11.1 s |
+| \* 14.5.3p4's recursion over a pack of 1024 | **1.556 s** | 9.3 s |
 | a call forwarding a parameter pack of 1024 places | 0.025 s | - |
 | a target type deducing a run of 4096 places | 0.041 s | - |
 | 800 calls ordering a pack head against a non-pack one | 0.022 s | - |
@@ -296,7 +301,12 @@ which is what says the table is keyed by the text and not by the naming.
 Nesting is flat because a nested spelling is one more entry, not one more scan.
 `require_settled_type` at a prefix adds one integer test per component of a
 nested-name-specifier and one instantiation per settled specialization a
-definition names, which is why the pattern and metafunction rows did not move.
+definition names, which is why the pattern and metafunction rows did not move; a
+prefix an argument list has yet to settle costs one stand-in per prefix and
+component, memoised, which is what the 64-names row measures.  A place bound
+under 14.6.1p1's current instantiation costs one test of its own type, which is
+why the pack and recursion rows are the same to within the noise as the build
+that did not make it.
 
 14.5.5.1p1's choice is one match per pattern per *distinct* argument list and
 nothing else.  14.5.5.2p1's ordering is quadratic in the patterns that *match*,
@@ -306,12 +316,12 @@ every shape a program writes.
 Two shapes are not linear in what they walk, and both are the shape's own cost
 rather than a reading's: a type whose arguments *double* is exponential in the
 spelling, and 14.5.3p4's recursion over a pack walks argument lists whose lengths
-sum to n^2/2 - g++ is 0.210 s at 1024 where this compiler is 1.75 s and the
-reference 10.2 s.  A *class* metafunction with no terminating specialization
+sum to n^2/2 - g++ is 0.210 s at 1024 where this compiler is 1.556 s and the
+reference 9.3 s.  A *class* metafunction with no terminating specialization
 still overflows the machine stack rather than being diagnosed, here and in the
 reference alike; a depth guard is owed whenever a checkpoint touches
-`instantiate_class` again.  `sema_analyzer.h` is at 2381 of the audit's 2400
-header lines, freed this turn by giving `sema_type_id.cpp` its own owner.
+`instantiate_class` again.  `sema_analyzer.h` is at 2380 of the audit's 2400
+header lines.
 
 ## Completed Checkpoints
 
@@ -329,3 +339,4 @@ header lines, freed this turn by giving `sema_type_id.cpp` its own owner.
 | C5 | 14.5.5's pattern and 14.5.1p1's variable template given one owner (`sema_specialize.h`): a partial specialization as a head, an argument pattern and a body held beside the primary; 14.5.5.1p1's choice as `match_arguments` over the interned list, memoised per template and dropped where a later pattern arrives; 14.5.5.2p1's ordering as that same match between two patterns; 14.5.6.1p5's signature telling a redeclaration of one pattern from a second; and a variable template's specialization as the constant one init-declarator evaluates to - with 14.7.3's `template<>` and 9.4.2p1's qualified declarator-id answering for both tiers | 136 / 175 -> **145 / 178** with three fixtures added; pa1-pa19 2169 / 2169; every one of 48 swept shapes agrees with g++; ref 20x slower on the pattern row |
 | C5 audit | what a pattern this milestone could not read leaves behind: three exits dropped a partial specialization and let the *primary* answer for every list it would have taken, so a template one of whose second bodies is unknown now answers no argument list at all, and 14.5.5p8.3's undeducible place is refused at the list that matched; and 14.5.1p1's specialization is the constant its initializer evaluates to, so one that names itself ran until the machine stack ran out where both oracles diagnose it | 145 / 178 -> **147 / 180** with two fixtures added; pa1-pa19 2169 / 2169; 68 swept shapes |
 | C6 | a decltype an argument list wrote, and the prefix it stands before: the parse now keeps the tree it read for every decltype operand it flattened into a name (`AstArena::keep_spelled`), so a specifier met as text is answered by `decltype_type` and a call, a delete-expression or 5.2.3p1's conversion reads where only 5.1.1p8's id-expression did; the same carried tree is asked by 5.19's `id_constant` and by `resolve_prefix`, which every other reader of an id-expression already asked; and 3.4.3p1's prefix that an argument list has settled now demands its definition through `require_settled_type`, which is what lets `typename c<lower>::type` be written in a template definition at all.  `sema_type_id.cpp` became its own owner, `SpelledTypeId`, freeing 19 header lines | 147 / 180 -> **156 / 182** with two fixtures added; pa1-pa19 2169 / 2169; 37 decltype-operand shapes and 12 prefix shapes swept against both oracles, every accepted pair writing the reference's LowIR but one unnamed enum's mangled name; linear at 8192 spellings |
+| C6 audit | the demand a prefix makes, at all three walks that make it and in all three modes that read one: `qualified_in_type` asks `require_settled_type` for a settled prefix and leaves 14.6.2p1's stand-in for a dependent one, and `resolve_prefix`'s decltype branch reports a dependent prefix rather than looking its spelling up; `id_constant` asks `decltype_qualified_name` instead of a second copy of it; the arena travels through `emit_translation_units`, so the two dump modes read such a name the way the lowering one does; and 14.6.1p1's current instantiation binds a value place as a value, which is what lets an out-of-class member definition of a class template with a non-type parameter name its own head | 156 / 182 -> **158 / 184** with two fixtures added; pa1-pa19 2169 / 2169; 134 swept shapes, every accepted pair writing the reference's LowIR |

@@ -1050,6 +1050,19 @@ Scope* SemaAnalyzer::resolve_prefix(const QualifiedName& name,
 		if (held != nullptr)
 		{
 			const TypeId type = types_.strip_cv(decltype_type(*held, ctx));
+			if (dependent != nullptr && types_.is_dependent(type))
+			{
+				// 14.6.2p1: which class this specifier names, an argument list
+				// is what says, so every component behind it is a member of a
+				// class no list has named yet - the same answer this walk
+				// gives a prefix written as a name.
+				*dependent = type;
+				if (unresolved != nullptr)
+				{
+					*unresolved = 1;
+				}
+				return nullptr;
+			}
 			require_settled_type(type);
 			named = model_.type_owner(type);
 			region = named == nullptr ? nullptr : model_.region_of(*named);
@@ -1177,7 +1190,28 @@ SemaEntity* SemaAnalyzer::qualified_in_type(TypeId head,
                                             LookupKind filter,
                                             std::vector<SemaEntity*>* found)
 {
-	require_complete_type(head);
+	if (templating() && types_.is_dependent(head))
+	{
+		// 14.6.2p1: a decltype-specifier an argument list has yet to settle
+		// names no region either, so every component written after it is a
+		// member of the one before it - the same stand-in `resolve` leaves a
+		// prefix written as a name with, and the same one the substitution
+		// settles.
+		SemaEntity* member = nullptr;
+		TypeId prefix = head;
+		for (std::size_t index = 1; index < written.size(); ++index)
+		{
+			member = &dependent_member_name(prefix, written.part(index));
+			prefix = member->type;
+		}
+		return member;
+	}
+	// 3.4.3p1 and 14.7.1p1: the name is looked up *in* the region this prefix
+	// named, which for a class template specialization an argument list has
+	// already settled is a context requiring it to be completely defined - the
+	// same demand `resolve_prefix` makes of a prefix written as a name, and the
+	// one 14.6p8's reading has to answer in earnest rather than with nothing.
+	require_settled_type(head);
 	SemaEntity* const owner = model_.type_owner(head);
 	Scope* const region = owner == nullptr ? nullptr : model_.region_of(*owner);
 	if (region == nullptr)

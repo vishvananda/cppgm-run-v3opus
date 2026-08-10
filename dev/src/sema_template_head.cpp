@@ -555,7 +555,15 @@ SemaEntity& SemaAnalyzer::bind_argument(Scope& region, const std::string& name,
 	}
 	if (!types_.is_value(argument))
 	{
-		SemaEntity& bound = model_.create(kind, name, argument);
+		// 14.1p4 and 14.6.1p1: a place that binds a value is bound as one even
+		// where the argument is the place standing for itself, which is what
+		// the current instantiation puts at a non-type place - otherwise a
+		// definition read against it finds a type where its own head wrote a
+		// value, and 5.1.1p8 refuses every use of the name.
+		SemaEntity& bound = model_.create(
+			types_.parameter_value_type(argument) != kNoType
+				? SemaKind::TemplateValue : kind,
+			name, argument);
 		model_.bind(region, bound.name, bound);
 		model_.declare_in(region, bound);
 		return bound;

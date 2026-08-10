@@ -1,0 +1,109 @@
+global @holder_int__3___slot : i32 [binding=weak, object=_ZN6holderIiLi3EE4slotE] = 6
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $h : obj<12x4>
+  slot $cond__1 : i32
+  slot $land__2 : i64
+  slot $land__3 : i64
+  slot $land__4 : i64
+
+  block ^entry:
+    %t1 = addr $h
+    %t2 = load i32 @holder_int__3___slot
+    %t3 = cmp eq i32 %t2, 6
+    branch %t3, ^land_rhs_10, ^land_short_11
+
+  block ^land_rhs_10:
+    %t4 = call i32 @holder_int__3___count()
+    %t5 = cmp eq i32 %t4, 6
+    %t6 = cmp ne i64 %t5, 0
+    store i64 %t6, $land__4
+    jump ^land_end_12
+
+  block ^land_short_11:
+    store i64 0, $land__4
+    jump ^land_end_12
+
+  block ^land_end_12:
+    %t7 = load i64 $land__4
+    branch %t7, ^land_rhs_7, ^land_short_8
+
+  block ^land_rhs_7:
+    %t8 = addr $h
+    %t9 = call i32 @holder_int__3___scaled(%t8)
+    %t10 = cmp eq i32 %t9, 6
+    %t11 = cmp ne i64 %t10, 0
+    store i64 %t11, $land__3
+    jump ^land_end_9
+
+  block ^land_short_8:
+    store i64 0, $land__3
+    jump ^land_end_9
+
+  block ^land_end_9:
+    %t12 = load i64 $land__3
+    branch %t12, ^land_rhs_4, ^land_short_5
+
+  block ^land_rhs_4:
+    %t13 = call i32 @counted_1__2__3__4___total()
+    %t14 = cmp eq i32 %t13, 4
+    %t15 = cmp ne i64 %t14, 0
+    store i64 %t15, $land__2
+    jump ^land_end_6
+
+  block ^land_short_5:
+    store i64 0, $land__2
+    jump ^land_end_6
+
+  block ^land_end_6:
+    %t16 = load i64 $land__2
+    branch %t16, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t17 = load i32 $cond__1
+    return i32 %t17
+}
+function @holder_int__3___scaled(%this : ptr) -> i32 [binding=weak, object=_ZNK6holderIiLi3EE6scaledEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = const i64 12
+    %t2 = convert trunc i32 i64 %t1
+    %t3 = const i64 4
+    %t4 = convert trunc i32 i64 %t3
+    %t5 = binary div i32 %t2, %t4
+    %t6 = binary add i32 3, %t5
+    return i32 %t6
+}
+function @holder_int__3___count() -> i32 [binding=weak, object=_ZN6holderIiLi3EE5countEv] {
+  slot $held : obj<12x4>
+
+  block ^entry:
+    %t1 = addr $held
+    %t2 = unary decay ptr %t1
+    %t3 = binary sub i32 3, 1
+    %t4 = index i32 [projection=array_element] %t2, %t3
+    store i32 3, %t4
+    %t5 = addr $held
+    %t6 = unary decay ptr %t5
+    %t7 = binary sub i32 3, 1
+    %t8 = index i32 [projection=array_element] %t6, %t7
+    %t9 = load i32 %t8
+    %t10 = binary add i32 %t9, 3
+    return i32 %t10
+}
+function @counted_1__2__3__4___total() -> i32 [binding=weak, object=_ZN7countedIJLi1ELi2ELi3ELi4EEE5totalEv] {
+  block ^entry:
+    %t1 = const i64 4
+    %t2 = convert trunc i32 i64 %t1
+    return i32 %t2
+}
