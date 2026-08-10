@@ -47,7 +47,14 @@ enum class TypeKind
 	Function,
 	Class,
 	Enum,
-	TemplateParameter
+	TemplateParameter,
+	// 14.3.2p1: a template argument written at a non-type place, which is a
+	// converted constant value rather than a type.  It is a type-table entry
+	// because 14.4p1 makes it part of what tells two specializations of one
+	// template apart, and every fact keyed by an argument list - the
+	// specialization, the substitution, the object-file name - reads that list
+	// as types.  Nothing declares an object of one.
+	Value
 };
 
 // 8.3.5p1: the ref-qualifier written after a member function's
@@ -173,6 +180,26 @@ public:
 	                 const std::string& qualified, TypeId underlying);
 	TypeId template_parameter_type(std::uint32_t entity, bool is_template,
 	                               const std::string& name);
+
+	// 14.3.2p1: the value a template-argument-list bound to a non-type place,
+	// as the type it was converted to and the bits it holds.  Two arguments are
+	// the same argument exactly when both agree, which is what 14.4p1 makes one
+	// specialization of two namings.
+	TypeId value_type(TypeId type, unsigned long long bits);
+	bool is_value(TypeId type) const { return kind(type) == TypeKind::Value; }
+	unsigned long long value_bits(TypeId type) const { return nodes_[type].bound; }
+
+	// 14.1p4: the type a non-type template parameter names a value of, kept on
+	// the parameter's own type so that a region binding it - and a deduction
+	// walking it - can tell a value place from a type place without the head
+	// that declared it.  `kNoType` for a type parameter.
+	void set_parameter_value_type(TypeId type, TypeId value_type);
+	TypeId parameter_value_type(TypeId type) const
+	{
+		return kind(type) == TypeKind::TemplateParameter
+			? user_at(type).parameter_value_type
+			: kNoType;
+	}
 
 	// The name the dump spells a user-defined type with.  7.1.3p2 lets a
 	// declaration name an unnamed class after it has been read, so the name can
@@ -606,6 +633,8 @@ private:
 		bool nested_in_dependent = false;
 		// 14.1p2: which parameter of its template a template parameter is.
 		unsigned template_index = 0;
+		// 14.1p4: the type a non-type template parameter names a value of.
+		TypeId parameter_value_type = kNoType;
 		// 14.6.2p1: the prefix a dependent member name stands after and the
 		// name itself, which the ABI writes apart.  `kNoType` for every other
 		// type.

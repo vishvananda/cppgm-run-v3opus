@@ -164,37 +164,43 @@ SemaEntity* SemaAnalyzer::template_specializations(const std::string& spelling,
 		return nullptr;
 	}
 
-	std::vector<TypeId> arguments;
-	arguments.reserve(id.arguments().size());
-	for (std::size_t index = 0; index < id.arguments().size(); ++index)
-	{
-		arguments.push_back(template_argument_type(id.arguments()[index], ctx));
-	}
-
 	// 14.8.1p2 and 13.4p1: the argument list is written once and makes one
 	// specialization of each declaration of the name it fits, which is still an
 	// overload set for a target type or a call to choose from.  Each of them is a
 	// declaration of its own that no region's chain holds, so the set the use
 	// carries is what holds them.
+	//
+	// 14.1p4 leaves what an argument *is* a fact of the declaration it is bound
+	// to: one spelling is a type-id at one head's place and a constant
+	// expression at another's, so the list is read once per candidate.
 	for (SemaEntity* at = primary; at != nullptr; at = at->next)
 	{
 		if (at->template_parameters == nullptr)
 		{
 			continue;
 		}
-		const std::size_t places = at->template_parameters->declarations.size();
-		if (places == arguments.size())
+		const std::vector<SemaEntity*>& places =
+			at->template_parameters->declarations;
+		if (places.size() < id.arguments().size())
+		{
+			continue;
+		}
+		std::vector<TypeId> arguments;
+		arguments.reserve(id.arguments().size());
+		for (std::size_t index = 0; index < id.arguments().size(); ++index)
+		{
+			arguments.push_back(explicit_argument(*places[index],
+			                                      id.arguments()[index], ctx));
+		}
+		if (places.size() == arguments.size())
 		{
 			found.push_back(&specialize(*at, arguments));
 			continue;
 		}
-		if (places > arguments.size())
-		{
-			// 14.8.1p2: the trailing arguments the list left out are the use's
-			// to deduce, so what this declaration contributes is a candidate
-			// and not yet a specialization.
-			found.push_back(&partial_template(*at, arguments));
-		}
+		// 14.8.1p2: the trailing arguments the list left out are the use's
+		// to deduce, so what this declaration contributes is a candidate
+		// and not yet a specialization.
+		found.push_back(&partial_template(*at, arguments));
 	}
 	if (found.empty())
 	{
@@ -685,18 +691,6 @@ ClassTag class_tag_of(const AstNode& node)
 	return ClassTag::Struct;
 }
 
-std::string decimal_text(unsigned long long value)
-{
-	std::string digits;
-	unsigned long long rest = value;
-	while (rest != 0)
-	{
-		digits.insert(digits.begin(), static_cast<char>('0' + (rest % 10)));
-		rest /= 10;
-	}
-	return digits.empty() ? std::string("0") : digits;
-}
-
 const AstNode* first_child(const AstNode& node, AstKind kind)
 {
 	for (std::size_t index = 0; index < node.children.size(); ++index)
@@ -709,58 +703,6 @@ const AstNode* first_child(const AstNode& node, AstKind kind)
 	return nullptr;
 }
 
-}
-
-// 14.1p2: the parameters a template-parameter-clause declared, in the order it
-// wrote them, and 14.1p9's default arguments beside them.  A parameter this
-// milestone gives no meaning to leaves the head unsupported rather than
-// refusing it here: 14p1 lets a program declare a template it never names, and
-// the declaration says nothing about a type until an instantiation asks.
-void SemaAnalyzer::read_template_head(const AstNode& clause, TemplateInfo& info)
-{
-	const AstNode* const list =
-		first_child(clause, AstKind::TemplateParameterList);
-	if (list == nullptr)
-	{
-		return;
-	}
-	for (std::size_t index = 0; index < list->children.size(); ++index)
-	{
-		const AstNode& parameter = *list->children[index];
-		const AstNode* const id = first_child(parameter, AstKind::Identifier);
-		if (parameter.kind != AstKind::TypeParameter ||
-		    first_child(parameter, AstKind::TemplateTemplateParameter) != nullptr ||
-		    first_child(parameter, AstKind::ParameterPack) != nullptr)
-		{
-			// 14.1p2's non-type parameter, 14.1p1's template parameter and
-			// 14.5.3's pack all belong to later milestones.
-			info.supported = false;
-			info.parameters.push_back(std::string());
-			info.defaults.push_back(TemplateInfo::Default());
-			continue;
-		}
-		// 14.1p3: a type parameter with no identifier declares nothing a
-		// dependent name can reach, but it still takes an argument.
-		info.parameters.push_back(id == nullptr ? std::string() : id->text);
-		const AstNode* const written =
-			first_child(parameter, AstKind::DefaultTemplateArgument);
-		TemplateInfo::Default fill;
-		if (written != nullptr)
-		{
-			fill.written = first_child(*written, AstKind::TypeId);
-		}
-		if (fill.written != nullptr)
-		{
-			// 14.1p9: a default argument may name the parameters written
-			// before it, and 14.1p2 leaves the names *this* head gave those
-			// places as the only ones it can have written - so they are kept
-			// with it, however the declaration the merge leaves standing
-			// spells them.
-			fill.spelled.assign(info.parameters.begin(),
-			                    info.parameters.end() - 1);
-		}
-		info.defaults.push_back(fill);
-	}
 }
 
 // 14p1: records what a template-declaration parameterises rather than reading
@@ -897,7 +839,7 @@ bool SemaAnalyzer::record_template(const AstNode& node, const Context& ctx)
 		for (std::size_t index = 0;
 		     index < entity->templated->parameters.size(); ++index)
 		{
-			if (entity->templated->parameters[index] == name)
+			if (entity->templated->parameters[index].name == name)
 			{
 				throw std::runtime_error(name + " redeclares a template "
 				                         "parameter within the scope of the "
@@ -929,8 +871,11 @@ bool SemaAnalyzer::record_template(const AstNode& node, const Context& ctx)
 		if (define)
 		{
 			// 14.1p2: the parameter names of the definition are the ones its
-			// body wrote, whatever an earlier declaration called them.
-			entity->templated->parameters = head.parameters;
+			// body wrote, whatever an earlier declaration called them.  What a
+			// place *is* does not change with the spelling, so a region an
+			// earlier naming already opened keeps the types it settled and
+			// takes the new names beside the ones it was bound under.
+			rename_template_parameters(*entity->templated, head.parameters);
 		}
 		entity->templated->supported =
 			entity->templated->supported && head.supported;
@@ -984,176 +929,6 @@ void SemaAnalyzer::own_type(TypeId type, SemaEntity& entity)
 {
 	model_.own_type(type, entity);
 	types_.set_declaration(type, &entity);
-}
-
-// The source spelling of a type, which is what a specialization is named by.
-// 14.7.1p1 makes one declaration of every naming of one argument list, so two
-// spellings of one type - a typedef-name and what it names - have to reach the
-// same name; the spelling is therefore written from the type rather than from
-// the terminals a use wrote.
-std::string SemaAnalyzer::type_spelling(TypeId type) const
-{
-	std::string out;
-	TypeId at = type;
-	std::string suffix;
-	for (;;)
-	{
-		const unsigned cv = types_.cv(at);
-		const TypeKind kind = types_.kind(at);
-		if (kind == TypeKind::Pointer || kind == TypeKind::LValueReference ||
-		    kind == TypeKind::RValueReference)
-		{
-			std::string mark = kind == TypeKind::Pointer
-				? "*"
-				: (kind == TypeKind::LValueReference ? "&" : "&&");
-			if ((cv & kCvConst) != 0)
-			{
-				mark += "const";
-			}
-			if ((cv & kCvVolatile) != 0)
-			{
-				mark += "volatile";
-			}
-			suffix = mark + suffix;
-			at = types_.target(at);
-			continue;
-		}
-		if (kind == TypeKind::Array)
-		{
-			suffix = (types_.bounded(at)
-				          ? "[" + decimal_text(types_.bound(at)) + "]"
-				          : std::string("[]")) + suffix;
-			at = types_.target(at);
-			continue;
-		}
-		if ((cv & kCvConst) != 0)
-		{
-			out += "const ";
-		}
-		if ((cv & kCvVolatile) != 0)
-		{
-			out += "volatile ";
-		}
-		switch (kind)
-		{
-		case TypeKind::Class:
-		case TypeKind::Enum:
-		case TypeKind::TemplateParameter:
-			out += types_.user_qualified_name(at);
-			break;
-
-		case TypeKind::Function:
-		{
-			out += type_spelling(types_.target(at)) + "(";
-			const std::vector<TypeId>& given = types_.parameters(at);
-			for (std::size_t index = 0; index < given.size(); ++index)
-			{
-				if (index != 0)
-				{
-					out += ",";
-				}
-				out += type_spelling(given[index]);
-			}
-			if (types_.variadic(at))
-			{
-				out += given.empty() ? "..." : ",...";
-			}
-			out += ")";
-			break;
-		}
-
-		case TypeKind::MemberPointer:
-			out += type_spelling(types_.target(at)) + " " +
-				type_spelling(types_.member_class(at)) + "::";
-			suffix = "*" + suffix;
-			break;
-
-		default:
-			out += fundamental_type_name(types_.fundamental_type(at));
-			break;
-		}
-		break;
-	}
-	return out + suffix;
-}
-
-// 14.3p1: the arguments a template-argument-list binds to the parameters of
-// `primary`, with 14.1p9's defaults filling in the ones the list stopped short
-// of.  A default is read in a region that already binds the parameters before
-// it, because 14.1p9 lets it name them.
-void SemaAnalyzer::bind_template_arguments(
-	SemaEntity& primary, const std::vector<std::string>& written,
-	const Context& ctx, std::vector<TypeId>& out)
-{
-	const TemplateInfo& info = *primary.templated;
-	if (!info.supported)
-	{
-		throw std::runtime_error(primary.name + " is a template whose "
-		                         "parameters PA19 does not instantiate");
-	}
-	if (written.size() > info.parameters.size())
-	{
-		throw std::runtime_error("a template-argument-list gives " +
-		                         primary.name + " more arguments than it has "
-		                         "parameters");
-	}
-	out.reserve(info.parameters.size());
-	for (std::size_t index = 0; index < written.size(); ++index)
-	{
-		out.push_back(template_argument_type(written[index], ctx));
-	}
-	if (out.size() == info.parameters.size())
-	{
-		return;
-	}
-	// The defaults of one list of explicit arguments are one answer however
-	// many times the template is named that way, so the region they are read
-	// in is opened once and the answer is kept.
-	const std::uint64_t key =
-		(static_cast<std::uint64_t>(primary.id) << 32) | types_.type_list(out);
-	const std::unordered_map<std::uint64_t, std::vector<TypeId> >::const_iterator
-		held = default_arguments_.find(key);
-	if (held != default_arguments_.end())
-	{
-		out = held->second;
-		return;
-	}
-	for (std::size_t index = out.size(); index < info.parameters.size(); ++index)
-	{
-		const TemplateInfo::Default& fill = info.defaults[index];
-		if (fill.written == nullptr)
-		{
-			throw std::runtime_error("a template-argument-list gives " +
-			                         primary.name + " too few arguments");
-		}
-		// 14.1p9 and 14.1p2: the default may name the places written before it,
-		// under the names the head that wrote it gave them - which are not the
-		// names the declaration this merge left standing spells those places
-		// by.  So the region it is read in is its own head's, binding each
-		// earlier place to what the list wrote there or an earlier default
-		// already filled.
-		Context inner;
-		inner.scope = &model_.open(ScopeKind::TemplateParameters, *info.region,
-		                           nullptr, info.dump);
-		inner.dump = info.dump;
-		inner.node = nullptr;
-		for (std::size_t before = 0;
-		     before < index && before < fill.spelled.size(); ++before)
-		{
-			if (fill.spelled[before].empty())
-			{
-				// 14.1p3: a place its head left unnamed is one no default can
-				// have written.
-				continue;
-			}
-			SemaEntity& bound = model_.create(SemaKind::Typedef,
-			                                  fill.spelled[before], out[before]);
-			model_.bind(*inner.scope, bound.name, bound);
-			model_.declare_in(*inner.scope, bound);
-		}
-		out.push_back(type_id_type(*fill.written, inner));
-	}
-	default_arguments_.insert(std::make_pair(key, out));
 }
 
 // 14.7.1p1: the class `arguments` makes of the class template `primary`.
@@ -1283,6 +1058,50 @@ void SemaAnalyzer::require_complete_type(TypeId type)
 	owner->declared_only = false;
 	--declared_only_;
 	require_specialization(*owner);
+}
+
+// 10p1 and 14.6p8: a type a reading of a template definition requires to be
+// complete *there*, which is one no argument list can still change.
+//
+// 14.6p8's reading asks for no definition, because a name written in a template
+// definition is no use of anything; but a base class an argument list has
+// already settled is a class the definition itself is laid out over, and the
+// clause requires it complete where it stands.  So the reading is put aside for
+// the demand - the specialization is instantiated as an instantiation makes it,
+// with 12.1's members and its own layout - and taken up again after.
+void SemaAnalyzer::require_settled_type(TypeId type)
+{
+	TypeId bare = types_.strip_cv(type);
+	while (types_.kind(bare) == TypeKind::Array)
+	{
+		bare = types_.strip_cv(types_.target(bare));
+	}
+	SemaEntity* const owner = checking_ > 0 &&
+			types_.kind(bare) == TypeKind::Class && !types_.is_dependent(bare)
+		? model_.type_owner(bare)
+		: nullptr;
+	if (owner == nullptr || owner->primary == nullptr || owner->defined)
+	{
+		require_complete_type(type);
+		return;
+	}
+	const unsigned held = checking_;
+	checking_ = 0;
+	if (owner->declared_only)
+	{
+		owner->declared_only = false;
+		--declared_only_;
+	}
+	try
+	{
+		require_specialization(*owner);
+	}
+	catch (...)
+	{
+		checking_ = held;
+		throw;
+	}
+	checking_ = held;
 }
 
 // 14.7.1p1: an instantiation asks for this specialization.
@@ -1756,8 +1575,17 @@ void SemaAnalyzer::record_function_template(SemaEntity& entity,
 		// 14.1p2: a parameter this milestone does not bind leaves the pattern
 		// unreadable, which an instantiation of it - and nothing else - finds.
 		info.supported = info.supported &&
-			parameter.kind == SemaKind::TemplateType;
-		info.parameters.push_back(parameter.name);
+			(parameter.kind == SemaKind::TemplateType ||
+			 parameter.kind == SemaKind::TemplateValue);
+		// 14.1p4: a function template's head is read by the ordinary
+		// declaration path, so the place already carries what it stands for and
+		// the type of the value it names.
+		TemplateInfo::Parameter place;
+		place.name = parameter.name;
+		place.self = parameter.type;
+		place.value = parameter.kind == SemaKind::TemplateValue;
+		place.type = types_.parameter_value_type(parameter.type);
+		info.parameters.push_back(place);
 		info.defaults.push_back(TemplateInfo::Default());
 	}
 }
@@ -1924,69 +1752,6 @@ SemaEntity* SemaAnalyzer::member_definition_owner(const AstNode& node,
 		}
 	}
 	return nullptr;
-}
-
-Scope& SemaAnalyzer::open_template_bindings(const TemplateInfo& info,
-                                            const std::vector<TypeId>& arguments)
-{
-	Scope& bindings = model_.open(ScopeKind::TemplateParameters, *info.region,
-	                              nullptr, info.dump);
-	for (std::size_t index = 0;
-	     index < info.parameters.size() && index < arguments.size(); ++index)
-	{
-		if (info.parameters[index].empty())
-		{
-			continue;
-		}
-		SemaEntity& bound = model_.create(SemaKind::Typedef,
-		                                  info.parameters[index],
-		                                  arguments[index]);
-		model_.bind(bindings, bound.name, bound);
-		model_.declare_in(bindings, bound);
-	}
-	return bindings;
-}
-
-// 14.5.1.3p1 and 14.1p2: the region one out-of-class member definition of a
-// class template is read in.
-//
-// Each declaration of one template spells its parameters as it likes, and what
-// two heads share is the *places* the argument list is in the order of - so the
-// names this head wrote stand in a region of this definition's own, opened
-// between the class and the region the class was completed against.  A name the
-// head wrote then reaches the argument its own place took, whatever the class's
-// head called that place, and nothing this definition binds is standing when
-// the next one is read.
-//
-// Null where the head declares a different number of parameters than the class
-// takes arguments: that is 14.5.5's partial specialization, which this
-// milestone leaves out, and not a definition of a member of this template.
-Scope* SemaAnalyzer::open_member_parameters(
-	Scope& enclosing, const AstNode& clause,
-	const std::vector<TypeId>& arguments, SemaKind kind, DumpScope* dump)
-{
-	TemplateInfo head;
-	read_template_head(clause, head);
-	if (head.parameters.size() != arguments.size())
-	{
-		return nullptr;
-	}
-	Scope& region = model_.open(ScopeKind::TemplateParameters, enclosing,
-	                            nullptr, dump);
-	for (std::size_t index = 0; index < head.parameters.size(); ++index)
-	{
-		if (head.parameters[index].empty())
-		{
-			// 14.1p3: a parameter with no identifier binds nothing, and still
-			// stands for an argument.
-			continue;
-		}
-		SemaEntity& bound = model_.create(kind, head.parameters[index],
-		                                  arguments[index]);
-		model_.bind(region, bound.name, bound);
-		model_.declare_in(region, bound);
-	}
-	return &region;
 }
 
 void SemaAnalyzer::instantiate_member(SemaEntity& specialization,
@@ -2398,7 +2163,7 @@ TypeId SemaAnalyzer::substituted(
 // than what it does.  Nothing it finds reaches the output: its lines are
 // written into a scope that is dropped with this call and no template-id it
 // names is instantiated.
-SemaAnalyzer::DialectReading::DialectReading(SemaAnalyzer& analyzer)
+DialectReading::DialectReading(SemaAnalyzer& analyzer)
 	: analyzer_(analyzer)
 	, dialect_(analyzer.dialect_)
 {
@@ -2406,7 +2171,7 @@ SemaAnalyzer::DialectReading::DialectReading(SemaAnalyzer& analyzer)
 	++analyzer_.checking_;
 }
 
-SemaAnalyzer::DialectReading::~DialectReading()
+DialectReading::~DialectReading()
 {
 	--analyzer_.checking_;
 	analyzer_.dialect_ = dialect_;
@@ -2463,33 +2228,12 @@ SemaEntity& SemaAnalyzer::current_instantiation(SemaEntity& primary)
 	{
 		return *info.current;
 	}
-	info.reading_dump = &model_.detached_dump();
-	Scope& region = model_.open(ScopeKind::TemplateParameters, *info.region,
-	                            nullptr, info.reading_dump);
-	info.parameter_region = &region;
+	open_parameter_region(info);
 	std::vector<TypeId> arguments;
 	arguments.reserve(info.parameters.size());
 	for (std::size_t index = 0; index < info.parameters.size(); ++index)
 	{
-		// 14.1p2 and the ABI's `<template-param>`: a parameter stands for the
-		// place its head declared it in, which is what a name encoded from the
-		// current instantiation would be written by.
-		const TypeId type = types_.template_parameter_type(
-			model_.type_entity_id(), false,
-			info.parameters[index].empty() ? "#" + std::to_string(index)
-			                               : info.parameters[index]);
-		types_.set_template_index(type, static_cast<unsigned>(index));
-		arguments.push_back(type);
-		if (info.parameters[index].empty())
-		{
-			// 14.1p3: a parameter with no identifier binds nothing, and still
-			// stands for an argument.
-			continue;
-		}
-		SemaEntity& bound = model_.create(SemaKind::TemplateType,
-		                                  info.parameters[index], type);
-		model_.bind(region, bound.name, bound);
-		model_.declare_in(region, bound);
+		arguments.push_back(info.parameters[index].self);
 	}
 	// The declaration is made before the body is read, so that a name the body
 	// writes for its own class finds it rather than starting a second reading.

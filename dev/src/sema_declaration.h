@@ -1,14 +1,17 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <stdexcept>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "sema_scope.h"
 #include "type_model.h"
 
 struct AstNode;
+class SemaAnalyzer;
 
 // The typed records the declaration layer passes between its steps.
 //
@@ -406,6 +409,64 @@ struct SemaConstant
 
 	TypeId type;
 	unsigned long long bits;
+};
+
+// 6.6.1, 6.6.3 and 12.2p3: what the walk knows about the function whose
+// body it is reading.
+//
+// A body is read wherever its definition can be: where the definition was
+// written, at the end of the unit for a member read once its class is
+// complete, and - 14.6p8 - at the definition of the template whose pattern
+// it is.  Each of those readings can stand inside another, because naming a
+// specialization in an expression is what asks for one, so what the
+// enclosing reading knew is put aside here and given back when this body is
+// done however it ends.
+class FunctionReading
+{
+public:
+FunctionReading(SemaAnalyzer& analyzer, SemaEntity* self, TypeId returns);
+~FunctionReading();
+
+private:
+FunctionReading(const FunctionReading&);
+FunctionReading& operator=(const FunctionReading&);
+
+SemaAnalyzer& analyzer_;
+SemaEntity* self_;
+TypeId returns_;
+unsigned breakable_;
+unsigned continuable_;
+unsigned switches_;
+std::size_t live_destructions_;
+std::vector<std::vector<SemaEntity*> > lifetimes_;
+std::vector<std::size_t> breakable_frames_;
+std::vector<std::size_t> continuable_frames_;
+std::vector<SemaEntity*> parameter_objects_;
+std::unordered_set<std::string> labels_;
+std::vector<std::string> gotos_;
+};
+
+// 14.6p8: the reading of a template's pattern rather than of a declaration
+// this unit has.
+//
+// What the pattern can be asked is what its declarations *say*, which is
+// the PA11 dialect: a type that depends on a template parameter has no
+// layout, no conversion and no overload set until an argument arrives, so
+// the reading describes the declarations the body makes and translates
+// none of them.  It stands inside a lowering, so the dialect is put aside
+// here and given back however the reading ends.
+class DialectReading
+{
+public:
+explicit DialectReading(SemaAnalyzer& analyzer);
+~DialectReading();
+
+private:
+DialectReading(const DialectReading&);
+DialectReading& operator=(const DialectReading&);
+
+SemaAnalyzer& analyzer_;
+SemaDialect dialect_;
 };
 
 // A depth held while one reading stands, and put back where it ends - so a

@@ -183,7 +183,7 @@ void SemaAnalyzer::read_base_clause(const AstNode& node, SemaEntity& entity,
 	SemaEntity& found = require(resolve(named, ctx, LookupKind::Type), named);
 	// 10p1 and 14.7.1p1: a base class shall be a complete class type, which is
 	// what asks a specialization the base-specifier named for its definition.
-	require_complete_type(found.type);
+	require_settled_type(found.type);
 	if (checking_ > 0 && types_.is_dependent(types_.strip_cv(found.type)))
 	{
 		// 14.6.2p3: an unqualified name written in the definition is not looked

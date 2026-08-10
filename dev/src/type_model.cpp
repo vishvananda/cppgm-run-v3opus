@@ -506,6 +506,24 @@ void TypeTable::set_template_index(TypeId type, unsigned index)
 	user_types_[nodes_[type].user].template_index = index;
 }
 
+void TypeTable::set_parameter_value_type(TypeId type, TypeId value_type)
+{
+	user_types_[nodes_[type].user].parameter_value_type = value_type;
+}
+
+// 14.3.2p1: an argument at a non-type place, which is the value and the type it
+// was converted to.  Nothing about it is a user-defined type, so it is interned
+// by what it holds like a pointer or an array and not by a declaration.
+TypeId TypeTable::value_type(TypeId type, unsigned long long bits)
+{
+	Node node = nodes_[0];
+	node.kind = TypeKind::Value;
+	node.bounded = true;
+	node.target = type;
+	node.bound = bits;
+	return intern(key_of(node), node);
+}
+
 void TypeTable::set_nested_in_dependent(TypeId type)
 {
 	user_types_[nodes_[type].user].nested_in_dependent = true;
@@ -903,6 +921,13 @@ TypeId TypeTable::substitute(TypeId type,
 		break;
 	}
 
+	case TypeKind::Value:
+		// 14.3.2p1: the bits are already settled; only the type they were
+		// converted to can still name a parameter, which `template<class T, T v>`
+		// leaves standing in an argument list read against another head.
+		result = value_type(substitute(target(type), bindings, memo), bound(type));
+		break;
+
 	default:
 		break;
 	}
@@ -1121,6 +1146,12 @@ bool TypeTable::dependent_walk(TypeId type) const
 		// is dependent for the same reason a nested class is.
 		return user_at(type).nested_in_dependent;
 
+	case TypeKind::Value:
+		// 14.3.2p1: a value argument is the bits it holds, which no argument
+		// list can change; only the type it was converted to can still depend
+		// on one, which `template<class T, T v>` writes.
+		return is_dependent(target(type));
+
 	default:
 		return false;
 	}
@@ -1263,6 +1294,15 @@ void TypeTable::append_description(TypeId type, std::string& out) const
 			out += user_at(type).scoped ? "template-parameter " : "typename ";
 			out += user_at(type).name;
 			return;
+
+		case TypeKind::Value:
+			// 14.3.2p1: a value argument is described as what it is worth and
+			// what it was converted to, which is what a diagnostic about a
+			// specialization has to name it by.
+			out += "value ";
+			out += decimal(node.bound);
+			out += " of ";
+			break;
 		}
 		type = node.target;
 	}

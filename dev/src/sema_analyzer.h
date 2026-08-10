@@ -58,63 +58,12 @@ public:
 	TypeTable& types() { return types_; }
 
 private:
-	// 6.6.1, 6.6.3 and 12.2p3: what the walk knows about the function whose
-	// body it is reading.
-	//
-	// A body is read wherever its definition can be: where the definition was
-	// written, at the end of the unit for a member read once its class is
-	// complete, and - 14.6p8 - at the definition of the template whose pattern
-	// it is.  Each of those readings can stand inside another, because naming a
-	// specialization in an expression is what asks for one, so what the
-	// enclosing reading knew is put aside here and given back when this body is
-	// done however it ends.
-	class FunctionReading
-	{
-	public:
-		FunctionReading(SemaAnalyzer& analyzer, SemaEntity* self, TypeId returns);
-		~FunctionReading();
-
-	private:
-		FunctionReading(const FunctionReading&);
-		FunctionReading& operator=(const FunctionReading&);
-
-		SemaAnalyzer& analyzer_;
-		SemaEntity* self_;
-		TypeId returns_;
-		unsigned breakable_;
-		unsigned continuable_;
-		unsigned switches_;
-		std::size_t live_destructions_;
-		std::vector<std::vector<SemaEntity*> > lifetimes_;
-		std::vector<std::size_t> breakable_frames_;
-		std::vector<std::size_t> continuable_frames_;
-		std::vector<SemaEntity*> parameter_objects_;
-		std::unordered_set<std::string> labels_;
-		std::vector<std::string> gotos_;
-	};
-
-	// 14.6p8: the reading of a template's pattern rather than of a declaration
-	// this unit has.
-	//
-	// What the pattern can be asked is what its declarations *say*, which is
-	// the PA11 dialect: a type that depends on a template parameter has no
-	// layout, no conversion and no overload set until an argument arrives, so
-	// the reading describes the declarations the body makes and translates
-	// none of them.  It stands inside a lowering, so the dialect is put aside
-	// here and given back however the reading ends.
-	class DialectReading
-	{
-	public:
-		explicit DialectReading(SemaAnalyzer& analyzer);
-		~DialectReading();
-
-	private:
-		DialectReading(const DialectReading&);
-		DialectReading& operator=(const DialectReading&);
-
-		SemaAnalyzer& analyzer_;
-		SemaDialect dialect_;
-	};
+	// 6.6.1, 6.6.3, 12.2p3 and 14.6p8: what one reading of a function body and
+	// one reading of a template's pattern put aside, which `sema_declaration.h`
+	// owns beside the other records the declaration layer passes between its
+	// steps.  Each saves the walk's own state, so each is a friend of it.
+	friend class FunctionReading;
+	friend class DialectReading;
 
 	// 3.3, 7p1, 8.3.5p4, 12.6.2p1 and 5.19p3: the records the declaration
 	// layer passes between its steps, which `sema_declaration.h` defines.  The
@@ -253,6 +202,7 @@ private:
 	                                TypeId member, const Context& ctx,
 	                                bool instantiated_region);
 	void template_parameter(const AstNode& node, const Context& ctx);
+	void non_type_template_parameter(const AstNode& node, const Context& ctx);
 	void simple_declaration(const AstNode& node, const Context& ctx);
 	void condition_declaration(const AstNode& node, const Context& ctx);
 	// One declarator of a declaration, with the initializer written for it.
@@ -1338,6 +1288,17 @@ private:
 	TypeId common_type(TypeId left, TypeId right);
 	unsigned long long array_bound(const AstNode& node, const Context& ctx);
 	TypeId decltype_type(const AstNode& node, const Context& ctx);
+	// 5.19 read out of the spelling 14.2 left a template argument as, which
+	// `sema_value_expression.cpp` owns.  The reading is a walk over text rather
+	// than over the tree, so it is a reader of its own that borrows this one
+	// for the arithmetic and the lookups.
+	friend class TemplateArgumentReader;
+	// 14.3.2p1: the argument `spelling` binds to a value place whose declared
+	// type is `place`, as the type-table entry that holds the converted value.
+	TypeId template_argument_value(const std::string& spelling, TypeId place,
+	                               const Context& ctx);
+	TypeId dependent_value(const std::string& spelling);
+
 	// 5.3.3 and 5.3.6 over a type-id, which is the whole of what PA11 needs.
 	unsigned long long size_of(TypeId type);
 	bool is_signed(TypeId type) const;
@@ -1742,6 +1703,29 @@ private:
 	// 14.1p2: the parameters a template-parameter-clause declared, written
 	// onto `info`.
 	void read_template_head(const AstNode& clause, TemplateInfo& info);
+	// 14.1p2 and 14.3p1, owned by `sema_template_head.cpp`: what a head's
+	// places are, and what one written argument list makes of them.
+	// `open_parameter_region` opens 14.6.1p1's own region and settles every
+	// place there, once per template; `place_type` is the type a value place
+	// declares over the arguments the places before it took; `bound_argument`
+	// and `explicit_argument` read one written argument as the place asks, and
+	// `bind_argument` binds the answer as a type or as a constant.
+	static std::string non_type_parameter_name(const AstNode& parameter);
+	TypeId non_type_parameter_type(const AstNode& parameter, const Context& ctx);
+	void open_parameter_region(TemplateInfo& info);
+	void rename_template_parameters(
+		TemplateInfo& info,
+		const std::vector<TemplateInfo::Parameter>& head);
+	void bind_argument(Scope& region, const std::string& name, TypeId argument,
+	                   SemaKind kind);
+	TypeId place_type(const TemplateInfo& info, std::size_t index,
+	                  const std::vector<TypeId>& before);
+	TypeId bound_argument(const TemplateInfo& info, std::size_t index,
+	                      const std::string& written,
+	                      const std::vector<TypeId>& before,
+	                      const Context& ctx);
+	TypeId explicit_argument(const SemaEntity& parameter,
+	                         const std::string& written, const Context& ctx);
 	// 14.2: the specialization a name written as a template-id denotes, or
 	// null when `component` is no template-id or names no template this
 	// milestone instantiates.  `in` is the region a qualified name looks into
@@ -1901,6 +1885,9 @@ private:
 	// demand every context that does require one makes of what it named.
 	void asked_specialization(SemaEntity& made);
 	void require_complete_type(TypeId type);
+	// 10p1 and 14.6p8: a type a reading of a template definition requires to be
+	// complete where the definition stands, which no argument list can change.
+	void require_settled_type(TypeId type);
 	// 14.3p1 and 14.8.2: `type` with every template parameter `bindings` names
 	// replaced by the type bound to it.  The type table rebuilds every
 	// category that is only made of types; a specialization is the one that is
@@ -2259,6 +2246,12 @@ private:
 	// expression read in a region binding the parameters before it, so it is
 	// read once rather than at every naming of the same specialization.
 	std::unordered_map<std::uint64_t, std::vector<TypeId> > default_arguments_;
+	// 5.19 and 14.2: the terminals one template-argument spelling splits into,
+	// and 14.6.2p2's argument a spelling no argument list has settled stands
+	// for.  Both are facts of the text alone, so a template-id written n times
+	// costs one split and names one specialization.
+	std::unordered_map<std::string, std::vector<std::string> > value_words_;
+	std::unordered_map<std::string, TypeId> dependent_values_;
 	// 14.5.6.2p2: which of two function templates is at least as specialized as
 	// the other, keyed by the two declarations.  It is a fact of the pair, and
 	// 13.3.3p1 asks it of the same pair once for every comparison a call makes.
@@ -2291,6 +2284,12 @@ private:
 	// declaration the program has, so nothing it reads is declared into the
 	// output and nothing it names demands an instantiation.
 	unsigned checking_;
+	// 14.6p8: how many times a reading has stood a value in the place of one an
+	// argument list has yet to settle.  A constant expression that took one is
+	// not the expression the instantiation will evaluate, so 7p4's
+	// static_assert over it asserts nothing where the pattern stands.  It is a
+	// count and not a flag because one such reading stands inside another.
+	unsigned stood_in_;
 	// 14.7.1p1: how many specializations a name has left declared, waiting for
 	// the first context that requires a completely-defined type.  A demand for
 	// a definition costs the count being zero at every place the standard

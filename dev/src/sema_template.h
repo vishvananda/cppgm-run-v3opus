@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -57,12 +58,40 @@ struct TemplateInfo
 		const AstNode* written;
 		std::vector<std::string> spelled;
 	};
-	// 14.1p2: the type parameters the head declared, in order, and 14.1p9's
-	// default arguments, empty where no declaration wrote one.  A head this
-	// milestone gives no meaning to - a non-type parameter, a template
-	// parameter, a pack - leaves `supported` false, so the declaration is
-	// still read and only an instantiation of it is refused.
-	std::vector<std::string> parameters;
+	// 14.1p2: the parameters the head declared, in order, and 14.1p9's default
+	// arguments beside them, empty where no declaration wrote one.  A head this
+	// milestone gives no meaning to - a template parameter, a pack - leaves
+	// `supported` false, so the declaration is still read and only an
+	// instantiation of it is refused.
+	//
+	// 14.1p4's non-type parameter is a place of its own: what it binds is a
+	// value and not a type, and what type that value has is written by the
+	// parameter's own decl-specifier-seq and declarator - which may name the
+	// parameters before it, as `template<class T, T v>` does.  So the syntax
+	// travels with the place and the type is read in a region that already
+	// binds them.
+	struct Parameter
+	{
+		Parameter()
+			: written(nullptr)
+			, value(false)
+			, self(0)
+			, type(0)
+		{}
+
+		std::string name;
+		const AstNode* written;
+		bool value;
+		// 14.6.1p1: the type standing for this place, which the current
+		// instantiation's argument list is written from and which the type of a
+		// later value place is read over.
+		TypeId self;
+		// 14.1p4: the type a value place names a value of, over the places
+		// before it.  A concrete argument list substitutes its own bindings
+		// into it.  Zero at a type place and until the head is read.
+		TypeId type;
+	};
+	std::vector<Parameter> parameters;
 	std::vector<Default> defaults;
 	bool supported;
 	// 14.5.1.3p1: the members of the template a definition outside its class

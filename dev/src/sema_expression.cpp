@@ -487,7 +487,25 @@ SemaAnalyzer::Value SemaAnalyzer::named_value(const AstNode& node,
 	// two part company only here.
 	SemaEntity& entity = declared_member(named);
 	Value value;
+	if (entity.kind == SemaKind::TemplateValue && !entity.constant)
+	{
+		// 14.1p4 and 14.6.2p2: a non-type parameter read where the pattern
+		// stands names a value the argument list has yet to give it.  What it
+		// has already is the type its own declaration wrote, which is what the
+		// reading types the expressions around it by; the value waits for an
+		// instantiation, and nothing here is written out.
+		value.type = types_.parameter_value_type(entity.type);
+		value.spelled = value.type;
+		value.category = ValueCategory::PRValue;
+		value.entity = &entity;
+		value.what = "literal";
+		value.payload = "0";
+		value.node = &model_.open_node(
+			parent, spell(value.what, value.category, value.type, value.payload));
+		return value;
+	}
 	if (entity.kind == SemaKind::Enumerator ||
+	    (entity.kind == SemaKind::TemplateValue && entity.constant) ||
 	    (entity.kind == SemaKind::Variable && entity.constant &&
 	     !entity.object_definition && entity.region != nullptr &&
 	     entity.region->kind == ScopeKind::Class))

@@ -80,7 +80,12 @@ enum class SemaKind
 	Function,
 	Parameter,
 	Enumerator,
-	TemplateType
+	TemplateType,
+	// 14.1p4: a template parameter that names a value rather than a type.  It
+	// is a declaration of its own kind because 14.3.2p1 lets the argument bound
+	// to it be read wherever 5.19 asks for a constant and nowhere a type-name
+	// is asked for.
+	TemplateValue
 };
 
 // The declarative regions of 3.3, which are also the scopes the dump names.

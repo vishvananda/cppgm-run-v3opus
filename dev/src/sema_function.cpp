@@ -32,7 +32,7 @@
 // continue has a statement to leave, which lifetimes are open, and which labels
 // the body wrote for its gotos to name.  Holding them here is what lets a
 // specialization named in the middle of one body be read as a body of its own.
-SemaAnalyzer::FunctionReading::FunctionReading(SemaAnalyzer& analyzer,
+FunctionReading::FunctionReading(SemaAnalyzer& analyzer,
                                                SemaEntity* self, TypeId returns)
 	: analyzer_(analyzer)
 	, self_(analyzer.self_)
@@ -56,7 +56,7 @@ SemaAnalyzer::FunctionReading::FunctionReading(SemaAnalyzer& analyzer,
 	analyzer_.live_destructions_ = 0;
 }
 
-SemaAnalyzer::FunctionReading::~FunctionReading()
+FunctionReading::~FunctionReading()
 {
 	analyzer_.self_ = self_;
 	analyzer_.returns_ = returns_;

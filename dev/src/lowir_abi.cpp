@@ -864,8 +864,20 @@ const std::string& LocalContexts::argument_of(TypeId type)
 	abi_mangle::AbiDefinitionRecord& record = records_.back();
 	record.kind = abi_mangle::ABI_DEFINITION_TEMPLATE_ARGUMENT;
 	record.id = id;
-	record.template_argument.kind = abi_mangle::ABI_TEMPLATE_ARGUMENT_TYPE;
 	map_[id] = &record;
+	if (types_.is_value(type))
+	{
+		// 14.3.2p1 and the ABI's `<expr-primary>`: an argument at a non-type
+		// place is written as the value and the type it was converted to, which
+		// is what makes `f<3>` and `f<'\3'>` one name in the object file.
+		record.template_argument.kind = abi_mangle::ABI_TEMPLATE_ARGUMENT_VALUE;
+		record.template_argument.value_type =
+			abi_type(types_, types_.target(type), *this);
+		record.template_argument.value =
+			static_cast<long long>(types_.value_bits(type));
+		return placed->second;
+	}
+	record.template_argument.kind = abi_mangle::ABI_TEMPLATE_ARGUMENT_TYPE;
 	record.template_argument.type = abi_type(types_, type, *this);
 	return placed->second;
 }

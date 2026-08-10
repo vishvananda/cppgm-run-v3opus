@@ -223,6 +223,7 @@ SemaAnalyzer::Constant SemaAnalyzer::id_constant(const AstNode& node,
 			// 14.6p8: what a name that depends on a template parameter is
 			// worth, an argument list is what says.  The reading stands one
 			// value in its place, as it does for the size of a dependent type.
+			++stood_in_;
 			Constant stood;
 			stood.type = types_.fundamental(FT_INT);
 			stood.bits = 1;
@@ -299,9 +300,14 @@ SemaAnalyzer::Constant SemaAnalyzer::binary_constant(const AstNode& node,
 	const bool comparison = node.token == OP_LT || node.token == OP_GT ||
 		node.token == OP_LE || node.token == OP_GE || node.token == OP_EQ ||
 		node.token == OP_NE;
-	const TypeId type = common_type(left.type, right.type);
+	// 5.8p1: a shift takes 5p10's conversions on neither operand.  Each is
+	// promoted on its own and the result has the type of the promoted left one,
+	// so an unsigned count does not make the value it shifts unsigned.
+	const bool shifted = node.token == OP_LSHIFT || node.token == OP_RSHIFT;
+	const TypeId type =
+		shifted ? left.type : common_type(left.type, right.type);
 	const unsigned long long lhs = convert(left, type).bits;
-	const unsigned long long rhs = convert(right, type).bits;
+	const unsigned long long rhs = shifted ? right.bits : convert(right, type).bits;
 	const bool sign = is_signed(type);
 	const long long signed_lhs = static_cast<long long>(lhs);
 	const long long signed_rhs = static_cast<long long>(rhs);
@@ -365,9 +371,10 @@ SemaAnalyzer::Constant SemaAnalyzer::binary_constant(const AstNode& node,
 	case OP_LSHIFT:
 	case OP_RSHIFT:
 	{
-		const unsigned long long count = sign && signed_rhs < 0
-			? static_cast<unsigned long long>(width_of(type))
-			: rhs;
+		const unsigned long long count =
+			is_signed(right.type) && static_cast<long long>(rhs) < 0
+				? static_cast<unsigned long long>(width_of(type))
+				: rhs;
 		if (count >= width_of(type))
 		{
 			throw NotConstant("a constant expression shifts by more than "
@@ -377,7 +384,13 @@ SemaAnalyzer::Constant SemaAnalyzer::binary_constant(const AstNode& node,
 		{
 			out.bits = lhs << count;
 			result = static_cast<long long>(out.bits);
-			overflowed = sign && (signed_lhs < 0 || (result >> count) != signed_lhs);
+			// 5.8p2: a signed left operand shall be non-negative, and the value
+			// shall be representable in the *unsigned* type of the same width -
+			// so `1LL << 63` is the sign bit and not an overflow, which is what
+			// the bits shifted past the width say.
+			overflowed = sign &&
+				(signed_lhs < 0 ||
+				 (count != 0 && (lhs >> (width_of(type) - count)) != 0));
 			break;
 		}
 		out.bits = sign ? static_cast<unsigned long long>(signed_lhs >> count)
@@ -395,9 +408,11 @@ SemaAnalyzer::Constant SemaAnalyzer::binary_constant(const AstNode& node,
 	}
 
 	// 5p4: an operation whose result its type cannot represent has undefined
-	// behaviour, so it is not a constant expression.
+	// behaviour, so it is not a constant expression.  5.8p2's shift is the one
+	// operation whose signed result may hold the sign bit and still be the
+	// value the clause names, so it answers for itself.
 	const Constant narrowed = convert(out, type);
-	if (sign && (overflowed || narrowed.bits != out.bits))
+	if (sign && (overflowed || (!shifted && narrowed.bits != out.bits)))
 	{
 		throw NotConstant("a constant expression overflows");
 	}
@@ -495,6 +510,7 @@ SemaAnalyzer::Constant SemaAnalyzer::evaluate(const AstNode& node,
 				// says, so the reading stands one value in its place and looks
 				// up the names 3.4p1 answers where the definition stands.
 				check_expression_names(*node.children[0], ctx);
+				++stood_in_;
 				Constant stood;
 				stood.type = types_.fundamental(FT_UNSIGNED_LONG_INT);
 				stood.bits = 1;
@@ -529,6 +545,7 @@ unsigned long long SemaAnalyzer::size_of(TypeId type)
 		// parameter is, an argument list is what says - so a reading of the
 		// definition stands one value in its place, and nothing it declares is
 		// laid out or written out.
+		++stood_in_;
 		return 1;
 	}
 	require_complete_type(type);

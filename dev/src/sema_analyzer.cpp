@@ -91,6 +91,7 @@ SemaAnalyzer::SemaAnalyzer(SemaDialect dialect)
 	, template_pattern_dump_(nullptr)
 	, instantiating_(nullptr)
 	, checking_(0)
+	, stood_in_(0)
 	, declared_only_(0)
 	, self_(nullptr)
 	, naming_(nullptr)
@@ -1384,7 +1385,16 @@ void SemaAnalyzer::alias_declaration(const AstNode& node, const Context& ctx)
 void SemaAnalyzer::static_assert_declaration(const AstNode& node,
                                              const Context& ctx)
 {
+	const unsigned stood = stood_in_;
 	const Constant value = evaluate(*node.children[0], ctx);
+	if (stood_in_ != stood)
+	{
+		// 14.6p8 and 7p4: the condition names something an argument list has
+		// yet to settle, so the reading stood a value in its place and what it
+		// came out as says nothing.  The instantiation evaluates it again with
+		// the arguments, which is where the assertion is made.
+		return;
+	}
 	if (value.bits == 0)
 	{
 		throw std::runtime_error("a static_assert condition is false");
@@ -1445,9 +1455,20 @@ void SemaAnalyzer::template_declaration(const AstNode& node, const Context& ctx)
 
 void SemaAnalyzer::template_parameter(const AstNode& node, const Context& ctx)
 {
+	if (node.kind == AstKind::NonTypeTemplateParameter)
+	{
+		// 14.1p4: a place that binds a value, whose type its own
+		// decl-specifier-seq and declarator write in this region.  It is
+		// declared for the same reason a type place is - the body looks its
+		// name up here - and no line is written for it, because the dump of
+		// this region names the types it declares.
+		non_type_template_parameter(node, ctx);
+		return;
+	}
 	if (node.kind != AstKind::TypeParameter)
 	{
-		// 14.1p2: a non-type parameter binds a value, which PA11 does not model.
+		// 14.1p1's template parameter and 14.5.3's pack belong to a later
+		// milestone.
 		return;
 	}
 	const AstNode* id = child_of(node, AstKind::Identifier);
@@ -1483,6 +1504,51 @@ void SemaAnalyzer::template_parameter(const AstNode& node, const Context& ctx)
 		}
 	}
 	write_line(*ctx.dump, "type", id->text, type);
+}
+
+// 14.1p4: a non-type template parameter, declared into the region its head
+// opened.
+//
+// It stands for its place exactly as a type parameter does - the ABI writes a
+// `<template-param>` for either - and what tells the two apart is the type of
+// the value it names, which is a fact of the place and is what a region binding
+// an argument to it reads.  14.6.2p2 leaves the value itself unknown while the
+// pattern is being read, so the declaration carries no constant here: an
+// argument list is what gives it one.
+void SemaAnalyzer::non_type_template_parameter(const AstNode& node,
+                                               const Context& ctx)
+{
+	const std::string name = non_type_parameter_name(node);
+	const TypeId type = types_.template_parameter_type(
+		model_.type_entity_id(), false,
+		name.empty()
+			? "#" + std::to_string(ctx.scope->declarations.size())
+			: name);
+	types_.set_template_index(
+		type, static_cast<unsigned>(ctx.scope->declarations.size()));
+	types_.set_parameter_value_type(type, non_type_parameter_type(node, ctx));
+	if (name.empty())
+	{
+		// 14.1p3: a place its head left unnamed still takes an argument, and a
+		// function template's places are counted from the region - so it is
+		// declared under a name nothing writes.
+		SemaEntity& unnamed = model_.create(SemaKind::TemplateValue, name, type);
+		model_.declare_in(*ctx.scope, unnamed);
+		return;
+	}
+	SemaEntity& entity = model_.create(SemaKind::TemplateValue, name, type);
+	model_.bind(*ctx.scope, name, entity);
+	model_.declare_in(*ctx.scope, entity);
+	const AstNode* const written =
+		child_of(node, AstKind::DefaultTemplateArgument);
+	if (written != nullptr && !written->children.empty())
+	{
+		// 14.1p9: the value this place takes where the use wrote none, which is
+		// an expression rather than a type-id and is read where the deduction
+		// finds the place empty.
+		parameter_defaults_.insert(
+			std::make_pair(entity.id, written->children[0]));
+	}
 }
 
 SemaEntity* SemaAnalyzer::redeclared(const Context& ctx, const std::string& name,
@@ -2736,8 +2802,12 @@ void SemaAnalyzer::declare_object_declarator(const AstNode* initializer,
 		// the program may read, and there is nothing to describe.
 		return;
 	}
-	if (entity.constant && specifiers.is_constexpr)
+	if (entity.constant && specifiers.is_constexpr && !lowering())
 	{
+		// The dump writes what the object is worth and stops there.  A lowering
+		// still has to give the storage that value: 7.1.5p9 makes a constexpr
+		// object a const object and nothing more, so 3.6.2p2's initialization
+		// of it is the one every other const object at this scope gets.
 		model_.open_node(line, spell("literal", ValueCategory::PRValue, type,
 		                             spell_value(type, entity.value)));
 		return;
