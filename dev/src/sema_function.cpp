@@ -122,11 +122,30 @@ void SemaAnalyzer::declare_parameters(const std::vector<Parameter>& parameters,
 	// out.  So a specialization a declaration left standing is asked for its
 	// definition here, before the objects the body names are built from it.
 	require_complete_type(types_.target(type));
+	// 14.5.3p4: the places one expansion of a function parameter pack made,
+	// which stand together and are counted on the first of them.
+	SemaEntity* run_of = nullptr;
+	unsigned run_left = 0;
+	// 14.5.3p4: a pack expanded into no place at all is declared and is no
+	// place, so the places the function type holds and the entries this clause
+	// wrote are counted apart.
+	std::size_t place = 0;
 	for (std::size_t index = 0; index < parameters.size(); ++index)
 	{
-		const TypeId written = index + implicit < adjusted.size()
-			? adjusted[index + implicit]
+		if (types_.is_settled_run(parameters[index].type))
+		{
+			// The run itself, which the body reads `sizeof...` and an
+			// expansion off and lays no object out for.
+			SemaEntity& none = model_.create(SemaKind::Typedef,
+			                                 parameters[index].name,
+			                                 parameters[index].type);
+			model_.bind(*inner.scope, none.name, none);
+			continue;
+		}
+		const TypeId written = place + implicit < adjusted.size()
+			? adjusted[place + implicit]
 			: parameters[index].type;
+		++place;
 		// 8.3.5p5: a parameter written as an array or as a function is a pointer,
 		// so the object the body names is one - which is what says a use of it
 		// loads the pointer the caller passed rather than 4.2's or 4.3's view of
@@ -157,8 +176,21 @@ void SemaAnalyzer::declare_parameters(const std::vector<Parameter>& parameters,
 		}
 		// 14.5.3p4: the run this place was expanded into, carried onto the
 		// declaration the pack's own name reaches - which is what `sizeof...`
-		// and an expansion written in the body read.
+		// and an expansion written in the body read.  The places after it are
+		// the rest of that run, and each carries the first back, because a
+		// reading of a pattern binds the pack's name to one of them and the
+		// pattern may still name the pack as a pack.
 		parameter.pack_run = parameters[index].pack_run;
+		if (parameter.pack_run != 0)
+		{
+			run_of = &parameter;
+			run_left = parameter.pack_run - 1;
+		}
+		else if (run_left != 0)
+		{
+			parameter.pack_element_of = run_of;
+			--run_left;
+		}
 		model_.declare_in(*inner.scope, parameter);
 		if (lowering() && parameter.name.empty() &&
 		    inner.scope->kind == ScopeKind::Function &&
@@ -177,7 +209,7 @@ void SemaAnalyzer::declare_parameters(const std::vector<Parameter>& parameters,
 			// nothing the specialization has already made.
 			std::vector<ParameterRecord>& record =
 				defaults_[wrote_defaults(*inner.scope->owner).id];
-			const std::size_t at = index + implicit;
+			const std::size_t at = place - 1 + implicit;
 			record.resize(at + 1 > record.size() ? at + 1 : record.size());
 			record[at].objects.push_back(&parameter);
 		}

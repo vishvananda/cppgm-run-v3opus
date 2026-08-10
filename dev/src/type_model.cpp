@@ -496,11 +496,13 @@ void TypeTable::rename(TypeId type, const std::string& name,
 }
 
 void TypeTable::set_template_arguments(TypeId type, const std::string& templated,
-                                       const std::vector<TypeId>& arguments)
+                                       const std::vector<TypeId>& arguments,
+                                       unsigned pack_at)
 {
 	UserType& record = user_types_[nodes_[type].user];
 	record.template_name = templated;
 	record.template_arguments = arguments;
+	record.template_pack_place = pack_at;
 	// 14.6.2p1 is asked of the arguments, so the answer this type had before it
 	// had any is not the answer it has now.  Nothing holds this type yet - it
 	// was made a moment ago - so its own entry is the only stale one.

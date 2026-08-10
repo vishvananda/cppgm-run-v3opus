@@ -298,6 +298,7 @@ SemaEntity& SemaModel::create(SemaKind kind, const std::string& name, TypeId typ
 	entity.local_occurrence = 0;
 	entity.local_unnamed = false;
 	entity.pack_run = 0;
+	entity.pack_element_of = nullptr;
 	return entity;
 }
 

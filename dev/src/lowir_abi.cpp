@@ -5,6 +5,7 @@
 #include <sstream>
 
 #include "abi_mangle.h"
+#include "sema_pack.h"
 #include "sema_scope.h"
 #include "token_model.h"
 
@@ -109,6 +110,30 @@ private:
 	std::map<TypeId, std::string> arguments_;
 	abi_mangle::AbiDefinitionMap map_;
 };
+
+// 14.5.3p1 and `<template-args>`: the arguments one written list gave a
+// specialization, where the ones a pack place took are *one* argument however
+// many the run holds.  The list a specialization is keyed by is flat - 14.4p1
+// makes two lists of the same arguments one list - so the place the run begins
+// at is what splits it back, and a head that declared a pack writes the run
+// even where it is empty.
+void argument_refs(TypeTable& types, const std::vector<TypeId>& arguments,
+                   unsigned pack_at, LocalContexts& contexts,
+                   std::vector<std::string>& refs)
+{
+	const std::size_t fixed =
+		pack_at < arguments.size() ? pack_at : arguments.size();
+	for (std::size_t index = 0; index < fixed; ++index)
+	{
+		refs.push_back(contexts.argument_of(arguments[index]));
+	}
+	if (pack_at == TypeTable::kNoPackPlace)
+	{
+		return;
+	}
+	refs.push_back(contexts.argument_of(types.pack_type(
+		std::vector<TypeId>(arguments.begin() + fixed, arguments.end()))));
+}
 
 AbiType wrapped(abi_mangle::AbiTypeKind kind, TypeTable& types,
                 TypeId inner, LocalContexts& contexts)
@@ -216,6 +241,20 @@ AbiType abi_type(TypeTable& types, TypeId type, LocalContexts& contexts)
 		return out;
 	}
 
+	case TypeKind::Pack:
+		// 14.5.3p4 and the ABI's `Dp`: a place written `P...` is the pattern
+		// under the pack-expansion operator, which is what the *template's*
+		// signature holds where its last place is a pack - the specialization's
+		// own places are as many as the run and are not what names it.  A
+		// settled run never stands where a type does: it is written as an
+		// argument, and `argument_of` takes it before this walk is asked.
+		if (types.is_pack_expansion(type))
+		{
+			return wrapped(abi_mangle::ABI_TYPE_PACK_EXPANSION, types,
+			               types.target(type), contexts);
+		}
+		break;
+
 	case TypeKind::Class:
 	case TypeKind::Enum:
 	{
@@ -252,11 +291,9 @@ AbiType abi_type(TypeTable& types, TypeId type, LocalContexts& contexts)
 		{
 			out.kind = abi_mangle::ABI_TYPE_TEMPLATE_SPECIALIZATION;
 			out.name = types.template_name(type);
-			const std::vector<TypeId>& arguments = types.template_arguments(type);
-			for (std::size_t index = 0; index < arguments.size(); ++index)
-			{
-				out.argument_refs.push_back(contexts.argument_of(arguments[index]));
-			}
+			argument_refs(types, types.template_arguments(type),
+			              types.template_pack_place(type), contexts,
+			              out.argument_refs);
 			return out;
 		}
 		// 9.1p2 and 14.2: a class or enumeration a specialization declares is
@@ -591,12 +628,9 @@ abi_mangle::AbiFunctionRecord region_record(const NameRegion& region,
 	{
 		record.kind = abi_mangle::ABI_FUNCTION_RECORD_NAME_TEMPLATE;
 		record.name = name_components(types.template_name(region.owner->type)).back();
-		const std::vector<TypeId>& arguments =
-			types.template_arguments(region.owner->type);
-		for (std::size_t at = 0; at < arguments.size(); ++at)
-		{
-			record.argument_refs.push_back(contexts.argument_of(arguments[at]));
-		}
+		argument_refs(types, types.template_arguments(region.owner->type),
+		              types.template_pack_place(region.owner->type), contexts,
+		              record.argument_refs);
 		return record;
 	}
 	record.kind = abi_mangle::ABI_FUNCTION_RECORD_NAME_SOURCE;
@@ -818,12 +852,16 @@ void build_function_name(const SemaEntity& entity, TypeTable& types,
 	{
 		abi_mangle::AbiFunctionRecord written;
 		written.kind = abi_mangle::ABI_FUNCTION_RECORD_FUNCTION_TEMPLATE_ARGUMENT;
-		const std::vector<TypeId>& arguments =
-			types.type_list_at(entity.template_arguments);
-		for (std::size_t index = 0; index < arguments.size(); ++index)
-		{
-			written.argument_refs.push_back(contexts.argument_of(arguments[index]));
-		}
+		// 14.5.3p1: a function template's places are declarations rather than a
+		// `TemplateInfo`, so the place its run begins at is read off them - the
+		// same question `specialize` asked to bind the run in the first place.
+		const std::vector<SemaEntity*>& places =
+			templated->template_parameters->declarations;
+		const std::size_t packed = function_pack_place(types, places);
+		argument_refs(types, types.type_list_at(entity.template_arguments),
+		              packed < places.size() ? static_cast<unsigned>(packed)
+		                                     : TypeTable::kNoPackPlace,
+		              contexts, written.argument_refs);
 		records.push_back(written);
 		// The ABI writes a function template's result type, because two
 		// specializations of one template can differ in it alone.
@@ -875,6 +913,20 @@ const std::string& LocalContexts::argument_of(TypeId type)
 			abi_type(types_, types_.target(type), *this);
 		record.template_argument.value =
 			static_cast<long long>(types_.value_bits(type));
+		return placed->second;
+	}
+	if (types_.is_settled_run(type))
+	{
+		// 14.5.3p1 and `<template-arg>`'s `J...E`: the run a pack place took is
+		// one argument holding however many the list gave it, which is what a
+		// second unit reading the name splits back into the same run.
+		record.template_argument.kind = abi_mangle::ABI_TEMPLATE_ARGUMENT_PACK;
+		const std::vector<TypeId>& run = types_.pack_elements(type);
+		for (std::size_t index = 0; index < run.size(); ++index)
+		{
+			record.template_argument.argument_refs.push_back(
+				argument_of(run[index]));
+		}
 		return placed->second;
 	}
 	record.template_argument.kind = abi_mangle::ABI_TEMPLATE_ARGUMENT_TYPE;

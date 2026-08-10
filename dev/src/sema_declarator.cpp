@@ -707,6 +707,13 @@ std::vector<TypeId> SemaAnalyzer::parameter_types(
 	types.reserve(parameters.size());
 	for (std::size_t index = 0; index < parameters.size(); ++index)
 	{
+		if (types_.is_settled_run(parameters[index].type))
+		{
+			// 14.5.3p4: a pack whose run holds no elements declared no place,
+			// so the function takes no argument for it.  An expansion the
+			// reading has not settled is one place and stays one.
+			continue;
+		}
 		types.push_back(semantics()
 			? types_.adjust_parameter(parameters[index].type)
 			: parameters[index].type);
@@ -737,6 +744,22 @@ void SemaAnalyzer::bind_place(Context& reading, const Context& ctx,
 		semantics() ? types_.parameter_object(parameter.type) : parameter.type);
 	model_.bind(*reading.scope, parameter.name, place);
 	model_.declare_in(*reading.scope, place);
+}
+
+// 14.5.3p4: the pack a clause declared where its run holds no elements, bound
+// in the same region a place would have been - so what the rest of the
+// declarator writes for it reaches the run and not nothing.
+void SemaAnalyzer::bind_pack(Context& reading, const Context& ctx,
+                             const Parameter& parameter)
+{
+	if (reading.scope == ctx.scope)
+	{
+		reading.scope = &model_.open(ScopeKind::Prototype, *ctx.scope, nullptr,
+		                             ctx.dump);
+	}
+	SemaEntity& pack = model_.create(SemaKind::Typedef, parameter.name,
+	                                 parameter.type);
+	model_.bind(*reading.scope, parameter.name, pack);
 }
 
 // 8.2p7: `T (X)` written as a parameter-declaration is a parameter of function
@@ -871,6 +894,24 @@ void SemaAnalyzer::read_parameters(const AstNode& clause, const Context& ctx,
 				// `sizeof...` over it is a value only the instantiation knows.
 				const bool settled = !(run.size() == 1 &&
 				                       types_.is_pack_expansion(run[0]));
+				if (settled && run.empty() && !parameter.name.empty())
+				{
+					// 14.5.3p4 over a run of none: the clause declared no place
+					// at all, and the pack is still declared - so what its name
+					// names is the run itself, which `sizeof...` reads as zero
+					// and an expansion of it comes to no arguments.  It is no
+					// place, so no function type holds it and no object is laid
+					// out for it.
+					Parameter none = parameter;
+					none.type = types_.pack_type(std::vector<TypeId>());
+					none.initializer = nullptr;
+					if (at < places || reading != nullptr)
+					{
+						bind_pack(inner, ctx, none);
+					}
+					out.push_back(none);
+					continue;
+				}
 				for (std::size_t element = 0; element < run.size(); ++element)
 				{
 					Parameter one = parameter;

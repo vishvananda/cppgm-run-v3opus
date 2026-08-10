@@ -2,6 +2,7 @@
 
 #include <stdexcept>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 #include "ast_model.h"
@@ -101,11 +102,20 @@ PackReading::PackReading(SemaAnalyzer& analyzer)
 	: analyzer_(analyzer)
 {}
 
-void PackReading::packs_in(TypeId pattern, std::vector<TypeId>& runs,
-                           std::vector<TypeId>& places) const
+namespace
 {
-	TypeTable& types = analyzer_.types_;
-	if (pattern == kNoType)
+
+// The packs one pattern is written over, walked once per type it is built from.
+//
+// A type is a DAG rather than a tree - `pair<T, T>` holds one entry twice - so
+// a walk that asked each edge would ask 2^depth questions of a pattern a few
+// hundred characters long.  What the walk answers is a fact of the type and not
+// of the path that reached it, so a type already asked is not asked again.
+void collect_packs(TypeTable& types, TypeId pattern,
+                   std::vector<TypeId>& runs, std::vector<TypeId>& places,
+                   std::unordered_set<TypeId>& seen)
+{
+	if (pattern == kNoType || !seen.insert(pattern).second)
 	{
 		return;
 	}
@@ -132,7 +142,7 @@ void PackReading::packs_in(TypeId pattern, std::vector<TypeId>& runs,
 	case TypeKind::Pack:
 		if (types.is_pack_expansion(pattern))
 		{
-			packs_in(types.target(pattern), runs, places);
+			collect_packs(types, types.target(pattern), runs, places, seen);
 			return;
 		}
 		for (std::size_t index = 0; index < runs.size(); ++index)
@@ -152,7 +162,7 @@ void PackReading::packs_in(TypeId pattern, std::vector<TypeId>& runs,
 		const std::vector<TypeId>& arguments = types.template_arguments(pattern);
 		for (std::size_t index = 0; index < arguments.size(); ++index)
 		{
-			packs_in(arguments[index], runs, places);
+			collect_packs(types, arguments[index], runs, places, seen);
 		}
 		return;
 	}
@@ -162,15 +172,15 @@ void PackReading::packs_in(TypeId pattern, std::vector<TypeId>& runs,
 		const std::vector<TypeId>& given = types.parameters(pattern);
 		for (std::size_t index = 0; index < given.size(); ++index)
 		{
-			packs_in(given[index], runs, places);
+			collect_packs(types, given[index], runs, places, seen);
 		}
-		packs_in(types.target(pattern), runs, places);
+		collect_packs(types, types.target(pattern), runs, places, seen);
 		return;
 	}
 
 	case TypeKind::MemberPointer:
-		packs_in(types.member_class(pattern), runs, places);
-		packs_in(types.target(pattern), runs, places);
+		collect_packs(types, types.member_class(pattern), runs, places, seen);
+		collect_packs(types, types.target(pattern), runs, places, seen);
 		return;
 
 	case TypeKind::Pointer:
@@ -178,12 +188,21 @@ void PackReading::packs_in(TypeId pattern, std::vector<TypeId>& runs,
 	case TypeKind::RValueReference:
 	case TypeKind::Array:
 	case TypeKind::Value:
-		packs_in(types.target(pattern), runs, places);
+		collect_packs(types, types.target(pattern), runs, places, seen);
 		return;
 
 	default:
 		return;
 	}
+}
+
+}
+
+void PackReading::packs_in(TypeId pattern, std::vector<TypeId>& runs,
+                           std::vector<TypeId>& places) const
+{
+	std::unordered_set<TypeId> seen;
+	collect_packs(analyzer_.types_, pattern, runs, places, seen);
 }
 
 bool PackReading::expand_type(TypeId pattern, std::vector<TypeId>& out)
@@ -248,11 +267,19 @@ void PackReading::substitute_entry(
 void PackReading::note_name(const std::string& name, const SemaContext& ctx,
                             Run& run) const
 {
-	SemaEntity* const found =
+	SemaEntity* found =
 		analyzer_.model_.lookup(*ctx.scope, name, LookupKind::Any);
 	if (found == nullptr)
 	{
 		return;
+	}
+	if (found->pack_element_of != nullptr)
+	{
+		// 14.5.3p4: the name stands for one element while a reading of the
+		// pattern it was written in stands, and a pattern that names it as a
+		// pack *again* - a nested expansion, 5.3.3p5's `sizeof...` - is written
+		// over the whole run and not over that element.
+		found = found->pack_element_of;
 	}
 	if (analyzer_.types_.is_template_pack(found->type) ||
 	    analyzer_.types_.is_pack_expansion(found->type))
@@ -363,18 +390,27 @@ Scope& PackReading::element_region(const Run& run, std::size_t element,
 		SemaEntity& pack = *run.packs[which];
 		if (pack.pack_run == 0)
 		{
+			// 14.5.3p4: the element stands for the pack for as long as this
+			// reading does, and the pack itself stands behind it - a pattern
+			// that names it as a pack again is read over the whole run.
 			analyzer_.bind_argument(
 				region, pack.name,
 				analyzer_.types_.pack_elements(pack.type)[element],
-				SemaKind::Typedef);
+				SemaKind::Typedef).pack_element_of = &pack;
 			continue;
 		}
 		// 8.3.5p10: the places the expansion declared are named after the pack,
 		// so the element is the declaration that name reaches - the pack's own
 		// name is bound to it for as long as this reading of the pattern
-		// stands.
-		SemaEntity* const place = analyzer_.model_.lookup(
-			*ctx.scope, pack_element_name(pack.name, element), LookupKind::Any);
+		// stands.  The first of them is the pack's own declaration, which is
+		// asked for rather than looked up: an enclosing reading of a pattern
+		// has that very name standing for *its* element.
+		SemaEntity* const place =
+			element == 0
+				? &pack
+				: analyzer_.model_.lookup(
+					  *ctx.scope, pack_element_name(pack.name, element),
+					  LookupKind::Any);
 		if (place == nullptr)
 		{
 			throw std::runtime_error(pack.name + " is expanded and the place "
@@ -428,19 +464,11 @@ void PackReading::expand(const std::string& pattern, const SemaContext& ctx,
 		// 14.5.3p4: the expansion comes to the pattern read once per element,
 		// with each pack it names standing for that element.  The region is
 		// this element's alone, so nothing one reading binds is standing for
-		// the next.
-		Scope& region = analyzer_.model_.open(ScopeKind::TemplateParameters,
-		                                      *ctx.scope, nullptr, ctx.dump);
-		for (std::size_t which = 0; which < run.packs.size(); ++which)
-		{
-			const SemaEntity& pack = *run.packs[which];
-			analyzer_.bind_argument(
-				region, pack.name,
-				analyzer_.types_.pack_elements(pack.type)[index],
-				SemaKind::Typedef);
-		}
+		// the next - and it is the same region the tree reading opens, because
+		// a spelling names the two kinds of settled pack a tree does: a run an
+		// argument list bound, and 8.3.5p10's places one expansion declared.
 		SemaContext inner = ctx;
-		inner.scope = &region;
+		inner.scope = &element_region(run, index, ctx);
 		out.push_back(place == kNoType
 			              ? analyzer_.template_argument_type(pattern, inner)
 			              : analyzer_.template_argument_value(pattern, place,
@@ -451,11 +479,17 @@ void PackReading::expand(const std::string& pattern, const SemaContext& ctx,
 long long PackReading::length(const std::string& name,
                               const SemaContext& ctx) const
 {
-	SemaEntity* const found = analyzer_.resolve(name, ctx, LookupKind::Any);
+	SemaEntity* found = analyzer_.resolve(name, ctx, LookupKind::Any);
 	if (found == nullptr)
 	{
 		throw std::runtime_error(name + " is written as the operand of "
 		                         "sizeof... and names nothing");
+	}
+	if (found->pack_element_of != nullptr)
+	{
+		// 5.3.3p5: the operand is the pack, which a reading of a pattern
+		// standing over it has left the name standing for one element of.
+		found = found->pack_element_of;
 	}
 	if (analyzer_.types_.is_template_pack(found->type) ||
 	    analyzer_.types_.is_pack_expansion(found->type))

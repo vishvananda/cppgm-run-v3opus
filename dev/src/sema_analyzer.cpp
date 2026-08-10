@@ -337,10 +337,22 @@ void SemaAnalyzer::record_declared_parameters(
 	// declaration wrote is only there.
 	const std::uint32_t held_by = wrote_defaults(function).id;
 	const std::size_t total = types_.parameters(function.type).size();
-	const std::size_t implicit =
-		total > declared.size() ? total - declared.size() : 0;
+	// 14.5.3p4: a pack expanded into no place at all is one entry of this list
+	// and no place of the function, so what the two lists are counted apart by
+	// is the places rather than the entries.
+	std::size_t written = 0;
 	for (std::size_t index = 0; index < declared.size(); ++index)
 	{
+		written += types_.is_settled_run(declared[index].type) ? 0u : 1u;
+	}
+	const std::size_t implicit = total > written ? total - written : 0;
+	std::size_t place = 0;
+	for (std::size_t index = 0; index < declared.size(); ++index)
+	{
+		if (types_.is_settled_run(declared[index].type))
+		{
+			continue;
+		}
 		// 8.3.5p10: a parameter's name is no part of the function's type, so no
 		// two declarations of one function need agree about it and one that
 		// wrote none still declares the parameter.  The name the object file
@@ -348,13 +360,14 @@ void SemaAnalyzer::record_declared_parameters(
 		// the first one any declaration gave is it.  It is only the object file
 		// that asks, so the earlier dialects, whose dumps describe declarations
 		// one at a time, are left writing what each of them wrote.
+		const std::size_t at = place + implicit;
+		++place;
 		const bool names = lowering() && !declared[index].name.empty();
 		const bool takes = lowering() && declared[index].name.empty();
 		if (declared[index].initializer == nullptr && !names && !takes)
 		{
 			continue;
 		}
-		const std::size_t at = index + implicit;
 		std::vector<ParameterRecord>& held = defaults_[held_by];
 		held.resize(at + 1 > held.size() ? at + 1 : held.size());
 		if (names && held[at].name.empty())

@@ -542,8 +542,8 @@ Scope& SemaAnalyzer::open_template_bindings(const TemplateInfo& info,
 // argument is not a type at all: it is the constant 5.19 reads wherever the
 // place's name is written, so the declaration it binds carries the value and
 // the type the argument was converted to.
-void SemaAnalyzer::bind_argument(Scope& region, const std::string& name,
-                                 TypeId argument, SemaKind kind)
+SemaEntity& SemaAnalyzer::bind_argument(Scope& region, const std::string& name,
+                                        TypeId argument, SemaKind kind)
 {
 	if (types_.is_pack_expansion(argument))
 	{
@@ -558,7 +558,7 @@ void SemaAnalyzer::bind_argument(Scope& region, const std::string& name,
 		SemaEntity& bound = model_.create(kind, name, argument);
 		model_.bind(region, bound.name, bound);
 		model_.declare_in(region, bound);
-		return;
+		return bound;
 	}
 	SemaEntity& bound = model_.create(SemaKind::TemplateValue, name,
 	                                  types_.target(argument));
@@ -566,6 +566,7 @@ void SemaAnalyzer::bind_argument(Scope& region, const std::string& name,
 	bound.value = types_.value_bits(argument);
 	model_.bind(region, bound.name, bound);
 	model_.declare_in(region, bound);
+	return bound;
 }
 
 // 14.5.1.3p1 and 14.1p2: the region one out-of-class member definition of a

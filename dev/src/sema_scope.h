@@ -659,6 +659,12 @@ struct SemaEntity
 	// read the run off the declaration the name already reaches.  Zero for
 	// every declaration that is not one.
 	unsigned pack_run;
+	// 14.5.3p4: the pack this binding stands for one element of, while one
+	// reading of a pattern stands.  The pattern may name that pack *as a pack*
+	// again - a nested expansion and 5.3.3p5's `sizeof...` both do, and neither
+	// means this element - so the element binding carries the declaration the
+	// run is still read off.  Null for every declaration that is not one.
+	SemaEntity* pack_element_of;
 };
 
 // The name the object file encodes this declaration from, which is the dump's

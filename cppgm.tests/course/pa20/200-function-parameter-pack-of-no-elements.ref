@@ -1,0 +1,151 @@
+function @none() -> i32 [binding=strong, object=_Z4nonev] {
+  block ^entry:
+    return i32 5
+}
+function @one(%a : i32) -> i32 [binding=strong, object=_Z3onei] {
+  slot $a : i32
+
+  block ^entry:
+    store i32 %a, $a
+    %t1 = load i32 $a
+    return i32 %t1
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    %t1 = call i32 @calls_none()
+    %t2 = cmp ne i32 %t1, 5
+    branch %t2, ^if_then_1, ^if_else_2
+
+  block ^if_then_1:
+    return i32 1
+
+  block ^if_else_2:
+    jump ^if_end_3
+
+  block ^if_end_3:
+    %t3 = call i32 @calls_none__ov2(1, 2)
+    %t4 = cmp ne i32 %t3, 9
+    branch %t4, ^if_then_4, ^if_else_5
+
+  block ^if_then_4:
+    return i32 2
+
+  block ^if_else_5:
+    jump ^if_end_6
+
+  block ^if_end_6:
+    %t5 = call i32 @calls_one(3)
+    %t6 = cmp ne i32 %t5, 3
+    branch %t6, ^if_then_7, ^if_else_8
+
+  block ^if_then_7:
+    return i32 3
+
+  block ^if_else_8:
+    jump ^if_end_9
+
+  block ^if_end_9:
+    %t7 = call i32 @calls_one__ov2(3, 4, 5)
+    %t8 = cmp ne i32 %t7, 7
+    branch %t8, ^if_then_10, ^if_else_11
+
+  block ^if_then_10:
+    return i32 4
+
+  block ^if_else_11:
+    jump ^if_end_12
+
+  block ^if_end_12:
+    %t9 = call i32 @forwarded()
+    %t10 = cmp ne i32 %t9, 0
+    branch %t10, ^if_then_13, ^if_else_14
+
+  block ^if_then_13:
+    return i32 5
+
+  block ^if_else_14:
+    jump ^if_end_15
+
+  block ^if_end_15:
+    return i32 0
+}
+function @calls_none() -> i32 [binding=weak, object=_Z10calls_nonev] {
+  block ^entry:
+    %t1 = call i32 @none()
+    %t2 = const i64 0
+    %t3 = convert sext i64 i32 %t1
+    %t4 = binary add i64 %t3, %t2
+    %t5 = const i64 0
+    %t6 = binary add i64 %t4, %t5
+    %t7 = convert trunc i32 i64 %t6
+    return i32 %t7
+}
+function @calls_none__ov2(%args : i32, %args__pack2 : i32) -> i32 [binding=weak, object=_Z10calls_noneIJiiEEiDpT_] {
+  slot $args : i32
+  slot $args__pack2 : i32
+
+  block ^entry:
+    store i32 %args, $args
+    store i32 %args__pack2, $args__pack2
+    %t1 = call i32 @none()
+    %t2 = const i64 2
+    %t3 = convert sext i64 i32 %t1
+    %t4 = binary add i64 %t3, %t2
+    %t5 = const i64 2
+    %t6 = binary add i64 %t4, %t5
+    %t7 = convert trunc i32 i64 %t6
+    return i32 %t7
+}
+function @calls_one(%first : i32) -> i32 [binding=weak, object=_Z9calls_onei] {
+  slot $first : i32
+
+  block ^entry:
+    store i32 %first, $first
+    %t1 = load i32 $first
+    %t2 = call i32 @one(%t1)
+    %t3 = call i32 @forwarded()
+    %t4 = binary add i32 %t2, %t3
+    %t5 = const i64 0
+    %t6 = convert sext i64 i32 %t4
+    %t7 = binary add i64 %t6, %t5
+    %t8 = convert trunc i32 i64 %t7
+    return i32 %t8
+}
+function @calls_one__ov2(%first : i32, %args : i32, %args__pack2 : i32) -> i32 [binding=weak, object=_Z9calls_oneIJiiEEiiDpT_] {
+  slot $first : i32
+  slot $args : i32
+  slot $args__pack2 : i32
+
+  block ^entry:
+    store i32 %first, $first
+    store i32 %args, $args
+    store i32 %args__pack2, $args__pack2
+    %t1 = load i32 $first
+    %t2 = call i32 @one(%t1)
+    %t3 = load i32 $args
+    %t4 = load i32 $args__pack2
+    %t5 = call i32 @forwarded__ov2(%t3, %t4)
+    %t6 = binary add i32 %t2, %t5
+    %t7 = const i64 2
+    %t8 = convert sext i64 i32 %t6
+    %t9 = binary add i64 %t8, %t7
+    %t10 = convert trunc i32 i64 %t9
+    return i32 %t10
+}
+function @forwarded() -> i32 [binding=weak, object=_Z9forwardedv] {
+  block ^entry:
+    %t1 = const i64 0
+    %t2 = convert trunc i32 i64 %t1
+    return i32 %t2
+}
+function @forwarded__ov2(%args : i32, %args__pack2 : i32) -> i32 [binding=weak, object=_Z9forwardedIJiiEEiDpT_] {
+  slot $args : i32
+  slot $args__pack2 : i32
+
+  block ^entry:
+    store i32 %args, $args
+    store i32 %args__pack2, $args__pack2
+    %t1 = const i64 2
+    %t2 = convert trunc i32 i64 %t1
+    return i32 %t2
+}

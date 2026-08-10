@@ -1248,8 +1248,14 @@ SemaEntity& SemaAnalyzer::instantiate_class(SemaEntity& primary,
 	own_type(type, *made);
 	// The ABI writes the template's own name and then the arguments, which the
 	// one spelling above cannot be split back into.
-	types_.set_template_arguments(type, abi_name(*info.region, primary.name),
-	                              arguments);
+	// 14.5.3p1: and where its head declared a pack, the place its run begins
+	// at - because the list above is one flat list and the name the object
+	// file writes has to tell the run apart from the places before it.
+	const std::size_t packed = pack_place(info);
+	types_.set_template_arguments(
+		type, abi_name(*info.region, primary.name), arguments,
+		packed < info.parameters.size() ? static_cast<unsigned>(packed)
+		                                : TypeTable::kNoPackPlace);
 	model_.hold_specialization(primary, list, *made);
 	if (checking_ == 0)
 	{

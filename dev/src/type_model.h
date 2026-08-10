@@ -213,6 +213,12 @@ public:
 	{
 		return kind(type) == TypeKind::Pack && target(type) != kNoType;
 	}
+	// The other of the two: a run an argument list has settled, which is what a
+	// pack's name stands for and what no place is ever declared of.
+	bool is_settled_run(TypeId type) const
+	{
+		return kind(type) == TypeKind::Pack && target(type) == kNoType;
+	}
 	const std::vector<TypeId>& pack_elements(TypeId type) const
 	{
 		return *parameter_lists_[nodes_[type].parameters];
@@ -263,8 +269,18 @@ public:
 	// then its arguments - which the one spelling `qualified` carries cannot
 	// be split back into, so the specialization records them as the facts they
 	// are.  Empty for every class no template made.
+	//
+	// 14.5.3p1: the arguments a pack place took are one argument of the list
+	// the object file writes, however many the run holds - so `pack_at` is the
+	// place the run begins at, and `kNoPackPlace` where the head declared none.
 	void set_template_arguments(TypeId type, const std::string& templated,
-	                            const std::vector<TypeId>& arguments);
+	                            const std::vector<TypeId>& arguments,
+	                            unsigned pack_at);
+	static const unsigned kNoPackPlace = 0xffffffffu;
+	unsigned template_pack_place(TypeId type) const
+	{
+		return user_at(type).template_pack_place;
+	}
 	bool is_specialization(TypeId type) const
 	{
 		return !user_at(type).template_name.empty();
@@ -668,6 +684,9 @@ private:
 		// name.
 		std::string template_name;
 		std::vector<TypeId> template_arguments;
+		// 14.5.3p1: the place among them the pack's run begins at, which the
+		// flattened list cannot be split back into.
+		unsigned template_pack_place = 0xffffffffu;
 		// 14.6.2.1p9: whether the region this class or enumeration was
 		// declared in is one an argument list has yet to settle.
 		bool nested_in_dependent = false;

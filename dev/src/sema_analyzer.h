@@ -1227,6 +1227,8 @@ private:
 	                     Context* reading);
 	void bind_place(Context& reading, const Context& ctx,
 	                const Parameter& parameter);
+	void bind_pack(Context& reading, const Context& ctx,
+	               const Parameter& parameter);
 	// The declarator-id of a declarator, which a nested declarator holds.
 	static const AstNode* declarator_id(const AstNode& node);
 	// 3.4.3: `name`, which may be written with a nested-name-specifier,
@@ -1715,8 +1717,8 @@ private:
 	void rename_template_parameters(
 		TemplateInfo& info,
 		const std::vector<TemplateInfo::Parameter>& head);
-	void bind_argument(Scope& region, const std::string& name, TypeId argument,
-	                   SemaKind kind);
+	SemaEntity& bind_argument(Scope& region, const std::string& name,
+	                          TypeId argument, SemaKind kind);
 	TypeId place_type(const TemplateInfo& info, std::size_t index,
 	                  const std::vector<TypeId>& before);
 	TypeId bound_argument(const TemplateInfo& info, std::size_t index,

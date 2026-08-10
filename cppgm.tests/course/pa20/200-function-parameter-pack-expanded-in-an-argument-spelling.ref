@@ -1,0 +1,97 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    %t1 = call i32 @spelled(1)
+    %t2 = cmp ne i32 %t1, 2
+    branch %t2, ^if_then_1, ^if_else_2
+
+  block ^if_then_1:
+    return i32 1
+
+  block ^if_else_2:
+    jump ^if_end_3
+
+  block ^if_end_3:
+    %t3 = call i32 @spelled__ov2(1, 97)
+    %t4 = cmp ne i32 %t3, 4
+    branch %t4, ^if_then_4, ^if_else_5
+
+  block ^if_then_4:
+    return i32 2
+
+  block ^if_else_5:
+    jump ^if_end_6
+
+  block ^if_end_6:
+    %t5 = call i32 @spelled__ov3()
+    %t6 = cmp ne i32 %t5, 0
+    branch %t6, ^if_then_7, ^if_else_8
+
+  block ^if_then_7:
+    return i32 3
+
+  block ^if_else_8:
+    jump ^if_end_9
+
+  block ^if_end_9:
+    %t7 = call i32 @one_place(97)
+    %t8 = cmp ne i32 %t7, 1
+    branch %t8, ^if_then_10, ^if_else_11
+
+  block ^if_then_10:
+    return i32 4
+
+  block ^if_else_11:
+    jump ^if_end_12
+
+  block ^if_end_12:
+    %t9 = cmp ne i32 0, 0
+    branch %t9, ^if_then_13, ^if_else_14
+
+  block ^if_then_13:
+    return i32 5
+
+  block ^if_else_14:
+    jump ^if_end_15
+
+  block ^if_end_15:
+    return i32 0
+}
+function @spelled(%args : i32) -> i32 [binding=weak, object=_Z7spelledIJiEEiDpT_] {
+  slot $args : i32
+
+  block ^entry:
+    store i32 %args, $args
+    %t1 = const i64 1
+    %t2 = convert sext i64 i32 1
+    %t3 = binary add i64 %t2, %t1
+    %t4 = convert trunc i32 i64 %t3
+    return i32 %t4
+}
+function @spelled__ov2(%args : i32, %args__pack2 : i8) -> i32 [binding=weak, object=_Z7spelledIJicEEiDpT_] {
+  slot $args : i32
+  slot $args__pack2 : i8
+
+  block ^entry:
+    store i32 %args, $args
+    store i8 %args__pack2, $args__pack2
+    %t1 = const i64 2
+    %t2 = convert sext i64 i32 2
+    %t3 = binary add i64 %t2, %t1
+    %t4 = convert trunc i32 i64 %t3
+    return i32 %t4
+}
+function @spelled__ov3() -> i32 [binding=weak, object=_Z7spelledv] {
+  block ^entry:
+    %t1 = const i64 0
+    %t2 = convert sext i64 i32 0
+    %t3 = binary add i64 %t2, %t1
+    %t4 = convert trunc i32 i64 %t3
+    return i32 %t4
+}
+function @one_place(%args : i8) -> i32 [binding=weak, object=_Z9one_placeIJcEEiDpT_] {
+  slot $args : i8
+
+  block ^entry:
+    store i8 %args, $args
+    return i32 1
+}

@@ -1,0 +1,181 @@
+function @add(%a : i32, %b : i32) -> i32 [binding=strong, object=_Z3addii] {
+  slot $a : i32
+  slot $b : i32
+
+  block ^entry:
+    store i32 %a, $a
+    store i32 %b, $b
+    %t1 = load i32 $a
+    %t2 = load i32 $b
+    %t3 = binary add i32 %t1, %t2
+    return i32 %t3
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    %t1 = call i32 @nested(1, 2)
+    %t2 = cmp ne i32 %t1, 2
+    branch %t2, ^if_then_1, ^if_else_2
+
+  block ^if_then_1:
+    return i32 1
+
+  block ^if_else_2:
+    jump ^if_end_3
+
+  block ^if_end_3:
+    %t3 = call i32 @nested__ov2(1, 2, 3)
+    %t4 = cmp ne i32 %t3, 3
+    branch %t4, ^if_then_4, ^if_else_5
+
+  block ^if_then_4:
+    return i32 2
+
+  block ^if_else_5:
+    jump ^if_end_6
+
+  block ^if_end_6:
+    %t5 = call i32 @held(1, 2, 3, 4)
+    %t6 = cmp ne i32 %t5, 8
+    branch %t6, ^if_then_7, ^if_else_8
+
+  block ^if_then_7:
+    return i32 3
+
+  block ^if_else_8:
+    jump ^if_end_9
+
+  block ^if_end_9:
+    %t7 = call i32 @nested__ov3()
+    %t8 = cmp ne i32 %t7, 0
+    branch %t8, ^if_then_10, ^if_else_11
+
+  block ^if_then_10:
+    return i32 4
+
+  block ^if_else_11:
+    jump ^if_end_12
+
+  block ^if_end_12:
+    return i32 0
+}
+function @nested(%args : i32, %args__pack2 : i32) -> i32 [binding=weak, object=_Z6nestedIJiiEEiDpT_] {
+  slot $args : i32
+  slot $args__pack2 : i32
+
+  block ^entry:
+    store i32 %args, $args
+    store i32 %args__pack2, $args__pack2
+    %t1 = load i32 $args
+    %t2 = load i32 $args__pack2
+    %t3 = call i32 @width(%t1, %t2)
+    %t4 = load i32 $args
+    %t5 = binary add i32 %t3, %t4
+    %t6 = load i32 $args
+    %t7 = load i32 $args__pack2
+    %t8 = call i32 @width(%t6, %t7)
+    %t9 = load i32 $args__pack2
+    %t10 = binary add i32 %t8, %t9
+    %t11 = call i32 @width(%t5, %t10)
+    return i32 %t11
+}
+function @nested__ov2(%args : i32, %args__pack2 : i32, %args__pack3 : i32) -> i32 [binding=weak, object=_Z6nestedIJiiiEEiDpT_] {
+  slot $args : i32
+  slot $args__pack2 : i32
+  slot $args__pack3 : i32
+
+  block ^entry:
+    store i32 %args, $args
+    store i32 %args__pack2, $args__pack2
+    store i32 %args__pack3, $args__pack3
+    %t1 = load i32 $args
+    %t2 = load i32 $args__pack2
+    %t3 = load i32 $args__pack3
+    %t4 = call i32 @width__ov2(%t1, %t2, %t3)
+    %t5 = load i32 $args
+    %t6 = binary add i32 %t4, %t5
+    %t7 = load i32 $args
+    %t8 = load i32 $args__pack2
+    %t9 = load i32 $args__pack3
+    %t10 = call i32 @width__ov2(%t7, %t8, %t9)
+    %t11 = load i32 $args__pack2
+    %t12 = binary add i32 %t10, %t11
+    %t13 = load i32 $args
+    %t14 = load i32 $args__pack2
+    %t15 = load i32 $args__pack3
+    %t16 = call i32 @width__ov2(%t13, %t14, %t15)
+    %t17 = load i32 $args__pack3
+    %t18 = binary add i32 %t16, %t17
+    %t19 = call i32 @width__ov2(%t6, %t12, %t18)
+    return i32 %t19
+}
+function @held(%args : i32, %args__pack2 : i32, %args__pack3 : i32, %args__pack4 : i32) -> i32 [binding=weak, object=_Z4heldIJiiiiEEiDpT_] {
+  slot $args : i32
+  slot $args__pack2 : i32
+  slot $args__pack3 : i32
+  slot $args__pack4 : i32
+
+  block ^entry:
+    store i32 %args, $args
+    store i32 %args__pack2, $args__pack2
+    store i32 %args__pack3, $args__pack3
+    store i32 %args__pack4, $args__pack4
+    %t1 = load i32 $args
+    %t2 = load i32 $args__pack2
+    %t3 = load i32 $args__pack3
+    %t4 = load i32 $args__pack4
+    %t5 = call i32 @width__ov3(%t1, %t2, %t3, %t4)
+    %t6 = const i64 4
+    %t7 = convert trunc i32 i64 %t6
+    %t8 = call i32 @add(%t5, %t7)
+    return i32 %t8
+}
+function @nested__ov3() -> i32 [binding=weak, object=_Z6nestedv] {
+  block ^entry:
+    %t1 = call i32 @width__ov4()
+    return i32 %t1
+}
+function @width(%args : i32, %args__pack2 : i32) -> i32 [binding=weak, object=_Z5widthIJiiEEiDpT_] {
+  slot $args : i32
+  slot $args__pack2 : i32
+
+  block ^entry:
+    store i32 %args, $args
+    store i32 %args__pack2, $args__pack2
+    %t1 = const i64 2
+    %t2 = convert trunc i32 i64 %t1
+    return i32 %t2
+}
+function @width__ov2(%args : i32, %args__pack2 : i32, %args__pack3 : i32) -> i32 [binding=weak, object=_Z5widthIJiiiEEiDpT_] {
+  slot $args : i32
+  slot $args__pack2 : i32
+  slot $args__pack3 : i32
+
+  block ^entry:
+    store i32 %args, $args
+    store i32 %args__pack2, $args__pack2
+    store i32 %args__pack3, $args__pack3
+    %t1 = const i64 3
+    %t2 = convert trunc i32 i64 %t1
+    return i32 %t2
+}
+function @width__ov3(%args : i32, %args__pack2 : i32, %args__pack3 : i32, %args__pack4 : i32) -> i32 [binding=weak, object=_Z5widthIJiiiiEEiDpT_] {
+  slot $args : i32
+  slot $args__pack2 : i32
+  slot $args__pack3 : i32
+  slot $args__pack4 : i32
+
+  block ^entry:
+    store i32 %args, $args
+    store i32 %args__pack2, $args__pack2
+    store i32 %args__pack3, $args__pack3
+    store i32 %args__pack4, $args__pack4
+    %t1 = const i64 4
+    %t2 = convert trunc i32 i64 %t1
+    return i32 %t2
+}
+function @width__ov4() -> i32 [binding=weak, object=_Z5widthv] {
+  block ^entry:
+    %t1 = const i64 0
+    %t2 = convert trunc i32 i64 %t1
+    return i32 %t2
+}
