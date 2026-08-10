@@ -808,12 +808,12 @@ bool SemaAnalyzer::record_template(const AstNode& node, const Context& ctx)
 		for (std::size_t index = 0;
 		     index < owner->templated->specializations.size(); ++index)
 		{
-			SemaEntity& made = *owner->templated->specializations[index];
-			instantiate_member(made, owner->templated->members.back());
-			// 10.3p10: the table of a class already made names a virtual member
-			// this definition is what gives a body to, and the class was
-			// complete before the definition was written.
-			require_table_definitions(made);
+			// 10.3p10's table asked for every virtual member of a class already
+			// made when that class was completed, so a definition arriving here
+			// is one `definition_required` already says this unit owes: nothing
+			// re-walks the specialization's members for it.
+			instantiate_member(*owner->templated->specializations[index],
+			                   owner->templated->members.back());
 		}
 		return true;
 	}
