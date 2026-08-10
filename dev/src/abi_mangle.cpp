@@ -108,11 +108,18 @@ unsigned unsigned_builtin_width(const string & word)
   return 0;
 }
 
+// Every source name in a mangled name is written with its length in front of
+// it, so this runs once per component of every name the object file holds.  A
+// stream would build a locale and a buffer for each of them.
 string decimal(unsigned long long value)
 {
-  ostringstream stream;
-  stream << value;
-  return stream.str();
+  char digits[24];
+  size_t at = sizeof(digits);
+  do {
+    digits[--at] = (char)('0' + (int)(value % 10));
+    value /= 10;
+  } while(value != 0);
+  return string(digits + at, sizeof(digits) - at);
 }
 
 // Itanium spells a negative literal as `n` plus its magnitude, and reads a
@@ -320,7 +327,6 @@ private:
                                          AbiDefinitionKind kind) const;
   const AbiType & resolve_type(const AbiType & type, AbiType & storage,
                                const AbiDefinitionRecord ** origin = 0) const;
-  const AbiTemplateArgument & resolve_argument(const string & id) const;
   const AbiDependentExpression & resolve_expression(const string & id) const;
   const AbiLocalContext & resolve_context(const string & id) const;
   const AbiEntityFact & resolve_entity(const string & id) const;
@@ -531,14 +537,6 @@ const AbiType & Encoder::resolve_type(const AbiType & type, AbiType & storage,
     return storage;
   }
   return *current;
-}
-
-const AbiTemplateArgument & Encoder::resolve_argument(const string & id) const
-{
-  const AbiDefinitionRecord * record =
-    definition(id, ABI_DEFINITION_TEMPLATE_ARGUMENT);
-  if(record == 0) { fail("undefined template argument '" + id + "'"); }
-  return record->template_argument;
 }
 
 const AbiDependentExpression & Encoder::resolve_expression(
@@ -948,10 +946,34 @@ void Encoder::emit_integral_literal(const AbiType & value_type, long long value)
   put("E");
 }
 
+// One template argument, named by the identifier the caller handed out for it.
+//
+// That identifier is the argument's own binder: the caller gives one type one
+// identifier however many places in a name write it, so an argument written
+// twice is the same record and the second writing is a substitution of the
+// first.  Discovering that from the structure means encoding the argument again
+// and rolling the encoding back, which is a walk of the whole argument - and an
+// argument that is itself a specialization writes its own arguments, so a name
+// n specializations deep would cost 2^n walks of what it already encoded.  The
+// key the first writing settled on is therefore kept beside the binder, exactly
+// as a named type's is.
 void Encoder::emit_argument(const string & id)
 {
   DepthGuard guard(depth);
-  emit_argument_fact(resolve_argument(id));
+  const AbiDefinitionRecord * record =
+    definition(id, ABI_DEFINITION_TEMPLATE_ARGUMENT);
+  if(record == 0) { fail("undefined template argument '" + id + "'"); }
+  if(reuse_known_slot(record)) { return; }
+  const Mark point = mark();
+  emit_argument_fact(record->template_argument);
+  // Only an argument whose whole encoding is one registered component has a
+  // slot to be named by later; a literal or an expression writes several and is
+  // encoded again if it repeats.
+  const string written = canon.substr(point.canon);
+  size_t settled = 0;
+  if(token_slot(written, settled) && settled < table.size()) {
+    known_keys[record] = table[settled];
+  }
 }
 
 void Encoder::emit_argument_fact(const AbiTemplateArgument & argument)
