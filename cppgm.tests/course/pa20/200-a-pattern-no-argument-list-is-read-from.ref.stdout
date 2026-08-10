@@ -1,0 +1,25 @@
+ERROR: invalid class partial specialization arguments [top-level declaration 1 kind=template-declaration ast={template-declaration
+  template-parameter-clause
+    template-parameter-list
+      type-parameter
+        parameter-key KW_CLASS:class
+        identifier T
+      type-parameter
+        parameter-key KW_CLASS:class
+        identifier U
+  class-specifier pair_of<T>
+    class-key KW_STRUCT:struct
+    simple-declaration
+      decl-specifier-seq
+        decl-specifier KW_STATIC:static
+        decl-specifier KW_CONST:const
+        decl-specifier KW_INT:int
+      init-declarator-list
+        init-declarator
+          declarator
+            identifier which
+          initializer
+            literal 1
+}]
+Diagnostic context:
+collect_template_declaration [template<class T,class U>struct pair_of<T>{static const int which=1;};] at course/pa20/200-a-pattern-no-argument-list-is-read-from.t:14:1

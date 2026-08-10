@@ -1,7 +1,7 @@
 # PA20 Plan — `cppgm++ --emit-lowir` compile-time metaprogramming
 
-PA20 stands at **145 / 178** - 131 of the 164 checked-in fixtures and the 14
-under `cppgm.tests/course/pa20` - from a turn-start baseline of **136 / 175**,
+PA20 stands at **147 / 180** - 131 of the 164 checked-in fixtures and the 16
+under `cppgm.tests/course/pa20` - from a turn-start baseline of **145 / 178**,
 with pa1-pa19 at **2169 / 2169** and the file audit passing with the five
 header-weight warnings it inherited.
 
@@ -135,6 +135,24 @@ a `decltype` the definition left standing; and 14.8.2.5p5 makes the same
 stand-in a *non-deduced* context, because a nested-name-specifier says nothing
 about what its prefix names.
 
+**What this milestone cannot read is what it cannot instantiate.**  14p1 lets a
+program declare a template it never names, so a head or a pattern outside the
+slice is recorded rather than refused where it stands - but 14.5.5p1's pattern is
+a *second body* an argument list may be read from, so one that could not be read
+is not a declaration that may be left out: every list would then be read from the
+primary's body, which is a different program.  So a template one of whose second
+bodies is unknown answers no argument list at all, at 14.3p1's gate that every
+naming already passes, and 14.5.5p8.3's undeducible place is refused at the list
+that matched it.
+
+**One reading per argument list, and the tiers hold it differently.**  A class
+specialization is held before its body is read, so a naming inside that body
+finds the declaration already made and the reading terminates on its own.
+14.5.1p1's specialization *is* the constant its initializer evaluates to, so
+there is nothing to hold until the reading is over - `TemplateInfo::reading` is
+therefore what a variable template holds instead, and a naming of a list already
+being read is 5.19p2's circle rather than a second reading of it.
+
 **14.6p8's reading is put aside whole.**  `stood_in_` is a count of the values a
 reading stood in for; `checking_` is the depth of the reading itself and
 `unit_dialect_` is what the unit is read in.  10p1's base class is the one thing
@@ -144,8 +162,9 @@ aside - a specialization completed in the checking dialect is left with none of
 
 ## Current Failure Map
 
-33 failing, grouped by what would fix them.  Every row was re-derived from the
-build's own diagnostics this turn:
+33 failing, grouped by what would fix them.  The audit turn moved none of them:
+the 33 names are the turn-start 33, name for name, and the two fixtures added
+this turn pass.
 
 | group | n | owner |
 | --- | --- | --- |
@@ -157,16 +176,22 @@ build's own diagnostics this turn:
 | 10p1 over a base pack of more than one element | 2 | `sema_class.cpp`, `sema_layout.cpp` |
 | four singletons: a value place naming an incomplete current instantiation, `&C::f` as an argument, a qualified function-template call's conversion, a conversion through a specialized base | 4 | mixed |
 
-Outside the fixtures, three shapes the sweeps found and this milestone leaves:
-`X<T[N]>`'s dependent array bound is unreadable in an argument *spelling* (the
-pattern is left unrecorded, so the primary answers); 14.5.5p1 does not refuse a
-partial specialization of a *function* template; and 14.7.3's explicit
+Outside the fixtures, the sweeps leave four shapes this milestone refuses where
+both oracles accept, each now loud rather than silently answered by the primary:
+a specialization's body cannot name its own class - `typedef s self;` inside
+`struct s<T*>` finds the primary and `s<T*>` written there is read as 12.1p1's
+constructor name and does not parse, which has been true of `template<>`
+specializations since C2; a partial specialization has no out-of-class member
+definitions; a dependent array bound is unreadable in an argument *spelling*
+(`s<T[N]>`, where `s<Arr>` over a typedef reads); and a template template
+parameter is outside every head.  Two more stand: 14.5.5p1 does not refuse a
+partial specialization of a *function* template, and 14.7.3's explicit
 specialization of a function template is emitted `binding=weak` where the
 reference writes `binding=strong` - a metadata field the comparison strips.
 
 ## Active Checkpoint
 
-This turn landed **C5**.  The next one is:
+This turn audited **C5**.  The next one is:
 
 **C6 - the reading of a spelling that is not a type-id.**  Selected because it
 is the largest group by three, because both halves of it are one question -
@@ -197,45 +222,51 @@ reading is what four later-PA groups are written over.
 ## Performance Model
 
 Best of five, `-O0`, timed by the shell around the process itself: an empty
-translation unit is **0.003 s**, so a row below is the shape's own cost.  A
-harness that spawns processes of its own reads this machine's floor as 0.11 s;
-it is not one.
+translation unit is **0.004 s**, so a row below is the shape's own cost.  A
+harness that spawns a process of its own per run reads this machine's floor as
+0.11 s; it is not one.
 
-Every row was re-measured against this turn's build; none is carried forward.
+Every shape was regenerated and re-measured against this turn's build; no row is
+carried forward.
 
-| shape | measured |
-| --- | --- |
-| a pack of 4096 elements: bound, expanded into a base, counted | **0.020 s** |
-| a call forwarding a parameter pack of 1024 places | **0.020 s** |
-| a target type deducing a run of 4096 places | **0.020 s** |
-| 800 calls ordering a pack head against a non-pack one | **0.020 s** |
-| 3200 calls reading a value default that names an earlier place | **0.224 s** |
-| 4096 distinct value arguments over two templates | **0.465 s** |
-| `fac<800>` metafunction chain | **0.030 s** |
-| a 2000-deep chain instantiated but not evaluated | **0.085 s** |
-| 14.8.2.1p3 through a 200-deep base chain | **0.010 s** |
-| 64 / 128 / 256 patterns against 512 / 1024 / 2048 distinct lists | 0.03 / 0.06 / **0.15 s** |
-| 64 patterns all matching one list, ordered pairwise | **0.020 s** |
-| 512 / 2048 distinct variable-template specializations | 0.02 / **0.11 s** |
+| shape | here | `reference-binaries/cppgm++` |
+| --- | --- | --- |
+| a pack of 4096 elements: bound, expanded into a base, counted | **0.189 s** | 0.609 s |
+| a call forwarding a parameter pack of 1024 places | **0.025 s** | - |
+| a target type deducing a run of 4096 places | **0.041 s** | - |
+| 800 calls ordering a pack head against a non-pack one | **0.022 s** | - |
+| 3200 calls reading a value default that names an earlier place | **0.192 s** | - |
+| 4096 distinct value arguments over two templates | **0.550 s** | - |
+| `fac<800>` metafunction chain | **0.033 s** | - |
+| a 2000-deep chain instantiated but not evaluated | **0.085 s** | - |
+| 14.8.2.1p3 through a 200-deep base chain | **0.011 s** | - |
+| 64 / 128 / 256 patterns against 512 / 1024 / 2048 distinct lists | 0.055 / 0.122 / **0.277 s** | 22.1 s at 256 |
+| 64 nested-pointer patterns all matching one list, ordered pairwise | **0.008 s** | 0.499 s |
+| 512 / 2048 distinct variable-template specializations | 0.015 / **0.051 s** | 0.230 s at 2048 |
+| a variable-template chain 800 / 3000 / 6000 deep | 0.010 / 0.031 / **0.070 s** | - |
+| 14.5.3p4's recursion over a pack of 256 / 512 / 1024 | 0.108 / 0.399 / **1.573 s** | 10.120 s at 1024 |
+| the doubling spelling at 2^20 leaves | **0.912 s** | 2.277 s |
 
 14.5.5.1p1's choice is one match per pattern per *distinct* argument list and
-nothing else: the answer is memoised on the template under the interned list,
-the deduction walks one P beside one A, and a template no head partially
-specialized pays one test of an empty vector - which is why the nine rows above
-the new three did not move.  14.5.5.2p1's ordering is quadratic in the patterns
-that *match*, which the 64-deep row measures at 4096 comparisons and 0.020 s;
-a use matches one or two in every shape a program writes.  A variable template
-is one reading of one init-declarator per argument list and no object at all.
-The reference binary is 20x slower on the pattern row - 3.12 s where ours is
-0.15 s - and does not finish the ordering row in ten minutes.
+nothing else: the answer is memoised on the template under the interned list, the
+deduction walks one P beside one A, and a template no head partially specialized
+pays one test of an empty vector - which is why the nine rows above the pattern
+row did not move.  14.5.5.2p1's ordering is quadratic in the patterns that
+*match*, which the 64-deep row measures at 4096 comparisons; a use matches one or
+two in every shape a program writes.  The reading guard a variable template holds
+is a scan of the reading's own depth, and the 800/3000/6000 row is what says it is
+not what the shape costs.
 
-The one shape that is not linear is a type whose arguments *double* -
-`typedef p<t22,t22> t23;` costs about a second - which is the exponential
-spelling PA19 recorded.  A metafunction with no terminating specialization still
-overflows the machine stack rather than being diagnosed; a depth guard is owed
-whenever a checkpoint touches `instantiate_class` again.  `sema_analyzer.h` is
-at 2392 of the audit's 2400 header lines, so the next checkpoint that needs a
-declaration on it has to free room structurally first.
+Two shapes are not linear in what they walk, and both are the shape's own cost
+rather than a reading's: a type whose arguments *double* is exponential in the
+spelling, and 14.5.3p4's recursion over a pack walks argument lists whose lengths
+sum to n^2/2 - g++ is 0.210 s at 1024 where this compiler is 1.573 s and the
+reference 10.120 s.  A *class* metafunction with no terminating specialization
+still overflows the machine stack rather than being diagnosed, here and in the
+reference alike; a depth guard is owed whenever a checkpoint touches
+`instantiate_class` again, and this turn's same-list guard is not one.
+`sema_analyzer.h` is at 2392 of the audit's 2400 header lines, so the next
+checkpoint that needs a declaration on it has to free room structurally first.
 
 ## Completed Checkpoints
 
@@ -251,3 +282,4 @@ declaration on it has to free room structurally first.
 | C4 | 14.8.2 given its own owner (`sema_deduce.h`), and the four things a use it could not match needed: a specialization P matched as an argument *list* so a trailing `P...` deduces a run, 14.8.2.1p3's A that is a class derived from what P names, 14.8.2.5p5's non-deduced context, 14.1p9's default at a value place - unnamed places included - and 14.6.2p1's dependent member settled by the substitution.  10p1's base is now completed in the unit's own dialect, an explicit list that stopped at the pack place still deduces, and `user_types_` is a deque because every reader of it holds a reference while a class is completed | 127 -> **133 / 172**; pa1-pa19 2169 / 2169; floor re-measured at 0.00 s |
 | C4 audit | the list a use is chosen from and the one the object file writes: 8.3.5p1's parameter list matched by the same rule 14.2's list is, so 14.8.2.2's target type deduces a run; 14.1p9's value default read in a region binding the places before it, as the class tier already read it; 14.5.6.1p5 telling a pack place from a single one, and 14.8.2.4p9 ordering the two heads that makes; and 14.1p4's `X <expression> E` for every non-type argument no substitution has settled | 133 / 172 -> **136 / 175** with three fixtures added; every one of 71 swept shapes agrees with g++ |
 | C5 | 14.5.5's pattern and 14.5.1p1's variable template given one owner (`sema_specialize.h`): a partial specialization as a head, an argument pattern and a body held beside the primary; 14.5.5.1p1's choice as `match_arguments` over the interned list, memoised per template and dropped where a later pattern arrives; 14.5.5.2p1's ordering as that same match between two patterns; 14.5.6.1p5's signature telling a redeclaration of one pattern from a second; and a variable template's specialization as the constant one init-declarator evaluates to - with 14.7.3's `template<>` and 9.4.2p1's qualified declarator-id answering for both tiers | 136 / 175 -> **145 / 178** with three fixtures added; pa1-pa19 2169 / 2169; every one of 48 swept shapes agrees with g++; ref 20x slower on the pattern row |
+| C5 audit | what a pattern this milestone could not read leaves behind: three exits dropped a partial specialization and let the *primary* answer for every list it would have taken - a wrong answer for a template template parameter and for `s<T[N]>`, and an accepted program where both oracles refuse - so a template one of whose second bodies is unknown now answers no argument list at all, and 14.5.5p8.3's undeducible place is refused at the list that matched; and 14.5.1p1's specialization is the constant its initializer evaluates to, so one that names itself ran until the machine stack ran out where both oracles diagnose it | 145 / 178 -> **147 / 180** with two fixtures added; pa1-pa19 2169 / 2169; 68 swept shapes, every accepted pair writing the reference's LowIR |

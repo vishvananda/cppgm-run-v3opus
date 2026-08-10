@@ -65,6 +65,13 @@ struct TemplateInfo
 	// `supported` false, so the declaration is still read and only an
 	// instantiation of it is refused.
 	//
+	// 14.5.5p1 leaves the same mark: a partial specialization is a *second body*
+	// an argument list may be read from, so one this milestone could not read is
+	// not a declaration it may quietly ignore - the list it would have been read
+	// from would then be read from the primary's body instead, which is a
+	// different program.  What cannot be read is therefore what cannot be
+	// instantiated, at the one gate 14.3p1's argument list already passes.
+	//
 	// 14.1p4's non-type parameter is a place of its own: what it binds is a
 	// value and not a type, and what type that value has is written by the
 	// parameter's own decl-specifier-seq and declarator - which may name the
@@ -170,6 +177,14 @@ struct TemplateInfo
 		std::uint32_t arguments;
 	};
 	std::unordered_map<std::uint32_t, Chosen> chosen;
+	// 14.5.1p1 with 3.2p1: the argument lists whose reading is under way.  A
+	// class is held before its body is read, so a naming inside that body finds
+	// the declaration already made; a variable template's specialization *is*
+	// the constant its initializer evaluates to, so there is nothing to hold
+	// until the reading is over - and a naming of the same list reached from
+	// that reading is the circle 5.19p2 makes ill-formed rather than a second
+	// reading of it.  One entry per reading under way, which is a depth.
+	std::vector<std::uint32_t> reading;
 };
 
 // 14.1p11 and 14.5.3p1: the place `info` declared a pack at, or the number of

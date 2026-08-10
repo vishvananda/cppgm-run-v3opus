@@ -60,6 +60,29 @@ const AstNode* sole_declarator(const AstNode& declared)
 	return list->children[0];
 }
 
+// 14.5.1p1: one argument list of one variable template, held for as long as its
+// initializer is being read and taken off however that reading ends.
+class ReadingList
+{
+public:
+	ReadingList(std::vector<std::uint32_t>& held, std::uint32_t list)
+		: held_(held)
+	{
+		held_.push_back(list);
+	}
+
+	~ReadingList()
+	{
+		held_.pop_back();
+	}
+
+private:
+	ReadingList(const ReadingList&);
+	ReadingList& operator=(const ReadingList&);
+
+	std::vector<std::uint32_t>& held_;
+};
+
 }
 
 Specialization::Specialization(SemaAnalyzer& analyzer)
@@ -136,9 +159,13 @@ bool Specialization::record(const AstNode& clause, const AstNode& declared,
 	std::vector<TypeId> pattern;
 	if (!read_pattern(*primary, id, clause, target, head, pattern))
 	{
-		// 14.1p1: the head declares a place this milestone gives no meaning to,
-		// so the declaration says nothing about any argument list and the
-		// primary's own pattern keeps answering for every one of them.
+		// 14.5.5p1: the declaration is a second body an argument list may be
+		// read from, and this milestone could not read which lists those are -
+		// so leaving it out is not leaving it unsaid.  Every list would then be
+		// read from the primary's body, which is a different program: what
+		// cannot be read is what cannot be instantiated, and 14.3p1's gate on
+		// the primary is where every naming of it already asks.
+		primary->templated->supported = false;
 		return true;
 	}
 	hold_pattern(*primary->templated, *head, pattern, declared);
@@ -249,11 +276,11 @@ bool Specialization::read_pattern(SemaEntity& primary, const TemplateId& id,
 	}
 	catch (const std::exception&)
 	{
-		// 14p1: a pattern this milestone cannot read is a declaration that says
-		// nothing about any argument list, exactly as a head it gives no meaning
-		// to is - so it is left unrecorded and the primary keeps answering,
-		// rather than the declaration itself being refused.  14.6p8's count is
-		// of the stand-ins a *reading* made, and this one was thrown away.
+		// 14p1: a pattern this milestone cannot read is not a declaration it
+		// may quietly drop - what its caller does instead is leave the template
+		// one no argument list is answered for, exactly as a head it gives no
+		// meaning to does.  14.6p8's count is of the stand-ins a *reading* made,
+		// and this one was thrown away.
 		analyzer_.stood_in_ = stood;
 		pattern.clear();
 		return false;
@@ -415,9 +442,9 @@ std::size_t Specialization::chosen(SemaEntity& primary,
 // 14.5.5.1p1 and 14.8.2.5p4: whether the pattern at `index` matches `arguments`,
 // and what the places its own head declared were deduced to.
 //
-// 14.5.5p8.3 makes every place of that head deducible from the pattern, so a
-// place the match left unbound is a match this milestone does not make - the
-// list is then answered by whatever else the primary has for it.
+// 14.5.5p8.3 makes every place of that head deducible from its own pattern, so a
+// place the match left unbound is a declaration no argument list could ever fill
+// rather than a list this pattern happens not to take.
 bool Specialization::matches(const TemplateInfo& info, std::size_t index,
                             const std::vector<TypeId>& arguments,
                             std::vector<TypeId>& deduced)
@@ -438,7 +465,15 @@ bool Specialization::matches(const TemplateInfo& info, std::size_t index,
 			bindings.find(places[at].self);
 		if (bound == bindings.end())
 		{
-			return false;
+			// 14.5.5p8.3: the pattern matched, and a place its own head
+			// declared is still empty - so there is a body this list would be
+			// read from and no arguments to read it against.  Answering from
+			// the primary instead would be a different program read silently,
+			// which is what the declaration being ill-formed rules out.
+			throw std::runtime_error("a partial specialization declares the "
+			                         "template parameter " + places[at].name +
+			                         ", which its argument pattern does not "
+			                         "deduce");
 		}
 		if (!places[at].pack)
 		{
@@ -513,6 +548,22 @@ SemaEntity& Specialization::variable(SemaEntity& primary,
 		return *made;
 	}
 	static_cast<void>(ctx);
+	// 5.19p2 with 14.7.1p1: what this specialization *is* is the constant its
+	// initializer evaluates to, so there is nothing to hold until the reading is
+	// over - and a naming of this same list reached from inside that reading is
+	// asking the reading for its own answer.  A class does not need this: it is
+	// held before its body is read, so the naming inside finds it incomplete.
+	TemplateInfo& info = *primary.templated;
+	for (std::size_t at = 0; at < info.reading.size(); ++at)
+	{
+		if (info.reading[at] != list)
+		{
+			continue;
+		}
+		throw std::runtime_error("the initializer of a specialization of " +
+		                         primary.name + " names that specialization");
+	}
+	const ReadingList held(info.reading, list);
 	return read_variable(primary, variable_reading(primary, arguments, list),
 	                     arguments, list);
 }
