@@ -16,18 +16,40 @@ std::string::size_type outside_brackets(const std::string& spelling,
                                         char character)
 {
 	unsigned depth = 0;
+	// 5.1.1p6's parentheses and 5.2.1p1's subscript are counted apart from
+	// 14.2's list, because what they hold is an expression: a `<` inside one is
+	// 5.9's operator and closes nothing.
+	unsigned grouped = 0;
 	for (std::string::size_type at = from; at < spelling.size(); ++at)
 	{
 		const char c = spelling[at];
-		if (depth == 0 && c == character)
+		if (depth == 0 && grouped == 0 && c == character)
 		{
 			return at;
 		}
-		if (c == '<' || c == '(' || c == '[')
+		if (c == '(' || c == '[')
 		{
-			++depth;
+			++grouped;
 		}
-		else if ((c == '>' || c == ')' || c == ']') && depth != 0)
+		else if (c == ')' || c == ']')
+		{
+			if (grouped != 0)
+			{
+				--grouped;
+			}
+		}
+		else if (grouped != 0)
+		{
+			continue;
+		}
+		else if (c == '<')
+		{
+			if (opens_template_arguments(spelling, at))
+			{
+				++depth;
+			}
+		}
+		else if (c == '>' && depth != 0)
 		{
 			// A `>>` that closes two template-argument-lists is two terminals
 			// here, because the spelling is of the terminals the parse matched.
@@ -37,6 +59,77 @@ std::string::size_type outside_brackets(const std::string& spelling,
 	return std::string::npos;
 }
 
+}
+
+bool opens_template_arguments(const std::string& spelling,
+                              std::string::size_type at)
+{
+	std::string::size_type start = at;
+	while (start != 0 && is_identifier_char(spelling[start - 1]))
+	{
+		--start;
+	}
+	if (start == at || (spelling[start] >= '0' && spelling[start] <= '9'))
+	{
+		return false;
+	}
+	// 13.5p1: `operator<`, `operator<<`, `operator<=` and `operator<<=` are the
+	// name itself and take no argument list of their own.
+	return at - start < 8 || spelling.compare(at - 8, 8, "operator") != 0 ||
+		(at != 8 && is_identifier_char(spelling[at - 9]));
+}
+
+std::string::size_type spelling_balanced_end(const std::string& spelling,
+                                             std::string::size_type at)
+{
+	const char open = spelling[at];
+	const char close = open == '<' ? '>' : (open == '(' ? ')' : ']');
+	const std::string::size_type opened = at;
+	unsigned depth = 0;
+	unsigned grouped = 0;
+	for (; at < spelling.size(); ++at)
+	{
+		const char c = spelling[at];
+		if (open == '<')
+		{
+			if (c == '(' || c == '[')
+			{
+				++grouped;
+				continue;
+			}
+			if (c == ')' || c == ']')
+			{
+				if (grouped == 0)
+				{
+					// The run would have to close outside the group it was
+					// opened in, so what opened it was 5.9's operator.
+					return std::string::npos;
+				}
+				--grouped;
+				continue;
+			}
+			if (grouped != 0 ||
+			    (c == '<' && at != opened &&
+			     !opens_template_arguments(spelling, at)))
+			{
+				continue;
+			}
+		}
+		if (c == open)
+		{
+			++depth;
+			continue;
+		}
+		if (c != close)
+		{
+			continue;
+		}
+		if (--depth == 0)
+		{
+			return at + 1;
+		}
+	}
+	return std::string::npos;
 }
 
 QualifiedName::QualifiedName(const std::string& spelling)

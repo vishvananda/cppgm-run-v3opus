@@ -17,6 +17,29 @@
 //
 // The spelling is borrowed rather than copied, and an unqualified name - which
 // is nearly every name - is recognised by the one scan the split needs anyway.
+
+// 14.2: whether the `<` written at `at` opens a template-argument-list.
+//
+// A list is written after a *name*, and 2.11p1 leaves no name opening with a
+// digit - so the `<` in `Box<0 < 1, int>` is 5.9's operator between two
+// operands and the one in `A<B<int> >` opens a list.  13.5 spells four
+// operators inside an operator-function-id, which is a name and writes none.
+bool opens_template_arguments(const std::string& spelling,
+                              std::string::size_type at);
+
+// The end of the balanced run `spelling[at]` opens, one past its closer, or
+// `npos` where the run does not close.  8.1p1's type-id and 5.19's constant
+// expression each write three of them - a template-argument-list, a
+// parenthesized expression or parameter-clause, a subscript - and each may hold
+// the others.
+//
+// 5.1.1p6's parentheses and 5.2.1p1's subscript hold 5's whole expression
+// grammar, so a `<` or `>` inside one is an operator however it is spelled: a
+// run of either is stepped over whole, and an argument list that would have to
+// reach past the group it stands in to close never opened.
+std::string::size_type spelling_balanced_end(const std::string& spelling,
+                                             std::string::size_type at);
+
 class QualifiedName
 {
 public:

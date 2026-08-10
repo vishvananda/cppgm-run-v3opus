@@ -29,34 +29,13 @@ bool is_name_char(char c)
 		(c >= '0' && c <= '9') || c == '_' || c == '$';
 }
 
-// The end of a balanced run that `spelling[at]` opens, one past its closer, or
-// `npos` where the run does not close.  8.1p1's type-id writes three of them -
-// a template-argument-list, a parameter-clause, an array bound - and each may
-// hold the others.
+// 8.1p1's type-id writes three balanced runs - a template-argument-list, a
+// parameter-clause, an array bound - and each may hold the others, which is one
+// scan of a spelling and belongs beside the one that splits a name.
 std::string::size_type balanced_end(const std::string& spelling,
                                     std::string::size_type at)
 {
-	const char open = spelling[at];
-	const char close = open == '<' ? '>' : (open == '(' ? ')' : ']');
-	unsigned depth = 0;
-	for (; at < spelling.size(); ++at)
-	{
-		const char c = spelling[at];
-		if (c == open)
-		{
-			++depth;
-			continue;
-		}
-		if (c != close)
-		{
-			continue;
-		}
-		if (--depth == 0)
-		{
-			return at + 1;
-		}
-	}
-	return std::string::npos;
+	return spelling_balanced_end(spelling, at);
 }
 
 // 7.1.6.3p1: the class-key or `enum` an elaborated-type-specifier is written
@@ -103,9 +82,15 @@ bool split_type_id(const std::string& spelling, std::vector<std::string>& out)
 			++at;
 			continue;
 		}
-		if (is_name_char(c))
+		// 3.4.3p1: a name written `::x` is one word too, and the empty first
+		// component is what says the global namespace - so it is read by the
+		// same scan and takes 14.2's argument list with it.
+		const bool rooted = !is_name_char(c) &&
+			spelling.compare(at, 2, "::") == 0;
+		if (is_name_char(c) || rooted)
 		{
 			const std::string::size_type start = at;
+			at += rooted ? 2 : 0;
 			while (at < spelling.size())
 			{
 				if (is_name_char(spelling[at]))
@@ -149,21 +134,6 @@ bool split_type_id(const std::string& spelling, std::vector<std::string>& out)
 					continue;
 				}
 				break;
-			}
-			out.push_back(spelling.substr(start, at - start));
-			continue;
-		}
-		if (spelling.compare(at, 2, "::") == 0)
-		{
-			// 3.4.3p1: a name written `::x` is one word too, and the empty
-			// first component is what says the global namespace.
-			const std::string::size_type start = at;
-			at += 2;
-			while (at < spelling.size() &&
-			       (is_name_char(spelling[at]) ||
-			        spelling.compare(at, 2, "::") == 0))
-			{
-				at += is_name_char(spelling[at]) ? 1 : 2;
 			}
 			out.push_back(spelling.substr(start, at - start));
 			continue;

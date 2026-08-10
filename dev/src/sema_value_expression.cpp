@@ -36,32 +36,12 @@ bool is_name_char(char c)
 		(c >= '0' && c <= '9') || c == '_' || c == '$';
 }
 
-// The end of a balanced run that `spelling[at]` opens, one past its closer, or
-// `npos` where the run does not close.
+// The end of a balanced run that `spelling[at]` opens, which is the one scan
+// `sema_type_id.cpp` asks of a spelling too and is answered in one place.
 std::string::size_type balanced_end(const std::string& spelling,
                                     std::string::size_type at)
 {
-	const char open = spelling[at];
-	const char close = open == '<' ? '>' : (open == '(' ? ')' : ']');
-	unsigned depth = 0;
-	for (; at < spelling.size(); ++at)
-	{
-		const char c = spelling[at];
-		if (c == open)
-		{
-			++depth;
-			continue;
-		}
-		if (c != close)
-		{
-			continue;
-		}
-		if (--depth == 0)
-		{
-			return at + 1;
-		}
-	}
-	return std::string::npos;
+	return spelling_balanced_end(spelling, at);
 }
 
 // 2.14.3 and 2.14.5: the end of a literal that opens at `at`, which is the one
@@ -129,9 +109,15 @@ bool split_value_expression(const std::string& spelling,
 			at = end;
 			continue;
 		}
-		if (is_name_char(c))
+		// 3.4.3p1: a name written `::x` is one word too, and the empty first
+		// component is what says the global namespace - which is as much a
+		// constant binding's name as any other.
+		const bool rooted = !is_name_char(c) &&
+			spelling.compare(at, 2, "::") == 0;
+		if (is_name_char(c) || rooted)
 		{
 			const std::string::size_type start = at;
+			at += rooted ? 2 : 0;
 			for (;;)
 			{
 				while (at < spelling.size() && is_name_char(spelling[at]))
@@ -494,6 +480,34 @@ SemaConstant TemplateArgumentReader::unary(
 		}
 		++at_;
 		return live ? cast(target, operand) : operand;
+	}
+	if (at_ < words.size() && words[at_] == "(")
+	{
+		// 5.2.3p1: `T(x)` is the same cast written in functional notation, and
+		// 5.2.3p2's `T()` is the zero 8.5p7 value-initializes with.  What tells
+		// either from a call is whether the word names a type, which is the
+		// question 5.4p2 above is settled by too.
+		const TypeId target = probe_type_id(word);
+		if (target != kNoType && analyzer_.arithmetic_type(target) != kNoType)
+		{
+			++at_;
+			if (at_ < words.size() && words[at_] == ")")
+			{
+				++at_;
+				SemaConstant zero;
+				zero.type = target;
+				zero.bits = 0;
+				return zero;
+			}
+			const SemaConstant operand = expression(words, 0, live);
+			if (at_ >= words.size() || words[at_] != ")")
+			{
+				throw NotConstant("a conversion written as a template argument "
+				                  "does not close its operand");
+			}
+			++at_;
+			return live ? cast(target, operand) : operand;
+		}
 	}
 	return name(word, live);
 }
