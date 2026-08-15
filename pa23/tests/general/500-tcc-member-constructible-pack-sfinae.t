@@ -33,5 +33,5 @@ struct tupleish {
 };
 
 int main() {
-  return tupleish<int>::make(1) - 11;
+  return tupleish<int>::make(1) - 4;
 }

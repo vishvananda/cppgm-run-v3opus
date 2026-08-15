@@ -413,6 +413,22 @@ sub run_single_wrapped_text
 		timeout => get_timeout_from_env("CPPGM_TEXT_TEST_TIMEOUT_SEC", 10),
 	);
 	write_named_status_code("$test_out.exit_status", $status);
+	remove_nonportable_reference_stdout($suffix, $status, $stdout_path, $stderr_path);
+}
+
+sub remove_nonportable_reference_stdout
+{
+	my ($suffix, $status, @paths) = @_;
+	return if $suffix ne 'ref' || $status == 0;
+	return if env_flag_enabled('CPPGM_KEEP_FAILED_REFERENCE_STDOUT');
+
+	my %seen = ();
+	for my $path (@paths)
+	{
+		next if !defined($path) || $path !~ /\.ref\.stdout$/ || $seen{$path}++;
+		unlink($path) or die "Unable to remove nonportable diagnostic $path: $!"
+			if -e $path;
+	}
 }
 
 sub sorted_glob
@@ -564,6 +580,7 @@ sub run_batch_wrapped_text
 			$env,
 			@args);
 		write_named_status_code("$test_out.exit_status", $status);
+		remove_nonportable_reference_stdout($suffix, $status, $stdout_path, $stderr_path);
 	}
 	close_wrapped_worker($worker_pid, $worker_out, $worker_in);
 }
