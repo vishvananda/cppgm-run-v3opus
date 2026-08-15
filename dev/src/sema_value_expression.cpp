@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "ast_model.h"
+#include "sema_pack.h"
 #include "sema_template.h"
 #include "token_model.h"
 
@@ -70,6 +71,28 @@ std::string::size_type quoted_end(const std::string& spelling,
 	return std::string::npos;
 }
 
+// 2.14.3p1 and 2.14.5p1: the encoding-prefixes a literal may be written after,
+// which are the only names that close up with a quoted run rather than
+// standing for a declaration.
+bool is_encoding_prefix(const std::string& word)
+{
+	return word == "L" || word == "u" || word == "U" || word == "u8" ||
+		word == "R" || word == "LR" || word == "uR" || word == "UR" ||
+		word == "u8R";
+}
+
+// True where the word is one of 2.14's literals rather than a name: a quoted
+// run, an encoding-prefix before one, or a run of digits.
+bool is_literal_word(const std::string& word)
+{
+	const std::string::size_type quote = word.find_first_of("'\"");
+	if (quote != std::string::npos)
+	{
+		return quote == 0 || is_encoding_prefix(word.substr(0, quote));
+	}
+	return !word.empty() && word[0] >= '0' && word[0] <= '9';
+}
+
 // The operators 5.19 writes, longest first, so that `<<` is never read as two
 // `<` and `>=` never as `>` and `=`.
 const char* const kOperators[] = {
@@ -123,6 +146,31 @@ bool split_value_expression(const std::string& spelling,
 				while (at < spelling.size() && is_name_char(spelling[at]))
 				{
 					++at;
+				}
+				// 5.3.3p5: `sizeof...` is one operator and not a name
+				// followed by an ellipsis, so its `...` closes up with the
+				// word the way an argument list closes up with a name.
+				if (spelling.compare(start, at - start, "sizeof") == 0 &&
+				    spelling.compare(at, 3, "...") == 0)
+				{
+					at += 3;
+					break;
+				}
+				// 2.14.3 and 2.14.5: an encoding-prefix is part of the literal
+				// it was written before rather than a name of its own, so it
+				// closes up with the quoted run the way `sizeof` closes up
+				// with its ellipsis.
+				if (at < spelling.size() &&
+				    (spelling[at] == '\'' || spelling[at] == '"') &&
+				    is_encoding_prefix(spelling.substr(start, at - start)))
+				{
+					const std::string::size_type end = quoted_end(spelling, at);
+					if (end == std::string::npos)
+					{
+						return false;
+					}
+					at = end;
+					break;
 				}
 				// 14.2 writes a template-argument-list after a name and
 				// 7.1.6.2p1 a decltype-specifier's expression, each of which
@@ -268,6 +316,7 @@ private:
 	SemaConstant unary(const std::vector<std::string>& words, bool live);
 	SemaConstant type_trait(const std::string& word,
 	                        const std::vector<std::string>& words, bool live);
+	SemaConstant pack_size(const std::vector<std::string>& words);
 	SemaConstant name(const std::string& spelling, bool live);
 	SemaConstant cast(TypeId target, const SemaConstant& operand);
 	SemaConstant binary(unsigned op, const SemaConstant& left,
@@ -451,10 +500,28 @@ SemaConstant TemplateArgumentReader::unary(
 		out.bits = word == "true" ? 1 : 0;
 		return out;
 	}
-	if (!word.empty() && (word[0] == '\'' || word[0] == '"' ||
-	                      (word[0] >= '0' && word[0] <= '9')))
+	if (is_literal_word(word))
 	{
+		if (at_ < words.size() && words[at_] == "[")
+		{
+			// 5.19p2: a subobject of a string literal, which is the one object
+			// a constant expression reads out of storage - and the one postfix
+			// operator an argument spelling writes.
+			++at_;
+			const SemaConstant index = expression(words, 0, live);
+			if (at_ >= words.size() || words[at_] != "]")
+			{
+				throw NotConstant("a subscript written as a template argument "
+				                  "does not close its index");
+			}
+			++at_;
+			return analyzer_.string_element(word, index.bits);
+		}
 		return analyzer_.literal_constant(word);
+	}
+	if (word == "sizeof...")
+	{
+		return pack_size(words);
 	}
 	if (word == "sizeof" || word == "alignof")
 	{
@@ -579,6 +646,37 @@ SemaConstant TemplateArgumentReader::type_trait(
 	SemaConstant out;
 	out.type = analyzer_.types_.fundamental(FT_UNSIGNED_LONG_INT);
 	out.bits = word == "sizeof" ? analyzer_.size_of(type) : analyzer_.types_.object_align(type);
+	return out;
+}
+
+// 5.3.3p5: how many elements the run bound to the pack holds, which is the
+// same reading a tree of the operator is given - a pattern standing over a
+// pack leaves the name standing for one element, and the pack itself is what
+// the clause counts.
+SemaConstant TemplateArgumentReader::pack_size(
+	const std::vector<std::string>& words)
+{
+	if (at_ + 2 >= words.size() || words[at_] != "(" || words[at_ + 2] != ")")
+	{
+		throw NotConstant("sizeof... written as a template argument has no "
+		                  "parenthesized parameter pack");
+	}
+	const std::string name = words[at_ + 1];
+	at_ += 3;
+	const long long run = PackReading(analyzer_).length(name, ctx_);
+	SemaConstant out;
+	out.type = analyzer_.types_.fundamental(FT_UNSIGNED_LONG_INT);
+	if (run < 0)
+	{
+		// 14.6p8: how long a run the head being read declared comes to, an
+		// argument list is what says - so the argument this stands in is
+		// dependent_, exactly as the size of a dependent type is.
+		dependent_ = true;
+		++analyzer_.stood_in_;
+		out.bits = 1;
+		return out;
+	}
+	out.bits = static_cast<unsigned long long>(run);
 	return out;
 }
 

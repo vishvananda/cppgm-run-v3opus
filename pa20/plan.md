@@ -1,7 +1,7 @@
 # PA20 Plan — `cppgm++ --emit-lowir` compile-time metaprogramming
 
-PA20 stands at **164 / 186** - 142 of the 164 checked-in fixtures and the 22
-under `cppgm.tests/course/pa20` - from a turn-start baseline of **162 / 184**,
+PA20 stands at **176 / 191** - 149 of the 164 checked-in fixtures and the 27
+under `cppgm.tests/course/pa20` - from a turn-start baseline of **164 / 186**,
 with pa1-pa19 at **2169 / 2169** and the file audit passing with the five
 header-weight warnings it inherited.
 
@@ -58,6 +58,36 @@ into - the nodes are the parse's and not the tree's, which is exactly what a
 template-argument-list drops - and the analyzer borrows that table
 (`set_expressions`).  A specifier met as text is then answered by
 `decltype_type`, the one reading that answers every other one.
+
+**What a literal is worth is one question two readers ask.**  2.14.3p1's
+character-literal holding more than one c-char is a token of the *language* and
+not of PA2's dump, which is course defined to hold one code point - so
+`MulticharacterLiterals` (`literal_scan.h`) is a fact of the reader:
+`PostTokenizer` takes it, the three drivers that feed the compiler ask for the
+language and the three that print a token keep the course subset, and the value
+is the literal's last four c-chars packed one code unit each with the first of
+them most significant.  5.19p2's one object read out of storage is a subobject
+of a string literal, so `string_element` takes a spelling and an index and
+answers for a subscript written as a tree and for one written inside an argument
+list alike - which is also why an encoding-prefix closes up with the quoted run
+it stands before, exactly as `sizeof` closes up with its `...`.
+
+**2.14.8p3's third form takes the characters rather than the value.**  A
+ud-suffix whose lookup found no operator taking the value and none taking the
+digits may still have found a literal operator *template* - one place binding a
+run of `char` values and no function parameter at all - and that one is called
+with `specialize` over the characters the program wrote.  What the call passes
+is therefore one of three things, and the cooked form passes the literal 2.14.2
+or 2.14.4 already made rather than the parameter's own type, because 5.2.2p4's
+conversion is what brings an argument to a parameter.
+
+**3.9p7's incomplete array is completed by the definition of the object.**  A
+static data member declared `T b[]` is an incomplete type until the definition
+written outside the class deduces its bound from 8.5.1's clauses, so that bound
+is written back onto the declaration - and 8.3.4p3 the other way about, a
+definition that omits the bound where an earlier declaration wrote one is a
+definition of *that* array and lays out as many elements as the declaration
+said.
 
 **An expansion is one reading per element.**  `sema_pack.h` owns it: the
 pattern is read again for each argument of the run, in a region binding the
@@ -211,18 +241,17 @@ checking dialect is left with none of 12.1's members it is owed.
 
 ## Current Failure Map
 
-22 failing, grouped by what would fix them.
+15 failing, grouped by what would fix them.
 
 | group | n | owner |
 | --- | --- | --- |
-| 5.19 outside the integral subset: `B{}`, `I + sizeof...(I)`, a wide string literal, a multicharacter constant, `sizeof` of a qualified static array member | 5 | `sema_constant.cpp`, `sema_value_expression.cpp`, `literal_scan.cpp` |
-| seven singletons: an aggregate whose array member no by-value parameter carries; an alias rewrite whose `value_type` does not name a type; a value place naming an incomplete current instantiation; `&C::f` as an argument; 5.9's `<` inside an argument spelling read as 14.2's list; a qualified function-template call's conversion; a conversion through a specialized base | 7 | mixed |
-| 2.14.8's user-defined literals with their overload sets, and the LowIR one cooked call writes | 3 | `literal_scan.cpp`, `sema_overload.cpp` |
-| three LowIR mismatches: PA19's static-member demand, an enum argument's vtable, a constexpr member call in an initializer | 3 | `sema_template.cpp`, `sema_lifetime.cpp`, `lowir_vtable.cpp` |
+| 10p1's base-specifier-list of more than one class, which nothing lays out - reached here through a base pack of two elements | 2 | `sema_class.cpp`, `sema_layout.cpp`, `lowir_lower_object.cpp` |
+| 7.1.5's constexpr function and 5.19p2's call of one: `B{}` at a value place converted by a constexpr conversion function, and a static data member folded from a constexpr member call | 2 | `sema_constant.cpp`, `sema_function.cpp` |
 | 14.1p11's *second* pack place in one head: a flat argument list cannot say where one run ends and the next begins, so `<class... U, class... T>` deduces a list neither place can be bound from | 2 | `sema_deduce.cpp`, `sema_pack.cpp`, `type_model.h` |
-| 10p1 over a base pack of more than one element | 2 | `sema_class.cpp`, `sema_layout.cpp` |
+| two LowIR mismatches: PA19's static-member demand, an enum argument's vtable | 2 | `sema_template.cpp`, `lowir_vtable.cpp` |
+| seven singletons: an aggregate whose array member no by-value parameter carries; an alias rewrite whose `value_type` does not name a type; a value place naming an incomplete current instantiation; `&C::f` as an argument; 5.9's `<` inside an argument spelling read as 14.2's list; a qualified function-template call's conversion; a conversion through a specialized base | 7 | mixed |
 
-Outside the fixtures, the sweeps leave seven shapes this milestone refuses where
+Outside the fixtures, the sweeps leave these shapes this milestone refuses where
 both oracles accept: a specialization's body cannot name its own class -
 `typedef s self;` inside `struct s<T*>` finds the primary and `s<T*>` written
 there is read as 12.1p1's constructor name and does not parse, which has been
@@ -234,49 +263,62 @@ template nobody instantiates, where `c` is only declared, is refused where it
 stands - which g++ refuses too ([temp.res]p8) and the reference accepts; a
 constructor template written in a class body
 (`template<class... A> D(A... a) : B(a...) {}`) is refused where it stands,
-which is 12.1p1's name read without a head over it and not a list question; and
-a decltype-specifier is outside the base-specifier grammar
-(`struct outer : decltype(mk())::inner`), which the reference refuses too.
-An eighth is new and is 8.3.5p10's parameter clause rather than 14.5.3p4's list:
+which is 12.1p1's name read without a head over it and not a list question; a
+decltype-specifier is outside the base-specifier grammar
+(`struct outer : decltype(mk())::inner`), which the reference refuses too; and
 12.1's constructor over a function parameter pack of *no* elements is not a
 candidate, so `template<class... A> struct s { s(A... a); };` and then `s<>`
 reports `no declaration of s accepts the arguments of a call` where both oracles
 build it - while the same head's member *function* over the same empty run, and
 the same constructor over a run of one or two, are right.
-Four more stand: 14.5.5p1 does not refuse a partial
-specialization of a *function* template; 14.7.3's explicit specialization of a
-function template is emitted `binding=weak` where the reference writes
-`binding=strong`; an unnamed enumeration reached through a `decltype` is mangled
-`N1S17__anonymous_enum1E` where the reference writes the ABI's `N1SUt_E`; and a
-static data member of a specialization of a template with a *non-type* parameter
-is a `load` here and in g++ where the reference folds the initializer.  The first
-three are metadata the comparison strips; the fourth is the family
-`100-nontype-template-argument-static-member-no-storage` already owns.
+
+Four stand the other way, where this milestone accepts or answers and one oracle
+does not: a redeclaration of a static data member with a *different* element
+type is taken rather than refused (`static unsigned char b[];` then
+`int s::b[] = {...}`), which both oracles refuse and which is 3.3's matching and
+not 8.3.4p3's bound; `case 'ab' - 24672:` is folded here and in g++ where the
+reference emits a `load` into the switch, which no case label may be; a raw
+literal operator declared *beside* a literal operator template is taken as the
+raw one where 2.14.8p3 makes the pair ill-formed and g++ refuses it; and a
+definition that omits an array bound an earlier declaration wrote lays out the
+declared length here and in g++ where the reference refuses the program.  The
+reference also refuses `L'ab'` and `#if 'ab'` with us where g++ accepts both,
+which is the course-defined limit on a character literal's encoding.
+
+Four more are metadata or a family already owned: 14.5.5p1 does not refuse a
+partial specialization of a *function* template; 14.7.3's explicit
+specialization of a function template is emitted `binding=weak` where the
+reference writes `binding=strong`; an unnamed enumeration reached through a
+`decltype` is mangled `N1S17__anonymous_enum1E` where the reference writes the
+ABI's `N1SUt_E`; and a static data member of a specialization of a template with
+a *non-type* parameter is a `load` here and in g++ where the reference folds the
+initializer.  The first three are metadata the comparison strips; the fourth is
+the family `100-nontype-template-argument-static-member-no-storage` already owns.
 
 ## Active Checkpoint
 
-**C8 - 5.19 outside the integral subset.**  Selected because it is the largest
-group whose members share one owner and one rule: each of the five is a constant
-expression the milestone reads for a template argument, a `static_assert` or an
-array bound, and each is refused by the same walk for a different operand -
-8.5.4's `B{}`, 5.3.3p5's `sizeof...` inside an arithmetic expression, 2.14.5's
-wide string literal, 2.14.3's multicharacter constant, and `sizeof` of a
-qualified static array member whose class the demand never completed.
+**C9 - 10p1's base-specifier-list of more than one class.**  Selected because it
+is the largest thing the milestone cannot do at all: `struct c : a, b {}` is
+refused where it stands, so the two fixtures that reach it through 14.5.3p4's
+base pack are refused for a reason that has nothing to do with packs, and the
+conversion singletons walk a base chain that can only ever be one deep.
 
-- **Owner.**  `sema_constant.cpp` for 5.19's evaluation, `literal_scan.cpp` for
-  the two literals whose bits phase 7 already knows, `sema_value_expression.cpp`
-  for the operands an argument *spelling* has to recover.
-- **Data flow.**  A written operand arrives either as the tree PA10 kept or as
-  the text 14.2 wrote it inside a name; both end at one evaluation, so the
-  increment is what that evaluation knows about a value - a class prvalue whose
-  members are constants, the `std::size_t` a `sizeof...` is, and the code units
-  a wide or multicharacter literal holds - rather than a second reader.
-- **Expected complexity.**  One evaluation per written operand, memoised where
-  a specialization already holds its constant; nothing for a program that
-  writes none.
-- **Validation.**  The five tests, `make test-report-through-pa19`, a
-  differential sweep of every operand shape 5.19 admits against g++ and
-  `pa20/cppgm++-ref`, and a valgrind run of each new shape.
+- **Owner.**  `sema_class.cpp` for 10p1's list and 10p2's lookup through it,
+  `sema_layout.cpp` for 9.2p13's offset of each base subobject, and
+  `lowir_lower_object.cpp` for the pointer adjustment 4.10p3's conversion and
+  9.3.1p3's object parameter each make.
+- **Data flow.**  A class already carries its bases as a list; what is missing
+  is an *offset* per base and a walk that reaches a member through the one that
+  holds it.  So the increment is a per-base offset settled where the class is
+  completed, read by every conversion and every member access, rather than a
+  second layout.
+- **Expected complexity.**  One layout per class, one offset per base, and one
+  addition per conversion; a lookup through n bases is the walk 10p2 already
+  makes, memoised on the class as `conversions_above` already is.
+- **Validation.**  The two fixtures, `make test-report-through-pa19`, a
+  differential sweep of the base-clause shapes 10p1 admits - empty bases,
+  bases with members, a base named twice through two paths, and access through
+  each - against g++ and `pa20/cppgm++-ref`, and a valgrind run of each.
 
 ## Performance Model
 
@@ -286,10 +328,11 @@ harness that spawns a process of its own per run reads this machine's floor as
 0.11 s; it is not one, and the `pa20/cppgm++-ref` wrapper adds a further ~0.5 s
 of its own before the reference binary starts.
 
-Rows marked \* were re-measured against this turn's build; the rest were
-measured against an earlier build and are carried forward, because this turn
-touched what a written list of *one* entry comes to, which the marked rows
-bracket at 1 / 64 / 512 / 2048 entries and at 256 / 1024 / 4096 readers.
+Rows marked \* were measured against this turn's build; the rest were measured
+against an earlier build and are carried forward, because this turn touched what
+a literal is worth and what an array bound comes to, neither of which any
+carried row reaches.  The two carried rows re-measured as a check -
+`fac<800>` and the counted pack - are unmoved.
 
 | shape | here | `pa20/cppgm++-ref` |
 | --- | --- | --- |
@@ -300,19 +343,19 @@ bracket at 1 / 64 / 512 / 2048 entries and at 256 / 1024 / 4096 readers.
 | 64 names behind one dependent `decltype` prefix | **0.006 s** | 0.022 s |
 | 256 / 1024 / 4096 out-of-class definitions over a value place | 0.014 / 0.046 / **0.188 s** | 2.084 s at 4096 |
 | 256 / 2048 settled prefixes named in one definition | 0.015 / **0.119 s** | 0.250 s at 2048 |
-| \* a pack of 4096 elements bound and counted | **0.012 s** | 0.159 s |
+| \* a pack of 4096 elements bound and counted | **0.018 s** | 0.159 s |
 | \* `fac<800>` metafunction chain | **0.037 s** | 0.167 s |
 | 256 patterns against 2048 distinct lists | **0.063 s** | 11.1 s |
-| \* 14.5.3p4's recursion over a pack of 1024 | **1.560 s** | 9.3 s |
-| \* an expansion of 1 / 64 / 512 / 2048 in an array's clause list | 0.004 / 0.005 / 0.015 / **0.051 s** | 1.30 s at 2048 |
-| \* the same in an aggregate's clause list | 0.004 / 0.005 / 0.017 / **0.058 s** | 1.40 s at 2048 |
-| \* the same as a constructor's argument list | 0.004 / 0.006 / 0.018 / **0.061 s** | 1.69 s at 2048 |
-| \* 256 / 1024 / 4096 scalar paren declarations over a run of one | 0.014 / 0.045 / **0.177 s** | - |
-| \* 256 / 1024 / 4096 functional casts over a run of one | 0.009 / 0.026 / **0.094 s** | - |
-| \* 256 / 1024 / 4096 mem-initializers of a non-class member | 0.017 / 0.058 / **0.226 s** | - |
-| \* 256 / 1024 / 4096 constant casts over a settled run | 0.015 / 0.052 / **0.195 s** | - |
-| \* 2048 ordinary declarations carrying a braced clause | **0.078 s** | - |
-| \* a cast nested 24 deep over a run of one | **0.004 s** | - |
+| 14.5.3p4's recursion over a pack of 1024 | **1.560 s** | 9.3 s |
+| an expansion of 1 / 64 / 512 / 2048 in an array's clause list | 0.004 / 0.005 / 0.015 / **0.051 s** | 1.30 s at 2048 |
+| the same in an aggregate's clause list | 0.004 / 0.005 / 0.017 / **0.058 s** | 1.40 s at 2048 |
+| the same as a constructor's argument list | 0.004 / 0.006 / 0.018 / **0.061 s** | 1.69 s at 2048 |
+| 256 / 1024 / 4096 scalar paren declarations over a run of one | 0.014 / 0.045 / **0.177 s** | - |
+| 256 / 1024 / 4096 functional casts over a run of one | 0.009 / 0.026 / **0.094 s** | - |
+| 256 / 1024 / 4096 mem-initializers of a non-class member | 0.017 / 0.058 / **0.226 s** | - |
+| 256 / 1024 / 4096 constant casts over a settled run | 0.015 / 0.052 / **0.195 s** | - |
+| 2048 ordinary declarations carrying a braced clause | **0.078 s** | - |
+| a cast nested 24 deep over a run of one | **0.004 s** | - |
 | a braced list nested 24 deep with an expansion at the leaf | **0.093 s** | - |
 | an aggregate of 2^15 / 2^17 subobjects, with / without an expansion | 1.483 / 1.499 and 6.713 / **6.734 s** | - |
 | a call forwarding a parameter pack of 1024 places | 0.025 s | - |
@@ -326,6 +369,13 @@ bracket at 1 / 64 / 512 / 2048 entries and at 256 / 1024 / 4096 readers.
 | 512 / 2048 distinct variable-template specializations | 0.015 / 0.051 s | - |
 | a variable-template chain 800 / 3000 / 6000 deep | 0.010 / 0.031 / 0.070 s | - |
 | the doubling spelling at 2^20 leaves | 0.912 s | 2.277 s |
+| \* 512 / 2048 / 8192 distinct multicharacter literals | 0.006 / 0.015 / **0.051 s** | 0.649 s at 8192 |
+| \* 512 / 2048 / 8192 string-literal elements read as constants | 0.007 / 0.017 / **0.057 s** | 0.714 s at 8192 |
+| \* `sizeof...` in a spelling expanded over a run of 256 / 1024 / 4096 | 0.013 / 0.044 / **0.178 s** | 7.62 s at 1024 |
+| \* 256 / 1024 / 4096 static member arrays completed by their definitions | 0.022 / 0.082 / **0.363 s** | SIGSEGV at 4096 |
+| \* 256 / 1024 / 4096 distinct literal-operator-template specializations | 0.014 / 0.049 / **0.204 s** | SIGSEGV at 4096 |
+| \* a string element nested 24 parentheses deep in a spelling | **0.004 s** | - |
+| \* 24 nested heads each counting its own run | **0.007 s** | - |
 
 The decltype table is one entry per *distinct* operand spelling and one hash
 lookup per naming, so the 512 / 2048 / 8192 row is linear in the spellings a
@@ -336,15 +386,26 @@ Nesting is flat because a nested spelling is one more entry, not one more scan.
 nested-name-specifier and one instantiation per settled specialization a
 definition names, which is why the pattern and metafunction rows did not move.
 
+Every row this turn added is linear in its own multiplicity at 512 / 2048 /
+8192 or at 256 / 1024 / 4096, and flat in nesting depth.  A multicharacter
+literal is one scan of the c-chars phase 3 already found and a string element is
+one scan of the code units phase 6 already built, so neither adds a pass; the
+bound a definition deduces costs one lookup per *unbounded* array declarator
+with a braced list and nothing at all for every other declarator; and a literal
+operator template is one `specialize` per distinct character list, which is the
+memoised specialization every other template naming makes.  The reference is
+12x slower on the literals, 170x on the counted run, and dies on the object-file
+rows at 4096.
+
 A written list costs one node-kind test per entry until an expansion is found
 and nothing at all after that for a list holding none, which is why the three
 2048-entry rows are linear in the entries and 3.4x their own 512 rows.  A list
 of *one* entry is the same reading and one per list met: the four
 readers of one are each linear in their own multiplicity at 256 / 1024 / 4096,
 and 5.19p3's fold reads the list only where a const object of arithmetic type
-asks, so 2048 ordinary declarations carrying a braced clause are unmoved.  Every
-row marked \* was measured interleaved against a `make build` of `350c92f4` and
-is the same to within 0.7 %, the quadratic pack recursion included.  The deepest
+asks, so 2048 ordinary declarations carrying a braced clause are unmoved.
+
+The deepest
 nesting is flat for the same reason a list is: a nested list or cast is one more
 list, not one more scan.  The 2^17-subobject aggregate is exponential in its
 *type* and not in the reading - the row with an expansion and the row without it
@@ -363,9 +424,10 @@ sum to n^2/2 - g++ is 0.210 s at 1024 where this compiler is 1.560 s and the
 reference 9.3 s.  A *class* metafunction with no terminating specialization
 still overflows the machine stack rather than being diagnosed, here and in the
 reference alike; a depth guard is owed whenever a checkpoint touches
-`instantiate_class` again.  `sema_analyzer.h` is at 2390 of the audit's 2400
-header lines, and `declare_object_declarator` reached 241 of the audit's 240
-function lines this turn - which is what gave 5.19p3's fold an owner of its own.
+`instantiate_class` again.  `sema_analyzer.h` is at 2394 of the audit's 2400
+header lines, and `sema_analyzer.cpp` crossed the audit's 3000-line ceiling this
+turn - which is what gave 7.2's enumeration an owner of its own
+(`sema_enum.cpp`), leaving that file at 2820.
 
 ## Completed Checkpoints
 
@@ -386,3 +448,4 @@ function lines this turn - which is what gave 5.19p3's fold an owner of its own.
 | C7 | 14.5.3p4 in every list a program writes one into, given one owner: `WrittenList` is a written list and what its entries come to, so 8.5.1's clauses, 5.2.2's arguments, 5.2.3's conversion, 5.3.4's placement and initializer, 8.3.4p3's deduced bound and 13.3.3.1.5's length all ask it once; `InitializerClauses` carries it with 8.5.1p11's cursor so an elided subaggregate reads each clause where the expansion put it; an unsettled run stands as the one entry it was written as, which leaves 14.6p8's reading a bound rather than a wrong one; 8.5.1p2's array walk became one implementation (`array_from_clauses`) driven by that cursor; and 5.2.3p2's temporary now demands 3.9p5's complete type, which is what lets `pr<int>{1,2}` stand as an argument at all.  8.5.1's aggregate-through-a-constructor half moved to its own owner beside 8.5.1's clause walk | 158 -> **162 / 184**; pa1-pa19 2169 / 2169; 20 list shapes swept against g++ and the reference with no new divergence, linear at 1 / 64 / 512 / 2048 entries, valgrind clean |
 | C6 audit | the demand a prefix makes, at all three walks that make it and in all three modes that read one: `qualified_in_type` asks `require_settled_type` for a settled prefix and leaves 14.6.2p1's stand-in for a dependent one, and `resolve_prefix`'s decltype branch reports a dependent prefix rather than looking its spelling up; `id_constant` asks `decltype_qualified_name` instead of a second copy of it; the arena travels through `emit_translation_units`, so the two dump modes read such a name the way the lowering one does; and 14.6.1p1's current instantiation binds a value place as a value, which is what lets an out-of-class member definition of a class template with a non-type parameter name its own head | 156 / 182 -> **158 / 184** with two fixtures added; pa1-pa19 2169 / 2169; 134 swept shapes, every accepted pair writing the reference's LowIR |
 | C7 audit | a list of *one* entry is a list too: 8.5p16's parenthesised initializer of a non-class object, 5.2.3p1's cast to a non-class type, 12.6.2p7's mem-initializer of a non-class member and 5.19p3's fold of the constant a declaration leaves each took the list's one entry by `children[0]`, so a run of one reached a `pack-expansion-expression` no reader answers for while the class-typed twin C7 converted was right; the arity none of them asked, which had `int x(1,2)` holding 1 where both oracles refuse; and 5.19's own reading of 5.2.3, which now stands a value in for a run 14.6p8 cannot count as `sizeof...` does.  5.19p3's fold became `fold_constant_object`, freeing the function-line ceiling `declare_object_declarator` had crossed | 162 / 184 -> **164 / 186** with two fixtures added; pa1-pa19 2169 / 2169; 88 swept shapes, every accepted pair writing the reference's LowIR; linear and unmoved from the `350c92f4` build at 1 / 64 / 512 / 2048 entries and 256 / 1024 / 4096 readers; valgrind clean |
+| C8 | 5.19 outside the integral subset, and the literal it reads: 2.14.3p1's multicharacter literal made a token of the language `PostTokenizer` reads and not of PA2's dump, with the last four c-chars packed one code unit each; 5.19p2's subobject of a string literal answered from a spelling and an index, so a subscript reads as a tree and inside an argument list alike - and an encoding-prefix closes up with its quoted run as `sizeof` does with its `...`; 5.3.3p5's `sizeof...` read out of an argument spelling, so a pattern expanded per element still counts its own run; 3.9p7's incomplete array completed by the definition of the object, both ways about; and 2.14.8p3's literal operator template called with the characters the program wrote, with a cooked call now passing the literal 2.14.2 made rather than the parameter's type.  7.2's enumeration became its own owner (`sema_enum.cpp`), freeing the 3000-line ceiling `sema_analyzer.cpp` crossed | 164 / 186 -> **176 / 191** with five fixtures added; pa1-pa19 2169 / 2169; 80 swept shapes, every accepted pair writing the reference's LowIR; linear at 8192 literals, 4096 elements and 4096 definitions where the reference is 12x slower or dies; valgrind clean |

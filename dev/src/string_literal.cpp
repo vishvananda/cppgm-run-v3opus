@@ -339,7 +339,11 @@ LiteralForm scan_literal(const std::string& spelling, PostToken& token)
 		break;
 
 	case LiteralForm::Character:
-		scan_character_literal(spelling, token);
+		// A layer that asks a spelling what it is worth is reading the
+		// language rather than printing a token, so 2.14.3p1's multicharacter
+		// literal is one of the literals it answers for.
+		scan_character_literal(spelling, token,
+		                       MulticharacterLiterals::Packed);
 		break;
 
 	case LiteralForm::None:

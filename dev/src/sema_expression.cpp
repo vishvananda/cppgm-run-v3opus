@@ -36,6 +36,40 @@ const AstNode* child_kind(const AstNode& node, AstKind kind)
 	return nullptr;
 }
 
+// 2.14.8p3 and 13.5.8p1: the literal operator *template* a ud-suffix's lookup
+// may have found, which is declared `template<char... C> R operator""X()`.
+//
+// One place binding a run of `char` values and no function parameter at all is
+// what tells it from every other declaration of the name: a cooked operator
+// takes the value, a raw one takes the digits, and this one takes them as its
+// argument list instead.
+SemaEntity* literal_operator_template(
+	const std::vector<SemaEntity*>& candidates, TypeTable& types)
+{
+	for (std::size_t index = 0; index < candidates.size(); ++index)
+	{
+		for (SemaEntity* at = candidates[index]; at != nullptr; at = at->next)
+		{
+			if (at->kind != SemaKind::Function || at->object_member ||
+			    at->template_parameters == nullptr ||
+			    !types.parameters(at->type).empty())
+			{
+				continue;
+			}
+			const std::vector<SemaEntity*>& places =
+				at->template_parameters->declarations;
+			if (places.size() == 1 &&
+			    types.is_template_pack(places[0]->type) &&
+			    types.parameter_value_type(places[0]->type) ==
+				    types.fundamental(FT_CHAR))
+			{
+				return at;
+			}
+		}
+	}
+	return nullptr;
+}
+
 // 5.17p7: the built-in operator a compound assignment is written from.
 unsigned compound_operator(unsigned op)
 {
@@ -1560,15 +1594,20 @@ SemaAnalyzer::Value SemaAnalyzer::user_defined_literal(const PostToken& token,
 		scan_pp_number(prefix, scanned);
 		cooked_known = scanned.kind == PostTokenKind::Literal &&
 			fundamental_type_is_integral(scanned.type) == integral;
+		// 2.14.8p3 names the *parameter* the operator was declared with, and
+		// the argument is the literal 2.14.2 or 2.14.4 already made - so what
+		// the call passes is that literal in its own type, and 5.2.2p4's
+		// conversion brings it to the parameter as it would any argument.
 		if (integral)
 		{
-			cooked.set_integer_value(FT_UNSIGNED_LONG_LONG_INT,
-			                         cooked_known ? scanned.integer_value() : 0);
+			cooked.set_integer_value(
+				cooked_known ? scanned.type : FT_UNSIGNED_LONG_LONG_INT,
+				cooked_known ? scanned.integer_value() : 0);
 			wanted.push_back(types_.fundamental(FT_UNSIGNED_LONG_LONG_INT));
 		}
 		else
 		{
-			cooked.type = FT_LONG_DOUBLE;
+			cooked.type = cooked_known ? scanned.type : FT_LONG_DOUBLE;
 			cooked.data = cooked_known
 				? scanned.data
 				: std::string(fundamental_type_size(FT_LONG_DOUBLE), 0);
@@ -1579,7 +1618,10 @@ SemaAnalyzer::Value SemaAnalyzer::user_defined_literal(const PostToken& token,
 	}
 
 	SemaEntity* chosen = cooked_known ? literal_operator(found, wanted) : nullptr;
-	bool raw = false;
+	// 2.14.8p3 to p6: what the call the literal comes to passes - the value
+	// 2.14 gave it, the digits the program wrote, or nothing at all, because a
+	// literal operator template took the characters as its arguments instead.
+	enum { PassesValue, PassesDigits, PassesNothing } passing = PassesValue;
 	if (chosen == nullptr && (token.ud_kind == UserDefinedLiteralKind::Integer ||
 	                          token.ud_kind == UserDefinedLiteralKind::Floating))
 	{
@@ -1589,7 +1631,29 @@ SemaAnalyzer::Value SemaAnalyzer::user_defined_literal(const PostToken& token,
 		digits.push_back(types_.pointer_to(
 			types_.qualified(types_.fundamental(FT_CHAR), kCvConst)));
 		chosen = literal_operator(found, digits);
-		raw = chosen != nullptr;
+		passing = chosen != nullptr ? PassesDigits : PassesValue;
+	}
+	if (chosen == nullptr && token.ud_kind != UserDefinedLiteralKind::String &&
+	    token.ud_kind != UserDefinedLiteralKind::Character)
+	{
+		// 2.14.8p3: a set that declares no operator taking the value and none
+		// taking the digits may still declare a literal operator template,
+		// which is called with the characters of the literal as its argument
+		// list - `operator""X<'c1', ..., 'ck'>()`.
+		SemaEntity* const pattern = literal_operator_template(found, types_);
+		if (pattern != nullptr)
+		{
+			std::vector<TypeId> characters;
+			const TypeId element = types_.fundamental(FT_CHAR);
+			for (std::size_t index = 0; index < prefix.size(); ++index)
+			{
+				characters.push_back(types_.value_type(
+					element,
+					static_cast<unsigned char>(prefix[index])));
+			}
+			chosen = &specialize(*pattern, characters);
+			passing = PassesNothing;
+		}
 	}
 	if (chosen == nullptr)
 	{
@@ -1600,7 +1664,7 @@ SemaAnalyzer::Value SemaAnalyzer::user_defined_literal(const PostToken& token,
 	DumpNode& line = model_.open_node(parent, std::string());
 	DumpNode& named = model_.open_node(line, std::string());
 	std::vector<Value> arguments;
-	if (raw)
+	if (passing == PassesDigits)
 	{
 		PostToken digits;
 		digits.reset(PostTokenKind::LiteralArray);
@@ -1610,7 +1674,7 @@ SemaAnalyzer::Value SemaAnalyzer::user_defined_literal(const PostToken& token,
 		digits.data.push_back('\0');
 		arguments.push_back(literal_value(digits, "\"" + prefix + "\"", line));
 	}
-	else
+	else if (passing == PassesValue)
 	{
 		arguments.push_back(literal_value(cooked, prefix, line));
 		if (token.ud_kind == UserDefinedLiteralKind::String)

@@ -1,0 +1,54 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $bound : obj<1032x4>
+  slot $written : i32
+  slot $cond__1 : i32
+  slot $land__2 : i64
+
+  block ^entry:
+    store i32 24930, $written
+    %t1 = load i32 $written
+    jump ^switch_dispatch_1
+
+  block ^switch_dispatch_1:
+    switch %t1, ^switch_default_4, 24930:^switch_case_3
+
+  block ^switch_case_3:
+    %t2 = cmp eq i32 24930, 24930
+    branch %t2, ^land_rhs_8, ^land_short_9
+
+  block ^land_rhs_8:
+    %t3 = const i64 1032
+    %t4 = const i64 4
+    %t5 = binary udiv i64 %t3, %t4
+    %t6 = convert sext i64 i32 258
+    %t7 = cmp eq i64 %t5, %t6
+    %t8 = cmp ne i64 %t7, 0
+    store i64 %t8, $land__2
+    jump ^land_end_10
+
+  block ^land_short_9:
+    store i64 0, $land__2
+    jump ^land_end_10
+
+  block ^land_end_10:
+    %t9 = load i64 $land__2
+    branch %t9, ^cond_then_5, ^cond_else_6
+
+  block ^cond_then_5:
+    store i32 0, $cond__1
+    jump ^cond_end_7
+
+  block ^cond_else_6:
+    store i32 1, $cond__1
+    jump ^cond_end_7
+
+  block ^cond_end_7:
+    %t10 = load i32 $cond__1
+    return i32 %t10
+
+  block ^switch_default_4:
+    return i32 1
+
+  block ^switch_end_2:
+    return i32 0
+}

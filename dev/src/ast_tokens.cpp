@@ -247,7 +247,7 @@ void AstTokenStream::build(SourceFileTable& files, const PreprocessorOptions& op
                            const std::string& path)
 {
 	Preprocessor preprocessor(files, options, path);
-	PostTokenizer tokenizer(preprocessor);
+	PostTokenizer tokenizer(preprocessor, MulticharacterLiterals::Packed);
 
 	PostToken token;
 	unsigned long long pack_epoch = preprocessor.pack_epoch();

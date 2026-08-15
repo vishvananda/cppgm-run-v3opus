@@ -235,6 +235,41 @@ SemaAnalyzer::Constant SemaAnalyzer::literal_constant(const std::string& spellin
 	return convert(out, out.type);
 }
 
+// 5.19p2: the lvalue-to-rvalue conversion applied to a subobject of a string
+// literal, which is the one object 5.19 reads out of storage rather than out
+// of a declaration.  2.14.5 makes the literal an array of the code units phase
+// 6 built, so the element is one of them and which one is a constant
+// expression of its own.
+SemaAnalyzer::Constant SemaAnalyzer::string_element(const std::string& spelling,
+                                                    unsigned long long index)
+{
+	PostToken token;
+	if (scan_literal(spelling, token) != LiteralForm::String ||
+	    token.kind != PostTokenKind::LiteralArray)
+	{
+		throw NotConstant("a constant expression subscripts something that is "
+		                  "not a string literal");
+	}
+	// 8.3.4p6: the element is the one the index names, and the terminating
+	// null 2.14.5p12 appended is an element of the array like any other.
+	if (index >= token.element_count)
+	{
+		throw NotConstant("a constant expression subscripts a string literal "
+		                  "outside its bounds");
+	}
+	const std::size_t width = fundamental_type_size(token.type);
+	const std::size_t at = static_cast<std::size_t>(index) * width;
+	Constant out;
+	out.type = types_.fundamental(token.type);
+	out.bits = 0;
+	for (std::size_t byte = width; byte-- > 0; )
+	{
+		out.bits = (out.bits << 8) |
+			static_cast<unsigned char>(token.data[at + byte]);
+	}
+	return convert(out, out.type);
+}
+
 SemaAnalyzer::Constant SemaAnalyzer::id_constant(const AstNode& node,
                                                  const Context& ctx)
 {
@@ -472,6 +507,22 @@ SemaAnalyzer::Constant SemaAnalyzer::evaluate(const AstNode& node,
 
 	case AstKind::ParenthesizedExpression:
 		return evaluate(*node.children[0], ctx);
+
+	case AstKind::SubscriptExpression:
+	{
+		const AstNode* array = node.children[0];
+		while (array->kind == AstKind::ParenthesizedExpression)
+		{
+			array = array->children[0];
+		}
+		if (array->kind != AstKind::Literal)
+		{
+			throw NotConstant("a constant expression subscripts something "
+			                  "that is not a string literal");
+		}
+		return string_element(array->text,
+		                      evaluate(*node.children[1], ctx).bits);
+	}
 
 	case AstKind::IdExpression:
 		return id_constant(node, ctx);

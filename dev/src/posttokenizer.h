@@ -2,6 +2,7 @@
 
 #include <string>
 
+#include "literal_scan.h"
 #include "post_token.h"
 #include "pptoken_lexer.h"
 #include "string_literal.h"
@@ -20,7 +21,10 @@
 class PostTokenizer
 {
 public:
-	explicit PostTokenizer(PPTokenSource& source);
+	// `multicharacter` is 2.14.3p1's literal holding more than one c-char: the
+	// tools that print a token read the course-defined subset that has none,
+	// and the compiler reads the language.
+	PostTokenizer(PPTokenSource& source, MulticharacterLiterals multicharacter);
 
 	// Produces the next token; returns false once end of file was reported.
 	// Throws SourceError when the source file is ill-formed in phases 1 to 3.
@@ -31,6 +35,7 @@ private:
 	void flush_sequence(PostToken& token);
 
 	PPTokenSource& source_;
+	MulticharacterLiterals multicharacter_;
 	PPToken current_;
 	PPToken held_;
 	bool has_held_;

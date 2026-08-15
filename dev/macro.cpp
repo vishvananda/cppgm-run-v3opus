@@ -44,7 +44,7 @@ int main(int argc, char** argv)
 		DebugPostTokenStream output;
 		PPTokenLexer lexer(std::move(source));
 		MacroExpander expander(&lexer);
-		PostTokenizer tokenizer(expander);
+		PostTokenizer tokenizer(expander, MulticharacterLiterals::IllFormed);
 
 		PostToken token;
 		while (tokenizer.next(token))

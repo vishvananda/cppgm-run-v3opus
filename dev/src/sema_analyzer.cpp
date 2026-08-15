@@ -1984,205 +1984,6 @@ void SemaAnalyzer::write_entity_line(DumpScope& dump, const SemaEntity& entity)
 	}
 }
 
-SemaEntity& SemaAnalyzer::enum_declaration(const AstNode& node,
-                                           const Context& ctx, bool elaborated,
-                                           const std::string& named_by)
-{
-	const bool scoped = has_child(node, AstKind::EnumKey);
-	const AstNode* base = child_of(node, AstKind::TypeId);
-	const bool defines = has_child(node, AstKind::Enumerator);
-	// 7.1.3p2: an unnamed enumeration is named by the first declarator of its
-	// declaration, and one no declarator names is numbered.
-	const bool unnamed = node.text.empty() && named_by.empty();
-	const std::string written = unnamed
-		? "__anonymous_enum" + decimal(++anonymous_enums_, false)
-		: (node.text.empty() ? named_by : node.text);
-	const QualifiedName spelled(written);
-	const std::string name = spelled.last();
-	const bool qualified = spelled.qualified();
-
-	SemaEntity* entity = nullptr;
-	if (elaborated || qualified)
-	{
-		// 3.4.4p2 and 7.2p5: an elaborated-type-specifier and an out-of-class
-		// definition both name an enumeration that is already declared.
-		SemaEntity* found = qualified
-			? model_.lookup_in(*resolve_prefix(spelled, ctx), name,
-			                   LookupKind::Type)
-			: resolve(written, ctx, LookupKind::Type);
-		entity = &require(found, written);
-		if (entity->kind != SemaKind::Enum)
-		{
-			throw std::runtime_error("an elaborated enum specifier names " +
-			                         written + ", which is not an enumeration");
-		}
-		if (elaborated)
-		{
-			return *entity;
-		}
-	}
-	else
-	{
-		entity = redeclared(ctx, name, SemaKind::Enum);
-	}
-
-	// 7.2p2 and 7.2p5: an enumeration whose underlying type is not fixed
-	// cannot be named before it is defined, and two declarations of one
-	// enumeration fix the same underlying type.
-	const TypeId underlying =
-		base != nullptr ? type_id_type(*base, ctx) : types_.fundamental(FT_INT);
-	if (entity == nullptr)
-	{
-		if (!defines && !scoped && base == nullptr)
-		{
-			throw std::runtime_error("an opaque declaration of an unscoped "
-			                         "enumeration fixes no underlying type");
-		}
-		const std::uint32_t id = model_.type_entity_id();
-		// 7.2: the dump spells an enumeration as its declaration wrote it, and
-		// the regions around that declaration are what a name for it outside
-		// them must carry, so the type holds both.
-		const TypeId type = types_.enum_type(
-			id, scoped, name, dump_name(*ctx.scope, name), underlying);
-		entity = &model_.create(SemaKind::Enum, name, type);
-		own_type(type, *entity);
-		note_nested_in_dependent(type, *ctx.scope);
-		declare_type_name(name, *ctx.scope);
-		model_.bind(*ctx.scope, name, *entity);
-		model_.declare_in(*ctx.scope, *entity);
-		// 9.8p1 read of an enumeration: a function's body declares it too, and
-		// the object file names it after that function for the same reason.
-		if (unnamed)
-		{
-			// 7.2p1 gave this one no name, so the spelling bound above is one
-			// this unit counted for itself; the ABI's `<unnamed-type-name>` is
-			// what the object file names it by, in the one sequence the region
-			// counts its classes and its enumerations in.
-			model_.settle_unnamed_local_name(*ctx.scope, *entity);
-		}
-		types_.set_local_name(type, entity->local_function,
-		                      entity->local_occurrence,
-		                      entity->local_unnamed);
-	}
-	else if (types_.target(entity->type) != underlying)
-	{
-		throw std::runtime_error("an enumeration is redeclared with a different "
-		                         "underlying type");
-	}
-
-	const std::string spelling = (scoped ? "enum class " : "enum ") + written;
-	if (!unnamed)
-	{
-		ctx.dump->lines.push_back("type " + written + " " + spelling);
-	}
-
-	// A scoped enumeration writes a scope of its own for every declaration of
-	// it; an unscoped one writes none, because 7.2p10 declares its enumerators
-	// in the region around it and the dump writes them there.
-	DumpScope* dump = ctx.dump;
-	if (scoped)
-	{
-		dump = &model_.open_dump(*ctx.dump, "scope enum " + written);
-	}
-	if (entity->scope == nullptr)
-	{
-		entity->scope = &model_.open(ScopeKind::Enum, *ctx.scope, entity, dump);
-	}
-	if (defines)
-	{
-		if (entity->defined)
-		{
-			throw std::runtime_error("an enumeration is defined twice");
-		}
-		entity->defined = true;
-	}
-	enumerators(node, *entity, spelling, *dump);
-	return *entity;
-}
-
-void SemaAnalyzer::enumerators(const AstNode& node, SemaEntity& entity,
-                               const std::string& spelling, DumpScope& dump)
-{
-	Scope& scope = *entity.scope;
-	const bool scoped = types_.is_scoped_enum(entity.type);
-	unsigned long long next = 0;
-	unsigned long long widest = 0;
-	bool signed_values = false;
-	for (std::size_t index = 0; index < node.children.size(); ++index)
-	{
-		const AstNode& child = *node.children[index];
-		if (child.kind != AstKind::Enumerator)
-		{
-			continue;
-		}
-		unsigned long long value = next;
-		bool negative = false;
-		if (!child.children.empty())
-		{
-			// 7.2p1: the constant-expression of an enumerator-definition.
-			Context inner;
-			inner.scope = &scope;
-			inner.dump = &dump;
-			const Constant written = evaluate(*child.children[0], inner);
-			value = written.bits;
-			negative = is_signed(written.type) &&
-				(value >> (width_of(written.type) - 1)) != 0;
-		}
-		next = value + 1;
-		// 7.2p5: the range of the enumeration is the values its enumerators
-		// have, which is what says which type represents them all.
-		if (negative)
-		{
-			signed_values = true;
-		}
-		else if (value > widest)
-		{
-			widest = value;
-		}
-
-		SemaEntity& enumerator =
-			model_.create(SemaKind::Enumerator, child.text, entity.type);
-		enumerator.constant = true;
-		enumerator.value = value;
-		require_no_template_parameter(child.text, scope);
-		model_.bind(scope, child.text, enumerator);
-		model_.declare_in(scope, enumerator);
-		if (!scoped && scope.parent != nullptr)
-		{
-			// 7.2p10: an unscoped enumeration's enumerators are declared in the
-			// region the enumeration is declared in, which is not where the
-			// definition is written when 7.2p1 writes it outside its class.
-			require_no_template_parameter(child.text, *scope.parent);
-			model_.bind(*scope.parent, child.text, enumerator);
-			model_.declare_in(*scope.parent, enumerator);
-		}
-		// The enumeration is spelled as this declaration spells it, which for
-		// a definition written outside its class is the qualified name.
-		dump.lines.push_back("enumerator " + child.text + " " + spelling + " " +
-		                     spell_value(entity.type, value));
-	}
-	// 4.5p3 and 7.2p5: the first of `int`, `unsigned int`, `long` and
-	// `unsigned long` that represents every value the enumeration has, which is
-	// what an operand of it is promoted to.
-	EFundamentalType promotion = FT_INT;
-	if (widest > 0x7FFFFFFFull)
-	{
-		if (widest <= 0xFFFFFFFFull && !signed_values)
-		{
-			promotion = FT_UNSIGNED_INT;
-		}
-		else if (widest <= 0x7FFFFFFFFFFFFFFFull)
-		{
-			promotion = FT_LONG_INT;
-		}
-		else
-		{
-			promotion = FT_UNSIGNED_LONG_INT;
-		}
-	}
-	entity.promotion = types_.fundamental(promotion);
-}
-
 // 16.6: the packing alignment the definition `node` is laid out under.
 //
 // The directive is a fact of a position in the source and the layout is a fact
@@ -2534,13 +2335,30 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 	    initializer != nullptr && !initializer->children.empty() &&
 	    initializer->children[0]->kind == AstKind::BracedInitList)
 	{
-		const WrittenList clauses(initializer->children[0], *this, looked_up);
-		if (!clauses.unsettled())
+		// 8.3.4p3 first: a bound an earlier declaration of the same object
+		// wrote is the one this definition has, and the list only says how
+		// many of its elements the program wrote out.
+		SemaEntity* const before =
+			redeclared(target, spelled.last(), SemaKind::Variable);
+		if (before != nullptr && types_.kind(before->type) == TypeKind::Array &&
+		    types_.bounded(before->type) &&
+		    types_.target(before->type) == types_.target(type))
 		{
-			// 14.6p8: a clause standing for a run no argument list has settled
-			// says nothing about how many elements there are, so the bound is
-			// what the reading made from an argument list settles.
-			type = types_.array_of(types_.target(type), true, clauses.size());
+			type = before->type;
+		}
+		else
+		{
+			const WrittenList clauses(initializer->children[0], *this,
+			                          looked_up);
+			if (!clauses.unsettled())
+			{
+				// 14.6p8: a clause standing for a run no argument list has
+				// settled says nothing about how many elements there are, so
+				// the bound is what the reading made from an argument list
+				// settles.
+				type = types_.array_of(types_.target(type), true,
+				                       clauses.size());
+			}
 		}
 	}
 	const std::string name = spelled.last();
@@ -2699,6 +2517,17 @@ void SemaAnalyzer::declare_object_declarator(const AstNode* initializer,
 	// found before this declaration is bound over it.
 	SemaEntity* const prior = redeclared(target, name, SemaKind::Variable);
 	SemaEntity* const declared = spelled.qualified() ? prior : nullptr;
+	if (declared != nullptr && types_.kind(declared->type) == TypeKind::Array &&
+	    !types_.bounded(declared->type) &&
+	    types_.kind(type) == TypeKind::Array && types_.bounded(type) &&
+	    types_.target(declared->type) == types_.target(type))
+	{
+		// 3.9p7 and 8.3.4p3: an array of unknown bound is an incomplete type
+		// the definition of the object completes, so the bound that definition
+		// deduced from its list is the *declaration's* from there on - which is
+		// what a `sizeof` written over the name the class declared reads.
+		declared->type = type;
+	}
 	SemaEntity& entity = declared != nullptr
 		? *declared
 		: model_.create(SemaKind::Variable, name, type);

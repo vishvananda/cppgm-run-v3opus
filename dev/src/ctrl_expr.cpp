@@ -327,7 +327,8 @@ void CtrlExprEvaluator::add_literal(const std::string& spelling, bool character_
 {
 	if (character_literal)
 	{
-		scan_character_literal(spelling, literal_);
+		scan_character_literal(spelling, literal_,
+		                       MulticharacterLiterals::IllFormed);
 	}
 	else
 	{

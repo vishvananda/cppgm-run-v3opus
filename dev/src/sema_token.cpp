@@ -113,7 +113,7 @@ void build_sema_tokens(SourceFileTable& files, const PreprocessorOptions& option
                        std::vector<SemaToken>& out, std::vector<LiteralValue>& literals)
 {
 	Preprocessor preprocessor(files, options, path);
-	PostTokenizer tokenizer(preprocessor);
+	PostTokenizer tokenizer(preprocessor, MulticharacterLiterals::Packed);
 
 	PostToken token;
 	while (tokenizer.next(token))

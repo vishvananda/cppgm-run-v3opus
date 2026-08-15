@@ -1303,6 +1303,10 @@ private:
 	Constant id_constant(const AstNode& node, const Context& ctx);
 	Constant unary_constant(const AstNode& node, const Context& ctx);
 	Constant binary_constant(const AstNode& node, const Context& ctx);
+	// 5.19p2: the element `index` of the string literal `spelling`, which is
+	// the one object a constant expression reads out of storage.
+	Constant string_element(const std::string& spelling,
+	                        unsigned long long index);
 	Constant convert(const Constant& value, TypeId type) const;
 	Constant promote(const Constant& value);
 	// 5p10: the type the usual arithmetic conversions bring two operands to.

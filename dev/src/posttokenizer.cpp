@@ -6,8 +6,10 @@
 #include "literal_scan.h"
 #include "token_model.h"
 
-PostTokenizer::PostTokenizer(PPTokenSource& source)
+PostTokenizer::PostTokenizer(PPTokenSource& source,
+                             MulticharacterLiterals multicharacter)
 	: source_(source)
+	, multicharacter_(multicharacter)
 	, has_held_(false)
 	, previous_is_operator_(false)
 	, finished_(false)
@@ -117,7 +119,7 @@ void PostTokenizer::convert(PostToken& token)
 		break;
 	case PPTokenType::CharacterLiteral:
 	case PPTokenType::UserDefinedCharacterLiteral:
-		scan_character_literal(current_.spelling, token);
+		scan_character_literal(current_.spelling, token, multicharacter_);
 		break;
 	default:
 		// A header-name or a non-whitespace-character has no token form.

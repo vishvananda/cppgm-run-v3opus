@@ -38,7 +38,7 @@ int main(int argc, char** argv)
 		// produced before an ill-formed one are still reported.
 		DebugPostTokenStream output;
 		PPTokenLexer lexer(std::move(source));
-		PostTokenizer tokenizer(lexer);
+		PostTokenizer tokenizer(lexer, MulticharacterLiterals::IllFormed);
 
 		PostToken token;
 		while (tokenizer.next(token))

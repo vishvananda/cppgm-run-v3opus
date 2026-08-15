@@ -479,7 +479,38 @@ void scan_pp_number(const std::string& spelling, PostToken& token)
 	}
 }
 
-void scan_character_literal(const std::string& spelling, PostToken& token)
+namespace
+{
+
+// 2.14.3p1: what a multicharacter literal is worth.  The course ABI leaves the
+// value implementation defined, and this one is its last four c-chars packed
+// one code unit each with the first of them most significant - so `'ab'` is
+// `0x6162` and `'abcde'` drops the `a`, which is what the reference compiler
+// and the host one both write.  False where a c-char of it is no code point.
+bool packed_multicharacter(const std::string& spelling, std::size_t at,
+                           std::size_t close, unsigned long long& packed)
+{
+	packed = 0;
+	while (at < close)
+	{
+		LiteralElement element;
+		const std::size_t next = decode_literal_element(spelling, at, element);
+		if (next <= at || next > close ||
+		    element.value > static_cast<unsigned long long>(kMaxCodePoint) ||
+		    !is_valid_code_point(static_cast<int>(element.value)))
+		{
+			return false;
+		}
+		packed = (packed << 8) | (element.value & 0xFF);
+		at = next;
+	}
+	return true;
+}
+
+}
+
+void scan_character_literal(const std::string& spelling, PostToken& token,
+                            MulticharacterLiterals multicharacter)
 {
 	token.reset(PostTokenKind::Invalid);
 
@@ -512,7 +543,21 @@ void scan_character_literal(const std::string& spelling, PostToken& token)
 	LiteralElement element;
 	if (decode_literal_element(spelling, quote + 1, element) != close)
 	{
-		// More than one c-char: course defined as ill-formed.
+		// 2.14.3p1: more than one c-char, which the language reads as one
+		// value of type `int` and PA2's dump is course defined to refuse.
+		// Only the ordinary encoding has such a value: an encoding prefix
+		// names one code unit, and more than one of them is ill-formed.
+		unsigned long long packed = 0;
+		if (multicharacter != MulticharacterLiterals::Packed ||
+		    encoding != LiteralEncoding::Ordinary ||
+		    !packed_multicharacter(spelling, quote + 1, close, packed))
+		{
+			return;
+		}
+		token.kind = token.ud_suffix.empty()
+			? PostTokenKind::Literal
+			: PostTokenKind::UserDefinedLiteral;
+		token.set_integer_value(FT_INT, packed);
 		return;
 	}
 	if (element.value > static_cast<unsigned long long>(kMaxCodePoint) ||
