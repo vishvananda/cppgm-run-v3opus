@@ -7,6 +7,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "sema_pack.h"
 #include "sema_scope.h"
 #include "type_model.h"
 
@@ -303,18 +304,33 @@ struct WrittenInitializer
 // them the subobjects read so far have taken.  8.5.1p11 lets one list
 // initialize subobjects at several depths, so the cursor is what the walk of
 // the aggregate carries rather than a list per level.
+//
+// What the clauses *are* is 14.5.3p4's question, so the list is the one
+// `sema_pack.h` reads an expansion out of: a clause the program wrote
+// `pattern...` is as many clauses as its run holds, each read in a region of
+// its own.
 struct InitializerClauses
 {
 	InitializerClauses(const AstNode& written)
-		: list(&written)
+		: list(written)
 		, at(0)
 	{}
 
-	const AstNode* list;
+	InitializerClauses(const AstNode* written, SemaAnalyzer& analyzer,
+	                   const SemaContext& ctx)
+		: list(written, analyzer, ctx)
+		, at(0)
+	{}
+
+	WrittenList list;
 	std::size_t at;
 
 	bool spent() const;
 	const AstNode& next() const;
+	// The context the clause standing here is read in, which is the one the
+	// list stands in except where 14.5.3p4 put this clause in a region of its
+	// own.
+	SemaContext in(const SemaContext& outer) const;
 };
 
 // 8.5 initializes an object a declaration named; 12.6.2 initializes a

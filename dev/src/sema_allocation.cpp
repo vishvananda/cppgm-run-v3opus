@@ -816,14 +816,13 @@ SemaAnalyzer::Value SemaAnalyzer::new_expression(const AstNode& node,
 		? array_new_size(*bound, created, cookie, ctx, call, elements, counted)
 		: object_size_value(size_of(created), call);
 	arguments.push_back(size);
-	const AstNode* const written_placement =
-		placement == nullptr ? nullptr : arguments_of(*placement);
-	for (std::size_t index = 0;
-	     written_placement != nullptr &&
-	     index < written_placement->children.size(); ++index)
+	// 14.5.3p4: a placement argument written `pattern...` is one argument per
+	// element of the run its packs are bound to.
+	Clauses placed(placement == nullptr ? nullptr : arguments_of(*placement),
+	               *this, ctx);
+	for (; !placed.spent(); ++placed.at)
 	{
-		arguments.push_back(
-			expression(*written_placement->children[index], ctx, call));
+		arguments.push_back(expression(placed.next(), placed.in(ctx), call));
 	}
 	std::vector<SemaEntity*>& reached = model_.open_overloads();
 	SemaEntity* const declared =
@@ -945,13 +944,17 @@ SemaAnalyzer::Value SemaAnalyzer::new_expression(const AstNode& node,
 		// initializer says, and 8.5p7's `()` and `{}` hold the zero of the
 		// type.
 		const bool braced = written_init->kind == AstKind::BracedInitList;
+		// 14.5.3p4: what the initializer wrote is however many the run its
+		// packs are bound to holds, so `T(a...)` over a run of one names one
+		// value and over a run of none is 8.5p7's `()`.
+		Clauses written(written_init, *this, ctx);
 		if ((!braced && written_init->kind != AstKind::ParenInitializer) ||
-		    written_init->children.size() > 1)
+		    written.list.size() > 1)
 		{
 			throw std::runtime_error("a new-expression initializes an object of "
 			                         "non-class type with more than one value");
 		}
-		if (written_init->children.empty())
+		if (written.spent())
 		{
 			// 8.5p7: `()` and `{}` value-initialize the object, which for a
 			// scalar is the zero of its type.  It is the zero of an object
@@ -966,7 +969,7 @@ SemaAnalyzer::Value SemaAnalyzer::new_expression(const AstNode& node,
 		}
 		else
 		{
-			initialize(*written_init->children[0], created, ctx, line, braced);
+			initialize(written.next(), created, written.in(ctx), line, braced);
 		}
 	}
 	return value;

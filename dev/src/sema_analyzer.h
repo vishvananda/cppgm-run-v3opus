@@ -780,6 +780,12 @@ private:
 	                         DumpNode& node);
 	void aggregate_members(TypeId type, Clauses& clauses, const Context& ctx,
 	                       DumpNode& parent);
+	// 8.5.1p2 over an array whose elements are initialized where they stand:
+	// one child per element under `line`, taken from the cursor until the
+	// array's bound is reached - which is what 8.5.1p11's array member takes
+	// out of the enclosing list.
+	void array_from_clauses(TypeId array, Clauses& clauses, const Context& ctx,
+	                        DumpNode& line, bool image);
 	void aggregate_elements(TypeId array, Clauses& clauses, const Context& ctx,
 	                        DumpNode& parent);
 	// 8.5.1p2 and 8.5.1p7: a subobject of class type is copy-initialized from
@@ -1912,7 +1918,7 @@ private:
 	                          DumpNode& parent);
 	// 13.3.3.1.5: the implicit conversion sequence of an argument written as a
 	// braced-init-list, which is a fact of the parameter type alone.
-	Match match_list(const AstNode& list, TypeId parameter, TypeId listed_class);
+	Match match_list(std::size_t clauses, TypeId parameter, TypeId listed_class);
 	// 13.3.1.7 and 8.5.1: whether a braced-init-list of this many clauses
 	// initializes an object of `type` at all, which is what 13.3.3.1.5 asks of
 	// every candidate's parameter.  8.5.1 gives an aggregate's subobjects the
@@ -1920,7 +1926,7 @@ private:
 	// what the list needs is one that accepts that many arguments.  The clauses
 	// themselves are read once, where the initialization is written, rather
 	// than once per candidate.
-	bool list_initializes(TypeId type, const AstNode& list);
+	bool list_initializes(TypeId type, std::size_t clauses);
 	// 8.5.1p6 and 8.5.1p11: the most initializer-clauses an object of `type`
 	// can take, which is the number of leaves its subobject tree has - a
 	// nested aggregate contributes its own, because the braces around it may be

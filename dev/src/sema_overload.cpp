@@ -1095,7 +1095,7 @@ SemaAnalyzer::Match SemaAnalyzer::match_argument(const Value& argument,
 		// 13.3.3.1.5p1: the argument is a braced-init-list, whose conversion
 		// sequence is a fact of the parameter and of nothing else the argument
 		// carries.
-		return match_list(*argument.braced, parameter, argument.listed_class);
+		return match_list(argument.clauses, parameter, argument.listed_class);
 	}
 	if (argument.type == kNoType && argument.functions != nullptr)
 	{
@@ -1974,6 +1974,10 @@ SemaAnalyzer::Value SemaAnalyzer::argument_expression(const AstNode& node,
 	// passes it.
 	Value value;
 	value.braced = &node;
+	// 14.5.3p4: how long the list is is settled here, where the region binding
+	// its packs still stands - 13.3 ranks it by that length and is asked long
+	// after the argument was written.
+	value.clauses = WrittenList(&node, *this, ctx).size();
 	value.category = ValueCategory::PRValue;
 	value.node = &model_.open_node(parent, std::string());
 	return value;
@@ -2226,37 +2230,17 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
 
 	const AstNode* list = arguments_of(node);
 	std::vector<Value> arguments;
-	for (std::size_t index = 0; list != nullptr && index < list->children.size();
-	     ++index)
+	// 14.5.3p4: an argument the program wrote `pattern...` stands for one
+	// argument per element of the run its packs are bound to, each of them that
+	// same pattern read again in a region binding the packs to that element.
+	Clauses written(list, *this, ctx);
+	for (; !written.spent(); ++written.at)
 	{
-		const AstNode& written = *list->children[index];
-		if (written.kind == AstKind::PackExpansionExpression &&
-		    !written.children.empty())
-		{
-			// 14.5.3p4: the argument list wrote one pattern standing for one
-			// argument per element of the run its packs are bound to, and each
-			// of them is that pattern read again with the packs standing for
-			// that element.
-			PackReading packs(*this);
-			const AstNode& pattern = *written.children[0];
-			const PackReading::Run run = packs.run_of_node(pattern, ctx);
-			if (!run.found || !run.settled)
-			{
-				throw std::runtime_error("an argument is expanded and names no "
-				                         "settled parameter pack");
-			}
-			for (std::size_t element = 0; element < run.length; ++element)
-			{
-				Context inner = ctx;
-				inner.scope = &packs.element_region(run, element, ctx);
-				arguments.push_back(argument_expression(pattern, inner, line));
-			}
-			continue;
-		}
 		// 13.3.3.1.5p1: an argument written as a braced-init-list is not an
 		// expression, so it is carried until 13.3 has chosen the parameter it
 		// reaches.
-		arguments.push_back(argument_expression(written, ctx, line));
+		arguments.push_back(
+			argument_expression(written.next(), written.in(ctx), line));
 	}
 
 	TypeId function = kNoType;
@@ -2459,7 +2443,9 @@ SemaAnalyzer::Value SemaAnalyzer::functional_cast(const AstNode& node,
 	// an aggregate, and 8.5.4p7 refuses one that narrows.
 	const AstNode* const braced =
 		list != nullptr && list->braced ? list->children[0] : nullptr;
-	const std::size_t count = list == nullptr ? 0 : list->children.size();
+	// 14.5.3p4: how many arguments were written is how many the run its packs
+	// are bound to holds, so `T(a...)` over a run of none is 5.2.3p2's `T()`.
+	const std::size_t count = WrittenList(list, *this, ctx).size();
 	Value value;
 	value.type = target;
 	value.spelled = target;

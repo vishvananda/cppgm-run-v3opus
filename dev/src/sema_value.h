@@ -97,6 +97,12 @@ struct AnalyzedValue
 	// holds the place it will be written in, and `type` stays unsettled
 	// until 8.5.4 has been given a type to read it for.
 	const AstNode* braced;
+	// 14.5.3p4: how many clauses that list comes to, which is how many it
+	// wrote except where one of them stands for a run.  13.3.3.1.5 ranks a
+	// list by its length, and the length is a fact of the region the argument
+	// was written in - so it is settled where the list is met and not asked
+	// again where 13.3 compares candidates.
+	std::size_t clauses;
 	// 13.3.3.1p4: the class 13.3.1.7's second phase is initializing, where
 	// this list is that phase's one element and is itself a list.  A
 	// parameter of that class - or of a reference to it - reaches nothing

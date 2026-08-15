@@ -367,6 +367,88 @@ void names_in(const AstNode& node, std::vector<std::string>& out)
 
 }
 
+// 14.5.3p4 in a list the program wrote.  The written entries are walked once:
+// until one of them is an expansion nothing is held at all, and from the first
+// one on each entry is recorded with the region it is read in - which for an
+// expansion is one region per element of the run its packs are bound to.
+WrittenList::WrittenList(const AstNode* list, SemaAnalyzer& analyzer,
+                         const SemaContext& ctx)
+	: written_(list)
+	, unsettled_(false)
+{
+	if (list == nullptr)
+	{
+		return;
+	}
+	PackReading packs(analyzer);
+	for (std::size_t index = 0; index < list->children.size(); ++index)
+	{
+		const AstNode& entry = *list->children[index];
+		if (entry.kind != AstKind::PackExpansionExpression ||
+		    entry.children.empty())
+		{
+			if (written_ == nullptr)
+			{
+				entries_.push_back(std::make_pair(&entry, ctx.scope));
+			}
+			continue;
+		}
+		if (written_ != nullptr)
+		{
+			// The entries before this one were written where the list is, and
+			// only now is there a list to hold them in.
+			written_ = nullptr;
+			for (std::size_t before = 0; before < index; ++before)
+			{
+				entries_.push_back(
+					std::make_pair(list->children[before], ctx.scope));
+			}
+		}
+		const AstNode& pattern = *entry.children[0];
+		const PackReading::Run run = packs.run_of_node(pattern, ctx);
+		if (!run.found)
+		{
+			// 14.5.3p5: the pattern of a pack expansion shall name at least one
+			// parameter pack.
+			throw std::runtime_error("an entry of a list is expanded and names "
+			                         "no parameter pack");
+		}
+		if (!run.settled)
+		{
+			// 14.6.2p1: the expansion stands for itself until an argument list
+			// says how long it is, which is one entry of the list and not none.
+			unsettled_ = true;
+			entries_.push_back(std::make_pair(&entry, ctx.scope));
+			continue;
+		}
+		for (std::size_t element = 0; element < run.length; ++element)
+		{
+			entries_.push_back(std::make_pair(
+				&pattern, &packs.element_region(run, element, ctx)));
+		}
+	}
+}
+
+std::size_t WrittenList::size() const
+{
+	if (written_ != nullptr)
+	{
+		return written_->children.size();
+	}
+	return entries_.size();
+}
+
+const AstNode& WrittenList::node(std::size_t index) const
+{
+	return written_ != nullptr ? *written_->children[index]
+	                           : *entries_[index].first;
+}
+
+Scope* WrittenList::region(std::size_t index) const
+{
+	return written_ != nullptr ? nullptr : entries_[index].second;
+}
+
 PackReading::Run PackReading::run_of_node(const AstNode& node,
                                           const SemaContext& ctx) const
 {

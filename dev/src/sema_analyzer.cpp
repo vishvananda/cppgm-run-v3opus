@@ -140,6 +140,7 @@ AnalyzedValue::AnalyzedValue()
 	, object_category(ValueCategory::LValue)
 	, through_using(false)
 	, braced(nullptr)
+	, clauses(0)
 	, listed_class(kNoType)
 {}
 
@@ -2527,13 +2528,20 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 	                              &written, &spelled_parameters,
 	                              declares_object_member(specifiers));
 	// 8.3.4p3: an array declared with no bound and initialized from a braced
-	// list has as many elements as the list has clauses.
+	// list has as many elements as the list has clauses - which 14.5.3p4 makes
+	// a question about the runs its clauses stand for and not about the syntax.
 	if (types_.kind(type) == TypeKind::Array && !types_.bounded(type) &&
 	    initializer != nullptr && !initializer->children.empty() &&
 	    initializer->children[0]->kind == AstKind::BracedInitList)
 	{
-		type = types_.array_of(types_.target(type), true,
-		                       initializer->children[0]->children.size());
+		const WrittenList clauses(initializer->children[0], *this, looked_up);
+		if (!clauses.unsettled())
+		{
+			// 14.6p8: a clause standing for a run no argument list has settled
+			// says nothing about how many elements there are, so the bound is
+			// what the reading made from an argument list settles.
+			type = types_.array_of(types_.target(type), true, clauses.size());
+		}
 	}
 	const std::string name = spelled.last();
 	if (name.empty())

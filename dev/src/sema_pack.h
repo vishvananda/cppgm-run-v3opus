@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "type_model.h"
@@ -12,6 +13,56 @@ class Scope;
 class SemaAnalyzer;
 struct SemaContext;
 struct SemaEntity;
+
+// 14.5.3p4 in a list the program wrote: the entries one such list comes to.
+//
+// 8.5.1's initializer-clauses, 5.2.2's arguments, 5.2.3's conversion and
+// 5.3.4's placement and initializer are all lists an expansion may stand in,
+// and each entry of one is one argument - except where the program wrote
+// `pattern...`, which stands for as many as the run its packs are bound to
+// holds.  Each of those is that *same* pattern read again in a region of its
+// own, so what a walk holds is the node and where it is read rather than a
+// list anything rewrote.
+//
+// A list that wrote no expansion is its own children read where it stands,
+// which is every list PA15-PA19 lower: asking costs one node-kind test per
+// entry and nothing is allocated or copied.
+class WrittenList
+{
+public:
+	WrittenList()
+		: written_(nullptr)
+		, unsettled_(false)
+	{}
+
+	explicit WrittenList(const AstNode& list)
+		: written_(&list)
+		, unsettled_(false)
+	{}
+
+	// The same list with every expansion in it read out, which is what a walk
+	// of an instantiated body builds.  Null is the list a call that wrote no
+	// arguments at all has, which comes to nothing.
+	WrittenList(const AstNode* list, SemaAnalyzer& analyzer,
+	            const SemaContext& ctx);
+
+	std::size_t size() const;
+	const AstNode& node(std::size_t index) const;
+	// The region entry `index` is read in, or null where it is read where the
+	// list itself stands - which is every entry of a list holding no expansion.
+	Scope* region(std::size_t index) const;
+	// 14.6.2p1: whether an entry names a pack no argument list has settled,
+	// which stands as one entry until one does.  What the list comes to is not
+	// known while it does, so 8.3.4p3's bound is not settled here either.
+	bool unsettled() const
+	{ return unsettled_; }
+
+private:
+	// The list as written, and null once an expansion in it was read out.
+	const AstNode* written_;
+	std::vector<std::pair<const AstNode*, Scope*> > entries_;
+	bool unsettled_;
+};
 
 // 14.5.3: a parameter pack and what an expansion of one comes to.
 //
