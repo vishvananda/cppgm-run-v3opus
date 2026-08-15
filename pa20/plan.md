@@ -1,7 +1,7 @@
 # PA20 Plan — `cppgm++ --emit-lowir` compile-time metaprogramming
 
-PA20 stands at **176 / 191** - 149 of the 164 checked-in fixtures and the 27
-under `cppgm.tests/course/pa20` - from a turn-start baseline of **164 / 186**,
+PA20 stands at **178 / 193** - 149 of the 164 checked-in fixtures and the 29
+under `cppgm.tests/course/pa20` - from a turn-start baseline of **176 / 191**,
 with pa1-pa19 at **2169 / 2169** and the file audit passing with the five
 header-weight warnings it inherited.
 
@@ -59,27 +59,36 @@ template-argument-list drops - and the analyzer borrows that table
 (`set_expressions`).  A specifier met as text is then answered by
 `decltype_type`, the one reading that answers every other one.
 
-**What a literal is worth is one question two readers ask.**  2.14.3p1's
-character-literal holding more than one c-char is a token of the *language* and
-not of PA2's dump, which is course defined to hold one code point - so
-`MulticharacterLiterals` (`literal_scan.h`) is a fact of the reader:
+**What a literal is worth is one question two readers ask.**  PA2's dump is
+course defined to hold a character literal's *code point* and to refuse a run
+of c-chars; the language gives every ordinary character literal type `char` and
+a run of them an `int`.  Both halves are one fact of the reader, so
+`CharacterLiterals` (`literal_scan.h`) is what a reader is built with:
 `PostTokenizer` takes it, the three drivers that feed the compiler ask for the
-language and the three that print a token keep the course subset, and the value
-is the literal's last four c-chars packed one code unit each with the first of
-them most significant.  5.19p2's one object read out of storage is a subobject
-of a string literal, so `string_element` takes a spelling and an index and
-answers for a subscript written as a tree and for one written inside an argument
-list alike - which is also why an encoding-prefix closes up with the quoted run
-it stands before, exactly as `sizeof` closes up with its `...`.
+`Language` and the three that print a token - and 16.1's controlling
+expression, which the reference reads the same way - keep the `CourseSubset`.
+The value is 2.14.5p5's execution encoding, which the course defines as UTF-8
+and `append_ordinary_units` is the one implementation of: a numeric escape is
+one code unit and every other c-char is the UTF-8 its code point comes to, so a
+string literal's body and a character literal's cannot drift apart, and a run
+is its last four code units with the first of them most significant.  5.19p2's
+one object read out of storage is a subobject of a string literal, so
+`string_element` takes a spelling and an index and answers for a subscript
+written as a tree and for one written inside an argument list alike - through
+5.1.1p6's parentheses in either - which is also why an encoding-prefix closes
+up with the quoted run it stands before, exactly as `sizeof` closes up with its
+`...`.
 
 **2.14.8p3's third form takes the characters rather than the value.**  A
-ud-suffix whose lookup found no operator taking the value and none taking the
-digits may still have found a literal operator *template* - one place binding a
-run of `char` values and no function parameter at all - and that one is called
-with `specialize` over the characters the program wrote.  What the call passes
-is therefore one of three things, and the cooked form passes the literal 2.14.2
-or 2.14.4 already made rather than the parameter's own type, because 5.2.2p4's
-conversion is what brings an argument to a parameter.
+ud-suffix whose lookup found no operator taking the value may still have found
+a literal operator *template* - one place binding a run of `char` values and no
+function parameter at all - and that one is called with `specialize` over the
+characters the program wrote.  It is asked before the raw operator, because
+2.14.8p3 makes a set declaring both ill-formed and so no well-formed program
+tells the order apart.  What the call passes is therefore one of three things,
+and the cooked form passes the literal 2.14.2 or 2.14.4 already made rather
+than the parameter's own type, because 5.2.2p4's conversion is what brings an
+argument to a parameter.
 
 **3.9p7's incomplete array is completed by the definition of the object.**  A
 static data member declared `T b[]` is an incomplete type until the definition
@@ -270,20 +279,28 @@ decltype-specifier is outside the base-specifier grammar
 candidate, so `template<class... A> struct s { s(A... a); };` and then `s<>`
 reports `no declaration of s accepts the arguments of a call` where both oracles
 build it - while the same head's member *function* over the same empty run, and
-the same constructor over a run of one or two, are right.
+the same constructor over a run of one or two, are right.  8.5.2p1's string
+literal initializing a character array is refused everywhere here -
+`char s[3] = "ab"` and `char s[] = "ab"` alike, at namespace and block scope -
+where the same literal written as an aggregate's clause is right; that is a
+PA12-era initialization no checkpoint of this milestone has reached.
 
-Four stand the other way, where this milestone accepts or answers and one oracle
-does not: a redeclaration of a static data member with a *different* element
-type is taken rather than refused (`static unsigned char b[];` then
+Three stand the other way, where this milestone accepts or answers and one
+oracle does not: a redeclaration of a static data member with a *different*
+element type is taken rather than refused (`static unsigned char b[];` then
 `int s::b[] = {...}`), which both oracles refuse and which is 3.3's matching and
 not 8.3.4p3's bound; `case 'ab' - 24672:` is folded here and in g++ where the
-reference emits a `load` into the switch, which no case label may be; a raw
-literal operator declared *beside* a literal operator template is taken as the
-raw one where 2.14.8p3 makes the pair ill-formed and g++ refuses it; and a
+reference emits a `load` into the switch, which no case label may be; and a
 definition that omits an array bound an earlier declaration wrote lays out the
 declared length here and in g++ where the reference refuses the program.  The
 reference also refuses `L'ab'` and `#if 'ab'` with us where g++ accepts both,
-which is the course-defined limit on a character literal's encoding.
+which is the course-defined limit on a character literal's encoding, and it
+drops a ud-suffix written on a *character* literal - `'a'_c` is 97 there
+whatever the operator returns, where this compiler and g++ both call it.  The
+two oracles disagree outright on a single non-ASCII c-char: `'é'` is a `char`
+holding -23 in the reference and a multicharacter `int` holding `0xc3a9` in
+g++, and this compiler answers the reference, which is what the object file is
+compared against.
 
 Four more are metadata or a family already owned: 14.5.5p1 does not refuse a
 partial specialization of a *function* template; 14.7.3's explicit
@@ -329,10 +346,11 @@ harness that spawns a process of its own per run reads this machine's floor as
 of its own before the reference binary starts.
 
 Rows marked \* were measured against this turn's build; the rest were measured
-against an earlier build and are carried forward, because this turn touched what
-a literal is worth and what an array bound comes to, neither of which any
-carried row reaches.  The two carried rows re-measured as a check -
-`fac<800>` and the counted pack - are unmoved.
+against an earlier build and are carried forward, because this turn touched
+which reading of a character literal a layer asks for and the parentheses an
+argument spelling strips, neither of which any carried row reaches.  The two
+carried rows re-measured as a check - `fac<800>` and the counted pack - are
+unmoved.
 
 | shape | here | `pa20/cppgm++-ref` |
 | --- | --- | --- |
@@ -369,13 +387,20 @@ carried row reaches.  The two carried rows re-measured as a check -
 | 512 / 2048 distinct variable-template specializations | 0.015 / 0.051 s | - |
 | a variable-template chain 800 / 3000 / 6000 deep | 0.010 / 0.031 / 0.070 s | - |
 | the doubling spelling at 2^20 leaves | 0.912 s | 2.277 s |
-| \* 512 / 2048 / 8192 distinct multicharacter literals | 0.006 / 0.015 / **0.051 s** | 0.649 s at 8192 |
-| \* 512 / 2048 / 8192 string-literal elements read as constants | 0.007 / 0.017 / **0.057 s** | 0.714 s at 8192 |
-| \* `sizeof...` in a spelling expanded over a run of 256 / 1024 / 4096 | 0.013 / 0.044 / **0.178 s** | 7.62 s at 1024 |
-| \* 256 / 1024 / 4096 static member arrays completed by their definitions | 0.022 / 0.082 / **0.363 s** | SIGSEGV at 4096 |
-| \* 256 / 1024 / 4096 distinct literal-operator-template specializations | 0.014 / 0.049 / **0.204 s** | SIGSEGV at 4096 |
-| \* a string element nested 24 parentheses deep in a spelling | **0.004 s** | - |
-| \* 24 nested heads each counting its own run | **0.007 s** | - |
+| 512 / 2048 / 8192 string-literal elements read as constants | 0.007 / 0.017 / **0.057 s** | 0.714 s at 8192 |
+| `sizeof...` in a spelling expanded over a run of 256 / 1024 / 4096 | 0.013 / 0.044 / **0.178 s** | 7.62 s at 1024 |
+| 256 / 1024 / 4096 static member arrays completed by their definitions | 0.022 / 0.082 / **0.363 s** | SIGSEGV at 4096 |
+| a string element nested 24 parentheses deep in a spelling | **0.004 s** | - |
+| 24 nested heads each counting its own run | **0.007 s** | - |
+| \* 512 / 2048 / 8192 distinct multicharacter literals | 0.008 / 0.018 / **0.058 s** | 0.649 s at 8192 |
+| \* the same holding a c-char above the ordinary range | 0.025 / 0.044 / **0.120 s** | - |
+| \* 512 / 2048 / 8192 string literals carrying escapes | 0.015 / 0.053 / **0.228 s** | - |
+| \* 256 / 1024 / 4096 string elements read through parentheses | 0.010 / 0.029 / **0.109 s** | - |
+| \* the same written without parentheses | **0.083 s** at 4096 | - |
+| \* 256 / 1024 / 4096 parenthesized argument spellings holding no literal | 0.009 / 0.023 / **0.085 s** | - |
+| \* a literal parenthesized 24 deep in a spelling | **0.004 s** | - |
+| \* 256 / 1024 / 4096 raw ud-literals | 0.011 / 0.033 / **0.134 s** | - |
+| \* 256 / 1024 / 4096 distinct literal-operator-template specializations | 0.017 / 0.057 / **0.255 s** | SIGSEGV at 4096 |
 
 The decltype table is one entry per *distinct* operand spelling and one hash
 lookup per naming, so the 512 / 2048 / 8192 row is linear in the spellings a
@@ -386,16 +411,24 @@ Nesting is flat because a nested spelling is one more entry, not one more scan.
 nested-name-specifier and one instantiation per settled specialization a
 definition names, which is why the pattern and metafunction rows did not move.
 
-Every row this turn added is linear in its own multiplicity at 512 / 2048 /
-8192 or at 256 / 1024 / 4096, and flat in nesting depth.  A multicharacter
-literal is one scan of the c-chars phase 3 already found and a string element is
-one scan of the code units phase 6 already built, so neither adds a pass; the
-bound a definition deduces costs one lookup per *unbounded* array declarator
-with a braced list and nothing at all for every other declarator; and a literal
-operator template is one `specialize` per distinct character list, which is the
-memoised specialization every other template naming makes.  The reference is
-12x slower on the literals, 170x on the counted run, and dies on the object-file
-rows at 4096.
+Every literal row is linear in its own multiplicity at 512 / 2048 / 8192 or at
+256 / 1024 / 4096, and flat in nesting depth.  A character literal is one scan
+of the c-chars phase 3 already found however it is read, and the code units it
+comes to are appended into one string per literal - so the row holding a c-char
+above the ordinary range, which is the one that appends two units where the
+others append one, is the same shape and 2x the cost of writing the wider
+spelling out.  A string element is one scan of the code units phase 6 already
+built; the bound a definition deduces costs one lookup per *unbounded* array
+declarator with a braced list and nothing at all for every other declarator;
+and a literal operator template is one `specialize` per distinct character
+list, which is the memoised specialization every other template naming makes.
+Asking that template before 2.14.8p3's raw operator costs a raw ud-literal one
+scan of its own candidate list, which the raw row does not measure at 4096.
+5.1.1p6's primary is one index comparison per parenthesized run, so the
+parenthesized-spelling row is the same on the build that reads the literal
+inside it and the build that refuses it, and the 1.3x over the bare spelling is
+the subscript that now happens.  The reference is 12x slower on the literals,
+170x on the counted run, and dies on the object-file rows at 4096.
 
 A written list costs one node-kind test per entry until an expansion is found
 and nothing at all after that for a list holding none, which is why the three
@@ -449,3 +482,4 @@ turn - which is what gave 7.2's enumeration an owner of its own
 | C6 audit | the demand a prefix makes, at all three walks that make it and in all three modes that read one: `qualified_in_type` asks `require_settled_type` for a settled prefix and leaves 14.6.2p1's stand-in for a dependent one, and `resolve_prefix`'s decltype branch reports a dependent prefix rather than looking its spelling up; `id_constant` asks `decltype_qualified_name` instead of a second copy of it; the arena travels through `emit_translation_units`, so the two dump modes read such a name the way the lowering one does; and 14.6.1p1's current instantiation binds a value place as a value, which is what lets an out-of-class member definition of a class template with a non-type parameter name its own head | 156 / 182 -> **158 / 184** with two fixtures added; pa1-pa19 2169 / 2169; 134 swept shapes, every accepted pair writing the reference's LowIR |
 | C7 audit | a list of *one* entry is a list too: 8.5p16's parenthesised initializer of a non-class object, 5.2.3p1's cast to a non-class type, 12.6.2p7's mem-initializer of a non-class member and 5.19p3's fold of the constant a declaration leaves each took the list's one entry by `children[0]`, so a run of one reached a `pack-expansion-expression` no reader answers for while the class-typed twin C7 converted was right; the arity none of them asked, which had `int x(1,2)` holding 1 where both oracles refuse; and 5.19's own reading of 5.2.3, which now stands a value in for a run 14.6p8 cannot count as `sizeof...` does.  5.19p3's fold became `fold_constant_object`, freeing the function-line ceiling `declare_object_declarator` had crossed | 162 / 184 -> **164 / 186** with two fixtures added; pa1-pa19 2169 / 2169; 88 swept shapes, every accepted pair writing the reference's LowIR; linear and unmoved from the `350c92f4` build at 1 / 64 / 512 / 2048 entries and 256 / 1024 / 4096 readers; valgrind clean |
 | C8 | 5.19 outside the integral subset, and the literal it reads: 2.14.3p1's multicharacter literal made a token of the language `PostTokenizer` reads and not of PA2's dump, with the last four c-chars packed one code unit each; 5.19p2's subobject of a string literal answered from a spelling and an index, so a subscript reads as a tree and inside an argument list alike - and an encoding-prefix closes up with its quoted run as `sizeof` does with its `...`; 5.3.3p5's `sizeof...` read out of an argument spelling, so a pattern expanded per element still counts its own run; 3.9p7's incomplete array completed by the definition of the object, both ways about; and 2.14.8p3's literal operator template called with the characters the program wrote, with a cooked call now passing the literal 2.14.2 made rather than the parameter's type.  7.2's enumeration became its own owner (`sema_enum.cpp`), freeing the 3000-line ceiling `sema_analyzer.cpp` crossed | 164 / 186 -> **176 / 191** with five fixtures added; pa1-pa19 2169 / 2169; 80 swept shapes, every accepted pair writing the reference's LowIR; linear at 8192 literals, 4096 elements and 4096 definitions where the reference is 12x slower or dies; valgrind clean |
+| C8 audit | the dialect a character-literal is read in, which covers two facts and was moved for one: PA2's dump holds a c-char's code point and refuses a run of them where the language gives every ordinary literal a `char` and a run an `int`, so `CharacterLiterals` now settles both and `sizeof('\\xff')` is 1 rather than 4; 2.14.5p5's execution encoding became one implementation (`append_ordinary_units`) that a string literal's body and a character literal's both call, so `'aé'` is `0x61c3a9` rather than `0x61e9` and a first c-char above the ordinary range is refused as the reference refuses it; `literal_value` reads a literal's bytes with 3.9.1p1's sign, which a `char` literal could not reach before; 5.1.1p6's parentheses are stripped by the spelling reader as the tree already stripped them, so `p<("abc")[1]>` reads; and 2.14.8p3's literal operator template is asked before the raw operator, which is what the reference answers for the set that declares both | 176 / 191 -> **178 / 193** with two fixtures added; pa1-pa19 2169 / 2169; 112 swept shapes, every accepted pair writing the reference's LowIR but the one it drops a character ud-suffix on; unmoved from the `8dfad19a` build at 8192 literals, 8192 string bodies and 4096 ud-literals; valgrind clean |

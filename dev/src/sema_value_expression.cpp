@@ -317,6 +317,9 @@ private:
 	SemaConstant type_trait(const std::string& word,
 	                        const std::vector<std::string>& words, bool live);
 	SemaConstant pack_size(const std::vector<std::string>& words);
+	SemaConstant literal_operand(const std::string& word,
+	                             const std::vector<std::string>& words,
+	                             bool live);
 	SemaConstant name(const std::string& spelling, bool live);
 	SemaConstant cast(TypeId target, const SemaConstant& operand);
 	SemaConstant binary(unsigned op, const SemaConstant& left,
@@ -482,6 +485,25 @@ SemaConstant TemplateArgumentReader::unary(
 				return live ? cast(target, operand) : operand;
 			}
 		}
+		// 5.1.1p6: a parenthesized primary is that primary, which is how the
+		// tree of the same expression reaches 5.19p2's subscript of a string
+		// literal - the walk strips the parentheses before it asks what is
+		// being subscripted - so a spelling reaches it the same way.
+		std::size_t held_at = opened;
+		std::size_t held_end = close;
+		while (held_at + 1 < held_end && words[held_at] == "(" &&
+		       words[held_end - 1] == ")")
+		{
+			++held_at;
+			--held_end;
+		}
+		if (held_at + 1 == held_end && is_literal_word(words[held_at]) &&
+		    close + 1 < words.size() && words[close + 1] == "[")
+		{
+			const std::string held = words[held_at];
+			at_ = close + 1;
+			return literal_operand(held, words, live);
+		}
 		const SemaConstant inner =
 			expression(words, 0, live);
 		if (at_ >= words.size() || words[at_] != ")")
@@ -502,22 +524,7 @@ SemaConstant TemplateArgumentReader::unary(
 	}
 	if (is_literal_word(word))
 	{
-		if (at_ < words.size() && words[at_] == "[")
-		{
-			// 5.19p2: a subobject of a string literal, which is the one object
-			// a constant expression reads out of storage - and the one postfix
-			// operator an argument spelling writes.
-			++at_;
-			const SemaConstant index = expression(words, 0, live);
-			if (at_ >= words.size() || words[at_] != "]")
-			{
-				throw NotConstant("a subscript written as a template argument "
-				                  "does not close its index");
-			}
-			++at_;
-			return analyzer_.string_element(word, index.bits);
-		}
-		return analyzer_.literal_constant(word);
+		return literal_operand(word, words, live);
 	}
 	if (word == "sizeof...")
 	{
@@ -647,6 +654,29 @@ SemaConstant TemplateArgumentReader::type_trait(
 	out.type = analyzer_.types_.fundamental(FT_UNSIGNED_LONG_INT);
 	out.bits = word == "sizeof" ? analyzer_.size_of(type) : analyzer_.types_.object_align(type);
 	return out;
+}
+
+// 2.14 and 5.19p2: what a literal written where an operand stands comes to -
+// its own value, and for a string literal the element a subscript names, which
+// is the one object a constant expression reads out of storage and the one
+// postfix operator an argument spelling writes.  5.1.1p6's parentheses around
+// the literal change neither, so both spellings of the operand read it here.
+SemaConstant TemplateArgumentReader::literal_operand(
+	const std::string& word, const std::vector<std::string>& words, bool live)
+{
+	if (at_ >= words.size() || words[at_] != "[")
+	{
+		return analyzer_.literal_constant(word);
+	}
+	++at_;
+	const SemaConstant index = expression(words, 0, live);
+	if (at_ >= words.size() || words[at_] != "]")
+	{
+		throw NotConstant("a subscript written as a template argument does not "
+		                  "close its index");
+	}
+	++at_;
+	return analyzer_.string_element(word, index.bits);
 }
 
 // 5.3.3p5: how many elements the run bound to the pack holds, which is the

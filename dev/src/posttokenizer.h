@@ -21,10 +21,11 @@
 class PostTokenizer
 {
 public:
-	// `multicharacter` is 2.14.3p1's literal holding more than one c-char: the
-	// tools that print a token read the course-defined subset that has none,
-	// and the compiler reads the language.
-	PostTokenizer(PPTokenSource& source, MulticharacterLiterals multicharacter);
+	// `characters` is 2.14.3p1's reading of a character-literal: the tools that
+	// print a token read the course-defined subset, which has no literal of
+	// more than one c-char and holds a c-char as its code point, and the
+	// compiler reads the language.
+	PostTokenizer(PPTokenSource& source, CharacterLiterals characters);
 
 	// Produces the next token; returns false once end of file was reported.
 	// Throws SourceError when the source file is ill-formed in phases 1 to 3.
@@ -35,7 +36,7 @@ private:
 	void flush_sequence(PostToken& token);
 
 	PPTokenSource& source_;
-	MulticharacterLiterals multicharacter_;
+	CharacterLiterals characters_;
 	PPToken current_;
 	PPToken held_;
 	bool has_held_;

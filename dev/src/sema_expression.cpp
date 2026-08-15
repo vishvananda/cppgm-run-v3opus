@@ -1407,12 +1407,11 @@ SemaAnalyzer::Value SemaAnalyzer::literal_value(const PostToken& token,
 	if (fundamental_type_is_integral(token.type))
 	{
 		value.constant = true;
-		value.value = 0;
-		for (std::size_t index = token.data.size(); index-- > 0;)
-		{
-			value.value = (value.value << 8) |
-				static_cast<unsigned char>(token.data[index]);
-		}
+		// 3.9.1p1: the bytes the literal was made of are its value in its own
+		// type, so a signed type holding a high bit is a negative value here
+		// and stays one where 4.7p2 widens it - which is what 2.14.3p1's
+		// `'\xff'` and every other `char` above the ordinary range is worth.
+		value.value = token.integer_value();
 		// 4.10p1: a null pointer constant is an integral constant expression
 		// that evaluates to zero.
 		value.null_constant = value.value == 0;
@@ -1622,24 +1621,16 @@ SemaAnalyzer::Value SemaAnalyzer::user_defined_literal(const PostToken& token,
 	// 2.14 gave it, the digits the program wrote, or nothing at all, because a
 	// literal operator template took the characters as its arguments instead.
 	enum { PassesValue, PassesDigits, PassesNothing } passing = PassesValue;
-	if (chosen == nullptr && (token.ud_kind == UserDefinedLiteralKind::Integer ||
-	                          token.ud_kind == UserDefinedLiteralKind::Floating))
-	{
-		// 2.14.8p3: the set declares no cooked operator for the value, so the
-		// raw one takes the digits the program wrote as a narrow string.
-		std::vector<TypeId> digits;
-		digits.push_back(types_.pointer_to(
-			types_.qualified(types_.fundamental(FT_CHAR), kCvConst)));
-		chosen = literal_operator(found, digits);
-		passing = chosen != nullptr ? PassesDigits : PassesValue;
-	}
 	if (chosen == nullptr && token.ud_kind != UserDefinedLiteralKind::String &&
 	    token.ud_kind != UserDefinedLiteralKind::Character)
 	{
-		// 2.14.8p3: a set that declares no operator taking the value and none
-		// taking the digits may still declare a literal operator template,
-		// which is called with the characters of the literal as its argument
-		// list - `operator""X<'c1', ..., 'ck'>()`.
+		// 2.14.8p3: a set that declares no operator taking the value may still
+		// declare a literal operator template, which is called with the
+		// characters of the literal as its argument list -
+		// `operator""X<'c1', ..., 'ck'>()`.  It is asked before the raw
+		// operator because 2.14.8p3 makes a set declaring both ill-formed, so
+		// no well-formed program can tell the order apart - and where one
+		// declares both, the reference compiler calls the template.
 		SemaEntity* const pattern = literal_operator_template(found, types_);
 		if (pattern != nullptr)
 		{
@@ -1654,6 +1645,18 @@ SemaAnalyzer::Value SemaAnalyzer::user_defined_literal(const PostToken& token,
 			chosen = &specialize(*pattern, characters);
 			passing = PassesNothing;
 		}
+	}
+	if (chosen == nullptr && (token.ud_kind == UserDefinedLiteralKind::Integer ||
+	                          token.ud_kind == UserDefinedLiteralKind::Floating))
+	{
+		// 2.14.8p3: the set declares no cooked operator for the value and no
+		// template for its characters, so the raw one takes the digits the
+		// program wrote as a narrow string.
+		std::vector<TypeId> digits;
+		digits.push_back(types_.pointer_to(
+			types_.qualified(types_.fundamental(FT_CHAR), kCvConst)));
+		chosen = literal_operator(found, digits);
+		passing = chosen != nullptr ? PassesDigits : PassesValue;
 	}
 	if (chosen == nullptr)
 	{

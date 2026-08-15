@@ -50,7 +50,7 @@ void preprocess(SourceFileTable& files, const PreprocessorOptions& options,
 {
 	DebugPostTokenStream stream(out);
 	Preprocessor preprocessor(files, options, path);
-	PostTokenizer tokenizer(preprocessor, MulticharacterLiterals::IllFormed);
+	PostTokenizer tokenizer(preprocessor, CharacterLiterals::CourseSubset);
 
 	PostToken token;
 	while (tokenizer.next(token))

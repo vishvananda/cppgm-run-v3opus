@@ -102,7 +102,7 @@ void build_parse_tokens(SourceFileTable& files, const PreprocessorOptions& optio
                         const std::string& path, std::vector<ParseToken>& out)
 {
 	Preprocessor preprocessor(files, options, path);
-	PostTokenizer tokenizer(preprocessor, MulticharacterLiterals::Packed);
+	PostTokenizer tokenizer(preprocessor, CharacterLiterals::Language);
 
 	PostToken token;
 	while (tokenizer.next(token))

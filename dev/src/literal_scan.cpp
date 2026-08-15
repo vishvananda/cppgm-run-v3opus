@@ -483,34 +483,63 @@ namespace
 {
 
 // 2.14.3p1: what a multicharacter literal is worth.  The course ABI leaves the
-// value implementation defined, and this one is its last four c-chars packed
-// one code unit each with the first of them most significant - so `'ab'` is
-// `0x6162` and `'abcde'` drops the `a`, which is what the reference compiler
-// and the host one both write.  False where a c-char of it is no code point.
+// value implementation defined, and this one is its last four *code units*
+// packed with the first of them most significant - so `'ab'` is `0x6162`,
+// `'aé'` is `0x61c3a9` because 2.14.5p5 writes `é` as two of them, and
+// `'abcde'` drops the `a`.  That is what the reference compiler and the host
+// one both write.
+//
+// False where a c-char is no code point or no code unit run, and where the
+// first of them is above the one code unit an ordinary `char` holds: the
+// reference reads that first c-char as the whole literal before it counts the
+// rest, and so refuses `'\xff\x41'` where it takes `'\x41\xff'`.
 bool packed_multicharacter(const std::string& spelling, std::size_t at,
                            std::size_t close, unsigned long long& packed)
 {
-	packed = 0;
+	std::string units;
+	bool first = true;
 	while (at < close)
 	{
 		LiteralElement element;
 		const std::size_t next = decode_literal_element(spelling, at, element);
 		if (next <= at || next > close ||
 		    element.value > static_cast<unsigned long long>(kMaxCodePoint) ||
-		    !is_valid_code_point(static_cast<int>(element.value)))
+		    !is_valid_code_point(static_cast<int>(element.value)) ||
+		    (first && element.value > 127) ||
+		    !append_ordinary_units(element, units))
 		{
 			return false;
 		}
-		packed = (packed << 8) | (element.value & 0xFF);
+		first = false;
 		at = next;
+	}
+	packed = 0;
+	for (std::size_t index = 0; index < units.size(); ++index)
+	{
+		packed = (packed << 8) | static_cast<unsigned char>(units[index]);
 	}
 	return true;
 }
 
 }
 
+bool append_ordinary_units(const LiteralElement& element, std::string& units)
+{
+	if (element.numeric_escape)
+	{
+		if (element.value > 0xFF)
+		{
+			return false;
+		}
+		units.push_back(static_cast<char>(element.value));
+		return true;
+	}
+	append_utf8(units, static_cast<int>(element.value));
+	return true;
+}
+
 void scan_character_literal(const std::string& spelling, PostToken& token,
-                            MulticharacterLiterals multicharacter)
+                            CharacterLiterals characters)
 {
 	token.reset(PostTokenKind::Invalid);
 
@@ -548,7 +577,7 @@ void scan_character_literal(const std::string& spelling, PostToken& token,
 		// Only the ordinary encoding has such a value: an encoding prefix
 		// names one code unit, and more than one of them is ill-formed.
 		unsigned long long packed = 0;
-		if (multicharacter != MulticharacterLiterals::Packed ||
+		if (characters != CharacterLiterals::Language ||
 		    encoding != LiteralEncoding::Ordinary ||
 		    !packed_multicharacter(spelling, quote + 1, close, packed))
 		{
@@ -566,12 +595,28 @@ void scan_character_literal(const std::string& spelling, PostToken& token,
 		return;
 	}
 
+	// `set_integer_value` keeps the low bytes of the type it is given, so a
+	// code point wider than the type holds is narrowed there rather than here.
 	EFundamentalType type = FT_CHAR;
 	if (encoding == LiteralEncoding::Ordinary)
 	{
-		// Course defined: an ordinary character literal is a `char` only when
-		// its code point is one UTF-8 code unit.
-		type = element.value <= 127 ? FT_CHAR : FT_INT;
+		if (characters == CharacterLiterals::Language)
+		{
+			// 2.14.3p1: an ordinary character-literal holding one c-char has
+			// type `char` whatever that c-char is, and one that no ordinary
+			// code unit holds is worth what the implementation says - here
+			// the low code unit of its code point, which is what the
+			// reference compiler writes and is the same reading the run of
+			// them above is packed by.
+			type = FT_CHAR;
+		}
+		else
+		{
+			// Course defined: PA2's dump holds the code point itself, so an
+			// ordinary character literal is a `char` there only when that
+			// code point is one UTF-8 code unit.
+			type = element.value <= 127 ? FT_CHAR : FT_INT;
+		}
 	}
 	else
 	{

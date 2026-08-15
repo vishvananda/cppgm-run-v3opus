@@ -79,18 +79,28 @@ bool is_user_defined_suffix(const std::string& text, std::size_t pos);
 // matches none of those grammars, or when an integer-literal fits no type.
 void scan_pp_number(const std::string& spelling, PostToken& token);
 
-// 2.14.3p1: a character-literal holding more than one c-char.  The language
-// gives such a literal type `int` and a value the implementation defines,
-// while PA2's dump is course defined to hold exactly one code point - so which
-// of the two a spelling is read in is a fact of the reader and not of the
-// spelling, and the tools that print a token and the compiler that evaluates
-// one ask for different ones.
-enum class MulticharacterLiterals
+// 2.14.5p5: the code units one element of a literal body comes to in the
+// ordinary execution character set, which the course defines as UTF-8.  A
+// numeric escape names one code unit and every other element names a code
+// point, so the two are appended differently - and a string literal's body and
+// a character literal's are encoded by this one rule.  False where a numeric
+// escape holds no code unit.
+bool append_ordinary_units(const LiteralElement& element, std::string& units);
+
+// 2.14.3p1: which reading of a character-literal a layer asks for.  What a
+// c-char that no ordinary code unit holds is worth, and whether more than one
+// c-char is a literal at all, are two answers to one question, so they are one
+// fact of the reader rather than of the spelling: PA2's dump is course defined
+// to hold exactly one code point and to refuse a run of them, while the
+// language gives a `char` holding the code unit and an `int` holding the run.
+// The tools that print a token and 16.1's controlling expression ask for the
+// first, and the compiler that evaluates a literal asks for the second.
+enum class CharacterLiterals
 {
-	IllFormed,
-	Packed
+	CourseSubset,
+	Language
 };
 
 // Analyses a character-literal or user-defined-character-literal.
 void scan_character_literal(const std::string& spelling, PostToken& token,
-                            MulticharacterLiterals multicharacter);
+                            CharacterLiterals characters);

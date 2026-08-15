@@ -157,17 +157,9 @@ bool StringLiteralSequence::encode_narrow_part(const Part& part, std::string& da
 		}
 		LiteralElement element;
 		pos = decode_literal_element(source_, pos, element);
-		if (element.numeric_escape)
+		if (!append_ordinary_units(element, data))
 		{
-			if (element.value > 0xFF)
-			{
-				return false;
-			}
-			data.push_back(static_cast<char>(element.value));
-		}
-		else
-		{
-			append_utf8(data, static_cast<int>(element.value));
+			return false;
 		}
 	}
 	return true;
@@ -341,9 +333,9 @@ LiteralForm scan_literal(const std::string& spelling, PostToken& token)
 	case LiteralForm::Character:
 		// A layer that asks a spelling what it is worth is reading the
 		// language rather than printing a token, so 2.14.3p1's multicharacter
-		// literal is one of the literals it answers for.
-		scan_character_literal(spelling, token,
-		                       MulticharacterLiterals::Packed);
+		// literal and its c-char above one ordinary code unit are both
+		// literals it answers for.
+		scan_character_literal(spelling, token, CharacterLiterals::Language);
 		break;
 
 	case LiteralForm::None:
