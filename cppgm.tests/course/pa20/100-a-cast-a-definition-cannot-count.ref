@@ -1,0 +1,88 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $three : obj<12x4>
+  slot $five : obj<20x4>
+
+  block ^entry:
+    %t1 = addr $three
+    %t2 = const i64 12
+    %t3 = const i64 4
+    %t4 = binary udiv i64 %t2, %t3
+    %t5 = convert sext i64 i32 3
+    %t6 = cmp ne i64 %t4, %t5
+    branch %t6, ^if_then_1, ^if_else_2
+
+  block ^if_then_1:
+    return i32 1
+
+  block ^if_else_2:
+    jump ^if_end_3
+
+  block ^if_end_3:
+    %t7 = cmp ne i32 3, 3
+    branch %t7, ^if_then_4, ^if_else_5
+
+  block ^if_then_4:
+    return i32 2
+
+  block ^if_else_5:
+    jump ^if_end_6
+
+  block ^if_end_6:
+    %t8 = addr $five
+    %t9 = const i64 20
+    %t10 = const i64 4
+    %t11 = binary udiv i64 %t9, %t10
+    %t12 = convert sext i64 i32 5
+    %t13 = cmp ne i64 %t11, %t12
+    branch %t13, ^if_then_7, ^if_else_8
+
+  block ^if_then_7:
+    return i32 3
+
+  block ^if_else_8:
+    jump ^if_end_9
+
+  block ^if_end_9:
+    %t14 = cmp ne i32 5, 5
+    branch %t14, ^if_then_10, ^if_else_11
+
+  block ^if_then_10:
+    return i32 4
+
+  block ^if_else_11:
+    jump ^if_end_12
+
+  block ^if_end_12:
+    %t15 = call i32 @measured_int___one(2)
+    %t16 = cmp ne i32 %t15, 222
+    branch %t16, ^if_then_13, ^if_else_14
+
+  block ^if_then_13:
+    return i32 5
+
+  block ^if_else_14:
+    jump ^if_end_15
+
+  block ^if_end_15:
+    return i32 0
+}
+function @measured_int___one(%a : i32) -> i32 [binding=weak, object=_ZN8measuredIJiEE3oneEi] {
+  slot $a : i32
+  slot $paren : i32
+  slot $direct : i32
+
+  block ^entry:
+    store i32 %a, $a
+    %t1 = load i32 $a
+    store i32 %t1, $paren
+    %t2 = load i32 $a
+    store i32 %t2, $direct
+    %t3 = load i32 $paren
+    %t4 = binary mul i32 %t3, 100
+    %t5 = load i32 $direct
+    %t6 = binary mul i32 %t5, 10
+    %t7 = binary add i32 %t4, %t6
+    %t8 = load i32 $a
+    %t9 = binary add i32 %t7, %t8
+    return i32 %t9
+}

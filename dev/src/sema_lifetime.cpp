@@ -1789,8 +1789,11 @@ void SemaAnalyzer::write_member_initializations(const Pending& pending,
 		    is_initializer_list(written->kind))
 		{
 			// 8.5p16: direct-initialization of a member of non-class type takes
-			// the one expression written in the parentheses.
-			if (written->children.empty())
+			// the one expression written in the parentheses - which 14.5.3p4
+			// makes a question about the run a `pattern...` entry stands for
+			// rather than about how many entries the program wrote.
+			Clauses passed(written, *this, where);
+			if (passed.spent())
 			{
 				// 8.5p10: `m()` value-initializes the member, which for these
 				// types is the zero of it.  It is the zero of an object rather
@@ -1804,14 +1807,14 @@ void SemaAnalyzer::write_member_initializations(const Pending& pending,
 				zero.fact.zero_initialized = true;
 				continue;
 			}
-			if (written->children.size() != 1)
+			if (passed.list.size() != 1)
 			{
 				throw std::runtime_error("a mem-initializer of " + member.name +
 				                         " passes more than one argument to a "
 				                         "member of non-class type");
 			}
 			open_full_expression();
-			initialize(*written->children[0], type, where, node);
+			initialize(passed.next(), type, passed.in(where), node);
 			close_full_expression(line);
 			continue;
 		}

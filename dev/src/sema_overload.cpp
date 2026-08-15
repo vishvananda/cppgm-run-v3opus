@@ -2443,9 +2443,12 @@ SemaAnalyzer::Value SemaAnalyzer::functional_cast(const AstNode& node,
 	// an aggregate, and 8.5.4p7 refuses one that narrows.
 	const AstNode* const braced =
 		list != nullptr && list->braced ? list->children[0] : nullptr;
-	// 14.5.3p4: how many arguments were written is how many the run its packs
-	// are bound to holds, so `T(a...)` over a run of none is 5.2.3p2's `T()`.
-	const std::size_t count = WrittenList(list, *this, ctx).size();
+	// 14.5.3p4: what the arguments *are* is how many the run its packs are
+	// bound to holds and where each of them is read, so `T(a...)` over a run of
+	// none is 5.2.3p2's `T()` and over a run of one is the pattern read in that
+	// element's region rather than the entry the program wrote.
+	Clauses written(list, *this, ctx);
+	const std::size_t count = written.list.size();
 	Value value;
 	value.type = target;
 	value.spelled = target;
@@ -2461,7 +2464,7 @@ SemaAnalyzer::Value SemaAnalyzer::functional_cast(const AstNode& node,
 		                             ctx, parent, "tmpobj", count == 0);
 	}
 	if (braced != nullptr || (count == 1 &&
-	                          list->children[0]->kind ==
+	                          written.next().kind ==
 	                          AstKind::BracedInitList))
 	{
 		// 5.2.3p3 over any other type: the braces make 8.5.4's
@@ -2472,8 +2475,9 @@ SemaAnalyzer::Value SemaAnalyzer::functional_cast(const AstNode& node,
 		// a list is that same list-initialization.  Only a class tells the two
 		// spellings apart, because only there is a list an *argument* of a
 		// constructor rather than the whole initializer.
-		return list_initialize(braced != nullptr ? *braced : *list->children[0],
-		                       target, ctx, parent);
+		return braced != nullptr
+			? list_initialize(*braced, target, ctx, parent)
+			: list_initialize(written.next(), target, written.in(ctx), parent);
 	}
 	if (count == 0)
 	{
@@ -2500,7 +2504,7 @@ SemaAnalyzer::Value SemaAnalyzer::functional_cast(const AstNode& node,
 		                         "one operand");
 	}
 	DumpNode& line = model_.open_node(parent, std::string());
-	Value source = expression(*list->children[0], ctx, line);
+	Value source = expression(written.next(), written.in(ctx), line);
 	if (source.type == kNoType && source.functions != nullptr)
 	{
 		SemaEntity* chosen = resolve_target(source, target);

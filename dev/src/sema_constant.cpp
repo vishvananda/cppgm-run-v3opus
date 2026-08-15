@@ -547,12 +547,34 @@ SemaAnalyzer::Constant SemaAnalyzer::evaluate(const AstNode& node,
 			list = list->children.empty() ? nullptr : list->children[0];
 		}
 		if (list == nullptr || target == kNoType ||
-		    arithmetic_type(target) == kNoType || list->children.size() > 1)
+		    arithmetic_type(target) == kNoType)
 		{
 			throw NotConstant("a constant expression calls something this "
 			                  "milestone does not evaluate");
 		}
-		if (list->children.empty())
+		// 14.5.3p4: what the parentheses hold is the run a `pattern...` entry
+		// stands for, which is the same reading the lowering of this cast is
+		// given - 5.2.3's one rule has one answer here too.
+		const Clauses written(list, *this, ctx);
+		if (written.list.unsettled())
+		{
+			// 14.6p8: a run no argument list has settled says neither how many
+			// operands the cast has nor what they are worth, so the reading
+			// stands a value in for it exactly as it does for `sizeof...`.
+			// The stand-in is 1 rather than 0 because 8.3.4p1 gives an array
+			// no bound of zero.
+			++stood_in_;
+			Constant out;
+			out.type = target;
+			out.bits = 1;
+			return out;
+		}
+		if (written.list.size() > 1)
+		{
+			throw NotConstant("a constant expression calls something this "
+			                  "milestone does not evaluate");
+		}
+		if (written.spent())
 		{
 			// 5.2.3p2: `T()` is the value-initialization 8.5p7 writes, which
 			// for an arithmetic type is the zero 8.5p6 converts to it.
@@ -561,7 +583,8 @@ SemaAnalyzer::Constant SemaAnalyzer::evaluate(const AstNode& node,
 			out.bits = 0;
 			return out;
 		}
-		Constant out = convert(evaluate(*list->children[0], ctx), target);
+		Constant out =
+			convert(evaluate(written.next(), written.in(ctx)), target);
 		out.type = target;
 		return out;
 	}

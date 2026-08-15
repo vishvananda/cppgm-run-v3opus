@@ -1111,6 +1111,10 @@ private:
 	                               const Context& ctx, const Context& target,
 	                               const QualifiedName& spelled,
 	                               const std::string& written, TypeId type);
+	// 5.19p3: what such an object is *worth*, where its type is const and
+	// arithmetic and 14.5.3p4's clause the initializer came to is a constant.
+	void fold_constant_object(SemaEntity& entity, const AstNode* initializer,
+	                          TypeId type, const Context& ctx);
 	// `redeclaration` is 9.3p2 and 3.4.3.2p1: a definition whose declarator-id
 	// is qualified defines a declaration the region that name reaches has
 	// already made, and declares nothing of its own.

@@ -1,0 +1,195 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $one : obj<12x4>
+
+  block ^entry:
+    %t1 = call i32 @declared(7)
+    %t2 = cmp ne i32 %t1, 707
+    branch %t2, ^if_then_1, ^if_else_2
+
+  block ^if_then_1:
+    return i32 1
+
+  block ^if_else_2:
+    jump ^if_end_3
+
+  block ^if_end_3:
+    %t3 = call i32 @converted(6)
+    %t4 = cmp ne i32 %t3, 606
+    branch %t4, ^if_then_4, ^if_else_5
+
+  block ^if_then_4:
+    return i32 2
+
+  block ^if_else_5:
+    jump ^if_end_6
+
+  block ^if_end_6:
+    %t5 = call i32 @folded()
+    %t6 = cmp ne i32 %t5, 444
+    branch %t6, ^if_then_7, ^if_else_8
+
+  block ^if_then_7:
+    return i32 3
+
+  block ^if_else_8:
+    jump ^if_end_9
+
+  block ^if_end_9:
+    %t7 = call i32 @emptied()
+    %t8 = cmp ne i32 %t7, 180
+    branch %t8, ^if_then_10, ^if_else_11
+
+  block ^if_then_10:
+    return i32 4
+
+  block ^if_else_11:
+    jump ^if_end_12
+
+  block ^if_end_12:
+    %t9 = addr $one
+    call void @scalar_member_int___scalar_member(%t9, 5)
+    %t10 = addr $one
+    %t11 = index i8 [projection=field] %t10, 0
+    %t12 = load i32 %t11
+    %t13 = cmp ne i32 %t12, 5
+    branch %t13, ^if_then_13, ^lor_rhs_16
+
+  block ^lor_rhs_16:
+    %t14 = addr $one
+    %t15 = index i8 [projection=field] %t14, 4
+    %t16 = index i8 [projection=field] %t15, 0
+    %t17 = load i32 %t16
+    %t18 = cmp ne i32 %t17, 5
+    branch %t18, ^if_then_13, ^if_else_14
+
+  block ^if_then_13:
+    return i32 5
+
+  block ^if_else_14:
+    jump ^if_end_15
+
+  block ^if_end_15:
+    return i32 0
+}
+function @scalar_member_int___scalar_member(%this : ptr, %a : i32) -> void [binding=weak, object=_ZN13scalar_memberIJiEEC1Ei] {
+  slot $this : ptr
+  slot $a : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %a, $a
+    %t1 = load i32 $a
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 %t1, %t3
+    %t4 = load ptr $this
+    %t5 = index i8 [projection=field] %t4, 4
+    %t6 = load i32 $a
+    call void @pair2__pair2__ov2(%t5, %t6)
+    return void
+}
+function @declared(%a : i32) -> i32 [binding=weak, object=_Z8declaredIJiEEiDpT_] {
+  slot $a : i32
+  slot $scalar : i32
+  slot $object : obj<8x4>
+
+  block ^entry:
+    store i32 %a, $a
+    %t1 = load i32 $a
+    store i32 %t1, $scalar
+    %t2 = addr $object
+    %t3 = load i32 $a
+    call void @pair2__pair2__ov2(%t2, %t3)
+    %t4 = load i32 $scalar
+    %t5 = binary mul i32 %t4, 100
+    %t6 = addr $object
+    %t7 = index i8 [projection=field] %t6, 0
+    %t8 = load i32 %t7
+    %t9 = binary add i32 %t5, %t8
+    return i32 %t9
+}
+function @converted(%a : i32) -> i32 [binding=weak, object=_Z9convertedIJiEEiDpT_] {
+  slot $a : i32
+  slot $tmpobj__1 : obj<8x4>
+
+  block ^entry:
+    store i32 %a, $a
+    %t1 = load i32 $a
+    %t2 = binary mul i32 %t1, 100
+    %t3 = addr $tmpobj__1
+    %t4 = load i32 $a
+    call void @pair2__pair2__ov2(%t3, %t4)
+    %t5 = index i8 [projection=field] %t3, 0
+    %t6 = load i32 %t5
+    %t7 = binary add i32 %t2, %t6
+    return i32 %t7
+}
+function @folded() -> i32 [binding=weak, object=_Z6foldedIJLi4EEEiv] {
+  slot $paren : i32
+  slot $braced : i32
+  slot $room : obj<16x4>
+
+  block ^entry:
+    store i32 4, $paren
+    store i32 4, $braced
+    %t1 = load i32 $paren
+    %t2 = binary mul i32 %t1, 100
+    %t3 = load i32 $braced
+    %t4 = binary mul i32 %t3, 10
+    %t5 = binary add i32 %t2, %t4
+    %t6 = const i64 16
+    %t7 = const i64 4
+    %t8 = binary udiv i64 %t6, %t7
+    %t9 = convert trunc i32 i64 %t8
+    %t10 = binary add i32 %t5, %t9
+    return i32 %t10
+}
+function @emptied() -> i32 [binding=weak, object=_Z7emptiedv] {
+  slot $object : obj<8x4>
+  slot $tmpobj__1 : obj<8x4>
+
+  block ^entry:
+    %t1 = addr $object
+    call void @pair2__pair2(%t1)
+    %t2 = addr $object
+    %t3 = index i8 [projection=field] %t2, 0
+    %t4 = load i32 %t3
+    %t5 = addr $tmpobj__1
+    call void @pair2__pair2(%t5)
+    %t6 = index i8 [projection=field] %t5, 4
+    %t7 = load i32 %t6
+    %t8 = binary add i32 %t4, %t7
+    return i32 %t8
+}
+function @pair2__pair2(%this : ptr) -> void [binding=weak, object=_ZN5pair2C1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    store i32 90, %t2
+    %t3 = load ptr $this
+    %t4 = index i8 [projection=field] %t3, 4
+    store i32 90, %t4
+    return void
+}
+function @pair2__pair2__ov2(%this : ptr, %a : i32) -> void [binding=weak, object=_ZN5pair2C1Ei] {
+  slot $this : ptr
+  slot $a : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %a, $a
+    %t1 = load i32 $a
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 %t1, %t3
+    %t4 = load ptr $this
+    %t5 = index i8 [projection=field] %t4, 4
+    store i32 0, %t5
+    return void
+}
+alias object _ZN13scalar_memberIJiEEC2Ei = @scalar_member_int___scalar_member
+alias object _ZN5pair2C2Ev = @pair2__pair2
+alias object _ZN5pair2C2Ei = @pair2__pair2__ov2

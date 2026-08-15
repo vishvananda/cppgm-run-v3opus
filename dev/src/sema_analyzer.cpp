@@ -2622,6 +2622,56 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 	}
 }
 
+// 5.19p3: a const object of arithmetic type initialized by a constant
+// expression *is* one, which is what an array bound and 14.3.2's argument may
+// be written with.  8.5p16 and 8.5.4p3 make `T k(x)` and `T k{x}` initialize
+// `k` with the very expression `T k = x` does, so the question is asked of the
+// one clause they wrote rather than of the list that holds it - and 14.5.3p4
+// makes which clause that is a question about the run a `pattern...` entry
+// stands for rather than about the syntax.  An initializer that is an ordinary
+// expression leaves the object one like any other, and one that is ill formed
+// is still ill formed, so only the one failure is caught.
+void SemaAnalyzer::fold_constant_object(SemaEntity& entity,
+                                        const AstNode* initializer, TypeId type,
+                                        const Context& ctx)
+{
+	const AstNode* const wrote =
+		initializer == nullptr || initializer->children.empty()
+			? nullptr
+			: initializer->children[0];
+	if (wrote == nullptr || (types_.cv(type) & kCvConst) == 0 ||
+	    arithmetic_type(type) == kNoType)
+	{
+		return;
+	}
+	// The list is read only where 5.19p3 asks, so a declaration that folds
+	// nothing pays nothing for the clauses it wrote.
+	Context clause_ctx = ctx;
+	const AstNode* initialized = wrote;
+	if (wrote->kind == AstKind::ParenInitializer ||
+	    wrote->kind == AstKind::BracedInitList)
+	{
+		// The node an entry comes to is the arena's and the region it is read
+		// in is the model's, so both outlive the walk that read them out.
+		const Clauses clauses(wrote, *this, ctx);
+		clause_ctx = clauses.in(ctx);
+		initialized = clauses.list.size() == 1 ? &clauses.next() : nullptr;
+	}
+	if (initialized == nullptr)
+	{
+		return;
+	}
+	try
+	{
+		entity.value = convert(evaluate(*initialized, clause_ctx), type).bits;
+		entity.constant = true;
+	}
+	catch (const NotConstant&)
+	{
+		entity.constant = false;
+	}
+}
+
 // 3.1p2 and 8.5: the object a declarator that is not a function declares, from
 // the point its type and the region it belongs to are known.  The declaration
 // is what says whether it is also a definition, what its lifetime is, and which
@@ -2652,39 +2702,7 @@ void SemaAnalyzer::declare_object_declarator(const AstNode* initializer,
 	SemaEntity& entity = declared != nullptr
 		? *declared
 		: model_.create(SemaKind::Variable, name, type);
-	// 8.5p16 and 8.5.4p3: `T k(x)` and `T k{x}` initialize `k` with the very
-	// expression `T k = x` does, so 5.19p3's question is asked of the one
-	// clause they wrote rather than of the list that holds it.
-	const AstNode* initialized =
-		initializer == nullptr || initializer->children.empty()
-			? nullptr
-			: initializer->children[0];
-	if (initialized != nullptr &&
-	    (initialized->kind == AstKind::ParenInitializer ||
-	     initialized->kind == AstKind::BracedInitList))
-	{
-		initialized = initialized->children.size() == 1
-			? initialized->children[0]
-			: nullptr;
-	}
-	if (initialized != nullptr && (types_.cv(type) & kCvConst) != 0 &&
-	    arithmetic_type(type) != kNoType)
-	{
-		// 5.19p3: a const object of integral type initialized by a constant
-		// expression is one, and is what an array bound may be written with.
-		// An initializer that is an ordinary expression leaves it an object
-		// like any other; an initializer that is ill formed is still ill
-		// formed, so only the one failure is caught.
-		try
-		{
-			entity.value = convert(evaluate(*initialized, ctx), type).bits;
-			entity.constant = true;
-		}
-		catch (const NotConstant&)
-		{
-			entity.constant = false;
-		}
-	}
+	fold_constant_object(entity, initializer, type, ctx);
 	if (declared == nullptr)
 	{
 		require_no_template_parameter(name, *target.scope);
@@ -2872,10 +2890,19 @@ void SemaAnalyzer::write_initializer(const AstNode& initializer, TypeId type,
 	{
 		// 8.5p16: direct-initialization from one expression, which differs from
 		// copy-initialization in one thing only - 12.3.2p2 lets it choose a
-		// conversion function declared `explicit`.
-		if (!initializer.children.empty())
+		// conversion function declared `explicit`.  Which expression that is is
+		// 14.5.3p4's question: a clause written `pattern...` is one expression
+		// per element of the run its packs are bound to.
+		Clauses written(&initializer, *this, ctx);
+		if (written.list.size() > 1)
 		{
-			initialize(*initializer.children[0], type, ctx, line, false,
+			throw std::runtime_error("an object of non-class type is "
+			                         "initialized from parentheses holding "
+			                         "more than one expression");
+		}
+		if (!written.spent())
+		{
+			initialize(written.next(), type, written.in(ctx), line, false,
 			           Requested::Written, true);
 		}
 		return;
