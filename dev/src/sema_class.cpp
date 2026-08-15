@@ -1,8 +1,10 @@
 #include "sema_analyzer.h"
 
 #include <stdexcept>
+#include <unordered_set>
 
 #include "ast_model.h"
+#include "sema_derivation.h"
 #include "sema_pack.h"
 
 namespace
@@ -103,176 +105,6 @@ RefQualifier declarator_ref_qualifier(const AstNode& declarator)
 // stands: a base, a member, or an object of its own.  The declaration walk in
 // `sema_analyzer.cpp` reads the syntax and hands each class to this file once,
 // where the class is complete.
-
-// 10p1: the base-clause of a class definition, which says what every object of
-// the class holds a subobject of.  The base is recorded on the class and on the
-// region it declares, and every later question - 9.2p13 layout, 10.2 lookup,
-// 11.2 access, 12.6.2 construction, 12.4 destruction, 4.10p3 conversion - reads
-// that one fact rather than the syntax it was read from.
-void SemaAnalyzer::read_base_clause(const AstNode& node, SemaEntity& entity,
-                                    Scope& scope, const Context& ctx,
-                                    const std::string& header)
-{
-	if (!lowering() && checking_ == 0)
-	{
-		// The PA12 dump has no line for a base class, so a class with one would
-		// be written as the class it would have been without the base-clause,
-		// which is a different class.  PA11 only spells the declaration it was
-		// given and needs none of this.
-		if (semantics())
-		{
-			throw std::runtime_error(header + " has a base class, which PA12 "
-			                         "does not describe");
-		}
-		return;
-	}
-	// 14.6p8 and 10.2p2: a definition being read where it stands still reaches
-	// what its base declares, because an unqualified name its body writes is
-	// looked up in the base as well - so the base-clause is read for the
-	// pattern too, in the dialect that describes only what a declaration says.
-	if (node.children.size() != 1)
-	{
-		if (checking_ > 0)
-		{
-			// What this milestone does not lay out is refused where a
-			// specialization of it is made, not where a definition no
-			// instantiation ever reads stands.
-			return;
-		}
-		// 10p1: this milestone lays out and initializes one direct base, so a
-		// class with more than one is refused rather than described as a class
-		// holding only the first of them.
-		throw std::runtime_error(header + " has more than one direct base "
-		                         "class, which this milestone does not lay out");
-	}
-	const AstNode& specifier = *node.children[0];
-	// 11.2p2: a base-specifier with no access-specifier is `private` for a class
-	// and `public` for a struct, which is what the class-key already decided for
-	// the members.
-	unsigned char access = types_.class_tag(entity.type) == ClassTag::Class
-		? kPrivateAccess
-		: kPublicAccess;
-	std::string named;
-	bool expanded = false;
-	for (std::size_t index = 0; index < specifier.children.size(); ++index)
-	{
-		const AstNode& part = *specifier.children[index];
-		if (part.kind == AstKind::ParameterPack)
-		{
-			expanded = true;
-			continue;
-		}
-		if (part.kind == AstKind::Virtual)
-		{
-			if (checking_ > 0)
-			{
-				return;
-			}
-			throw std::runtime_error(header + " has a virtual base class, which "
-			                         "this milestone does not lay out");
-		}
-		if (part.kind == AstKind::AccessSpecifier)
-		{
-			access = part.token == KW_PRIVATE
-				? kPrivateAccess
-				: (part.token == KW_PROTECTED ? kProtectedAccess
-				                              : kPublicAccess);
-			continue;
-		}
-		if (part.kind == AstKind::BaseName)
-		{
-			named = part.text;
-		}
-	}
-	// 10p1: the base-specifier names a class, which a typedef-name may stand
-	// for - so what it names is the class the type belongs to rather than the
-	// declaration the name was bound to.  14.5.3p4 writes it as a pattern
-	// instead, and the class derives from one base per element of the run its
-	// packs are bound to - which this milestone lays out where that run holds
-	// no more bases than the one it can.
-	TypeId derived_from = kNoType;
-	if (expanded)
-	{
-		std::vector<TypeId> run;
-		PackReading(*this).expand(named, ctx, kNoType, run);
-		if (run.size() == 1 && types_.is_pack_expansion(run[0]))
-		{
-			if (checking_ > 0)
-			{
-				note_dependent_base(specifier);
-				scope.dependent_base = true;
-				return;
-			}
-			throw std::runtime_error(named + " is expanded as a base class and "
-			                                 "names an unsettled parameter pack");
-		}
-		if (run.empty())
-		{
-			// 14.5.3p4 over a run of none: the class derives from nothing.
-			scope.dependent_base = false;
-			return;
-		}
-		if (run.size() != 1)
-		{
-			throw std::runtime_error(header + " has more than one direct base "
-			                         "class, which this milestone does not lay "
-			                         "out");
-		}
-		derived_from = run[0];
-	}
-	const SemaEntity* found_name = nullptr;
-	if (derived_from == kNoType)
-	{
-		found_name = &require(resolve(named, ctx, LookupKind::Type), named);
-		derived_from = found_name->type;
-	}
-	// 10p1 and 14.7.1p1: a base class shall be a complete class type, which is
-	// what asks a specialization the base-specifier named for its definition.
-	require_settled_type(derived_from);
-	if (checking_ > 0 && types_.is_dependent(types_.strip_cv(derived_from)))
-	{
-		// 14.6.2p3: an unqualified name written in the definition is not looked
-		// up in a base class that depends on a template parameter, because
-		// which class that is only an argument list says.  So the reading
-		// leaves the base off the chain, and the specialization the arguments
-		// make is read against the base they name - with the same clause left
-		// off *its* chain, because 3.4.1 answers a name the definition wrote
-		// where the definition stands however many argument lists read it.
-		note_dependent_base(specifier);
-		scope.dependent_base = true;
-		return;
-	}
-	scope.dependent_base = wrote_dependent_base(specifier);
-	if ((found_name != nullptr && !names_a_type(*found_name)) ||
-	    !types_.is_class(types_.strip_cv(derived_from)))
-	{
-		throw std::runtime_error(named + " is named as a base class and is not "
-		                                 "a class");
-	}
-	SemaEntity* const base = model_.type_owner(types_.strip_cv(derived_from));
-	if (base == nullptr || !base->defined || base->scope == nullptr)
-	{
-		// 10p1: a base class shall be a complete class type, because the
-		// derived class holds a subobject of it.
-		throw std::runtime_error(named + " is named as a base class and is an "
-		                                 "incomplete class");
-	}
-	if (base == &entity)
-	{
-		throw std::runtime_error(header + " is named as its own base class");
-	}
-	if (types_.class_tag(base->type) == ClassTag::Union ||
-	    types_.class_tag(entity.type) == ClassTag::Union)
-	{
-		// 9.5p3: a union shall not have base classes and shall not be used as a
-		// base class.
-		throw std::runtime_error(header + " derives from or is a union, which "
-		                                  "9.5p3 does not allow");
-	}
-	entity.base = base;
-	entity.base_access = access;
-	scope.base = base->scope;
-}
 
 // 12.1p1 and 12.4p1: the type a constructor or destructor declarator writes.
 // Neither has a return type, and both take the object 9.3.1p3 makes the first
@@ -1122,12 +954,13 @@ bool declares_own_constructor(const SemaEntity& entity)
 // of them do nothing at all.
 void SemaAnalyzer::declare_special_members(SemaEntity& entity, Scope& scope)
 {
-	if (scope.inheriting_constructors && entity.base != nullptr)
+	for (std::size_t index = 0;
+	     scope.inheriting_constructors && index < entity.bases.size(); ++index)
 	{
-		// 12.9p1: a using-declaration named the base's constructors, and which
-		// of them are inherited is settled here, where the class the standard
+		// 12.9p1: a using-declaration named a base's constructors, and which of
+		// them are inherited is settled here, where the class the standard
 		// calls complete holds every constructor it declares itself.
-		inherit_constructors(*entity.base, scope);
+		inherit_constructors(*entity.bases[index].entity, scope);
 	}
 	// 12.8p2/p3/p17/p19: which of the four value-transfer members the program
 	// itself declared, read before anything is added to the class - because
@@ -1384,25 +1217,53 @@ void SemaAnalyzer::collect_conversions(SemaEntity& entity, Scope& scope)
 			entity.conversions.push_back(at);
 		}
 	}
-	entity.conversions_above = !entity.conversions.empty()
-		? &entity
-		: (entity.base != nullptr ? entity.base->conversions_above : nullptr);
+	entity.conversions_above.clear();
+	if (!entity.conversions.empty())
+	{
+		entity.conversions_above.push_back(&entity);
+		return;
+	}
+	// 10.2p2: this class declares none, so what an object of it converts by is
+	// what its bases carry - the nearest classes above *them* that declare any.
+	// A class with one base holds one entry however deep the derivation goes,
+	// which is what keeps 13.3.1.5p1's candidate set one walk of the few classes
+	// that declare a conversion rather than one walk of every base.
+	for (std::size_t index = 0; index < entity.bases.size(); ++index)
+	{
+		const std::vector<SemaEntity*>& above =
+			entity.bases[index].entity->conversions_above;
+		entity.conversions_above.insert(entity.conversions_above.end(),
+		                                above.begin(), above.end());
+	}
 }
 
 // 12.3.2p1 and 13.3.1.5p1: the conversion functions an object of `owner` has,
 // which are the ones its class declares and the ones a base declares that
 // 10.2p2 does not hide.
 //
-// The classes that declare any are a chain each class holds the head of, so
-// this walks those and not every base - and a class writes its candidates once
-// per question asked rather than once per class derived from it.
+// The classes that declare any are the roots each class holds, so this walks
+// those and not every base - and a class writes its candidates once per question
+// asked rather than once per class derived from it.
 void SemaAnalyzer::gather_conversions(const SemaEntity& owner,
                                       std::vector<SemaEntity*>& out)
 {
 	out.clear();
-	for (const SemaEntity* at = owner.conversions_above; at != nullptr;
-	     at = at->base != nullptr ? at->base->conversions_above : nullptr)
+	// The roots left to walk, which a class declaring no conversion at all -
+	// nearly every class - leaves empty and allocates nothing for.  A question
+	// asked while this one is being answered gets a walk of its own, because
+	// 13.3.1.5's candidate set is read while a conversion is being chosen.
+	std::vector<SemaEntity*> pending(owner.conversions_above);
+	for (std::size_t root = 0; root < pending.size(); ++root)
 	{
+		const SemaEntity* const at = pending[root];
+		for (std::size_t index = 0; index < at->bases.size(); ++index)
+		{
+			// 10.2p2 again, one level further out: what this class's own bases
+			// declare stands behind what it declares itself.
+			const std::vector<SemaEntity*>& above =
+				at->bases[index].entity->conversions_above;
+			pending.insert(pending.end(), above.begin(), above.end());
+		}
 		const std::size_t nearer = out.size();
 		for (std::size_t index = 0; index < at->conversions.size(); ++index)
 		{
@@ -1614,9 +1475,10 @@ void SemaAnalyzer::settle_transfers(SemaEntity& entity, Scope& scope)
 		bool nonthrowing = true;
 		const bool assignment = kind == kCopyAssignmentTransfer ||
 			kind == kMoveAssignmentTransfer;
-		if (entity.base != nullptr)
+		for (std::size_t index = 0; index < entity.bases.size(); ++index)
 		{
-			SemaEntity* const carried = selected_transfer(entity.base->type, kind);
+			SemaEntity* const carried =
+				selected_transfer(entity.bases[index].entity->type, kind);
 			if (carried == nullptr || carried->deleted)
 			{
 				deleted = true;
@@ -1718,7 +1580,7 @@ void SemaAnalyzer::settle_transfers(SemaEntity& entity, Scope& scope)
 	types_.settle_copy_facts(types_.strip_cv(entity.type),
 	                         !deleted_copy && copy->trivial, deleted_copy,
 	                         vacuous_destruction(entity.type),
-	                         entity.base != nullptr);
+	                         !entity.bases.empty());
 }
 
 // 8.4.2p2 and 12.8p12: a special member the program explicitly defaulted or
@@ -1770,14 +1632,7 @@ bool SemaAnalyzer::accessible(const SemaEntity& member, Scope& scope)
 	// 11.4p1: a protected member of a base class is one a class derived from it
 	// may name, and 12.8p11's subobject is exactly the base subobject of the
 	// class asking - so the derivation this class already holds is the answer.
-	for (Scope* at = scope.base; at != nullptr; at = at->base)
-	{
-		if (at == member.region)
-		{
-			return true;
-		}
-	}
-	return false;
+	return derives_from(scope, *member.region);
 }
 
 // 12.1p5: whether the definition the standard would give a default constructor
@@ -2009,6 +1864,34 @@ bool SemaAnalyzer::befriended(const Scope& granting, const Scope& from) const
 		model_.befriended(*granting.owner, *from.owner);
 }
 
+// 11.2p5: whether any class between the one the name was written on and the one
+// that declared the member befriends `from`.
+//
+// The classes between them are the one path there is - 10.1p3's repeated base
+// being refused is what says so - so this is one step per level of it, and the
+// walk that finds the path is the same one every other reader of a base
+// subobject makes.
+bool SemaAnalyzer::befriends_between(const Scope& at, const Scope& declaring,
+                                     const Scope& from) const
+{
+	if (&at == &declaring)
+	{
+		return false;
+	}
+	if (befriended(at, from))
+	{
+		return true;
+	}
+	for (std::size_t index = 0; index < at.bases.size(); ++index)
+	{
+		if (derives_from(*at.bases[index], declaring))
+		{
+			return befriends_between(*at.bases[index], declaring, from);
+		}
+	}
+	return false;
+}
+
 bool SemaAnalyzer::accessible(const SemaEntity& member, const Scope* from,
                               const Scope* naming_class) const
 {
@@ -2037,8 +1920,8 @@ bool SemaAnalyzer::accessible(const SemaEntity& member, const Scope* from,
 		// 11.4p1: a protected member is also named from a member of a class
 		// derived from the one that declared it, and 11.7 gives that reach to a
 		// class nested in such a class as well.
-		if (at->kind == ScopeKind::Class && at->base != nullptr &&
-		    derives_from(*at->base, *member.region))
+		if (at->kind == ScopeKind::Class && at != member.region &&
+		    derives_from(*at, *member.region))
 		{
 			return true;
 		}
@@ -2047,13 +1930,10 @@ bool SemaAnalyzer::accessible(const SemaEntity& member, const Scope* from,
 		// it - so the classes between the one the name was written on and the
 		// one that declared the member are each asked in turn.  A private
 		// member is not one of those: no class but its own ever reaches it.
-		for (const Scope* n = naming_class;
-		     friends && n != nullptr && n != member.region; n = n->base)
+		if (friends && naming_class != nullptr &&
+		    befriends_between(*naming_class, *member.region, *at))
 		{
-			if (befriended(*n, *at))
-			{
-				return true;
-			}
+			return true;
 		}
 	}
 	return false;
@@ -2098,89 +1978,6 @@ Scope* SemaAnalyzer::naming_context(const std::string& written,
 	{
 		return nullptr;
 	}
-}
-
-// 11.2p4 and 11.2p5: a base class reached through a chain of classes is
-// accessible only where every base-specifier between the two is, so a
-// conversion that spans the chain asks each link in turn rather than the first
-// one alone.  One inaccessible link makes the whole conversion ill formed.  The
-// caller has already found `base` in the chain, so the walk ends there.
-void SemaAnalyzer::require_base_access(const SemaEntity* derived,
-                                       const SemaEntity& base)
-{
-	for (const SemaEntity* at = derived; at != nullptr && at != &base;
-	     at = at->base)
-	{
-		require_base_link(*at);
-	}
-}
-
-// 11.2p4 and 11.2p5 asked as a question rather than as a refusal, because
-// 10.3p7's covariant return wants the answer and not the diagnosis: the base
-// has to be accessible for the return types to be covariant, and one that is
-// not leaves the two return types simply different.
-bool SemaAnalyzer::base_accessible(const SemaEntity* derived,
-                                   const SemaEntity& base)
-{
-	for (const SemaEntity* at = derived; at != nullptr && at != &base;
-	     at = at->base)
-	{
-		if (!base_link_accessible(*at))
-		{
-			return false;
-		}
-	}
-	return true;
-}
-
-// 11.2p1: the access one base-specifier gave the base it named, asked of where
-// the conversion through it is written.  A public base reaches everywhere, a
-// protected one reaches the classes derived from the one that named it, and a
-// private one reaches that class alone.
-void SemaAnalyzer::require_base_link(const SemaEntity& derived)
-{
-	if (base_link_accessible(derived))
-	{
-		return;
-	}
-	throw std::runtime_error("a conversion to a base class of " +
-	                         types_.description(derived.type) +
-	                         " is written where the access its base-specifier "
-	                         "gave it does not reach");
-}
-
-bool SemaAnalyzer::base_link_accessible(const SemaEntity& derived)
-{
-	if (derived.base_access == kPublicAccess || derived.scope == nullptr)
-	{
-		return true;
-	}
-	const Scope* const from = naming_ != nullptr ? naming_ : reading_;
-	const bool friends = model_.has_friends();
-	for (const Scope* at = from; at != nullptr; at = at->parent)
-	{
-		if (at == derived.scope)
-		{
-			return true;
-		}
-		if (friends && befriended(*derived.scope, *at))
-		{
-			// 11.2p1 and 11.3p1: a friend of the derived class reaches what
-			// the class itself reaches, which is the base its base-specifier
-			// named however it named it.
-			return true;
-		}
-		if (derived.base_access != kProtectedAccess ||
-		    at->kind != ScopeKind::Class)
-		{
-			continue;
-		}
-		if (at->base != nullptr && derives_from(*at->base, *derived.scope))
-		{
-			return true;
-		}
-	}
-	return false;
 }
 
 // 12.4p11: an object's lifetime ends in a call of the destructor of its class,
@@ -2268,20 +2065,6 @@ void SemaAnalyzer::require_protected_object(
 	}
 }
 
-// 10p1: whether `derived` is `base` or derives from it, which is one walk of
-// the chain the base-clauses left on the regions.
-bool SemaAnalyzer::derives_from(const Scope& derived, const Scope& base) const
-{
-	for (const Scope* at = &derived; at != nullptr; at = at->base)
-	{
-		if (at == &base)
-		{
-			return true;
-		}
-	}
-	return false;
-}
-
 void SemaAnalyzer::require_access(const SemaEntity& member, const Scope* from,
                                   const Scope* naming_class)
 {
@@ -2365,11 +2148,13 @@ bool SemaAnalyzer::trivial_default_construction(Scope& scope)
 		// vpointer whatever else it leaves alone.
 		return false;
 	}
-	if (scope.owner != nullptr && scope.owner->base != nullptr)
+	for (std::size_t index = 0;
+	     scope.owner != nullptr && index < scope.owner->bases.size(); ++index)
 	{
-		// 12.1p5: the base class subobject is constructed too, so what its own
+		// 12.1p5: each base class subobject is constructed too, so what its own
 		// constructor does is part of what constructing this class does.
-		const SemaEntity* const base = scope.owner->base->constructor;
+		const SemaEntity* const base =
+			scope.owner->bases[index].entity->constructor;
 		if (base != nullptr && !base->trivial)
 		{
 			return false;
@@ -2408,10 +2193,11 @@ bool SemaAnalyzer::trivial_default_construction(Scope& scope)
 // member function it cannot see the specification of does.
 bool SemaAnalyzer::default_construction_nonthrowing(Scope& scope)
 {
-	if (scope.owner != nullptr && scope.owner->base != nullptr)
+	for (std::size_t index = 0;
+	     scope.owner != nullptr && index < scope.owner->bases.size(); ++index)
 	{
 		const SemaEntity* const base =
-			default_constructor(scope.owner->base->type);
+			default_constructor(scope.owner->bases[index].entity->type);
 		if (base != nullptr && !base->nonthrowing)
 		{
 			return false;
@@ -2453,9 +2239,11 @@ bool SemaAnalyzer::destruction_nonthrowing(Scope& scope)
 		// `vacuous_destruction` answers.
 		return true;
 	}
-	if (scope.owner != nullptr && scope.owner->base != nullptr)
+	for (std::size_t index = 0;
+	     scope.owner != nullptr && index < scope.owner->bases.size(); ++index)
 	{
-		const SemaEntity* const base = scope.owner->base->destructor;
+		const SemaEntity* const base =
+			scope.owner->bases[index].entity->destructor;
 		if (base != nullptr && !base->nonthrowing)
 		{
 			return false;
@@ -2491,10 +2279,12 @@ bool SemaAnalyzer::trivial_destruction(Scope& scope)
 		// program can observe wherever the object stands.
 		return false;
 	}
-	if (scope.owner != nullptr && scope.owner->base != nullptr)
+	for (std::size_t index = 0;
+	     scope.owner != nullptr && index < scope.owner->bases.size(); ++index)
 	{
-		// 12.4p8: the base class subobject is destroyed too.
-		const SemaEntity* const base = scope.owner->base->destructor;
+		// 12.4p8: each base class subobject is destroyed too.
+		const SemaEntity* const base =
+			scope.owner->bases[index].entity->destructor;
 		if (base != nullptr && !base->trivial)
 		{
 			return false;
@@ -2526,10 +2316,12 @@ bool SemaAnalyzer::trivial_destruction(Scope& scope)
 bool SemaAnalyzer::subobject_declares_destruction(SemaEntity& entity,
                                                   Scope& scope)
 {
-	if (entity.base != nullptr &&
-	    types_.has_declared_destruction(entity.base->type))
+	for (std::size_t index = 0; index < entity.bases.size(); ++index)
 	{
-		return true;
+		if (types_.has_declared_destruction(entity.bases[index].entity->type))
+		{
+			return true;
+		}
 	}
 	if (one_storage(entity.type))
 	{

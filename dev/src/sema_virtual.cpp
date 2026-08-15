@@ -4,6 +4,7 @@
 #include <unordered_map>
 
 #include "ast_model.h"
+#include "sema_derivation.h"
 
 // 10.3 and 10.4: what a class dispatches.
 //
@@ -54,6 +55,25 @@ bool writes_virt_specifier(const AstNode& declarator)
 	return false;
 }
 
+void note_shared_entry_points(SemaEntity& entity)
+{
+	for (SemaEntity* made = entity.constructor; made != nullptr;
+	     made = made->next)
+	{
+		made->complete_object_entry = made->complete_object_entry ||
+			(made->user_provided && made->own_source_definition);
+	}
+	if (entity.destructor != nullptr && entity.destructor->user_provided &&
+	    entity.destructor->own_source_definition)
+	{
+		entity.destructor->complete_object_entry = true;
+	}
+	for (std::size_t index = 0; index < entity.bases.size(); ++index)
+	{
+		note_shared_entry_points(*entity.bases[index].entity);
+	}
+}
+
 // 12.1, 12.4 and the ABI: which of a class's own special members the object
 // file owes both of the ABI's entry points for.
 //
@@ -81,20 +101,7 @@ void settle_shared_entry_points(SemaEntity& entity)
 	// 10p1: a class with no polymorphic base has none above it either, so this
 	// walk is the whole derivation below the vpointer and costs each class in it
 	// once for the program rather than once per class derived from it.
-	for (SemaEntity* at = &entity; at != nullptr; at = at->base)
-	{
-		for (SemaEntity* made = at->constructor; made != nullptr;
-		     made = made->next)
-		{
-			made->complete_object_entry = made->complete_object_entry ||
-				(made->user_provided && made->own_source_definition);
-		}
-		if (at->destructor != nullptr && at->destructor->user_provided &&
-		    at->destructor->own_source_definition)
-		{
-			at->destructor->complete_object_entry = true;
-		}
-	}
+	note_shared_entry_points(entity);
 }
 
 // 10.3p5, 9.2p8 and 10.4p2: what a member function that overrides nothing may
@@ -155,43 +162,35 @@ void require_no_virtual_specifier(const SemaEntity& member)
 // question is answered without settling any override.
 void SemaAnalyzer::note_polymorphism(SemaEntity& entity, Scope& scope)
 {
-	if (entity.base != nullptr && entity.base->polymorphic)
+	if (!entity.bases.empty() && entity.bases[0].entity->polymorphic)
 	{
-		// 10p1: the base subobject stands at the start of the object and
+		// 10p1: the first base subobject stands at the start of the object and
 		// carries the pointer, so this class adds nothing and lays its own
 		// members out after the base exactly as a non-polymorphic one does.
 		entity.polymorphic = true;
-		return;
 	}
-	for (std::size_t index = 0; index < scope.declarations.size(); ++index)
+	for (std::size_t index = 0;
+	     !entity.polymorphic && index < scope.declarations.size(); ++index)
 	{
 		const SemaEntity& member = *scope.declarations[index];
 		if (member.virtual_function && dispatchable_member(member))
 		{
 			entity.polymorphic = true;
 			entity.introduces_vptr = true;
-			return;
 		}
 	}
-}
-
-// 10p1 and 9.2p13: where the base class subobject of type `base` stands inside
-// an object of class type `from`.
-//
-// Each class in the derivation already holds where it put its own direct base,
-// so the walk is one addition per level of the chain the conversion names, and
-// it is the chain the caller already found the base through.  Zero wherever no
-// class in it added a vpointer, which is every hierarchy of the PA17 subset.
-unsigned long long SemaAnalyzer::base_subobject_offset(TypeId from,
-                                                       const SemaEntity& base)
-{
-	unsigned long long offset = 0;
-	for (const SemaEntity* at = model_.type_owner(types_.strip_cv(from));
-	     at != nullptr && at != &base; at = at->base)
+	if (!entity.polymorphic || entity.bases.size() < 2 || checking_ > 0)
 	{
-		offset += at->base_offset;
+		return;
 	}
-	return offset;
+	// 10.3p10 and the ABI: a class that dispatches and holds more than one base
+	// subobject owes a secondary table per base subobject that stands away from
+	// the vpointer, and a call through one of those reaches its overrider by a
+	// thunk that steps back to the complete object.  Neither is emitted here, so
+	// the class is refused rather than given a table that dispatches wrongly.
+	throw std::runtime_error(types_.description(entity.type) +
+	                         " dispatches and has more than one direct base "
+	                         "class, which this milestone does not lay out");
 }
 
 // 10.3p7: whether the return type of an overriding function is the one the
@@ -253,7 +252,7 @@ bool SemaAnalyzer::covariant_return(TypeId overriding, TypeId overridden,
 	// written in - which is what lets a friend of the derived class write a
 	// return type a stranger to it may not.
 	const Naming naming(*this, where);
-	return base_accessible(derived, *base);
+	return Derivation(*this).accessible(derived, *base);
 }
 
 // 10.3p2's key: the name, and the parameter-type-list, cv-qualifier-seq and
@@ -280,18 +279,26 @@ std::uint64_t SemaAnalyzer::override_key(const SemaEntity& member)
 unsigned SemaAnalyzer::inherited_slot(const SemaEntity* from,
                                       std::uint64_t key) const
 {
-	for (const SemaEntity* at = from; at != nullptr; at = at->base)
+	if (from == nullptr)
 	{
-		const std::unordered_map<std::uint32_t, SlotIndex>::const_iterator
-			records = introduced_slots_.find(at->id);
-		if (records == introduced_slots_.end())
-		{
-			continue;
-		}
+		return kNoVtableIndex;
+	}
+	const std::unordered_map<std::uint32_t, SlotIndex>::const_iterator records =
+		introduced_slots_.find(from->id);
+	if (records != introduced_slots_.end())
+	{
 		const SlotIndex::const_iterator found = records->second.find(key);
 		if (found != records->second.end())
 		{
 			return found->second;
+		}
+	}
+	for (std::size_t index = 0; index < from->bases.size(); ++index)
+	{
+		const unsigned above = inherited_slot(from->bases[index].entity, key);
+		if (above != kNoVtableIndex)
+		{
+			return above;
 		}
 	}
 	return kNoVtableIndex;
@@ -303,7 +310,8 @@ unsigned SemaAnalyzer::inherited_slot(const SemaEntity* from,
 // class's table holds.
 void SemaAnalyzer::settle_virtual_members(SemaEntity& entity, Scope& scope)
 {
-	SemaEntity* const base = entity.base;
+	SemaEntity* const base =
+		entity.bases.empty() ? nullptr : entity.bases[0].entity;
 	if (base != nullptr && base->polymorphic)
 	{
 		// 10.3p10: the derived class's table is the base's, with the entries its
@@ -447,7 +455,8 @@ void SemaAnalyzer::settle_vtable_ownership(SemaEntity& entity, Scope& scope)
 void SemaAnalyzer::settle_virtual_destructor(SemaEntity& entity,
                                              SemaEntity& destructor)
 {
-	SemaEntity* const base = entity.base;
+	SemaEntity* const base =
+		entity.bases.empty() ? nullptr : entity.bases[0].entity;
 	SemaEntity* const over =
 		base != nullptr && base->destructor != nullptr &&
 			base->destructor->virtual_function

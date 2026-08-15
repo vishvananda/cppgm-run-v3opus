@@ -103,6 +103,7 @@ private:
 	// template as `pattern`, with the argument's own qualifiers, and `kNoType`
 	// where no base of it is one.
 	TypeId derived_from(TypeId pattern, TypeId argument) const;
+	TypeId named_below(TypeId pattern, const SemaEntity& at) const;
 
 	// 14.8.1p2: the type a template-id that wrote a leading part of `primary`'s
 	// argument list leaves to be deduced, with those arguments already bound

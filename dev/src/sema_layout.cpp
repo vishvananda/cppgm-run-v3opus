@@ -343,39 +343,49 @@ void SemaAnalyzer::lay_out_class(SemaEntity& entity, Scope& scope, bool is_union
 		align = kVpointerBytes;
 		empty = false;
 	}
-	if (entity.base != nullptr)
+	for (std::size_t index = 0; index < entity.bases.size(); ++index)
 	{
-		// 10p1 and the course ABI: the direct base subobject begins where the
-		// derived object does - or, where this class put a vpointer there,
-		// after it - and the members are laid out after that.  A base that
-		// holds nothing is given no storage of its own, so the derived class
-		// starts its members where the base did.
+		// 10p1 and the course ABI: the direct base subobjects are allocated in
+		// the order the base-specifier-list wrote them, the first of them where
+		// the derived object begins - or, where this class put a vpointer
+		// there, after it - and the members after all of them.  A base that
+		// holds nothing is given no storage of its own, so the base after it
+		// and the members alike start where it did.
+		BaseClass& link = entity.bases[index];
+		const TypeId base_type = link.entity->type;
 		const unsigned long long base_align =
-			packed_align(types_.object_align(entity.base->type), packed);
+			packed_align(types_.object_align(base_type), packed);
 		if (base_align > align)
 		{
 			align = base_align;
 		}
-		if (!types_.is_trivially_copied(types_.strip_cv(entity.base->type)))
+		if (!types_.is_trivially_copied(types_.strip_cv(base_type)))
 		{
 			trivially_copied = false;
 			subobject_bytes = false;
 		}
-		if (types_.has_zeroed_storage(entity.base->type))
+		if (types_.has_zeroed_storage(base_type))
 		{
 			zeroed_storage = true;
 		}
-		if (!entity.base->empty_class)
+		link.offset = link.entity->empty_class ? 0 : round_up(size, base_align);
+		// The ABI again: two subobjects of the same class may not begin at the
+		// same byte, which an empty base standing where an earlier one already
+		// put one of its class is exactly what would do.
+		while (collides_with_empty(base_type, link.offset, holes))
 		{
-			entity.base_offset = round_up(size, base_align);
-			size = entity.base_offset + types_.object_size(entity.base->type);
+			link.offset = round_up(link.offset + 1, base_align);
+		}
+		if (!link.entity->empty_class)
+		{
+			size = link.offset + types_.object_size(base_type);
 			empty = false;
 		}
 		// The base subobject begins where this class put it, so every empty
 		// class subobject of it stands at the byte it stands at inside the
 		// base - and no member of this class may be given one of those bytes
 		// for a subobject of the same class.
-		place_empty_subobjects(entity.base->type, entity.base_offset, holes);
+		place_empty_subobjects(base_type, link.offset, holes);
 	}
 	for (std::size_t index = 0; index < scope.declarations.size(); ++index)
 	{

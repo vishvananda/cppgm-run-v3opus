@@ -7,6 +7,7 @@
 #include "ast_tokens.h"
 #include "literal_scan.h"
 #include "post_token.h"
+#include "sema_derivation.h"
 #include "sema_pack.h"
 #include "string_literal.h"
 
@@ -1140,7 +1141,7 @@ SemaAnalyzer::Value SemaAnalyzer::base_value(const Value& object,
 		through_pointer ? types_.target(object.type) : object.type;
 	if (checked)
 	{
-		require_base_access(model_.type_owner(types_.strip_cv(from)), base);
+		Derivation(*this).require_access(model_.type_owner(types_.strip_cv(from)), base);
 	}
 	TypeId to = types_.qualified(base.type, types_.object_cv(from));
 	if (through_pointer)
@@ -1160,7 +1161,7 @@ SemaAnalyzer::Value SemaAnalyzer::base_value(const Value& object,
 	// class but the polymorphic one that added a vpointer gave its base offset
 	// zero, so the walk is the derivation the conversion already names and the
 	// sum is nearly always zero.
-	value.value = base_subobject_offset(from, base);
+	value.value = Derivation(*this).subobject_offset(from, base);
 	value.op = 0;
 	value.what = "base-conversion";
 	value.payload.clear();
@@ -1196,17 +1197,16 @@ SemaAnalyzer::Value SemaAnalyzer::object_in_declaring_class(
 	{
 		return object;
 	}
-	SemaEntity* reached = nullptr;
-	for (SemaEntity* at = model_.type_owner(types_.strip_cv(object.type));
-	     at != nullptr && at->scope != declaring; at = at->base)
+	SemaEntity* const owner = model_.type_owner(types_.strip_cv(object.type));
+	if (owner == nullptr || owner->scope == declaring ||
+	    declaring->owner == nullptr || !derives_from(*owner->scope, *declaring))
 	{
-		reached = at->base;
-	}
-	if (reached == nullptr)
-	{
+		// The member belongs to the object as it stands, so nothing is stepped
+		// off it - which is every access but the one that names a member of a
+		// base class.
 		return object;
 	}
-	return base_value(object, *reached, checked, wrote_arrow);
+	return base_value(object, *declaring->owner, checked, wrote_arrow);
 }
 
 // 5.1.1p1: a parameter named the way the program would name it, which is what
@@ -2332,11 +2332,11 @@ TypeId SemaAnalyzer::composite_pointer(const Value& left, const Value& right)
 	}
 	// 5.9p2 and 4.10p3: where one class derives from the other, the two meet at
 	// a pointer to the base, which the derived one converts to.
-	if (derived_from(left_pointee, right_pointee) != nullptr)
+	if (Derivation(*this).base_in(left_pointee, right_pointee) != nullptr)
 	{
 		return types_.pointer_to(types_.qualified(right_pointee, cv));
 	}
-	if (derived_from(right_pointee, left_pointee) != nullptr)
+	if (Derivation(*this).base_in(right_pointee, left_pointee) != nullptr)
 	{
 		return types_.pointer_to(types_.qualified(left_pointee, cv));
 	}
@@ -2442,7 +2442,7 @@ void SemaAnalyzer::convert_arm_to_base(Value& arm, TypeId result)
 	{
 		return;
 	}
-	SemaEntity* const base = derived_from(arm.type, result);
+	SemaEntity* const base = Derivation(*this).base_in(arm.type, result);
 	if (base != nullptr)
 	{
 		arm = base_value(arm, *base);
@@ -2521,7 +2521,7 @@ void SemaAnalyzer::convert_operand_to_base(Value& operand, TypeId operands)
 		return;
 	}
 	SemaEntity* const base =
-		derived_from(types_.target(types_.strip_cv(operand.type)),
+		Derivation(*this).base_in(types_.target(types_.strip_cv(operand.type)),
 		             types_.target(types_.strip_cv(operands)));
 	if (base != nullptr)
 	{

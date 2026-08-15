@@ -274,10 +274,16 @@ struct WrittenMemInitializer
 {
 	WrittenMemInitializer()
 		: written(nullptr)
+		, region(nullptr)
 		, used(false)
 	{}
 
 	const AstNode* written;
+	// 14.5.3p4: the region this entry is read in, which for one element of an
+	// expanded mem-initializer binds the packs its pattern names to that
+	// element.  Null for every mem-initializer written without a `...`, which
+	// is read where the ctor-initializer stands.
+	Scope* region;
 	std::string spelled;
 	bool used;
 };

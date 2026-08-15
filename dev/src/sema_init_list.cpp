@@ -6,6 +6,7 @@
 
 #include "ast_model.h"
 #include "ast_tokens.h"
+#include "sema_derivation.h"
 
 namespace
 {
@@ -650,7 +651,7 @@ bool SemaAnalyzer::clause_initializes_class(TypeId type, const AstNode& clause,
 		return false;
 	}
 	const TypeId from = types_.strip_cv(value.type);
-	return from == types_.strip_cv(type) || derived_from(from, type) != nullptr;
+	return from == types_.strip_cv(type) || Derivation(*this).base_in(from, type) != nullptr;
 }
 
 // 8.5.1p2: the object an aggregate class's own constructor builds, whose

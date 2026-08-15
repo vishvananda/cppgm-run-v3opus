@@ -77,6 +77,7 @@ private:
 	// 14.8.2: the match that turns a use of a function template into the
 	// argument list it deduces, which `sema_deduce.h` owns for the same reason.
 	friend class Deduction;
+	friend class Derivation;
 	// 14.5.5 and 14.5.1p1: the two declarations a template head writes that are
 	// neither the primary template nor a specialization of it, which
 	// `sema_specialize.h` owns because each changes one step of the three.
@@ -342,10 +343,6 @@ private:
 	                              const Context& ctx,
 	                              const std::string& written,
 	                              const std::vector<Parameter>& parameters);
-	// 10p1: the base-clause of a class definition, read before its members
-	// because they are read against what its base declares.
-	void read_base_clause(const AstNode& node, SemaEntity& entity, Scope& scope,
-	                      const Context& ctx, const std::string& header);
 	// 12.1p5 and 12.4p3: the constructor and the destructor a class with no
 	// declared one has, declared into the class where its definition ends.
 	// 9.2p2: the special members the class has where its definition ends.
@@ -405,11 +402,6 @@ private:
 	                                       const Scope& where, bool qualified,
 	                                       const std::string& name);
 	bool covariant_return(TypeId overriding, TypeId overridden, Scope* where);
-	// 10p1: where the base class subobject stands inside an object of the
-	// derived class, which every class but one that added a vpointer gave the
-	// place its own object begins at.
-	unsigned long long base_subobject_offset(TypeId from,
-	                                         const SemaEntity& base);
 	// 10.4p2/p3: whether an object of the type can be created at all, and the
 	// two boundaries of a function declaration where one may not stand.
 	bool abstract_class_type(TypeId type);
@@ -528,10 +520,22 @@ private:
 		const Pending& pending, DumpNode& line,
 		std::unordered_map<std::string, MemInitializer>& named,
 		const Context& inner);
+	void write_one_base_initialization(
+		const Pending& pending, DumpNode& line,
+		std::unordered_map<std::string, MemInitializer>& named,
+		const Context& inner, SemaEntity& base);
 	// 12.6.2p10 and 12.6.2p6: which mem-initializer names each member, as one
 	// index built once per definition and keyed by the unqualified name.
 	void read_mem_initializers(
 		const Pending& pending,
+		const Context& inner,
+		std::unordered_map<std::string, MemInitializer>& named);
+	// 12.6.2p2: the name one entry of that index is held under, and the holding
+	// itself - which 12.6.2p6 refuses a second entry of one name at.
+	std::string base_key(const std::string& written, const Context& where);
+	void hold_mem_initializer(
+		const Pending& pending, const std::string& key,
+		const MemInitializer& wrote,
 		std::unordered_map<std::string, MemInitializer>& named);
 	// 12.6.2p6: whether this ctor-initializer delegates - whether one of its
 	// mem-initializer-ids names the constructor's own class rather than a base
@@ -851,6 +855,10 @@ private:
 	// was not written on an object.
 	bool accessible(const SemaEntity& member, const Scope* from,
 	                const Scope* naming_class = nullptr) const;
+	// 11.2p5: whether any class between the one a name was written on and the
+	// one that declared the member grants `from` the reach of its own members.
+	bool befriends_between(const Scope& at, const Scope& declaring,
+	                       const Scope& from) const;
 	void require_access(const SemaEntity& member, const Scope* from,
 	                    const Scope* naming_class = nullptr);
 	// 11p6: the class a declaration written outside it names a member of, whose
@@ -1478,27 +1486,12 @@ private:
 	// denotes, written as one node holding the operand's own line.
 	Value base_value(const Value& object, SemaEntity& base,
 	                 bool checked = true, bool wrote_arrow = false);
-	// 11.2p4: a conversion from a derived class to a base class of it is well
-	// formed only where the base-specifier's access reaches, which is what
-	// makes a private base unreachable from outside the class that declared it.
-	// A conversion spanning a chain passes through every base-specifier between
-	// the two classes, so each one is asked in turn.
-	void require_base_access(const SemaEntity* derived, const SemaEntity& base);
-	// 11.2p4/p5 asked as a question: whether every base-specifier between the
-	// two reaches from where this stands, which 10.3p7's covariant return wants
-	// the answer to rather than the refusal.
-	bool base_accessible(const SemaEntity* derived, const SemaEntity& base);
-	bool base_link_accessible(const SemaEntity& derived);
-	// 11.2p1: the one base-specifier a class wrote, asked of where it is read.
-	void require_base_link(const SemaEntity& derived);
 	// 11.4p1: the additional check a protected non-static member named on an
 	// object asks, which is that the object is of the class the access occurs
 	// in rather than of the base that declared the member.
 	void require_protected_object(const std::vector<SemaEntity*>& found,
 	                              const SemaEntity& member, const Scope* from,
 	                              const Scope* object_class);
-	// 10p1: whether one class region is another or derives from it.
-	bool derives_from(const Scope& derived, const Scope& base) const;
 	// 12.4p11: the destructor an object's lifetime ends in a call of, which is
 	// named where the object is declared and has to be accessible there.
 	void require_destruction_access(const SemaEntity& entity, const Scope* from);
@@ -1976,7 +1969,6 @@ private:
 	// 4.4 and 4.10: whether a pointer of `from` converts to one of `to`.
 	// 10p1: the base class of `derived` that `base` names, or null where
 	// `derived` derives from no such class.
-	SemaEntity* derived_from(TypeId derived, TypeId base);
 	bool pointer_convertible(TypeId from, TypeId to, int& rank, bool& exact);
 	bool qualification_convertible(TypeId from, TypeId to);
 	// 3.9.3p5: `type` with every top level cv-qualifier removed, reaching
@@ -2047,6 +2039,7 @@ private:
 	                         Value& value);
 	// 3.4.2p2: the namespaces and classes a type is associated with.
 	void associate_type(TypeId type, Associated& out);
+	void associate_bases(SemaEntity* owner, Associated& out);
 	void associate_region(Scope* region, Associated& out);
 	// 3.4.2p2: the declarations of `name` the argument types reach, appended to
 	// `candidates`.  Returns how many of them are the single friend

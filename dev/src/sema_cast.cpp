@@ -4,6 +4,7 @@
 
 #include "ast_model.h"
 #include "ast_tokens.h"
+#include "sema_derivation.h"
 
 // 5.2.9, 5.2.11, 5.4 and 5.2.3p1: what a cast is written over and what it makes
 // of it.
@@ -103,7 +104,7 @@ SemaAnalyzer::Value SemaAnalyzer::cast_expression(const AstNode& node,
 		// operand's class is that conversion, so it names the base subobject
 		// rather than reinterpreting the address - and 11.2p4 asks here whether
 		// the base-specifier's access reaches this expression.
-		SemaEntity* const base = derived_from(from, to);
+		SemaEntity* const base = Derivation(*this).base_in(from, to);
 		if (base != nullptr)
 		{
 			source = base_value(source, *base);
@@ -117,10 +118,10 @@ SemaAnalyzer::Value SemaAnalyzer::cast_expression(const AstNode& node,
 		// that base is accessible.  The subobject begins where the derived object
 		// does, so the address is the one the operand held and the cast writes no
 		// conversion around it - but the access is asked for all the same.
-		SemaEntity* const from_base = derived_from(to, from);
+		SemaEntity* const from_base = Derivation(*this).base_in(to, from);
 		if (from_base != nullptr)
 		{
-			require_base_access(model_.type_owner(types_.strip_cv(to)),
+			Derivation(*this).require_access(model_.type_owner(types_.strip_cv(to)),
 			                    *from_base);
 		}
 	}
@@ -200,7 +201,7 @@ SemaAnalyzer::Value SemaAnalyzer::cast_to_reference(TypeId target, Value& source
 		// which is the one `base-conversion` node 4.10p3 writes everywhere else.
 		SemaEntity* const to_base =
 			source.node != nullptr && source.what != nullptr
-				? derived_from(source.type, referenced)
+				? Derivation(*this).base_in(source.type, referenced)
 				: nullptr;
 		if (to_base != nullptr)
 		{
@@ -217,10 +218,10 @@ SemaAnalyzer::Value SemaAnalyzer::cast_to_reference(TypeId target, Value& source
 		// subobject is part of.  The subobject begins where the derived object
 		// does, so the storage the operand named is the storage the cast names,
 		// and 11.2p4 asks here whether the base-specifier's access reaches.
-		SemaEntity* const from_base = derived_from(referenced, source.type);
+		SemaEntity* const from_base = Derivation(*this).base_in(referenced, source.type);
 		if (from_base != nullptr)
 		{
-			require_base_access(model_.type_owner(types_.strip_cv(referenced)),
+			Derivation(*this).require_access(model_.type_owner(types_.strip_cv(referenced)),
 			                    *from_base);
 			value.payload.clear();
 			value.node = &line;

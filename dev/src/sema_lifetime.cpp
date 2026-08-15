@@ -1389,9 +1389,10 @@ bool SemaAnalyzer::names_the_class(const std::string& written,
 // index is built once per constructor definition, keyed by the unqualified
 // name each mem-initializer-id wrote.
 void SemaAnalyzer::read_mem_initializers(
-	const Pending& pending,
+	const Pending& pending, const Context& inner,
 	std::unordered_map<std::string, MemInitializer>& named)
 {
+	PackReading packs(*this);
 	for (std::size_t at = 0;
 	     pending.initializers != nullptr &&
 	     at < pending.initializers->children.size(); ++at)
@@ -1407,17 +1408,76 @@ void SemaAnalyzer::read_mem_initializers(
 		MemInitializer wrote;
 		wrote.written = one.children.size() > 1 ? one.children[1] : nullptr;
 		wrote.spelled = id->text;
-		if (!named.insert(std::make_pair(QualifiedName(id->text).last(), wrote))
-		         .second)
+		if (child_of(one, AstKind::ParameterPack) == nullptr)
 		{
-			// 12.6.2p6: a ctor-initializer that writes more than one
-			// mem-initializer for one member is ill formed, which is not the
-			// same as the second one being the one that has no effect.
-			throw std::runtime_error("a constructor of " +
+			hold_mem_initializer(pending, QualifiedName(id->text).last(),
+			                     wrote, named);
+			continue;
+		}
+		// 14.5.3p4: the mem-initializer is a pattern read once per element of
+		// the run its packs are bound to, each reading in a region of its own -
+		// so what the ctor-initializer holds is one entry per element, keyed by
+		// the base class that element's reading of the id names.
+		const PackReading::Run run = packs.run_of_node(one, inner);
+		if (!run.found)
+		{
+			// 14.5.3p5: the pattern of a pack expansion shall name at least one
+			// parameter pack.
+			throw std::runtime_error("a mem-initializer of " +
 			                         types_.description(pending.function->type) +
-			                         " initializes " + id->text + " twice");
+			                         " is expanded and names no parameter pack");
+		}
+		for (std::size_t element = 0; run.settled && element < run.length;
+		     ++element)
+		{
+			Context where = inner;
+			where.scope = &packs.element_region(run, element, inner);
+			wrote.region = where.scope;
+			hold_mem_initializer(pending, base_key(id->text, where), wrote,
+			                     named);
 		}
 	}
+}
+
+// 12.6.2p2: the name the index of a ctor-initializer holds one entry under,
+// which is the last component of the mem-initializer-id as written.  An entry
+// read for one element of an expansion writes that component with the pack in
+// it, and every element writes the same one - so the class the element's own
+// region makes of it is what tells the entries apart.
+std::string SemaAnalyzer::base_key(const std::string& written,
+                                   const Context& where)
+{
+	try
+	{
+		SemaEntity* const found = resolve(written, where, LookupKind::Type);
+		if (found != nullptr && names_a_type(*found))
+		{
+			return QualifiedName(types_.user_name(found->type)).last();
+		}
+	}
+	catch (const std::runtime_error&)
+	{
+		// A name that reaches no region names no class either, and the
+		// mem-initializer it was written in is refused where it is read.
+	}
+	return QualifiedName(written).last();
+}
+
+void SemaAnalyzer::hold_mem_initializer(
+	const Pending& pending, const std::string& key,
+	const MemInitializer& wrote,
+	std::unordered_map<std::string, MemInitializer>& named)
+{
+	if (named.insert(std::make_pair(key, wrote)).second)
+	{
+		return;
+	}
+	// 12.6.2p6: a ctor-initializer that writes more than one mem-initializer
+	// for one member is ill formed, which is not the same as the second one
+	// being the one that has no effect.
+	throw std::runtime_error("a constructor of " +
+	                         types_.description(pending.function->type) +
+	                         " initializes " + wrote.spelled + " twice");
 }
 
 // 12.6.2p6: a mem-initializer-id that names the constructor's own class is not
@@ -1477,11 +1537,16 @@ const AstNode* SemaAnalyzer::delegating_initializer(
 			// the class through it is exactly what this reading is for.
 			return nullptr;
 		}
-		if (owner->base != nullptr &&
-		    QualifiedName(types_.user_name(owner->base->type)).last() ==
-			    only->first)
+		for (std::size_t index = 0; index < owner->bases.size(); ++index)
 		{
-			return nullptr;
+			// 12.6.2p2: the one mem-initializer names a base of the class, so
+			// it initializes that subobject rather than delegating.
+			if (QualifiedName(
+				    types_.user_name(owner->bases[index].entity->type)).last() ==
+			    only->first)
+			{
+				return nullptr;
+			}
 		}
 		if (!names_the_class(only->second.spelled, *owner, inner))
 		{
@@ -1577,23 +1642,35 @@ void SemaAnalyzer::check_delegation_cycles()
 	}
 }
 
-// 12.6.2p10: the base class subobject is initialized first, whatever place its
-// mem-initializer was written in and whether or not one was.  12.9p8's
-// inheriting constructor writes no ctor-initializer at all and initializes it
-// from its own parameters instead.
+// 12.6.2p10: the base class subobjects are initialized first and in the order
+// the base-specifier-list declared them, whatever place their mem-initializers
+// were written in and whether or not one was written at all.
 void SemaAnalyzer::write_base_initialization(
 	const Pending& pending, DumpNode& line,
 	std::unordered_map<std::string, MemInitializer>& named,
 	const Context& inner)
 {
-	SemaEntity* const base = pending.members->owner != nullptr
-		? pending.members->owner->base
-		: nullptr;
-	if (base == nullptr)
+	SemaEntity* const owner =
+		pending.members != nullptr ? pending.members->owner : nullptr;
+	for (std::size_t index = 0;
+	     owner != nullptr && index < owner->bases.size(); ++index)
 	{
-		return;
+		write_one_base_initialization(pending, line, named, inner,
+		                              *owner->bases[index].entity);
 	}
-	if (pending.function->inherited != nullptr)
+}
+
+// 12.6.2p2: what one of those subobjects is initialized by - the
+// mem-initializer whose id names its class, or nothing the program wrote.
+// 12.9p8's inheriting constructor writes no ctor-initializer at all and
+// initializes the base it was declared from from its own parameters instead.
+void SemaAnalyzer::write_one_base_initialization(
+	const Pending& pending, DumpNode& line,
+	std::unordered_map<std::string, MemInitializer>& named,
+	const Context& inner, SemaEntity& base)
+{
+	if (pending.function->inherited != nullptr &&
+	    pending.function->inherited->region == base.scope)
 	{
 		// 12.9p8: an inheriting constructor initializes the base subobject by
 		// calling the constructor it was declared from, with its own parameters
@@ -1609,15 +1686,22 @@ void SemaAnalyzer::write_base_initialization(
 				forwarded.push_back(&parameter);
 			}
 		}
-		construct_object(*base, line, nullptr, inner, Placement::Base, false,
+		construct_object(base, line, nullptr, inner, Placement::Base, false,
 		                 nullptr, false, &forwarded);
 		return;
 	}
 	const AstNode* written = nullptr;
 	const std::string spelled =
-		QualifiedName(types_.user_name(base->type)).last();
+		QualifiedName(types_.user_name(base.type)).last();
 	std::unordered_map<std::string, MemInitializer>::iterator wrote =
 		named.find(spelled);
+	if (wrote != named.end() && wrote->second.used)
+	{
+		// A name two of this class's bases answer to under their last component
+		// belongs to the one whose whole spelling it is, which the walk below
+		// is what finds.
+		wrote = named.end();
+	}
 	if (wrote == named.end())
 	{
 		// 12.6.2p2: the mem-initializer-id may be any name for the base class,
@@ -1626,7 +1710,8 @@ void SemaAnalyzer::write_base_initialization(
 		// one lookup per mem-initializer it wrote.
 		for (wrote = named.begin(); wrote != named.end(); ++wrote)
 		{
-			if (names_the_class(wrote->second.spelled, *base, inner))
+			if (!wrote->second.used &&
+			    names_the_class(wrote->second.spelled, base, inner))
 			{
 				break;
 			}
@@ -1637,13 +1722,21 @@ void SemaAnalyzer::write_base_initialization(
 		written = wrote->second.written;
 		wrote->second.used = true;
 	}
-	if (written != nullptr || !trivially_constructed(base->type))
+	if (written != nullptr || !trivially_constructed(base.type))
 	{
+		// 14.5.3p4: an entry read for one element of an expansion is read in
+		// the region that element binds its packs in, which is what makes the
+		// arguments of `base<I>(tag<I>(), 0)...` this element's own.
+		Context where = inner;
+		if (wrote != named.end() && wrote->second.region != nullptr)
+		{
+			where.scope = wrote->second.region;
+		}
 		// 1.9p10 and 12.6.2: a mem-initializer's expression-list is a
 		// full-expression, so a temporary written in it is destroyed once the
 		// subobject it built has been.
 		open_full_expression();
-		construct_object(*base, line, written, inner, Placement::Base);
+		construct_object(base, line, written, where, Placement::Base);
 		close_full_expression(line);
 	}
 }
@@ -1670,7 +1763,7 @@ void SemaAnalyzer::write_member_initializations(const Pending& pending,
 		return;
 	}
 	std::unordered_map<std::string, MemInitializer> named;
-	read_mem_initializers(pending, named);
+	read_mem_initializers(pending, inner, named);
 	const AstNode* const delegated =
 		delegating_initializer(pending, named, inner);
 	if (delegated != nullptr)
@@ -1902,8 +1995,9 @@ void SemaAnalyzer::write_transfer_steps(const Pending& pending, DumpNode& line,
 	}
 	const bool assigning = kind == kCopyAssignmentTransfer ||
 		kind == kMoveAssignmentTransfer;
-	SemaEntity* const base =
-		members.owner != nullptr ? members.owner->base : nullptr;
+	const std::vector<BaseClass> no_bases;
+	const std::vector<BaseClass>& bases =
+		members.owner != nullptr ? members.owner->bases : no_bases;
 	std::vector<SemaEntity*> fields;
 	for (std::size_t index = 0; index < members.declarations.size(); ++index)
 	{
@@ -1920,7 +2014,7 @@ void SemaAnalyzer::write_transfer_steps(const Pending& pending, DumpNode& line,
 	// leading run to carry and each member is carried on its own.
 	const bool added_vptr =
 		members.owner != nullptr && members.owner->introduces_vptr;
-	if (base == nullptr && !added_vptr)
+	if (bases.empty() && !added_vptr)
 	{
 		// 12.8p15: the members carried as storage are carried in one piece, and
 		// the piece is only the object's own storage where nothing stands
@@ -1946,19 +2040,24 @@ void SemaAnalyzer::write_transfer_steps(const Pending& pending, DumpNode& line,
 			write_storage_transfer(*parameter, line, 0, span, kNoType);
 		}
 	}
-	if (base != nullptr && !carries_nothing(base->type, kind))
+	for (std::size_t index = 0; index < bases.size(); ++index)
 	{
-		Value source = base_value(parameter_value(*parameter, line), *base,
+		SemaEntity& base = *bases[index].entity;
+		if (carries_nothing(base.type, kind))
+		{
+			continue;
+		}
+		Value source = base_value(parameter_value(*parameter, line), base,
 		                          false);
 		line.children.pop_back();
 		transfer_source(source, kind);
 		if (assigning)
 		{
-			write_transfer_assignment(*base, source, line, inner, Placement::Base);
+			write_transfer_assignment(base, source, line, inner, Placement::Base);
 		}
 		else
 		{
-			construct_object(*base, line, nullptr, inner, Placement::Base, true,
+			construct_object(base, line, nullptr, inner, Placement::Base, true,
 			                 &source);
 		}
 	}
@@ -2283,12 +2382,15 @@ void SemaAnalyzer::write_member_destructions(Scope& members, DumpNode& line)
 		require_destruction_access(member, &members);
 		destructor_action(member, line, Placement::Member);
 	}
-	if (members.owner != nullptr && members.owner->base != nullptr)
+	for (std::size_t index = members.owner != nullptr
+	                             ? members.owner->bases.size() : 0;
+	     index > 0; --index)
 	{
-		// 12.4p8: the base class subobject is destroyed after every member, in
-		// the reverse of the order 12.6.2p10 constructed them in.
-		require_destruction_access(*members.owner->base, &members);
-		destructor_action(*members.owner->base, line, Placement::Base);
+		// 12.4p8: the base class subobjects are destroyed after every member,
+		// in the reverse of the order 12.6.2p10 constructed them in.
+		SemaEntity& base = *members.owner->bases[index - 1].entity;
+		require_destruction_access(base, &members);
+		destructor_action(base, line, Placement::Base);
 	}
 }
 
@@ -2657,10 +2759,11 @@ bool SemaAnalyzer::vacuous_destruction(TypeId type)
 		// destructor anywhere below, and what running it does is the same
 		// either way.
 		nothing = owner != nullptr && owner->scope != nullptr;
-		if (nothing && owner->base != nullptr)
+		for (std::size_t index = 0;
+		     nothing && owner != nullptr && index < owner->bases.size(); ++index)
 		{
-			// 12.4p8: the base class subobject is destroyed too.
-			nothing = vacuous_destruction(owner->base->type);
+			// 12.4p8: each base class subobject is destroyed too.
+			nothing = vacuous_destruction(owner->bases[index].entity->type);
 		}
 		// 12.4p8: the members whose destructors run are the non-variant ones, so
 		// a union's end of a lifetime is its body and nothing else - the same

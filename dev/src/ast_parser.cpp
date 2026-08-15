@@ -663,6 +663,13 @@ AstNode* AstParser::parse_mem_initializer()
 		return fail(start);
 	}
 	node->add(arguments);
-	accept(OP_DOTS);
+	if (accept(OP_DOTS))
+	{
+		// 14.5.3p4 and 12.6.2p1: the mem-initializer is a pattern standing for
+		// one mem-initializer per element of the run its packs are bound to,
+		// which is the same `...` a base-specifier writes and is recorded the
+		// same way.
+		node->add(make(AstKind::ParameterPack));
+	}
 	return node;
 }

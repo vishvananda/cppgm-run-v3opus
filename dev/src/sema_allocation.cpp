@@ -430,10 +430,11 @@ bool SemaAnalyzer::vacuous_construction(TypeId element)
 		    (chosen->empty_body || chosen->defaulted))
 		{
 			nothing = owner->scope != nullptr;
-			if (nothing && owner->base != nullptr)
+			for (std::size_t index = 0;
+			     nothing && index < owner->bases.size(); ++index)
 			{
-				// 12.6.2p10: the base class subobject is built first.
-				nothing = vacuous_construction(owner->base->type);
+				// 12.6.2p10: the base class subobjects are built first.
+				nothing = vacuous_construction(owner->bases[index].entity->type);
 			}
 			// 9.5p1 and 12.6.2p8: a variant member no mem-initializer
 			// designated and no brace-or-equal-initializer reaches is not

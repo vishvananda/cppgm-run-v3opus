@@ -24,7 +24,6 @@ Scope::Scope(ScopeKind scope_kind, Scope* enclosing, SemaEntity* scope_owner,
 	, local_occurrence(0)
 	, local_unnamed(false)
 	, visit(0)
-	, base(nullptr)
 	, dependent_base(false)
 	, inheriting_constructors(false)
 	, searchers_at(0)
@@ -33,16 +32,17 @@ Scope::Scope(ScopeKind scope_kind, Scope* enclosing, SemaEntity* scope_owner,
 // 10.2p2 and 14.6.2p3: the region 3.4.1's search of `scope` looks in after
 // `scope` itself.
 //
-// It is the base class's, except where the base-specifier named a type that
+// They are the base classes', except where a base-specifier named a type that
 // depends on a template parameter: which class that is only an argument list
 // says, so a name written in the class's own definition is looked up without
 // it and the specialization an argument list makes answers the same way the
 // definition did.  The link is dropped only where the search *reaches* the
 // class from inside it - the base subobject a class further down holds is
 // found through that class's own link, which no template head stands over.
-Scope* unqualified_base(const Scope& scope)
+const std::vector<Scope*>& unqualified_bases(const Scope& scope)
 {
-	return scope.dependent_base ? nullptr : scope.base;
+	static const std::vector<Scope*> none;
+	return scope.dependent_base ? none : scope.bases;
 }
 
 bool encloses(const Scope& outer, const Scope& inner)
@@ -229,8 +229,7 @@ SemaEntity& SemaModel::create(SemaKind kind, const std::string& name, TypeId typ
 	entity.destructor = nullptr;
 	entity.member_constructor = nullptr;
 	entity.member_entry = false;
-	entity.base = nullptr;
-	entity.base_access = kPublicAccess;
+	entity.bases.clear();
 	entity.empty_class = true;
 	entity.virtual_function = false;
 	entity.pure_virtual = false;
@@ -244,7 +243,6 @@ SemaEntity& SemaModel::create(SemaKind kind, const std::string& name, TypeId typ
 	entity.polymorphic = false;
 	entity.introduces_vptr = false;
 	entity.abstract = false;
-	entity.base_offset = 0;
 	entity.special = kOrdinaryFunction;
 	entity.transfer = kNotTransfer;
 	for (unsigned index = 0; index < kTransferKinds; ++index)
@@ -254,7 +252,7 @@ SemaEntity& SemaModel::create(SemaKind kind, const std::string& name, TypeId typ
 	entity.explicit_function = false;
 	entity.conversion_function = false;
 	entity.conversions.clear();
-	entity.conversions_above = nullptr;
+	entity.conversions_above.clear();
 	entity.complete_object_entry = false;
 	entity.base_object_entry = false;
 	entity.source_base_entry = false;
@@ -698,6 +696,60 @@ bool SemaModel::reaches(Scope& in, Scope& declaring)
 	return declaring.searcher_at.find(&in) != declaring.searcher_at.end();
 }
 
+// 10.2p2: whether one of the regions a class derives from, or one of theirs in
+// turn, is `declarer`.
+//
+// 10.1p3's repeated base is refused where a class is completed, so the regions
+// below one form a tree and this is one visit per class rather than one per
+// path into it.
+bool SemaModel::declares_below(const std::vector<Scope*>& bases,
+                               const Scope& declarer)
+{
+	for (std::size_t index = 0; index < bases.size(); ++index)
+	{
+		if (bases[index] == &declarer ||
+		    declares_below(bases[index]->bases, declarer))
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+// 10.2p2 and 10.2p6: the declaration of `name` a class that does not declare it
+// inherits, which is what each of the classes it derives from answers.
+//
+// What a class declares hides what *its* bases declare, so each base is asked
+// for its own declaration before its bases are asked at all; two bases that
+// answer differently is 10.2p6's ambiguity, which no argument of the lookup can
+// resolve and which is therefore refused where the name is written.
+SemaEntity* SemaModel::find_inherited(const std::vector<Scope*>& bases,
+                                      const std::string& name,
+                                      LookupKind filter)
+{
+	SemaEntity* found = nullptr;
+	for (std::size_t index = 0; index < bases.size(); ++index)
+	{
+		Scope& base = *bases[index];
+		SemaEntity* here = find(base, name, filter);
+		if (here == nullptr)
+		{
+			here = find_inherited(base.bases, name, filter);
+		}
+		if (here == nullptr || here == found)
+		{
+			continue;
+		}
+		if (found != nullptr)
+		{
+			throw std::runtime_error(name + " is declared in more than one of "
+			                         "the base classes a lookup for it reached");
+		}
+		found = here;
+	}
+	return found;
+}
+
 SemaEntity* SemaModel::lookup_unique(Scope& from, const Scope* stop,
                                      const std::string& name, LookupKind filter,
                                      Scope& declarer)
@@ -722,14 +774,11 @@ SemaEntity* SemaModel::lookup_unique(Scope& from, const Scope* stop,
 		}
 		// 10.2p2: a class also sees what its base classes declare, which is
 		// searched after the class itself and before the region around it.  A
-		// region with no base-clause leaves the chain empty, so this costs one
-		// probe per enclosing region in a program with no inheritance.
-		for (Scope* at = unqualified_base(*scope); at != nullptr; at = at->base)
+		// region with no base-clause leaves the list empty, so this costs one
+		// test per enclosing region in a program with no inheritance.
+		if (declares_below(unqualified_bases(*scope), declarer))
 		{
-			if (at == &declarer)
-			{
-				return found;
-			}
+			return found;
 		}
 	}
 	for (Scope* scope = &from; scope != stop; scope = scope->parent)
@@ -881,10 +930,12 @@ SemaEntity* SemaModel::lookup(Scope& from, const std::string& name,
 		// declares rather than being hidden by it.  7.3.4p1 writes no
 		// using-directive in a class, so a level a class stands at holds
 		// nothing else.
-		for (Scope* at = unqualified_base(*scope); at != nullptr && found == nullptr;
-		     at = at->base)
+		if (found == nullptr)
 		{
-			found = merge_found(found, find(*at, name, filter), found_set);
+			found = merge_found(found,
+			                    find_inherited(unqualified_bases(*scope), name,
+			                                   filter),
+			                    found_set);
 		}
 		if (!scope->nominated.empty())
 		{
@@ -973,15 +1024,12 @@ SemaEntity* SemaModel::lookup_in(Scope& in, const std::string& name,
 	}
 	// 10.2p2 and 10.2p6: a name the class itself does not declare is looked for
 	// in the classes it derives from, nearest first, and what a class declares
-	// hides what its bases do - so the first base that declares it is the one
+	// hides what its bases do - so the nearest base that declares it is the one
 	// the name denotes.
-	for (Scope* at = in.base; at != nullptr; at = at->base)
+	SemaEntity* const inherited = find_inherited(in.bases, name, filter);
+	if (inherited != nullptr)
 	{
-		SemaEntity* const inherited = find(*at, name, filter);
-		if (inherited != nullptr)
-		{
-			return merge_found(nullptr, inherited, found_set);
-		}
+		return merge_found(nullptr, inherited, found_set);
 	}
 	if (regions->size() == 1)
 	{

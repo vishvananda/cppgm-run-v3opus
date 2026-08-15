@@ -6,9 +6,10 @@
 #include <vector>
 
 #include "ast_model.h"
-#include "sema_deduce.h"
-#include "sema_pack.h"
 #include "ast_tokens.h"
+#include "sema_deduce.h"
+#include "sema_derivation.h"
+#include "sema_pack.h"
 
 // Calls, the PA12 standard-conversion subset, and overload resolution.
 //
@@ -89,31 +90,6 @@ bool SemaAnalyzer::qualification_convertible(TypeId from, TypeId to)
 	}
 }
 
-// 10p1: the class `derived` derives from that `base` names, or null when it
-// derives from no such class.  Single inheritance makes the answer one walk of
-// the chain, whose length is the depth of the hierarchy and not its size.
-SemaEntity* SemaAnalyzer::derived_from(TypeId derived, TypeId base)
-{
-	const TypeId wanted = types_.strip_cv(base);
-	if (!types_.is_class(wanted) || !types_.is_class(types_.strip_cv(derived)))
-	{
-		return nullptr;
-	}
-	SemaEntity* owner = model_.type_owner(types_.strip_cv(derived));
-	if (owner == nullptr || types_.strip_cv(owner->type) == wanted)
-	{
-		return nullptr;
-	}
-	for (SemaEntity* at = owner->base; at != nullptr; at = at->base)
-	{
-		if (types_.strip_cv(at->type) == wanted)
-		{
-			return at;
-		}
-	}
-	return nullptr;
-}
-
 // 4.10 and 4.4: whether a prvalue of pointer type `from` converts to `to`.
 bool SemaAnalyzer::pointer_convertible(TypeId from, TypeId to, int& rank,
                                        bool& exact)
@@ -141,7 +117,7 @@ bool SemaAnalyzer::pointer_convertible(TypeId from, TypeId to, int& rank,
 	// class of it, as long as the conversion adds no qualifier the target does
 	// not already carry.
 	if ((types_.cv(source) & ~types_.cv(target)) == 0 &&
-	    derived_from(source, target) != nullptr)
+	    Derivation(*this).base_in(source, target) != nullptr)
 	{
 		rank = kConversion;
 		exact = false;
@@ -234,7 +210,7 @@ SemaAnalyzer::Match SemaAnalyzer::match_by_value(const Value& argument,
 			// 4.10p3: the pointer's value is the base subobject's address, so
 			// the sequence has to say which base it reached.
 			match.to_base = exact ? nullptr
-			                      : derived_from(types_.target(source),
+			                      : Derivation(*this).base_in(types_.target(source),
 			                                     types_.target(target));
 			// 4.4 and 13.3.3.2p3: a qualification conversion changes nothing
 			// but the qualifiers, so the pointer it produced is what orders it
@@ -320,7 +296,7 @@ SemaEntity* SemaAnalyzer::converting_constructor(const Value& argument,
 		const TypeId bare = types_.strip_cv(
 			types_.is_reference(wanted) ? types_.target(wanted) : wanted);
 		if (types_.is_class(bare) && types_.strip_cv(argument.type) != bare &&
-		    derived_from(argument.type, bare) == nullptr)
+		    Derivation(*this).base_in(argument.type, bare) == nullptr)
 		{
 			// 13.3.3.1.2p1: the argument reaches this parameter only through a
 			// second user-defined conversion, and one sequence holds one.
@@ -398,7 +374,7 @@ SemaAnalyzer::Match SemaAnalyzer::conversion_match(const Value& argument,
 	}
 	SemaEntity* const owner =
 		model_.type_owner(types_.strip_cv(argument.type));
-	if (owner == nullptr || owner->conversions_above == nullptr)
+	if (owner == nullptr || owner->conversions_above.empty())
 	{
 		return match;
 	}
@@ -946,7 +922,7 @@ SemaAnalyzer::Match SemaAnalyzer::match_reference(const Value& argument,
 	// 8.5.3p4: reference-related also holds where the referenced type is a base
 	// class of the argument's, and 13.3.3.1.4p1 makes binding such a reference
 	// a derived-to-base conversion rather than an identity.
-	SemaEntity* const to_base = derived_from(source, referenced);
+	SemaEntity* const to_base = Derivation(*this).base_in(source, referenced);
 	const bool related =
 		bare_type(source) == bare_type(referenced) || to_base != nullptr;
 	const bool const_lvalue_ref = (types_.cv(referenced) & kCvConst) != 0 &&
@@ -1465,11 +1441,11 @@ int SemaAnalyzer::compare_matches(const Match& left, const Match& right)
 		{
 			return left.to_base != nullptr ? 1 : -1;
 		}
-		if (derived_from(left.to_base->type, right.to_base->type) != nullptr)
+		if (Derivation(*this).base_in(left.to_base->type, right.to_base->type) != nullptr)
 		{
 			return 1;
 		}
-		if (derived_from(right.to_base->type, left.to_base->type) != nullptr)
+		if (Derivation(*this).base_in(right.to_base->type, left.to_base->type) != nullptr)
 		{
 			return -1;
 		}

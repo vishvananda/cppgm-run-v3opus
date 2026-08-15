@@ -5,6 +5,7 @@
 
 #include "ast_model.h"
 #include "ast_tokens.h"
+#include "sema_derivation.h"
 
 namespace
 {
@@ -948,13 +949,18 @@ void SemaAnalyzer::using_directive(const AstNode& node, const Context& ctx)
 void SemaAnalyzer::inheriting_declaration(const QualifiedName& written,
                                           const Context& ctx)
 {
-	if (checking_ > 0 && ctx.scope->owner->base == nullptr)
+	if (checking_ > 0 && ctx.scope->owner->bases.empty())
 	{
 		return;
 	}
 	Scope* const nominated = resolve_prefix(written, ctx);
-	if (nominated->owner == nullptr ||
-	    ctx.scope->owner->base != nominated->owner)
+	bool direct = false;
+	const std::vector<BaseClass>& bases = ctx.scope->owner->bases;
+	for (std::size_t index = 0; !direct && index < bases.size(); ++index)
+	{
+		direct = bases[index].entity == nominated->owner;
+	}
+	if (nominated->owner == nullptr || !direct)
 	{
 		throw std::runtime_error(
 			"a using-declaration names the constructors of a class "
@@ -1800,7 +1806,8 @@ SemaEntity& SemaAnalyzer::class_declaration(const AstNode& node,
 		// declared by a class-head is declared immediately after its
 		// class-head-name.  The two contexts are the same wherever the
 		// class-head-name wrote no nested-name-specifier.
-		read_base_clause(*bases, *entity, scope, outer, header);
+		Derivation(*this).read_base_clause(*bases, *entity, scope, outer,
+		                                   header);
 	}
 	// 11p2: what a member with no access-specifier before it is declared under,
 	// which the class-key decides and each access-specifier changes from there.
@@ -1890,7 +1897,7 @@ SemaEntity& SemaAnalyzer::class_declaration(const AstNode& node,
 	// 8.5.1p1: a class with a base class or a virtual function is not an
 	// aggregate, so a braced-init-list initializing an object of it chooses a
 	// constructor.
-	entity->aggregate = entity->base == nullptr && !entity->polymorphic &&
+	entity->aggregate = entity->bases.empty() && !entity->polymorphic &&
 		aggregate_class(scope);
 	if (semantics())
 	{

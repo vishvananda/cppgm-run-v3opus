@@ -160,13 +160,18 @@ const std::string& LowirUnitLowering::rtti_symbol(const SemaEntity& owner)
 	{
 		program_.globals.push_back(string);
 	}
-	// 10p1: the record names the base before this class's own record can be
-	// written, so the base is asked first and the two stand in derivation order.
-	const std::string base_record =
-		owner.base != nullptr ? rtti_symbol(*owner.base) : std::string();
-	const bool ordinary = owner.base != nullptr && owner.base_offset == 0 &&
-		owner.base_access == kPublicAccess;
-	const unsigned kind = owner.base == nullptr ? 0u : (ordinary ? 1u : 2u);
+	// 10p1: the record names each base before this class's own record can be
+	// written, so the bases are asked first and the records stand in derivation
+	// order.
+	std::vector<std::string> base_records;
+	for (std::size_t index = 0; index < owner.bases.size(); ++index)
+	{
+		base_records.push_back(rtti_symbol(*owner.bases[index].entity));
+	}
+	const bool ordinary = owner.bases.size() == 1 &&
+		owner.bases[0].offset == 0 &&
+		owner.bases[0].access == kPublicAccess;
+	const unsigned kind = owner.bases.empty() ? 0u : (ordinary ? 1u : 2u);
 	lowir_model::GlobalDefinition record;
 	record.name = rtti_symbols_[owner.id];
 	record.structured = true;
@@ -179,19 +184,26 @@ const std::string& LowirUnitLowering::rtti_symbol(const SemaEntity& owner)
 	record.data_items.push_back(address_item(named));
 	if (kind == 2)
 	{
-		// The ABI's record for a base that is neither public nor at the start
-		// of the object: no diamond and no repeated base, one base, and the
-		// byte it begins at together with 11.2's access written as flags.
+		// The ABI's record for a class whose bases are not the one public base
+		// standing at the start of the object: no diamond and no repeated base
+		// - 10.1p3's is refused where the class is completed - then how many
+		// bases there are, and for each of them the byte it begins at together
+		// with 11.2's access written as flags.
 		record.data_items.push_back(integer_item("i32", 0));
-		record.data_items.push_back(integer_item("i32", 1));
-		record.data_items.push_back(address_item(base_record));
-		record.data_items.push_back(integer_item(
-			"i64", (owner.base_offset << 8) |
-			           (owner.base_access == kPublicAccess ? 2u : 0u)));
+		record.data_items.push_back(
+			integer_item("i32", static_cast<long long>(owner.bases.size())));
+		for (std::size_t index = 0; index < owner.bases.size(); ++index)
+		{
+			record.data_items.push_back(address_item(base_records[index]));
+			record.data_items.push_back(integer_item(
+				"i64", (owner.bases[index].offset << 8) |
+				           (owner.bases[index].access == kPublicAccess ? 2u
+				                                                       : 0u)));
+		}
 	}
 	else if (kind == 1)
 	{
-		record.data_items.push_back(address_item(base_record));
+		record.data_items.push_back(address_item(base_records[0]));
 	}
 	if (builder_.emitted_globals_.insert(record.name).second)
 	{

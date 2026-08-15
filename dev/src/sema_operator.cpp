@@ -285,17 +285,28 @@ void SemaAnalyzer::associate_type(TypeId type, Associated& out)
 	// class in the set: 3.4.2p2 also associates the class a nested type is a
 	// member of, and puts that class in without its bases - so a set that holds
 	// it says nothing about them.
-	for (SemaEntity* at = owner; at != nullptr; at = at->base)
+	associate_bases(owner, out);
+}
+
+// 10p1: the class and the classes it derives from, each associated once.  What
+// stops the walk is having walked this class before, not having it in the set:
+// 3.4.2p2 also associates the class a nested type is a member of, and puts that
+// class in without its bases - so a set that holds it says nothing about them.
+void SemaAnalyzer::associate_bases(SemaEntity* owner, Associated& out)
+{
+	if (owner == nullptr || owner->scope == nullptr ||
+	    !out.walked.insert(owner).second)
 	{
-		if (at->scope == nullptr || !out.walked.insert(at).second)
-		{
-			break;
-		}
-		if (out.held.insert(at->scope).second)
-		{
-			out.classes.push_back(at->scope);
-		}
-		associate_region(at->region, out);
+		return;
+	}
+	if (out.held.insert(owner->scope).second)
+	{
+		out.classes.push_back(owner->scope);
+	}
+	associate_region(owner->region, out);
+	for (std::size_t index = 0; index < owner->bases.size(); ++index)
+	{
+		associate_bases(owner->bases[index].entity, out);
 	}
 }
 
@@ -427,7 +438,7 @@ const std::vector<SemaEntity*>& SemaAnalyzer::surrogate_calls(TypeId type)
 	}
 	std::vector<SemaEntity*>& built = surrogate_calls_[type];
 	SemaEntity* const owner = model_.type_owner(type);
-	if (owner == nullptr || owner->conversions_above == nullptr)
+	if (owner == nullptr || owner->conversions_above.empty())
 	{
 		return built;
 	}

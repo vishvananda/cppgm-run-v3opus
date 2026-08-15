@@ -46,7 +46,8 @@ FRONTEND_OBJ_BASENAMES_cppgm++ := source_charset source_reader pptoken_lexer \
 	sema_constant \
 	sema_statement sema_expression sema_cast sema_overload sema_init_list \
 	sema_operator \
-	sema_deduce sema_pack sema_specialize sema_template sema_template_head \
+	sema_deduce sema_derivation sema_pack sema_specialize sema_template \
+	sema_template_head \
 	sema_type_id \
 	sema_value_expression \
 	sema_allocation \

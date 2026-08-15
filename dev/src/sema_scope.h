@@ -162,6 +162,18 @@ struct VirtualSlot
 	bool deleting;
 };
 
+// 10p1 and 9.2p13: one base-specifier of a class, as the three facts every
+// later question reads it by - which class the object holds a subobject of,
+// where in the object that subobject begins, and the access 11.2p1 gave the
+// link.  A base-specifier-list of n entries leaves n of these in the order it
+// wrote them, which is the order 12.6.2p10 constructs them in.
+struct BaseClass
+{
+	SemaEntity* entity;
+	unsigned long long offset;
+	unsigned char access;
+};
+
 // One declared entity.
 //
 // A name is bound to an entity, and several names can be bound to the same
@@ -221,15 +233,13 @@ struct SemaEntity
 	// Function: whether this is that constructor, which is what says its
 	// definition initializes each member from the parameter of the same name.
 	bool member_entry;
-	// Class: 10p1, the direct base class, which every object of this class
-	// holds a subobject of.  It is the one fact the base-clause establishes,
-	// and layout, 10.2 lookup, 11.2 access, 12.6.2 construction, 12.4
-	// destruction and 4.10p3 conversion each read it rather than the syntax.
-	// Null for a class no base-clause was written for.
-	SemaEntity* base;
-	// Class: 11.2p1, the access the base-specifier gave the base, which is what
-	// caps how far a member inherited through it may be named from.
-	unsigned char base_access;
+	// Class: 10p1, the direct base classes, which every object of this class
+	// holds one subobject of each of.  They are the one fact the base-clause
+	// establishes, in the order it wrote them, and layout, 10.2 lookup, 11.2
+	// access, 12.6.2 construction, 12.4 destruction and 4.10p3 conversion each
+	// read them rather than the syntax.  Empty for a class no base-clause was
+	// written for, which allocates nothing.
+	std::vector<BaseClass> bases;
 	// Class: whether an object of this class holds nothing - no non-static data
 	// member, and a base that is itself empty.  1.8p5 still gives it a size of
 	// one byte on its own, and the ABI puts such a base subobject at offset
@@ -301,12 +311,6 @@ struct SemaEntity
 	// 10.4p3 forbids as a parameter type, as a return type and as the type of
 	// an object.
 	bool abstract;
-	// Class: 10p1 and 9.2p13, where the direct base subobject begins inside an
-	// object of this class.  Zero for every class the ABI puts its base at the
-	// start of, which is all of them but the polymorphic class whose base
-	// carries no vpointer of its own: 4.10p3's conversion to that base has to
-	// walk past the pointer this class added.
-	unsigned long long base_offset;
 	// 12.1 and 12.4: which special member function this declaration declares,
 	// as one of the `kOrdinaryFunction` constants.
 	unsigned char special;
@@ -358,11 +362,13 @@ struct SemaEntity
 	// hide, and those stay on the base: copying them down would give a
 	// hierarchy n deep n^2 entries for the n conversions it declares.
 	std::vector<SemaEntity*> conversions;
-	// Class: the nearest class at or above this one whose `conversions` is not
-	// empty, or null where nothing above it declares one.  It is what turns
+	// Class: the nearest classes at or above this one whose `conversions` is not
+	// empty, and empty where nothing above it declares one.  It is what turns
 	// 13.3.1.5p1's candidate set into one walk of the few classes that declare a
-	// conversion instead of one walk of every base.
-	SemaEntity* conversions_above;
+	// conversion instead of one walk of every base.  A class that declares one
+	// itself is the only entry, so single inheritance leaves at most one here
+	// however deep the derivation goes.
+	std::vector<SemaEntity*> conversions_above;
 	// 12.1/12.4 and the ABI: the ABI gives a constructor and a destructor an
 	// entry point for a complete object and one for a base class subobject, and
 	// this says whether anything in this translation unit ever ran it on a
@@ -821,11 +827,12 @@ public:
 	// Scratch of one walk: the walk that reached this region, so that one with
 	// several paths into one namespace holds it once.
 	std::uint64_t visit;
-	// 10.2p2: the region searched after this one and before the one around it,
-	// which for a class with a base-clause is the region its base declares.
-	// Every other region leaves it null, so a program with no inheritance pays
-	// nothing for the question.
-	Scope* base;
+	// 10.2p2: the regions searched after this one and before the one around it,
+	// which for a class with a base-clause are the regions its bases declare,
+	// in the order the base-specifier-list wrote them.  Every other region
+	// leaves it empty, so a program with no inheritance pays nothing for the
+	// question and allocates nothing.
+	std::vector<Scope*> bases;
 	// 14.6.2p3: whether the base-specifier that chain came from named a type
 	// that depends on a template parameter.  3.4.1's lookup of a name written
 	// inside this class is answered where the class was *defined*, and which
@@ -1006,6 +1013,11 @@ private:
 	SemaEntity* lookup_unique(Scope& from, const Scope* stop,
 	                          const std::string& name, LookupKind filter,
 	                          Scope& declarer);
+	// 10.2p2: whether `declarer` is one of the regions a class derives from, or
+	// one of theirs in turn, and the declaration of `name` such a search finds.
+	bool declares_below(const std::vector<Scope*>& bases, const Scope& declarer);
+	SemaEntity* find_inherited(const std::vector<Scope*>& bases,
+	                           const std::string& name, LookupKind filter);
 	// 7.3.4p2: whether the declarations of `declaring` appear in `in`, which
 	// they do when it is `in` itself or the using-directives written in `in`
 	// reach it.
@@ -1126,9 +1138,9 @@ bool declares_subobject(const SemaEntity& member, const Scope& scope);
 // Whether `outer` is `inner` or a region `inner` is written in, which is what
 // 7.3.4p2's "nearest enclosing namespace" is measured with.
 bool encloses(const Scope& outer, const Scope& inner);
-// 10.2p2 and 14.6.2p3: the region 3.4.1's search looks in after `scope`, which
-// is its base class's except where the base-specifier named a dependent type.
-Scope* unqualified_base(const Scope& scope);
+// 10.2p2 and 14.6.2p3: the regions 3.4.1's search looks in after `scope`, which
+// are its base classes' except where a base-specifier named a dependent type.
+const std::vector<Scope*>& unqualified_bases(const Scope& scope);
 // True when `entity` names a type: a class, an enumeration, a typedef-name or
 // a template type parameter (3.4.4p2, 7.1.3p1, 14.1p3).
 bool names_a_type(const SemaEntity& entity);

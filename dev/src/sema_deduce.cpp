@@ -207,18 +207,29 @@ bool Deduction::match_run(TypeId expansion, const std::vector<TypeId>& given,
 
 TypeId Deduction::derived_from(TypeId pattern, TypeId argument) const
 {
+	const SemaEntity* const owner =
+		analyzer_.model_.type_owner(analyzer_.types_.strip_cv(argument));
+	// 10p1: a base of a base is a base, so the whole tree below the argument is
+	// walked - one visit per class in it, because 10.1p3's repeated base is
+	// refused where the class is completed.
+	return owner == nullptr ? kNoType : named_below(pattern, *owner);
+}
+
+TypeId Deduction::named_below(TypeId pattern, const SemaEntity& at) const
+{
 	TypeTable& types = analyzer_.types_;
-	// 10p1: a base of a base is a base, so the whole chain is walked - and it is
-	// a chain rather than a tree because this milestone lays out one direct base.
-	for (const SemaEntity* at =
-		     analyzer_.model_.type_owner(types.strip_cv(argument));
-	     at != nullptr && at->base != nullptr; at = at->base)
+	for (std::size_t index = 0; index < at.bases.size(); ++index)
 	{
-		const TypeId base = at->base->type;
+		const TypeId base = at.bases[index].entity->type;
 		if (types.is_specialization(base) &&
 		    types.template_name(base) == types.template_name(pattern))
 		{
 			return base;
+		}
+		const TypeId deeper = named_below(pattern, *at.bases[index].entity);
+		if (deeper != kNoType)
+		{
+			return deeper;
 		}
 	}
 	return kNoType;
