@@ -1,0 +1,65 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $one : obj<8x8>
+  slot $two : ptr
+  slot $table : obj<16x8>
+
+  block ^entry:
+    %t1 = addr $one
+    %t2 = addr @chosen__run
+    call void @adapter__adapter(%t1, %t2)
+    %t3 = addr @chosen__run__ov2
+    store ptr %t3, $two
+    %t4 = addr $table
+    %t5 = addr @chosen__run__ov3
+    store ptr %t5, %t4
+    %t6 = index i8 %t4, 8
+    %t7 = addr @chosen__run__ov3
+    store ptr %t7, %t6
+    %t8 = addr $one
+    %t9 = index i8 [projection=field] %t8, 0
+    %t10 = load ptr %t9
+    call void %t10(1) as (%arg0 : i32) -> void
+    %t11 = load ptr $two
+    call void %t11(97) as (%arg0 : i8) -> void
+    %t12 = addr $table
+    %t13 = unary decay ptr %t12
+    %t14 = index ptr [projection=array_element] %t13, 0
+    %t15 = load ptr %t14
+    call void %t15(2) as (%arg0 : i64) -> void
+    return i32 0
+}
+function @chosen__run(%__param0 : i32) -> void [binding=weak, object=_ZN6chosen3runIiEEvT_] {
+  slot $__param0 : i32
+
+  block ^entry:
+    store i32 %__param0, $__param0
+    return void
+}
+function @chosen__run__ov2(%__param0 : i8) -> void [binding=weak, object=_ZN6chosen3runIcEEvT_] {
+  slot $__param0 : i8
+
+  block ^entry:
+    store i8 %__param0, $__param0
+    return void
+}
+function @chosen__run__ov3(%__param0 : i64) -> void [binding=weak, object=_ZN6chosen3runIlEEvT_] {
+  slot $__param0 : i64
+
+  block ^entry:
+    store i64 %__param0, $__param0
+    return void
+}
+function @adapter__adapter(%this : ptr, %taken : ptr) -> void [binding=weak, object=_ZN7adapterC1EPFviE] {
+  slot $this : ptr
+  slot $taken : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    store ptr %taken, $taken
+    %t1 = load ptr $taken
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store ptr %t1, %t3
+    return void
+}
+alias object _ZN7adapterC2EPFviE = @adapter__adapter

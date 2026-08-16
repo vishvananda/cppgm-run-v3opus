@@ -179,6 +179,12 @@ public:
 	TypeId reference_to(TypeId type, bool rvalue);
 
 	TypeId array_of(TypeId element, bool bounded, unsigned long long bound);
+	// 8.3.4p1: the type of one element of an array, however many dimensions it
+	// has, and the type itself for anything else.  It is what 12.6p1's
+	// construction, 12.4p8's destruction and 5.3.4's allocation of an array all
+	// ask the array about, so it is one reading of the type and not one per
+	// reader.
+	TypeId element_of(TypeId type);
 	TypeId function_of(TypeId result, const std::vector<TypeId>& parameters,
 	                   bool variadic);
 

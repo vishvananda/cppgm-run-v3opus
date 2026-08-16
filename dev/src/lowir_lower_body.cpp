@@ -1155,7 +1155,16 @@ void LowirFunctionLowering::run(const DumpNode& node, TypeId type,
 		// implementation declared writes another declaration of it, and a
 		// parameter its definition left unnamed keeps the name the
 		// implementation's own declaration already gave it.
-		parameter.name = add_slot(*child.fact.entity, written,
+		// 8.3.5p5: the storage the body reads the parameter out of holds what
+		// crossed the boundary, which for the one parameter carrying an array
+		// is the address of the caller's rather than the elements.
+		TypeId carried = written;
+		if (parameter.metadata.passing == lowir_model::PPM_DECAY)
+		{
+			carried = types.pointer_to(types.target(types.strip_cv(written)));
+			decayed_arrays_.insert(child.fact.entity->id);
+		}
+		parameter.name = add_slot(*child.fact.entity, carried,
 		                          node.fact.entity != nullptr &&
 		                                  node.fact.entity->builtin != kNotBuiltin
 		                              ? "arg"
@@ -1204,7 +1213,7 @@ void LowirFunctionLowering::run(const DumpNode& node, TypeId type,
 		// 5.1.1p8: a parameter is an object of the function, so its value is
 		// written into the storage the body reads it from.
 		store(named_operand(Operand::OP_TEMP, parameter.name),
-		      named_operand(Operand::OP_SLOT, parameter.name), written);
+		      named_operand(Operand::OP_SLOT, parameter.name), carried);
 	}
 	if (!epilogue_.empty())
 	{

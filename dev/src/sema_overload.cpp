@@ -1090,25 +1090,53 @@ SemaAnalyzer::Match SemaAnalyzer::match_argument(const Value& argument,
 	return match_by_value(argument, parameter);
 }
 
-TypeId SemaAnalyzer::member_pointer_of(const SemaEntity& function)
+TypeId member_pointer_of(TypeTable& types, const SemaEntity& function)
 {
 	if (!function.object_member || function.region == nullptr ||
 	    function.region->owner == nullptr)
 	{
 		return kNoType;
 	}
-	const std::vector<TypeId>& parameters = types_.parameters(function.type);
-	const TypeId object = types_.target(parameters[0]);
+	const std::vector<TypeId>& parameters = types.parameters(function.type);
+	const TypeId object = types.target(parameters[0]);
 	const std::vector<TypeId> written(parameters.begin() + 1, parameters.end());
 	// 8.3.5p1 and 8.3.5p7: both qualifiers written after the parameter-clause
 	// are part of the function type a pointer to member points to.
-	const TypeId declared = types_.ref_qualified_function(
-		types_.qualified_function(
-			types_.function_of(types_.target(function.type), written,
-			                   types_.variadic(function.type)),
-			types_.cv(object)),
-		types_.function_ref_qualifier(function.type));
-	return types_.member_pointer_to(types_.strip_cv(object), declared);
+	const TypeId declared = types.ref_qualified_function(
+		types.qualified_function(
+			types.function_of(types.target(function.type), written,
+			                  types.variadic(function.type)),
+			types.cv(object)),
+		types.function_ref_qualifier(function.type));
+	return types.member_pointer_to(types.strip_cv(object), declared);
+}
+
+// 14.8.2.2p1 where the target is a pointer to member: the one A the deduction
+// is over is the function type the pointer points to, and what the template
+// declares is a member function - whose type 9.3.1p3 begins with the object
+// parameter the pointer type says nothing about.  So the A is that pointee with
+// this template's own object parameter put back in front of it, which leaves
+// 8.3.5p7's cv-qualifier-seq where `member_pointer_of` reads it from and lets
+// that same reading check the specialization the deduction made.
+TypeId member_target(TypeTable& types, const SemaEntity& candidate,
+                     TypeId wanted)
+{
+	const TypeId pointee = types.target(wanted);
+	const std::vector<TypeId>& own = types.parameters(candidate.type);
+	if (!candidate.object_member || own.empty() ||
+	    types.kind(pointee) != TypeKind::Function)
+	{
+		return kNoType;
+	}
+	const std::vector<TypeId>& written = types.parameters(pointee);
+	std::vector<TypeId> shaped;
+	shaped.reserve(written.size() + 1);
+	shaped.push_back(own[0]);
+	shaped.insert(shaped.end(), written.begin(), written.end());
+	return types.ref_qualified_function(
+		types.function_of(types.target(pointee), shaped,
+		                  types.variadic(pointee)),
+		types.function_ref_qualifier(pointee));
 }
 
 SemaEntity* SemaAnalyzer::resolve_target(const Value& value, TypeId target)
@@ -1118,33 +1146,30 @@ SemaEntity* SemaAnalyzer::resolve_target(const Value& value, TypeId target)
 	{
 		wanted = types_.target(wanted);
 	}
-	if (types_.kind(types_.strip_cv(wanted)) == TypeKind::MemberPointer)
+	// 13.4p1 lists a pointer to member among the targets that choose one
+	// declaration, and the declaration it chooses is the member whose pointer
+	// type is the one asked for.  8.3.3p1 leaves that type saying which member
+	// of a class it names rather than being a function type, so the walk below
+	// asks `member_pointer_of` of each declaration instead of comparing its
+	// type - and 14.8.2.2p1's deduction is over the function type the pointer
+	// points to, with 9.3.1p3's object parameter put back in front of it.
+	const bool of_member =
+		types_.kind(types_.strip_cv(wanted)) == TypeKind::MemberPointer;
+	if (of_member)
 	{
-		// 13.4p1 lists a pointer to member among the targets that choose one
-		// declaration, and the declaration it chooses is the member whose
-		// pointer type is the one asked for.
 		wanted = types_.strip_cv(wanted);
-		for (std::size_t index = 0; index < value.functions->size(); ++index)
+	}
+	else
+	{
+		if (types_.kind(wanted) == TypeKind::Pointer)
 		{
-			for (SemaEntity* at = (*value.functions)[index]; at != nullptr;
-			     at = at->next)
-			{
-				if (member_pointer_of(*at) == wanted)
-				{
-					return at;
-				}
-			}
+			wanted = types_.target(wanted);
 		}
-		return nullptr;
-	}
-	if (types_.kind(wanted) == TypeKind::Pointer)
-	{
-		wanted = types_.target(wanted);
-	}
-	wanted = types_.strip_cv(wanted);
-	if (types_.kind(wanted) != TypeKind::Function)
-	{
-		return nullptr;
+		wanted = types_.strip_cv(wanted);
+		if (types_.kind(wanted) != TypeKind::Function)
+		{
+			return nullptr;
+		}
 	}
 	// 13.4p1 and 14.8.2.2p1: a function template in the set is one of the
 	// declarations the target chooses between through the specialization the
@@ -1159,7 +1184,10 @@ SemaEntity* SemaAnalyzer::resolve_target(const Value& value, TypeId target)
 		for (SemaEntity* at = (*value.functions)[index]; at != nullptr;
 		     at = at->next)
 		{
-			if (at->type == wanted)
+			const bool names_it = of_member
+				? member_pointer_of(types_, *at) == wanted
+				: at->type == wanted;
+			if (names_it)
 			{
 				return at;
 			}
@@ -1167,8 +1195,13 @@ SemaEntity* SemaAnalyzer::resolve_target(const Value& value, TypeId target)
 			{
 				continue;
 			}
-			SemaEntity* const made = Deduction(*this).from_target(*at, wanted);
-			if (made != nullptr)
+			const TypeId asked =
+				of_member ? member_target(types_, *at, wanted) : wanted;
+			SemaEntity* const made = asked == kNoType
+				? nullptr
+				: Deduction(*this).from_target(*at, asked);
+			if (made != nullptr &&
+			    (!of_member || member_pointer_of(types_, *made) == wanted))
 			{
 				deduced.push_back(made);
 				// 14.5.6.2 orders the templates and not the names a use gave

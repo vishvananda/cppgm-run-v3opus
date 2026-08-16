@@ -693,7 +693,7 @@ void SemaAnalyzer::name_function(Value& value, SemaEntity& selected,
 		value.addressed->fact.spelled = shown;
 		value.addressed->fact.category = ValueCategory::LValue;
 		value.addressed->fact.entity = &function;
-		value.type = member_pointer_of(function);
+		value.type = member_pointer_of(types_, function);
 		if (value.type == kNoType)
 		{
 			value.type = types_.pointer_to(function.type);
@@ -2184,6 +2184,11 @@ SemaAnalyzer::Value SemaAnalyzer::unary_expression(const AstNode& node,
 			value.node = &line;
 			value.addressed = operand.node;
 			value.payload = payload_of(node);
+			// The line still stands for the `&` the program wrote, so it
+			// carries that operator however late the target chooses what it is
+			// taken of - the set travels up under the operand's own fact
+			// otherwise, and the lowering has no operator to write.
+			value.op = node.token;
 			return value;
 		}
 		// 5.3.1p3: the result is a pointer to the object or function the
@@ -2197,7 +2202,7 @@ SemaAnalyzer::Value SemaAnalyzer::unary_expression(const AstNode& node,
 		// which is the one declaration the set then holds.
 		value.type = operand.functions == nullptr
 			? kNoType
-			: member_pointer_of(*(*operand.functions)[0]);
+			: member_pointer_of(types_, *(*operand.functions)[0]);
 		if (value.type == kNoType)
 		{
 			value.type = types_.pointer_to(operand.type);

@@ -632,7 +632,7 @@ bool SemaAnalyzer::abstract_class_type(TypeId type)
 void SemaAnalyzer::require_creatable_object(TypeId type,
                                             const std::string& name)
 {
-	if (abstract_class_type(element_of(type)))
+	if (abstract_class_type(types_.element_of(type)))
 	{
 		throw std::runtime_error(name + " is an object of an abstract class");
 	}

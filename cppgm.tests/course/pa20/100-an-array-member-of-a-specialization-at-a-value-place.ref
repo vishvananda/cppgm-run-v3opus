@@ -1,0 +1,66 @@
+declare function @take_items(%arg0 : obj<2x1>) -> void [binding=strong, object=_Z10take_items6holderI4itemLi2EE]
+declare function @take_scalars(%arg0 : obj<12x4>) -> void [binding=strong, object=_Z12take_scalars6holderIiLi3EE]
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $argobj__1 : obj<12x4>
+  slot $argarr__2 : obj<12x4>
+  slot $argobj__3 : obj<2x1>
+  slot $argarr__4 : obj<2x1>
+
+  block ^entry:
+    %t1 = addr $argobj__1
+    %t2 = addr $argarr__2
+    store i32 4, %t2
+    %t3 = index i8 %t2, 4
+    store i32 5, %t3
+    %t4 = index i8 %t2, 8
+    store i32 6, %t4
+    call void @holder_int__3___holder__ov4(%t1, %t2)
+    call void @take_scalars($argobj__1)
+    %t5 = addr $argobj__3
+    %t6 = addr $argarr__4
+    call void @item__item(%t6, 0)
+    %t7 = index i8 %t6, 1
+    call void @item__item(%t7, 1)
+    call void @holder_item__2___holder__ov4(%t5, %t6)
+    call void @take_items($argobj__3)
+    return i32 0
+}
+function @holder_int__3___holder__ov4(%this : ptr, %elements : ptr [pass=decay]) -> void [unwind=no, binding=weak, object=_ZN6holderIiLi3EEC1EA3_i] {
+  slot $this : ptr
+  slot $elements : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    store ptr %elements, $elements
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load ptr $elements
+    copyobj 12x4 %t3, %t2
+    return void
+}
+function @holder_item__2___holder__ov4(%this : ptr, %elements : ptr [pass=decay]) -> void [binding=weak, object=_ZN6holderI4itemLi2EEC1EA2_S0_] {
+  slot $this : ptr
+  slot $elements : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    store ptr %elements, $elements
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load ptr $elements
+    copyobj 2x1 %t3, %t2
+    return void
+}
+function @item__item(%this : ptr, %__param1 : i32) -> void [binding=weak, object=_ZN4itemC1Ei] {
+  slot $this : ptr
+  slot $__param1 : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %__param1, $__param1
+    return void
+}
+alias object _ZN6holderIiLi3EEC2EA3_i = @holder_int__3___holder__ov4
+alias object _ZN6holderI4itemLi2EEC2EA2_S0_ = @holder_item__2___holder__ov4
+alias object _ZN4itemC2Ei = @item__item

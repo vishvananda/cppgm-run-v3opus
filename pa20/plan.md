@@ -1,11 +1,12 @@
 # PA20 Plan — `cppgm++ --emit-lowir` compile-time metaprogramming
 
-PA20 stands at **222 / 224** - 172 of the 174 checked-in fixtures and all 50
-under `cppgm.tests/course/pa20` - with pa1-pa19 at **2169 / 2169** and the file
-audit passing with the five header-weight warnings it inherited.  Every `.ref`
-was regenerated from `pa20/cppgm++-ref` through `make -C pa20 ref-test` on the
-C13 audit turn and none moved, so every fixture holds the reference's own answer
-and not this compiler's.
+PA20 **passes: 228 / 228** - all 174 checked-in fixtures and all 54 under
+`cppgm.tests/course/pa20` - with pa1-pa19 at **2169 / 2169** and the file audit
+passing with the five header-weight warnings it inherited.  Every `.ref` was
+regenerated from `pa20/cppgm++-ref` through `make -C pa20 ref-test` on the C13
+audit turn and none moved, and the four the C14 turn added were generated the
+same way, so every fixture holds the reference's own answer and not this
+compiler's.
 
 The milestone gives PA19's template tier what 14.4p1 keys it by: an argument
 list, whose entries are types, 14.3.2p1's *values* and 14.5.3p1's *runs* alike -
@@ -207,6 +208,30 @@ access is asked in the region the conversion was *written* in.  12.6.2p2's index
 is keyed by the whole class name a mem-initializer-id wrote, and 14.6.2p3 is a
 fact of each specifier rather than of the clause.
 
+**8.3.5p5 leaves one place no declaration could write.**  8.5.1p2's constructor
+of an aggregate takes its members by value, and an array is the one member no
+by-value parameter carries - the adjustment leaves a pointer, and the pointer
+holds no elements.  So that place is the array itself (`member_constructor`):
+the object file writes its declared type (`A2_S0_`), the boundary carries the
+address of an array object of the caller's (`ptr [pass=decay]`), and the callee
+copies the whole of it into the member.  The argument is an object rather than a
+subobject of the aggregate - the clauses reach its elements from the one base
+its storage was named by (`array_argument` at both layers, `$argarr`) - and
+which clauses reach it is 8.5.1p11's own question, braces written, left out, or
+8.5.2p1's string literal in their place.  `decayed_arrays_` is what says a place
+holds an address rather than the elements, so the one member-initialization that
+reads one writes 12.8p15's copy and not 8.5.1's walk.
+
+**13.4p1's target chooses at both kinds of target.**  `&f` naming an overload
+set travels up under the `&` the program wrote, and the line goes on standing
+for that operator however late `resolve_target` settles what it is taken of.
+14.8.2.2p1's deduction is over the one A the target is: the function type where
+that target is a pointer or a reference, and - where 8.3.3p1's pointer to member
+is the target, which says which member of a class it names rather than being a
+function type - the type it points to with 9.3.1p3's object parameter of the
+candidate put back in front (`member_target`), checked by the same
+`member_pointer_of` the non-template declarations are compared with.
+
 **14.7.1p1 leaves a static data member's storage to whatever reaches it** - a
 name not folded away, an object of the class (`demand_object_storage`, one walk
 per class), or 14.7.3p1's own `template<>`.  3.9p7's incomplete array is
@@ -220,12 +245,7 @@ execution encoding.
 
 ## Current Failure Map
 
-2 failing, grouped by what would fix them.
-
-| group | n | owner |
-| --- | --- | --- |
-| 8.5.1p2's aggregate built as an object of its own where a member is an array: 8.3.5p5 leaves `struct array { T e[N]; }` no by-value parameter list, so `T{item(0), item(1)}` has no constructor and the clauses have to initialize the subobjects where they stand | 1 | `sema_lifetime.cpp`, `sema_init_list.cpp` |
-| `&function_template` as a constructor argument reaches a unary operator the PA15 lowering has no case for | 1 | `lowir_lower_expression.cpp` |
+0 failing: every checked-in fixture and every course test passes.
 
 Outside the fixtures, the sweeps leave these shapes.  **The declarator** cannot
 read 8.3.5p3's ellipsis written without a comma (`int a...`), refuses every call
@@ -296,37 +316,33 @@ type of the place it names rather than as `X <expression> E`, so
 `g(A<sizeof(T) < 4>)` is `1AIT_E` here where g++ and the reference both write
 `1AIXltstT_Li4EEE` - the bare `S<N>` the C4 audit fixed being the only shape
 `expression_of` (`lowir_abi.cpp`) has a record for.
+**8.3.3p1's pointer to member is no object here:** `low_type` writes `void`
+where the reference writes `i128` and the address it holds through a
+`copy i64` and a `zext`, so `void (s::*p)(int) = &s::f;` compiles to a `void`
+slot - the same for a template `f` now that `member_target` chooses one - and
+5.5's `.*` is outside the subset above it.  **12.2p3 is still unmarked:** an
+aggregate at a value place whose members have a non-trivial destructor is
+destroyed by neither compiler, and the reference writes an empty
+`eh_try`/`resume` region around the full-expression where this one writes none -
+which is a fact of the class's members and not of the array member C14 added.
+**The reference passes a class by address wherever a *floating* member is in
+it** and the object is written as a braced prvalue argument (`struct { double
+d; }` is `ptr [pass=by_address]` there and `obj<8x8>` here), while the same
+class declared and then passed agrees; and it gives `void (*give())(int)` the
+returned pointer's own parameter, writing a `@give` its own call does not
+match.
 
 ## Active Checkpoint
 
-**C14 - the object 8.5.1p2's clauses build where no parameter list describes
-it.**  Selected because it is the larger of the two failures left and the one
-this milestone's own layer owns: `T{item(0), item(1)}` over
-`struct array { T e[N]; }` is refused outright today, and the other failure is a
-single missing lowering case.
-
-- **Owner.**  `sema_init_list.cpp` for the constructor, `lowir_lower_object.cpp`
-  and the LowIR writer for the boundary it is called across.
-- **Data flow.**  `build_temporary` turns 8.5.1p2's aggregate prvalue into a
-  call of the constructor `member_constructor` gives the class from its members;
-  8.3.5p5 leaves an array member with no by-value parameter, so that constructor
-  does not exist and the shape is refused.  Initializing the temporary's
-  subobjects where they stand was tried and is the *wrong* answer: the
-  reference declares the constructor anyway, with the array member as a
-  parameter written `%elements : ptr [pass=decay]`, builds the elements in a
-  slot of the caller's (`$argarr__4`) and lets the constructor `copyobj` them
-  into the member.  So what this checkpoint owes is that boundary - a parameter
-  whose declared type is the array 8.3.5p5 adjusts, carried as its address and
-  copied by the callee - which is a mode the type table and the writer have
-  none of today.
-- **Expected complexity.**  One constructor per class, declared once as the
-  existing one is; one `copyobj` per array member rather than one store per
-  element.
-- **Validation.**  The fixture; a sweep of aggregates with array, class and
-  scalar members written as a prvalue, as a declared object, as an array element
-  and as a subobject of another list, against g++ and `pa20/cppgm++-ref`; a
-  scaling row for an aggregate whose array member has 4096 elements; and a
-  valgrind run.
+**None - the assignment passes.**  The next checkpoint the sweeps point at is
+**C15, 8.3.3p1's pointer to member as an object**: `low_type` has no case for
+one, so `void (s::*p)(int) = &s::f;` writes a `void` slot where the reference
+writes `i128` with the address `copy i64`'d and zero-extended into it, and
+5.5's `.*` is the reader above it that would then have something to read.  Its
+owner is `lowir_lower.cpp` for the representation, the conversion layer for the
+address that becomes one, and `sema_expression.cpp` for `.*`; the validation is
+the same three oracles over a member pointer declared, passed, compared,
+value-initialized and called through.
 
 ## Performance Model
 
@@ -378,6 +394,10 @@ forward from the turn that took them.
 | the same with a distinct specialization each | 0.04 / 0.09 / **0.21 s** | - |
 | a value argument nested 24 / 256 / 1024 deep | 0.00 / 0.03 / **0.42 s** | 0.00 / 0.30 / 7.01 s |
 | 256 / 1024 / 4096 out-of-class member definitions | 0.07 / 0.27 / **1.19 s** | 2.81 s at 4096 |
+| an aggregate whose array member has 256 / 1024 / 4096 / 16384 elements | 0.006 / 0.012 / 0.033 / **0.122 s** | 0.12 s at 4096, 0.49 s at 16384 |
+| 128 / 512 / 2048 distinct aggregates each with an array member | 0.024 / 0.093 / **0.399 s** | 2.84 s at 2048 |
+| one such aggregate written 256 / 1024 / 4096 times | 0.019 / 0.063 / **0.250 s** | 1.44 s at 4096 |
+| 128 / 512 / 2048 array members in one aggregate | 0.011 / 0.029 / **0.105 s** | 0.72 s at 2048 |
 
 Two shapes cost worse than linear and are recorded as such.  10.1p3's own check
 is quadratic in a derivation that adds a base per level, because every level
@@ -423,3 +443,4 @@ past 300 s where this compiler takes 27 s, so the owner is
 | C12 audit | the object a constant expression *builds*, which C12 gave one initialization and every class type: 8.5.1p1's aggregate told from 8.5p16's direct-initialization, 7.1.5p1 read off a constructor, 12.6.2's mem-initializers in declaration order under a call's own key, 7.1.5p4's uninitialized member and non-empty body refused, 8.3.6p1's default-argument in the one list a fold reads, 13.3.3p1's ambiguous conversion refused rather than guessed at, 5.2.5p1 given a reading so an object's member can be read at all, and an object never carried where a value is meant; 12.6.2p2's index built once rather than scanned per member | 212 / 217 -> **215 / 220**, three fixtures, two compile-pass and one refusing; pa1-pa19 2169 / 2169; 41 constexpr shapes swept against g++ and `pa20/cppgm++-ref`, every shape all three accept coming to the same value here as there - the two-unit program among them; every checked-in `.ref` regenerated and unmoved; linear at 4096 constructor-built objects, 4096 default-argument folds and 8192 members, with the per-member scan's 1.400 s at 8192 down to 0.204 s; valgrind clean |
 | C13 | what a `<` in a flattened spelling is, and where a definition written outside its region reads its names: `AngleReading` settling 14.2's list against 5.9's operator over the whole spelling and respelling the argument it hands on, 3.4.1p8 reading the initializer where the declarator-id reaches, and `place_type` given the function tier's places so `template<class T, T v>` and `typename u<B>::fast P` settle at both | 215 / 220 -> **222 / 224**, three fixtures fixed and four course tests added; pa1-pa19 2169 / 2169; 30 shapes swept against g++ and `pa20/cppgm++-ref`, seven of them refused by the reference too and one - `K<J<a < b> >` - a flattening both readings balance, which no spelling can tell apart and which failed before this too; linear at 4096 operators and 4096 out-of-class definitions, 0.06 s where the reference takes 35.9 s; valgrind clean; the sweep also left 3.5p3's `extern`-declared const object written `binding=internal` here and `strong` there |
 | C13 audit | the reading a `<` is settled by is a fact of the whole spelling, and was *made* as though it were a fact of one run: `spelling_balanced_end` built one per `<`, so a spelling naming 4096 template-ids paid 4096 readings of the whole of it (0.53 s -> 0.02 s with `AngleReading::balanced_end` asked of the one reading the splitters make); and `template_argument_value` asked 14.6.1p1's question of *any* lone word by looking it up, which for `W<3>::v` is the whole reading of the name, so a nest of them doubled at every level - 43.46 s at depth 24 -> 0.00 s, and 0.42 s at depth 1024 against the reference's 7.01 s - now that only 2.11p1's identifier is asked about | 222 / 224 held, pa1-pa19 2169 / 2169; 66 shapes swept against g++ and `pa20/cppgm++-ref` across the `<`, `<=`, `<<` spellings, dependent and pack patterns, 3.4.1p8's seven readers and two units; every `.ref` regenerated and unmoved; valgrind clean; three shapes recorded rather than fixed - PA10's parse is quadratic in an operator written between two template-ids (27.35 s at 4096, the reference past 300 s), the reference alone writes `Tn <type>` before a function template's non-type argument, and the flattening's `K<J<a < b> >` is a class of spellings no reading of text can settle |
+| C14 | the object 8.5.1p2's clauses build where 8.3.5p5 describes no place for it, and 13.4p1's target at both kinds of target: `member_constructor` giving an array member a place whose declared type is the array (`A2_S0_`) and whose boundary is `ptr [pass=decay]`, `array_argument` building the elements in an array object of the caller's (`$argarr`) out of the run of clauses 8.5.1p11 leaves it, `decayed_arrays_` telling the one member-initialization that reads such a place to write 12.8p15's copy, the `&` a line stands for kept where the target settles it late, and `member_target` deducing 14.8.2.2p1's specialization from a pointer-to-member target; `element_of` moved to `TypeTable` and `member_pointer_of` to `sema_facts.h`, freeing 12 header lines | 222 / 224 -> **228 / 228**, the assignment complete, with four course tests added; pa1-pa19 2169 / 2169; 54 shapes swept against g++ and `pa20/cppgm++-ref` through the harness's own comparison, 9 disagreeing - 8 of them the reference refusing what g++ and this compiler accept, and the ninth the reference giving `void (*give())(int)` a parameter its own call does not pass; three programs built through `lowir2cy86` and run, each returning what the source computes; linear at 16384 elements, 2048 aggregates, 4096 objects and 2048 array members; valgrind clean |

@@ -1,0 +1,78 @@
+declare function @take_class(%arg0 : obj<3x1>) -> void [binding=strong, object=_Z10take_class8of_class]
+declare function @take_scalars(%arg0 : obj<16x4>) -> void [binding=strong, object=_Z12take_scalars10of_scalars]
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $argobj__1 : obj<3x1>
+  slot $argarr__2 : obj<3x1>
+  slot $argobj__3 : obj<16x4>
+  slot $argarr__4 : obj<16x4>
+
+  block ^entry:
+    %t1 = addr $argobj__1
+    %t2 = addr $argarr__2
+    call void @element__element__ov2(%t2, 1)
+    %t3 = index i8 %t2, 1
+    call void @element__element__ov2(%t3, 2)
+    %t4 = index i8 %t2, 2
+    call void @element__element(%t4)
+    call void @of_class__of_class__ov4(%t1, %t2)
+    call void @take_class($argobj__1)
+    %t5 = addr $argobj__3
+    %t6 = addr $argarr__4
+    store i32 9, %t6
+    %t7 = index i8 %t6, 4
+    store i32 0, %t7
+    %t8 = index i8 %t6, 8
+    store i32 0, %t8
+    %t9 = index i8 %t6, 12
+    store i32 0, %t9
+    call void @of_scalars__of_scalars__ov4(%t5, %t6)
+    call void @take_scalars($argobj__3)
+    return i32 0
+}
+function @element__element(%this : ptr) -> void [binding=weak, object=_ZN7elementC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    return void
+}
+function @element__element__ov2(%this : ptr, %__param1 : i32) -> void [binding=weak, object=_ZN7elementC1Ei] {
+  slot $this : ptr
+  slot $__param1 : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %__param1, $__param1
+    return void
+}
+function @of_class__of_class__ov4(%this : ptr, %run : ptr [pass=decay]) -> void [binding=weak, object=_ZN8of_classC1EA3_7element] {
+  slot $this : ptr
+  slot $run : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    store ptr %run, $run
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load ptr $run
+    copyobj 3x1 %t3, %t2
+    return void
+}
+function @of_scalars__of_scalars__ov4(%this : ptr, %run : ptr [pass=decay]) -> void [unwind=no, binding=weak, object=_ZN10of_scalarsC1EA4_i] {
+  slot $this : ptr
+  slot $run : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    store ptr %run, $run
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load ptr $run
+    copyobj 16x4 %t3, %t2
+    return void
+}
+alias object _ZN7elementC2Ev = @element__element
+alias object _ZN7elementC2Ei = @element__element__ov2
+alias object _ZN8of_classC2EA3_7element = @of_class__of_class__ov4
+alias object _ZN10of_scalarsC2EA4_i = @of_scalars__of_scalars__ov4

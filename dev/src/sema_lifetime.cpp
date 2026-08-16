@@ -147,7 +147,7 @@ void SemaAnalyzer::write_constructed_object(SemaEntity& variable,
 bool SemaAnalyzer::element_constructed(TypeId type, const AstNode* written)
 {
 	if (types_.kind(types_.strip_cv(type)) != TypeKind::Array ||
-	    !types_.is_class(element_of(type)))
+	    !types_.is_class(types_.element_of(type)))
 	{
 		return false;
 	}
@@ -401,7 +401,7 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 	// every element is given is chosen once, here, from the type of an element;
 	// the action names the array, so how many objects it creates is what the
 	// declared type says rather than a count written beside it.
-	const TypeId object_type = element_of(variable.type);
+	const TypeId object_type = types_.element_of(variable.type);
 
 	if (!types_.is_class(types_.strip_cv(object_type)))
 	{
@@ -917,7 +917,7 @@ void SemaAnalyzer::name_argument_temporary(const Value& value,
 void SemaAnalyzer::temporary_destruction(SemaEntity& object, DumpNode& parent,
                                          bool full_expression)
 {
-	SemaEntity* const destructor = class_destructor(element_of(object.type));
+	SemaEntity* const destructor = class_destructor(types_.element_of(object.type));
 	if (destructor == nullptr || !declared_destruction(object.type))
 	{
 		return;
@@ -1011,7 +1011,7 @@ SemaEntity* SemaAnalyzer::register_temporary(DumpNode& node, const Scope* from,
 	// 15.2p2: an exception thrown while this object stands ends its lifetime
 	// wherever it goes on to, so the call is written on the place the lifetime
 	// began as well as on the place it ends.
-	node.fact.destruction = class_destructor(element_of(object->type));
+	node.fact.destruction = class_destructor(types_.element_of(object->type));
 	if (node.fact.destruction != nullptr)
 	{
 		// 12.4p6 and 3.2p4: that call is an odr-use of the destructor whether
@@ -1190,7 +1190,7 @@ void SemaAnalyzer::end_arm_temporaries(const std::vector<SemaEntity*>& frame,
 	for (std::size_t index = 0; index < frame.size(); ++index)
 	{
 		ends_in_something = ends_in_something ||
-			(class_destructor(element_of(frame[index]->type)) != nullptr &&
+			(class_destructor(types_.element_of(frame[index]->type)) != nullptr &&
 			 declared_destruction(frame[index]->type));
 	}
 	if (!ends_in_something)
@@ -1281,7 +1281,7 @@ TypeId SemaAnalyzer::this_type(const SemaEntity& function)
 void SemaAnalyzer::destructor_action(SemaEntity& entity, DumpNode& parent,
                                      Placement where)
 {
-	SemaEntity* const destructor = class_destructor(element_of(entity.type));
+	SemaEntity* const destructor = class_destructor(types_.element_of(entity.type));
 	if (destructor == nullptr)
 	{
 		return;
@@ -2141,7 +2141,7 @@ void SemaAnalyzer::write_transfer_steps(const Pending& pending, DumpNode& line,
 		if (elements)
 		{
 			source.type = source.spelled = types_.qualified(
-				element_of(source.type), types_.object_cv(source.type));
+				types_.element_of(source.type), types_.object_cv(source.type));
 		}
 		if (assigning)
 		{
@@ -2298,7 +2298,7 @@ void SemaAnalyzer::write_transfer_assignment(SemaEntity& subobject,
 		// class is called on.  The line goes on naming the array, so the walk
 		// around the step is what says which element it stands at.
 		target.type = target.spelled = types_.qualified(
-			element_of(target.type), types_.object_cv(target.type));
+			types_.element_of(target.type), types_.object_cv(target.type));
 	}
 	step.children.push_back(source.node);
 	std::vector<Value> operands;
@@ -2463,7 +2463,7 @@ void SemaAnalyzer::record_lifetime(SemaEntity& entity, const Context& target,
 			// 15.2p2: the declaration begins a lifetime an exception out of
 			// anything after it has to end, so the line that begins it names
 			// the destructor as well as the line that ends it.
-			line.fact.destruction = class_destructor(element_of(entity.type));
+			line.fact.destruction = class_destructor(types_.element_of(entity.type));
 		}
 	}
 }
@@ -2569,7 +2569,7 @@ void SemaAnalyzer::end_parameter_lifetimes(DumpNode& line)
 // it.  12.6.2p8 leaves such a member with no initialization to describe.
 bool SemaAnalyzer::trivially_constructed(TypeId type)
 {
-	for (const SemaEntity* at = class_constructors(element_of(type));
+	for (const SemaEntity* at = class_constructors(types_.element_of(type));
 	     at != nullptr; at = at->next)
 	{
 		if (types_.parameters(at->type).size() == 1)
@@ -2602,7 +2602,7 @@ bool SemaAnalyzer::ends_in_call(const SemaEntity& entity)
 // read and never a walk.
 bool SemaAnalyzer::declared_destruction(TypeId type)
 {
-	return types_.has_declared_destruction(element_of(type));
+	return types_.has_declared_destruction(types_.element_of(type));
 }
 
 // 12.4p8: whether the definition `node` gives a function writes any statement
@@ -2744,7 +2744,7 @@ void SemaAnalyzer::note_definition_body(SemaEntity& member,
 // members deep is walked once however many objects of it a function declares.
 bool SemaAnalyzer::vacuous_destruction(TypeId type)
 {
-	const TypeId bare = element_of(type);
+	const TypeId bare = types_.element_of(type);
 	const std::unordered_map<TypeId, unsigned char>::const_iterator held =
 		vacuous_.find(bare);
 	if (held != vacuous_.end())

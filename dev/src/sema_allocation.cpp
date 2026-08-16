@@ -280,7 +280,7 @@ SemaAnalyzer::Value SemaAnalyzer::delete_expression(const AstNode& node,
 	// still goes back.  So the expression is written for what the type does
 	// say, which for an incomplete type is one deallocation and nothing else.
 	const TypeId pointed = types_.strip_cv(types_.target(operand.type));
-	const TypeId destroyed = array ? element_of(pointed) : pointed;
+	const TypeId destroyed = array ? types_.element_of(pointed) : pointed;
 	// 5.3.5p1: the expression itself is worth nothing, so the type it has says
 	// nothing about what it does - and the type of the object it destroys says
 	// all of it.  `spelled` is that type, which is what every reader of this
@@ -375,7 +375,7 @@ SemaEntity* SemaAnalyzer::default_constructor(TypeId element)
 // so it is taken from the unit's syntax the way a destructor's already is.
 bool SemaAnalyzer::vacuous_construction(TypeId element)
 {
-	const TypeId bare = element_of(element);
+	const TypeId bare = types_.element_of(element);
 	const std::unordered_map<TypeId, unsigned char>::const_iterator held =
 		vacuous_construction_.find(bare);
 	if (held != vacuous_construction_.end())
@@ -471,7 +471,7 @@ void SemaAnalyzer::array_new_initialization(TypeId created,
                                             bool global, const Context& ctx,
                                             DumpNode& line)
 {
-	const TypeId element = element_of(created);
+	const TypeId element = types_.element_of(created);
 	const bool value_initialized =
 		written != nullptr && written->children.empty() &&
 		(written->kind == AstKind::ParenInitializer ||
@@ -809,7 +809,7 @@ SemaAnalyzer::Value SemaAnalyzer::new_expression(const AstNode& node,
 	// delete has to run one destructor per element and the pointer alone does
 	// not say how many those are.
 	const unsigned long long cookie =
-		array && types_.is_class(element_of(created)) ? kArrayCookieBytes : 0;
+		array && types_.is_class(types_.element_of(created)) ? kArrayCookieBytes : 0;
 	std::vector<Value> arguments;
 	unsigned long long elements = 0;
 	bool counted = false;
@@ -827,7 +827,7 @@ SemaAnalyzer::Value SemaAnalyzer::new_expression(const AstNode& node,
 	}
 	std::vector<SemaEntity*>& reached = model_.open_overloads();
 	SemaEntity* const declared =
-		allocation_function(global, element_of(created), array, reached);
+		allocation_function(global, types_.element_of(created), array, reached);
 	if (declared == nullptr)
 	{
 		throw std::runtime_error("a new-expression is written where no "

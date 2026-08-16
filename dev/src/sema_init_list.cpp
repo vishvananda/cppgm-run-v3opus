@@ -531,30 +531,28 @@ SemaEntity* SemaAnalyzer::member_constructor(TypeId type)
 			continue;
 		}
 		const TypeId bare = types_.strip_cv(member.type);
-		if (types_.kind(bare) == TypeKind::Array)
-		{
-			// 8.3.5p5: an array parameter is the pointer the adjustment leaves,
-			// and what the member holds is the array - so no by-value parameter
-			// carries it.  The class is given no such constructor and 8.5.1
-			// initializes its subobjects where they are.  The reference keeps
-			// the array on the parameter instead and marks the boundary
-			// `pass=decay`, which is a place of its own this milestone has not
-			// given the type table.
-			return nullptr;
-		}
-		if (types_.is_class(bare) &&
-		    selected_transfer(bare, kMoveConstructorTransfer) == nullptr)
+		const bool of_array = types_.kind(bare) == TypeKind::Array;
+		const TypeId carried = of_array ? types_.element_of(bare) : bare;
+		if (types_.is_class(carried) &&
+		    selected_transfer(carried, kMoveConstructorTransfer) == nullptr)
 		{
 			// 12.8p11: a class member the parameter holding it cannot be
 			// carried out of is one no such constructor can pass, so the
-			// clauses initialize it where it stands instead.
+			// clauses initialize it where it stands instead.  An array of such
+			// a class is the same answer: what the parameter would carry is the
+			// elements, one transfer each.
 			return nullptr;
 		}
 		Parameter one;
 		// 8.3.5p5: the parameter is what a declaration of it with the member's
-		// own type would be, so an array member contributes a pointer and the
-		// member's own cv-qualification is dropped.
-		one.type = types_.adjust_parameter(member.type);
+		// own type would be, so the member's own cv-qualification is dropped.
+		// An array is the one place that adjustment cannot be taken at its
+		// word: the pointer it leaves carries no elements, and what the member
+		// holds is the array - so this place is the array itself, crossing the
+		// boundary as the address of the caller's and copied into the member by
+		// the callee.  No declaration can write such a parameter, which is why
+		// it is the object model rather than 8.3.5 that declares this one.
+		one.type = of_array ? bare : types_.adjust_parameter(member.type);
 		one.name = member.name;
 		named.push_back(one);
 		types.push_back(one.type);
@@ -681,6 +679,17 @@ void SemaAnalyzer::construct_from_clauses(SemaEntity& constructor,
 			// one.  The parameter list is what says how far the walk goes.
 			break;
 		}
+		if (types_.kind(types_.strip_cv(parameters[at])) == TypeKind::Array)
+		{
+			// 8.3.5p5 and 8.5.1p11: the member is an array, so what the
+			// parameter carries is an array object of the caller's - built out
+			// of the run of clauses the member's own elements take, whether or
+			// not the braces around them were written, and 8.5.1p7's
+			// value-initialization where none is left.
+			array_argument(parameters[at], clauses, ctx, call);
+			++at;
+			continue;
+		}
 		if (clauses.spent())
 		{
 			// 8.5.1p7: no clause reached the member, so what the constructor is
@@ -714,6 +723,43 @@ void SemaAnalyzer::construct_from_clauses(SemaEntity& constructor,
 	// runs the complete-object entry of the constructor.
 	constructor.complete_object_entry = true;
 	demand_constructor_definition(constructor);
+}
+
+// 8.5.1p2 and 8.3.5p5: the argument the parameter carrying an array member is
+// passed, which is an array object of the caller's own.  It is an object rather
+// than a subobject of the aggregate being built: the clauses reach its elements
+// where *it* stands, so the lowering names the storage once and steps through
+// it by whole elements, and the boundary carries its address.
+//
+// Which clauses reach it is the same question 8.5.1p11 asks of an array
+// standing where it was declared - the braces around them written, left out, or
+// 8.5.2p1's string literal in their place - so this is that one reading, asked
+// of the cursor the enclosing list is being walked with.
+void SemaAnalyzer::array_argument(TypeId array, Clauses& clauses,
+                                  const Context& ctx, DumpNode& call)
+{
+	DumpNode& line = model_.open_node(call, std::string());
+	if (!clauses.spent() && clauses.next().kind == AstKind::BracedInitList)
+	{
+		// 8.5.1p11: the braces the elements stand in were written, so the one
+		// clause is the whole of the array.
+		list_initialize_into(clauses.next(), array, clauses.in(ctx), line, false);
+		++clauses.at;
+		return;
+	}
+	line.text = spell("braced-init-list", ValueCategory::LValue, array,
+	                  std::string());
+	set_fact(line, FactKind::BracedInitList, array, ValueCategory::LValue);
+	if (!clauses.spent() &&
+	    StringInitialization(*this).as_object(array, clauses.next(),
+	                                          clauses.in(ctx), line))
+	{
+		// 8.5.2p1: the clause is a string literal for this array, so what the
+		// elements hold is the code units it was made of.
+		++clauses.at;
+		return;
+	}
+	array_from_clauses(array, clauses, ctx, line, false);
 }
 
 // 8.5.1p11: whether this member is one whose braces the program left out, so

@@ -2035,7 +2035,7 @@ Scope* SemaAnalyzer::naming_context(const std::string& written,
 void SemaAnalyzer::require_destruction_access(const SemaEntity& entity,
                                               const Scope* from)
 {
-	SemaEntity* const destructor = class_destructor(element_of(entity.type));
+	SemaEntity* const destructor = class_destructor(types_.element_of(entity.type));
 	if (destructor == nullptr || accessible(*destructor, from))
 	{
 		return;
@@ -2219,7 +2219,7 @@ bool SemaAnalyzer::trivial_default_construction(Scope& scope)
 			return false;
 		}
 		const SemaEntity* const constructor =
-			class_constructors(element_of(member.type));
+			class_constructors(types_.element_of(member.type));
 		if (constructor != nullptr && !constructor->trivial)
 		{
 			return false;
@@ -2262,7 +2262,7 @@ bool SemaAnalyzer::default_construction_nonthrowing(Scope& scope)
 			return false;
 		}
 		const SemaEntity* const constructor =
-			default_constructor(element_of(member.type));
+			default_constructor(types_.element_of(member.type));
 		if (constructor != nullptr && !constructor->nonthrowing)
 		{
 			return false;
@@ -2304,7 +2304,7 @@ bool SemaAnalyzer::destruction_nonthrowing(Scope& scope)
 			continue;
 		}
 		const SemaEntity* const destructor =
-			class_destructor(element_of(member.type));
+			class_destructor(types_.element_of(member.type));
 		if (destructor != nullptr && !destructor->nonthrowing)
 		{
 			return false;
@@ -2345,7 +2345,7 @@ bool SemaAnalyzer::trivial_destruction(Scope& scope)
 			continue;
 		}
 		const SemaEntity* const destructor =
-			class_destructor(element_of(member.type));
+			class_destructor(types_.element_of(member.type));
 		if (destructor != nullptr && !destructor->trivial)
 		{
 			return false;
@@ -2382,24 +2382,12 @@ bool SemaAnalyzer::subobject_declares_destruction(SemaEntity& entity,
 		{
 			continue;
 		}
-		if (types_.has_declared_destruction(element_of(member.type)))
+		if (types_.has_declared_destruction(types_.element_of(member.type)))
 		{
 			return true;
 		}
 	}
 	return false;
-}
-
-// 8.3.4p1: the type one element of an array is, however many dimensions it
-// has, which is the type whose construction the array's own asks for.
-TypeId SemaAnalyzer::element_of(TypeId type)
-{
-	TypeId at = types_.strip_cv(type);
-	while (types_.kind(at) == TypeKind::Array)
-	{
-		at = types_.strip_cv(types_.target(at));
-	}
-	return at;
 }
 
 void SemaAnalyzer::inject_anonymous_members(SemaEntity* entity,

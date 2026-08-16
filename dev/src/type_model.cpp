@@ -391,6 +391,18 @@ TypeId TypeTable::array_of(TypeId element, bool bounded, unsigned long long size
 	return intern(key_of(node), node);
 }
 
+// 8.3.4p1: the type one element of an array is, however many dimensions it has,
+// which is the type whose construction the array's own asks for.
+TypeId TypeTable::element_of(TypeId type)
+{
+	TypeId at = strip_cv(type);
+	while (kind(at) == TypeKind::Array)
+	{
+		at = strip_cv(target(at));
+	}
+	return at;
+}
+
 TypeId TypeTable::function_of(TypeId result, const std::vector<TypeId>& parameters,
                               bool is_variadic)
 {

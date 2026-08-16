@@ -1062,6 +1062,17 @@ void LowirFunctionLowering::constructor_call(const Operand& address,
 			                                  types.strip_cv(parameter)));
 			continue;
 		}
+		if (parameter != kNoType &&
+		    types.kind(types.strip_cv(parameter)) == TypeKind::Array)
+		{
+			// 8.3.5p5: the parameter carries an array member of the aggregate
+			// this constructor builds, so what the call passes is the address
+			// of an array object of the caller's - which is where the clauses
+			// that reached the member build their elements.
+			out.args.push_back(array_argument(*call.children[index],
+			                                  types.strip_cv(parameter)));
+			continue;
+		}
 		const bool bound = parameter != kNoType && types.is_reference(parameter);
 		const LowValue argument = expression(*call.children[index], bound);
 		out.args.push_back(
@@ -1593,6 +1604,18 @@ Operand LowirFunctionLowering::class_argument(const DumpNode& node, TypeId type)
 	return indirect ? into : storage;
 }
 
+// 8.3.5p5 and 8.5.1p2: the storage the argument of the one parameter that
+// carries an array stands in.  4.2's adjustment is made at the boundary rather
+// than at the declaration, so the array itself is an object of the caller's -
+// the clauses reach its elements from that one base - and what the call passes
+// is its address.
+Operand LowirFunctionLowering::array_argument(const DumpNode& node, TypeId type)
+{
+	const Operand into = open_object_slot(type, "argarr");
+	initialize(into, type, node);
+	return into;
+}
+
 // 12.8p15: a copy of a class object copies what the object holds, which for a
 // class with no base subobject and no non-static data member is nothing at all.
 // The bytes move as one span rather than one member at a time, which is what
@@ -2012,6 +2035,23 @@ void LowirFunctionLowering::member_initialization(const DumpNode& node)
 		const LowValue bound = expression(written, true);
 		const Operand storage = member_storage(*node.children[0], member, true);
 		store(bound_address(bound), storage, type);
+		return;
+	}
+	if (written.fact.entity != nullptr &&
+	    decayed_arrays_.count(written.fact.entity->id) != 0)
+	{
+		// 8.5.1p2 and 8.3.5p5: the member is the array the place of the same
+		// name carries, and what that place holds is the address of the
+		// caller's array rather than its elements - so the member is
+		// initialized with the whole of what stands there, one copy of the
+		// array and not one initialization per element.
+		const Operand into = member_storage(*node.children[0], member);
+		LowValue at;
+		at.type = types.pointer_to(types.target(types.strip_cv(type)));
+		at.lvalue = true;
+		at.operand = named_operand(Operand::OP_SLOT,
+		                           slots_[written.fact.entity->id]);
+		copy_object_storage(into, rvalue(at), type);
 		return;
 	}
 	if (written.fact.kind == FactKind::AggregateInitialization ||

@@ -796,6 +796,10 @@ private:
 	// out of the enclosing list.
 	void array_from_clauses(TypeId array, Clauses& clauses, const Context& ctx,
 	                        DumpNode& line, bool image);
+	// 8.3.5p5: the same list read as the argument the parameter carrying an
+	// array member is passed, which is an array object of the caller's own.
+	void array_argument(TypeId array, Clauses& clauses, const Context& ctx,
+	                    DumpNode& call);
 	void aggregate_elements(TypeId array, Clauses& clauses, const Context& ctx,
 	                        DumpNode& parent);
 	// 8.5.1p2 and 8.5.1p7: a subobject of class type is copy-initialized from
@@ -876,9 +880,6 @@ private:
 	// gives where `observable_expression` says the object expression may not be
 	// left out of the resolved tree.
 	void require_droppable(const DumpNode& object, const std::string& member);
-	// 8.3.4p1: the type of one element of an array, however many dimensions it
-	// has, and the type itself for anything else.
-	TypeId element_of(TypeId type);
 	// 12.6p1: whether a declaration of an array of class type creates its
 	// elements by constructing each of them, which every form but one that
 	// wrote a clause for an element does.
@@ -2101,12 +2102,6 @@ private:
 	                      Requested by = Requested::Written);
 	// 13.4: the declaration of an overloaded name a target type asks for.
 	SemaEntity* resolve_target(const Value& value, TypeId target);
-	// 5.3.1p3: the type `&C::f` has, which is a pointer to member of the class
-	// that declared `f`, over the type its declarator wrote: 9.3.1p3 put the
-	// object it is called on in the function's type, and the cv-qualifiers that
-	// parameter carries are the ones written after its parameter-clause.
-	// kNoType for anything but a non-static member function.
-	TypeId member_pointer_of(const SemaEntity& function);
 	// Writes the line of an id-expression once its overload set is resolved.
 	void name_function(Value& value, SemaEntity& function, const char* what);
 	// 4.1, 4.2 and 4.3: the type the value of `value` has.

@@ -370,3 +370,20 @@ struct SemaFact
 	// 6.1 gives a label, which names a place in the function and no entity.
 	std::string spelling;
 };
+
+// 5.3.1p3: the type `&C::f` has, which is a pointer to member of the class that
+// declared `f`, over the type its declarator wrote: 9.3.1p3 put the object it
+// is called on in the function's type, and the cv-qualifiers that parameter
+// carries are the ones written after its parameter-clause.  kNoType for
+// anything but a non-static member function.
+//
+// 8.3.3p1's type says which member of a class it names rather than being a
+// function type, so it is what a declaration is compared against wherever
+// 13.4p1's target is a pointer to member - and 14.8.2.2p1's deduction there is
+// over the function type it points to, which is `member_target`: that pointee
+// with the object parameter of the candidate put back in front of it.  The two
+// are one reading each way about, so they stand together and neither is a fact
+// of the analyzer's state.
+TypeId member_pointer_of(TypeTable& types, const SemaEntity& function);
+TypeId member_target(TypeTable& types, const SemaEntity& candidate,
+                     TypeId wanted);

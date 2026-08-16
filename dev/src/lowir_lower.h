@@ -1006,6 +1006,9 @@ private:
 	// 5.2.2p4: one argument of a call standing where a parameter of class type
 	// is, which is the storage that parameter object occupies.
 	lowir_model::Operand class_argument(const DumpNode& node, TypeId type);
+	// 8.3.5p5: the same for the one parameter whose type is an array, which
+	// carries the address of an array object of the caller's own.
+	lowir_model::Operand array_argument(const DumpNode& node, TypeId type);
 	// 5p11: an expression whose value is discarded, where the expression is
 	// worth an object of class type it created.  The object still stands in
 	// storage of the function's, which is what the discarding gives it here.
@@ -1572,6 +1575,12 @@ private:
 	// destination, which is then the object standing in it.
 	const SemaEntity* return_slot_local_;
 	std::unordered_map<std::uint32_t, std::string> slots_;
+	// 8.3.5p5: the places of this function that carry an array as the address
+	// of the caller's, which is what says a use of one is a read of that
+	// address rather than of an object standing where the place does.  Only
+	// 8.5.1p2's constructor of an aggregate declares one, so every other
+	// function keeps this empty and pays nothing for it.
+	std::unordered_set<std::uint32_t> decayed_arrays_;
 	// 12.2p1 and 12.8p31: the address a temporary that was created in storage
 	// the place asking for it already owned stands at.  Such a temporary has no
 	// slot of its own, so what names it is the destination it was built in, and

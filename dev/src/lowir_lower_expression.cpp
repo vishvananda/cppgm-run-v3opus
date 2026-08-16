@@ -700,6 +700,17 @@ LowValue LowirFunctionLowering::call_expression(const DumpNode& node,
 			                                   types.strip_cv(parameter)));
 			continue;
 		}
+		if (parameter != kNoType &&
+		    types.kind(types.strip_cv(parameter)) == TypeKind::Array)
+		{
+			// 8.3.5p5: no by-value parameter carries an array, so 8.5.1p2's
+			// constructor of an aggregate is passed the address of an array
+			// object of the caller's - and the clauses that reached the member
+			// build their elements in it.
+			call.args.push_back(array_argument(*node.children[index],
+			                                   types.strip_cv(parameter)));
+			continue;
+		}
 		const bool bound = parameter != kNoType && types.is_reference(parameter);
 		const LowValue argument = expression(*node.children[index], bound);
 		call.args.push_back(

@@ -224,6 +224,18 @@ void LowirUnitLowering::describe_parameter(TypeId written,
 		parameter.metadata.passing = lowir_model::PPM_BY_ADDRESS;
 		return;
 	}
+	if (types_.kind(types_.strip_cv(written)) == TypeKind::Array)
+	{
+		// 8.3.5p5 leaves an array no by-value form at all, so the one place
+		// that declares such a parameter - 8.5.1p2's constructor of an
+		// aggregate with an array member - carries the address of the caller's
+		// array and copies the elements into the member itself.  4.2's
+		// adjustment is the boundary's rather than the declaration's here,
+		// which is what `decay` says.
+		parameter.type = low("ptr");
+		parameter.metadata.passing = lowir_model::PPM_DECAY;
+		return;
+	}
 	parameter.type = low_type(written);
 }
 

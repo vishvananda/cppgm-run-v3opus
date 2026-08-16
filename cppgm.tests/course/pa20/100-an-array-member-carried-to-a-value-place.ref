@@ -1,0 +1,68 @@
+declare function @take_braced(%arg0 : obj<8x4>) -> void [binding=strong, object=_Z11take_braced6braced]
+declare function @take_carried(%arg0 : obj<24x8>) -> void [binding=strong, object=_Z12take_carried7carried]
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $argobj__1 : obj<24x8>
+  slot $argarr__2 : obj<12x4>
+  slot $argobj__3 : obj<8x4>
+  slot $argarr__4 : obj<8x4>
+
+  block ^entry:
+    %t1 = addr $argobj__1
+    %t2 = addr $argarr__2
+    store i32 2, %t2
+    %t3 = index i8 %t2, 4
+    store i32 3, %t3
+    %t4 = index i8 %t2, 8
+    store i32 4, %t4
+    call void @carried__carried__ov2(%t1, 1, %t2, 5.5)
+    call void @take_carried($argobj__1)
+    %t5 = addr $argobj__3
+    %t6 = addr $argarr__4
+    store i32 6, %t6
+    %t7 = index i8 %t6, 4
+    store i32 7, %t7
+    call void @braced__braced__ov4(%t5, %t6)
+    call void @take_braced($argobj__3)
+    return i32 0
+}
+function @carried__carried__ov2(%this : ptr, %leading : i32, %elements : ptr [pass=decay], %trailing : f64) -> void [unwind=no, binding=weak, object=_ZN7carriedC1EiA3_id] {
+  slot $this : ptr
+  slot $leading : i32
+  slot $elements : ptr
+  slot $trailing : f64
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %leading, $leading
+    store ptr %elements, $elements
+    store f64 %trailing, $trailing
+    %t1 = load i32 $leading
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 %t1, %t3
+    %t4 = load ptr $this
+    %t5 = index i8 [projection=field] %t4, 4
+    %t6 = load ptr $elements
+    copyobj 12x4 %t6, %t5
+    %t7 = load f64 $trailing
+    %t8 = load ptr $this
+    %t9 = index i8 [projection=field] %t8, 16
+    store f64 %t7, %t9
+    return void
+}
+function @braced__braced__ov4(%this : ptr, %elements : ptr [pass=decay]) -> void [unwind=no, binding=weak, object=_ZN6bracedC1EA2_i] {
+  slot $this : ptr
+  slot $elements : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    store ptr %elements, $elements
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load ptr $elements
+    copyobj 8x4 %t3, %t2
+    return void
+}
+alias object _ZN7carriedC2EiA3_id = @carried__carried__ov2
+alias object _ZN6bracedC2EA2_i = @braced__braced__ov4

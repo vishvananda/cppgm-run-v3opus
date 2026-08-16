@@ -573,7 +573,7 @@ void SemaAnalyzer::note_destruction_entry(SemaEntity& destructor, bool base)
 // after it, so an array of more than one element stands for two.
 void SemaAnalyzer::record_unwind_subobject(TypeId type)
 {
-	SemaEntity* const ends = class_destructor(element_of(type));
+	SemaEntity* const ends = class_destructor(types_.element_of(type));
 	if (ends == nullptr || ends->trivial || ends->deleted)
 	{
 		return;
@@ -582,7 +582,7 @@ void SemaAnalyzer::record_unwind_subobject(TypeId type)
 	unwind_subobjects_.push_back(ends);
 	if (types_.kind(bare) == TypeKind::Array &&
 	    types_.object_size(bare) >
-	        types_.object_size(types_.strip_cv(element_of(bare))))
+	        types_.object_size(types_.strip_cv(types_.element_of(bare))))
 	{
 		unwind_subobjects_.push_back(ends);
 	}
@@ -2691,7 +2691,7 @@ void SemaAnalyzer::declare_object_declarator(const AstNode* initializer,
 	const AstNode* const value = elided != nullptr ? elided : clause;
 	const bool copied =
 		elided == nullptr && initializer != nullptr && initializer->copied;
-	if (types_.is_class(element_of(types_.strip_cv(type))) &&
+	if (types_.is_class(types_.element_of(types_.strip_cv(type))) &&
 	    entity.object_definition)
 	{
 		// 3.8p1: the end of the lifetime of an object of class type is an
