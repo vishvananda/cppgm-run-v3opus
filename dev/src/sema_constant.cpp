@@ -443,7 +443,13 @@ SemaAnalyzer::Constant SemaAnalyzer::evaluate(const AstNode& node,
 			throw NotConstant("a constant expression casts to a type that "
 			                         "is not arithmetic");
 		}
-		const Constant value = evaluate(*node.children[1], ctx);
+		// 5.4p4: a cast written in either notation direct-initializes an
+		// object of the type named, which 12.3.2p2 makes the other place a
+		// conversion function declared `explicit` answers - so the conversion
+		// is asked for here rather than left to `convert`, which is 5.19p3's
+		// implicit sequence and reaches no such declaration.
+		const Constant value = ConstexprReading(*this).at_arithmetic_place(
+			evaluate(*node.children[1], ctx), arithmetic_type(type), true);
 		Constant out = convert(value, type);
 		out.type = type;
 		return out;

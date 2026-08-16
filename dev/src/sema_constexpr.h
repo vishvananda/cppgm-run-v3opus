@@ -112,6 +112,11 @@ public:
 	// grammar hands on as a call, which is 5.2.3p1's cast, 5.2.3p2/p3's object
 	// of literal class type or 5.2.2p1's call of a function.
 	SemaConstant id_constant(const AstNode& node, const SemaContext& ctx);
+	// The same reading of a declaration a lookup has already reached, which is
+	// what a door that looked the name up itself asks rather than looking it up
+	// again.  `spelling` is the name the program wrote, for the refusal.
+	SemaConstant entity_constant(SemaEntity& entity,
+	                             const std::string& spelling);
 	SemaConstant unary_constant(const AstNode& node, const SemaContext& ctx);
 	SemaConstant binary_constant(const AstNode& node, const SemaContext& ctx);
 	SemaConstant call_or_cast(const AstNode& node, const SemaContext& ctx);
@@ -158,11 +163,16 @@ public:
 	SemaConstant called(const AstNode& callee,
 	                    const std::vector<SemaConstant>& arguments,
 	                    const SemaContext& ctx);
-	// The same call where the name has already been looked up, which is where
-	// the reading over a template-argument spelling arrives: it has resolved
-	// the word to tell 5.2.3's cast from 5.2.2's call in the first place.
-	SemaConstant called_entity(SemaEntity& named,
-	                           const std::vector<SemaConstant>& arguments);
+	// The same call written as a name rather than as a tree, which is where the
+	// reading over a template-argument *spelling* arrives - a flattened
+	// argument holds the words a call was written with and no node of its own.
+	// Which declaration such a call reaches is 3.4, 3.4.2 and 14.2's answer
+	// there as it is anywhere else, so both doors ask this one reading: a
+	// template-id names its specializations, an unqualified name also names
+	// what its arguments' namespaces declare, and 13.3 ranks the set.
+	SemaConstant called_name(const std::string& name, const AstNode* callee,
+	                         const std::vector<SemaConstant>& arguments,
+	                         const SemaContext& ctx);
 
 	// 13.3, asked of the constants a fold holds: the one declaration of
 	// `candidates` no other beats over this argument list, with `object` the
@@ -239,7 +249,13 @@ public:
 	// bound, an enumerator, a case label, an alignment, a bit-field width, a
 	// count, and `convert` and `promote` for everything that reaches an
 	// operator or an initialization through them.
-	SemaConstant at_arithmetic_place(const SemaConstant& value, TypeId place);
+	//
+	// `contextual` is 12.3.2p2's other door: 4p3's contextual conversion is the
+	// one place a conversion function declared `explicit` answers, and every
+	// place named above is 5.19p3's *implicit* conversion sequence, which it
+	// does not.
+	SemaConstant at_arithmetic_place(const SemaConstant& value, TypeId place,
+	                                 bool contextual = false);
 
 	// The same reading where the place *counts* rather than holds a number: an
 	// array bound, a subscript, a shift width.  Each of those is an integral
@@ -249,14 +265,20 @@ public:
 	unsigned long long counted(const SemaConstant& value);
 
 	// 12.3.2p1 with 14.3.2p5: `value`, an object of class type, brought to the
-	// type `place` by a conversion function of its class.  13.3.3p1 leaves the
-	// choice to a ranking of the conversion each answer then takes, which a
-	// fold cannot make: one that reaches `place` itself is the best there is,
-	// and a class offering two that reach it only through a further conversion
-	// is one this reading refuses rather than picks from.  Throws `NotConstant`
-	// there and where the class declares no constexpr conversion function that
-	// reaches an arithmetic type at all.
-	SemaConstant converted(const SemaConstant& value, TypeId place);
+	// type `place` by a conversion function of its class.
+	//
+	// Which conversion function is 13.3.3.1.2's user-defined conversion
+	// sequence, which the analysis already answers for every other reader of
+	// one - so this asks `conversion_match` rather than ranking a set of its
+	// own, and asks `builtin_conversion_type` for the type where the place
+	// named none.  A fold adds nothing to that question: 12.3.2p2's `explicit`,
+	// 8.4.3p2's deleted declaration, 10.2's conversions of a base and the
+	// cv-qualification of the object are the same facts here as anywhere else,
+	// and whether the declaration chosen is a constexpr one this unit defined
+	// is asked *after* 13.3 has chosen and never used to choose.  Throws
+	// `NotConstant` where no conversion is viable and where two are.
+	SemaConstant converted(const SemaConstant& value, TypeId place,
+	                       bool contextual);
 
 	// 5.3.7p1 and p2: `noexcept(E)`, whose result is a constant of type `bool`
 	// - which is what puts it here rather than beside the operators that
@@ -299,13 +321,17 @@ private:
 	                     std::vector<AnalyzedValue>& out) const;
 	AnalyzedValue argument_value(const SemaConstant& value) const;
 	AnalyzedValue object_value(const SemaConstant& object) const;
-	// 3.4, 3.4.2 and 14.2: the declarations `callee` names, appended to
+	// 3.4, 3.4.2 and 14.2: the declarations `name` reaches, appended to
 	// `candidates`, with `singles` taking how many of them are the single
 	// friend declarations 11.3p6 made.  Null where nothing of the name is
 	// declared, and the declaration itself where the name reaches something
 	// that is no function - 13.5.4p1's object of class type is the one such
-	// name a call may still be written on.
-	SemaEntity* callee_candidates(const AstNode& callee, const SemaContext& ctx,
+	// name a call may still be written on.  `callee` is the node the name was
+	// written as where there is one, which 7.1.6.2p1's decltype-specifier is
+	// the whole of the use for; a flattened spelling has none.
+	SemaEntity* callee_candidates(const std::string& name,
+	                              const AstNode* callee,
+	                              const SemaContext& ctx,
 	                              const std::vector<AnalyzedValue>& written,
 	                              std::vector<SemaEntity*>& candidates,
 	                              std::size_t& singles);

@@ -770,12 +770,6 @@ SemaConstant TemplateArgumentReader::call_operand(
 		throw NotConstant("a call written as a template argument does not "
 		                  "close its arguments");
 	}
-	SemaEntity* const named = analyzer_.resolve(word, ctx_, LookupKind::Any);
-	if (named == nullptr)
-	{
-		throw NotConstant(word + " is written where a template argument calls "
-		                  "and names nothing");
-	}
 	if (!live)
 	{
 		SemaConstant out;
@@ -783,8 +777,14 @@ SemaConstant TemplateArgumentReader::call_operand(
 		out.bits = 0;
 		return out;
 	}
+	// 3.4, 3.4.2 and 14.2: which declarations the word reaches is the reading
+	// `called` asks, and a call written as a template argument is the same
+	// construct as one written anywhere else - so the ordinary lookup is not
+	// the whole of it here either.  A template-id names its specializations and
+	// an unqualified name also names what its arguments' namespaces declare.
 	const unsigned stood = analyzer_.stood_in_;
-	SemaConstant out = ConstexprReading(analyzer_).called_entity(*named, operands);
+	SemaConstant out =
+		ConstexprReading(analyzer_).called_name(word, nullptr, operands, ctx_);
 	if (analyzer_.stood_in_ != stood)
 	{
 		// 14.6p8: the body read something an argument list has yet to settle,
@@ -1205,8 +1205,11 @@ TypeId SemaAnalyzer::template_argument_value(const std::string& spelling,
 	SemaConstant given = value;
 	if (ConstexprReading(*this).is_object(given))
 	{
+		// 14.3.2p5's converted constant expression is 5.19p3's *implicit*
+		// sequence, so 12.3.2p2 leaves a conversion function declared
+		// `explicit` out of it.
 		given = ConstexprReading(*this).converted(
-			given, place == kNoType ? kNoType : types_.strip_cv(place));
+			given, place == kNoType ? kNoType : types_.strip_cv(place), false);
 	}
 	const TypeId type = place == kNoType ? given.type : place;
 	if (integral_type(type) == kNoType)

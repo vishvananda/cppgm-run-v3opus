@@ -646,6 +646,17 @@ SemaConstant ConstexprReading::member_value(const SemaConstant& object,
 		                  "an object of class type");
 	}
 	SemaEntity* const named = accessed_member(object, name, ctx);
+	if (named != nullptr && !named->object_member &&
+	    named->kind != SemaKind::Function)
+	{
+		// 9.4p2 with 5.2.5p1: a member declared `static` is a member of the
+		// class and no subobject of any object of it - the object expression is
+		// evaluated and its value discarded, and what the access names is that
+		// one object.  So the access is worth what the declaration is worth,
+		// which is the reading an id-expression naming it asks; the subobject
+		// list below holds 9.2p1's members and never this one.
+		return entity_constant(*named, name);
+	}
 	std::vector<SemaEntity*> members;
 	data_members(object.type, members);
 	const std::vector<TypeId>& held =
@@ -730,15 +741,22 @@ SemaConstant ConstexprReading::called(const AstNode& callee,
 		throw NotConstant("a constant expression calls something this "
 		                  "milestone does not evaluate");
 	}
+	return called_name(callee.text, &callee, arguments, ctx);
+}
+
+SemaConstant ConstexprReading::called_name(
+	const std::string& name, const AstNode* callee,
+	const std::vector<SemaConstant>& arguments, const SemaContext& ctx)
+{
 	std::vector<AnalyzedValue> written;
 	argument_values(arguments, written);
 	std::vector<SemaEntity*> candidates;
 	std::size_t singles = 0;
 	SemaEntity* const named =
-		callee_candidates(callee, ctx, written, candidates, singles);
+		callee_candidates(name, callee, ctx, written, candidates, singles);
 	if (named == nullptr)
 	{
-		throw NotConstant(callee.text +
+		throw NotConstant(name +
 		                  " is written where a constant expression calls and "
 		                  "names no function");
 	}
@@ -748,39 +766,16 @@ SemaConstant ConstexprReading::called(const AstNode& callee,
 		// call is a call of a member `operator()` of its class - which is a
 		// member call on the object that name is worth and no further reading
 		// of its own.
-		return member_call(id_constant(callee, ctx), "operator()", arguments,
-		                   ctx);
+		return member_call(entity_constant(*named, name), "operator()",
+		                   arguments, ctx);
 	}
-	SemaEntity& one = selected(callee.text, candidates, written, nullptr,
-	                           singles);
+	SemaEntity& one = selected(name, candidates, written, nullptr, singles);
 	// 9.3.1p3: a call written with no object expression is one on the object
 	// the function being read stands on, which 5.19p2 has no value for - so a
 	// fold reaches only the declarations no object is needed to call.
 	if (one.object_member)
 	{
-		throw NotConstant(callee.text +
-		                  " is called on an object a constant expression does "
-		                  "not name");
-	}
-	return call(one, nullptr, arguments);
-}
-
-SemaConstant ConstexprReading::called_entity(
-	SemaEntity& named, const std::vector<SemaConstant>& arguments)
-{
-	if (named.kind != SemaKind::Function)
-	{
-		throw NotConstant(named.name +
-		                  " is written where a constant expression calls and "
-		                  "names no function");
-	}
-	std::vector<AnalyzedValue> written;
-	argument_values(arguments, written);
-	const std::vector<SemaEntity*> candidates(1, &named);
-	SemaEntity& one = selected(named.name, candidates, written, nullptr, 0);
-	if (one.object_member)
-	{
-		throw NotConstant(named.name +
+		throw NotConstant(name +
 		                  " is called on an object a constant expression does "
 		                  "not name");
 	}
@@ -851,27 +846,27 @@ AnalyzedValue ConstexprReading::object_value(const SemaConstant& object) const
 // nothing at all, which is the point: a call is one construct, and a constant
 // expression is not a dialect of it.
 SemaEntity* ConstexprReading::callee_candidates(
-	const AstNode& callee, const SemaContext& ctx,
+	const std::string& name, const AstNode* callee, const SemaContext& ctx,
 	const std::vector<AnalyzedValue>& written,
 	std::vector<SemaEntity*>& candidates, std::size_t& singles)
 {
 	SemaEntity* named = nullptr;
-	if (child_kind(callee, AstKind::CarriedExpression) != nullptr)
+	if (callee != nullptr &&
+	    child_kind(*callee, AstKind::CarriedExpression) != nullptr)
 	{
 		// 7.1.6.2p1: the nested-name-specifier begins with a decltype-specifier,
 		// so the region the name is looked up in is the one that type names.
-		named = analyzer_.decltype_qualified_name(callee, ctx, LookupKind::Any,
+		named = analyzer_.decltype_qualified_name(*callee, ctx, LookupKind::Any,
 		                                          &candidates);
 	}
 	else
 	{
-		named = analyzer_.template_specializations(callee.text, ctx, candidates);
+		named = analyzer_.template_specializations(name, ctx, candidates);
 	}
 	if (named == nullptr)
 	{
 		candidates.clear();
-		named = analyzer_.resolve(callee.text, ctx, LookupKind::Any,
-		                          &candidates);
+		named = analyzer_.resolve(name, ctx, LookupKind::Any, &candidates);
 	}
 	if (named != nullptr && named->kind != SemaKind::Function)
 	{
@@ -884,7 +879,7 @@ SemaEntity* ConstexprReading::callee_candidates(
 	{
 		candidates.push_back(named);
 	}
-	if (!QualifiedName(callee.text).qualified() &&
+	if (!QualifiedName(name).qualified() &&
 	    ArgumentLookup(analyzer_).allowed(named))
 	{
 		// 3.4.2p1: an unqualified callee also names what the types of the
@@ -893,8 +888,8 @@ SemaEntity* ConstexprReading::callee_candidates(
 		// A name the ordinary lookup found nothing of is one this search is the
 		// whole of, which is what reaches a function declared beside its own
 		// argument's class and nowhere else.
-		singles = ArgumentLookup(analyzer_).candidates(callee.text, written,
-		                                              candidates);
+		singles = ArgumentLookup(analyzer_).candidates(name, written,
+		                                               candidates);
 	}
 	if (named == nullptr)
 	{
@@ -938,27 +933,29 @@ SemaEntity& ConstexprReading::selected(
 	return analyzer_.named_function(*one);
 }
 
-// 12.3.2p1 with 14.3.2p5: an object of class type brought to an integral type.
+// 12.3.2p1 with 14.3.2p5: an object of class type brought to an arithmetic type.
 //
 // A conversion function is a member function of no parameters whose name is the
-// type it converts to, so what the fold does is call it on the object.  The
-// class's own conversions are what 13.3.1.5p1 offers first; a class that
-// declares one to the very type the place asked for is chosen over one that
-// reaches it by a further standard conversion, which is the whole of the
-// ranking a set of constant answers can bear.
+// type it converts to, so what the fold does is call it on the object - and
+// *which* one it calls is 13.3.3.1.2's user-defined conversion sequence, the
+// question `conversion_match` answers for every other reader of one.  A fold
+// asks it there rather than ranking a set of its own, for the same reason
+// `selected` hands a call's candidates to `select_overload`: a conversion is
+// one construct, and a constant expression is not a dialect of it.
 SemaConstant ConstexprReading::at_arithmetic_place(const SemaConstant& value,
-                                                   TypeId place)
+                                                   TypeId place,
+                                                   bool contextual)
 {
 	// A constant of class type is the identifier of an interned list and not a
 	// number of the object's own width, so reading its bits where a number was
 	// asked for is reading the identifier.  5.19p3 leaves a converted constant
 	// expression its user-defined conversions, which is the one reading that
 	// turns such a constant into one.
-	return is_object(value) ? converted(value, place) : value;
+	return is_object(value) ? converted(value, place, contextual) : value;
 }
 
 SemaConstant ConstexprReading::converted(const SemaConstant& value,
-                                         TypeId place)
+                                         TypeId place, bool contextual)
 {
 	SemaEntity* const owner =
 		analyzer_.model_.type_owner(analyzer_.types_.strip_cv(value.type));
@@ -967,57 +964,41 @@ SemaConstant ConstexprReading::converted(const SemaConstant& value,
 		throw NotConstant("a constant expression converts an object of a type "
 		                  "it does not know");
 	}
-	SemaEntity* found = nullptr;
-	bool exact = false;
-	unsigned reaching = 0;
-	// 3.9.3p1: the cv-qualifiers of the place say nothing about which
-	// conversion reaches it - `constexpr int n = d;` asks for a `const int` and
-	// `operator int` is the very conversion 13.3.3p1 calls the best one.
-	const TypeId wanted =
-		place == kNoType ? kNoType : analyzer_.types_.strip_cv(place);
-	for (std::size_t index = 0; index < owner->conversions.size(); ++index)
+	// 13.3.1p3 and 9.3.1p3: the object the conversion function is called on,
+	// which carries the constant's own cv-qualification because that is what
+	// says whether a candidate's object parameter accepts it.  8.3.5p1's
+	// ref-qualifier binds by the category the object expression had, and a
+	// constant a declaration named is an lvalue.
+	AnalyzedValue object = argument_value(value);
+	object.category = ValueCategory::LValue;
+	// 13.6 and 6.4.2p2: a place that named no type asks only that the class
+	// reach *a* value an arithmetic reading can take, which is the question the
+	// built-in operators ask of an operand of class type - and a class that
+	// reaches two of them reaches no one of them.
+	const TypeId wanted = place != kNoType
+		? place
+		: analyzer_.builtin_conversion_type(object);
+	const SemaAnalyzer::Match match = wanted == kNoType
+		? SemaAnalyzer::Match()
+		: analyzer_.conversion_match(object, wanted, contextual);
+	if (!match.viable || match.converted == nullptr)
 	{
-		SemaEntity& each = *owner->conversions[index];
-		if (!each.constexpr_function || each.constexpr_body == nullptr)
-		{
-			continue;
-		}
-		const TypeId to = analyzer_.types_.target(each.type);
-		if (analyzer_.arithmetic_type(to) == kNoType)
-		{
-			continue;
-		}
-		if (wanted != kNoType && analyzer_.types_.strip_cv(to) == wanted)
-		{
-			found = &each;
-			exact = true;
-			break;
-		}
-		++reaching;
-		if (found == nullptr)
-		{
-			found = &each;
-		}
-	}
-	if (found == nullptr)
-	{
+		// 13.3.3p1: no conversion function of the class is viable for this
+		// place, or two are and neither is better - which is no user-defined
+		// conversion sequence at all and so no value here.
 		throw NotConstant(analyzer_.types_.description(value.type) +
-		                  " declares no constexpr conversion function a "
-		                  "constant expression reaches a value through");
+		                  " declares no one conversion function a constant "
+		                  "expression reaches this place through");
 	}
-	if (!exact && reaching > 1)
-	{
-		// 13.3.3p1: which of two conversions is the better one is a ranking of
-		// what each answer then converts by, which a fold has no typed
-		// expression to make - so a class offering two that reach the place
-		// only through a further conversion is refused rather than picked from.
-		throw NotConstant(analyzer_.types_.description(value.type) +
-		                  " declares more than one constexpr conversion "
-		                  "function a constant expression reaches this place "
-		                  "through");
-	}
+	// 3.2p2 and 8.4.3p2: choosing a declaration is naming it, which is what
+	// asks an instantiation for the body the fold is about to read and what
+	// refuses a deleted one.  Whether the declaration chosen is a constexpr
+	// function this unit defined is `call`'s answer and no part of the choice:
+	// a set ranked with the others left out would hand back the value of a
+	// conversion the program does not perform.
+	SemaEntity& one = analyzer_.named_function(*match.converted);
 	const std::vector<SemaConstant> none;
-	return call(*found, &value, none);
+	return call(one, &value, none);
 }
 
 SemaEntity& ConstexprReading::bind_constant(const std::string& name,
@@ -1332,7 +1313,15 @@ SemaConstant ConstexprReading::id_constant(const AstNode& node,
 		child_kind(node, AstKind::CarriedExpression) == nullptr
 		? analyzer_.resolve(node.text, ctx, LookupKind::Any)
 		: analyzer_.decltype_qualified_name(node, ctx, LookupKind::Any);
-	SemaEntity& entity = analyzer_.require(named, node.text);
+	return entity_constant(analyzer_.require(named, node.text), node.text);
+}
+
+// 5.19p2: what a declaration the name reached is worth, which is the same
+// question wherever the lookup that reached it was written - so a door that has
+// already found the declaration asks this and looks the name up no second time.
+SemaConstant ConstexprReading::entity_constant(SemaEntity& entity,
+                                               const std::string& spelling)
+{
 	if (!entity.constant)
 	{
 		if (analyzer_.checking_ > 0 && analyzer_.types_.is_dependent(entity.type))
@@ -1346,7 +1335,7 @@ SemaConstant ConstexprReading::id_constant(const AstNode& node,
 			stood.bits = 1;
 			return stood;
 		}
-		throw NotConstant(node.text + " is not a constant expression");
+		throw NotConstant(spelling + " is not a constant expression");
 	}
 	SemaConstant out;
 	out.type = entity.type;
@@ -1364,6 +1353,18 @@ SemaConstant ConstexprReading::unary_constant(const AstNode& node,
 		// stands, so the operand is not read as a value first.
 		return increment_constant(node, ctx, true);
 	}
+	if (node.token == OP_LNOT)
+	{
+		// 5.3.1p9: the operand is contextually converted to `bool`, which is
+		// the reading `&&`, `||` and a condition ask and not a look at the
+		// operand's bits - so an object of class type reaches it through the
+		// one conversion 12.3.2p2 leaves `explicit` in, and a floating operand
+		// is read by 4.12p1 rather than compared against zero here.
+		SemaConstant out;
+		out.type = analyzer_.types_.fundamental(FT_BOOL);
+		out.bits = truth(analyzer_.evaluate(*node.children[0], ctx)) ? 0 : 1;
+		return out;
+	}
 	const SemaConstant operand = analyzer_.promote(analyzer_.evaluate(*node.children[0], ctx));
 	SemaConstant out;
 	out.type = operand.type;
@@ -1371,15 +1372,12 @@ SemaConstant ConstexprReading::unary_constant(const AstNode& node,
 	{
 		// 5.3.1p7 and p8: `+` and `-` take a floating operand as it stands and
 		// hand back its value and its negation.  5.3.1p10's `~` asks for an
-		// integral operand and 5.3.1p9's `!` is 4p3's reading of the value.
+		// integral operand; 5.3.1p9's `!` was answered above, where 4p3 reads
+		// every operand of it alike.
 		switch (node.token)
 		{
 		case OP_PLUS: out.real = operand.real; return out;
 		case OP_MINUS: out.real = -operand.real; return out;
-		case OP_LNOT:
-			out.type = analyzer_.types_.fundamental(FT_BOOL);
-			out.bits = operand.real == 0 ? 1 : 0;
-			return out;
 		default:
 			throw NotConstant("a constant expression writes an operator that "
 			                  "asks for an integral operand on a floating one");
@@ -1405,11 +1403,6 @@ SemaConstant ConstexprReading::unary_constant(const AstNode& node,
 	case OP_COMPL:
 		out.bits = ~operand.bits;
 		break;
-
-	case OP_LNOT:
-		out.type = analyzer_.types_.fundamental(FT_BOOL);
-		out.bits = operand.bits == 0 ? 1 : 0;
-		return out;
 
 	default:
 		throw NotConstant("a constant expression holds an operator PA11 "
@@ -1742,7 +1735,13 @@ SemaConstant ConstexprReading::call_or_cast(const AstNode& node,
 		out.bits = 0;
 		return out;
 	}
-	SemaConstant out = analyzer_.convert(operands[0], target);
+	// 5.2.3p1 and 5.4p4: the functional notation direct-initializes the object
+	// too, so 12.3.2p2's `explicit` conversion function answers this cast as it
+	// answers the one written `(T)x`.
+	SemaConstant out = analyzer_.convert(
+		at_arithmetic_place(operands[0], analyzer_.arithmetic_type(target),
+		                    true),
+		target);
 	out.type = target;
 	return out;
 }

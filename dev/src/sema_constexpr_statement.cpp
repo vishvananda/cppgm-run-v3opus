@@ -119,11 +119,13 @@ bool ConstexprReading::truth(const SemaConstant& value)
 {
 	// 4p3: a condition is contextually converted to `bool`, which for an object
 	// of class type is 12.3.2p1's conversion function - the same reading every
-	// other arithmetic place asks, with `bool` as the place.  4.12p1 makes the
-	// answer `bool`, so the conversion is what reads a floating value and this
-	// looks at the bits it left.
+	// other arithmetic place asks, with `bool` as the place.  12.3.2p2 leaves
+	// this the one place a conversion function declared `explicit` answers, so
+	// it is asked contextually and 5.19p3's other places are not.  4.12p1 makes
+	// the answer `bool`, so the conversion is what reads a floating value and
+	// this looks at the bits it left.
 	const TypeId to_bool = analyzer_.types_.fundamental(FT_BOOL);
-	return analyzer_.convert(at_arithmetic_place(value, to_bool), to_bool)
+	return analyzer_.convert(at_arithmetic_place(value, to_bool, true), to_bool)
 		       .bits != 0;
 }
 

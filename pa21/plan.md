@@ -26,10 +26,14 @@ milestones deferred. Two ownership lines carry the whole assignment:
   3.6.3p3's `__cxa_atexit` registration are PA21's. **Done — checkpoint L.**
 
 Beside them, one line that is deliberately *not* an owner: which declaration a
-call in a constant expression runs is 13.3's and 14.8.2's answer, and the fold
-asks for it rather than keeping a ranking of its own — `ConstexprReading` builds
-one `AnalyzedValue` per constant and hands the same `select_overload` the
-expression layer does. **Done — checkpoint T.**
+constant expression runs is 13.3's and 14.8.2's answer, and the fold asks for it
+rather than keeping a ranking of its own — `ConstexprReading` builds one
+`AnalyzedValue` per constant and hands it to the same `select_overload` for a
+call and to the same `conversion_match` for 12.3.2p1's conversion function, and
+`called_name` is the one reading both the tree and the flattened-spelling door
+ask. Whether the declaration chosen is a constexpr one this unit defined is
+asked *after* 13.3 has chosen and never used to choose. **Done — checkpoint T
+and its audit.**
 
 Beside them, one small owner of its own: 15.4's exception-specification is a
 typed fact of a declaration — `SemaEntity::nonthrowing`, settled by
@@ -41,10 +45,12 @@ asks it of the *lines that name a declaration* in the resolved tree. **Done —
 checkpoint N.**
 
 Reference-binary note: `pa21/cppgm++-ref` exists and answers PA21 inputs, so
-naming and lowering shapes are probed rather than guessed — but it refuses every
-shape that reaches an arithmetic place through a conversion function, and it
-accepts a floating enumerator and a floating array bound 7.2p5 and 8.3.4p1
-refuse, where g++ and the standard agree with this build. Its floating images
+naming and lowering shapes are probed rather than guessed — but it folds a
+conversion function only where the place is an *initializer* or 4p3's contextual
+`bool`, and refuses one written at an enumerator, an array bound or inside a
+`sizeof`, where g++ and this build fold it; and it accepts a floating enumerator
+and a floating array bound 7.2p5 and 8.3.4p1 refuse, where g++ and the standard
+agree with this build. Its floating images
 are `%.20g` at the object's own width with 2.14.4p1's suffix for a scalar, and
 the digits the program wrote for a clause of an aggregate; both were probed and
 both are reproduced, `inf`, `-inf` and `-nan` among them. Where 5p4's overflow
@@ -56,14 +62,14 @@ the `.ref` files are the oracle and no fixture asks for the refusal.
 
 **75/132**; 57 failures remain. 14 are a LowIR mismatch and 9 are a `-bad` case
 this compiler accepts; the rest refuse a program the assignment asks it to
-translate. Groups N and T are closed.
+translate. Groups N and T are closed, T's audit with them.
 
 | Group | Shape | Count |
 |---|---|---|
 | I. LowIR mismatch, not exit status | canonical diff only; mostly the lowering re-folding from the dump instead of taking the analysis's answer, plus the two symbol-naming gaps below | 14 |
 | O2. a name whose declaration the fold refused | `X is not a constant expression` where `X` *is* a `constexpr` variable — the initializer is a call or an operator one of the groups below refuses | 13 |
 | V. `constexpr` validation | a `-bad` case this compiler accepts (exit status inverted), mostly a refused initializer lowered as a dynamic one | 9 |
-| B. objects with bases, and a class the fold cannot rank a conversion of | `... is not a class a constant expression builds an object of` — 10p1's base subobject is one this object does not hold; `declares no constexpr conversion function` | 6 |
+| B. objects with bases, and a class no conversion of reaches the place | `... is not a class a constant expression builds an object of` — 10p1's base subobject is one this object does not hold; `declares no one conversion function a constant expression reaches this place through`, which after T's audit is 13.3.3.1.2's own answer and not a ranking of the fold's | 6 |
 | P. pointer- and reference-valued constants | `&x` refused as an operator the fold does not evaluate; a pointer read for truth, compared, subscripted through, or written `->` on | 5 |
 | C. a cast to a class or reference type | `casts to a type that is not arithmetic`, where the type-id names `const D&`, `E` or `X&&` | 3 |
 | misc | `this`, a subscript of a class object, a member call on a temporary, a write through an overloaded assignment, a member of a class *being* instantiated whose definition the demand only queued | 7 |
@@ -73,6 +79,17 @@ plan already diagnosed: a scalar whose initializer the *analysis* folded is
 given a dynamic initializer because the lowering re-folds from the dump instead
 of taking `SemaEntity::value` and `::real`. Several V rows are the other side of
 that seam — a refused initializer lowered as a dynamic one rather than refused.
+`constexpr bool ok = !(!B());` is the shape at its smallest: the analysis folds
+it to 1 and the image says `zero` with a body that calls the conversion.
+
+**The group after it is one door and not a list of rows.** O2 and most of
+`misc` are 13.3.1.2: an operator expression names a declaration exactly as a
+call does — a member `operator+`, a hidden friend 3.4.2 reaches, an
+`operator==` that takes its operands by converting constructor — and the fold
+answers only 13.6's built-in candidates, so `(C(1) + 2).n` is refused where the
+declaration is there to be chosen. T made the call door ask `select_overload`
+and T's audit made the conversion door ask `conversion_match`; this is the third
+door and the same sentence.
 
 **Known gaps F and its audit left standing.** A clause of an aggregate written
 as a nested braced-init-list (`constexpr P ps[2] = {{1,2},{3,4}};`) is not
@@ -96,7 +113,9 @@ initializer; that is group I's shape, and its fix is for the lowering to take
 |---|---|---|
 | constexpr loop | one pass per iteration; a block's region, the objects it declares and the names it introduces are each made once per fold and reused, so n iterations cost O(n) statements and O(1) declarations | `for` of 1e3 / 1e4 / 1e5 passes with a body-local declaration: 0.00 / 0.02 / 0.18s, peak RSS 7.11 / 7.00 / 7.05 MB (flat). A body-local `typedef` beside it at 12800 / 51200 / 102400 passes: 0.03 / 0.09 / 0.19s at 6.78 / 7.20 / 6.81 MB. Ref: 0.54 / 0.60 / 4.01s |
 | constant object | one fold per declaration, and one interned list per distinct object; a constructor called twice with one argument list is one walk | 500 / 2000 / 8000 `constexpr` two-member objects, each read back by a `static_assert`: 0.03 / 0.10 / 0.45s (ref 0.64 / 0.99 / 3.77s). A chain of 20 / 40 / 80 nested class members: 0.00 / 0.00 / 0.01s — linear in depth, not 2^depth |
-| arithmetic place | one type-kind test per reading, and one fold of a conversion function where the constant stands for an object | the rows above are unchanged by it |
+| arithmetic place | one type-kind test per reading, and where the constant stands for an object one ranking of the class's conversion functions - 13.3.3.1.2's, over the set `gather_conversions` walks once per class that declares any | 1e3 / 4e3 / 16e3 folds reaching an `int` place through a conversion function: 0.02 / 0.10 / 0.44s at 13 / 34 / 117 MB. The same with 17 conversion functions declared and one of them viable: 0.03 / 0.12 / 0.52s at the same memory - 18% for 17x the candidates, which is 13.3's own walk. The reference refuses both |
+| a call written as a template argument | one lookup of the flattened word per argument - 14.2's specializations, then the ordinary lookup, then 3.4.2p2's - and one 13.3 ranking, the same reading a call written as a tree asks | 500 / 2000 / 8000 arguments each holding a call: 0.04 / 0.20 / 0.93s at 17 / 49 / 177 MB, of which asking 14.2 first is 7% (ref 16.59s at 216 MB). The same where 3.4.2 names the callee: 0.05 / 0.23 / 1.05s at 19 / 55 / 201 MB (ref 45.43s at 225 MB) |
+| a callee 3.4.2 names | one walk of the argument types' associated regions per call, by reached region, with no set kept between calls | a fold loop calling one such function 1e3 / 4e3 / 16e3 times: 0.02 / 0.08 / 0.37s at 11 / 26 / 85 MB, against 0.01 / 0.03 / 0.15s at 8 / 16 / 43 MB for one the ordinary lookup names - 2.4x one lookup, linear in the calls and with no term in the size of the program |
 | local-static symbol | one flatten per declaration, memoised in `entity_symbols_`; a name used *n* times costs one flatten and *n* lookups | 400 / 1600 / 6400 image-initialized statics in one body: 0.01 / 0.05 / 0.22s (ref 0.584 / 0.743 / 1.403s) |
 | local-static guard | one image read per declaration, one guard global per object | 400 / 1600 / 6400 guarded statics: 0.026 / 0.096 / 0.423s (ref 0.632 / 0.933 / 2.229s) |
 | array destruction | one `__cxa_atexit` per array, handed a generated body that walks the elements — written out below `kArrayLoopLimit` and a loop above it | 100000-element array of class type: 0.005s, 11 instructions |
@@ -121,8 +140,8 @@ initializer; that is group I's shape, and its fix is for the lowering to take
 | F audit | `6cdd7e1d`, 3 blockers: `convert` had no arm for a destination of no arithmetic type and handed back the operand's bits *under the object's type*, so `constexpr P ps[1] = { 999999 };` made 999999 the identifier of a member list and `ps[0].x` read `parameter_lists_[999999]` — a segfault, reachable through `array_of`, `object_of` and the mem-initializer alike, now one refusal at the door; 8.5.4p7's second bullet was asked of a literal *spelling* and asked as an exactness, so every `float` clause off a name, an operator or a folded call was refused as narrowing and `float a{0.1}` with them, where the clause is a range "even if it cannot be represented exactly"; and 5p4's overflow reached an undefined cast in `real_type`, a `= in` in the image where the reference writes `= inf`, and two 4.9p1 bounds each on the wrong side of the cast they guard. See [audit.md](audit.md). | 59 → 59 |
 | N | **5.3.7's `noexcept` operator, over 15.4's specification.** `sema_noexcept.cpp` reads the operand once through `probe_expression` - 5.3.7p1 leaves it unevaluated, so the scratch node and the temporaries it made are dropped - and answers 5.3.7p3 by one walk of the resolved tree: a `call-expression` with no `callee` child is a call through a pointer, and one with a callee is worth its `SemaEntity::nonthrowing`. The answer is a `literal prvalue bool` in `dispatch_expression`, a `bool` constant in `evaluate`, and a kept tree in `sema_value_expression.cpp`, where 14.2 had flattened the operator into a name. 15.4p1's condition is now *folded* rather than matched against `true`, and 14.5.6.1 carries a template's specification to its specializations, and a course fixture pins the shapes 5.3.7p3 names. | 59 → 66 (131) |
 | N audit | `76c1c8fd`, 3 blockers: 15.4p1's condition was folded at the declarator, where 9.2p2 has yet to complete the class, so `void f() noexcept(k)` beside a `static constexpr bool k` declared below it answered no in the class and yes on its out-of-class definition - a valid program **refused** as two declarations 15.4p1 does not make the same, and silently the wrong `boundary.unwind` where no definition was written; `nonthrowing_tree` answered a new- and a delete-expression from a `fact.entity` neither writer fills, so `noexcept(delete p)` was false for every operand; and 5.3.7p3's second bullet walked the operand for a node only the statement parser builds. The reading now asks the *lines that name a declaration* - `Callee` and `DestructorAction` - and the condition is folded where the class is complete. See [audit.md](audit.md). | 66 → 66 |
-
 | T | **13.3 and 14.8.2 answer the fold's callee.** `ConstexprReading::chosen`'s arity ranking is gone: `callee_candidates` writes the lookup `call_expression` writes - 14.2's specializations for a template-id, 3.4.2's associated namespaces for an unqualified name - and `selected` hands the set to the analysis's own `select_overload`, over one `AnalyzedValue` per constant. 5.19's constant is a prvalue, which is what tells `read(T&)` from `read(T const&)`; 13.3.1p3's object argument carries the constant's cv, which is what leaves a non-`const` member no candidate for a call on a `constexpr` object; 13.5.4p1's `operator()` answers a name that reaches an object. Choosing is *naming*, so `SemaAnalyzer::named_function` - split out of `name_function` - asks 14.7.1p1 for the specialization's body. Carried two sibling fixes the ranking then reached: 8.3p1's declarator-id was read as "the first child is an identifier", so every reference parameter went unbound, and 14.5.3p4's function parameter pack now binds one place per element of the run the type settled. | 66 → 75 (132) |
+| T audit | `33422f2f`, 3 blockers: 12.3.2p1's conversion function was still chosen by a ranking of the fold's own, over a set every declaration that is not a constexpr function was dropped from *before* ranking — so `struct C { operator int() const; constexpr operator bool() const; }` answered `enum E { e = c }` with **1** where 13.3 chooses the first and both oracles refuse the program, and 12.3.2p2's `explicit` reached an enumerator and an array bound; a call written as a template argument arrives at a door of its own that still resolved the word with the ordinary lookup alone, so `H<f(N2::S(3))>` and `H<twice<int>(3)>` were refused there; and `member_value` answered from the subobject list, which 9.4p2's static member is never in. `converted` now asks `conversion_match`, both doors ask `called_name`, and 5.3.1p9's `!` asks `truth`. See [audit.md](audit.md). | 75 → 75 |
 
 **Known gap (T).** A `constexpr` static member function called from the *same*
 class template's body — `typedef bool_constant<enabled()> type;` inside
@@ -134,6 +153,24 @@ Making room for `named_function` took `sema_analyzer.h` and
 lookup left `SemaAnalyzer` for `sema_argument_lookup.cpp` — a reader beside
 `Deduction` and `PackReading` — and the naming pair moved to the resolution that
 calls it.
+
+**Known gaps (T audit).** 7.1.5p8 makes a constexpr member function that is not
+a constructor a `const` member function, and this build takes the declarator's
+word for it — as `pa21/cppgm++-ref` does, refusing `c.get()` over
+`constexpr int get()` on a `constexpr` object exactly as this build's analysis
+does. The fold's conversion reading used to be the one place that asked nothing
+about the object at all and now asks 13.3.1p3's object argument like everyone
+else, so the answer is one answer. Closing it means putting the `const` in the
+member's *type*, which is what its object-file name is spelled from, and the
+`.ref` files hold the reference's spelling. Beside it, a *deleted* conversion
+function is dropped before ranking rather than made the candidate 8.4.3p2 then
+refuses — all four of the analysis's readers of 12.3.2p1 do that, so the fold
+agrees with the build; and `--emit-types` collects no conversion functions at
+all, because `collect_conversions` stands behind `semantics()`, so a fold that
+reaches one is refused in that dialect and folded in `--emit-lowir`. And a
+static member read through an object expression that is *not* itself a constant
+— `S s; s.value` — is refused, because the fold reaches the member lookup only
+through a value it has already folded.
 
 **Known gaps (N audit).** A name no declaration answers, written in a condition
 - `void f() noexcept(bogus);` - is accepted, because the fold that reads the
