@@ -97,6 +97,7 @@ SemaModel::SemaModel()
 	, root_(nullptr)
 	, unit_(nullptr)
 	, type_entities_(0)
+	, folding_depth_(0)
 	, visit_(0)
 {
 	dumps_.push_back(DumpScope());
@@ -301,6 +302,9 @@ SemaEntity& SemaModel::create(SemaKind kind, const std::string& name, TypeId typ
 	entity.local_unnamed = false;
 	entity.pack_run = 0;
 	entity.pack_element_of = nullptr;
+	entity.constexpr_function = false;
+	entity.constexpr_body = nullptr;
+	entity.constexpr_region = nullptr;
 	return entity;
 }
 
@@ -349,6 +353,20 @@ void SemaModel::hold_specialization(const SemaEntity& primary,
 {
 	specializations_.insert(
 		std::make_pair(overload_key(primary, arguments), &entity));
+}
+
+TypeId SemaModel::folded_call(const SemaEntity& callee,
+                              std::uint32_t arguments) const
+{
+	const std::unordered_map<std::uint64_t, TypeId>::const_iterator found =
+		folded_calls_.find(overload_key(callee, arguments));
+	return found == folded_calls_.end() ? kNoType : found->second;
+}
+
+void SemaModel::hold_folded_call(const SemaEntity& callee,
+                                 std::uint32_t arguments, TypeId value)
+{
+	folded_calls_.insert(std::make_pair(overload_key(callee, arguments), value));
 }
 
 void SemaModel::befriend(const SemaEntity& granting, const SemaEntity& friendly)

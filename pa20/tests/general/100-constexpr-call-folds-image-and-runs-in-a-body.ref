@@ -1,0 +1,54 @@
+global @folded : i32 [binding=internal, object=_ZL6folded] = 14
+
+function @main(%argc : i32, %argv : ptr) -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $argc : i32
+  slot $argv : ptr
+  slot $cond__1 : i32
+  slot $land__2 : i64
+
+  block ^entry:
+    store i32 %argc, $argc
+    store ptr %argv, $argv
+    %t1 = load ptr $argv
+    %t2 = load i32 @folded
+    %t3 = cmp eq i32 %t2, 14
+    branch %t3, ^land_rhs_4, ^land_short_5
+
+  block ^land_rhs_4:
+    %t4 = load i32 $argc
+    %t5 = call i32 @twice(%t4)
+    %t6 = cmp ge i32 %t5, 2
+    %t7 = cmp ne i64 %t6, 0
+    store i64 %t7, $land__2
+    jump ^land_end_6
+
+  block ^land_short_5:
+    store i64 0, $land__2
+    jump ^land_end_6
+
+  block ^land_end_6:
+    %t8 = load i64 $land__2
+    branch %t8, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t9 = load i32 $cond__1
+    return i32 %t9
+}
+function @twice(%a : i32) -> i32 [binding=weak, object=_Z5twicei] {
+  slot $a : i32
+
+  block ^entry:
+    store i32 %a, $a
+    %t1 = load i32 $a
+    %t2 = load i32 $a
+    %t3 = binary add i32 %t1, %t2
+    return i32 %t3
+}

@@ -129,6 +129,9 @@ struct SemaEntity;
 // 14p1: the pattern a template-declaration parameterises, which the semantic
 // walk owns because it is syntax and this layer knows none.
 struct TemplateInfo;
+// 7.1.5p3: the function-body a constexpr function was defined with, which the
+// fold of a call re-reads and this layer knows no syntax of.
+struct AstNode;
 
 // The slot index a virtual function has in every vtable that holds it, or
 // `kNoVtableIndex` for a declaration that is not virtual.  The index a base
@@ -676,6 +679,19 @@ struct SemaEntity
 	// read the run off the declaration the name already reaches.  Zero for
 	// every declaration that is not one.
 	unsigned pack_run;
+	// 7.1.5p1: whether a declaration of this function wrote `constexpr`, which
+	// makes 5.19p2 fold a call of it whose arguments are themselves constant.
+	// The specifier is a fact of the function rather than of one declaration of
+	// it, so it accumulates over them exactly as 7.1.2p2's `inline` does.
+	bool constexpr_function;
+	// 7.1.5p3: the function-definition this unit read for it, and the region
+	// its own declarator opened for its parameters.  A fold reads the body in a
+	// region of its own opened over that one - binding each parameter to what
+	// its argument came to - so both are recorded where the definition is met
+	// and nothing about a fold waits for the body to have been walked.  Null
+	// for a declaration this unit defines nowhere, which no fold may call.
+	const AstNode* constexpr_body;
+	Scope* constexpr_region;
 	// 14.5.3p4: the pack this binding stands for one element of, while one
 	// reading of a pattern stands.  The pattern may name that pack *as a pack*
 	// again - a nested expansion and 5.3.3p5's `sizeof...` both do, and neither
@@ -964,6 +980,22 @@ public:
 	void hold_specialization(const SemaEntity& primary, std::uint32_t arguments,
 	                         SemaEntity& entity);
 
+	// 5.19p2 with 7.1.5p2: what a call of the constexpr function `callee` came
+	// to, as the `TypeKind::Value` entry the fold interned, or `kNoType` where
+	// no fold of it has been made.  It is keyed by the declaration and the
+	// interned list holding what its object and its arguments came to - the
+	// same pair 13.1 tells two declarations of one name apart by and 14.7.1p1
+	// tells two specializations apart by - because the answer is a fact of that
+	// pair and of nothing else.  A chain n deep therefore costs n readings of a
+	// body however many times each link of it is written.
+	TypeId folded_call(const SemaEntity& callee, std::uint32_t arguments) const;
+	void hold_folded_call(const SemaEntity& callee, std::uint32_t arguments,
+	                      TypeId value);
+	// 7.1.5p5: how many folds of a body stand over the one being read, which is
+	// what bounds a constexpr function that calls itself - or a chain of them
+	// longer than the machine stack - to a refusal rather than a crash.
+	unsigned& folding_depth() { return folding_depth_; }
+
 	// The identifier a user-defined type is interned under, which is the
 	// entity that declared it.
 	std::uint32_t type_entity_id() { return ++type_entities_; }
@@ -1092,6 +1124,11 @@ private:
 	// The specializations made so far, keyed by the template and the
 	// template-argument list they were made from.
 	std::unordered_map<std::uint64_t, SemaEntity*> specializations_;
+	// The calls of a constexpr function folded so far, keyed the same way: the
+	// declaration and the interned list of what its object and its arguments
+	// came to.
+	std::unordered_map<std::uint64_t, TypeId> folded_calls_;
+	unsigned folding_depth_;
 	// 11.3p1: the friendships granted so far, as the pair of entity
 	// identifiers in one word, so asking whether one class befriended one
 	// declaration is a probe.

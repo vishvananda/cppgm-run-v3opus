@@ -9,9 +9,11 @@ bool is_identifier_char(char c)
 		(c >= '0' && c <= '9') || c == '_' || c == '$';
 }
 
-// The six characters a balanced run of a spelling is written with.  A name is
+// The eight characters a balanced run of a spelling is written with.  A name is
 // scanned once for every name written inside it, so every other character
-// answers one question rather than six.
+// answers one question rather than eight.  5.2.3p3's braces are among them
+// because a template-argument-list may write `A<S{1, 2}>`, whose comma belongs
+// to the initializer and not to the list.
 struct Brackets
 {
 	Brackets()
@@ -20,7 +22,7 @@ struct Brackets
 		{
 			written[index] = false;
 		}
-		const char* const marks = "<>()[]";
+		const char* const marks = "<>()[]{}";
 		for (const char* mark = marks; *mark != '\0'; ++mark)
 		{
 			written[static_cast<unsigned char>(*mark)] = true;
@@ -54,11 +56,11 @@ std::string::size_type outside_brackets(const std::string& spelling,
 		{
 			continue;
 		}
-		if (c == '(' || c == '[')
+		if (c == '(' || c == '[' || c == '{')
 		{
 			++grouped;
 		}
-		else if (c == ')' || c == ']')
+		else if (c == ')' || c == ']' || c == '}')
 		{
 			if (grouped != 0)
 			{
@@ -125,7 +127,8 @@ std::string::size_type spelling_balanced_end(const std::string& spelling,
                                              std::string::size_type at)
 {
 	const char open = spelling[at];
-	const char close = open == '<' ? '>' : (open == '(' ? ')' : ']');
+	const char close = open == '<' ? '>'
+		: (open == '(' ? ')' : (open == '{' ? '}' : ']'));
 	const std::string::size_type opened = at;
 	const bool angled = open == '<';
 	unsigned depth = 0;
@@ -139,12 +142,12 @@ std::string::size_type spelling_balanced_end(const std::string& spelling,
 		}
 		if (angled)
 		{
-			if (c == '(' || c == '[')
+			if (c == '(' || c == '[' || c == '{')
 			{
 				++grouped;
 				continue;
 			}
-			if (c == ')' || c == ']')
+			if (c == ')' || c == ']' || c == '}')
 			{
 				if (grouped == 0)
 				{

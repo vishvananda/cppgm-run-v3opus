@@ -1,0 +1,4 @@
+ERROR: failed type template argument resolution: wrap<list<int...>> [scope outer<char>::inner<int|long int>::<here>] [bindings inner<int|long int>{types:inner=struct outer<char>::inner<int, long int>,Args=[char],Rest=[int, long int]} {types:inner<int|long int>=struct outer<char>::inner<int, long int>,Args=[char],Rest=[int, long int]} outer<char>{types:outer=struct outer<char>,Args=[char]} {types:outer<char>=struct outer<char>,Args=[char]}] [phase template-resolution] [function main] [is_method no] [body_parent_scope <here>] [body_parent_bindings ] [body_function_scope <here>] [body_function_bindings ]
+Diagnostic context:
+analyze_function_binding_output [main]
+  analyze_statement [simple-declaration] at tests/general/100-outer-expansion-over-an-inner-pack-bad.t:28:3

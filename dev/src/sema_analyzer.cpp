@@ -2140,6 +2140,13 @@ void SemaAnalyzer::declare_function_declarator(
 	// so the fact accumulates over the declarations of one entity.
 	function.inline_function =
 		function.inline_function || specifiers.is_inline;
+	// 7.1.5p1 and p2: `constexpr` is a fact of the function, and it makes the
+	// function implicitly inline - so a declaration that wrote it says both,
+	// wherever among the declarations of the function it stands.
+	function.constexpr_function =
+		function.constexpr_function || specifiers.is_constexpr;
+	function.inline_function =
+		function.inline_function || specifiers.is_constexpr;
 	if (initializer != nullptr && !initializer->children.empty() &&
 	    initializer->children[0]->kind == AstKind::SpecialInitializer)
 	{

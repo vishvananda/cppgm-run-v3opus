@@ -368,6 +368,15 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 	entity.wrote_exception_specification =
 		entity.wrote_exception_specification || wrote_specification;
 	entity.object_member = type != written_type;
+	// 7.1.5p1: the specifier is a fact of the function and not of the one
+	// declaration that wrote it, so it accumulates as 7.1.2p2's `inline` does -
+	// a definition written outside the class repeats neither.  7.1.5p2 makes a
+	// constexpr function implicitly inline, so the definition belongs to every
+	// unit that needs one and this one writes it only where a use asks - which
+	// a call 5.19p2 folded does not.
+	entity.constexpr_function =
+		entity.constexpr_function || specifiers.is_constexpr;
+	entity.inline_function = entity.inline_function || specifiers.is_constexpr;
 	// 10.3p1 and 10.3p4/p5: the definition is a declaration like any other, so
 	// what it wrote about dispatch stands for the function whether or not
 	// another declaration of it wrote the same thing - and 7.1.2p1 lets the one
@@ -458,6 +467,16 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 	pending.self = self;
 	pending.body = &node;
 	pending.scope = inner.scope;
+	if (entity.constexpr_function)
+	{
+		// 7.1.5p3: what a fold of a call reads - the body, and the region the
+		// declarator opened for its places.  It is recorded here rather than
+		// where the body is walked because 9.2p2 holds a body written in a
+		// class until the class closes, and a call written in the same class
+		// asks before that.
+		entity.constexpr_body = &node;
+		entity.constexpr_region = inner.scope;
+	}
 	pending.parameters = parameters;
 	// 14.7.1p1: a definition written outside its class and read *for a
 	// specialization* is one this instantiation made, and instantiating a class

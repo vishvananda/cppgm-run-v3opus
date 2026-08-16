@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "ast_model.h"
+#include "sema_constexpr.h"
 #include "sema_pack.h"
 #include "sema_template.h"
 #include "token_model.h"
@@ -98,7 +99,7 @@ bool is_literal_word(const std::string& word)
 const char* const kOperators[] = {
 	"<<", ">>", "<=", ">=", "==", "!=", "&&", "||", "::",
 	"+", "-", "*", "/", "%", "<", ">", "&", "|", "^", "!", "~", "?", ":",
-	"(", ")", "[", "]", ","
+	"(", ")", "[", "]", "{", "}", ","
 };
 
 const std::size_t kOperatorCount = sizeof(kOperators) / sizeof(kOperators[0]);
@@ -321,6 +322,22 @@ private:
 	                             const std::vector<std::string>& words,
 	                             bool live);
 	SemaConstant name(const std::string& spelling, bool live);
+	// 5.2.2p1, 5.2.3p2 and p3: the operands written between the bracket `at_`
+	// stands on and the one that closes it, which a call, an object of class
+	// type and a functional-notation cast each write the same way.  False where
+	// the run does not close, which is a spelling that is no expression.
+	bool operand_list(const std::vector<std::string>& words,
+	                  const std::string& close, bool live,
+	                  std::vector<SemaConstant>& out);
+	// 5.2.3p2 and p3: `T()` and `T{...}` where `T` names a class, which at a
+	// value place is what 12.3.2p1's conversion function reads.
+	SemaConstant object_operand(TypeId target,
+	                            const std::vector<std::string>& words,
+	                            bool live);
+	// 5.2.2p1 with 7.1.5p2: a call of a constexpr function, which is the arm of
+	// 5.2.3's shape whose name reaches no type.
+	SemaConstant call_operand(const std::string& word,
+	                          const std::vector<std::string>& words, bool live);
 	SemaConstant cast(TypeId target, const SemaConstant& operand);
 	SemaConstant binary(unsigned op, const SemaConstant& left,
 	                    const SemaConstant& right);
@@ -555,35 +572,138 @@ SemaConstant TemplateArgumentReader::unary(
 		++at_;
 		return live ? cast(target, operand) : operand;
 	}
-	if (at_ < words.size() && words[at_] == "(")
+	if (at_ < words.size() && (words[at_] == "(" || words[at_] == "{"))
 	{
 		// 5.2.3p1: `T(x)` is the same cast written in functional notation, and
 		// 5.2.3p2's `T()` is the zero 8.5p7 value-initializes with.  What tells
 		// either from a call is whether the word names a type, which is the
-		// question 5.4p2 above is settled by too.
+		// question 5.4p2 above is settled by too.  5.2.3p3 writes the same two
+		// with braces, and what they hold is 8.5.4's one clause per operand.
+		const std::string close = words[at_] == "(" ? ")" : "}";
 		const TypeId target = probe_type_id(word);
 		if (target != kNoType && analyzer_.arithmetic_type(target) != kNoType)
 		{
-			++at_;
-			if (at_ < words.size() && words[at_] == ")")
+			std::vector<SemaConstant> operands;
+			if (!operand_list(words, close, live, operands) ||
+			    operands.size() > 1)
 			{
-				++at_;
+				throw NotConstant("a conversion written as a template argument "
+				                  "does not close its operand");
+			}
+			if (operands.empty())
+			{
 				SemaConstant zero;
 				zero.type = target;
 				zero.bits = 0;
 				return zero;
 			}
-			const SemaConstant operand = expression(words, 0, live);
-			if (at_ >= words.size() || words[at_] != ")")
-			{
-				throw NotConstant("a conversion written as a template argument "
-				                  "does not close its operand");
-			}
-			++at_;
-			return live ? cast(target, operand) : operand;
+			return live ? cast(target, operands[0]) : operands[0];
+		}
+		if (target != kNoType)
+		{
+			return object_operand(target, words, live);
+		}
+		if (close == ")")
+		{
+			return call_operand(word, words, live);
 		}
 	}
 	return name(word, live);
+}
+
+bool TemplateArgumentReader::operand_list(const std::vector<std::string>& words,
+                                          const std::string& close, bool live,
+                                          std::vector<SemaConstant>& out)
+{
+	++at_;
+	if (at_ < words.size() && words[at_] == close)
+	{
+		++at_;
+		return true;
+	}
+	for (;;)
+	{
+		out.push_back(expression(words, 0, live));
+		if (at_ >= words.size())
+		{
+			return false;
+		}
+		if (words[at_] == close)
+		{
+			++at_;
+			return true;
+		}
+		if (words[at_] != ",")
+		{
+			return false;
+		}
+		++at_;
+	}
+}
+
+SemaConstant TemplateArgumentReader::object_operand(
+	TypeId target, const std::vector<std::string>& words, bool live)
+{
+	const std::string close = words[at_] == "(" ? ")" : "}";
+	std::vector<SemaConstant> operands;
+	if (!operand_list(words, close, live, operands))
+	{
+		throw NotConstant("an object written as a template argument does not "
+		                  "close its initializer");
+	}
+	if (analyzer_.types_.is_dependent(target))
+	{
+		// 14.6.2p2: what class an argument list has yet to settle names, that
+		// list is what says - so the argument this stands in is dependent_ and
+		// nothing about the object is read here.
+		dependent_ = true;
+		++analyzer_.stood_in_;
+		SemaConstant out;
+		out.type = analyzer_.types_.fundamental(FT_INT);
+		out.bits = 1;
+		return out;
+	}
+	if (!live)
+	{
+		SemaConstant out;
+		out.type = analyzer_.types_.fundamental(FT_INT);
+		out.bits = 0;
+		return out;
+	}
+	return ConstexprReading(analyzer_).object_of(target, operands);
+}
+
+SemaConstant TemplateArgumentReader::call_operand(
+	const std::string& word, const std::vector<std::string>& words, bool live)
+{
+	std::vector<SemaConstant> operands;
+	if (!operand_list(words, ")", live, operands))
+	{
+		throw NotConstant("a call written as a template argument does not "
+		                  "close its arguments");
+	}
+	SemaEntity* const named = analyzer_.resolve(word, ctx_, LookupKind::Any);
+	if (named == nullptr)
+	{
+		throw NotConstant(word + " is written where a template argument calls "
+		                  "and names nothing");
+	}
+	if (!live)
+	{
+		SemaConstant out;
+		out.type = analyzer_.types_.fundamental(FT_INT);
+		out.bits = 0;
+		return out;
+	}
+	const unsigned stood = analyzer_.stood_in_;
+	SemaConstant out = ConstexprReading(analyzer_).called_entity(*named, operands);
+	if (analyzer_.stood_in_ != stood)
+	{
+		// 14.6p8: the body read something an argument list has yet to settle,
+		// so what the call came out as says nothing about the argument.
+		dependent_ = true;
+	}
+	return out;
 }
 
 // 5.3.3p1 and 5.3.6p1 over a type-id, which is where a template argument writes
@@ -953,14 +1073,22 @@ TypeId SemaAnalyzer::template_argument_value(const std::string& spelling,
 	}
 	// 14.3.2p5: the argument is a converted constant expression of the type the
 	// place declared, so what tells two arguments apart is the value after that
-	// conversion and not the expression that wrote it.
-	const TypeId type = place == kNoType ? value.type : place;
+	// conversion and not the expression that wrote it.  4p3 makes a class
+	// prvalue reach an arithmetic place only through 12.3.2p1's conversion
+	// function, which is the one call this conversion may hold.
+	SemaConstant given = value;
+	if (ConstexprReading(*this).is_object(given))
+	{
+		given = ConstexprReading(*this).converted(
+			given, place == kNoType ? kNoType : types_.strip_cv(place));
+	}
+	const TypeId type = place == kNoType ? given.type : place;
 	if (arithmetic_type(type) == kNoType)
 	{
 		throw NotConstant("a template argument is bound to a place whose type "
 		                  "is outside the PA20 subset");
 	}
-	return types_.value_type(type, convert(value, type).bits);
+	return types_.value_type(type, convert(given, type).bits);
 }
 
 // 14.6.2p2: an argument an argument list has yet to settle, which is a

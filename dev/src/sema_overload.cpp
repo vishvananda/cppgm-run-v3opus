@@ -7,6 +7,7 @@
 
 #include "ast_model.h"
 #include "ast_tokens.h"
+#include "sema_constexpr.h"
 #include "sema_deduce.h"
 #include "sema_derivation.h"
 #include "sema_pack.h"
@@ -2407,6 +2408,47 @@ SemaAnalyzer::Value SemaAnalyzer::finish_call(DumpNode& line, TypeId function,
 	}
 	value.node = &line;
 	value.what = "call-expression";
+	// 5.19p2 with 7.1.5p2: a call of a constexpr function whose arguments are
+	// themselves constant *is* a constant expression, so the resolved node
+	// carries the value rather than the call - which is what lets 3.6.2p2 give
+	// an object at namespace scope its value in the program image.  A call on
+	// an object is not one of these: the object it would read is one no
+	// constant expression here names.
+	if (chosen != nullptr && !chosen->object_member &&
+	    chosen->constexpr_function && chosen->constexpr_body != nullptr &&
+	    arguments.size() == parameters.size())
+	{
+		std::vector<Constant> folded;
+		folded.reserve(arguments.size());
+		for (std::size_t index = 0; index < arguments.size(); ++index)
+		{
+			if (!arguments[index].constant)
+			{
+				folded.clear();
+				break;
+			}
+			Constant given;
+			given.type = arguments[index].type;
+			given.bits = arguments[index].value;
+			folded.push_back(given);
+		}
+		if (folded.size() == arguments.size())
+		{
+			try
+			{
+				const Constant answer =
+					ConstexprReading(*this).call(
+						const_cast<SemaEntity&>(*chosen), nullptr, folded);
+				value.constant = true;
+				value.value = answer.bits;
+			}
+			catch (const NotConstant&)
+			{
+				// 5.19p2: the body reads something no constant expression may,
+				// so the call stands as one the program carries out.
+			}
+		}
+	}
 	respell(value);
 	return value;
 }

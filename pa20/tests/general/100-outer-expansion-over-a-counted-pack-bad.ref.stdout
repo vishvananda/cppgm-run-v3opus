@@ -1,0 +1,5 @@
+ERROR: failed class template instantiation: nums<((int)sizeof...(Args))...> [scope outer<char|short int>::inner<1|2>::<here>] [arg_texts ((int)sizeof...(Args))...] [bindings inner<1|2>{types:inner=struct outer<char|short int>::inner<1, 2>,Which=int:1,Which__pack2=int:2,Args=[char, short int],Which=[Which:int, Which__pack2:int]} {types:inner<1|2>=struct outer<char|short int>::inner<1, 2>,Which=int:1,Which__pack2=int:2,Args=[char, short int],Which=[Which:int, Which__pack2:int]} outer<char|short int>{types:outer=struct outer<char, short int>,Args=[char, short int]} {types:outer<char|short int>=struct outer<char, short int>,Args=[char, short int]}] [phase callsemantic] [function main] [is_method no] [body_parent_scope <here>] [body_parent_bindings ] [body_function_scope <here>] [body_function_bindings ]
+Diagnostic context:
+analyze_function_binding_output [main]
+  analyze_statement [simple-declaration] at tests/general/100-outer-expansion-over-a-counted-pack-bad.t:23:3
+    lookup_type [nums<((int)sizeof...(Args))...>]

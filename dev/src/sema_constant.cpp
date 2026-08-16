@@ -5,6 +5,7 @@
 #include "ast_model.h"
 #include "literal_scan.h"
 #include "post_token.h"
+#include "sema_constexpr.h"
 #include "sema_pack.h"
 #include "string_literal.h"
 
@@ -18,18 +19,6 @@
 namespace
 {
 
-const AstNode* child_kind(const AstNode& node, AstKind kind)
-{
-	for (std::size_t index = 0; index < node.children.size(); ++index)
-	{
-		if (node.children[index]->kind == kind)
-		{
-			return node.children[index];
-		}
-	}
-	return nullptr;
-}
-
 // 2.14: the bytes 2.14.2 and 2.14.3 give a literal, read back as one value.
 unsigned long long integer_of(const std::string& data)
 {
@@ -41,42 +30,6 @@ unsigned long long integer_of(const std::string& data)
 	return value;
 }
 
-bool add_overflows(long long left, long long right, long long& out)
-{
-	const unsigned long long sum = static_cast<unsigned long long>(left) +
-		static_cast<unsigned long long>(right);
-	out = static_cast<long long>(sum);
-	return ((left ^ out) & (right ^ out)) < 0;
-}
-
-bool subtract_overflows(long long left, long long right, long long& out)
-{
-	const unsigned long long difference = static_cast<unsigned long long>(left) -
-		static_cast<unsigned long long>(right);
-	out = static_cast<long long>(difference);
-	return ((left ^ right) & (left ^ out)) < 0;
-}
-
-bool multiply_overflows(long long left, long long right, long long& out)
-{
-	out = static_cast<long long>(static_cast<unsigned long long>(left) *
-	                             static_cast<unsigned long long>(right));
-	if (left == 0 || right == 0)
-	{
-		out = 0;
-		return false;
-	}
-	const long long lowest = -1 - 0x7FFFFFFFFFFFFFFFLL;
-	if (left == -1)
-	{
-		return right == lowest;
-	}
-	if (right == -1)
-	{
-		return left == lowest;
-	}
-	return out / left != right;
-}
 
 }
 
@@ -270,220 +223,8 @@ SemaAnalyzer::Constant SemaAnalyzer::string_element(const std::string& spelling,
 	return convert(out, out.type);
 }
 
-SemaAnalyzer::Constant SemaAnalyzer::id_constant(const AstNode& node,
-                                                 const Context& ctx)
-{
-	// 7.1.6.2p1: a nested-name-specifier that begins with a decltype-specifier
-	// reaches its region through the expression the parser kept beside the
-	// name, which no spelling holds - so 5.19's reading asks the same question
-	// of an id-expression that every other reader of one asks.
-	SemaEntity* const named =
-		child_kind(node, AstKind::CarriedExpression) == nullptr
-		? resolve(node.text, ctx, LookupKind::Any)
-		: decltype_qualified_name(node, ctx, LookupKind::Any);
-	SemaEntity& entity = require(named, node.text);
-	if (!entity.constant)
-	{
-		if (checking_ > 0 && types_.is_dependent(entity.type))
-		{
-			// 14.6p8: what a name that depends on a template parameter is
-			// worth, an argument list is what says.  The reading stands one
-			// value in its place, as it does for the size of a dependent type.
-			++stood_in_;
-			Constant stood;
-			stood.type = types_.fundamental(FT_INT);
-			stood.bits = 1;
-			return stood;
-		}
-		throw NotConstant(node.text + " is not a constant expression");
-	}
-	Constant out;
-	out.type = entity.type;
-	out.bits = entity.value;
-	return out;
-}
 
-SemaAnalyzer::Constant SemaAnalyzer::unary_constant(const AstNode& node,
-                                                    const Context& ctx)
-{
-	const Constant operand = promote(evaluate(*node.children[0], ctx));
-	Constant out;
-	out.type = operand.type;
-	switch (node.token)
-	{
-	case OP_PLUS:
-		out.bits = operand.bits;
-		break;
 
-	case OP_MINUS:
-	{
-		if (is_signed(out.type) && width_of(out.type) == 64 &&
-		    operand.bits == (1ULL << 63))
-		{
-			throw NotConstant("a constant expression overflows");
-		}
-		out.bits = 0ULL - operand.bits;
-		break;
-	}
-
-	case OP_COMPL:
-		out.bits = ~operand.bits;
-		break;
-
-	case OP_LNOT:
-		out.type = types_.fundamental(FT_BOOL);
-		out.bits = operand.bits == 0 ? 1 : 0;
-		return out;
-
-	default:
-		throw NotConstant("a constant expression holds an operator PA11 "
-		                         "does not evaluate");
-	}
-	return convert(out, out.type);
-}
-
-SemaAnalyzer::Constant SemaAnalyzer::binary_constant(const AstNode& node,
-                                                     const Context& ctx)
-{
-	// 5.14p1 and 5.15p1: the right operand of `&&` and `||` is evaluated only
-	// when the left one does not decide the answer.
-	if (node.token == OP_LAND || node.token == OP_LOR)
-	{
-		const bool left = evaluate(*node.children[0], ctx).bits != 0;
-		Constant out;
-		out.type = types_.fundamental(FT_BOOL);
-		if (left == (node.token == OP_LOR))
-		{
-			out.bits = left ? 1 : 0;
-			return out;
-		}
-		out.bits = evaluate(*node.children[1], ctx).bits != 0 ? 1 : 0;
-		return out;
-	}
-
-	const Constant left = promote(evaluate(*node.children[0], ctx));
-	const Constant right = promote(evaluate(*node.children[1], ctx));
-	const bool comparison = node.token == OP_LT || node.token == OP_GT ||
-		node.token == OP_LE || node.token == OP_GE || node.token == OP_EQ ||
-		node.token == OP_NE;
-	// 5.8p1: a shift takes 5p10's conversions on neither operand.  Each is
-	// promoted on its own and the result has the type of the promoted left one,
-	// so an unsigned count does not make the value it shifts unsigned.
-	const bool shifted = node.token == OP_LSHIFT || node.token == OP_RSHIFT;
-	const TypeId type =
-		shifted ? left.type : common_type(left.type, right.type);
-	const unsigned long long lhs = convert(left, type).bits;
-	const unsigned long long rhs = shifted ? right.bits : convert(right, type).bits;
-	const bool sign = is_signed(type);
-	const long long signed_lhs = static_cast<long long>(lhs);
-	const long long signed_rhs = static_cast<long long>(rhs);
-
-	if (comparison)
-	{
-		bool answer = false;
-		switch (node.token)
-		{
-		case OP_LT: answer = sign ? signed_lhs < signed_rhs : lhs < rhs; break;
-		case OP_GT: answer = sign ? signed_lhs > signed_rhs : lhs > rhs; break;
-		case OP_LE: answer = sign ? signed_lhs <= signed_rhs : lhs <= rhs; break;
-		case OP_GE: answer = sign ? signed_lhs >= signed_rhs : lhs >= rhs; break;
-		case OP_EQ: answer = lhs == rhs; break;
-		default: answer = lhs != rhs; break;
-		}
-		Constant out;
-		out.type = types_.fundamental(FT_BOOL);
-		out.bits = answer ? 1 : 0;
-		return out;
-	}
-
-	Constant out;
-	out.type = type;
-	long long result = 0;
-	bool overflowed = false;
-	switch (node.token)
-	{
-	case OP_PLUS:
-		overflowed = add_overflows(signed_lhs, signed_rhs, result);
-		out.bits = lhs + rhs;
-		break;
-
-	case OP_MINUS:
-		overflowed = subtract_overflows(signed_lhs, signed_rhs, result);
-		out.bits = lhs - rhs;
-		break;
-
-	case OP_STAR:
-		overflowed = multiply_overflows(signed_lhs, signed_rhs, result);
-		out.bits = lhs * rhs;
-		break;
-
-	case OP_DIV:
-	case OP_MOD:
-		if (rhs == 0)
-		{
-			throw NotConstant("a constant expression divides by zero");
-		}
-		if (sign)
-		{
-			overflowed = signed_lhs == (-1 - 0x7FFFFFFFFFFFFFFFLL) && signed_rhs == -1;
-			result = node.token == OP_DIV ? signed_lhs / signed_rhs
-			                              : signed_lhs % signed_rhs;
-			out.bits = static_cast<unsigned long long>(result);
-			break;
-		}
-		out.bits = node.token == OP_DIV ? lhs / rhs : lhs % rhs;
-		break;
-
-	case OP_LSHIFT:
-	case OP_RSHIFT:
-	{
-		const unsigned long long count =
-			is_signed(right.type) && static_cast<long long>(rhs) < 0
-				? static_cast<unsigned long long>(width_of(type))
-				: rhs;
-		if (count >= width_of(type))
-		{
-			throw NotConstant("a constant expression shifts by more than "
-			                         "the width of its type");
-		}
-		if (node.token == OP_LSHIFT)
-		{
-			out.bits = lhs << count;
-			result = static_cast<long long>(out.bits);
-			// 5.8p2: a signed left operand shall be non-negative, and the value
-			// shall be representable in the *unsigned* type of the same width -
-			// so `1LL << 63` is the sign bit and not an overflow, which is what
-			// the bits shifted past the width say.
-			overflowed = sign &&
-				(signed_lhs < 0 ||
-				 (count != 0 && (lhs >> (width_of(type) - count)) != 0));
-			break;
-		}
-		out.bits = sign ? static_cast<unsigned long long>(signed_lhs >> count)
-		                : lhs >> count;
-		break;
-	}
-
-	case OP_AMP: out.bits = lhs & rhs; break;
-	case OP_BOR: out.bits = lhs | rhs; break;
-	case OP_XOR: out.bits = lhs ^ rhs; break;
-
-	default:
-		throw NotConstant("a constant expression holds an operator PA11 "
-		                         "does not evaluate");
-	}
-
-	// 5p4: an operation whose result its type cannot represent has undefined
-	// behaviour, so it is not a constant expression.  5.8p2's shift is the one
-	// operation whose signed result may hold the sign bit and still be the
-	// value the clause names, so it answers for itself.
-	const Constant narrowed = convert(out, type);
-	if (sign && (overflowed || (!shifted && narrowed.bits != out.bits)))
-	{
-		throw NotConstant("a constant expression overflows");
-	}
-	return narrowed;
-}
 
 SemaAnalyzer::Constant SemaAnalyzer::evaluate(const AstNode& node,
                                               const Context& ctx)
@@ -525,13 +266,13 @@ SemaAnalyzer::Constant SemaAnalyzer::evaluate(const AstNode& node,
 	}
 
 	case AstKind::IdExpression:
-		return id_constant(node, ctx);
+		return ConstexprReading(*this).id_constant(node, ctx);
 
 	case AstKind::UnaryExpression:
-		return unary_constant(node, ctx);
+		return ConstexprReading(*this).unary_constant(node, ctx);
 
 	case AstKind::BinaryExpression:
-		return binary_constant(node, ctx);
+		return ConstexprReading(*this).binary_constant(node, ctx);
 
 	case AstKind::ConditionalExpression:
 	{
@@ -560,85 +301,11 @@ SemaAnalyzer::Constant SemaAnalyzer::evaluate(const AstNode& node,
 	}
 
 	case AstKind::CallExpression:
-	{
-		// 5.2.3p1: `T(x)` is the cast `(T)x` written in functional notation,
-		// which the grammar hands on as a call because it cannot say whether
-		// the name before the parentheses is a type.  A call of a *function*
-		// is the other reading of the shape and is 5.19p2's constexpr
-		// function, so only the arm whose callee names an arithmetic type
-		// folds here.
-		const AstNode& callee = *node.children[0];
-		TypeId target = kNoType;
-		if (callee.kind == AstKind::IdExpression)
-		{
-			target = keyword_type(callee.text);
-		}
-		if (target == kNoType && callee.kind == AstKind::IdExpression)
-		{
-			// 7.1.6.2p1: the simple-type-specifier may be a typedef-name or an
-			// enum-name the program declared, which 3.4 answers for - and a
-			// name that reaches no region at all is a call and not a cast.
-			try
-			{
-				SemaEntity* const named =
-					resolve(callee.text, ctx, LookupKind::Type);
-				target = named == nullptr ? kNoType : named->type;
-			}
-			catch (const std::exception&)
-			{
-				target = kNoType;
-			}
-		}
-		// 5.2.3p3: `T{x}` is written where `T(x)` is, and the braces put
-		// 8.5.4's one initializer-clause where the operand stands.
-		const AstNode* list =
-			node.children.size() < 2 ? nullptr : node.children[1];
-		if (list != nullptr && list->braced)
-		{
-			list = list->children.empty() ? nullptr : list->children[0];
-		}
-		if (list == nullptr || target == kNoType ||
-		    arithmetic_type(target) == kNoType)
-		{
-			throw NotConstant("a constant expression calls something this "
-			                  "milestone does not evaluate");
-		}
-		// 14.5.3p4: what the parentheses hold is the run a `pattern...` entry
-		// stands for, which is the same reading the lowering of this cast is
-		// given - 5.2.3's one rule has one answer here too.
-		const Clauses written(list, *this, ctx);
-		if (written.list.unsettled())
-		{
-			// 14.6p8: a run no argument list has settled says neither how many
-			// operands the cast has nor what they are worth, so the reading
-			// stands a value in for it exactly as it does for `sizeof...`.
-			// The stand-in is 1 rather than 0 because 8.3.4p1 gives an array
-			// no bound of zero.
-			++stood_in_;
-			Constant out;
-			out.type = target;
-			out.bits = 1;
-			return out;
-		}
-		if (written.list.size() > 1)
-		{
-			throw NotConstant("a constant expression calls something this "
-			                  "milestone does not evaluate");
-		}
-		if (written.spent())
-		{
-			// 5.2.3p2: `T()` is the value-initialization 8.5p7 writes, which
-			// for an arithmetic type is the zero 8.5p6 converts to it.
-			Constant out;
-			out.type = target;
-			out.bits = 0;
-			return out;
-		}
-		Constant out =
-			convert(evaluate(written.next(), written.in(ctx)), target);
-		out.type = target;
-		return out;
-	}
+		// 5.2.3p1 and 5.2.2p1: one shape the grammar could not tell
+		// apart - a cast written in functional notation, an object of
+		// literal class type, and a call of a constexpr function - which
+		// `sema_constexpr.h` reads because the last of them walks a body.
+		return ConstexprReading(*this).call_or_cast(node, ctx);
 
 	case AstKind::SizeofPackExpression:
 	{

@@ -334,6 +334,15 @@ void SemaAnalyzer::conversion_function(const AstNode& node, const Context& ctx,
 		{
 			entity.inline_function = true;
 		}
+		// 7.1.5p1: a conversion function declared `constexpr` is what lets an
+		// object of the class stand where 14.1p4's value place asks for one.
+		// 7.1.5p2 makes it implicitly inline besides, exactly as 9.3p2 makes a
+		// member function defined in its class body one.
+		if (specifiers->children[index]->token == KW_CONSTEXPR)
+		{
+			entity.constexpr_function = true;
+			entity.inline_function = true;
+		}
 		// 10.3p1: a conversion function is an ordinary member function, so it
 		// takes a slot like any other one declared `virtual`.
 		if (specifiers->children[index]->token == KW_VIRTUAL)
@@ -654,6 +663,15 @@ void SemaAnalyzer::open_special_member_body(
 	pending.parameters = parameters;
 	pending.initializers = child_of(node, AstKind::CtorInitializer);
 	pending.members = ctx.scope;
+	if (entity.constexpr_function)
+	{
+		// 7.1.5p3: what a fold of a call of this member reads - the body, and
+		// the region opened just above for its places.  9.2p2 holds the body
+		// until the class closes and a fold may ask before that, so the two are
+		// recorded here rather than where the body is walked.
+		entity.constexpr_body = &node;
+		entity.constexpr_region = &inner;
+	}
 	queue_definition(pending);
 }
 

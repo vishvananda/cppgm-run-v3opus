@@ -83,6 +83,9 @@ private:
 	// neither the primary template nor a specialization of it, which
 	// `sema_specialize.h` owns because each changes one step of the three.
 	friend class Specialization;
+	// 7.1.5p2: the call of a constexpr function 5.19p2 folds, which walks a
+	// function-body and is `sema_constexpr.h`'s for that reason.
+	friend class ConstexprReading;
 
 	// 3.3, 7p1, 8.3.5p4, 12.6.2p1 and 5.19p3: the records the declaration
 	// layer passes between its steps, which `sema_declaration.h` defines.  The
@@ -1310,9 +1313,6 @@ private:
 	// Constant expressions and decltype (sema_constant.cpp).
 	Constant evaluate(const AstNode& node, const Context& ctx);
 	Constant literal_constant(const std::string& spelling);
-	Constant id_constant(const AstNode& node, const Context& ctx);
-	Constant unary_constant(const AstNode& node, const Context& ctx);
-	Constant binary_constant(const AstNode& node, const Context& ctx);
 	// 5.19p2: the element `index` of the string literal `spelling`, which is
 	// the one object a constant expression reads out of storage.
 	Constant string_element(const std::string& spelling,

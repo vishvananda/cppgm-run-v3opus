@@ -1998,12 +1998,22 @@ std::string LowirUnitLowering::string_literal(const std::string& data,
 // 11.3p5's friend definition is the one this walk still reads: it defines a
 // member of the enclosing namespace, and the class that wrote it is the only
 // place this unit reads it, so what it names is read where it is.
-void LowirUnitLowering::demand_referenced(const DumpNode& node)
+void LowirUnitLowering::demand_referenced(const DumpNode& node, bool running)
 {
 	if (node.fact.kind == FactKind::FunctionDefinition &&
 	    node.fact.entity != nullptr && !node.fact.entity->friend_definition &&
 	    deferred_.find(node.fact.entity->id) != deferred_.end())
 	{
+		return;
+	}
+	if (node.fact.kind == FactKind::Call && node.fact.constant && !running)
+	{
+		// 3.2p2 with 5.19p2 and 3.6.2p2: an initializer written outside every
+		// body is one the program image holds, and a call 5.19 folded there is
+		// a value the image writes rather than a call anything makes - so the
+		// function it would have run is named nowhere.  A folded call written
+		// *inside* a body is a call the program still makes, so the walk reads
+		// it there as it reads any other.
 		return;
 	}
 	if (node.fact.entity != nullptr &&
@@ -2013,9 +2023,11 @@ void LowirUnitLowering::demand_referenced(const DumpNode& node)
 	{
 		referenced_.push_back(node.fact.entity->id);
 	}
+	const bool inside =
+		running || node.fact.kind == FactKind::FunctionDefinition;
 	for (std::size_t index = 0; index < node.children.size(); ++index)
 	{
-		demand_referenced(*node.children[index]);
+		demand_referenced(*node.children[index], inside);
 	}
 }
 

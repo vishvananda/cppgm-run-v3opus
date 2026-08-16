@@ -517,7 +517,10 @@ private:
 	// calls.  They are gathered in the order the tree names them and asked for
 	// once every use the unit itself wrote has been answered, so a definition a
 	// written body asked for still stands where that body asked for it.
-	void demand_referenced(const DumpNode& node);
+	// `running` says the walk stands inside a body the program carries out,
+	// which is what tells a call that runs from one 3.6.2p2 folded into the
+	// image.
+	void demand_referenced(const DumpNode& node, bool running = false);
 	std::vector<std::uint32_t> referenced_;
 	// Lowers the definitions asked for so far, and the ones lowering those asks
 	// for.  It runs between top level declarations and never inside one, so no
