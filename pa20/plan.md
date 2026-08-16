@@ -1,7 +1,7 @@
 # PA20 Plan — `cppgm++ --emit-lowir` compile-time metaprogramming
 
-PA20 stands at **185 / 196** - 153 of the 164 checked-in fixtures and all 32
-under `cppgm.tests/course/pa20` - from a turn-start baseline of **178 / 193**,
+PA20 stands at **189 / 200** - 153 of the 164 checked-in fixtures and all 36
+under `cppgm.tests/course/pa20` - from a turn-start baseline of **185 / 196**,
 with pa1-pa19 at **2169 / 2169** and the file audit passing with the five
 header-weight warnings it inherited.
 
@@ -214,9 +214,34 @@ once, the path to a subobject is the one path there is, and the offset of a base
 11.2p4's access through every link on the way and 14.8.2.1p3's class in the
 derivation are each one visit per class rather than one per path into it.
 10.3p10's secondary table and its thunks are not emitted, so a class holding a
-base subobject that dispatches and is not the only one is refused; every other
-class with bases the ABI does not describe as one public base at the start of the
-object writes `__vmi_class_type_info`.
+base subobject that dispatches and does not begin where the object does is
+refused - which is a second base that dispatches or one standing after storage
+another base already took, and not a dispatching base beside a plain one, whose
+table is the one this class owns (`dispatching_base`); every other class with
+bases the ABI does not describe as one public base at the start of the object
+writes `__vmi_class_type_info`.
+
+**A base at a byte of its own is a step in both directions.**  4.10p3's
+conversion moves an address on by the place the derived class gave the base, and
+5.2.9p11's cast back to that class moves it back (`derived_value`, a
+`base-conversion` node the lowering spells as a negative index) - nothing at all
+where the base begins where the object does, which is what leaves every
+single-inheritance conversion the output it already had.  11.2p4 asks the access
+those steps need in the region the conversion was *written* in, which outlives
+the reading of the operand it converts: an initialization applies its conversion
+after `read_expression` has given that region back, so `apply_conversion` holds
+it (`Written`) for the declaration initializer, the returned object, the clause
+and the bound reference alike.
+
+**Two facts of one base-specifier are not facts of the list.**  Which class a
+mem-initializer-id names is what 12.6.2p2's index is keyed by - the whole name
+that class has, because two bases may be classes whose names end in the same
+component - and every other id is keyed by the last component it wrote, which is
+12.6.2p2's member.  14.6.2p3 is the same: 3.4.1's search of a member's
+unqualified name looks in the bases whose own specifier named a settled type
+(`Scope::open_bases`) and leaves off only the ones an argument list settles, so a
+class deriving from a settled class and a dependent one is searched in the
+settled one exactly as it would be with the other unwritten.
 
 **8.5.2's array of character type is an initialization and not a conversion.**
 No expression of array type converts to another array type, so a string literal
@@ -287,7 +312,10 @@ Outside the fixtures, the sweeps leave these shapes this milestone refuses where
 both oracles accept: 10.1p3's repeated base class, which is two subobjects a
 name of either is ambiguous between and which nothing here tells apart, and
 10.3p10's base subobject that dispatches and does not begin where the object
-does; a specialization's body cannot name its own class - `typedef s self;`
+does - a second base that dispatches, or a dispatching base standing after one
+that took storage; 15's try block and 5.5's `.*` are outside the PA12 statement
+and operator subsets, which predates every template question here; a
+specialization's body cannot name its own class - `typedef s self;`
 inside `struct s<T*>` finds the primary and `s<T*>` written there is read as
 12.1p1's constructor name and does not parse, which has been true of
 `template<>` specializations since C2; a partial specialization has no
@@ -324,8 +352,9 @@ holding -23 in the reference and a multicharacter `int` holding `0xc3a9` in
 g++, and this compiler answers the reference, which is what the object file is
 compared against.  10.2p6's ambiguous inherited name and ambiguous inherited
 typedef-name are refused here and by g++ where the reference takes one of them;
-and 11.2p4's conversion to a private or protected base of a class is refused
-here and by g++ where the reference allows it.
+and 11.2p4's conversion to a private or protected base of a class, *written
+outside* every class the access reaches from, is refused here and by g++ where
+the reference allows it.
 
 Four more are metadata, a shape the comparison ignores, or a family already
 owned: 14.5.5p1 does not refuse a partial specialization of a *function*
@@ -334,12 +363,15 @@ template; 14.7.3's explicit specialization of a function template is emitted
 enumeration reached through a `decltype` is mangled `N1S17__anonymous_enum1E`
 where the ABI writes `N1SUt_E`; and a static data member of a specialization of
 a template with a *non-type* parameter is a `load` here and in g++ where the
-reference folds the initializer.  Two shapes of the lowering's own writing
+reference folds the initializer.  Three shapes of the lowering's own writing
 differ without a fixture: an array whose list is shorter than its bound writes
 one `zero n` run at namespace scope where the reference writes n explicit
-elements, and a *qualified* access to a base's member (`v.a::n`) writes a
-`base_subobject` step of offset zero the reference folds away.  Both predate
-this checkpoint and neither is a value the program can observe.
+elements; a *qualified* access to a base's member (`v.a::n`) writes a
+`base_subobject` step of offset zero the reference folds away; and an array of a
+class with a base declared at namespace scope leaves this unit no `role=init`
+function where the reference writes an empty one - `A v[3];` for `struct A : B`,
+where neither writes one for a class with no base.  All three predate this
+checkpoint and none is a value the program can observe.
 
 ## Active Checkpoint
 
@@ -378,14 +410,10 @@ harness that spawns a process of its own per run reads this machine's floor as
 0.11 s; it is not one, and the `pa20/cppgm++-ref` wrapper adds a further ~0.5 s
 of its own before the reference binary starts.
 
-Rows marked \* were measured against this turn's build, on a machine whose empty
-translation unit reads **0.008 s** rather than 0.003 s - so a starred row is
-about 2.7x what the same shape would read beside the rows above it.  Two carried
-rows re-measured as a check say exactly that and nothing more: `fac<800>` reads
-0.115 s against its carried 0.037, and the counted pack 0.033 against its 0.018.
-The unstarred rows are therefore carried forward unchanged; none of them reaches
-a base-specifier list, a string literal initializing an array, or the
-`Derivation` and `StringInitialization` readings this turn added.
+The derivation rows were re-measured on this turn's build against a floor of
+0.004 s, which is the floor the rows above them were taken at, so every row in
+the table stands beside every other.  The reference is timed through its wrapper
+and its own floor is 0.608 s, which is subtracted from the numbers in its column.
 
 | shape | here | `pa20/cppgm++-ref` |
 | --- | --- | --- |
@@ -436,13 +464,15 @@ a base-specifier list, a string literal initializing an array, or the
 | a literal parenthesized 24 deep in a spelling | **0.004 s** | - |
 | 256 / 1024 / 4096 raw ud-literals | 0.011 / 0.033 / **0.134 s** | - |
 | 256 / 1024 / 4096 distinct literal-operator-template specializations | 0.017 / 0.057 / **0.255 s** | SIGSEGV at 4096 |
-| \* 200 / 800 / 1600 classes, unrelated | 0.033 / 0.116 / **0.166 s** | - |
-| \* the same as one chain of single bases | 0.033 / 0.167 / **0.417 s** | 27.8 s at 1600 |
-| \* 100 / 400 / 800 levels each adding a second base | 0.033 / 0.115 / **0.367 s** | 13.2 s at 800 |
-| \* one class with 64 / 256 / 1024 direct bases | 0.016 / 0.033 / **0.115 s** | 0.82 s at 1024 |
-| \* a base pack of 64 / 256 / 1024 elements, each initialized | 0.033 / 0.065 / **0.266 s** | 8.8 s at 1024 |
-| \* 400 / 1600 / 6400 conversions through a 200-deep derivation | 0.115 / 0.266 / **0.970 s** | 2.02 s at 6400 |
-| \* 512 / 2048 / 8192 arrays initialized by a string literal | 0.033 / 0.165 / **0.517 s** | 2.72 s at 8192 |
+| 200 / 800 / 1600 classes, unrelated | 0.010 / 0.031 / **0.063 s** | - |
+| the same as one chain of single bases | 0.010 / 0.028 / **0.058 s** | 0.10 s at 1600 |
+| 100 / 400 / 800 / 1600 levels each adding a second base | 0.011 / 0.049 / 0.154 / **0.584 s** | 0.10 s at 800 |
+| one class with 64 / 256 / 1024 direct bases | 0.006 / 0.011 / **0.036 s** | 0.00 s at 1024 |
+| a base pack of 64 / 256 / 1024 elements, each initialized | 0.012 / 0.037 / **0.165 s** | 14.3 s at 1024 |
+| 400 / 1600 / 6400 conversions through a 200-deep derivation | 0.049 / 0.166 / **0.646 s** | 2.20 s at 6400 |
+| 256 / 1024 / 4096 casts back to a class through a base at byte 4 | 0.023 / 0.084 / **0.336 s** | 1.50 s at 4096 |
+| 256 / 1024 / 4096 specializations deriving from a settled base and a dependent one | 0.047 / 0.199 / **0.920 s** | 13.4 s at 4096 |
+| 512 / 2048 / 8192 arrays initialized by a string literal | 0.018 / 0.064 / **0.268 s** | 1.60 s at 8192 |
 
 The decltype table is one entry per *distinct* operand spelling and one hash
 lookup per naming, so the 512 / 2048 / 8192 row is linear in the spellings a
@@ -487,17 +517,27 @@ list, not one more scan.  The 2^17-subobject aggregate is exponential in its
 are the same to within the noise - so it is the same shape's-own-cost the
 doubling spelling below is.
 
-10p1's derivation costs what the classes in it cost and not what the paths
-through it do.  1600 unrelated classes read 0.166 s and the same 1600 as one
-chain of single bases read 0.417 s, so the whole derivation adds 1.5x the cost
-of declaring the classes at all; 800 levels each adding a second base - 1601
-classes and 800 two-entry lists - read the same 0.367 s, which says the shape of
-the tree does not matter and the count of classes does.  One class with 1024
-direct bases is linear at 64 / 256 / 1024, because 10.1p3's check is one hash
-insert per class below and every other walk stops at the first answer.  A
-conversion through a 200-deep derivation is one addition per level and the row
-is linear in the conversions written, not in their product with the depth.  The
-reference is 67x slower on the chain, 36x on the tree and 33x on the base pack.
+10p1's derivation costs what the classes in it cost, and 10.1p3's own check
+costs what the *tree* is.  1600 unrelated classes read 0.063 s and the same 1600
+as one chain of single bases read 0.058 s, so a derivation of one base per class
+adds nothing at all: every walk of it stops at the first answer, and a class with
+fewer than two direct bases skips the repeated-base check outright.  A class with
+two does pay it, and it is one hash insert per class below - so a derivation that
+adds a base per *level* pays that walk per level and the row is quadratic in the
+depth: 0.011 / 0.049 / 0.154 / 0.584 s at 100 / 400 / 800 / 1600 levels, 12x for
+4x the classes.  That is the shape of the question rather than of this
+implementation - whether two subobjects of one class stand below a class is a
+fact of the whole set below it, so completing n classes each merging two sets
+cannot cost less than their sum - and 1600 levels of multiple inheritance is
+0.58 s, so it is recorded rather than paid down.  One class with 1024 direct
+bases is linear at 64 / 256 / 1024 because those bases have nothing below them.
+A conversion through a 200-deep derivation is one addition per level and the row
+is linear in the conversions written, not in their product with the depth; so is
+5.2.9p11's step back through a base at byte 4, at 256 / 1024 / 4096 casts.  The
+reference is 90x slower on the base pack and 15x on the specializations deriving
+from a dependent base, and *faster* than this compiler on the rows that only
+declare classes - it is one oracle for what a program means and no oracle at all
+for what a shape costs.
 
 8.5.2's array is one scan of the code units phase 6 already built, so the
 512 / 2048 / 8192 row is linear in the arrays a program writes and the
@@ -517,10 +557,12 @@ sum to n^2/2 - g++ is 0.210 s at 1024 where this compiler is 1.560 s and the
 reference 9.3 s.  A *class* metafunction with no terminating specialization
 still overflows the machine stack rather than being diagnosed, here and in the
 reference alike; a depth guard is owed whenever a checkpoint touches
-`instantiate_class` again.  `sema_analyzer.h` is at 2394 of the audit's 2400
-header lines, and `sema_analyzer.cpp` crossed the audit's 3000-line ceiling this
-turn - which is what gave 7.2's enumeration an owner of its own
-(`sema_enum.cpp`), leaving that file at 2820.
+`instantiate_class` again.  `sema_analyzer.h` is at 2393 of the audit's 2400
+header lines and `sema_expression.cpp` at 2975 of its 3000, so the next
+checkpoint that adds a declaration to either owes a structural move first: 4.10p3
+and 5.2.9p11's steps between an object and its base subobject are the readings
+that would leave with `Derivation`, which already owns every other question a
+base-specifier answers.
 
 ## Completed Checkpoints
 
@@ -544,3 +586,4 @@ turn - which is what gave 7.2's enumeration an owner of its own
 | C8 | 5.19 outside the integral subset, and the literal it reads: 2.14.3p1's multicharacter literal made a token of the language `PostTokenizer` reads and not of PA2's dump, with the last four c-chars packed one code unit each; 5.19p2's subobject of a string literal answered from a spelling and an index, so a subscript reads as a tree and inside an argument list alike - and an encoding-prefix closes up with its quoted run as `sizeof` does with its `...`; 5.3.3p5's `sizeof...` read out of an argument spelling, so a pattern expanded per element still counts its own run; 3.9p7's incomplete array completed by the definition of the object, both ways about; and 2.14.8p3's literal operator template called with the characters the program wrote, with a cooked call now passing the literal 2.14.2 made rather than the parameter's type.  7.2's enumeration became its own owner (`sema_enum.cpp`), freeing the 3000-line ceiling `sema_analyzer.cpp` crossed | 164 / 186 -> **176 / 191** with five fixtures added; pa1-pa19 2169 / 2169; 80 swept shapes, every accepted pair writing the reference's LowIR; linear at 8192 literals, 4096 elements and 4096 definitions where the reference is 12x slower or dies; valgrind clean |
 | C8 audit | the dialect a character-literal is read in, which covers two facts and was moved for one: PA2's dump holds a c-char's code point and refuses a run of them where the language gives every ordinary literal a `char` and a run an `int`, so `CharacterLiterals` now settles both and `sizeof('\\xff')` is 1 rather than 4; 2.14.5p5's execution encoding became one implementation (`append_ordinary_units`) that a string literal's body and a character literal's both call, so `'aé'` is `0x61c3a9` rather than `0x61e9` and a first c-char above the ordinary range is refused as the reference refuses it; `literal_value` reads a literal's bytes with 3.9.1p1's sign, which a `char` literal could not reach before; 5.1.1p6's parentheses are stripped by the spelling reader as the tree already stripped them, so `p<("abc")[1]>` reads; and 2.14.8p3's literal operator template is asked before the raw operator, which is what the reference answers for the set that declares both | 176 / 191 -> **178 / 193** with two fixtures added; pa1-pa19 2169 / 2169; 112 swept shapes, every accepted pair writing the reference's LowIR but the one it drops a character ud-suffix on; unmoved from the `8dfad19a` build at 8192 literals, 8192 string bodies and 4096 ud-literals; valgrind clean |
 | C9 | 10p1's base-specifier-list of more than one entry, and the tree it makes: `SemaEntity::bases` and `Scope::bases` as lists, one subobject placed per entry, 10.2p2's lookup asking each base and refusing the name two of them answer, 12.6.2p10's construction in list order and 12.4p8's destruction in the reverse, 14.5.3p4's expansion reaching the ctor-initializer - the parse now records the `...` a mem-initializer wrote and the list is read once per element in the region binding its packs - 10.1p3's repeated base refused where the class is completed, which is what makes every walk of the tree one visit per class, and the ABI's `__vmi_class_type_info` for a class the one public base at the start of the object does not describe.  4.10p3's conversion now asks 14.7.1p1 for the definition of the specialization it converts.  8.5.2's string literal initializing an array of character type became its own owner (`sema_string_init.h`), read the same way from a declaration, a clause and 8.3.4p3's bound; and 10p1's derivation became one (`sema_derivation.h`), which is what freed the header ceiling `sema_analyzer.h` was at | 178 / 193 -> **185 / 196** with three fixtures added; pa1-pa19 2169 / 2169; 29 base-clause shapes and 9 string-literal shapes swept against g++ and the reference, every accepted pair writing the reference's LowIR but the two shapes it already wrote differently; linear at 1600 classes, 1024 direct bases, a base pack of 1024 and 8192 string arrays where the reference is 33-67x slower; valgrind clean |
+| C9 audit | the byte a base subobject stands at, at every reader that had only seen zero: 5.2.9p11's cast back to a derived class wrote no step, so `static_cast<C*>(q)` through the second base of `C : A, B` held the subobject's address and a member read through it stood past the end of the object; 11.2p4's access was asked of the region an *expression* was read in, which is given back before an initialization converts, so `B* p = this;` inside the class that named a protected base was refused with every other conversion written as an initializer, a return, a clause or a bound reference; 10.3p1 refused a dispatching base that was not the only base rather than one that does not begin where the object does, so a polymorphic first base beside a plain one - the ABI's own primary base - was refused with the shapes that owe a thunk; 12.6.2p2's index was keyed by the last component of a mem-initializer-id, so `struct both : n1::part, holder::part` initialized one base twice; and 14.6.2p3 was a fact of the base-clause where it is a fact of each specifier, so a settled base beside a dependent one was left off 3.4.1's search | 185 / 196 -> **189 / 200** with four fixtures added; pa1-pa19 2169 / 2169; 77 base-class and conversion shapes and 12 string shapes swept against g++ and the reference, every accepted pair writing the reference's LowIR but the offset-zero step it folds; linear at 1600 classes, 1024 direct bases, a base pack of 1024, 6400 conversions and 4096 casts back, with 10.1p3's own check quadratic in a derivation that adds a base per level and recorded as such; valgrind clean |

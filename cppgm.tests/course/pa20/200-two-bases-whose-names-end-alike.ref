@@ -1,0 +1,132 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $one : obj<8x4>
+  slot $two : obj<8x4>
+
+  block ^entry:
+    %t1 = addr $one
+    call void @both__both(%t1)
+    %t2 = addr $one
+    %t3 = index i8 [projection=base_subobject] %t2, 0
+    %t4 = index i8 [projection=field] %t3, 0
+    %t5 = load i32 %t4
+    %t6 = cmp ne i32 %t5, 1
+    branch %t6, ^if_then_1, ^if_else_2
+
+  block ^if_then_1:
+    return i32 1
+
+  block ^if_else_2:
+    jump ^if_end_3
+
+  block ^if_end_3:
+    %t7 = addr $one
+    %t8 = index i8 [projection=base_subobject] %t7, 4
+    %t9 = index i8 [projection=field] %t8, 0
+    %t10 = load i32 %t9
+    %t11 = cmp ne i32 %t10, 2
+    branch %t11, ^if_then_4, ^if_else_5
+
+  block ^if_then_4:
+    return i32 2
+
+  block ^if_else_5:
+    jump ^if_end_6
+
+  block ^if_end_6:
+    %t12 = addr $two
+    %t13 = addr $two
+    %t14 = index i8 [projection=base_subobject] %t13, 0
+    %t15 = index i8 [projection=field] %t14, 0
+    store i32 3, %t15
+    %t16 = addr $two
+    %t17 = index i8 [projection=base_subobject] %t16, 4
+    %t18 = index i8 [projection=field] %t17, 0
+    store i32 4, %t18
+    %t19 = addr $two
+    %t20 = call i32 @over_argument___from_settled(%t19)
+    %t21 = cmp ne i32 %t20, 3
+    branch %t21, ^if_then_7, ^if_else_8
+
+  block ^if_then_7:
+    return i32 3
+
+  block ^if_else_8:
+    jump ^if_end_9
+
+  block ^if_end_9:
+    %t22 = addr $two
+    %t23 = call i32 @over_argument___from_argument(%t22)
+    %t24 = cmp ne i32 %t23, 4
+    branch %t24, ^if_then_10, ^if_else_11
+
+  block ^if_then_10:
+    return i32 4
+
+  block ^if_else_11:
+    jump ^if_end_12
+
+  block ^if_end_12:
+    return i32 0
+}
+function @over_argument___from_settled(%this : ptr) -> i32 [binding=weak, object=_ZN4overI8argumentE12from_settledEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    %t3 = index i8 [projection=field] %t2, 0
+    %t4 = load i32 %t3
+    return i32 %t4
+}
+function @over_argument___from_argument(%this : ptr) -> i32 [binding=weak, object=_ZN4overI8argumentE13from_argumentEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 4
+    %t3 = index i8 [projection=field] %t2, 0
+    %t4 = load i32 %t3
+    return i32 %t4
+}
+function @both__both(%this : ptr) -> void [binding=weak, object=_ZN4bothC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    call void @outer__part__part__base_entry(%t2, 1)
+    %t3 = load ptr $this
+    %t4 = index i8 [projection=base_subobject] %t3, 4
+    call void @holder__part__part__base_entry(%t4, 2)
+    return void
+}
+function @outer__part__part__base_entry(%this : ptr, %value : i32) -> void [binding=weak, object=_ZN5outer4partC2Ei] {
+  slot $this : ptr
+  slot $value : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %value, $value
+    %t1 = load i32 $value
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 %t1, %t3
+    return void
+}
+function @holder__part__part__base_entry(%this : ptr, %value : i32) -> void [binding=weak, object=_ZN6holder4partC2Ei] {
+  slot $this : ptr
+  slot $value : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %value, $value
+    %t1 = load i32 $value
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 %t1, %t3
+    return void
+}
+alias object _ZN4bothC2Ev = @both__both

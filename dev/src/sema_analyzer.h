@@ -533,7 +533,9 @@ private:
 		std::unordered_map<std::string, MemInitializer>& named);
 	// 12.6.2p2: the name one entry of that index is held under, and the holding
 	// itself - which 12.6.2p6 refuses a second entry of one name at.
-	std::string base_key(const std::string& written, const Context& where);
+	std::string base_key(const std::string& written, const Context& where,
+	                     const SemaEntity* owner);
+	bool names_direct_base(const SemaEntity& owner, TypeId type);
 	void hold_mem_initializer(
 		const Pending& pending, const std::string& key,
 		const MemInitializer& wrote,
@@ -866,6 +868,7 @@ private:
 	// data member alike.  Null for a declaration that names no member.
 	Scope* naming_context(const std::string& written, const Context& ctx);
 	friend struct Naming;
+	friend struct Written;
 	// 5.2.5p1: the error a member access which turns out to name no subobject
 	// gives where `observable_expression` says the object expression may not be
 	// left out of the resolved tree.
@@ -1485,6 +1488,10 @@ private:
 	// denotes, written as one node holding the operand's own line.
 	Value base_value(const Value& object, SemaEntity& base,
 	                 bool checked = true, bool wrote_arrow = false);
+	// 5.2.9p11: the same step back, which is what a cast to a class derived
+	// from the operand's names.  False where that base begins where the object
+	// does and the address is the one the operand already held.
+	bool derived_value(Value& object, TypeId derived, SemaEntity& base);
 	// 11.4p1: the additional check a protected non-static member named on an
 	// object asks, which is that the object is of the class the access occurs
 	// in rather than of the base that declared the member.

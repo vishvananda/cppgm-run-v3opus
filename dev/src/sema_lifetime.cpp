@@ -1393,6 +1393,10 @@ void SemaAnalyzer::read_mem_initializers(
 	std::unordered_map<std::string, MemInitializer>& named)
 {
 	PackReading packs(*this);
+	// 12.6.2p2: which class each id names a base of, which is what tells a
+	// mem-initializer of a base from one of a member of the same name.
+	const SemaEntity* const owner =
+		pending.members != nullptr ? pending.members->owner : nullptr;
 	for (std::size_t at = 0;
 	     pending.initializers != nullptr &&
 	     at < pending.initializers->children.size(); ++at)
@@ -1410,7 +1414,7 @@ void SemaAnalyzer::read_mem_initializers(
 		wrote.spelled = id->text;
 		if (child_of(one, AstKind::ParameterPack) == nullptr)
 		{
-			hold_mem_initializer(pending, QualifiedName(id->text).last(),
+			hold_mem_initializer(pending, base_key(id->text, inner, owner),
 			                     wrote, named);
 			continue;
 		}
@@ -1433,26 +1437,33 @@ void SemaAnalyzer::read_mem_initializers(
 			Context where = inner;
 			where.scope = &packs.element_region(run, element, inner);
 			wrote.region = where.scope;
-			hold_mem_initializer(pending, base_key(id->text, where), wrote,
-			                     named);
+			hold_mem_initializer(pending, base_key(id->text, where, owner),
+			                     wrote, named);
 		}
 	}
 }
 
-// 12.6.2p2: the name the index of a ctor-initializer holds one entry under,
-// which is the last component of the mem-initializer-id as written.  An entry
-// read for one element of an expansion writes that component with the pack in
-// it, and every element writes the same one - so the class the element's own
-// region makes of it is what tells the entries apart.
+// 12.6.2p2: the name the index of a ctor-initializer holds one entry under.
+//
+// A mem-initializer-id that names a direct base is held under the whole name
+// that class has, because 10p1 lets a class derive from two whose names end in
+// the same component - `n1::b` and `n2::b` are two base subobjects and one key
+// would make them one entry the second is refused at.  Every other id is held
+// under the last component of what was written, which is 12.6.2p2's member; an
+// entry read for one element of an expansion writes the pattern's own spelling,
+// and every element writes the same one, so the class the element's own region
+// makes of it is what tells those apart as well.
 std::string SemaAnalyzer::base_key(const std::string& written,
-                                   const Context& where)
+                                   const Context& where,
+                                   const SemaEntity* owner)
 {
 	try
 	{
 		SemaEntity* const found = resolve(written, where, LookupKind::Type);
-		if (found != nullptr && names_a_type(*found))
+		if (found != nullptr && names_a_type(*found) && owner != nullptr &&
+		    names_direct_base(*owner, found->type))
 		{
-			return QualifiedName(types_.user_name(found->type)).last();
+			return types_.user_name(found->type);
 		}
 	}
 	catch (const std::runtime_error&)
@@ -1461,6 +1472,22 @@ std::string SemaAnalyzer::base_key(const std::string& written,
 		// mem-initializer it was written in is refused where it is read.
 	}
 	return QualifiedName(written).last();
+}
+
+// 10p1: whether `type` is one of the classes `owner` derives from directly,
+// which is what says a mem-initializer-id naming it is 12.6.2p2's base rather
+// than a type of the same name standing somewhere the lookup reached.
+bool SemaAnalyzer::names_direct_base(const SemaEntity& owner, TypeId type)
+{
+	const TypeId named = types_.strip_cv(type);
+	for (std::size_t index = 0; index < owner.bases.size(); ++index)
+	{
+		if (types_.strip_cv(owner.bases[index].entity->type) == named)
+		{
+			return true;
+		}
+	}
+	return false;
 }
 
 void SemaAnalyzer::hold_mem_initializer(
@@ -1691,15 +1718,13 @@ void SemaAnalyzer::write_one_base_initialization(
 		return;
 	}
 	const AstNode* written = nullptr;
-	const std::string spelled =
-		QualifiedName(types_.user_name(base.type)).last();
+	// 12.6.2p2: an id that named this base was held under the whole name the
+	// class has, which is what tells one base from another whose name ends in
+	// the same component.
 	std::unordered_map<std::string, MemInitializer>::iterator wrote =
-		named.find(spelled);
+		named.find(types_.user_name(base.type));
 	if (wrote != named.end() && wrote->second.used)
 	{
-		// A name two of this class's bases answer to under their last component
-		// belongs to the one whose whole spelling it is, which the walk below
-		// is what finds.
 		wrote = named.end();
 	}
 	if (wrote == named.end())

@@ -55,6 +55,23 @@ bool writes_virt_specifier(const AstNode& declarator)
 	return false;
 }
 
+// 10.3p1 and 10.3p10: the base subobject a class dispatches through, which is
+// the one base of it that carries a vpointer.  Null for a class that carries
+// none and for one that adds its own, and never a second base, because a class
+// holding two that dispatch is refused where it is completed - so the table this
+// class owns is that one base's table with its own overriders written in.
+SemaEntity* dispatching_base(const SemaEntity& entity)
+{
+	for (std::size_t index = 0; index < entity.bases.size(); ++index)
+	{
+		if (entity.bases[index].entity->polymorphic)
+		{
+			return entity.bases[index].entity;
+		}
+	}
+	return nullptr;
+}
+
 void note_shared_entry_points(SemaEntity& entity)
 {
 	for (SemaEntity* made = entity.constructor; made != nullptr;
@@ -163,6 +180,7 @@ void require_no_virtual_specifier(const SemaEntity& member)
 void SemaAnalyzer::note_polymorphism(SemaEntity& entity, Scope& scope)
 {
 	std::size_t dispatching = 0;
+	const SemaEntity* const primary = dispatching_base(entity);
 	for (std::size_t index = 0; index < entity.bases.size(); ++index)
 	{
 		// 10p1: a class holding a base subobject that carries a vpointer
@@ -191,18 +209,28 @@ void SemaAnalyzer::note_polymorphism(SemaEntity& entity, Scope& scope)
 	{
 		return;
 	}
-	if (dispatching > 1 || entity.bases.size() > 1)
+	// 10.3p10 and the ABI: the one table this class owns is the table of the
+	// base subobject standing at its first byte, so a *second* base that
+	// dispatches, or a first one standing after storage another base already
+	// took, owes a secondary table and a thunk that steps a call through it back
+	// to the complete object.  Neither is emitted here, so such a class is
+	// refused rather than given a table that dispatches wrongly - while a class
+	// whose dispatching base does begin where the object does lays out and
+	// dispatches through that one table however many plain bases stand after it.
+	bool at_start = dispatching == 1;
+	for (std::size_t index = 0;
+	     at_start && index < entity.bases.size() &&
+	     entity.bases[index].entity != primary;
+	     ++index)
 	{
-		// 10.3p10 and the ABI: a class holding a base subobject that dispatches
-		// and does not begin where the object does owes a secondary table for
-		// it, and a call through that subobject reaches its overrider by a
-		// thunk that steps back to the complete object.  Neither is emitted
-		// here, so the class is refused rather than given a table that
-		// dispatches wrongly.
+		at_start = entity.bases[index].entity->empty_class;
+	}
+	if (!at_start)
+	{
 		throw std::runtime_error(types_.description(entity.type) +
 		                         " holds a base class subobject that dispatches "
-		                         "and is not the only one, which this milestone "
-		                         "does not lay out");
+		                         "and does not begin where the object does, "
+		                         "which this milestone does not lay out");
 	}
 }
 
@@ -323,8 +351,10 @@ unsigned SemaAnalyzer::inherited_slot(const SemaEntity* from,
 // class's table holds.
 void SemaAnalyzer::settle_virtual_members(SemaEntity& entity, Scope& scope)
 {
-	SemaEntity* const base =
-		entity.bases.empty() ? nullptr : entity.bases[0].entity;
+	// 10.3p10: the slots a class inherits are the ones the base it dispatches
+	// through holds, and no other base of it can hold any - a class that
+	// declares a virtual function is polymorphic and would be that one.
+	SemaEntity* const base = dispatching_base(entity);
 	if (base != nullptr && base->polymorphic)
 	{
 		// 10.3p10: the derived class's table is the base's, with the entries its
@@ -468,8 +498,9 @@ void SemaAnalyzer::settle_vtable_ownership(SemaEntity& entity, Scope& scope)
 void SemaAnalyzer::settle_virtual_destructor(SemaEntity& entity,
                                              SemaEntity& destructor)
 {
-	SemaEntity* const base =
-		entity.bases.empty() ? nullptr : entity.bases[0].entity;
+	// 10.3p10 again: a destructor overrides the one the base this class
+	// dispatches through declared, which is the only base holding a slot.
+	SemaEntity* const base = dispatching_base(entity);
 	SemaEntity* const over =
 		base != nullptr && base->destructor != nullptr &&
 			base->destructor->virtual_function

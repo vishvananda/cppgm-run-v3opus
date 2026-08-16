@@ -1954,6 +1954,25 @@ Naming::~Naming()
 	owner.naming_ = held;
 }
 
+// 11.2p4: the region a conversion is written in, held over the whole of an
+// initialization rather than over the reading of the expression alone - because
+// the conversion 8.5 applies is written where the initialization is and is
+// asked for after the operand's own reading has given the region back.
+Written::Written(SemaAnalyzer& owner, Scope* region)
+	: owner(owner)
+	, held(owner.reading_)
+{
+	if (region != nullptr)
+	{
+		owner.reading_ = region;
+	}
+}
+
+Written::~Written()
+{
+	owner.reading_ = held;
+}
+
 // 11p6: a declaration written outside the class it names a member of checks
 // every one of its names with the access that class gives, which is what lets
 // the return type of `A::I A::f()` and the initializer of `A::I A::x` name a

@@ -362,22 +362,27 @@ LowValue LowirFunctionLowering::base_conversion(const DumpNode& node)
 	value.lvalue =
 		types.kind(types.strip_cv(value.type)) != TypeKind::Pointer;
 	value.operand = node.fact.null_preserving && node.fact.value != 0
-		? null_preserving_base_step(from, node.fact.value)
-		: base_step(from, node.fact.value);
+		? null_preserving_base_step(from, node.fact.value, node.fact.downward)
+		: base_step(from, node.fact.value, node.fact.downward);
 	return value;
 }
 
 // 10p1: the address of the base subobject of the object `from` points at, which
 // is that address moved on by the place the derived class gave its base.
+// 5.2.9p11 is the same step the other way about - the object a base subobject is
+// part of begins the same distance *back* from where the subobject does.
 Operand LowirFunctionLowering::base_step(const Operand& from,
-                                         unsigned long long offset)
+                                         unsigned long long offset,
+                                         bool downward)
 {
 	Instruction step;
 	step.kind = Instruction::IK_INDEX;
 	step.type.text = "i8";
 	step.index_projection = lowir_model::IPK_BASE_SUBOBJECT;
 	step.first = from;
-	step.second = named_operand(Operand::OP_INTEGER, decimal(offset));
+	step.second = named_operand(
+		Operand::OP_INTEGER,
+		(downward && offset != 0 ? "-" : "") + decimal(offset));
 	return emit(step);
 }
 
@@ -389,7 +394,7 @@ Operand LowirFunctionLowering::base_step(const Operand& from,
 // reaches here, so no program pays for the branch that PA17's layout gave every
 // base subobject.
 Operand LowirFunctionLowering::null_preserving_base_step(
-	const Operand& from, unsigned long long offset)
+	const Operand& from, unsigned long long offset, bool downward)
 {
 	lowir_model::LowType pointer;
 	pointer.text = "ptr";
@@ -411,7 +416,7 @@ Operand LowirFunctionLowering::null_preserving_base_step(
 	jump(end_label);
 
 	open_block(adjust_label);
-	store_pointer(base_step(from, offset), storage);
+	store_pointer(base_step(from, offset, downward), storage);
 	jump(end_label);
 
 	open_block(end_label);

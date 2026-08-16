@@ -1,0 +1,319 @@
+declare global @__external_rtti_vtable____class_type_info [binding=strong, object=_ZTVN10__cxxabiv117__class_type_infoE]
+declare global @__external_rtti_vtable____si_class_type_info [binding=strong, object=_ZTVN10__cxxabiv120__si_class_type_infoE]
+
+global @__typeinfo_name__struct_carries [storage=readonly, binding=weak, object=_ZTS7carries] = {
+  i8 55
+  i8 99
+  i8 97
+  i8 114
+  i8 114
+  i8 105
+  i8 101
+  i8 115
+  i8 0
+}
+global @__typeinfo_name__struct_dispatches [storage=readonly, binding=weak, object=_ZTS10dispatches] = {
+  i8 49
+  i8 48
+  i8 100
+  i8 105
+  i8 115
+  i8 112
+  i8 97
+  i8 116
+  i8 99
+  i8 104
+  i8 101
+  i8 115
+  i8 0
+}
+global @__rtti_struct_dispatches [storage=readonly, binding=weak, object=_ZTI10dispatches] = {
+  ptr addr @__external_rtti_vtable____class_type_info + 16
+  ptr addr @__typeinfo_name__struct_dispatches
+}
+global @__rtti_struct_carries [storage=readonly, binding=weak, object=_ZTI7carries] = {
+  ptr addr @__external_rtti_vtable____si_class_type_info + 16
+  ptr addr @__typeinfo_name__struct_carries
+  ptr addr @__rtti_struct_dispatches
+}
+global @carries__vtable [storage=readonly, binding=weak, object=_ZTV7carries] = {
+  i64 0
+  ptr addr @__rtti_struct_carries
+  ptr addr @carries__which
+}
+global @dispatches__vtable [storage=readonly, binding=weak, object=_ZTV10dispatches] = {
+  i64 0
+  ptr addr @__rtti_struct_dispatches
+  ptr addr @dispatches__which
+}
+global @one [binding=strong, object=_Z3one] = {
+  zero 12
+}
+global @two [binding=strong, object=_Z3two] = {
+  zero 16
+}
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $to_second : ptr
+  slot $back : ptr
+  slot $basecast__1 : ptr
+  slot $basecast__2 : ptr
+  slot $bound : ptr
+  slot $named : ptr
+  slot $to_base : ptr
+  slot $to_carries : ptr
+  slot $to_first : ptr
+  slot $from_first : ptr
+
+  block ^entry:
+    %t1 = addr @one
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 1, %t3
+    %t4 = addr @one
+    %t5 = index i8 [projection=base_subobject] %t4, 4
+    %t6 = index i8 [projection=field] %t5, 0
+    store i32 2, %t6
+    %t7 = addr @one
+    %t8 = index i8 [projection=field] %t7, 8
+    store i32 3, %t8
+    %t9 = addr @one
+    %t10 = index i8 [projection=base_subobject] %t9, 4
+    store ptr %t10, $to_second
+    %t11 = load ptr $to_second
+    %t12 = addr @one
+    %t13 = cmp eq ptr %t11, %t12
+    branch %t13, ^if_then_1, ^if_else_2
+
+  block ^if_then_1:
+    return i32 1
+
+  block ^if_else_2:
+    jump ^if_end_3
+
+  block ^if_end_3:
+    %t14 = load ptr $to_second
+    %t15 = cmp eq ptr %t14, 0
+    branch %t15, ^basecast_null_4, ^basecast_adjust_5
+
+  block ^basecast_null_4:
+    store ptr 0, $basecast__1
+    jump ^basecast_end_6
+
+  block ^basecast_adjust_5:
+    %t16 = index i8 [projection=base_subobject] %t14, -4
+    store ptr %t16, $basecast__1
+    jump ^basecast_end_6
+
+  block ^basecast_end_6:
+    %t17 = load ptr $basecast__1
+    store ptr %t17, $back
+    %t18 = load ptr $back
+    %t19 = addr @one
+    %t20 = cmp ne ptr %t18, %t19
+    branch %t20, ^if_then_7, ^if_else_8
+
+  block ^if_then_7:
+    return i32 2
+
+  block ^if_else_8:
+    jump ^if_end_9
+
+  block ^if_end_9:
+    %t21 = load ptr $back
+    %t22 = index i8 [projection=base_subobject] %t21, 0
+    %t23 = index i8 [projection=field] %t22, 0
+    %t24 = load i32 %t23
+    %t25 = cmp ne i32 %t24, 1
+    branch %t25, ^if_then_10, ^lor_rhs_14
+
+  block ^lor_rhs_14:
+    %t26 = load ptr $back
+    %t27 = cmp eq ptr %t26, 0
+    branch %t27, ^basecast_null_15, ^basecast_adjust_16
+
+  block ^basecast_null_15:
+    store ptr 0, $basecast__2
+    jump ^basecast_end_17
+
+  block ^basecast_adjust_16:
+    %t28 = index i8 [projection=base_subobject] %t26, 4
+    store ptr %t28, $basecast__2
+    jump ^basecast_end_17
+
+  block ^basecast_end_17:
+    %t29 = load ptr $basecast__2
+    %t30 = index i8 [projection=field] %t29, 0
+    %t31 = load i32 %t30
+    %t32 = cmp ne i32 %t31, 2
+    branch %t32, ^if_then_10, ^lor_rhs_13
+
+  block ^lor_rhs_13:
+    %t33 = load ptr $back
+    %t34 = index i8 [projection=field] %t33, 8
+    %t35 = load i32 %t34
+    %t36 = cmp ne i32 %t35, 3
+    branch %t36, ^if_then_10, ^if_else_11
+
+  block ^if_then_10:
+    return i32 3
+
+  block ^if_else_11:
+    jump ^if_end_12
+
+  block ^if_end_12:
+    %t37 = addr @one
+    %t38 = index i8 [projection=base_subobject] %t37, 4
+    store ptr %t38, $bound
+    %t39 = load ptr $bound
+    %t40 = index i8 [projection=base_subobject] %t39, -4
+    store ptr %t40, $named
+    %t41 = load ptr $named
+    %t42 = addr @one
+    %t43 = cmp ne ptr %t41, %t42
+    branch %t43, ^if_then_18, ^if_else_19
+
+  block ^if_then_18:
+    return i32 4
+
+  block ^if_else_19:
+    jump ^if_end_20
+
+  block ^if_end_20:
+    %t44 = load ptr $named
+    %t45 = index i8 [projection=field] %t44, 8
+    %t46 = load i32 %t45
+    %t47 = cmp ne i32 %t46, 3
+    branch %t47, ^if_then_21, ^if_else_22
+
+  block ^if_then_21:
+    return i32 5
+
+  block ^if_else_22:
+    jump ^if_end_23
+
+  block ^if_end_23:
+    %t48 = addr @two
+    %t49 = index i8 [projection=base_subobject] %t48, 0
+    store ptr %t49, $to_base
+    %t50 = load ptr $to_base
+    %t51 = addr @two
+    %t52 = cmp ne ptr %t50, %t51
+    branch %t52, ^if_then_24, ^if_else_25
+
+  block ^if_then_24:
+    return i32 6
+
+  block ^if_else_25:
+    jump ^if_end_26
+
+  block ^if_end_26:
+    %t53 = addr @two
+    %t54 = index i8 [projection=field] %t53, 8
+    store i32 7, %t54
+    %t55 = load ptr $to_base
+    store ptr %t55, $to_carries
+    %t56 = load ptr $to_carries
+    %t57 = addr @two
+    %t58 = cmp ne ptr %t56, %t57
+    branch %t58, ^if_then_27, ^if_else_28
+
+  block ^if_then_27:
+    return i32 7
+
+  block ^if_else_28:
+    jump ^if_end_29
+
+  block ^if_end_29:
+    %t59 = load ptr $to_carries
+    %t60 = index i8 [projection=field] %t59, 8
+    %t61 = load i32 %t60
+    %t62 = cmp ne i32 %t61, 7
+    branch %t62, ^if_then_30, ^if_else_31
+
+  block ^if_then_30:
+    return i32 8
+
+  block ^if_else_31:
+    jump ^if_end_32
+
+  block ^if_end_32:
+    %t63 = load ptr $to_carries
+    %t64 = load ptr %t63
+    %t65 = load ptr %t64
+    %t66 = call i32 %t65(%t63) as (%arg0 : ptr) -> i32
+    %t67 = cmp ne i32 %t66, 2
+    branch %t67, ^if_then_33, ^if_else_34
+
+  block ^if_then_33:
+    return i32 9
+
+  block ^if_else_34:
+    jump ^if_end_35
+
+  block ^if_end_35:
+    %t68 = addr @one
+    %t69 = index i8 [projection=base_subobject] %t68, 0
+    store ptr %t69, $to_first
+    %t70 = load ptr $to_first
+    store ptr %t70, $from_first
+    %t71 = load ptr $from_first
+    %t72 = addr @one
+    %t73 = cmp ne ptr %t71, %t72
+    branch %t73, ^if_then_36, ^if_else_37
+
+  block ^if_then_36:
+    return i32 10
+
+  block ^if_else_37:
+    jump ^if_end_38
+
+  block ^if_end_38:
+    return i32 0
+}
+function @carries__which(%this : ptr) -> i32 [binding=weak, object=_ZN7carries5whichEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    return i32 2
+}
+function @carries__carries(%this : ptr) -> void [unwind=no, binding=weak, object=_ZN7carriesC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    call void @dispatches__dispatches__base_entry(%t2)
+    %t3 = load ptr $this
+    %t4 = addr @carries__vtable
+    %t5 = index i8 %t4, 16
+    store ptr %t5, %t3
+    return void
+}
+function @dispatches__dispatches__base_entry(%this : ptr) -> void [unwind=no, binding=weak, object=_ZN10dispatchesC2Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = addr @dispatches__vtable
+    %t3 = index i8 %t2, 16
+    store ptr %t3, %t1
+    return void
+}
+function @dispatches__which(%this : ptr) -> i32 [binding=weak, object=_ZN10dispatches5whichEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    return i32 1
+}
+function @__cppgm_init() -> void [role=init, binding=internal] {
+  block ^entry:
+    %t1 = addr @two
+    call void @carries__carries(%t1)
+    return void
+}
+alias object _ZN7carriesC2Ev = @carries__carries

@@ -845,10 +845,14 @@ private:
 	LowValue base_conversion(const DumpNode& node);
 	// 10p1 and 4.10p3: the address of a base subobject, and the same address
 	// asked of a pointer that may hold 4.10p1's null pointer value.
+	// 5.2.9p11's cast to a derived class is the same step back, which
+	// `downward` is what says.
 	lowir_model::Operand base_step(const lowir_model::Operand& from,
-	                               unsigned long long offset);
+	                               unsigned long long offset,
+	                               bool downward = false);
 	lowir_model::Operand null_preserving_base_step(
-		const lowir_model::Operand& from, unsigned long long offset);
+		const lowir_model::Operand& from, unsigned long long offset,
+		bool downward = false);
 	void store_pointer(const lowir_model::Operand& value,
 	                   const lowir_model::Operand& storage);
 	// 12.1p5: the constructor call an object of class type is initialized by,

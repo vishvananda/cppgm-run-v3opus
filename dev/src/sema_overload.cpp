@@ -1783,6 +1783,11 @@ void SemaAnalyzer::apply_conversion(Value& value, TypeId target,
                                     const Match& match, const Context& ctx,
                                     Requested by)
 {
+	// 11.2p4: the conversion is written where the initialization is - a
+	// declaration's initializer, a return, an argument - and the reading of the
+	// operand it converts has already given its own region back, so the region
+	// the access is asked in is this one and not what that reading left behind.
+	const Written where(*this, ctx.scope);
 	if (value.braced != nullptr)
 	{
 		// 8.5.4: the type the list initializes is settled, so this is where its

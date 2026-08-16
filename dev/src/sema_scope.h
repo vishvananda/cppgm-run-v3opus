@@ -833,15 +833,21 @@ public:
 	// leaves it empty, so a program with no inheritance pays nothing for the
 	// question and allocates nothing.
 	std::vector<Scope*> bases;
-	// 14.6.2p3: whether the base-specifier that chain came from named a type
-	// that depends on a template parameter.  3.4.1's lookup of a name written
-	// inside this class is answered where the class was *defined*, and which
-	// class such a base is only an argument list says - so the chain is left
-	// off an unqualified lookup written in a member of this class, while
-	// 3.4.3's qualified lookup and 3.4.5's class member access, which name the
-	// object rather than read the definition, still walk it.  False for every
-	// class no template head stands over.
+	// 14.6.2p3: whether any base-specifier of this class named a type that
+	// depends on a template parameter.  3.4.1's lookup of a name written inside
+	// this class is answered where the class was *defined*, and which class
+	// such a base is only an argument list says - so such a base is left off an
+	// unqualified lookup written in a member of this class, while 3.4.3's
+	// qualified lookup and 3.4.5's class member access, which name the object
+	// rather than read the definition, still walk it.  False for every class no
+	// template head stands over.
 	bool dependent_base;
+	// 14.6.2p3 again, per base-specifier: the regions 3.4.1's search does look
+	// in, which are the bases whose own specifier named a settled type.  It is
+	// read only where `dependent_base` says one specifier did not, so a class
+	// outside a template writes it and no search reads it - one pointer per
+	// base and no walk.
+	std::vector<Scope*> open_bases;
 	// 7.3.3p1: the names a using-declaration written in this class brought a
 	// member function of a base in under.  7.3.3p14's hiding is a question only
 	// those names can answer yes to, and it is asked of the complete class -

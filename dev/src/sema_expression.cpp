@@ -1179,6 +1179,59 @@ SemaAnalyzer::Value SemaAnalyzer::base_value(const Value& object,
 	return value;
 }
 
+// 5.2.9p11 and 11.2p4: the object a base class subobject is part of, which is
+// what a cast to a class derived from the operand's names.
+//
+// It is the one step above read the other way about: the base subobject begins
+// at the place its derived class gave it, so the object begins that many bytes
+// back from where the operand stands.  A base standing at the object's own first
+// byte - which is every base of a class that declares one and the first base of
+// a class that declares several - leaves the address the operand held, so no
+// step is written at all and the access is the only thing the cast asks.
+bool SemaAnalyzer::derived_value(Value& object, TypeId derived,
+                                 SemaEntity& base)
+{
+	SemaEntity* const owner = model_.type_owner(types_.strip_cv(derived));
+	Derivation(*this).require_access(owner, base);
+	const unsigned long long offset =
+		Derivation(*this).subobject_offset(derived, base);
+	if (offset == 0 || object.node == nullptr)
+	{
+		return false;
+	}
+	Value value = object;
+	const bool through_pointer =
+		types_.kind(types_.strip_cv(object.type)) == TypeKind::Pointer;
+	const TypeId from =
+		through_pointer ? types_.target(object.type) : object.type;
+	TypeId to = types_.qualified(derived, types_.object_cv(from));
+	if (through_pointer)
+	{
+		to = types_.pointer_to(to);
+		value.category = ValueCategory::PRValue;
+	}
+	value.type = value.spelled = to;
+	value.entity = owner;
+	value.functions = nullptr;
+	value.addressed = nullptr;
+	value.name = nullptr;
+	value.constant = false;
+	value.null_constant = false;
+	value.value = offset;
+	value.op = 0;
+	value.what = "base-conversion";
+	value.payload.clear();
+	value.node = &model_.wrap_node(*object.node, std::string());
+	respell(value);
+	value.node->fact.downward = true;
+	// 4.10p3 the other way about: a pointer the program could have written a
+	// null into holds the null pointer value of the derived class too, so
+	// stepping back off it would name storage no object stands in.
+	value.node->fact.null_preserving = through_pointer && !object.nonnull;
+	object = value;
+	return true;
+}
+
 // 10.2 and 11.2: the subobject a member found through a base class is a member
 // of.  Lookup reached the member through the classes between the object's own
 // and the one that declared it, and what the member belongs to is the one base

@@ -196,6 +196,7 @@ struct SemaFact
 		, binds_temporary(false)
 		, base_subobject(false)
 		, null_preserving(false)
+		, downward(false)
 		, dispatches(false)
 		, subobject_step(false)
 		, array_form(false)
@@ -301,6 +302,12 @@ struct SemaFact
 	// begin where the object does is the answer a branch rather than the
 	// address itself.
 	bool null_preserving;
+	// 5.2.9p11: whether this `base-conversion` steps *back* to the object a
+	// base subobject is part of rather than on to the subobject.  A cast to a
+	// class derived from the operand's names the same storage where the base
+	// begins at the object's own first byte and moves back by the place that
+	// class gave it where it does not.
+	bool downward;
 	// 5.2.2p1 and 10.3p12: whether this `callee` names the function to run or
 	// only the slot to read it out of.  A virtual function called on an object
 	// runs the final overrider that object's own class has, which is a fact of

@@ -15,275 +15,125 @@ the specialization it names, and the definition a program wrote for one.
 | C6 | `d7c036b5` | 4 / 4 | **the demand a prefix makes, which C6 answered at one of the three walks that make it.**  3.4.3p1 looks a name up *in* the region its prefix named, and this compiler writes that walk three times - `resolve_prefix` for a prefix spelled as a name, its own decltype branch, and `qualified_in_type` for a prefix that is a *type*.  C6 taught the first and left the other two on the demand 14.6p8's reading answers with nothing, so `decltype(make_it())::type` written in a template definition reached a class with no region and was refused where both oracles accept, and a decltype prefix an argument list has yet to settle threw `no declaration of decltype(...) is in scope` instead of leaving 14.6.2p1's stand-in every other prefix is left with.  The arena C6 made the analyzer borrow reached one of the three modes that read such a name, so `--emit-types` and `--emit-semantics` refused what `--emit-lowir` accepts.  And 14.6.1p1's current instantiation puts a *place* at every argument, so an out-of-class member definition bound a value place as a type: `template<class T, int N> int holder<T, N>::value = N * 2;` - every out-of-class definition of a member of a class template with a non-type parameter - was refused at 5.1.1p8 |
 | C7 | `350c92f4` | 3 / 3 | **a list of *one* entry is a list too, and five readers took that entry by index.**  C7 gave every walk of a written list one reading and converted the readers that walk *many* entries; the readers that take the list's single entry kept indexing `children[0]`, so `int x(a...)`, `int(a...)` and `: v(a...)` over a run of one each reached a `pack-expansion-expression` no reader below answers for and were refused where both oracles accept - while their class-typed twins, which C7 did convert, were right.  8.5p16's arity was never asked either, so `int x(1,2)` was accepted where the reference and g++ both refuse.  And 5.19's own copy of 5.2.3 had no answer at all for a run 14.6p8's reading cannot count, so `int arr[int(N...)]` written in a template definition was refused where `sizeof...(N)` in the same place stands a value in |
 | C8 | `8dfad19a` | 5 / 5 | **the dialect a character-literal is read in, which covers two facts and was moved for one.**  What a c-char above the ordinary range is worth, and whether a run of them is a literal at all, are one question PA2's dump and the language answer differently - the reference splits them the same way, its `#if` reading `'é'` as 233 where its phase 7 reads -23 - so `MulticharacterLiterals` was the right shape and reached one of the two: every ordinary character literal above 127 stayed PA2's `int` holding a code point, so `sizeof('\xff')` was 4 here and 1 in the reference and g++ alike.  The packing was a second implementation of 2.14.5p5's execution encoding beside the one `string_literal.cpp` has owned since PA2, and it packed code *points*: `'aé'` was `0x61e9` where both oracles write `0x61c3a9`, and the acceptance set was wrong with it.  A `char` literal may now hold a negative value, which found `literal_value` shifting a literal's bytes together without 3.9.1p1's sign, so `long long g = '\xff'` wrote 255.  C8's own claim that one reading answers a tree and a spelling alike was untrue for 5.1.1p6's parentheses, which the tree strips and the spelling did not, so `p<("abc")[1]>` was refused where both oracles accept.  And 2.14.8p3's raw operator was asked before the literal operator template, where the reference calls the template |
+| C9 | `964bc63d` | 5 / 5 + 1 perf | **the tree a derivation became, which C9 built and the four readers of one base were left reading a chain.**  10p1's list gives a base subobject a byte of its own, and every reader that had only ever seen offset zero kept the answer it had: 5.2.9p11's cast back to a derived class wrote *no* step at all, so `static_cast<C*>(q)` where `C : A, B` held the address of the `B` subobject and a member read through it stood past the end of the object - the reference writes `index i8 %t, -4` there, and the same was true of a single base a class had put after its own vpointer since PA17.  11.2p4's access was asked of `reading_`, which is set while an *expression* is read and given back before the initialization converts it, so every conversion to a non-public base written as a declaration's initializer, a return, an aggregate clause or a bound reference was refused - `B* p = this;` inside the class that named the base among them, where both oracles accept.  10.3p1's refusal covered a base subobject that dispatches *and is not the only one* rather than one that does not begin where the object does, so a polymorphic first base beside a plain second - which the ABI lays out as its own primary base and needs no thunk - was refused with the shapes that do owe one.  12.6.2p2's index was keyed by the last component of the mem-initializer-id, which is not a name of a base once a class can have two: `struct both : n1::b, n2::b` reported `initializes n2::b twice`.  And 14.6.2p3 was made a fact of the whole base-clause, so a settled base beside a dependent one was left off 3.4.1's search and `struct A { int a; }; template<class T> struct C : A, T { int f() { return a; } };` named nothing.  The perf finding is 10.1p3's own check: it is quadratic in a derivation that adds a base per level, 0.011 / 0.049 / 0.154 / 0.584 s at 100 / 400 / 800 / 1600 levels |
 
 ## Current Checkpoint Review
 
-C8 read 5.19 outside the integral subset by giving each of its operands to the
-reader it belongs to: 2.14.3p1's multicharacter literal to `PostTokenizer`
-through `MulticharacterLiterals`, 5.19p2's subobject of a string literal to
-`string_element`, 5.3.3p5's `sizeof...` in an argument spelling to the same
-`PackReading` a tree of it asks, 3.9p7's incomplete array to the definition of
-the object, and 2.14.8p3's literal operator template to `specialize` over the
-characters the program wrote.  7.2's enumeration became `sema_enum.cpp`, which
-is a move: the only difference is a file-local `counted` where the analyzer's
-own `decimal` stood, which is the idiom every other owner in this tree already
-follows.
+C9 made 10p1's derivation a tree.  `SemaEntity::bases` and `Scope::bases` are
+lists, one subobject is placed per base-specifier, 10.2p2's lookup asks each
+base and refuses the name two of them answer, 12.6.2p10 constructs them in the
+order the list wrote them and 12.4p8 destroys them in the reverse, 14.5.3p4's
+expansion reaches the ctor-initializer, and 10.1p3's repeated base is refused
+where the class is completed - which is what makes every walk of the tree one
+visit per class.  10p1's derivation became its own owner
+(`sema_derivation.h`), and 8.5.2's string literal initializing an array of
+character type became another (`sema_string_init.h`).
 
-Three of those are right where they stand.  `sizeof...` out of a spelling is
-the one `PackReading` and nothing else, so a pattern read per element counts
-the run it came from at both tiers and inside and outside 14.6p8's reading.
-The bound both ways about is 8.3.4p3's declaration first and the list second,
-and the two shapes it answers differently from an oracle - a definition that
-omits a bound an earlier declaration wrote, and a redeclaration whose element
-type differs - are 3.3's matching of two declarations rather than this
-clause, which is why they stay recorded.  And `string_element` is one reading
-for a spelling and a tree, with 2.14.5p12's terminating null an element like
-any other.
+Both owners are right where they stand.  `StringInitialization` is one reading
+asked from the three places a program writes one, the code units are the ones
+phase 6 already built, and twelve string shapes swept against both oracles
+agree but the run of zeros the lowering has written for a short list since
+PA15.  `Derivation` keeps
+the four questions a tree answers together and each of them stops at the first
+answer, which is what 10.1p3 buys.  The base-clause reading, the layout, the
+lookup, the two orders and the ABI's `__vmi_class_type_info` were swept over 77
+base-class and conversion shapes against g++ and the reference, and every
+accepted pair writes the reference's LowIR but the offset-zero
+`base_subobject` step the plan already records.
 
-What the review found is that the *reader's* half of the checkpoint was
-short of the fact it names.  Which reading of a character literal a layer asks
-for settles two things and C8 moved one of them; behind that, the value it
-moved was a second implementation of an encoding this tree already owned; and
-behind *that*, the literal it now writes reaches a byte reader that never had
-to be signed.  Two more stand beside them: the parentheses one of C8's two
-readings strips and the other does not, and the order 2.14.8p3's two
-fallbacks are asked in.
+What the review found is that a base subobject now stands at a byte of its own,
+and the readers that had only ever seen offset zero were not told.  Behind that,
+the *region* an access is asked in outlives the reading that set it; and behind
+that, two facts C9 made one - the base a class dispatches through, and the
+clause 14.6.2p3 leaves off a lookup - are facts of one base-specifier and not of
+the list.
 
 ### Findings
 
-**1. The dialect covers two facts and the parameter reached one.**  PA2's dump
-is course defined to hold a character literal's *code point*, so an ordinary
-one above 127 is an `int` there; the language gives every ordinary character
-literal type `char`.  C8 made the run-of-c-chars half a fact of the reader and
-left the single-c-char half reading PA2's rule inside the compiler:
+**1. 5.2.9p11's cast back to the object wrote no step.**  4.10p3's conversion
+to a base moves the address on by the place the derived class gave it, and the
+cast the other way about has to move it back.  It wrote nothing at all, on the
+reading that the base "begins where the derived object does" - true of every
+class this milestone could lay out before C9, and false for every base after
+the first:
 
-| shape | before | `reference-binaries/cppgm++` | g++ |
-| --- | --- | --- | --- |
-| `sizeof('\xff')` | 4 | 1 | 1 |
-| `'\xff'` | 255 | -1 | -1 |
-| `'\377'`, `'\u00ff'` | 255 | -1 | -1 |
-| `'é'` | 233, width 4 | -23, width 1 | 0xc3a9, width 4 |
-| `sizeof('a')`, `'a'` | 1, 97 | 1, 97 | 1, 97 |
-
-The parameter is the right shape - the reference splits the same question the
-same way, and its own preprocessor answers `#if 'é' == 233` where its phase 7
-answers -23, which is exactly what `ctrl_expr.cpp` already asks for - so the
-fix is its reach and not its existence.  It is named `CharacterLiterals`
-(`CourseSubset`, `Language`) now, because a reader that takes it is choosing
-a reading of the whole literal and not of one spelling of it.
-
-**2. The packing was a second implementation of 2.14.5p5's encoding.**
-`packed_multicharacter` packed each c-char as `code point & 0xFF`, while
-`string_literal.cpp`'s `encode_narrow_part` has since PA2 read a numeric
-escape as one code unit and every other element as the UTF-8 its code point
-comes to.  So one c-char was one byte inside `'...'` and two inside `"..."`,
-and `'aé'` was `0x61e9` where the reference and g++ both write `0x61c3a9` -
-`'\x41\xe9'` agreed only because a numeric escape is one byte under either
-reading.  The rule is one implementation now (`append_ordinary_units`), which
-both bodies call.
-
-With the encoding right the acceptance set follows it: the reference reads the
-first c-char as a whole literal before it counts the rest, so it refuses a
-multicharacter literal whose first c-char is above the ordinary range.
-`'\xff\x41'`, `'\xe9\x41'`, `'\x80\x41'`, `'\xc3\xa9'`, `'\341\x41'`
-and `'éé'` are all refused there and were all taken here.
-
-**3. One reader of a literal's bytes had no sign.**  `literal_value` built the
-constant by shifting `PostToken::data` together as unsigned bytes, which no
-literal could reach while every character literal above 127 was an `int`
-holding a code point and every integer literal was non-negative.  With finding
-1 landed, `long long g = '\xff';` wrote 255 where the reference writes -1.  It
-asks `PostToken::integer_value` now, which is 3.9.1p1's value in the literal's
-own type.  The four other readers of the same bytes were checked and are
-right: `literal_constant` and `string_element` follow with 4.7p2's conversion,
-`LiteralValue::integer` sign-extends of its own, and `__strlit__`'s data items
-are 2.14.5's unsigned code units by intent - `const char* p = "\xfe"` writes
-the reference's global byte for byte.
-
-**4. 5.1.1p6's parentheses are stripped by one of the two readings.**  C8's
-claim is that `string_element` answers a subscript written as a tree and one
-written inside an argument list alike, and the tree walk strips
-`ParenthesizedExpression` before it asks what is subscripted where the
-spelling reader only reached a literal word written bare.  So `("abc")[1]` was
-read in a tree and `p<("abc")[1]>` was `a constant expression holds a literal
-that has no integral value`, which both oracles accept.  One `literal_operand`
-answers for both spellings of the operand now, and the parenthesized primary
-reaches it however many parentheses stand around it.
-
-**5. 2.14.8p3's two fallbacks were asked in the wrong order.**  A ud-suffix
-whose lookup found no operator taking the value fell to the raw operator and
-only then to the literal operator template, so a set declaring both called the
-raw one and wrote `@__strlit__1` and a `const char*` call where the reference
-calls `operator""_c<'7'>()` and writes `_Zli2_cIJLc55EEEiv`.  2.14.8p3 makes
-such a set ill-formed - g++ refuses it - so no well-formed program can tell
-the order apart, and asking the template first is what the reference answers
-for the ill-formed one.
-
-### What the review confirmed rather than found
-
-The typed ownership holds.  `CharacterLiterals` is a value the reader is
-constructed with and holds for its life, so no layer below `PostTokenizer` has
-to be told which dialect it is in; `append_ordinary_units` appends into the
-caller's `std::string` and owns nothing; `string_element` takes a spelling and
-an index and returns a `Constant` by value; and `literal_operator_template`
-returns a `SemaEntity*` the model owns, which `specialize` is the only writer
-of.  The three drivers that print a token and 16.1's controlling expression
-ask for `CourseSubset` and the three that feed the compiler ask for
-`Language`, which is every construction of `PostTokenizer` in the tree.
-
-The complexity is what the plan claims and the fixes cost nothing measurable.
-A character literal is one scan of the c-chars phase 3 already found however
-it is read, and the code units it comes to are appended into one string per
-literal: 512 / 2048 / 8192 distinct multicharacter literals are 0.008 / 0.018 /
-0.058 s against the `8dfad19a` build's 0.008 / 0.020 / 0.058, and the same
-count holding a c-char above the ordinary range is 0.025 / 0.044 / 0.120
-against 0.024 / 0.043 / 0.120.  The shared encoder is unmoved for the body it
-already owned - 512 / 2048 / 8192 string literals carrying escapes are 0.015 /
-0.053 / 0.228 against 0.015 / 0.053 / 0.229.  The parenthesized primary is one
-index comparison per parenthesized run: 256 / 1024 / 4096 parenthesized
-argument spellings that hold no literal are 0.009 / 0.023 / 0.085 s on both
-builds, and the shape the finding is about is 0.010 / 0.029 / 0.109 - linear,
-and 1.3x the 0.083 s the same count written without parentheses costs, which
-is the cast probe those parentheses already paid for.  Asking the template
-first costs a raw ud-literal one scan of its own candidate list: 256 / 1024 /
-4096 raw ud-literals are 0.011 / 0.033 / 0.134 against 0.011 / 0.033 / 0.135,
-and the same count of template ones 0.017 / 0.057 / 0.255 against 0.016 /
-0.057 / 0.257.  `fac<800>` and a pack of 4096 bound and counted are 0.037 and
-0.011 s on both builds.
-
-Valgrind is clean - no message of any kind - over the nine shapes the findings
-are about and the two fixtures added here.
-
-The differential sweep is 112 shapes: 88 through this compiler, through
-`reference-binaries/cppgm++` and through g++, compared on the LowIR the first
-two wrote rather than on the exit status alone, and 24 more character-literal
-spellings compared for the value *and* the width the two compilers give them.
-The literal shapes are the cross product of one c-char and two, three, five
-and eight of them, against a source character, a universal-character-name, a
-hex escape, an octal escape and a simple escape, at each of the four
-encodings, inside and outside an argument spelling and inside `#if`; the rest
-are the twelve string-element shapes, seven `sizeof...` spellings, twelve
-array-bound shapes and fourteen ud-literal shapes.  Every accepted pair now
-writes byte-identical LowIR but the two recorded below, and the PA2 dump of
-`'\xff'` and `'é'` is still `pa2/posttoken-ref`'s byte for byte.
-
-### Recorded, not landed
-
-- **The two oracles disagree on a single non-ASCII c-char.**  `'é'` is a
-  `char` holding -23 in the reference and a multicharacter `int` holding
-  `0xc3a9` in g++, because g++ counts the code *units* of the source character
-  as c-chars where the reference counts the character.  This compiler answers
-  the reference, which is what the object file is compared against, so the
-  fixture added here pins the rule through `'\xff'` and `'\377'` - where the
-  two oracles agree - rather than through a source character.
-- **The reference drops a ud-suffix on a character literal.**  `'a'_c` is 97
-  there whatever `operator""_c(char)` returns, so it folds the call away;
-  this compiler and g++ both call the operator.  Reproducing it would be
-  wrong, so the LowIR differs for that one shape.
-- **8.5.2p1's string literal does not initialize a character array.**
-  `char s[3] = "ab"` and `char s[] = "ab"` are `an expression has no
-  conversion to the type it initialises` here, at namespace and block scope
-  alike, where both oracles accept - while the same literal written as an
-  aggregate's clause (`struct k { char s[4]; }; k v = { "abc" };`) is right.
-  That is a PA12-era initialization this checkpoint does not reach; it is also
-  what would make C8's braced deduction count `char s[] = {"ab"}` as three
-  elements rather than the one clause it holds.
-- **PA20's own recorded items are unchanged**: a specialization's body cannot
-  name its own class, a partial specialization has no out-of-class members, a
-  template template parameter in any head, a dependent array bound in an
-  argument spelling, a constructor template written in a class body, 12.1's
-  constructor over a function parameter pack of no elements, the reference's
-  empty-pack function-template name, 14.8.1p9's extension of an explicit list,
-  `Tn` for a settled value argument of dependent type, the generated place
-  name that collides with a written one, a pack name written without `...`,
-  10p1 over a base pack of more than one element, the static data member's
-  demand, `1["abc"]` refused by the reference and this compiler alike, and the
-  reference's refusal of a braced scalar initializer holding an expansion.
-- **PA19's recorded items are unchanged**: the exponential spelling of a
-  specialization whose arguments double, the out-of-class member path's
-  residual, 12.1's two constructor entry points, and the ABI's decltype return
-  type.  A *class* metafunction with no terminating specialization still
-  overflows the machine stack rather than being diagnosed, in this compiler
-  and in the reference alike; it needs a depth guard rather than C5's
-  same-list one.
-
-## Changes
-
-- **`literal_scan.h` / `literal_scan.cpp` — the dialect, and one encoder.**
-  `MulticharacterLiterals` became `CharacterLiterals` (`CourseSubset`,
-  `Language`), because what it settles is the whole reading of a character
-  literal: in `Language` an ordinary one holding a single c-char is a `char`
-  whatever that c-char is, and in `CourseSubset` it is PA2's `int` holding the
-  code point.  `append_ordinary_units` is 2.14.5p5's encoding of one element -
-  a numeric escape is one code unit, everything else is the UTF-8 of its code
-  point - and `packed_multicharacter` builds the run through it and refuses a
-  first c-char above the ordinary range, as the reference does.
-- **`string_literal.cpp` — the body that already owned the rule.**
-  `encode_narrow_part` calls `append_ordinary_units` rather than writing the
-  same two branches a second time, so a string literal's body and a character
-  literal's cannot drift apart again.
-- **`sema_expression.cpp` — 3.9.1p1's sign, and 2.14.8p3's order.**
-  `literal_value` reads the token through `PostToken::integer_value`, which is
-  the literal's value in its own type, so a `char` holding a high bit is
-  negative where 4.7p2 widens it.  The literal operator template is asked
-  before the raw operator, which no well-formed program can tell apart and
-  which is what the reference answers for the set 2.14.8p3 makes ill-formed.
-- **`sema_value_expression.cpp` — 5.1.1p6's primary.**  The parenthesized run
-  the reader could not read as a cast is stripped to the primary it holds, so
-  a literal reaches 5.19p2's subscript through however many parentheses stand
-  around it; `literal_operand` is that reading, and it is the one both
-  spellings of the operand ask.
-- **Two fixtures** under `cppgm.tests/course/pa20`, each with a `.ref`
-  generated from `reference-binaries/cppgm++`, each accepted by g++ and each
-  refused by a `make build` of `8dfad19a`: what a c-char above the ordinary
-  range is worth, as one c-char and in a run of them and read back out of a
-  string literal; and the literal inside the parentheses around it, in a tree
-  and inside an argument spelling.
-
-## Performance Evidence
-
-Best of five over three interleaved rounds, `-O0`, timed by the shell around
-the process itself: an empty translation unit is **0.004 s**, so a row is the
-shape's own cost.  Every row was measured against this build and against a
-`make build` of `8dfad19a` on the same machine.
-
-| shape | here | `8dfad19a` |
+| shape | before | `pa20/cppgm++-ref` |
 | --- | --- | --- |
-| 512 / 2048 / 8192 distinct multicharacter literals | 0.008 / 0.018 / **0.058 s** | 0.008 / 0.020 / 0.058 s |
-| the same holding a c-char above the ordinary range | 0.025 / 0.044 / **0.120 s** | 0.024 / 0.043 / 0.120 s |
-| 512 / 2048 / 8192 string literals carrying escapes | 0.015 / 0.053 / **0.228 s** | 0.015 / 0.053 / 0.229 s |
-| 256 / 1024 / 4096 parenthesized argument spellings | 0.009 / 0.023 / **0.085 s** | 0.009 / 0.023 / 0.085 s |
-| 256 / 1024 / 4096 string elements read through parentheses | 0.010 / 0.029 / **0.109 s** | refused |
-| the same written without parentheses | **0.083 s** at 4096 | 0.083 s |
-| a literal parenthesized 24 deep in a spelling | **0.004 s** | refused |
-| 256 / 1024 / 4096 raw ud-literals | 0.011 / 0.033 / **0.134 s** | 0.011 / 0.033 / 0.135 s |
-| 256 / 1024 / 4096 literal-operator-template ud-literals | 0.017 / 0.057 / **0.255 s** | 0.016 / 0.057 / 0.257 s |
-| `fac<800>` metafunction chain | **0.037 s** | 0.037 s |
-| a pack of 4096 elements bound and counted | **0.011 s** | 0.011 s |
+| `static_cast<C*>(q)`, `C : A, B`, `q` a `B*` | the address `q` held | `index i8 %t, -4` |
+| `static_cast<C&>(r)`, the same classes | the address `r` named | `index i8 %t, -4` |
+| `static_cast<C*>(p)`, `C : A` with a vpointer C added | the address `p` held | `index i8 %t, -8` |
 
-Every row this review touched is linear in its own multiplicity and unmoved
-from the build that read the literals the other way, which is what says the
-encoding is one pass over the c-chars phase 3 already found and not a second
-scan of them.  The one row that moved is the shape the old build refused, so
-its `8dfad19a` column is the cost of failing rather than a comparison; the
-control beside it - the same count of parenthesized spellings holding no
-literal - is identical on both builds, which is what says the primary probe
-costs nothing and the 1.3x is the subscript that now happens.
+A member read through the result then stood one base's width past the end of
+the object - `r->b = 5` wrote at `&c + 8` of an eight-byte object.  The step is
+`derived_value` now, which is `base_value` read the other way about and writes
+4.10p3's own `base-conversion` node with the offset and a `downward` fact the
+lowering spells as a negative index; a base that does begin where the object
+does still writes nothing, which is what leaves every single-inheritance cast
+the output it already had.
 
-## Validation
+**2. 11.2p4's access was asked where the operand's reading had already been
+given back.**  `reading_` is set by `read_expression` for the region an
+expression is written in and restored where that expression ends, and the
+conversion an *initialization* applies runs after it: 8.5's declaration
+initializer, 6.6.3p2's returned object, 8.5.1's clause and 8.5.3's bound
+reference each convert with `reading_` holding whatever the enclosing reading
+left, which at the top of a statement is nothing.  So a conversion to a
+protected or private base written in those four places was refused wherever it
+stood, including inside the class that named the base:
 
-- `make test-report-through-pa19`: **2169 / 2169**, 19 / 19 stages.
-- `make test-report ACTIVE_TEST_REPORT_PAS='pa20'`: **178 / 193**, from a
-  turn-start **176 / 191** - the two added here pass and the 15 failing at
-  turn start are the same 15, name for name.
-- `perl scripts/cppgm_file_audit.pl --stage pa20 --paths dev/src`: passes with
-  the five inherited `bad-division` warnings.  The build prints nothing.
-- **Valgrind clean** over the nine finding shapes and the two added fixtures.
-- Every `.ref` under `cppgm.tests/course/pa20` and under `pa20/tests` was
-  regenerated from `reference-binaries/cppgm++`; all 191 that were already
-  there are byte-identical.
-- `dev/posttoken` still writes `pa2/posttoken-ref`'s dump for `'\xff'` and
-  `'é'`, and the reference's own `#if` dialect is what `ctrl_expr.cpp` asks
-  for, so widening the compiler's reading left PA2's and 16.1's alone.
-- Both added fixtures are refused by a `make build` of `8dfad19a` and accepted
-  by g++, so each is a test of this review rather than of its own output.
+| shape | before | both oracles |
+| --- | --- | --- |
+| `B* p = this;` in a member of `C : protected B` | refused | accepted |
+| `return this;` from `B* C::g()` | refused | accepted |
+| `B* q[1] = { this };`, `const B& r = *this;` | refused | accepted |
+| `take(this)`, `(B*)this`, `p = this` | accepted | accepted |
+
+The region is held over the whole conversion now (`Written`, asked once in
+`apply_conversion`), which is where 11.2p5 says the question is: the place the
+program *wrote* the conversion.  A conversion to a base of a class from outside
+it is still refused, as g++ refuses it.
+
+**3. 10.3p1's refusal counted the bases rather than where the one that
+dispatches stands.**  The ABI gives a class holding a base subobject that
+dispatches and does not begin at the object's first byte a secondary table and
+a thunk, and neither is emitted here - but the guard refused every class with a
+dispatching base and more than one base at all.  A polymorphic *first* base is
+the ABI's primary base, needs no secondary table, and was refused with the
+shapes that do owe one: `struct C : A, B` for polymorphic `A` and plain `B`,
+the same with a class below it, the same with a virtual destructor, and
+`struct C : empty, P` where the empty base takes no storage - all four accepted
+by both oracles and all four now writing the reference's LowIR.  What the class
+inherits is the table of the base it dispatches *through* (`dispatching_base`)
+rather than of `bases[0]`, which is what makes the empty-base shape right.
+
+**4. 12.6.2p2's index was keyed by a name two bases can share.**  A
+ctor-initializer is read into one entry per mem-initializer-id, keyed by the
+last component of what was written - which named the base uniquely while a
+class had one.  `struct both : n1::part, holder::part` writing
+`: n1::part(1), holder::part(2)` reported `initializes holder::part twice` where
+both oracles build it.  An id that names a direct base is held under the whole
+name that class has now, and every other id under the last component it wrote,
+which is 12.6.2p2's member - the class the id resolves to is what tells the two
+apart, so a member and a type of one name stay two questions.
+
+**5. 14.6.2p3 was made a fact of the base-clause and is a fact of each
+base-specifier.**  A name written in a template definition is not looked up in a
+base an argument list still has to settle, and C9 recorded that as one flag for
+the whole clause: a class deriving from a settled class *and* a dependent one
+had *both* left off 3.4.1's search, so `template<class T> struct C : A, T`
+could not name `A`'s own member in its definition - `a names nothing where the
+template that writes it is defined`, where both oracles read it.  The regions
+3.4.1 looks in are the bases whose own specifier named a settled type
+(`Scope::open_bases`), which the specialization an argument list makes answers
+the same way because the fact was recorded where the pattern was read.
+
+**6. 10.1p3's check is quadratic in the derivation, which is the shape and not
+a defect.**  Refusing a repeated base is what makes every other walk one visit
+per class, and it is one hash insert per class below the one being completed -
+so a derivation that adds a base per level pays that walk per level: 0.011 /
+0.049 / 0.154 / 0.584 s at 100 / 400 / 800 / 1600 levels, against 0.010 /
+0.028 / 0.058 s for the same class count as one chain of single bases, which
+pays nothing.  Every other walk of the tree is linear in what it walks and the
+rows are in the plan.  The reference is 90x slower on a base pack of 1024 and
+faster than this compiler on the plain class-declaration rows, so the two are
+measured side by side rather than one against the other.

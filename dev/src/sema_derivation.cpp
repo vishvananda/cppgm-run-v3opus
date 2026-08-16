@@ -174,7 +174,12 @@ void Derivation::settle_base(TypeId named_type, const SemaEntity* found_name,
 		dependent = true;
 		return;
 	}
-	dependent = dependent || analyzer_.wrote_dependent_base(specifier);
+	// 14.6.2p3: whether *this* specifier is the one an argument list settles,
+	// which is what says the search of a member's unqualified name looks in the
+	// base it named.  The fact was recorded where the pattern was read, so the
+	// specialization an argument list makes answers it the same way.
+	const bool wrote_dependent = analyzer_.wrote_dependent_base(specifier);
+	dependent = dependent || wrote_dependent;
 	const std::string named = analyzer_.types_.description(named_type);
 	if ((found_name != nullptr && !names_a_type(*found_name)) ||
 	    !analyzer_.types_.is_class(analyzer_.types_.strip_cv(named_type)))
@@ -208,6 +213,10 @@ void Derivation::settle_base(TypeId named_type, const SemaEntity* found_name,
 	link.access = access;
 	entity.bases.push_back(link);
 	scope.bases.push_back(base->scope);
+	if (!wrote_dependent)
+	{
+		scope.open_bases.push_back(base->scope);
+	}
 }
 
 // 10.1p3 lets one class stand twice below another, as two subobjects a name of

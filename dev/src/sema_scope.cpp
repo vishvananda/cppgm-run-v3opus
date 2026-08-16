@@ -32,17 +32,19 @@ Scope::Scope(ScopeKind scope_kind, Scope* enclosing, SemaEntity* scope_owner,
 // 10.2p2 and 14.6.2p3: the region 3.4.1's search of `scope` looks in after
 // `scope` itself.
 //
-// They are the base classes', except where a base-specifier named a type that
-// depends on a template parameter: which class that is only an argument list
-// says, so a name written in the class's own definition is looked up without
-// it and the specialization an argument list makes answers the same way the
-// definition did.  The link is dropped only where the search *reaches* the
-// class from inside it - the base subobject a class further down holds is
-// found through that class's own link, which no template head stands over.
+// They are the base classes', except the ones whose base-specifier named a type
+// that depends on a template parameter: which class such a base is only an
+// argument list says, so a name written in the class's own definition is looked
+// up without it and the specialization an argument list makes answers the same
+// way the definition did.  It is a fact of each specifier and not of the clause,
+// so a class deriving from a settled class *and* a dependent one is searched in
+// the settled one exactly as it would be with the other left unwritten.  The
+// link is dropped only where the search *reaches* the class from inside it - the
+// base subobject a class further down holds is found through that class's own
+// link, which no template head stands over.
 const std::vector<Scope*>& unqualified_bases(const Scope& scope)
 {
-	static const std::vector<Scope*> none;
-	return scope.dependent_base ? none : scope.bases;
+	return scope.dependent_base ? scope.open_bases : scope.bases;
 }
 
 bool encloses(const Scope& outer, const Scope& inner)

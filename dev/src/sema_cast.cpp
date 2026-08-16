@@ -115,14 +115,16 @@ SemaAnalyzer::Value SemaAnalyzer::cast_expression(const AstNode& node,
 		}
 		// 5.2.9p11 the other way round: a pointer to a base class casts to a
 		// pointer to a class derived from it, which is well formed only where
-		// that base is accessible.  The subobject begins where the derived object
-		// does, so the address is the one the operand held and the cast writes no
-		// conversion around it - but the access is asked for all the same.
+		// that base is accessible - and what it points at is the object that
+		// subobject is part of, which begins where the derived class put the
+		// base rather than where the base itself stands.
 		SemaEntity* const from_base = Derivation(*this).base_in(to, from);
-		if (from_base != nullptr)
+		if (from_base != nullptr && derived_value(source, to, *from_base))
 		{
-			Derivation(*this).require_access(model_.type_owner(types_.strip_cv(to)),
-			                    *from_base);
+			lift_operand(parent, line);
+			source.type = source.spelled = target;
+			source.category = ValueCategory::PRValue;
+			return source;
 		}
 	}
 	if (types_.kind(types_.strip_cv(target)) == TypeKind::MemberPointer &&
@@ -215,14 +217,22 @@ SemaAnalyzer::Value SemaAnalyzer::cast_to_reference(TypeId target, Value& source
 		}
 		// 5.2.9p11: an lvalue of a base class casts to a reference to a class
 		// derived from it, and what the result names is the object that base
-		// subobject is part of.  The subobject begins where the derived object
-		// does, so the storage the operand named is the storage the cast names,
-		// and 11.2p4 asks here whether the base-specifier's access reaches.
+		// subobject is part of - the storage the operand named where the base
+		// begins where the object does, and that storage stepped back by the
+		// place the derived class gave the base where it does not.  11.2p4 asks
+		// here whether the base-specifier's access reaches.
 		SemaEntity* const from_base = Derivation(*this).base_in(referenced, source.type);
 		if (from_base != nullptr)
 		{
-			Derivation(*this).require_access(model_.type_owner(types_.strip_cv(referenced)),
-			                    *from_base);
+			if (derived_value(source, referenced, *from_base))
+			{
+				source.category = value.category;
+				source.type = referenced;
+				source.spelled = target;
+				respell(source);
+				lift_operand(parent, line);
+				return source;
+			}
 			value.payload.clear();
 			value.node = &line;
 			respell(value);

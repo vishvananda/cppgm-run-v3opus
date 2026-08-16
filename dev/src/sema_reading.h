@@ -90,6 +90,21 @@ struct Naming
 	Scope* held;
 };
 
+// 11.2p4: the region an access is written in, held while something is read
+// against it and put back where that reading ends.  Every expression is read
+// against one region, and a conversion the initialization applies *after* the
+// expression it was written for - 4.10p3's conversion to a base among them - is
+// written in that same region, so the region outlives the reading of the
+// operand and is held here rather than there.
+struct Written
+{
+	Written(SemaAnalyzer& owner, Scope* region);
+	~Written();
+
+	SemaAnalyzer& owner;
+	Scope* held;
+};
+
 // A depth held while one reading stands, and put back where it ends - so a
 // reading that stands inside another says so and an error thrown out of one
 // leaves the walk where it found it.
