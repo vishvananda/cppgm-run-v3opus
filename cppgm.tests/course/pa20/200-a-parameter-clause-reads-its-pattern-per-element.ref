@@ -1,0 +1,285 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $x : i32
+  slot $y : i8
+  slot $px : ptr
+  slot $py : ptr
+  slot $refarg__1 : i32
+  slot $refarg__2 : i8
+
+  block ^entry:
+    store i32 1, $x
+    store i8 97, $y
+    %t1 = addr $x
+    store ptr %t1, $px
+    %t2 = addr $y
+    store ptr %t2, $py
+    %t3 = call i32 @by_value(1, 97, 2)
+    %t4 = cmp ne i32 %t3, 33
+    branch %t4, ^if_then_1, ^if_else_2
+
+  block ^if_then_1:
+    return i32 1
+
+  block ^if_else_2:
+    jump ^if_end_3
+
+  block ^if_end_3:
+    %t5 = call i32 @by_value__ov2()
+    %t6 = cmp ne i32 %t5, 0
+    branch %t6, ^if_then_4, ^if_else_5
+
+  block ^if_then_4:
+    return i32 2
+
+  block ^if_else_5:
+    jump ^if_end_6
+
+  block ^if_end_6:
+    %t7 = call i32 @by_value__ov3(1)
+    %t8 = cmp ne i32 %t7, 11
+    branch %t8, ^if_then_7, ^if_else_8
+
+  block ^if_then_7:
+    return i32 3
+
+  block ^if_else_8:
+    jump ^if_end_9
+
+  block ^if_end_9:
+    %t9 = addr $x
+    %t10 = addr $y
+    %t11 = call i32 @by_reference(%t9, %t10)
+    %t12 = cmp ne i32 %t11, 2
+    branch %t12, ^if_then_10, ^if_else_11
+
+  block ^if_then_10:
+    return i32 4
+
+  block ^if_else_11:
+    jump ^if_end_12
+
+  block ^if_end_12:
+    store i32 1, $refarg__1
+    %t13 = addr $refarg__1
+    store i8 97, $refarg__2
+    %t14 = addr $refarg__2
+    %t15 = call i32 @by_const_reference(%t13, %t14)
+    %t16 = cmp ne i32 %t15, 2
+    branch %t16, ^if_then_13, ^if_else_14
+
+  block ^if_then_13:
+    return i32 5
+
+  block ^if_else_14:
+    jump ^if_end_15
+
+  block ^if_end_15:
+    %t17 = addr $px
+    %t18 = addr $py
+    %t19 = call i32 @by_pointer_to_pointer(%t17, %t18)
+    %t20 = cmp ne i32 %t19, 2
+    branch %t20, ^if_then_16, ^if_else_17
+
+  block ^if_then_16:
+    return i32 6
+
+  block ^if_else_17:
+    jump ^if_end_18
+
+  block ^if_end_18:
+    %t21 = call i32 @forwarded(1, 97, 2)
+    %t22 = cmp ne i32 %t21, 33
+    branch %t22, ^if_then_19, ^if_else_20
+
+  block ^if_then_19:
+    return i32 8
+
+  block ^if_else_20:
+    jump ^if_end_21
+
+  block ^if_end_21:
+    %t23 = call i32 @forwarded__ov2()
+    %t24 = cmp ne i32 %t23, 0
+    branch %t24, ^if_then_22, ^if_else_23
+
+  block ^if_then_22:
+    return i32 9
+
+  block ^if_else_23:
+    jump ^if_end_24
+
+  block ^if_end_24:
+    %t25 = call i32 @holder_int__char___taken(1, 97)
+    %t26 = cmp ne i32 %t25, 2
+    branch %t26, ^if_then_25, ^if_else_26
+
+  block ^if_then_25:
+    return i32 10
+
+  block ^if_else_26:
+    jump ^if_end_27
+
+  block ^if_end_27:
+    %t27 = call i32 @holder_int__char___none()
+    %t28 = cmp ne i32 %t27, 2
+    branch %t28, ^if_then_28, ^if_else_29
+
+  block ^if_then_28:
+    return i32 11
+
+  block ^if_else_29:
+    jump ^if_end_30
+
+  block ^if_end_30:
+    %t29 = call i32 @holder____none()
+    %t30 = cmp ne i32 %t29, 0
+    branch %t30, ^if_then_31, ^if_else_32
+
+  block ^if_then_31:
+    return i32 12
+
+  block ^if_else_32:
+    jump ^if_end_33
+
+  block ^if_end_33:
+    %t31 = call i32 @holder_int__char___c_ellipsis(7, 8, 9)
+    %t32 = cmp ne i32 %t31, 9
+    branch %t32, ^if_then_34, ^if_else_35
+
+  block ^if_then_34:
+    return i32 13
+
+  block ^if_else_35:
+    jump ^if_end_36
+
+  block ^if_end_36:
+    return i32 0
+}
+function @holder_int__char___taken(%a : i32, %a__pack2 : i8) -> i32 [binding=weak, object=_ZN6holderIJicEE5takenEic] {
+  slot $a : i32
+  slot $a__pack2 : i8
+
+  block ^entry:
+    store i32 %a, $a
+    store i8 %a__pack2, $a__pack2
+    %t1 = const i64 2
+    %t2 = convert trunc i32 i64 %t1
+    return i32 %t2
+}
+function @holder_int__char___none() -> i32 [binding=weak, object=_ZN6holderIJicEE4noneEv] {
+  block ^entry:
+    %t1 = const i64 2
+    %t2 = convert trunc i32 i64 %t1
+    return i32 %t2
+}
+function @holder_int__char___c_ellipsis(%first : i32) -> i32 [arity=variadic, binding=weak, object=_ZN6holderIJicEE10c_ellipsisEiz] {
+  slot $first : i32
+
+  block ^entry:
+    store i32 %first, $first
+    %t1 = load i32 $first
+    %t2 = const i64 2
+    %t3 = convert sext i64 i32 %t1
+    %t4 = binary add i64 %t3, %t2
+    %t5 = convert trunc i32 i64 %t4
+    return i32 %t5
+}
+function @holder____none() -> i32 [binding=weak, object=_ZN6holderIJEE4noneEv] {
+  block ^entry:
+    %t1 = const i64 0
+    %t2 = convert trunc i32 i64 %t1
+    return i32 %t2
+}
+function @by_value(%a : i32, %a__pack2 : i8, %a__pack3 : i64) -> i32 [binding=weak, object=_Z8by_valueIJiclEEiDpT_] {
+  slot $a : i32
+  slot $a__pack2 : i8
+  slot $a__pack3 : i64
+
+  block ^entry:
+    store i32 %a, $a
+    store i8 %a__pack2, $a__pack2
+    store i64 %a__pack3, $a__pack3
+    %t1 = const i64 3
+    %t2 = convert sext i64 i32 10
+    %t3 = binary mul i64 %t1, %t2
+    %t4 = const i64 3
+    %t5 = binary add i64 %t3, %t4
+    %t6 = convert trunc i32 i64 %t5
+    return i32 %t6
+}
+function @by_value__ov2() -> i32 [binding=weak, object=_Z8by_valuev] {
+  block ^entry:
+    %t1 = const i64 0
+    %t2 = convert sext i64 i32 10
+    %t3 = binary mul i64 %t1, %t2
+    %t4 = const i64 0
+    %t5 = binary add i64 %t3, %t4
+    %t6 = convert trunc i32 i64 %t5
+    return i32 %t6
+}
+function @by_value__ov3(%a : i32) -> i32 [binding=weak, object=_Z8by_valueIJiEEiDpT_] {
+  slot $a : i32
+
+  block ^entry:
+    store i32 %a, $a
+    %t1 = const i64 1
+    %t2 = convert sext i64 i32 10
+    %t3 = binary mul i64 %t1, %t2
+    %t4 = const i64 1
+    %t5 = binary add i64 %t3, %t4
+    %t6 = convert trunc i32 i64 %t5
+    return i32 %t6
+}
+function @by_reference(%a : ptr [pass=reference], %a__pack2 : ptr [pass=reference]) -> i32 [binding=weak, object=_Z12by_referenceIJicEEiDpRT_] {
+  slot $a : ptr
+  slot $a__pack2 : ptr
+
+  block ^entry:
+    store ptr %a, $a
+    store ptr %a__pack2, $a__pack2
+    %t1 = const i64 2
+    %t2 = convert trunc i32 i64 %t1
+    return i32 %t2
+}
+function @by_const_reference(%a : ptr [pass=reference], %a__pack2 : ptr [pass=reference]) -> i32 [binding=weak, object=_Z18by_const_referenceIJicEEiDpRKT_] {
+  slot $a : ptr
+  slot $a__pack2 : ptr
+
+  block ^entry:
+    store ptr %a, $a
+    store ptr %a__pack2, $a__pack2
+    %t1 = const i64 2
+    %t2 = convert trunc i32 i64 %t1
+    return i32 %t2
+}
+function @by_pointer_to_pointer(%a : ptr, %a__pack2 : ptr) -> i32 [binding=weak, object=_Z21by_pointer_to_pointerIJicEEiDpPPT_] {
+  slot $a : ptr
+  slot $a__pack2 : ptr
+
+  block ^entry:
+    store ptr %a, $a
+    store ptr %a__pack2, $a__pack2
+    %t1 = const i64 2
+    %t2 = convert trunc i32 i64 %t1
+    return i32 %t2
+}
+function @forwarded(%a : i32, %a__pack2 : i8, %a__pack3 : i64) -> i32 [binding=weak, object=_Z9forwardedIJiclEEiDpT_] {
+  slot $a : i32
+  slot $a__pack2 : i8
+  slot $a__pack3 : i64
+
+  block ^entry:
+    store i32 %a, $a
+    store i8 %a__pack2, $a__pack2
+    store i64 %a__pack3, $a__pack3
+    %t1 = load i32 $a
+    %t2 = load i8 $a__pack2
+    %t3 = load i64 $a__pack3
+    %t4 = call i32 @by_value(%t1, %t2, %t3)
+    return i32 %t4
+}
+function @forwarded__ov2() -> i32 [binding=weak, object=_Z9forwardedv] {
+  block ^entry:
+    %t1 = call i32 @by_value__ov2()
+    return i32 %t1
+}

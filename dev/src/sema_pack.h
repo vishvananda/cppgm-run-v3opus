@@ -9,6 +9,7 @@
 #include "type_model.h"
 
 struct AstNode;
+struct DeclaredParameter;
 class Scope;
 class SemaAnalyzer;
 struct SemaContext;
@@ -125,12 +126,38 @@ public:
 	// of the answers here because 8.3.5p10's places are what it stands for.
 	Run run_of_node(const AstNode& node, const SemaContext& ctx) const;
 
+	// The same question asked of more than one tree and merged into one run,
+	// which is what a parameter-declaration needs: 8.3.5p1 writes its pattern as
+	// a decl-specifier-seq beside a declarator, and 14.5.3p6 makes the packs the
+	// two of them name together one run.
+	void note_node(const AstNode& node, const SemaContext& ctx, Run& run) const;
+
 	// The region the `element`th reading of a pattern stands in, binding each
 	// pack the run named to what it stands for there - one element of a bound
 	// run, or the place 14.5.3p4's expansion of a function parameter pack
 	// declared for it.
 	Scope& element_region(const Run& run, std::size_t element,
 	                      const SemaContext& ctx);
+
+	// 14.5.3p4 in 8.3.5p1's parameter list: the places a parameter-declaration
+	// written `pattern... name` comes to, appended to `out`.
+	//
+	// This is the reading over a *declaration* rather than over a spelling or a
+	// tree, and it is by element like both of them: the decl-specifier-seq and
+	// the declarator are read again for each element of the run, in a region
+	// binding the packs they name to that element.  Reading the type once and
+	// expanding *that* would put the whole run where each element belongs, which
+	// a pattern that is a specialization (`wrap<A>...`) cannot be read back out
+	// of.  8.3.5p10 names the places after the pack and 14.5.3p4 declares the
+	// pack itself where the run holds no element at all.
+	//
+	// `reading` is the region the next place of the clause is read against,
+	// which a place that binds a name opens; `binds` is whether this clause's
+	// names are declared at all.
+	void read_places(const AstNode& declaration, const AstNode& specifiers,
+	                 const AstNode& declarator, const Run& over,
+	                 SemaContext& reading, const SemaContext& ctx, bool binds,
+	                 std::vector<DeclaredParameter>& out);
 
 	// 14.5.3p4 over a type rather than over a spelling: `pattern...` where the
 	// packs are already in the type, which is what a parameter-declaration

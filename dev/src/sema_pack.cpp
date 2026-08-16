@@ -386,6 +386,84 @@ void PackReading::packs_in(TypeId pattern, std::vector<TypeId>& runs,
 	collect_packs(analyzer_.types_, pattern, runs, places, seen);
 }
 
+namespace
+{
+
+// 8.3.5p10: the name a parameter-declaration binds, read out of its declarator
+// rather than off a type - which is what a run of no elements leaves, because
+// there is no element to read the pattern against and still a pack to declare.
+std::string declarator_name(const AstNode& declarator)
+{
+	for (std::size_t index = 0; index < declarator.children.size(); ++index)
+	{
+		if (declarator.children[index]->kind == AstKind::Identifier)
+		{
+			return declarator.children[index]->text;
+		}
+	}
+	return std::string();
+}
+
+}
+
+void PackReading::read_places(const AstNode& declaration,
+                              const AstNode& specifiers,
+                              const AstNode& declarator, const Run& over,
+                              SemaContext& reading, const SemaContext& ctx,
+                              bool binds, std::vector<DeclaredParameter>& out)
+{
+	SemaSpan span;
+	span.begin = declaration.begin;
+	span.end = declaration.end;
+	for (std::size_t element = 0; element < over.length; ++element)
+	{
+		// The region is this element's alone, exactly as it is for the spelling
+		// reading and the tree reading, so what the specifiers name there is
+		// the element's own type - `wrap<A>` is `wrap<int>` in the first and
+		// `wrap<char>` in the second, each a specialization an instantiation
+		// makes rather than one naming the whole run.
+		SemaContext one = reading;
+		one.scope = &element_region(over, element, reading);
+		DeclaredParameter place;
+		place.type = analyzer_.specifier_type(
+			analyzer_.read_specifiers(specifiers, one, span, true,
+			                          std::string()));
+		place.type = analyzer_.declarator_type(declarator, place.type, one,
+		                                       &place.name);
+		// 8.3.5p10: the places are named after the pack and the first of them
+		// keeps the pack's own name, so a use of that name reaches the first
+		// place and the run is read off its declaration.
+		place.name = pack_element_name(place.name, element);
+		place.pack_run =
+			element == 0 ? static_cast<unsigned>(over.length) : 0u;
+		if (!place.name.empty() && binds)
+		{
+			analyzer_.bind_place(reading, ctx, place);
+		}
+		out.push_back(place);
+	}
+	if (over.length != 0)
+	{
+		return;
+	}
+	// 14.5.3p4 over a run of none: the clause declared no place at all, and the
+	// pack is still declared - so what its name names is the run itself, which
+	// `sizeof...` reads as zero and an expansion of comes to no arguments.  It
+	// is no place, so no function type holds it and no object is laid out.
+	DeclaredParameter none;
+	none.name = declarator_name(declarator);
+	if (none.name.empty())
+	{
+		return;
+	}
+	none.type = analyzer_.types_.pack_type(std::vector<TypeId>());
+	if (binds)
+	{
+		analyzer_.bind_pack(reading, ctx, none);
+	}
+	out.push_back(none);
+}
+
 bool PackReading::expand_type(TypeId pattern, std::vector<TypeId>& out)
 {
 	TypeTable& types = analyzer_.types_;
@@ -435,10 +513,59 @@ void PackReading::substitute_entry(
 		out.push_back(analyzer_.substituted(written, bindings, memo));
 		return;
 	}
-	// 14.5.3p4: the pattern is substituted first - which is what puts the run
-	// where the pack stood - and the entry is then the elements of that run.
-	const TypeId pattern =
-		analyzer_.substituted(analyzer_.types_.target(written), bindings, memo);
+	TypeTable& types = analyzer_.types_;
+	const TypeId over = types.target(written);
+	std::vector<TypeId> runs;
+	std::vector<TypeId> places;
+	packs_in(over, runs, places);
+	std::vector<TypeId> bound;
+	for (std::size_t index = 0; runs.empty() && index < places.size(); ++index)
+	{
+		const std::unordered_map<TypeId, TypeId>::const_iterator took =
+			bindings.find(places[index]);
+		if (took == bindings.end() || !types.is_pack(took->second) ||
+		    types.is_pack_expansion(took->second))
+		{
+			// 14.6.2p1: this substitution settled no run for one of the packs
+			// the pattern names, so the expansion stands as the one entry it
+			// was written as and a later argument list says how long it is.
+			bound.clear();
+			break;
+		}
+		bound.push_back(took->second);
+	}
+	if (!bound.empty())
+	{
+		// 14.5.3p4: the pattern is read once per element of the run - not once
+		// over a run substituted *into* it, which would leave `wrap<A>...`
+		// naming one specialization of `wrap` over the whole run and every
+		// element the same type.  Each element is a substitution of its own, so
+		// the memo `substituted` carries is this element's alone.
+		const std::size_t length = types.pack_elements(bound[0]).size();
+		for (std::size_t index = 1; index < bound.size(); ++index)
+		{
+			if (types.pack_elements(bound[index]).size() != length)
+			{
+				// 14.5.3p6: two packs expanded together are the same length.
+				throw std::runtime_error("a pack expansion is written over two "
+				                         "parameter packs of different lengths");
+			}
+		}
+		for (std::size_t element = 0; element < length; ++element)
+		{
+			std::unordered_map<TypeId, TypeId> one(bindings);
+			for (std::size_t index = 0; index < bound.size(); ++index)
+			{
+				one[places[index]] = types.pack_elements(bound[index])[element];
+			}
+			std::unordered_map<TypeId, TypeId> reached;
+			out.push_back(analyzer_.substituted(over, one, reached));
+		}
+		return;
+	}
+	// A pattern the substitution reaches a settled run *inside* is expanded off
+	// the type it built, which is the structural rebuild `expand_type` is.
+	const TypeId pattern = analyzer_.substituted(over, bindings, memo);
 	if (!expand_type(pattern, out))
 	{
 		out.push_back(pattern);
@@ -634,16 +761,22 @@ Scope* WrittenList::region(std::size_t index) const
 	return written_ != nullptr ? nullptr : entries_[index].second;
 }
 
-PackReading::Run PackReading::run_of_node(const AstNode& node,
-                                          const SemaContext& ctx) const
+void PackReading::note_node(const AstNode& node, const SemaContext& ctx,
+                            Run& run) const
 {
 	std::vector<std::string> names;
 	names_in(node, names);
-	Run run;
 	for (std::size_t index = 0; index < names.size(); ++index)
 	{
 		note_name(names[index], ctx, run);
 	}
+}
+
+PackReading::Run PackReading::run_of_node(const AstNode& node,
+                                          const SemaContext& ctx) const
+{
+	Run run;
+	note_node(node, ctx, run);
 	return run;
 }
 

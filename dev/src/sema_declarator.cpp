@@ -857,11 +857,29 @@ void SemaAnalyzer::read_parameters(const AstNode& clause, const Context& ctx,
 		Span span;
 		span.begin = child.begin;
 		span.end = child.end;
+		const AstNode* declarator = declarator_of(child);
+		PackReading packs(*this);
+		PackReading::Run over;
+		if (declarator != nullptr &&
+		    child_kind(*declarator, AstKind::ParameterPack) != nullptr)
+		{
+			// 14.5.3p4: the clause wrote a *pattern* and a `...`, so the packs
+			// it is over are the ones its decl-specifier-seq and its declarator
+			// name - the same question the spelling reading and the tree
+			// reading ask, asked of the two trees a parameter-declaration is.
+			packs.note_node(*seq, inner, over);
+			packs.note_node(*declarator, inner, over);
+		}
+		if (over.found && over.settled)
+		{
+			packs.read_places(child, *seq, *declarator, over, inner, ctx,
+			                  at < places || reading != nullptr, out);
+			continue;
+		}
 		Specifiers specifiers =
 			read_specifiers(*seq, inner, span, true, std::string());
 		Parameter parameter;
 		parameter.type = specifier_type(specifiers);
-		const AstNode* declarator = declarator_of(child);
 		const AstNode* parenthesized = nullptr;
 		if (declarator != nullptr &&
 		    parenthesized_place(*declarator, inner, parameter.name,
