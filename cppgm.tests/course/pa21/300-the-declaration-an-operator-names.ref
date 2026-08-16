@@ -1,0 +1,66 @@
+global @source [binding=internal, object=_ZL6source] = {
+  i32 3
+}
+global @negated [binding=internal, object=_ZL7negated] = {
+  zero 4
+}
+global @held [binding=internal, object=_ZL4held] = {
+  i32 1
+  i32 2
+  i32 3
+  i32 4
+}
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    %t1 = addr @negated
+    %t2 = call i32 @duration__count(%t1)
+    %t3 = binary add i32 %t2, 3
+    return i32 %t3
+}
+function @duration__count(%this : ptr) -> i32 [binding=weak, object=_ZNK8duration5countEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i32 %t2
+    return i32 %t3
+}
+function @duration__duration(%this : ptr, %value : i32) -> void [binding=weak, object=_ZN8durationC1Ei] {
+  slot $this : ptr
+  slot $value : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %value, $value
+    %t1 = load i32 $value
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 %t1, %t3
+    return void
+}
+function @duration__operator_(%this : ptr) -> obj<4x4> [binding=weak, object=_ZNK8durationngEv] {
+  slot $this : ptr
+  slot $retobj__1 : obj<4x4>
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = addr $retobj__1
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    %t4 = load i32 %t3
+    %t5 = unary neg i32 %t4
+    call void @duration__duration(%t1, %t5)
+    return obj<4x4> $retobj__1
+}
+function @__cppgm_init() -> void [role=init, binding=internal] {
+  block ^entry:
+    %t1 = addr @negated
+    %t2 = addr @source
+    %t3 = call obj<4x4> @duration__operator_(%t2)
+    copyobj 4x4 %t3, %t1
+    return void
+}
+alias object _ZN8durationC2Ei = @duration__duration

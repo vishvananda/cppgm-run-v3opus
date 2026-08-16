@@ -40,9 +40,11 @@ rather than keeping a ranking of its own — `ConstexprReading` builds one
 `AnalyzedValue` per constant and hands it to the same `select_overload` for a
 call and to the same `conversion_match` for 12.3.2p1's conversion function, and
 `called_name` is the one reading both the tree and the flattened-spelling door
-ask. Whether the declaration chosen is a constexpr one this unit defined is
-asked *after* 13.3 has chosen and never used to choose. **Done — checkpoint T
-and its audit.**
+ask, and 13.3.1.2p3's set for an operator is `sema_operator.h`'s `OperatorCall`,
+which the expression layer and the fold gather from alike. Whether the
+declaration chosen is a constexpr one this unit defined is asked *after* 13.3
+has chosen and never used to choose. **Done — checkpoints T and P, and T's
+audit.**
 
 Beside them, one small owner of its own: 15.4's exception-specification is a
 typed fact of a declaration — `SemaEntity::nonthrowing`, settled by
@@ -76,30 +78,34 @@ the `.ref` files are the oracle and no fixture asks for the refusal.
 
 ## Current Failure Map
 
-**88/135**; 47 failures remain. 5 are a LowIR mismatch and 9 are a `-bad` case
+**96/136**; 40 failures remain. 6 are a LowIR mismatch and 9 are a `-bad` case
 this compiler accepts; the rest refuse a program the assignment asks it to
-translate. Groups N, T and I are closed, I by its audit: of the five LowIR rows
-left, two are known gap L's symbol naming, two are group P's pointer-valued
-image, and one is the row below.
+translate. Groups N, T, I and P are closed. Of the six LowIR rows, two are known
+gap L's symbol naming, two are group R's pointer-valued read, one is I' below
+and one is the row checkpoint P newly reached.
 
 | Group | Shape | Count |
 |---|---|---|
-| O2. a name whose declaration the fold refused | `X is not a constant expression` where `X` *is* a `constexpr` variable — the initializer is a call or an operator one of the groups below refuses | 13 |
-| V. `constexpr` validation | a `-bad` case this compiler accepts (exit status inverted), mostly a refused initializer lowered as a dynamic one | 9 |
-| B. objects with bases, and a class no conversion of reaches the place | `... is not a class a constant expression builds an object of` — 10p1's base subobject is one this object does not hold; `declares no one conversion function a constant expression reaches this place through` | 6 |
-| P. pointer- and reference-valued constants | `&x` refused as an operator the fold does not evaluate; a pointer read for truth, compared, subscripted through, or written `->` on. Two of the LowIR rows are the same gap one layer on from the *image*, which I's audit closed: a static data member of pointer type now lays out `addr @__strlit__1` and `addr @helper` where it laid out `zero`, and what is left is the *read* of one — `traits<int>::name` is `addr @__strlit__1` in the reference, which having folded the read then instantiates no storage at all, and `load ptr @traits_int___name` here. Beside it `ptr addr @object__vtable + 16`, where `vpointer_image` refuses a constructor 12.1p11 leaves nothing but the vpointer because the program wrote it | 7 |
+| V. `constexpr` validation | a `-bad` case this compiler accepts (exit status inverted): 7.1.5p3's body that returns `void` or leaves a member uninitialized, 7.1.5p2's parameter of non-literal type, and a `constexpr` variable 3.6.2 gives no constant initializer, each lowered as a dynamic initialization instead of refused | 9 |
+| R. pointer- and reference-valued constants | `&x` refused as an operator the fold does not evaluate; a pointer read for truth, compared, subscripted through, or written `->` on — 13.5.6's `operator->` is the one operator door checkpoint P did not open, because what it hands back is a pointer 5.19p2 holds no constant of and `accessed_object` refuses `->` before any lookup. Two LowIR rows are the same gap one layer on from the image: `traits<int>::name` is `addr @__strlit__1` in the reference, which having folded the read then instantiates no storage at all, and `load ptr @traits_int___name` here; beside it `ptr addr @object__vtable + 16`, where `vpointer_image` refuses a constructor 12.1p11 leaves nothing but the vpointer because the program wrote it | 9 |
+| B. objects with bases | `... is not a class a constant expression builds an object of` — 10p1's base subobject is one this object does not hold, so no class with a base folds at all and `__and_<int>`, `trait<int>` and `type_identity<T>` each stop there | 6 |
 | C. a cast to a class or reference type | `casts to a type that is not arithmetic`, where the type-id names `const D&`, `E` or `X&&` | 3 |
 | I'. a dead `@__strlit__` | `300-function-local-static-array-guard` differs by one global: for `static const char nested[1][2] = {"x"};` the ref emits the literal's own object beside the array that copied it. The boundary was probed and is the reference's own: it materializes the literal where 8.5.2 initializes an array that is an *element* of an enclosing array (`char two[2][2] = {"m","n"}` gets two), and not where the array is the whole object (`char flat[2] = "y"`) nor where it is a *member* of a class (`struct S { char a[2]; }; S s = {"q"}`). 2.14.5p8 makes the object exist in all four | 1 |
-| misc | `this`, a subscript of a class object, a member call on a temporary, a write through an overloaded assignment, a member of a class *being* instantiated whose definition the demand only queued, and the two symbol-naming rows of known gap L | 8 |
+| misc | `this`, 8.5.1p11's brace elision, a declaration inside an *instantiated* function body, a class being instantiated whose member definition the demand only queued (gap T), the two symbol-naming rows of gap L, and the owed-constructor row of gap P | 12 |
 
-**The next substantial checkpoint is one door and not a list of rows.** O2 and
-most of `misc` are 13.3.1.2: an operator expression names a declaration exactly
-as a call does — a member `operator+`, a hidden friend 3.4.2 reaches, an
-`operator==` that takes its operands by converting constructor — and the fold
-answers only 13.6's built-in candidates, so `(C(1) + 2).n` is refused where the
-declaration is there to be chosen. T made the call door ask `select_overload`
-and T's audit made the conversion door ask `conversion_match`; this is the third
-door and the same sentence.
+**The next substantial checkpoint is group V, and it is one door.** Every row of
+it is the same sentence read from the other side: 7.1.5 and 3.6.2 say which
+declarations a program *may* write, and this compiler asks only whether a fold
+happened to succeed — a `constexpr` variable whose initializer did not fold is
+silently lowered as a dynamic initialization rather than refused, and a
+`constexpr` function whose body 7.1.5p3 does not allow is read as far as the
+fold gets. The facts each row needs are already typed and already settled by the
+fold that walks them: `SemaEntity::constexpr_function`, `constexpr_body`, the
+literal-type question 3.9p10 answers for a parameter, and the members
+`object_from_constructor` walks. What is missing is the *requirement* — a
+reading that asks them where the declaration stands rather than where a use
+does, which is 7.1.5p5's "no diagnostic required" turned into the diagnostic the
+`-bad` fixtures pin.
 
 ## Performance Model
 
@@ -126,10 +132,14 @@ door and the same sentence.
 | 8.5p7's value-initialized object | one walk per *class*, held on `SemaModel::value_initialized`, so a class whose two members are themselves such classes costs one walk per level and not one per path | measured against the shape that shows it: a class nested 12 / 16 / 20 / 24 deep with two members at each level. The fold is now O(depth); what is left is 2^depth and is **not** this layer's — `n20 deep = {};` costs the same 2.19s and 833 MB *without* `constexpr`, because 8.5.1's dump writes one `subobject-initialization` node per scalar subobject. Depth 24 is 41s and 13 GB. That is PA15-PA20's description of an aggregate initialization, and the type itself is O(depth) either way; `n20 deep;` with no initializer is 0.00s and 6.5 MB |
 | aggregate of floating clauses | one dump node per clause, and one fold per clause 8.5.4p7's second bullet asks about - which is a `float` member off a wider source and nothing else | 2000 / 8000 / 32000 `double` clauses of an array member: 0.05 / 0.21 / 0.81s at 22 / 66 / 243 MB, against 0.02 / 0.09 / 0.37s at 10 / 22 / 72 MB for the same count of `int` clauses (ref 0.70 / 1.20 / 2.90s at 34 / 95 / 339 MB and 0.70 / 0.90 / 1.90s at 21 / 43 / 135 MB). Making them `float`, the one shape the bullet folds, adds 16%: 0.94s and 274 MB at 32000 |
 
+| an operator that names a declaration | 13.3.1.2p2's one test per operand - is it of class or enumeration type - before anything is gathered, so an arithmetic fold pays two type-kind reads and no lookup; where the test says yes, one candidate gathering into a local of the caller's and one 13.3 ranking, the same pair a call written with parentheses pays | a constexpr loop of 1e3 / 4e3 / 16e3 overloaded `operator+` calls on a class: 0.02 / 0.10 / 0.45s at 12 / 29 / 98 MB - linear, and the same loop over built-in `+` is 0.00 / 0.01 / 0.04s at a flat 6.0 MB, unchanged. 4e3 calls with 0 / 8 / 32 / 128 declarations of the operator in scope: 0.10 / 0.11 / 0.15 / 0.32s - linear in candidates, which is 13.3's own walk. The reference refuses the loop outright (`static_assert unevaluated`) at 0.60s |
+| a class template's aggregate clause | one `type_owner` probe per clause of class type and, past the first, one integer test in `require_complete_type` - the instantiation 14.7.1p1 demands is made once and every later clause finds it | 500 / 2000 / 8000 two-member class clauses of an array member of `Holder<int>`, read back by a `static_assert`: 0.00 / 0.02 / 0.10s at 7 / 11 / 27 MB - linear in clauses, with no term in the number of specializations |
+
 ## Completed Checkpoints
 
 | # | Checkpoint | Result |
 |---|---|---|
+| P | **13.3.1.2's operator names a declaration.** `sema_operator.h`'s `OperatorCall` takes 13.3.1.2p3's candidate set out of `SemaAnalyzer` - a reader beside `ArgumentLookup` - so the expression layer and `ConstexprReading::operator_constant` gather it once and rank it with the one `select_overload`, the first operand handed over twice as 13.3.1.2p4 asks. Every door reaches it: the unary and binary readings, `&&`/`||` (whose short-circuit is the built-in operator's alone), 5.17's assignment on an operand that is no name, 5.2.1's subscript, and a call written on a temporary. Carried three siblings the door then reached: `at_class_place` performs 5.2.2p4's and 6.6.3p2's initialization of a place of class type, `initialized_value` makes 8.5 one reading for a declaration inside a body as well as outside one, and `clause_of` asks 14.7.1p1 for a specialization's definition before reading 8.5.1p1's aggregate off it - without which every class template answered "no aggregate" and a nested clause was read as an expression. 3.9p10's array member is a subobject like any other. Course fixture pins the eight shapes 13.3.1.2 names. | 88 → 96 (136) |
 | L | Function-local `static` objects: `record_storage` records the storage duration instead of refusing it; `record_lifetime` puts 12.4p11's destruction under the declaration; `global_symbol` answers `__local_static__<function>__<name>__tokens<b>_<e>`; `lowir_local_static.cpp` writes the image half, 6.7p4's guard and 3.6.3p3's `__cxa_atexit`. | 29 → 38 |
 | L audit | `af299cb9`, 3 blockers: the owner part of the name flattened two functions to one symbol; 3.5p3's internal linkage was missing from both readings of "a definition every unit may hold"; 12.4p8 over an array was handed to `__cxa_atexit` as one call. See [audit.md](audit.md). | 38 → 38 |
 | S | **Statements inside a constant evaluation.** `sema_constexpr_statement.cpp` runs 6.1-6.6 over a constexpr body instead of matching 7.1.5p3's one-`return` shape: blocks, declaration-statements, `if`/`while`/`do`/`for` including 6.4p3's condition declarations, `break`/`continue`/`return`. `SemaEntity::fold_local` marks the one kind of object an evaluation may write, and 5.17's assignment, 5.17p7's compound assignment, 5.3.2p1/5.2.6p1's increment and 5.18p1's comma reach it through the shared `binary_value`. Carried the parser fix 6.5.3p1 needed: `parse_condition` took `)` as the token that ends the declaration arm. | 38 → 46 |
@@ -145,6 +155,24 @@ door and the same sentence.
 | I3 | **What a folded image still owes, and what it may not hold.** 8.4.2p1's defaulted definition of a constructor the *class* declared is one the unit owes wherever an initialization named it, however little of its work the image kept; one the standard declared as well is named by nothing the program wrote. And a clause holding a call is work the startup body does and no item a structured image lays out — which is where the reference draws the line too, and where a *scalar* object still takes the one value its initializer came to. | 84 → 86 (133) |
 | I audit | `e797cd19`, 3 blockers: 9.4.2p3's held brace-or-equal-initializer was pulled only for a class or an array, so `static constexpr const char *text = "ab";` with its definition written out laid out `ptr = zero` with no literal and no startup body — a **null pointer** where both oracles write the address, and `&helper` and `&target` with it; 8.4.2p1 was read as a fact about who *declared* the constructor rather than about whether working the image out went *through* its definition, so three shapes wrote out a definition the reference does not and `owe_folded_construction` is now the one question all four exits ask; and 5.2.2p1's own sentence was asked at two of the three walkers that lay an image out, and asked once per member rather than once per place — 3200 members off one 6400-term argument cost 4.55s and cost 0.14s now. Two course fixtures pin the first two. See [audit.md](audit.md). | 86 → 88 (135) |
 | I | **3.6.2p2's image is the declaration's, and 9.4.2p3 makes that one declaration.** A static data member's out-of-class definition takes the in-class brace-or-equal-initializer (`member_initializers_` now holds a static member's too) and the array bound that initializer deduced, so it is initialized rather than default-initialized; `ConstexprReading::clause_of` reads a clause against the *subobject* it initializes, which is what folds `{{1,2},{3,4}}` into an array of class type; a scalar whose second fold over the dump stops takes `SemaEntity::value`/`::real`, and 3.2p2 then makes nothing in that initializer a use. Carried 4.2: a subscript names no array, so `a[1][0]` decays once. `lowir_image.cpp` split out of `lowir_lower.cpp`; `fold_constant_object` became `ConstexprReading::fold_declared_object` and 8.5.1p1's `aggregate_class` moved to `sema_scope.cpp`. | 75 → 82 |
+
+
+**Known gaps (P).** The reference emits the *constructor* a hidden friend's body
+names even where nothing calls the friend and nothing declares an object:
+`struct C { constexpr C(int); friend constexpr C add(C, C) { return C(...); } };`
+gets `@C__C` from it with no use at all, and the same class with `add` written
+at namespace scope, or with the body in a member function, gets none — probed
+eight ways and it is friend-ness alone, not the operator, not the call, not the
+fold. `300-constexpr-hidden-friend-converting-argument` now lowers and differs by
+that one definition. Beside it, 8.5.1p11's brace elision is not read by
+`clause_of` — `constexpr A<int> v = {3, 5};` for `int e[2]` is refused where
+`{{3, 5}}` folds — and a declaration inside an *instantiated function body*
+(`template<class T> void check() { constexpr array<T,2> v = {{3,5}}; ... }`) is
+refused where the same declaration at namespace scope folds; both are
+`300-constexpr-template-aggregate-subscript-member`. 13.5.6's `operator->` is the one
+operator `operator_constant` is not asked from: `accessed_object` refuses `->`
+at the syntax, because the declaration it would name hands back a pointer and
+group R is what holds one.
 
 **Known gaps (I audit).** A base or member subobject a folded image left with
 nothing to do owes its constructor's definition too - `constexpr Derived d =
