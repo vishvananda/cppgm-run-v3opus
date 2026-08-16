@@ -201,7 +201,8 @@ bool split_value_expression(const std::string& spelling,
 				    ((spelling[at] == '<' &&
 				      spelling.compare(start, at - start, "operator") != 0) ||
 				     (spelling[at] == '(' &&
-				      spelling.compare(start, at - start, "decltype") == 0)))
+				      (spelling.compare(start, at - start, "decltype") == 0 ||
+				       spelling.compare(start, at - start, "noexcept") == 0))))
 				{
 					const std::string::size_type closed =
 						angles.balanced_end(at);
@@ -344,6 +345,10 @@ private:
 	                      const std::vector<std::string>& words, bool live);
 	SemaConstant type_trait(const std::string& word,
 	                        const std::vector<std::string>& words, bool live);
+	// 5.3.7: `noexcept(E)`, whose whole spelling is one word because the
+	// operand is 13.3's question and not the text's - so the answer is read off
+	// the tree the parse kept beside that spelling and not off the words.
+	SemaConstant noexcept_operand(const std::string& word, bool live);
 	SemaConstant pack_size(const std::vector<std::string>& words);
 	SemaConstant literal_operand(const std::string& word,
 	                             const std::vector<std::string>& words,
@@ -630,6 +635,10 @@ SemaConstant TemplateArgumentReader::operand(
 	{
 		return type_trait(word, words, live);
 	}
+	if (word.compare(0, 9, "noexcept(") == 0)
+	{
+		return noexcept_operand(word, live);
+	}
 	if (is_cast_word(word))
 	{
 		// 5.2.9p1: the target is written inside the cast's own angle brackets,
@@ -782,6 +791,41 @@ SemaConstant TemplateArgumentReader::call_operand(
 		// so what the call came out as says nothing about the argument.
 		dependent_ = true;
 	}
+	return out;
+}
+
+// 5.3.7 written as a template argument.
+//
+// This is the one operator of 5.19 whose answer no reading of the words can
+// give: 5.3.7p3 asks which declaration each call in the operand reached, and
+// that is 13.3's choice over a typed operand rather than anything the spelling
+// holds.  So the operand is not re-read here at all - the parse kept the tree
+// it built beside the spelling it flattened to, and the reading that answers
+// the operator over a tree is asked exactly as the declaration that wrote it
+// would have asked.
+SemaConstant TemplateArgumentReader::noexcept_operand(const std::string& word,
+                                                      bool live)
+{
+	const AstNode* const written = analyzer_.written_ == nullptr
+		? nullptr
+		: analyzer_.written_->spelled(word);
+	if (written == nullptr || written->children.empty())
+	{
+		throw NotConstant(word + " is written as a template argument and this "
+		                  "reading has no expression for its operand");
+	}
+	SemaConstant out;
+	out.type = analyzer_.types_.fundamental(FT_BOOL);
+	if (!live)
+	{
+		// 5.14p1 and 5.16p1: the arm the answer does not depend on is read for
+		// its shape, and reading this operand is a whole analysis of it.
+		return out;
+	}
+	out.bits =
+		ConstexprReading(analyzer_).nonthrowing_operand(*written->children[0],
+		                                                ctx_)
+			? 1 : 0;
 	return out;
 }
 

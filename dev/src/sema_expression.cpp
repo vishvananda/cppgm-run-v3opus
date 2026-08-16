@@ -7,6 +7,7 @@
 #include "ast_tokens.h"
 #include "literal_scan.h"
 #include "post_token.h"
+#include "sema_constexpr.h"
 #include "sema_derivation.h"
 #include "sema_pack.h"
 #include "string_literal.h"
@@ -465,11 +466,11 @@ SemaAnalyzer::Value SemaAnalyzer::dispatch_expression(const AstNode& node,
 		return sizeof_expression(node, ctx, parent);
 
 	case AstKind::TypeTraitExpression:
-		if (node.token == KW_ALIGNOF)
-		{
-			return alignof_expression(node, ctx, parent);
-		}
-		break;
+		// 5.3.6p1's `alignof` and 5.3.7p1's `noexcept` leave their operands
+		// unevaluated and hand back a constant the translation knows.
+		return node.token == KW_ALIGNOF
+			? alignof_expression(node, ctx, parent)
+			: ConstexprReading(*this).noexcept_value(node, ctx, parent);
 
 	default:
 		break;

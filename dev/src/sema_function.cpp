@@ -358,7 +358,7 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 		                 specializing, &redeclares);
 	const bool wrote_specification =
 		declarator_writes_exception_specification(declarator);
-	const bool nothrowing = declarator_nonthrowing(declarator);
+	const bool nothrowing = declarator_nonthrowing(declarator, target);
 	if (redeclares && specializing == nullptr)
 	{
 		require_matching_exception_specification(entity, wrote_specification,

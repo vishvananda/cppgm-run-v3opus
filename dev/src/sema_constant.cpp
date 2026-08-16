@@ -485,6 +485,21 @@ SemaAnalyzer::Constant SemaAnalyzer::evaluate(const AstNode& node,
 	case AstKind::SizeofExpression:
 	case AstKind::TypeTraitExpression:
 	{
+		if (node.kind == AstKind::TypeTraitExpression &&
+		    node.token == KW_NOEXCEPT && !node.children.empty())
+		{
+			// 5.3.7p2: a constant of type `bool`, which is the same reading the
+			// expression layer takes its line from - so a `static_assert` over
+			// the operator and a template argument written with it get the one
+			// answer 15.4 settled and not a second reading of it.
+			Constant answer;
+			answer.type = types_.fundamental(FT_BOOL);
+			answer.bits =
+				ConstexprReading(*this).nonthrowing_operand(*node.children[0],
+				                                            ctx)
+					? 1 : 0;
+			return answer;
+		}
 		if (node.kind == AstKind::TypeTraitExpression && node.token != KW_ALIGNOF)
 		{
 			throw NotConstant("a constant expression holds an operator "

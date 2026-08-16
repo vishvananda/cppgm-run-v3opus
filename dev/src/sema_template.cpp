@@ -117,6 +117,15 @@ SemaEntity& SemaAnalyzer::specialize(SemaEntity& primary,
 		// declaration rather than repeating what a use wrote.
 		made->dump_name = primary.dump_name;
 		made->abi_name = primary.abi_name;
+		// 14.5.6.1 and 15.4p13: the specialization's exception-specification is
+		// the one the template's declarator wrote, and 5.3.7p3 asks about it
+		// wherever a call names this declaration rather than the pattern.  It
+		// is copied here because the pattern's declarator is read once, when
+		// the template was declared, and this declaration is built from its
+		// type and never from that declarator again.
+		made->nonthrowing = primary.nonthrowing;
+		made->wrote_exception_specification =
+			primary.wrote_exception_specification;
 		// 14.2: the arguments that made it, which the object file writes after
 		// the template's name and which no spelling of the declaration holds.
 		made->template_arguments = list;

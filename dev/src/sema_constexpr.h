@@ -11,6 +11,7 @@
 
 class SemaAnalyzer;
 class Scope;
+struct AnalyzedValue;
 struct AstNode;
 struct SemaEntity;
 
@@ -253,6 +254,20 @@ public:
 	// reaches an arithmetic type at all.
 	SemaConstant converted(const SemaConstant& value, TypeId place);
 
+	// 5.3.7p1 and p2: `noexcept(E)`, whose result is a constant of type `bool`
+	// - which is what puts it here rather than beside the operators that
+	// compute one.  Its operand is an unevaluated operand, so it is read once
+	// through `probe_expression` and 5.3.7p3 is asked of the resolved tree that
+	// reading leaves: 13.3 has chosen every call in it, and what a call is
+	// worth to this question is 15.4's exception-specification of the
+	// declaration it chose.  `noexcept_value` is the expression layer's line
+	// for the operator, spelled as the `bool` literal the value is;
+	// `nonthrowing_operand` is the same answer where a constant expression
+	// asks for it.
+	AnalyzedValue noexcept_value(const AstNode& node, const SemaContext& ctx,
+	                             DumpNode& parent);
+	bool nonthrowing_operand(const AstNode& node, const SemaContext& ctx);
+
 private:
 	ConstexprReading(const ConstexprReading&);
 	ConstexprReading& operator=(const ConstexprReading&);
@@ -363,6 +378,15 @@ private:
 	// 9.2p13: the non-static data members of `type`, in the order they were
 	// declared, which is the order 8.5.1p2's clauses reach them in.
 	void data_members(TypeId type, std::vector<SemaEntity*>& out) const;
+
+	// 5.3.7p3 over the resolved tree one reading of an unevaluated operand
+	// left: false where a line of it is a call the specification of whose
+	// callee allows an exception, and true where none is.
+	bool nonthrowing_tree(const DumpNode& node) const;
+	// 5.3.7p3's second bullet, asked of the syntax: a throw-expression is one
+	// the expression layer of this milestone reads none of, so where the
+	// operand holds one the answer is settled before the operand is read.
+	static bool holds_throw(const AstNode& node);
 
 	SemaAnalyzer& analyzer_;
 };

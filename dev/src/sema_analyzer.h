@@ -1029,9 +1029,9 @@ private:
 	                             const std::string& name, bool qualified);
 	// 15.4p1: whether the exception-specification written after the
 	// parameter-clause says the function throws nothing.  C++11 leaves it out
-	// of the function type, so it is read off the declarator once and held on
-	// the declaration 5.3.4p15 asks it of.
-	static bool declarator_nonthrowing(const AstNode& declarator);
+	// of the function type, so it is read off the declarator once - condition
+	// and all - and held on the declaration 5.3.4p15 asks it of.
+	bool declarator_nonthrowing(const AstNode& declarator, const Context& ctx);
 	// 15.4p14: whether that declarator wrote an exception-specification at all,
 	// which is what says the function keeps what it wrote rather than taking
 	// the one an implicit declaration of it would have had.

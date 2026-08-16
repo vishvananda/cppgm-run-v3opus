@@ -4,6 +4,7 @@
 #include <unordered_set>
 
 #include "ast_model.h"
+#include "sema_constexpr.h"
 #include "sema_derivation.h"
 #include "sema_pack.h"
 
@@ -305,7 +306,7 @@ SemaEntity& SemaAnalyzer::declare_conversion(const AstNode& node,
 	// exception-specification where every other member function's does, and
 	// what it says is what 15.2p2 reads to leave a handler out around a call.
 	entity.nonthrowing =
-		entity.nonthrowing || declarator_nonthrowing(*declarator);
+		entity.nonthrowing || declarator_nonthrowing(*declarator, target);
 	entity.wrote_exception_specification =
 		entity.wrote_exception_specification ||
 		declarator_writes_exception_specification(*declarator);
@@ -524,7 +525,7 @@ void SemaAnalyzer::special_member(const AstNode& node, const Context& ctx)
 			child_of(node, AstKind::Declarator);
 		entity->nonthrowing =
 			written_declarator != nullptr &&
-			declarator_nonthrowing(*written_declarator);
+			declarator_nonthrowing(*written_declarator, ctx);
 		entity->wrote_exception_specification =
 			entity->wrote_exception_specification ||
 			(written_declarator != nullptr &&
@@ -755,7 +756,7 @@ void SemaAnalyzer::special_member_definition(const AstNode& node,
 		require_matching_exception_specification(
 			*entity, own != nullptr &&
 			declarator_writes_exception_specification(*own),
-			own != nullptr && declarator_nonthrowing(*own), spelled_class);
+			own != nullptr && declarator_nonthrowing(*own, ctx), spelled_class);
 	}
 	// 7.1.2p3: a definition written outside the class is inline only where the
 	// program says so, which is what makes it the one definition of the
@@ -2568,15 +2569,23 @@ TypeId SemaAnalyzer::with_object_parameter(TypeId type,
 // function throws nothing.  The grammar spells it with the same node the
 // ref-qualifier uses, so which one this is, is what it was written as: `throw`
 // with an empty type-id-list, or `noexcept` with no constant-expression or with
-// one that is the `true` the translation reads without evaluating anything.
-// Any other spelling leaves the answer no, which is the reading that changes
-// nothing about what a program written with it comes to.
-bool SemaAnalyzer::declarator_nonthrowing(const AstNode& declarator)
+// one that is a constant expression contextually converted to `true`.
+//
+// The condition is *folded* and not matched against a spelling: 15.4p1 makes it
+// a constant expression of type bool, so `noexcept(true && !false)`,
+// `noexcept(1)` and `noexcept(is_nothrow<T>::value)` each say what they come to
+// and not what they were written as.  A condition this reading cannot fold -
+// one an argument list has yet to settle, one naming a member of the class this
+// declarator stands in - leaves the answer no, which is the specification
+// 15.4p14 gives a function whose own the translation cannot see.
+bool SemaAnalyzer::declarator_nonthrowing(const AstNode& declarator,
+                                          const Context& ctx)
 {
 	for (std::size_t index = 0; index < declarator.children.size(); ++index)
 	{
 		const AstNode& part = *declarator.children[index];
-		if (part.kind == AstKind::NestedDeclarator && declarator_nonthrowing(part))
+		if (part.kind == AstKind::NestedDeclarator &&
+		    declarator_nonthrowing(part, ctx))
 		{
 			return true;
 		}
@@ -2596,8 +2605,34 @@ bool SemaAnalyzer::declarator_nonthrowing(const AstNode& declarator)
 		{
 			return true;
 		}
-		if (part.children[0]->kind == AstKind::KeywordLiteral &&
-		    part.children[0]->token == KW_TRUE)
+		const AstNode& condition = *part.children[0];
+		if (condition.kind == AstKind::KeywordLiteral &&
+		    condition.token == KW_TRUE)
+		{
+			// The one spelling 15.4p1's condition has that needs no evaluating,
+			// answered before the fold so that the common form costs nothing.
+			return true;
+		}
+		// 14.6p8: a fold that stood a value in for one an argument list has yet
+		// to settle answers about no declaration this unit has, so it is not an
+		// answer about this one either.  Anything else the fold refuses -
+		// including 9.2p2's complete-class context, whose members a reading
+		// here has yet to reach - leaves the specification unknown, and the
+		// count is restored so that nothing around this reading sees a value
+		// stood in for a question it never asked.
+		const unsigned stood = stood_in_;
+		bool folded = false;
+		try
+		{
+			folded = ConstexprReading(*this).truth(evaluate(condition, ctx)) &&
+				stood_in_ == stood;
+		}
+		catch (const std::exception&)
+		{
+			folded = false;
+		}
+		stood_in_ = stood;
+		if (folded)
 		{
 			return true;
 		}

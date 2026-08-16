@@ -2100,7 +2100,8 @@ void SemaAnalyzer::declare_function_declarator(
 	// 15.4p1: one declaration written with a non-throwing
 	// exception-specification is what says the function throws nothing,
 	// however the others were written.
-	function.nonthrowing = function.nonthrowing || declarator_nonthrowing(node);
+	function.nonthrowing =
+		function.nonthrowing || declarator_nonthrowing(node, target);
 	function.wrote_exception_specification =
 		function.wrote_exception_specification ||
 		declarator_writes_exception_specification(node);

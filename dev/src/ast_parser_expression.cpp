@@ -357,6 +357,15 @@ AstNode* AstParser::parse_unary_expression()
 			return fail(start);
 		}
 		node->add(operand);
+		if (node->token == KW_NOEXCEPT)
+		{
+			// 14.2: a template-argument-list is flattened into the name around
+			// it, and no reading of that spelling can answer 5.3.7p3 - which
+			// declaration each call in the operand reaches is 13.3's question
+			// and not the text's.  So the tree is kept beside the spelling it
+			// flattens to, exactly as 7.1.6.2p1's decltype operand is.
+			arena_.keep_spelled(spelled(start), node);
+		}
 		return parse_postfix_suffixes(node);
 	}
 	if (at(KW_DYNAMIC_CAST) || at(KW_STATIC_CAST) || at(KW_REINTERPET_CAST) ||
