@@ -501,6 +501,13 @@ struct SemaEntity
 	// declared has no answer at all, and 7.1.5 refuses a declaration only where
 	// the answer is *no* rather than wherever it is not yes.
 	unsigned char literal_class;
+	// Variable: whether the reading that folded this declaration's initializer
+	// answered about it at all.  False where that reading ran out of the value
+	// kinds or the constructs this build holds rather than coming to 5.19's
+	// answer - which is what leaves the object no constant and the program no
+	// error, and what tells a later use of the name that finding no value here
+	// is this build's edge and not the program's.
+	bool covered_constant;
 	// Class: whether the constant values this build holds cover an object of
 	// this class completely - every subobject of it is of arithmetic,
 	// enumeration, class or array type that 5.19's values reach.  It is 3.9p10

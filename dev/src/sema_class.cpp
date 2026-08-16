@@ -352,6 +352,15 @@ void SemaAnalyzer::conversion_function(const AstNode& node, const Context& ctx,
 			entity.virtual_function = true;
 		}
 	}
+	if (entity.constexpr_function)
+	{
+		// 7.1.5p3: a conversion function is a function like any other, so its
+		// return type - which 12.3.2p1 spells as its name - and its parameter
+		// types shall be literal types.  It is asked here because a conversion
+		// function reaches neither `function_definition` nor `special_member`.
+		ConstexprRequirement(*this).require_function(entity, entity.type,
+		                                            entity.name);
+	}
 	// 7.1.2p3 and 9.3p2: a member function defined in its class body is inline.
 	entity.inline_function = entity.inline_function ||
 		node.kind == AstKind::SpecialMemberDefinition;
@@ -590,6 +599,15 @@ void SemaAnalyzer::special_member(const AstNode& node, const Context& ctx)
 			read_virt_specifiers(*entity, *written_declarator,
 			                     child_of(node, AstKind::Initializer));
 		}
+	}
+	if (entity->constexpr_function)
+	{
+		// 7.1.5p4: each parameter type of a constexpr constructor shall be a
+		// literal type, which is the same requirement 7.1.5p3 puts on every
+		// other constexpr function and is asked by the same reading.  9.4.2p2's
+		// definition written outside the class repeats no `constexpr`, so this
+		// declaration is where the program wrote it.
+		ConstexprRequirement(*this).require_function(*entity, type, spelled);
 	}
 	record_declared_parameters(*entity, parameters, ctx.scope);
 	model_.declare_in(*ctx.scope, *entity);

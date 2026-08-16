@@ -249,10 +249,12 @@ public:
 	// and is not itself ill formed, so the one failure is caught - unless
 	// `required` says 7.1.5p9 asked for the fold, in which case the refusal is
 	// this declaration's own diagnostic and is let through.  It is let through
-	// only where `ConstexprRequirement::valued_type` says a constant of the
-	// object's type is one this build holds at all: a fold that ran out of the
-	// values here is a gap and not the program's error.
-	void fold_declared_object(SemaEntity& entity, const AstNode* initializer,
+	// only where the refusal is a *covered* one: `NotConstant::covered` says
+	// 5.19 answered about the program, and `ConstexprRequirement::valued_type`
+	// says a constant of the object's type is one this build holds at all.
+	// Returns false where neither held - the reading ran out - which is what
+	// leaves 7.1.5p9's requirement beside it nothing to ask.
+	bool fold_declared_object(SemaEntity& entity, const AstNode* initializer,
 	                          TypeId type, const SemaContext& ctx,
 	                          bool required);
 
@@ -608,15 +610,30 @@ public:
 	// 12.1p5: whether the default constructor the standard defines for this
 	// class is a constexpr constructor - which it is exactly where a written
 	// `constexpr X() {}` would satisfy 7.1.5p4, so every member is reached by a
-	// brace-or-equal-initializer or is itself built by one of these.
-	bool constexpr_default_construction(Scope& scope) const;
+	// brace-or-equal-initializer or is itself built by one of these.  `holds`
+	// asks that last bullet: with it the answer says whether running the
+	// constructor leaves a constant, and without it the answer is the narrower
+	// one 3.9p10's third bullet reads about the class.
+	bool constexpr_default_construction(Scope& scope, bool holds) const;
+	// The same question over one base or one member of class type, which is
+	// where the two readings differ: `holds` wants the constructor this fold
+	// walks, and 3.9p10 wants only a class that has one and is literal itself.
+	bool subobject_default_construction(TypeId type, const SemaEntity& owner,
+	                                    bool holds) const;
 
 	// 7.1.5p9: `entity`, declared `constexpr` with `type`, shall have literal
 	// type and shall be initialized by a constant expression.  The second half
 	// is asked only where `valued_type` says this build could have held the
-	// answer.
+	// answer and `covered` says the fold beside it read the initializer to an
+	// end rather than running out of values partway.
 	void require_object(const SemaEntity& entity, TypeId type,
-	                    const SemaContext& ctx) const;
+	                    const SemaContext& ctx, const AstNode* initializer,
+	                    bool covered) const;
+	// 7.1.5p9 with 8.5p6: whether the declaration wrote no initializer and
+	// default-initialization of its type performs none either, which is a
+	// refusal about the declaration and not about the values - so it is asked
+	// where `valued_type` says nothing.
+	bool uninitialized(TypeId type, const AstNode* initializer) const;
 	// 7.1.5p3: the return type and each parameter type of a constexpr function
 	// shall be a literal type, and 7.1.5p3's first bullet leaves it non-virtual.
 	// `type` is the function type, whose first parameter is the object one

@@ -2575,11 +2575,12 @@ void SemaAnalyzer::declare_object_declarator(const AstNode* initializer,
 	// that wrote `constexpr`, asked here because this is where that declaration
 	// is - the fold says why an initializer is no constant expression, and the
 	// reading beside it says what else 7.1.5 asks of the declaration.
-	ConstexprReading(*this).fold_declared_object(entity, initializer, type, ctx,
-	                                             specifiers.is_constexpr);
+	const bool covered = ConstexprReading(*this).fold_declared_object(
+		entity, initializer, type, ctx, specifiers.is_constexpr);
 	if (specifiers.is_constexpr)
 	{
-		ConstexprRequirement(*this).require_object(entity, type, ctx);
+		ConstexprRequirement(*this).require_object(entity, type, ctx,
+		                                           initializer, covered);
 	}
 	if (declared == nullptr)
 	{

@@ -266,7 +266,7 @@ SemaConstant ConstexprReading::object_of(TypeId type,
 		// nothing names it, so nothing would read it back.
 		throw NotConstant(analyzer_.types_.description(bare) +
 		                  " is not a class a constant expression builds an "
-		                  "object of");
+		                  "object of", false);
 	}
 	if (written.empty())
 	{
@@ -338,7 +338,7 @@ SemaConstant ConstexprReading::object_of(TypeId type,
 			throw NotConstant("a member of " +
 			                  analyzer_.types_.description(bare) +
 			                  " is outside the values a constant expression "
-			                  "holds");
+			                  "holds", false);
 		}
 		held.push_back(entry_of(value));
 	}
@@ -361,7 +361,12 @@ SemaConstant ConstexprReading::object_of(TypeId type,
 // stands for rather than about the syntax.  An initializer that is an ordinary
 // expression leaves the object one like any other, and one that is ill formed
 // is still ill formed, so only the one failure is caught.
-void ConstexprReading::fold_declared_object(SemaEntity& entity,
+//
+// The answer is whether this reading *covered* the declaration: false where the
+// fold refused for a value kind or a construct it has none of, which is no
+// statement about the program and which 7.1.5p9's requirement beside it then
+// asks nothing of.
+bool ConstexprReading::fold_declared_object(SemaEntity& entity,
                                             const AstNode* initializer,
                                             TypeId type, const SemaContext& ctx,
                                             bool required)
@@ -392,7 +397,7 @@ void ConstexprReading::fold_declared_object(SemaEntity& entity,
 	if ((analyzer_.types_.cv(qualified) & kCvConst) == 0 ||
 	    (!built && analyzer_.arithmetic_type(type) == kNoType))
 	{
-		return;
+		return true;
 	}
 	// 8.5p6: a declaration that wrote no initializer default-initializes the
 	// object, which for one of class type calls its default constructor - so
@@ -410,7 +415,10 @@ void ConstexprReading::fold_declared_object(SemaEntity& entity,
 	if (wrote == nullptr &&
 	    (built_by == nullptr || !built_by->constexpr_function))
 	{
-		return;
+		// 8.5p6 performs no initialization here, and that is an answer about
+		// the declaration rather than the edge of this reading: the object
+		// holds nothing, whoever asks.
+		return true;
 	}
 	try
 	{
@@ -427,9 +435,20 @@ void ConstexprReading::fold_declared_object(SemaEntity& entity,
 		entity.real = value.real;
 		entity.constant = true;
 	}
-	catch (const NotConstant&)
+	catch (const NotConstant& refused)
 	{
 		entity.constant = false;
+		if (!refused.covered)
+		{
+			// The reading ran out rather than answering: `constexpr int n =
+			// *(values + 1);` is a program both oracles fold and this build
+			// holds no address for, so 7.1.5p9 has nothing to say about it and
+			// 3.6.2p2's dynamic initialization is what the declaration gets.
+			// The fact stands on the declaration, because a name reaching it
+			// later finds no value for the same reason.
+			entity.covered_constant = false;
+			return false;
+		}
 		if (required && ConstexprRequirement(analyzer_).demanded(type, ctx))
 		{
 			// 7.1.5p9: the declaration asked for a constant expression, so why
@@ -439,6 +458,7 @@ void ConstexprReading::fold_declared_object(SemaEntity& entity,
 			throw;
 		}
 	}
+	return true;
 }
 
 // 8.5: what the initializer `wrote` leaves an object of type `type` holding.
@@ -480,7 +500,7 @@ SemaConstant ConstexprReading::initialized_value(const AstNode& wrote,
 			// 14.6p8: a run no argument list has settled says neither how
 			// many clauses there are nor what they are worth.
 			throw NotConstant("a constant expression initializes an object "
-			                  "from a run an argument list has yet to settle");
+			                  "from a run an argument list has yet to settle", false);
 		}
 		while (!clauses.spent())
 		{
@@ -580,7 +600,7 @@ SemaConstant ConstexprReading::clause_of(const AstNode& clause, TypeId target,
 		// 14.6p8: a run no argument list has settled says neither how many
 		// clauses there are nor what they are worth.
 		throw NotConstant("a constant expression writes a list of clauses an "
-		                  "argument list has yet to settle");
+		                  "argument list has yet to settle", false);
 	}
 	while (!clauses.spent())
 	{
@@ -664,7 +684,7 @@ SemaConstant ConstexprReading::array_of(TypeId type,
 		// than an evaluation may run is one this reading refuses rather than
 		// builds.
 		throw NotConstant("a constant expression value-initializes more array "
-		                  "elements than this implementation evaluates");
+		                  "elements than this implementation evaluates", false);
 	}
 	const bool built = analyzer_.types_.is_class(element);
 	// 3.9p10 and 8.3.4p6: an array of literal type is a literal type too, so an
@@ -675,7 +695,7 @@ SemaConstant ConstexprReading::array_of(TypeId type,
 	{
 		throw NotConstant("an element of " +
 		                  analyzer_.types_.description(bare) +
-		                  " is outside the values a constant expression holds");
+		                  " is outside the values a constant expression holds", false);
 	}
 	std::vector<TypeId> held;
 	held.reserve(static_cast<std::size_t>(count));
@@ -727,7 +747,7 @@ SemaConstant ConstexprReading::element_value(const SemaConstant& array,
 	if (!holds_list(array) || is_object(array))
 	{
 		throw NotConstant("a constant expression subscripts something that is "
-		                  "not an array or a string literal");
+		                  "not an array or a string literal", false);
 	}
 	const std::vector<TypeId>& held =
 		analyzer_.types_.type_list_at(static_cast<std::uint32_t>(array.bits));
@@ -785,7 +805,7 @@ SemaConstant ConstexprReading::object_from_constructor(
 	{
 		throw NotConstant(analyzer_.types_.description(bare) +
 		                  " declares no constructor a constant expression "
-		                  "builds an object with");
+		                  "builds an object with", false);
 	}
 	std::vector<AnalyzedValue> clauses;
 	argument_values(written, clauses);
@@ -808,9 +828,17 @@ SemaConstant ConstexprReading::object_from_constructor(
 		one->constexpr_body != nullptr;
 	if (!wrote_body && !(one->defaulted && one->constexpr_function))
 	{
+		// A constructor the program wrote and did not write `constexpr` on is
+		// 7.1.5p9's own answer about the declaration.  One the standard defined
+		// that 12.1p5 leaves short of a constexpr constructor is this reading's
+		// edge instead: 8.5p7 zero-initializes the object before such a
+		// constructor runs, and the zeroes it lays down are what this walk has
+		// no arm for - so `struct X { private: int v; }; constexpr X x = X();`
+		// is a program both oracles build and one no refusal here describes.
 		throw NotConstant(analyzer_.types_.description(bare) +
 		                  " declares no one constexpr constructor a constant "
-		                  "expression builds an object with");
+		                  "expression builds an object with",
+		                  !one->defaulted);
 	}
 	// 7.1.5p4: a constexpr constructor's function-body shall be a
 	// compound-statement holding what 7.1.5p3 leaves any other one - so what
@@ -840,7 +868,7 @@ SemaConstant ConstexprReading::object_from_constructor(
 	if (depth >= kMaxConstexprDepth)
 	{
 		throw NotConstant("a constant expression builds objects more deeply "
-		                  "than this implementation reads");
+		                  "than this implementation reads", false);
 	}
 	const ReadingDepth building(depth);
 	// 9.2p2 and 12.6.2p2: the mem-initializers are read where the constructor's
@@ -942,7 +970,7 @@ SemaConstant ConstexprReading::object_from_constructor(
 			throw NotConstant("a member of " +
 			                  analyzer_.types_.description(bare) +
 			                  " is outside the values a constant expression "
-			                  "holds");
+			                  "holds", false);
 		}
 		holds.push_back(entry_of(value));
 		if (inner.scope->names.count(members[index]->name) == 0)
@@ -972,13 +1000,13 @@ SemaConstant ConstexprReading::accessed_object(const AstNode& node,
 	if (node.token != OP_DOT || node.children.size() < 2)
 	{
 		throw NotConstant("a constant expression reads a member through "
-		                  "something it holds no object of");
+		                  "something it holds no object of", false);
 	}
 	const SemaConstant object = analyzer_.evaluate(*node.children[0], ctx);
 	if (!is_object(object))
 	{
 		throw NotConstant("a constant expression reads a member of what is not "
-		                  "an object of class type");
+		                  "an object of class type", false);
 	}
 	return object;
 }
@@ -1012,7 +1040,7 @@ SemaConstant ConstexprReading::member_value(const SemaConstant& object,
 	if (!is_object(object))
 	{
 		throw NotConstant("a constant expression reads a member of what is not "
-		                  "an object of class type");
+		                  "an object of class type", false);
 	}
 	SemaEntity* const named = accessed_member(object, name, ctx);
 	if (named != nullptr && !named->object_member &&
@@ -1042,7 +1070,7 @@ SemaConstant ConstexprReading::member_value(const SemaConstant& object,
 	}
 	throw NotConstant(name +
 	                  " names no subobject a constant expression reads of " +
-	                  analyzer_.types_.description(object.type));
+	                  analyzer_.types_.description(object.type), false);
 }
 
 // 5.2.2p1 with 9.3.1p3: the call `E.f(args)`, whose object is `E` where 9.2p1
@@ -1055,7 +1083,7 @@ SemaConstant ConstexprReading::member_call(
 	if (!is_object(object))
 	{
 		throw NotConstant("a constant expression calls a member of what is not "
-		                  "an object of class type");
+		                  "an object of class type", false);
 	}
 	std::vector<SemaEntity*> candidates;
 	SemaEntity* const named = accessed_member(object, name, ctx, &candidates);
@@ -1121,7 +1149,7 @@ SemaConstant ConstexprReading::called(const AstNode& callee,
 			return called;
 		}
 		throw NotConstant("a constant expression calls something this "
-		                  "milestone does not evaluate");
+		                  "milestone does not evaluate", false);
 	}
 	return called_name(callee.text, &callee, arguments, ctx);
 }
@@ -1159,7 +1187,7 @@ SemaConstant ConstexprReading::called_name(
 	{
 		throw NotConstant(name +
 		                  " is called on an object a constant expression does "
-		                  "not name");
+		                  "not name", false);
 	}
 	return call(one, nullptr, arguments);
 }
@@ -1290,6 +1318,12 @@ SemaEntity& ConstexprReading::selected(
 	{
 		one = analyzer_.select_overload(candidates, written, name, object,
 		                                false, singles);
+	}
+	catch (const NotConstant&)
+	{
+		// A refusal the fold itself made while the ranking read an argument or
+		// a default-argument keeps its own answer about whose error it is.
+		throw;
 	}
 	catch (const std::runtime_error& refused)
 	{
@@ -1444,6 +1478,11 @@ bool ConstexprReading::operator_constant(unsigned token,
 		chosen = analyzer_.select_overload(candidates, rest, name, &object,
 		                                   false, singles, &written[0]);
 	}
+	catch (const NotConstant&)
+	{
+		// As above: the fold's own refusal keeps the answer it came with.
+		throw;
+	}
 	catch (const std::runtime_error& refused)
 	{
 		// 13.3 refuses the operator, which for an operand of class type leaves
@@ -1505,7 +1544,7 @@ SemaConstant ConstexprReading::converted(const SemaConstant& value,
 	if (owner == nullptr)
 	{
 		throw NotConstant("a constant expression converts an object of a type "
-		                  "it does not know");
+		                  "it does not know", false);
 	}
 	// 13.3.1p3 and 9.3.1p3: the object the conversion function is called on,
 	// which carries the constant's own cv-qualification because that is what
@@ -1786,8 +1825,13 @@ SemaConstant ConstexprReading::call(SemaEntity& callee,
 	if (!callee.constexpr_function || callee.constexpr_body == nullptr ||
 	    callee.constexpr_region == nullptr)
 	{
+		// 7.1.5p2: a call of a function no declaration wrote `constexpr` on is
+		// 5.19's own answer about the program; one of a constexpr function
+		// whose definition this reading has not got is where the walk stops,
+		// which 14.7.1p1's queued member definition is the standing example of.
 		throw NotConstant(callee.name +
-		                  " is not a constexpr function this unit has defined");
+		                  " is not a constexpr function this unit has defined",
+		                  callee.constexpr_function == false);
 	}
 	const TypeId result = analyzer_.types_.target(callee.type);
 	std::vector<SemaConstant> passed;
@@ -1801,7 +1845,7 @@ SemaConstant ConstexprReading::call(SemaEntity& callee,
 	if (depth >= kMaxConstexprDepth)
 	{
 		throw NotConstant("a constant expression calls constexpr functions "
-		                  "more deeply than this implementation reads");
+		                  "more deeply than this implementation reads", false);
 	}
 	const ReadingDepth folding(depth);
 	// 14.6.1p1 and 3.3.3: a region of the fold's own, so the bindings one call
@@ -1826,7 +1870,7 @@ SemaConstant ConstexprReading::call(SemaEntity& callee,
 	if (compound == nullptr)
 	{
 		throw NotConstant(callee.name +
-		                  " has no function-body a constant expression reads");
+		                  " has no function-body a constant expression reads", false);
 	}
 	// 6.1-6.6: the body is run rather than pattern-matched.  7.1.5p3 leaves a
 	// C++11 constexpr body one `return` statement, and this milestone's own
@@ -1894,7 +1938,12 @@ SemaConstant ConstexprReading::entity_constant(SemaEntity& entity,
 			stood.bits = 1;
 			return stood;
 		}
-		throw NotConstant(spelling + " is not a constant expression");
+		// 5.19p2 asked of a declaration whose own initializer this reading ran
+		// out on is the same running out one name further along: `constexpr
+		// char text[] = "ab";` holds a value 5.19 has and this build has not,
+		// and `text[0]` beside it is no more the program's error than it was.
+		throw NotConstant(spelling + " is not a constant expression",
+		                  entity.covered_constant);
 	}
 	SemaConstant out;
 	out.type = entity.type;
@@ -1979,7 +2028,7 @@ SemaConstant ConstexprReading::unary_constant(const AstNode& node,
 
 	default:
 		throw NotConstant("a constant expression holds an operator PA11 "
-		                         "does not evaluate");
+		                         "does not evaluate", false);
 	}
 	return analyzer_.convert(out, out.type);
 }
@@ -2225,7 +2274,7 @@ SemaConstant ConstexprReading::binary_value(unsigned token,
 
 	default:
 		throw NotConstant("a constant expression holds an operator PA11 "
-		                         "does not evaluate");
+		                         "does not evaluate", false);
 	}
 
 	// 5p4: an operation whose result its type cannot represent has undefined
@@ -2293,7 +2342,7 @@ SemaConstant ConstexprReading::call_or_cast(const AstNode& node,
 	if (list == nullptr)
 	{
 		throw NotConstant("a constant expression calls something this "
-		                  "milestone does not evaluate");
+		                  "milestone does not evaluate", false);
 	}
 	// 14.5.3p4: what the parentheses hold is the run a `pattern...` entry
 	// stands for, which is the same reading the analyzer_.lowering of this cast is
@@ -2339,7 +2388,7 @@ SemaConstant ConstexprReading::call_or_cast(const AstNode& node,
 	if (analyzer_.arithmetic_type(target) == kNoType || operands.size() > 1)
 	{
 		throw NotConstant("a constant expression calls something this "
-		                  "milestone does not evaluate");
+		                  "milestone does not evaluate", false);
 	}
 	if (operands.empty())
 	{

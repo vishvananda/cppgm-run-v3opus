@@ -14,6 +14,7 @@
 
 #include <stdexcept>
 
+#include "ast_model.h"
 #include "sema_analyzer.h"
 #include "sema_scope.h"
 
@@ -107,16 +108,20 @@ bool ConstexprRequirement::valued_type(TypeId type) const
 // 7.1.5p9 asked of one declaration: whether this reading may hold it to a
 // constant initializer at all.
 //
-// Two things say no.  A declaration a template pattern wrote, or one an
+// Three things say no.  A declaration a template pattern wrote, or one an
 // instantiation made from it, is not where the program was written - 14.6p8
 // leaves the first saying nothing about the types an argument list has yet to
-// settle, and 7.1.5p6 leaves the second simply not constexpr.  And an object of
+// settle, and 7.1.5p6 leaves the second simply not constexpr.  An object of
 // a type this build holds no constant of is one whose fold says nothing about
 // the program: `constexpr const char *text = "ab";` is a valid declaration whose
-// value 5.19 has and `SemaConstant` has not.
+// value 5.19 has and `SemaConstant` has not.  And a dialect that builds fewer of
+// the declarations 5.19 reads through answers fewer folds: `--emit-types`
+// collects no conversion functions, so `constexpr int n = c;` over a class with
+// one folds under PA12 and PA21 and not there - which is this build's line and
+// not the program's, so PA11's reading refuses nothing here.
 bool ConstexprRequirement::demanded(TypeId type, const SemaContext& ctx) const
 {
-	return !instantiated() &&
+	return !instantiated() && analyzer_.semantics() &&
 		!(ctx.scope != nullptr && analyzer_.dependent_reading(*ctx.scope)) &&
 		valued_type(type);
 }
@@ -127,18 +132,25 @@ bool ConstexprRequirement::demanded(TypeId type, const SemaContext& ctx) const
 // every non-static data member initialized, by a brace-or-equal-initializer or
 // by a constexpr constructor of its own.
 //
+// `holds` says whether 7.1.5p4's "every non-static data member shall be
+// initialized" is one of the bullets asked.  With it, the answer is 12.1p5's
+// own and says whether *running* that constructor leaves a constant - which is
+// what the fold gates on.  Without it, the answer is the one 3.9p10's third
+// bullet reads: a class whose members some later initialization will fill is
+// still a class that has a constexpr constructor, which is how both oracles
+// answer `struct D : B { int x; };` and how they build `constexpr D d = {};`.
+//
 // It is the same walk 12.1p5's triviality and 15.4p14's specification each
 // make, asked of a third fact of the same members, and it reads the answer each
 // subobject's class already carries rather than descending into one.
-bool ConstexprRequirement::constexpr_default_construction(Scope& scope) const
+bool ConstexprRequirement::constexpr_default_construction(Scope& scope,
+                                                          bool holds) const
 {
 	for (std::size_t index = 0;
 	     scope.owner != nullptr && index < scope.owner->bases.size(); ++index)
 	{
 		const SemaEntity* const base = scope.owner->bases[index].entity;
-		if (base->constructor == nullptr ||
-		    !base->constructor->constexpr_function ||
-		    analyzer_.types_.parameters(base->constructor->type).size() != 1)
+		if (!subobject_default_construction(base->type, *base, holds))
 		{
 			return false;
 		}
@@ -162,18 +174,46 @@ bool ConstexprRequirement::constexpr_default_construction(Scope& scope) const
 			analyzer_.types_.is_class(element)
 				? analyzer_.model_.type_owner(element)
 				: nullptr;
-		const SemaEntity* const built =
-			owner == nullptr ? nullptr : owner->constructor;
-		if (built == nullptr || !built->constexpr_function ||
-		    analyzer_.types_.parameters(built->type).size() != 1)
+		if (owner == nullptr)
 		{
-			// 8.5p6: default-initialization of anything else performs no
-			// initialization at all, which leaves the member holding no value
-			// 5.19 may read.
+			// 8.5p6: default-initialization of a member of scalar type performs
+			// no initialization at all, which leaves it holding no value 5.19
+			// may read - 7.1.5p4's sentence, and one 3.9p10 has none about.
+			if (holds)
+			{
+				return false;
+			}
+			continue;
+		}
+		if (!subobject_default_construction(element, *owner, holds))
+		{
 			return false;
 		}
 	}
 	return true;
+}
+
+// One base or one member of class type, asked the question above.
+//
+// With `holds`, the constructor that runs shall be a constexpr one this reading
+// walks, which is the answer its own class settled.  Without it, 3.9p10's
+// third bullet asks only that the subobject's class *have* the constructor and
+// be a literal type itself - which is 3.9p10's fourth bullet asked one level
+// down, and which is how both oracles read a base whose own members some later
+// initialization fills.
+bool ConstexprRequirement::subobject_default_construction(TypeId type,
+                                                          const SemaEntity& owner,
+                                                          bool holds) const
+{
+	if (holds)
+	{
+		return owner.constructor != nullptr &&
+			owner.constructor->constexpr_function &&
+			analyzer_.types_.parameters(owner.constructor->type).size() == 1;
+	}
+	const SemaEntity* const built = analyzer_.default_constructor(type);
+	return owner.literal_class == kLiteralYes && built != nullptr &&
+		!built->deleted;
 }
 
 // 3.9p10 and 12.1p5 over one complete class, settled where 9.2p2 closes its
@@ -188,7 +228,7 @@ void ConstexprRequirement::settle_class(SemaEntity& entity, Scope& scope) const
 	{
 		if (at->defaulted && !at->constexpr_function &&
 		    analyzer_.types_.parameters(at->type).size() == 1 &&
-		    constexpr_default_construction(scope))
+		    constexpr_default_construction(scope, true))
 		{
 			// 12.1p5: the constructor is one the standard defines, and what it
 			// does is what a program writing `constexpr` on it would have got -
@@ -215,6 +255,21 @@ void ConstexprRequirement::settle_class(SemaEntity& entity, Scope& scope) const
 		constructs = at->constexpr_function &&
 			at->transfer != kCopyConstructorTransfer &&
 			at->transfer != kMoveConstructorTransfer;
+	}
+	for (SemaEntity* at = entity.constructor; !constructs && at != nullptr;
+	     at = at->next)
+	{
+		// The same bullet over the default constructor 12.1p5 *defines* rather
+		// than one a declaration wrote.  What 12.1p5 asks of that one is
+		// 7.1.5p4's whole list, and a member of scalar type it leaves alone is
+		// the one bullet 3.9p10 has no sentence about - so a class with a base,
+		// a virtual function or 11p1's access, none of which 8.5.1p1 leaves an
+		// aggregate, is still a literal type here as it is in both oracles.
+		// What that member costs is the *fold*, which refuses the object where
+		// it is built and not the type where it is declared.
+		constructs = at->defaulted && !at->deleted &&
+			analyzer_.types_.parameters(at->type).size() == 1 &&
+			constexpr_default_construction(scope, false);
 	}
 	if (!constructs)
 	{
@@ -267,8 +322,16 @@ void ConstexprRequirement::settle_class(SemaEntity& entity, Scope& scope) const
 // *ran* and refused has already said why in the fold's own words; what is left
 // here is the declaration that ran none at all, which 8.5p6 makes the one that
 // wrote no initializer and gave 12.1p5 no constexpr constructor to call.
+//
+// `covered` is that fold's answer to a different question: whether it read the
+// initializer to an end at all.  A reading that ran out - an address 5.19p2 has
+// and `SemaConstant` has not, an operator this milestone does not evaluate -
+// leaves nothing to hold the declaration to, and the object takes 3.6.2p2's
+// dynamic initialization exactly as it did before this requirement existed.
 void ConstexprRequirement::require_object(const SemaEntity& entity, TypeId type,
-                                          const SemaContext& ctx) const
+                                          const SemaContext& ctx,
+                                          const AstNode* initializer,
+                                          bool covered) const
 {
 	if (instantiated() ||
 	    (ctx.scope != nullptr && analyzer_.dependent_reading(*ctx.scope)))
@@ -286,7 +349,8 @@ void ConstexprRequirement::require_object(const SemaEntity& entity, TypeId type,
 		                         analyzer_.types_.description(type) +
 		                         ", which is not a literal type");
 	}
-	if (!entity.constant && demanded(type, ctx))
+	if (!entity.constant && covered && analyzer_.semantics() &&
+	    (valued_type(type) || uninitialized(type, initializer)))
 	{
 		throw std::runtime_error("the constexpr object " + entity.name +
 		                         " is initialized by nothing that is a constant "
@@ -294,11 +358,43 @@ void ConstexprRequirement::require_object(const SemaEntity& entity, TypeId type,
 	}
 }
 
-// 7.1.5p3's first three bullets, asked where the declaration stands.
+// 7.1.5p9's other half: an object declared `constexpr` shall be *initialized*.
 //
-// A constructor and a destructor are declared with a function type returning
-// `void` and are no part of this: 7.1.5p4 is their requirement and it says
-// nothing about a return type.  The object parameter 9.3.1p3 gave a member is
+// A declaration that wrote no initializer is initialized by 8.5p6, which for
+// anything but a class 12.1p5 gives a constexpr default constructor performs no
+// initialization at all - and an object nothing initialized holds no value,
+// whatever kind of value this build would have held for it.  So this is the one
+// refusal `valued_type` does not gate: `constexpr D d;` over a class with a
+// base, or over a union, is a program both oracles refuse and one
+// `ConstexprReading::object_of` holds no object of either way.
+bool ConstexprRequirement::uninitialized(TypeId type,
+                                         const AstNode* initializer) const
+{
+	if (initializer != nullptr && !initializer->children.empty())
+	{
+		return false;
+	}
+	TypeTable& types = analyzer_.types_;
+	const TypeId element = types.strip_cv(types.element_of(types.strip_cv(type)));
+	if (!types.is_class(element))
+	{
+		return true;
+	}
+	const SemaEntity* const built = analyzer_.default_constructor(element);
+	return built == nullptr || !built->constexpr_function;
+}
+
+// 7.1.5p3's first three bullets and 7.1.5p4's second, asked where the
+// declaration stands.
+//
+// It is one question and four doors: an ordinary function or member function
+// definition, a constructor, a destructor and a conversion function each write
+// a declarator 7.1.5 is about, and each is read by a walk of its own.  What
+// differs between them is only 12.1p1 and 12.4p1's sentence - neither a
+// constructor nor a destructor writes a return type, so the type they are
+// declared with returns `void` and 7.1.5p3's second bullet is asked of nothing
+// there, while 7.1.5p4's parameter types are asked of a constructor exactly as
+// p3's are of every other one.  The object parameter 9.3.1p3 gave a member is
 // a pointer, so 3.9p10 answers yes for it whatever the class is; 7.1.5p8's
 // requirement that the class itself be literal is a separate sentence and is
 // not asked here.
@@ -318,7 +414,9 @@ void ConstexprRequirement::require_function(const SemaEntity& entity,
 		throw std::runtime_error("the constexpr function " + name +
 		                         " is declared virtual");
 	}
-	if (!literal_type(analyzer_.types_.target(type)))
+	const bool structural = entity.special == kConstructorFunction ||
+		entity.special == kDestructorFunction;
+	if (!structural && !literal_type(analyzer_.types_.target(type)))
 	{
 		throw std::runtime_error("the constexpr function " + name +
 		                         " returns " +

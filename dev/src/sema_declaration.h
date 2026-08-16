@@ -427,12 +427,27 @@ struct DeclaredLifetime
 // the errors an expression can also hold - a name that is declared nowhere, a
 // type-id that names no type - which are facts about the program rather than
 // about the value, and which every caller lets through.
+//
+// The two halves of that first sentence are told apart by `covered`.  A refusal
+// 5.19 itself makes - a call of a function no declaration made constexpr, an
+// overflow, a write to an object the evaluation does not own - is a fact about
+// the program, and `covered` is true.  A refusal this reading makes because it
+// has no value of the kind the expression asked for - 5.19p2's address, an
+// operator this milestone does not evaluate, a class 10p1's base subobject
+// leaves it holding no object of - is a fact about the build, and `covered` is
+// false.  7.1.5p9's requirement is the one reader: a declaration that asked for
+// a constant initializer is refused where a covered refusal says the program is
+// wrong, and left alone where the reading merely ran out.
 class NotConstant : public std::runtime_error
 {
 public:
-	explicit NotConstant(const std::string& what)
-		: std::runtime_error(what)
+	explicit NotConstant(const std::string& what, bool covered = true)
+		: std::runtime_error(what), covered(covered)
 	{}
+
+	// Whether this refusal is 5.19's answer about the program rather than the
+	// edge of what this build reads.
+	bool covered;
 };
 
 // A value of the 5.19 subset: what it is worth, and the type that says how

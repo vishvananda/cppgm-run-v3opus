@@ -66,7 +66,7 @@ unsigned compound_operator(unsigned token)
 	default: break;
 	}
 	throw NotConstant("a constant expression writes an assignment it does not "
-	                  "evaluate");
+	                  "evaluate", false);
 }
 
 // 7.1.3p1: whether the declarators of this decl-specifier-seq declare type
@@ -111,7 +111,7 @@ void ConstexprReading::step(ConstexprFrame& frame)
 	if (++frame.steps > kMaxConstexprSteps)
 	{
 		throw NotConstant("a constant expression runs more statements than "
-		                  "this implementation evaluates");
+		                  "this implementation evaluates", false);
 	}
 }
 
@@ -282,7 +282,7 @@ bool ConstexprReading::condition_value(const AstNode& node,
 	if (node.children.empty())
 	{
 		throw NotConstant("a constant expression runs a statement whose "
-		                  "condition it cannot read");
+		                  "condition it cannot read", false);
 	}
 	const AstNode& written = *node.children[0];
 	if (written.kind != AstKind::ConditionDeclaration)
@@ -299,7 +299,7 @@ bool ConstexprReading::condition_value(const AstNode& node,
 	    initializer->children.empty() || written.children.empty())
 	{
 		throw NotConstant("a constant expression runs a condition whose "
-		                  "declaration it cannot read");
+		                  "declaration it cannot read", false);
 	}
 	SemaEntity* held = declared_object(written, frame);
 	if (held == nullptr)
@@ -519,7 +519,7 @@ ConstexprFlow ConstexprReading::statement(const AstNode& node,
 		break;
 	}
 	throw NotConstant("a constant expression runs a statement this "
-	                  "implementation does not evaluate");
+	                  "implementation does not evaluate", false);
 }
 
 SemaEntity* ConstexprReading::named_object(const AstNode& node,

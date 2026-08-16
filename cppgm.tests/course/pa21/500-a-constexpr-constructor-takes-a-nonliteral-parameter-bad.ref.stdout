@@ -1,0 +1,3 @@
+ERROR: constexpr function requires literal parameter types at course/pa21/500-a-constexpr-constructor-takes-a-nonliteral-parameter-bad.t:20:3 [top-level declaration 1 kind=class-specifier value=holder text=holder]
+Diagnostic context:
+collect_class_declaration [holder] at course/pa21/500-a-constexpr-constructor-takes-a-nonliteral-parameter-bad.t:18:1

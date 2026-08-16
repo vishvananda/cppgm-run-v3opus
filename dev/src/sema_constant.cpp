@@ -139,7 +139,7 @@ SemaAnalyzer::Constant SemaAnalyzer::convert(const Constant& given, TypeId type)
 		// may read.  `at_arithmetic_place` above has already spent 5.19p3's
 		// conversion function on an object of class type; nothing answers here.
 		throw NotConstant("a constant expression reads an array where a value "
-		                  "of arithmetic type belongs");
+		                  "of arithmetic type belongs", false);
 	}
 	if (to == kNoType && types_.strip_cv(value.type) != types_.strip_cv(type))
 	{
@@ -152,7 +152,7 @@ SemaAnalyzer::Constant SemaAnalyzer::convert(const Constant& given, TypeId type)
 		throw NotConstant("a constant expression converts a value to " +
 		                  types_.description(type) +
 		                  ", which no conversion between arithmetic types "
-		                  "reaches");
+		                  "reaches", false);
 	}
 	Constant out;
 	out.type = type;
@@ -227,7 +227,7 @@ SemaAnalyzer::Constant SemaAnalyzer::promote(const Constant& given)
 	if (arithmetic == kNoType)
 	{
 		throw NotConstant("a constant expression has a type that is not "
-		                         "arithmetic");
+		                         "arithmetic", false);
 	}
 	if (types_.is_floating(arithmetic) || width_of(arithmetic) >= 32)
 	{
@@ -297,7 +297,7 @@ SemaAnalyzer::Constant SemaAnalyzer::literal_constant(const std::string& spellin
 	    !fundamental_type_is_arithmetic(token.type))
 	{
 		throw NotConstant("a constant expression holds a literal that has "
-		                         "no arithmetic value");
+		                         "no arithmetic value", false);
 	}
 
 	Constant out;
@@ -326,7 +326,7 @@ SemaAnalyzer::Constant SemaAnalyzer::string_element(const std::string& spelling,
 	    token.kind != PostTokenKind::LiteralArray)
 	{
 		throw NotConstant("a constant expression subscripts something that is "
-		                  "not a string literal");
+		                  "not a string literal", false);
 	}
 	// 8.3.4p6: the element is the one the index names, and the terminating
 	// null 2.14.5p12 appended is an element of the array like any other.
@@ -363,7 +363,7 @@ SemaAnalyzer::Constant SemaAnalyzer::evaluate(const AstNode& node,
 	{
 		if (node.token != KW_TRUE && node.token != KW_FALSE)
 		{
-			throw NotConstant("a constant expression names no value");
+			throw NotConstant("a constant expression names no value", false);
 		}
 		Constant out;
 		out.type = types_.fundamental(FT_BOOL);
@@ -427,7 +427,7 @@ SemaAnalyzer::Constant SemaAnalyzer::evaluate(const AstNode& node,
 		if (node.token != OP_INC && node.token != OP_DEC)
 		{
 			throw NotConstant("a constant expression holds an operator this "
-			                  "implementation does not evaluate");
+			                  "implementation does not evaluate", false);
 		}
 		return ConstexprReading(*this).increment_constant(node, ctx, false);
 
@@ -446,13 +446,13 @@ SemaAnalyzer::Constant SemaAnalyzer::evaluate(const AstNode& node,
 		    node.children[0]->kind != AstKind::TypeId)
 		{
 			throw NotConstant("a constant expression holds a cast PA11 "
-			                         "does not evaluate");
+			                         "does not evaluate", false);
 		}
 		const TypeId type = type_id_type(*node.children[0], ctx);
 		if (arithmetic_type(type) == kNoType)
 		{
 			throw NotConstant("a constant expression casts to a type that "
-			                         "is not arithmetic");
+			                         "is not arithmetic", false);
 		}
 		// 5.4p4: a cast written in either notation direct-initializes an
 		// object of the type named, which 12.3.2p2 makes the other place a
@@ -520,7 +520,7 @@ SemaAnalyzer::Constant SemaAnalyzer::evaluate(const AstNode& node,
 		if (node.kind == AstKind::TypeTraitExpression && node.token != KW_ALIGNOF)
 		{
 			throw NotConstant("a constant expression holds an operator "
-			                         "PA11 does not evaluate");
+			                         "PA11 does not evaluate", false);
 		}
 		if (node.children.empty() ||
 		    (node.children[0]->kind != AstKind::TypeId &&
@@ -570,7 +570,7 @@ SemaAnalyzer::Constant SemaAnalyzer::evaluate(const AstNode& node,
 
 	default:
 		throw NotConstant("a constant expression holds a construct PA11 "
-		                         "does not evaluate");
+		                         "does not evaluate", false);
 	}
 }
 

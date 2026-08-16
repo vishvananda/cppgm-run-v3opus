@@ -1,0 +1,3 @@
+ERROR: constexpr function requires a literal return type at course/pa21/500-a-constexpr-conversion-function-returns-a-nonliteral-bad.t:21:3 [top-level declaration 1 kind=class-specifier value=source text=source]
+Diagnostic context:
+collect_class_declaration [source] at course/pa21/500-a-constexpr-conversion-function-returns-a-nonliteral-bad.t:19:1

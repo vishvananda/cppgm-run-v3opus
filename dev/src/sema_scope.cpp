@@ -351,6 +351,7 @@ SemaEntity& SemaModel::create(SemaKind kind, const std::string& name, TypeId typ
 	entity.constexpr_function = false;
 	entity.constexpr_body = nullptr;
 	entity.constexpr_region = nullptr;
+	entity.covered_constant = true;
 	entity.literal_class = kLiteralUnsettled;
 	entity.valued_class = kLiteralUnsettled;
 	return entity;

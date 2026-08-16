@@ -1,0 +1,67 @@
+global @built [binding=internal, object=_ZL5built] = {
+  zero 4
+}
+global @hidden [binding=internal, object=_ZL6hidden] = {
+  zero 4
+}
+global @counted [binding=internal, object=_ZL7counted] = {
+  zero 8
+}
+global @pair_value [binding=internal, object=_ZL10pair_value] = {
+  i32 3
+  i32 4
+}
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $local : obj<4x4>
+
+  block ^entry:
+    %t1 = addr $local
+    %t2 = call obj<4x4> @make()
+    copyobj 4x4 %t2, %t1
+    %t3 = addr $local
+    %t4 = index i8 [projection=field] %t3, 0
+    %t5 = load i32 %t4
+    %t6 = addr @pair_value
+    %t7 = index i8 [projection=field] %t6, 0
+    %t8 = load i32 %t7
+    %t9 = binary add i32 %t5, %t8
+    %t10 = binary sub i32 %t9, 3
+    return i32 %t10
+}
+function @make() -> obj<4x4> [binding=weak, object=_Z4makev] {
+  slot $retobj__1 : obj<4x4>
+
+  block ^entry:
+    %t1 = addr $retobj__1
+    call void @derived_object__derived_object(%t1)
+    return obj<4x4> $retobj__1
+}
+function @derived_object__derived_object(%this : ptr) -> void [unwind=no, binding=weak, object=_ZN14derived_objectC1Ev, trivial_lifecycle=yes] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    return void
+}
+function @literal_pair__literal_pair(%this : ptr, %a : i32, %b : i32) -> void [binding=weak, object=_ZN12literal_pairC1Eii] {
+  slot $this : ptr
+  slot $a : i32
+  slot $b : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %a, $a
+    store i32 %b, $b
+    %t1 = load i32 $a
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 %t1, %t3
+    %t4 = load i32 $b
+    %t5 = load ptr $this
+    %t6 = index i8 [projection=field] %t5, 4
+    store i32 %t4, %t6
+    return void
+}
+alias object _ZN14derived_objectC2Ev = @derived_object__derived_object
+alias object _ZN12literal_pairC2Eii = @literal_pair__literal_pair
