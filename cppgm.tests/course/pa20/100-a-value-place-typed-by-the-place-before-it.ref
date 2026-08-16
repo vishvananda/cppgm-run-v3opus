@@ -1,0 +1,124 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $cond__1 : i32
+  slot $land__2 : i64
+  slot $land__3 : i64
+  slot $land__4 : i64
+  slot $land__5 : i64
+  slot $land__6 : i64
+
+  block ^entry:
+    %t1 = cmp eq i32 5, 5
+    branch %t1, ^land_rhs_16, ^land_short_17
+
+  block ^land_rhs_16:
+    %t2 = call u32 @from_place()
+    %t3 = cmp eq u32 %t2, 7
+    %t4 = cmp ne i64 %t3, 0
+    store i64 %t4, $land__6
+    jump ^land_end_18
+
+  block ^land_short_17:
+    store i64 0, $land__6
+    jump ^land_end_18
+
+  block ^land_end_18:
+    %t5 = load i64 $land__6
+    branch %t5, ^land_rhs_13, ^land_short_14
+
+  block ^land_rhs_13:
+    %t6 = call u32 @from_qualified_place()
+    %t7 = cmp eq u32 %t6, 7
+    %t8 = cmp ne i64 %t7, 0
+    store i64 %t8, $land__5
+    jump ^land_end_15
+
+  block ^land_short_14:
+    store i64 0, $land__5
+    jump ^land_end_15
+
+  block ^land_end_15:
+    %t9 = load i64 $land__5
+    branch %t9, ^land_rhs_10, ^land_short_11
+
+  block ^land_rhs_10:
+    %t10 = call u32 @through_a_class()
+    %t11 = cmp eq u32 %t10, 9
+    %t12 = cmp ne i64 %t11, 0
+    store i64 %t12, $land__4
+    jump ^land_end_12
+
+  block ^land_short_11:
+    store i64 0, $land__4
+    jump ^land_end_12
+
+  block ^land_end_12:
+    %t13 = load i64 $land__4
+    branch %t13, ^land_rhs_7, ^land_short_8
+
+  block ^land_rhs_7:
+    %t14 = call i32 @of_two_places()
+    %t15 = cmp eq i32 %t14, 9
+    %t16 = cmp ne i64 %t15, 0
+    store i64 %t16, $land__3
+    jump ^land_end_9
+
+  block ^land_short_8:
+    store i64 0, $land__3
+    jump ^land_end_9
+
+  block ^land_end_9:
+    %t17 = load i64 $land__3
+    branch %t17, ^land_rhs_4, ^land_short_5
+
+  block ^land_rhs_4:
+    %t18 = call u32 @defaulted_place()
+    %t19 = cmp eq u32 %t18, 7
+    %t20 = cmp ne i64 %t19, 0
+    store i64 %t20, $land__2
+    jump ^land_end_6
+
+  block ^land_short_5:
+    store i64 0, $land__2
+    jump ^land_end_6
+
+  block ^land_end_6:
+    %t21 = load i64 $land__2
+    branch %t21, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t22 = load i32 $cond__1
+    return i32 %t22
+}
+function @from_place() -> u32 [binding=weak, object=_Z10from_placeIjTnT_Lj7EES0_v] {
+  block ^entry:
+    return u32 7
+}
+function @from_qualified_place() -> u32 [binding=weak, object=_Z20from_qualified_placeILm32ETnN8uint_forIXT_EE4fastELj7EEjv] {
+  block ^entry:
+    return u32 7
+}
+function @through_a_class() -> u32 [binding=weak, object=_Z15through_a_classILm32ETnN8uint_forIXT_EE4fastELj9EEjv] {
+  slot $one : obj<1x1>
+
+  block ^entry:
+    %t1 = addr $one
+    %t2 = addr $one
+    return u32 9
+}
+function @of_two_places() -> i32 [binding=weak, object=_Z13of_two_placesIiTnT_Li4ETnS0_Li5EES0_v] {
+  block ^entry:
+    %t1 = binary add i32 4, 5
+    return i32 %t1
+}
+function @defaulted_place() -> u32 [binding=weak, object=_Z15defaulted_placeIjTnT_Lj7EES0_v] {
+  block ^entry:
+    return u32 7
+}

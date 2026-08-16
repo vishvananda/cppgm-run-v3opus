@@ -1,0 +1,29 @@
+global @plain__size : i64 [binding=strong, object=_ZN5plain4sizeE] = 8
+global @plain__tagged : i64 [binding=strong, object=_ZN5plain6taggedE] = 3
+global @plain__from_member : i64 [binding=strong, object=_ZN5plain11from_memberE] = 3
+global @around : i64 [binding=internal, object=_ZL6around] = 5
+global @shadowing__inner : i64 [binding=strong, object=_ZN9shadowing5innerE] = 4
+global @shadowing__outer : i64 [binding=strong, object=_ZN9shadowing5outerE] = 1
+global @shadowing__enclosing : i64 [binding=strong, object=_ZN9shadowing9enclosingE] = 5
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    %t1 = binary sub i64 8, 8
+    %t2 = convert trunc i32 i64 %t1
+    %t3 = binary sub i64 3, 3
+    %t4 = convert trunc i32 i64 %t3
+    %t5 = binary add i32 %t2, %t4
+    %t6 = binary sub i64 3, 3
+    %t7 = convert trunc i32 i64 %t6
+    %t8 = binary add i32 %t5, %t7
+    %t9 = binary sub i64 4, 4
+    %t10 = convert trunc i32 i64 %t9
+    %t11 = binary add i32 %t8, %t10
+    %t12 = binary sub i64 1, 1
+    %t13 = convert trunc i32 i64 %t12
+    %t14 = binary add i32 %t11, %t13
+    %t15 = binary sub i64 5, 5
+    %t16 = convert trunc i32 i64 %t15
+    %t17 = binary add i32 %t14, %t16
+    return i32 %t17
+}

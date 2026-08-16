@@ -1702,11 +1702,15 @@ private:
 	                          TypeId argument, SemaKind kind);
 	TypeId place_type(const TemplateInfo& info, std::size_t index,
 	                  const std::vector<TypeId>& before);
+	TypeId place_type(const std::vector<SemaEntity*>& places, std::size_t index,
+	                  const std::vector<TypeId>& before);
 	TypeId bound_argument(const TemplateInfo& info, std::size_t index,
 	                      const std::string& written,
 	                      const std::vector<TypeId>& before,
 	                      const Context& ctx);
-	TypeId explicit_argument(const SemaEntity& parameter,
+	TypeId explicit_argument(const std::vector<SemaEntity*>& places,
+	                         std::size_t index,
+	                         const std::vector<TypeId>& before,
 	                         const std::string& written, const Context& ctx);
 	// 14.2: the specialization a name written as a template-id denotes, or
 	// null when `component` is no template-id or names no template this

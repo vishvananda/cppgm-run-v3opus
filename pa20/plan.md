@@ -1,11 +1,13 @@
 # PA20 Plan — `cppgm++ --emit-lowir` compile-time metaprogramming
 
-PA20 stands at **215 / 220** - 169 of the 174 checked-in fixtures and all 46
-under `cppgm.tests/course/pa20` - from a turn-start baseline of **212 / 217**,
+PA20 stands at **222 / 224** - 172 of the 174 checked-in fixtures and all 50
+under `cppgm.tests/course/pa20`, four of them added this turn - from a
+turn-start baseline of **215 / 220**,
 with pa1-pa19 at **2169 / 2169** and the file audit passing with the five
 header-weight warnings it inherited.  Every `.ref` was regenerated from
-`pa20/cppgm++-ref` through `make -C pa20 ref-test` on this turn and none moved,
-so every fixture holds the reference's own answer and not this compiler's.
+`pa20/cppgm++-ref` through `make -C pa20 ref-test` on the C12 audit turn and
+none has moved since, so every fixture holds the reference's own answer and not
+this compiler's.
 
 The milestone gives PA19's template tier what 14.4p1 keys it by: an argument
 list, whose entries are types, 14.3.2p1's *values* and 14.5.3p1's *runs* alike -
@@ -28,6 +30,13 @@ its subobjects hold, so `S{5}` written twice is one entry.  Those bits are no
 value, so only a fold whose result is arithmetic is carried on the node that
 folded it.
 
+**3.4.1p8 puts a definition's names where its declarator-id reaches.**  The
+rest of a declarator whose declarator-id is qualified is already read there;
+the initializer stands after the declarator-id too, so it is read there as
+well - which is what lets `const long D::n = sizeof(value_type *);` name what
+`D` declares.  The line the definition writes still stands where it was
+written.
+
 **14.1p4 and 14.1p11's places say what each takes.**
 `TemplateInfo::Parameter` (`sema_template.h`) is a place rather than a name -
 the spelling, whether it binds a value, whether it binds a run, the syntax that
@@ -39,7 +48,11 @@ declared too, because 14.1p9's default is the place's fact.  A value place
 binds a `SemaKind::TemplateValue` constant rather than a typedef-name, and a
 run binds a `Pack`-typed name, so every reader that already folds a constant
 folds one.  14.1p9's default is read at both tiers in a region binding the
-places before it, because 5.19 is evaluated where it stands.
+places before it, because 5.19 is evaluated where it stands.  So is the *type*
+a value place declares, which may name the places before it
+(`template<class T, T v>`): `place_type` answers it with their arguments
+substituted in, over a `TemplateInfo`'s entries and over a function template's
+places alike - those being declarations of their own rather than entries.
 
 **A run that is not the last place is one entry of the list.**  14.1p11 leaves
 a class template's pack last, but 14.8.2 deduces a function template's head
@@ -60,6 +73,21 @@ answered in one place (`sema_name.cpp`), which also counts `(`, `[` and
 `A<S{1, 2}>` belongs to the initializer.  Each is a reader of its own that
 borrows the analyzer, because where in the words it stands is state no walk of a
 tree has.
+
+**That question is a fact of the whole spelling, not of the character before
+the `<`.**  PA10 flattens a name into the terminals the parse matched and drops
+the spaces, so `I<R<A>::v < R<B>::v, B, A>` arrives with nothing left to tell
+the two apart one character at a time.  `AngleReading` (`sema_name.h`) settles
+it from what the spelling still holds: a name writes no `>` that closes
+nothing, so a scan opening a run at every candidate and ending with runs still
+open has exactly that many of 5.9's operators among them.  Two backward passes
+over the spelling say where the run enclosing each offset closes and where a
+scan with no run open still reads to the end, and one forward walk replays the
+decisions from the level it stands at - a name's outermost `<` always opens, an
+argument's may not.  It costs the one scan the readers were making anyway
+wherever the runs do close, which is nearly every name.  A run handed on out of
+one - 14.2's argument - is respelled with the separator phase 7 wrote, because
+the `>` that settled the question is no longer in it.
 
 **An operand a spelling cannot answer for is asked of the parse.**
 7.1.6.2p1's decltype-specifier holds an expression, so the parse keeps the tree
@@ -187,12 +215,10 @@ execution encoding.
 
 ## Current Failure Map
 
-5 failing, grouped by what would fix them.
+2 failing, grouped by what would fix them.
 
 | group | n | owner |
 | --- | --- | --- |
-| a name a head has yet to settle: `value_type` written inside 14.5.1.3p1's out-of-class definition of `Deque<T>::block_size` "does not name a type", and `typename uint_for<Bits>::fast Poly` at a value place leaves `crc_kind<32, Poly>` an incomplete class an object is declared of | 2 | `sema_name.cpp`, `sema_template.cpp` |
-| 14.2's `<` inside an argument spelling that is 5.9's: `I<R<A>::v < R<B>::v, B, A>` splits into one argument and reports `no declaration of I<R<A>::v<R<B>::v,B,A>::type` | 1 | `sema_name.cpp` |
 | 8.5.1p2's aggregate built as an object of its own where a member is an array: 8.3.5p5 leaves `struct array { T e[N]; }` no by-value parameter list, so `T{item(0), item(1)}` has no constructor and the clauses have to initialize the subobjects where they stand | 1 | `sema_lifetime.cpp`, `sema_init_list.cpp` |
 | `&function_template` as a constructor argument reaches a unary operator the PA15 lowering has no case for | 1 | `lowir_lower_expression.cpp` |
 
@@ -200,7 +226,16 @@ Outside the fixtures, the sweeps leave these shapes.  **The declarator** cannot
 read 8.3.5p3's ellipsis written without a comma (`int a...`), refuses every call
 of a variadic function template whose trailing pack no argument reaches, does not
 strip 14.8.2.1p2's top-level cv-qualifier on P, and reads a `...` written inside
-a *nested* declarator (`A (*... p)(int)`) as one place.  **Outside the subsets:**
+a *nested* declarator (`A (*... p)(int)`) as one place.  **PA10's parse** reads
+`sizeof(value_type)` written in an out-of-class member definition as 5.3.3's
+expression, because the name is a type only in the class the declarator-id
+names - so the operand has to be a type the enclosing region also declares.
+**The flattening**
+loses a `<` no `>` can put back: `K<J<a < b> >` flattens to a spelling both
+readings balance, and only a lookup of `J` and of `a` tells them apart, so the
+inner one is read as 14.2's list; PA10's own parse refuses `I<R<A>::v < 5>` and
+five neighbours outright, which the reference refuses too.  **Outside the
+subsets:**
 15's try block, 5.5's `.*`, a template template parameter, a dependent array
 bound in an argument spelling (`s<T[N]>`), a specialization's body naming its own
 class, out-of-class member definitions of a partial specialization, a
@@ -236,33 +271,38 @@ specialization of a *function* template is not refused; 14.7.3's explicit
 specialization is `binding=weak` where the reference writes `strong`; an unnamed
 enumeration through a `decltype` is mangled `__anonymous_enum1` and not `Ut_`; an
 array shorter than its bound writes one `zero n` run; `v.a::n` writes a
-`base_subobject` step of offset zero; and an array of a class with a base at
-namespace scope leaves no empty `role=init` function.
+`base_subobject` step of offset zero; an array of a class with a base at
+namespace scope leaves no empty `role=init` function; 3.5p3's const object at
+namespace scope that an earlier declaration wrote `extern` is written
+`binding=internal` and mangled `_ZL1a` where the reference writes external
+linkage; and a name a fold answered, written beside a literal in a longer unit,
+stands as the value itself where the reference writes a `copy` of it into a
+temporary first - a shape no fixture pins and none of the probes reproduce on
+its own.
 
 ## Active Checkpoint
 
-**C13 - the two names a spelling this reading resolves wrong leaves behind.**
-Selected because the name layer owns three of the five remaining failures and
-the other two are singletons of different owners.
+**C14 - the object 8.5.1p2's clauses build where no parameter list describes
+it.**  Selected because it is the larger of the two failures left and the one
+this milestone's own layer owns: `T{item(0), item(1)}` over
+`struct array { T e[N]; }` is refused outright today, and the other failure is a
+single missing lowering case.
 
-- **Owner.**  `sema_name.cpp` for the split and the lookup, with
-  `sema_template.cpp` for what a substitution settles.
-- **Data flow.**  `opens_template_arguments` decides whether a `<` written after
-  a name opens 14.2's list; where the run it would close holds a second `<` that
-  is 5.9's operator (`R<A>::v < R<B>::v`), the balanced scan closes at the wrong
-  `>` and the whole argument becomes one word.  The two lookups are the other
-  half: 3.4.3p3 makes the class's own members visible inside an out-of-class
-  member definition, which is where `value_type` should be found, and 14.6.2p1's
-  stand-in for `typename uint_for<Bits>::fast` has to be settled by the
-  substitution before the place's type says whether `crc_kind<32, Poly>` is
-  complete.
-- **Expected complexity.**  One scan per spelling, kept per spelling as the
-  split already is, and one lookup per name - no reading is repeated.
-- **Validation.**  The three fixtures; a sweep of `<` and `>` written at every
-  depth of an argument spelling and of names written inside an out-of-class
-  member definition, against g++ and `pa20/cppgm++-ref`; scaling rows for a
-  spelling with 4096 relational operators and for 4096 out-of-class definitions;
-  and a valgrind run of each.
+- **Owner.**  `sema_init_list.cpp` for the clauses, `sema_lifetime.cpp` for the
+  object they build.
+- **Data flow.**  `build_temporary` turns 8.5.1p2's aggregate prvalue into a
+  call of the constructor `member_constructor` gives the class from its members;
+  8.3.5p5 leaves an array member with no by-value parameter, so that constructor
+  does not exist and the shape is refused.  The clauses have to initialize the
+  subobjects of the temporary where they stand instead - which is the reading
+  `InitializerClauses` already makes for a declared object, over a destination
+  that is a temporary rather than a name.
+- **Expected complexity.**  One reading per clause, as the declared-object path
+  already is; no constructor is declared and no list is read twice.
+- **Validation.**  The fixture; a sweep of aggregates with array, class and
+  scalar members written as a prvalue, as a declared object and as a subobject
+  of another list, against g++ and `pa20/cppgm++-ref`; a scaling row for an
+  aggregate whose array member has 4096 elements; and a valgrind run.
 
 ## Performance Model
 
@@ -305,6 +345,9 @@ below were all taken on this turn's build.
 | 512 / 2048 / 8192 distinct multicharacter literals | 0.008 / 0.018 / **0.058 s** | 0.649 s at 8192 |
 | an aggregate of 2^15 / 2^17 subobjects | 1.483 / **6.713 s** | - |
 | 14.5.3p4's recursion over a pack of 1024 | **1.560 s** | 9.3 s |
+| an argument list of 256 / 1024 / 4096 of 5.9's operators | 0.01 / 0.02 / **0.06 s** | 35.9 s at 4096 |
+| the same list with no operator in it, which the reading skips | 0.01 / 0.01 / **0.03 s** | - |
+| 256 / 1024 / 4096 out-of-class member definitions | 0.07 / 0.27 / **1.19 s** | 2.81 s at 4096 |
 
 The one shape whose cost is worse than linear and is recorded as such: 10.1p3's
 own check is quadratic in a derivation that adds a base per level, because every
@@ -339,3 +382,4 @@ level asks the whole class below it whether the base it adds is repeated.
 | C11 audit | the two things a *spelling* writes inside one node: `list<A, B...>` and `pair2<A, sizeof...(B)>` carry their own `...` and `sizeof...` in the text of one terminal, so `names_in` reads each node's text with `spelled_names_in` | 204 -> **205 / 212**, one fixture; linear at 2048 |
 | C12 | 5.19p2's call of a constexpr function, and the object of literal class type one may be called on: `sema_constexpr.h` as the owner of 5.19's three non-arithmetic operands, 7.1.5p3's body re-read in a region of its own binding the places and 9.2p1's members, the answer keyed by the callee and `type_list` of the converted arguments in `SemaModel::folded_call`, 5.2.3p2/p3's object interned as the list of its subobjects, 12.3.2p1's conversion function at 14.3.2p5, 7.1.5p2's implicit `inline` with `demand_referenced` stopping at a call the image folded, and `{`/`}` counted as a balanced run so `A<S{1, 2}>` is one argument | 205 / 212 -> **212 / 217** with five fixtures added, four compile-pass and one refusing; pa1-pa19 2169 / 2169; 25 constexpr shapes swept against g++ and the reference, every accepted pair writing the reference's own LowIR but the two it accepts and this milestone does not; every checked-in `.ref` regenerated from the reference binary and unmoved; linear at a chain of 2040, 4096 folded calls and 4096 class prvalues, `fib(40)` 0.004 s where the reference times out and g++ takes 7.9 s, a chain past the guard refused rather than crashed; valgrind clean |
 | C12 audit | the object a constant expression *builds*, which C12 gave one initialization and every class type: 8.5.1p1's aggregate told from 8.5p16's direct-initialization, 7.1.5p1 read off a constructor, 12.6.2's mem-initializers in declaration order under a call's own key, 7.1.5p4's uninitialized member and non-empty body refused, 8.3.6p1's default-argument in the one list a fold reads, 13.3.3p1's ambiguous conversion refused rather than guessed at, 5.2.5p1 given a reading so an object's member can be read at all, and an object never carried where a value is meant; 12.6.2p2's index built once rather than scanned per member | 212 / 217 -> **215 / 220**, three fixtures, two compile-pass and one refusing; pa1-pa19 2169 / 2169; 41 constexpr shapes swept against g++ and `pa20/cppgm++-ref`, every shape all three accept coming to the same value here as there - the two-unit program among them; every checked-in `.ref` regenerated and unmoved; linear at 4096 constructor-built objects, 4096 default-argument folds and 8192 members, with the per-member scan's 1.400 s at 8192 down to 0.204 s; valgrind clean |
+| C13 | what a `<` in a flattened spelling is, and where a definition written outside its region reads its names: `AngleReading` settling 14.2's list against 5.9's operator over the whole spelling and respelling the argument it hands on, 3.4.1p8 reading the initializer where the declarator-id reaches, and `place_type` given the function tier's places so `template<class T, T v>` and `typename u<B>::fast P` settle at both | 215 / 220 -> **222 / 224**, three fixtures fixed and four course tests added; pa1-pa19 2169 / 2169; 30 shapes swept against g++ and `pa20/cppgm++-ref`, seven of them refused by the reference too and one - `K<J<a < b> >` - a flattening both readings balance, which no spelling can tell apart and which failed before this too; linear at 4096 operators and 4096 out-of-class definitions, 0.06 s where the reference takes 35.9 s; valgrind clean; the sweep also left 3.5p3's `extern`-declared const object written `binding=internal` here and `strong` there |

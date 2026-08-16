@@ -76,14 +76,16 @@ const AstNode* declarator_name(const AstNode& declarator)
 
 }
 
-// 14.3p1: the argument a written spelling makes at the place `parameter`
+// 14.3p1: the argument a written spelling makes at the place `places[index]`
 // declared, which a function template's head declares as a declaration of its
 // own rather than as an entry of a `TemplateInfo`.
-TypeId SemaAnalyzer::explicit_argument(const SemaEntity& parameter,
+TypeId SemaAnalyzer::explicit_argument(const std::vector<SemaEntity*>& places,
+                                       std::size_t index,
+                                       const std::vector<TypeId>& before,
                                        const std::string& written,
                                        const Context& ctx)
 {
-	const TypeId place = types_.parameter_value_type(parameter.type);
+	const TypeId place = place_type(places, index, before);
 	if (place == kNoType)
 	{
 		return template_argument_type(written, ctx);
@@ -490,6 +492,32 @@ TypeId SemaAnalyzer::place_type(const TemplateInfo& info, std::size_t index,
 	{
 		bindings.insert(
 			std::make_pair(info.parameters[at].self, before[at]));
+	}
+	std::unordered_map<TypeId, TypeId> memo;
+	return substituted(written, bindings, memo);
+}
+
+// 14.1p4 at the function tier, where each place is a declaration of its own
+// rather than an entry of a `TemplateInfo`: the same type, over the same
+// arguments, keyed by the type each place stands for.  A type place answers
+// `kNoType`, which is what says the argument written there is 8.1p1's type-id.
+TypeId SemaAnalyzer::place_type(const std::vector<SemaEntity*>& places,
+                                std::size_t index,
+                                const std::vector<TypeId>& before)
+{
+	if (index >= places.size())
+	{
+		return kNoType;
+	}
+	const TypeId written = types_.parameter_value_type(places[index]->type);
+	if (written == kNoType || !types_.is_dependent(written))
+	{
+		return written;
+	}
+	std::unordered_map<TypeId, TypeId> bindings;
+	for (std::size_t at = 0; at < index && at < before.size(); ++at)
+	{
+		bindings.insert(std::make_pair(places[at]->type, before[at]));
 	}
 	std::unordered_map<TypeId, TypeId> memo;
 	return substituted(written, bindings, memo);

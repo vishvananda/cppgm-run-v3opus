@@ -2457,7 +2457,15 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 		return;
 	}
 
-	declare_object_declarator(initializer, specifiers, ctx, target, spelled,
+	// 3.4.1p8: an initializer stands *after* the declarator-id, so a definition
+	// written outside the region its declarator-id names reads its names there
+	// as the rest of the declarator already does - which is what lets
+	// `const long D::block_size = sizeof(value_type);` name what `D` declares.
+	// The line the definition writes still stands where it was written, and
+	// `inside` differs from `ctx` in nothing else.
+	Context inside = ctx;
+	inside.scope = looked_up.scope;
+	declare_object_declarator(initializer, specifiers, inside, target, spelled,
 	                          written, type);
 	if (checking_ > 0 && initializer != nullptr)
 	{
@@ -2466,7 +2474,7 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 		// looked up where the definition stands too.  3.3.2p1 puts its point
 		// after the declarator, which is why it is read once the declarator
 		// this one belongs to has declared its name.
-		check_expression_names(*initializer, ctx);
+		check_expression_names(*initializer, inside);
 	}
 }
 

@@ -27,6 +27,53 @@
 bool opens_template_arguments(const std::string& spelling,
                               std::string::size_type at);
 
+// 14.2 and 5.9: which `<` of one spelling open a template-argument-list.
+//
+// The candidate test above answers character for character, and that is the
+// whole answer for a spelling whose runs all close.  It is not the whole answer
+// for `I<R<A>::v < R<B>::v, B, A>`: PA10 flattens a name into the terminals the
+// parse matched and drops the spaces between them, so the `<` after `v` reads
+// as an opener and the list ends up one argument long.  The parse settled the
+// question by backtracking; this settles it again from the one fact the
+// spelling still holds - a name writes no `>` that closes nothing, so a scan
+// that opens a run at every candidate and ends with runs still open has exactly
+// that many of 5.9's operators among them.
+//
+// The reading is a fact of the whole spelling, because the `>` that closes the
+// outermost list is what tells the two apart.  A run handed on out of one -
+// 14.2's argument - is therefore respelled with the separator phase 7 wrote,
+// which is what lets the reader of that run alone reach the same answer.
+class AngleReading
+{
+public:
+	explicit AngleReading(const std::string& spelling);
+
+	bool opens(std::string::size_type at) const
+	{
+		return opens_.empty() ? opens_template_arguments(*spelling_, at)
+		                      : opens_[at] != 0;
+	}
+
+	// One past the `>` closing the list opened at `at`, or `npos` where this
+	// reading did not have to be made.
+	std::string::size_type list_end(std::string::size_type at) const;
+
+	// `spelling[from, to)` with a space before every `<` this reading makes
+	// 5.9's operator.
+	std::string spelled(std::string::size_type from,
+	                    std::string::size_type to) const;
+
+private:
+	void resolve();
+
+	const std::string* spelling_;
+	// Empty where the candidate test stands, which is nearly every spelling.
+	std::vector<unsigned char> opens_;
+	// Where the run enclosing each offset closes when the scan is resumed
+	// there, which is what the forward walk replays the decisions from.
+	std::vector<std::string::size_type> ends_;
+};
+
 // The end of the balanced run `spelling[at]` opens, one past its closer, or
 // `npos` where the run does not close.  8.1p1's type-id and 5.19's constant
 // expression each write three of them - a template-argument-list, a

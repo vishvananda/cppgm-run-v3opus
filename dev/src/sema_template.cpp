@@ -214,10 +214,7 @@ SemaEntity* SemaAnalyzer::template_specializations(const std::string& spelling,
 				// fills the places the run it stands for is long, which is how
 				// `select<T...>` reaches a head of two fixed places.
 				PackReading(*this).expand(
-					pattern, ctx,
-					what < places.size()
-						? types_.parameter_value_type(places[what]->type)
-						: kNoType,
+					pattern, ctx, place_type(places, what, arguments),
 					arguments);
 				continue;
 			}
@@ -225,8 +222,8 @@ SemaEntity* SemaAnalyzer::template_specializations(const std::string& spelling,
 			{
 				break;
 			}
-			arguments.push_back(
-				explicit_argument(*places[what], id.arguments()[index], ctx));
+			arguments.push_back(explicit_argument(places, what, arguments,
+			                                      id.arguments()[index], ctx));
 		}
 		if (!packed && arguments.size() > places.size())
 		{
