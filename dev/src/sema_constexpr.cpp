@@ -408,7 +408,10 @@ SemaConstant ConstexprReading::object_from_constructor(
 		holds.push_back(entry_of(value));
 		if (inner.scope->names.count(members[index]->name) == 0)
 		{
-			bind_constant(members[index]->name, value, inner);
+			// 12.6.2p10: a member already initialized is one a later
+			// mem-initializer reads, and what the object holds for it is
+			// settled by that initialization rather than written again.
+			bind_constant(members[index]->name, value, inner, false);
 		}
 	}
 	SemaConstant out;
@@ -621,6 +624,17 @@ SemaEntity* ConstexprReading::chosen(SemaEntity& named,
 // declares one to the very type the place asked for is chosen over one that
 // reaches it by a further standard conversion, which is the whole of the
 // ranking a set of constant answers can bear.
+SemaConstant ConstexprReading::at_arithmetic_place(const SemaConstant& value,
+                                                   TypeId place)
+{
+	// A constant of class type is the identifier of an interned list and not a
+	// number of the object's own width, so reading its bits where a number was
+	// asked for is reading the identifier.  5.19p3 leaves a converted constant
+	// expression its user-defined conversions, which is the one reading that
+	// turns such a constant into one.
+	return is_object(value) ? converted(value, place) : value;
+}
+
 SemaConstant ConstexprReading::converted(const SemaConstant& value,
                                          TypeId place)
 {
@@ -634,6 +648,11 @@ SemaConstant ConstexprReading::converted(const SemaConstant& value,
 	SemaEntity* found = nullptr;
 	bool exact = false;
 	unsigned reaching = 0;
+	// 3.9.3p1: the cv-qualifiers of the place say nothing about which
+	// conversion reaches it - `constexpr int n = d;` asks for a `const int` and
+	// `operator int` is the very conversion 13.3.3p1 calls the best one.
+	const TypeId wanted =
+		place == kNoType ? kNoType : analyzer_.types_.strip_cv(place);
 	for (std::size_t index = 0; index < owner->conversions.size(); ++index)
 	{
 		SemaEntity& each = *owner->conversions[index];
@@ -646,7 +665,7 @@ SemaConstant ConstexprReading::converted(const SemaConstant& value,
 		{
 			continue;
 		}
-		if (place != kNoType && analyzer_.types_.strip_cv(to) == place)
+		if (wanted != kNoType && analyzer_.types_.strip_cv(to) == wanted)
 		{
 			found = &each;
 			exact = true;
@@ -681,11 +700,12 @@ SemaConstant ConstexprReading::converted(const SemaConstant& value,
 
 void ConstexprReading::bind_constant(const std::string& name,
                                      const SemaConstant& value,
-                                     const SemaContext& inner)
+                                     const SemaContext& inner, bool written)
 {
 	SemaEntity& bound =
 		analyzer_.model_.create(SemaKind::Variable, name, value.type);
 	bound.constant = true;
+	bound.fold_local = written;
 	bound.value = value.bits;
 	bound.region = inner.scope;
 	analyzer_.model_.bind(*inner.scope, name, bound);
@@ -710,8 +730,12 @@ void ConstexprReading::bind_arguments(SemaEntity& callee,
 		for (std::size_t index = 0;
 		     index < members.size() && index < held.size(); ++index)
 		{
+			// 5.19p2: the object the call was written on is one whose lifetime
+			// began before this evaluation, so its subobjects are read here
+			// and are no binding the body may write.
 			bind_constant(members[index]->name,
-			              constant_of(held[index], analyzer_.types_), inner);
+			              constant_of(held[index], analyzer_.types_), inner,
+			              false);
 		}
 	}
 	// 8.3.5p10 and 5.2.2p4: the places the declarator wrote, each bound to what
@@ -725,7 +749,10 @@ void ConstexprReading::bind_arguments(SemaEntity& callee,
 		{
 			continue;
 		}
-		bind_constant(named[index], arguments[index], inner);
+		// 5.19p2 with 12.2p1: a place the call filled is an object created by
+		// this evaluation, which is the one standing an assignment inside the
+		// body may write.
+		bind_constant(named[index], arguments[index], inner, true);
 	}
 }
 
@@ -946,7 +973,7 @@ SemaConstant ConstexprReading::unary_constant(const AstNode& node,
 
 	default:
 		throw NotConstant("a constant expression holds an operator PA11 "
-		                         "does not analyzer_.evaluate");
+		                         "does not evaluate");
 	}
 	return analyzer_.convert(out, out.type);
 }
@@ -1095,7 +1122,7 @@ SemaConstant ConstexprReading::binary_value(unsigned token,
 
 	default:
 		throw NotConstant("a constant expression holds an operator PA11 "
-		                         "does not analyzer_.evaluate");
+		                         "does not evaluate");
 	}
 
 	// 5p4: an operation whose result its type cannot represent has undefined

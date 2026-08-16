@@ -1,5 +1,7 @@
 #include "sema_analyzer.h"
 
+#include "sema_constexpr.h"
+
 #include <stdexcept>
 
 #include "ast_model.h"
@@ -526,7 +528,8 @@ void SemaAnalyzer::case_statement(const AstNode& node, const Context& ctx,
 		{
 			// 6.4.2p2: the constant-expression of a case label shall be a
 			// converted constant expression of the switch condition's type.
-			const Constant label = evaluate(child, ctx);
+			const Constant label = ConstexprReading(*this).at_arithmetic_place(
+				evaluate(child, ctx), kNoType);
 			DumpNode& written =
 				open_fact(line, spell("literal", ValueCategory::PRValue,
 				                      label.type,

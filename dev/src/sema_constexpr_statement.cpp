@@ -117,13 +117,11 @@ void ConstexprReading::step(ConstexprFrame& frame)
 
 bool ConstexprReading::truth(const SemaConstant& value)
 {
-	if (is_object(value))
-	{
-		// 4p3 with 12.3.2p1: a condition of class type is the value a
-		// conversion function of that class hands back.
-		return converted(value, analyzer_.types_.fundamental(FT_BOOL)).bits != 0;
-	}
-	return value.bits != 0;
+	// 4p3: a condition is contextually converted to `bool`, which for an object
+	// of class type is 12.3.2p1's conversion function - the same reading every
+	// other arithmetic place asks, with `bool` as the place.
+	return at_arithmetic_place(value, analyzer_.types_.fundamental(FT_BOOL))
+		       .bits != 0;
 }
 
 SemaContext ConstexprReading::block_region(const AstNode& node,
@@ -150,16 +148,33 @@ SemaContext ConstexprReading::block_region(const AstNode& node,
 	return inner;
 }
 
+SemaEntity* ConstexprReading::declared_object(const AstNode& key,
+                                              ConstexprFrame& frame) const
+{
+	const std::unordered_map<const AstNode*, SemaEntity*>::const_iterator held =
+		frame.objects.find(&key);
+	return held == frame.objects.end() ? nullptr : held->second;
+}
+
+void ConstexprReading::introduce(const AstNode& node, const SemaContext& ctx,
+                                 ConstexprFrame& frame)
+{
+	// 3.3.1p1: the region such a declaration introduces its name into is the
+	// block's, which this fold opened once - so a later pass through the block
+	// reaches the name already standing there.  Reading the declaration again
+	// would introduce a second one, which for a class-specifier is 3.2p1's
+	// class defined twice and for the rest is a declaration per pass.
+	if (!frame.introduced.insert(&node).second)
+	{
+		return;
+	}
+	analyzer_.declaration(node, ctx);
+}
+
 SemaEntity& ConstexprReading::local(const AstNode& key, const std::string& name,
                                     TypeId type, const SemaContext& ctx,
                                     ConstexprFrame& frame)
 {
-	SemaEntity*& held = frame.objects[&key];
-	if (held != nullptr)
-	{
-		held->type = type;
-		return *held;
-	}
 	SemaEntity& made = analyzer_.model_.create(SemaKind::Variable, name, type);
 	made.fold_local = true;
 	made.region = ctx.scope;
@@ -169,7 +184,7 @@ SemaEntity& ConstexprReading::local(const AstNode& key, const std::string& name,
 		analyzer_.model_.declare_in(*ctx.scope, made);
 	}
 	frame.declared[ctx.scope].push_back(&made);
-	held = &made;
+	frame.objects[&key] = &made;
 	return made;
 }
 
@@ -197,7 +212,7 @@ void ConstexprReading::declared(const AstNode& node, const SemaContext& ctx,
 		// 7p3: a declaration that declares no object - a typedef, an
 		// elaborated-type-specifier, a class - introduces the names the rest of
 		// the body reads and runs nothing, so it is declared and not executed.
-		analyzer_.declaration(node, ctx);
+		introduce(node, ctx, frame);
 		return;
 	}
 	const AstNode& specifiers = *node.children[0];
@@ -208,10 +223,20 @@ void ConstexprReading::declared(const AstNode& node, const SemaContext& ctx,
 		{
 			continue;
 		}
-		std::string name;
-		const TypeId type =
-			declared_type(specifiers, *init.children[0], ctx, name);
-		SemaEntity& object = local(init, name, type, ctx, frame);
+		// The declarator says what the object is on the pass that creates it
+		// and says the same thing on every later one, so it is read once: a
+		// decl-specifier-seq is what may hold a class-specifier, and reading
+		// one twice is 3.2p1's class defined twice.
+		SemaEntity* held = declared_object(init, frame);
+		if (held == nullptr)
+		{
+			std::string name;
+			const TypeId declared =
+				declared_type(specifiers, *init.children[0], ctx, name);
+			held = &local(init, name, declared, ctx, frame);
+		}
+		SemaEntity& object = *held;
+		const TypeId type = object.type;
 		const AstNode* const written = child_kind(init, AstKind::Initializer);
 		if (written == nullptr || written->children.empty())
 		{
@@ -228,7 +253,6 @@ void ConstexprReading::declared(const AstNode& node, const SemaContext& ctx,
 			// is what every later read of the object sees.
 			value = analyzer_.convert(value, type);
 		}
-		object.type = type;
 		object.value = value.bits;
 		object.constant = true;
 	}
@@ -260,16 +284,21 @@ bool ConstexprReading::condition_value(const AstNode& node,
 		throw NotConstant("a constant expression runs a condition whose "
 		                  "declaration it cannot read");
 	}
-	std::string name;
-	const TypeId type =
-		declared_type(*written.children[0], *declarator, ctx, name);
+	SemaEntity* held = declared_object(written, frame);
+	if (held == nullptr)
+	{
+		std::string name;
+		const TypeId declared =
+			declared_type(*written.children[0], *declarator, ctx, name);
+		held = &local(written, name, declared, ctx, frame);
+	}
+	SemaEntity& object = *held;
+	const TypeId type = object.type;
 	SemaConstant value = analyzer_.evaluate(*initializer->children[0], ctx);
 	if (analyzer_.arithmetic_type(type) != kNoType)
 	{
 		value = analyzer_.convert(value, type);
 	}
-	SemaEntity& object = local(written, name, type, ctx, frame);
-	object.type = type;
 	object.value = value.bits;
 	object.constant = true;
 	value.type = type;
@@ -433,9 +462,19 @@ ConstexprFlow ConstexprReading::statement(const AstNode& node,
 	case AstKind::AliasDeclaration:
 	case AstKind::UsingDeclaration:
 	case AstKind::UsingDirective:
+	case AstKind::ClassSpecifier:
+	case AstKind::ClassForwardDeclaration:
+	case AstKind::EnumSpecifier:
+		// 7.1.5p3's own list, and the type definition the parser leaves as the
+		// specifier itself where a declaration wrote no declarator: these
+		// introduce a name into the block's region and declare no object, so
+		// the pass that first reaches one reads it and the rest walk past.
+		introduce(node, ctx, frame);
+		return ConstexprFlow::Normal;
+
 	case AstKind::StaticAssertDeclaration:
-		// 7.1.5p3's own list: these introduce names or check a condition and
-		// declare no object, so the fold reads them where they stand.
+		// 7p4: the condition is checked where the declaration stands, which
+		// for one inside a loop is every pass through it.
 		analyzer_.declaration(node, ctx);
 		return ConstexprFlow::Normal;
 

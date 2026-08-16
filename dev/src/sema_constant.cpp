@@ -93,9 +93,13 @@ std::string SemaAnalyzer::spell_value(TypeId type, unsigned long long bits) cons
 	return negative ? "-" + digits : digits;
 }
 
-SemaAnalyzer::Constant SemaAnalyzer::convert(const Constant& value,
-                                             TypeId type) const
+SemaAnalyzer::Constant SemaAnalyzer::convert(const Constant& given, TypeId type)
 {
+	// 5.19p3: a constant that stands for an object of class type holds a list
+	// identifier and no number, so what it is worth here is what 12.3.2p1's
+	// conversion function hands back.  Every other constant is itself.
+	const Constant value =
+		ConstexprReading(*this).at_arithmetic_place(given, arithmetic_type(type));
 	Constant out;
 	out.type = type;
 	if (types_.kind(type) == TypeKind::Fundamental &&
@@ -127,8 +131,10 @@ SemaAnalyzer::Constant SemaAnalyzer::convert(const Constant& value,
 }
 
 // 4.5: a value of a type whose rank is below `int` is read as an `int`.
-SemaAnalyzer::Constant SemaAnalyzer::promote(const Constant& value)
+SemaAnalyzer::Constant SemaAnalyzer::promote(const Constant& given)
 {
+	const Constant value =
+		ConstexprReading(*this).at_arithmetic_place(given, kNoType);
 	const TypeId arithmetic = arithmetic_type(value.type);
 	if (arithmetic == kNoType)
 	{
@@ -261,8 +267,11 @@ SemaAnalyzer::Constant SemaAnalyzer::evaluate(const AstNode& node,
 			throw NotConstant("a constant expression subscripts something "
 			                  "that is not a string literal");
 		}
-		return string_element(array->text,
-		                      evaluate(*node.children[1], ctx).bits);
+		return string_element(
+			array->text,
+			ConstexprReading(*this)
+				.at_arithmetic_place(evaluate(*node.children[1], ctx), kNoType)
+				.bits);
 	}
 
 	case AstKind::IdExpression:
@@ -289,7 +298,10 @@ SemaAnalyzer::Constant SemaAnalyzer::evaluate(const AstNode& node,
 
 	case AstKind::ConditionalExpression:
 	{
-		const bool condition = evaluate(*node.children[0], ctx).bits != 0;
+		// 5.16p1: the first operand is contextually converted to `bool`, which
+		// is 4p3's reading and not a look at the operand's bits.
+		const bool condition =
+			ConstexprReading(*this).truth(evaluate(*node.children[0], ctx));
 		return evaluate(*node.children[condition ? 1 : 2], ctx);
 	}
 
@@ -429,7 +441,10 @@ unsigned long long SemaAnalyzer::size_of(TypeId type)
 unsigned long long SemaAnalyzer::array_bound(const AstNode& node,
                                              const Context& ctx)
 {
-	const Constant value = evaluate(node, ctx);
+	// 8.3.4p1: the bound is a converted constant expression of type
+	// `std::size_t`, which 5.19p3 leaves its user-defined conversions.
+	const Constant value = ConstexprReading(*this).at_arithmetic_place(
+		evaluate(node, ctx), kNoType);
 	if (is_signed(value.type) && (value.bits >> 63) != 0)
 	{
 		throw std::runtime_error("an array bound is negative");

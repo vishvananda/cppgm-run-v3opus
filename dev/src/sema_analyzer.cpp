@@ -1420,7 +1420,9 @@ void SemaAnalyzer::static_assert_declaration(const AstNode& node,
 		// the arguments, which is where the assertion is made.
 		return;
 	}
-	if (value.bits == 0)
+	// 7p4 with 4p3: the condition is contextually converted to `bool`, which
+	// for an object of class type is 12.3.2p1's conversion function.
+	if (!ConstexprReading(*this).truth(value))
 	{
 		throw std::runtime_error("a static_assert condition is false");
 	}

@@ -1322,7 +1322,7 @@ private:
 	// the one object a constant expression reads out of storage.
 	Constant string_element(const std::string& spelling,
 	                        unsigned long long index);
-	Constant convert(const Constant& value, TypeId type) const;
+	Constant convert(const Constant& value, TypeId type);
 	Constant promote(const Constant& value);
 	// 5p10: the type the usual arithmetic conversions bring two operands to.
 	TypeId common_type(TypeId left, TypeId right);

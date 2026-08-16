@@ -1,5 +1,7 @@
 #include "sema_analyzer.h"
 
+#include "sema_constexpr.h"
+
 #include <stdexcept>
 #include <string>
 
@@ -191,7 +193,11 @@ void SemaAnalyzer::enumerators(const AstNode& node, SemaEntity& entity,
 			Context inner;
 			inner.scope = &scope;
 			inner.dump = &dump;
-			const Constant written = evaluate(*child.children[0], inner);
+			// 7.2p5: the value is one of arithmetic type, which for an object
+			// of class type is 12.3.2p1's conversion function and not the
+			// identifier the constant holds.
+			const Constant written = ConstexprReading(*this).at_arithmetic_place(
+				evaluate(*child.children[0], inner), kNoType);
 			value = written.bits;
 			negative = is_signed(written.type) &&
 				(value >> (width_of(written.type) - 1)) != 0;

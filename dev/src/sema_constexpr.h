@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "sema_declaration.h"
@@ -54,6 +55,14 @@ struct ConstexprFrame
 	std::unordered_map<const AstNode*, SemaEntity*> objects;
 	// What each of those regions declared, which is what re-entry unsets.
 	std::unordered_map<const Scope*, std::vector<SemaEntity*> > declared;
+	// 7p3: the declarations of the body that introduce a name and declare no
+	// object - a typedef, an alias, a using-declaration, a class.  A name is
+	// introduced into a region once, and the regions here are opened once per
+	// fold, so these are read on the pass that first reaches them and left
+	// alone afterwards: a second reading of a class-specifier defines the class
+	// twice, and a second reading of any of them costs a declaration per pass
+	// through the loop that holds it.
+	std::unordered_set<const AstNode*> introduced;
 };
 
 // 7.1.5p2 and 5.19p2: the call of a constexpr function a constant expression
@@ -193,6 +202,21 @@ public:
 	                         const SemaContext& ctx);
 	SemaConstant member_constant(const AstNode& node, const SemaContext& ctx);
 
+	// 5.19p3: `value` read where the place asks for a number.  A constant that
+	// stands for an object of class type holds the identifier of the list its
+	// subobjects came to and no value of arithmetic type at all, and 5.19p3
+	// leaves a converted constant expression its user-defined conversions - so
+	// what such a constant is worth at an arithmetic place is what 12.3.2p1's
+	// conversion function hands back, and every other constant is itself.
+	// `place` is the type the place asked for, or `kNoType` where it asks only
+	// that the value be one an arithmetic reading can take.
+	//
+	// Every reading that takes a constant as a number asks this: an array
+	// bound, an enumerator, a case label, an alignment, a bit-field width, a
+	// count, and `convert` and `promote` for everything that reaches an
+	// operator or an initialization through them.
+	SemaConstant at_arithmetic_place(const SemaConstant& value, TypeId place);
+
 	// 12.3.2p1 with 14.3.2p5: `value`, an object of class type, brought to the
 	// type `place` by a conversion function of its class.  13.3.3p1 leaves the
 	// choice to a ranking of the conversion each answer then takes, which a
@@ -219,9 +243,15 @@ private:
 	SemaContext block_region(const AstNode& node, const SemaContext& ctx,
 	                         ConstexprFrame& frame);
 	// The object `key` declares, created in `ctx`'s region on the first pass
-	// through the block and written again on every later one.
+	// through the block and written again on every later one, and null before
+	// the pass that creates it.
+	SemaEntity* declared_object(const AstNode& key, ConstexprFrame& frame) const;
 	SemaEntity& local(const AstNode& key, const std::string& name, TypeId type,
 	                  const SemaContext& ctx, ConstexprFrame& frame);
+	// 7p3: a declaration of the body that introduces a name and declares no
+	// object, read on the pass that first reaches it.
+	void introduce(const AstNode& node, const SemaContext& ctx,
+	               ConstexprFrame& frame);
 	// 7p3 with 8.3: the type and the name one declarator of `specifiers`
 	// declares, read without declaring anything - an evaluation's object is a
 	// binding of the fold and not a declaration of the program.
@@ -254,8 +284,12 @@ private:
 	void bind_arguments(SemaEntity& callee, const SemaConstant* object,
 	                    const std::vector<SemaConstant>& arguments,
 	                    const SemaContext& inner);
+	// `written` is 5.19p2's leave to change the binding: a place the call
+	// filled is an object whose lifetime began inside the evaluation, and a
+	// subobject of the object the call was written on is one whose lifetime
+	// began before it.
 	void bind_constant(const std::string& name, const SemaConstant& value,
-	                   const SemaContext& inner);
+	                   const SemaContext& inner, bool written);
 
 	// 5.2.2p4 with 8.3.6p1: what the places of `callee` are filled with, which
 	// is each written argument converted to the type of the place it reached

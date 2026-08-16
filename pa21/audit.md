@@ -9,178 +9,176 @@ image holds, and the initialization and destruction left for the program to run.
 | # | reviewed at | blockers | what the review found |
 | --- | --- | --- | --- |
 | L | `af299cb9` | 3 / 3 + 6 recorded | **the function part of a name that has to say *which* function, which two functions can spell the same way.**  3.7.1p3's object is named in the image by the body that declared it and where in that body it stands, and the where is a span of this unit's terminals only until 7.1.2p4 leaves a definition every unit may hold - then it is a counter per function, and the function part is a flattened qualified name that `f(int)` and `f(double)` share, and `value<1>` and `value<2>` with it.  So `template<int N> int value() { static int data = N; }` laid out *one* global for both instantiations, holding 2, which is what `300-nested-function-template-local-static-array` shows and what makes `value<1>()` answer 2.  Beside it, 3.5p3's internal linkage was left off both readings of "a definition every unit may hold", so `static inline int k() { static int t; }` gave the object a *weak* symbol and a counter place where the reference and 3.5p3 both give this unit's own object a `tokens` place and an internal one.  And 12.4p8 ends the lifetime of *each element* of an array where 3.6.3p3's runtime takes one function and one object, so a block-scope `static P p[2]` handed the runtime `~P` and the address of the array and ended one lifetime of the two - the same shortcut 3.7.2p2's hand-off already had, both now handing a body of the program's own that ends them all |
+| S+O | `46d8b2f4` | 3 / 3 + 4 recorded | **what a constant of class type is worth where a place asks for a number, and what a statement costs the second time the walk runs it.**  O made an object of literal class type a constant its declaration holds, and such a constant's bits are the identifier of an interned list - so the readings that take a constant as a number had to be told, and only four of them were.  `promote` refused a class operand, `truth` converted it and `convert` and every reader that spelled `evaluate(...).bits` took the *identifier* as the number: `constexpr C c(7)` with `constexpr operator int` laid out `int a[c]` with 12 elements where g++ lays out 7, gave `enum E { e = c }` the value 12, passed `static_assert(c)` where the conversion is `false`, and wrote zero for `constexpr int n = c ? 2 : 3`.  Every one of those was *refused* before O landed, so the checkpoint turned five diagnostics into five wrong answers, and 5.19p3's one rule - a converted constant expression may reach its type through a user-defined conversion - is now asked once and by all of them.  Beside it, S's claim that a block's objects are made once per fold held for the objects and not for the names: 7p3's typedef, alias, using-declaration and class were handed to `SemaAnalyzer::declaration` on *every* pass, so a `typedef` inside a loop of 102400 cost 73 MB against the 7 MB the same loop costs without one, and `struct P { int a; } p;` inside a loop was 3.2p1's class defined twice on the second pass.  And `fold_local`, the flag the checkpoint added to say which object an evaluation may write, was never set on a place the call filled - so `constexpr int f(int n) { n = n + 1; return n; }` was refused by the rule that exists to allow it |
 
 ## Current Checkpoint Review
 
-L is the one checkpoint PA21 has landed: `record_storage` records 3.7.1p3's
-storage duration instead of refusing it, `record_lifetime` puts 12.4p11's
-destruction under the declaration, `global_symbol` answers the name the image
-gives storage the program spells no name for, and `lowir_local_static.cpp`
-writes the image half, 6.7p4's guard and 3.6.3p3's hand-off.
+S and O are the two checkpoints that landed since the last review, and they are
+one increment: S runs 6.1-6.6 over a constexpr body instead of matching
+7.1.5p3's one-`return` shape, and O makes an object of literal class type a
+constant its declaration holds.  Between them they widen what a `SemaConstant`
+may be and widen what a fold may do to it, so the review followed the two
+widenings out to their readers.
 
-The shape of it is sound and was traced end to end.  A block-scope `static` is
-one fact on the variable - `SemaEntity::local_static` - and every reader that
-had two answers for an object now has three: `record_lifetime` sends it to
-`declared_lifetimes_` where a thread's object already stood, `write_initializer`
-puts 3.6.2p1's constant in the image where a namespace-scope object's already
-went, `local_variable` gives the block no slot and ends no lifetime of it in the
-block, and `global_image` is the one reading of what an object with static
-storage duration's image holds, now asked by both the definitions a namespace
-writes and the ones a block does.  Nothing else reaches `local_static`: the only
-writer is `record_storage` and the readers are the four above and
-`demand_referenced`.
+The shape of both is sound.  S's walk is one pass over the statements with three
+facts on the frame - the region each block opened, the object each declaration
+declared, and what each region declared - so a loop of n passes costs the
+regions and entities the *body* has and n statements, which is what the plan
+claims and what re-measures at 0.18 s and a flat 7.0 MB for 1e5 passes.  O's
+`fold_constant_object` reads the clause list once and hands it to
+`ConstexprReading::object_of`, which is the fold that already answered a member
+of class type inside an aggregate, and 3.6.2p2's image follows from the same
+answer.
 
-What the review found is on the other side of that: the *name*.  The checkpoint
-made the name of the storage out of two facts - which function, and where in it -
-and neither of them was asked in a way that answers for two.
+What the review found is on the far side of each widening: the readers.
 
 ### Findings
 
-**1. Two functions flattened to one owner part, and the place beside it did not
-tell them apart.**  `local_static_owner` wrote the qualified name of the
-function where that name is spellable as an identifier, and `abi_qualified_name`
-carries no signature and, for a function template's specialization, no argument
-list - so `p(int)` and `p(double)` were both `p`, and `value<1>` and `value<2>`
-both `value`.  For a definition this unit alone holds that is harmless, because
-the place beside it is the span of terminals the init-declarator was written
-from and no two declarations of one unit share one.  For 7.1.2p4's definition
-every unit may hold it is not: the place is then `local<n>`, counted per
-function so that two units reading one body agree, and two functions with one
-owner part therefore agree on the whole symbol:
+**1. A constant of class type is a list identifier, and every reading that
+wanted a number took it as one.**  `SemaConstant` is `{TypeId, bits}` and the
+bits of an object are the identifier of the interned list its subobjects hold.
+O made such constants reachable through `SemaEntity::constant`, and told four
+readers - two PA12 dump lines, the static-data-member literal and
+`LowirUnitLowering::folded`.  The readers that take a constant as a *value of
+arithmetic type* were not told, and they answered three different ways:
+`promote` threw, `truth` applied 12.3.2p1's conversion, and `convert` and every
+reader that spelled `evaluate(...).bits` - the array bound, the enumerator, the
+case label, the alignment, the bit-field width, the `new[]` count, the
+conditional's condition, the subscript index and `static_assert` itself - read
+the identifier as the number.  With
 
 ```cpp
-template<int N> int value() { static int data = N; return data; }
-int main() { return (value<1>() == 1 && value<2>() == 2) ? 0 : 1; }
+struct C { constexpr C(int v) : value(v) {} constexpr operator int() const { return value; } int value; };
+constexpr C c(7);
 ```
 
-laid out one `@__local_static__value__data__local0` holding 2, which both
-instantiations read - `value<1>()` answers 2 where g++ and the reference both
-answer 1.  `300-nested-function-template-local-static-array` is that program and
-its diff is one global against the reference's two.  The object file already
-answers "which function is this" - `LowirSymbolTable::function_symbol` gives a
-second declaration of one name `__ov2` - so the owner part is now the spelling
-only where the object file gives the function that very base name, and the
-function's own symbol otherwise.  The spellings the reference writes for every
-shape a fixture pins are unchanged.
+`int a[c]` laid out 12 elements where g++ lays out 7, `enum E { e = c }` gave
+`e` the value 12, `static_assert(c)` passed for a conversion that answers
+`false`, and `constexpr int n = c ? 2 : 3` wrote zero.  All five compiled and
+exited `EXIT_SUCCESS`; all five were *refused* by the build one commit earlier,
+so this is a diagnostic turned into a wrong answer rather than a gap left open.
 
-**2. 3.5p3's internal linkage was missing from both readings of a shared
-definition.**  `describe_symbol` and `writes_base_entry` each ask
-`shared_definition(e) && !e.internal_linkage`, because a definition no other
-unit may reach is this unit's own however it was written; the checkpoint's two
-new readers asked `shared_definition` alone.  So `static inline int k() { static
-int t = 8; }` and an `inline` function of 7.3.1.1p1's unnamed namespace gave
-their objects `binding=weak` and a `local<n>` place, where the reference writes
-`binding=internal` and a `tokens` place for both - a weak symbol for an object
-no other unit can have, and the one place form that cannot be checked against
-the terminals that name it.  Both readings now ask `local_static_shared`, which
-is that clause written once.
+5.19p3 is one rule - "the implicit conversion sequence contains only
+user-defined conversions, lvalue-to-rvalue conversions, integral promotions, and
+integral conversions" - and it is now asked once.
+`ConstexprReading::at_arithmetic_place` is that clause: a constant that stands
+for an object is what 12.3.2p1's conversion function hands back and every other
+constant is itself.  `convert`, `promote` and `truth` ask it, and so does each
+of the readers above that reaches neither.  `converted`'s own ranking needed
+3.9.3p1 beside it: the place a `constexpr int n` asks for is `const int`, and
+comparing that against the conversion function's `int` made the exact answer
+look inexact, so a class declaring `operator int` and `operator long long` was
+refused as ambiguous where 13.3.3p1 calls the first one the best there is.
 
-**3. 12.4p8 over an array, handed to a runtime that takes one call.**
-`local_static_destruction` gave `__cxa_atexit` the destructor and the address of
-the object, and for `static P p[2]` that ends the lifetime of `p[0]` and leaves
-`p[1]` standing - where the program's own shutdown body, reaching the same
-`DestructorAction`, walks every element.  One rule with two implementations, and
-3.7.2p2's `__cxa_thread_atexit` beside it had the same one.  Both now ask
-`destruction_entry`, which is the destructor itself for every object but an
-array and a body of the program's own for an array - `add_destruction`'s walk,
-which is written out below `kArrayLoopLimit` elements and is a loop above it, so
-a 100000-element array is one registration and eleven instructions.
+**2. A declaration statement the walk re-runs is declared again.**  S's
+`declared` splits 7p3 two ways: a declaration that declares an object is created
+once and written again, and one that declares only *names* - a typedef, an
+alias, a using-declaration, a class - was handed to `SemaAnalyzer::declaration`
+where it stood, on every pass.  A name is introduced into a region once and the
+regions here are opened once per fold, so the second pass was a second
+declaration: `typedef int T; T v = i;` inside a loop of 12800 / 51200 / 102400
+took 14.4 / 39.7 / 73.1 MB against the flat 7.0 MB the same loop costs with the
+typedef removed, and `struct P { int a; } p;` inside a loop failed on the second
+pass with "a class is defined twice" - because `declared_type` re-read the
+decl-specifier-seq per pass too, and a decl-specifier-seq is what holds a
+class-specifier.  Both are now read on the pass that first reaches them:
+`introduce` is the name arm, keyed by the node in the frame, and the declarator
+is read only where the object is created.  `static_assert` stays outside that,
+because 7p4 checks its condition where the declaration stands.  The same walk
+was missing 7p1's lone type definition entirely - the parser leaves
+`struct P { int a; };` as the class-specifier itself, which reached no arm of
+the statement switch and was refused as a statement the evaluation does not run.
+
+**3. `fold_local` had one writer where the checkpoint's own rule has two.**  S
+added the flag to mark "the one kind of object an evaluation may write - a place
+the call filled or an object a statement of the body declared", and only
+`local` set it.  So the parameters `bind_arguments` binds were left unwritable
+and `constexpr int f(int n) { n = n + 1; return n; }` was refused by the very
+rule that exists to allow it - where 5.19p2 asks whether the object's lifetime
+began inside the evaluation, and 12.2p1 says a place the call filled is exactly
+such an object.  `bind_constant` now takes that answer as an argument: true for
+a place the call filled, false for a subobject of the object the call was
+written *on* and for a member 12.6.2p10 has already initialized, both of which
+are objects this evaluation did not create.
 
 ### What the review confirmed rather than found
 
-**The complexity is what the plan claims, re-measured.**  Every fact is asked
-once per declaration and held: `entity_symbols_` holds the symbol,
-`local_static_guards_` the guard, `local_static_places_` the counter, and
-`destruction_entries_` the array body - so a name used *n* times costs one
-flatten and *n* lookups.  400 / 1600 / 6400 image-initialized statics in one body
-take 0.018 / 0.062 / 0.247 s and the same guarded take 0.026 / 0.096 / 0.423 s:
-linear in both, against 0.584 / 0.743 / 1.403 s and 0.632 / 0.933 / 2.229 s for
-`pa21/cppgm++-ref`.
+**The complexity is what the plan claims, re-measured on this build.**  A `for`
+of 1e3 / 1e4 / 1e5 passes with a body-local declaration is 0.00 / 0.02 / 0.18 s
+at a flat 7.0 MB peak, against 0.54 / 0.60 / 4.01 s for `pa21/cppgm++-ref`; 500
+/ 2000 / 8000 declared constant objects each read back by a `static_assert` are
+0.03 / 0.10 / 0.45 s against 0.64 / 0.99 / 3.77 s.  The L row above them is
+unchanged at 0.01 / 0.05 / 0.22 s.  The one rule this review added is a type-kind
+test on a path that already looked the type up, and it moves none of them.
 
-**Two units reading one shared definition agree.**  A header holding an `inline`
-function with three block-scope statics and a function template with two
-instantiations, compiled as two units in one invocation, writes five globals and
-each unit reaches the same one: the counter is per unit and per function symbol,
-and both units walk the same body in the same order.
+**The engine's own bounds hold.**  `kMaxConstexprDepth` is checked at both
+entries to a fold, so a class whose conversion function reaches another class
+whose conversion function reaches the first ends with a diagnostic rather than a
+stack.  `kMaxConstexprSteps` bounds one frame's statements, which is the only
+thing a loop whose condition its body never falsifies runs out of.
 
-**Nothing else reads the span the parser now writes.**  `InitDeclarator::begin`
-and `end` were unset before this checkpoint; the readers of an AST node's span
-are the declaration, the parameter-declaration and the type-id, and none of them
-is an init-declarator.
+**Two units reading one body agree.**  A `constexpr` function with a loop and a
+body-local typedef and a second with a `while`, compiled as two units in one
+invocation, fold to the same values as either alone - the frame and the regions
+it opens belong to the fold and nothing of them is shared.
 
-**Thirty shapes were swept for exit status through this compiler,
-`pa21/cppgm++-ref` and g++**, and twenty-eight of the thirty through the
-harness's own comparator: a static in a member function, a static member
-function, a constructor, a local class, a loop, an `if`, a nested block, an
-unnamed namespace, a friend definition; two declarators of one declaration; a
-reference, a pointer, an array, an enum, a `double`, a string literal, a local
-class type, a constexpr constructor, a constexpr call and a runtime call.  Every
-exit status agrees but block-scope `thread_local`, and every LowIR difference is
-one of the six recorded below.
+**The values are right where the program runs.**  A program declaring an
+enumerator, an array bound, a `constexpr int` and a conditional off one class
+constant builds through `lowir2cy86` and `cy86` and returns 0, as g++'s build of
+it does.  `pa21/cppgm++-ref` refuses to compile it at all.
+
+**Eighteen shapes were swept for exit status through this compiler,
+`pa21/cppgm++-ref` and g++**: a class constant at an array bound, an enumerator,
+a bit-field width, an alignment, an initialization, a conditional, the logical
+operators, `!`, arithmetic, `static_assert`, a template argument, a subscript
+index and a condition inside a body; a class with no conversion function at two
+of those places; a class with two conversions where one is exact, where neither
+is, and where the place is reached by both.  Every exit status agrees with g++
+but the three recorded below, and the reference refuses eight of the eighteen.
 
 ### Recorded, not landed
 
-**The place a shared definition's object is named by is still `local<n>`
-where the reference writes the source position of the declaration**, hex-encoded
-(` at file:line:col`).  Phases 1-7 keep no position: `IncludeTable` records only
-whether a token was read from this unit's own file, which is the whole of what
-survives phase 4.  The occurrence index is stable across the units of one
-invocation and now unique across the program, which is what the object file
-needs; it is not what the reference spells, so
-`300-nested-function-template-local-static-array` and
-`300-class-template-static-reference-dynamic-initialization` differ by their
-symbol names alone.
+**A `constexpr` variable whose initializer the fold refuses is lowered as a
+dynamic initialization rather than refused.**  7.1.5p9 makes such a declaration
+ill-formed; this compiler writes 3.6.2p1's zero and a startup body.  It is the
+shape behind most of the failure map's V group and is that group's work, not
+this review's.
 
-**Two shapes where this compiler is the one that is right.**  The reference
-never constructs an array of class type declared `static` in a block - `static P
-p[2]` with `P() : a(3)` leaves the image zero and writes no call, so its program
-returns 1 where ours and g++ both return 0.  And it guards a block-scope static
-that holds an address: 3.6.2p1 makes `static int* p = &s;` and `static int& r =
-s;` constant initialization and 6.7p4 has it done before the block is first
-entered, which g++ writes as `.quad _ZZ1fvE1s` in `.data.rel.ro.local`; the
-reference writes zero and a guard for both, and this compiler writes the image
-value for the pointer and a pre-`main` initialization for the reference.
+**The lowering re-folds from the dump rather than taking the analysis's
+answer.**  `LowirUnitLowering::folded` reads a fact of kind `Id` or `Literal`,
+so `constexpr int n = c + 1;` - which the analysis now folds to 8 - still writes
+`= zero` and a startup body where the reference writes `= 8`.  Nothing is wrong
+at runtime and it is one of the failure map's I group.
 
-**The reference writes a dead `@__strlit__` for a string literal 8.5.2p1
-consumed into an array element** and none for one consumed into the array
-itself.  Nothing reads it; reproducing it would be writing a global the program
-has no use for.  It is what `300-function-local-static-array-guard` differs by
-after the decay below.
+**An object declared with no initializer is not value-initialized by the
+fold.**  `constexpr D two;` leaves `two` with no value, so `constexpr int n =
+two;` is refused where 8.5p7 and g++ both give it `D()`.  It is the same clause
+O left open for a namespace-scope object with no initializer.
 
-**A subscript of an array *element* that is itself an array emits one
-`unary decay` the reference does not.**  It is not this checkpoint's: `nested[0][1]`
-at namespace scope and `loc[0][1]` over an automatic array both write it, and
-the reference indexes the element address directly.  It is the second blocker of
-`300-function-local-static-array-guard`.
-
-**Block-scope `thread_local` is still refused.**  Both oracles accept it.  The
-storage the ABI gives it is reached through a wrapper of its own, which is a
-different question from the one 6.7p4 asks, and the README's Assignment Boundary
-names function-local `static` and not this.
-
-**Two units that each define an internal function of one name write one
-function.**  The reference does the same, and the local static inside it
-collapses with it; it is a fact of the whole multi-unit model rather than of
-this checkpoint.
+**A class operand at a bit-field width or an alignment is accepted where g++
+refuses it.**  9.6p1 and 7.6.2p3 ask for an *integral* constant expression,
+whose first sentence in 5.19p3 wants an expression of integral or unscoped
+enumeration type, and this reading gives all the arithmetic places the converted
+constant expression's leave.  It is more permissive than the standard at two
+places no fixture pins and at which the reference refuses everything; it writes
+no wrong value.
 
 ## Changes
 
-- **`lowir_local_static.cpp` — the owner part names one function.**
-  `local_static_owner` keeps the qualified spelling only where
-  `flatten_symbol_name(abi_qualified_name(owner))` is the function's own symbol,
-  and carries `function_symbol_<hex>` otherwise.
-- **`lowir_local_static.cpp` — `local_static_shared`** is 3.5p3's clause beside
-  `shared_definition`, asked by `local_static_place` and `local_static_binding`
-  alike.
-- **`lowir_local_static.cpp`, `lowir_lower_object.cpp` — one hand-off.**
-  `hand_to_runtime` is 3.6.3p3's and 3.7.2p2's registration written once, and
-  `LowirUnitLowering::destruction_entry` is the function it hands over: the
-  destructor, or a generated body that ends every element of an array.  The
-  generated bodies stand in `pending_functions_` until no definition is left to
-  ask for one, because a definition being lowered holds a reference into
-  `program_.functions`.
-- **`lowir_local_static.cpp` — no address is taken for an initialization that
-  names a place per element**, which is 12.6p1's array of class type.
+- **`sema_constexpr.cpp`, `sema_constexpr.h` — `at_arithmetic_place`** is
+  5.19p3's clause written once, asked by `convert`, `promote` and `truth` and by
+  the array bound, the enumerator, the case label, the alignment, the bit-field
+  width, the `new[]` count, the conditional's condition and the subscript index.
+- **`sema_constexpr.cpp` — `converted` compares the place without its
+  cv-qualifiers**, which is what makes `operator int` the exact answer for the
+  `const int` a `constexpr int` declaration asks for.
+- **`sema_constexpr_statement.cpp` — `introduce`** reads a name-introducing
+  declaration on the pass that first reaches it, and `declared` reads the
+  declarator only where it creates the object.  7p1's lone type definition
+  reaches that arm too.
+- **`sema_constexpr.cpp` — `bind_constant` is told whether the binding is one
+  the evaluation created**, which is 5.19p2's question and marks a place the
+  call filled `fold_local`.
 
 ## Performance Evidence
 
@@ -188,30 +186,28 @@ Best of three per shape, alternating between the two binaries:
 
 | shape | this build | `pa21/cppgm++-ref` |
 | --- | --- | --- |
-| 400 / 1600 / 6400 image-initialized statics in one body | 0.018 / 0.062 / **0.247 s** | 0.584 / 0.743 / **1.403 s** |
-| 400 / 1600 / 6400 guarded statics in one body | 0.026 / 0.096 / **0.423 s** | 0.632 / 0.933 / **2.229 s** |
-| a 100000-element array of class type declared `static` in a block | **0.005 s** | 0.004 s (constructs none of it) |
+| `for` of 1e3 / 1e4 / 1e5 passes, body-local declaration | 0.00 / 0.02 / **0.18 s**, peak RSS 7.11 / 7.00 / **7.05 MB** | 0.54 / 0.60 / **4.01 s** |
+| 500 / 2000 / 8000 declared constant objects read back | 0.03 / 0.10 / **0.45 s** | 0.64 / 0.99 / **3.77 s** |
+| 400 / 1600 / 6400 image-initialized statics in one body | 0.01 / 0.05 / **0.22 s** | 0.584 / 0.743 / **1.403 s** |
+| a `typedef` inside a loop of 12800 / 51200 / 102400 | 0.03 / 0.09 / **0.19 s**, peak RSS 6.78 / 7.20 / **6.81 MB** | — |
 
-Both plan rows carried forward from the checkpoint re-measure on this build at
-0.018 s and 0.026 s against the 0.016 s and 0.025 s recorded, and the sweep
-above them shows both linear.  The three changes add no scan: the owner part
-asks `function_symbol`, which is memoised against the entity, and the array body
-is one per array and written once per program.
+The last row is the finding: before it, the same three inputs took 0.04 / 0.16 /
+0.31 s at 14.4 / 39.7 / **73.1 MB**, growing by about 660 bytes a pass, and now
+cost what the same loop without a typedef costs.
 
 ## Validation
 
-- `make test-report-through-pa20` - **pass**, 2399 / 2399, 20 / 20 stages.
-- `make test-report ACTIVE_TEST_REPORT_PAS='pa21'` - **38 / 129**, the
-  turn-start baseline, with no fixture that passed at turn start failing.
-- `perl scripts/cppgm_file_audit.pl --stage pa21 --paths dev/src` - **pass**,
-  with the five `bad-division` warnings the stage inherited and no sixth.
-- 32 shapes swept through the harness's own comparator against
-  `pa21/cppgm++-ref` in a scratch directory under `pa21/tests`, with g++ as the
-  third oracle on each: 20 of them identical as canonicalized LowIR, and every
-  one of the 12 differences is a recorded item above.
-- Two programs built through `lowir2cy86` and `cy86` and run: a body whose two
-  guarded statics call a counting function, returning 0 for `127, 127, 2`, and
-  an array of class type declared `static` in a block, returning 0 where the
-  reference's own program returns 1 and g++ returns 0.
-- `valgrind --error-exitcode=99 -q` over 133 inputs - all 129 pa21 fixtures, the
-  probe inputs and the two-unit compilation: **clean**.
+- `make test-report-through-pa20` — **pass**, 2399 / 2399, 20 / 20 stages.
+- `make test-report ACTIVE_TEST_REPORT_PAS='pa21'` — **49 / 129**, one above the
+  48 the turn started at, with the full failing list a subset of the turn-start
+  one: no fixture that passed then fails now, and
+  `300-constexpr-contextual-bool-operators` newly passes.
+- `perl scripts/cppgm_file_audit.pl --stage pa21 --paths dev/src` — **pass**,
+  with the five `bad-division` warnings the stage inherited and no sixth;
+  `sema_analyzer.h` is unchanged at 2396 of its 2400 lines.
+- 18 shapes swept for exit status against `pa21/cppgm++-ref` and g++, each one
+  self-checking through a `static_assert` so a wrong value is a failed compile.
+- One program built through `lowir2cy86` and `cy86` and run, returning 0 as
+  g++'s build of it does.
+- `valgrind --error-exitcode=99 -q` over 200 inputs - all 129 pa21 fixtures and
+  the probe inputs: **clean**.
