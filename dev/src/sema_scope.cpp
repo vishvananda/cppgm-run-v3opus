@@ -229,6 +229,7 @@ SemaEntity& SemaModel::create(SemaKind kind, const std::string& name, TypeId typ
 	entity.wrote_exception_specification = false;
 	entity.promotion = kNoType;
 	entity.value = 0;
+	entity.real = 0;
 	entity.next = nullptr;
 	entity.tail = nullptr;
 	entity.region = nullptr;

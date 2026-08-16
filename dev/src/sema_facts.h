@@ -206,6 +206,7 @@ struct SemaFact
 		, full_expression_end(false)
 		, elements(0)
 		, value(0)
+		, real(0)
 	{}
 
 	FactKind kind;
@@ -363,6 +364,12 @@ struct SemaFact
 	// source wrote as a number from being described one element at a time.
 	unsigned long long elements;
 	unsigned long long value;
+	// 3.9.1p8: the same value where its type is a floating one, which no
+	// integer of this translation holds.  The spelling below is what the
+	// program wrote and this is what it is worth, and 3.6.2p2's image needs the
+	// second: `constexpr float v = 16777217.0;` holds the `float` beside those
+	// digits, and a value a constexpr call arrived at was never spelled at all.
+	long double real;
 	// The spelling this node carries that no other fact holds: the tokens a
 	// floating literal was written from, whose value is a value of the
 	// target's floating type; the code units a string literal holds, which

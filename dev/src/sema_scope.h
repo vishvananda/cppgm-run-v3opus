@@ -194,9 +194,12 @@ struct SemaEntity
 	// enumerators have been read.
 	bool defined;
 	// 5.19: a value the translation knows, which an enumerator always has and
-	// a const object of integral type has when its initializer is constant.
+	// a const object of arithmetic type has when its initializer is constant.
+	// 3.9.1p8 leaves two kinds of it and the type says which of the two fields
+	// carries this one, exactly as it does on a `SemaConstant`.
 	bool constant;
 	unsigned long long value;
+	long double real;
 	// 5.19 with 7.1.5p2: a name one folded call bound - a place the call filled
 	// or an object a statement of the body declared.  Such a binding is the one
 	// thing an evaluation may write to: it belongs to the call being folded and

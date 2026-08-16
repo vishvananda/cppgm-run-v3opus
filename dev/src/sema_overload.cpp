@@ -2470,6 +2470,7 @@ SemaAnalyzer::Value SemaAnalyzer::finish_call(DumpNode& line, TypeId function,
 			Constant given;
 			given.type = arguments[index].type;
 			given.bits = arguments[index].value;
+			given.real = arguments[index].real;
 			folded.push_back(given);
 		}
 		if (folded.size() == arguments.size())
@@ -2481,6 +2482,7 @@ SemaAnalyzer::Value SemaAnalyzer::finish_call(DumpNode& line, TypeId function,
 						const_cast<SemaEntity&>(*chosen), nullptr, folded);
 				value.constant = true;
 				value.value = answer.bits;
+				value.real = answer.real;
 			}
 			catch (const NotConstant&)
 			{

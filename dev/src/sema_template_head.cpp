@@ -225,7 +225,7 @@ TypeId SemaAnalyzer::non_type_parameter_type(const AstNode& parameter,
 	// 14.1p4: the type shall be integral or an enumeration, or one of the forms
 	// this milestone leaves out; a dependent one is whatever the argument makes
 	// of it, so it is checked where the argument is bound.
-	if (!types_.is_dependent(type) && arithmetic_type(type) == kNoType)
+	if (!types_.is_dependent(type) && integral_type(type) == kNoType)
 	{
 		throw std::runtime_error("a non-type template parameter of " +
 		                         types_.description(type) + " is outside the "

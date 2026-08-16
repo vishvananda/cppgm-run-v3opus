@@ -193,12 +193,13 @@ void SemaAnalyzer::enumerators(const AstNode& node, SemaEntity& entity,
 			Context inner;
 			inner.scope = &scope;
 			inner.dump = &dump;
-			// 7.2p5: the value is one of arithmetic type, which for an object
-			// of class type is 12.3.2p1's conversion function and not the
-			// identifier the constant holds.
+			// 7.2p5: the value is an *integral* constant expression, which for
+			// an object of class type is 12.3.2p1's conversion function and not
+			// the identifier the constant holds - and which no value of
+			// 3.9.1p8's floating types is, however 4.9 would convert one.
 			const Constant written = ConstexprReading(*this).at_arithmetic_place(
 				evaluate(*child.children[0], inner), kNoType);
-			value = written.bits;
+			value = ConstexprReading(*this).counted(written);
 			negative = is_signed(written.type) &&
 				(value >> (width_of(written.type) - 1)) != 0;
 		}

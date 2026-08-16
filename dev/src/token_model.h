@@ -154,6 +154,26 @@ inline bool fundamental_type_is_signed(EFundamentalType type)
 	return fundamental_type_class(type) == FundamentalTypeClass::SignedIntegral;
 }
 
+// True for 3.9.1p8's floating types, and for the arithmetic types those and the
+// integral ones together are.
+inline bool fundamental_type_is_floating(EFundamentalType type)
+{
+	return fundamental_type_class(type) == FundamentalTypeClass::Floating;
+}
+
+inline bool fundamental_type_is_arithmetic(EFundamentalType type)
+{
+	return fundamental_type_is_integral(type) ||
+		fundamental_type_is_floating(type);
+}
+
+// 2.14.4: `value` held at the width of `type` and spelled as the digits a
+// reader arrives back at that same value from.  The x86-64 `long double` has a
+// 64 bit significand, which no fewer than twenty significant decimal digits
+// tell apart from its neighbours - so that is what every width is spelled at.
+const int kFloatingSpelledDigits = 20;
+std::string spell_floating_value(EFundamentalType type, long double value);
+
 const char* token_type_name(ETokenType type);
 
 // The token type of a keyword, operator or punctuator spelling.  False for a

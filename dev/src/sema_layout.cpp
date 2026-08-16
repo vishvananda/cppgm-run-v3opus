@@ -60,12 +60,12 @@ unsigned long long SemaAnalyzer::requested_alignment(const AstNode& node,
 		{
 			continue;
 		}
-		// 7.6.2p1: what the specifier asks for is a constant of arithmetic
-		// type, which 5.19p3 lets an object of class type reach through
+		// 7.6.2p1: what the specifier asks for is an integral constant
+		// expression, which 5.19p3 lets an object of class type reach through
 		// 12.3.2p1's conversion function.
 		const Constant value = ConstexprReading(*this).at_arithmetic_place(
 			evaluate(*child.children[0], ctx), kNoType);
-		const unsigned long long asked = value.bits;
+		const unsigned long long asked = ConstexprReading(*this).counted(value);
 		// 7.6.2p3: what an alignment-specifier asks for is a fundamental
 		// alignment - a power of two no greater than the widest one the
 		// implementation gives an object - and zero, which asks for nothing.
@@ -128,9 +128,12 @@ void SemaAnalyzer::bit_field_declaration(const AstNode& node,
 	{
 		const AstNode& field = *node.children[index];
 		const AstNode& written = *field.children[field.children.size() - 1];
+		// 9.6p1: the width is an integral constant expression, so a floating
+		// value is no width however 4.9 would convert one.
 		const Constant value = ConstexprReading(*this).at_arithmetic_place(
 			evaluate(written, ctx), kNoType);
-		if (is_signed(value.type) && (value.bits >> 63) != 0)
+		if (is_signed(value.type) &&
+		    (ConstexprReading(*this).counted(value) >> 63) != 0)
 		{
 			throw std::runtime_error("a bit-field has a negative width");
 		}

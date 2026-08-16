@@ -134,8 +134,25 @@ bool ConstexprReading::is_object(const SemaConstant& value) const
 		analyzer_.types_.is_class(analyzer_.types_.strip_cv(value.type));
 }
 
+bool ConstexprReading::holds_list(const SemaConstant& value) const
+{
+	return is_object(value) ||
+		(value.type != kNoType &&
+		 analyzer_.types_.kind(analyzer_.types_.strip_cv(value.type)) ==
+			 TypeKind::Array);
+}
+
+// The entry a constant interns as.  3.9.1p8's two kinds of arithmetic value are
+// held differently and interned the same way: an entry is a type and a number,
+// and for a floating value that number is the pool index the table gives it,
+// because no `unsigned long long` holds an x87 `long double`.
 TypeId ConstexprReading::entry_of(const SemaConstant& value) const
 {
+	const TypeId arithmetic = analyzer_.arithmetic_type(value.type);
+	if (arithmetic != kNoType && analyzer_.types_.is_floating(arithmetic))
+	{
+		return analyzer_.types_.real_type(value.type, value.real);
+	}
 	return analyzer_.types_.value_type(value.type, value.bits);
 }
 
@@ -143,6 +160,11 @@ SemaConstant ConstexprReading::constant_of(TypeId entry, const TypeTable& types)
 {
 	SemaConstant out;
 	out.type = types.target(entry);
+	if (types.is_floating(out.type))
+	{
+		out.real = types.value_real(entry);
+		return out;
+	}
 	out.bits = types.value_bits(entry);
 	return out;
 }
@@ -252,6 +274,98 @@ SemaConstant ConstexprReading::object_of(TypeId type,
 	out.type = bare;
 	out.bits = analyzer_.types_.type_list(held);
 	return out;
+}
+
+// 8.5.1p2 and p7 over an array, which 8.5.1p1 makes an aggregate whatever its
+// element type is.  The elements stand in one order that no lookup settles, so
+// the clause an element takes is the one at its own index and the elements past
+// the written clauses are value-initialized - which for an element of class
+// type is the object every one of *its* members is value-initialized in.
+SemaConstant ConstexprReading::array_of(TypeId type,
+                                        const std::vector<SemaConstant>& written)
+{
+	const TypeId bare = analyzer_.types_.strip_cv(type);
+	const TypeId element = analyzer_.types_.strip_cv(
+		analyzer_.types_.target(bare));
+	// 8.3.4p1 and 8.5.1p4: a declaration that wrote no bound takes the one its
+	// clauses give it, and by the time a fold reads the declaration the type
+	// already carries it.
+	const unsigned long long count = analyzer_.types_.bounded(bare)
+		? analyzer_.types_.bound(bare)
+		: written.size();
+	if (written.size() > count)
+	{
+		throw NotConstant("a constant expression writes more initializers than " +
+		                  analyzer_.types_.description(bare) + " has elements");
+	}
+	if (count > written.size() && count - written.size() > kMaxConstexprSteps)
+	{
+		// 8.5p7: every element no clause reached is value-initialized, and each
+		// is an entry of the list - so an array whose bound names more of them
+		// than an evaluation may run is one this reading refuses rather than
+		// builds.
+		throw NotConstant("a constant expression value-initializes more array "
+		                  "elements than this implementation evaluates");
+	}
+	const bool built = analyzer_.types_.is_class(element);
+	if (!built && analyzer_.arithmetic_type(element) == kNoType)
+	{
+		throw NotConstant("an element of " +
+		                  analyzer_.types_.description(bare) +
+		                  " is outside the values a constant expression holds");
+	}
+	std::vector<TypeId> held;
+	held.reserve(static_cast<std::size_t>(count));
+	// 8.5p7 again: the value-initialized elements are all one value, so the
+	// entry they intern as is worked out once and repeated.
+	TypeId zero = kNoType;
+	for (unsigned long long index = 0; index < count; ++index)
+	{
+		if (index >= written.size())
+		{
+			if (zero == kNoType)
+			{
+				const std::vector<SemaConstant> none;
+				SemaConstant value;
+				value.type = element;
+				zero = entry_of(built ? object_of(element, none) : value);
+			}
+			held.push_back(zero);
+			continue;
+		}
+		SemaConstant value = written[static_cast<std::size_t>(index)];
+		if (analyzer_.types_.strip_cv(value.type) != element)
+		{
+			value = analyzer_.convert(value, element);
+		}
+		value.type = element;
+		held.push_back(entry_of(value));
+	}
+	SemaConstant out;
+	out.type = bare;
+	out.bits = analyzer_.types_.type_list(held);
+	return out;
+}
+
+SemaConstant ConstexprReading::element_value(const SemaConstant& array,
+                                             unsigned long long index)
+{
+	if (!holds_list(array) || is_object(array))
+	{
+		throw NotConstant("a constant expression subscripts something that is "
+		                  "not an array or a string literal");
+	}
+	const std::vector<TypeId>& held =
+		analyzer_.types_.type_list_at(static_cast<std::uint32_t>(array.bits));
+	if (index >= held.size())
+	{
+		// 5.19p2: reading outside the array is undefined behaviour, which no
+		// constant expression holds.
+		throw NotConstant("a constant expression subscripts an array outside "
+		                  "its bounds");
+	}
+	return constant_of(held[static_cast<std::size_t>(index)],
+	                   analyzer_.types_);
 }
 
 void ConstexprReading::mem_initializers(
@@ -707,6 +821,7 @@ void ConstexprReading::bind_constant(const std::string& name,
 	bound.constant = true;
 	bound.fold_local = written;
 	bound.value = value.bits;
+	bound.real = value.real;
 	bound.region = inner.scope;
 	analyzer_.model_.bind(*inner.scope, name, bound);
 	analyzer_.model_.declare_in(*inner.scope, bound);
@@ -930,6 +1045,7 @@ SemaConstant ConstexprReading::id_constant(const AstNode& node,
 	SemaConstant out;
 	out.type = entity.type;
 	out.bits = entity.value;
+	out.real = entity.real;
 	return out;
 }
 
@@ -945,6 +1061,24 @@ SemaConstant ConstexprReading::unary_constant(const AstNode& node,
 	const SemaConstant operand = analyzer_.promote(analyzer_.evaluate(*node.children[0], ctx));
 	SemaConstant out;
 	out.type = operand.type;
+	if (analyzer_.types_.is_floating(analyzer_.arithmetic_type(operand.type)))
+	{
+		// 5.3.1p7 and p8: `+` and `-` take a floating operand as it stands and
+		// hand back its value and its negation.  5.3.1p10's `~` asks for an
+		// integral operand and 5.3.1p9's `!` is 4p3's reading of the value.
+		switch (node.token)
+		{
+		case OP_PLUS: out.real = operand.real; return out;
+		case OP_MINUS: out.real = -operand.real; return out;
+		case OP_LNOT:
+			out.type = analyzer_.types_.fundamental(FT_BOOL);
+			out.bits = operand.real == 0 ? 1 : 0;
+			return out;
+		default:
+			throw NotConstant("a constant expression writes an operator that "
+			                  "asks for an integral operand on a floating one");
+		}
+	}
 	switch (node.token)
 	{
 	case OP_PLUS:
@@ -1009,6 +1143,56 @@ SemaConstant ConstexprReading::binary_constant(const AstNode& node,
 	                    analyzer_.evaluate(*node.children[1], ctx));
 }
 
+// 5.6, 5.7 and 5.9 over two operands 5p10 has already brought to one floating
+// type: the arithmetic is the machine's own at that width, and the operators an
+// integral operand is what the clause asks for - the remainder, the shifts and
+// the bitwise ones - reach no floating value at all.
+SemaConstant ConstexprReading::real_value(unsigned token, long double left,
+                                          long double right, TypeId type)
+{
+	SemaConstant out;
+	switch (token)
+	{
+	case OP_LT: case OP_GT: case OP_LE: case OP_GE: case OP_EQ: case OP_NE:
+	{
+		bool answer = false;
+		switch (token)
+		{
+		case OP_LT: answer = left < right; break;
+		case OP_GT: answer = left > right; break;
+		case OP_LE: answer = left <= right; break;
+		case OP_GE: answer = left >= right; break;
+		case OP_EQ: answer = left == right; break;
+		default: answer = left != right; break;
+		}
+		out.type = analyzer_.types_.fundamental(FT_BOOL);
+		out.bits = answer ? 1 : 0;
+		return out;
+	}
+
+	case OP_PLUS: out.real = left + right; break;
+	case OP_MINUS: out.real = left - right; break;
+	case OP_STAR: out.real = left * right; break;
+	case OP_DIV:
+		// 5.6p4: division by zero has undefined behaviour, which 5.19p2 leaves
+		// outside a constant expression however the operands are spelled.
+		if (right == 0)
+		{
+			throw NotConstant("a constant expression divides by zero");
+		}
+		out.real = left / right;
+		break;
+
+	default:
+		throw NotConstant("a constant expression writes an operator that asks "
+		                  "for integral operands on floating ones");
+	}
+	out.type = type;
+	// 4.8p1 again: the answer is held at the width the operands were brought
+	// to, which for `float` is narrower than the machine computed in.
+	return analyzer_.convert(out, type);
+}
+
 SemaConstant ConstexprReading::binary_value(unsigned token,
                                             const SemaConstant& given_left,
                                             const SemaConstant& given_right)
@@ -1024,6 +1208,11 @@ SemaConstant ConstexprReading::binary_value(unsigned token,
 	const bool shifted = token == OP_LSHIFT || token == OP_RSHIFT;
 	const TypeId type =
 		shifted ? left.type : analyzer_.common_type(left.type, right.type);
+	if (analyzer_.types_.is_floating(analyzer_.arithmetic_type(type)))
+	{
+		return real_value(token, analyzer_.convert(left, type).real,
+		                  analyzer_.convert(right, type).real, type);
+	}
 	const unsigned long long lhs = analyzer_.convert(left, type).bits;
 	const unsigned long long rhs = shifted ? right.bits : analyzer_.convert(right, type).bits;
 	const bool sign = analyzer_.is_signed(type);

@@ -660,7 +660,7 @@ SemaConstant TemplateArgumentReader::operand(
 		// with braces, and what they hold is 8.5.4's one clause per operand.
 		const std::string close = words[at_] == "(" ? ")" : "}";
 		const TypeId target = probe_type_id(word);
-		if (target != kNoType && analyzer_.arithmetic_type(target) != kNoType)
+		if (target != kNoType && analyzer_.integral_type(target) != kNoType)
 		{
 			std::vector<SemaConstant> operands;
 			if (!operand_list(words, close, live, operands) ||
@@ -981,7 +981,7 @@ SemaConstant TemplateArgumentReader::name(const std::string& spelling,
 SemaConstant TemplateArgumentReader::cast(TypeId target,
                                           const SemaConstant& operand)
 {
-	if (analyzer_.arithmetic_type(target) == kNoType)
+	if (analyzer_.integral_type(target) == kNoType)
 	{
 		throw NotConstant("a cast written as a template argument names a type "
 		                  "that is not integral");
@@ -1165,7 +1165,7 @@ TypeId SemaAnalyzer::template_argument_value(const std::string& spelling,
 			given, place == kNoType ? kNoType : types_.strip_cv(place));
 	}
 	const TypeId type = place == kNoType ? given.type : place;
-	if (arithmetic_type(type) == kNoType)
+	if (integral_type(type) == kNoType)
 	{
 		throw NotConstant("a template argument is bound to a place whose type "
 		                  "is outside the PA20 subset");

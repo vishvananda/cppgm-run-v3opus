@@ -1,5 +1,6 @@
 #include "type_model.h"
 
+#include <cmath>
 #include <stdexcept>
 #include <utility>
 
@@ -542,6 +543,31 @@ TypeId TypeTable::value_type(TypeId type, unsigned long long bits)
 	node.target = type;
 	node.bound = bits;
 	return intern(key_of(node), node);
+}
+
+// 5.19 with 3.9.1p8: a value entry for a floating constant.  `frexp` is what
+// takes the value apart exactly - a significand in [0.5, 1) and a power of two -
+// so the key below is the whole of the value and not a rounding of it, and the
+// sign is asked for on its own because the significand of a zero carries none.
+TypeId TypeTable::real_type(TypeId type, long double value)
+{
+	int exponent = 0;
+	const long double significand = std::frexp(value, &exponent);
+	const bool negative = std::signbit(value);
+	const std::pair<long long, unsigned long long> key(
+		negative ? -2LL * exponent - 1 : 2LL * exponent,
+		static_cast<unsigned long long>(
+			std::ldexp(significand < 0 ? -significand : significand, 64)));
+	const std::map<std::pair<long long, unsigned long long>,
+	               unsigned long long>::iterator held = real_ids_.find(key);
+	if (held != real_ids_.end())
+	{
+		return value_type(type, held->second);
+	}
+	const unsigned long long index = reals_.size();
+	reals_.push_back(value);
+	real_ids_.insert(std::make_pair(key, index));
+	return value_type(type, index);
 }
 
 void TypeTable::set_template_pack(TypeId type, bool pack)

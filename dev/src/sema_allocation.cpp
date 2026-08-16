@@ -655,9 +655,7 @@ SemaAnalyzer::Value SemaAnalyzer::array_new_size(const AstNode& bound,
 		// and the whole product is the one literal it comes to.  It is asked
 		// for before anything is written, because a constant leaves no
 		// arithmetic in the tree at all.
-		count = ConstexprReading(*this)
-			        .at_arithmetic_place(evaluate(bound, ctx), kNoType)
-			        .bits;
+		count = ConstexprReading(*this).counted(evaluate(bound, ctx));
 		counted = true;
 	}
 	catch (const std::runtime_error&)

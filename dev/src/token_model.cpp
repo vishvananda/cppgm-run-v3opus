@@ -1,5 +1,6 @@
 #include "token_model.h"
 
+#include <cstdio>
 #include <cstring>
 
 namespace
@@ -145,6 +146,30 @@ FundamentalTypeClass fundamental_type_class(EFundamentalType type)
 const char* token_type_name(ETokenType type)
 {
 	return kTokenTypeNames[type];
+}
+
+std::string spell_floating_value(EFundamentalType type, long double value)
+{
+	// 4.8p1: the value is what the object of `type` holds, so it is rounded to
+	// that width before it is spelled - `16777217.0` written for a `float` is
+	// the `float` beside it and not the `double` the digits name.
+	char digits[64];
+	if (type == FT_FLOAT)
+	{
+		std::snprintf(digits, sizeof digits, "%.*g", kFloatingSpelledDigits,
+		              static_cast<double>(static_cast<float>(value)));
+	}
+	else if (type == FT_LONG_DOUBLE)
+	{
+		std::snprintf(digits, sizeof digits, "%.*Lg", kFloatingSpelledDigits,
+		              value);
+	}
+	else
+	{
+		std::snprintf(digits, sizeof digits, "%.*g", kFloatingSpelledDigits,
+		              static_cast<double>(value));
+	}
+	return digits;
 }
 
 bool lookup_simple_token(const char* text, std::size_t size, ETokenType& type)

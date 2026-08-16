@@ -29,6 +29,25 @@ std::string decimal(unsigned long long value)
 	return out.str();
 }
 
+// 4.8p1: `value` as an object of `type` holds it, which for the narrower of
+// 3.9.1p8's floating types is a rounding of it.  A fold over a chain of
+// conversions has to round at each of them, because 4.8's conversions do not
+// compose into the widest one: `(double)(float)16777217.0` is not `16777217.0`.
+long double held_at(TypeTable& types, TypeId type, long double value)
+{
+	const TypeId bare = types.strip_cv(type);
+	if (types.kind(bare) != TypeKind::Fundamental)
+	{
+		return value;
+	}
+	switch (types.fundamental_type(bare))
+	{
+	case FT_FLOAT: return static_cast<float>(value);
+	case FT_DOUBLE: return static_cast<double>(value);
+	default: return value;
+	}
+}
+
 }  // namespace
 
 // The internal LowIR symbol of a namespace-scope name.  13.5's `operator+` and
@@ -811,6 +830,15 @@ void LowirUnitLowering::declaration(const DumpNode& node)
 unsigned long long LowirUnitLowering::narrowed(TypeId type,
                                                unsigned long long bits)
 {
+	const TypeId bare = types_.strip_cv(type);
+	if (types_.kind(bare) == TypeKind::Fundamental &&
+	    types_.fundamental_type(bare) == FT_BOOL)
+	{
+		// 4.12p1: a value converted to `bool` is `false` where it is zero and
+		// `true` for every other one, which keeps no low bits at all - so the
+		// storage holds one and not whatever the source's low byte was.
+		return bits != 0 ? 1 : 0;
+	}
 	const unsigned long long size = width(type);
 	if (size == 0 || size >= 8)
 	{
@@ -915,6 +943,120 @@ bool LowirUnitLowering::floating_image(const DumpNode& node, std::string& text)
 	return true;
 }
 
+// 3.6.2p2 over an object of floating type whose storage holds one value rather
+// than a run of items: what that object holds, as the value itself.
+//
+// The digits above are what the program wrote for one *clause*, and a clause is
+// all an aggregate's items are described by.  A scalar object is different: its
+// initializer is a full expression, so what the storage holds is what that
+// expression came to - `constexpr float v = 16777217.0;` holds the `float`
+// nearest those digits and not the `double` they name, and `constexpr double g
+// = third(9.0);` holds a value no part of the program ever spelled.  So this is
+// the fold, and 5.19 already worked out every operand it stands on.
+bool LowirUnitLowering::folded_real(const DumpNode& node, long double& value)
+{
+	const SemaFact& fact = node.fact;
+	const bool real =
+		fact.type != kNoType && types_.is_floating(types_.strip_cv(fact.type));
+	if (real && fact.constant)
+	{
+		// A floating literal, and a call the analysis folded: each carries what
+		// it is worth beside the line that spells it.
+		value = fact.real;
+		return true;
+	}
+	if (real && fact.kind == FactKind::Id && fact.entity != nullptr &&
+	    fact.entity->constant)
+	{
+		value = fact.entity->real;
+		return true;
+	}
+	if (node.children.size() == 1 &&
+	    (fact.kind == FactKind::Cast || fact.kind == FactKind::BracedInitList))
+	{
+		// 4.8 over 5.4p4 and 8.5.4: what a conversion, and what the one clause
+		// of a braced-init-list, is worth is what stands under it - brought to
+		// this node's own width, which is where 8.5.4p7's narrowing was already
+		// checked and where a wider value is rounded.
+		if (!folded_real(*node.children[0], value))
+		{
+			return false;
+		}
+		value = real ? held_at(types_, fact.type, value) : value;
+		return true;
+	}
+	if (fact.kind == FactKind::BracedInitList && node.children.empty())
+	{
+		// 8.5.4p3: `{}` value-initializes the object, whose zero this is.
+		value = 0;
+		return true;
+	}
+	if (real && fact.kind == FactKind::Unary && node.children.size() == 1 &&
+	    (fact.op == OP_PLUS || fact.op == OP_MINUS))
+	{
+		if (!folded_real(*node.children[0], value))
+		{
+			return false;
+		}
+		value = fact.op == OP_MINUS ? -value : value;
+		return true;
+	}
+	if (fact.kind == FactKind::Conditional && node.children.size() == 3)
+	{
+		// 5.16p1: the condition chooses which of the two the value is, and a
+		// constant condition chooses at translation time.
+		unsigned long long chosen = 0;
+		if (!folded(*node.children[0], chosen))
+		{
+			return false;
+		}
+		return folded_real(*node.children[chosen != 0 ? 1 : 2], value);
+	}
+	if (real && fact.kind == FactKind::Binary && node.children.size() == 2 &&
+	    types_.is_floating(types_.strip_cv(fact.operands)))
+	{
+		// 5.6 and 5.7 over the type 5p9 brought both operands to, which is
+		// where 4.8's rounding happens - a `float` sum is a `float` before the
+		// operator above it reads it.
+		long double left = 0;
+		long double right = 0;
+		if (!folded_real(*node.children[0], left) ||
+		    !folded_real(*node.children[1], right))
+		{
+			return false;
+		}
+		left = held_at(types_, fact.operands, left);
+		right = held_at(types_, fact.operands, right);
+		switch (fact.op)
+		{
+		case OP_PLUS: value = left + right; break;
+		case OP_MINUS: value = left - right; break;
+		case OP_STAR: value = left * right; break;
+		case OP_DIV:
+			if (right == 0)
+			{
+				return false;
+			}
+			value = left / right;
+			break;
+		default: return false;
+		}
+		value = held_at(types_, fact.operands, value);
+		return true;
+	}
+	unsigned long long bits = 0;
+	if (!folded(node, bits))
+	{
+		return false;
+	}
+	// 4.9p2: an integer constant initializing an object of floating type is
+	// converted to it, and the value it converts to is the one it names.
+	value = is_signed(fact.type)
+		? static_cast<long double>(static_cast<long long>(bits))
+		: static_cast<long double>(bits);
+	return true;
+}
+
 // 3.6.2p2: the constant an item of the program image holds, spelled at the type
 // the storage has.  An integral value is the one 5.19's fold works out; a
 // floating one is the spelling 2.14.4 gave it, because there is no integer of
@@ -998,16 +1140,51 @@ bool LowirUnitLowering::folded(const DumpNode& node, unsigned long long& bits)
 	}
 	if (fact.kind == FactKind::Id && fact.entity != nullptr &&
 	    fact.entity->constant &&
-	    !types_.is_class(types_.strip_cv(fact.entity->type)))
+	    !types_.is_class(types_.strip_cv(fact.entity->type)) &&
+	    types_.kind(types_.strip_cv(fact.entity->type)) != TypeKind::Array)
 	{
-		// A constant of class type holds the identifier of the list its
-		// subobjects came to and not a value of the object's own width, so it
-		// is no operand a fold of this initializer may stand.
+		// A constant of class or array type holds the identifier of the list
+		// its subobjects came to and not a value of the object's own width, so
+		// it is no operand a fold of this initializer may stand.
 		bits = fact.entity->value;
 		return true;
 	}
 	if (fact.kind == FactKind::Cast && node.children.size() == 1)
 	{
+		if (types_.is_floating(
+			    types_.strip_cv(node.children[0]->fact.type)))
+		{
+			// 4.9p1: a floating value converted to an integral type keeps the
+			// part before the point, and 5.19 leaves a conversion that no
+			// integral type holds outside a constant expression.
+			long double held = 0;
+			if (!folded_real(*node.children[0], held))
+			{
+				return false;
+			}
+			if (types_.kind(types_.strip_cv(fact.type)) ==
+			        TypeKind::Fundamental &&
+			    types_.fundamental_type(types_.strip_cv(fact.type)) == FT_BOOL)
+			{
+				// 4.12p1: the conversion to `bool` asks only whether the value
+				// is zero, so the part before the point is no part of it.
+				bits = held != 0 ? 1 : 0;
+				return true;
+			}
+			if (!(held > -9.3e18L && held < 1.85e19L))
+			{
+				return false;
+			}
+			bits = held < 0 ? static_cast<unsigned long long>(
+			                      static_cast<long long>(held))
+			                : static_cast<unsigned long long>(held);
+			if (types_.is_integral(types_.strip_cv(fact.type)) ||
+			    types_.kind(types_.strip_cv(fact.type)) == TypeKind::Enum)
+			{
+				bits = narrowed(fact.type, bits);
+			}
+			return true;
+		}
 		if (!folded(*node.children[0], bits))
 		{
 			return false;
@@ -1056,6 +1233,30 @@ bool LowirUnitLowering::folded(const DumpNode& node, unsigned long long& bits)
 	if (fact.kind != FactKind::Binary || node.children.size() != 2)
 	{
 		return false;
+	}
+	if (types_.is_floating(types_.strip_cv(fact.operands)))
+	{
+		// 5.9p1 and 5.10p1: a comparison of two floating operands is a `bool`,
+		// so the node itself is integral and only its operands are not.
+		long double left_real = 0;
+		long double right_real = 0;
+		if (!folded_real(*node.children[0], left_real) ||
+		    !folded_real(*node.children[1], right_real))
+		{
+			return false;
+		}
+		left_real = held_at(types_, fact.operands, left_real);
+		right_real = held_at(types_, fact.operands, right_real);
+		switch (fact.op)
+		{
+		case OP_LT: bits = left_real < right_real ? 1 : 0; return true;
+		case OP_GT: bits = left_real > right_real ? 1 : 0; return true;
+		case OP_LE: bits = left_real <= right_real ? 1 : 0; return true;
+		case OP_GE: bits = left_real >= right_real ? 1 : 0; return true;
+		case OP_EQ: bits = left_real == right_real ? 1 : 0; return true;
+		case OP_NE: bits = left_real != right_real ? 1 : 0; return true;
+		default: return false;
+		}
 	}
 	unsigned long long left = 0;
 	unsigned long long right = 0;
@@ -1801,6 +2002,23 @@ bool LowirUnitLowering::global_initializer(lowir_model::GlobalDefinition& global
 		global.init_operand.kind = lowir_model::Operand::OP_GLOBAL;
 		global.init_operand.text = symbol;
 		global.addr_addend = addend;
+		return true;
+	}
+	if (types_.is_floating(types_.strip_cv(type)))
+	{
+		// 3.6.2p2: the storage of a scalar object holds one value, and what the
+		// initializer of an object of floating type came to is that value -
+		// not the digits one of its operands was written with.
+		long double held = 0;
+		if (!folded_real(node, held))
+		{
+			return false;
+		}
+		global.init_kind = lowir_model::GlobalDefinition::INIT_INTEGER;
+		global.init_operand.kind = lowir_model::Operand::OP_INTEGER;
+		global.init_operand.text = spell_floating(
+			type, spell_floating_value(
+				      types_.fundamental_type(types_.strip_cv(type)), held));
 		return true;
 	}
 	if (!image_value(node, type, global.init_operand.text))

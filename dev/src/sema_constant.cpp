@@ -40,6 +40,14 @@ bool SemaAnalyzer::is_signed(TypeId type) const
 	{
 		return true;
 	}
+	if (types_.is_floating(arithmetic))
+	{
+		// 3.9.1p8: a floating type has no unsigned counterpart, so every value
+		// of one carries a sign - which is what the readings that ask this
+		// about the *bits* of an integral value have to be told before they
+		// take a floating one for an unsigned number.
+		return true;
+	}
 	return fundamental_type_class(types_.fundamental_type(arithmetic)) ==
 		FundamentalTypeClass::SignedIntegral;
 }
@@ -55,8 +63,8 @@ unsigned SemaAnalyzer::width_of(TypeId type) const
 		fundamental_type_size(types_.fundamental_type(arithmetic)) * 8);
 }
 
-// 4.5 and 7.2p9: the integral type a value of `type` is read as, which for an
-// enumeration is its underlying type and for anything else is itself.
+// 3.9.1p8 and 7.2p9: the arithmetic type a value of `type` is read as, which
+// for an enumeration is its underlying type and for anything else is itself.
 TypeId SemaAnalyzer::arithmetic_type(TypeId type) const
 {
 	TypeId current = type;
@@ -65,15 +73,34 @@ TypeId SemaAnalyzer::arithmetic_type(TypeId type) const
 		current = types_.target(current);
 	}
 	if (types_.kind(current) != TypeKind::Fundamental ||
-	    !fundamental_type_is_integral(types_.fundamental_type(current)))
+	    !fundamental_type_is_arithmetic(types_.fundamental_type(current)))
 	{
 		return kNoType;
 	}
 	return current;
 }
 
-std::string SemaAnalyzer::spell_value(TypeId type, unsigned long long bits) const
+// The same question where the place asks for an integral value rather than for
+// any arithmetic one: 14.1p4's non-type template parameter, 4.5's promotion,
+// and every reading that goes on to hold what it gets as bits.
+TypeId SemaAnalyzer::integral_type(TypeId type) const
 {
+	const TypeId arithmetic = arithmetic_type(type);
+	return arithmetic == kNoType || types_.is_floating(arithmetic) ? kNoType
+	                                                               : arithmetic;
+}
+
+std::string SemaAnalyzer::spell_value(TypeId type, unsigned long long bits,
+                                      long double real) const
+{
+	const TypeId arithmetic = arithmetic_type(type);
+	if (arithmetic != kNoType && types_.is_floating(arithmetic))
+	{
+		// 2.14.4: a floating value is spelled as the digits it is worth, which
+		// is what the reader of this line has to arrive back at it from - the
+		// bits beside it are the value of no floating constant.
+		return spell_floating_value(types_.fundamental_type(arithmetic), real);
+	}
 	std::string digits;
 	unsigned long long magnitude = bits;
 	const bool negative = is_signed(type) && (bits >> 63) != 0;
@@ -100,6 +127,20 @@ SemaAnalyzer::Constant SemaAnalyzer::convert(const Constant& given, TypeId type)
 	// conversion function hands back.  Every other constant is itself.
 	const Constant value =
 		ConstexprReading(*this).at_arithmetic_place(given, arithmetic_type(type));
+	const TypeId from = arithmetic_type(value.type);
+	const TypeId to = arithmetic_type(type);
+	const bool from_real = from != kNoType && types_.is_floating(from);
+	if (to != kNoType && from == kNoType &&
+	    types_.kind(types_.strip_cv(value.type)) == TypeKind::Array)
+	{
+		// 4.2p1: an array reaches a value place as a pointer to its first
+		// element, and 5.19p2 leaves this reading no address at all - so the
+		// list identifier the constant holds is a number no conversion of it
+		// may read.  `at_arithmetic_place` above has already spent 5.19p3's
+		// conversion function on an object of class type; nothing answers here.
+		throw NotConstant("a constant expression reads an array where a value "
+		                  "of arithmetic type belongs");
+	}
 	Constant out;
 	out.type = type;
 	if (types_.kind(type) == TypeKind::Fundamental &&
@@ -109,8 +150,45 @@ SemaAnalyzer::Constant SemaAnalyzer::convert(const Constant& given, TypeId type)
 		// `true` for every other one, which keeps no low bits at all - so
 		// 14.3.2p5 makes `A<3>` and `A<true>` one specialization of
 		// `template<bool>` and `int a[(bool)5]` one element.
-		out.bits = value.bits != 0 ? 1 : 0;
+		out.bits = (from_real ? value.real != 0 : value.bits != 0) ? 1 : 0;
 		return out;
+	}
+	if (to != kNoType && types_.is_floating(to))
+	{
+		// 4.8p1 and 4.9p2: a floating value converted to a floating type is
+		// that value rounded to the new one's precision, and an integral value
+		// converted to one is the value it names.  The rounding is the target
+		// machine's own, which for these three widths is this machine's.
+		const long double held = from_real
+			? value.real
+			: (is_signed(value.type)
+			       ? static_cast<long double>(
+			             static_cast<long long>(value.bits))
+			       : static_cast<long double>(value.bits));
+		switch (types_.fundamental_type(to))
+		{
+		case FT_FLOAT: out.real = static_cast<float>(held); break;
+		case FT_DOUBLE: out.real = static_cast<double>(held); break;
+		default: out.real = held; break;
+		}
+		return out;
+	}
+	if (from_real)
+	{
+		// 4.9p1: a floating value converted to an integral type keeps the part
+		// before the point, and the conversion stands only where the integral
+		// type can represent it - which is what makes an out-of-range one no
+		// constant expression rather than a value of its own.
+		if (!(value.real > -9.3e18L && value.real < 1.85e19L))
+		{
+			throw NotConstant("a constant expression converts a floating value "
+			                  "no integral type of this translation holds");
+		}
+		out.bits = value.real < 0
+			? static_cast<unsigned long long>(
+			      static_cast<long long>(value.real))
+			: static_cast<unsigned long long>(value.real);
+		return convert(out, type);
 	}
 	const unsigned width = width_of(type);
 	if (width >= 64)
@@ -139,10 +217,13 @@ SemaAnalyzer::Constant SemaAnalyzer::promote(const Constant& given)
 	if (arithmetic == kNoType)
 	{
 		throw NotConstant("a constant expression has a type that is not "
-		                         "integral");
+		                         "arithmetic");
 	}
-	if (width_of(arithmetic) >= 32)
+	if (types_.is_floating(arithmetic) || width_of(arithmetic) >= 32)
 	{
+		// 4.5 promotes no floating type: 5p10 is what brings a `float` to the
+		// width of the other operand, and it is asked where an operator has
+		// two of them rather than here.
 		Constant out = value;
 		out.type = arithmetic;
 		return out;
@@ -150,12 +231,32 @@ SemaAnalyzer::Constant SemaAnalyzer::promote(const Constant& given)
 	return convert(value, types_.fundamental(FT_INT));
 }
 
-// 5p10: the usual arithmetic conversions over the integral types.
+// 5p10: the usual arithmetic conversions.  A floating operand decides for both,
+// at the widest of the floating types either of them is; otherwise the two are
+// brought to one integral type by the rank and signedness rules below.
 TypeId SemaAnalyzer::common_type(TypeId left, TypeId right)
 {
 	if (left == right)
 	{
 		return left;
+	}
+	const TypeId left_arithmetic = arithmetic_type(left);
+	const TypeId right_arithmetic = arithmetic_type(right);
+	const bool left_real =
+		left_arithmetic != kNoType && types_.is_floating(left_arithmetic);
+	const bool right_real =
+		right_arithmetic != kNoType && types_.is_floating(right_arithmetic);
+	if (left_real || right_real)
+	{
+		if (!left_real)
+		{
+			return right;
+		}
+		if (!right_real)
+		{
+			return left;
+		}
+		return width_of(left) >= width_of(right) ? left : right;
 	}
 	const unsigned left_width = width_of(left);
 	const unsigned right_width = width_of(right);
@@ -175,21 +276,29 @@ TypeId SemaAnalyzer::common_type(TypeId left, TypeId right)
 
 SemaAnalyzer::Constant SemaAnalyzer::literal_constant(const std::string& spelling)
 {
-	// 5.19p2: only an integral literal has a value a constant expression can
-	// hold, and which of 2.14p1's literals this one is is the same question the
+	// 5.19p2: which of 2.14p1's literals this one is is the same question the
 	// expression layer asks - so it is asked of the same owner, and a character
-	// literal that holds a `"` is a character literal here too.
+	// literal that holds a `"` is a character literal here too.  A string
+	// literal is the one whose value is an array rather than a number, and
+	// 5.19p2 reaches its elements through a subscript and not through this.
 	PostToken token;
 	scan_literal(spelling, token);
 	if (token.kind != PostTokenKind::Literal ||
-	    !fundamental_type_is_integral(token.type))
+	    !fundamental_type_is_arithmetic(token.type))
 	{
 		throw NotConstant("a constant expression holds a literal that has "
-		                         "no integral value");
+		                         "no arithmetic value");
 	}
 
 	Constant out;
 	out.type = types_.fundamental(token.type);
+	if (fundamental_type_is_floating(token.type))
+	{
+		// 2.14.4p1: the value is the one the literal was scanned to, already
+		// held at the width its floating-suffix gave it.
+		out.real = token.real_value();
+		return out;
+	}
 	out.bits = integer_of(token.data);
 	return convert(out, out.type);
 }
@@ -262,16 +371,21 @@ SemaAnalyzer::Constant SemaAnalyzer::evaluate(const AstNode& node,
 		{
 			array = array->children[0];
 		}
-		if (array->kind != AstKind::Literal)
+		// 5.2.1p1: the subscript names an element, so what it is worth is an
+		// integer and 4.9's conversion of a floating one is no part of it.
+		if (array->kind == AstKind::Literal)
 		{
-			throw NotConstant("a constant expression subscripts something "
-			                  "that is not a string literal");
+			// 2.14.5p8: a string literal is an array object no declaration
+			// named, so what it holds is read out of the literal itself.
+			return string_element(
+				array->text,
+				ConstexprReading(*this).counted(
+					evaluate(*node.children[1], ctx)));
 		}
-		return string_element(
-			array->text,
-			ConstexprReading(*this)
-				.at_arithmetic_place(evaluate(*node.children[1], ctx), kNoType)
-				.bits);
+		const Constant held = evaluate(*array, ctx);
+		return ConstexprReading(*this).element_value(
+			held, ConstexprReading(*this).counted(
+				      evaluate(*node.children[1], ctx)));
 	}
 
 	case AstKind::IdExpression:
@@ -317,7 +431,7 @@ SemaAnalyzer::Constant SemaAnalyzer::evaluate(const AstNode& node,
 		if (arithmetic_type(type) == kNoType)
 		{
 			throw NotConstant("a constant expression casts to a type that "
-			                         "is not integral");
+			                         "is not arithmetic");
 		}
 		const Constant value = evaluate(*node.children[1], ctx);
 		Constant out = convert(value, type);
@@ -442,14 +556,16 @@ unsigned long long SemaAnalyzer::array_bound(const AstNode& node,
                                              const Context& ctx)
 {
 	// 8.3.4p1: the bound is a converted constant expression of type
-	// `std::size_t`, which 5.19p3 leaves its user-defined conversions.
+	// `std::size_t`, which 5.19p3 leaves its user-defined conversions - and
+	// which counts elements, so a floating value is no bound at all.
 	const Constant value = ConstexprReading(*this).at_arithmetic_place(
 		evaluate(node, ctx), kNoType);
-	if (is_signed(value.type) && (value.bits >> 63) != 0)
+	const unsigned long long bound = ConstexprReading(*this).counted(value);
+	if (is_signed(value.type) && (bound >> 63) != 0)
 	{
 		throw std::runtime_error("an array bound is negative");
 	}
-	if (value.bits == 0)
+	if (bound == 0)
 	{
 		if (checking_ > 0)
 		{

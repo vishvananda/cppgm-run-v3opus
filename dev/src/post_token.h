@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstring>
 #include <string>
 
 #include "token_model.h"
@@ -108,6 +109,30 @@ struct PostToken
 		{
 			value |= ~((1ULL << bits) - 1);
 		}
+		return value;
+	}
+
+	// The inverse of the floating half of the same store: the value of a
+	// floating-literal, read back out of the object representation 2.14.4 gave
+	// it and widened to the widest floating type so that one carrier holds all
+	// three of 3.9.1p8's.  The x86-64 `long double` occupies ten of its sixteen
+	// bytes, which is what the store wrote and what this reads.
+	long double real_value() const
+	{
+		if (type == FT_FLOAT)
+		{
+			float value = 0;
+			std::memcpy(&value, data.data(), sizeof value);
+			return value;
+		}
+		if (type == FT_DOUBLE)
+		{
+			double value = 0;
+			std::memcpy(&value, data.data(), sizeof value);
+			return value;
+		}
+		long double value = 0;
+		std::memcpy(&value, data.data(), sizeof value);
 		return value;
 	}
 };

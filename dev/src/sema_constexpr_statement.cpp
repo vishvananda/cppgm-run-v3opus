@@ -119,9 +119,23 @@ bool ConstexprReading::truth(const SemaConstant& value)
 {
 	// 4p3: a condition is contextually converted to `bool`, which for an object
 	// of class type is 12.3.2p1's conversion function - the same reading every
-	// other arithmetic place asks, with `bool` as the place.
-	return at_arithmetic_place(value, analyzer_.types_.fundamental(FT_BOOL))
+	// other arithmetic place asks, with `bool` as the place.  4.12p1 makes the
+	// answer `bool`, so the conversion is what reads a floating value and this
+	// looks at the bits it left.
+	const TypeId to_bool = analyzer_.types_.fundamental(FT_BOOL);
+	return analyzer_.convert(at_arithmetic_place(value, to_bool), to_bool)
 		       .bits != 0;
+}
+
+unsigned long long ConstexprReading::counted(const SemaConstant& given)
+{
+	const SemaConstant value = at_arithmetic_place(given, kNoType);
+	if (analyzer_.integral_type(value.type) == kNoType)
+	{
+		throw NotConstant("a constant expression counts objects with a value "
+		                  "that is not integral");
+	}
+	return value.bits;
 }
 
 SemaContext ConstexprReading::block_region(const AstNode& node,
@@ -254,6 +268,7 @@ void ConstexprReading::declared(const AstNode& node, const SemaContext& ctx,
 			value = analyzer_.convert(value, type);
 		}
 		object.value = value.bits;
+		object.real = value.real;
 		object.constant = true;
 	}
 }
@@ -300,6 +315,7 @@ bool ConstexprReading::condition_value(const AstNode& node,
 		value = analyzer_.convert(value, type);
 	}
 	object.value = value.bits;
+	object.real = value.real;
 	object.constant = true;
 	value.type = type;
 	return truth(value);
@@ -551,6 +567,7 @@ SemaConstant ConstexprReading::assignment_constant(const AstNode& node,
 		SemaConstant held;
 		held.type = target.type;
 		held.bits = target.value;
+		held.real = target.real;
 		value = binary_value(compound_operator(node.token), held, written);
 	}
 	if (analyzer_.arithmetic_type(target.type) != kNoType)
@@ -561,6 +578,7 @@ SemaConstant ConstexprReading::assignment_constant(const AstNode& node,
 	}
 	value.type = target.type;
 	target.value = value.bits;
+	target.real = value.real;
 	target.constant = true;
 	return value;
 }
@@ -583,6 +601,7 @@ SemaConstant ConstexprReading::increment_constant(const AstNode& node,
 	SemaConstant held;
 	held.type = target.type;
 	held.bits = target.value;
+	held.real = target.real;
 	SemaConstant one;
 	one.type = analyzer_.types_.fundamental(FT_INT);
 	one.bits = 1;
@@ -594,6 +613,7 @@ SemaConstant ConstexprReading::increment_constant(const AstNode& node,
 	}
 	next.type = target.type;
 	target.value = next.bits;
+	target.real = next.real;
 	// 5.2.6p1: the postfix forms hand back the value the object held, and
 	// 5.3.2p1's prefix forms hand back the object as it now stands.
 	return prefix ? next : held;

@@ -122,6 +122,11 @@ public:
 	// operator is one rule here rather than one per spelling that reaches it.
 	SemaConstant binary_value(unsigned token, const SemaConstant& left,
 	                          const SemaConstant& right);
+	// The same operator where 5p10 brought both operands to one of 3.9.1p8's
+	// floating types, which is the arm of it no integer of this translation
+	// answers.
+	SemaConstant real_value(unsigned token, long double left, long double right,
+	                        TypeId type);
 
 	// 4p3 and 6.4p4: whether a value taken as a condition is true, which for an
 	// object of class type is what 12.3.2p1's conversion to `bool` hands back.
@@ -178,9 +183,23 @@ public:
 	SemaConstant object_of(TypeId type,
 	                       const std::vector<SemaConstant>& written);
 
+	// 8.5.1p2 and p7 over an array: the same reading where the subobjects the
+	// clauses reach are 8.3.4p6's elements rather than 9.2p1's members, so
+	// which one a clause initializes is its position and no lookup at all, and
+	// the elements past the last clause are value-initialized.
+	SemaConstant array_of(TypeId type,
+	                      const std::vector<SemaConstant>& written);
+	// 5.2.1p1: the element a subscript of such an array names.
+	SemaConstant element_value(const SemaConstant& array,
+	                           unsigned long long index);
+
 	// True where the constant stands for such an object rather than for a value
 	// of arithmetic type, which is what says its bits are a list identifier.
+	// `is_object` is the reading that asks for a *class*, because 5.2.5p1's
+	// member access and 12.3.2p1's conversion function are questions only a
+	// class answers; `holds_list` is the same fact about the bits.
 	bool is_object(const SemaConstant& value) const;
+	bool holds_list(const SemaConstant& value) const;
 
 	// 5.2.5p1 over an object a constant expression holds: what `E.m` comes to
 	// where `m` is 9.2p1's non-static data member, which is the subobject the
@@ -216,6 +235,13 @@ public:
 	// count, and `convert` and `promote` for everything that reaches an
 	// operator or an initialization through them.
 	SemaConstant at_arithmetic_place(const SemaConstant& value, TypeId place);
+
+	// The same reading where the place *counts* rather than holds a number: an
+	// array bound, a subscript, a shift width.  Each of those is an integral
+	// constant expression, so 4.9's conversion of a floating value is no part
+	// of what reaches it and a value of floating type is refused there rather
+	// than truncated to one.
+	unsigned long long counted(const SemaConstant& value);
 
 	// 12.3.2p1 with 14.3.2p5: `value`, an object of class type, brought to the
 	// type `place` by a conversion function of its class.  13.3.3p1 leaves the

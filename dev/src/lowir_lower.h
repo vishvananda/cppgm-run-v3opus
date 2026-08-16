@@ -450,9 +450,14 @@ public:
 	std::string spell_floating(TypeId type, const std::string& written);
 
 private:
-	// 2.14.4: the digits of the floating constant an initializer is worth, and
-	// one floating value spelled at the width the storage has.
+	// 2.14.4: the digits of the floating constant a *clause* of an aggregate
+	// initializer was written with, which is what an item of a structured image
+	// carries.
 	bool floating_image(const DumpNode& node, std::string& text);
+	// 3.6.2p2 over a scalar object of floating type: what its initializer came
+	// to, which is a value and not a spelling - so a conversion inside it
+	// rounds and a folded call answers at all.
+	bool folded_real(const DumpNode& node, long double& value);
 	// The definitions of this unit, gathered before any of it is lowered.
 	void collect_definitions(const DumpNode& node);
 	// 3.7.2p2: the definitions with thread storage duration, lowered before any

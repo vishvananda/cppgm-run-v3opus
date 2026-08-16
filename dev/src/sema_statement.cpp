@@ -527,9 +527,12 @@ void SemaAnalyzer::case_statement(const AstNode& node, const Context& ctx,
 		if (!is_default && index == 0)
 		{
 			// 6.4.2p2: the constant-expression of a case label shall be a
-			// converted constant expression of the switch condition's type.
-			const Constant label = ConstexprReading(*this).at_arithmetic_place(
+			// converted constant expression of the switch condition's promoted
+			// type, which 4.5 leaves integral - so a floating value reaches no
+			// label however 4.9 would convert one.
+			Constant label = ConstexprReading(*this).at_arithmetic_place(
 				evaluate(child, ctx), kNoType);
+			label.bits = ConstexprReading(*this).counted(label);
 			DumpNode& written =
 				open_fact(line, spell("literal", ValueCategory::PRValue,
 				                      label.type,

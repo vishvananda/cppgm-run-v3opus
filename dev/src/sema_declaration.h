@@ -437,14 +437,24 @@ public:
 
 // A value of the 5.19 subset: what it is worth, and the type that says how
 // wide it is and whether it is signed.
+//
+// 3.9.1p8 leaves two kinds of arithmetic value, and no integer of this
+// translation holds one of the floating ones - so which of the two fields says
+// what the constant is worth is what the type says, and every reading that
+// takes a value asks the type first.  `bits` carries an integral value, and for
+// a constant that stands for an object of class type it carries the identifier
+// of the interned list its subobjects hold; `real` carries a floating one,
+// already rounded to the width its type gives it.
 struct SemaConstant
 {
 	SemaConstant()
 		: type(kNoType)
 		, bits(0)
+		, real(0)
 	{}
 
 	TypeId type;
 	unsigned long long bits;
+	long double real;
 };
 

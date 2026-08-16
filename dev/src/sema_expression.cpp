@@ -283,6 +283,7 @@ void SemaAnalyzer::record(const Value& value) const
 	fact.entity = value.entity;
 	fact.constant = value.constant;
 	fact.value = value.value;
+	fact.real = value.real;
 	if (fact.kind == FactKind::Literal &&
 	    types_.is_floating(const_cast<TypeTable&>(types_).strip_cv(value.type)))
 	{
@@ -548,7 +549,7 @@ SemaAnalyzer::Value SemaAnalyzer::named_value(const AstNode& node,
 	if (entity.kind == SemaKind::Enumerator ||
 	    (entity.kind == SemaKind::TemplateValue && entity.constant) ||
 	    (entity.kind == SemaKind::Variable && entity.constant &&
-	     !types_.is_class(types_.strip_cv(entity.type)) &&
+	     arithmetic_type(entity.type) != kNoType &&
 	     !entity.object_definition && entity.region != nullptr &&
 	     entity.region->kind == ScopeKind::Class))
 	{
@@ -562,9 +563,10 @@ SemaAnalyzer::Value SemaAnalyzer::named_value(const AstNode& node,
 		value.category = ValueCategory::PRValue;
 		value.constant = true;
 		value.value = entity.value;
+		value.real = entity.real;
 		value.entity = &entity;
 		value.what = "literal";
-		value.payload = spell_value(entity.type, entity.value);
+		value.payload = spell_value(entity.type, entity.value, entity.real);
 		value.node = &model_.open_node(
 			parent, spell(value.what, value.category, value.type, value.payload));
 		return value;
@@ -1458,6 +1460,16 @@ SemaAnalyzer::Value SemaAnalyzer::literal_value(const PostToken& token,
 	}
 	value.type = types_.fundamental(token.type);
 	value.spelled = value.type;
+	if (fundamental_type_is_floating(token.type))
+	{
+		// 2.14.4p1: the value the literal was scanned to, which the digits
+		// beside it are only one spelling of - 3.6.2p2's image has to hold the
+		// value the object of this type takes, and that is not always these
+		// digits read back.  5.19p2 makes it a constant like any other literal,
+		// which is what lets it stand as an argument of a folded call.
+		value.constant = true;
+		value.real = token.real_value();
+	}
 	if (fundamental_type_is_integral(token.type))
 	{
 		value.constant = true;

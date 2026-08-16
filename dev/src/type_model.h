@@ -3,7 +3,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <map>
 #include <string>
+#include <utility>
 #include <unordered_map>
 #include <vector>
 
@@ -206,6 +208,15 @@ public:
 	TypeId value_type(TypeId type, unsigned long long bits);
 	bool is_value(TypeId type) const { return kind(type) == TypeKind::Value; }
 	unsigned long long value_bits(TypeId type) const { return nodes_[type].bound; }
+
+	// The same entry for a value of one of 3.9.1p8's floating types, which no
+	// `unsigned long long` holds: the x86-64 `long double` has a 64 bit
+	// significand beside its sign and exponent.  So the entry is interned by an
+	// index into the pool of the distinct floating values this translation has
+	// met, and the pool answers what the index stands for.  A value met twice
+	// is one index, which is what keeps an entry a key two folds agree on.
+	TypeId real_type(TypeId type, long double value);
+	long double value_real(TypeId type) const { return reals_[nodes_[type].bound]; }
 
 	// 14.5.3p1: the run of arguments a template-argument-list bound to a pack
 	// place, and 14.5.3p4's expansion of a pattern that names one.  A run is
@@ -776,6 +787,14 @@ private:
 	std::deque<UserType> user_types_;
 	// The array types `qualified` is between, innermost last.
 	std::vector<TypeId> dimensions_;
+	// 4.8: the distinct floating values a value entry has been made for, and
+	// the index each is held at.  The key is the decomposition 3.9.1p8's
+	// representation gives one - sign, exponent and significand - which tells
+	// `0.0` from `-0.0` and tells two `long double`s apart that agree to
+	// `double` precision, neither of which a comparison of `double`s does.
+	std::vector<long double> reals_;
+	std::map<std::pair<long long, unsigned long long>, unsigned long long>
+		real_ids_;
 	std::unordered_map<Key, TypeId, KeyHash> ids_;
 	// The unqualified type each declaration of a class, enumeration or template
 	// parameter introduced, keyed by the entity that declared it.

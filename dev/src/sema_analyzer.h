@@ -1342,10 +1342,14 @@ private:
 	unsigned long long size_of(TypeId type);
 	bool is_signed(TypeId type) const;
 	unsigned width_of(TypeId type) const;
-	// The integral type an enumeration's values are read as.
+	// 3.9.1p8: the arithmetic type a value of `type` is read as - an
+	// enumeration's underlying type, a fundamental one itself - and the
+	// narrower question 14.1p4 and 4.5 ask, which no floating type answers.
+	// A value as the dump writes it; `real` is what a floating type is worth.
 	TypeId arithmetic_type(TypeId type) const;
-	// A value as the dump writes it, signed when its type is.
-	std::string spell_value(TypeId type, unsigned long long bits) const;
+	TypeId integral_type(TypeId type) const;
+	std::string spell_value(TypeId type, unsigned long long bits,
+	                        long double real = 0) const;
 
 	// Statements (sema_statement.cpp).
 	//

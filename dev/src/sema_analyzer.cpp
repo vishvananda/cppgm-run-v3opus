@@ -135,6 +135,7 @@ AnalyzedValue::AnalyzedValue()
 	, nonnull(false)
 	, constant(false)
 	, value(0)
+	, real(0)
 	, entity(nullptr)
 	, op(0)
 	, operands(kNoType)
@@ -2520,9 +2521,21 @@ void SemaAnalyzer::fold_constant_object(SemaEntity& entity,
 	// 3.9p10 and 7.1.5p9: an object of literal *class* type is a constant of
 	// the same standing - `constexpr Lit lit(42);` gives `lit.value` a value
 	// 5.19 reads - and what it comes to is the interned list of what its
-	// subobjects hold, which `ConstexprReading::object_of` builds.
-	const bool built = types_.is_class(bare);
-	if (wrote == nullptr || (types_.cv(type) & kCvConst) == 0 ||
+	// subobjects hold, which `ConstexprReading::object_of` builds.  3.9p10
+	// makes an array of literal type a literal type too, and 8.3.4p6 makes its
+	// elements subobjects of it exactly as a class's members are, so an array
+	// is one of these and its list is what a subscript reads.
+	const bool built =
+		types_.is_class(bare) || types_.kind(bare) == TypeKind::Array;
+	// 8.3.4p1: a cv-qualified array is an array of cv-qualified *elements*, so
+	// the `const` 5.19p3 asks about stands on the element type and the array
+	// itself carries none.
+	TypeId qualified = type;
+	while (types_.kind(types_.strip_cv(qualified)) == TypeKind::Array)
+	{
+		qualified = types_.target(types_.strip_cv(qualified));
+	}
+	if (wrote == nullptr || (types_.cv(qualified) & kCvConst) == 0 ||
 	    (!built && arithmetic_type(type) == kNoType))
 	{
 		return;
@@ -2572,11 +2585,16 @@ void SemaAnalyzer::fold_constant_object(SemaEntity& entity,
 			// the object *is* that value and no constructor stands between.
 			value = operands[0];
 		}
+		else if (types_.kind(bare) == TypeKind::Array)
+		{
+			value = ConstexprReading(*this).array_of(bare, operands);
+		}
 		else
 		{
 			value = ConstexprReading(*this).object_of(bare, operands);
 		}
 		entity.value = value.bits;
+		entity.real = value.real;
 		entity.constant = true;
 	}
 	catch (const NotConstant&)
@@ -2788,16 +2806,17 @@ void SemaAnalyzer::declare_object_declarator(const AstNode* initializer,
 		// wrote - which is a fact of the member and not of either declaration's
 		// syntax, and is what makes every unit that defines it define one object.
 		if (defines_object && declared != nullptr && entity.constant &&
-		    !types_.is_class(types_.strip_cv(type)) &&
+		    arithmetic_type(type) != kNoType &&
 		    entity.region != nullptr &&
 		    entity.region->kind == ScopeKind::Class)
 		{
 			DumpNode& held = model_.open_node(
 				line, spell("literal", ValueCategory::PRValue, type,
-				            spell_value(type, entity.value)));
+				            spell_value(type, entity.value, entity.real)));
 			set_fact(held, FactKind::Literal, type, ValueCategory::PRValue);
 			held.fact.constant = true;
 			held.fact.value = entity.value;
+			held.fact.real = entity.real;
 			return;
 		}
 		// 8.5p6: an object of any other type with no initializer holds no value
@@ -2809,14 +2828,15 @@ void SemaAnalyzer::declare_object_declarator(const AstNode* initializer,
 	// hold, so the object it stands for is described by the initialization the
 	// declaration wrote exactly as any other object of that class is.
 	if (entity.constant && specifiers.is_constexpr && !lowering() &&
-	    !types_.is_class(types_.strip_cv(type)))
+	    arithmetic_type(type) != kNoType)
 	{
 		// The dump writes what the object is worth and stops there.  A lowering
 		// still has to give the storage that value: 7.1.5p9 makes a constexpr
 		// object a const object and nothing more, so 3.6.2p2's initialization
 		// of it is the one every other const object at this scope gets.
 		model_.open_node(line, spell("literal", ValueCategory::PRValue, type,
-		                             spell_value(type, entity.value)));
+		                             spell_value(type, entity.value,
+		                                         entity.real)));
 		return;
 	}
 	// 3.6.2p2 and 3.7.1p1: an object at namespace scope, and the static data

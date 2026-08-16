@@ -69,6 +69,9 @@ struct AnalyzedValue
 	bool nonnull;
 	bool constant;
 	unsigned long long value;
+	// 3.9.1p8: what the value is worth where its type is a floating one, which
+	// the integer beside it does not hold.
+	long double real;
 	// The declaration a name stands for, and the token an operator was
 	// written with.  The line spells both; a lowering needs them as the
 	// facts they are, so they travel with the value rather than being

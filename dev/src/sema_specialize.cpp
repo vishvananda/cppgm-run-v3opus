@@ -625,7 +625,7 @@ SemaEntity& Specialization::read_variable(SemaEntity& primary,
 	inner.dump = primary.templated->dump;
 	inner.node = nullptr;
 	const TypeId type = declared_type(*reading.declared, *init, inner);
-	if (analyzer_.arithmetic_type(type) == kNoType)
+	if (analyzer_.integral_type(type) == kNoType)
 	{
 		throw std::runtime_error("a variable template of " +
 		                         analyzer_.types_.description(type) +
