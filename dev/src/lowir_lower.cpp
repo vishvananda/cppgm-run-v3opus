@@ -625,6 +625,13 @@ void LowirUnitLowering::run(const DumpNode& unit)
 		demand_definition_by_id(referenced_[index]);
 		drain_demanded();
 	}
+	// 12.4p8's body for an array is asked for while the definition that ends
+	// one is being lowered, so it is written once no definition is left to ask.
+	while (!pending_functions_.empty())
+	{
+		write_pending_functions();
+		drain_demanded();
+	}
 	if (startup_ != nullptr)
 	{
 		startup_->suspend_generated(builder_.startup_body_);

@@ -375,6 +375,11 @@ public:
 	// declaration declared, which stands under the declaration where no point
 	// of the program the declaration was written at is where it runs.
 	static const DumpNode* declared_destruction(const DumpNode& node);
+	// 12.4p8: the one function a runtime that ends a lifetime is handed - the
+	// destructor itself, or a body of the program's own where the object is an
+	// array and one call would end only its first element.
+	const std::string& destruction_entry(const DumpNode& node,
+	                                     const std::string& object);
 	// 3.7.2p2: the body that initializes one thread's copy of `entity`, or null
 	// where this unit gives the object none - which is every object but a
 	// thread-local one this unit initializes with code.  A use of the name has
@@ -588,6 +593,10 @@ private:
 	std::string local_static_owner(const SemaEntity& owner);
 	std::string local_static_place(const SemaEntity& entity,
 	                               const SemaEntity* owner);
+	// 3.5p3 and 7.1.2p4: whether the definition that declared the object is
+	// one every unit may hold, which is what makes the object one object of
+	// the whole program rather than one of this unit's.
+	bool local_static_shared(const SemaEntity* owner);
 	lowir_model::SymbolBindingMode local_static_binding(
 		const SemaEntity& entity);
 	// 3.6.2p1: whether the initializer denotes an object the image lays out,
@@ -638,6 +647,13 @@ private:
 	// this unit has already named, which is what a translation unit can agree
 	// with another one on where the terminals it read cannot.
 	std::unordered_map<std::string, unsigned> local_static_places_;
+	// 12.4p8: the body that ends every element of one array, against the symbol
+	// the array was laid out under.
+	std::unordered_map<std::string, std::string> destruction_entries_;
+	// The bodies this unit generated while another body was being lowered,
+	// which is where the list `program_.functions` is has a reference into it.
+	std::vector<lowir_model::Function> pending_functions_;
+	void write_pending_functions();
 	// The base-object entry's own symbol, for the constructors and destructors a
 	// base subobject asked for after a complete object already had.  It is kept
 	// apart from `entity_symbols_` because one declaration then stands under two
@@ -776,10 +792,11 @@ private:
 	// whether this run of the program has been through the declaration, and the
 	// initialization and hand-off of the destruction the first run does.
 	void local_static_variable(const DumpNode& node);
-	// 3.6.3p3: the end of that object's lifetime, handed to the runtime at the
-	// address the object stands at where the object was begun.
-	void local_static_destruction(const lowir_model::Operand& address,
-	                              const DumpNode& node);
+	// 3.6.3p3 and 3.7.2p2: the end of an object's lifetime, handed where the
+	// object was begun to the runtime that knows when it comes.
+	void hand_to_runtime(const std::string& runtime, const std::string& object,
+	                     const lowir_model::Operand& address,
+	                     const DumpNode& node);
 	// 8.5: what one declaration writes into the storage it was given.  The
 	// address is the one already in hand where the caller had to compute it -
 	// 3.6.3p3's hand-off of a block-scope `static` to the runtime is that

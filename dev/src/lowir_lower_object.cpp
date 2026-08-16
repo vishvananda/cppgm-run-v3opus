@@ -1908,38 +1908,15 @@ void LowirFunctionLowering::add_thread_initialization(const std::string& guard,
 	if (destruction != nullptr)
 	{
 		// 3.7.2p2 and 12.4p11: the object's lifetime ends with its thread, and
-		// the runtime is what knows when that is - so what ends it is given to
-		// the runtime as the object it runs on and the function it runs, with
-		// the image the pair belongs to.  The runtime runs them in the reverse
-		// of the order it was given them, which is the order the objects of
-		// this thread were begun in.
-		Instruction hand;
-		hand.kind = Instruction::IK_CALL;
-		hand.type.text = "i32";
-		hand.first = named_operand(Operand::OP_GLOBAL,
-		                           unit_.thread_atexit_symbol());
+		// the runtime is what knows when that is - so what ends it is handed to
+		// that runtime, which is 3.6.3p3's hand-off with a runtime of the
+		// thread's rather than of the program's.
 		Instruction object;
 		object.kind = Instruction::IK_ADDR;
 		object.type.text = "ptr";
 		object.first = storage;
-		const Operand at = emit(object);
-		Instruction ends;
-		ends.kind = Instruction::IK_ADDR;
-		ends.type.text = "ptr";
-		ends.first = named_operand(
-			Operand::OP_GLOBAL,
-			unit_.function_symbol(*destruction->fact.entity,
-			                      destruction->fact.base_subobject));
-		unit_.declare_entity(*destruction->fact.entity);
-		Instruction image;
-		image.kind = Instruction::IK_ADDR;
-		image.type.text = "ptr";
-		image.first = named_operand(Operand::OP_GLOBAL,
-		                            unit_.image_handle_symbol());
-		hand.args.push_back(emit(ends));
-		hand.args.push_back(at);
-		hand.args.push_back(emit(image));
-		emit(hand);
+		hand_to_runtime(unit_.thread_atexit_symbol(), storage.text,
+		                emit(object), *destruction);
 	}
 	store(named_operand(Operand::OP_INTEGER, "1"), flag, counter);
 	jump(done);

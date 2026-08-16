@@ -115,21 +115,43 @@ std::string LowirUnitLowering::local_static_symbol(const SemaEntity& entity)
 	return symbol;
 }
 
-// The function part of that name.  A qualified name made of identifiers is
-// written as the object file writes it, with `__` for `::`; a name holding
-// anything an identifier cannot - 14.2's template arguments, 13.5's operator
-// punctuation - would flatten two different functions to one symbol, so the
-// object-file name of the function is carried whole instead.
+// The function part of that name, whose one job is to say which function of
+// the program the object belongs to.
+//
+// A qualified name made of identifiers says that where the object file gives
+// the function that very name, and is written the way the object file writes
+// it, with `__` for `::`.  Where it does not, two functions would flatten to
+// one part and the object file would hold one storage for both of them: a name
+// holding anything an identifier cannot - 14.2's template arguments, 13.5's
+// operator punctuation - is the obvious way, and 13.1's second declaration of
+// one name is the way that is not, `f(int)` and `f(double)` being two
+// functions with one spelling and `value<1>` and `value<2>` two more.  What
+// tells those apart is what already tells their symbols apart, so it is
+// carried whole instead.
 std::string LowirUnitLowering::local_static_owner(const SemaEntity& owner)
 {
+	const std::string& named = abi_qualified_name(owner);
 	const std::string written =
-		(owner.region == nullptr ? std::string() : owner.region->prefix) +
-		abi_qualified_name(owner);
-	if (spellable_name(written))
+		(owner.region == nullptr ? std::string() : owner.region->prefix) + named;
+	if (spellable_name(written) &&
+	    flatten_symbol_name(named) == function_symbol(owner))
 	{
 		return flatten_symbol_name(written);
 	}
 	return "function_symbol_" + hex_of(function_symbol(owner));
+}
+
+// 3.5p3 and 7.1.2p4: whether the definition that declared the object is one
+// every unit may hold, which is what makes the object one the whole program
+// shares.  A definition with internal linkage is this unit's alone whatever
+// else was written on it - `static inline`, or an `inline` of 7.3.1.1p1's
+// unnamed namespace - so the object it declares is this unit's too, which is
+// the same reading `describe_symbol` and `writes_base_entry` already make of
+// one.
+bool LowirUnitLowering::local_static_shared(const SemaEntity* owner)
+{
+	return owner != nullptr && !owner->internal_linkage &&
+		shared_definition(*owner);
 }
 
 // The declaration part.  Within one translation unit the terminals the
@@ -144,7 +166,7 @@ std::string LowirUnitLowering::local_static_owner(const SemaEntity& owner)
 std::string LowirUnitLowering::local_static_place(const SemaEntity& entity,
                                                   const SemaEntity* owner)
 {
-	const bool shared = owner != nullptr && shared_definition(*owner);
+	const bool shared = local_static_shared(owner);
 	if (!shared && entity.declared_end != 0)
 	{
 		return "tokens" + decimal(entity.declared_begin) + "_" +
@@ -300,8 +322,7 @@ const std::string& LowirUnitLowering::local_static_guard(
 lowir_model::SymbolBindingMode LowirUnitLowering::local_static_binding(
 	const SemaEntity& entity)
 {
-	return entity.local_function != nullptr &&
-	       shared_definition(*entity.local_function)
+	return local_static_shared(entity.local_function)
 		? lowir_model::SBM_WEAK
 		: lowir_model::SBM_INTERNAL;
 }
@@ -371,42 +392,59 @@ void LowirFunctionLowering::local_static_variable(const DumpNode& node)
 	// which is this one, so the initialization is given it rather than naming a
 	// second address for the same storage; everything else is written into that
 	// address directly.
+	//
+	// 12.6p1's array of class type is the one shape that names neither: the
+	// declaration creates one object per element and each element's own place
+	// is what its construction writes through, so the address of the array as a
+	// whole is asked for by the hand-off alone.
+	TypeTable& types = unit_.types();
+	const TypeId stripped = types.strip_cv(node.fact.type);
+	const bool built = types.is_class(stripped);
+	const bool per_element =
+		initialization != nullptr &&
+		initialization->fact.kind == FactKind::ConstructorAction &&
+		types.kind(stripped) == TypeKind::Array;
 	LowValue object;
 	object.type = node.fact.type;
 	object.lvalue = true;
 	object.operand = storage;
-	const Operand address = address_of(object);
+	const Operand address = per_element && destruction == nullptr
+		? storage
+		: address_of(object);
 	if (initialization != nullptr)
 	{
-		TypeTable& types = unit_.types();
-		const bool built = types.is_class(types.strip_cv(node.fact.type));
 		initialize_declared(node, built ? storage : address,
 		                    built ? &address : nullptr);
 	}
 	if (destruction != nullptr)
 	{
-		local_static_destruction(address, *destruction);
+		hand_to_runtime(unit_.atexit_symbol(), symbol, address, *destruction);
 	}
 	store(named_operand(Operand::OP_INTEGER, "1"), flag, counter);
 	jump(ready);
 	open_block(ready);
 }
 
-// 3.6.3p3: the end of the object's lifetime, handed to the runtime where the
-// object was begun.  The runtime runs what it was given in the reverse of the
-// order it was given them, which is the reverse of the order the objects of
-// this program were begun in - so nothing here has to know what else the
-// program has already initialized.
-void LowirFunctionLowering::local_static_destruction(const Operand& address,
-                                                     const DumpNode& node)
+// 3.6.3p3 and 3.7.2p2: the end of an object's lifetime, handed to a runtime
+// where the object was begun - 3.6.3p1's runtime for an object of the program
+// and its thread's for an object of a thread, which is the only difference
+// between the two.  Either runs what it was given in the reverse of the order
+// it was given them, which is the reverse of the order the objects were begun
+// in, so nothing here has to know what else has already been initialized.
+//
+// The runtime is handed one function and one object.  `object` is the symbol
+// the storage was laid out under, which is what says whose lifetime this ends
+// where the function 12.4p8 asks for is not one call.
+void LowirFunctionLowering::hand_to_runtime(const std::string& runtime,
+                                            const std::string& object,
+                                            const Operand& address,
+                                            const DumpNode& node)
 {
 	Instruction ends;
 	ends.kind = Instruction::IK_ADDR;
 	ends.type.text = "ptr";
-	ends.first = named_operand(
-		Operand::OP_GLOBAL,
-		unit_.function_symbol(*node.fact.entity, node.fact.base_subobject));
-	unit_.declare_entity(*node.fact.entity);
+	ends.first = named_operand(Operand::OP_GLOBAL,
+	                           unit_.destruction_entry(node, object));
 	Instruction image;
 	image.kind = Instruction::IK_ADDR;
 	image.type.text = "ptr";
@@ -415,9 +453,72 @@ void LowirFunctionLowering::local_static_destruction(const Operand& address,
 	Instruction hand;
 	hand.kind = Instruction::IK_CALL;
 	hand.type.text = "i32";
-	hand.first = named_operand(Operand::OP_GLOBAL, unit_.atexit_symbol());
+	hand.first = named_operand(Operand::OP_GLOBAL, runtime);
 	hand.args.push_back(emit(ends));
 	hand.args.push_back(address);
 	hand.args.push_back(emit(image));
 	emit(hand);
+}
+
+// 12.4p8 and 3.6.3p3: the one function a runtime that takes one is handed.
+//
+// For every object but one it is the destructor itself, run on the address the
+// runtime was handed beside it.  12.4p8 ends the lifetime of *each element* of
+// an array, though, and a runtime handed one function and one object would end
+// only the first of them - so an array asks for a body of the program's own
+// that ends them all, in the reverse of the order 12.6p1 began them, which is
+// the walk `add_destruction` already writes wherever the program itself is what
+// reaches the end of a lifetime.
+const std::string& LowirUnitLowering::destruction_entry(const DumpNode& node,
+                                                        const std::string& object)
+{
+	if (types_.kind(types_.strip_cv(node.fact.type)) != TypeKind::Array)
+	{
+		declare_entity(*node.fact.entity);
+		return function_symbol(*node.fact.entity, node.fact.base_subobject);
+	}
+	std::string& held = destruction_entries_[object];
+	if (!held.empty())
+	{
+		return held;
+	}
+	held = object + "__destroy";
+	if (!defined_.insert(held).second)
+	{
+		// Another unit reading the same definition already wrote it, and the
+		// object it ends is the one object both of them laid out.
+		return held;
+	}
+	lowir_model::Function body;
+	body.name = held;
+	body.return_type = low("void");
+	body.metadata.binding = lowir_model::SBM_INTERNAL;
+	lowir_model::Parameter given;
+	given.name = "object";
+	given.type = low("ptr");
+	body.params.push_back(given);
+	{
+		LowirFunctionLowering lowering(*this, body);
+		lowering.open_generated(GeneratedBody());
+		lowering.add_destruction(node);
+		Instruction leave;
+		leave.kind = Instruction::IK_RETURN;
+		leave.type.text = "void";
+		body.blocks.back().instructions.push_back(leave);
+	}
+	// The body stands beside the ones this unit writes rather than in among
+	// them: a definition being lowered holds a reference into the same list.
+	pending_functions_.push_back(body);
+	return held;
+}
+
+// The bodies `destruction_entry` asked for, written once every definition that
+// could ask for one has been.
+void LowirUnitLowering::write_pending_functions()
+{
+	for (std::size_t index = 0; index < pending_functions_.size(); ++index)
+	{
+		program_.functions.push_back(pending_functions_[index]);
+	}
+	pending_functions_.clear();
 }
