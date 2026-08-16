@@ -1909,6 +1909,15 @@ SemaEntity& SemaAnalyzer::class_declaration(const AstNode& node,
 	{
 		declare_special_members(*entity, scope);
 	}
+	// 9.2p2 and 15.4p1: an exception-specification is one of the contexts a
+	// class is regarded as complete in, so a condition a member's declarator
+	// wrote and the reading there could not answer is folded here, where the
+	// class-specifier closes and every member it declares can be named.  It
+	// stands outside the reading above because 15.4p1's answer is asked of a
+	// declaration in every dialect - 15.4p3's two declarations of one function
+	// are compared wherever a definition is read - and not only where a class
+	// is given the members no declaration wrote.
+	ConstexprReading(*this).settle_specifications(scope, inner);
 	return *entity;
 }
 
@@ -2102,6 +2111,9 @@ void SemaAnalyzer::declare_function_declarator(
 	// however the others were written.
 	function.nonthrowing =
 		function.nonthrowing || declarator_nonthrowing(node, target);
+	// 9.2p2: an exception-specification is a complete-class context, so a
+	// condition the fold above could not answer is kept for the closing brace.
+	ConstexprReading(*this).defer_specification(function, node, target);
 	function.wrote_exception_specification =
 		function.wrote_exception_specification ||
 		declarator_writes_exception_specification(node);

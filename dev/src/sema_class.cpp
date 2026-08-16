@@ -307,6 +307,7 @@ SemaEntity& SemaAnalyzer::declare_conversion(const AstNode& node,
 	// what it says is what 15.2p2 reads to leave a handler out around a call.
 	entity.nonthrowing =
 		entity.nonthrowing || declarator_nonthrowing(*declarator, target);
+	ConstexprReading(*this).defer_specification(entity, *declarator, target);
 	entity.wrote_exception_specification =
 		entity.wrote_exception_specification ||
 		declarator_writes_exception_specification(*declarator);
@@ -526,6 +527,11 @@ void SemaAnalyzer::special_member(const AstNode& node, const Context& ctx)
 		entity->nonthrowing =
 			written_declarator != nullptr &&
 			declarator_nonthrowing(*written_declarator, ctx);
+		if (written_declarator != nullptr)
+		{
+			ConstexprReading(*this).defer_specification(*entity,
+			                                            *written_declarator, ctx);
+		}
 		entity->wrote_exception_specification =
 			entity->wrote_exception_specification ||
 			(written_declarator != nullptr &&
@@ -2563,81 +2569,6 @@ TypeId SemaAnalyzer::with_object_parameter(TypeId type,
 		types_.function_of(types_.target(type), parameters,
 		                   types_.variadic(type)),
 		ref);
-}
-
-// 15.4p1: whether the exception-specification the declarator wrote says the
-// function throws nothing.  The grammar spells it with the same node the
-// ref-qualifier uses, so which one this is, is what it was written as: `throw`
-// with an empty type-id-list, or `noexcept` with no constant-expression or with
-// one that is a constant expression contextually converted to `true`.
-//
-// The condition is *folded* and not matched against a spelling: 15.4p1 makes it
-// a constant expression of type bool, so `noexcept(true && !false)`,
-// `noexcept(1)` and `noexcept(is_nothrow<T>::value)` each say what they come to
-// and not what they were written as.  A condition this reading cannot fold -
-// one an argument list has yet to settle, one naming a member of the class this
-// declarator stands in - leaves the answer no, which is the specification
-// 15.4p14 gives a function whose own the translation cannot see.
-bool SemaAnalyzer::declarator_nonthrowing(const AstNode& declarator,
-                                          const Context& ctx)
-{
-	for (std::size_t index = 0; index < declarator.children.size(); ++index)
-	{
-		const AstNode& part = *declarator.children[index];
-		if (part.kind == AstKind::NestedDeclarator &&
-		    declarator_nonthrowing(part, ctx))
-		{
-			return true;
-		}
-		if (part.kind != AstKind::FunctionQualifier)
-		{
-			continue;
-		}
-		if (part.text == "throw()")
-		{
-			return true;
-		}
-		if (part.text.compare(0, 8, "noexcept") != 0)
-		{
-			continue;
-		}
-		if (part.children.empty() || part.children[0] == nullptr)
-		{
-			return true;
-		}
-		const AstNode& condition = *part.children[0];
-		if (condition.kind == AstKind::KeywordLiteral &&
-		    condition.token == KW_TRUE)
-		{
-			// The one spelling 15.4p1's condition has that needs no evaluating,
-			// answered before the fold so that the common form costs nothing.
-			return true;
-		}
-		// 14.6p8: a fold that stood a value in for one an argument list has yet
-		// to settle answers about no declaration this unit has, so it is not an
-		// answer about this one either.  Anything else the fold refuses -
-		// including 9.2p2's complete-class context, whose members a reading
-		// here has yet to reach - leaves the specification unknown, and the
-		// count is restored so that nothing around this reading sees a value
-		// stood in for a question it never asked.
-		const unsigned stood = stood_in_;
-		bool folded = false;
-		try
-		{
-			folded = ConstexprReading(*this).truth(evaluate(condition, ctx)) &&
-				stood_in_ == stood;
-		}
-		catch (const std::exception&)
-		{
-			folded = false;
-		}
-		stood_in_ = stood;
-		if (folded)
-		{
-			return true;
-		}
-	}
-	return false;
 }
 
 // 15.4p14: whether the declarator wrote an exception-specification at all,

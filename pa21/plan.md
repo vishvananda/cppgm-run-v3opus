@@ -26,10 +26,13 @@ milestones deferred. Two ownership lines carry the whole assignment:
   3.6.3p3's `__cxa_atexit` registration are PA21's. **Done — checkpoint L.**
 
 Beside them, one small owner of its own: 15.4's exception-specification is a
-typed fact of a declaration (`SemaEntity::nonthrowing`, settled by
-`declarator_nonthrowing` and by the implicit walks in `sema_class.cpp`), and
-`sema_noexcept.cpp` is the one reader of it 5.3.7 needs. **Done — checkpoint
-N.**
+typed fact of a declaration — `SemaEntity::nonthrowing`, settled by
+`sema_noexcept.cpp`'s reading of a declarator and by the implicit walks in
+`sema_class.cpp`. That file owns both halves of 15.4: the condition 15.4p1
+folds, which for a member is folded where 9.2p2 completes the class rather than
+where the declarator stands, and the reading of that fact 5.3.7 needs, which
+asks it of the *lines that name a declaration* in the resolved tree. **Done —
+checkpoint N.**
 
 Reference-binary note: `pa21/cppgm++-ref` exists and answers PA21 inputs, so
 naming and lowering shapes are probed rather than guessed — but it refuses every
@@ -94,7 +97,8 @@ initializer; that is group I's shape, and its fix is for the lowering to take
 | array destruction | one `__cxa_atexit` per array, handed a generated body that walks the elements — written out below `kArrayLoopLimit` and a loop above it | 100000-element array of class type: 0.005s, 11 instructions |
 | floating value | one `long double` per constant, and one pool entry per *distinct* value - a value met twice is one index, so a memo key stays stable without the pool growing, and each of the four non-finite values keys to a place of its own | a constexpr loop of floating arithmetic at 1e3 / 1e4 / 1e5 passes: 0.00 / 0.03 / 0.27s, peak RSS a flat 6 MB. 2000 / 8000 / 32000 declarations of *distinct* floating constants each read back by a `static_assert`: 0.04 / 0.20 / 0.88s at 15 / 42 / 153 MB |
 | array constant | one interned list per array, one entry per element, and 8.5p7's value-initialized tail interned once and repeated | 1000 / 4000 / 16000 elements read back by a `static_assert`: 0.00 / 0.02 / 0.07s at 6 / 9 / 18 MB - linear in elements. `constexpr int a[1000000] = {1};` is 0.10s and 13 MB, because the tail is one entry and not a million folds |
-| `noexcept` operator | one reading of the operand per operator and one walk of the resolved tree it left; a `noexcept` written inside another is read by the reading of the outer operand and not again, so nesting is linear in depth | 500 / 2000 / 8000 declarations each holding three `noexcept` operators over a member call: 0.03 / 0.13 / 0.55s at 14 / 37 / 129 MB (ref 0.61 / 0.84 / 2.54s at 19 / 35 / 97 MB). One operand of 500 / 2000 / 8000 calls: 0.01 / 0.02 / 0.11s at 8 / 13 / 34 MB (ref 0.84s at 38 MB for 8000). 50 / 200 / 800 nested `noexcept`: 0.00s at a flat 6-8 MB (ref 0.74s at 15 MB for 800) |
+| `noexcept` operator | one reading of the operand per operator and one walk of the resolved tree it left, asked of the lines that name a declaration; a `noexcept` written inside another is read by the reading of the outer operand and not again, so nesting is linear in depth | 500 / 2000 / 8000 declarations each holding three `noexcept` operators over a member call: 0.04 / 0.19 / 0.78s at 17 / 50 / 183 MB (ref 0.62 / 0.92 / 2.97s at 20 / 38 / 109 MB). One operand of 500 / 2000 / 8000 calls: 0.01 / 0.03 / 0.13s at 8 / 14 / 36 MB (ref 0.61 / 1.59 / 0.86s). 50 / 100 / 200 nested `noexcept`: 0.00s at 6.3 / 6.5 / 7.0 MB (ref 0.53s at 14-16 MB) - 800 deep is refused by the parser's own depth limit, which the reference has not got |
+| exception-specification condition | one fold per declaration that wrote one, and a second only where 9.2p2's complete-class context left the first unanswered - kept on the class's region and folded at the close of the class-specifier, in every dialect | 400 / 1600 / 6400 members whose condition names a member declared *below* it: 0.01 / 0.04 / 0.21s at 9 / 16 / 44 MB, against 0.00 / 0.02 / 0.08s at 7 / 11 / 25 MB for the same count writing `noexcept(true)`, which defers none (ref 0.63 / 1.79 / 26.78s at 19 / 33 / 90 MB) |
 | aggregate of floating clauses | one dump node per clause, and one fold per clause 8.5.4p7's second bullet asks about - which is a `float` member off a wider source and nothing else | 2000 / 8000 / 32000 `double` clauses of an array member: 0.05 / 0.21 / 0.81s at 22 / 66 / 243 MB, against 0.02 / 0.09 / 0.37s at 10 / 22 / 72 MB for the same count of `int` clauses (ref 0.70 / 1.20 / 2.90s at 34 / 95 / 339 MB and 0.70 / 0.90 / 1.90s at 21 / 43 / 135 MB). Making them `float`, the one shape the bullet folds, adds 16%: 0.94s and 274 MB at 32000 |
 
 ## Completed Checkpoints
@@ -109,6 +113,17 @@ initializer; that is group I's shape, and its fix is for the lowering to take
 | F | **3.9.1p8's other half, and 8.3.4p6's other aggregate.** `SemaConstant` gains `real`; `arithmetic_type` widens to the arithmetic types with `integral_type` beside it for the places that count; `TypeTable` interns a distinct floating value by its exact (sign, exponent, significand); 4.7-4.9's conversions, 5p10's usual arithmetic conversions and every operator over floating values land in `convert`/`common_type`/`binary_value`; `SemaEntity::real` and `SemaFact::real` carry the value to 3.6.2p2's image, which now holds what the initializer *came to* rather than the digits an operand was written with. An array is a constant object too: `array_of` and `element_value` give it a list and a subscript. | 49 → 59 |
 | F audit | `6cdd7e1d`, 3 blockers: `convert` had no arm for a destination of no arithmetic type and handed back the operand's bits *under the object's type*, so `constexpr P ps[1] = { 999999 };` made 999999 the identifier of a member list and `ps[0].x` read `parameter_lists_[999999]` — a segfault, reachable through `array_of`, `object_of` and the mem-initializer alike, now one refusal at the door; 8.5.4p7's second bullet was asked of a literal *spelling* and asked as an exactness, so every `float` clause off a name, an operator or a folded call was refused as narrowing and `float a{0.1}` with them, where the clause is a range "even if it cannot be represented exactly"; and 5p4's overflow reached an undefined cast in `real_type`, a `= in` in the image where the reference writes `= inf`, and two 4.9p1 bounds each on the wrong side of the cast they guard. See [audit.md](audit.md). | 59 → 59 |
 | N | **5.3.7's `noexcept` operator, over 15.4's specification.** `sema_noexcept.cpp` reads the operand once through `probe_expression` - 5.3.7p1 leaves it unevaluated, so the scratch node and the temporaries it made are dropped - and answers 5.3.7p3 by one walk of the resolved tree: a `call-expression` with no `callee` child is a call through a pointer, and one with a callee is worth its `SemaEntity::nonthrowing`. The answer is a `literal prvalue bool` in `dispatch_expression`, a `bool` constant in `evaluate`, and a kept tree in `sema_value_expression.cpp`, where 14.2 had flattened the operator into a name. 15.4p1's condition is now *folded* rather than matched against `true`, and 14.5.6.1 carries a template's specification to its specializations, and a course fixture pins the shapes 5.3.7p3 names. | 59 → 66 (131) |
+| N audit | `76c1c8fd`, 3 blockers: 15.4p1's condition was folded at the declarator, where 9.2p2 has yet to complete the class, so `void f() noexcept(k)` beside a `static constexpr bool k` declared below it answered no in the class and yes on its out-of-class definition - a valid program **refused** as two declarations 15.4p1 does not make the same, and silently the wrong `boundary.unwind` where no definition was written; `nonthrowing_tree` answered a new- and a delete-expression from a `fact.entity` neither writer fills, so `noexcept(delete p)` was false for every operand; and 5.3.7p3's second bullet walked the operand for a node only the statement parser builds. The reading now asks the *lines that name a declaration* - `Callee` and `DestructorAction` - and the condition is folded where the class is complete. See [audit.md](audit.md). | 66 → 66 |
+
+**Known gaps (N audit).** A name no declaration answers, written in a condition
+- `void f() noexcept(bogus);` - is accepted, because the fold that reads the
+condition swallows the lookup's diagnostic; g++ refuses it, the reference accepts
+it, and narrowing the catch to the fold's own refusal would make a dependent
+condition ill-formed. And a throw-expression is no part of the operand grammar:
+both oracles fold `noexcept(throw 1)` to false and `noexcept(noexcept(throw 1))`
+to true, where this build refuses both at the parse and refuses `throw 1;` as a
+statement outside the PA12 subset. Closing the second is a parse rule and an arm
+beside `Callee`, not a rule of 5.3.7.
 
 **Known gap (N).** 15.4p13 instantiates a dependent exception-specification
 when it is needed: `template<class T> void step(T) noexcept(noexcept(make<T>()));`

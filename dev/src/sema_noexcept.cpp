@@ -7,14 +7,22 @@
 #include "sema_scope.h"
 #include "token_model.h"
 
-// 5.3.7: the `noexcept` operator.
+// 15.4's exception-specification, and 5.3.7's operator over it.
+//
+// The two halves are one file because they are one fact read twice.  15.4p1's
+// specification is a fact of a *declaration* - `SemaEntity::nonthrowing`, which
+// a declarator writes here and 15.4p14's implicit walks in `sema_class.cpp`
+// write for the members the standard defines.  What 15.4p1 leaves to be worked
+// out is the condition, which is a constant expression and folded as one; 9.2p2
+// makes an exception-specification a context in which a class is complete, so a
+// condition a member wrote is folded where the class-specifier closes and not
+// where the declarator stands.
 //
 // The operator asks one question about an expression the program does not
 // evaluate: could evaluating it throw.  15.4 has already answered that of every
-// function - `SemaEntity::nonthrowing` is what a declarator's
-// exception-specification and 15.4p14's implicit one both settle - so what is
-// left here is which functions the operand would call, and that is a question
-// only the expression layer can answer: 13.3 chooses between overloads,
+// function, so what is left here is which functions the operand would call, and
+// that is a question only the expression layer can answer: 13.3 chooses
+// between overloads,
 // 8.3.6p1 fills a place the call stopped short of, 8.5 copies a by-value
 // argument, and each of those is a call 5.3.7p3 counts.
 //
@@ -27,6 +35,52 @@
 
 namespace
 {
+
+// 15.4p1: the exception-specification the declarator wrote, read once for the
+// two answers every reader of one needs.  True is the forms that say the
+// function throws nothing with nothing to evaluate - `throw` with an empty
+// type-id-list, `noexcept` with no constant-expression, and the one spelling
+// `noexcept(true)` - so the common form costs no fold at all.  Anything else
+// leaves `condition` denoting the constant expression 15.4p1 makes the answer,
+// and null where the declarator wrote no specification of the sort.
+bool wrote_nonthrowing(const AstNode& declarator, const AstNode** condition)
+{
+	for (std::size_t index = 0; index < declarator.children.size(); ++index)
+	{
+		const AstNode& part = *declarator.children[index];
+		if (part.kind == AstKind::NestedDeclarator &&
+		    wrote_nonthrowing(part, condition))
+		{
+			return true;
+		}
+		if (part.kind != AstKind::FunctionQualifier)
+		{
+			continue;
+		}
+		if (part.text == "throw()")
+		{
+			return true;
+		}
+		if (part.text.compare(0, 8, "noexcept") != 0)
+		{
+			continue;
+		}
+		if (part.children.empty() || part.children[0] == nullptr)
+		{
+			return true;
+		}
+		const AstNode& written = *part.children[0];
+		if (written.kind == AstKind::KeywordLiteral && written.token == KW_TRUE)
+		{
+			return true;
+		}
+		if (*condition == nullptr)
+		{
+			*condition = &written;
+		}
+	}
+	return false;
+}
 
 // 5.3.7p3's first bullet over one `call-expression`: which declaration the call
 // reached, or null where it reached none - which is a call through a pointer to
@@ -46,55 +100,40 @@ const SemaEntity* called_declaration(const DumpNode& call)
 
 }  // namespace
 
-// 5.3.7p3's second bullet.  A throw-expression is one the expression layer of
-// this milestone reads none of, so asking it of the resolved tree would ask it
-// of a tree the operand never left; the syntax is where the answer stands, and
-// 5.3.7p3 makes it the whole answer wherever it is yes.
-bool ConstexprReading::holds_throw(const AstNode& node)
-{
-	if (node.kind == AstKind::ThrowStatement)
-	{
-		return true;
-	}
-	for (std::size_t index = 0; index < node.children.size(); ++index)
-	{
-		if (node.children[index] != nullptr && holds_throw(*node.children[index]))
-		{
-			return true;
-		}
-	}
-	return false;
-}
-
 // 5.3.7p3 over the resolved tree.  One walk, post-order, with no lookup and no
 // ranking repeated: every choice the answer depends on was made while the
 // operand was read.
+//
+// The question is asked of the *lines that name a declaration* and not of the
+// expression kinds that make one call: a written call, an operator function
+// 13.5 chose, a constructor 8.5 chose, the allocation function 3.7.4.1 gave a
+// new-expression its storage and the deallocation function 5.3.5p9 paired with
+// a delete-expression each leave a `callee` line of their own, and the end of a
+// lifetime 5.3.5p6 writes leaves a destructor-action holding its own.  So one
+// arm answers all of them, and no expression kind is left reading a field its
+// own writer never fills.
 bool ConstexprReading::nonthrowing_tree(const DumpNode& node) const
 {
 	const SemaFact& fact = node.fact;
 	switch (fact.kind)
 	{
 	case FactKind::Call:
-	{
-		// 5.3.7p3's first bullet, and footnote 80's implicit calls with it: a
-		// constructor 8.5 chose, a conversion function 13.3.3.1.2 chose and an
-		// operator function 13.5 chose each leave a `call-expression` of their
-		// own, so they are this line and not a case beside it.
-		const SemaEntity* const declaration = called_declaration(node);
-		if (declaration == nullptr || !declaration->nonthrowing)
+		// 5.3.7p3's first bullet: a call-expression with no callee under it
+		// reached no declaration, which is a call through a pointer to
+		// function - and C++11 leaves an exception-specification no part of
+		// such a pointer's type, so nothing about that call says it throws
+		// nothing.  One that did reach a declaration is worth what the callee
+		// line below says.
+		if (called_declaration(node) == nullptr)
 		{
 			return false;
 		}
 		break;
-	}
 
-	case FactKind::NewExpression:
-	case FactKind::DeleteExpression:
-		// Footnote 80: the allocation function 3.7.4.1 gave the storage and the
-		// deallocation function 5.3.5p9 chose are calls the expression makes
-		// without writing one, and the node carries the declaration each
-		// reached.  What either expression *initializes* or destroys is written
-		// under it and reaches the arm above on its own.
+	case FactKind::Callee:
+	case FactKind::DestructorAction:
+		// 15.4 asked of the declaration this line names, which is the one fact
+		// 5.3.7p3 reads and the one place it is read.
 		if (fact.entity == nullptr || !fact.entity->nonthrowing)
 		{
 			return false;
@@ -128,10 +167,10 @@ bool ConstexprReading::nonthrowing_tree(const DumpNode& node) const
 bool ConstexprReading::nonthrowing_operand(const AstNode& node,
                                            const SemaContext& ctx)
 {
-	if (holds_throw(node))
-	{
-		return false;
-	}
+	// 5.3.7p3's second bullet is not asked here: a throw-expression is no part
+	// of the expression grammar this milestone parses - `noexcept(throw 1)` is
+	// refused by the parse and a `throw` statement by the analysis - so an
+	// operand holding one never reaches this reading at all.
 	if (analyzer_.checking_ > 0 || analyzer_.dependent_reading(*ctx.scope))
 	{
 		// 14.6p8: which function a call in the pattern reaches is what an
@@ -185,4 +224,99 @@ AnalyzedValue ConstexprReading::noexcept_value(const AstNode& node,
 		parent,
 		analyzer_.spell(value.what, value.category, value.type, value.payload));
 	return value;
+}
+
+// 15.4p1's own condition, where the declarator that wrote it stands in a class.
+//
+// 9.2p2 makes an exception-specification one of the contexts a class is
+// regarded as complete in, so the condition may name a member the walk of the
+// body has yet to reach - and the fold at the declarator answers about the
+// class as it stood there, which for such a condition is no answer at all.
+// What the declaration keeps until the closing brace is the condition itself,
+// exactly as 8.3.6p9's default-argument keeps the expression it was written
+// with; `settle_specifications` is where the class being complete makes it one.
+//
+// Only a condition the declarator fold left unanswered is kept: one that folded
+// is already the answer 15.4p1 asks for, and no member declared below it can
+// change what the names it read mean.
+void ConstexprReading::defer_specification(SemaEntity& function,
+                                           const AstNode& declarator,
+                                           const SemaContext& ctx)
+{
+	if (function.nonthrowing || ctx.scope == nullptr ||
+	    ctx.scope->kind != ScopeKind::Class || ctx.scope->owner == nullptr ||
+	    !analyzer_.types_.is_incomplete(ctx.scope->owner->type))
+	{
+		return;
+	}
+	const AstNode* condition = nullptr;
+	if (!wrote_nonthrowing(declarator, &condition) && condition != nullptr)
+	{
+		ctx.scope->deferred_specifications.push_back(
+			std::make_pair(&function, condition));
+	}
+}
+
+// 9.2p2: the class is complete here, so every condition kept above is folded
+// against the members it declares.  The walk costs one fold per declaration
+// that wrote a condition the declarator could not answer and nothing per
+// declaration that wrote none, and the answers it settles are read by 15.4p14's
+// implicit specifications below it and by every use of the class after it.
+void ConstexprReading::settle_specifications(Scope& scope,
+                                             const SemaContext& ctx)
+{
+	std::vector<std::pair<SemaEntity*, const AstNode*> > kept;
+	kept.swap(scope.deferred_specifications);
+	for (std::size_t index = 0; index < kept.size(); ++index)
+	{
+		SemaEntity& function = *kept[index].first;
+		if (!function.nonthrowing)
+		{
+			function.nonthrowing = specification_holds(*kept[index].second, ctx);
+		}
+	}
+}
+
+// 15.4p1: the condition is *folded* and not matched against a spelling, so
+// `noexcept(true && !false)`, `noexcept(1)` and `noexcept(is_nothrow<T>::value)`
+// each say what they come to and not what they were written as.
+//
+// 14.6p8: a fold that stood a value in for one an argument list has yet to
+// settle answers about no declaration this unit has, so it is not an answer
+// about this one either.  Anything else the fold refuses leaves the
+// specification unknown, which is the one 15.4p14 gives a function whose own
+// the translation cannot see - and the count is restored so that nothing around
+// this reading sees a value stood in for a question it never asked.
+bool ConstexprReading::specification_holds(const AstNode& condition,
+                                           const SemaContext& ctx)
+{
+	const unsigned stood = analyzer_.stood_in_;
+	bool folded = false;
+	try
+	{
+		folded = truth(analyzer_.evaluate(condition, ctx)) &&
+			analyzer_.stood_in_ == stood;
+	}
+	catch (const std::exception&)
+	{
+		folded = false;
+	}
+	analyzer_.stood_in_ = stood;
+	return folded;
+}
+
+// 15.4p1: whether the exception-specification written after the
+// parameter-clause says the function throws nothing.  C++11 leaves it out of
+// the function type, so it is read off the declarator once - condition and all
+// - and held on the declaration 5.3.4p15 asks it of.
+bool SemaAnalyzer::declarator_nonthrowing(const AstNode& declarator,
+                                          const Context& ctx)
+{
+	const AstNode* condition = nullptr;
+	if (wrote_nonthrowing(declarator, &condition))
+	{
+		return true;
+	}
+	return condition != nullptr &&
+		ConstexprReading(*this).specification_holds(*condition, ctx);
 }

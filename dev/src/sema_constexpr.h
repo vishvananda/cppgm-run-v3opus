@@ -268,6 +268,17 @@ public:
 	                             DumpNode& parent);
 	bool nonthrowing_operand(const AstNode& node, const SemaContext& ctx);
 
+	// 15.4p1: the condition an exception-specification wrote is a constant
+	// expression, so folding it is a reading of this kind and not a reading of
+	// the declarator.  9.2p2 regards a class as complete inside one, so a
+	// condition written on a member declarator is kept by `defer_specification`
+	// where the fold at the declarator could not answer it and folded by
+	// `settle_specifications` where the class-specifier closes.
+	bool specification_holds(const AstNode& condition, const SemaContext& ctx);
+	void defer_specification(SemaEntity& function, const AstNode& declarator,
+	                         const SemaContext& ctx);
+	void settle_specifications(Scope& scope, const SemaContext& ctx);
+
 private:
 	ConstexprReading(const ConstexprReading&);
 	ConstexprReading& operator=(const ConstexprReading&);
@@ -383,10 +394,6 @@ private:
 	// left: false where a line of it is a call the specification of whose
 	// callee allows an exception, and true where none is.
 	bool nonthrowing_tree(const DumpNode& node) const;
-	// 5.3.7p3's second bullet, asked of the syntax: a throw-expression is one
-	// the expression layer of this milestone reads none of, so where the
-	// operand holds one the answer is settled before the operand is read.
-	static bool holds_throw(const AstNode& node);
 
 	SemaAnalyzer& analyzer_;
 };

@@ -832,6 +832,13 @@ public:
 	// The declarations of this region in order, which is what a class layout
 	// and an anonymous union's member injection walk.
 	std::vector<SemaEntity*> declarations;
+	// 9.2p2 and 15.4p1: the exception-specification conditions of this class's
+	// members that the fold at their declarators could not answer, each with
+	// the declaration it settles.  An exception-specification is a
+	// complete-class context, so such a condition is folded where the
+	// class-specifier closes; every region but a class being defined leaves
+	// this empty, so a program that writes none allocates nothing.
+	std::vector<std::pair<SemaEntity*, const AstNode*> > deferred_specifications;
 	// The regions 7.3.4p2 makes the declarations of this one also appear in: a
 	// using-directive's target, and an inline namespace member (7.3.1p8).
 	std::vector<Scope*> nominated;
