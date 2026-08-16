@@ -20,110 +20,189 @@ the specialization it names, and the definition a program wrote for one.
 | C11 | `51f8f135` | 1 / 1 | **the two things written *inside* a spelling rather than beside it, which the reading C11 built its fourth shape on could not see.**  A parameter-declaration became the fourth reading of which packs a pattern is over, and it asks `names_in` - the reading over a tree.  But a template-id is one terminal of that tree, so `list<A, B...>` carries its own `...` and `pair2<A, sizeof...(B)>` its own `sizeof...` in one node's *text*, where a rule answered by node kind reaches neither: both were counted as packs this run is over, so `list<A, B...>... p` and `pair2<A, sizeof...(B)>... p` in a parameter clause were refused as two packs of different lengths where g++ reads them - and so was `count(list<A, B...>()...)` in a call, at the very reading C10 changed, where the reference and g++ both read it.  The tree reading reads each node's text the way an argument list's is read now, so the spelling, the tree, the parameter-declaration and the type a substitution rebuilds answer alike |
 | C12 | `80cefaed` | 5 / 5 + 1 perf | **the object a constant expression builds, which C12 gave one initialization and every class type.**  5.2.3p2/p3's `T(x)` and `T{x}` were read as 8.5.1p2's clauses - one per member in declaration order - which is what an *aggregate* takes them as, and 8.5.1p1 leaves no class that declares 12.1's constructor one: `constexpr` was never read off a constructor at all, so `S(3)` with `S(int v) : a(v * 2)` was the object holding 3 where both oracles hold 6, `S(int v) : a(v), b(v + 1)` held `3, 0` where both hold `3, 4`, a default constructor's `a(9)` held 0, and a two-parameter constructor of a one-member class was refused as writing "more initializers than S has members".  8.3.6's default-argument was no part of the list a fold reads at any of its three exits, so `f(1)` where `f(int, int = 10)` was refused where both oracles accept and `f()` where `f(int a = 2)` wrote a `role=init` function and the definition of `@f` where the reference writes the value in the image and nothing else.  12.3.2p1's conversion was a fallback rather than a choice - the first constexpr conversion function reaching *any* arithmetic type where none reached the place - so a class declaring `operator char` beside `operator int` answered at a `long` place where both oracles refuse the ambiguity.  The answer of a fold was carried on the resolved node whatever it was, and an object's bits are the identifier of its interned subobject list, which is no value at all to the readers of one.  And 5.2.5p1 had no reading, so an object of a class one of whose members is a class - `wrapped { pair held; }`, the checkpoint's own fixture - could be converted and never taken apart.  The perf finding is 12.6.2p2's index: the ctor-initializer was scanned once per member, 0.394 / 1.400 s at 4096 / 8192 members against 0.191 / 0.479 s with the list indexed once, which is what declaring the class costs with the fold taken away |
 | C13 | `a3a74360` | 2 / 2 + 3 recorded | **the reading C13 made a fact of the whole spelling, made again at every run of it.**  Which `<` opens 14.2's list is settled once per spelling and asked at each of the runs `split_type_id` and `split_value_expression` step over - but the reading was built inside `spelling_balanced_end`, which is the *per-run* question, so a spelling naming k template-ids paid k readings of the whole of it: 0.05 / 0.16 / 0.53 s at 1024 / 2048 / 4096 against 0.00 / 0.01 / 0.02 s with the one reading handed in.  Behind it, `template_argument_value` asked 14.6.1p1's question - does this lone word name a place? - with a lookup of *any* single word, and for `W<3>::v` that lookup is the whole reading of the name, so every value argument was read twice and a nest of them doubled at every level: `W<W<...W<3>::v...>::v>::v` 24 deep took 43.5 s where the reference is flat, and 0.00 s once the question is asked only of 2.11p1's identifier that could answer it |
+| C14, final | `6e25a9b8` | 3 / 3 + 5 recorded | **two facts settled per *use* that are facts of the thing itself, and one rule written at one of its two readers.**  `AstTokenStream::flatten` decided the separator between two terminals from the range being spelled, and PA10's ordered choice spells every candidate name it tries, so a list writing 5.9's operator between two template-ids re-read the whole suffix per argument: 26.6 s -> 1.4 s at 4096 with the separators settled once per terminal and `parse_template_argument` memoised the way `skip_simple_template_id` already was.  10.1p3's walk built a hash table per class where a number on the class says the same thing, which was 37% of a 1600-level derivation.  And 5.19 is read twice in this compiler - over a tree and over 14.2's words - with 5.2.5p1's access written in the first only, so `chosen<point{2,5}.sum()>` was refused where the same expression at a declaration folded.  Beside them 14.1p11's default before a pack walked past the pack place and asked it for a default of its own |
 
-## Current Checkpoint Review
+## Final Audit
 
-C13 gave the semantic layer back what PA10's flattening dropped.  A name arrives
-as the terminals the parse matched with the spaces gone, so
-`I<R<A>::v < R<B>::v, B, A>` holds nothing that tells 14.2's list from 5.9's
-operator one character at a time; `AngleReading` settles it from the one fact
-the spelling still holds - a name writes no `>` that closes nothing - and
-respells the argument it hands on with the separator phase 7 wrote, because the
-`>` that settled the question is not in that run.  Beside it, 3.4.1p8 puts a
-definition's initializer where its declarator-id reaches, and `place_type` is
-given the function tier's places so `template<class T, T v>` settles at both.
-
-The reading is right where it stands.  Sixty-six shapes were swept against g++
-and `pa20/cppgm++-ref` on this review: `<`, `<=`, `<<` and their parenthesized
-`>=`/`>>` twins written between literals, between named constants, between
-`sizeof`s and between template-ids; a list of two arguments each holding one;
-an operator before a template-id and after one; a dependent `N < 4` written at
-a typedef, a base-specifier, a parameter type and an expansion's pattern; a
-type argument that is a function type, an array or a `decltype`; a
-partial-specialization pattern; a two-unit program; and the same names read in
-`--emit-types` and `--emit-semantics`.  Every pair both oracles accept writes
-the reference's own LowIR entries, every mangled name is g++'s byte for byte,
-and each `.ref` under `pa20/tests` was regenerated from the reference binary
-and did not move.  3.4.1p8 reaches a member typedef, a nested class, an
-enumerator, a base's enumerator, a static data member, a shadowed name and a
-class template's out-of-class definition alike, and the line each writes still
-stands where the definition was written.
-
-What the review found is that the reading is a fact of the whole spelling and
-was built as though it were a fact of one run, at both the layers that ask it -
-once per `<` in the splitters, and once more per level in the reading of a
-value argument, which is a doubling rather than a repeat.
+The stage passes, so this review took the architecture apart rather than the
+failure list: the layers a PA20 fact travels through were reconstructed from the
+source and each ownership claim was put to a probe, independently of what the
+checkpoints above say they landed.  Eighty-one shapes were swept through the
+harness's own comparator against `pa20/cppgm++-ref`, with g++ as the third
+oracle on every one of them; the reference's `.ref` files were all regenerated;
+and the performance model was re-measured end to end against a worktree build of
+the pre-audit commit, because a table that carries numbers forward is a table
+that stops being true.
 
 ### Findings
 
-**1. `spelling_balanced_end` read the whole spelling again at every `<`.**
-`split_type_id` and `split_value_expression` walk one spelling and ask for the
-end of each balanced run they step over.  C13 answered that question by
-constructing an `AngleReading` of the whole spelling inside it, so the one scan
-those splitters make became one scan per run:
+**1. The spelling of a token range was decided per range.**
+`AstTokenStream::flatten` asked `needs_separator` for every terminal of every
+range it was given, and whether a separator stands between two terminals is a
+fact of those two and the one after them - the range does not enter into it.
+PA10's ordered choice spells every candidate name it *tries*, and the shape that
+pays for it is an argument list writing 5.9's operator between two template-ids:
+in `W<0>::v < W<1>::v, W<1>::v < W<2>::v, ...` each `v` reads as a template-name
+whose own list runs to the end of the outer one, so the k-th argument's reading
+covers every argument after it.  62% of that compile was inside `flatten`, and
+another 15% in the hashing and string building under it.
 
-| an argument naming k template-ids | 1024 | 2048 | 4096 |
+**2. `parse_template_argument` was the one question in that descent with no
+memo.**  `skip_simple_template_id` is remembered per position, and the rule one
+level below it - what a single `template-argument` matched - was not, so every
+attempt at the enclosing list re-read *and re-built the nodes of* every argument
+after the one it was at.  Those nodes are dropped: the rule that asks only wants
+to know where the argument ended, because PA10 flattens the whole template-id
+into one spelling and keeps no tree of its arguments.
+
+**3. 10.1p3's walk built a table per class.**  The refusal of a repeated base is
+asked once per class completed and the walk that answers it covers the whole
+derivation below that class, so a program adding a base at every level makes one
+walk per level - each of which allocated an `unordered_set`, hashed every class
+into it, and threw it away.  37% of a 1600-level compile was the walk and 27%
+more was the allocator behind it.
+
+**4. 14.1p9's default written before a pack place asked the pack for one.**
+14.1p11 lets a place before a class template's pack carry a default template
+argument, and the reading that fills those walked on past the pack place:
+`template<int N = 5, class... T> struct S` refused `S<>` as a list "too few
+arguments" long, where g++ and the reference both bind `N` to 5 and the pack to
+nothing.  The list *reaching* that place already answered it the other way - a
+pack the list stopped short of is a run of none - so one rule had two answers
+depending on which of the two ways the reading arrived.
+
+**5. 5.2.5p1 was written at one of 5.19's two readings.**  A constant expression
+is read over a tree where a declaration wrote one and over the words 14.2 leaves
+a template argument as, and the member access existed only in the first: `.` was
+not among the operators the spelling splits into at all, so
+`chosen<point{2,5}.sum()>` and `chosen<p.y>` were refused where g++ and the
+reference read them and where the *same expression* written at a declaration or
+in a `static_assert` folded.
+
+**6. One probe of the three that throw a reading away did not put 14.6p8's count
+back.**  `probe_type_id` and `Specialization::record` both restore `stood_in_`
+where their reading throws, and `ConstexprReading::call_or_cast`'s lookup of the
+name before a `(` did not - and that name may be a template-id, so an argument
+list is read on the way there and the count can move before the throw.  No probe
+reproduced a wrong answer from it; it is the same rule at a third exit, closed
+for that reason.
+
+### Recorded rather than fixed
+
+**14.7.3p6's specialization written after the use that instantiated it** is ill
+formed with no diagnostic required.  g++ diagnoses it; the reference silently
+re-reads the specialization for the instantiation already made, so
+`int a = S<int>::n;` written before `template<> struct S<int>` is 9 there and 1
+here, and an object declared before the specialization is laid out to the
+specialization's size.  Every *well formed* late visibility the README asks for
+is answered - a specialization seen before 14.6.4.1's point of instantiation, one
+declared early and defined late, and the stale primary the checked-in fixture
+pins - so the reference's recovery on an ill-formed input is not the contract.
+
+**10.1p3's second subobject of one base** is refused rather than laid out, which
+is the decision that makes every walk of a derivation one visit per class.  Both
+oracles lay it out.
+
+**8.3.3p1's pointer to member** is C15's own work, and the sweep adds one shape
+to it: the declarator refuses a *dependent* member pointer outright, so
+`template<class T> int g(int (T::*p)(int))` is "T is written before `::*` and
+does not name a class" where both oracles deduce it.
+
+**Three edges of 5.19's object reading** stay outside the spelling reading or
+outside the image: a named `constexpr` object of class type is no constant, a
+braced clause nested inside another (`O{{1}, 2}`) is not entered by the split,
+and a fold whose object is a temporary is carried on no resolved call node, so
+`const int n = pt{2,5}.sum();` is dynamically initialized where the reference
+writes 7 into the image - while remaining a constant expression everywhere one is
+asked for.
+
+**Two shapes where this compiler is the one that is right.**  It folds
+`H<char>::v` where the reference loads it, `H<T>::v` being a `const int` with a
+constant initializer; and two units each naming `Arr<int>::t` leave *two*
+`global @Arr_int___t` definitions in the reference's one LowIR file and one in
+this compiler's, where the same two units naming one inline function leave one in
+both.
+
+### Changes
+
+- `AstTokenStream` writes the whole stream out once, with the offset each
+  terminal's spelling begins at, and `flatten` is the substring the range's own
+  terminals occupy.
+- `parse_template_argument` is memoised on the key and the version
+  `skip_simple_template_id` already uses, with the body split out as
+  `parse_template_argument_body`.
+- `Derivation::require_distinct` marks the classes it reached with
+  `SemaEntity::reached_at` from `SemaModel::next_reach`, which is the shape
+  `SemaModel::visit_` already marks a region with.
+- `bind_template_arguments` stops filling defaults at the pack place.
+- `ConstexprReading::member_value` and `member_call` are 5.2.5p1 asked of the
+  object and the name, which both readings of 5.19 now ask; the spelling reader
+  gained `.` (and `...` in front of it, so an expansion stays one word) and a
+  postfix walk.
+- `ConstexprReading::call_or_cast` puts 14.6p8's count back where its lookup
+  throws.
+- `spelled` and `keep_decltype` moved to `ast_parser.cpp`, keeping
+  `ast_parser.h` under the audit's header-weight line.
+- Two course tests added, each generated from the reference binary and accepted
+  by g++: `200-a-default-written-before-the-pack-place` and
+  `200-a-member-read-out-of-an-argument-spelling`.
+
+### Performance Evidence
+
+The whole model was re-measured on this turn's build against a git worktree
+built from the pre-audit commit `6e25a9b8`, one shape per invocation and
+alternating between the two binaries so neither reading carries the page cache
+or the heap of the one before it.  Every row of the model was measured, not just
+the rows the changes touch; **no row is slower**, and the rows that moved are:
+
+| shape | before | after | `pa20/cppgm++-ref` |
 | --- | --- | --- | --- |
-| before | 0.05 s | 0.16 s | **0.53 s** |
-| after | 0.00 s | 0.01 s | **0.02 s** |
-| with a distinct specialization each | 0.04 s | 0.09 s | **0.21 s** |
+| 1024 / 4096 of 5.9's operators between two template-ids | 2.66 / **26.56 s** | 0.118 / **1.474 s** | >120 s at 1024 |
+| a value argument nested 1024 deep | **0.422 s** | **0.102 s** | SIGSEGV at 1024 after 6.9 s |
+| 1600 / 3200 levels each adding a second base | 0.558 / **2.294 s** | 0.262 / **1.099 s** | 38.9 s at 800 |
+| 4096 class prvalues folded through a member call | refused | **0.110 s** | 0.774 s |
+| 4096 member accesses read out of argument spellings | refused | **0.117 s** | 0.774 s |
+| 4096 namings of a head with a default before its pack | refused | **0.321 s** | 1.075 s |
 
-`AngleReading::balanced_end` is the member now and the two splitters make the
-one reading their walk asks - which is what the reading already claimed to be.
-The scan that member falls back to asks that reading rather than the character
-test, so the `<` inside a run and the `<` that opened it are answered by one
-question at that exit too.
+The three fixes were profiled rather than guessed at.  Before: `flatten` was
+62% of the parse of a 4096-argument list and the hashing and string building
+under it another 15%; `Derivation::require_distinct` was 37% of a 1600-level
+derivation and the allocator behind it 27% more.  After: `flatten` does not
+appear, and the derivation walk is 63% of a much smaller total - pointer chasing
+over the (class, ancestor) pairs the rule is about, with nothing left to remove
+that is not the fact itself.
 
-**2. A value argument was read twice, and a nest of them doubled at every
-level.**  `template_argument_value` asks 14.6.1p1's question - does this
-spelling *name* a place, rather than compute from one? - by looking a lone word
-up before reading the words.  For a word like `W<3>::v` that lookup is the whole
-reading of the name, argument list and all, so the argument was read once to
-ask the question and once to answer it:
+The residues are written into the model with a reason each rather than a number:
+10.1p3 is quadratic in the size of the derivation relation, PA10's ordered choice
+spells O(n) candidate names of O(n) terminals, 14.5.3p4's recursion interns n
+lists of n entries, and a nest of d value arguments splits d spellings of length
+O(d).  Peak memory on the worst of them fell with the time: 4096 operators
+between template-ids is 322 MB against 379 MB, and the earlier build's arena held
+the same spellings built one extra time per attempt.
 
-| a value argument nested d deep | 16 | 20 | 24 | 256 | 1024 |
-| --- | --- | --- | --- | --- | --- |
-| before | 0.41 s | 4.71 s | **43.46 s** | - | - |
-| after | 0.00 s | 0.00 s | **0.00 s** | 0.03 s | **0.42 s** |
-| `pa20/cppgm++-ref` | 0.00 s | 0.00 s | 0.00 s | 0.30 s | 7.01 s |
+### Validation
 
-`W<W<W<3>::v>::v>::v` made 2^(d+1)-1 readings of its arguments where it owes
-d+1.  14.1p4 declares a place under an identifier and 14.6.1p1 binds it under
-that identifier, so only 2.11p1's identifier can be the name that question is
-about; a qualified name or a template-id names something else and there is
-nothing in one for it to find.  Asking it of an identifier alone leaves the
-reading one per level.
-
-**3. A `<` between two template-ids is quadratic in PA10's parse, and the
-checkpoint's own row does not say so.**  C13 recorded `0.06 s` for 4096 of
-5.9's operators in one argument list, which is the cost with *literals* on
-either side.  With the operands the fixture writes - `W<0>::v < W<1>::v` - the
-list costs 0.12 / 1.71 / **27.35 s** at 256 / 1024 / 4096, and `--emit-ast`
-alone accounts for 1.63 of the 1.71 s: the backtracking that tells the two
-readings apart flattens the token range of each candidate name, which is 44M
-tokens flattened at 1024 against 2.8M at 256.  The same list with no operator in
-it is 0.01 / 0.04 s and the same operators between literals are 0.00 / 0.00 s,
-so it is the pair that costs.  The owner is `ast_parser_name.cpp` and
-`AstTokenStream::flatten`, which is PA10's parse and not this milestone's
-layer - and the reference is past 300 s on the shape this compiler takes 27 s
-on - so it is recorded in the performance model rather than rewritten from an
-audit of this checkpoint.
-
-**4. The reference writes `Tn <type>` before a function template's non-type
-argument, and g++ does not.**  `f<char, 66>()` over `template<class T, T v>` is
-`_Z1fIcLc66EEiv` here and in g++ and `_Z1fIcTnT_Lc66EEiv` in the reference; the
-same holds for a place typed by an earlier one, for two value places, for a
-value pack and for a default filling one.  The class tier agrees with the
-reference on all five, so the disagreement is the function tier's alone.
-
-**5. The `<` no `>` can put back is a class of spellings and not one of them.**
-The plan recorded `K<J<a < b> >`.  The sweep leaves the shape general: wherever
-a template-argument-list holds a template-id whose *own* argument holds 5.9's
-operator, both readings balance the flattened spelling and only a lookup of the
-inner name tells them apart - `Nm<A<a < b>::n>::n` and
-`P<A<a < b>, A<b < a> >` among them, which the reference reads and this
-compiler refuses.  The reading picks the one where the inner `<` opens, because
-the backward pass settles each suffix greedily and the forward walk replays it;
-picking the other way would answer these and lose the shapes where the inner
-name really is a template.  Nothing in a spelling decides it, which is why it
-stands in the failure map under the flattening rather than under this reading.
+- `perl scripts/cppgm_file_audit.pl --stage pa20 --paths dev/src` - **pass**,
+  with the five header-weight warnings the stage inherited and no sixth: moving
+  `spelled` and `keep_decltype` into `ast_parser.cpp` is what keeps
+  `ast_parser.h` under the line after the memo above it was declared.
+- `make test-report-through-pa20` - **pass**, 2399 / 2399 through pa20, with
+  pa20 itself 230 / 230 (174 fixtures and 56 course tests).
+- `make -C pa20 ref-test` regenerated every `.ref` under `pa20/tests` from
+  `pa20/cppgm++-ref` and none moved, so no fixture holds this compiler's answer.
+  The two course tests added this turn were generated the same way and are
+  accepted by g++.
+- 81 shapes swept through the harness's own comparator - which validates both
+  LowIR texts structurally before comparing them - against `pa20/cppgm++-ref`,
+  with g++ as the third oracle on each: pack against explicit specialization,
+  constexpr, derivation, array members and defaults; every declared type at a
+  value place and at a value pack; every declared type of a member read out of a
+  spelling; two of each thing that fixtures write one of; late specialization at
+  five points of instantiation; and four shapes all three oracles refuse.
+- Two units compiled together, over a header naming every PA20 feature at once:
+  byte-for-byte the reference's LowIR apart from the weak global it writes twice.
+- `valgrind --error-exitcode=99 -q` over all 232 pa20 fixtures, course tests and
+  probe inputs: **clean**.
+- Three programs built through `lowir2cy86` and `cy86` and run, each returning
+  what the source computes - 16, 15 and 15 - two of them over the rules this
+  turn added.

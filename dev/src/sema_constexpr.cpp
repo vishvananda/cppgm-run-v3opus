@@ -1135,6 +1135,7 @@ SemaConstant ConstexprReading::call_or_cast(const AstNode& node,
 		// 7.1.6.2p1: the simple-type-specifier may be a typedef-name or an
 		// enum-name the program declared, which 3.4 answers for - and a
 		// name that reaches no region at all is a call and not a cast.
+		const unsigned stood = analyzer_.stood_in_;
 		try
 		{
 			SemaEntity* const named =
@@ -1143,6 +1144,12 @@ SemaConstant ConstexprReading::call_or_cast(const AstNode& node,
 		}
 		catch (const std::exception&)
 		{
+			// 14.6p8's count is of the stand-ins a *reading* made, and a name
+			// this one threw out made none - the same as `probe_type_id` and
+			// the pattern reading `sema_specialize.cpp` throws away.  A name
+			// that is a template-id reaches an argument list on the way here,
+			// so the count can move before the throw.
+			analyzer_.stood_in_ = stood;
 			target = kNoType;
 		}
 	}
