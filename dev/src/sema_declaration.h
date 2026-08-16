@@ -460,16 +460,32 @@ public:
 // a constant that stands for an object of class type it carries the identifier
 // of the interned list its subobjects hold; `real` carries a floating one,
 // already rounded to the width its type gives it.
+// A constant of pointer type carries neither: 3.9.2p1's value is an address,
+// which `bits` holds as the identifier `AddressTable` interned the object it
+// designates under.  `object` is the other half of the same fact read one step
+// earlier - 3.10p1's glvalue, the object the *expression* designated, which is
+// what `&` hands back, what a reference binds to and what 4.2p1 decays.
 struct SemaConstant
 {
 	SemaConstant()
 		: type(kNoType)
 		, bits(0)
 		, real(0)
+		, object(0)
+		, valued(true)
 	{}
 
 	TypeId type;
 	unsigned long long bits;
 	long double real;
+	// 3.10p1: the object this value was read out of, where the expression that
+	// reached it designated one, and zero where it is a prvalue of its own.
+	std::uint32_t object;
+	// 8.5p11: whether the fields above say what that object holds.  An object
+	// whose address is a constant expression need not have a value 5.19 reads -
+	// `static int n;` is one, and `&n` is a constant while `n` is not - so an
+	// operand read for its address alone is this, and every reading that asks
+	// for a value refuses it.
+	bool valued;
 };
 

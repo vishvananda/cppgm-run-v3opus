@@ -43,7 +43,7 @@ FRONTEND_OBJ_BASENAMES_cppgm++ := source_charset source_reader pptoken_lexer \
 	ast_parser_declarator ast_parser_statement ast_parser_expression ast_emit \
 	type_model sema_name sema_scope sema_analyzer sema_class sema_lifetime \
 	sema_declarator sema_function sema_layout sema_virtual sema_enum \
-	sema_constant sema_constexpr sema_constexpr_declaration \
+	sema_address sema_constant sema_constexpr sema_constexpr_declaration \
 	sema_constexpr_statement sema_noexcept \
 	sema_statement sema_expression sema_cast sema_overload sema_init_list \
 	sema_operator sema_argument_lookup \

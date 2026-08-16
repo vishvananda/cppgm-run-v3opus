@@ -9,6 +9,7 @@
 #include <utility>
 #include <vector>
 
+#include "sema_address.h"
 #include "sema_facts.h"
 #include "type_model.h"
 
@@ -214,6 +215,13 @@ struct SemaEntity
 	// is dropped with it, while every other constant a program declares is a
 	// fact of the program that no evaluation of it may change.
 	bool fold_local;
+	// 5.19p2 and 3.10p2: the object this name designates, where it is a binding
+	// that names one some other declaration owns - 8.3.2p1's reference bound to
+	// an argument, or a subobject of the object a call was written on.  Zero
+	// where the name designates storage of its own, which every declaration the
+	// program wrote does and which a place a call filled does too: the address
+	// of one of those is `&` of the declaration itself.
+	std::uint32_t address;
 	// 13.1: the other declarations of this name in this region, in declaration
 	// order.  A name is bound to the first of them and the rest are reached
 	// from it, so collecting the candidates of a call costs one walk of the
@@ -1065,6 +1073,10 @@ public:
 	TypeId folded_call(const SemaEntity& callee, std::uint32_t arguments) const;
 	void hold_folded_call(const SemaEntity& callee, std::uint32_t arguments,
 	                      TypeId value);
+	// 5.19p2's address constants, whose pool is owned here for the same reason
+	// the folds are: an address is a fact of the program's objects and outlives
+	// every reading that names one.
+	AddressTable& addresses() { return addresses_; }
 	// 8.5p7: the object of class type every one of whose subobjects is
 	// value-initialized, as that same interned entry.  There is one such value
 	// per type, so it is worked out once - which is what keeps a class whose
@@ -1212,6 +1224,9 @@ private:
 	// declaration and the interned list of what its object and its arguments
 	// came to.
 	std::unordered_map<std::uint64_t, TypeId> folded_calls_;
+	// 5.19p2's address constants met so far, whose identifiers are what a
+	// constant of pointer type carries in place of a number.
+	AddressTable addresses_;
 	// 8.5p7's value-initialized object of each class type met so far.
 	std::unordered_map<TypeId, TypeId> value_initialized_;
 	unsigned folding_depth_;

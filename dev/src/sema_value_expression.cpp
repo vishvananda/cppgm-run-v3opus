@@ -990,12 +990,13 @@ SemaConstant TemplateArgumentReader::name(const std::string& spelling,
 		throw NotConstant(spelling + " is written as a template argument and "
 		                  "names no constant");
 	}
-	if (named->constant)
+	if (named->constant || named->address != 0)
 	{
-		SemaConstant out;
-		out.type = named->type;
-		out.bits = named->value;
-		return out;
+		// 5.19p2 asked of a declaration a lookup reached, which is one reading
+		// and not one per door: what the name is worth, the object it
+		// designates, and 8.3.2p1's reference standing for another object are
+		// the same three facts here as they are over a tree.
+		return ConstexprReading(analyzer_).entity_constant(*named, spelling);
 	}
 	if (analyzer_.types_.is_dependent(named->type) ||
 	    analyzer_.types_.parameter_value_type(named->type) != kNoType)
@@ -1017,8 +1018,11 @@ SemaConstant TemplateArgumentReader::name(const std::string& spelling,
 		out.bits = 0;
 		return out;
 	}
-	throw NotConstant(spelling + " is written as a template argument and is "
-	                  "not a constant expression");
+	// 3.10p1: a name a lookup reached whose object holds no value may still
+	// designate one - `static bool a[4];` is such an object, and 4.2p1's decay
+	// and 5.3.1p3's `&` read it.  The one reading answers that here too, and
+	// refuses where there is neither.
+	return ConstexprReading(analyzer_).entity_constant(*named, spelling);
 }
 
 // 5.4p4 and 4.7: an integral value read as another integral type.
@@ -1042,6 +1046,17 @@ SemaConstant TemplateArgumentReader::binary(unsigned op,
                                             const SemaConstant& left_value,
                                             const SemaConstant& right_value)
 {
+	{
+		// 5.7 and 5.9-5.10 over an address: the same reading a tree asks, and
+		// asked before the promotion below, which would read the identifier of
+		// the object a pointer designates as a number.
+		SemaConstant address;
+		if (ConstexprReading(analyzer_).address_operation(op, left_value,
+		                                                  right_value, address))
+		{
+			return address;
+		}
+	}
 	const SemaConstant left = analyzer_.promote(left_value);
 	const SemaConstant right = analyzer_.promote(right_value);
 	const bool comparison = op == OP_LT || op == OP_GT || op == OP_LE ||

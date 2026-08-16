@@ -1,0 +1,18 @@
+ERROR: unsupported constexpr variable initializer at course/pa21/500-a-constexpr-pointer-outlives-its-object-bad.t:18:21 [top-level declaration 1 kind=simple-declaration ast={simple-declaration
+  decl-specifier-seq
+    decl-specifier KW_CONSTEXPR:constexpr
+    decl-specifier KW_CONST:const
+    decl-specifier KW_INT:int
+  init-declarator-list
+    init-declarator
+      declarator
+        ptr-operator OP_STAR:*
+        identifier escaped
+      initializer
+        call-expression
+          id-expression address_of
+          argument-list
+            literal 5
+}]
+Diagnostic context:
+collect_simple_declaration [constexpr const int*escaped=address_of(5);] at course/pa21/500-a-constexpr-pointer-outlives-its-object-bad.t:18:1

@@ -173,6 +173,23 @@ bool ConstexprReading::is_object(const SemaConstant& value) const
 		analyzer_.types_.is_class(analyzer_.types_.strip_cv(value.type));
 }
 
+// 5.19p2 with 3.9.1p8: whether a subobject of this type is one the constants
+// hold at all.
+//
+// 8.3.4p6's element and 9.2p13's member ask it alike, and so does the member a
+// constructor initializes - so it is one sentence and not one per walker.  The
+// kinds are the two arithmetic ones, 7.2p5's enumeration, 5.19p2's address, and
+// the class or array whose own interned list holds whatever the rest of them
+// are; a pointer to member is the one that is left.
+bool ConstexprReading::valued_subobject(TypeId type) const
+{
+	const TypeId bare = analyzer_.types_.strip_cv(type);
+	return analyzer_.types_.is_class(bare) ||
+		analyzer_.types_.kind(bare) == TypeKind::Array ||
+		analyzer_.types_.kind(bare) == TypeKind::Pointer ||
+		analyzer_.arithmetic_type(bare) != kNoType;
+}
+
 bool ConstexprReading::holds_list(const SemaConstant& value) const
 {
 	return is_object(value) ||
@@ -331,9 +348,7 @@ SemaConstant ConstexprReading::object_of(TypeId type,
 			const std::vector<SemaConstant> none;
 			value = array_of(member, none);
 		}
-		if (!analyzer_.types_.is_class(member) &&
-		    analyzer_.types_.kind(member) != TypeKind::Array &&
-		    analyzer_.arithmetic_type(member) == kNoType)
+		if (!valued_subobject(member))
 		{
 			throw NotConstant("a member of " +
 			                  analyzer_.types_.description(bare) +
@@ -394,8 +409,12 @@ bool ConstexprReading::fold_declared_object(SemaEntity& entity,
 	{
 		qualified = analyzer_.types_.target(analyzer_.types_.strip_cv(qualified));
 	}
+	// 3.9.2p1 and 5.19p2: a pointer is a constant of the same standing as an
+	// arithmetic value, and what it is worth is the object it designates.
+	const bool addressed =
+		analyzer_.types_.kind(bare) == TypeKind::Pointer;
 	if ((analyzer_.types_.cv(qualified) & kCvConst) == 0 ||
-	    (!built && analyzer_.arithmetic_type(type) == kNoType))
+	    (!built && !addressed && analyzer_.arithmetic_type(type) == kNoType))
 	{
 		return true;
 	}
@@ -431,6 +450,17 @@ bool ConstexprReading::fold_declared_object(SemaEntity& entity,
 			: (analyzer_.types_.kind(bare) == TypeKind::Array
 				   ? array_of(bare, none)
 				   : object_of(bare, none));
+		if (!static_address(value))
+		{
+			// 5.19p2: an address constant expression designates an object with
+			// static storage duration, and this one designates storage the
+			// evaluation itself made - 12.2p1's temporary a reference bound to,
+			// or a place a folded call filled - which is gone before the program
+			// reads what was written here.
+			throw NotConstant(entity.name +
+			                  " is initialized with the address of an object "
+			                  "whose lifetime ends inside the evaluation");
+		}
 		entity.value = value.bits;
 		entity.real = value.real;
 		entity.constant = true;
@@ -509,6 +539,13 @@ SemaConstant ConstexprReading::initialized_value(const AstNode& wrote,
 			++clauses.at;
 			operands.push_back(analyzer_.evaluate(clause, inner));
 		}
+	}
+	else if (analyzer_.types_.kind(bare) == TypeKind::Pointer)
+	{
+		// 4.2p1 and 4.3p1: a place of pointer type is initialized from the
+		// *object* the initializer designates, which `char a[3];` and the name
+		// of a function each have and neither has a value of.
+		operands.push_back(operand_constant(wrote, ctx));
 	}
 	else
 	{
@@ -691,7 +728,7 @@ SemaConstant ConstexprReading::array_of(TypeId type,
 	// element that is itself an array holds a list of its own exactly as one of
 	// class type does - which is what a second subscript then reads.
 	const bool nested = analyzer_.types_.kind(element) == TypeKind::Array;
-	if (!built && !nested && analyzer_.arithmetic_type(element) == kNoType)
+	if (!valued_subobject(element))
 	{
 		throw NotConstant("an element of " +
 		                  analyzer_.types_.description(bare) +
@@ -744,6 +781,13 @@ SemaConstant ConstexprReading::array_of(TypeId type,
 SemaConstant ConstexprReading::element_value(const SemaConstant& array,
                                              unsigned long long index)
 {
+	if (!array.valued && array.object != 0)
+	{
+		// 2.14.5p8's literal and every other array a fold designates without
+		// holding a list for it: which element the subscript names is the same
+		// question, and the answer is read out of the object.
+		return loaded(subobject_address(array.object, index));
+	}
 	if (!holds_list(array) || is_object(array))
 	{
 		throw NotConstant("a constant expression subscripts something that is "
@@ -758,8 +802,15 @@ SemaConstant ConstexprReading::element_value(const SemaConstant& array,
 		throw NotConstant("a constant expression subscripts an array outside "
 		                  "its bounds");
 	}
-	return constant_of(held[static_cast<std::size_t>(index)],
-	                   analyzer_.types_);
+	SemaConstant out =
+		constant_of(held[static_cast<std::size_t>(index)], analyzer_.types_);
+	if (array.object != 0)
+	{
+		// 3.10p1: the element of an array an expression designated is an object
+		// the expression designates too, which is what `&a[1]` then reads.
+		out.object = subobject_address(array.object, index);
+	}
+	return out;
 }
 
 void ConstexprReading::mem_initializers(
@@ -964,8 +1015,7 @@ SemaConstant ConstexprReading::object_from_constructor(
 			                  " initializes no value for " +
 			                  members[index]->name);
 		}
-		if (!analyzer_.types_.is_class(member) &&
-		    analyzer_.arithmetic_type(member) == kNoType)
+		if (!valued_subobject(member))
 		{
 			throw NotConstant("a member of " +
 			                  analyzer_.types_.description(bare) +
@@ -997,10 +1047,30 @@ SemaConstant ConstexprReading::object_from_constructor(
 SemaConstant ConstexprReading::accessed_object(const AstNode& node,
                                                const SemaContext& ctx)
 {
-	if (node.token != OP_DOT || node.children.size() < 2)
+	if (node.children.size() < 2 ||
+	    (node.token != OP_DOT && node.token != OP_ARROW))
 	{
 		throw NotConstant("a constant expression reads a member through "
 		                  "something it holds no object of", false);
+	}
+	if (node.token == OP_ARROW)
+	{
+		// 5.2.5p2: `E->m` is `(*E).m`, so the object is the one the left
+		// operand points to - which 5.19p2 now holds an address of.  13.5.6p1's
+		// `operator->` is reached the same way every other operator is, from an
+		// operand of class type, and what it hands back is that pointer.
+		SemaConstant pointer = analyzer_.evaluate(*node.children[0], ctx);
+		while (overloadable_operand(pointer))
+		{
+			const std::vector<SemaConstant> one(1, pointer);
+			SemaConstant called;
+			if (!operator_constant(OP_ARROW, one, ctx, called))
+			{
+				break;
+			}
+			pointer = called;
+		}
+		return loaded(pointed_object(pointer));
 	}
 	const SemaConstant object = analyzer_.evaluate(*node.children[0], ctx);
 	if (!is_object(object))
@@ -1065,7 +1135,15 @@ SemaConstant ConstexprReading::member_value(const SemaConstant& object,
 		if (members[index] == named ||
 		    members[index] == &SemaAnalyzer::declared_member(*named))
 		{
-			return constant_of(held[index], analyzer_.types_);
+			SemaConstant out = constant_of(held[index], analyzer_.types_);
+			if (object.object != 0)
+			{
+				// 3.10p1 and 9.2p13: the member of an object an expression
+				// designated is one it designates too, which is what `&s.m` and
+				// a member of array type decaying then read.
+				out.object = subobject_address(object.object, index);
+			}
+			return out;
 		}
 	}
 	throw NotConstant(name +
@@ -1172,12 +1250,20 @@ SemaConstant ConstexprReading::called_name(
 	}
 	if (named->kind != SemaKind::Function)
 	{
+		const SemaConstant held = entity_constant(*named, name);
+		SemaEntity* const through = called_through(held);
+		if (through != nullptr)
+		{
+			// 5.2.2p1: the postfix-expression is of pointer to function type, so
+			// the call is of the function that pointer designates - and 8.3.2p1's
+			// reference to function is the same call written without the `&`.
+			return call(*through, nullptr, arguments);
+		}
 		// 13.5.4p1: what the parentheses were written on is an object, so the
 		// call is a call of a member `operator()` of its class - which is a
 		// member call on the object that name is worth and no further reading
 		// of its own.
-		return member_call(entity_constant(*named, name), "operator()",
-		                   arguments, ctx);
+		return member_call(held, "operator()", arguments, ctx);
 	}
 	SemaEntity& one = selected(name, candidates, written, nullptr, singles);
 	// 9.3.1p3: a call written with no object expression is one on the object
@@ -1217,11 +1303,15 @@ AnalyzedValue ConstexprReading::argument_value(const SemaConstant& value) const
 {
 	AnalyzedValue out;
 	out.type = out.spelled = value.type;
-	out.category = ValueCategory::PRValue;
-	out.constant = true;
+	// 3.10p1: an operand this reading has no value of is one it read for the
+	// object it designates alone, and that object is an lvalue - which is what
+	// leaves `address_of(T &)` a candidate for a `static int n;` where every
+	// constant beside it is 5.19's value and so a prvalue.
+	out.category = value.valued ? ValueCategory::PRValue : ValueCategory::LValue;
+	out.constant = value.valued;
 	out.value = value.bits;
 	out.real = value.real;
-	out.null_constant = value.bits == 0 && !holds_list(value) &&
+	out.null_constant = value.valued && value.bits == 0 && !holds_list(value) &&
 		analyzer_.integral_type(value.type) != kNoType;
 	return out;
 }
@@ -1528,6 +1618,15 @@ SemaConstant ConstexprReading::at_arithmetic_place(const SemaConstant& value,
                                                    TypeId place,
                                                    bool contextual)
 {
+	if (!value.valued)
+	{
+		// 8.5p11 and 4.1p1: the operand designates an object this reading holds
+		// no value of, and every place here asks for one.  It is 5.19's own
+		// answer about the program - `static int n; enum { e = n };` is ill
+		// formed - and the object's own refusal has already said which name.
+		throw NotConstant("a constant expression reads an object it holds no "
+		                  "value of where a value belongs");
+	}
 	// A constant of class type is the identifier of an interned list and not a
 	// number of the object's own width, so reading its bits where a number was
 	// asked for is reading the identifier.  5.19p3 leaves a converted constant
@@ -1590,10 +1689,17 @@ SemaEntity& ConstexprReading::bind_constant(const std::string& name,
 {
 	SemaEntity& bound =
 		analyzer_.model_.create(SemaKind::Variable, name, value.type);
-	bound.constant = true;
+	bound.constant = value.valued;
 	bound.fold_local = written;
 	bound.value = value.bits;
 	bound.real = value.real;
+	if (analyzer_.types_.is_reference(value.type))
+	{
+		// 8.3.2p1: a place declared of reference type names the object the
+		// argument designated, so the binding carries that object rather than a
+		// value - and every reading of the name goes through it.
+		bound.address = static_cast<std::uint32_t>(value.bits);
+	}
 	bound.region = inner.scope;
 	analyzer_.model_.bind(*inner.scope, name, bound);
 	analyzer_.model_.declare_in(*inner.scope, bound);
@@ -1681,9 +1787,18 @@ void ConstexprReading::bind_arguments(SemaEntity& callee,
 			// 5.19p2: the object the call was written on is one whose lifetime
 			// began before this evaluation, so its subobjects are read here
 			// and are no binding the body may write.
-			bind_constant(members[index]->name,
-			              constant_of(held[index], analyzer_.types_), inner,
-			              false);
+			SemaEntity& bound =
+				bind_constant(members[index]->name,
+				              constant_of(held[index], analyzer_.types_), inner,
+				              false);
+			if (object->object != 0)
+			{
+				// 9.2p1 with 3.10p2: a member named with no object expression
+				// names the subobject of *that* object, so the binding designates
+				// it - which is what `&value` and `return elems;` inside the body
+				// then hand back.
+				bound.address = subobject_address(object->object, index);
+			}
 		}
 	}
 	// 8.3.5p10 and 5.2.2p4: the places the declarator wrote, each bound to what
@@ -1764,6 +1879,14 @@ std::uint32_t ConstexprReading::passed_arguments(
 	std::vector<TypeId> key;
 	key.reserve(places.size() + 1);
 	key.push_back(object == nullptr ? kNoType : entry_of(*object));
+	// 3.10p2 and 5.19p2: *which* object the call was written on, beside what
+	// that object is worth.  Two objects of one class holding one value are two
+	// objects, and a body that hands back the address of a member of the one it
+	// was called on hands back two different addresses - so a fold of the first
+	// is no answer for the second.
+	key.push_back(analyzer_.types_.value_type(
+		analyzer_.types_.fundamental(FT_UNSIGNED_LONG_INT),
+		object == nullptr ? 0 : object->object));
 	for (std::size_t at = implicit; at < places.size(); ++at)
 	{
 		const std::size_t index = at - implicit;
@@ -1792,7 +1915,18 @@ std::uint32_t ConstexprReading::passed_arguments(
 			where.dump = where.scope->dump;
 			given = analyzer_.evaluate(*written->children[0]->children[0], where);
 		}
-		if (analyzer_.arithmetic_type(places[at]) != kNoType)
+		if (analyzer_.types_.is_reference(places[at]))
+		{
+			// 8.3.2p1 and 8.5.3: the place binds to the object the argument
+			// designates rather than taking a copy of what it is worth, which is
+			// what makes `&value` inside the body the address of the *argument*.
+			// The binding is part of the key, so a call on one object and a call
+			// on another holding the same value are two folds and not one.
+			given = at_reference_place(given, places[at]);
+		}
+		else if (analyzer_.arithmetic_type(places[at]) != kNoType ||
+		         analyzer_.types_.kind(
+			         analyzer_.types_.strip_cv(places[at])) == TypeKind::Pointer)
 		{
 			given = analyzer_.convert(given, places[at]);
 			given.type = places[at];
@@ -1839,7 +1973,7 @@ SemaConstant ConstexprReading::call(SemaEntity& callee,
 	const TypeId held = analyzer_.model_.folded_call(callee, list);
 	if (held != kNoType)
 	{
-		return constant_of(held, analyzer_.types_);
+		return returned_constant(constant_of(held, analyzer_.types_));
 	}
 	unsigned& depth = analyzer_.model_.folding_depth();
 	if (depth >= kMaxConstexprDepth)
@@ -1886,10 +2020,23 @@ SemaConstant ConstexprReading::call(SemaEntity& callee,
 		                  "return statement 6.6.3p2 gives the call a value by");
 	}
 	SemaConstant answer = frame.result;
-	if (analyzer_.arithmetic_type(result) != kNoType)
+	if (analyzer_.types_.is_reference(result))
+	{
+		// 8.3.2p1 and 6.6.3p2: a function whose return type is a reference hands
+		// back the *object* the return statement designated and no copy of what
+		// it holds - so the answer is that object, which is what makes
+		// `&values[0] == values.data()` one address and not two.  The object is
+		// what the fold is held under too, so a second naming of the call reads
+		// the same object back out of the memo.
+		answer = at_reference_place(answer, result);
+	}
+	else if (analyzer_.arithmetic_type(result) != kNoType ||
+	         analyzer_.types_.kind(analyzer_.types_.strip_cv(result)) ==
+		         TypeKind::Pointer)
 	{
 		// 6.6.3p2: the value the return statement's expression is converted to
-		// the return type, which is what the caller reads.
+		// the return type, which is what the caller reads - and 4.2p1's decay of
+		// an array the body named is one of those conversions.
 		answer = analyzer_.convert(answer, result);
 		answer.type = result;
 	}
@@ -1902,7 +2049,32 @@ SemaConstant ConstexprReading::call(SemaEntity& callee,
 		answer = at_class_place(answer, result);
 	}
 	analyzer_.model_.hold_folded_call(callee, list, entry_of(answer));
-	return answer;
+	return returned_constant(answer);
+}
+
+// 5.2.9p2, 5.2.9p4 and 8.5: `value` read where the place named is of reference
+// or class type, which is the reading a cast written to one asks and the
+// reading an initialization of one asks alike.  A reference place binds to the
+// object rather than taking a copy, so what the expression is then worth is
+// that object read back - which is what carries `static_cast<X&&>(x)` on to the
+// conversion function of the object `x` names.
+SemaConstant ConstexprReading::at_object_place(const SemaConstant& value,
+                                               TypeId place)
+{
+	return analyzer_.types_.is_reference(analyzer_.types_.strip_cv(place))
+		? returned_constant(at_reference_place(value, place))
+		: at_class_place(value, place);
+}
+
+// 8.3.2p1 and 5.2.2p10: what the caller reads of a call whose answer the memo
+// holds, which for a reference return type is the object that answer designates
+// - the value it holds, carrying the object it came out of, so that `&f()` and
+// `f().m` each reach the storage the callee named.
+SemaConstant ConstexprReading::returned_constant(const SemaConstant& answer)
+{
+	return analyzer_.types_.is_reference(answer.type)
+		? held_at(static_cast<std::uint32_t>(answer.bits))
+		: answer;
 }
 
 SemaConstant ConstexprReading::id_constant(const AstNode& node,
@@ -1925,6 +2097,13 @@ SemaConstant ConstexprReading::id_constant(const AstNode& node,
 SemaConstant ConstexprReading::entity_constant(SemaEntity& entity,
                                                const std::string& spelling)
 {
+	if (entity.address != 0 && analyzer_.types_.is_reference(entity.type))
+	{
+		// 8.3.2p1: the name of a reference names the object it was bound to, so
+		// what it is worth is what that object holds - and `&` written on it is
+		// that object's address and not one of the reference's own.
+		return held_at(entity.address);
+	}
 	if (!entity.constant)
 	{
 		if (analyzer_.checking_ > 0 && analyzer_.types_.is_dependent(entity.type))
@@ -1949,6 +2128,16 @@ SemaConstant ConstexprReading::entity_constant(SemaEntity& entity,
 	out.type = entity.type;
 	out.bits = entity.value;
 	out.real = entity.real;
+	if (entity.kind == SemaKind::Variable || entity.kind == SemaKind::Parameter ||
+	    entity.kind == SemaKind::Function)
+	{
+		// 3.10p1: the name of an object or a function is an lvalue, so what it
+		// came to travels with the object it came out of - which is what 4.2p1's
+		// decay, 8.3.2p1's reference binding and 5.3.1p3's `&` each ask for one
+		// step further on.  The address is worked out once per declaration and
+		// held on it, so a name read n times costs one interning and n reads.
+		out.object = designated_entity(entity, spelling);
+	}
 	return out;
 }
 
@@ -1960,6 +2149,27 @@ SemaConstant ConstexprReading::unary_constant(const AstNode& node,
 		// 5.3.2p1: the operand is written and the value is the object as it now
 		// stands, so the operand is not read as a value first.
 		return increment_constant(node, ctx, true);
+	}
+	if (node.token == OP_AMP)
+	{
+		// 5.3.1p3 with 5.19p2: `&E` is the address of the object `E` designates,
+		// which is a value of its own and no reading of what that object holds -
+		// so the operand is designated rather than evaluated, and `&n` over a
+		// `static int n;` is a constant expression where `n` is not.  13.3.1.2p2
+		// stands in front of it as it does in front of every operator, so an
+		// operand of class or enumeration type is asked for its declarations of
+		// `operator&` first.
+		const std::uint32_t object = designated(*node.children[0], ctx);
+		if (overloadable_place(address_type(object)))
+		{
+			const std::vector<SemaConstant> one(1, held_at(object));
+			SemaConstant called;
+			if (operator_constant(node.token, one, ctx, called))
+			{
+				return called;
+			}
+		}
+		return pointer_constant(object, kNoType);
 	}
 	const SemaConstant given = analyzer_.evaluate(*node.children[0], ctx);
 	{
@@ -1974,6 +2184,12 @@ SemaConstant ConstexprReading::unary_constant(const AstNode& node,
 		{
 			return called;
 		}
+	}
+	if (node.token == OP_STAR)
+	{
+		// 5.3.1p1: the unary `*` names the object its operand points to, whose
+		// value is what the expression is worth where one is asked for.
+		return loaded(pointed_object(given));
 	}
 	if (node.token == OP_LNOT)
 	{
@@ -2160,6 +2376,17 @@ SemaConstant ConstexprReading::binary_value(unsigned token,
                                             const SemaConstant& given_left,
                                             const SemaConstant& given_right)
 {
+	{
+		// 5.7 and 5.9-5.10: an operator one of whose operands is a pointer is
+		// arithmetic on an address rather than on a number, and 5p10's usual
+		// arithmetic conversions reach neither operand of it - so it is asked
+		// before the promotion that would read an address as one.
+		SemaConstant address;
+		if (address_operation(token, given_left, given_right, address))
+		{
+			return address;
+		}
+	}
 	const SemaConstant left = analyzer_.promote(given_left);
 	const SemaConstant right = analyzer_.promote(given_right);
 	const bool comparison = token == OP_LT || token == OP_GT ||
@@ -2293,6 +2520,93 @@ SemaConstant ConstexprReading::binary_value(unsigned token,
 // call, which is a cast written in functional notation, an object of literal
 // class type, or a call of a function - and which of the three it is, is
 // settled by the one lookup of the name before the parentheses.
+// 5.2.1p1: `E1[E2]`, whose left operand is one of three things - an array a
+// name designates, a pointer into one, or an object of class type whose
+// `operator[]` 13.5.5p1 makes this a call of.
+SemaConstant ConstexprReading::subscript_constant(const AstNode& node,
+                                                  const SemaContext& ctx)
+{
+	const AstNode* array = node.children[0];
+	while (array->kind == AstKind::ParenthesizedExpression)
+	{
+		array = array->children[0];
+	}
+	// The subscript names an element, so what it is worth is an integer and
+	// 4.9's conversion of a floating one is no part of it.
+	if (array->kind == AstKind::Literal)
+	{
+		// 2.14.5p8: a string literal is an array object no declaration named,
+		// so what it holds is read out of the literal itself.
+		return analyzer_.string_element(
+			array->text, counted(analyzer_.evaluate(*node.children[1], ctx)));
+	}
+	const SemaConstant held = analyzer_.evaluate(*array, ctx);
+	const SemaConstant index = analyzer_.evaluate(*node.children[1], ctx);
+	if (holds_address(held))
+	{
+		// `E1[E2]` is `*(E1 + E2)`, which over a pointer operand is 5.7p5's
+		// element and no reading of an array's own list.
+		return subscripted(held, index);
+	}
+	// 13.3.1.2p1 with 13.5.5p1: a subscript of an object of class type is the
+	// call of a member `operator[]` and no reading of an array at all.
+	std::vector<SemaConstant> operands;
+	operands.push_back(held);
+	operands.push_back(index);
+	SemaConstant called;
+	if (operator_constant(OP_LSQUARE, operands, ctx, called))
+	{
+		return called;
+	}
+	return element_value(held, counted(index));
+}
+
+// 5.4p4 and 5.2.9: a cast written in either notation direct-initializes an
+// object of the type named, so which reading answers it is that type - and each
+// of the four is the reading an initialization of such a place asks anywhere
+// else.  12.3.2p2 makes this the other place a conversion function declared
+// `explicit` answers, which is why the arithmetic arm asks for the conversion
+// here rather than leaving it to `convert`: that one is 5.19p3's implicit
+// sequence and reaches no such declaration.
+SemaConstant ConstexprReading::cast_constant(const AstNode& node,
+                                             const SemaContext& ctx)
+{
+	if (node.children.size() != 2 ||
+	    node.children[0]->kind != AstKind::TypeId)
+	{
+		throw NotConstant("a constant expression holds a cast PA11 does not "
+		                  "evaluate", false);
+	}
+	TypeTable& types = analyzer_.types_;
+	const TypeId type = analyzer_.type_id_type(*node.children[0], ctx);
+	if (types.kind(types.strip_cv(type)) == TypeKind::Pointer)
+	{
+		// 4.10p1: what reaches a pointer is an address or the null pointer
+		// value, which is `convert`'s own reading of a place of that type.
+		return analyzer_.convert(analyzer_.evaluate(*node.children[1], ctx),
+		                         type);
+	}
+	if (types.is_reference(types.strip_cv(type)) ||
+	    types.is_class(types.strip_cv(type)))
+	{
+		// 5.2.9p2 and 5.2.9p4: a cast to a reference type binds that reference
+		// to the object the operand designates, and one to a class type builds
+		// an object of it.
+		return at_object_place(operand_constant(*node.children[1], ctx), type);
+	}
+	if (analyzer_.arithmetic_type(type) == kNoType)
+	{
+		throw NotConstant("a constant expression casts to a type that is not "
+		                  "arithmetic", false);
+	}
+	SemaConstant out = analyzer_.convert(
+		at_arithmetic_place(analyzer_.evaluate(*node.children[1], ctx),
+		                    analyzer_.arithmetic_type(type), true),
+		type);
+	out.type = type;
+	return out;
+}
+
 SemaConstant ConstexprReading::call_or_cast(const AstNode& node,
                                            const SemaContext& ctx)
 {
@@ -2370,7 +2684,12 @@ SemaConstant ConstexprReading::call_or_cast(const AstNode& node,
 		const SemaContext inner = written.in(ctx);
 		const AstNode& clause = written.next();
 		++written.at;
-		operands.push_back(analyzer_.evaluate(clause, inner));
+		// 8.3.2p1: a place this call may reach binds to the object the argument
+		// designates rather than to a value, so an argument that has no value
+		// this reading holds is still one such a place accepts.
+		operands.push_back(target == kNoType
+			                   ? operand_constant(clause, inner)
+			                   : analyzer_.evaluate(clause, inner));
 	}
 	if (target != kNoType && analyzer_.types_.is_class(analyzer_.types_.strip_cv(target)))
 	{

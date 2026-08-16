@@ -1,0 +1,37 @@
+global @__strlit__1 [binding=internal] = {
+  i8 97
+  i8 98
+  i8 0
+}
+global @mutable_scalar : i32 [binding=strong, object=_Z14mutable_scalar] = 0
+global @scalar_address : ptr [binding=internal, object=_ZL14scalar_address] = addr @mutable_scalar
+global @text : ptr [binding=internal, object=_ZL4text] = addr @__strlit__1
+global @values [binding=internal, object=_ZL6values] = {
+  i32 4
+  i32 5
+  i32 6
+}
+global @first : ptr [binding=internal, object=_ZL5first] = addr @values
+global @origin [binding=internal, object=_ZL6origin] = {
+  i32 7
+  i32 9
+}
+global @located : ptr [binding=internal, object=_ZL7located] = addr @origin
+global @pair [binding=internal, object=_ZL4pair] = {
+  i32 1
+  i32 2
+}
+global @carried [binding=internal, object=_ZL7carried] = {
+  ptr addr @mutable_scalar
+  i32 5
+  zero 4
+}
+global @carried_addresses [binding=internal, object=_ZL17carried_addresses] = {
+  ptr addr @mutable_scalar
+  zero 8
+}
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    return i32 0
+}

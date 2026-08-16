@@ -6,6 +6,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "sema_address.h"
 #include "sema_declaration.h"
 #include "type_model.h"
 
@@ -120,6 +121,11 @@ public:
 	SemaConstant unary_constant(const AstNode& node, const SemaContext& ctx);
 	SemaConstant binary_constant(const AstNode& node, const SemaContext& ctx);
 	SemaConstant call_or_cast(const AstNode& node, const SemaContext& ctx);
+	// 5.2.1p1's subscript and 5.4p4/5.2.9's cast, each of which is one operator
+	// with a reading per kind of operand or destination - so each is a reading
+	// of its own rather than an arm of the dispatch that reaches it.
+	SemaConstant subscript_constant(const AstNode& node, const SemaContext& ctx);
+	SemaConstant cast_constant(const AstNode& node, const SemaContext& ctx);
 
 	// The arithmetic of one binary operator over what its operands came to,
 	// with 5p10's conversions on them.  It is asked by the reading of a
@@ -229,6 +235,10 @@ public:
 	// argument and 6.6.3p2's returned value are each read through, so a
 	// constant crossing into or out of a call is one rule and not two.
 	SemaConstant at_class_place(const SemaConstant& value, TypeId place);
+	// The same reading where the place may also be 8.3.2p1's reference, which
+	// binds to the object the value designates rather than taking a copy of it -
+	// so what the expression is worth afterwards is that object read back.
+	SemaConstant at_object_place(const SemaConstant& value, TypeId place);
 
 	// 5.2.3p2 and p3: the object `T()` and `T{...}` stand for where `T` names a
 	// class, as the constant that holds its subobjects' values.  `written` is
@@ -290,6 +300,42 @@ public:
 	SemaConstant element_value(const SemaConstant& array,
 	                           unsigned long long index);
 
+	// 5.19p2's address constant expression, whose whole reading is
+	// `sema_address.cpp`'s.  A constant of pointer type carries the identifier
+	// `AddressTable` interned the object it designates under, and 3.10p1's
+	// glvalue - the object an *expression* designated - is `SemaConstant::object`
+	// beside it.
+	//
+	// `designated` is the lvalue reading beside `evaluate`'s value one: what
+	// object an expression names, which `static int n;` has and no value of.
+	// `loaded` is the other direction, 5.3.1p1's `*`, and `advanced` 5.7p5's
+	// arithmetic.  `at_pointer_place` and `at_reference_place` are 4.2p1's decay
+	// and 8.3.2p1's binding, asked wherever an initialization reaches a place of
+	// one of those types, and `static_address` is 5.19p2's own requirement on a
+	// pointer a declaration keeps.
+	std::uint32_t designated(const AstNode& node, const SemaContext& ctx);
+	std::uint32_t designated_entity(SemaEntity& entity,
+	                                const std::string& spelling);
+	SemaConstant loaded(std::uint32_t address);
+	SemaConstant held_at(std::uint32_t address);
+	SemaConstant pointer_constant(std::uint32_t address, TypeId place);
+	TypeId address_type(std::uint32_t address) const;
+	bool holds_address(const SemaConstant& value) const;
+	bool null_pointer_operand(const SemaConstant& value) const;
+	bool address_operation(unsigned token, const SemaConstant& left,
+	                       const SemaConstant& right, SemaConstant& out);
+	bool at_pointer_place(const SemaConstant& value, TypeId place,
+	                      SemaConstant& out);
+	SemaConstant at_reference_place(const SemaConstant& value, TypeId place);
+	bool static_address(const SemaConstant& value) const;
+	bool literal_object(const std::string& spelling, SemaConstant& out);
+	SemaConstant subscripted(const SemaConstant& pointer,
+	                         const SemaConstant& index);
+	SemaConstant operand_constant(const AstNode& node, const SemaContext& ctx);
+	SemaConstant decayed_operand(const SemaConstant& value);
+	SemaEntity* called_through(const SemaConstant& value);
+	SemaConstant returned_constant(const SemaConstant& answer);
+
 	// True where the constant stands for such an object rather than for a value
 	// of arithmetic type, which is what says its bits are a list identifier.
 	// `is_object` is the reading that asks for a *class*, because 5.2.5p1's
@@ -297,6 +343,11 @@ public:
 	// class answers; `holds_list` is the same fact about the bits.
 	bool is_object(const SemaConstant& value) const;
 	bool holds_list(const SemaConstant& value) const;
+	// 5.19p2 with 3.9.1p8: whether a subobject of `type` is one the constants
+	// hold at all, which 8.3.4p6's element, 9.2p13's member and the member a
+	// constructor initializes each ask - so the kinds there are are written
+	// once and not once per walker.
+	bool valued_subobject(TypeId type) const;
 
 	// 5.2.5p1 over an object a constant expression holds: what `E.m` comes to
 	// where `m` is 9.2p1's non-static data member, which is the subobject the
@@ -390,6 +441,20 @@ public:
 private:
 	ConstexprReading(const ConstexprReading&);
 	ConstexprReading& operator=(const ConstexprReading&);
+
+	// The halves of the address reading the readings above are written from:
+	// 2.14.5p8's literal object, 9.2p13's member of an addressed object, 5.7p5's
+	// bound and distance, and the array or pointer a subscript walks.
+	TypeId literal_type(const std::string& spelling) const;
+	unsigned long long address_bound(const ConstantAddress& held) const;
+	std::uint32_t subobject_address(std::uint32_t base,
+	                                unsigned long long index);
+	std::uint32_t member_address(std::uint32_t object, const std::string& name,
+	                             const SemaContext& ctx);
+	std::uint32_t pointed_object(const SemaConstant& value);
+	std::uint32_t array_object(const AstNode& node, const SemaContext& ctx);
+	std::uint32_t advanced(std::uint32_t address, long long step);
+	long long address_distance(std::uint32_t left, std::uint32_t right);
 
 	// The entry `value` interns as, which is what keys a fold and what a folded
 	// answer is read back out of.

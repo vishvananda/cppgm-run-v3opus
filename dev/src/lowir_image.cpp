@@ -356,6 +356,16 @@ bool LowirUnitLowering::folded(const DumpNode& node, unsigned long long& bits)
 		// image through.
 		return false;
 	}
+	if (fact.type != kNoType && fact.constant && fact.value != 0 &&
+	    types_.kind(types_.strip_cv(fact.type)) == TypeKind::Pointer)
+	{
+		// 5.19p2: a constant of pointer type that designates an object holds the
+		// identifier that object was interned under and not an address a
+		// spelling of this image could carry - `global_address` writes that one
+		// as `addr` beside the symbol.  4.10p1's null pointer value is the one
+		// such constant that is a number, and it is the number it holds.
+		return false;
+	}
 	if (fact.constant)
 	{
 		bits = fact.value;
@@ -370,11 +380,15 @@ bool LowirUnitLowering::folded(const DumpNode& node, unsigned long long& bits)
 	if (fact.kind == FactKind::Id && fact.entity != nullptr &&
 	    fact.entity->constant &&
 	    !types_.is_class(types_.strip_cv(fact.entity->type)) &&
-	    types_.kind(types_.strip_cv(fact.entity->type)) != TypeKind::Array)
+	    types_.kind(types_.strip_cv(fact.entity->type)) != TypeKind::Array &&
+	    (fact.entity->value == 0 ||
+	     types_.kind(types_.strip_cv(fact.entity->type)) != TypeKind::Pointer))
 	{
-		// A constant of class or array type holds the identifier of the list
-		// its subobjects came to and not a value of the object's own width, so
-		// it is no operand a fold of this initializer may stand.
+		// A constant of class or array type holds the identifier of the list its
+		// subobjects came to, and one of pointer type that designates an object
+		// holds the identifier of that object - neither is a value of the
+		// object's own width, so neither is an operand a fold of this
+		// initializer may stand.  4.10p1's null pointer value is.
 		bits = fact.entity->value;
 		return true;
 	}
@@ -643,7 +657,7 @@ const DumpNode* LowirUnitLowering::global_image(
 			owe_folded_construction(built, folded_object);
 		}
 		else if (types_.kind(types_.strip_cv(type)) == TypeKind::Class &&
-		         folded_object)
+		         folded_object && !written->fact.elided_prvalue)
 		{
 			// 3.6.2p2: where the call of the constructor is itself a constant
 			// expression - which is what the analysis says by having folded the

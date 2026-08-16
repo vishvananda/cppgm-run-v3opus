@@ -125,11 +125,35 @@ SemaAnalyzer::Constant SemaAnalyzer::convert(const Constant& given, TypeId type)
 	// 5.19p3: a constant that stands for an object of class type holds a list
 	// identifier and no number, so what it is worth here is what 12.3.2p1's
 	// conversion function hands back.  Every other constant is itself.
+	{
+		// 4.2p1, 4.3p1 and 4.10p1: the conversions that reach a place of pointer
+		// type, which are an address and no arithmetic at all - so they are asked
+		// before 5.19p3's, which would read an array designating an object as a
+		// value of the object's own width, and refused where the operand is no
+		// address.
+		Constant pointer;
+		if (ConstexprReading(*this).at_pointer_place(given, type, pointer))
+		{
+			return pointer;
+		}
+	}
 	const Constant value =
 		ConstexprReading(*this).at_arithmetic_place(given, arithmetic_type(type));
 	const TypeId from = arithmetic_type(value.type);
 	const TypeId to = arithmetic_type(type);
 	const bool from_real = from != kNoType && types_.is_floating(from);
+	if (ConstexprReading(*this).holds_address(value) &&
+	    !(types_.kind(type) == TypeKind::Fundamental &&
+	      types_.fundamental_type(type) == FT_BOOL))
+	{
+		// 4.12p1 is the one conversion of a pointer to an arithmetic type there
+		// is - whether it designates anything at all - and 3.9.2p1's value is an
+		// address, so any other destination reading its bits would read the
+		// identifier of the object it designates as a number.
+		throw NotConstant("a constant expression converts an address to " +
+		                  types_.description(type) +
+		                  ", which no conversion of a pointer reaches");
+	}
 	if (to != kNoType && from == kNoType &&
 	    types_.kind(types_.strip_cv(value.type)) == TypeKind::Array)
 	{
@@ -357,10 +381,29 @@ SemaAnalyzer::Constant SemaAnalyzer::evaluate(const AstNode& node,
 	switch (node.kind)
 	{
 	case AstKind::Literal:
+	{
+		// 2.14.5p8: a string literal is an *object* of static storage duration
+		// and no value at all, which is what a name of an array is - so it is
+		// read as one, and 5.19p2's address constant and 5.2.1p1's element are
+		// each the reading of that object they are anywhere else.
+		Constant object;
+		if (ConstexprReading(*this).literal_object(node.text, object))
+		{
+			return object;
+		}
 		return literal_constant(node.text);
+	}
 
 	case AstKind::KeywordLiteral:
 	{
+		if (node.token == KW_NULLPTR)
+		{
+			// 2.14.7p1 and 4.10p1: `nullptr` is the null pointer value, of type
+			// `std::nullptr_t`, which designates no object.
+			Constant out;
+			out.type = types_.fundamental(FT_NULLPTR_T);
+			return out;
+		}
 		if (node.token != KW_TRUE && node.token != KW_FALSE)
 		{
 			throw NotConstant("a constant expression names no value", false);
@@ -375,39 +418,7 @@ SemaAnalyzer::Constant SemaAnalyzer::evaluate(const AstNode& node,
 		return evaluate(*node.children[0], ctx);
 
 	case AstKind::SubscriptExpression:
-	{
-		const AstNode* array = node.children[0];
-		while (array->kind == AstKind::ParenthesizedExpression)
-		{
-			array = array->children[0];
-		}
-		// 5.2.1p1: the subscript names an element, so what it is worth is an
-		// integer and 4.9's conversion of a floating one is no part of it.
-		if (array->kind == AstKind::Literal)
-		{
-			// 2.14.5p8: a string literal is an array object no declaration
-			// named, so what it holds is read out of the literal itself.
-			return string_element(
-				array->text,
-				ConstexprReading(*this).counted(
-					evaluate(*node.children[1], ctx)));
-		}
-		const Constant held = evaluate(*array, ctx);
-		const Constant index = evaluate(*node.children[1], ctx);
-		// 13.3.1.2p1 with 13.5.5p1: a subscript of an object of class type is
-		// the call of a member `operator[]` and no reading of an array at all.
-		Constant called;
-		std::vector<Constant> operands;
-		operands.push_back(held);
-		operands.push_back(index);
-		if (ConstexprReading(*this).operator_constant(OP_LSQUARE, operands, ctx,
-		                                              called))
-		{
-			return called;
-		}
-		return ConstexprReading(*this).element_value(
-			held, ConstexprReading(*this).counted(index));
-	}
+		return ConstexprReading(*this).subscript_constant(node, ctx);
 
 	case AstKind::IdExpression:
 		return ConstexprReading(*this).id_constant(node, ctx);
@@ -441,30 +452,7 @@ SemaAnalyzer::Constant SemaAnalyzer::evaluate(const AstNode& node,
 	}
 
 	case AstKind::CastExpression:
-	{
-		if (node.children.size() != 2 ||
-		    node.children[0]->kind != AstKind::TypeId)
-		{
-			throw NotConstant("a constant expression holds a cast PA11 "
-			                         "does not evaluate", false);
-		}
-		const TypeId type = type_id_type(*node.children[0], ctx);
-		if (arithmetic_type(type) == kNoType)
-		{
-			throw NotConstant("a constant expression casts to a type that "
-			                         "is not arithmetic", false);
-		}
-		// 5.4p4: a cast written in either notation direct-initializes an
-		// object of the type named, which 12.3.2p2 makes the other place a
-		// conversion function declared `explicit` answers - so the conversion
-		// is asked for here rather than left to `convert`, which is 5.19p3's
-		// implicit sequence and reaches no such declaration.
-		const Constant value = ConstexprReading(*this).at_arithmetic_place(
-			evaluate(*node.children[1], ctx), arithmetic_type(type), true);
-		Constant out = convert(value, type);
-		out.type = type;
-		return out;
-	}
+		return ConstexprReading(*this).cast_constant(node, ctx);
 
 	case AstKind::CallExpression:
 		// 5.2.3p1 and 5.2.2p1: one shape the grammar could not tell

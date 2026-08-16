@@ -100,9 +100,11 @@ bool ConstexprRequirement::valued_type(TypeId type) const
 		const SemaEntity* const owner = analyzer_.model_.type_owner(bare);
 		return owner != nullptr && owner->valued_class == kLiteralYes;
 	}
-	// 3.9.1p8's two kinds of arithmetic value and 7.2p5's enumeration are what
-	// `SemaConstant` holds; `bits` and `real` say nothing about an address.
-	return analyzer_.arithmetic_type(bare) != kNoType;
+	// 3.9.1p8's two kinds of arithmetic value, 7.2p5's enumeration and 5.19p2's
+	// address are what `SemaConstant` holds.  A pointer to member is the gap
+	// that is left: no address here says which member of a class it names.
+	return analyzer_.arithmetic_type(bare) != kNoType ||
+		types.kind(bare) == TypeKind::Pointer;
 }
 
 // 7.1.5p9 asked of one declaration: whether this reading may hold it to a
