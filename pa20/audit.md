@@ -17,94 +17,61 @@ the specialization it names, and the definition a program wrote for one.
 | C8 | `8dfad19a` | 5 / 5 | **the dialect a character-literal is read in, which covers two facts and was moved for one.**  What a c-char above the ordinary range is worth, and whether a run of them is a literal at all, are one question PA2's dump and the language answer differently - the reference splits them the same way, its `#if` reading `'é'` as 233 where its phase 7 reads -23 - so `MulticharacterLiterals` was the right shape and reached one of the two: every ordinary character literal above 127 stayed PA2's `int` holding a code point, so `sizeof('\xff')` was 4 here and 1 in the reference and g++ alike.  The packing was a second implementation of 2.14.5p5's execution encoding beside the one `string_literal.cpp` has owned since PA2, and it packed code *points*: `'aé'` was `0x61e9` where both oracles write `0x61c3a9`, and the acceptance set was wrong with it.  A `char` literal may now hold a negative value, which found `literal_value` shifting a literal's bytes together without 3.9.1p1's sign, so `long long g = '\xff'` wrote 255.  C8's own claim that one reading answers a tree and a spelling alike was untrue for 5.1.1p6's parentheses, which the tree strips and the spelling did not, so `p<("abc")[1]>` was refused where both oracles accept.  And 2.14.8p3's raw operator was asked before the literal operator template, where the reference calls the template |
 | C9 | `964bc63d` | 5 / 5 + 1 perf | **the tree a derivation became, which C9 built and the four readers of one base were left reading a chain.**  10p1's list gives a base subobject a byte of its own, and every reader that had only ever seen offset zero kept the answer it had: 5.2.9p11's cast back to a derived class wrote *no* step at all, so `static_cast<C*>(q)` where `C : A, B` held the address of the `B` subobject and a member read through it stood past the end of the object - the reference writes `index i8 %t, -4` there, and the same was true of a single base a class had put after its own vpointer since PA17.  11.2p4's access was asked of `reading_`, which is set while an *expression* is read and given back before the initialization converts it, so every conversion to a non-public base written as a declaration's initializer, a return, an aggregate clause or a bound reference was refused - `B* p = this;` inside the class that named the base among them, where both oracles accept.  10.3p1's refusal covered a base subobject that dispatches *and is not the only one* rather than one that does not begin where the object does, so a polymorphic first base beside a plain second - which the ABI lays out as its own primary base and needs no thunk - was refused with the shapes that do owe one.  12.6.2p2's index was keyed by the last component of the mem-initializer-id, which is not a name of a base once a class can have two: `struct both : n1::b, n2::b` reported `initializes n2::b twice`.  And 14.6.2p3 was made a fact of the whole base-clause, so a settled base beside a dependent one was left off 3.4.1's search and `struct A { int a; }; template<class T> struct C : A, T { int f() { return a; } };` named nothing.  The perf finding is 10.1p3's own check: it is quadratic in a derivation that adds a base per level, 0.011 / 0.049 / 0.154 / 0.584 s at 100 / 400 / 800 / 1600 levels |
 | C10 | `9196229b` | 3 / 3 | **the packs a pattern is written over, which C10 settled at one of the three readings that ask it.**  14.5.3p5 leaves a pack named inside an *inner* expansion to that expansion, and C10 answered it at the tree - so `sum(get<U>(t...)...)` reads once per element of `U` while the same shape written in 14.2's argument list, where the pattern is text, still counted `t`: `list<list<A, B...>...>` was refused as `a pack expansion names two parameter packs of different lengths` where both oracles read it, and a pattern whose *only* pack an inner expansion already took was accepted where both refuse.  5.3.3p5's `sizeof...` is the same question and neither reading asked it, so `f(x, sizeof...(A))...` and `nums<(N + sizeof...(A))...>` were runs of two packs of different lengths.  Behind that, 3.2p3's demand for the storage an instantiation lays out was made at 9.2p1's non-static data member, which lays out no object of its own and is met before the definition it looks for has been read: `struct holds { later<int> m; };` with no object of `holds` laid out storage the reference does not, and the same class with the definition written after it *latched* and laid out none where the reference does.  And 14.3.2p1's refusal of a type where a value belongs was asked of every pack the pattern names rather than of the argument each element is, so `sizes<sizeof(T)...>` was refused with `T...` |
+| C11 | `51f8f135` | 1 / 1 | **the two things written *inside* a spelling rather than beside it, which the reading C11 built its fourth shape on could not see.**  A parameter-declaration became the fourth reading of which packs a pattern is over, and it asks `names_in` - the reading over a tree.  But a template-id is one terminal of that tree, so `list<A, B...>` carries its own `...` and `pair2<A, sizeof...(B)>` its own `sizeof...` in one node's *text*, where a rule answered by node kind reaches neither: both were counted as packs this run is over, so `list<A, B...>... p` and `pair2<A, sizeof...(B)>... p` in a parameter clause were refused as two packs of different lengths where g++ reads them - and so was `count(list<A, B...>()...)` in a call, at the very reading C10 changed, where the reference and g++ both read it.  The tree reading reads each node's text the way an argument list's is read now, so the spelling, the tree, the parameter-declaration and the type a substitution rebuilds answer alike |
 
 ## Current Checkpoint Review
 
-C10 gave an argument list what it needed to say where a run ended.  14.1p11
-leaves a class template's pack last, but 14.8.2 deduces a function template's
-head place by place, so `template<class... U, class... T>` binds two runs and
-one flat list cannot tell `<char, short | int>` from `<char | short, int>`.  The
-run bound to the *last* place is written flat - which is every list PA19 and the
-class tier build - and every earlier run stands as one `Pack` entry
-(`place_argument`, `trailing_pack_place`), which the object file writes `J...E`
-around.  Four things came with it: 14.5.3p5's inner expansion owning the packs
-its own pattern names, 14.8.1p2's explicit list filling a non-trailing place,
-14.3.2p1's value argument carrying the type its digits do not say, and 14.7.1p1
-leaving the storage of a static data member to whatever reaches it.
+C11 made 14.5.3p4's pattern one reading wherever it stands.  A
+parameter-declaration was the last shape still building the type *once* and
+expanding that, which is right for `A...` and `A*...` and wrong for every
+pattern an instantiation makes: `wrap<A>...` substituted first names one
+`wrap<` run `>`, and `TypeTable::substitute` has no `Class` case to take it back
+apart.  So `PackReading::read_places` reads the decl-specifier-seq and the
+declarator again per element in that element's region, and `substitute_entry`
+binds the written pattern's places to one element each rather than substituting
+the run into the pattern.
 
-The list is right where it stands.  `place_argument` is the one reading of such
-a list and both tiers ask it, so a head's places and its arguments are paired in
-one place rather than in three; 26 pack shapes, 12 value-argument spellings and
-12 storage shapes were swept against g++ and the reference at the checkpoint,
-and a further 20 expansion spellings, 19 value-argument types and 13 storage
-orders on this review - every accepted pair writing the reference's LowIR, and
-every mangled name in them g++'s own byte for byte, including the empty run's
-`J E` and the three-run head's `JcEJilEJiiiE`.  14.1p11's class template with a
-pack anywhere but last is still refused, which is what keeps
-`open_member_parameters` and 14.5.5's pattern reading a flat list.
+The reading is right where it stands.  Runs of 0 / 1 / 2 / 3 over a
+specialization pattern, its pointer, reference, const-reference, member and
+nested-specialization spellings, an unnamed place, fixed places before the pack,
+two heads writing two runs into one clause, a forwarding call, a declaration
+followed by its definition, 14.8.2.4p9's ordering against a non-pack head and a
+two-unit program were swept against g++ and the reference on this review: every
+accepted pair writes the reference's own LowIR entries and every mangled name is
+g++'s byte for byte, including `_Z1fIJEEiDp4wrapIT_E` for the empty run and
+`_Z1fIiEi4wrapIT_E` where the non-pack head wins - against the reference's own
+`z` the plan already records.  `substitute_entry`'s per-element loop is
+load-bearing rather than a second spelling of the old one (17 substitutions on
+the checkpoint's own fixture) and falls back to the structural rebuild where a
+place the pattern names is unbound.
 
-What the review found is that the rule C10 introduced - a name already expanded
-where it stands says nothing about how long *this* run is - was settled at one of
-the readings that ask it.  Behind that, 5.3.3p5's `sizeof...` is the same rule
-and no reading asked it; and beside it, two more questions about a pattern were
-answered of the packs it names rather than of what the pattern comes to: which
-place a demand for storage is made at, and what 14.3.2p1 refuses.
+What the review found is that the reading C11 built its fourth shape on cannot
+see what a *spelling* writes inside one node, so C10's rule reached the two
+nodes a program writes an expansion at and not the text a template-id is.
 
 ### Findings
 
-**1. 14.5.3p5 was answered at the tree and not at the spelling, and 5.3.3p5 at
-neither.**  `PackReading` counts a run three ways - `names_in` over the tree a
-call's argument list holds, `run_of` over the text 14.2 writes an argument in,
-and `packs_in` over a type.  C10 taught the first to step over a nested
-`pack-expansion-expression`; the second scans identifiers out of the flattened
-spelling and had no way to know one was already expanded, and neither knew that
-`sizeof...` counts a run rather than standing in one:
+**1. 14.5.3p5 and 5.3.3p5 were answered by node kind, and a template-id is one
+node.**  PA10 flattens a template-id into the text of the node that stands for
+it - one decl-specifier, one callee - so `list<A, B...>` writes its inner `...`
+and `pair2<A, sizeof...(B)>` its `sizeof...` inside that text.  `names_in`
+scanned every identifier out of it, so both counted as packs the *enclosing*
+expansion is over, and the parameter-declaration reading C11 added inherited
+that answer whole:
 
 | shape | before | `pa20/cppgm++-ref` | g++ |
 | --- | --- | --- | --- |
-| `list<list<A, B...>...>` in an argument spelling, `A` and `B` of different lengths | two packs of different lengths | accepted | accepted |
-| the same where they happen to be equally long | accepted, and right | accepted | accepted |
-| `: wrap<list<A, B...> >...` in a base-clause | two packs of different lengths | its own substitution fails | accepted |
-| `nums<(N + sizeof...(A))...>` in a spelling | a pack of types at a non-type place | accepted | accepted |
-| `add(one(sizeof(B) + sizeof...(A))...)` in a call | two packs of different lengths | accepted | accepted |
-| `list<wrap<list<B...> >...>`, whose only pack the inner one took | accepted | refused | refused |
+| `count(list<A, B...>()...)` in a call | two packs of different lengths | accepted | accepted |
+| `list<A, B...>... p` in a parameter clause | two packs of different lengths | its own reading zips the two | accepted |
+| `pair2<A, sizeof...(B)>... p` in a parameter clause | two packs of different lengths | its own substitution fails | accepted |
+| the same clause where the two runs are equally long | accepted, and right | zips them | accepted |
+| `held<list<A, B...>...>` in an argument spelling | accepted, and right | accepted | accepted |
+| `count(list<B...>()...)`, whose only pack the inner one took | refused, and right | accepted | refused |
 
-The spelling reading is `spelled_names_in` now, which is `names_in` asked of
-text: the operand each inner `...` was written after is left out - read
-backwards the way a postfix-expression is written, so a bracketed run closes up
-with the name before it and a name carries its nested-name-specifier - and
-`sizeof...` is left out with the parenthesized name after it.  Both readings
-name the same two node kinds, so a pattern that names no pack of its own is
-refused at either, which is the last row.
-
-**2. 3.2p3's demand was made where no object is laid out.**  C10 asks the
-classes in a declaration's type for the storage their static data members stand
-in, at every declarator that reaches `require_creatable_object` - which is
-9.2p1's non-static data member as well as an object.  A member lays out no
-object of its own: it is one subobject of every object of its class, which is
-where the walk already reaches it.  Asking at the member did both halves of the
-same damage, because the answer is latched once per class
-(`SemaEntity::storage_demanded`) and a class body is read before the definitions
-written after it:
-
-| shape | before | `pa20/cppgm++-ref` |
-| --- | --- | --- |
-| `struct holds { counter<char> m; };` and no object of `holds` | `counter<char>::held` laid out | nothing |
-| the same with the definition written *after* `holds`, and `holds h;` | nothing laid out | `later<int>::kept` |
-| `S<int> a;` before and after the definition | as the reference | the same |
-| 4096 objects over a 512-deep base chain | 0.094 s | - |
-
-The demand is made at `defines_object` now - the declarator that lays an object
-out - so the latch is set where the walk can answer and every object of a class
-reaches the whole tree it is.  The row is unmoved: 0.092 s for the same 4096
-objects, against 0.075 s for the same objects of a class with no base at all.
-
-**3. 14.3.2p1 was asked of the packs a pattern names rather than of the argument
-each element is.**  A non-type place takes a value, and an expansion written at
-one whose pattern is the pack's own name would put a *type* there - which is
-what `f<T...>` does for a pack of types and what the reading refused.  The same
-refusal was made of every pattern that merely names such a pack, so
-`sizes<sizeof(T)...>` and `nums<traits<T>::value...>` - patterns 5.3.3p1 and
-5.19 make a value of - were refused where both oracles read them, and the
-refusal is now made only where the pattern *is* the pack: `f<T...>` at a value
-place is refused with the message the fixture pins and `f<sizeof(T)...>` is read.
+`names_in` reads each node's text with `spelled_names_in` now, which is the
+reading 14.2's argument list already had: the operand each inner `...` was
+written after is left out and `sizeof...` is left out with the name it counts.
+The four shapes of the one reading - a spelling, a tree, a parameter-declaration
+and a type a substitution rebuilds - therefore answer alike, and a pattern that
+names no pack of its own is still refused at every one of them, which is the
+last row.

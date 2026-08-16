@@ -649,6 +649,10 @@ namespace
 // it counts.  `sum(get<U>(t...)...)` is one reading per element of `U`, each of
 // which reads the whole of `t`, and `f(x, sizeof...(A))...` is a run of `x`
 // however long `A` is.
+//
+// A node's own text is a *spelling* PA10 flattened - `list<A, B...>` is one
+// decl-specifier and one callee - so the same two are written inside it rather
+// than as nodes beside it, and the text is read the way an argument list's is.
 void names_in(const AstNode& node, std::vector<std::string>& out)
 {
 	if (node.kind == AstKind::PackExpansionExpression ||
@@ -656,21 +660,7 @@ void names_in(const AstNode& node, std::vector<std::string>& out)
 	{
 		return;
 	}
-	std::string::size_type at = 0;
-	while (at < node.text.size())
-	{
-		if (!identifier_start(node.text[at]))
-		{
-			++at;
-			continue;
-		}
-		const std::string::size_type start = at;
-		while (at < node.text.size() && identifier_char(node.text[at]))
-		{
-			++at;
-		}
-		out.push_back(node.text.substr(start, at - start));
-	}
+	spelled_names_in(node.text, out);
 	for (std::size_t index = 0; index < node.children.size(); ++index)
 	{
 		names_in(*node.children[index], out);
