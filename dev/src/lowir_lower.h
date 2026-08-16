@@ -510,6 +510,9 @@ private:
 	// initializations of values the translation knows once its parameters hold
 	// the call's arguments.  False for every other constructor, which leaves
 	// the object to be built before the program runs.
+	// 3.6.2p2: whether a clause of a structured image holds a call, which is
+	// work the program runs and no item the translation lays out.
+	bool runs_a_call(const DumpNode& node) const;
 	bool global_constructed(lowir_model::GlobalDefinition& global,
 	                        const DumpNode& action, unsigned long long base,
 	                        unsigned long long& at);

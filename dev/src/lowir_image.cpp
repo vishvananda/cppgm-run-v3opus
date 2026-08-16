@@ -632,8 +632,20 @@ const DumpNode* LowirUnitLowering::global_image(
 		}
 		else if (nothing_to_do)
 		{
-			// 3.2p2: the initialization still named the constructor.
-			owe_internal_definition(built);
+			// 3.2p2 and 8.4.2p1: the initialization still named the constructor,
+			// and where the *class* declared that constructor the name is one
+			// the program wrote and the object file holds - so the definition
+			// the standard gives it is one this unit owes, however little of its
+			// work the image kept.  One the standard declared as well as defined
+			// is named by nothing the program wrote and stays unwritten.
+			if (built.implicit_declaration)
+			{
+				owe_internal_definition(built);
+			}
+			else
+			{
+				demand_definition(built);
+			}
 		}
 		else if (types_.kind(types_.strip_cv(type)) == TypeKind::Class &&
 		         node.fact.entity != nullptr && node.fact.entity->constant)
@@ -833,7 +845,8 @@ bool LowirUnitLowering::global_subobjects(lowir_model::GlobalDefinition& global,
 				item.symbol = symbol;
 				item.addr_addend = addend;
 			}
-			else if (image_value(*child.children[0], child.fact.type,
+			else if (!runs_a_call(*child.children[0]) &&
+			         image_value(*child.children[0], child.fact.type,
 			                     item.literal_operand.text))
 			{
 				item.kind = lowir_model::GlobalDefinition::DataItem::ITEM_INTEGER;
@@ -979,7 +992,8 @@ bool LowirUnitLowering::global_constructed(
 			item.symbol = symbol;
 			item.addr_addend = addend;
 		}
-		else if (image_value(*value, type, item.literal_operand.text))
+		else if (!runs_a_call(*value) &&
+		         image_value(*value, type, item.literal_operand.text))
 		{
 			item.kind = lowir_model::GlobalDefinition::DataItem::ITEM_INTEGER;
 			item.literal_operand.kind = lowir_model::Operand::OP_INTEGER;
@@ -1004,6 +1018,40 @@ bool LowirUnitLowering::global_constructed(
 		demand_definition(constructor);
 	}
 	return true;
+}
+
+// 3.6.2p2 with 5.2.2p1: an object of class or array type is *built* - by a
+// constructor the program calls, or by the clauses that reach its subobjects -
+// and what a call comes to is what running the program produces.  So a clause
+// that holds a call is work the startup body does and no item the image lays
+// out, however well 5.19 folded it: the reference draws the line in the same
+// place, and `constexpr Point p(square(3));` starts as zero there and here.
+//
+// A scalar object is not this.  Its whole initializer is one value, and that
+// value is the image - which is why `constexpr int n = square(3);` is `9` in
+// both and reaches the image through `SemaEntity::value` rather than through a
+// second fold of the lines below it.
+//
+// 5.3.3p1's operand is unevaluated, so a call written inside a `sizeof` is one
+// nothing runs.
+bool LowirUnitLowering::runs_a_call(const DumpNode& node) const
+{
+	if (node.fact.kind == FactKind::Call || node.fact.kind == FactKind::Callee)
+	{
+		return true;
+	}
+	if (node.fact.kind == FactKind::Sizeof)
+	{
+		return false;
+	}
+	for (std::size_t index = 0; index < node.children.size(); ++index)
+	{
+		if (runs_a_call(*node.children[index]))
+		{
+			return true;
+		}
+	}
+	return false;
 }
 
 bool LowirUnitLowering::global_aggregate_initializer(

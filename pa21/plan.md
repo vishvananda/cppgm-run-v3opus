@@ -66,10 +66,11 @@ the `.ref` files are the oracle and no fixture asks for the refusal.
 
 ## Current Failure Map
 
-**84/133**; 49 failures remain. 7 are a LowIR mismatch and 9 are a `-bad` case
+**86/133**; 47 failures remain. 5 are a LowIR mismatch and 9 are a `-bad` case
 this compiler accepts; the rest refuse a program the assignment asks it to
-translate. Groups N and T are closed, and group I is closed but for the three
-rows below.
+translate. Groups N, T and I are closed: of the five LowIR rows left, two are
+known gap L's symbol naming, two are group P's pointer-valued image, and one is
+the row below.
 
 | Group | Shape | Count |
 |---|---|---|
@@ -78,8 +79,7 @@ rows below.
 | B. objects with bases, and a class no conversion of reaches the place | `... is not a class a constant expression builds an object of` — 10p1's base subobject is one this object does not hold; `declares no one conversion function a constant expression reaches this place through` | 6 |
 | P. pointer- and reference-valued constants | `&x` refused as an operator the fold does not evaluate; a pointer read for truth, compared, subscripted through, or written `->` on. Two of the LowIR rows are the same gap in the image: `ptr addr @object__vtable + 16` and `addr @__strlit__1` | 7 |
 | C. a cast to a class or reference type | `casts to a type that is not arithmetic`, where the type-id names `const D&`, `E` or `X&&` | 3 |
-| I'. what the program still owes a definition of | a definition the ref writes and this build does not: an explicitly-defaulted constructor a folded initializer named (`300-constexpr-defaulted-constructor`), and a dead `@__strlit__` the ref emits for a literal 8.5.2 consumed (`300-function-local-static-array-guard`) | 2 |
-| I''. the image the ref does *not* fold | `constexpr Point p(square(3));` is `zero 4` and a startup body there, because the reference's image builder folds no call into an object of class type — where this build hands it the analysis's constant | 1 |
+| I'. a dead `@__strlit__` | `300-function-local-static-array-guard` differs by one global: for `static const char nested[1][2] = {"x"};` the ref emits the literal's own object beside the array that copied it. The boundary was probed and is the reference's own: it materializes the literal where 8.5.2 initializes an array that is an *element* of an enclosing array (`char two[2][2] = {"m","n"}` gets two), and not where the array is the whole object (`char flat[2] = "y"`) nor where it is a *member* of a class (`struct S { char a[2]; }; S s = {"q"}`). 2.14.5p8 makes the object exist in all four | 1 |
 | misc | `this`, a subscript of a class object, a member call on a temporary, a write through an overloaded assignment, a member of a class *being* instantiated whose definition the demand only queued, and the two symbol-naming rows of known gap L | 8 |
 
 **The next checkpoint is one door and not a list of rows.** O2 and most of
