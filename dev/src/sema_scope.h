@@ -1028,6 +1028,13 @@ public:
 	TypeId folded_call(const SemaEntity& callee, std::uint32_t arguments) const;
 	void hold_folded_call(const SemaEntity& callee, std::uint32_t arguments,
 	                      TypeId value);
+	// 8.5p7: the object of class type every one of whose subobjects is
+	// value-initialized, as that same interned entry.  There is one such value
+	// per type, so it is worked out once - which is what keeps a class whose
+	// members are themselves such classes one walk per level and not one per
+	// *path* down them.  `kNoType` before the first walk of it.
+	TypeId value_initialized(TypeId type) const;
+	void hold_value_initialized(TypeId type, TypeId value);
 	// 7.1.5p5: how many folds of a body stand over the one being read, which is
 	// what bounds a constexpr function that calls itself - or a chain of them
 	// longer than the machine stack - to a refusal rather than a crash.
@@ -1168,6 +1175,8 @@ private:
 	// declaration and the interned list of what its object and its arguments
 	// came to.
 	std::unordered_map<std::uint64_t, TypeId> folded_calls_;
+	// 8.5p7's value-initialized object of each class type met so far.
+	std::unordered_map<TypeId, TypeId> value_initialized_;
 	unsigned folding_depth_;
 	unsigned long long reach_;
 	// 11.3p1: the friendships granted so far, as the pair of entity
@@ -1229,6 +1238,11 @@ private:
 // 7.3.3p1's using-declaration declares a member of a base class, which that
 // class already laid out.  None of the three is storage this class gives.
 bool declares_subobject(const SemaEntity& member, const Scope& scope);
+
+// 8.5.1p1: whether an object of the class `scope` declares is initialized from
+// a braced-init-list by initializing its members with the clauses, which is a
+// fact of the region's declarations exactly as the reading above it is.
+bool aggregate_class(Scope& scope);
 
 // Whether `outer` is `inner` or a region `inner` is written in, which is what
 // 7.3.4p2's "nearest enclosing namespace" is measured with.

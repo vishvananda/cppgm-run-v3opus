@@ -198,6 +198,30 @@ public:
 	SemaConstant object_of(TypeId type,
 	                       const std::vector<SemaConstant>& written);
 
+	// 5.19p3 and 7.1.5p9: what the object a declaration declares is *worth*,
+	// where its type is const and the initializer it wrote is a constant
+	// expression.  It is one reading and not one per kind of object: 3.9p10
+	// makes a literal class type and an array of one constants of the same
+	// standing as an arithmetic type, and each of the three is folded here.
+	// A declaration that folds nothing leaves the object holding no constant
+	// and is not itself ill formed, so the one failure is caught.
+	void fold_declared_object(SemaEntity& entity, const AstNode* initializer,
+	                          TypeId type, const SemaContext& ctx);
+
+	// 8.5.1p2: what one initializer-clause comes to for the subobject it
+	// initializes, which is the reading a *list* of clauses is read through.
+	//
+	// Which reading answers a clause is the type of that subobject and not the
+	// syntax of the clause: `{1,2}` written for an element of class type is
+	// 8.5.1p1's initialization of that element and not an expression at all, and
+	// `1` written for the same element is 8.5p16's copy-initialization of it,
+	// which for a class is a constructor 13.3 chooses.  So the clauses of a
+	// nested list are read against the types of the subobjects they reach, one
+	// pass down the object, and `object_of` and `array_of` below are handed the
+	// values that reading came to.
+	SemaConstant clause_of(const AstNode& clause, TypeId target,
+	                       const SemaContext& ctx);
+
 	// 8.5.1p2 and p7 over an array: the same reading where the subobjects the
 	// clauses reach are 8.3.4p6's elements rather than 9.2p1's members, so
 	// which one a clause initializes is its position and no lookup at all, and

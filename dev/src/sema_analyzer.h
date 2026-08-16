@@ -786,8 +786,6 @@ private:
 	// 3.7.2p2: the namespace-scope objects with thread storage duration this
 	// unit constructed, and the line each was declared on.
 	std::vector<DeclaredLifetime> declared_lifetimes_;
-	// 8.5.1p1: whether the class `scope` declares is an aggregate.
-	static bool aggregate_class(Scope& scope);
 
 	// 8.5.1: `type` initialized from what is left of `clauses`, writing one
 	// `subobject-initialization` per member or element under `parent`.  A
@@ -1133,10 +1131,15 @@ private:
 	                               const QualifiedName& spelled,
 	                               const std::string& written, TypeId type,
 	                               const AstNode* whole = nullptr);
-	// 5.19p3: what such an object is *worth*, where its type is const and
-	// arithmetic and 14.5.3p4's clause the initializer came to is a constant.
-	void fold_constant_object(SemaEntity& entity, const AstNode* initializer,
-	                          TypeId type, const Context& ctx);
+	// 8.5: what the dump says that object's initialization is, which is a
+	// reading of its own because 9.4.2p3 leaves the declaration that wrote the
+	// initializer and the one that defines the object two declarations.
+	void describe_object_initialization(SemaEntity& entity, DumpNode& line,
+	                                    TypeId type, const AstNode* initializer,
+	                                    const Specifiers& specifiers,
+	                                    const Context& ctx, const Context& target,
+	                                    const SemaEntity* declared,
+	                                    bool defines_object);
 	// `redeclaration` is 9.3p2 and 3.4.3.2p1: a definition whose declarator-id
 	// is qualified defines a declaration the region that name reaches has
 	// already made, and declares nothing of its own.

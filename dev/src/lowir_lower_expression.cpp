@@ -1559,7 +1559,12 @@ LowValue LowirFunctionLowering::subscript_expression(const DumpNode& node)
 	LowValue value;
 	value.type = node.fact.type;
 	value.lvalue = true;
-	value.named = true;
+	// 4.2: no declaration names the element a subscript reached, so where that
+	// element is itself an array there is no point at which a *name* of it
+	// became a pointer view of it - the address is already in hand, and `unary
+	// decay` would mark a conversion the program never wrote.  This is what
+	// tells `a[1][0]` from `a[0]`: the outer subscript stands on the name and
+	// marks it, and the inner one stands on an address.
 	value.operand = emit(instruction);
 	return value;
 }

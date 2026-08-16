@@ -2513,108 +2513,6 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 	}
 }
 
-// 5.19p3: a const object of arithmetic type initialized by a constant
-// expression *is* one, which is what an array bound and 14.3.2's argument may
-// be written with.  8.5p16 and 8.5.4p3 make `T k(x)` and `T k{x}` initialize
-// `k` with the very expression `T k = x` does, so the question is asked of the
-// one clause they wrote rather than of the list that holds it - and 14.5.3p4
-// makes which clause that is a question about the run a `pattern...` entry
-// stands for rather than about the syntax.  An initializer that is an ordinary
-// expression leaves the object one like any other, and one that is ill formed
-// is still ill formed, so only the one failure is caught.
-void SemaAnalyzer::fold_constant_object(SemaEntity& entity,
-                                        const AstNode* initializer, TypeId type,
-                                        const Context& ctx)
-{
-	const AstNode* const wrote =
-		initializer == nullptr || initializer->children.empty()
-			? nullptr
-			: initializer->children[0];
-	const TypeId bare = types_.strip_cv(type);
-	// 3.9p10 and 7.1.5p9: an object of literal *class* type is a constant of
-	// the same standing - `constexpr Lit lit(42);` gives `lit.value` a value
-	// 5.19 reads - and what it comes to is the interned list of what its
-	// subobjects hold, which `ConstexprReading::object_of` builds.  3.9p10
-	// makes an array of literal type a literal type too, and 8.3.4p6 makes its
-	// elements subobjects of it exactly as a class's members are, so an array
-	// is one of these and its list is what a subscript reads.
-	const bool built =
-		types_.is_class(bare) || types_.kind(bare) == TypeKind::Array;
-	// 8.3.4p1: a cv-qualified array is an array of cv-qualified *elements*, so
-	// the `const` 5.19p3 asks about stands on the element type and the array
-	// itself carries none.
-	TypeId qualified = type;
-	while (types_.kind(types_.strip_cv(qualified)) == TypeKind::Array)
-	{
-		qualified = types_.target(types_.strip_cv(qualified));
-	}
-	if (wrote == nullptr || (types_.cv(qualified) & kCvConst) == 0 ||
-	    (!built && arithmetic_type(type) == kNoType))
-	{
-		return;
-	}
-	try
-	{
-		// The list is read only where 5.19p3 asks, so a declaration that folds
-		// nothing pays nothing for the clauses it wrote.  The node an entry
-		// comes to is the arena's and the region it is read in is the model's,
-		// so both outlive the walk that reads them out.
-		std::vector<Constant> operands;
-		if (wrote->kind == AstKind::ParenInitializer ||
-		    wrote->kind == AstKind::BracedInitList)
-		{
-			Clauses clauses(wrote, *this, ctx);
-			if (clauses.list.unsettled())
-			{
-				// 14.6p8: a run no argument list has settled says neither how
-				// many clauses there are nor what they are worth.
-				return;
-			}
-			while (!clauses.spent())
-			{
-				const Context inner = clauses.in(ctx);
-				const AstNode& clause = clauses.next();
-				++clauses.at;
-				operands.push_back(evaluate(clause, inner));
-			}
-		}
-		else
-		{
-			operands.push_back(evaluate(*wrote, ctx));
-		}
-		Constant value;
-		if (!built)
-		{
-			if (operands.size() != 1)
-			{
-				return;
-			}
-			value = convert(operands[0], type);
-		}
-		else if (operands.size() == 1 &&
-		         types_.strip_cv(operands[0].type) == bare)
-		{
-			// 8.5p14: the initializer is a prvalue of the object's own type, so
-			// the object *is* that value and no constructor stands between.
-			value = operands[0];
-		}
-		else if (types_.kind(bare) == TypeKind::Array)
-		{
-			value = ConstexprReading(*this).array_of(bare, operands);
-		}
-		else
-		{
-			value = ConstexprReading(*this).object_of(bare, operands);
-		}
-		entity.value = value.bits;
-		entity.real = value.real;
-		entity.constant = true;
-	}
-	catch (const NotConstant&)
-	{
-		entity.constant = false;
-	}
-}
 
 // 3.1p2 and 8.5: the object a declarator that is not a function declares, from
 // the point its type and the region it belongs to are known.  The declaration
@@ -2654,10 +2552,26 @@ void SemaAnalyzer::declare_object_declarator(const AstNode* initializer,
 		// what a `sizeof` written over the name the class declared reads.
 		declared->type = type;
 	}
+	else if (declared != nullptr && types_.kind(type) == TypeKind::Array &&
+	         !types_.bounded(type) &&
+	         types_.kind(declared->type) == TypeKind::Array &&
+	         types_.bounded(declared->type) &&
+	         types_.target(type) == types_.target(declared->type))
+	{
+		// The same rule read the other way round.  9.4.2p3 leaves 9.4.2p2's
+		// definition of a static data member no initializer of its own, so the
+		// bound is one only the brace-or-equal-initializer the *class* wrote
+		// deduced - and the object that definition lays out is the array that
+		// bound describes rather than one of unknown bound.  3.9p7 makes the
+		// declared type complete here for the same reason the line above makes
+		// it complete there: the two declarations declare one object.
+		type = declared->type;
+	}
 	SemaEntity& entity = declared != nullptr
 		? *declared
 		: model_.create(SemaKind::Variable, name, type);
-	fold_constant_object(entity, initializer, type, ctx);
+	ConstexprReading(*this).fold_declared_object(entity, initializer, type,
+	                                            ctx);
 	if (declared == nullptr)
 	{
 		require_no_template_parameter(name, *target.scope);
@@ -2683,7 +2597,14 @@ void SemaAnalyzer::declare_object_declarator(const AstNode* initializer,
 		// 8.5.1p1 makes a class that has one no aggregate.
 		entity.default_initializer = entity.object_member &&
 			initializer != nullptr && !initializer->children.empty();
-		if (entity.default_initializer)
+		// 9.4.2p3: the same holding, for the other member a class may write an
+		// initializer for.  9.4.2p2's definition of a static data member stands
+		// outside the class and writes no initializer of its own, so the one the
+		// class wrote is what initializes the object that definition lays out -
+		// and it is read there, in the class, exactly as 12.6.2p8's is.
+		if (entity.default_initializer ||
+		    (target.scope->kind == ScopeKind::Class && specifiers.is_static &&
+		     initializer != nullptr && !initializer->children.empty()))
 		{
 			// 12.6.2p8 and 9.2p2: the initializer is read by every constructor
 			// that does not name the member, in the complete-class context the
@@ -2764,10 +2685,56 @@ void SemaAnalyzer::declare_object_declarator(const AstNode* initializer,
 	line.fact.entity = &entity;
 	line.fact.type = type;
 	line.fact.object_definition = line.fact.object_definition || defines_object;
-	const AstNode* const clause =
+	describe_object_initialization(entity, line, type, initializer, specifiers,
+	                               ctx, target, declared, defines_object);
+}
+
+// 8.5: what the dump says one declared object's initialization is - which of
+// 8.5's initializations was written, the constructor it names, the value it
+// came to, or the image it leaves the storage holding.  It is a reading of its
+// own because it is where the *initializer* is answered, and the declaration
+// above it is where the object is: 9.4.2p3 is what makes the two different
+// declarations, and everything else here reads one.
+//
+// `declared` is 9.4.2p2's earlier declaration of the same object where this one
+// defines it outside the region that declared it, and null otherwise.
+void SemaAnalyzer::describe_object_initialization(
+	SemaEntity& entity, DumpNode& line, TypeId type,
+	const AstNode* initializer, const Specifiers& specifiers,
+	const Context& ctx, const Context& target, const SemaEntity* declared,
+	bool defines_object)
+{
+	const AstNode* written_clause =
 		initializer == nullptr || initializer->children.empty()
 			? nullptr
 			: initializer->children[0];
+	// 9.4.2p3: 9.4.2p2's definition of a static data member writes no
+	// initializer, because its class already wrote one - so what initializes the
+	// object this definition lays out is that one, read in the class it was
+	// written in exactly as 12.6.2p8's brace-or-equal-initializer is.  The
+	// initialization is then this definition's own like any other: it names the
+	// constructors it chooses, gives the storage its image, and is not a
+	// default-initialization the definition's silence asked for.
+	//
+	// A member of arithmetic type asks for none of that: what its object holds
+	// is one value, which the analysis already folded, and the line below writes
+	// it.  An object of class or array type is *built*, and 3.2p2 makes the
+	// constructors that initialization names uses of them - so that one is read
+	// as the initialization it is.
+	Context initializing = ctx;
+	if (written_clause == nullptr && declared != nullptr &&
+	    (types_.is_class(types_.strip_cv(type)) ||
+	     types_.kind(types_.strip_cv(type)) == TypeKind::Array))
+	{
+		const std::unordered_map<std::uint32_t, HeldInitializer>::const_iterator
+			held = member_initializers_.find(entity.id);
+		if (held != member_initializers_.end())
+		{
+			written_clause = held->second.written;
+			initializing.scope = held->second.scope;
+		}
+	}
+	const AstNode* const clause = written_clause;
 	// 12.8p31 and 5.2.3p3: `T x = T{...}` creates `x` itself, so the braced
 	// list is what initializes it and the initialization is the one the same
 	// list written on the declarator would be - which for an aggregate is
@@ -2775,7 +2742,7 @@ void SemaAnalyzer::declare_object_declarator(const AstNode* initializer,
 	// where it stands, so 8.5.4p3 asks nothing of the list here either.
 	const AstNode* const elided = clause == nullptr
 		? nullptr
-		: braced_prvalue_of(*clause, type, ctx);
+		: braced_prvalue_of(*clause, type, initializing);
 	const AstNode* const value = elided != nullptr ? elided : clause;
 	const bool copied =
 		elided == nullptr && initializer != nullptr && initializer->copied;
@@ -2796,7 +2763,8 @@ void SemaAnalyzer::declare_object_declarator(const AstNode* initializer,
 		// constructors of its class, whatever form the initializer took, unless
 		// 8.5.1 makes the class an aggregate initialized from the clauses of a
 		// braced-init-list.
-		construct_object(entity, line, value, ctx, Placement::Named, copied);
+		construct_object(entity, line, value, initializing, Placement::Named,
+		                 copied);
 		return;
 	}
 	if (entity.object_definition && element_constructed(type, value))
@@ -2805,7 +2773,8 @@ void SemaAnalyzer::declare_object_declarator(const AstNode* initializer,
 		// its elements, and where no clause named one the constructor every
 		// element is given is the same one.  The action names the array, so
 		// there is one of it however many elements there are.
-		construct_object(entity, line, value, ctx, Placement::Named, copied);
+		construct_object(entity, line, value, initializing, Placement::Named,
+		                 copied);
 		return;
 	}
 	// 5.19p3 and 7.1.5p9: a constexpr object is initialized by a constant
@@ -2858,15 +2827,16 @@ void SemaAnalyzer::declare_object_declarator(const AstNode* initializer,
 	// 3.7.1p3 makes an object a block declares `static` one of those too: its
 	// storage is the program's, so 3.6.2p1's constant initialization of it is
 	// the image and not something the block builds.
-	write_initializer(*value, type, ctx, line,
+	write_initializer(*value, type, initializing, line,
 	                  entity.object_definition &&
 	                  (target.scope->kind == ScopeKind::Namespace ||
 	                   target.scope->kind == ScopeKind::Class ||
 	                   entity.local_static));
 	// 12.2p5: where that initializer bound this reference to a temporary, the
 	// temporary's lifetime is the reference's from here on.
-	extend_bound_temporary(type, ctx, line);
+	extend_bound_temporary(type, initializing, line);
 }
+
 
 void SemaAnalyzer::write_initializer(const AstNode& initializer, TypeId type,
                                      const Context& ctx, DumpNode& line,

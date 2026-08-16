@@ -65,6 +65,44 @@ bool declares_subobject(const SemaEntity& member, const Scope& scope)
 		member.region == &scope && member.shadowed == nullptr;
 }
 
+// 8.5.1p1: whether an object of the class `scope` declares is initialized from
+// a braced-init-list by initializing its members with the clauses.  A class
+// with a base class is no aggregate, which the caller asks before this, and the
+// PA16 slice has no virtual function - so what is left to ask is whether every
+// non-static data member is public, none was written with a
+// brace-or-equal-initializer, and the program provided no constructor - which
+// 12.1p4 does not count `= default` or `= delete` as doing.
+bool aggregate_class(Scope& scope)
+{
+	for (std::size_t index = 0; index < scope.declarations.size(); ++index)
+	{
+		const SemaEntity& member = *scope.declarations[index];
+		if (member.shadowed != nullptr)
+		{
+			// 7.3.3p1: the declaration is of a member of a base class, and a
+			// class with a base class is no aggregate anyway.
+			continue;
+		}
+		if (member.kind == SemaKind::Function)
+		{
+			if (member.special == kConstructorFunction && member.user_provided)
+			{
+				return false;
+			}
+			continue;
+		}
+		if (member.kind != SemaKind::Variable || !member.object_member)
+		{
+			continue;
+		}
+		if (member.access != kPublicAccess || member.default_initializer)
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
 bool holds_written_definitions(const Scope& scope)
 {
 	return scope.kind == ScopeKind::Class && scope.owner != nullptr &&
@@ -374,6 +412,18 @@ void SemaModel::hold_folded_call(const SemaEntity& callee,
                                  std::uint32_t arguments, TypeId value)
 {
 	folded_calls_.insert(std::make_pair(overload_key(callee, arguments), value));
+}
+
+TypeId SemaModel::value_initialized(TypeId type) const
+{
+	const std::unordered_map<TypeId, TypeId>::const_iterator found =
+		value_initialized_.find(type);
+	return found == value_initialized_.end() ? kNoType : found->second;
+}
+
+void SemaModel::hold_value_initialized(TypeId type, TypeId value)
+{
+	value_initialized_.insert(std::make_pair(type, value));
 }
 
 void SemaModel::befriend(const SemaEntity& granting, const SemaEntity& friendly)

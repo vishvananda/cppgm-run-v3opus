@@ -257,6 +257,19 @@ SemaConstant ConstexprReading::object_of(TypeId type,
 		                  " is not a class a constant expression builds an "
 		                  "object of");
 	}
+	if (written.empty())
+	{
+		// 8.5p7: every subobject of the object is value-initialized, so the
+		// object is one value per class and not one per place that asks for it.
+		// A class two of whose members are themselves such classes would
+		// otherwise be walked once per *path* down to its scalars, which is
+		// 2^depth walks of a program a few hundred bytes long.
+		const TypeId held = analyzer_.model_.value_initialized(bare);
+		if (held != kNoType)
+		{
+			return constant_of(held, analyzer_.types_);
+		}
+	}
 	if (!analyzer_.aggregate_type(bare))
 	{
 		// 8.5.1p1: a class that declares a constructor of its own - or that
@@ -311,7 +324,234 @@ SemaConstant ConstexprReading::object_of(TypeId type,
 	SemaConstant out;
 	out.type = bare;
 	out.bits = analyzer_.types_.type_list(held);
+	if (written.empty())
+	{
+		analyzer_.model_.hold_value_initialized(bare, entry_of(out));
+	}
 	return out;
+}
+
+// 5.19p3: a const object of arithmetic type initialized by a constant
+// expression *is* one, which is what an array bound and 14.3.2's argument may
+// be written with.  8.5p16 and 8.5.4p3 make `T k(x)` and `T k{x}` initialize
+// `k` with the very expression `T k = x` does, so the question is asked of the
+// one clause they wrote rather than of the list that holds it - and 14.5.3p4
+// makes which clause that is a question about the run a `pattern...` entry
+// stands for rather than about the syntax.  An initializer that is an ordinary
+// expression leaves the object one like any other, and one that is ill formed
+// is still ill formed, so only the one failure is caught.
+void ConstexprReading::fold_declared_object(SemaEntity& entity,
+                                            const AstNode* initializer,
+                                            TypeId type, const SemaContext& ctx)
+{
+	const AstNode* const wrote =
+		initializer == nullptr || initializer->children.empty()
+			? nullptr
+			: initializer->children[0];
+	const TypeId bare = analyzer_.types_.strip_cv(type);
+	// 3.9p10 and 7.1.5p9: an object of literal *class* type is a constant of
+	// the same standing - `constexpr Lit lit(42);` gives `lit.value` a value
+	// 5.19 reads - and what it comes to is the interned list of what its
+	// subobjects hold, which `ConstexprReading::object_of` builds.  3.9p10
+	// makes an array of literal type a literal type too, and 8.3.4p6 makes its
+	// elements subobjects of it exactly as a class's members are, so an array
+	// is one of these and its list is what a subscript reads.
+	const bool built = analyzer_.types_.is_class(bare) ||
+		analyzer_.types_.kind(bare) == TypeKind::Array;
+	// 8.3.4p1: a cv-qualified array is an array of cv-qualified *elements*, so
+	// the `const` 5.19p3 asks about stands on the element type and the array
+	// itself carries none.
+	TypeId qualified = type;
+	while (analyzer_.types_.kind(analyzer_.types_.strip_cv(qualified)) ==
+	       TypeKind::Array)
+	{
+		qualified = analyzer_.types_.target(analyzer_.types_.strip_cv(qualified));
+	}
+	if (wrote == nullptr || (analyzer_.types_.cv(qualified) & kCvConst) == 0 ||
+	    (!built && analyzer_.arithmetic_type(type) == kNoType))
+	{
+		return;
+	}
+	try
+	{
+		if (built && wrote->kind == AstKind::BracedInitList)
+		{
+			// 8.5.1p2: the clauses reach the object's subobjects, and a clause
+			// written as a list of its own reaches one whose type says how to
+			// read it - so the whole list is one reading down the object rather
+			// than a row of expressions this declaration then places.
+			const SemaConstant value = clause_of(*wrote, type, ctx);
+			entity.value = value.bits;
+			entity.real = value.real;
+			entity.constant = true;
+			return;
+		}
+		// The list is read only where 5.19p3 asks, so a declaration that folds
+		// nothing pays nothing for the clauses it wrote.  The node an entry
+		// comes to is the arena's and the region it is read in is the model's,
+		// so both outlive the walk that reads them out.
+		std::vector<SemaConstant> operands;
+		if (wrote->kind == AstKind::ParenInitializer ||
+		    wrote->kind == AstKind::BracedInitList)
+		{
+			InitializerClauses clauses(wrote, analyzer_, ctx);
+			if (clauses.list.unsettled())
+			{
+				// 14.6p8: a run no argument list has settled says neither how
+				// many clauses there are nor what they are worth.
+				return;
+			}
+			while (!clauses.spent())
+			{
+				const SemaContext inner = clauses.in(ctx);
+				const AstNode& clause = clauses.next();
+				++clauses.at;
+				operands.push_back(analyzer_.evaluate(clause, inner));
+			}
+		}
+		else
+		{
+			operands.push_back(analyzer_.evaluate(*wrote, ctx));
+		}
+		SemaConstant value;
+		if (!built)
+		{
+			if (operands.size() != 1)
+			{
+				return;
+			}
+			value = analyzer_.convert(operands[0], type);
+		}
+		else if (operands.size() == 1 &&
+		         analyzer_.types_.strip_cv(operands[0].type) == bare)
+		{
+			// 8.5p14: the initializer is a prvalue of the object's own type, so
+			// the object *is* that value and no constructor stands between.
+			value = operands[0];
+		}
+		else if (analyzer_.types_.kind(bare) == TypeKind::Array)
+		{
+			value = array_of(bare, operands);
+		}
+		else
+		{
+			value = object_of(bare, operands);
+		}
+		entity.value = value.bits;
+		entity.real = value.real;
+		entity.constant = true;
+	}
+	catch (const NotConstant&)
+	{
+		entity.constant = false;
+	}
+}
+
+// 8.5.1p2: one initializer-clause read for the subobject it initializes.
+//
+// A clause that is itself a braced-init-list is no expression: what it comes to
+// is the object its own clauses build, and which of 8.5's initializations that
+// is comes from the subobject's type.  So the walk goes down the object rather
+// than down the syntax, and an element or a member of class or array type is
+// read here exactly as the whole object is.
+SemaConstant ConstexprReading::clause_of(const AstNode& clause, TypeId target,
+                                         const SemaContext& ctx)
+{
+	const TypeId bare = analyzer_.types_.strip_cv(target);
+	if (clause.kind != AstKind::BracedInitList)
+	{
+		SemaConstant value = analyzer_.evaluate(clause, ctx);
+		if (analyzer_.types_.strip_cv(value.type) == bare)
+		{
+			// 8.5p14: the clause is a prvalue of the subobject's own type, so
+			// the subobject *is* that value and no constructor stands between.
+			value.type = bare;
+			return value;
+		}
+		if (analyzer_.types_.is_class(bare))
+		{
+			// 8.5p16 with 13.3.1.4: a clause of another type copy-initializes
+			// the subobject, which for one of class type is a constructor of its
+			// class called with that one value.
+			const std::vector<SemaConstant> one(1, value);
+			return object_of(bare, one);
+		}
+		value = analyzer_.convert(value, bare);
+		value.type = bare;
+		return value;
+	}
+	const bool array = analyzer_.types_.kind(bare) == TypeKind::Array;
+	// 8.5.1p1: a class that declares a constructor of its own takes the clauses
+	// as 13.3.1.7's arguments, whose types are the ones the chosen constructor's
+	// places have and not the members' - so those are read as expressions and
+	// `object_of` is what puts them where they go.
+	const bool aggregate =
+		analyzer_.types_.is_class(bare) && analyzer_.aggregate_type(bare);
+	std::vector<SemaEntity*> members;
+	if (aggregate)
+	{
+		data_members(bare, members);
+	}
+	std::vector<SemaConstant> written;
+	InitializerClauses clauses(&clause, analyzer_, ctx);
+	if (clauses.list.unsettled())
+	{
+		// 14.6p8: a run no argument list has settled says neither how many
+		// clauses there are nor what they are worth.
+		throw NotConstant("a constant expression writes a list of clauses an "
+		                  "argument list has yet to settle");
+	}
+	while (!clauses.spent())
+	{
+		const SemaContext inner = clauses.in(ctx);
+		const AstNode& one = clauses.next();
+		const std::size_t index = clauses.at;
+		++clauses.at;
+		if (array)
+		{
+			written.push_back(
+				clause_of(one, analyzer_.types_.target(bare), inner));
+		}
+		else if (aggregate && index < members.size())
+		{
+			written.push_back(clause_of(one, members[index]->type, inner));
+		}
+		else
+		{
+			written.push_back(analyzer_.evaluate(one, inner));
+		}
+	}
+	if (array)
+	{
+		return array_of(bare, written);
+	}
+	if (analyzer_.types_.is_class(bare))
+	{
+		if (written.size() == 1 &&
+		    analyzer_.types_.strip_cv(written[0].type) == bare)
+		{
+			// 8.5p14 again, written with braces around it.
+			SemaConstant value = written[0];
+			value.type = bare;
+			return value;
+		}
+		return object_of(bare, written);
+	}
+	// 8.5.1p2: a scalar initialized from a list holds what its one clause says,
+	// or zero where the list is empty.
+	if (written.size() > 1)
+	{
+		throw NotConstant("a constant expression writes more than one clause for "
+		                  + analyzer_.types_.description(bare));
+	}
+	SemaConstant value;
+	value.type = bare;
+	if (!written.empty())
+	{
+		value = analyzer_.convert(written[0], bare);
+		value.type = bare;
+	}
+	return value;
 }
 
 // 8.5.1p2 and p7 over an array, which 8.5.1p1 makes an aggregate whatever its

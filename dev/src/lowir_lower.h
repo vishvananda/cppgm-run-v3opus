@@ -513,6 +513,28 @@ private:
 	bool global_constructed(lowir_model::GlobalDefinition& global,
 	                        const DumpNode& action, unsigned long long base,
 	                        unsigned long long& at);
+	// 3.6.2p2 with 9.4.2p3: the image an object holds where the declaration that
+	// wrote its initializer is not the one that defines it - a static data
+	// member, whose class wrote the brace-or-equal-initializer and whose
+	// definition outside the class writes none.  What the object holds is then a
+	// fact of the *member*, which is the constant the analysis folded it to:
+	// `SemaEntity::value` is the identifier of the interned list its subobjects
+	// came to, and this walks that list against the layout the storage has.
+	// One item per scalar subobject and one pass over the object, so an array of
+	// n elements costs n items and no re-reading of anything.
+	bool constant_image(lowir_model::GlobalDefinition& global, TypeId type,
+	                    unsigned long long bits, long double real,
+	                    unsigned long long base, unsigned long long& at);
+	// The one item a scalar subobject of such a constant takes, at the type its
+	// storage has - 3.9.1p8's two kinds of arithmetic value spelled the way
+	// every other item of the image spells them.
+	void constant_item(lowir_model::GlobalDefinition& global, TypeId type,
+	                   unsigned long long bits, long double real);
+	std::string constant_text(TypeId type, unsigned long long bits,
+	                          long double real);
+	// Whether a constant of `type` carries the *value* an object of it holds,
+	// which is what the image can spell without reading the initializer again.
+	bool valued_type(TypeId type) const;
 	// `bytes` of zero, added to the items when there are any to add.
 	static void add_zero_item(lowir_model::GlobalDefinition& global,
 	                          unsigned long long bytes);

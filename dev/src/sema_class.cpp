@@ -1778,43 +1778,6 @@ void SemaAnalyzer::declare_destructor(SemaEntity& entity, Scope& scope)
 	entity.destructor = &destructor;
 }
 
-// 8.5.1p1: whether an object of the class `scope` declares is initialized from
-// a braced-init-list by initializing its members with the clauses.  A class
-// with a base class is no aggregate, which the caller asks before this, and the
-// PA16 slice has no virtual function - so what is left to ask is whether every
-// non-static data member is public, none was written with a
-// brace-or-equal-initializer, and the program provided no constructor - which
-// 12.1p4 does not count `= default` or `= delete` as doing.
-bool SemaAnalyzer::aggregate_class(Scope& scope)
-{
-	for (std::size_t index = 0; index < scope.declarations.size(); ++index)
-	{
-		const SemaEntity& member = *scope.declarations[index];
-		if (member.shadowed != nullptr)
-		{
-			// 7.3.3p1: the declaration is of a member of a base class, and a
-			// class with a base class is no aggregate anyway.
-			continue;
-		}
-		if (member.kind == SemaKind::Function)
-		{
-			if (member.special == kConstructorFunction && member.user_provided)
-			{
-				return false;
-			}
-			continue;
-		}
-		if (member.kind != SemaKind::Variable || !member.object_member)
-		{
-			continue;
-		}
-		if (member.access != kPublicAccess || member.default_initializer)
-		{
-			return false;
-		}
-	}
-	return true;
-}
 
 // 11.2: whether a context in `from` may name `member`.  A member declared
 // `public` is named from anywhere; any other is named only from inside the
