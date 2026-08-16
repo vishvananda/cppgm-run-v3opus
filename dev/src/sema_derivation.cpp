@@ -292,12 +292,21 @@ SemaEntity* Derivation::base_in(TypeId derived, TypeId base)
 	{
 		return nullptr;
 	}
-	SemaEntity* const owner = analyzer_.model_.type_owner(types.strip_cv(derived));
+	SemaEntity* owner = analyzer_.model_.type_owner(types.strip_cv(derived));
 	if (owner == nullptr || types.strip_cv(owner->type) == wanted)
 	{
+		// 10p1: a class is no base of itself, so the two naming one class is no
+		// derivation and asks for no definition of it.
 		return nullptr;
 	}
-	return below(*owner, wanted);
+	// 4.10p3 and 14.7.1p1: which classes an object of `derived` holds a
+	// subobject of is a fact of its definition, so a specialization no use has
+	// asked for yet is asked for here - a conversion to a base is one of
+	// 3.9p5's contexts requiring a completely-defined type.  A program with no
+	// specialization still owing a definition pays one integer test.
+	analyzer_.require_complete_type(derived);
+	owner = analyzer_.model_.type_owner(types.strip_cv(derived));
+	return owner == nullptr ? nullptr : below(*owner, wanted);
 }
 
 SemaEntity* Derivation::below(const SemaEntity& at, TypeId wanted) const

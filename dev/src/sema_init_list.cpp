@@ -7,6 +7,7 @@
 #include "ast_model.h"
 #include "ast_tokens.h"
 #include "sema_derivation.h"
+#include "sema_string_init.h"
 
 namespace
 {
@@ -116,8 +117,11 @@ void SemaAnalyzer::aggregate_from_list(TypeId type, const AstNode& list,
 	{
 		aggregate_members(type, clauses, ctx, node);
 	}
-	else
+	else if (!StringInitialization(*this).as_subobject(type, clauses, ctx, node))
 	{
+		// 8.5.2p1: an array of character type whose braces hold a string
+		// literal takes the literal's own code units, and 8.5.1's walk of the
+		// clauses is what every other array takes.
 		aggregate_elements(type, clauses, ctx, node);
 	}
 	if (!clauses.spent())
@@ -175,68 +179,6 @@ void SemaAnalyzer::aggregate_elements(TypeId array, Clauses& clauses,
 		DumpNode& node = open_subobject(parent, element, nullptr, index);
 		aggregate_subobject(element, clauses, ctx, node);
 	}
-}
-
-bool SemaAnalyzer::string_initialized(TypeId array, Clauses& clauses,
-                                      const Context& ctx, DumpNode& parent)
-{
-	if (clauses.spent() || clauses.next().kind != AstKind::Literal)
-	{
-		return false;
-	}
-	const TypeId element = types_.strip_cv(types_.target(array));
-	if (!types_.is_integral(element) || types_.object_size(element) == 0)
-	{
-		return false;
-	}
-	DumpNode scratch;
-	const Value literal =
-		probe_expression(clauses.next(), clauses.in(ctx), scratch);
-	if (types_.kind(types_.strip_cv(literal.type)) != TypeKind::Array ||
-	    literal.node == nullptr || literal.node->fact.spelling.empty())
-	{
-		return false;
-	}
-	// 8.5.2p1: the code units of the literal initialize the elements, and the
-	// elements past them are zero as any other unreached element is.
-	const std::string& data = literal.node->fact.spelling;
-	const unsigned long long width = types_.object_size(element);
-	const unsigned long long bound =
-		types_.bounded(array) ? types_.bound(array) : 0;
-	const unsigned long long written = data.size() / width;
-	if (written > bound)
-	{
-		throw std::runtime_error("a string literal initializes an array that is "
-		                         "too short to hold it");
-	}
-	for (unsigned long long index = 0; index < bound; ++index)
-	{
-		DumpNode& node = open_subobject(parent, element, nullptr, index);
-		if (index >= written)
-		{
-			continue;
-		}
-		unsigned long long bits = 0;
-		for (unsigned long long byte = 0; byte < width; ++byte)
-		{
-			bits |= static_cast<unsigned long long>(
-				static_cast<unsigned char>(data[index * width + byte]))
-				<< (8 * byte);
-		}
-		Value unit;
-		unit.type = element;
-		unit.spelled = element;
-		unit.category = ValueCategory::PRValue;
-		unit.constant = true;
-		unit.value = bits;
-		unit.what = "literal";
-		unit.payload = spell_value(element, bits);
-		unit.node = &model_.open_node(
-			node, spell(unit.what, unit.category, unit.type, unit.payload));
-		record(unit);
-	}
-	++clauses.at;
-	return true;
 }
 
 void SemaAnalyzer::aggregate_subobject(TypeId type, Clauses& clauses,
@@ -314,7 +256,7 @@ void SemaAnalyzer::aggregate_subobject(TypeId type, Clauses& clauses,
 			++clauses.at;
 			return;
 		}
-		if (string_initialized(bare, clauses, ctx, node))
+		if (StringInitialization(*this).as_subobject(bare, clauses, ctx, node))
 		{
 			return;
 		}
@@ -437,6 +379,16 @@ SemaAnalyzer::Value SemaAnalyzer::list_initialize_into(const AstNode& node,
 	const TypeId wanted = types_.is_reference(target)
 		? types_.target(target)
 		: types_.strip_cv(target);
+	if (types_.kind(wanted) == TypeKind::Array && node.children.size() == 1 &&
+	    StringInitialization(*this).as_object(wanted, *node.children[0], ctx,
+	                                          line))
+	{
+		// 8.5.2p1: the braces hold a string literal and the array is of
+		// character type, so what initializes the elements is the literal's own
+		// code units - the same initialization 8.5p14 gives the array where the
+		// braces were left out, and not 8.5.1's walk of a list of clauses.
+		return value_of_list(line, wanted, target);
+	}
 	line.text = spell("braced-init-list", ValueCategory::LValue, target,
 	                  std::string());
 	line.fact.kind = FactKind::BracedInitList;
@@ -487,6 +439,14 @@ SemaAnalyzer::Value SemaAnalyzer::list_initialize_into(const AstNode& node,
 			initialize(clauses.next(), wanted, clauses.in(ctx), line, true);
 		}
 	}
+	return value_of_list(line, wanted, target);
+}
+
+// The value a braced-init-list standing where an expression does comes to,
+// which is the object its clauses initialized.
+SemaAnalyzer::Value SemaAnalyzer::value_of_list(DumpNode& line, TypeId wanted,
+                                                TypeId target)
+{
 	Value value;
 	value.type = wanted;
 	value.spelled = target;

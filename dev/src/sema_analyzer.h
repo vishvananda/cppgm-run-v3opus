@@ -78,6 +78,7 @@ private:
 	// argument list it deduces, which `sema_deduce.h` owns for the same reason.
 	friend class Deduction;
 	friend class Derivation;
+	friend class StringInitialization;
 	// 14.5.5 and 14.5.1p1: the two declarations a template head writes that are
 	// neither the primary template nor a specialization of it, which
 	// `sema_specialize.h` owns because each changes one step of the three.
@@ -836,10 +837,8 @@ private:
 	// one derived from it - initializes it on its own.
 	bool clause_initializes_class(TypeId type, const AstNode& clause,
 	                              const Context& ctx);
-	// 8.5.2p1: an array of character type initialized by a string literal,
-	// whose elements are the code units the literal holds.
-	bool string_initialized(TypeId array, Clauses& clauses, const Context& ctx,
-	                        DumpNode& parent);
+	// The value a braced-init-list standing where an expression does comes to.
+	Value value_of_list(DumpNode& line, TypeId wanted, TypeId target);
 	// 8.5.1p2: the clauses of a nested braced-init-list, which initialize this
 	// subobject alone and must all be taken by it.
 	void aggregate_from_list(TypeId type, const AstNode& list,

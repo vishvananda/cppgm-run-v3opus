@@ -1,0 +1,456 @@
+global @narrow [binding=strong, object=_Z6narrow] = {
+  i8 97
+  i8 98
+  i8 99
+  i8 0
+}
+global @braced [binding=strong, object=_Z6braced] = {
+  i8 100
+  i8 101
+  i8 0
+}
+global @deduced [binding=strong, object=_Z7deduced] = {
+  i8 102
+  i8 103
+  i8 104
+  i8 105
+  i8 0
+}
+global @deduced_braced [binding=strong, object=_Z14deduced_braced] = {
+  i8 106
+  i8 107
+  i8 0
+}
+global @wide [binding=internal, object=_ZL4wide] = {
+  u16 108
+  u16 109
+  u16 0
+}
+global @widest [binding=internal, object=_ZL6widest] = {
+  u32 110
+  u32 0
+}
+global @unsigned_units [binding=strong, object=_Z14unsigned_units] = {
+  u8 111
+  u8 112
+  u8 113
+  u8 0
+}
+global @aggregate [binding=strong, object=_Z9aggregate] = {
+  i8 114
+  i8 115
+  i8 116
+  i8 0
+  i32 7
+}
+global @aggregate_braced [binding=strong, object=_Z16aggregate_braced] = {
+  i8 117
+  i8 118
+  i8 0
+  i8 0
+  i32 8
+}
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $local : obj<5x1>
+  slot $padded : obj<6x1>
+  slot $local_deduced : obj<3x1>
+
+  block ^entry:
+    %t1 = addr $local
+    store i8 119, %t1
+    %t2 = index i8 %t1, 1
+    store i8 120, %t2
+    %t3 = index i8 %t1, 2
+    store i8 121, %t3
+    %t4 = index i8 %t1, 3
+    store i8 122, %t4
+    %t5 = index i8 %t1, 4
+    store i8 0, %t5
+    %t6 = addr $padded
+    store i8 97, %t6
+    %t7 = index i8 %t6, 1
+    store i8 98, %t7
+    %t8 = index i8 %t6, 2
+    store i8 99, %t8
+    %t9 = index i8 %t6, 3
+    store i8 0, %t9
+    %t10 = index i8 %t6, 4
+    store i8 0, %t10
+    %t11 = index i8 %t6, 5
+    store i8 0, %t11
+    %t12 = addr $local_deduced
+    store i8 65, %t12
+    %t13 = index i8 %t12, 1
+    store i8 66, %t13
+    %t14 = index i8 %t12, 2
+    store i8 0, %t14
+    %t15 = addr @narrow
+    %t16 = unary decay ptr %t15
+    %t17 = index i8 [projection=array_element] %t16, 0
+    %t18 = load i8 %t17
+    %t19 = convert sext i32 i8 %t18
+    %t20 = cmp ne i32 %t19, 97
+    branch %t20, ^if_then_1, ^lor_rhs_5
+
+  block ^lor_rhs_5:
+    %t21 = addr @narrow
+    %t22 = unary decay ptr %t21
+    %t23 = index i8 [projection=array_element] %t22, 2
+    %t24 = load i8 %t23
+    %t25 = convert sext i32 i8 %t24
+    %t26 = cmp ne i32 %t25, 99
+    branch %t26, ^if_then_1, ^lor_rhs_4
+
+  block ^lor_rhs_4:
+    %t27 = addr @narrow
+    %t28 = unary decay ptr %t27
+    %t29 = index i8 [projection=array_element] %t28, 3
+    %t30 = load i8 %t29
+    %t31 = convert sext i32 i8 %t30
+    %t32 = cmp ne i32 %t31, 0
+    branch %t32, ^if_then_1, ^if_else_2
+
+  block ^if_then_1:
+    return i32 1
+
+  block ^if_else_2:
+    jump ^if_end_3
+
+  block ^if_end_3:
+    %t33 = addr $padded
+    %t34 = unary decay ptr %t33
+    %t35 = index i8 [projection=array_element] %t34, 3
+    %t36 = load i8 %t35
+    %t37 = convert sext i32 i8 %t36
+    %t38 = cmp ne i32 %t37, 0
+    branch %t38, ^if_then_6, ^lor_rhs_10
+
+  block ^lor_rhs_10:
+    %t39 = addr $padded
+    %t40 = unary decay ptr %t39
+    %t41 = index i8 [projection=array_element] %t40, 4
+    %t42 = load i8 %t41
+    %t43 = convert sext i32 i8 %t42
+    %t44 = cmp ne i32 %t43, 0
+    branch %t44, ^if_then_6, ^lor_rhs_9
+
+  block ^lor_rhs_9:
+    %t45 = addr $padded
+    %t46 = unary decay ptr %t45
+    %t47 = index i8 [projection=array_element] %t46, 5
+    %t48 = load i8 %t47
+    %t49 = convert sext i32 i8 %t48
+    %t50 = cmp ne i32 %t49, 0
+    branch %t50, ^if_then_6, ^if_else_7
+
+  block ^if_then_6:
+    return i32 2
+
+  block ^if_else_7:
+    jump ^if_end_8
+
+  block ^if_end_8:
+    %t51 = addr @braced
+    %t52 = unary decay ptr %t51
+    %t53 = index i8 [projection=array_element] %t52, 0
+    %t54 = load i8 %t53
+    %t55 = convert sext i32 i8 %t54
+    %t56 = cmp ne i32 %t55, 100
+    branch %t56, ^if_then_11, ^lor_rhs_15
+
+  block ^lor_rhs_15:
+    %t57 = addr @braced
+    %t58 = unary decay ptr %t57
+    %t59 = index i8 [projection=array_element] %t58, 1
+    %t60 = load i8 %t59
+    %t61 = convert sext i32 i8 %t60
+    %t62 = cmp ne i32 %t61, 101
+    branch %t62, ^if_then_11, ^lor_rhs_14
+
+  block ^lor_rhs_14:
+    %t63 = addr @braced
+    %t64 = unary decay ptr %t63
+    %t65 = index i8 [projection=array_element] %t64, 2
+    %t66 = load i8 %t65
+    %t67 = convert sext i32 i8 %t66
+    %t68 = cmp ne i32 %t67, 0
+    branch %t68, ^if_then_11, ^if_else_12
+
+  block ^if_then_11:
+    return i32 3
+
+  block ^if_else_12:
+    jump ^if_end_13
+
+  block ^if_end_13:
+    %t69 = const i64 5
+    %t70 = convert sext i64 i32 5
+    %t71 = cmp ne i64 %t69, %t70
+    branch %t71, ^if_then_16, ^if_else_17
+
+  block ^if_then_16:
+    return i32 4
+
+  block ^if_else_17:
+    jump ^if_end_18
+
+  block ^if_end_18:
+    %t72 = addr @deduced
+    %t73 = unary decay ptr %t72
+    %t74 = index i8 [projection=array_element] %t73, 3
+    %t75 = load i8 %t74
+    %t76 = convert sext i32 i8 %t75
+    %t77 = cmp ne i32 %t76, 105
+    branch %t77, ^if_then_19, ^lor_rhs_22
+
+  block ^lor_rhs_22:
+    %t78 = addr @deduced
+    %t79 = unary decay ptr %t78
+    %t80 = index i8 [projection=array_element] %t79, 4
+    %t81 = load i8 %t80
+    %t82 = convert sext i32 i8 %t81
+    %t83 = cmp ne i32 %t82, 0
+    branch %t83, ^if_then_19, ^if_else_20
+
+  block ^if_then_19:
+    return i32 5
+
+  block ^if_else_20:
+    jump ^if_end_21
+
+  block ^if_end_21:
+    %t84 = const i64 3
+    %t85 = convert sext i64 i32 3
+    %t86 = cmp ne i64 %t84, %t85
+    branch %t86, ^if_then_23, ^if_else_24
+
+  block ^if_then_23:
+    return i32 6
+
+  block ^if_else_24:
+    jump ^if_end_25
+
+  block ^if_end_25:
+    %t87 = addr @deduced_braced
+    %t88 = unary decay ptr %t87
+    %t89 = index i8 [projection=array_element] %t88, 1
+    %t90 = load i8 %t89
+    %t91 = convert sext i32 i8 %t90
+    %t92 = cmp ne i32 %t91, 107
+    branch %t92, ^if_then_26, ^if_else_27
+
+  block ^if_then_26:
+    return i32 7
+
+  block ^if_else_27:
+    jump ^if_end_28
+
+  block ^if_end_28:
+    %t93 = const i64 6
+    %t94 = const i64 2
+    %t95 = convert sext i64 i32 3
+    %t96 = binary mul i64 %t95, %t94
+    %t97 = cmp ne i64 %t93, %t96
+    branch %t97, ^if_then_29, ^if_else_30
+
+  block ^if_then_29:
+    return i32 8
+
+  block ^if_else_30:
+    jump ^if_end_31
+
+  block ^if_end_31:
+    %t98 = addr @wide
+    %t99 = unary decay ptr %t98
+    %t100 = index u16 [projection=array_element] %t99, 0
+    %t101 = load u16 %t100
+    %t102 = convert zext i32 u16 %t101
+    %t103 = cmp ne i32 %t102, 108
+    branch %t103, ^if_then_32, ^lor_rhs_35
+
+  block ^lor_rhs_35:
+    %t104 = addr @wide
+    %t105 = unary decay ptr %t104
+    %t106 = index u16 [projection=array_element] %t105, 2
+    %t107 = load u16 %t106
+    %t108 = convert zext i32 u16 %t107
+    %t109 = cmp ne i32 %t108, 0
+    branch %t109, ^if_then_32, ^if_else_33
+
+  block ^if_then_32:
+    return i32 9
+
+  block ^if_else_33:
+    jump ^if_end_34
+
+  block ^if_end_34:
+    %t110 = const i64 8
+    %t111 = const i64 4
+    %t112 = convert sext i64 i32 2
+    %t113 = binary mul i64 %t112, %t111
+    %t114 = cmp ne i64 %t110, %t113
+    branch %t114, ^if_then_36, ^if_else_37
+
+  block ^if_then_36:
+    return i32 10
+
+  block ^if_else_37:
+    jump ^if_end_38
+
+  block ^if_end_38:
+    %t115 = addr @widest
+    %t116 = unary decay ptr %t115
+    %t117 = index u32 [projection=array_element] %t116, 0
+    %t118 = load u32 %t117
+    %t119 = cmp ne u32 %t118, 110
+    branch %t119, ^if_then_39, ^lor_rhs_42
+
+  block ^lor_rhs_42:
+    %t120 = addr @widest
+    %t121 = unary decay ptr %t120
+    %t122 = index u32 [projection=array_element] %t121, 1
+    %t123 = load u32 %t122
+    %t124 = cmp ne u32 %t123, 0
+    branch %t124, ^if_then_39, ^if_else_40
+
+  block ^if_then_39:
+    return i32 11
+
+  block ^if_else_40:
+    jump ^if_end_41
+
+  block ^if_end_41:
+    %t125 = addr @unsigned_units
+    %t126 = unary decay ptr %t125
+    %t127 = index u8 [projection=array_element] %t126, 2
+    %t128 = load u8 %t127
+    %t129 = convert zext i32 u8 %t128
+    %t130 = cmp ne i32 %t129, 113
+    branch %t130, ^if_then_43, ^lor_rhs_46
+
+  block ^lor_rhs_46:
+    %t131 = addr @unsigned_units
+    %t132 = unary decay ptr %t131
+    %t133 = index u8 [projection=array_element] %t132, 3
+    %t134 = load u8 %t133
+    %t135 = convert zext i32 u8 %t134
+    %t136 = cmp ne i32 %t135, 0
+    branch %t136, ^if_then_43, ^if_else_44
+
+  block ^if_then_43:
+    return i32 12
+
+  block ^if_else_44:
+    jump ^if_end_45
+
+  block ^if_end_45:
+    %t137 = addr @aggregate
+    %t138 = index i8 [projection=field] %t137, 0
+    %t139 = unary decay ptr %t138
+    %t140 = index i8 [projection=array_element] %t139, 0
+    %t141 = load i8 %t140
+    %t142 = convert sext i32 i8 %t141
+    %t143 = cmp ne i32 %t142, 114
+    branch %t143, ^if_then_47, ^lor_rhs_50
+
+  block ^lor_rhs_50:
+    %t144 = addr @aggregate
+    %t145 = index i8 [projection=field] %t144, 0
+    %t146 = unary decay ptr %t145
+    %t147 = index i8 [projection=array_element] %t146, 3
+    %t148 = load i8 %t147
+    %t149 = convert sext i32 i8 %t148
+    %t150 = cmp ne i32 %t149, 0
+    branch %t150, ^if_then_47, ^if_else_48
+
+  block ^if_then_47:
+    return i32 13
+
+  block ^if_else_48:
+    jump ^if_end_49
+
+  block ^if_end_49:
+    %t151 = addr @aggregate
+    %t152 = index i8 [projection=field] %t151, 4
+    %t153 = load i32 %t152
+    %t154 = cmp ne i32 %t153, 7
+    branch %t154, ^if_then_51, ^if_else_52
+
+  block ^if_then_51:
+    return i32 14
+
+  block ^if_else_52:
+    jump ^if_end_53
+
+  block ^if_end_53:
+    %t155 = addr @aggregate_braced
+    %t156 = index i8 [projection=field] %t155, 0
+    %t157 = unary decay ptr %t156
+    %t158 = index i8 [projection=array_element] %t157, 1
+    %t159 = load i8 %t158
+    %t160 = convert sext i32 i8 %t159
+    %t161 = cmp ne i32 %t160, 118
+    branch %t161, ^if_then_54, ^lor_rhs_57
+
+  block ^lor_rhs_57:
+    %t162 = addr @aggregate_braced
+    %t163 = index i8 [projection=field] %t162, 4
+    %t164 = load i32 %t163
+    %t165 = cmp ne i32 %t164, 8
+    branch %t165, ^if_then_54, ^if_else_55
+
+  block ^if_then_54:
+    return i32 15
+
+  block ^if_else_55:
+    jump ^if_end_56
+
+  block ^if_end_56:
+    %t166 = addr $local
+    %t167 = unary decay ptr %t166
+    %t168 = index i8 [projection=array_element] %t167, 3
+    %t169 = load i8 %t168
+    %t170 = convert sext i32 i8 %t169
+    %t171 = cmp ne i32 %t170, 122
+    branch %t171, ^if_then_58, ^lor_rhs_61
+
+  block ^lor_rhs_61:
+    %t172 = addr $local
+    %t173 = unary decay ptr %t172
+    %t174 = index i8 [projection=array_element] %t173, 4
+    %t175 = load i8 %t174
+    %t176 = convert sext i32 i8 %t175
+    %t177 = cmp ne i32 %t176, 0
+    branch %t177, ^if_then_58, ^if_else_59
+
+  block ^if_then_58:
+    return i32 16
+
+  block ^if_else_59:
+    jump ^if_end_60
+
+  block ^if_end_60:
+    %t178 = const i64 3
+    %t179 = convert sext i64 i32 3
+    %t180 = cmp ne i64 %t178, %t179
+    branch %t180, ^if_then_62, ^lor_rhs_65
+
+  block ^lor_rhs_65:
+    %t181 = addr $local_deduced
+    %t182 = unary decay ptr %t181
+    %t183 = index i8 [projection=array_element] %t182, 0
+    %t184 = load i8 %t183
+    %t185 = convert sext i32 i8 %t184
+    %t186 = cmp ne i32 %t185, 65
+    branch %t186, ^if_then_62, ^if_else_63
+
+  block ^if_then_62:
+    return i32 17
+
+  block ^if_else_63:
+    jump ^if_end_64
+
+  block ^if_end_64:
+    return i32 0
+}

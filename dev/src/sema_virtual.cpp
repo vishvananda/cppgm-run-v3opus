@@ -162,12 +162,16 @@ void require_no_virtual_specifier(const SemaEntity& member)
 // question is answered without settling any override.
 void SemaAnalyzer::note_polymorphism(SemaEntity& entity, Scope& scope)
 {
-	if (!entity.bases.empty() && entity.bases[0].entity->polymorphic)
+	std::size_t dispatching = 0;
+	for (std::size_t index = 0; index < entity.bases.size(); ++index)
 	{
-		// 10p1: the first base subobject stands at the start of the object and
-		// carries the pointer, so this class adds nothing and lays its own
-		// members out after the base exactly as a non-polymorphic one does.
-		entity.polymorphic = true;
+		// 10p1: a class holding a base subobject that carries a vpointer
+		// carries one, wherever in the object that subobject stands.
+		if (entity.bases[index].entity->polymorphic)
+		{
+			entity.polymorphic = true;
+			++dispatching;
+		}
 	}
 	for (std::size_t index = 0;
 	     !entity.polymorphic && index < scope.declarations.size(); ++index)
@@ -175,22 +179,31 @@ void SemaAnalyzer::note_polymorphism(SemaEntity& entity, Scope& scope)
 		const SemaEntity& member = *scope.declarations[index];
 		if (member.virtual_function && dispatchable_member(member))
 		{
+			// 10.3p1: no base carries one, so this class is the one that adds
+			// it - the ABI gives it the first eight bytes and lays the bases
+			// and the members out after them, all of them dispatching through
+			// the one table this class owns.
 			entity.polymorphic = true;
 			entity.introduces_vptr = true;
 		}
 	}
-	if (!entity.polymorphic || entity.bases.size() < 2 || checking_ > 0)
+	if (dispatching == 0 || checking_ > 0)
 	{
 		return;
 	}
-	// 10.3p10 and the ABI: a class that dispatches and holds more than one base
-	// subobject owes a secondary table per base subobject that stands away from
-	// the vpointer, and a call through one of those reaches its overrider by a
-	// thunk that steps back to the complete object.  Neither is emitted here, so
-	// the class is refused rather than given a table that dispatches wrongly.
-	throw std::runtime_error(types_.description(entity.type) +
-	                         " dispatches and has more than one direct base "
-	                         "class, which this milestone does not lay out");
+	if (dispatching > 1 || entity.bases.size() > 1)
+	{
+		// 10.3p10 and the ABI: a class holding a base subobject that dispatches
+		// and does not begin where the object does owes a secondary table for
+		// it, and a call through that subobject reaches its overrider by a
+		// thunk that steps back to the complete object.  Neither is emitted
+		// here, so the class is refused rather than given a table that
+		// dispatches wrongly.
+		throw std::runtime_error(types_.description(entity.type) +
+		                         " holds a base class subobject that dispatches "
+		                         "and is not the only one, which this milestone "
+		                         "does not lay out");
+	}
 }
 
 // 10.3p7: whether the return type of an overriding function is the one the

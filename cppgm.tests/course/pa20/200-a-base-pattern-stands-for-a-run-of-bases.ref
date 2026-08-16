@@ -1,0 +1,344 @@
+global @trace [binding=strong, object=_Z5trace] = {
+  zero 32
+}
+global @steps : i32 [binding=strong, object=_Z5steps] = 0
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $made : obj<12x4>
+  slot $first : ptr
+  slot $middle : ptr
+  slot $last : ptr
+  slot $every : obj<16x8>
+  slot $none : obj<1x1>
+
+  block ^entry:
+    %t1 = addr $made
+    call void @over_1__3__5___over(%t1)
+    %t2 = addr $made
+    %t3 = index i8 [projection=base_subobject] %t2, 0
+    store ptr %t3, $first
+    %t4 = addr $made
+    %t5 = index i8 [projection=base_subobject] %t4, 4
+    store ptr %t5, $middle
+    %t6 = addr $made
+    %t7 = index i8 [projection=base_subobject] %t6, 8
+    store ptr %t7, $last
+    %t8 = load ptr $first
+    %t9 = index i8 [projection=field] %t8, 0
+    %t10 = load i32 %t9
+    %t11 = cmp ne i32 %t10, 2
+    branch %t11, ^if_then_1, ^if_else_2
+
+  block ^if_then_1:
+    return i32 1
+
+  block ^if_else_2:
+    jump ^if_end_3
+
+  block ^if_end_3:
+    %t12 = load ptr $middle
+    %t13 = index i8 [projection=field] %t12, 0
+    %t14 = load i32 %t13
+    %t15 = cmp ne i32 %t14, 6
+    branch %t15, ^if_then_4, ^if_else_5
+
+  block ^if_then_4:
+    return i32 2
+
+  block ^if_else_5:
+    jump ^if_end_6
+
+  block ^if_end_6:
+    %t16 = load ptr $last
+    %t17 = index i8 [projection=field] %t16, 0
+    %t18 = load i32 %t17
+    %t19 = cmp ne i32 %t18, 10
+    branch %t19, ^if_then_7, ^if_else_8
+
+  block ^if_then_7:
+    return i32 3
+
+  block ^if_else_8:
+    jump ^if_end_9
+
+  block ^if_end_9:
+    %t20 = load i32 @steps
+    %t21 = cmp ne i32 %t20, 3
+    branch %t21, ^if_then_10, ^if_else_11
+
+  block ^if_then_10:
+    return i32 4
+
+  block ^if_else_11:
+    jump ^if_end_12
+
+  block ^if_end_12:
+    %t22 = addr @trace
+    %t23 = unary decay ptr %t22
+    %t24 = index i32 [projection=array_element] %t23, 0
+    %t25 = load i32 %t24
+    %t26 = cmp ne i32 %t25, 1
+    branch %t26, ^if_then_13, ^lor_rhs_17
+
+  block ^lor_rhs_17:
+    %t27 = addr @trace
+    %t28 = unary decay ptr %t27
+    %t29 = index i32 [projection=array_element] %t28, 1
+    %t30 = load i32 %t29
+    %t31 = cmp ne i32 %t30, 3
+    branch %t31, ^if_then_13, ^lor_rhs_16
+
+  block ^lor_rhs_16:
+    %t32 = addr @trace
+    %t33 = unary decay ptr %t32
+    %t34 = index i32 [projection=array_element] %t33, 2
+    %t35 = load i32 %t34
+    %t36 = cmp ne i32 %t35, 5
+    branch %t36, ^if_then_13, ^if_else_14
+
+  block ^if_then_13:
+    return i32 5
+
+  block ^if_else_14:
+    jump ^if_end_15
+
+  block ^if_end_15:
+    %t37 = load ptr $first
+    %t38 = load ptr $middle
+    %t39 = cmp eq ptr %t37, %t38
+    branch %t39, ^if_then_18, ^if_else_19
+
+  block ^if_then_18:
+    return i32 6
+
+  block ^if_else_19:
+    jump ^if_end_20
+
+  block ^if_end_20:
+    %t40 = load ptr $middle
+    %t41 = load ptr $last
+    %t42 = cmp eq ptr %t40, %t41
+    branch %t42, ^if_then_21, ^if_else_22
+
+  block ^if_then_21:
+    return i32 7
+
+  block ^if_else_22:
+    jump ^if_end_23
+
+  block ^if_end_23:
+    %t43 = load ptr $first
+    %t44 = call i32 @numbered_1___of_numbered(%t43)
+    %t45 = cmp ne i32 %t44, 2
+    branch %t45, ^if_then_24, ^lor_rhs_27
+
+  block ^lor_rhs_27:
+    %t46 = load ptr $last
+    %t47 = call i32 @numbered_5___of_numbered(%t46)
+    %t48 = cmp ne i32 %t47, 10
+    branch %t48, ^if_then_24, ^if_else_25
+
+  block ^if_then_24:
+    return i32 8
+
+  block ^if_else_25:
+    jump ^if_end_26
+
+  block ^if_end_26:
+    %t49 = addr $every
+    call void @all_one__two__carries___all(%t49)
+    %t50 = addr $every
+    %t51 = index i8 [projection=base_subobject] %t50, 8
+    %t52 = index i8 [projection=field] %t51, 0
+    store i64 33, %t52
+    %t53 = addr $every
+    %t54 = index i8 [projection=base_subobject] %t53, 0
+    %t55 = index i8 [projection=field] %t54, 0
+    %t56 = load i32 %t55
+    %t57 = cmp ne i32 %t56, 11
+    branch %t57, ^if_then_28, ^lor_rhs_32
+
+  block ^lor_rhs_32:
+    %t58 = addr $every
+    %t59 = index i8 [projection=base_subobject] %t58, 4
+    %t60 = index i8 [projection=field] %t59, 0
+    %t61 = load i32 %t60
+    %t62 = cmp ne i32 %t61, 22
+    branch %t62, ^if_then_28, ^lor_rhs_31
+
+  block ^lor_rhs_31:
+    %t63 = addr $every
+    %t64 = index i8 [projection=base_subobject] %t63, 8
+    %t65 = index i8 [projection=field] %t64, 0
+    %t66 = load i64 %t65
+    %t67 = cmp ne i64 %t66, 33
+    branch %t67, ^if_then_28, ^if_else_29
+
+  block ^if_then_28:
+    return i32 9
+
+  block ^if_else_29:
+    jump ^if_end_30
+
+  block ^if_end_30:
+    %t68 = addr $none
+    call void @all____all(%t68)
+    %t69 = const i64 1
+    %t70 = convert sext i64 i32 1
+    %t71 = cmp ne i64 %t69, %t70
+    branch %t71, ^if_then_33, ^if_else_34
+
+  block ^if_then_33:
+    return i32 10
+
+  block ^if_else_34:
+    jump ^if_end_35
+
+  block ^if_end_35:
+    return i32 0
+}
+function @over_1__3__5___over(%this : ptr) -> void [binding=weak, object=_ZN4overIJLi1ELi3ELi5EEEC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    call void @numbered_1___numbered__base_entry(%t2, 2)
+    %t3 = load ptr $this
+    %t4 = index i8 [projection=base_subobject] %t3, 4
+    call void @numbered_3___numbered__base_entry(%t4, 2)
+    %t5 = load ptr $this
+    %t6 = index i8 [projection=base_subobject] %t5, 8
+    call void @numbered_5___numbered__base_entry(%t6, 2)
+    return void
+}
+function @numbered_1___numbered__base_entry(%this : ptr, %given : i32) -> void [binding=weak, object=_ZN8numberedILi1EEC2Ei] {
+  slot $this : ptr
+  slot $given : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %given, $given
+    %t1 = load i32 $given
+    %t2 = binary mul i32 %t1, 1
+    %t3 = load ptr $this
+    %t4 = index i8 [projection=field] %t3, 0
+    store i32 %t2, %t4
+    %t5 = addr @trace
+    %t6 = unary decay ptr %t5
+    %t7 = load i32 @steps
+    %t8 = binary add i32 %t7, 1
+    store i32 %t8, @steps
+    %t9 = index i32 [projection=array_element] %t6, %t7
+    store i32 1, %t9
+    return void
+}
+function @numbered_1___of_numbered(%this : ptr) -> i32 [binding=weak, object=_ZN8numberedILi1EE11of_numberedEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i32 %t2
+    return i32 %t3
+}
+function @numbered_3___numbered__base_entry(%this : ptr, %given : i32) -> void [binding=weak, object=_ZN8numberedILi3EEC2Ei] {
+  slot $this : ptr
+  slot $given : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %given, $given
+    %t1 = load i32 $given
+    %t2 = binary mul i32 %t1, 3
+    %t3 = load ptr $this
+    %t4 = index i8 [projection=field] %t3, 0
+    store i32 %t2, %t4
+    %t5 = addr @trace
+    %t6 = unary decay ptr %t5
+    %t7 = load i32 @steps
+    %t8 = binary add i32 %t7, 1
+    store i32 %t8, @steps
+    %t9 = index i32 [projection=array_element] %t6, %t7
+    store i32 3, %t9
+    return void
+}
+function @numbered_5___numbered__base_entry(%this : ptr, %given : i32) -> void [binding=weak, object=_ZN8numberedILi5EEC2Ei] {
+  slot $this : ptr
+  slot $given : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %given, $given
+    %t1 = load i32 $given
+    %t2 = binary mul i32 %t1, 5
+    %t3 = load ptr $this
+    %t4 = index i8 [projection=field] %t3, 0
+    store i32 %t2, %t4
+    %t5 = addr @trace
+    %t6 = unary decay ptr %t5
+    %t7 = load i32 @steps
+    %t8 = binary add i32 %t7, 1
+    store i32 %t8, @steps
+    %t9 = index i32 [projection=array_element] %t6, %t7
+    store i32 5, %t9
+    return void
+}
+function @numbered_5___of_numbered(%this : ptr) -> i32 [binding=weak, object=_ZN8numberedILi5EE11of_numberedEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i32 %t2
+    return i32 %t3
+}
+function @all_one__two__carries___all(%this : ptr) -> void [binding=weak, object=_ZN3allIJ3one3two7carriesEEC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    call void @one__one__base_entry(%t2)
+    %t3 = load ptr $this
+    %t4 = index i8 [projection=base_subobject] %t3, 4
+    call void @two__two__base_entry(%t4)
+    %t5 = load ptr $this
+    %t6 = index i8 [projection=base_subobject] %t5, 8
+    store i64 0, %t6
+    return void
+}
+function @all____all(%this : ptr) -> void [binding=weak, object=_ZN3allIJEEC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    return void
+}
+function @one__one__base_entry(%this : ptr) -> void [binding=weak, object=_ZN3oneC2Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    store i32 11, %t2
+    return void
+}
+function @two__two__base_entry(%this : ptr) -> void [binding=weak, object=_ZN3twoC2Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    store i32 22, %t2
+    return void
+}
+alias object _ZN4overIJLi1ELi3ELi5EEEC2Ev = @over_1__3__5___over
+alias object _ZN3allIJ3one3two7carriesEEC2Ev = @all_one__two__carries___all
+alias object _ZN3allIJEEC2Ev = @all____all

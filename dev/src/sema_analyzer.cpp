@@ -6,6 +6,7 @@
 #include "ast_model.h"
 #include "ast_tokens.h"
 #include "sema_derivation.h"
+#include "sema_string_init.h"
 
 namespace
 {
@@ -2339,6 +2340,21 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 	// list has as many elements as the list has clauses - which 14.5.3p4 makes
 	// a question about the runs its clauses stand for and not about the syntax.
 	if (types_.kind(type) == TypeKind::Array && !types_.bounded(type) &&
+	    initializer != nullptr && !initializer->children.empty())
+	{
+		// 8.5.2p1: an array of unknown bound initialized by a string literal
+		// has as many elements as the literal has code units, the terminating
+		// one among them - whether or not the program wrote the braces 8.5.1
+		// would otherwise count the clauses of.
+		const AstNode& first = *initializer->children[0];
+		const AstNode* const spelled =
+			first.kind == AstKind::BracedInitList && first.children.size() == 1
+				? first.children[0]
+				: &first;
+		type = StringInitialization(*this).deduced_bound(type, *spelled,
+		                                                 looked_up);
+	}
+	if (types_.kind(type) == TypeKind::Array && !types_.bounded(type) &&
 	    initializer != nullptr && !initializer->children.empty() &&
 	    initializer->children[0]->kind == AstKind::BracedInitList)
 	{
@@ -2743,6 +2759,17 @@ void SemaAnalyzer::write_initializer(const AstNode& initializer, TypeId type,
 		}
 		return;
 	}
+	if (initializer.kind == AstKind::BracedInitList &&
+	    initializer.children.size() == 1 &&
+	    StringInitialization(*this).as_object(type, *initializer.children[0],
+	                                          ctx, line))
+	{
+		// 8.5.2p1: the braces hold a string literal and the object is an array
+		// of character type, so the elements are the literal's own code units -
+		// which is the same initialization the array gets where the braces were
+		// left out, written under the same line.
+		return;
+	}
 	if (initializer.kind == AstKind::BracedInitList)
 	{
 		// 8.5.1: an aggregate is initialized from the clauses of its list, each
@@ -2750,6 +2777,14 @@ void SemaAnalyzer::write_initializer(const AstNode& initializer, TypeId type,
 		// value of the object's own storage where the object has static storage
 		// duration, so no element of it is an object a function builds.
 		list_initialize(initializer, type, ctx, line, image);
+		return;
+	}
+	if (StringInitialization(*this).as_object(type, initializer, ctx, line))
+	{
+		// 8.5p14 and 8.5.2p1: an array of character type written with a string
+		// literal takes the literal's code units as its elements, which is no
+		// conversion of the literal to the array's type and so is asked before
+		// the initialization every other expression gets.
 		return;
 	}
 	// The same reading a list standing where an expression initializes an
