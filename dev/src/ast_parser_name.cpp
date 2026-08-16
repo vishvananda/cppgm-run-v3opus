@@ -21,6 +21,11 @@ bool is_operator_token(unsigned type)
 	case OP_ASS: case OP_LT: case OP_GT: case OP_PLUSASS: case OP_MINUSASS:
 	case OP_STARASS: case OP_DIVASS: case OP_MODASS: case OP_XORASS:
 	case OP_BANDASS: case OP_BORASS: case OP_LSHIFT: case ST_RSHIFT_1:
+	// 13.5p1 names the shift-assignments among the operators an
+	// operator-function-id may be written with, and phase 3 spells each of them
+	// as one token of its own - so they are read here as `<<` and `>>` are, and
+	// not left to `parse_conversion_type_id` to fail on.
+	case OP_LSHIFTASS: case OP_RSHIFTASS:
 	case OP_EQ: case OP_NE: case OP_LE: case OP_GE: case OP_LAND:
 	case OP_LOR: case OP_INC: case OP_DEC: case OP_COMMA: case OP_ARROWSTAR:
 	case OP_ARROW:

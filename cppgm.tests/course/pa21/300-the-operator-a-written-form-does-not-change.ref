@@ -1,0 +1,20 @@
+global @no [binding=internal, object=_ZL2no] = {
+  u8 0
+}
+global @yes [binding=internal, object=_ZL3yes] = {
+  u8 1
+}
+global @one [binding=internal, object=_ZL3one] = {
+  i32 1
+}
+global @two [binding=internal, object=_ZL3two] = {
+  i32 2
+}
+global @mark [binding=internal, object=_ZL4mark] = {
+  i32 2
+}
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    return i32 0
+}

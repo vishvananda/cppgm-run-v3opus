@@ -43,8 +43,11 @@ call and to the same `conversion_match` for 12.3.2p1's conversion function, and
 ask, and 13.3.1.2p3's set for an operator is `sema_operator.h`'s `OperatorCall`,
 which the expression layer and the fold gather from alike. Whether the
 declaration chosen is a constexpr one this unit defined is asked *after* 13.3
-has chosen and never used to choose. **Done — checkpoints T and P, and T's
-audit.**
+has chosen and never used to choose. Which of the two readings an operator
+expression *has* is the question in front of that one, and it is settled by the
+operand types alone — not by the values a fold came to, not by the shape the
+operand was written in, and not over a set holding declarations 13.5 lets no
+program write. **Done — checkpoints T and P and both their audits.**
 
 Beside them, one small owner of its own: 15.4's exception-specification is a
 typed fact of a declaration — `SemaEntity::nonthrowing`, settled by
@@ -78,7 +81,7 @@ the `.ref` files are the oracle and no fixture asks for the refusal.
 
 ## Current Failure Map
 
-**96/136**; 40 failures remain. 6 are a LowIR mismatch and 9 are a `-bad` case
+**97/137**; 40 failures remain. 6 are a LowIR mismatch and 9 are a `-bad` case
 this compiler accepts; the rest refuse a program the assignment asks it to
 translate. Groups N, T, I and P are closed. Of the six LowIR rows, two are known
 gap L's symbol naming, two are group R's pointer-valued read, one is I' below
@@ -133,12 +136,15 @@ does, which is 7.1.5p5's "no diagnostic required" turned into the diagnostic the
 | aggregate of floating clauses | one dump node per clause, and one fold per clause 8.5.4p7's second bullet asks about - which is a `float` member off a wider source and nothing else | 2000 / 8000 / 32000 `double` clauses of an array member: 0.05 / 0.21 / 0.81s at 22 / 66 / 243 MB, against 0.02 / 0.09 / 0.37s at 10 / 22 / 72 MB for the same count of `int` clauses (ref 0.70 / 1.20 / 2.90s at 34 / 95 / 339 MB and 0.70 / 0.90 / 1.90s at 21 / 43 / 135 MB). Making them `float`, the one shape the bullet folds, adds 16%: 0.94s and 274 MB at 32000 |
 
 | an operator that names a declaration | 13.3.1.2p2's one test per operand - is it of class or enumeration type - before anything is gathered, so an arithmetic fold pays two type-kind reads and no lookup; where the test says yes, one candidate gathering into a local of the caller's and one 13.3 ranking, the same pair a call written with parentheses pays | a constexpr loop of 1e3 / 4e3 / 16e3 overloaded `operator+` calls on a class: 0.02 / 0.10 / 0.45s at 12 / 29 / 98 MB - linear, and the same loop over built-in `+` is 0.00 / 0.01 / 0.04s at a flat 6.0 MB, unchanged. 4e3 calls with 0 / 8 / 32 / 128 declarations of the operator in scope: 0.10 / 0.11 / 0.15 / 0.32s - linear in candidates, which is 13.3's own walk. The reference refuses the loop outright (`static_assert unevaluated`) at 0.60s |
+| an operator that leaves an operand unread | 13.3.1.2p3's set gathered from the operand a fold *has* read, asked before the one it has not is read — an operand of class type before its truth is taken, any other where its truth would end the reading, which is the one place the answer changes what is read | a 1e5-pass fold loop over built-in `+` and `<` is 0.21s, unchanged; the same with a class-operand `&&` in the condition 0.31s; a `\|\|` that short-circuits on all 1e5 passes 0.36s against 0.33s for asking nothing there — one lookup per short-circuit and none on a fold that reads the right operand anyway. A chain of 100 / 200 / 400 nested `&&` over a class operand: 0.00s at 6.25 / 6.34 / 6.47 MB. 4000 short-circuits with 0 / 8 / 32 / 128 declarations of `operator&&` in scope: 0.01 / 0.01 / 0.02 / 0.02s |
+| an assignment or increment that names a declaration | one gather and one 13.3 ranking per operator, the same pair a call written with parentheses pays, over an operand a name's declaration carries rather than one evaluating it comes to | 1000 / 4000 / 16000 folded `operator+=` calls on named class operands: 0.01 / 0.05 / 0.26s at 9.8 / 19.6 / 58.9 MB, against 0.01 / 0.05 / 0.24s at 9.8 / 19.7 / 58.7 MB for the identical calls written `plus(a, b)` and 0.00 / 0.02 / 0.07s at 6.6 / 7.3 / 9.7 MB for the same loop calling nothing — linear, and the memory is the argument lists the fold interns either way |
 | a class template's aggregate clause | one `type_owner` probe per clause of class type and, past the first, one integer test in `require_complete_type` - the instantiation 14.7.1p1 demands is made once and every later clause finds it | 500 / 2000 / 8000 two-member class clauses of an array member of `Holder<int>`, read back by a `static_assert`: 0.00 / 0.02 / 0.10s at 7 / 11 / 27 MB - linear in clauses, with no term in the number of specializations |
 
 ## Completed Checkpoints
 
 | # | Checkpoint | Result |
 |---|---|---|
+| P audit | `90faa85d`, 4 blockers: 5.14p1's short-circuit was read off the operand *values*, so a class operand with `operator bool` and no `operator&&` evaluated the right operand — `!(no && quotient(1, 0))` **refused** as a division by zero where both oracles fold it, and a guarded write run; 13.3.1.2p2's mirror half closed with it, where `0 && mark` over `operator&&(int, token)` answered the built-in `false`; the fold gathered the non-member half for the four operators 13.5.3p1, 13.5.4p1, 13.5.5p1 and 13.5.6p1 make members, so `c[0]` over a non-member `operator[]` **folded to 42**; and 5.17p1's write-back was asked before 13.3.1.2 wherever the operand was a name, so `one = two`, the ten compound assignments and `++one` were refused one exit away from the temporary P had already opened. Under them `is_operator_token` held neither `<<=` nor `>>=`. See [audit.md](audit.md). | 96 → 97 (137) |
 | P | **13.3.1.2's operator names a declaration.** `sema_operator.h`'s `OperatorCall` takes 13.3.1.2p3's candidate set out of `SemaAnalyzer` - a reader beside `ArgumentLookup` - so the expression layer and `ConstexprReading::operator_constant` gather it once and rank it with the one `select_overload`, the first operand handed over twice as 13.3.1.2p4 asks. Every door reaches it: the unary and binary readings, `&&`/`||` (whose short-circuit is the built-in operator's alone), 5.17's assignment on an operand that is no name, 5.2.1's subscript, and a call written on a temporary. Carried three siblings the door then reached: `at_class_place` performs 5.2.2p4's and 6.6.3p2's initialization of a place of class type, `initialized_value` makes 8.5 one reading for a declaration inside a body as well as outside one, and `clause_of` asks 14.7.1p1 for a specialization's definition before reading 8.5.1p1's aggregate off it - without which every class template answered "no aggregate" and a nested clause was read as an expression. 3.9p10's array member is a subobject like any other. Course fixture pins the eight shapes 13.3.1.2 names. | 88 → 96 (136) |
 | L | Function-local `static` objects: `record_storage` records the storage duration instead of refusing it; `record_lifetime` puts 12.4p11's destruction under the declaration; `global_symbol` answers `__local_static__<function>__<name>__tokens<b>_<e>`; `lowir_local_static.cpp` writes the image half, 6.7p4's guard and 3.6.3p3's `__cxa_atexit`. | 29 → 38 |
 | L audit | `af299cb9`, 3 blockers: the owner part of the name flattened two functions to one symbol; 3.5p3's internal linkage was missing from both readings of "a definition every unit may hold"; 12.4p8 over an array was handed to `__cxa_atexit` as one call. See [audit.md](audit.md). | 38 → 38 |
@@ -156,6 +162,21 @@ does, which is 7.1.5p5's "no diagnostic required" turned into the diagnostic the
 | I audit | `e797cd19`, 3 blockers: 9.4.2p3's held brace-or-equal-initializer was pulled only for a class or an array, so `static constexpr const char *text = "ab";` with its definition written out laid out `ptr = zero` with no literal and no startup body — a **null pointer** where both oracles write the address, and `&helper` and `&target` with it; 8.4.2p1 was read as a fact about who *declared* the constructor rather than about whether working the image out went *through* its definition, so three shapes wrote out a definition the reference does not and `owe_folded_construction` is now the one question all four exits ask; and 5.2.2p1's own sentence was asked at two of the three walkers that lay an image out, and asked once per member rather than once per place — 3200 members off one 6400-term argument cost 4.55s and cost 0.14s now. Two course fixtures pin the first two. See [audit.md](audit.md). | 86 → 88 (135) |
 | I | **3.6.2p2's image is the declaration's, and 9.4.2p3 makes that one declaration.** A static data member's out-of-class definition takes the in-class brace-or-equal-initializer (`member_initializers_` now holds a static member's too) and the array bound that initializer deduced, so it is initialized rather than default-initialized; `ConstexprReading::clause_of` reads a clause against the *subobject* it initializes, which is what folds `{{1,2},{3,4}}` into an array of class type; a scalar whose second fold over the dump stops takes `SemaEntity::value`/`::real`, and 3.2p2 then makes nothing in that initializer a use. Carried 4.2: a subscript names no array, so `a[1][0]` decays once. `lowir_image.cpp` split out of `lowir_lower.cpp`; `fold_constant_object` became `ConstexprReading::fold_declared_object` and 8.5.1p1's `aggregate_class` moved to `sema_scope.cpp`. | 75 → 82 |
 
+
+**Known gaps (P audit).** 3.4.2's namespaces for the *right* operand of `&&` and
+`||` are the one source of 13.3.1.2p3's set a fold cannot ask, because naming
+them means reading the operand 5.14p1 leaves unread — so an `operator&&` declared
+only in a namespace associated with that operand's type, and reached by neither
+the left operand's class nor the unqualified lookup nor 3.4.2 for the left
+operand, is missed where the left operand decides. The expression layer has both
+types and does not have the gap. Beside it, `pa21/cppgm++-ref` has no answer for
+13.5.7p1's `++` and `--` over a class operand — `static_assert unevaluated`, with
+the operand misprinted as `(++)` — where g++ and this build both name the
+declaration, and it refuses a folded `,` over class operands, a free unary
+`operator+` and a free `operator+` over two enumeration operands that g++ and
+this build fold. And a compound assignment over a class that declares none hands
+the object's bits to `binary_value`, which refuses them, so the answer is a
+diagnostic and not a wrong number; 5.17p7's own sentence is what would say so.
 
 **Known gaps (P).** The reference emits the *constructor* a hidden friend's body
 names even where nothing calls the friend and nothing declares an object:

@@ -37,6 +37,12 @@ public:
 	// this name ends in, which is what tells one from the allocation functions
 	// of 3.7.4 and the literal operators of 13.5.8, whose names begin alike.
 	static bool overloadable(const std::string& name);
+	// 13.5.3p1, 13.5.4p1, 13.5.5p1 and 13.5.6p1: the four operators a program
+	// gives a meaning to only by declaring a non-static *member* function, so
+	// the non-member half of 13.3.1.2p3's set is no part of what they reach.
+	// It is a fact of the operator alone, which is why both readers ask it of
+	// the one answer rather than each spelling it at every door it opens.
+	static bool member_only(unsigned token);
 
 	// 13.3.1.2p3 with 13.3.1.1.2p2: the declarations of the operator `token`
 	// that these operands reach, appended to `out`.  Returns how many of them

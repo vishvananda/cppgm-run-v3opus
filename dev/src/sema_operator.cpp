@@ -99,6 +99,19 @@ bool OperatorCall::overloadable(const std::string& name)
 	return false;
 }
 
+// 13.5.3p1, 13.5.4p1, 13.5.5p1 and 13.5.6p1: assignment, the function call, the
+// subscript and `->` are each declared "by a non-static member function with no
+// parameters" or with the ones the clause names - a program may not write a
+// non-member one at all.  So 13.3.1.2p3's non-member half is left out of what
+// these four reach, and gathering it would be a candidate no program may
+// declare: `int operator[](C, int)` is ill-formed, and a set that held it would
+// answer a subscript the expression layer refuses.
+bool OperatorCall::member_only(unsigned token)
+{
+	return token == OP_ASS || token == OP_LPAREN || token == OP_LSQUARE ||
+		token == OP_ARROW;
+}
+
 // 3.7.4p2 and 12.5p1: whether the name is one of the allocation and
 // deallocation functions, which 13.5p1 leaves out of the operators a program
 // may give a meaning to.  Written in a class they are static members of it

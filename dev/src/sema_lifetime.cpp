@@ -2308,7 +2308,9 @@ void SemaAnalyzer::write_transfer_assignment(SemaEntity& subobject,
 	Value chosen;
 	if (types_.is_class(member_copy_type(target.type)))
 	{
-		if (!OperatorCall(*this).expression(OP_ASS, inner, step, operands, true, chosen))
+		if (!OperatorCall(*this).expression(OP_ASS, inner, step, operands,
+		                                    OperatorCall::member_only(OP_ASS),
+		                                    chosen))
 		{
 			throw std::runtime_error(
 				"a subobject of the class type " +

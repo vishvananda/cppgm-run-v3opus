@@ -522,8 +522,8 @@ ConstexprFlow ConstexprReading::statement(const AstNode& node,
 	                  "implementation does not evaluate");
 }
 
-SemaEntity* ConstexprReading::assignable(const AstNode& node,
-                                         const SemaContext& ctx)
+SemaEntity* ConstexprReading::named_object(const AstNode& node,
+                                           const SemaContext& ctx)
 {
 	const AstNode* target = &node;
 	while (target->kind == AstKind::ParenthesizedExpression &&
@@ -533,34 +533,81 @@ SemaEntity* ConstexprReading::assignable(const AstNode& node,
 	}
 	if (target->kind != AstKind::IdExpression)
 	{
-		// 13.5.3p1: what stands here is no name at all - a call, an operator, a
-		// member access - so 5.17p1's write-back is not what was written and
-		// the caller asks 13.3.1.2 instead.  Nothing is looked up: the shape of
-		// the operand is the whole of the answer.
+		// What stands here is no name at all - a call, an operator, a member
+		// access - so there is no declaration to read the operand off, and its
+		// type is what evaluating it says it is.
 		return nullptr;
 	}
-	SemaEntity& entity = analyzer_.require(
+	return &analyzer_.require(
 		analyzer_.resolve(target->text, ctx, LookupKind::Any), target->text);
-	if (!entity.fold_local)
-	{
-		// 5.19p2: an evaluation may write no object whose lifetime began
-		// outside it, which here is every declaration of the program.
-		throw NotConstant(target->text + " is written by a constant expression "
-		                  "that did not declare it");
-	}
-	return &entity;
 }
 
-SemaEntity& ConstexprReading::assigned(const AstNode& node,
-                                       const SemaContext& ctx)
+SemaEntity& ConstexprReading::written_object(SemaEntity* named)
 {
-	SemaEntity* const target = assignable(node, ctx);
-	if (target == nullptr)
+	if (named == nullptr)
 	{
 		throw NotConstant("a constant expression writes to something that is "
 		                  "not a name the evaluation declared");
 	}
-	return *target;
+	if (!named->fold_local)
+	{
+		// 5.19p2: an evaluation may write no object whose lifetime began
+		// outside it, which here is every declaration of the program.
+		throw NotConstant(named->name + " is written by a constant expression "
+		                  "that did not declare it");
+	}
+	return *named;
+}
+
+SemaConstant ConstexprReading::held_constant(const SemaEntity& object) const
+{
+	SemaConstant out;
+	out.type = object.type;
+	out.bits = object.value;
+	out.real = object.real;
+	return out;
+}
+
+// 13.5p1 with 13.3.1.2p1: an assignment or an increment written on an operand
+// of class or enumeration type is the call of an operator function, and which
+// declaration it names is the same question `+` asks - so it is asked here
+// before an object to write is looked for at all.  5.17p1's write-back and
+// 5.3.2p1's step are the *built-in* operators' own rules, and the object they
+// need is theirs alone: a program that wrote `x += y` over a class named none.
+//
+// The shape the operand was written in does not enter into it, which is what
+// makes a name and a temporary one door and not two.  A name is read off its
+// declaration rather than evaluated, because an object 8.5p11 has left unset is
+// still a left operand the built-in operator takes.
+bool ConstexprReading::written_operator(const AstNode& node,
+                                        const SemaContext& ctx,
+                                        SemaEntity* named, bool postfix,
+                                        const SemaConstant* right,
+                                        SemaConstant& out)
+{
+	if (named != nullptr &&
+	    !(named->constant && overloadable_place(named->type)))
+	{
+		return false;
+	}
+	std::vector<SemaConstant> operands;
+	operands.push_back(named == nullptr
+		                   ? analyzer_.evaluate(*node.children[0], ctx)
+		                   : held_constant(*named));
+	if (right != nullptr)
+	{
+		operands.push_back(*right);
+	}
+	else if (postfix)
+	{
+		// 13.5.7p1: `x++` is read as `x++0`, so the candidates of a postfix
+		// increment are gathered over two operands and the second is a zero the
+		// program did not write.
+		SemaConstant zero;
+		zero.type = analyzer_.types_.fundamental(FT_INT);
+		operands.push_back(zero);
+	}
+	return operator_constant(node.token, operands, ctx, out);
 }
 
 SemaConstant ConstexprReading::assignment_constant(const AstNode& node,
@@ -571,26 +618,14 @@ SemaConstant ConstexprReading::assignment_constant(const AstNode& node,
 		throw NotConstant("a constant expression holds an assignment with no "
 		                  "operands");
 	}
-	SemaEntity* const named = assignable(*node.children[0], ctx);
-	if (named == nullptr)
-	{
-		// 13.5.3p1: an assignment written on something that is not a name is
-		// the call of an operator function, which 13.3.1.2 chooses over the two
-		// operands - and a class that declares none leaves this the write-back
-		// 5.17p1 has no object for.
-		std::vector<SemaConstant> operands;
-		operands.push_back(analyzer_.evaluate(*node.children[0], ctx));
-		operands.push_back(analyzer_.evaluate(*node.children[1], ctx));
-		SemaConstant called;
-		if (operator_constant(node.token, operands, ctx, called))
-		{
-			return called;
-		}
-		throw NotConstant("a constant expression writes to something that is "
-		                  "not a name the evaluation declared");
-	}
-	SemaEntity& target = *named;
+	SemaEntity* const named = named_object(*node.children[0], ctx);
 	const SemaConstant written = analyzer_.evaluate(*node.children[1], ctx);
+	SemaConstant called;
+	if (written_operator(node, ctx, named, false, &written, called))
+	{
+		return called;
+	}
+	SemaEntity& target = written_object(named);
 	SemaConstant value = written;
 	if (node.token != OP_ASS)
 	{
@@ -599,11 +634,8 @@ SemaConstant ConstexprReading::assignment_constant(const AstNode& node,
 			throw NotConstant(target.name + " is read by a compound assignment "
 			                  "before anything wrote it");
 		}
-		SemaConstant held;
-		held.type = target.type;
-		held.bits = target.value;
-		held.real = target.real;
-		value = binary_value(compound_operator(node.token), held, written);
+		value = binary_value(compound_operator(node.token),
+		                     held_constant(target), written);
 	}
 	if (analyzer_.arithmetic_type(target.type) != kNoType)
 	{
@@ -627,16 +659,19 @@ SemaConstant ConstexprReading::increment_constant(const AstNode& node,
 		throw NotConstant("a constant expression holds an increment with no "
 		                  "operand");
 	}
-	SemaEntity& target = assigned(*node.children[0], ctx);
+	SemaEntity* const named = named_object(*node.children[0], ctx);
+	SemaConstant called;
+	if (written_operator(node, ctx, named, !prefix, nullptr, called))
+	{
+		return called;
+	}
+	SemaEntity& target = written_object(named);
 	if (!target.constant)
 	{
 		throw NotConstant(target.name + " is incremented before anything "
 		                  "wrote it");
 	}
-	SemaConstant held;
-	held.type = target.type;
-	held.bits = target.value;
-	held.real = target.real;
+	const SemaConstant held = held_constant(target);
 	SemaConstant one;
 	one.type = analyzer_.types_.fundamental(FT_INT);
 	one.bits = 1;

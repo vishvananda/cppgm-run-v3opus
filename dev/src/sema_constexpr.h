@@ -209,8 +209,16 @@ public:
 	                       const SemaContext& ctx, SemaConstant& out);
 	// 13.3.1.2p2: whether an operand makes the operator a call to look a
 	// declaration up for at all, which is the one test every door runs before
-	// gathering anything.
+	// gathering anything.  The two spellings are the same clause asked of a
+	// value and of the type a declaration gave one.
 	bool overloadable_operand(const SemaConstant& value) const;
+	bool overloadable_place(TypeId type) const;
+	// 13.3.1.2p3 over one operand: whether any declaration of the operator is
+	// reached from it.  5.14p1's short-circuit belongs to the built-in operator
+	// alone, so the door that has to leave an operand unread asks this of the
+	// one it has read before deciding not to read the other.
+	bool reaches_operator(unsigned token, const SemaConstant& operand,
+	                      const SemaContext& ctx);
 
 	// 8.5p14 and 8.5p16: `value` read where a place of type `place` is
 	// initialized from it.  A place of class type the value is not already of
@@ -438,11 +446,25 @@ private:
 	                        ConstexprFrame& frame);
 	ConstexprFlow counted_loop(const AstNode& node, const SemaContext& ctx,
 	                           ConstexprFrame& frame);
-	// 5.17p1: the object an assignment writes, which is one this fold bound.
-	// Null where the operand names no such object - which for 13.5.3p1's
-	// overloaded `=` is every operand, because what stands there is a call.
-	SemaEntity* assignable(const AstNode& node, const SemaContext& ctx);
-	SemaEntity& assigned(const AstNode& node, const SemaContext& ctx);
+	// 3.4.1: the declaration the operand of an assignment or an increment
+	// names, or null where what stands there is no name at all.  It is asked
+	// before either reading of the operator, because a name is where an
+	// operand's type is read from without evaluating it.
+	SemaEntity* named_object(const AstNode& node, const SemaContext& ctx);
+	// 5.17p1 and 5.19p2: the object the *built-in* assignment and increment
+	// write, which is a name this fold bound and nothing else.  Asked only
+	// after 13.3.1.2 has named no operator function, because that is the one
+	// reading the object belongs to.
+	SemaEntity& written_object(SemaEntity* named);
+	// The constant an object a fold declared is holding.
+	SemaConstant held_constant(const SemaEntity& object) const;
+	// 13.5p1: the assignment or increment read as the call 13.3.1.2 names, over
+	// the operand `named` declares or the one evaluating it comes to.  `right`
+	// is the second operand where the program wrote one, and `postfix` asks for
+	// 13.5.7p1's zero where it did not.
+	bool written_operator(const AstNode& node, const SemaContext& ctx,
+	                      SemaEntity* named, bool postfix,
+	                      const SemaConstant* right, SemaConstant& out);
 	// What an evaluation has run so far, refused past the bound below.
 	void step(ConstexprFrame& frame);
 

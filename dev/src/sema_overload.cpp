@@ -2471,8 +2471,9 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
 				operands.push_back(arguments[index]);
 			}
 			Value chosen;
-			if (OperatorCall(*this).expression(OP_LPAREN, ctx, line, operands, true,
-			                        chosen))
+			if (OperatorCall(*this).expression(
+				    OP_LPAREN, ctx, line, operands,
+				    OperatorCall::member_only(OP_LPAREN), chosen))
 			{
 				return chosen;
 			}

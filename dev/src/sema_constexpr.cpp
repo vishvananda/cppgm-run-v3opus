@@ -1265,9 +1265,48 @@ SemaConstant ConstexprReading::at_class_place(const SemaConstant& value,
 // what keeps every arithmetic fold paying nothing for 13.3.1.2.
 bool ConstexprReading::overloadable_operand(const SemaConstant& value) const
 {
-	const TypeId bare = analyzer_.types_.strip_cv(value.type);
+	return overloadable_place(value.type);
+}
+
+bool ConstexprReading::overloadable_place(TypeId type) const
+{
+	const TypeId bare = analyzer_.types_.strip_cv(type);
 	return analyzer_.types_.is_class(bare) ||
 		analyzer_.types_.kind(bare) == TypeKind::Enum;
+}
+
+// 13.3.1.2p3 asked of one operand, and asked only whether it reaches any
+// declaration at all.
+//
+// 5.14p1 and 5.15p1 leave the right operand of `&&` and `||` unevaluated where
+// the left one decides, and that is the *built-in* operator's rule alone: 13.5p4
+// makes an overloaded one an ordinary call, and a call evaluates every argument.
+// Which of the two stands here is a question about declarations rather than
+// about values - so it is asked before the right operand is read, over the one
+// operand a fold has read by then.  13.3.1.2p2's own test cannot be the one
+// asked: it is over the types of *both* operands, and reading the second is
+// exactly what 5.14p1 says not to do.  Three of 13.3.1.2p3's four sources are
+// reached from the first operand alone - the lookup in its own class, the
+// unqualified lookup, and 3.4.2's namespaces for its type - and where they hold
+// nothing the built-in operator is what is left.  The fourth, 3.4.2's namespaces
+// for the *right* operand's type, is the one a fold cannot ask, and is the gap
+// the plan records.
+bool ConstexprReading::reaches_operator(unsigned token,
+                                        const SemaConstant& operand,
+                                        const SemaContext& ctx)
+{
+	if (ctx.scope == nullptr)
+	{
+		return false;
+	}
+	const std::vector<SemaConstant> one(1, operand);
+	std::vector<AnalyzedValue> written;
+	argument_values(one, written);
+	std::vector<SemaEntity*> candidates;
+	OperatorCall(analyzer_).candidates(token, ctx, written,
+	                                   OperatorCall::member_only(token),
+	                                   candidates);
+	return !candidates.empty();
 }
 
 // 13.3.1.2p1: the call an operator expression stands for, over the constants
@@ -1302,7 +1341,8 @@ bool ConstexprReading::operator_constant(unsigned token,
 	argument_values(operands, written);
 	std::vector<SemaEntity*> candidates;
 	const std::size_t singles =
-		OperatorCall(analyzer_).candidates(token, ctx, written, false,
+		OperatorCall(analyzer_).candidates(token, ctx, written,
+		                                   OperatorCall::member_only(token),
 		                                   candidates);
 	if (candidates.empty())
 	{
@@ -1866,11 +1906,10 @@ SemaConstant ConstexprReading::binary_constant(const AstNode& node,
 {
 	// 5.14p1 and 5.15p1: the right operand of `&&` and `||` is evaluated only
 	// when the left one does not decide the answer.  13.5p4 leaves that rule to
-	// the *built-in* operator alone: where one operand is of class or
-	// enumeration type the expression is a call, and a call evaluates both.
-	// Which of the two it is, is the operand types - so the left one is read
-	// first and the right one is read where either the left already makes this
-	// a call or the built-in reading would reach it anyway.
+	// the *built-in* operator alone: where the expression is a call of an
+	// operator function it is a call like any other, and a call evaluates both.
+	// So which one stands here is asked first, of the declarations the left
+	// operand reaches, and only then is the operand it leaves unread read.
 	if (node.token == OP_LAND || node.token == OP_LOR)
 	{
 		std::vector<SemaConstant> operands;
@@ -1878,10 +1917,26 @@ SemaConstant ConstexprReading::binary_constant(const AstNode& node,
 		SemaConstant out;
 		out.type = analyzer_.types_.fundamental(FT_BOOL);
 		const bool overloaded = overloadable_operand(operands[0]);
-		if (!overloaded && truth(operands[0]) == (node.token == OP_LOR))
+		// 4.12p1's conversion to `bool` is the *built-in* operator's own
+		// reading of the operand, so one of class or enumeration type is asked
+		// for its declarations before it is asked for its truth: a class that
+		// declares `operator&&` and no conversion to `bool` has no truth to
+		// read at all.
+		bool may_call =
+			overloaded && reaches_operator(node.token, operands[0], ctx);
+		// And an operand of any other type is asked for them where its truth
+		// would end the reading, because that is the one place the answer
+		// changes what is read - which leaves a fold that goes on to read the
+		// right operand paying no lookup at all.
+		if (!may_call && truth(operands[0]) == (node.token == OP_LOR))
 		{
-			out.bits = node.token == OP_LOR ? 1 : 0;
-			return out;
+			may_call =
+				!overloaded && reaches_operator(node.token, operands[0], ctx);
+			if (!may_call)
+			{
+				out.bits = node.token == OP_LOR ? 1 : 0;
+				return out;
+			}
 		}
 		operands.push_back(analyzer_.evaluate(*node.children[1], ctx));
 		SemaConstant called;
@@ -1889,7 +1944,10 @@ SemaConstant ConstexprReading::binary_constant(const AstNode& node,
 		{
 			return called;
 		}
-		if (overloaded && truth(operands[0]) == (node.token == OP_LOR))
+		// 13.3.1.2p2: the set held a declaration but 13.3 chose none of them,
+		// so 13.6's built-in operator is what stands here after all - and its
+		// left operand may already have decided the answer.
+		if (may_call && truth(operands[0]) == (node.token == OP_LOR))
 		{
 			out.bits = node.token == OP_LOR ? 1 : 0;
 			return out;
