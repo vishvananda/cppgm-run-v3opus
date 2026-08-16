@@ -45,7 +45,8 @@ pays for it is an argument list writing 5.9's operator between two template-ids:
 in `W<0>::v < W<1>::v, W<1>::v < W<2>::v, ...` each `v` reads as a template-name
 whose own list runs to the end of the outer one, so the k-th argument's reading
 covers every argument after it.  62% of that compile was inside `flatten`, and
-another 15% in the hashing and string building under it.
+another 20% in the hashing, the character tests and the string building under
+it.
 
 **2. `parse_template_argument` was the one question in that descent with no
 memo.**  `skip_simple_template_id` is remembered per position, and the rule one
@@ -165,20 +166,21 @@ the rows the changes touch; **no row is slower**, and the rows that moved are:
 | 4096 namings of a head with a default before its pack | refused | **0.321 s** | 1.075 s |
 
 The three fixes were profiled rather than guessed at.  Before: `flatten` was
-62% of the parse of a 4096-argument list and the hashing and string building
-under it another 15%; `Derivation::require_distinct` was 37% of a 1600-level
-derivation and the allocator behind it 27% more.  After: `flatten` does not
-appear, and the derivation walk is 63% of a much smaller total - pointer chasing
-over the (class, ancestor) pairs the rule is about, with nothing left to remove
-that is not the fact itself.
+62% of the parse of a 4096-argument list and the work under it another 20%;
+`Derivation::require_distinct` was 37% of a 1600-level derivation and the
+allocator behind it 27% more.  After: `flatten` does not appear in the parse
+profile at all, and the derivation walk is 63% of a 3200-level compile that is
+itself half what 1600 levels cost before - pointer chasing over the (class,
+ancestor) pairs the rule is about, with nothing left to remove that is not the
+fact itself.
 
 The residues are written into the model with a reason each rather than a number:
 10.1p3 is quadratic in the size of the derivation relation, PA10's ordered choice
 spells O(n) candidate names of O(n) terminals, 14.5.3p4's recursion interns n
 lists of n entries, and a nest of d value arguments splits d spellings of length
-O(d).  Peak memory on the worst of them fell with the time: 4096 operators
-between template-ids is 322 MB against 379 MB, and the earlier build's arena held
-the same spellings built one extra time per attempt.
+O(d).  Peak memory follows the same shape: 4096 operators between template-ids
+holds 322 MB of arena where the memo was what took it down from 379 MB, those
+being the spellings a re-read attempt built a second time.
 
 ### Validation
 
