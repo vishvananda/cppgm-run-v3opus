@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 #include "type_model.h"
 
@@ -55,6 +56,17 @@ public:
 	// `base` is no derivation at all, so that answers null too.
 	SemaEntity* base_in(TypeId derived, TypeId base);
 
+	// The same walk asked for the *steps* rather than for the byte: which
+	// base-specifier of each class on the path names the one below it, appended
+	// to `out` from `from` downwards.  A constant expression indexes an object's
+	// subobjects rather than its storage, and 12.6.2p10 puts the base class
+	// subobjects first - so a step is the base's own index and the path is what
+	// reaches the subobject there.  False where `from` holds no subobject of
+	// `base`, which leaves `out` as it was; an empty path answers true, because
+	// a class is the subobject of itself no step reaches.
+	bool subobject_path(TypeId from, const SemaEntity& base,
+	                    std::vector<unsigned long long>& out);
+
 	// 11.2p4 and 11.2p5: a conversion to a base class passes through every
 	// base-specifier between the two classes, so each one is asked in turn and
 	// one link the access does not reach makes the whole conversion ill formed.
@@ -81,10 +93,12 @@ private:
 	// The one walk: the path from `at` down to `base`, leaving the byte the
 	// subobject begins at in `offset`.  Where `reaches` is given, it is left
 	// false for a path 11.2 does not reach through and `blocked_` names the
-	// class whose base-specifier stopped it.  False where `at` holds no
-	// subobject of `base`, which leaves both untouched.
+	// class whose base-specifier stopped it; where `steps` is given, it takes
+	// the base-specifier index of each class on the path.  False where `at`
+	// holds no subobject of `base`, which leaves all three untouched.
 	bool path(const SemaEntity& at, const SemaEntity& base,
-	          unsigned long long& offset, bool* reaches);
+	          unsigned long long& offset, bool* reaches,
+	          std::vector<unsigned long long>* steps = nullptr);
 	// 11.2p1: the access one base-specifier gave the base it named, asked of
 	// where the conversion through it is written.  A public base reaches
 	// everywhere, a protected one reaches the classes derived from the one that

@@ -396,6 +396,14 @@ SemaAnalyzer::Constant SemaAnalyzer::evaluate(const AstNode& node,
 
 	case AstKind::KeywordLiteral:
 	{
+		if (node.token == KW_THIS)
+		{
+			// 9.3.2p1: `this` is no literal - the grammar reads it where a
+			// primary-expression is written, and its value is the address of
+			// the object the member function was called on, which is the object
+			// the fold bound the call to.
+			return ConstexprReading(*this).this_constant(ctx);
+		}
 		if (node.token == KW_NULLPTR)
 		{
 			// 2.14.7p1 and 4.10p1: `nullptr` is the null pointer value, of type

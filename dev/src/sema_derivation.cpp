@@ -325,6 +325,19 @@ SemaEntity* Derivation::base_in(TypeId derived, TypeId base)
 	return owner == nullptr ? nullptr : below(*owner, wanted);
 }
 
+bool Derivation::subobject_path(TypeId from, const SemaEntity& base,
+                                std::vector<unsigned long long>& out)
+{
+	const SemaEntity* const owner =
+		analyzer_.model_.type_owner(analyzer_.types_.strip_cv(from));
+	if (owner == nullptr)
+	{
+		return false;
+	}
+	unsigned long long offset = 0;
+	return path(*owner, base, offset, nullptr, &out);
+}
+
 SemaEntity* Derivation::below(const SemaEntity& at, TypeId wanted) const
 {
 	for (std::size_t index = 0; index < at.bases.size(); ++index)
@@ -370,7 +383,8 @@ bool Derivation::accessible(const SemaEntity* derived, const SemaEntity& base)
 }
 
 bool Derivation::path(const SemaEntity& at, const SemaEntity& base,
-                      unsigned long long& offset, bool* reaches)
+                      unsigned long long& offset, bool* reaches,
+                      std::vector<unsigned long long>* steps)
 {
 	if (&at == &base)
 	{
@@ -381,8 +395,21 @@ bool Derivation::path(const SemaEntity& at, const SemaEntity& base,
 	{
 		const BaseClass& link = at.bases[index];
 		unsigned long long below_here = 0;
-		if (!path(*link.entity, base, below_here, reaches))
+		const std::size_t taken = steps == nullptr ? 0 : steps->size();
+		if (steps != nullptr)
 		{
+			// 12.6.2p10: the base class subobjects stand before the members, so
+			// the step down to this one is the base-specifier's own index.  The
+			// walk writes it before descending and drops it again where the
+			// branch answers nothing, which keeps one vector for the whole walk.
+			steps->push_back(index);
+		}
+		if (!path(*link.entity, base, below_here, reaches, steps))
+		{
+			if (steps != nullptr)
+			{
+				steps->resize(taken);
+			}
 			continue;
 		}
 		offset = link.offset + below_here;

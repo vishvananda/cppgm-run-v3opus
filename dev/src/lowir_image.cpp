@@ -888,48 +888,6 @@ void LowirUnitLowering::null_pointer_item(
 	item.zero_bytes = static_cast<std::size_t>(size);
 }
 
-namespace
-{
-
-// 5.2.2p4: one argument of the call a `constructor-action` is, as the place it
-// stands in holds it - the node, and what 3.6.2p2 then asks of it.
-//
-// A constructor carries one place into as many members as it likes, and both
-// questions are walks of the argument's whole expression: whether it runs a
-// call, and what value it comes to.  So each is answered once and kept here -
-// the first with the place, the second the first time a member of that type
-// asks, because what an argument comes to is one value spelled at the type of
-// the subobject it initializes.  `Point(int v) : x(v), y(v) {}` reads one
-// expression once however many members it feeds, where asking again per member
-// is that expression's size times their number.
-struct BoundArgument
-{
-	BoundArgument()
-		: value(nullptr), runs_a_call(false)
-	{
-	}
-
-	// 3.6.2p2: what the argument is worth as the storage of an object of one
-	// type holds it, and whether the translation knows that at all.
-	struct Image
-	{
-		Image()
-			: held(false), known(false)
-		{
-		}
-
-		bool held;
-		bool known;
-		std::string text;
-	};
-
-	const DumpNode* value;
-	bool runs_a_call;
-	std::unordered_map<TypeId, Image> images;
-};
-
-}  // namespace
-
 // 3.6.2p2: the value an object with static storage duration holds before the
 // program runs, where a constructor is what initializes it.  A constructor
 // whose whole definition is 12.6.2's member initializations, each of a value
@@ -937,9 +895,33 @@ struct BoundArgument
 // leaves the object holding one image - so the object holds it and no startup
 // body writes it.  The definition is read once per call, and only the calls a
 // constant initializer holds ever ask.
+// 10p1 and 9.2p13: where the class a constructor belongs to put the direct base
+// subobject of type `base`, which is the byte its own base-specifier recorded.
+// False where the constructor names no such base, which leaves the image to the
+// program to build.
+bool LowirUnitLowering::base_subobject_offset(const SemaEntity& constructor,
+                                              TypeId base,
+                                              unsigned long long& out) const
+{
+	const SemaEntity* const owner =
+		constructor.region == nullptr ? nullptr : constructor.region->owner;
+	const TypeId wanted = types_.strip_cv(base);
+	for (std::size_t index = 0; owner != nullptr && index < owner->bases.size();
+	     ++index)
+	{
+		if (types_.strip_cv(owner->bases[index].entity->type) == wanted)
+		{
+			out = owner->bases[index].offset;
+			return true;
+		}
+	}
+	return false;
+}
+
 bool LowirUnitLowering::global_constructed(
 	lowir_model::GlobalDefinition& global, const DumpNode& action,
-	unsigned long long base, unsigned long long& at)
+	unsigned long long base, unsigned long long& at,
+	const BoundArguments* outer)
 {
 	const DumpNode& call = *action.children[0];
 	const SemaEntity& constructor = *call.children[0]->fact.entity;
@@ -959,7 +941,7 @@ bool LowirUnitLowering::global_constructed(
 	// with it: a constructor carrying one place into each of its n members would
 	// otherwise walk that one expression n times, which is n * its size for a
 	// declaration the program wrote once.
-	std::unordered_map<std::uint32_t, BoundArgument> bound;
+	BoundArguments bound;
 	std::size_t argument = 2;
 	bool self = true;
 	for (std::size_t index = 0; index < definition.children.size(); ++index)
@@ -981,8 +963,23 @@ bool LowirUnitLowering::global_constructed(
 		}
 		BoundArgument& place = bound[child.fact.entity->id];
 		place.value = call.children[argument];
-		place.runs_a_call = runs_a_call(*place.value);
 		++argument;
+		const BoundArguments::const_iterator above =
+			outer == nullptr || place.value->fact.entity == nullptr
+				? BoundArguments::const_iterator()
+				: outer->find(place.value->fact.entity->id);
+		if (outer != nullptr && place.value->fact.entity != nullptr &&
+		    above != outer->end())
+		{
+			// 12.6.2p2: the argument names a parameter of the constructor this
+			// one is a mem-initializer of, so what it is worth is what the call
+			// one level up passed for that place - read there once and carried
+			// down rather than walked again here.
+			place.value = above->second.value;
+			place.runs_a_call = above->second.runs_a_call;
+			continue;
+		}
+		place.runs_a_call = runs_a_call(*place.value);
 	}
 	for (std::size_t index = 0; index < definition.children.size(); ++index)
 	{
@@ -1002,12 +999,26 @@ bool LowirUnitLowering::global_constructed(
 			}
 			continue;
 		}
+		if (child.fact.kind == FactKind::ConstructorAction &&
+		    child.fact.base_subobject)
+		{
+			// 12.6.2p10: the base class subobjects are constructed before the
+			// members and at the byte the class laid each of them out at, and
+			// what constructing one comes to is this same walk one level down -
+			// so a hierarchy costs one walk per class on it.
+			unsigned long long offset = 0;
+			if (!base_subobject_offset(constructor, child.fact.type, offset) ||
+			    !global_constructed(global, child, base + offset, at, &bound))
+			{
+				return false;
+			}
+			continue;
+		}
 		if (child.fact.kind != FactKind::MemberInitialization ||
 		    child.fact.entity == nullptr || child.children.size() < 2)
 		{
-			// 12.6.2p5's base subobject, an array member's per-element
-			// construction, and a member left default-initialized are each a
-			// shape this does not fold.
+			// An array member's per-element construction and a member left
+			// default-initialized are each a shape this does not fold.
 			return false;
 		}
 		const SemaEntity& member = *child.fact.entity;
@@ -1022,8 +1033,8 @@ bool LowirUnitLowering::global_constructed(
 		BoundArgument* place = nullptr;
 		if (value->fact.entity != nullptr)
 		{
-			const std::unordered_map<std::uint32_t, BoundArgument>::iterator
-				passed = bound.find(value->fact.entity->id);
+			const BoundArguments::iterator passed =
+				bound.find(value->fact.entity->id);
 			if (passed != bound.end())
 			{
 				place = &passed->second;
@@ -1217,6 +1228,24 @@ bool LowirUnitLowering::constant_image(lowir_model::GlobalDefinition& global,
 		const std::vector<TypeId>& held =
 			types_.type_list_at(static_cast<std::uint32_t>(bits));
 		std::size_t index = 0;
+		for (std::size_t at_base = 0; at_base < owner->bases.size(); ++at_base)
+		{
+			// 12.6.2p10 and 10p1: the base class subobjects stand before the
+			// members in the list the analysis interned, and where each of them
+			// begins is what the class recorded when it laid the base out.
+			const BaseClass& link = owner->bases[at_base];
+			if (index >= held.size())
+			{
+				return false;
+			}
+			const TypeId entry = held[index++];
+			if (!constant_image(global, link.entity->type,
+			                    types_.value_bits(entry), 0, base + link.offset,
+			                    at))
+			{
+				return false;
+			}
+		}
 		for (std::size_t at_member = 0; at_member < region.declarations.size();
 		     ++at_member)
 		{
@@ -1499,16 +1528,21 @@ bool LowirUnitLowering::global_array_initializer(
 // 3.6.2p2 and 12.1p11: whether the image of an object with static storage
 // duration can hold what constructing it comes to.
 //
-// It can where the whole of the object is the vpointer: 9p6 leaves a class that
-// declares no data member and derives from none holding nothing but what 10.3p1
-// gave it, so the definition the standard writes for its default constructor
-// writes that one pointer and 12.6.2p10 has no subobject to build before it.  A
-// constructor the program itself wrote may do anything at all, and an object
-// with a byte the vpointer does not cover has a value 3.6.2p1's zero is not.
+// It can where the whole of the object is the vpointer: 9p6 leaves a class whose
+// storage 10.3p1's pointer accounts for entirely no data member and no base
+// subobject beside it, so what constructing it writes is that one pointer and
+// 12.6.2p10 has nothing to build before it.
+//
+// 7.1.5p4 is what says the constructor writes no more than that: a constexpr
+// constructor's body holds no statement that writes anything, and every
+// constructor its ctor-initializer involves shall be a constexpr one too - so
+// the whole initialization is the pointer whether the standard wrote the
+// constructor or the program did.  One that is not constexpr may do anything at
+// all, which is 3.6.2p2's dynamic initialization and not this image.
 bool LowirUnitLowering::vpointer_image(const SemaEntity& built, TypeId type)
 {
 	const TypeId bare = types_.strip_cv(type);
-	if (built.user_provided || built.region == nullptr ||
+	if (!built.constexpr_function || built.region == nullptr ||
 	    built.region->owner == nullptr || !built.region->owner->polymorphic ||
 	    types_.kind(bare) != TypeKind::Class)
 	{

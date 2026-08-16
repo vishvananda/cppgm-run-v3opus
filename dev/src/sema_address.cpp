@@ -7,6 +7,7 @@
 #include "ast_model.h"
 #include "post_token.h"
 #include "sema_constexpr.h"
+#include "sema_derivation.h"
 #include "string_literal.h"
 
 namespace
@@ -142,10 +143,10 @@ TypeId ConstexprReading::address_type(std::uint32_t address) const
 			type = analyzer_.types_.target(bare);
 			continue;
 		}
-		std::vector<SemaEntity*> members;
-		data_members(bare, members);
+		std::vector<Subobject> members;
+		subobjects(bare, members);
 		type = held.path[at] < members.size()
-			? members[static_cast<std::size_t>(held.path[at])]->type
+			? members[static_cast<std::size_t>(held.path[at])].type
 			: kNoType;
 	}
 	return type;
@@ -193,6 +194,38 @@ unsigned long long ConstexprReading::address_bound(
 		return last + 1;
 	}
 	return analyzer_.types_.bounded(type) ? analyzer_.types_.bound(type) : 0;
+}
+
+std::uint32_t ConstexprReading::containing_object(std::uint32_t address,
+                                                  TypeId derived)
+{
+	SemaEntity* const owner = analyzer_.model_.type_owner(
+		analyzer_.types_.strip_cv(address_type(address)));
+	std::vector<unsigned long long> path;
+	if (owner == nullptr ||
+	    !Derivation(analyzer_).subobject_path(derived, *owner, path) ||
+	    path.empty())
+	{
+		return 0;
+	}
+	ConstantAddress held = analyzer_.model_.addresses().at(address);
+	if (held.past_end || held.path.size() < path.size())
+	{
+		return 0;
+	}
+	const std::size_t taken = held.path.size() - path.size();
+	for (std::size_t at = 0; at < path.size(); ++at)
+	{
+		if (held.path[taken + at] != path[at])
+		{
+			// The steps the address was reached by are not the ones the
+			// derivation names, so the object it designates is a subobject of
+			// something else that happens to be of this class.
+			return 0;
+		}
+	}
+	held.path.resize(taken);
+	return analyzer_.model_.addresses().intern(held);
 }
 
 std::uint32_t ConstexprReading::subobject_address(std::uint32_t base,
@@ -486,19 +519,22 @@ std::uint32_t ConstexprReading::member_address(std::uint32_t object,
 		// object expression says nothing about which one it is.
 		return designated_entity(*named, name);
 	}
-	std::vector<SemaEntity*> members;
-	data_members(type, members);
-	for (std::size_t index = 0; index < members.size(); ++index)
+	std::vector<unsigned long long> path;
+	if (!member_path(type, *named, path))
 	{
-		if (members[index] == named ||
-		    members[index] == &SemaAnalyzer::declared_member(*named))
-		{
-			return subobject_address(object, index);
-		}
+		throw NotConstant(name + " names no subobject of " +
+		                  analyzer_.types_.description(type) +
+		                  " a constant expression designates", false);
 	}
-	throw NotConstant(name + " names no subobject of " +
-	                  analyzer_.types_.description(type) +
-	                  " a constant expression designates", false);
+	// 10.2: a name the lookup found in a base is reached through the entry its
+	// base class subobject stands at, so the address walks one step per class
+	// on the path and the last of them is 9.2p13's member.
+	std::uint32_t at = object;
+	for (std::size_t step = 0; step < path.size(); ++step)
+	{
+		at = subobject_address(at, path[step]);
+	}
+	return at;
 }
 
 // 5.19p2: the object a value of pointer type points to.
@@ -791,6 +827,50 @@ bool ConstexprReading::at_pointer_place(const SemaConstant& value, TypeId place,
 	                  value.valued || covered_object(value.object));
 }
 
+// 8.5.3p4 and 5.2.9p11: which object a reference to `bound` binds to, where the
+// object the operand designates is of another class in the same derivation.
+//
+// A reference to a base binds to the base class subobject, which is the entry
+// that step of the object's list holds; one to a derived class - which
+// `static_cast` is what writes - names the object that subobject is part of,
+// which is the address one step up the path.  Neither is a copy: 8.5.3p4 binds
+// the reference to storage that is already there, so both directions are the
+// one address walked and no object built.
+std::uint32_t ConstexprReading::bound_object(const SemaConstant& value,
+                                             TypeId bound)
+{
+	const TypeId wanted = analyzer_.types_.strip_cv(bound);
+	const TypeId held = analyzer_.types_.strip_cv(value.type);
+	if (!analyzer_.types_.is_class(wanted) || !analyzer_.types_.is_class(held) ||
+	    wanted == held)
+	{
+		return value.object;
+	}
+	Derivation derivation(analyzer_);
+	SemaEntity* const base = derivation.base_in(held, wanted);
+	if (base != nullptr)
+	{
+		const SemaConstant inside = base_subobject(value, *base);
+		return inside.object != 0 ? inside.object : value.object;
+	}
+	if (derivation.base_in(wanted, held) == nullptr)
+	{
+		return value.object;
+	}
+	const std::uint32_t around = containing_object(value.object, wanted);
+	if (around == 0)
+	{
+		// 5.2.9p11: the object the operand designates is no base class
+		// subobject of an object of the class named, which is undefined
+		// behaviour and no constant expression.
+		throw NotConstant("a constant expression binds " +
+		                  analyzer_.types_.description(bound) +
+		                  " to something that is no base class subobject of "
+		                  "such an object");
+	}
+	return around;
+}
+
 // 8.3.2p1 and 8.5.3: `value` read where the place is a reference.
 //
 // A reference binds to an object, so what the place holds is that object and
@@ -807,8 +887,8 @@ SemaConstant ConstexprReading::at_reference_place(const SemaConstant& value,
 	out.type = place;
 	if (value.object != 0)
 	{
-		out.bits = value.object;
-		out.object = value.object;
+		out.bits = bound_object(value, bound);
+		out.object = static_cast<std::uint32_t>(out.bits);
 		return out;
 	}
 	if (!value.valued)
@@ -819,10 +899,20 @@ SemaConstant ConstexprReading::at_reference_place(const SemaConstant& value,
 	// 12.2p1: the temporary, interned by what it holds - two calls that wrote
 	// one value bind one temporary, which is what keeps a fold keyed on its
 	// arguments finding the answer it already has.
+	//
+	// 8.5.3p5 says what object that is: one of the *reference's* type where a
+	// conversion stands between the two, and one of the value's own where the
+	// reference names 4.10p3's base class subobject, because the storage 12.2p1
+	// gives is the whole object and the reference binds inside it.
+	SemaConstant made_of =
+		Derivation(analyzer_).base_in(value.type, bound) != nullptr
+			? value
+			: at_class_place(value, bound);
 	ConstantAddress made;
-	made.temporary = entry_of(at_class_place(value, bound));
+	made.temporary = entry_of(made_of);
 	made.automatic = true;
-	out.bits = analyzer_.model_.addresses().intern(made);
+	made_of.object = analyzer_.model_.addresses().intern(made);
+	out.bits = bound_object(made_of, bound);
 	out.object = static_cast<std::uint32_t>(out.bits);
 	return out;
 }

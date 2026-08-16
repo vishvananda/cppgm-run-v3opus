@@ -520,9 +520,57 @@ private:
 	// initializations of values the translation knows once its parameters hold
 	// the call's arguments.  False for every other constructor, which leaves
 	// the object to be built before the program runs.
+	// 5.2.2p4: one argument of the call a `constructor-action` is, as the place
+	// it stands in holds it - the node, and what 3.6.2p2 then asks of it.
+	//
+	// A constructor carries one place into as many members as it likes, and both
+	// questions are walks of the argument's whole expression: whether it runs a
+	// call, and what value it comes to.  So each is answered once and kept here -
+	// the first with the place, the second the first time a member of that type
+	// asks, because what an argument comes to is one value spelled at the type of
+	// the subobject it initializes.  `Point(int v) : x(v), y(v) {}` reads one
+	// expression once however many members it feeds, where asking again per
+	// member is that expression's size times their number.
+	struct BoundArgument
+	{
+		BoundArgument()
+			: value(nullptr), runs_a_call(false)
+		{
+		}
+
+		// 3.6.2p2: what the argument is worth as the storage of an object of one
+		// type holds it, and whether the translation knows that at all.
+		struct Image
+		{
+			Image()
+				: held(false), known(false)
+			{
+			}
+
+			bool held;
+			bool known;
+			std::string text;
+		};
+
+		const DumpNode* value;
+		bool runs_a_call;
+		std::unordered_map<TypeId, Image> images;
+	};
+	typedef std::unordered_map<std::uint32_t, BoundArgument> BoundArguments;
+
+	// `outer`, where given, is the frame this construction stands inside -
+	// 12.6.2p2's mem-initializer of a base names the enclosing constructor's own
+	// parameters, so an argument that is one of them is worth what the call one
+	// level up passed for it and not what its own name says.
 	bool global_constructed(lowir_model::GlobalDefinition& global,
 	                        const DumpNode& action, unsigned long long base,
-	                        unsigned long long& at);
+	                        unsigned long long& at,
+	                        const BoundArguments* outer = nullptr);
+	// 10p1 and 9.2p13: the byte the class a constructor belongs to laid its
+	// direct base subobject of this type out at, which is where that base's own
+	// construction writes its image.
+	bool base_subobject_offset(const SemaEntity& constructor, TypeId base,
+	                           unsigned long long& out) const;
 	// 3.6.2p2 with 9.4.2p3: the image an object holds where the declaration that
 	// wrote its initializer is not the one that defines it - a static data
 	// member, whose class wrote the brace-or-equal-initializer and whose

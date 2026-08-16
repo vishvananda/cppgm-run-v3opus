@@ -1,0 +1,145 @@
+global @both [binding=internal, object=_ZL4both] = {
+  zero 8
+}
+global @one [binding=internal, object=_ZL3one] = {
+  i32 7
+  i32 11
+}
+global @sliced [binding=internal, object=_ZL6sliced] = {
+  zero 4
+}
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    %t1 = addr @one
+    %t2 = call i32 @tagged__total(%t1)
+    %t3 = binary sub i32 %t2, 32
+    return i32 %t3
+}
+function @tagged__total(%this : ptr) -> i32 [binding=weak, object=_ZNK6tagged5totalEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    %t3 = index i8 [projection=field] %t2, 0
+    %t4 = load i32 %t3
+    %t5 = load ptr $this
+    %t6 = index i8 [projection=field] %t5, 4
+    %t7 = load i32 %t6
+    %t8 = binary add i32 %t4, %t7
+    %t9 = load ptr $this
+    %t10 = index i8 [projection=base_subobject] %t9, 0
+    %t11 = call i32 @tagged_base__twice(%t10)
+    %t12 = binary add i32 %t8, %t11
+    return i32 %t12
+}
+function @tagged_base__twice(%this : ptr) -> i32 [binding=weak, object=_ZNK11tagged_base5twiceEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i32 %t2
+    %t4 = load ptr $this
+    %t5 = index i8 [projection=field] %t4, 0
+    %t6 = load i32 %t5
+    %t7 = binary add i32 %t3, %t6
+    return i32 %t7
+}
+function @joined_left_part__right_part___joined(%this : ptr, %value : obj<4x4>, %value__pack2 : obj<4x4>) -> void [binding=weak, object=_ZN6joinedIJ9left_part10right_partEEC1ES0_S1_] {
+  slot $this : ptr
+  slot $value : obj<4x4>
+  slot $value__pack2 : obj<4x4>
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = addr $value
+    copyobj 4x4 %value, %t1
+    %t2 = addr $value__pack2
+    copyobj 4x4 %value__pack2, %t2
+    %t3 = load ptr $this
+    %t4 = index i8 [projection=base_subobject] %t3, 0
+    %t5 = addr $value
+    copyobj 4x4 %t5, %t4
+    %t6 = load ptr $this
+    %t7 = index i8 [projection=base_subobject] %t6, 4
+    %t8 = addr $value__pack2
+    copyobj 4x4 %t8, %t7
+    return void
+}
+function @left_part__left_part(%this : ptr, %value : i32) -> void [binding=weak, object=_ZN9left_partC1Ei] {
+  slot $this : ptr
+  slot $value : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %value, $value
+    %t1 = load i32 $value
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 %t1, %t3
+    return void
+}
+function @right_part__right_part(%this : ptr, %value : i32) -> void [binding=weak, object=_ZN10right_partC1Ei] {
+  slot $this : ptr
+  slot $value : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %value, $value
+    %t1 = load i32 $value
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 %t1, %t3
+    return void
+}
+function @tagged__tagged(%this : ptr, %value : i32) -> void [binding=weak, object=_ZN6taggedC1Ei] {
+  slot $this : ptr
+  slot $value : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %value, $value
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    call void @tagged_base__tagged_base__base_entry(%t2)
+    %t3 = load i32 $value
+    %t4 = load ptr $this
+    %t5 = index i8 [projection=field] %t4, 4
+    store i32 %t3, %t5
+    return void
+}
+function @tagged_base__tagged_base__base_entry(%this : ptr) -> void [unwind=no, binding=weak, object=_ZN11tagged_baseC2Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    store i32 7, %t2
+    return void
+}
+function @__cppgm_init() -> void [role=init, binding=internal] {
+  slot $argobj__1 : obj<4x4>
+  slot $argobj__2 : obj<4x4>
+
+  block ^entry:
+    %t1 = addr @both
+    %t2 = addr $argobj__1
+    call void @left_part__left_part(%t2, 3)
+    %t3 = addr $argobj__2
+    call void @right_part__right_part(%t3, 5)
+    call void @joined_left_part__right_part___joined(%t1, $argobj__1, $argobj__2)
+    %t4 = addr @sliced
+    %t5 = addr @one
+    %t6 = index i8 [projection=base_subobject] %t5, 0
+    copyobj 4x4 %t6, %t4
+    return void
+}
+alias object _ZN6joinedIJ9left_part10right_partEEC2ES0_S1_ = @joined_left_part__right_part___joined
+alias object _ZN9left_partC2Ei = @left_part__left_part
+alias object _ZN10right_partC2Ei = @right_part__right_part
+alias object _ZN6taggedC2Ei = @tagged__tagged

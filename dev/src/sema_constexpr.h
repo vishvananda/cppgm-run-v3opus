@@ -93,6 +93,20 @@ struct ConstexprFrame
 // its bits are the identifier of the interned list of what its subobjects hold,
 // so `S{5}` written twice is one object and two objects of one class with
 // different members are two.
+
+// 12.6.2p10: one entry of that list, which is 10p1's base class subobject or
+// 9.2p1's non-static data member.  The two are told apart because a name
+// reaches only the second: a base subobject is initialized by a mem-initializer
+// that writes its *type*, converted to by 4.10p3 rather than named, and read
+// back through the class that declares whatever member 10.2's lookup found in
+// it.
+struct Subobject
+{
+	SemaEntity* entity;
+	TypeId type;
+	bool base;
+};
+
 class ConstexprReading
 {
 public:
@@ -120,6 +134,11 @@ public:
 	                             const std::string& spelling);
 	SemaConstant unary_constant(const AstNode& node, const SemaContext& ctx);
 	SemaConstant binary_constant(const AstNode& node, const SemaContext& ctx);
+	// 9.3.2p1: the object the innermost folded call was written on, as the
+	// prvalue of pointer type the keyword is.  The fold binds it in the region
+	// it opened for the call, so the answer is that binding read back and no
+	// question about where the body stands.
+	SemaConstant this_constant(const SemaContext& ctx);
 	SemaConstant call_or_cast(const AstNode& node, const SemaContext& ctx);
 	// 5.2.1p1's subscript and 5.4p4/5.2.9's cast, each of which is one operator
 	// with a reading per kind of operand or destination - so each is a reading
@@ -328,6 +347,10 @@ public:
 	bool at_pointer_place(const SemaConstant& value, TypeId place,
 	                      SemaConstant& out, bool contextual = false);
 	SemaConstant at_reference_place(const SemaConstant& value, TypeId place);
+	// 8.5.3p4 with 4.10p3 and 5.2.9p11: which object such a binding names where
+	// the reference and the operand are two classes of one derivation - the
+	// base class subobject going down, the object it is part of coming back up.
+	std::uint32_t bound_object(const SemaConstant& value, TypeId bound);
 	bool static_address(const SemaConstant& value) const;
 	// 5.19 asked of a refusal about an object this reading holds no value of:
 	// the program's error where 5.19 gives the object none, and this build's
@@ -590,16 +613,32 @@ private:
 	SemaConstant object_from_constructor(TypeId bare, SemaEntity& owner,
 	                                     const std::vector<SemaConstant>& written);
 	// 12.6.2p2 and p10: the initializer-clause the ctor-initializer wrote for
-	// each member, indexed by the name its mem-initializer-id spelled.  The
-	// members are initialized in declaration order and the mem-initializers may
-	// be written in any, so which one names each member is asked once per
-	// member rather than by a scan of the list per member - which is what keeps
-	// a constructor of n of them n readings and not n^2.  A mem-initializer-id
-	// that names a base is one entry too, and 10p1's base subobject is one this
-	// reading's object does not hold.
-	static void mem_initializers(
-		const AstNode* initializers,
-		std::unordered_map<std::string, const AstNode*>& out);
+	// each subobject, indexed the way `SemaAnalyzer::base_key` indexes it - the
+	// whole name of a class a mem-initializer-id names a direct base of, the
+	// last component of every other, which is what tells `Payload(p)` naming a
+	// base from a member of that name.  The subobjects are initialized in
+	// declaration order and the mem-initializers may be written in any, so which
+	// one names each is asked once per subobject rather than by a scan of the
+	// list per subobject - which is what keeps a constructor of n of them n
+	// readings and not n^2.
+	void mem_initializers(
+		const AstNode* initializers, SemaEntity& owner, const SemaContext& inner,
+		std::unordered_map<std::string, WrittenMemInitializer>& out);
+	// 12.6.2p10 over one entry of that walk: what the base class subobject or
+	// the non-static data member `held` is initialized with - the
+	// mem-initializer that named it, else 12.6.2p8's brace-or-equal-initializer,
+	// else 8.5p6's default-initialization, which for a class is its own default
+	// constructor and for anything else is no value at all.
+	SemaConstant subobject_initialized(TypeId bare, const Subobject& held,
+	                                   const WrittenMemInitializer* wrote,
+	                                   const SemaContext& inner);
+	// 9.3.1p3 and 9.2p1: the subobjects of the object a call was written on,
+	// bound in the fold's region under the names their own declarations gave
+	// them, so a member named with no object expression reads the one this
+	// object holds.  10.2 finds a base's member from the derived class too, and
+	// a member of the derived class hides one of that name in a base - so the
+	// class's own members are bound first and each base is walked after them.
+	void bind_subobjects(const SemaConstant& object, const SemaContext& inner);
 
 	// 5.2.5p1: the object a member access is written on, which a constant
 	// expression holds only where it is one of literal class type, and what the
@@ -621,9 +660,35 @@ private:
 	// aggregate, 9.2p13's members, 12.1's constructors.
 	void ask_for_definition(TypeId bare);
 
-	// 9.2p13: the non-static data members of `type`, in the order they were
-	// declared, which is the order 8.5.1p2's clauses reach them in.
-	void data_members(TypeId type, std::vector<SemaEntity*>& out) const;
+	// 12.6.2p10: the subobjects of `type`, in the order an object of it is
+	// initialized and laid out - 10p1's base class subobjects first, then
+	// 9.2p13's non-static data members - which is the order 8.5.1p2's clauses
+	// reach them in and the order the interned list is indexed in.
+	void subobjects(TypeId type, std::vector<Subobject>& out) const;
+
+	// 10.2 and 9.2p13: the entries of an object of `type` that reach the
+	// subobject `named` declares, appended to `path` from the object down.  A
+	// member the class itself declares is one step; one 10.2 found in a base is
+	// the step to that base class subobject and this walk repeated inside it.
+	// False where no subobject of the object declares it, which 9.4p2's static
+	// member and a member of an unrelated class both are.
+	bool member_path(TypeId type, SemaEntity& named,
+	                 std::vector<unsigned long long>& path);
+	// 9.2p13 over one step of such a path: the entry the object's own interned
+	// list holds at `index`, carrying 3.10p1's subobject where the whole object
+	// was one an expression designated.
+	SemaConstant subobject_value(const SemaConstant& object,
+	                             unsigned long long index);
+	// 4.10p3: the base class subobject of `value` that an object of the class
+	// `base` names, which is that walk taken down the derivation rather than to
+	// a member.  `value` shall be of a class derived from it, which is what
+	// `Derivation::base_in` answers before this is asked.
+	SemaConstant base_subobject(const SemaConstant& value, SemaEntity& base);
+	// 5.2.9p11 read the other way: the object a base class subobject is part
+	// of, where `derived` names the class the cast asked for.  Zero where the
+	// address designates no base subobject of such an object, which is
+	// 5.2.9p11's undefined case rather than a step this reading may take.
+	std::uint32_t containing_object(std::uint32_t address, TypeId derived);
 
 	// 5.3.7p3 over the resolved tree one reading of an unevaluated operand
 	// left: false where a line of it is a call the specification of whose

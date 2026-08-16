@@ -277,13 +277,12 @@ void ConstexprRequirement::settle_class(SemaEntity& entity, Scope& scope) const
 	{
 		return;
 	}
-	// 10p1's base subobject and 9.5p1's one storage are the two shapes
-	// `ConstexprReading::object_of` holds no object of - a base is a subobject
-	// nothing in the interned list names, and a union is one member of however
-	// many the walk down the class finds.  Both are 3.9p10 literal types all
-	// the same, so this is where the two answers part.
-	bool valued = entity.bases.empty() &&
-		analyzer_.types_.class_tag(entity.type) != ClassTag::Union;
+	// 9.5p1's one storage is the shape `ConstexprReading::object_of` holds no
+	// object of - a union is one member of however many the walk down the class
+	// finds, and the interned list has an entry for each.  It is a 3.9p10
+	// literal type all the same, so this is where the two answers part; 10p1's
+	// base subobject is an entry of that list like any other.
+	bool valued = analyzer_.types_.class_tag(entity.type) != ClassTag::Union;
 	for (std::size_t index = 0; index < entity.bases.size(); ++index)
 	{
 		// 3.9p10's fourth bullet: a base class subobject is part of the object,
