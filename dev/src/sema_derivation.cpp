@@ -228,6 +228,12 @@ void Derivation::settle_base(TypeId named_type, const SemaEntity* found_name,
 // class as well.  A class with fewer than two direct bases can hold no two of
 // anything the classes it derives from did not already hold, and each of those
 // was completed under this same walk - so nearly every class pays one test.
+//
+// What a class was reached by is a number on the class rather than an entry in
+// a table this walk builds.  The walk is made once per class completed and
+// covers the whole derivation below it, so a program adding a base at every
+// level makes one per level - and a table of its own per walk is what those
+// levels were paying for, in hashing and in an allocation each.
 void Derivation::require_distinct(const SemaEntity& entity,
                                   const std::string& header)
 {
@@ -235,7 +241,7 @@ void Derivation::require_distinct(const SemaEntity& entity,
 	{
 		return;
 	}
-	std::unordered_set<const SemaEntity*> seen;
+	const unsigned long long reach = analyzer_.model_.next_reach();
 	std::vector<const SemaEntity*> pending(1, &entity);
 	while (!pending.empty())
 	{
@@ -243,14 +249,15 @@ void Derivation::require_distinct(const SemaEntity& entity,
 		pending.pop_back();
 		for (std::size_t index = 0; index < at.bases.size(); ++index)
 		{
-			const SemaEntity* const base = at.bases[index].entity;
-			if (!seen.insert(base).second)
+			SemaEntity* const base = at.bases[index].entity;
+			if (base->reached_at == reach)
 			{
 				throw std::runtime_error(
 					header + " holds more than one subobject of " +
 					analyzer_.types_.description(base->type) +
 					", which this milestone does not lay out");
 			}
+			base->reached_at = reach;
 			pending.push_back(base);
 		}
 	}

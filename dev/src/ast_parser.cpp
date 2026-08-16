@@ -14,6 +14,19 @@ AstParser::AstParser(const AstTokenStream& tokens, AstArena& arena)
 {
 }
 
+std::string AstParser::spelled(const Mark& start) const
+{
+	return tokens_.flatten(start.pos, pos_);
+}
+
+void AstParser::keep_decltype(const Mark& from, AstNode* operand)
+{
+	AstNode* const held = make(AstKind::DecltypeSpecifier);
+	held->text = tokens_.flatten(from.pos, pos_ + 1);
+	held->add(operand);
+	arena_.keep_spelled(held->text, held);
+}
+
 AstNode* AstParser::make_terminal(AstKind kind)
 {
 	AstNode* node = make(kind);

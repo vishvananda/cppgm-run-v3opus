@@ -98,6 +98,7 @@ SemaModel::SemaModel()
 	, unit_(nullptr)
 	, type_entities_(0)
 	, folding_depth_(0)
+	, reach_(0)
 	, visit_(0)
 {
 	dumps_.push_back(DumpScope());
@@ -294,6 +295,7 @@ SemaEntity& SemaModel::create(SemaKind kind, const std::string& name, TypeId typ
 	entity.definition_required = false;
 	entity.instantiated_definition = false;
 	entity.storage_demanded = false;
+	entity.reached_at = 0;
 	entity.template_arguments = 0;
 	entity.id = static_cast<std::uint32_t>(entities_.size() - 1);
 	entity.dump_name = name;

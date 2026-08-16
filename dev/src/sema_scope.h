@@ -602,6 +602,12 @@ struct SemaEntity
 	// its static data members for the storage they stand in, which is one visit
 	// per class however many objects of it a unit lays out.
 	bool storage_demanded;
+	// 10.1p3: the walk of a derivation that last reached this class.  Such a
+	// walk is one visit per class and is made once per class completed, so a
+	// derivation adding a base at every level makes one per level - and a
+	// number on the class is what keeps each of those from building and
+	// throwing away a table of its own.  Zero for a class no walk has reached.
+	unsigned long long reached_at;
 	// 14.2 and the ABI's `<template-args>`: the arguments that made this
 	// specialization, as the interned list `TypeTable::type_list` keys a fact
 	// about one by.  Zero - the empty list - for every declaration no
@@ -995,6 +1001,9 @@ public:
 	// what bounds a constexpr function that calls itself - or a chain of them
 	// longer than the machine stack - to a refusal rather than a crash.
 	unsigned& folding_depth() { return folding_depth_; }
+	// 10.1p3: a number no earlier walk of a derivation used, which is what
+	// marks the classes this one reaches on `SemaEntity::reached_at`.
+	unsigned long long next_reach() { return ++reach_; }
 
 	// The identifier a user-defined type is interned under, which is the
 	// entity that declared it.
@@ -1129,6 +1138,7 @@ private:
 	// came to.
 	std::unordered_map<std::uint64_t, TypeId> folded_calls_;
 	unsigned folding_depth_;
+	unsigned long long reach_;
 	// 11.3p1: the friendships granted so far, as the pair of entity
 	// identifiers in one word, so asking whether one class befriended one
 	// declaration is a probe.
