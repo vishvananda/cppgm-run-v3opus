@@ -164,15 +164,19 @@ public:
 	SemaConstant called_entity(SemaEntity& named,
 	                           const std::vector<SemaConstant>& arguments);
 
-	// 13.3 as far as a fold has to ask: the declaration of the set `named`
-	// heads that this many arguments reach and that this unit has a constexpr
-	// definition of, or null where the set holds no such declaration or holds
-	// more than one.  A fold has constants and not typed expressions, so the
-	// arity is the whole of what it can rank by - and a name whose set leaves
-	// the choice open is one it refuses rather than guesses at.  8.3.6p1 makes
-	// that arity a range: a declaration whose later places all carry a
-	// default-argument is reached by a call that stops short of them.
-	SemaEntity* chosen(SemaEntity& named, std::size_t arguments) const;
+	// 13.3, asked of the constants a fold holds: the one declaration of
+	// `candidates` no other beats over this argument list, with `object` the
+	// implicit object argument 13.3.1p3 gives a call written on one.  It is the
+	// analysis's own ranking - so 14.8.2's deduction makes a template a
+	// candidate here as it does anywhere else, and 13.3.3.2 tells two
+	// declarations apart that the count of their places cannot.  Throws
+	// `NotConstant` where the set holds nothing viable, where no candidate is
+	// best, and where the one chosen is no constexpr function this unit
+	// defined.
+	SemaEntity& selected(const std::string& name,
+	                     const std::vector<SemaEntity*>& candidates,
+	                     const std::vector<AnalyzedValue>& written,
+	                     const AnalyzedValue* object, std::size_t singles);
 
 	// 5.2.3p2 and p3: the object `T()` and `T{...}` stand for where `T` names a
 	// class, as the constant that holds its subobjects' values.  `written` is
@@ -288,6 +292,24 @@ private:
 	TypeId entry_of(const SemaConstant& value) const;
 	static SemaConstant constant_of(TypeId entry, const TypeTable& types);
 
+	// 13.3.3.1 and 13.3.1p3: the constants a fold holds, as the analysed
+	// argument list a ranking of candidates reads - one prvalue per written
+	// argument, and 9.3.1p3's pointer for the object a call was written on.
+	void argument_values(const std::vector<SemaConstant>& arguments,
+	                     std::vector<AnalyzedValue>& out) const;
+	AnalyzedValue argument_value(const SemaConstant& value) const;
+	AnalyzedValue object_value(const SemaConstant& object) const;
+	// 3.4, 3.4.2 and 14.2: the declarations `callee` names, appended to
+	// `candidates`, with `singles` taking how many of them are the single
+	// friend declarations 11.3p6 made.  Null where nothing of the name is
+	// declared, and the declaration itself where the name reaches something
+	// that is no function - 13.5.4p1's object of class type is the one such
+	// name a call may still be written on.
+	SemaEntity* callee_candidates(const AstNode& callee, const SemaContext& ctx,
+	                              const std::vector<AnalyzedValue>& written,
+	                              std::vector<SemaEntity*>& candidates,
+	                              std::size_t& singles);
+
 	// 6.3p1, 6.4p3 and 6.5.3p1: the region `node` opens, which is opened the
 	// first time the fold reaches it and reused afterwards.  Every object the
 	// last pass through it declared is unset here, so 3.3.3p2's fresh objects
@@ -340,8 +362,17 @@ private:
 	// filled is an object whose lifetime began inside the evaluation, and a
 	// subobject of the object the call was written on is one whose lifetime
 	// began before it.
-	void bind_constant(const std::string& name, const SemaConstant& value,
-	                   const SemaContext& inner, bool written);
+	SemaEntity& bind_constant(const std::string& name, const SemaConstant& value,
+	                          const SemaContext& inner, bool written);
+	// 8.3.5p10 with 14.5.3p4: the name of each place `callee`'s declarator
+	// opened, one per place of its type - so an entry written `pattern...` is
+	// as many of them as the run 14.8.2 bound it to holds, spelled the way
+	// 14.5.3p4's own reading looks them up.  `runs` takes that length where a
+	// run begins.
+	// `empty` takes the pack's own name where the run it was bound to holds no
+	// element, which is a declaration the body may still name and no place.
+	void declared_places(SemaEntity& callee, std::vector<std::string>& out,
+	                     std::vector<unsigned>& runs, std::string& empty) const;
 
 	// 5.2.2p4 with 8.3.6p1: what the places of `callee` are filled with, which
 	// is each written argument converted to the type of the place it reached
@@ -378,8 +409,11 @@ private:
 	// expression holds only where it is one of literal class type, and what the
 	// name after the `.` denotes in that object's class.
 	SemaConstant accessed_object(const AstNode& node, const SemaContext& ctx);
+	// `found`, when given, takes the declarations that lookup associated with
+	// the name, which for a member function is the set 13.3 chooses from.
 	SemaEntity* accessed_member(const SemaConstant& object,
-	                            const std::string& name, const SemaContext& ctx);
+	                            const std::string& name, const SemaContext& ctx,
+	                            std::vector<SemaEntity*>* found = nullptr);
 	// 5.2.2p1 with 9.3.1p3: a call whose postfix-expression is that access,
 	// which runs on the object where 9.2p1's member function is not static.
 	SemaConstant member_called(const AstNode& callee,

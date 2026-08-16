@@ -4,6 +4,8 @@
 
 #include "ast_model.h"
 #include "sema_analyzer.h"
+#include "sema_argument_lookup.h"
+#include "sema_pack.h"
 #include "sema_reading.h"
 #include "sema_scope.h"
 
@@ -71,12 +73,39 @@ bool is_body_declaration(AstKind kind)
 		kind == AstKind::EmptyDeclaration;
 }
 
-// 8.3.5p10: the names the definition's own declarator gave its places, in the
-// order the parameter-declaration-clause wrote them.  A name is no part of the
+// 8.3p1: the declarator-id a declarator was written around, which is the
+// identifier under whatever ptr-operators and suffixes stand between - so
+// `int x`, `const T& x` and `T (*x)[4]` are all read for the one name.  A
+// nested declarator holds it, and 8.3.5p10's unnamed place holds none.
+const AstNode* written_name(const AstNode& node)
+{
+	for (std::size_t index = 0; index < node.children.size(); ++index)
+	{
+		const AstNode& child = *node.children[index];
+		if (child.kind == AstKind::Identifier)
+		{
+			return &child;
+		}
+		if (child.kind == AstKind::NestedDeclarator && !child.children.empty())
+		{
+			const AstNode* const found = written_name(*child.children[0]);
+			if (found != nullptr)
+			{
+				return found;
+			}
+		}
+	}
+	return nullptr;
+}
+
+// 8.3.5p10: the names the definition's own declarator gave the entries of its
+// parameter-declaration-clause, in the order it wrote them, with `packed`
+// saying which of them 14.5.3p4 wrote `pattern...`.  A name is no part of the
 // function's type, so it is read from the definition that wrote the body rather
 // than from any other declaration of the function; a place the definition left
 // unnamed binds nothing, and the body cannot have named it either.
-void parameter_names(const AstNode& definition, std::vector<std::string>& out)
+void parameter_names(const AstNode& definition, std::vector<std::string>& out,
+                     std::vector<char>& packed)
 {
 	const AstNode* declarator = nullptr;
 	for (std::size_t index = 0; index < definition.children.size(); ++index)
@@ -106,17 +135,26 @@ void parameter_names(const AstNode& definition, std::vector<std::string>& out)
 				return;
 			}
 			std::string named;
+			bool dots = false;
 			for (std::size_t which = 0; which < place.children.size(); ++which)
 			{
 				const AstNode& held = *place.children[which];
-				if (held.kind == AstKind::Declarator &&
-				    !held.children.empty() &&
-				    held.children[0]->kind == AstKind::Identifier)
+				if (held.kind != AstKind::Declarator)
 				{
-					named = held.children[0]->text;
+					continue;
 				}
+				const AstNode* const id = written_name(held);
+				if (id != nullptr)
+				{
+					named = id->text;
+				}
+				// 14.5.3p4: the `...` stands in the declarator, between the
+				// pattern's specifiers and the name the places are given.
+				dots = dots ||
+					child_kind(held, AstKind::ParameterPack) != nullptr;
 			}
 			out.push_back(named);
+			packed.push_back(dots ? 1 : 0);
 		}
 		return;
 	}
@@ -394,10 +432,11 @@ void ConstexprReading::mem_initializers(
 // 8.5p16 with 12.1 and 12.6.2: the object `T(x)` and `T{x}` come to where the
 // class is no aggregate.
 //
-// 13.3.1.3 chooses the constructor, which a fold ranks by arity for the same
-// reason `chosen` does, and what the object holds is what each mem-initializer
-// of that constructor comes to - read in a region of its own binding the places
-// to what the arguments came to.  12.6.2p10 initializes in declaration order
+// 13.3.1.3 chooses the constructor from the class's own declarations, ranked
+// over the constants the clauses came to exactly as a call of a function is,
+// and what the object holds is what each mem-initializer of that constructor
+// comes to - read in a region of its own binding the places to what the
+// arguments came to.  12.6.2p10 initializes in declaration order
 // whatever order the mem-initializers were written in, so a member already
 // settled is a binding of that region too and one written after it may name it;
 // 8.3.5p10's place of the same name is the one 3.3.7 leaves standing.  The
@@ -406,9 +445,26 @@ void ConstexprReading::mem_initializers(
 SemaConstant ConstexprReading::object_from_constructor(
 	TypeId bare, SemaEntity& owner, const std::vector<SemaConstant>& written)
 {
-	SemaEntity* const one = owner.constructor == nullptr
-		? nullptr : chosen(*owner.constructor, written.size());
-	if (one == nullptr || one->constexpr_region == nullptr)
+	if (owner.constructor == nullptr)
+	{
+		throw NotConstant(analyzer_.types_.description(bare) +
+		                  " declares no constructor a constant expression "
+		                  "builds an object with");
+	}
+	std::vector<AnalyzedValue> clauses;
+	argument_values(written, clauses);
+	// 13.3.1.3p1: the candidate set is the constructors of the class alone, and
+	// 12.1 gives each of them the object it constructs as its first parameter -
+	// which 13.3.1p3 offers as the implicit object argument here as it does for
+	// any other member.
+	SemaConstant constructed;
+	constructed.type = bare;
+	const AnalyzedValue self = object_value(constructed);
+	SemaEntity* const one = &selected(analyzer_.types_.description(bare),
+	                                  std::vector<SemaEntity*>(
+		                                  1, owner.constructor),
+	                                  clauses, &self, 0);
+	if (one->constexpr_region == nullptr || one->constexpr_body == nullptr)
 	{
 		throw NotConstant(analyzer_.types_.description(bare) +
 		                  " declares no one constexpr constructor a constant "
@@ -560,7 +616,8 @@ SemaConstant ConstexprReading::accessed_object(const AstNode& node,
 
 SemaEntity* ConstexprReading::accessed_member(const SemaConstant& object,
                                               const std::string& name,
-                                              const SemaContext& ctx)
+                                              const SemaContext& ctx,
+                                              std::vector<SemaEntity*>* found)
 {
 	SemaEntity* const owner =
 		analyzer_.model_.type_owner(analyzer_.types_.strip_cv(object.type));
@@ -571,8 +628,9 @@ SemaEntity* ConstexprReading::accessed_member(const SemaConstant& object,
 	// 5.2.5p1 is one lookup, and the expression layer already writes it - so a
 	// name found through 10.2's chain, a using-declaration or a qualified-id is
 	// found here the same way it is anywhere else.
-	std::vector<SemaEntity*> found;
-	return analyzer_.member_named(*owner->scope, name, ctx, found);
+	std::vector<SemaEntity*> reached;
+	return analyzer_.member_named(*owner->scope, name, ctx,
+	                              found == nullptr ? reached : *found);
 }
 
 // 5.2.5p1 over 9.2p1's non-static data member: the subobject the object's own
@@ -619,16 +677,28 @@ SemaConstant ConstexprReading::member_call(
 		throw NotConstant("a constant expression calls a member of what is not "
 		                  "an object of class type");
 	}
-	SemaEntity* const named = accessed_member(object, name, ctx);
-	SemaEntity* const one =
-		named == nullptr ? nullptr : chosen(*named, arguments.size());
-	if (one == nullptr)
+	std::vector<SemaEntity*> candidates;
+	SemaEntity* const named = accessed_member(object, name, ctx, &candidates);
+	if (named == nullptr || named->kind != SemaKind::Function)
 	{
 		throw NotConstant(name +
-		                  " names no one constexpr member function a constant "
-		                  "expression may call with these arguments");
+		                  " names no member function a constant expression "
+		                  "calls of " +
+		                  analyzer_.types_.description(object.type));
 	}
-	return call(*one, one->object_member ? &object : nullptr, arguments);
+	if (candidates.empty())
+	{
+		candidates.push_back(named);
+	}
+	std::vector<AnalyzedValue> written;
+	argument_values(arguments, written);
+	// 13.3.1p3: the object is an argument of the call like any other, and the
+	// declaration 13.3 chooses is what says whether it is passed - 9.4p1's
+	// static member takes no object, and 13.3.1p4 makes every other candidate
+	// none at all where there is none.
+	const AnalyzedValue self = object_value(object);
+	SemaEntity& one = selected(name, candidates, written, &self, 0);
+	return call(one, one.object_member ? &object : nullptr, arguments);
 }
 
 SemaConstant ConstexprReading::member_constant(const AstNode& node,
@@ -660,74 +730,212 @@ SemaConstant ConstexprReading::called(const AstNode& callee,
 		throw NotConstant("a constant expression calls something this "
 		                  "milestone does not evaluate");
 	}
-	SemaEntity* const named = analyzer_.resolve(callee.text, ctx, LookupKind::Any);
+	std::vector<AnalyzedValue> written;
+	argument_values(arguments, written);
+	std::vector<SemaEntity*> candidates;
+	std::size_t singles = 0;
+	SemaEntity* const named =
+		callee_candidates(callee, ctx, written, candidates, singles);
 	if (named == nullptr)
 	{
 		throw NotConstant(callee.text +
 		                  " is written where a constant expression calls and "
 		                  "names no function");
 	}
-	return called_entity(*named, arguments);
+	if (named->kind != SemaKind::Function)
+	{
+		// 13.5.4p1: what the parentheses were written on is an object, so the
+		// call is a call of a member `operator()` of its class - which is a
+		// member call on the object that name is worth and no further reading
+		// of its own.
+		return member_call(id_constant(callee, ctx), "operator()", arguments,
+		                   ctx);
+	}
+	SemaEntity& one = selected(callee.text, candidates, written, nullptr,
+	                           singles);
+	// 9.3.1p3: a call written with no object expression is one on the object
+	// the function being read stands on, which 5.19p2 has no value for - so a
+	// fold reaches only the declarations no object is needed to call.
+	if (one.object_member)
+	{
+		throw NotConstant(callee.text +
+		                  " is called on an object a constant expression does "
+		                  "not name");
+	}
+	return call(one, nullptr, arguments);
 }
 
 SemaConstant ConstexprReading::called_entity(
 	SemaEntity& named, const std::vector<SemaConstant>& arguments)
 {
-	SemaEntity* const one = named.kind == SemaKind::Function
-		? chosen(named, arguments.size())
-		: nullptr;
-	if (one == nullptr)
+	if (named.kind != SemaKind::Function)
 	{
 		throw NotConstant(named.name +
-		                  " names no one constexpr function a constant "
-		                  "expression may call with these arguments");
+		                  " is written where a constant expression calls and "
+		                  "names no function");
 	}
-	// 9.3.1p3: a call written with no object expression is one on the object
-	// the function being read stands on, which 5.19p2 has no value for - so a
-	// fold reaches only the declarations no object is needed to call.
-	if (one->object_member)
+	std::vector<AnalyzedValue> written;
+	argument_values(arguments, written);
+	const std::vector<SemaEntity*> candidates(1, &named);
+	SemaEntity& one = selected(named.name, candidates, written, nullptr, 0);
+	if (one.object_member)
 	{
 		throw NotConstant(named.name +
 		                  " is called on an object a constant expression does "
 		                  "not name");
 	}
-	return call(*one, nullptr, arguments);
+	return call(one, nullptr, arguments);
 }
 
-SemaEntity* ConstexprReading::chosen(SemaEntity& named,
-                                     std::size_t arguments) const
+// 13.3.3.1: what a constant a fold holds is worth to a ranking of candidates.
+//
+// A constant is 5.19's *value*, and 3.10p1 makes a value a prvalue however the
+// expression that reached it was written: the fold holds what the operand came
+// to and no object the program named.  So a candidate declared over `T&` is one
+// nothing here reaches and one declared over `T const&` is reached by every
+// constant of its type - which is 8.5.3p5 as it stands for any other prvalue,
+// and the whole of what tells `read(T&)` from `read(T const&)` apart.  The bits
+// travel with the type because 4.10p1's null pointer constant is a fact of the
+// *value* and 13.3.3.2p4 ranks by it.
+void ConstexprReading::argument_values(
+	const std::vector<SemaConstant>& arguments,
+	std::vector<AnalyzedValue>& out) const
 {
-	SemaEntity* found = nullptr;
-	for (SemaEntity* each = &named; each != nullptr; each = each->next)
+	out.reserve(arguments.size());
+	for (std::size_t index = 0; index < arguments.size(); ++index)
 	{
-		if (each->kind != SemaKind::Function || !each->constexpr_function ||
-		    each->constexpr_body == nullptr)
-		{
-			continue;
-		}
-		// 9.3.1p3 put the object parameter in the type, so the places a call
-		// writes arguments for are the rest of them.
-		const std::vector<TypeId>& places =
-			analyzer_.types_.parameters(each->type);
-		const std::size_t implicit = each->object_member ? 1 : 0;
-		// 8.3.6p1: a call may stop short of a place every declaration of the
-		// function gave a default-argument, so the arity is the range
-		// `accepts_arity` already answers for and not the one count.
-		if (places.size() < arguments + implicit ||
-		    !analyzer_.accepts_arity(*each, arguments + implicit))
-		{
-			continue;
-		}
-		if (found != nullptr)
-		{
-			// The set leaves the choice to a ranking of conversions a fold has
-			// no typed expressions to make, so it is refused rather than
-			// guessed at.
-			return nullptr;
-		}
-		found = each;
+		out.push_back(argument_value(arguments[index]));
 	}
-	return found;
+}
+
+AnalyzedValue ConstexprReading::argument_value(const SemaConstant& value) const
+{
+	AnalyzedValue out;
+	out.type = out.spelled = value.type;
+	out.category = ValueCategory::PRValue;
+	out.constant = true;
+	out.value = value.bits;
+	out.real = value.real;
+	out.null_constant = value.bits == 0 && !holds_list(value) &&
+		analyzer_.integral_type(value.type) != kNoType;
+	return out;
+}
+
+// 13.3.1p3: the implicit object argument of a call written on a constant
+// object, which 9.3.1p3 holds as a pointer to it.
+//
+// The cv-qualification the constant's own type carries is the one a candidate's
+// object parameter has to accept, which is what leaves a member function that
+// is not `const` no candidate for a call on a `constexpr` object - the fact the
+// arity that used to rank these could not see.
+AnalyzedValue ConstexprReading::object_value(const SemaConstant& object) const
+{
+	AnalyzedValue out;
+	out.type = out.spelled = analyzer_.types_.pointer_to(object.type);
+	out.category = ValueCategory::PRValue;
+	// 8.3.5p1: a ref-qualifier binds by the category the object expression had,
+	// and a constant object a declaration named is an lvalue.
+	out.object_category = ValueCategory::LValue;
+	out.nonnull = true;
+	return out;
+}
+
+// 3.4, 3.4.2 and 14.2: the declarations the name of a callee reaches, as the
+// set 13.3 chooses from.
+//
+// This is the lookup `call_expression` writes for a call the program's own
+// semantics reads, asked here of a fold - a template-id names the
+// specializations 14.8.1 makes of every template of that name rather than
+// anything an ordinary lookup finds, and an unqualified name also names what
+// 3.4.2p2's associated namespaces declare.  What a *fold* adds to that is
+// nothing at all, which is the point: a call is one construct, and a constant
+// expression is not a dialect of it.
+SemaEntity* ConstexprReading::callee_candidates(
+	const AstNode& callee, const SemaContext& ctx,
+	const std::vector<AnalyzedValue>& written,
+	std::vector<SemaEntity*>& candidates, std::size_t& singles)
+{
+	SemaEntity* named = nullptr;
+	if (child_kind(callee, AstKind::CarriedExpression) != nullptr)
+	{
+		// 7.1.6.2p1: the nested-name-specifier begins with a decltype-specifier,
+		// so the region the name is looked up in is the one that type names.
+		named = analyzer_.decltype_qualified_name(callee, ctx, LookupKind::Any,
+		                                          &candidates);
+	}
+	else
+	{
+		named = analyzer_.template_specializations(callee.text, ctx, candidates);
+	}
+	if (named == nullptr)
+	{
+		candidates.clear();
+		named = analyzer_.resolve(callee.text, ctx, LookupKind::Any,
+		                          &candidates);
+	}
+	if (named != nullptr && named->kind != SemaKind::Function)
+	{
+		// 13.5.4p1: the name reaches an object rather than a function, which is
+		// a callee only its class's `operator()` answers.
+		candidates.clear();
+		return named;
+	}
+	if (named != nullptr && candidates.empty())
+	{
+		candidates.push_back(named);
+	}
+	if (!QualifiedName(callee.text).qualified() &&
+	    ArgumentLookup(analyzer_).allowed(named))
+	{
+		// 3.4.2p1: an unqualified callee also names what the types of the
+		// arguments reach, and p3 leaves that search out where the ordinary
+		// lookup found a member, a block-scope declaration or a non-function.
+		// A name the ordinary lookup found nothing of is one this search is the
+		// whole of, which is what reaches a function declared beside its own
+		// argument's class and nowhere else.
+		singles = ArgumentLookup(analyzer_).candidates(callee.text, written,
+		                                              candidates);
+	}
+	if (named == nullptr)
+	{
+		return candidates.empty() ? nullptr : candidates[0];
+	}
+	return named;
+}
+
+SemaEntity& ConstexprReading::selected(
+	const std::string& name, const std::vector<SemaEntity*>& candidates,
+	const std::vector<AnalyzedValue>& written, const AnalyzedValue* object,
+	std::size_t singles)
+{
+	SemaEntity* one = nullptr;
+	try
+	{
+		one = analyzer_.select_overload(candidates, written, name, object,
+		                                false, singles);
+	}
+	catch (const std::runtime_error& refused)
+	{
+		// 13.3 refuses the *call*, and a fold is asked speculatively - a
+		// template argument, a `static_assert`, an initializer the analysis
+		// will read again as a dynamic one.  So a set with nothing viable in it
+		// says here what every other unreadable operand says: this expression
+		// is no constant expression.
+		throw NotConstant(std::string(refused.what()));
+	}
+	if (one == nullptr)
+	{
+		throw NotConstant(name +
+		                  " names no one constexpr function a constant "
+		                  "expression may call with these arguments");
+	}
+	// 3.2p2 and 14.7.1p1: choosing a declaration is naming it, and what a fold
+	// then reads is the *body* - which for a specialization is a body only this
+	// asks the template for, and for a member of an instantiated class one the
+	// instantiation put aside until a use arrived.  So a fold names what it
+	// chose exactly as the expression layer does; 7.3.3p1's using-declaration
+	// is followed to the base's own declaration there and here alike.
+	return analyzer_.named_function(*one);
 }
 
 // 12.3.2p1 with 14.3.2p5: an object of class type brought to an integral type.
@@ -812,9 +1020,10 @@ SemaConstant ConstexprReading::converted(const SemaConstant& value,
 	return call(*found, &value, none);
 }
 
-void ConstexprReading::bind_constant(const std::string& name,
-                                     const SemaConstant& value,
-                                     const SemaContext& inner, bool written)
+SemaEntity& ConstexprReading::bind_constant(const std::string& name,
+                                            const SemaConstant& value,
+                                            const SemaContext& inner,
+                                            bool written)
 {
 	SemaEntity& bound =
 		analyzer_.model_.create(SemaKind::Variable, name, value.type);
@@ -825,6 +1034,67 @@ void ConstexprReading::bind_constant(const std::string& name,
 	bound.region = inner.scope;
 	analyzer_.model_.bind(*inner.scope, name, bound);
 	analyzer_.model_.declare_in(*inner.scope, bound);
+	return bound;
+}
+
+// 8.3.5p10 with 14.5.3p4: the names of the places `callee`'s declarator opened,
+// one per place of the function's type.
+//
+// The declarator wrote the *entries* of a parameter-declaration-clause, and an
+// entry written `pattern... name` is not one place but as many as the run its
+// packs were bound to holds.  What says how many is the type: 14.8.2 settled
+// the run when it made this declaration, and the places the type has past the
+// ones the other entries wrote are the run's.  8.3.5p10 names them after the
+// pack - `pack_element_name`'s spellings, whose first is the pack's own name -
+// which is exactly what a `name...` written in the body looks up, so the
+// bindings a fold makes for them are found by 14.5.3p4's own reading.
+// `runs` takes that length at the place a run begins and zero everywhere else.
+void ConstexprReading::declared_places(SemaEntity& callee,
+                                       std::vector<std::string>& out,
+                                       std::vector<unsigned>& runs,
+                                       std::string& empty) const
+{
+	if (callee.constexpr_body == nullptr)
+	{
+		return;
+	}
+	std::vector<std::string> entries;
+	std::vector<char> packed;
+	parameter_names(*callee.constexpr_body, entries, packed);
+	const std::size_t implicit = callee.object_member ? 1u : 0u;
+	const std::size_t held = analyzer_.types_.parameters(callee.type).size();
+	const std::size_t places = held > implicit ? held - implicit : 0;
+	std::size_t fixed = 0;
+	for (std::size_t index = 0; index < packed.size(); ++index)
+	{
+		fixed += packed[index] != 0 ? 0u : 1u;
+	}
+	// 14.5.3p4: a pack expanded into no place at all is still declared, so the
+	// run is what the type has over the entries that are one place each and
+	// never a negative count.
+	const std::size_t run = places > fixed ? places - fixed : 0;
+	for (std::size_t index = 0; index < entries.size(); ++index)
+	{
+		if (packed[index] == 0)
+		{
+			out.push_back(entries[index]);
+			runs.push_back(0);
+			continue;
+		}
+		if (run == 0)
+		{
+			// 14.5.3p4: the run holds no element, so the expansion made no
+			// place at all - and the pack is still declared, because
+			// `sizeof...` and a `name...` written in the body are asked about
+			// it and have to come to nothing rather than to nothing found.
+			empty = entries[index];
+		}
+		for (std::size_t element = 0; element < run; ++element)
+		{
+			out.push_back(pack_element_name(entries[index], element));
+			runs.push_back(element == 0 ? static_cast<unsigned>(run) : 0u);
+		}
+	}
 }
 
 void ConstexprReading::bind_arguments(SemaEntity& callee,
@@ -855,19 +1125,55 @@ void ConstexprReading::bind_arguments(SemaEntity& callee,
 	}
 	// 8.3.5p10 and 5.2.2p4: the places the declarator wrote, each bound to what
 	// the argument written for it came to after 8.5's conversion to its type.
-	std::vector<std::string> named;
-	parameter_names(*callee.constexpr_body, named);
-	for (std::size_t index = 0;
-	     index < arguments.size() && index < named.size(); ++index)
+	std::vector<std::string> places;
+	std::vector<unsigned> runs;
+	std::string empty_run;
+	declared_places(callee, places, runs, empty_run);
+	if (!empty_run.empty())
 	{
-		if (named[index].empty())
+		// 14.5.3p4: the pack the expansion was over is bound to a run of no
+		// elements, which is a declaration and no place - the one the reading
+		// of a `pattern...` in the body finds to learn it stands for nothing.
+		SemaEntity& none = analyzer_.model_.create(
+			SemaKind::Typedef, empty_run,
+			analyzer_.types_.pack_type(std::vector<TypeId>()));
+		analyzer_.model_.bind(*inner.scope, none.name, none);
+	}
+	// 14.5.3p4: the run one expansion of a function parameter pack was bound to
+	// is counted on the first of the places it made, and every place after it
+	// carries that first one back - which is what a `pattern...` written in the
+	// body reads to learn how many readings it stands for.  The bindings the
+	// fold makes stand in for those places, so they carry the same facts.
+	SemaEntity* run_of = nullptr;
+	unsigned run_left = 0;
+	for (std::size_t index = 0;
+	     index < arguments.size() && index < places.size(); ++index)
+	{
+		const std::string& name = places[index];
+		if (name.empty())
 		{
+			// 8.3.5p10: 3.3.4 ends a declaration's parameter names at its own
+			// declarator, so a place the definition left unnamed binds nothing
+			// and the body cannot have named it either.
+			run_left = run_left != 0 ? run_left - 1 : 0;
 			continue;
 		}
 		// 5.19p2 with 12.2p1: a place the call filled is an object created by
 		// this evaluation, which is the one standing an assignment inside the
 		// body may write.
-		bind_constant(named[index], arguments[index], inner, true);
+		SemaEntity& bound =
+			bind_constant(name, arguments[index], inner, true);
+		bound.pack_run = runs[index];
+		if (bound.pack_run != 0)
+		{
+			run_of = &bound;
+			run_left = bound.pack_run - 1;
+		}
+		else if (run_left != 0)
+		{
+			bound.pack_element_of = run_of;
+			--run_left;
+		}
 	}
 }
 

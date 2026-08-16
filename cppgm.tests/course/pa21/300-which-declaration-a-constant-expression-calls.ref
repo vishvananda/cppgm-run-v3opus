@@ -1,0 +1,53 @@
+global @one [binding=internal, object=_ZL3one] = {
+  i32 41
+}
+global @marked [binding=internal, object=_ZL6marked] = {
+  i32 5
+}
+global @twofold [binding=internal, object=_ZL7twofold] = {
+  i32 2
+}
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    %t1 = addr @one
+    %t2 = call i32 @counter__read(%t1)
+    %t3 = call i32 @twice(3)
+    %t4 = binary add i32 %t2, %t3
+    %t5 = binary sub i32 %t4, 47
+    return i32 %t5
+}
+function @twice(%x : i32) -> i32 [binding=weak, object=_Z5twiceIiET_S0_] {
+  slot $x : i32
+
+  block ^entry:
+    store i32 %x, $x
+    %t1 = load i32 $x
+    %t2 = load i32 $x
+    %t3 = binary add i32 %t1, %t2
+    return i32 %t3
+}
+function @counter__read(%this : ptr) -> i32 [binding=weak, object=_ZNK7counter4readEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i32 %t2
+    return i32 %t3
+}
+function @counter__counter(%this : ptr, %a : i32) -> void [binding=weak, object=_ZN7counterC1Ei] {
+  slot $this : ptr
+  slot $a : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %a, $a
+    %t1 = load i32 $a
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 %t1, %t3
+    return void
+}
+alias object _ZN7counterC2Ei = @counter__counter

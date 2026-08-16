@@ -25,6 +25,12 @@ milestones deferred. Two ownership lines carry the whole assignment:
   were refused outright; 6.7p4's guard, 3.6.2's constant initialization and
   3.6.3p3's `__cxa_atexit` registration are PA21's. **Done — checkpoint L.**
 
+Beside them, one line that is deliberately *not* an owner: which declaration a
+call in a constant expression runs is 13.3's and 14.8.2's answer, and the fold
+asks for it rather than keeping a ranking of its own — `ConstexprReading` builds
+one `AnalyzedValue` per constant and hands the same `select_overload` the
+expression layer does. **Done — checkpoint T.**
+
 Beside them, one small owner of its own: 15.4's exception-specification is a
 typed fact of a declaration — `SemaEntity::nonthrowing`, settled by
 `sema_noexcept.cpp`'s reading of a declarator and by the implicit walks in
@@ -48,26 +54,25 @@ the `.ref` files are the oracle and no fixture asks for the refusal.
 
 ## Current Failure Map
 
-**66/131**; 65 failures remain. 13 are a LowIR mismatch and 9 are a `-bad` case
+**75/132**; 57 failures remain. 14 are a LowIR mismatch and 9 are a `-bad` case
 this compiler accepts; the rest refuse a program the assignment asks it to
-translate. Group N is closed.
+translate. Groups N and T are closed.
 
 | Group | Shape | Count |
 |---|---|---|
+| I. LowIR mismatch, not exit status | canonical diff only; mostly the lowering re-folding from the dump instead of taking the analysis's answer, plus the two symbol-naming gaps below | 14 |
 | O2. a name whose declaration the fold refused | `X is not a constant expression` where `X` *is* a `constexpr` variable — the initializer is a call or an operator one of the groups below refuses | 13 |
-| I. LowIR mismatch, not exit status | canonical diff only; mostly the lowering re-folding from the dump instead of taking the analysis's answer, plus the two symbol-naming gaps below | 13 |
-| T. template-id and overloaded callees | `X<...> is written where a constant expression calls and names no function` / `names no one constexpr function ... with these arguments` | 9 |
 | V. `constexpr` validation | a `-bad` case this compiler accepts (exit status inverted), mostly a refused initializer lowered as a dynamic one | 9 |
-| B. objects with bases, and a class the fold cannot rank a conversion of | `... is not a class a constant expression builds an object of`; `declares no constexpr conversion function` | 6 |
+| B. objects with bases, and a class the fold cannot rank a conversion of | `... is not a class a constant expression builds an object of` — 10p1's base subobject is one this object does not hold; `declares no constexpr conversion function` | 6 |
+| P. pointer- and reference-valued constants | `&x` refused as an operator the fold does not evaluate; a pointer read for truth, compared, subscripted through, or written `->` on | 5 |
 | C. a cast to a class or reference type | `casts to a type that is not arithmetic`, where the type-id names `const D&`, `E` or `X&&` | 3 |
-| P. pointer- and reference-valued constants | `&x` refused as an operator the fold does not evaluate; a pointer read for truth, compared, or subscripted through | 4 |
-| misc | `this`, lookup gaps reached only through evaluation, a member call on a temporary, a nested braced clause, a subscript of a class object | 8 |
+| misc | `this`, a subscript of a class object, a member call on a temporary, a write through an overloaded assignment, a member of a class *being* instantiated whose definition the demand only queued | 7 |
 
-**T is the next checkpoint.** It is now the largest group with one rule behind
-it: `ConstexprReading::chosen` ranks a callee by arity alone, so a call whose
-name is a template-id (14.8.2's deduction is never asked) and a call whose set
-13.3 would rank both leave the fold with no declaration. Several O2 rows are
-declarations whose initializer is exactly such a call.
+**I is the next checkpoint.** It is the largest group and the one the previous
+plan already diagnosed: a scalar whose initializer the *analysis* folded is
+given a dynamic initializer because the lowering re-folds from the dump instead
+of taking `SemaEntity::value` and `::real`. Several V rows are the other side of
+that seam — a refused initializer lowered as a dynamic one rather than refused.
 
 **Known gaps F and its audit left standing.** A clause of an aggregate written
 as a nested braced-init-list (`constexpr P ps[2] = {{1,2},{3,4}};`) is not
@@ -97,6 +102,8 @@ initializer; that is group I's shape, and its fix is for the lowering to take
 | array destruction | one `__cxa_atexit` per array, handed a generated body that walks the elements — written out below `kArrayLoopLimit` and a loop above it | 100000-element array of class type: 0.005s, 11 instructions |
 | floating value | one `long double` per constant, and one pool entry per *distinct* value - a value met twice is one index, so a memo key stays stable without the pool growing, and each of the four non-finite values keys to a place of its own | a constexpr loop of floating arithmetic at 1e3 / 1e4 / 1e5 passes: 0.00 / 0.03 / 0.27s, peak RSS a flat 6 MB. 2000 / 8000 / 32000 declarations of *distinct* floating constants each read back by a `static_assert`: 0.04 / 0.20 / 0.88s at 15 / 42 / 153 MB |
 | array constant | one interned list per array, one entry per element, and 8.5p7's value-initialized tail interned once and repeated | 1000 / 4000 / 16000 elements read back by a `static_assert`: 0.00 / 0.02 / 0.07s at 6 / 9 / 18 MB - linear in elements. `constexpr int a[1000000] = {1};` is 0.10s and 13 MB, because the tail is one entry and not a million folds |
+| chosen callee | one lookup and one 13.3 ranking per call the fold evaluates, over an argument list built once - the same pass the expression layer pays, and no `open_overloads` set kept for the model's lifetime | a `for` calling one constexpr function 1e3 / 4e3 / 16e3 times: 0.01 / 0.04 / 0.16s against 0.01 / 0.04 / 0.15s for the arity ranking it replaced (ref 0.78s at 16e3), and the same loop with a template-id callee 0.01 / 0.04 / 0.18s and a deduced one 0.01 / 0.04 / 0.16s (ref 1.64s). A call site with 8 / 32 / 128 candidates at 4e3 calls: 0.04 / 0.05 / 0.10s - linear in candidates, which is 13.3's own cost, and a shape the arity ranking refused outright. A member call on a constant object 16e3 times is 0.05s at a flat 7 MB |
+| function parameter pack | one place per element of the run, named the way 14.5.3p4's own reading looks them up, so a `pattern...` in the body costs one reading per element and no scan | `plus(1,...,1)` at 16 / 32 / 64 arguments: 0.00 / 0.01 / 0.03s at 7 / 9 / 18 MB (ref 0.62s at 27 MB at 64). The n^2 is the idiom's - n specializations of n places - and not a repeated walk |
 | `noexcept` operator | one reading of the operand per operator and one walk of the resolved tree it left, asked of the lines that name a declaration; a `noexcept` written inside another is read by the reading of the outer operand and not again, so nesting is linear in depth | 500 / 2000 / 8000 declarations each holding three `noexcept` operators over a member call: 0.04 / 0.19 / 0.78s at 17 / 50 / 183 MB (ref 0.62 / 0.92 / 2.97s at 20 / 38 / 109 MB). One operand of 500 / 2000 / 8000 calls: 0.01 / 0.03 / 0.13s at 8 / 14 / 36 MB (ref 0.61 / 1.59 / 0.86s). 50 / 100 / 200 nested `noexcept`: 0.00s at 6.3 / 6.5 / 7.0 MB (ref 0.53s at 14-16 MB) - 800 deep is refused by the parser's own depth limit, which the reference has not got |
 | exception-specification condition | one fold per declaration that wrote one, and a second only where 9.2p2's complete-class context left the first unanswered - kept on the class's region and folded at the close of the class-specifier, in every dialect | 400 / 1600 / 6400 members whose condition names a member declared *below* it: 0.01 / 0.04 / 0.21s at 9 / 16 / 44 MB, against 0.00 / 0.02 / 0.08s at 7 / 11 / 25 MB for the same count writing `noexcept(true)`, which defers none (ref 0.63 / 1.79 / 26.78s at 19 / 33 / 90 MB) |
 | aggregate of floating clauses | one dump node per clause, and one fold per clause 8.5.4p7's second bullet asks about - which is a `float` member off a wider source and nothing else | 2000 / 8000 / 32000 `double` clauses of an array member: 0.05 / 0.21 / 0.81s at 22 / 66 / 243 MB, against 0.02 / 0.09 / 0.37s at 10 / 22 / 72 MB for the same count of `int` clauses (ref 0.70 / 1.20 / 2.90s at 34 / 95 / 339 MB and 0.70 / 0.90 / 1.90s at 21 / 43 / 135 MB). Making them `float`, the one shape the bullet folds, adds 16%: 0.94s and 274 MB at 32000 |
@@ -114,6 +121,19 @@ initializer; that is group I's shape, and its fix is for the lowering to take
 | F audit | `6cdd7e1d`, 3 blockers: `convert` had no arm for a destination of no arithmetic type and handed back the operand's bits *under the object's type*, so `constexpr P ps[1] = { 999999 };` made 999999 the identifier of a member list and `ps[0].x` read `parameter_lists_[999999]` — a segfault, reachable through `array_of`, `object_of` and the mem-initializer alike, now one refusal at the door; 8.5.4p7's second bullet was asked of a literal *spelling* and asked as an exactness, so every `float` clause off a name, an operator or a folded call was refused as narrowing and `float a{0.1}` with them, where the clause is a range "even if it cannot be represented exactly"; and 5p4's overflow reached an undefined cast in `real_type`, a `= in` in the image where the reference writes `= inf`, and two 4.9p1 bounds each on the wrong side of the cast they guard. See [audit.md](audit.md). | 59 → 59 |
 | N | **5.3.7's `noexcept` operator, over 15.4's specification.** `sema_noexcept.cpp` reads the operand once through `probe_expression` - 5.3.7p1 leaves it unevaluated, so the scratch node and the temporaries it made are dropped - and answers 5.3.7p3 by one walk of the resolved tree: a `call-expression` with no `callee` child is a call through a pointer, and one with a callee is worth its `SemaEntity::nonthrowing`. The answer is a `literal prvalue bool` in `dispatch_expression`, a `bool` constant in `evaluate`, and a kept tree in `sema_value_expression.cpp`, where 14.2 had flattened the operator into a name. 15.4p1's condition is now *folded* rather than matched against `true`, and 14.5.6.1 carries a template's specification to its specializations, and a course fixture pins the shapes 5.3.7p3 names. | 59 → 66 (131) |
 | N audit | `76c1c8fd`, 3 blockers: 15.4p1's condition was folded at the declarator, where 9.2p2 has yet to complete the class, so `void f() noexcept(k)` beside a `static constexpr bool k` declared below it answered no in the class and yes on its out-of-class definition - a valid program **refused** as two declarations 15.4p1 does not make the same, and silently the wrong `boundary.unwind` where no definition was written; `nonthrowing_tree` answered a new- and a delete-expression from a `fact.entity` neither writer fills, so `noexcept(delete p)` was false for every operand; and 5.3.7p3's second bullet walked the operand for a node only the statement parser builds. The reading now asks the *lines that name a declaration* - `Callee` and `DestructorAction` - and the condition is folded where the class is complete. See [audit.md](audit.md). | 66 → 66 |
+
+| T | **13.3 and 14.8.2 answer the fold's callee.** `ConstexprReading::chosen`'s arity ranking is gone: `callee_candidates` writes the lookup `call_expression` writes - 14.2's specializations for a template-id, 3.4.2's associated namespaces for an unqualified name - and `selected` hands the set to the analysis's own `select_overload`, over one `AnalyzedValue` per constant. 5.19's constant is a prvalue, which is what tells `read(T&)` from `read(T const&)`; 13.3.1p3's object argument carries the constant's cv, which is what leaves a non-`const` member no candidate for a call on a `constexpr` object; 13.5.4p1's `operator()` answers a name that reaches an object. Choosing is *naming*, so `SemaAnalyzer::named_function` - split out of `name_function` - asks 14.7.1p1 for the specialization's body. Carried two sibling fixes the ranking then reached: 8.3p1's declarator-id was read as "the first child is an identifier", so every reference parameter went unbound, and 14.5.3p4's function parameter pack now binds one place per element of the run the type settled. | 66 → 75 (132) |
+
+**Known gap (T).** A `constexpr` static member function called from the *same*
+class template's body — `typedef bool_constant<enabled()> type;` inside
+`holder<T>` — is refused: 14.7.1p1's demand for the member's definition queues
+it, and the fold needs the body where it stands. Closing it means reading that
+one held definition on demand rather than at the end of the instantiation.
+Making room for `named_function` took `sema_analyzer.h` and
+`sema_expression.cpp` over the audit's ceilings, so 3.4.2's argument-dependent
+lookup left `SemaAnalyzer` for `sema_argument_lookup.cpp` — a reader beside
+`Deduction` and `PackReading` — and the naming pair moved to the resolution that
+calls it.
 
 **Known gaps (N audit).** A name no declaration answers, written in a condition
 - `void f() noexcept(bogus);` - is accepted, because the fold that reads the

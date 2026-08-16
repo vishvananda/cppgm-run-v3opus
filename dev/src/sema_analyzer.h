@@ -22,6 +22,7 @@
 struct AstNode;
 struct PostToken;
 class AstArena;
+class ArgumentLookup;
 class PackTable;
 class IncludeTable;
 
@@ -86,6 +87,9 @@ private:
 	// 7.1.5p2: the call of a constexpr function 5.19p2 folds, which walks a
 	// function-body and is `sema_constexpr.h`'s for that reason.
 	friend class ConstexprReading;
+	// 3.4.2: the lookup that follows the argument types rather than the
+	// regions, which `sema_argument_lookup.h` owns for the same reason.
+	friend class ArgumentLookup;
 
 	// 3.3, 7p1, 8.3.5p4, 12.6.2p1 and 5.19p3: the records the declaration
 	// layer passes between its steps, which `sema_declaration.h` defines.  The
@@ -2056,19 +2060,6 @@ private:
 	bool operator_expression(unsigned token, const Context& ctx, DumpNode& line,
 	                         std::vector<Value>& operands, bool member_only,
 	                         Value& value);
-	// 3.4.2p2: the namespaces and classes a type is associated with.
-	void associate_type(TypeId type, Associated& out);
-	void associate_bases(SemaEntity* owner, Associated& out);
-	void associate_region(Scope* region, Associated& out);
-	// 3.4.2p2: the declarations of `name` the argument types reach, appended to
-	// `candidates`.  Returns how many of them are the single friend
-	// declarations 11.3p6 made, which stand last.
-	std::size_t argument_candidates(const std::string& name,
-	                                const std::vector<Value>& arguments,
-	                                std::vector<SemaEntity*>& candidates);
-	// 3.4.2p3: whether what the ordinary lookup found leaves the
-	// argument-dependent one to be done at all.
-	bool allows_adl(const SemaEntity* named) const;
 	// 13.5p6: an operator function is a non-static member function, or else a
 	// non-member one taking at least one operand of class or enumeration type.
 	// `member` is whether the declaration is written in a class and has no
@@ -2110,6 +2101,11 @@ private:
 	                      Requested by = Requested::Written);
 	// 13.4: the declaration of an overloaded name a target type asks for.
 	SemaEntity* resolve_target(const Value& value, TypeId target);
+	// 3.2p2: what naming `selected` asks for - 14.7.1p1's instantiation, the
+	// definition an instantiated class put aside, 12.8p28's implicit
+	// definition - and the declaration 7.3.3p1 leaves every use reaching.  A
+	// fold that has chosen a callee names it here too.
+	SemaEntity& named_function(SemaEntity& selected);
 	// Writes the line of an id-expression once its overload set is resolved.
 	void name_function(Value& value, SemaEntity& function, const char* what);
 	// 4.1, 4.2 and 4.3: the type the value of `value` has.

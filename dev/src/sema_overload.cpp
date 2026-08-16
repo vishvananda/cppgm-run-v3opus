@@ -7,6 +7,7 @@
 
 #include "ast_model.h"
 #include "ast_tokens.h"
+#include "sema_argument_lookup.h"
 #include "sema_constexpr.h"
 #include "sema_deduce.h"
 #include "sema_derivation.h"
@@ -1236,6 +1237,115 @@ SemaEntity* SemaAnalyzer::resolve_target(const Value& value, TypeId target)
 	return deduced[best];
 }
 
+// 3.2p2: naming a function is a use of it, and what a use asks for is the same
+// wherever the name was written - which is what puts this beside the line that
+// spells one rather than inside it.  A fold of a constant expression names a
+// declaration too: 13.3 chooses it there over the constants the call holds, and
+// the body the fold then reads is a body only this asks the template for.
+SemaEntity& SemaAnalyzer::named_function(SemaEntity& selected)
+{
+	// 7.3.3p1: 13.3 chose among the declarations the class made, and one a
+	// using-declaration made names the base's.  Naming a function is a use of
+	// it - the body a call runs, the address `&` takes, the symbol the object
+	// file holds - and every use reaches the declaration the base wrote, so the
+	// two part company here and nowhere below.
+	SemaEntity& function = declared_member(selected);
+	if (function.primary != nullptr)
+	{
+		// 14.7.1p1: choosing a specialization is what asks for it, and the
+		// declaration it stands for is written once however often it is named.
+		instantiate(function);
+	}
+	// 8.4.3p2: a program that names a deleted function is ill formed, and a
+	// name is what every use of one but 12.1's construction of an object goes
+	// through - a call, an address, an operator expression the class of an
+	// operand answered.  12.8p11 and p23 are what delete most of them, and
+	// nothing below this point could tell that from a declaration the program
+	// never wrote.
+	if (function.deleted)
+	{
+		throw std::runtime_error(function.name +
+		                         " is named and is a deleted function");
+	}
+	// 12.8p28 and 3.2p3: naming an assignment operator the standard gave a
+	// class is what asks this unit for the definition of it.
+	demand_transfer_definition(function);
+	// 14.7.1p1: naming a member of a class template specialization - as a
+	// callee, as the operand of an `&`, as the declaration a target type chose
+	// - is what asks the instantiation for the body it put aside.
+	require_definition(function);
+	return function;
+}
+
+void SemaAnalyzer::name_function(Value& value, SemaEntity& selected,
+                                 const char* what)
+{
+	SemaEntity& function = named_function(selected);
+	// An id-expression writes the name as the program spelled it; a callee
+	// writes the one its declaration has.  The two part company wherever a
+	// lookup crossed a region - a using-directive, a template-id - and a
+	// declaration reached under one name is written under another.
+	const std::string named =
+		value.name != nullptr ? payload_of(*value.name) : function.dump_name;
+	// 8.3.5p1 and 9.3.1p3: the name of a member function stands for a type whose
+	// first parameter is the object, and what the dump spells of it is that
+	// parameter rather than the qualifiers the declarator wrote after its
+	// parameter-clause - which the type goes on carrying for 13.1 to read.
+	const TypeId shown =
+		function_description_type(function.type, function.object_member);
+	if (value.addressed != nullptr)
+	{
+		// 5.3.1p3 and 13.4: `&f` is a pointer to the declaration the target
+		// chose, and the name under it is that declaration.
+		value.addressed->text = spell("id-expression", ValueCategory::LValue,
+		                              shown, named);
+		value.addressed->fact.kind = FactKind::Id;
+		value.addressed->fact.type = function.type;
+		value.addressed->fact.spelled = shown;
+		value.addressed->fact.category = ValueCategory::LValue;
+		value.addressed->fact.entity = &function;
+		value.type = member_pointer_of(types_, function);
+		if (value.type == kNoType)
+		{
+			value.type = types_.pointer_to(function.type);
+		}
+		value.spelled = value.type;
+		value.category = ValueCategory::PRValue;
+		value.what = "unary-expression";
+		if (value.node != nullptr)
+		{
+			respell(value);
+		}
+		return;
+	}
+	value.type = function.type;
+	value.spelled = shown;
+	value.category = ValueCategory::LValue;
+	value.entity = &function;
+	if (value.node == nullptr)
+	{
+		return;
+	}
+	if (std::strcmp(what, "callee") == 0)
+	{
+		// The callee of a call is the one line that names a declaration before
+		// its type rather than after it, so it is the one line `spell` does not
+		// write and the one a conversion is never written around.
+		value.node->text =
+			"callee " + function.dump_name + " " +
+			function_description(function.type, function.object_member);
+		value.node->fact.kind = FactKind::Callee;
+		value.node->fact.type = function.type;
+		value.node->fact.spelled = function.type;
+		value.node->fact.category = ValueCategory::LValue;
+		value.node->fact.entity = &function;
+		return;
+	}
+	value.what = what;
+	value.payload = named;
+	respell(value);
+}
+
 // 13.3.3p1: one candidate is better than another when its conversion for every
 // argument is at least as good and for one is better.
 SemaEntity* SemaAnalyzer::select_overload(
@@ -2208,7 +2318,8 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
 	// a member of a class, a function declared in a block, or anything that is
 	// not a function at all.
 	const bool adl = callee.kind == AstKind::IdExpression && !parenthesized &&
-		!QualifiedName(callee.text).qualified() && allows_adl(named);
+		!QualifiedName(callee.text).qualified() &&
+		ArgumentLookup(*this).allowed(named);
 	// 5.2.2p1 and 10.3p12: a virtual function called through a qualified-id is
 	// the declaration that id names and not the final overrider the object's own
 	// class has, and only the two forms that can name a member of an object can
@@ -2270,7 +2381,9 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
 			candidates = *target.functions;
 		}
 		const std::size_t singles =
-			adl ? argument_candidates(called, arguments, candidates) : 0;
+			adl ? ArgumentLookup(*this).candidates(called, arguments,
+			                                       candidates)
+			    : 0;
 		if (candidates.empty())
 		{
 			throw std::runtime_error("no declaration of " + called +
