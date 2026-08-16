@@ -187,6 +187,7 @@ void SemaAnalyzer::enumerators(const AstNode& node, SemaEntity& entity,
 		}
 		unsigned long long value = next;
 		bool negative = false;
+		const unsigned stood = stood_in_;
 		if (!child.children.empty())
 		{
 			// 7.2p1: the constant-expression of an enumerator-definition.
@@ -217,7 +218,13 @@ void SemaAnalyzer::enumerators(const AstNode& node, SemaEntity& entity,
 
 		SemaEntity& enumerator =
 			model_.create(SemaKind::Enumerator, child.text, entity.type);
-		enumerator.constant = true;
+		// 14.6p8 over 7.2p1: an enumerator whose constant-expression names
+		// something an argument list has yet to settle has the value that list
+		// gives it, and the reading that stood one in arrived at none - so the
+		// enumerator carries no constant where the pattern stands and a name
+		// that reaches it stands a value in exactly as it does for a member.
+		enumerator.constant = checking_ == 0 || stood_in_ == stood;
+		enumerator.covered_constant = enumerator.constant;
 		enumerator.value = value;
 		require_no_template_parameter(child.text, scope);
 		model_.bind(scope, child.text, enumerator);

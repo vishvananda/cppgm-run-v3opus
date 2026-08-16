@@ -764,6 +764,7 @@ SemaConstant TemplateArgumentReader::object_operand(
 SemaConstant TemplateArgumentReader::call_operand(
 	const std::string& word, const std::vector<std::string>& words, bool live)
 {
+	const unsigned before = analyzer_.stood_in_;
 	std::vector<SemaConstant> operands;
 	if (!operand_list(words, ")", live, operands))
 	{
@@ -775,6 +776,21 @@ SemaConstant TemplateArgumentReader::call_operand(
 		SemaConstant out;
 		out.type = analyzer_.types_.fundamental(FT_INT);
 		out.bits = 0;
+		return out;
+	}
+	if (analyzer_.stood_in_ != before)
+	{
+		// 14.6.2p2 and 13.3: an argument the reading stood a value in for is of
+		// the type the stand-in has and not of the one the specialization will
+		// pass, so no candidate 13.3 ranks here is the one the call makes -
+		// `first_true_loop(values, values + sizeof...(T))` over an array as
+		// long as a pack has a `bool const *` argument there and an `int` here.
+		// The whole argument is the arguments' to settle, so nothing is looked
+		// up and nothing is ranked.
+		dependent_ = true;
+		SemaConstant out;
+		out.type = analyzer_.types_.fundamental(FT_INT);
+		out.bits = 1;
 		return out;
 	}
 	// 3.4, 3.4.2 and 14.2: which declarations the word reaches is the reading

@@ -481,7 +481,8 @@ SemaAnalyzer::Value SemaAnalyzer::dispatch_expression(const AstNode& node,
 
 SemaAnalyzer::Value SemaAnalyzer::id_expression(const AstNode& node,
                                                 const Context& ctx,
-                                                DumpNode& parent)
+                                                DumpNode& parent,
+                                                bool addressed)
 {
 	std::vector<SemaEntity*>& found = model_.open_overloads();
 	if (child_kind(node, AstKind::CarriedExpression) != nullptr)
@@ -496,7 +497,7 @@ SemaAnalyzer::Value SemaAnalyzer::id_expression(const AstNode& node,
 		                                                   LookupKind::Any,
 		                                                   &found),
 		                           node.text),
-		                   parent, &found);
+		                   ctx, parent, &found, addressed);
 	}
 	// 14.2: a template-id denotes the specializations its argument list makes
 	// rather than a declaration bound to the whole spelling, so the template
@@ -516,13 +517,16 @@ SemaAnalyzer::Value SemaAnalyzer::id_expression(const AstNode& node,
 		// function has.
 		named = reserved_function(node.text, &found);
 	}
-	return named_value(node, require(named, node.text), parent, &found);
+	return named_value(node, require(named, node.text), ctx, parent, &found,
+	                   addressed);
 }
 
 SemaAnalyzer::Value SemaAnalyzer::named_value(const AstNode& node,
                                               SemaEntity& named,
+                                              const Context& ctx,
                                               DumpNode& parent,
-                                              const std::vector<SemaEntity*>* found)
+                                              const std::vector<SemaEntity*>* found,
+                                              bool addressed)
 {
 	// 7.3.3p1: a using-declaration made this class declare what its base
 	// declared, and what the name denotes is the base's declaration - the same
@@ -548,12 +552,19 @@ SemaAnalyzer::Value SemaAnalyzer::named_value(const AstNode& node,
 			parent, spell(value.what, value.category, value.type, value.payload));
 		return value;
 	}
+	// 9.4.2p3 with 3.2p2: a static data member the class itself initialized and
+	// no definition laid storage out for is a constant the program knows, and
+	// reading it is no odr-use of the object 9.4.2p2's definition would give it.
+	// 5.3.1p3's `&` is a use of that object, so `addressed` is what parts the
+	// two readings - and it parts only this one, because an enumerator and a
+	// non-type template parameter name no object for `&` to reach.
+	const bool declared_constant =
+		entity.kind == SemaKind::Variable && entity.constant && !addressed &&
+		!entity.object_definition && entity.region != nullptr &&
+		entity.region->kind == ScopeKind::Class;
 	if (entity.kind == SemaKind::Enumerator ||
 	    (entity.kind == SemaKind::TemplateValue && entity.constant) ||
-	    (entity.kind == SemaKind::Variable && entity.constant &&
-	     arithmetic_type(entity.type) != kNoType &&
-	     !entity.object_definition && entity.region != nullptr &&
-	     entity.region->kind == ScopeKind::Class))
+	    (declared_constant && arithmetic_type(entity.type) != kNoType))
 	{
 		// 7.2p10 and 5.19: an enumerator is a constant, and the dump writes the
 		// value it stands for rather than the name it was written with.  9.4.2p3
@@ -572,6 +583,30 @@ SemaAnalyzer::Value SemaAnalyzer::named_value(const AstNode& node,
 		value.node = &model_.open_node(
 			parent, spell(value.what, value.category, value.type, value.payload));
 		return value;
+	}
+	if (declared_constant && lowering() &&
+	    types_.kind(types_.strip_cv(entity.type)) == TypeKind::Pointer)
+	{
+		// 5.19p2: the other kind of constant such a member may be, and the one
+		// no number holds - what the fold came to is *which object* it
+		// designates, which the object file names by a symbol and an offset
+		// into it rather than by bits.  So what the name is worth here is the
+		// brace-or-equal-initializer the class wrote, read where the name
+		// stands: `&arr[2]` is the address of that element wherever it is
+		// written, and the storage 9.4.2p2's definition would have given the
+		// member is named by nothing at all.
+		const std::unordered_map<std::uint32_t, HeldInitializer>::const_iterator
+			held = member_initializers_.find(entity.id);
+		if (held != member_initializers_.end() && held->second.written != nullptr)
+		{
+			// 9.2p2: the initializer was written in the complete-class context
+			// its own class gives it, which is the region it is read against
+			// here as much as where the class was completed.
+			Context initializing = ctx;
+			initializing.scope = held->second.scope;
+			return initialize(*held->second.written, entity.type, initializing,
+			                  parent);
+		}
 	}
 	if (entity.kind == SemaKind::Function)
 	{
@@ -719,7 +754,7 @@ SemaAnalyzer::Value SemaAnalyzer::member_expression(const AstNode& node,
 		// what evaluating it comes to.
 		require_droppable(*object.node, id.text);
 		parent.children.pop_back();
-		return named_value(id, found_member, parent, &found);
+		return named_value(id, found_member, ctx, parent, &found);
 	}
 	// 9.5p1: the member belongs to the object the anonymous class declared,
 	// which is itself a member of the class named here, so the access the
@@ -987,7 +1022,7 @@ void SemaAnalyzer::member_callee(const AstNode& callee, const Context& ctx,
 		// reached without one, so it is left out only where that is what
 		// evaluating it comes to.
 		require_droppable(*object.node, id.text);
-		target = named_value(id, found_member, line, &found);
+		target = named_value(id, found_member, ctx, line, &found);
 		object = Value();
 		return;
 	}
@@ -2055,8 +2090,15 @@ SemaAnalyzer::Value SemaAnalyzer::unary_expression(const AstNode& node,
 	// template-id, which the expression layer answers.
 	SemaEntity* named = nullptr;
 	std::vector<SemaEntity*>* found = nullptr;
-	if (node.token == OP_AMP && written.kind == AstKind::IdExpression &&
-	    QualifiedName(written.text).qualified())
+	// 5.3.1p3 again, asked of every id-expression `&` is written on and not
+	// only of the qualified one: the result is a pointer to the *object* the
+	// operand names, so a name that would otherwise be worth the constant its
+	// declaration folded is read here as the storage that constant is the value
+	// of.  It is one question about this one operand, which is why it is asked
+	// here rather than carried down the reading.
+	const bool addressed =
+		node.token == OP_AMP && written.kind == AstKind::IdExpression;
+	if (addressed && QualifiedName(written.text).qualified())
 	{
 		found = &model_.open_overloads();
 		// 7.1.6.2p1: a nested-name-specifier that begins with a
@@ -2075,8 +2117,9 @@ SemaAnalyzer::Value SemaAnalyzer::unary_expression(const AstNode& node,
 	// A qualified name of anything else - a static member, a variable of a
 	// namespace, a function - is the operand `&` reads it as.
 	Value operand = named != nullptr
-		? named_value(written, *named, line, found)
-		: expression(written, ctx, line);
+		? named_value(written, *named, ctx, line, found, true)
+		: (addressed ? id_expression(written, ctx, line, true)
+		             : expression(written, ctx, line));
 	Value value;
 	// 13.5p1: a unary operator written on an operand of class or enumeration
 	// type is a call, whichever operator it is.

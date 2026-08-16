@@ -2347,7 +2347,8 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
 		// a type, so the expression layer is handed the answer rather than
 		// asking for it again.
 		target = callee.kind == AstKind::IdExpression
-			? named_value(callee, require(named, callee.text), line, found)
+			? named_value(callee, require(named, callee.text), ctx, line,
+			              found)
 			: expression(callee, ctx, line);
 		if (target.functions != nullptr && target.addressed == nullptr)
 		{

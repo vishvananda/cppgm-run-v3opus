@@ -1419,14 +1419,21 @@ private:
 	// what a line stands for are each written once.
 	Value dispatch_expression(const AstNode& node, const Context& ctx,
 	                          DumpNode& parent);
-	Value id_expression(const AstNode& node, const Context& ctx, DumpNode& parent);
+	Value id_expression(const AstNode& node, const Context& ctx,
+	                    DumpNode& parent, bool addressed = false);
 	// What an id-expression already resolved to denotes, which is where a
 	// caller that had to look the name up to know what it was written for -
 	// a call, which 5.2.3 lets name a type - spends the one lookup it takes.
 	// `found` is the set that lookup found, which for a function name is what
 	// 13.3 or 13.4 chooses from.
-	Value named_value(const AstNode& node, SemaEntity& entity, DumpNode& parent,
-	                  const std::vector<SemaEntity*>* found = nullptr);
+	// `addressed` is 5.3.1p3 asked before the name is read: whether what stands
+	// here is the *object* the name denotes rather than what it is worth.  The
+	// two part company at a constant a class declared: 3.2p2 makes reading its
+	// value no odr-use, so a read is the value and `&` is the storage.
+	Value named_value(const AstNode& node, SemaEntity& entity,
+	                  const Context& ctx, DumpNode& parent,
+	                  const std::vector<SemaEntity*>* found = nullptr,
+	                  bool addressed = false);
 	Value literal_expression(const AstNode& node, const Context& ctx,
 	                         DumpNode& parent);
 	// 2.14: the one line an analysed literal token is worth, which a literal

@@ -281,6 +281,27 @@ SemaConstant ConstexprReading::loaded(std::uint32_t address)
 	}
 	else if (!held.object->constant)
 	{
+		if (analyzer_.checking_ > 0 &&
+		    (analyzer_.types_.is_dependent(held.object->type) ||
+		     !held.object->covered_constant))
+		{
+			// 14.6p8: the object this address designates is a declaration of
+			// the pattern, and what it holds is what an argument list will say
+			// - `static constexpr bool values[] = { is_long<T>::value... };`
+			// has as many elements as the pack has and no value until then.  So
+			// the reading stands one value in its place, exactly as a name of
+			// dependent type takes one, and the specialization reads the object
+			// the arguments made.
+			++analyzer_.stood_in_;
+			SemaConstant stood;
+			stood.type = address_type(address);
+			stood.bits = 1;
+			if (stood.type == kNoType)
+			{
+				stood.type = analyzer_.types_.fundamental(FT_INT);
+			}
+			return stood;
+		}
 		throw NotConstant(held.object->name + " is not a constant expression",
 		                  held.object->covered_constant);
 	}
@@ -552,16 +573,43 @@ std::uint32_t ConstexprReading::pointed_object(const SemaConstant& value)
 	return static_cast<std::uint32_t>(value.bits);
 }
 
+// 4.2p1: whether the name is one of a declaration of array type.  The lookup is
+// the same one `designated` spends below and no walk of anything, so asking it
+// here costs one probe and saves a whole reading of the operand.
+bool ConstexprReading::named_array(const std::string& spelling,
+                                   const SemaContext& ctx) const
+{
+	SemaEntity* const named =
+		analyzer_.resolve(spelling, ctx, LookupKind::Any);
+	return named != nullptr &&
+		(named->kind == SemaKind::Variable ||
+		 named->kind == SemaKind::Parameter) &&
+		analyzer_.types_.kind(analyzer_.types_.strip_cv(named->type)) ==
+			TypeKind::Array;
+}
+
 // 5.2.1p1 and 5.7p5: the element a subscript names is one of an array or one a
 // pointer points into, and which of the two is what the left operand is.
 std::uint32_t ConstexprReading::array_object(const AstNode& node,
                                              const SemaContext& ctx,
                                              bool value_fallback)
 {
+	// 4.2p1: a *name* of array type is the array itself, and there is no
+	// pointer value of it to read - so the value reading below is asked only
+	// where what stands here could hold one.  `numbers[2]` over `int
+	// numbers[4];` is an address constant however little 5.19 knows of what the
+	// elements hold, and reading the name as a value would refuse it one step
+	// before the object is named.  It is asked of the declaration rather than
+	// of a walk, because the walk below is the one that names the object and
+	// doing it twice is what makes a nest of subscripts cost 2^depth.
+	const bool designates_array =
+		node.kind == AstKind::IdExpression &&
+		child_kind(node, AstKind::CarriedExpression) == nullptr &&
+		named_array(node.text, ctx);
 	// 5.19p2's own reading of a string literal stays where it is: its elements
 	// are read out of the literal and the array itself is an object of static
 	// storage duration, which is what `designated` answers for both.
-	if (node.kind != AstKind::Literal && value_fallback)
+	if (node.kind != AstKind::Literal && value_fallback && !designates_array)
 	{
 		const SemaConstant value = analyzer_.evaluate(node, ctx);
 		if (holds_address(value))

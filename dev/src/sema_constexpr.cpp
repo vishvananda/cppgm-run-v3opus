@@ -311,6 +311,7 @@ bool ConstexprReading::fold_declared_object(SemaEntity& entity,
 		// holds nothing, whoever asks.
 		return true;
 	}
+	const unsigned stood = analyzer_.stood_in_;
 	try
 	{
 		const std::vector<SemaConstant> none;
@@ -322,6 +323,19 @@ bool ConstexprReading::fold_declared_object(SemaEntity& entity,
 			: (analyzer_.types_.kind(bare) == TypeKind::Array
 				   ? array_of(bare, none)
 				   : object_of(bare, none));
+		if (analyzer_.checking_ > 0 && analyzer_.stood_in_ != stood)
+		{
+			// 14.6p8: the initializer names something an argument list has yet
+			// to settle - `static constexpr unsigned n = sizeof...(T);` where
+			// the pattern stands - so the reading stood a value in its place
+			// and what it arrived at is not what this declaration is worth.
+			// The declaration is left with no constant and the fact that this
+			// reading ran out, which is what stands a value in for the *name*
+			// wherever a later member of the pattern reads it.
+			entity.constant = false;
+			entity.covered_constant = false;
+			return false;
+		}
 		if (!static_address(value))
 		{
 			// 5.19p2: an address constant expression designates an object with
@@ -1472,11 +1486,18 @@ SemaConstant ConstexprReading::entity_constant(SemaEntity& entity,
 	}
 	if (!entity.constant)
 	{
-		if (analyzer_.checking_ > 0 && analyzer_.types_.is_dependent(entity.type))
+		if (analyzer_.checking_ > 0 &&
+		    (analyzer_.types_.is_dependent(entity.type) ||
+		     !entity.covered_constant))
 		{
 			// 14.6p8: what a name that depends on a template parameter is
 			// worth, an argument list is what says.  The reading stands one
 			// value in its place, as it does for the size of a dependent type.
+			// A declaration of the pattern whose own initializer this reading
+			// ran out on is the same answer one name further along: its type
+			// need not depend on anything - `static constexpr bool values[] =
+			// { is_long<T>::value... };` is an array of `bool` however long the
+			// pack is - and what it holds is still the arguments' to say.
 			++analyzer_.stood_in_;
 			SemaConstant stood;
 			stood.type = analyzer_.types_.fundamental(FT_INT);
