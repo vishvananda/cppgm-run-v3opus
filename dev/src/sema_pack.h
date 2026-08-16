@@ -186,6 +186,27 @@ TypeId bound_run(TypeTable& types, const std::vector<TypeId>& arguments,
 std::size_t function_pack_place(const TypeTable& types,
                                 const std::vector<SemaEntity*>& parameters);
 
+// 14.1p11 and 14.4p1: which run of a head an argument list writes out flat.
+//
+// 14.1p11 leaves a class template's pack last, but 14.8.2 deduces a function
+// template's head place by place, so `template<class... U, class... T>` is two
+// places each binding a run of its own.  One flat list cannot say where the
+// first run ends, and 14.4p1 keys the whole tier by that list - so a run stands
+// as *one* entry of it, except the run bound to the last place, which is what
+// every argument the places before it did not take comes to.
+//
+// This is the place whose run is written flat, or the number of places where
+// the last place binds no run.  Every list PA19 and the class tier build has
+// its pack there or nowhere, so they are read exactly as they were.
+std::size_t trailing_pack_place(const TypeTable& types,
+                                const std::vector<SemaEntity*>& parameters);
+
+// The argument the `index`th of `places` places takes from such a list: the run
+// itself where the place binds one, and `kNoType` where the list stopped short
+// of the place - which 14.1p9's default is what fills.
+TypeId place_argument(TypeTable& types, const std::vector<TypeId>& arguments,
+                      std::size_t index, std::size_t places, bool pack);
+
 // 8.3.5p10 and 14.5.3p4: the name the `index`th place of an expanded function
 // parameter pack is declared under.  The pack's own name is the first of them,
 // so a use of that name reaches the first place and the run is read off it.

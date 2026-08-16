@@ -1,0 +1,456 @@
+declare global @__external_rtti_vtable____class_type_info [binding=strong, object=_ZTVN10__cxxabiv117__class_type_infoE]
+declare function @operator_delete(%arg0 : ptr) -> void [unwind=no, binding=strong, object=cppgm_builtin_operator_delete]
+
+global @__typeinfo_name__struct_control_policy___policy_2_ [storage=readonly, binding=weak, object=_ZTS7controlI6policyLS0_2EE] = {
+  i8 55
+  i8 99
+  i8 111
+  i8 110
+  i8 116
+  i8 114
+  i8 111
+  i8 108
+  i8 73
+  i8 54
+  i8 112
+  i8 111
+  i8 108
+  i8 105
+  i8 99
+  i8 121
+  i8 76
+  i8 83
+  i8 48
+  i8 95
+  i8 50
+  i8 69
+  i8 69
+  i8 0
+}
+global @__rtti_struct_control_policy___policy_2_ [storage=readonly, binding=weak, object=_ZTI7controlI6policyLS0_2EE] = {
+  ptr addr @__external_rtti_vtable____class_type_info + 16
+  ptr addr @__typeinfo_name__struct_control_policy___policy_2_
+}
+global @control_policy___policy_2___vtable [storage=readonly, binding=weak, object=_ZTV7controlI6policyLS0_2EE] = {
+  i64 0
+  ptr addr @__rtti_struct_control_policy___policy_2_
+  ptr addr @control_policy___policy_2____control
+  ptr addr @control_policy___policy_2____control__deleting_entry
+  ptr addr @control_policy___policy_2___value
+}
+global @__typeinfo_name__struct_control_bool__true_ [storage=readonly, binding=weak, object=_ZTS7controlIbLb1EE] = {
+  i8 55
+  i8 99
+  i8 111
+  i8 110
+  i8 116
+  i8 114
+  i8 111
+  i8 108
+  i8 73
+  i8 98
+  i8 76
+  i8 98
+  i8 49
+  i8 69
+  i8 69
+  i8 0
+}
+global @__rtti_struct_control_bool__true_ [storage=readonly, binding=weak, object=_ZTI7controlIbLb1EE] = {
+  ptr addr @__external_rtti_vtable____class_type_info + 16
+  ptr addr @__typeinfo_name__struct_control_bool__true_
+}
+global @control_bool__true___vtable [storage=readonly, binding=weak, object=_ZTV7controlIbLb1EE] = {
+  i64 0
+  ptr addr @__rtti_struct_control_bool__true_
+  ptr addr @control_bool__true____control
+  ptr addr @control_bool__true____control__deleting_entry
+  ptr addr @control_bool__true___value
+}
+global @__typeinfo_name__struct_control_char__120_ [storage=readonly, binding=weak, object=_ZTS7controlIcLc120EE] = {
+  i8 55
+  i8 99
+  i8 111
+  i8 110
+  i8 116
+  i8 114
+  i8 111
+  i8 108
+  i8 73
+  i8 99
+  i8 76
+  i8 99
+  i8 49
+  i8 50
+  i8 48
+  i8 69
+  i8 69
+  i8 0
+}
+global @__rtti_struct_control_char__120_ [storage=readonly, binding=weak, object=_ZTI7controlIcLc120EE] = {
+  ptr addr @__external_rtti_vtable____class_type_info + 16
+  ptr addr @__typeinfo_name__struct_control_char__120_
+}
+global @control_char__120___vtable [storage=readonly, binding=weak, object=_ZTV7controlIcLc120EE] = {
+  i64 0
+  ptr addr @__rtti_struct_control_char__120_
+  ptr addr @control_char__120____control
+  ptr addr @control_char__120____control__deleting_entry
+  ptr addr @control_char__120___value
+}
+global @__typeinfo_name__struct_control_int___5_ [storage=readonly, binding=weak, object=_ZTS7controlIiLin5EE] = {
+  i8 55
+  i8 99
+  i8 111
+  i8 110
+  i8 116
+  i8 114
+  i8 111
+  i8 108
+  i8 73
+  i8 105
+  i8 76
+  i8 105
+  i8 110
+  i8 53
+  i8 69
+  i8 69
+  i8 0
+}
+global @__rtti_struct_control_int___5_ [storage=readonly, binding=weak, object=_ZTI7controlIiLin5EE] = {
+  ptr addr @__external_rtti_vtable____class_type_info + 16
+  ptr addr @__typeinfo_name__struct_control_int___5_
+}
+global @control_int___5___vtable [storage=readonly, binding=weak, object=_ZTV7controlIiLin5EE] = {
+  i64 0
+  ptr addr @__rtti_struct_control_int___5_
+  ptr addr @control_int___5____control
+  ptr addr @control_int___5____control__deleting_entry
+  ptr addr @control_int___5___value
+}
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $chosen : obj<8x8>
+  slot $flagged : obj<8x8>
+  slot $lettered : obj<8x8>
+  slot $negative : obj<8x8>
+  slot $cond__1 : i32
+  slot $land__2 : i64
+  slot $land__3 : i64
+  slot $land__4 : i64
+
+  block ^entry:
+    %t1 = addr $chosen
+    call void @control_policy___policy_2___control(%t1)
+    %t2 = addr $flagged
+    call void @control_bool__true___control(%t2)
+    %t3 = addr $lettered
+    call void @control_char__120___control(%t3)
+    %t4 = addr $negative
+    call void @control_int___5___control(%t4)
+    %t5 = addr $chosen
+    %t6 = load ptr %t5
+    %t7 = index i8 %t6, 16
+    %t8 = load ptr %t7
+    %t9 = call i32 %t8(%t5) as (%arg0 : ptr) -> i32
+    %t10 = cmp eq i32 %t9, 2
+    branch %t10, ^land_rhs_10, ^land_short_11
+
+  block ^land_rhs_10:
+    %t11 = addr $flagged
+    %t12 = load ptr %t11
+    %t13 = index i8 %t12, 16
+    %t14 = load ptr %t13
+    %t15 = call i32 %t14(%t11) as (%arg0 : ptr) -> i32
+    %t16 = cmp eq i32 %t15, 1
+    %t17 = cmp ne i64 %t16, 0
+    store i64 %t17, $land__4
+    jump ^land_end_12
+
+  block ^land_short_11:
+    store i64 0, $land__4
+    jump ^land_end_12
+
+  block ^land_end_12:
+    %t18 = load i64 $land__4
+    branch %t18, ^land_rhs_7, ^land_short_8
+
+  block ^land_rhs_7:
+    %t19 = addr $lettered
+    %t20 = load ptr %t19
+    %t21 = index i8 %t20, 16
+    %t22 = load ptr %t21
+    %t23 = call i32 %t22(%t19) as (%arg0 : ptr) -> i32
+    %t24 = cmp eq i32 %t23, 120
+    %t25 = cmp ne i64 %t24, 0
+    store i64 %t25, $land__3
+    jump ^land_end_9
+
+  block ^land_short_8:
+    store i64 0, $land__3
+    jump ^land_end_9
+
+  block ^land_end_9:
+    %t26 = load i64 $land__3
+    branch %t26, ^land_rhs_4, ^land_short_5
+
+  block ^land_rhs_4:
+    %t27 = addr $negative
+    %t28 = load ptr %t27
+    %t29 = index i8 %t28, 16
+    %t30 = load ptr %t29
+    %t31 = call i32 %t30(%t27) as (%arg0 : ptr) -> i32
+    %t32 = unary neg i32 5
+    %t33 = cmp eq i32 %t31, %t32
+    %t34 = cmp ne i64 %t33, 0
+    store i64 %t34, $land__2
+    jump ^land_end_6
+
+  block ^land_short_5:
+    store i64 0, $land__2
+    jump ^land_end_6
+
+  block ^land_end_6:
+    %t35 = load i64 $land__2
+    branch %t35, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t36 = load i32 $cond__1
+    %t37 = addr $negative
+    call void @control_int___5____control(%t37)
+    %t38 = addr $lettered
+    call void @control_char__120____control(%t38)
+    %t39 = addr $flagged
+    call void @control_bool__true____control(%t39)
+    %t40 = addr $chosen
+    call void @control_policy___policy_2____control(%t40)
+    return i32 %t36
+}
+function @control_policy___policy_2____control__deleting_entry(%this : ptr) -> void [unwind=no, binding=weak, object=_ZN7controlI6policyLS0_2EED0Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    eh_cleanup ^destructor_cleanup_1
+    %t1 = load ptr $this
+    %t2 = addr @control_policy___policy_2___vtable
+    %t3 = index i8 %t2, 16
+    store ptr %t3, %t1
+    eh_end
+    %t4 = load ptr $this
+    call void @operator_delete(%t4)
+    jump ^destructor_end_2
+
+  block ^destructor_cleanup_1:
+    %t5 = load ptr $this
+    call void @operator_delete(%t5)
+    eh_end
+    resume
+
+  block ^destructor_end_2:
+    return void
+}
+function @control_policy___policy_2____control(%this : ptr) -> void [unwind=no, binding=weak, object=_ZN7controlI6policyLS0_2EED1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = addr @control_policy___policy_2___vtable
+    %t3 = index i8 %t2, 16
+    store ptr %t3, %t1
+    return void
+}
+function @control_policy___policy_2___value(%this : ptr) -> i32 [unwind=no, binding=weak, object=_ZN7controlI6policyLS0_2EE5valueEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    return i32 2
+}
+function @control_policy___policy_2___control(%this : ptr) -> void [unwind=no, binding=weak, object=_ZN7controlI6policyLS0_2EEC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = addr @control_policy___policy_2___vtable
+    %t3 = index i8 %t2, 16
+    store ptr %t3, %t1
+    return void
+}
+function @control_bool__true____control__deleting_entry(%this : ptr) -> void [unwind=no, binding=weak, object=_ZN7controlIbLb1EED0Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    eh_cleanup ^destructor_cleanup_1
+    %t1 = load ptr $this
+    %t2 = addr @control_bool__true___vtable
+    %t3 = index i8 %t2, 16
+    store ptr %t3, %t1
+    eh_end
+    %t4 = load ptr $this
+    call void @operator_delete(%t4)
+    jump ^destructor_end_2
+
+  block ^destructor_cleanup_1:
+    %t5 = load ptr $this
+    call void @operator_delete(%t5)
+    eh_end
+    resume
+
+  block ^destructor_end_2:
+    return void
+}
+function @control_bool__true____control(%this : ptr) -> void [unwind=no, binding=weak, object=_ZN7controlIbLb1EED1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = addr @control_bool__true___vtable
+    %t3 = index i8 %t2, 16
+    store ptr %t3, %t1
+    return void
+}
+function @control_bool__true___value(%this : ptr) -> i32 [unwind=no, binding=weak, object=_ZN7controlIbLb1EE5valueEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    return i32 1
+}
+function @control_bool__true___control(%this : ptr) -> void [unwind=no, binding=weak, object=_ZN7controlIbLb1EEC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = addr @control_bool__true___vtable
+    %t3 = index i8 %t2, 16
+    store ptr %t3, %t1
+    return void
+}
+function @control_char__120____control__deleting_entry(%this : ptr) -> void [unwind=no, binding=weak, object=_ZN7controlIcLc120EED0Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    eh_cleanup ^destructor_cleanup_1
+    %t1 = load ptr $this
+    %t2 = addr @control_char__120___vtable
+    %t3 = index i8 %t2, 16
+    store ptr %t3, %t1
+    eh_end
+    %t4 = load ptr $this
+    call void @operator_delete(%t4)
+    jump ^destructor_end_2
+
+  block ^destructor_cleanup_1:
+    %t5 = load ptr $this
+    call void @operator_delete(%t5)
+    eh_end
+    resume
+
+  block ^destructor_end_2:
+    return void
+}
+function @control_char__120____control(%this : ptr) -> void [unwind=no, binding=weak, object=_ZN7controlIcLc120EED1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = addr @control_char__120___vtable
+    %t3 = index i8 %t2, 16
+    store ptr %t3, %t1
+    return void
+}
+function @control_char__120___value(%this : ptr) -> i32 [unwind=no, binding=weak, object=_ZN7controlIcLc120EE5valueEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    return i32 120
+}
+function @control_char__120___control(%this : ptr) -> void [unwind=no, binding=weak, object=_ZN7controlIcLc120EEC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = addr @control_char__120___vtable
+    %t3 = index i8 %t2, 16
+    store ptr %t3, %t1
+    return void
+}
+function @control_int___5____control__deleting_entry(%this : ptr) -> void [unwind=no, binding=weak, object=_ZN7controlIiLin5EED0Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    eh_cleanup ^destructor_cleanup_1
+    %t1 = load ptr $this
+    %t2 = addr @control_int___5___vtable
+    %t3 = index i8 %t2, 16
+    store ptr %t3, %t1
+    eh_end
+    %t4 = load ptr $this
+    call void @operator_delete(%t4)
+    jump ^destructor_end_2
+
+  block ^destructor_cleanup_1:
+    %t5 = load ptr $this
+    call void @operator_delete(%t5)
+    eh_end
+    resume
+
+  block ^destructor_end_2:
+    return void
+}
+function @control_int___5____control(%this : ptr) -> void [unwind=no, binding=weak, object=_ZN7controlIiLin5EED1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = addr @control_int___5___vtable
+    %t3 = index i8 %t2, 16
+    store ptr %t3, %t1
+    return void
+}
+function @control_int___5___value(%this : ptr) -> i32 [unwind=no, binding=weak, object=_ZN7controlIiLin5EE5valueEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    return i32 -5
+}
+function @control_int___5___control(%this : ptr) -> void [unwind=no, binding=weak, object=_ZN7controlIiLin5EEC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = addr @control_int___5___vtable
+    %t3 = index i8 %t2, 16
+    store ptr %t3, %t1
+    return void
+}
+alias object _ZN7controlI6policyLS0_2EED2Ev = @control_policy___policy_2____control
+alias object _ZN7controlI6policyLS0_2EEC2Ev = @control_policy___policy_2___control
+alias object _ZN7controlIbLb1EED2Ev = @control_bool__true____control
+alias object _ZN7controlIbLb1EEC2Ev = @control_bool__true___control
+alias object _ZN7controlIcLc120EED2Ev = @control_char__120____control
+alias object _ZN7controlIcLc120EEC2Ev = @control_char__120___control
+alias object _ZN7controlIiLin5EED2Ev = @control_int___5____control
+alias object _ZN7controlIiLin5EEC2Ev = @control_int___5___control

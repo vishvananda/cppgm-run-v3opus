@@ -713,6 +713,21 @@ void LowirUnitLowering::collect_definitions(const DumpNode& node)
 		         child.fact.entity->object_definition)
 		{
 			defined_.insert(global_symbol(*child.fact.entity));
+			const SemaEntity& object = *child.fact.entity;
+			if (object.instantiated_definition && !object.thread_storage &&
+			    !object.definition_required && object.region != nullptr &&
+			    object.region->kind == ScopeKind::Class)
+			{
+				// 14.7.1p1 and 3.2p3: the storage a static data member of a
+				// class template specialization stands in is laid out by a
+				// definition no unit wrote for these arguments, so it belongs
+				// to the program where the program reaches it - exactly as the
+				// body of a member function of the same specialization does.
+				// A member 9.4.2p3 makes a constant is then storage no unit
+				// holds until one reads it as an object, and an object of the
+				// class is what has already asked (`definition_required`).
+				deferred_[object.id] = &child;
+			}
 		}
 		else if (child.fact.kind == FactKind::Namespace)
 		{
@@ -733,6 +748,14 @@ void LowirUnitLowering::declaration(const DumpNode& node)
 		return;
 
 	case FactKind::Variable:
+		if (node.fact.entity != nullptr &&
+		    deferred_.find(node.fact.entity->id) != deferred_.end())
+		{
+			// 14.7.1p1: the storage an instantiation would lay out waits for
+			// the use that reaches it, which `collect_definitions` recorded it
+			// against.
+			return;
+		}
 		global_variable(node);
 		return;
 
@@ -2211,7 +2234,14 @@ void LowirUnitLowering::drain_demanded()
 		{
 			const DumpNode& node = *demanded_.back();
 			demanded_.pop_back();
-			function_definition(node);
+			if (node.fact.kind == FactKind::Variable)
+			{
+				global_variable(node);
+			}
+			else
+			{
+				function_definition(node);
+			}
 			continue;
 		}
 		// 12.4 and 5.3.5p3: a table named the ABI's third entry point over a
@@ -2342,6 +2372,9 @@ void LowirUnitLowering::declare_entity(const SemaEntity& entity)
 		add_function_declaration(entity);
 		return;
 	}
+	// 3.2p3: a use is what asks the program for the storage an instantiation
+	// lays out, so naming the object here is what writes its definition.
+	demand_definition(entity);
 	const std::string symbol = global_symbol(entity);
 	if (defined_.count(symbol) != 0 || !declared_.insert(symbol).second)
 	{

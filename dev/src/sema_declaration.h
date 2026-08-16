@@ -35,6 +35,7 @@ struct SemaContext
 		, dump(nullptr)
 		, node(nullptr)
 		, template_head(nullptr)
+		, instantiated_member(false)
 	{}
 
 	Scope* scope;
@@ -53,6 +54,13 @@ struct SemaContext
 	// from it that region is.  Null for a declaration no template-declaration
 	// parameterises, and for every reading nested inside one.
 	Scope* template_head;
+	// 14.5.1.3p1 with 14.7.1p1: whether this reading is an instantiation of a
+	// member definition written outside its class template - which 9.4.2p2
+	// makes the definition that lays a static data member's storage out.  What
+	// it says is that no unit wrote that definition for these arguments, so
+	// 3.2p3 puts the storage in the program where the program reaches it;
+	// 14.7.3p1's `template<>` is written out and is read with this false.
+	bool instantiated_member;
 };
 
 // The terminals a declaration was written from, which is what names an

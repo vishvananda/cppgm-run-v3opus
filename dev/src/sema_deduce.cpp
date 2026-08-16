@@ -416,12 +416,14 @@ bool Deduction::arguments_of(const SemaEntity& primary,
 			settled.find(parameters[index]->type);
 		if (bound != settled.end())
 		{
-			if (types.is_pack(bound->second) &&
-			    !types.is_pack_expansion(bound->second))
+			if (types.is_settled_run(bound->second) &&
+			    index + 1 == parameters.size())
 			{
 				// 14.5.3p1: the arguments of a specialization are one list,
-				// which a pack contributes its whole run to - so `f<int, char>`
-				// and a deduction that took the two are one argument list.
+				// which the *last* place contributes its whole run to - so
+				// `f<int, char>` and a deduction that took the two are one
+				// argument list.  A run at any earlier place stands as one
+				// entry, because a flat list could not say where it ended.
 				const std::vector<TypeId>& run =
 					types.pack_elements(bound->second);
 				out.insert(out.end(), run.begin(), run.end());
@@ -433,7 +435,13 @@ bool Deduction::arguments_of(const SemaEntity& primary,
 		if (types.is_template_pack(parameters[index]->type))
 		{
 			// 14.8.2.1p1: a pack the call reached with no argument at all is
-			// bound to a run of none rather than left unsettled.
+			// bound to a run of none rather than left unsettled - which the
+			// last place writes as no entries and every earlier one as the
+			// empty run standing at its own place.
+			if (index + 1 != parameters.size())
+			{
+				out.push_back(types.pack_type(std::vector<TypeId>()));
+			}
 			continue;
 		}
 		const std::unordered_map<std::uint32_t, const AstNode*>::const_iterator

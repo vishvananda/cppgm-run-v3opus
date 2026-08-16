@@ -2602,6 +2602,12 @@ void SemaAnalyzer::declare_object_declarator(const AstNode* initializer,
 		(!specifiers.is_extern ||
 		 (initializer != nullptr && !initializer->children.empty()));
 	entity.object_definition = entity.object_definition || defines_object;
+	// 14.7.1p1: a definition an instantiation read is one no unit wrote for
+	// these arguments, so the storage it lays out belongs to the program where
+	// the program reaches it.  14.7.3p1's `template<>` is written out and is
+	// this unit's own, which is what tells the two apart here.
+	entity.instantiated_definition = entity.instantiated_definition ||
+		(defines_object && ctx.instantiated_member);
 	// 10.4p2: a class with a pure final overrider has no objects, so the
 	// declarations that lay one out are refused.  9.4.2p2's declaration of a
 	// static data member lays none out - the definition written outside the
@@ -2617,6 +2623,11 @@ void SemaAnalyzer::declare_object_declarator(const AstNode* initializer,
 		// declaration a class writes of its static data member ask for nothing.
 		require_complete_type(type);
 		require_creatable_object(type, name);
+		// 3.2p3 with 14.7.1p1: laying out an object is what reaches every
+		// static data member the classes in it declare, whether or not a name
+		// here writes one - so this is where a specialization is asked for the
+		// storage its own definition would lay out.
+		demand_object_storage(type, types_, model_);
 	}
 	record_storage(entity, prior, specifiers, target, type);
 	// 9.4.2p2: a definition written with a nested-name-specifier declares

@@ -82,6 +82,29 @@ std::size_t function_pack_place(const TypeTable& types,
 	return parameters.size();
 }
 
+std::size_t trailing_pack_place(const TypeTable& types,
+                                const std::vector<SemaEntity*>& parameters)
+{
+	if (!parameters.empty() &&
+	    types.is_template_pack(parameters[parameters.size() - 1]->type))
+	{
+		return parameters.size() - 1;
+	}
+	return parameters.size();
+}
+
+TypeId place_argument(TypeTable& types, const std::vector<TypeId>& arguments,
+                      std::size_t index, std::size_t places, bool pack)
+{
+	if (pack && index + 1 == places)
+	{
+		// 14.5.3p1: the last place takes every argument the ones before it did
+		// not, which is a run of none where the list stopped at it.
+		return bound_run(types, arguments, index);
+	}
+	return index < arguments.size() ? arguments[index] : kNoType;
+}
+
 std::string pack_element_name(const std::string& name, std::size_t index)
 {
 	if (index == 0 || name.empty())
@@ -361,6 +384,14 @@ void names_in(const AstNode& node, std::vector<std::string>& out)
 	}
 	for (std::size_t index = 0; index < node.children.size(); ++index)
 	{
+		if (node.children[index]->kind == AstKind::PackExpansionExpression)
+		{
+			// 14.5.3p5: a pack named inside the pattern of an *inner* expansion
+			// is expanded by that one, so it says nothing about how long this
+			// run is - `sum(get<U>(t...)...)` is one reading per element of
+			// `U`, each of which reads the whole of `t`.
+			continue;
+		}
 		names_in(*node.children[index], out);
 	}
 }

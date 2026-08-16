@@ -197,3 +197,14 @@ std::size_t pack_place(const TemplateInfo& info);
 // specialization of a function template is, and so is every member of a class a
 // template-id named, however deeply the classes it belongs to nest.
 bool instantiated_declaration(const SemaEntity& function, TypeTable& types);
+
+// 3.2p3 with 14.7.1p1: laying out an object of `type` is what asks this unit
+// for the storage the static data members of the classes in it stand in.
+//
+// 14.7.1p1 instantiates a specialization's member *declarations* and leaves
+// their definitions to whatever reaches them, and an object is what reaches
+// every one of them: the bases and members it holds are objects of their own,
+// so the walk is over the tree the object is and not over the one class the
+// declaration named.  One visit per class - `SemaEntity::storage_demanded` -
+// so a unit laying out n objects of one class pays the walk once.
+void demand_object_storage(TypeId type, TypeTable& types, SemaModel& model);

@@ -1,7 +1,7 @@
 # PA20 Plan — `cppgm++ --emit-lowir` compile-time metaprogramming
 
-PA20 stands at **189 / 200** - 153 of the 164 checked-in fixtures and all 36
-under `cppgm.tests/course/pa20` - from a turn-start baseline of **185 / 196**,
+PA20 stands at **196 / 203** - 157 of the 164 checked-in fixtures and all 39
+under `cppgm.tests/course/pa20` - from a turn-start baseline of **189 / 200**,
 with pa1-pa19 at **2169 / 2169** and the file audit passing with the five
 header-weight warnings it inherited.
 
@@ -98,9 +98,14 @@ definition that omits the bound where an earlier declaration wrote one is a
 definition of *that* array and lays out as many elements as the declaration
 said.
 
-**An expansion is one reading per element.**  `sema_pack.h` owns it: the
+**An expansion is one reading per element, and the inner one owns its own
+packs.**  `sema_pack.h` owns it: the
 pattern is read again for each argument of the run, in a region binding the
-packs it names to that element, and nothing rewrites the pattern's syntax.  The
+packs it names to that element, and nothing rewrites the pattern's syntax.
+14.5.3p5 leaves a pack named inside the pattern of an *inner* expansion to that
+one, so `sum(get<U>(t...)...)` is one reading per element of `U`, each of which
+reads the whole of `t` - the names a run is counted from stop at a nested
+`pack-expansion-expression`.  The
 same reading answers from the three shapes a list is written in - a spelling
 (`expand`), a type a declarator or a substitution built (`expand_type`), and
 the tree a call's argument list holds (`run_of_node`) - so a run of n elements
@@ -130,10 +135,16 @@ names a pack; the second declares one place per element, and 8.3.5p10 names the
 first of them after the pack itself.  A run of *no* elements has no first place
 and is still a declaration, so the clause declares the run itself.
 
-**The object file writes the run the flat list cannot be split back into.**
-14.4p1 keys the tier by one flat argument list, and 14.5.3's run is one
-`<template-arg>` - `J...E` - with a place written `P...` encoded `Dp` of its
-pattern, so the place the run begins at is recorded beside the arguments.
+**A run that is not the last place is one entry of the argument list.**
+14.4p1 keys the tier by that list, and 14.1p11 leaves a *class* template's pack
+last - but 14.8.2 deduces a function template's head place by place, so
+`template<class... U, class... T>` binds two runs and one flat list cannot say
+where the first ended: `<char, short | int>` and `<char | short, int>` are two
+specializations of the same three types.  So the last place's run is written
+flat, which is every list PA19 and the class tier build, and every earlier run
+stands as one `Pack` entry (`place_argument`, `trailing_pack_place`).  The
+object file writes either the same way - `J...E` per run, with a place written
+`P...` encoded `Dp` of its pattern.
 
 **14.8.2 is a match, and `sema_deduce.h` owns it.**  A use of a function
 template names it without its arguments, so what makes a specialization is a
@@ -189,6 +200,25 @@ same way.  So
 14.1p9's default is read in a region that binds the places before it at *both*
 tiers: a type-id could be substituted afterwards, but 5.19's constant expression
 is evaluated where it stands and needs `A` to be a constant there.
+
+**A value argument carries the type it was converted to where its digits do
+not.**  14.3.2p1 makes an argument at a value place the value it was converted
+to, and the name a specialization is written under is built from that value -
+so 7.2p9's enumeration, which has no spelling of its own, is written as
+5.2.9p10's cast (`(policy)2`) and 2.14.6p1's `bool` as its own two literals.
+Every other arithmetic type is its digits, which is what `spell_value` already
+answered for a case label and a dump.
+
+**14.7.1p1 leaves the storage of a static data member to whatever reaches it.**
+The definition written outside a class template is one no unit wrote for any
+one argument list, so 3.2p3 puts what it lays out in the program where the
+program reaches it - exactly as the body of a member function of the same
+specialization already waits (`deferred_`).  Three things reach it: a name that
+is not folded away, an object of the class - 9.2p1's member and 10p1's base
+subobject are objects of their own, so `demand_object_storage` walks the tree
+the object is, once per class - and 14.7.3p1's `template<>`, which is written
+out and is this unit's own definition however little of the unit reaches it
+(`SemaContext::instantiated_member` tells that reading from an instantiation's).
 
 **14.1p4 reaches the object file too.**  An argument at a value place is an
 expression, so one no substitution has settled is written `X <expression> E` -
@@ -299,14 +329,14 @@ checking dialect is left with none of 12.1's members it is owed.
 
 ## Current Failure Map
 
-11 failing, grouped by what would fix them.
+7 failing, grouped by what would fix them.
 
 | group | n | owner |
 | --- | --- | --- |
+| 5.19 outside the integral subset: `B{}` at a value place, which is a class prvalue reaching 7.1.5's constexpr conversion function, and `array::max_size()` in a static member's initializer, which the reference folds to 64 where this milestone writes a `load` - both are 5.19p2's call of a constexpr function, which PA21 owns and which two fixtures already need | 2 | `sema_constant.cpp` |
+| 14.2's `<` inside an argument spelling that is 5.9's: `I<R<A>::v < R<B>::v, B, A>` does not parse, and `box<(traits::least < 0)>` written in a course fixture had to be spelled without the relational | 1 | `sema_name.cpp`, `sema_value_expression.cpp` |
 | 8.5.1p2's aggregate built as an object of its own where a member is an array: 8.3.5p5 leaves the class no by-value parameter list, so `T{item(0), item(1)}` for `struct array { T e[N]; }` has no constructor to call and the clauses have to initialize the subobjects where they stand | 1 | `sema_lifetime.cpp`, `sema_init_list.cpp` |
-| 5.19 outside the integral subset again: `B{}` at a value place, a static data member folded from a constexpr member call, and the `load` two more LowIR mismatches write where the reference folds | 3 | `sema_constant.cpp`, `sema_function.cpp` |
-| 14.1p11's *second* pack place in one head: a flat argument list cannot say where one run ends and the next begins, so `<class... U, class... T>` and a lockstep call over two independent packs deduce a list neither place can be bound from | 2 | `sema_deduce.cpp`, `sema_pack.cpp`, `type_model.h` |
-| five singletons: an alias rewrite whose `value_type` does not name a type; a value place naming an incomplete current instantiation; `&C::f` as an argument reaching an operator the lowering has no case for; a dependent qualified value naming a specialization of a variable template; an enum argument's vtable | 5 | mixed |
+| three singletons: an alias rewrite whose `value_type` does not name a type inside 14.5.1.3p1's out-of-class definition; a value place whose type names the current instantiation (`typename uint_for<Bits>::fast Poly`), which leaves an object of an incomplete class declared; and `&function_template` as a constructor argument, which reaches a unary operator the PA15 lowering has no case for | 3 | mixed |
 
 Outside the fixtures, the sweeps leave these shapes this milestone refuses where
 both oracles accept: 10.1p3's repeated base class, which is two subobjects a
@@ -329,14 +359,24 @@ constructor template written in a class body
 which is 12.1p1's name read without a head over it and not a list question; a
 decltype-specifier is outside the base-specifier grammar
 (`struct outer : decltype(mk())::inner`), which the reference refuses too; and
+14.8.1p2's explicit list does not *extend* a trailing run the call would
+deduce more of, so `template<class... T> int inner(T...)` named `inner<char>`
+and called with three arguments makes the one-element specialization and
+refuses the call - which the reference refuses too and g++ accepts; and
 12.1's constructor over a function parameter pack of *no* elements is not a
 candidate, so `template<class... A> struct s { s(A... a); };` and then `s<>`
 reports `no declaration of s accepts the arguments of a call` where both oracles
 build it - while the same head's member *function* over the same empty run, and
 the same constructor over a run of one or two, are right.
 
-Three stand the other way, where this milestone accepts or answers and one
-oracle does not: a redeclaration of a static data member with a *different*
+Four stand the other way, where this milestone accepts or answers and one
+oracle does not: two argument lists that flatten alike but split their runs
+differently - `split(types<char, short>(), 4)` beside
+`split(types<char>(), (short)1, 4)` for `template<class... A, class... R>` - are
+two specializations here and in g++, whose mangled names this compiler writes
+byte for byte, where the reference reuses the first and refuses the second call;
+that is why the course fixture writes the two with different flat lists.  A
+redeclaration of a static data member with a *different*
 element type is taken rather than refused (`static unsigned char b[];` then
 `int s::b[] = {...}`), which both oracles refuse and which is 3.3's matching and
 not 8.3.4p3's bound; `case 'ab' - 24672:` is folded here and in g++ where the
@@ -363,7 +403,11 @@ template; 14.7.3's explicit specialization of a function template is emitted
 enumeration reached through a `decltype` is mangled `N1S17__anonymous_enum1E`
 where the ABI writes `N1SUt_E`; and a static data member of a specialization of
 a template with a *non-type* parameter is a `load` here and in g++ where the
-reference folds the initializer.  Three shapes of the lowering's own writing
+reference folds the initializer.  One more is 14.7.1p1's storage read in the
+safe direction: a 9.4.2p3 constant read for its *value* inside a body still
+names the object at `declare_entity`, so `traits::least == -100` written in
+`main` lays out storage neither oracle lays out - a definition too many and
+never one too few.  Three shapes of the lowering's own writing
 differ without a fixture: an array whose list is shorter than its bound writes
 one `zero n` run at namespace scope where the reference writes n explicit
 elements; a *qualified* access to a base's member (`v.a::n`) writes a
@@ -375,32 +419,35 @@ checkpoint and none is a value the program can observe.
 
 ## Active Checkpoint
 
-**C10 - 8.5.1p2's aggregate as an object of its own, and the array member no
-parameter list carries.**  Selected because it is the one shape of 8.5.4 the
-milestone still leaves whole: a class whose member is an array has no by-value
-parameter list at all (8.3.5p5 adjusts an array parameter to a pointer), so
-`array<item, 2>{...}` as a prvalue - an argument, a temporary, a returned
-object - has no constructor to call and is refused where it stands, while the
-same class declared as a *named* object initializes its subobjects where they
-are and is right.
+**C11 - 5.19p2's call of a constexpr function, and the class prvalue that
+reaches one.**  Selected because it is the only group of more than one left and
+because it is the last thing 5.19 cannot read: `static constexpr size_type
+max_array_size = array::max_size();` is a `load` here where the reference folds
+64, and `box<B{}>` refuses a class prvalue whose conversion to `bool` is
+7.1.5's constexpr conversion function.  The README leaves constexpr function
+evaluation to PA21, and two of PA20's own fixtures need it.
 
-- **Owner.**  `sema_lifetime.cpp` for 12.2's temporary the clauses build, and
-  `sema_init_list.cpp` for 8.5.1p2's walk that already writes those subobjects
-  for a named object.
-- **Data flow.**  The class already answers `aggregate`, and the clause walk
-  already writes one `subobject-initialization` per member into a node the
-  caller gives it.  What is missing is the *storage* those steps are written
-  against when the object is a temporary rather than a declaration, so the
-  increment is one reading of 8.5.1's clauses against the temporary's own
-  object rather than a second walk.
-- **Expected complexity.**  One walk of the clauses per prvalue built, which is
-  the walk a named object of the same class already pays; nothing per member is
-  repeated and no constructor is declared.
-- **Validation.**  `100-aggregate-functional-braced-cast`,
-  `make test-report-through-pa19`, a differential sweep of the aggregate shapes
-  8.5.1 admits - an array member, a class member with no move constructor, a
-  nested aggregate, each as an argument, a temporary and a returned object -
-  against g++ and `pa20/cppgm++-ref`, and a valgrind run of each.
+- **Owner.**  `sema_constant.cpp`, which already walks an expression to a
+  `Constant` and already reads a call as 5.2.3p1's cast; the call of a function
+  is the other arm of that same node.
+- **Data flow.**  The callee's declaration carries `is_constexpr` and the body
+  the analysis already read, whose 7.1.5p3 form is one `return`; the arguments
+  are the constants this walk already makes, bound in a region of their own the
+  way 14.1p9's default already is, and the result is the same `Constant` every
+  other arm returns.  A class prvalue is 5.19p2's object with no bits, which is
+  what an implicit object argument of a constexpr member call needs and what
+  nothing declares.
+- **Expected complexity.**  One reading of one return expression per distinct
+  call, memoised by callee and argument list as `specialize` memoises a naming;
+  a depth guard, which the plan already owes `instantiate_class`, keeps a
+  recursive constexpr function from the machine stack.
+- **Validation.**  `100-static-constexpr-member-call-initializer` and
+  `100-dependent-bool-trait-nontype-argument`,
+  `make test-report-through-pa19`, a differential sweep of the constexpr shapes
+  7.1.5 admits - a call with no arguments, a call over a parameter, a recursive
+  call, a member call, a conversion function, and each of those written where
+  5.19 does *not* ask - against g++ and `pa20/cppgm++-ref`, a scaling row for a
+  chain of n calls, and a valgrind run of each.
 
 ## Performance Model
 
@@ -473,6 +520,9 @@ and its own floor is 0.608 s, which is subtracted from the numbers in its column
 | 256 / 1024 / 4096 casts back to a class through a base at byte 4 | 0.023 / 0.084 / **0.336 s** | 1.50 s at 4096 |
 | 256 / 1024 / 4096 specializations deriving from a settled base and a dependent one | 0.047 / 0.199 / **0.920 s** | 13.4 s at 4096 |
 | 512 / 2048 / 8192 arrays initialized by a string literal | 0.018 / 0.064 / **0.268 s** | 1.60 s at 8192 |
+| 256 / 1024 / 4096 calls deducing two runs in one head | 0.065 / 0.276 / **1.221 s** | 0.55 / 4.2 s |
+| 4096 objects of a class with a 64 / 512-deep base chain | 0.117 / **0.139 s** | - |
+| the same 4096 objects of a class with no base at all | **0.114 s** | - |
 
 The decltype table is one entry per *distinct* operand spelling and one hash
 lookup per naming, so the 512 / 2048 / 8192 row is linear in the spellings a
@@ -550,6 +600,21 @@ nothing else.  14.5.5.2p1's ordering is quadratic in the patterns that *match*,
 which the 64-deep row measures at 4096 comparisons; a use matches one or two in
 every shape a program writes.
 
+A head binding two runs costs one deduction and one specialization per call, so
+the row is linear at 256 / 1024 / 4096 - 4.4x per 4x, where each call also
+declares a class of its own - and the reference, which reuses the first split
+for every list that flattens alike, is 8x and 15x slower on the same programs.
+The run at every place but the last is one entry, so nothing is spliced and
+nothing rescanned: reading a bound list is one `place_argument` per place.
+
+3.2p3's demand for the storage a static data member stands in is one walk per
+*class* and not per object: 4096 objects of a class with a 512-deep base chain
+read 0.139 s where 4096 objects of a class with no base at all read 0.114 s, so
+the whole derivation costs 0.025 s once - the same 4096 objects over a 64-deep
+chain read 0.117 s, which is the 8x deeper tree costing 0.022 s more.  A
+declaration that lays out no object - a pointer, a reference, a typedef - asks
+nothing at all.
+
 Two shapes are not linear in what they walk, and both are the shape's own cost
 rather than a reading's: a type whose arguments *double* is exponential in the
 spelling, and 14.5.3p4's recursion over a pack walks argument lists whose lengths
@@ -587,3 +652,4 @@ base-specifier answers.
 | C8 audit | the dialect a character-literal is read in, which covers two facts and was moved for one: PA2's dump holds a c-char's code point and refuses a run of them where the language gives every ordinary literal a `char` and a run an `int`, so `CharacterLiterals` now settles both and `sizeof('\\xff')` is 1 rather than 4; 2.14.5p5's execution encoding became one implementation (`append_ordinary_units`) that a string literal's body and a character literal's both call, so `'aé'` is `0x61c3a9` rather than `0x61e9` and a first c-char above the ordinary range is refused as the reference refuses it; `literal_value` reads a literal's bytes with 3.9.1p1's sign, which a `char` literal could not reach before; 5.1.1p6's parentheses are stripped by the spelling reader as the tree already stripped them, so `p<("abc")[1]>` reads; and 2.14.8p3's literal operator template is asked before the raw operator, which is what the reference answers for the set that declares both | 176 / 191 -> **178 / 193** with two fixtures added; pa1-pa19 2169 / 2169; 112 swept shapes, every accepted pair writing the reference's LowIR but the one it drops a character ud-suffix on; unmoved from the `8dfad19a` build at 8192 literals, 8192 string bodies and 4096 ud-literals; valgrind clean |
 | C9 | 10p1's base-specifier-list of more than one entry, and the tree it makes: `SemaEntity::bases` and `Scope::bases` as lists, one subobject placed per entry, 10.2p2's lookup asking each base and refusing the name two of them answer, 12.6.2p10's construction in list order and 12.4p8's destruction in the reverse, 14.5.3p4's expansion reaching the ctor-initializer - the parse now records the `...` a mem-initializer wrote and the list is read once per element in the region binding its packs - 10.1p3's repeated base refused where the class is completed, which is what makes every walk of the tree one visit per class, and the ABI's `__vmi_class_type_info` for a class the one public base at the start of the object does not describe.  4.10p3's conversion now asks 14.7.1p1 for the definition of the specialization it converts.  8.5.2's string literal initializing an array of character type became its own owner (`sema_string_init.h`), read the same way from a declaration, a clause and 8.3.4p3's bound; and 10p1's derivation became one (`sema_derivation.h`), which is what freed the header ceiling `sema_analyzer.h` was at | 178 / 193 -> **185 / 196** with three fixtures added; pa1-pa19 2169 / 2169; 29 base-clause shapes and 9 string-literal shapes swept against g++ and the reference, every accepted pair writing the reference's LowIR but the two shapes it already wrote differently; linear at 1600 classes, 1024 direct bases, a base pack of 1024 and 8192 string arrays where the reference is 33-67x slower; valgrind clean |
 | C9 audit | the byte a base subobject stands at, at every reader that had only seen zero: 5.2.9p11's cast back to a derived class wrote no step, so `static_cast<C*>(q)` through the second base of `C : A, B` held the subobject's address and a member read through it stood past the end of the object; 11.2p4's access was asked of the region an *expression* was read in, which is given back before an initialization converts, so `B* p = this;` inside the class that named a protected base was refused with every other conversion written as an initializer, a return, a clause or a bound reference; 10.3p1 refused a dispatching base that was not the only base rather than one that does not begin where the object does, so a polymorphic first base beside a plain one - the ABI's own primary base - was refused with the shapes that owe a thunk; 12.6.2p2's index was keyed by the last component of a mem-initializer-id, so `struct both : n1::part, holder::part` initialized one base twice; and 14.6.2p3 was a fact of the base-clause where it is a fact of each specifier, so a settled base beside a dependent one was left off 3.4.1's search | 185 / 196 -> **189 / 200** with four fixtures added; pa1-pa19 2169 / 2169; 77 base-class and conversion shapes and 12 string shapes swept against g++ and the reference, every accepted pair writing the reference's LowIR but the offset-zero step it folds; linear at 1600 classes, 1024 direct bases, a base pack of 1024, 6400 conversions and 4096 casts back, with 10.1p3's own check quadratic in a derivation that adds a base per level and recorded as such; valgrind clean |
+| C10 | 14.1p11's *second* place binding a run, and the two things the argument list it makes had never carried: a run that is not the last place stands as one entry of the list (`place_argument`, `trailing_pack_place`), so `<class... U, class... T>` tells `<char, short \| int>` from `<char \| short, int>` and writes each the ABI's own `J...E J...E`; 14.5.3p5 leaves a pack named inside an inner expansion to that one, so `sum(get<U>(t...)...)` is one reading per element of `U`; 14.8.1p2's explicit list fills a non-trailing pack as the run it is; 14.3.2p1's value argument carries the type it was converted to where its digits would not say which value it is - `(policy)2` and `true`; and 14.7.1p1 leaves the storage a static data member stands in to whatever reaches it, which is a name, an object of the class (`demand_object_storage`) or 14.7.3p1's own `template<>` | 189 / 200 -> **196 / 203** with three fixtures added; pa1-pa19 2169 / 2169; 26 pack shapes, 12 value-argument spellings and 12 storage shapes swept against g++ and the reference, every accepted pair writing g++'s own mangled names; linear at 4096 two-run calls where the reference is 15x slower, and one walk per class rather than per object at 4096 objects over a 512-deep chain; valgrind clean |

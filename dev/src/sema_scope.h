@@ -588,6 +588,17 @@ struct SemaEntity
 	// joins what the end of the unit writes rather than waiting for an ask that
 	// has already been made.
 	bool definition_required;
+	// 14.7.1p1: whether the definition this declaration makes was read by an
+	// instantiation rather than written out by the program.  9.4.2p2's
+	// definition of a static data member is the one that lays out its storage,
+	// and one 14.7.3p1's `template<>` wrote for these arguments is this unit's
+	// however little it reaches - while one a pattern was read again for
+	// belongs to the program where the program reaches it.
+	bool instantiated_definition;
+	// 3.2p3 with 14.7.1p1: whether an object of this class has already asked
+	// its static data members for the storage they stand in, which is one visit
+	// per class however many objects of it a unit lays out.
+	bool storage_demanded;
 	// 14.2 and the ABI's `<template-args>`: the arguments that made this
 	// specialization, as the interned list `TypeTable::type_list` keys a fact
 	// about one by.  Zero - the empty list - for every declaration no

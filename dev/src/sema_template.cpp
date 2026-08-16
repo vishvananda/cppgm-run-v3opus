@@ -92,19 +92,19 @@ SemaEntity& SemaAnalyzer::specialize(SemaEntity& primary,
 		std::unordered_map<TypeId, TypeId> bindings;
 		const std::vector<SemaEntity*>& parameters =
 			primary.template_parameters->declarations;
-		// 14.5.3p1: the places before the pack take the arguments one for one,
-		// and the pack takes the run of every argument after them.
-		const std::size_t places = function_pack_place(types_, parameters);
-		for (std::size_t index = 0; index < places && index < arguments.size();
-		     ++index)
+		// 14.5.3p1: the places take the arguments one for one, and the last
+		// place takes the run of every argument the others did not - which is
+		// what an earlier place binding a run wrote as one entry of its own.
+		for (std::size_t index = 0; index < parameters.size(); ++index)
 		{
-			bindings.insert(std::make_pair(parameters[index]->type,
-			                               arguments[index]));
-		}
-		if (places < parameters.size())
-		{
-			bindings.insert(std::make_pair(parameters[places]->type,
-			                               bound_run(types_, arguments, places)));
+			const TypeId took = place_argument(
+				types_, arguments, index, parameters.size(),
+				types_.is_template_pack(parameters[index]->type));
+			if (took == kNoType)
+			{
+				continue;
+			}
+			bindings.insert(std::make_pair(parameters[index]->type, took));
 		}
 		std::unordered_map<TypeId, TypeId> memo;
 		made = &model_.create(SemaKind::Function, primary.name,
@@ -230,6 +230,19 @@ SemaEntity* SemaAnalyzer::template_specializations(const std::string& spelling,
 		}
 		if (!packed && arguments.size() > places.size())
 		{
+			continue;
+		}
+		if (packed && fixed + 1 < places.size() && arguments.size() >= fixed)
+		{
+			// 14.8.1p2 with 14.1p11: a pack that is *not* the last place takes
+			// every argument the list wrote past the places before it, and the
+			// places after it are still the use's to deduce - so the run stands
+			// as one entry of the list, which is what says where it ended.
+			const std::vector<TypeId> run(arguments.begin() + fixed,
+			                              arguments.end());
+			arguments.resize(fixed);
+			arguments.push_back(types_.pack_type(run));
+			found.push_back(&partial_template(*at, arguments));
 			continue;
 		}
 		// 14.8.1p2 with 14.5.3p1: a list that stopped at the pack place gave the
@@ -1726,6 +1739,11 @@ void SemaAnalyzer::instantiate_member(SemaEntity& specialization,
 		return;
 	}
 	const EnclosedBy enclosed(specialization.scope, region);
+	// 14.7.1p1: this head parameterises the definition, so what the reading
+	// lays out is a definition no unit wrote for these arguments.  14.7.3p1's
+	// `template<>` declares no place at all and is read above, where it is the
+	// definition the program itself wrote.
+	inner.instantiated_member = true;
 	declaration(*member.declaration, inner);
 }
 
@@ -2293,6 +2311,47 @@ bool instantiated_declaration(const SemaEntity& function, TypeTable& types)
 		}
 	}
 	return false;
+}
+
+void demand_object_storage(TypeId type, TypeTable& types, SemaModel& model)
+{
+	// 8.3.4p1: an array is as many objects as it has elements, so what is asked
+	// about is the element; a pointer or a reference lays out no object of what
+	// it names and asks for nothing.
+	TypeId at = types.strip_cv(type);
+	while (types.kind(at) == TypeKind::Array)
+	{
+		at = types.strip_cv(types.target(at));
+	}
+	SemaEntity* const owner = types.is_class(at) ? model.type_owner(at) : nullptr;
+	if (owner == nullptr || owner->scope == nullptr || owner->storage_demanded)
+	{
+		return;
+	}
+	owner->storage_demanded = true;
+	for (std::size_t index = 0; index < owner->bases.size(); ++index)
+	{
+		demand_object_storage(owner->bases[index].entity->type, types, model);
+	}
+	const std::vector<SemaEntity*>& members = owner->scope->declarations;
+	for (std::size_t index = 0; index < members.size(); ++index)
+	{
+		SemaEntity& member = *members[index];
+		if (member.kind != SemaKind::Variable)
+		{
+			continue;
+		}
+		if (member.region != nullptr && member.object_definition)
+		{
+			// 9.4.2p2: the definition written outside the class is what lays
+			// the storage out, and this object is what reaches it.
+			member.definition_required = true;
+			continue;
+		}
+		// 9.2p1: a non-static data member is an object of every object of this
+		// class, so the classes in *its* type are reached here too.
+		demand_object_storage(member.type, types, model);
+	}
 }
 
 // 3.2p3 and 14.7.1p1: naming a function inside a body an instantiation made is

@@ -871,9 +871,11 @@ void build_function_name(const SemaEntity& entity, TypeTable& types,
 		// 14.5.3p1: a function template's places are declarations rather than a
 		// `TemplateInfo`, so the place its run begins at is read off them - the
 		// same question `specialize` asked to bind the run in the first place.
+		// A run at any earlier place already stands as one entry of the list,
+		// so it is written `J...E` by the walk over the entries themselves.
 		const std::vector<SemaEntity*>& places =
 			templated->template_parameters->declarations;
-		const std::size_t packed = function_pack_place(types, places);
+		const std::size_t packed = trailing_pack_place(types, places);
 		argument_refs(types, types.type_list_at(entity.template_arguments),
 		              packed < places.size() ? static_cast<unsigned>(packed)
 		                                     : TypeTable::kNoPackPlace,

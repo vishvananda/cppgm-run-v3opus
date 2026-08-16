@@ -1,0 +1,82 @@
+global @object_of_it [binding=strong, object=_Z12object_of_it] = {
+  zero 1
+}
+global @pointed : ptr [binding=internal, object=_ZL7pointed] = addr @addressed_int__9___taken
+global @held_int__7___kept : i32 [binding=weak, object=_ZN4heldIiLi7EE4keptE] = 7
+global @addressed_int__9___taken : i32 [binding=weak, object=_ZN9addressedIiLi9EE5takenE] = 9
+global @written_4___bytes [binding=weak, object=_ZN7writtenILi4EE5bytesE] = {
+  u8 1
+  u8 2
+  u8 3
+  u8 4
+}
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $cond__1 : i32
+  slot $land__2 : i64
+  slot $land__3 : i64
+  slot $land__4 : i64
+
+  block ^entry:
+    %t1 = unary neg i32 100
+    %t2 = cmp eq i32 -100, %t1
+    branch %t2, ^land_rhs_10, ^land_short_11
+
+  block ^land_rhs_10:
+    %t3 = const i64 4
+    %t4 = convert sext i64 i32 4
+    %t5 = cmp eq i64 %t3, %t4
+    %t6 = cmp ne i64 %t5, 0
+    store i64 %t6, $land__4
+    jump ^land_end_12
+
+  block ^land_short_11:
+    store i64 0, $land__4
+    jump ^land_end_12
+
+  block ^land_end_12:
+    %t7 = load i64 $land__4
+    branch %t7, ^land_rhs_7, ^land_short_8
+
+  block ^land_rhs_7:
+    %t8 = load ptr @pointed
+    %t9 = load i32 %t8
+    %t10 = cmp eq i32 %t9, 9
+    %t11 = cmp ne i64 %t10, 0
+    store i64 %t11, $land__3
+    jump ^land_end_9
+
+  block ^land_short_8:
+    store i64 0, $land__3
+    jump ^land_end_9
+
+  block ^land_end_9:
+    %t12 = load i64 $land__3
+    branch %t12, ^land_rhs_4, ^land_short_5
+
+  block ^land_rhs_4:
+    %t13 = cmp eq i32 7, 7
+    %t14 = cmp ne i64 %t13, 0
+    store i64 %t14, $land__2
+    jump ^land_end_6
+
+  block ^land_short_5:
+    store i64 0, $land__2
+    jump ^land_end_6
+
+  block ^land_end_6:
+    %t15 = load i64 $land__2
+    branch %t15, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t16 = load i32 $cond__1
+    return i32 %t16
+}

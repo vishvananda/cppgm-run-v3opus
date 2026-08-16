@@ -289,11 +289,31 @@ std::string SemaAnalyzer::type_spelling(TypeId type) const
 			break;
 
 		case TypeKind::Value:
+		{
 			// 14.3.2p1: an argument at a value place is spelled as what it is
 			// worth, which is what a specialization's own name is built from -
 			// so `Box<3>` is one name however the 3 was written.
-			out += spell_value(types_.target(at), types_.value_bits(at));
+			//
+			// What it is worth includes the type it was converted to wherever
+			// the digits alone would not say which value it is: 7.2p9 leaves an
+			// enumeration's value no spelling of its own, so it is written as
+			// 5.2.9p10's cast to the enumeration, and 2.14.6p1 gives `bool` two
+			// literals of its own rather than the 0 and 1 it converts to.
+			const TypeId of = types_.target(at);
+			const unsigned long long bits = types_.value_bits(at);
+			if (types_.kind(of) == TypeKind::Enum)
+			{
+				out += "(" + types_.user_qualified_name(of) + ")";
+			}
+			else if (types_.kind(of) == TypeKind::Fundamental &&
+			         types_.fundamental_type(of) == FT_BOOL)
+			{
+				out += bits != 0 ? "true" : "false";
+				break;
+			}
+			out += spell_value(of, bits);
 			break;
+		}
 
 		case TypeKind::Function:
 		{
@@ -512,25 +532,20 @@ Scope& SemaAnalyzer::open_template_bindings(const TemplateInfo& info,
 {
 	Scope& bindings = model_.open(ScopeKind::TemplateParameters, *info.region,
 	                              nullptr, info.dump);
-	const std::size_t places = pack_place(info);
-	for (std::size_t index = 0; index < places && index < arguments.size();
-	     ++index)
+	for (std::size_t index = 0; index < info.parameters.size(); ++index)
 	{
-		if (info.parameters[index].name.empty())
+		// 14.5.3p1: a pack's name stands for the whole run the list left it,
+		// which is one entry of the type table and not one binding per element
+		// - so `sizeof...` and every expansion of it read the same fact.
+		const TypeId took =
+			place_argument(types_, arguments, index, info.parameters.size(),
+			               info.parameters[index].pack);
+		if (took == kNoType || info.parameters[index].name.empty())
 		{
 			continue;
 		}
-		bind_argument(bindings, info.parameters[index].name,
-		              arguments[index], SemaKind::Typedef);
-	}
-	if (places < info.parameters.size() &&
-	    !info.parameters[places].name.empty())
-	{
-		// 14.5.3p1: the pack's name stands for the whole run the list left it,
-		// which is one entry of the type table and not one binding per element
-		// - so `sizeof...` and every expansion of it read the same fact.
-		bind_argument(bindings, info.parameters[places].name,
-		              bound_run(types_, arguments, places), SemaKind::Typedef);
+		bind_argument(bindings, info.parameters[index].name, took,
+		              SemaKind::Typedef);
 	}
 	return bindings;
 }
