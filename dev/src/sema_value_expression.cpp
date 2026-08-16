@@ -38,14 +38,6 @@ bool is_name_char(char c)
 		(c >= '0' && c <= '9') || c == '_' || c == '$';
 }
 
-// The end of a balanced run that `spelling[at]` opens, which is the one scan
-// `sema_type_id.cpp` asks of a spelling too and is answered in one place.
-std::string::size_type balanced_end(const std::string& spelling,
-                                    std::string::size_type at)
-{
-	return spelling_balanced_end(spelling, at);
-}
-
 // 2.14.3 and 2.14.5: the end of a literal that opens at `at`, which is the one
 // spelling that holds a quote and an escape rather than a run of name
 // characters.
@@ -82,6 +74,26 @@ bool is_encoding_prefix(const std::string& word)
 		word == "u8R";
 }
 
+// 2.11p1's identifier written on its own, which is the only spelling that can
+// name 14.1p4's place: a head declares a place under an identifier and 14.6.1p1
+// binds it under that identifier, so a qualified name or a template-id names
+// something else and there is nothing for that question to find in one.
+bool names_one_identifier(const std::string& word)
+{
+	if (word.empty() || (word[0] >= '0' && word[0] <= '9'))
+	{
+		return false;
+	}
+	for (std::string::size_type at = 0; at < word.size(); ++at)
+	{
+		if (!is_name_char(word[at]))
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
 // True where the word is one of 2.14's literals rather than a name: a quoted
 // run, an encoding-prefix before one, or a run of digits.
 bool is_literal_word(const std::string& word)
@@ -113,6 +125,10 @@ const std::size_t kOperatorCount = sizeof(kOperators) / sizeof(kOperators[0]);
 bool split_value_expression(const std::string& spelling,
                             std::vector<std::string>& out)
 {
+	// Which `<` of the spelling opens 14.2's list is a fact of the whole of it,
+	// so the reading is made once here and asked at each run the split steps
+	// over - the same one scan `sema_type_id.cpp` makes of a type-id.
+	const AngleReading angles(spelling);
 	std::string::size_type at = 0;
 	while (at < spelling.size())
 	{
@@ -184,7 +200,7 @@ bool split_value_expression(const std::string& spelling,
 				      spelling.compare(start, at - start, "decltype") == 0)))
 				{
 					const std::string::size_type closed =
-						balanced_end(spelling, at);
+						angles.balanced_end(at);
 					if (closed != std::string::npos)
 					{
 						at = closed;
@@ -1047,11 +1063,14 @@ TypeId SemaAnalyzer::template_argument_value(const std::string& spelling,
 		throw NotConstant(spelling + " is not a constant expression this "
 		                  "milestone reads as a template argument");
 	}
-	if (words.size() == 1)
+	if (words.size() == 1 && names_one_identifier(words[0]))
 	{
 		// 14.6.1p1: a name that stands for a place stands for it in an argument
 		// list too, which is what makes the template's own definition name its
-		// own specialization.
+		// own specialization.  Only an identifier can be that name, and asking
+		// the lookup of anything else is the whole reading of that name made a
+		// second time - which over `W<W<W<3>::v>::v>::v` is a reading per level
+		// doubled at every level below it.
 		SemaEntity* const named = resolve(words[0], ctx, LookupKind::Any);
 		if (named != nullptr && !named->constant &&
 		    types_.parameter_value_type(named->type) != kNoType)

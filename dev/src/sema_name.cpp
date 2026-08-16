@@ -333,14 +333,20 @@ bool opens_template_arguments(const std::string& spelling,
 std::string::size_type spelling_balanced_end(const std::string& spelling,
                                              std::string::size_type at)
 {
+	return AngleReading(spelling).balanced_end(at);
+}
+
+std::string::size_type AngleReading::balanced_end(
+	std::string::size_type at) const
+{
+	const std::string& spelling = *spelling_;
 	if (spelling[at] == '<')
 	{
-		const AngleReading angles(spelling);
-		if (!angles.opens(at))
+		if (!opens(at))
 		{
 			return std::string::npos;
 		}
-		const std::string::size_type end = angles.list_end(at);
+		const std::string::size_type end = list_end(at);
 		if (end != std::string::npos)
 		{
 			return end;
@@ -383,8 +389,7 @@ std::string::size_type spelling_balanced_end(const std::string& spelling,
 				continue;
 			}
 		}
-		if (angled && c == '<' && at != opened &&
-		    !opens_template_arguments(spelling, at))
+		if (angled && c == '<' && at != opened && !opens(at))
 		{
 			continue;
 		}

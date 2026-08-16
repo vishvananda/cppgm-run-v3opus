@@ -18,163 +18,112 @@ the specialization it names, and the definition a program wrote for one.
 | C9 | `964bc63d` | 5 / 5 + 1 perf | **the tree a derivation became, which C9 built and the four readers of one base were left reading a chain.**  10p1's list gives a base subobject a byte of its own, and every reader that had only ever seen offset zero kept the answer it had: 5.2.9p11's cast back to a derived class wrote *no* step at all, so `static_cast<C*>(q)` where `C : A, B` held the address of the `B` subobject and a member read through it stood past the end of the object - the reference writes `index i8 %t, -4` there, and the same was true of a single base a class had put after its own vpointer since PA17.  11.2p4's access was asked of `reading_`, which is set while an *expression* is read and given back before the initialization converts it, so every conversion to a non-public base written as a declaration's initializer, a return, an aggregate clause or a bound reference was refused - `B* p = this;` inside the class that named the base among them, where both oracles accept.  10.3p1's refusal covered a base subobject that dispatches *and is not the only one* rather than one that does not begin where the object does, so a polymorphic first base beside a plain second - which the ABI lays out as its own primary base and needs no thunk - was refused with the shapes that do owe one.  12.6.2p2's index was keyed by the last component of the mem-initializer-id, which is not a name of a base once a class can have two: `struct both : n1::b, n2::b` reported `initializes n2::b twice`.  And 14.6.2p3 was made a fact of the whole base-clause, so a settled base beside a dependent one was left off 3.4.1's search and `struct A { int a; }; template<class T> struct C : A, T { int f() { return a; } };` named nothing.  The perf finding is 10.1p3's own check: it is quadratic in a derivation that adds a base per level, 0.011 / 0.049 / 0.154 / 0.584 s at 100 / 400 / 800 / 1600 levels |
 | C10 | `9196229b` | 3 / 3 | **the packs a pattern is written over, which C10 settled at one of the three readings that ask it.**  14.5.3p5 leaves a pack named inside an *inner* expansion to that expansion, and C10 answered it at the tree - so `sum(get<U>(t...)...)` reads once per element of `U` while the same shape written in 14.2's argument list, where the pattern is text, still counted `t`: `list<list<A, B...>...>` was refused as `a pack expansion names two parameter packs of different lengths` where both oracles read it, and a pattern whose *only* pack an inner expansion already took was accepted where both refuse.  5.3.3p5's `sizeof...` is the same question and neither reading asked it, so `f(x, sizeof...(A))...` and `nums<(N + sizeof...(A))...>` were runs of two packs of different lengths.  Behind that, 3.2p3's demand for the storage an instantiation lays out was made at 9.2p1's non-static data member, which lays out no object of its own and is met before the definition it looks for has been read: `struct holds { later<int> m; };` with no object of `holds` laid out storage the reference does not, and the same class with the definition written after it *latched* and laid out none where the reference does.  And 14.3.2p1's refusal of a type where a value belongs was asked of every pack the pattern names rather than of the argument each element is, so `sizes<sizeof(T)...>` was refused with `T...` |
 | C11 | `51f8f135` | 1 / 1 | **the two things written *inside* a spelling rather than beside it, which the reading C11 built its fourth shape on could not see.**  A parameter-declaration became the fourth reading of which packs a pattern is over, and it asks `names_in` - the reading over a tree.  But a template-id is one terminal of that tree, so `list<A, B...>` carries its own `...` and `pair2<A, sizeof...(B)>` its own `sizeof...` in one node's *text*, where a rule answered by node kind reaches neither: both were counted as packs this run is over, so `list<A, B...>... p` and `pair2<A, sizeof...(B)>... p` in a parameter clause were refused as two packs of different lengths where g++ reads them - and so was `count(list<A, B...>()...)` in a call, at the very reading C10 changed, where the reference and g++ both read it.  The tree reading reads each node's text the way an argument list's is read now, so the spelling, the tree, the parameter-declaration and the type a substitution rebuilds answer alike |
-
 | C12 | `80cefaed` | 5 / 5 + 1 perf | **the object a constant expression builds, which C12 gave one initialization and every class type.**  5.2.3p2/p3's `T(x)` and `T{x}` were read as 8.5.1p2's clauses - one per member in declaration order - which is what an *aggregate* takes them as, and 8.5.1p1 leaves no class that declares 12.1's constructor one: `constexpr` was never read off a constructor at all, so `S(3)` with `S(int v) : a(v * 2)` was the object holding 3 where both oracles hold 6, `S(int v) : a(v), b(v + 1)` held `3, 0` where both hold `3, 4`, a default constructor's `a(9)` held 0, and a two-parameter constructor of a one-member class was refused as writing "more initializers than S has members".  8.3.6's default-argument was no part of the list a fold reads at any of its three exits, so `f(1)` where `f(int, int = 10)` was refused where both oracles accept and `f()` where `f(int a = 2)` wrote a `role=init` function and the definition of `@f` where the reference writes the value in the image and nothing else.  12.3.2p1's conversion was a fallback rather than a choice - the first constexpr conversion function reaching *any* arithmetic type where none reached the place - so a class declaring `operator char` beside `operator int` answered at a `long` place where both oracles refuse the ambiguity.  The answer of a fold was carried on the resolved node whatever it was, and an object's bits are the identifier of its interned subobject list, which is no value at all to the readers of one.  And 5.2.5p1 had no reading, so an object of a class one of whose members is a class - `wrapped { pair held; }`, the checkpoint's own fixture - could be converted and never taken apart.  The perf finding is 12.6.2p2's index: the ctor-initializer was scanned once per member, 0.394 / 1.400 s at 4096 / 8192 members against 0.191 / 0.479 s with the list indexed once, which is what declaring the class costs with the fold taken away |
+| C13 | `a3a74360` | 2 / 2 + 3 recorded | **the reading C13 made a fact of the whole spelling, made again at every run of it.**  Which `<` opens 14.2's list is settled once per spelling and asked at each of the runs `split_type_id` and `split_value_expression` step over - but the reading was built inside `spelling_balanced_end`, which is the *per-run* question, so a spelling naming k template-ids paid k readings of the whole of it: 0.05 / 0.16 / 0.53 s at 1024 / 2048 / 4096 against 0.00 / 0.01 / 0.02 s with the one reading handed in.  Behind it, `template_argument_value` asked 14.6.1p1's question - does this lone word name a place? - with a lookup of *any* single word, and for `W<3>::v` that lookup is the whole reading of the name, so every value argument was read twice and a nest of them doubled at every level: `W<W<...W<3>::v...>::v>::v` 24 deep took 43.5 s where the reference is flat, and 0.00 s once the question is asked only of 2.11p1's identifier that could answer it |
 
 ## Current Checkpoint Review
 
-C12 gave 5.19p2 the two operands its arithmetic cannot answer: a call, whose
-answer is a *body*, and 5.2.3p2/p3's object of literal class type, which is
-what a value place reaches an integral type from through 12.3.2p1.  Both are
-`sema_constexpr.h`'s because what they walk is a function definition and its
-region, which is neither of the two operand walks' business.
+C13 gave the semantic layer back what PA10's flattening dropped.  A name arrives
+as the terminals the parse matched with the spaces gone, so
+`I<R<A>::v < R<B>::v, B, A>` holds nothing that tells 14.2's list from 5.9's
+operator one character at a time; `AngleReading` settles it from the one fact
+the spelling still holds - a name writes no `>` that closes nothing - and
+respells the argument it hands on with the separator phase 7 wrote, because the
+`>` that settled the question is not in that run.  Beside it, 3.4.1p8 puts a
+definition's initializer where its declarator-id reaches, and `place_type` is
+given the function tier's places so `template<class T, T v>` settles at both.
 
-The reading is right where it stands.  The body is 7.1.5p3's grammar exactly,
-re-read per distinct argument list in a region of its own over the one the
-declarator opened, and `SemaEntity::constexpr_body` is recorded where the
-definition is *met*, which is what lets a member function defined in a class
-body answer a call written in the same class.  The answer is keyed by the
-callee and `TypeTable::type_list` of the converted arguments - 13.1's own key -
-so `fac(12)`, `fib(40)` and a chain 2040 deep are each n readings and not 2^n,
-and `folding_depth` turns a chain past the guard into a refusal where the
-reference is a SIGSEGV.  An object interned as a `TypeKind::Value` over the
-list of what its subobjects hold makes `S{5}` written twice one entry, and
-`{`/`}` joining the balanced runs a spelling is scanned by puts the comma in
-`A<S{1, 2}>` where 8.5.1 wrote it.
+The reading is right where it stands.  Sixty-six shapes were swept against g++
+and `pa20/cppgm++-ref` on this review: `<`, `<=`, `<<` and their parenthesized
+`>=`/`>>` twins written between literals, between named constants, between
+`sizeof`s and between template-ids; a list of two arguments each holding one;
+an operator before a template-id and after one; a dependent `N < 4` written at
+a typedef, a base-specifier, a parameter type and an expansion's pattern; a
+type argument that is a function type, an array or a `decltype`; a
+partial-specialization pattern; a two-unit program; and the same names read in
+`--emit-types` and `--emit-semantics`.  Every pair both oracles accept writes
+the reference's own LowIR entries, every mangled name is g++'s byte for byte,
+and each `.ref` under `pa20/tests` was regenerated from the reference binary
+and did not move.  3.4.1p8 reaches a member typedef, a nested class, an
+enumerator, a base's enumerator, a static data member, a shadowed name and a
+class template's out-of-class definition alike, and the line each writes still
+stands where the definition was written.
 
-What the review found is that the object half of that increment was given one
-initialization - 8.5.1p2's, which 8.5.1p1 leaves to an aggregate alone - and
-handed every class type; that 8.3.6's default-argument reached none of the
-three exits a fold's argument list has; and that an object nothing may read a
-member of is one only a conversion function can use.
-
-### Findings
-
-**1. 5.2.3p2/p3 read every class as an aggregate.**  `object_of` mapped the
-written clauses onto the non-static data members in declaration order and
-value-initialized the rest, which is 8.5.1p2 and is the whole of what a class
-that declares a constructor of its own is *not* initialized by.  Behind it,
-`special_member` read `explicit`, `inline` and `virtual` off a constructor's
-member-specifiers and not 7.1.5p1's `constexpr`, so no constructor had a body a
-fold could reach and the aggregate walk answered for all of them:
-
-| shape at a value place | before | `pa20/cppgm++-ref` | g++ |
-| --- | --- | --- | --- |
-| `S(3)`, `S(int v) : a(v * 2)` | 3 | 6 | 6 |
-| `S(3)`, `S(int v) : a(v), b(v + 1)` | 300 | 304 | 304 |
-| `S()`, `S() : a(9)` | 0 | 9 | reads `S()` as a type-id |
-| `S(3, 4)`, one member and two places | "more initializers than S has members" | 7 | 7 |
-| `S{}` where a member is private | its zero | refused | refused |
-| `S(3)` with a body that calls | 3 | refused | a C++14 extension |
-| `S(v)` where a member no mem-initializer reaches | its zero | refused | refused |
-
-8.5p16's direct-initialization is what those take, so `object_from_constructor`
-is the second half of the one reading: 13.3.1.3 chosen by the arity `chosen`
-already ranks by, the mem-initializers read in a region binding the places, in
-12.6.2p10's declaration order with each settled member a binding of that region
-so `b(a + 1)` names `a` and 8.3.5p10's place of that name still shadows it, and
-the answer held under the very key a call of a function is.  7.1.5p4 refuses a
-member no mem-initializer reaches and a body that is more than 7.1.5p3's
-declarations, which is what the reference refuses in the same words.
-
-**2. 8.3.6's default-argument was no part of the list a fold reads**, at each
-of the three exits a call's argument list has - `chosen`'s arity, the
-conversion `call` makes of each argument, and `finish_call`'s guard.  So a call
-that stops short of a place was refused in a constant expression
-(`f(1)` where `f(int, int = 10)`), and one written at namespace scope was not
-folded at all: `static const int v = f();` wrote `@v = zero`, a `role=init`
-function and the definition of `@f` where the reference writes `@v = 3` and
-emits neither.  `passed_arguments` is now the one reading of that list, and it
-reads 8.3.6p9's expression in the region the declaration stood in, so a call
-that writes an argument and one that lets the default stand for it are one
-fold under one key.
-
-**3. 12.3.2p1's conversion was a fallback and not a choice.**  `converted` took
-the first constexpr conversion function that reached any arithmetic type where
-none reached the place itself, so `struct S { operator char(); operator int(); }`
-at a `long` place answered with whichever was declared first - where the
-reference and g++ both refuse it as the ambiguity 13.3.3p1 makes it.  A class
-offering two that reach the place only through a further conversion is refused
-now; one that reaches it exactly is still the best there is.
-
-**4. An object a fold answered with was carried as a value.**  `finish_call`
-marked the resolved node constant with the answer's bits whatever the callee
-returned, and an object's bits are the identifier of the interned list of its
-subobjects - a number `SemaFact::value` means a value by, which is what
-`LowirUnitLowering::folded` writes into the image and what `demand_referenced`
-stops at.  Only a call whose result is arithmetic carries what it folded to.
-
-**5. 5.2.5p1 had no reading, so the object could only be converted.**  A class
-one of whose members is a class - `wrapped { pair held; }`, which the
-checkpoint's own fixture declares - was an object nothing could take apart:
-`held.v` reached the tree reading's default arm and `s.get()` reached the arm
-that wants an id-expression before the parentheses.  Both are one lookup
-(`member_named`, which is the expression layer's own 5.2.5p1) over the object
-the left operand came to, and a member function found that way is `call`'s
-`object` - the parameter the conversion-function path had been the only caller
-of.
-
-**6. 12.6.2p2's index was a scan per member.**  The ctor-initializer was walked
-once for each member, which is the n^2 `read_mem_initializers` records itself as
-not doing: 0.394 s at 4096 members and 1.400 s at 8192, against 0.191 / 0.479 s
-with the list indexed once - the same pair of runs, so the ratio is the finding.
-Re-measured on this review's final build the row is **0.095 / 0.204 s**, which
-is what the class costs to declare with the fold taken away.
-
-C11's own checkpoint review follows, for the reading the fourth shape was built
-on.
-
-C11 made 14.5.3p4's pattern one reading wherever it stands.  A
-parameter-declaration was the last shape still building the type *once* and
-expanding that, which is right for `A...` and `A*...` and wrong for every
-pattern an instantiation makes: `wrap<A>...` substituted first names one
-`wrap<` run `>`, and `TypeTable::substitute` has no `Class` case to take it back
-apart.  So `PackReading::read_places` reads the decl-specifier-seq and the
-declarator again per element in that element's region, and `substitute_entry`
-binds the written pattern's places to one element each rather than substituting
-the run into the pattern.
-
-The reading is right where it stands.  Runs of 0 / 1 / 2 / 3 over a
-specialization pattern, its pointer, reference, const-reference, member and
-nested-specialization spellings, an unnamed place, fixed places before the pack,
-two heads writing two runs into one clause, a forwarding call, a declaration
-followed by its definition, 14.8.2.4p9's ordering against a non-pack head and a
-two-unit program were swept against g++ and the reference on this review: every
-accepted pair writes the reference's own LowIR entries and every mangled name is
-g++'s byte for byte, including `_Z1fIJEEiDp4wrapIT_E` for the empty run and
-`_Z1fIiEi4wrapIT_E` where the non-pack head wins - against the reference's own
-`z` the plan already records.  `substitute_entry`'s per-element loop is
-load-bearing rather than a second spelling of the old one (17 substitutions on
-the checkpoint's own fixture) and falls back to the structural rebuild where a
-place the pattern names is unbound.
-
-What the review found is that the reading C11 built its fourth shape on cannot
-see what a *spelling* writes inside one node, so C10's rule reached the two
-nodes a program writes an expansion at and not the text a template-id is.
+What the review found is that the reading is a fact of the whole spelling and
+was built as though it were a fact of one run, at both the layers that ask it -
+once per `<` in the splitters, and once more per level in the reading of a
+value argument, which is a doubling rather than a repeat.
 
 ### Findings
 
-**1. 14.5.3p5 and 5.3.3p5 were answered by node kind, and a template-id is one
-node.**  PA10 flattens a template-id into the text of the node that stands for
-it - one decl-specifier, one callee - so `list<A, B...>` writes its inner `...`
-and `pair2<A, sizeof...(B)>` its `sizeof...` inside that text.  `names_in`
-scanned every identifier out of it, so both counted as packs the *enclosing*
-expansion is over, and the parameter-declaration reading C11 added inherited
-that answer whole:
+**1. `spelling_balanced_end` read the whole spelling again at every `<`.**
+`split_type_id` and `split_value_expression` walk one spelling and ask for the
+end of each balanced run they step over.  C13 answered that question by
+constructing an `AngleReading` of the whole spelling inside it, so the one scan
+those splitters make became one scan per run:
 
-| shape | before | `pa20/cppgm++-ref` | g++ |
+| an argument naming k template-ids | 1024 | 2048 | 4096 |
 | --- | --- | --- | --- |
-| `count(list<A, B...>()...)` in a call | two packs of different lengths | accepted | accepted |
-| `list<A, B...>... p` in a parameter clause | two packs of different lengths | its own reading zips the two | accepted |
-| `pair2<A, sizeof...(B)>... p` in a parameter clause | two packs of different lengths | its own substitution fails | accepted |
-| the same clause where the two runs are equally long | accepted, and right | zips them | accepted |
-| `held<list<A, B...>...>` in an argument spelling | accepted, and right | accepted | accepted |
-| `count(list<B...>()...)`, whose only pack the inner one took | refused, and right | accepted | refused |
+| before | 0.05 s | 0.16 s | **0.53 s** |
+| after | 0.00 s | 0.01 s | **0.02 s** |
+| with a distinct specialization each | 0.04 s | 0.09 s | **0.21 s** |
 
-`names_in` reads each node's text with `spelled_names_in` now, which is the
-reading 14.2's argument list already had: the operand each inner `...` was
-written after is left out and `sizeof...` is left out with the name it counts.
-The four shapes of the one reading - a spelling, a tree, a parameter-declaration
-and a type a substitution rebuilds - therefore answer alike, and a pattern that
-names no pack of its own is still refused at every one of them, which is the
-last row.
+`AngleReading::balanced_end` is the member now and the two splitters make the
+one reading their walk asks - which is what the reading already claimed to be.
+The scan that member falls back to asks that reading rather than the character
+test, so the `<` inside a run and the `<` that opened it are answered by one
+question at that exit too.
+
+**2. A value argument was read twice, and a nest of them doubled at every
+level.**  `template_argument_value` asks 14.6.1p1's question - does this
+spelling *name* a place, rather than compute from one? - by looking a lone word
+up before reading the words.  For a word like `W<3>::v` that lookup is the whole
+reading of the name, argument list and all, so the argument was read once to
+ask the question and once to answer it:
+
+| a value argument nested d deep | 16 | 20 | 24 | 256 | 1024 |
+| --- | --- | --- | --- | --- | --- |
+| before | 0.41 s | 4.71 s | **43.46 s** | - | - |
+| after | 0.00 s | 0.00 s | **0.00 s** | 0.03 s | **0.42 s** |
+| `pa20/cppgm++-ref` | 0.00 s | 0.00 s | 0.00 s | 0.30 s | 7.01 s |
+
+`W<W<W<3>::v>::v>::v` made 2^(d+1)-1 readings of its arguments where it owes
+d+1.  14.1p4 declares a place under an identifier and 14.6.1p1 binds it under
+that identifier, so only 2.11p1's identifier can be the name that question is
+about; a qualified name or a template-id names something else and there is
+nothing in one for it to find.  Asking it of an identifier alone leaves the
+reading one per level.
+
+**3. A `<` between two template-ids is quadratic in PA10's parse, and the
+checkpoint's own row does not say so.**  C13 recorded `0.06 s` for 4096 of
+5.9's operators in one argument list, which is the cost with *literals* on
+either side.  With the operands the fixture writes - `W<0>::v < W<1>::v` - the
+list costs 0.12 / 1.71 / **27.35 s** at 256 / 1024 / 4096, and `--emit-ast`
+alone accounts for 1.63 of the 1.71 s: the backtracking that tells the two
+readings apart flattens the token range of each candidate name, which is 44M
+tokens flattened at 1024 against 2.8M at 256.  The same list with no operator in
+it is 0.01 / 0.04 s and the same operators between literals are 0.00 / 0.00 s,
+so it is the pair that costs.  The owner is `ast_parser_name.cpp` and
+`AstTokenStream::flatten`, which is PA10's parse and not this milestone's
+layer - and the reference is past 300 s on the shape this compiler takes 27 s
+on - so it is recorded in the performance model rather than rewritten from an
+audit of this checkpoint.
+
+**4. The reference writes `Tn <type>` before a function template's non-type
+argument, and g++ does not.**  `f<char, 66>()` over `template<class T, T v>` is
+`_Z1fIcLc66EEiv` here and in g++ and `_Z1fIcTnT_Lc66EEiv` in the reference; the
+same holds for a place typed by an earlier one, for two value places, for a
+value pack and for a default filling one.  The class tier agrees with the
+reference on all five, so the disagreement is the function tier's alone.
+
+**5. The `<` no `>` can put back is a class of spellings and not one of them.**
+The plan recorded `K<J<a < b> >`.  The sweep leaves the shape general: wherever
+a template-argument-list holds a template-id whose *own* argument holds 5.9's
+operator, both readings balance the flattened spelling and only a lookup of the
+inner name tells them apart - `Nm<A<a < b>::n>::n` and
+`P<A<a < b>, A<b < a> >` among them, which the reference reads and this
+compiler refuses.  The reading picks the one where the inner `<` opens, because
+the backward pass settles each suffix greedily and the forward walk replays it;
+picking the other way would answer these and lose the shapes where the inner
+name really is a template.  Nothing in a spelling decides it, which is why it
+stands in the failure map under the flattening rather than under this reading.

@@ -63,6 +63,23 @@ public:
 	std::string spelled(std::string::size_type from,
 	                    std::string::size_type to) const;
 
+	// The end of the balanced run the spelling opens at `at`, one past its
+	// closer, or `npos` where the run does not close.  8.1p1's type-id and
+	// 5.19's constant expression each write three of them - a
+	// template-argument-list, a parenthesized expression or parameter-clause, a
+	// subscript - and each may hold the others.
+	//
+	// 5.1.1p6's parentheses and 5.2.1p1's subscript hold 5's whole expression
+	// grammar, so a `<` or `>` inside one is an operator however it is spelled:
+	// a run of either is stepped over whole, and an argument list that would
+	// have to reach past the group it stands in to close never opened.
+	//
+	// It is a member because the reading above is what says which `<` opens
+	// anything, and that reading is a fact of the whole spelling: a splitter
+	// that walks a spelling run by run makes this one reading and asks it once
+	// per run, rather than reading the spelling again at each of them.
+	std::string::size_type balanced_end(std::string::size_type at) const;
+
 private:
 	void resolve();
 
@@ -74,16 +91,8 @@ private:
 	std::vector<std::string::size_type> ends_;
 };
 
-// The end of the balanced run `spelling[at]` opens, one past its closer, or
-// `npos` where the run does not close.  8.1p1's type-id and 5.19's constant
-// expression each write three of them - a template-argument-list, a
-// parenthesized expression or parameter-clause, a subscript - and each may hold
-// the others.
-//
-// 5.1.1p6's parentheses and 5.2.1p1's subscript hold 5's whole expression
-// grammar, so a `<` or `>` inside one is an operator however it is spelled: a
-// run of either is stepped over whole, and an argument list that would have to
-// reach past the group it stands in to close never opened.
+// `AngleReading::balanced_end` for a caller with one run to ask about, which
+// pays for the reading of the spelling that answers it.
 std::string::size_type spelling_balanced_end(const std::string& spelling,
                                              std::string::size_type at);
 

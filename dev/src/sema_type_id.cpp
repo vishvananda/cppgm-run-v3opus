@@ -29,15 +29,6 @@ bool is_name_char(char c)
 		(c >= '0' && c <= '9') || c == '_' || c == '$';
 }
 
-// 8.1p1's type-id writes three balanced runs - a template-argument-list, a
-// parameter-clause, an array bound - and each may hold the others, which is one
-// scan of a spelling and belongs beside the one that splits a name.
-std::string::size_type balanced_end(const std::string& spelling,
-                                    std::string::size_type at)
-{
-	return spelling_balanced_end(spelling, at);
-}
-
 // 7.1.6.3p1: the class-key or `enum` an elaborated-type-specifier is written
 // with, and the name after it.  False for every other type-specifier-seq,
 // which is nearly all of them - a spelling that holds no space at all cannot
@@ -73,6 +64,11 @@ bool split_elaborated(const std::string& written, std::string& key,
 // what reads them.  False for a spelling that does not close what it opened.
 bool split_type_id(const std::string& spelling, std::vector<std::string>& out)
 {
+	// 8.1p1's type-id writes three balanced runs - a template-argument-list, a
+	// parameter-clause, an array bound - and each may hold the others.  Which
+	// `<` opens one is a fact of the whole spelling, so the reading is made
+	// once here and asked at each run rather than remade at every `<`.
+	const AngleReading angles(spelling);
 	std::string::size_type at = 0;
 	while (at < spelling.size())
 	{
@@ -108,7 +104,7 @@ bool split_type_id(const std::string& spelling, std::vector<std::string>& out)
 				     spelling.compare(start, at - start, "decltype") == 0))
 				{
 					const std::string::size_type closed =
-						balanced_end(spelling, at);
+						angles.balanced_end(at);
 					if (closed == std::string::npos)
 					{
 						return false;
@@ -251,7 +247,7 @@ TypeId SemaAnalyzer::template_argument_type(const std::string& spelling,
 TypeId SpelledTypeId::decltype_specifier(const std::string& spelling)
 {
 	const std::string::size_type open = spelling.find('(');
-	const std::string::size_type close = balanced_end(spelling, open);
+	const std::string::size_type close = spelling_balanced_end(spelling, open);
 	if (close == std::string::npos)
 	{
 		throw std::runtime_error(spelling + " is not a type-id this milestone "

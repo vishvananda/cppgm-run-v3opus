@@ -1,13 +1,11 @@
 # PA20 Plan — `cppgm++ --emit-lowir` compile-time metaprogramming
 
 PA20 stands at **222 / 224** - 172 of the 174 checked-in fixtures and all 50
-under `cppgm.tests/course/pa20`, four of them added this turn - from a
-turn-start baseline of **215 / 220**,
-with pa1-pa19 at **2169 / 2169** and the file audit passing with the five
-header-weight warnings it inherited.  Every `.ref` was regenerated from
-`pa20/cppgm++-ref` through `make -C pa20 ref-test` on the C12 audit turn and
-none has moved since, so every fixture holds the reference's own answer and not
-this compiler's.
+under `cppgm.tests/course/pa20` - with pa1-pa19 at **2169 / 2169** and the file
+audit passing with the five header-weight warnings it inherited.  Every `.ref`
+was regenerated from `pa20/cppgm++-ref` through `make -C pa20 ref-test` on the
+C13 audit turn and none moved, so every fixture holds the reference's own answer
+and not this compiler's.
 
 The milestone gives PA19's template tier what 14.4p1 keys it by: an argument
 list, whose entries are types, 14.3.2p1's *values* and 14.5.3p1's *runs* alike -
@@ -87,7 +85,14 @@ decisions from the level it stands at - a name's outermost `<` always opens, an
 argument's may not.  It costs the one scan the readers were making anyway
 wherever the runs do close, which is nearly every name.  A run handed on out of
 one - 14.2's argument - is respelled with the separator phase 7 wrote, because
-the `>` that settled the question is no longer in it.
+the `>` that settled the question is no longer in it.  Being a fact of the whole
+spelling, it is *made* once per spelling: `AngleReading::balanced_end` is the
+per-run question the splitters ask of that one reading, and both
+`split_type_id` and `split_value_expression` make it where they begin their
+walk rather than at each run of it.  What a spelling *names* is the same fact
+made once: 14.1p4 declares a place under an identifier, so 14.6.1p1's question
+about a lone word is asked only of one, and a word that is a qualified name or
+a template-id is read rather than looked up first and read after.
 
 **An operand a spelling cannot answer for is asked of the parse.**
 7.1.6.2p1's decltype-specifier holds an expression, so the parse keeps the tree
@@ -228,13 +233,18 @@ of a variadic function template whose trailing pack no argument reaches, does no
 strip 14.8.2.1p2's top-level cv-qualifier on P, and reads a `...` written inside
 a *nested* declarator (`A (*... p)(int)`) as one place.  **PA10's parse** reads
 `sizeof(value_type)` written in an out-of-class member definition as 5.3.3's
-expression, because the name is a type only in the class the declarator-id
-names - so the operand has to be a type the enclosing region also declares.
+expression, because the name is a type only in the region the declarator-id
+names - so the operand has to be a type the enclosing region also declares,
+which `sizeof(value_type *)` is and `sizeof(E)` and a namespace's own
+`sizeof(ty)` are not.
 **The flattening**
-loses a `<` no `>` can put back: `K<J<a < b> >` flattens to a spelling both
-readings balance, and only a lookup of `J` and of `a` tells them apart, so the
-inner one is read as 14.2's list; PA10's own parse refuses `I<R<A>::v < 5>` and
-five neighbours outright, which the reference refuses too.  **Outside the
+loses a `<` no `>` can put back wherever a template-argument-list holds a
+template-id whose *own* argument holds 5.9's operator: `K<J<a < b> >`,
+`Nm<A<a < b>::n>::n` and `P<A<a < b>, A<b < a> >` each flatten to a spelling
+both readings balance, and only a lookup of the inner name tells them apart, so
+the inner `<` is read as 14.2's list and the reference reads all three where
+this compiler refuses them.  PA10's own parse refuses `I<R<A>::v < 5>` and five
+neighbours outright, which the reference refuses too.  **Outside the
 subsets:**
 15's try block, 5.5's `.*`, a template template parameter, a dependent array
 bound in an argument spelling (`s<T[N]>`), a specialization's body naming its own
@@ -259,7 +269,10 @@ compiler** on `arity=variadic` and a trailing `z` for every parameter clause
 writing `specialization... name`; on four pattern shapes it refuses
 (`pair_of<A, A>...`, `s<wrap<A>...>*`, `list<A, B...>...`, and such a head chosen
 by a function-pointer target); on two argument lists that flatten alike but split
-their runs differently; on `case 'ab' - 24672:` and a definition omitting a bound
+their runs differently; on `Tn <type>` written before every non-type argument a
+*function* template's list carries (`_Z1fIcTnT_Lc66EEiv` there against g++'s and
+this compiler's `_Z1fIcLc66EEiv`), which it does not write at the class tier;
+on `case 'ab' - 24672:` and a definition omitting a bound
 an earlier declaration wrote; on 10.2p6's ambiguous inherited name and 11.2p4's
 conversion to a private base outside every class that reaches it; on laying out
 *every* static data member of a specialization one of whose members is named; on
@@ -278,7 +291,11 @@ namespace scope that an earlier declaration wrote `extern` is written
 linkage; and a name a fold answered, written beside a literal in a longer unit,
 stands as the value itself where the reference writes a `copy` of it into a
 temporary first - a shape no fixture pins and none of the probes reproduce on
-its own.
+its own; and an unsettled non-type argument that is *compound* is written as the
+type of the place it names rather than as `X <expression> E`, so
+`g(A<sizeof(T) < 4>)` is `1AIT_E` here where g++ and the reference both write
+`1AIXltstT_Li4EEE` - the bare `S<N>` the C4 audit fixed being the only shape
+`expression_of` (`lowir_abi.cpp`) has a record for.
 
 ## Active Checkpoint
 
@@ -318,8 +335,9 @@ translation unit is **0.004 s**, so a row below is the shape's own cost.  A
 harness that spawns a process of its own per run reads this machine's floor as
 0.11 s; it is not one, and the `pa20/cppgm++-ref` wrapper adds ~0.6 s of its own
 before the reference binary starts, which is subtracted from its column.  Rows
-are re-measured whenever the checkpoint touches the path they time; the ones
-below were all taken on this turn's build.
+are re-measured whenever the checkpoint touches the path they time; the ones the
+C13 audit's two fixes time were re-measured on its build and the rest carry
+forward from the turn that took them.
 
 | shape | here | `pa20/cppgm++-ref` |
 | --- | --- | --- |
@@ -352,13 +370,27 @@ below were all taken on this turn's build.
 | 512 / 2048 / 8192 distinct multicharacter literals | 0.008 / 0.018 / **0.058 s** | 0.649 s at 8192 |
 | an aggregate of 2^15 / 2^17 subobjects | 1.483 / **6.713 s** | - |
 | 14.5.3p4's recursion over a pack of 1024 | **1.560 s** | 9.3 s |
-| an argument list of 256 / 1024 / 4096 of 5.9's operators | 0.01 / 0.02 / **0.06 s** | 35.9 s at 4096 |
-| the same list with no operator in it, which the reading skips | 0.01 / 0.01 / **0.03 s** | - |
+| an argument list of 256 / 1024 / 4096 of 5.9's operators between literals | 0.00 / 0.00 / **0.02 s** | 0.2 s at 4096 |
+| the same list with no operator in it, which the reading skips | 0.00 / 0.00 / **0.01 s** | 0.1 s at 4096 |
+| the same list of 256 / 1024 / 4096 template-ids and no operator | 0.01 / 0.04 / **0.17 s** | - |
+| **the same list of 256 / 1024 / 4096 operators between template-ids** | 0.12 / 1.71 / **27.35 s** | >300 s at 4096 |
+| one argument naming 1024 / 2048 / 4096 template-ids | 0.00 / 0.01 / **0.02 s** | 0.3 s at 4096 |
+| the same with a distinct specialization each | 0.04 / 0.09 / **0.21 s** | - |
+| a value argument nested 24 / 256 / 1024 deep | 0.00 / 0.03 / **0.42 s** | 0.00 / 0.30 / 7.01 s |
 | 256 / 1024 / 4096 out-of-class member definitions | 0.07 / 0.27 / **1.19 s** | 2.81 s at 4096 |
 
-The one shape whose cost is worse than linear and is recorded as such: 10.1p3's
-own check is quadratic in a derivation that adds a base per level, because every
-level asks the whole class below it whether the base it adds is repeated.
+Two shapes cost worse than linear and are recorded as such.  10.1p3's own check
+is quadratic in a derivation that adds a base per level, because every level
+asks the whole class below it whether the base it adds is repeated.  And an
+argument list writing 5.9's operator *between two template-ids* is quadratic in
+PA10's parse, not in this milestone's reading: `--emit-ast` alone is 1.63 of the
+1.71 s at 1024, because the backtracking that tells the two readings apart
+flattens the token range of each candidate name (44M tokens at 1024 against 2.8M
+at 256).  Neither operand alone costs it - the same list of template-ids is
+0.04 s and the same operators between literals 0.00 s - and the reference is
+past 300 s where this compiler takes 27 s, so the owner is
+`ast_parser_name.cpp` and `AstTokenStream::flatten` rather than
+`sema_name.cpp`.
 
 ## Completed Checkpoints
 
@@ -390,3 +422,4 @@ level asks the whole class below it whether the base it adds is repeated.
 | C12 | 5.19p2's call of a constexpr function, and the object of literal class type one may be called on: `sema_constexpr.h` as the owner of 5.19's three non-arithmetic operands, 7.1.5p3's body re-read in a region of its own binding the places and 9.2p1's members, the answer keyed by the callee and `type_list` of the converted arguments in `SemaModel::folded_call`, 5.2.3p2/p3's object interned as the list of its subobjects, 12.3.2p1's conversion function at 14.3.2p5, 7.1.5p2's implicit `inline` with `demand_referenced` stopping at a call the image folded, and `{`/`}` counted as a balanced run so `A<S{1, 2}>` is one argument | 205 / 212 -> **212 / 217** with five fixtures added, four compile-pass and one refusing; pa1-pa19 2169 / 2169; 25 constexpr shapes swept against g++ and the reference, every accepted pair writing the reference's own LowIR but the two it accepts and this milestone does not; every checked-in `.ref` regenerated from the reference binary and unmoved; linear at a chain of 2040, 4096 folded calls and 4096 class prvalues, `fib(40)` 0.004 s where the reference times out and g++ takes 7.9 s, a chain past the guard refused rather than crashed; valgrind clean |
 | C12 audit | the object a constant expression *builds*, which C12 gave one initialization and every class type: 8.5.1p1's aggregate told from 8.5p16's direct-initialization, 7.1.5p1 read off a constructor, 12.6.2's mem-initializers in declaration order under a call's own key, 7.1.5p4's uninitialized member and non-empty body refused, 8.3.6p1's default-argument in the one list a fold reads, 13.3.3p1's ambiguous conversion refused rather than guessed at, 5.2.5p1 given a reading so an object's member can be read at all, and an object never carried where a value is meant; 12.6.2p2's index built once rather than scanned per member | 212 / 217 -> **215 / 220**, three fixtures, two compile-pass and one refusing; pa1-pa19 2169 / 2169; 41 constexpr shapes swept against g++ and `pa20/cppgm++-ref`, every shape all three accept coming to the same value here as there - the two-unit program among them; every checked-in `.ref` regenerated and unmoved; linear at 4096 constructor-built objects, 4096 default-argument folds and 8192 members, with the per-member scan's 1.400 s at 8192 down to 0.204 s; valgrind clean |
 | C13 | what a `<` in a flattened spelling is, and where a definition written outside its region reads its names: `AngleReading` settling 14.2's list against 5.9's operator over the whole spelling and respelling the argument it hands on, 3.4.1p8 reading the initializer where the declarator-id reaches, and `place_type` given the function tier's places so `template<class T, T v>` and `typename u<B>::fast P` settle at both | 215 / 220 -> **222 / 224**, three fixtures fixed and four course tests added; pa1-pa19 2169 / 2169; 30 shapes swept against g++ and `pa20/cppgm++-ref`, seven of them refused by the reference too and one - `K<J<a < b> >` - a flattening both readings balance, which no spelling can tell apart and which failed before this too; linear at 4096 operators and 4096 out-of-class definitions, 0.06 s where the reference takes 35.9 s; valgrind clean; the sweep also left 3.5p3's `extern`-declared const object written `binding=internal` here and `strong` there |
+| C13 audit | the reading a `<` is settled by is a fact of the whole spelling, and was *made* as though it were a fact of one run: `spelling_balanced_end` built one per `<`, so a spelling naming 4096 template-ids paid 4096 readings of the whole of it (0.53 s -> 0.02 s with `AngleReading::balanced_end` asked of the one reading the splitters make); and `template_argument_value` asked 14.6.1p1's question of *any* lone word by looking it up, which for `W<3>::v` is the whole reading of the name, so a nest of them doubled at every level - 43.46 s at depth 24 -> 0.00 s, and 0.42 s at depth 1024 against the reference's 7.01 s - now that only 2.11p1's identifier is asked about | 222 / 224 held, pa1-pa19 2169 / 2169; 66 shapes swept against g++ and `pa20/cppgm++-ref` across the `<`, `<=`, `<<` spellings, dependent and pack patterns, 3.4.1p8's seven readers and two units; every `.ref` regenerated and unmoved; valgrind clean; three shapes recorded rather than fixed - PA10's parse is quadratic in an operator written between two template-ids (27.35 s at 4096, the reference past 300 s), the reference alone writes `Tn <type>` before a function template's non-type argument, and the flattening's `K<J<a < b> >` is a class of spellings no reading of text can settle |
