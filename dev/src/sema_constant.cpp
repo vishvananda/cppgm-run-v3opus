@@ -141,6 +141,19 @@ SemaAnalyzer::Constant SemaAnalyzer::convert(const Constant& given, TypeId type)
 		throw NotConstant("a constant expression reads an array where a value "
 		                  "of arithmetic type belongs");
 	}
+	if (to == kNoType && types_.strip_cv(value.type) != types_.strip_cv(type))
+	{
+		// 4.7-4.9 are the conversions between 3.9.1p8's arithmetic types, and a
+		// destination that is none of them is 8.5's initialization of an object
+		// instead - which `object_of` and `array_of` own and this reading may
+		// not stand in for.  Handing back the operand's bits under the object's
+		// type would make a number the identifier of the interned list a
+		// subobject is read out of, which is the one thing those bits are.
+		throw NotConstant("a constant expression converts a value to " +
+		                  types_.description(type) +
+		                  ", which no conversion between arithmetic types "
+		                  "reaches");
+	}
 	Constant out;
 	out.type = type;
 	if (types_.kind(type) == TypeKind::Fundamental &&
@@ -179,15 +192,12 @@ SemaAnalyzer::Constant SemaAnalyzer::convert(const Constant& given, TypeId type)
 		// before the point, and the conversion stands only where the integral
 		// type can represent it - which is what makes an out-of-range one no
 		// constant expression rather than a value of its own.
-		if (!(value.real > -9.3e18L && value.real < 1.85e19L))
+		if (!floating_fits_integral(value.real))
 		{
 			throw NotConstant("a constant expression converts a floating value "
 			                  "no integral type of this translation holds");
 		}
-		out.bits = value.real < 0
-			? static_cast<unsigned long long>(
-			      static_cast<long long>(value.real))
-			: static_cast<unsigned long long>(value.real);
+		out.bits = integral_of_floating(value.real);
 		return convert(out, type);
 	}
 	const unsigned width = width_of(type);

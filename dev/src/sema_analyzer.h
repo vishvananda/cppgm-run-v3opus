@@ -1914,11 +1914,11 @@ private:
 	// 8.5.4p7: the error that a clause narrows to the type it initialises.
 	void require_no_narrowing(const AstNode& written, const Value& value,
 	                          TypeId target, const Context& ctx);
-	// 2.14.4 and 8.5.4p7: whether the floating value the program spelled is
-	// still that value once an object of `to` holds it, which is the one
-	// question this milestone asks about a floating value rather than about
-	// its digits.
-	bool floating_round_trips(const Value& value, TypeId to);
+	// 4.8p1 and 8.5.4p7: whether an object of `to` has room for the floating
+	// value a clause came to, which is the second bullet's exception - a range
+	// and not an exactness, so a value it rounds is a clause it takes and a
+	// value it overflows is not.
+	bool floating_fits(long double held, TypeId to);
 	// 8.5.4: a braced-init-list written where an expression initializes an
 	// object.  Over the PA12 scalar subset it holds at most one clause, whose
 	// value the object takes, and an empty one value-initializes it.

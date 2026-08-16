@@ -1,6 +1,6 @@
 #include "sema_analyzer.h"
 
-#include <cstring>
+#include <cmath>
 #include <stdexcept>
 #include <vector>
 
@@ -841,30 +841,26 @@ void SemaAnalyzer::elided_subaggregate(TypeId type, Clauses& clauses,
 }
 
 
-// 2.14.4 and 8.5.4p7: whether the value the program spelled is the value it
-// still has once an object of `to` holds it.  A floating value is not one this
-// translation carries - every other place it reaches writes the digits the
-// program wrote and lets the object file hold them - so this one question is
-// answered by decoding those digits the way phase 7 would, and only where
-// 8.5.4p7's exception asks it.  A clause that is not a literal the program
-// wrote is no constant expression here, and narrows.
-bool SemaAnalyzer::floating_round_trips(const Value& value, TypeId to)
+// 4.8p1 and 8.5.4p7: whether an object of `to` holds `held` at all.  The second
+// bullet's exception is "within the range of values that can be represented,
+// *even if it cannot be represented exactly*" - so rounding is no part of this
+// question and 4.8p1's overflow is the whole of it: `float a{0.1}` is the
+// clause it is and `float a{1e300}` is not.
+//
+// What the clause is worth is the fold's own answer, so a literal, a name the
+// translation knows, a call it ran and an operator over any of them are one
+// question here; a clause that is no constant expression never reaches this,
+// because that half of the exception is what its caller has already asked.
+bool SemaAnalyzer::floating_fits(long double held, TypeId to)
 {
-	if (value.what == nullptr || std::strcmp(value.what, "literal") != 0 ||
-	    value.payload.empty())
-	{
-		return false;
-	}
-	const long double held = std::strtold(value.payload.c_str(), 0);
+	long double narrowed = held;
 	switch (types_.fundamental_type(types_.strip_cv(to)))
 	{
-	case FT_FLOAT:
-		return static_cast<long double>(static_cast<float>(held)) == held;
-	case FT_DOUBLE:
-		return static_cast<long double>(static_cast<double>(held)) == held;
-	default:
-		return true;
+	case FT_FLOAT: narrowed = static_cast<float>(held); break;
+	case FT_DOUBLE: narrowed = static_cast<double>(held); break;
+	default: break;
 	}
+	return std::isfinite(narrowed);
 }
 
 // 8.5.4p7: an implicit conversion that a list-initialization may not make,
@@ -888,20 +884,32 @@ void SemaAnalyzer::require_no_narrowing(const AstNode& written,
 	// than by the range of the type it was written with.
 	bool known = value.constant;
 	unsigned long long bits = value.value;
-	if (!known && !types_.is_floating(from))
+	// 3.9.1p8: which of the two the clause is worth is what its type says, and
+	// both travel together because one fold answers for either.
+	long double real = value.real;
+	const bool from_float = types_.is_floating(from);
+	const bool to_float = types_.is_floating(to);
+	// Asking the fold costs a walk of the clause, and two of 8.5.4p7's four
+	// bullets settle without it: a floating source reaching an integer narrows
+	// however constant it is, and one reaching a floating type at least as wide
+	// narrows not at all.  So a list of n clauses pays for the folds its own
+	// bullets ask for rather than one per clause.
+	const bool asks_the_value = !from_float ||
+		(to_float && types_.object_size(to) < types_.object_size(from));
+	if (!known && asks_the_value)
 	{
 		try
 		{
+			const Constant folded = convert(evaluate(written, ctx), from);
 			known = true;
-			bits = convert(evaluate(written, ctx), from).bits;
+			bits = folded.bits;
+			real = folded.real;
 		}
 		catch (const NotConstant&)
 		{
 			known = false;
 		}
 	}
-	const bool from_float = types_.is_floating(from);
-	const bool to_float = types_.is_floating(to);
 	bool narrows = false;
 	if (from_float && !to_float)
 	{
@@ -911,13 +919,13 @@ void SemaAnalyzer::require_no_narrowing(const AstNode& written,
 	else if (from_float && to_float)
 	{
 		// 8.5.4p7 second bullet: a wider floating type narrows a narrower one,
-		// unless the source is a constant expression whose value after the
-		// conversion is the value it had.  2.14.4's value is not one this
-		// translation carries in an integer, so the question is asked of the
-		// spelling the analysis kept - which is the same decode phase 7 would
-		// do to write the value, and the only place the object model needs one.
+		// unless the source is a constant expression whose value the narrower
+		// one has room for.  3.9.1p8's value is one the fold carries, so that
+		// exception is asked of what the clause came to and not of the digits
+		// some operand of it was written with - which is what makes `float f{d}`
+		// off a `constexpr double d = 1.5;` the clause it is.
 		narrows = types_.object_size(to) < types_.object_size(from) &&
-			!floating_round_trips(value, to);
+			!(known && floating_fits(real, to));
 	}
 	else if (!from_float && to_float)
 	{

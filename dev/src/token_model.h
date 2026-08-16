@@ -174,6 +174,25 @@ inline bool fundamental_type_is_arithmetic(EFundamentalType type)
 const int kFloatingSpelledDigits = 20;
 std::string spell_floating_value(EFundamentalType type, long double value);
 
+// 4.9p1: the part of `value` before the point, and whether that part is one an
+// integer of this translation holds at all.  The bounds are the two the casts
+// below are defined between and are exact in every floating type - `2^64` and
+// `-(2^63 + 1)` - so a value this admits is one `integral_of_floating` reads
+// and a value it refuses is a conversion 5.19p2 leaves outside a constant
+// expression rather than one this translation guesses at.
+inline bool floating_fits_integral(long double value)
+{
+	return value > -9223372036854775809.0L &&
+		value < 18446744073709551616.0L;
+}
+
+inline unsigned long long integral_of_floating(long double value)
+{
+	return value < 0
+		? static_cast<unsigned long long>(static_cast<long long>(value))
+		: static_cast<unsigned long long>(value);
+}
+
 const char* token_type_name(ETokenType type);
 
 // The token type of a keyword, operator or punctuator spelling.  False for a

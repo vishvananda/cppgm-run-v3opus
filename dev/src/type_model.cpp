@@ -549,15 +549,27 @@ TypeId TypeTable::value_type(TypeId type, unsigned long long bits)
 // takes the value apart exactly - a significand in [0.5, 1) and a power of two -
 // so the key below is the whole of the value and not a rounding of it, and the
 // sign is asked for on its own because the significand of a zero carries none.
+//
+// 3.9.1p8 leaves the values a floating type holds to the implementation, and
+// this one holds two `frexp` takes no such pair out of: an infinity, which
+// 5p4's overflow arrives at and 2.14.4p1's out-of-range literal is, and the NaN
+// an arithmetic on one comes to.  Neither is a power of two times a fraction,
+// so neither goes through the cast below - each takes a key of its own beside
+// the zeros, whose significand is the one no finite value shares.
 TypeId TypeTable::real_type(TypeId type, long double value)
 {
-	int exponent = 0;
-	const long double significand = std::frexp(value, &exponent);
 	const bool negative = std::signbit(value);
-	const std::pair<long long, unsigned long long> key(
-		negative ? -2LL * exponent - 1 : 2LL * exponent,
-		static_cast<unsigned long long>(
-			std::ldexp(significand < 0 ? -significand : significand, 64)));
+	int exponent = 0;
+	long long order = negative ? -1 : 0;
+	unsigned long long magnitude = value == value ? 1 : 2;
+	if (std::isfinite(value))
+	{
+		const long double significand = std::frexp(value, &exponent);
+		order = negative ? -2LL * exponent - 1 : 2LL * exponent;
+		magnitude = static_cast<unsigned long long>(
+			std::ldexp(significand < 0 ? -significand : significand, 64));
+	}
+	const std::pair<long long, unsigned long long> key(order, magnitude);
 	const std::map<std::pair<long long, unsigned long long>,
 	               unsigned long long>::iterator held = real_ids_.find(key);
 	if (held != real_ids_.end())

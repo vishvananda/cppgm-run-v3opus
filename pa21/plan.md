@@ -28,16 +28,20 @@ milestones deferred. Two ownership lines carry the whole assignment:
 Reference-binary note: `pa21/cppgm++-ref` exists and answers PA21 inputs, so
 naming and lowering shapes are probed rather than guessed — but it refuses every
 shape that reaches an arithmetic place through a conversion function, and it
-accepts a floating enumerator 7.2p5 refuses, where g++ and the standard agree
-with this build. Its floating images are `%.20g` at the object's own width with
-2.14.4p1's suffix for a scalar, and the digits the program wrote for a clause of
-an aggregate; both were probed and both are reproduced.
+accepts a floating enumerator and a floating array bound 7.2p5 and 8.3.4p1
+refuse, where g++ and the standard agree with this build. Its floating images
+are `%.20g` at the object's own width with 2.14.4p1's suffix for a scalar, and
+the digits the program wrote for a clause of an aggregate; both were probed and
+both are reproduced, `inf`, `-inf` and `-nan` among them. Where 5p4's overflow
+or 4.9p1's out-of-range conversion makes a program undefined, g++ refuses it and
+the reference folds it — this build folds it to the reference's values, because
+the `.ref` files are the oracle and no fixture asks for the refusal.
 
 ## Current Failure Map
 
-**59/130** (58 of the 129 checked-in cases, plus the one added this turn); 71
-failures remain. 13 are a LowIR mismatch and 9 are a `-bad` case this compiler
-accepts; the rest refuse a program the assignment asks it to translate.
+**59/130**; 71 failures remain, and the F audit left every one of them where it
+found it. 13 are a LowIR mismatch and 9 are a `-bad` case this compiler accepts;
+the rest refuse a program the assignment asks it to translate.
 
 | Group | Shape | Count |
 |---|---|---|
@@ -56,14 +60,19 @@ names), and it is the last operator the README's Assignment Boundary names that
 the engine has none of. Several O2 rows are `constexpr bool` declarations whose
 initializer is a `noexcept`, so part of O2 follows from it.
 
-**Known gaps checkpoint F left standing.** A clause of an aggregate written as a
-nested braced-init-list (`constexpr P ps[2] = {{1,2},{3,4}};`) is not folded:
-`evaluate` reads an expression and a list is not one, so a target-typed clause
-reader is what that needs. And a scalar whose initializer the *analysis* folded
-but the *lowering's* own second fold cannot follow — `constexpr int n = arr[1];`,
-`constexpr bool b = 0.5;` — is given a dynamic initializer; that is group I's
-shape, and its fix is for the lowering to take `SemaEntity::value` and `::real`
-rather than re-fold the dump.
+**Known gaps F and its audit left standing.** A clause of an aggregate written
+as a nested braced-init-list (`constexpr P ps[2] = {{1,2},{3,4}};`) is not
+folded: `evaluate` reads an expression and a list is not one, so a target-typed
+clause reader is what that needs. A clause whose type is *not* the element's or
+the member's is refused rather than built: `constexpr P ps[1] = { 1 };` with
+`constexpr P(int)` is 8.5.1p2's copy-initialization of the element, which is a
+constructor call `array_of` and `object_of` hand to `convert` instead — the
+audit made `convert` say so rather than hand back a number as a list identifier,
+and running the constructor is the work left. And a scalar whose initializer
+the *analysis* folded but the *lowering's* own second fold cannot follow —
+`constexpr int n = arr[1];`, `constexpr bool b = 0.5;` — is given a dynamic
+initializer; that is group I's shape, and its fix is for the lowering to take
+`SemaEntity::value` and `::real` rather than re-fold the dump.
 
 ## Active Checkpoint — none open
 
@@ -77,8 +86,9 @@ rather than re-fold the dump.
 | local-static symbol | one flatten per declaration, memoised in `entity_symbols_`; a name used *n* times costs one flatten and *n* lookups | 400 / 1600 / 6400 image-initialized statics in one body: 0.01 / 0.05 / 0.22s (ref 0.584 / 0.743 / 1.403s) |
 | local-static guard | one image read per declaration, one guard global per object | 400 / 1600 / 6400 guarded statics: 0.026 / 0.096 / 0.423s (ref 0.632 / 0.933 / 2.229s) |
 | array destruction | one `__cxa_atexit` per array, handed a generated body that walks the elements — written out below `kArrayLoopLimit` and a loop above it | 100000-element array of class type: 0.005s, 11 instructions |
-| floating value | one `long double` per constant, and one pool entry per *distinct* value - a value met twice is one index, so a memo key stays stable without the pool growing | a constexpr loop of floating arithmetic at 1e3 / 1e4 / 1e5 passes: 0.00 / 0.02 / 0.21s, peak RSS 6.37 / 6.50 / 6.40 MB (flat). 2000 / 8000 / 32000 declarations of *distinct* floating constants each read back by a `static_assert`: 0.05 / 0.20 / 0.87s; the same count all of one value: 0.04 / 0.18 / 0.77s - the pool costs about 5% and does not scale with repeats |
-| array constant | one interned list per array, one entry per element, and 8.5p7's value-initialized tail interned once and repeated | 1000 / 4000 / 16000 elements read back by a `static_assert`: 0.00 / 0.01 / 0.06s at 6.79 / 8.19 / 15.97 MB - linear in elements |
+| floating value | one `long double` per constant, and one pool entry per *distinct* value - a value met twice is one index, so a memo key stays stable without the pool growing, and each of the four non-finite values keys to a place of its own | a constexpr loop of floating arithmetic at 1e3 / 1e4 / 1e5 passes: 0.00 / 0.03 / 0.27s, peak RSS a flat 6 MB. 2000 / 8000 / 32000 declarations of *distinct* floating constants each read back by a `static_assert`: 0.04 / 0.20 / 0.88s at 15 / 42 / 153 MB |
+| array constant | one interned list per array, one entry per element, and 8.5p7's value-initialized tail interned once and repeated | 1000 / 4000 / 16000 elements read back by a `static_assert`: 0.00 / 0.02 / 0.07s at 6 / 9 / 18 MB - linear in elements. `constexpr int a[1000000] = {1};` is 0.10s and 13 MB, because the tail is one entry and not a million folds |
+| aggregate of floating clauses | one dump node per clause, and one fold per clause 8.5.4p7's second bullet asks about - which is a `float` member off a wider source and nothing else | 2000 / 8000 / 32000 `double` clauses of an array member: 0.05 / 0.21 / 0.81s at 22 / 66 / 243 MB, against 0.02 / 0.09 / 0.37s at 10 / 22 / 72 MB for the same count of `int` clauses (ref 0.70 / 1.20 / 2.90s at 34 / 95 / 339 MB and 0.70 / 0.90 / 1.90s at 21 / 43 / 135 MB). Making them `float`, the one shape the bullet folds, adds 16%: 0.94s and 274 MB at 32000 |
 
 ## Completed Checkpoints
 
@@ -90,6 +100,7 @@ rather than re-fold the dump.
 | O | **Objects of literal class type as declared constants.** `fold_constant_object` no longer stops at 5.19p3's arithmetic case: a const object of literal class type is folded through `ConstexprReading::object_of` (or taken as-is where 8.5p14's initializer is already a prvalue of its own class), so `constexpr Lit lit(42); static_assert(lit.value == 42);` reads. 3.6.2p2's other half followed: a namespace-scope object the analysis folded takes `global_constructed`'s image and no startup body. | 46 → 48 |
 | S+O audit | `46d8b2f4`, 3 blockers: a constant of class type was read as a number by every arithmetic place, so an array bound, an enumerator, a `static_assert` and a conditional all took the interned list's identifier as the value — five diagnostics turned into five wrong answers, now one reading of 5.19p3 asked by all of them; a declaration statement the walk re-ran was declared again, so a `typedef` inside a loop cost 73 MB at 102400 passes and a class-specifier was defined twice; `fold_local` was never set on a place the call filled. See [audit.md](audit.md). | 48 → 49 |
 | F | **3.9.1p8's other half, and 8.3.4p6's other aggregate.** `SemaConstant` gains `real`; `arithmetic_type` widens to the arithmetic types with `integral_type` beside it for the places that count; `TypeTable` interns a distinct floating value by its exact (sign, exponent, significand); 4.7-4.9's conversions, 5p10's usual arithmetic conversions and every operator over floating values land in `convert`/`common_type`/`binary_value`; `SemaEntity::real` and `SemaFact::real` carry the value to 3.6.2p2's image, which now holds what the initializer *came to* rather than the digits an operand was written with. An array is a constant object too: `array_of` and `element_value` give it a list and a subscript. | 49 → 59 |
+| F audit | `6cdd7e1d`, 3 blockers: `convert` had no arm for a destination of no arithmetic type and handed back the operand's bits *under the object's type*, so `constexpr P ps[1] = { 999999 };` made 999999 the identifier of a member list and `ps[0].x` read `parameter_lists_[999999]` — a segfault, reachable through `array_of`, `object_of` and the mem-initializer alike, now one refusal at the door; 8.5.4p7's second bullet was asked of a literal *spelling* and asked as an exactness, so every `float` clause off a name, an operator or a folded call was refused as narrowing and `float a{0.1}` with them, where the clause is a range "even if it cannot be represented exactly"; and 5p4's overflow reached an undefined cast in `real_type`, a `= in` in the image where the reference writes `= inf`, and two 4.9p1 bounds each on the wrong side of the cast they guard. See [audit.md](audit.md). | 59 → 59 |
 
 **Known gap (L).** The reference names a local static of an *inline* or
 *instantiated* function by source position (` at file:line:col`, hex-encoded).

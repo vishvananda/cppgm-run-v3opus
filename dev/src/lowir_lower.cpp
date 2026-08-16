@@ -877,11 +877,18 @@ std::string LowirUnitLowering::spell_floating(TypeId type,
                                               const std::string& written)
 {
 	std::string digits = written;
-	if (!digits.empty())
+	if (digits.size() > 1)
 	{
-		// 2.14.4p1: a floating-literal carries at most one floating-suffix.
+		// 2.14.4p1: a floating-literal carries at most one floating-suffix, and
+		// it follows the digit-sequence or the `.` that ends the literal
+		// itself.  What stands here is as often a value this lowering spelled
+		// as a literal the program wrote, and a value 3.9.1p8 leaves outside
+		// the finite ones is spelled `inf` - whose `f` follows a letter and is
+		// no suffix at all.
 		const char last = digits[digits.size() - 1];
-		if (last == 'f' || last == 'F' || last == 'l' || last == 'L')
+		const char before = digits[digits.size() - 2];
+		if ((last == 'f' || last == 'F' || last == 'l' || last == 'L') &&
+		    ((before >= '0' && before <= '9') || before == '.'))
 		{
 			digits.erase(digits.size() - 1);
 		}
@@ -1171,13 +1178,11 @@ bool LowirUnitLowering::folded(const DumpNode& node, unsigned long long& bits)
 				bits = held != 0 ? 1 : 0;
 				return true;
 			}
-			if (!(held > -9.3e18L && held < 1.85e19L))
+			if (!floating_fits_integral(held))
 			{
 				return false;
 			}
-			bits = held < 0 ? static_cast<unsigned long long>(
-			                      static_cast<long long>(held))
-			                : static_cast<unsigned long long>(held);
+			bits = integral_of_floating(held);
 			if (types_.is_integral(types_.strip_cv(fact.type)) ||
 			    types_.kind(types_.strip_cv(fact.type)) == TypeKind::Enum)
 			{
