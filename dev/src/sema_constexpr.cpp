@@ -520,6 +520,13 @@ SemaConstant ConstexprReading::initialized_value(const AstNode& wrote,
 	// nothing pays nothing for the clauses it wrote.  The node an entry
 	// comes to is the arena's and the region it is read in is the model's,
 	// so both outlive the walk that reads them out.
+	//
+	// Each clause is read as 8.5's *operand* and not as a value: 4.2p1's array,
+	// 4.3p1's function and 8.3.2p1's reference each fill a place from the object
+	// the initializer designates, and `static char buf[3];` is an object with no
+	// value at all.  Which of the two the place wanted is settled below and by
+	// `convert`, so the reading is the same whichever spelling of 8.5's
+	// initializers wrote it.
 	std::vector<SemaConstant> operands;
 	if (wrote.kind == AstKind::ParenInitializer ||
 	    wrote.kind == AstKind::BracedInitList)
@@ -537,19 +544,12 @@ SemaConstant ConstexprReading::initialized_value(const AstNode& wrote,
 			const SemaContext inner = clauses.in(ctx);
 			const AstNode& clause = clauses.next();
 			++clauses.at;
-			operands.push_back(analyzer_.evaluate(clause, inner));
+			operands.push_back(operand_constant(clause, inner));
 		}
-	}
-	else if (analyzer_.types_.kind(bare) == TypeKind::Pointer)
-	{
-		// 4.2p1 and 4.3p1: a place of pointer type is initialized from the
-		// *object* the initializer designates, which `char a[3];` and the name
-		// of a function each have and neither has a value of.
-		operands.push_back(operand_constant(wrote, ctx));
 	}
 	else
 	{
-		operands.push_back(analyzer_.evaluate(wrote, ctx));
+		operands.push_back(operand_constant(wrote, ctx));
 	}
 	if (!built)
 	{
@@ -590,8 +590,8 @@ SemaConstant ConstexprReading::clause_of(const AstNode& clause, TypeId target,
 	const TypeId bare = analyzer_.types_.strip_cv(target);
 	if (clause.kind != AstKind::BracedInitList)
 	{
-		SemaConstant value = analyzer_.evaluate(clause, ctx);
-		if (analyzer_.types_.strip_cv(value.type) == bare)
+		SemaConstant value = operand_constant(clause, ctx);
+		if (value.valued && analyzer_.types_.strip_cv(value.type) == bare)
 		{
 			// 8.5p14: the clause is a prvalue of the subobject's own type, so
 			// the subobject *is* that value and no constructor stands between.
@@ -656,7 +656,7 @@ SemaConstant ConstexprReading::clause_of(const AstNode& clause, TypeId target,
 		}
 		else
 		{
-			written.push_back(analyzer_.evaluate(one, inner));
+			written.push_back(operand_constant(one, inner));
 		}
 	}
 	if (array)
@@ -958,7 +958,7 @@ SemaConstant ConstexprReading::object_from_constructor(
 			clauses.reserve(wrote->children.size());
 			for (std::size_t at = 0; at < wrote->children.size(); ++at)
 			{
-				clauses.push_back(analyzer_.evaluate(*wrote->children[at], inner));
+				clauses.push_back(operand_constant(*wrote->children[at], inner));
 			}
 			value = object_of(member, clauses);
 		}
@@ -976,7 +976,7 @@ SemaConstant ConstexprReading::object_from_constructor(
 			if (!wrote->children.empty())
 			{
 				value = analyzer_.convert(
-					analyzer_.evaluate(*wrote->children[0], inner), member);
+					operand_constant(*wrote->children[0], inner), member);
 			}
 			value.type = member;
 		}
@@ -1621,11 +1621,13 @@ SemaConstant ConstexprReading::at_arithmetic_place(const SemaConstant& value,
 	if (!value.valued)
 	{
 		// 8.5p11 and 4.1p1: the operand designates an object this reading holds
-		// no value of, and every place here asks for one.  It is 5.19's own
-		// answer about the program - `static int n; enum { e = n };` is ill
-		// formed - and the object's own refusal has already said which name.
+		// no value of, and every place here asks for one.  Whether that is 5.19's
+		// own answer about the program - `static int n; enum { e = n };` is ill
+		// formed - or this build running out is the object's own answer, carried
+		// here because the refusal is the same one name further along.
 		throw NotConstant("a constant expression reads an object it holds no "
-		                  "value of where a value belongs");
+		                  "value of where a value belongs",
+		                  covered_object(value.object));
 	}
 	// A constant of class type is the identifier of an interned list and not a
 	// number of the object's own width, so reading its bits where a number was
@@ -1913,7 +1915,7 @@ std::uint32_t ConstexprReading::passed_arguments(
 				                  "declaration gives no default-argument");
 			}
 			where.dump = where.scope->dump;
-			given = analyzer_.evaluate(*written->children[0]->children[0], where);
+			given = operand_constant(*written->children[0]->children[0], where);
 		}
 		if (analyzer_.types_.is_reference(places[at]))
 		{
@@ -2581,10 +2583,17 @@ SemaConstant ConstexprReading::cast_constant(const AstNode& node,
 	const TypeId type = analyzer_.type_id_type(*node.children[0], ctx);
 	if (types.kind(types.strip_cv(type)) == TypeKind::Pointer)
 	{
-		// 4.10p1: what reaches a pointer is an address or the null pointer
-		// value, which is `convert`'s own reading of a place of that type.
-		return analyzer_.convert(analyzer_.evaluate(*node.children[1], ctx),
-		                         type);
+		// 4.10p1 and 4.2p1: what reaches a pointer is an address or the null
+		// pointer value, so the operand is read for the object it designates as
+		// it is at any other place of that type.  12.3.2p2 makes this the other
+		// place a conversion function declared `explicit` answers, which is why
+		// the door is asked here rather than left to `convert`.
+		SemaConstant out;
+		if (at_pointer_place(operand_constant(*node.children[1], ctx), type, out,
+		                     true))
+		{
+			return out;
+		}
 	}
 	if (types.is_reference(types.strip_cv(type)) ||
 	    types.is_class(types.strip_cv(type)))

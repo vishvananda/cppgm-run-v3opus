@@ -313,7 +313,8 @@ public:
 	// and 8.3.2p1's binding, asked wherever an initialization reaches a place of
 	// one of those types, and `static_address` is 5.19p2's own requirement on a
 	// pointer a declaration keeps.
-	std::uint32_t designated(const AstNode& node, const SemaContext& ctx);
+	std::uint32_t designated(const AstNode& node, const SemaContext& ctx,
+	                         bool value_fallback = true);
 	std::uint32_t designated_entity(SemaEntity& entity,
 	                                const std::string& spelling);
 	SemaConstant loaded(std::uint32_t address);
@@ -325,9 +326,13 @@ public:
 	bool address_operation(unsigned token, const SemaConstant& left,
 	                       const SemaConstant& right, SemaConstant& out);
 	bool at_pointer_place(const SemaConstant& value, TypeId place,
-	                      SemaConstant& out);
+	                      SemaConstant& out, bool contextual = false);
 	SemaConstant at_reference_place(const SemaConstant& value, TypeId place);
 	bool static_address(const SemaConstant& value) const;
+	// 5.19 asked of a refusal about an object this reading holds no value of:
+	// the program's error where 5.19 gives the object none, and this build's
+	// edge where the object's own fold ran out.
+	bool covered_object(std::uint32_t address) const;
 	bool literal_object(const std::string& spelling, SemaConstant& out);
 	SemaConstant subscripted(const SemaConstant& pointer,
 	                         const SemaConstant& index);
@@ -452,7 +457,8 @@ private:
 	std::uint32_t member_address(std::uint32_t object, const std::string& name,
 	                             const SemaContext& ctx);
 	std::uint32_t pointed_object(const SemaConstant& value);
-	std::uint32_t array_object(const AstNode& node, const SemaContext& ctx);
+	std::uint32_t array_object(const AstNode& node, const SemaContext& ctx,
+	                           bool value_fallback);
 	std::uint32_t advanced(std::uint32_t address, long long step);
 	long long address_distance(std::uint32_t left, std::uint32_t right);
 

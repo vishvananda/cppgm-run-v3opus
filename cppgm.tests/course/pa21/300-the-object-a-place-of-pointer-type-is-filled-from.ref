@@ -1,0 +1,187 @@
+declare function @fn() -> void [binding=strong, object=_Z2fnv]
+
+global @buf [binding=internal, object=_ZL3buf] = {
+  zero 3
+}
+global @target : i32 [binding=internal, object=_ZL6target] = zero
+global @paren_init : ptr [binding=internal, object=_ZL10paren_init] = addr @buf
+global @braced_init : ptr [binding=internal, object=_ZL11braced_init] = addr @buf
+global @equals_init : ptr [binding=internal, object=_ZL11equals_init] = addr @buf
+global @aggregate [binding=internal, object=_ZL9aggregate] = {
+  ptr addr @buf
+  ptr addr @buf
+}
+global @elements [binding=internal, object=_ZL8elements] = {
+  ptr addr @buf
+  ptr addr @buf
+}
+global @brace_or_equal [binding=internal, object=_ZL14brace_or_equal] = {
+  ptr addr @buf
+}
+global @mem_initialized [binding=internal, object=_ZL15mem_initialized] = {
+  ptr addr @buf
+}
+global @function_pointer : ptr [binding=internal, object=_ZL16function_pointer] = addr @fn
+global @by_default : ptr [binding=internal, object=_ZL10by_default] = zero
+global @from_return : ptr [binding=internal, object=_ZL11from_return] = zero
+global @cast_init : ptr [binding=internal, object=_ZL9cast_init] = addr @buf
+global @through_conversion : ptr [binding=internal, object=_ZL18through_conversion] = zero
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $cond__1 : i32
+
+  block ^entry:
+    %t1 = load ptr @paren_init
+    %t2 = load i8 %t1
+    %t3 = load ptr @braced_init
+    %t4 = load i8 %t3
+    %t5 = convert sext i32 i8 %t2
+    %t6 = convert sext i32 i8 %t4
+    %t7 = binary add i32 %t5, %t6
+    %t8 = load ptr @equals_init
+    %t9 = load i8 %t8
+    %t10 = convert sext i32 i8 %t9
+    %t11 = binary add i32 %t7, %t10
+    %t12 = addr @aggregate
+    %t13 = index i8 [projection=field] %t12, 0
+    %t14 = load ptr %t13
+    %t15 = load i8 %t14
+    %t16 = convert sext i32 i8 %t15
+    %t17 = binary add i32 %t11, %t16
+    %t18 = addr @aggregate
+    %t19 = index i8 [projection=field] %t18, 8
+    %t20 = load ptr %t19
+    %t21 = load i8 %t20
+    %t22 = convert sext i32 i8 %t21
+    %t23 = binary add i32 %t17, %t22
+    %t24 = addr @elements
+    %t25 = unary decay ptr %t24
+    %t26 = index ptr [projection=array_element] %t25, 0
+    %t27 = load ptr %t26
+    %t28 = load i8 %t27
+    %t29 = convert sext i32 i8 %t28
+    %t30 = binary add i32 %t23, %t29
+    %t31 = addr @elements
+    %t32 = unary decay ptr %t31
+    %t33 = index ptr [projection=array_element] %t32, 1
+    %t34 = load ptr %t33
+    %t35 = load i8 %t34
+    %t36 = convert sext i32 i8 %t35
+    %t37 = binary add i32 %t30, %t36
+    %t38 = addr @brace_or_equal
+    %t39 = index i8 [projection=field] %t38, 0
+    %t40 = load ptr %t39
+    %t41 = load i8 %t40
+    %t42 = convert sext i32 i8 %t41
+    %t43 = binary add i32 %t37, %t42
+    %t44 = addr @mem_initialized
+    %t45 = index i8 [projection=field] %t44, 0
+    %t46 = load ptr %t45
+    %t47 = load i8 %t46
+    %t48 = convert sext i32 i8 %t47
+    %t49 = binary add i32 %t43, %t48
+    %t50 = load ptr @by_default
+    %t51 = load i8 %t50
+    %t52 = convert sext i32 i8 %t51
+    %t53 = binary add i32 %t49, %t52
+    %t54 = load ptr @from_return
+    %t55 = load i8 %t54
+    %t56 = convert sext i32 i8 %t55
+    %t57 = binary add i32 %t53, %t56
+    %t58 = load ptr @cast_init
+    %t59 = load i8 %t58
+    %t60 = convert sext i32 i8 %t59
+    %t61 = binary add i32 %t57, %t60
+    %t62 = load ptr @through_conversion
+    %t63 = load i32 %t62
+    %t64 = binary add i32 %t61, %t63
+    %t65 = load ptr @function_pointer
+    %t66 = cmp eq ptr %t65, 0
+    branch %t66, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t67 = load i32 $cond__1
+    %t68 = binary add i32 %t64, %t67
+    return i32 %t68
+}
+function @defaulted(%from : ptr) -> ptr [binding=weak, object=_Z9defaultedPc] {
+  slot $from : ptr
+
+  block ^entry:
+    store ptr %from, $from
+    %t1 = load ptr $from
+    return ptr %t1
+}
+function @returned() -> ptr [binding=weak, object=_Z8returnedv] {
+  block ^entry:
+    %t1 = addr @buf
+    %t2 = unary decay ptr %t1
+    return ptr %t2
+}
+function @held__held(%this : ptr) -> void [binding=weak, object=_ZN4heldC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = addr @buf
+    %t2 = unary decay ptr %t1
+    %t3 = load ptr $this
+    %t4 = index i8 [projection=field] %t3, 0
+    store ptr %t2, %t4
+    return void
+}
+function @built__built(%this : ptr, %from : ptr) -> void [binding=weak, object=_ZN5builtC1EPc] {
+  slot $this : ptr
+  slot $from : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    store ptr %from, $from
+    %t1 = load ptr $from
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store ptr %t1, %t3
+    return void
+}
+function @source__operatorint_(%this : ptr) -> ptr [binding=weak, object=_ZNK6sourcecvPiEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = addr @target
+    return ptr %t1
+}
+function @source__source(%this : ptr) -> void [unwind=no, binding=weak, object=_ZN6sourceC1Ev, trivial_lifecycle=yes] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    return void
+}
+function @__cppgm_init() -> void [role=init, binding=internal] {
+  slot $tmpobj__1 : obj<1x1>
+
+  block ^entry:
+    %t1 = addr @buf
+    %t2 = unary decay ptr %t1
+    %t3 = call ptr @defaulted(%t2)
+    store ptr %t3, @by_default
+    %t4 = call ptr @returned()
+    store ptr %t4, @from_return
+    %t5 = addr $tmpobj__1
+    call void @source__source(%t5)
+    %t6 = call ptr @source__operatorint_(%t5)
+    store ptr %t6, @through_conversion
+    return void
+}
+alias object _ZN4heldC2Ev = @held__held
+alias object _ZN5builtC2EPc = @built__built
+alias object _ZN6sourceC2Ev = @source__source

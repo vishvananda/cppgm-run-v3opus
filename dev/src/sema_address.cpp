@@ -301,6 +301,21 @@ SemaConstant ConstexprReading::held_at(std::uint32_t address)
 	return out;
 }
 
+// 5.19 asked of a refusal about the object an address designates: whether it is
+// the answer about the *program* or this reading running out.
+//
+// A refusal that an object holds no value the fold may read is the program's
+// error where 5.19 gives that object no constant value - `static int n;` is one
+// - and this build's edge where the object's own initializer is one the fold ran
+// out on, which is exactly what `SemaEntity::covered_constant` was made to
+// carry.  So the two are one question and the answer is the declaration's, one
+// name further along.
+bool ConstexprReading::covered_object(std::uint32_t address) const
+{
+	const SemaEntity* const named = analyzer_.model_.addresses().at(address).object;
+	return named == nullptr || named->constant || named->covered_constant;
+}
+
 // 3.10p2 and 5.19p2: the object `node` designates.
 //
 // This is the lvalue reading beside `evaluate`'s value one, and it exists
@@ -309,13 +324,21 @@ SemaConstant ConstexprReading::held_at(std::uint32_t address)
 // it is - which a `static int n;` with no constant value of its own still has.
 // So every shape 3.10p1 makes an lvalue is read here, and anything else is read
 // as a value and asked what object that value came out of.
+//
+// `value_fallback` is that last sentence asked as a question, because there is
+// one caller for whom the answer is already known: `operand_constant` reaches
+// this walk *because* the value reading refused, so reading the same node as a
+// value a second time cannot answer and costs the whole subtree twice.  Two of
+// them nested is four walks and n of them is 2^n, which is what a call written
+// on a call written on a call is.
 std::uint32_t ConstexprReading::designated(const AstNode& node,
-                                           const SemaContext& ctx)
+                                           const SemaContext& ctx,
+                                           bool value_fallback)
 {
 	switch (node.kind)
 	{
 	case AstKind::ParenthesizedExpression:
-		return designated(*node.children[0], ctx);
+		return designated(*node.children[0], ctx, value_fallback);
 
 	case AstKind::Literal:
 	{
@@ -351,7 +374,7 @@ std::uint32_t ConstexprReading::designated(const AstNode& node,
 		// how the object on the left is reached and in nothing after that.
 		const std::uint32_t object = node.token == OP_ARROW
 			? pointed_object(analyzer_.evaluate(*node.children[0], ctx))
-			: designated(*node.children[0], ctx);
+			: designated(*node.children[0], ctx, value_fallback);
 		return member_address(object, node.children[1]->text, ctx);
 	}
 
@@ -363,7 +386,8 @@ std::uint32_t ConstexprReading::designated(const AstNode& node,
 		// 13.5.5p1 gives an operand of class type a third reading, which is a
 		// call and designates whatever its answer does, so it falls through to
 		// the reading below rather than being answered here.
-		const std::uint32_t base = array_object(*node.children[0], ctx);
+		const std::uint32_t base =
+			array_object(*node.children[0], ctx, value_fallback);
 		if (base == 0)
 		{
 			break;
@@ -387,6 +411,11 @@ std::uint32_t ConstexprReading::designated(const AstNode& node,
 	// Everything else is read as a value and asked which object that value came
 	// out of - which is how a call that hands back a reference, and 13.5.6's
 	// `operator->`, reach this reading without a shape of their own here.
+	if (!value_fallback)
+	{
+		throw NotConstant("a constant expression takes the address of something "
+		                  "that designates no object", false);
+	}
 	const SemaConstant value = analyzer_.evaluate(node, ctx);
 	if (value.object == 0)
 	{
@@ -490,12 +519,13 @@ std::uint32_t ConstexprReading::pointed_object(const SemaConstant& value)
 // 5.2.1p1 and 5.7p5: the element a subscript names is one of an array or one a
 // pointer points into, and which of the two is what the left operand is.
 std::uint32_t ConstexprReading::array_object(const AstNode& node,
-                                             const SemaContext& ctx)
+                                             const SemaContext& ctx,
+                                             bool value_fallback)
 {
 	// 5.19p2's own reading of a string literal stays where it is: its elements
 	// are read out of the literal and the array itself is an object of static
 	// storage duration, which is what `designated` answers for both.
-	if (node.kind != AstKind::Literal)
+	if (node.kind != AstKind::Literal && value_fallback)
 	{
 		const SemaConstant value = analyzer_.evaluate(node, ctx);
 		if (holds_address(value))
@@ -503,7 +533,7 @@ std::uint32_t ConstexprReading::array_object(const AstNode& node,
 			return pointed_object(value);
 		}
 	}
-	const std::uint32_t array = designated(node, ctx);
+	const std::uint32_t array = designated(node, ctx, value_fallback);
 	if (analyzer_.types_.kind(analyzer_.types_.strip_cv(address_type(array))) !=
 	    TypeKind::Array)
 	{
@@ -561,6 +591,7 @@ long long ConstexprReading::address_distance(std::uint32_t left,
 	const ConstantAddress& from = analyzer_.model_.addresses().at(left);
 	const ConstantAddress& to = analyzer_.model_.addresses().at(right);
 	if (from.object != to.object || from.literal != to.literal ||
+	    from.temporary != to.temporary ||
 	    from.path.size() != to.path.size() ||
 	    (from.path.empty() ? false
 	                       : !std::equal(from.path.begin(), from.path.end() - 1,
@@ -602,8 +633,11 @@ bool ConstexprReading::address_operation(unsigned token,
 	}
 	if (!given_left.valued || !given_right.valued)
 	{
+		const SemaConstant& without =
+			given_left.valued ? given_right : given_left;
 		throw NotConstant("a constant expression writes an operator on an object "
-		                  "whose value it does not hold");
+		                  "whose value it does not hold",
+		                  covered_object(without.object));
 	}
 	switch (token)
 	{
@@ -705,14 +739,14 @@ SemaConstant ConstexprReading::decayed_operand(const SemaConstant& value)
 // the place's own cv-qualification.  Everything else is no pointer at all,
 // which is 5.19's answer about the program rather than this reading's edge.
 bool ConstexprReading::at_pointer_place(const SemaConstant& value, TypeId place,
-                                        SemaConstant& out)
+                                        SemaConstant& out, bool contextual)
 {
 	if (analyzer_.types_.kind(analyzer_.types_.strip_cv(place)) !=
 	    TypeKind::Pointer)
 	{
 		return false;
 	}
-	if (holds_address(value))
+	if (holds_address(value) && value.valued)
 	{
 		out = pointer_constant(static_cast<std::uint32_t>(value.bits), place);
 		return true;
@@ -736,10 +770,25 @@ bool ConstexprReading::at_pointer_place(const SemaConstant& value, TypeId place,
 			place);
 		return true;
 	}
+	if (is_object(value))
+	{
+		// 5.19p3: a converted constant expression may reach its place through a
+		// user-defined conversion, and a place of pointer type is one such place
+		// like any other - so the same door `at_arithmetic_place` opens stands
+		// here, and 13.3 chooses which conversion function it is.
+		SemaConstant reached;
+		if (at_pointer_place(converted(value, place, contextual), place, reached,
+		                     contextual))
+		{
+			out = reached;
+			return true;
+		}
+	}
 	throw NotConstant("a constant expression initializes " +
 	                  analyzer_.types_.description(place) + " from " +
 	                  analyzer_.types_.description(value.type) +
-	                  ", which is no address it holds");
+	                  ", which is no address it holds",
+	                  value.valued || covered_object(value.object));
 }
 
 // 8.3.2p1 and 8.5.3: `value` read where the place is a reference.
@@ -827,7 +876,11 @@ SemaConstant ConstexprReading::operand_constant(const AstNode& node,
 		std::uint32_t object = 0;
 		try
 		{
-			object = designated(node, ctx);
+			// The value reading has already refused this node, so the lvalue walk
+			// asks for no second one: `designated`'s own last resort is that same
+			// reading, and running it again answers nothing and costs the whole
+			// operand once more per level of nesting.
+			object = designated(node, ctx, false);
 		}
 		catch (const NotConstant&)
 		{

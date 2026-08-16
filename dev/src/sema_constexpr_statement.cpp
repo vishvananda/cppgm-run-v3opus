@@ -468,7 +468,11 @@ ConstexprFlow ConstexprReading::statement(const AstNode& node,
 	case AstKind::ReturnStatement:
 		if (!node.children.empty())
 		{
-			frame.result = analyzer_.evaluate(*node.children[0], ctx);
+			// 6.6.3p2: the expression initializes the object the call hands back,
+			// which for a return type of reference or pointer type is filled from
+			// the object the expression designates - so it is read as 8.5's
+			// operand here and `call` converts it to the return type.
+			frame.result = operand_constant(*node.children[0], ctx);
 		}
 		frame.returned = true;
 		return ConstexprFlow::Returned;
