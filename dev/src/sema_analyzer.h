@@ -227,9 +227,12 @@ private:
 	void non_type_template_parameter(const AstNode& node, const Context& ctx);
 	void simple_declaration(const AstNode& node, const Context& ctx);
 	void condition_declaration(const AstNode& node, const Context& ctx);
-	// One declarator of a declaration, with the initializer written for it.
+	// One declarator of a declaration, with the initializer written for it and
+	// the init-declarator the two stand under - whose span 3.7.1p3's
+	// block-scope object takes the name of its storage from.
 	void init_declarator(const AstNode& node, const AstNode* initializer,
-	                     const Specifiers& specifiers, const Context& ctx);
+	                     const Specifiers& specifiers, const Context& ctx,
+	                     const AstNode* whole = nullptr);
 	// 8.3.5 and 13.1: one declarator of a declaration that declares a function,
 	// from the point its type is known.  `granting` is the class a friend
 	// declaration gives this declaration the access of, and null for every
@@ -634,7 +637,7 @@ private:
 	// from the declaration of the same variable this region already holds.
 	void record_storage(SemaEntity& entity, const SemaEntity* prior,
 	                    const Specifiers& specifiers, const Context& target,
-	                    TypeId type);
+	                    TypeId type, const AstNode* whole = nullptr);
 	// The objects an open block has declared whose destructors run when control
 	// leaves it, innermost frame last.
 	std::vector<std::vector<SemaEntity*> > lifetimes_;
@@ -778,7 +781,7 @@ private:
 	std::vector<SemaEntity*> static_lifetimes_;
 	// 3.7.2p2: the namespace-scope objects with thread storage duration this
 	// unit constructed, and the line each was declared on.
-	std::vector<ThreadLifetime> thread_lifetimes_;
+	std::vector<DeclaredLifetime> declared_lifetimes_;
 	// 8.5.1p1: whether the class `scope` declares is an aggregate.
 	static bool aggregate_class(Scope& scope);
 
@@ -1124,7 +1127,8 @@ private:
 	                               const Specifiers& specifiers,
 	                               const Context& ctx, const Context& target,
 	                               const QualifiedName& spelled,
-	                               const std::string& written, TypeId type);
+	                               const std::string& written, TypeId type,
+	                               const AstNode* whole = nullptr);
 	// 5.19p3: what such an object is *worth*, where its type is const and
 	// arithmetic and 14.5.3p4's clause the initializer came to is a constant.
 	void fold_constant_object(SemaEntity& entity, const AstNode* initializer,

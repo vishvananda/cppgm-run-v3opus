@@ -2442,18 +2442,30 @@ void SemaAnalyzer::record_lifetime(SemaEntity& entity, const Context& target,
 		// declaration once the initialization it follows has been.
 		if (entity.thread_storage)
 		{
-			ThreadLifetime held;
+			DeclaredLifetime held;
 			held.entity = &entity;
 			held.line = &line;
-			thread_lifetimes_.push_back(held);
+			declared_lifetimes_.push_back(held);
 			return;
 		}
 		static_lifetimes_.push_back(&entity);
 		return;
 	}
-	// 3.7.1p3: a block-scope object declared `static` or `thread_local` has
-	// reached the refusal the declaration itself writes, so what is left here
-	// is an object of the block, whatever its type.
+	// 3.6.3p1 and 6.7p4: a block-scope object declared `static` is destroyed
+	// when the program ends and not when its block does, and the point the
+	// runtime is handed that destruction at is the one initialization the
+	// object gets - which is inside the block and reached at most once.  So the
+	// action stands under the declaration, exactly as an object of a thread
+	// does, rather than at the end of the block that names it.
+	if (entity.local_static)
+	{
+		DeclaredLifetime held;
+		held.entity = &entity;
+		held.line = &line;
+		declared_lifetimes_.push_back(held);
+		return;
+	}
+	// 3.7.3p1: what is left is an object of the block, whatever its type.
 	if (!lifetimes_.empty())
 	{
 		lifetimes_.back().push_back(&entity);

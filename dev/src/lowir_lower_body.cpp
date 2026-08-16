@@ -1858,6 +1858,14 @@ bool LowirFunctionLowering::stands_in_no_storage(const DumpNode& node)
 
 void LowirFunctionLowering::local_variable(const DumpNode& node)
 {
+	if (node.fact.entity != nullptr && node.fact.entity->local_static)
+	{
+		// 3.7.1p3: the object is the program's rather than the block's, so the
+		// block gives it no storage and ends no lifetime of it; what the
+		// declaration is here is 6.7p4's one initialization.
+		local_static_variable(node);
+		return;
+	}
 	const UnwindMark opened = unwind_mark_;
 	declare_local(node);
 	if (node.fact.destruction == nullptr)
@@ -1896,7 +1904,6 @@ void LowirFunctionLowering::local_variable(const DumpNode& node)
 
 void LowirFunctionLowering::declare_local(const DumpNode& node)
 {
-	TypeTable& types = unit_.types();
 	SemaEntity& entity = *node.fact.entity;
 	const TypeId type = node.fact.type;
 	if (return_slot_local_ != nullptr && return_slot_local_->id == entity.id)
@@ -1922,7 +1929,23 @@ void LowirFunctionLowering::declare_local(const DumpNode& node)
 		return;
 	}
 	const std::string slot = add_slot(entity, type);
-	const Operand storage = named_operand(Operand::OP_SLOT, slot);
+	initialize_declared(node, named_operand(Operand::OP_SLOT, slot), nullptr);
+}
+
+// 8.5: what one declaration writes into the storage it was given, which is the
+// whole of the declaration but the storage itself.
+//
+// 3.7.1p3's object a block declares `static` asks for the same thing written
+// into storage of the program's rather than of the block's, and arrives here
+// with the address of that storage already in hand - 3.6.3p3 hands the same
+// address to the runtime - so the destination an initialization writes through
+// is a parameter rather than something each caller's storage is walked to.
+void LowirFunctionLowering::initialize_declared(const DumpNode& node,
+                                                const Operand& storage,
+                                                const Operand* address_in_hand)
+{
+	TypeTable& types = unit_.types();
+	const TypeId type = node.fact.type;
 	LowObject opened;
 	opened.storage = storage;
 	if (types.is_class(types.strip_cv(type)))
@@ -1937,7 +1960,8 @@ void LowirFunctionLowering::declare_local(const DumpNode& node)
 		const std::size_t block = current_;
 		const std::size_t named = out_.blocks[block].instructions.size();
 		const unsigned counted = temps_;
-		const Operand address = address_of(object);
+		const Operand address =
+			address_in_hand != nullptr ? *address_in_hand : address_of(object);
 		if (!node.children.empty() &&
 		    node.children[0]->fact.kind == FactKind::ConstructorAction)
 		{
@@ -1959,7 +1983,11 @@ void LowirFunctionLowering::declare_local(const DumpNode& node)
 			// part of the program.  What the initialization wrote is what says
 			// so, rather than a second walk predicting what it will.
 			initialize_into(opened, type, *node.children[0]);
-			if (current_ == block &&
+			// The address is only this declaration's to take back where this
+			// declaration was what named it; one handed in stands for something
+			// else too - 3.6.3p3's hand-off of the object to the runtime - and
+			// is no part of what the initialization wrote.
+			if (address_in_hand == nullptr && current_ == block &&
 			    out_.blocks[block].instructions.size() == named + 1)
 			{
 				out_.blocks[block].instructions.pop_back();

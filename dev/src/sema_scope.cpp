@@ -220,6 +220,9 @@ SemaEntity& SemaModel::create(SemaKind kind, const std::string& name, TypeId typ
 	entity.c_linkage = false;
 	entity.internal_linkage = false;
 	entity.thread_storage = false;
+	entity.local_static = false;
+	entity.declared_begin = 0;
+	entity.declared_end = 0;
 	entity.builtin = kNotBuiltin;
 	entity.nonthrowing = false;
 	entity.wrote_exception_specification = false;

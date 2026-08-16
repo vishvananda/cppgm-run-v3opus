@@ -687,6 +687,7 @@ AstNode* AstParser::parse_init_declarator_list()
 	AstNode* node = make(AstKind::InitDeclaratorList);
 	do
 	{
+		const Mark wrote = mark();
 		AstNode* declarator = parse_declarator(DeclaratorForm::Named);
 		if (declarator == nullptr)
 		{
@@ -695,6 +696,13 @@ AstNode* AstParser::parse_init_declarator_list()
 		AstNode* item = make(AstKind::InitDeclarator);
 		item->add(declarator);
 		item->add(parse_initializer());
+		// The terminals this one declarator and its initializer were written
+		// from.  A declaration may declare several, and 3.7.1p3's object a
+		// block declares `static` is named in the image by where it was
+		// written - so the span belongs to the init-declarator and not to the
+		// declaration that holds it.
+		item->begin = static_cast<std::uint32_t>(wrote.pos);
+		item->end = static_cast<std::uint32_t>(pos_);
 		node->add(item);
 	}
 	while (accept(OP_COMMA));

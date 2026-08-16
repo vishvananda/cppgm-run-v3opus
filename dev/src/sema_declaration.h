@@ -404,12 +404,14 @@ struct DependentDecltype
 	std::vector<std::size_t> reach;
 };
 
-// 3.7.2p2: one namespace-scope object with thread storage duration, and the
-// line it was declared on.  It is destroyed when its own thread ends rather
-// than when the program does, so the action stands under the declaration -
-// where the initialization that hands it to the runtime is - and is written
-// once that declaration has written everything else it holds.
-struct ThreadLifetime
+// One object whose destruction is an action of its own declaration, and the
+// line that declaration wrote.  3.7.2p2's object of a thread and 3.7.1p3's
+// block-scope `static` are both of them: neither ends where the region that
+// names it ends, and both are handed to the runtime at the one initialization
+// they get - so the action stands under the declaration, where that
+// initialization is, and is written once the declaration has written
+// everything else it holds.
+struct DeclaredLifetime
 {
 	SemaEntity* entity;
 	DumpNode* line;

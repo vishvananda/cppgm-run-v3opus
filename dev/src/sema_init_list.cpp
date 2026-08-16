@@ -337,6 +337,16 @@ void SemaAnalyzer::array_from_clauses(TypeId array, Clauses& clauses,
 			list_initialize(clause, element, inner, line, image);
 			continue;
 		}
+		if (types_.kind(types_.strip_cv(element)) == TypeKind::Array &&
+		    StringInitialization(*this).as_object(element, clause, inner, line))
+		{
+			// 8.5.2p1: an element that is an array of character type takes the
+			// code units of the string literal written for it, whether or not
+			// braces were written around that literal - `{"x"}` for an element
+			// and `"x"` for one are the same initialization, and the one place
+			// the braces would have been read is this clause.
+			continue;
+		}
 		initialize(clause, element, inner, line, true);
 	}
 	for (; of_class && types_.bounded(array) && taken < bound; ++taken)

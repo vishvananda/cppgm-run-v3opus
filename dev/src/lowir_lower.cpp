@@ -247,7 +247,11 @@ const std::string& LowirUnitLowering::global_symbol(const SemaEntity& entity)
 	std::string& held = entity_symbols_[entity.id];
 	if (held.empty())
 	{
-		held = LowirSymbolTable::object_symbol(entity);
+		// 3.7.1p3: a block declares no name that reaches the object outside it,
+		// so what the image calls its storage is not the flattening of a
+		// qualified name the program could write.
+		held = entity.local_static ? local_static_symbol(entity)
+		                           : LowirSymbolTable::object_symbol(entity);
 	}
 	return held;
 }
@@ -1097,6 +1101,50 @@ void LowirUnitLowering::global_variable(const DumpNode& node)
 	const TypeId type = node.fact.type;
 	global.type = low_type(type);
 	describe_symbol(entity, global.metadata, symbol);
+	const DumpNode* const dynamic = global_image(global, node, type);
+	if (entity.thread_storage)
+	{
+		// 3.7.2p1: the definition lays out one object per thread rather than
+		// one per program, and 3.7.2p2 gives the ABI a function to reach it
+		// through.
+		global.storage = lowir_model::GSM_THREAD_LOCAL;
+		thread_wrapper(symbol, abi_thread_wrapper_of(entity),
+		               global.metadata.binding);
+	}
+	program_.globals.push_back(global);
+	if (!entity.thread_storage)
+	{
+		if (dynamic != nullptr)
+		{
+			dynamic_initializer(entity, *dynamic, type);
+		}
+		return;
+	}
+	// 12.4p11 and 3.7.2p2: the end of the object's lifetime is a fact of the
+	// declaration and not of the initializer it was given, and the point the
+	// runtime is handed it at is the one point per thread this unit writes.  So
+	// the body is what the declaration asks for - an initialization to run, a
+	// lifetime to end, or both - and an object whose value the image already
+	// holds and whose class ends its lifetime with nothing still gets none.
+	const DumpNode* const destruction = declared_destruction(node);
+	if (dynamic == nullptr && destruction == nullptr)
+	{
+		return;
+	}
+	thread_initializer(symbol, dynamic, type, destruction);
+}
+
+// 3.6.2: what the image holds for an object with static storage duration before
+// the program starts, and the initialization left over for the program to run -
+// which is null where 3.6.2p1's zero and the constant the initializer came to
+// are the whole of it.
+//
+// Both the objects a namespace declares and 3.7.1p3's objects a block declares
+// `static` are laid out this way, and neither is asked twice: the clauses are
+// read once into the definition and what is left of them is handed back.
+const DumpNode* LowirUnitLowering::global_image(
+	lowir_model::GlobalDefinition& global, const DumpNode& node, TypeId type)
+{
 	const DumpNode* written = node.children.empty() ? nullptr : node.children[0];
 	if (written != nullptr && written->fact.kind == FactKind::BracedInitList &&
 	    types_.kind(types_.strip_cv(type)) != TypeKind::Array)
@@ -1221,36 +1269,7 @@ void LowirUnitLowering::global_variable(const DumpNode& node)
 		global.init_kind = lowir_model::GlobalDefinition::INIT_ZERO;
 		dynamic = written;
 	}
-	if (entity.thread_storage)
-	{
-		// 3.7.2p1: the definition lays out one object per thread rather than
-		// one per program, and 3.7.2p2 gives the ABI a function to reach it
-		// through.
-		global.storage = lowir_model::GSM_THREAD_LOCAL;
-		thread_wrapper(symbol, abi_thread_wrapper_of(entity),
-		               global.metadata.binding);
-	}
-	program_.globals.push_back(global);
-	if (!entity.thread_storage)
-	{
-		if (dynamic != nullptr)
-		{
-			dynamic_initializer(entity, *dynamic, type);
-		}
-		return;
-	}
-	// 12.4p11 and 3.7.2p2: the end of the object's lifetime is a fact of the
-	// declaration and not of the initializer it was given, and the point the
-	// runtime is handed it at is the one point per thread this unit writes.  So
-	// the body is what the declaration asks for - an initialization to run, a
-	// lifetime to end, or both - and an object whose value the image already
-	// holds and whose class ends its lifetime with nothing still gets none.
-	const DumpNode* const destruction = thread_destruction(node);
-	if (dynamic == nullptr && destruction == nullptr)
-	{
-		return;
-	}
-	thread_initializer(symbol, dynamic, type, destruction);
+	return dynamic;
 }
 
 // 3.7.2p2: the bodies the thread-local definitions of this unit asked for,
@@ -1299,7 +1318,7 @@ void LowirUnitLowering::write_thread_bodies()
 // declared, which for a thread-local object stands under the declaration
 // because no point of the program is where it runs.  Null where the class ends
 // the lifetime with nothing to run.
-const DumpNode* LowirUnitLowering::thread_destruction(const DumpNode& node)
+const DumpNode* LowirUnitLowering::declared_destruction(const DumpNode& node)
 {
 	for (std::size_t index = node.children.size(); index-- > 0; )
 	{
@@ -2035,8 +2054,19 @@ void LowirUnitLowering::demand_referenced(const DumpNode& node, bool running)
 	{
 		referenced_.push_back(node.fact.entity->id);
 	}
+	// 3.7.1p3 and 3.6.2p1: an object a block declares `static` has the storage
+	// duration of the program, so an initializer of it that 5.19 folded is a
+	// value the image holds exactly as a namespace-scope object's is - the
+	// fold is what the storage starts as, and the function it would have run is
+	// named nowhere.  An object of class type is left inside: 12.1p5 makes its
+	// initialization a call whatever its clauses came to, so a call written
+	// among them is one the program still makes.
+	const bool image =
+		node.fact.kind == FactKind::Variable && node.fact.entity != nullptr &&
+		node.fact.entity->local_static &&
+		!types_.is_class(types_.element_of(types_.strip_cv(node.fact.type)));
 	const bool inside =
-		running || node.fact.kind == FactKind::FunctionDefinition;
+		(running || node.fact.kind == FactKind::FunctionDefinition) && !image;
 	for (std::size_t index = 0; index < node.children.size(); ++index)
 	{
 		demand_referenced(*node.children[index], inside);

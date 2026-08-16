@@ -646,6 +646,21 @@ struct SemaEntity
 	// 3.6.2p2 settles - an initialization that runs once per thread rather than
 	// once before `main`.  False for every other variable.
 	bool thread_storage;
+	// 3.7.1p3: whether a block declared this object `static`, which gives it
+	// the storage duration of the program rather than of its block.  The
+	// declaration still names it in one block alone, so nothing about the
+	// *name* changes; what changes is that 6.7p4 initializes it the first time
+	// control reaches the declaration and 3.6.3p1 rather than the end of the
+	// block destroys it.  False for every other variable.
+	bool local_static;
+	// The terminals the init-declarator that declared it was written from, as
+	// `[begin, end)` in this unit's stream.  A block declares no name the
+	// program can reach from outside, so what names the storage such an object
+	// asks the image for is where it was written; the span is the one thing
+	// about a declaration that no two declarations of one unit share.  Zero for
+	// every declaration whose storage a name already reaches.
+	std::uint32_t declared_begin;
+	std::uint32_t declared_end;
 	// The name the PA12 dump spells this entity with: a namespace-scope
 	// declaration is written with the named namespaces around it, and
 	// everything else with the name it was declared with.  It is built where

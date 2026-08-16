@@ -245,16 +245,17 @@ void SemaAnalyzer::run(const AstNode& unit)
 	{
 		destructor_action(*static_lifetimes_[index], *ctx.node, Placement::Named);
 	}
-	// 3.7.2p2: an object with thread storage duration is destroyed when its own
-	// thread ends, which is a point the program hands to the runtime where the
-	// object is initialized.  The action stands under the declaration, after
-	// everything else that declaration wrote, and in declaration order: each
-	// thread ends its own objects in the reverse of the order it began them,
-	// which is what the runtime it was handed them in that order does.
-	for (std::size_t index = 0; index < thread_lifetimes_.size(); ++index)
+	// 3.7.2p2 and 3.6.3p1: an object with thread storage duration is destroyed
+	// when its own thread ends, and a block-scope `static` when the program
+	// does; both are points the program hands to the runtime where the object
+	// is initialized.  The action stands under the declaration, after
+	// everything else that declaration wrote, and in declaration order: the
+	// runtime ends the objects in the reverse of the order it was handed them,
+	// which is the order they were begun in.
+	for (std::size_t index = 0; index < declared_lifetimes_.size(); ++index)
 	{
-		destructor_action(*thread_lifetimes_[index].entity,
-		                  *thread_lifetimes_[index].line, Placement::Named);
+		destructor_action(*declared_lifetimes_[index].entity,
+		                  *declared_lifetimes_[index].line, Placement::Named);
 	}
 	write_pending_definitions();
 	// 12.6.2p6: every delegation this unit wrote is settled now, so the chain
@@ -2052,7 +2053,7 @@ void SemaAnalyzer::simple_declaration(const AstNode& node, const Context& ctx)
 	{
 		const AstNode& init = *list->children[index];
 		init_declarator(*init.children[0], child_of(init, AstKind::Initializer),
-		                specifiers, ctx);
+		                specifiers, ctx, &init);
 	}
 }
 
@@ -2237,7 +2238,8 @@ void SemaAnalyzer::declare_function_declarator(
 // already holds as well as against this one's own specifiers.
 void SemaAnalyzer::record_storage(SemaEntity& entity, const SemaEntity* prior,
                                   const Specifiers& specifiers,
-                                  const Context& target, TypeId type)
+                                  const Context& target, TypeId type,
+                                  const AstNode* whole)
 {
 	// 3.5p3: at namespace scope a name declared `static` has internal linkage,
 	// and so does a `const` object no declaration wrote `extern`.
@@ -2278,31 +2280,47 @@ void SemaAnalyzer::record_storage(SemaEntity& entity, const SemaEntity* prior,
 	}
 	// 3.7.1p3 and 3.7.2p1: a block-scope object declared `static` is one object
 	// of the program and one declared `thread_local` is one per thread; neither
-	// is an object of the block that declares it.  6.7p4 initializes it the
-	// first time control passes through the declaration, and 3.6.3p1 or the end
-	// of its thread destroys it.  Writing it as the automatic object of its
-	// block would describe a different program, and the guard 6.7p4 asks for is
-	// not part of this milestone - so it is refused wherever it is declared and
-	// whatever its type, rather than only where a class of its own ends the
-	// lifetime.
-	if (entity.object_definition &&
-	    (specifiers.is_static || entity.thread_storage) &&
-	    target.scope->kind != ScopeKind::Namespace &&
-	    target.scope->kind != ScopeKind::Class)
+	// is an object of the block that declares it.  Writing it as the automatic
+	// object of its block would describe a different program, so the storage
+	// duration is recorded on the variable here - 6.7p4's initialization the
+	// first time control reaches the declaration and 3.6.3p1's destruction at
+	// the end of the program are what the lowering then writes for it.
+	//
+	// 3.7.2p2's one object per thread is left refused: the storage the ABI
+	// gives it is reached through a wrapper of its own, which is a second
+	// question from the one 6.7p4 asks and which nothing in a block has yet
+	// needed.
+	if (!entity.object_definition ||
+	    (!specifiers.is_static && !entity.thread_storage) ||
+	    target.scope->kind == ScopeKind::Namespace ||
+	    target.scope->kind == ScopeKind::Class)
+	{
+		return;
+	}
+	if (entity.thread_storage)
 	{
 		throw std::runtime_error(
-			std::string("a block-scope ") +
-			(entity.thread_storage ? "thread_local" : "static") + " object of " +
-			types_.description(type) +
+			"a block-scope thread_local object of " + types_.description(type) +
 			" is declared, whose one initialization and its destruction this "
 			"milestone does not write");
+	}
+	entity.local_static = true;
+	if (whole != nullptr && entity.declared_end == 0)
+	{
+		// 3.7.1p3: the storage is the program's and the name is one block's, so
+		// what the image calls it is where it was written.  The first
+		// declaration of the object is what settles that, exactly as the first
+		// region it is recorded in settles its name.
+		entity.declared_begin = whole->begin;
+		entity.declared_end = whole->end;
 	}
 }
 
 void SemaAnalyzer::init_declarator(const AstNode& node,
                                    const AstNode* initializer,
                                    const Specifiers& specifiers,
-                                   const Context& ctx)
+                                   const Context& ctx,
+                                   const AstNode* whole)
 {
 	// 3.4.1p8: the rest of a declarator whose declarator-id is qualified is
 	// looked up in the region that name reaches, so the region is settled from
@@ -2466,7 +2484,7 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 	Context inside = ctx;
 	inside.scope = looked_up.scope;
 	declare_object_declarator(initializer, specifiers, inside, target, spelled,
-	                          written, type);
+	                          written, type, whole);
 	if (checking_ > 0 && initializer != nullptr)
 	{
 		// 14.6p8 and 3.4p1: an initializer is an expression of this definition
@@ -2538,7 +2556,7 @@ void SemaAnalyzer::declare_object_declarator(const AstNode* initializer,
                                              const Context& target,
                                              const QualifiedName& spelled,
                                              const std::string& written,
-                                             TypeId type)
+                                             TypeId type, const AstNode* whole)
 {
 	const std::string name = spelled.last();
 	// 7.1.5p9: a constexpr object is a const object.
@@ -2652,7 +2670,7 @@ void SemaAnalyzer::declare_object_declarator(const AstNode* initializer,
 			demand_object_storage(type, types_, model_);
 		}
 	}
-	record_storage(entity, prior, specifiers, target, type);
+	record_storage(entity, prior, specifiers, target, type, whole);
 	// 9.4.2p2: a definition written with a nested-name-specifier declares
 	// nothing where it names, so the line it writes is not one of that region's:
 	// it stands where the definition is written, spelled the way it wrote it.
@@ -2759,10 +2777,14 @@ void SemaAnalyzer::declare_object_declarator(const AstNode* initializer,
 	// 3.6.2p2 and 3.7.1p1: an object at namespace scope, and the static data
 	// member 9.4.2p2 defines there, is given its value by the program image
 	// rather than built where its declaration stands.
+	// 3.7.1p3 makes an object a block declares `static` one of those too: its
+	// storage is the program's, so 3.6.2p1's constant initialization of it is
+	// the image and not something the block builds.
 	write_initializer(*value, type, ctx, line,
 	                  entity.object_definition &&
 	                  (target.scope->kind == ScopeKind::Namespace ||
-	                   target.scope->kind == ScopeKind::Class));
+	                   target.scope->kind == ScopeKind::Class ||
+	                   entity.local_static));
 	// 12.2p5: where that initializer bound this reference to a temporary, the
 	// temporary's lifetime is the reference's from here on.
 	extend_bound_temporary(type, ctx, line);

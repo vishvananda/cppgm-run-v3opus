@@ -359,6 +359,22 @@ public:
 	// that, so a program with no such object writes neither.
 	const std::string& thread_atexit_symbol();
 	const std::string& image_handle_symbol();
+	// 3.6.3p3: the same runtime entry for an object destroyed when the program
+	// ends rather than when a thread does, which 3.7.1p3's block-scope object
+	// is handed to where 6.7p4 initializes it.
+	const std::string& atexit_symbol();
+	// 3.7.1p3 and 3.6.2: the storage such an object asks the image for, laid out
+	// the first time this unit reaches its declaration, and the initializer
+	// clause 6.7p4 leaves for the body to run - null where the image is the
+	// whole of it.
+	const DumpNode* local_static_definition(const DumpNode& node);
+	// 6.7p4: the flag beside that storage which says whether this run of the
+	// program has been through the declaration.
+	const std::string& local_static_guard(const SemaEntity& entity);
+	// 3.7.2p2 and 3.6.3p1: the action that ends the lifetime of the object a
+	// declaration declared, which stands under the declaration where no point
+	// of the program the declaration was written at is where it runs.
+	static const DumpNode* declared_destruction(const DumpNode& node);
 	// 3.7.2p2: the body that initializes one thread's copy of `entity`, or null
 	// where this unit gives the object none - which is every object but a
 	// thread-local one this unit initializes with code.  A use of the name has
@@ -440,6 +456,11 @@ private:
 	void thread_definitions(const DumpNode& node);
 	void declaration(const DumpNode& node);
 	void global_variable(const DumpNode& node);
+	// 3.6.2: the image half of such a definition - what the object's storage
+	// holds before the program starts - and the initializer clause left for the
+	// program to run, or null where the image is the whole initialization.
+	const DumpNode* global_image(lowir_model::GlobalDefinition& global,
+	                             const DumpNode& node, TypeId type);
 	void function_definition(const DumpNode& node);
 	// 3.6.2 and 8.5p6: the constant a namespace-scope object is initialized
 	// with, as the data the global definition holds.
@@ -557,13 +578,21 @@ private:
 	// 3.7.2p2: the flag of the same thread that says a thread has run what one
 	// thread-local object asked it to.
 	static std::string guard_of(const std::string& symbol);
-	// 3.7.2p2: the action that ends the lifetime of the object a declaration
-	// declared, which stands under the declaration for a thread-local object
-	// because no point of the program is where it runs.
-	static const DumpNode* thread_destruction(const DumpNode& node);
 	// 3.6.3p1: the destructor of an object with static storage duration, added
 	// to the program's one shutdown function.
 	void static_destructor(const DumpNode& node);
+	// 3.7.1p3: the symbol the image gives an object a block declared `static`,
+	// which the program spells no name that reaches - so it is made of the
+	// function whose body declared it and where in that body it stands.
+	std::string local_static_symbol(const SemaEntity& entity);
+	std::string local_static_owner(const SemaEntity& owner);
+	std::string local_static_place(const SemaEntity& entity,
+	                               const SemaEntity* owner);
+	lowir_model::SymbolBindingMode local_static_binding(
+		const SemaEntity& entity);
+	// 3.6.2p1: whether the initializer denotes an object the image lays out,
+	// which is what makes the binding of a reference a constant initialization.
+	bool static_bound(const DumpNode& node);
 
 	// One thread-local definition's outstanding body: the object it fills, the
 	// initialization 3.6.2p2 left to run and the destruction 12.4p11 hands to
@@ -601,6 +630,14 @@ private:
 	// The symbol of every namespace-scope entity this unit has already asked
 	// for, so a name used many times is flattened and signed once.
 	std::unordered_map<std::uint32_t, std::string> entity_symbols_;
+	// 6.7p4: the flag of each block-scope `static` this unit has named, so that
+	// the body reaching one declaration twice - a `for` around it, an unwind
+	// path past it - names one flag.
+	std::unordered_map<std::uint32_t, std::string> local_static_guards_;
+	// 7.1.2p4: how many of the block-scope statics of one shared definition
+	// this unit has already named, which is what a translation unit can agree
+	// with another one on where the terminals it read cannot.
+	std::unordered_map<std::string, unsigned> local_static_places_;
 	// The base-object entry's own symbol, for the constructors and destructors a
 	// base subobject asked for after a complete object already had.  It is kept
 	// apart from `entity_symbols_` because one declaration then stands under two
@@ -734,6 +771,22 @@ private:
 	static bool holds_label(const DumpNode& node);
 	void declaration_statement(const DumpNode& node);
 	void local_variable(const DumpNode& node);
+	// 3.7.1p3 and 6.7p4: the declaration of an object a block declared
+	// `static`, as the body that reaches it runs it - the flag that says
+	// whether this run of the program has been through the declaration, and the
+	// initialization and hand-off of the destruction the first run does.
+	void local_static_variable(const DumpNode& node);
+	// 3.6.3p3: the end of that object's lifetime, handed to the runtime at the
+	// address the object stands at where the object was begun.
+	void local_static_destruction(const lowir_model::Operand& address,
+	                              const DumpNode& node);
+	// 8.5: what one declaration writes into the storage it was given.  The
+	// address is the one already in hand where the caller had to compute it -
+	// 3.6.3p3's hand-off of a block-scope `static` to the runtime is that
+	// caller - and null where the storage is the whole of what it named.
+	void initialize_declared(const DumpNode& node,
+	                         const lowir_model::Operand& storage,
+	                         const lowir_model::Operand* address_in_hand);
 	// The storage and the initialization one declaration writes, which is the
 	// whole of it but 3.8p1's beginning of a lifetime.
 	void declare_local(const DumpNode& node);
