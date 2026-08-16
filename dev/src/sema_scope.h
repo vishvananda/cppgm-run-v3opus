@@ -197,6 +197,12 @@ struct SemaEntity
 	// a const object of integral type has when its initializer is constant.
 	bool constant;
 	unsigned long long value;
+	// 5.19 with 7.1.5p2: a name one folded call bound - a place the call filled
+	// or an object a statement of the body declared.  Such a binding is the one
+	// thing an evaluation may write to: it belongs to the call being folded and
+	// is dropped with it, while every other constant a program declares is a
+	// fact of the program that no evaluation of it may change.
+	bool fold_local;
 	// 13.1: the other declarations of this name in this region, in declaration
 	// order.  A name is bound to the first of them and the rest are reached
 	// from it, so collecting the candidates of a call costs one walk of the

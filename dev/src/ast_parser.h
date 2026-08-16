@@ -268,7 +268,12 @@ private:
 	AstNode* parse_labeled_statement();
 	AstNode* parse_try_block();
 	AstNode* parse_exception_declaration();
-	AstNode* parse_condition();
+	// 6.4p1: a condition, whose declaration arm is told from its expression
+	// arm by what stands after it.  6.4's own `if`, `switch` and `while` close
+	// the parentheses there, and 6.5.3p1's `for` writes the second of its
+	// semicolons, so the token that ends it is the caller's to say rather than
+	// this reader's to assume.
+	AstNode* parse_condition(unsigned ends);
 	AstNode* parse_parenthesized_condition();
 
 	// Expressions (ast_parser_expression.cpp).

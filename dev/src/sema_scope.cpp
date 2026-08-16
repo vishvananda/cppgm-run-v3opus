@@ -216,6 +216,7 @@ SemaEntity& SemaModel::create(SemaKind kind, const std::string& name, TypeId typ
 	entity.scope = nullptr;
 	entity.defined = false;
 	entity.constant = false;
+	entity.fold_local = false;
 	entity.object_definition = false;
 	entity.c_linkage = false;
 	entity.internal_linkage = false;

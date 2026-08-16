@@ -248,7 +248,7 @@ AstNode* AstParser::parse_parenthesized_condition()
 	{
 		BracketGuard brackets(*this, false);
 		++pos_;
-		node = parse_condition();
+		node = parse_condition(OP_RPAREN);
 		if (node == nullptr || !at(OP_RPAREN))
 		{
 			return fail(start);
@@ -258,7 +258,7 @@ AstNode* AstParser::parse_parenthesized_condition()
 	return node;
 }
 
-AstNode* AstParser::parse_condition()
+AstNode* AstParser::parse_condition(unsigned ends)
 {
 	const Mark start = mark();
 	AstNode* specifiers = parse_specifier_seq(SpecifierMode::Decl);
@@ -268,7 +268,7 @@ AstNode* AstParser::parse_condition()
 		if (declarator != nullptr)
 		{
 			AstNode* initializer = parse_initializer();
-			if (initializer != nullptr && at(OP_RPAREN))
+			if (initializer != nullptr && at(ends))
 			{
 				AstNode* declaration = make(AstKind::ConditionDeclaration);
 				declaration->add(specifiers);
@@ -318,7 +318,7 @@ AstNode* AstParser::parse_for_statement()
 		node->add(init);
 		if (!at(OP_SEMICOLON))
 		{
-			AstNode* condition = parse_condition();
+			AstNode* condition = parse_condition(OP_SEMICOLON);
 			if (condition == nullptr)
 			{
 				return fail(start);

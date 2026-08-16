@@ -679,35 +679,6 @@ SemaConstant ConstexprReading::converted(const SemaConstant& value,
 	return call(*found, &value, none);
 }
 
-// 7.1.5p3's function-body, read for the one expression it comes to.
-const AstNode* ConstexprReading::return_expression(const AstNode& body,
-                                                   const SemaContext& inner)
-{
-	const AstNode* returned = nullptr;
-	for (std::size_t index = 0; index < body.children.size(); ++index)
-	{
-		const AstNode& statement = *body.children[index];
-		if (statement.kind == AstKind::ReturnStatement)
-		{
-			if (returned != nullptr || statement.children.empty())
-			{
-				return nullptr;
-			}
-			returned = statement.children[0];
-			continue;
-		}
-		if (!is_body_declaration(statement.kind))
-		{
-			return nullptr;
-		}
-		// The names these introduce are what the return expression is read
-		// against, so they are declared into the fold's own region - which is
-		// what lets a body write `using min = ...;` before it names `min`.
-		analyzer_.declaration(statement, inner);
-	}
-	return returned;
-}
-
 void ConstexprReading::bind_constant(const std::string& name,
                                      const SemaConstant& value,
                                      const SemaContext& inner)
@@ -877,14 +848,20 @@ SemaConstant ConstexprReading::call(SemaEntity& callee,
 		throw NotConstant(callee.name +
 		                  " has no function-body a constant expression reads");
 	}
-	const AstNode* const returned = return_expression(*compound, inner);
-	if (returned == nullptr)
+	// 6.1-6.6: the body is run rather than pattern-matched.  7.1.5p3 leaves a
+	// C++11 constexpr body one `return` statement, and this milestone's own
+	// boundary allows the evaluation a strict superset of that - so what says
+	// the call is not a constant expression is a statement the walk cannot run
+	// or a value it cannot read, not the shape of the body.
+	ConstexprFrame frame;
+	statement(*compound, inner, frame);
+	if (!frame.returned)
 	{
 		throw NotConstant(callee.name +
-		                  " is a constexpr function whose body is outside what "
-		                  "7.1.5p3 leaves a constant expression to read");
+		                  " is a constexpr function whose body reaches no "
+		                  "return statement 6.6.3p2 gives the call a value by");
 	}
-	SemaConstant answer = analyzer_.evaluate(*returned, inner);
+	SemaConstant answer = frame.result;
 	if (analyzer_.arithmetic_type(result) != kNoType)
 	{
 		// 6.6.3p2: the value the return statement's expression is converted to
@@ -932,6 +909,12 @@ SemaConstant ConstexprReading::id_constant(const AstNode& node,
 SemaConstant ConstexprReading::unary_constant(const AstNode& node,
                                               const SemaContext& ctx)
 {
+	if (node.token == OP_INC || node.token == OP_DEC)
+	{
+		// 5.3.2p1: the operand is written and the value is the object as it now
+		// stands, so the operand is not read as a value first.
+		return increment_constant(node, ctx, true);
+	}
 	const SemaConstant operand = analyzer_.promote(analyzer_.evaluate(*node.children[0], ctx));
 	SemaConstant out;
 	out.type = operand.type;
@@ -975,7 +958,7 @@ SemaConstant ConstexprReading::binary_constant(const AstNode& node,
 	// when the left one does not decide the answer.
 	if (node.token == OP_LAND || node.token == OP_LOR)
 	{
-		const bool left = analyzer_.evaluate(*node.children[0], ctx).bits != 0;
+		const bool left = truth(analyzer_.evaluate(*node.children[0], ctx));
 		SemaConstant out;
 		out.type = analyzer_.types_.fundamental(FT_BOOL);
 		if (left == (node.token == OP_LOR))
@@ -983,19 +966,35 @@ SemaConstant ConstexprReading::binary_constant(const AstNode& node,
 			out.bits = left ? 1 : 0;
 			return out;
 		}
-		out.bits = analyzer_.evaluate(*node.children[1], ctx).bits != 0 ? 1 : 0;
+		out.bits = truth(analyzer_.evaluate(*node.children[1], ctx)) ? 1 : 0;
 		return out;
 	}
+	// 5.18p1: the left operand of a comma is evaluated and its value discarded,
+	// and the result is the right one - which is what a for-statement's head
+	// writes to advance more than one object per pass.
+	if (node.token == OP_COMMA)
+	{
+		analyzer_.evaluate(*node.children[0], ctx);
+		return analyzer_.evaluate(*node.children[1], ctx);
+	}
 
-	const SemaConstant left = analyzer_.promote(analyzer_.evaluate(*node.children[0], ctx));
-	const SemaConstant right = analyzer_.promote(analyzer_.evaluate(*node.children[1], ctx));
-	const bool comparison = node.token == OP_LT || node.token == OP_GT ||
-		node.token == OP_LE || node.token == OP_GE || node.token == OP_EQ ||
-		node.token == OP_NE;
+	return binary_value(node.token, analyzer_.evaluate(*node.children[0], ctx),
+	                    analyzer_.evaluate(*node.children[1], ctx));
+}
+
+SemaConstant ConstexprReading::binary_value(unsigned token,
+                                            const SemaConstant& given_left,
+                                            const SemaConstant& given_right)
+{
+	const SemaConstant left = analyzer_.promote(given_left);
+	const SemaConstant right = analyzer_.promote(given_right);
+	const bool comparison = token == OP_LT || token == OP_GT ||
+		token == OP_LE || token == OP_GE || token == OP_EQ ||
+		token == OP_NE;
 	// 5.8p1: a shift takes 5p10's conversions on neither operand.  Each is
 	// promoted on its own and the result has the type of the promoted left one,
 	// so an unsigned count does not make the value it shifts unsigned.
-	const bool shifted = node.token == OP_LSHIFT || node.token == OP_RSHIFT;
+	const bool shifted = token == OP_LSHIFT || token == OP_RSHIFT;
 	const TypeId type =
 		shifted ? left.type : analyzer_.common_type(left.type, right.type);
 	const unsigned long long lhs = analyzer_.convert(left, type).bits;
@@ -1007,7 +1006,7 @@ SemaConstant ConstexprReading::binary_constant(const AstNode& node,
 	if (comparison)
 	{
 		bool answer = false;
-		switch (node.token)
+		switch (token)
 		{
 		case OP_LT: answer = sign ? signed_lhs < signed_rhs : lhs < rhs; break;
 		case OP_GT: answer = sign ? signed_lhs > signed_rhs : lhs > rhs; break;
@@ -1026,7 +1025,7 @@ SemaConstant ConstexprReading::binary_constant(const AstNode& node,
 	out.type = type;
 	long long result = 0;
 	bool overflowed = false;
-	switch (node.token)
+	switch (token)
 	{
 	case OP_PLUS:
 		overflowed = add_overflows(signed_lhs, signed_rhs, result);
@@ -1052,12 +1051,12 @@ SemaConstant ConstexprReading::binary_constant(const AstNode& node,
 		if (sign)
 		{
 			overflowed = signed_lhs == (-1 - 0x7FFFFFFFFFFFFFFFLL) && signed_rhs == -1;
-			result = node.token == OP_DIV ? signed_lhs / signed_rhs
+			result = token == OP_DIV ? signed_lhs / signed_rhs
 			                              : signed_lhs % signed_rhs;
 			out.bits = static_cast<unsigned long long>(result);
 			break;
 		}
-		out.bits = node.token == OP_DIV ? lhs / rhs : lhs % rhs;
+		out.bits = token == OP_DIV ? lhs / rhs : lhs % rhs;
 		break;
 
 	case OP_LSHIFT:
@@ -1072,7 +1071,7 @@ SemaConstant ConstexprReading::binary_constant(const AstNode& node,
 			throw NotConstant("a constant expression shifts by more than "
 			                         "the width of its type");
 		}
-		if (node.token == OP_LSHIFT)
+		if (token == OP_LSHIFT)
 		{
 			out.bits = lhs << count;
 			result = static_cast<long long>(out.bits);

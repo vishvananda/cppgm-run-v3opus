@@ -274,6 +274,19 @@ SemaAnalyzer::Constant SemaAnalyzer::evaluate(const AstNode& node,
 	case AstKind::BinaryExpression:
 		return ConstexprReading(*this).binary_constant(node, ctx);
 
+	case AstKind::AssignmentExpression:
+		// 5.17p1: a write-back to an object the evaluation itself declared,
+		// which the statements of a constexpr body are what reach.
+		return ConstexprReading(*this).assignment_constant(node, ctx);
+
+	case AstKind::PostfixExpression:
+		if (node.token != OP_INC && node.token != OP_DEC)
+		{
+			throw NotConstant("a constant expression holds an operator this "
+			                  "implementation does not evaluate");
+		}
+		return ConstexprReading(*this).increment_constant(node, ctx, false);
+
 	case AstKind::ConditionalExpression:
 	{
 		const bool condition = evaluate(*node.children[0], ctx).bits != 0;

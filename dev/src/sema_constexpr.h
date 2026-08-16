@@ -9,8 +9,52 @@
 #include "type_model.h"
 
 class SemaAnalyzer;
+class Scope;
 struct AstNode;
 struct SemaEntity;
+
+// 6.1-6.6: how a statement a fold ran left the walk of the body around it.
+// 6.6.1's `break` and 6.6.2's `continue` are answered by the nearest iteration
+// statement and 6.6.3's `return` by the call, so each is carried out of the
+// statement that wrote it rather than thrown.
+enum class ConstexprFlow
+{
+	Normal,
+	Break,
+	Continue,
+	Returned
+};
+
+// The state one folded call carries while the statements of its body run.
+//
+// The regions the body's blocks open are opened once per fold rather than once
+// per entry, so a loop of n iterations costs the regions its body has and not
+// n times that, and the objects those blocks declare are created once and
+// written again.  What re-entering a block has to undo is therefore the values:
+// 3.3.3p2 gives each pass through a block its own objects, so on entry every
+// object the block declared holds nothing again and a name read before the
+// declaration that sets it reaches no value this pass wrote.
+struct ConstexprFrame
+{
+	ConstexprFrame()
+		: steps(0)
+		, returned(false)
+	{}
+
+	// 6.6.3p2: what the return statement the walk reached handed back.
+	SemaConstant result;
+	// How many statements this fold has run, which is what bounds a loop whose
+	// condition the body never falsifies.
+	unsigned long long steps;
+	bool returned;
+	// The region each block of the body opened, keyed by the block.
+	std::unordered_map<const AstNode*, Scope*> regions;
+	// The object each declaration of the body declared, keyed by the
+	// init-declarator or condition-declaration that declares it.
+	std::unordered_map<const AstNode*, SemaEntity*> objects;
+	// What each of those regions declared, which is what re-entry unsets.
+	std::unordered_map<const Scope*, std::vector<SemaEntity*> > declared;
+};
 
 // 7.1.5p2 and 5.19p2: the call of a constexpr function a constant expression
 // folds, and the object of literal class type such a call may stand on.
@@ -61,6 +105,36 @@ public:
 	SemaConstant unary_constant(const AstNode& node, const SemaContext& ctx);
 	SemaConstant binary_constant(const AstNode& node, const SemaContext& ctx);
 	SemaConstant call_or_cast(const AstNode& node, const SemaContext& ctx);
+
+	// The arithmetic of one binary operator over what its operands came to,
+	// with 5p10's conversions on them.  It is asked by the reading of a
+	// binary-expression and again by 5.17p7's compound assignment and 5.3.2p1's
+	// increment, which are that same operator written as a write-back - so the
+	// operator is one rule here rather than one per spelling that reaches it.
+	SemaConstant binary_value(unsigned token, const SemaConstant& left,
+	                          const SemaConstant& right);
+
+	// 4p3 and 6.4p4: whether a value taken as a condition is true, which for an
+	// object of class type is what 12.3.2p1's conversion to `bool` hands back.
+	bool truth(const SemaConstant& value);
+
+	// 6.1-6.6 over the body of one folded call: `node` run in `ctx`, with
+	// `frame` holding what the call has settled so far.  Throws `NotConstant`
+	// where the statement is one this evaluation does not run or where
+	// something it evaluates is not constant.
+	ConstexprFlow statement(const AstNode& node, const SemaContext& ctx,
+	                        ConstexprFrame& frame);
+
+	// 5.17p1 and 5.17p7: what `E1 = E2` and `E1 op= E2` come to inside an
+	// evaluation, which is the value written back to the object `E1` names -
+	// and that object is one the fold itself declared, because 5.19p2 leaves an
+	// evaluation nothing else it may write.
+	SemaConstant assignment_constant(const AstNode& node, const SemaContext& ctx);
+	// 5.3.2p1 and 5.2.6p1: `++E`, `--E`, `E++` and `E--`, which is that same
+	// write-back with 1 as the other operand and with `prefix` saying whether
+	// the value is the one written or the one that stood there.
+	SemaConstant increment_constant(const AstNode& node, const SemaContext& ctx,
+	                                bool prefix);
 
 	// 5.2.2p1: what a call whose postfix-expression is the id-expression
 	// `callee` comes to, which is the arm of 5.2.3's shape whose name reaches a
@@ -138,11 +212,40 @@ private:
 	TypeId entry_of(const SemaConstant& value) const;
 	static SemaConstant constant_of(TypeId entry, const TypeTable& types);
 
-	// 7.1.5p3's function-body: the one `return` statement's expression, with
-	// the declarations written around it read into `region` first.  Null where
-	// the body holds something 7.1.5p3 does not allow.
-	const AstNode* return_expression(const AstNode& body,
-	                                 const SemaContext& inner);
+	// 6.3p1, 6.4p3 and 6.5.3p1: the region `node` opens, which is opened the
+	// first time the fold reaches it and reused afterwards.  Every object the
+	// last pass through it declared is unset here, so 3.3.3p2's fresh objects
+	// cost no region and no entity of their own.
+	SemaContext block_region(const AstNode& node, const SemaContext& ctx,
+	                         ConstexprFrame& frame);
+	// The object `key` declares, created in `ctx`'s region on the first pass
+	// through the block and written again on every later one.
+	SemaEntity& local(const AstNode& key, const std::string& name, TypeId type,
+	                  const SemaContext& ctx, ConstexprFrame& frame);
+	// 7p3 with 8.3: the type and the name one declarator of `specifiers`
+	// declares, read without declaring anything - an evaluation's object is a
+	// binding of the fold and not a declaration of the program.
+	TypeId declared_type(const AstNode& specifiers, const AstNode& declarator,
+	                     const SemaContext& ctx, std::string& name);
+	// 6.7p1: a declaration-statement of the body, run where it stands.  8.5p11
+	// leaves an object with no initializer holding no value, which is what
+	// makes reading one before it is written not a constant expression.
+	void declared(const AstNode& node, const SemaContext& ctx,
+	              ConstexprFrame& frame);
+	// 6.4p1 and 6.4p4: what the condition of a selection or iteration statement
+	// comes to, including the arm that declares an object and takes its value.
+	bool condition_value(const AstNode& node, const SemaContext& ctx,
+	                     ConstexprFrame& frame);
+	ConstexprFlow selection(const AstNode& node, const SemaContext& ctx,
+	                        ConstexprFrame& frame);
+	ConstexprFlow iteration(const AstNode& node, const SemaContext& ctx,
+	                        ConstexprFrame& frame);
+	ConstexprFlow counted_loop(const AstNode& node, const SemaContext& ctx,
+	                           ConstexprFrame& frame);
+	// 5.17p1: the object an assignment writes, which is one this fold bound.
+	SemaEntity& assigned(const AstNode& node, const SemaContext& ctx);
+	// What an evaluation has run so far, refused past the bound below.
+	void step(ConstexprFrame& frame);
 
 	// The region a fold of `callee` reads its body in: a region of its own over
 	// the one the declarator opened, binding each parameter to what its
@@ -209,3 +312,9 @@ private:
 // the program, so the depth the machine stack allows is what bounds it; the
 // standard's own recommended minimum is 512.
 const unsigned kMaxConstexprDepth = 2048;
+
+// How many statements one folded call may run.  A loop whose condition its body
+// never falsifies would otherwise not end, and no bound on the *depth* of the
+// walk catches it, because such a loop stands at one depth.  The standard's own
+// recommended minimum for the full-expressions an evaluation reads is 1048576.
+const unsigned long long kMaxConstexprSteps = 1048576;
