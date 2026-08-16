@@ -9,6 +9,7 @@
 #include "post_token.h"
 #include "sema_constexpr.h"
 #include "sema_derivation.h"
+#include "sema_operator.h"
 #include "sema_pack.h"
 #include "string_literal.h"
 
@@ -1788,7 +1789,7 @@ SemaAnalyzer::Value SemaAnalyzer::subscript_expression(const AstNode& node,
 	operands.push_back(left);
 	operands.push_back(right);
 	Value chosen;
-	if (operator_expression(OP_LSQUARE, ctx, line, operands, true, chosen))
+	if (OperatorCall(*this).expression(OP_LSQUARE, ctx, line, operands, true, chosen))
 	{
 		return chosen;
 	}
@@ -2079,7 +2080,7 @@ SemaAnalyzer::Value SemaAnalyzer::unary_expression(const AstNode& node,
 	// type is a call, whichever operator it is.
 	std::vector<Value> operands;
 	operands.push_back(operand);
-	if (operator_expression(node.token, ctx, line, operands, false, value))
+	if (OperatorCall(*this).expression(node.token, ctx, line, operands, false, value))
 	{
 		return value;
 	}
@@ -2221,7 +2222,7 @@ SemaAnalyzer::Value SemaAnalyzer::increment_expression(const AstNode& node,
 		operands.push_back(zero);
 	}
 	Value chosen;
-	if (operator_expression(node.token, ctx, line, operands, false, chosen))
+	if (OperatorCall(*this).expression(node.token, ctx, line, operands, false, chosen))
 	{
 		return chosen;
 	}
@@ -2357,7 +2358,7 @@ SemaAnalyzer::Value SemaAnalyzer::binary_expression(const AstNode& node,
 	std::vector<Value> operands;
 	operands.push_back(left);
 	operands.push_back(right);
-	if (operator_expression(node.token, ctx, line, operands, false, value))
+	if (OperatorCall(*this).expression(node.token, ctx, line, operands, false, value))
 	{
 		// 13.5.7: an overloaded `operator&&` is a call, and a call evaluates
 		// every argument - so the operand was not conditional after all and
@@ -2728,7 +2729,7 @@ SemaAnalyzer::Value SemaAnalyzer::assignment_expression(const AstNode& node,
 			operands.push_back(
 				argument_expression(*node.children[1], ctx, line));
 			Value chosen;
-			if (!operator_expression(node.token, ctx, line, operands, true,
+			if (!OperatorCall(*this).expression(node.token, ctx, line, operands, true,
 			                         chosen))
 			{
 				throw std::runtime_error("no assignment operator of the class "
@@ -2761,7 +2762,7 @@ SemaAnalyzer::Value SemaAnalyzer::assignment_expression(const AstNode& node,
 		operands.push_back(left);
 		operands.push_back(right);
 		Value chosen;
-		if (operator_expression(node.token, ctx, line, operands, false, chosen))
+		if (OperatorCall(*this).expression(node.token, ctx, line, operands, false, chosen))
 		{
 			return chosen;
 		}

@@ -90,6 +90,9 @@ private:
 	// 3.4.2: the lookup that follows the argument types rather than the
 	// regions, which `sema_argument_lookup.h` owns for the same reason.
 	friend class ArgumentLookup;
+	// 13.3.1.2p3: the candidate set an operator reaches, which the expression
+	// layer and a fold ask alike - `sema_operator.h`'s for that reason.
+	friend class OperatorCall;
 
 	// 3.3, 7p1, 8.3.5p4, 12.6.2p1 and 5.19p3: the records the declaration
 	// layer passes between its steps, which `sema_declaration.h` defines.  The
@@ -2049,26 +2052,6 @@ private:
 	                            const Value* operand = nullptr,
 	                            bool* unviable = nullptr);
 
-	// 13.5 and 3.4.2 (sema_operator.cpp).
-	// 13.3.1.2p1: the operator expression `line` holds the operands of, read as
-	// the call of an operator function it stands for.  False - and nothing
-	// written - where no operand has class or enumeration type, where the
-	// candidate set is empty, or where 13.3 finds nothing in it viable, all of
-	// which leave the built-in operator the caller's own to describe.
-	// 13.3.1.1.2p2: the surrogate call functions an object of `type` is called
-	// through - one per non-explicit conversion function of its class that
-	// yields a pointer to a function - which 13.3 ranks beside the class's own
-	// `operator()` declarations over the one argument list.
-	const std::vector<SemaEntity*>& surrogate_calls(TypeId type);
-	bool operator_expression(unsigned token, const Context& ctx, DumpNode& line,
-	                         std::vector<Value>& operands, bool member_only,
-	                         Value& value);
-	// 13.5p6: an operator function is a non-static member function, or else a
-	// non-member one taking at least one operand of class or enumeration type.
-	// `member` is whether the declaration is written in a class and has no
-	// object parameter, which is the static member neither half allows.
-	void require_operator_operand(const std::string& name, TypeId type,
-	                              bool member);
 	// 13.3.3.2: which of two conversions of one argument is better, as 1, 0
 	// or -1.
 	int compare_matches(const Match& left, const Match& right);
@@ -2363,10 +2346,7 @@ private:
 	// read.
 	std::unordered_map<std::string, std::vector<const AstNode*> >
 		unit_definitions_;
-	// 13.3.1.1.2p2: the surrogate call functions a class is called through,
-	// held per class because the set is a fact of the class and not of the
-	// call: a class that declares no conversion to a pointer to function - all
-	// but a few - answers with a list it never builds a second time.
+	// 13.3.1.1.2p2: `OperatorCall::surrogates`' memo, one entry per class.
 	std::unordered_map<TypeId, std::vector<SemaEntity*> > surrogate_calls_;
 	// 13.3.3.1.2p1: whether the sequence being measured is the second, standard
 	// conversion sequence of a user-defined one, which holds no user-defined

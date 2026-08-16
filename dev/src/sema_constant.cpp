@@ -393,9 +393,20 @@ SemaAnalyzer::Constant SemaAnalyzer::evaluate(const AstNode& node,
 					evaluate(*node.children[1], ctx)));
 		}
 		const Constant held = evaluate(*array, ctx);
+		const Constant index = evaluate(*node.children[1], ctx);
+		// 13.3.1.2p1 with 13.5.5p1: a subscript of an object of class type is
+		// the call of a member `operator[]` and no reading of an array at all.
+		Constant called;
+		std::vector<Constant> operands;
+		operands.push_back(held);
+		operands.push_back(index);
+		if (ConstexprReading(*this).operator_constant(OP_LSQUARE, operands, ctx,
+		                                              called))
+		{
+			return called;
+		}
 		return ConstexprReading(*this).element_value(
-			held, ConstexprReading(*this).counted(
-				      evaluate(*node.children[1], ctx)));
+			held, ConstexprReading(*this).counted(index));
 	}
 
 	case AstKind::IdExpression:

@@ -11,6 +11,7 @@
 #include "sema_constexpr.h"
 #include "sema_deduce.h"
 #include "sema_derivation.h"
+#include "sema_operator.h"
 #include "sema_pack.h"
 
 // Calls, the PA12 standard-conversion subset, and overload resolution.
@@ -2470,7 +2471,7 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
 				operands.push_back(arguments[index]);
 			}
 			Value chosen;
-			if (operator_expression(OP_LPAREN, ctx, line, operands, true,
+			if (OperatorCall(*this).expression(OP_LPAREN, ctx, line, operands, true,
 			                        chosen))
 			{
 				return chosen;

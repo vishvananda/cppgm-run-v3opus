@@ -7,6 +7,7 @@
 #include "ast_tokens.h"
 #include "sema_constexpr.h"
 #include "sema_derivation.h"
+#include "sema_operator.h"
 #include "sema_string_init.h"
 
 namespace
@@ -2135,7 +2136,7 @@ void SemaAnalyzer::declare_function_declarator(
 	require_no_abstract_boundary(written_type, name);
 	if (!function.object_member)
 	{
-		require_operator_operand(name, type,
+		OperatorCall(*this).require_operand(name, type,
 		                         target.scope->kind == ScopeKind::Class);
 	}
 	if (granting != nullptr)

@@ -1,9 +1,10 @@
-#include "sema_analyzer.h"
+#include "sema_operator.h"
 
 #include <stdexcept>
 
 #include "ast_model.h"
 #include "ast_tokens.h"
+#include "sema_analyzer.h"
 #include "sema_argument_lookup.h"
 
 // 13.5 and 3.4.2: the calls ordinary lookup did not name.
@@ -18,12 +19,13 @@
 // `call-expression` node the call path already writes, so nothing new reaches
 // the lowering.
 
-namespace
-{
+OperatorCall::OperatorCall(SemaAnalyzer& analyzer)
+	: analyzer_(analyzer)
+{}
 
 // 13.5: the operator an operator function overloads, as the source spelled it.
 // The name a declaration of one is bound to is `operator` and this, closed up.
-const char* operator_spelling(unsigned token)
+const char* OperatorCall::spelling(unsigned token)
 {
 	switch (token)
 	{
@@ -73,7 +75,7 @@ const char* operator_spelling(unsigned token)
 // 13.5p1: the operators an operator-function-id may be written with, which is
 // what tells one from the allocation functions of 3.7.4 and the literal
 // operators of 13.5.8, whose names begin the same way.
-bool overloadable_operator(const std::string& name)
+bool OperatorCall::overloadable(const std::string& name)
 {
 	if (name.compare(0, 8, "operator") != 0)
 	{
@@ -96,8 +98,6 @@ bool overloadable_operator(const std::string& name)
 	}
 	return false;
 }
-
-} // namespace
 
 // 3.7.4p2 and 12.5p1: whether the name is one of the allocation and
 // deallocation functions, which 13.5p1 leaves out of the operators a program
@@ -173,10 +173,10 @@ bool held(const std::vector<T*>& where, const T* what)
 // new meaning to an operator on operands the language already gives one to.
 // `member` says the declaration is written in a class and has no object
 // parameter, which is the static member the clause leaves no room for.
-void SemaAnalyzer::require_operator_operand(const std::string& name,
-                                            TypeId type, bool member)
+void OperatorCall::require_operand(const std::string& name, TypeId type,
+                                   bool member)
 {
-	if (!overloadable_operator(name))
+	if (!OperatorCall::overloadable(name))
 	{
 		return;
 	}
@@ -186,16 +186,17 @@ void SemaAnalyzer::require_operator_operand(const std::string& name,
 		                         "operator function is a non-static member or "
 		                         "a non-member");
 	}
-	const std::vector<TypeId>& parameters = types_.parameters(type);
+	const std::vector<TypeId>& parameters = analyzer_.types_.parameters(type);
 	for (std::size_t index = 0; index < parameters.size(); ++index)
 	{
 		TypeId at = parameters[index];
-		if (types_.is_reference(at))
+		if (analyzer_.types_.is_reference(at))
 		{
-			at = types_.target(at);
+			at = analyzer_.types_.target(at);
 		}
-		at = types_.strip_cv(at);
-		if (types_.is_class(at) || types_.kind(at) == TypeKind::Enum)
+		at = analyzer_.types_.strip_cv(at);
+		if (analyzer_.types_.is_class(at) ||
+		    analyzer_.types_.kind(at) == TypeKind::Enum)
 		{
 			return;
 		}
@@ -204,7 +205,7 @@ void SemaAnalyzer::require_operator_operand(const std::string& name,
 		// question about the specialization rather than about the template.
 		// Every specialization this one makes has its own parameter types, and
 		// the declaration each of them makes asks again.
-		if (types_.is_dependent(at))
+		if (analyzer_.types_.is_dependent(at))
 		{
 			return;
 		}
@@ -225,22 +226,22 @@ void SemaAnalyzer::require_operator_operand(const std::string& name,
 // it never walks again.  8.3.5p5's adjustment is what makes a conversion to a
 // *reference* to a function one of these too: what the call reads is the
 // pointer either way.
-const std::vector<SemaEntity*>& SemaAnalyzer::surrogate_calls(TypeId type)
+const std::vector<SemaEntity*>& OperatorCall::surrogates(TypeId type)
 {
 	const std::unordered_map<TypeId, std::vector<SemaEntity*> >::const_iterator
-		found = surrogate_calls_.find(type);
-	if (found != surrogate_calls_.end())
+		found = analyzer_.surrogate_calls_.find(type);
+	if (found != analyzer_.surrogate_calls_.end())
 	{
 		return found->second;
 	}
-	std::vector<SemaEntity*>& built = surrogate_calls_[type];
-	SemaEntity* const owner = model_.type_owner(type);
+	std::vector<SemaEntity*>& built = analyzer_.surrogate_calls_[type];
+	SemaEntity* const owner = analyzer_.model_.type_owner(type);
 	if (owner == nullptr || owner->conversions_above.empty())
 	{
 		return built;
 	}
 	std::vector<SemaEntity*> conversions;
-	gather_conversions(*owner, conversions);
+	analyzer_.gather_conversions(*owner, conversions);
 	for (std::size_t index = 0; index < conversions.size(); ++index)
 	{
 		SemaEntity& conversion = *conversions[index];
@@ -250,35 +251,128 @@ const std::vector<SemaEntity*>& SemaAnalyzer::surrogate_calls(TypeId type)
 			// written on the object reaches without naming it.
 			continue;
 		}
-		const TypeId result = types_.target(conversion.type);
-		TypeId pointer = types_.is_reference(result)
-			? types_.strip_cv(types_.target(result))
-			: types_.strip_cv(result);
-		if (types_.kind(pointer) == TypeKind::Function)
+		const TypeId result = analyzer_.types_.target(conversion.type);
+		TypeId pointer = analyzer_.types_.is_reference(result)
+			? analyzer_.types_.strip_cv(analyzer_.types_.target(result))
+			: analyzer_.types_.strip_cv(result);
+		if (analyzer_.types_.kind(pointer) == TypeKind::Function)
 		{
-			pointer = types_.pointer_to(pointer);
+			pointer = analyzer_.types_.pointer_to(pointer);
 		}
-		if (types_.kind(pointer) != TypeKind::Pointer ||
-		    types_.kind(types_.strip_cv(types_.target(pointer))) !=
-		        TypeKind::Function)
+		if (analyzer_.types_.kind(pointer) != TypeKind::Pointer ||
+		    analyzer_.types_.kind(
+			    analyzer_.types_.strip_cv(
+				    analyzer_.types_.target(pointer))) != TypeKind::Function)
 		{
 			continue;
 		}
-		const TypeId function = types_.strip_cv(types_.target(pointer));
+		const TypeId function =
+			analyzer_.types_.strip_cv(analyzer_.types_.target(pointer));
 		// 13.3.1.1.2p2: the surrogate takes the pointer the conversion yields
 		// and then the parameters of the function it points to, and hands back
 		// what that function does.
 		std::vector<TypeId> parameters(1, pointer);
-		const std::vector<TypeId>& written = types_.parameters(function);
+		const std::vector<TypeId>& written = analyzer_.types_.parameters(function);
 		parameters.insert(parameters.end(), written.begin(), written.end());
-		SemaEntity& surrogate = model_.create(
+		SemaEntity& surrogate = analyzer_.model_.create(
 			SemaKind::Function, "call-function",
-			types_.function_of(types_.target(function), parameters,
-			                   types_.variadic(function)));
+			analyzer_.types_.function_of(analyzer_.types_.target(function), parameters,
+			                   analyzer_.types_.variadic(function)));
 		surrogate.surrogate_for = &conversion;
 		built.push_back(&surrogate);
 	}
 	return built;
+}
+
+// 13.3.1.2p3 with 13.3.1.1.2p2: the declarations of one operator these operands
+// reach, which is the set 13.3 is then asked to choose from.
+//
+// The gathering is three lookups and no ranking at all, which is why it stands
+// apart from either reader: the expression layer asks it for the call an
+// operator expression stands for, and `ConstexprReading::operator_constant`
+// asks it for the same call over the constants a fold's operands came to.  Each
+// set is a local of the caller's rather than one of the model's kept overload
+// sets, so an operator folded in a loop of n passes costs n lookups and nothing
+// the model holds on to.
+std::size_t OperatorCall::candidates(unsigned token, const SemaContext& ctx,
+                                     const std::vector<AnalyzedValue>& operands,
+                                     bool member_only,
+                                     std::vector<SemaEntity*>& out)
+{
+	const char* const written = spelling(token);
+	if (written == nullptr || operands.empty())
+	{
+		return 0;
+	}
+	const std::string name = std::string("operator") + written;
+	std::size_t singles = 0;
+	// 13.3.1.2p3: the member candidates are what a lookup of the name in the
+	// class of the left operand finds, which 10.2 also searches its bases for.
+	SemaEntity* const owner = operands[0].type == kNoType
+		? nullptr
+		: analyzer_.model_.type_owner(
+			  analyzer_.types_.strip_cv(operands[0].type));
+	if (owner != nullptr && owner->scope != nullptr)
+	{
+		std::vector<SemaEntity*> members;
+		SemaEntity* const found = analyzer_.model_.lookup_in(
+			*owner->scope, name, LookupKind::Any, &members);
+		if (found != nullptr && found->kind == SemaKind::Function)
+		{
+			for (std::size_t index = 0; index < members.size(); ++index)
+			{
+				out.push_back(members[index]);
+			}
+			if (members.empty())
+			{
+				out.push_back(found);
+			}
+		}
+	}
+	if (!member_only && ctx.scope != nullptr)
+	{
+		// 13.3.1.2p3: the non-member candidates are what an unqualified lookup
+		// of the name finds with every member function left out, together with
+		// what 3.4.2 adds for the operand types.
+		std::vector<SemaEntity*> reached;
+		SemaEntity* const found = analyzer_.model_.lookup(
+			*ctx.scope, name, LookupKind::Any, &reached);
+		if (found != nullptr && found->kind == SemaKind::Function)
+		{
+			if (reached.empty())
+			{
+				reached.push_back(found);
+			}
+			for (std::size_t index = 0; index < reached.size(); ++index)
+			{
+				SemaEntity* const head = reached[index];
+				if (head->region != nullptr &&
+				    head->region->kind == ScopeKind::Class)
+				{
+					continue;
+				}
+				if (!held(out, head))
+				{
+					out.push_back(head);
+				}
+			}
+		}
+		singles = ArgumentLookup(analyzer_).candidates(name, operands, out);
+	}
+	if (token == OP_LPAREN && owner != nullptr)
+	{
+		// 13.3.1.1.2p2: a call written on an object of class type also reaches
+		// the surrogate call function of every conversion its class has to a
+		// pointer to function, so those stand in the one set 13.3 chooses from
+		// beside the `operator()`s the lookup above found.  Each of them is one
+		// declaration and no chain, so they are gathered last and counted among
+		// the entries nothing is walked past.
+		const std::vector<SemaEntity*>& called_through =
+			surrogates(analyzer_.types_.strip_cv(operands[0].type));
+		out.insert(out.end(), called_through.begin(), called_through.end());
+		singles += called_through.size();
+	}
+	return singles;
 }
 
 // 13.3.1.2p1: an operator expression with an operand of class or enumeration
@@ -291,12 +385,12 @@ const std::vector<SemaEntity*>& SemaAnalyzer::surrogate_calls(TypeId type)
 // written.  Where a declaration is chosen the node becomes the call it stands
 // for; where the candidate set is empty or nothing in it is viable, nothing is
 // written and the caller reads the operands as it would have.
-bool SemaAnalyzer::operator_expression(unsigned token, const Context& ctx,
-                                       DumpNode& line,
-                                       std::vector<Value>& operands,
-                                       bool member_only, Value& value)
+bool OperatorCall::expression(unsigned token, const SemaContext& ctx,
+                              DumpNode& line,
+                              std::vector<AnalyzedValue>& operands,
+                              bool member_only, AnalyzedValue& value)
 {
-	const char* const spelling = operator_spelling(token);
+	const char* const spelling = OperatorCall::spelling(token);
 	if (spelling == nullptr || operands.empty())
 	{
 		return false;
@@ -333,92 +427,32 @@ bool SemaAnalyzer::operator_expression(unsigned token, const Context& ctx,
 			// for 13.3.1.2p2 to ask about, and only a target type resolves it.
 			return false;
 		}
-		const TypeId bare = types_.strip_cv(operands[index].type);
+		const TypeId bare = analyzer_.types_.strip_cv(operands[index].type);
 		overloadable = overloadable ||
-			types_.is_class(bare) || types_.kind(bare) == TypeKind::Enum;
+			analyzer_.types_.is_class(bare) ||
+			analyzer_.types_.kind(bare) == TypeKind::Enum;
 	}
 	if (!overloadable)
 	{
 		return false;
 	}
 	const std::string name = std::string("operator") + spelling;
-	std::vector<SemaEntity*> candidates;
-	std::size_t singles = 0;
-	// 13.3.1.2p3: the member candidates are what a lookup of the name in the
-	// class of the left operand finds, which 10.2 also searches its bases for.
-	SemaEntity* const owner = operands[0].type == kNoType
-		? nullptr
-		: model_.type_owner(types_.strip_cv(operands[0].type));
-	std::vector<SemaEntity*>& members = model_.open_overloads();
-	if (owner != nullptr && owner->scope != nullptr)
-	{
-		SemaEntity* const found =
-			model_.lookup_in(*owner->scope, name, LookupKind::Any, &members);
-		if (found != nullptr && found->kind == SemaKind::Function)
-		{
-			for (std::size_t index = 0; index < members.size(); ++index)
-			{
-				candidates.push_back(members[index]);
-			}
-			if (members.empty())
-			{
-				candidates.push_back(found);
-			}
-		}
-	}
-	if (!member_only)
-	{
-		// 13.3.1.2p3: the non-member candidates are what an unqualified lookup
-		// of the name finds with every member function left out, together with
-		// what 3.4.2 adds for the operand types.
-		std::vector<SemaEntity*>& reached = model_.open_overloads();
-		SemaEntity* const found =
-			model_.lookup(*ctx.scope, name, LookupKind::Any, &reached);
-		if (found != nullptr && found->kind == SemaKind::Function)
-		{
-			if (reached.empty())
-			{
-				reached.push_back(found);
-			}
-			for (std::size_t index = 0; index < reached.size(); ++index)
-			{
-				SemaEntity* const head = reached[index];
-				if (head->region != nullptr &&
-				    head->region->kind == ScopeKind::Class)
-				{
-					continue;
-				}
-				if (!held(candidates, head))
-				{
-					candidates.push_back(head);
-				}
-			}
-		}
-		singles = ArgumentLookup(*this).candidates(name, operands,
-		                                          candidates);
-	}
-	if (token == OP_LPAREN && owner != nullptr)
-	{
-		// 13.3.1.1.2p2: a call written on an object of class type also reaches
-		// the surrogate call function of every conversion its class has to a
-		// pointer to function, so those stand in the one set 13.3 chooses from
-		// beside the `operator()`s the lookup above found.  Each of them is one
-		// declaration and no chain, so they are gathered last and counted among
-		// the entries nothing is walked past.
-		const std::vector<SemaEntity*>& surrogates =
-			surrogate_calls(types_.strip_cv(operands[0].type));
-		candidates.insert(candidates.end(), surrogates.begin(),
-		                  surrogates.end());
-		singles += surrogates.size();
-	}
-	if (candidates.empty())
+	std::vector<SemaEntity*> reached;
+	SemaEntity* const owner =
+		operands[0].type == kNoType
+			? nullptr
+			: analyzer_.model_.type_owner(
+				  analyzer_.types_.strip_cv(operands[0].type));
+	const std::size_t singles =
+		candidates(token, ctx, operands, member_only, reached);
+	if (reached.empty())
 	{
 		// 13.3.1.2p2: no operator function is a candidate, so what is left is
 		// 13.6's built-in operator, which an operand of class type reaches
 		// through a conversion function of its class.
 		if (!listed)
 		{
-			builtin_operands(token, ctx, operands);
+			analyzer_.builtin_operands(token, ctx, operands);
 		}
 		return false;
 	}
@@ -427,18 +461,18 @@ bool SemaAnalyzer::operator_expression(unsigned token, const Context& ctx,
 	// argument of a member candidate and the first argument of a non-member
 	// one, so both are offered it and the rest of the operands are the
 	// arguments either way.
-	Value object = operands[0];
-	object.type = object.spelled = types_.pointer_to(operands[0].type);
+	AnalyzedValue object = operands[0];
+	object.type = object.spelled = analyzer_.types_.pointer_to(operands[0].type);
 	// 13.3.1p4: the object parameter is a reference, so what a member
 	// candidate's ref-qualifier binds by is the category the operand was
 	// written with rather than the prvalue address that stands for it.
 	object.object_category = operands[0].category;
 	object.category = ValueCategory::PRValue;
 	object.node = nullptr;
-	std::vector<Value> rest(operands.begin() + 1, operands.end());
+	std::vector<AnalyzedValue> rest(operands.begin() + 1, operands.end());
 	bool unviable = false;
 	SemaEntity* const chosen =
-		select_overload(candidates, rest, name, &object, false, singles,
+		analyzer_.select_overload(reached, rest, name, &object, false, singles,
 		                &operands[0], &unviable);
 	if (chosen == nullptr)
 	{
@@ -450,7 +484,7 @@ bool SemaAnalyzer::operator_expression(unsigned token, const Context& ctx,
 		}
 		// 13.3.1.2p2: no operator function accepts these operands, so what is
 		// left is the built-in operator the caller describes.
-		builtin_operands(token, ctx, operands);
+		analyzer_.builtin_operands(token, ctx, operands);
 		return false;
 	}
 	if (chosen->surrogate_for != nullptr)
@@ -460,19 +494,21 @@ bool SemaAnalyzer::operator_expression(unsigned token, const Context& ctx,
 		// so that is what is written: the conversion takes the place the object
 		// operand held, which is the place a callee stands in, and the operands
 		// after it are the arguments 5.2.2p1 passes.
-		Value callee = call_conversion(operands[0], *chosen->surrogate_for, ctx);
-		const TypeId pointer = decayed(callee);
-		value = finish_call(line, types_.target(pointer), rest, nullptr, ctx);
+		AnalyzedValue callee = analyzer_.call_conversion(
+			operands[0], *chosen->surrogate_for, ctx);
+		const TypeId pointer = analyzer_.decayed(callee);
+		value = analyzer_.finish_call(
+			line, analyzer_.types_.target(pointer), rest, nullptr, ctx);
 		return true;
 	}
-	if (!listed && better_builtin(*chosen, object, operands))
+	if (!listed && analyzer_.better_builtin(*chosen, object, operands))
 	{
 		// 13.6 and 13.3.3p1: the built-in operators are candidates beside the
 		// operator functions, and one of them reads these operands better than
 		// the declaration 13.3 just chose - which is what an operand that
 		// reaches a built-in operator through one conversion does against a
 		// declaration that would take two.
-		builtin_operands(token, ctx, operands);
+		analyzer_.builtin_operands(token, ctx, operands);
 		return false;
 	}
 	// 11.2p5 and 11.4p1: a member operator function is a member named on an
@@ -483,11 +519,11 @@ bool SemaAnalyzer::operator_expression(unsigned token, const Context& ctx,
 	// has chosen by now, so the question is asked of the one declaration.
 	Scope* const naming =
 		chosen->object_member && owner != nullptr ? owner->scope : nullptr;
-	require_access(*chosen, ctx.scope, naming);
+	analyzer_.require_access(*chosen, ctx.scope, naming);
 	if (naming != nullptr)
 	{
 		const std::vector<SemaEntity*> settled;
-		require_protected_object(settled, *chosen, ctx.scope, naming);
+		analyzer_.require_protected_object(settled, *chosen, ctx.scope, naming);
 	}
 
 	// 7.3.3p1: 13.3 ranked the declaration the class made, and what an operator
@@ -495,15 +531,17 @@ bool SemaAnalyzer::operator_expression(unsigned token, const Context& ctx,
 	// of the object the expression named, which 11.2p5 leaves the
 	// base-specifier's own access unasked about because the naming class is the
 	// one the using-declaration was written in.
-	SemaEntity& run = declared_member(*chosen);
-	std::vector<Value> arguments;
+	SemaEntity& run = analyzer_.declared_member(*chosen);
+	std::vector<AnalyzedValue> arguments;
 	if (chosen->object_member)
 	{
 		// 9.3.1p3: the object the member is called on is its first parameter,
 		// and the call passes its address.
-		Value self = operands[0];
-		address_of_object(self, model_.wrap_node(*operands[0].node,
-		                                         std::string()), false);
+		AnalyzedValue self = operands[0];
+		analyzer_.address_of_object(
+			self,
+			analyzer_.model_.wrap_node(*operands[0].node, std::string()),
+			false);
 		self.through_using = chosen->shadowed != nullptr;
 		arguments.push_back(self);
 	}
@@ -518,12 +556,12 @@ bool SemaAnalyzer::operator_expression(unsigned token, const Context& ctx,
 
 	// The callee stands before the arguments, as it does in a call the program
 	// wrote, and the operands already hold the places after it.
-	DumpNode& named = model_.open_node(line, std::string());
+	DumpNode& named = analyzer_.model_.open_node(line, std::string());
 	line.children.pop_back();
 	line.children.insert(line.children.begin(), &named);
-	Value callee;
+	AnalyzedValue callee;
 	callee.node = &named;
-	name_function(callee, run, "callee");
-	value = finish_call(line, run.type, arguments, &run, ctx);
+	analyzer_.name_function(callee, run, "callee");
+	value = analyzer_.finish_call(line, run.type, arguments, &run, ctx);
 	return true;
 }

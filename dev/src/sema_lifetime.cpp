@@ -3,6 +3,7 @@
 #include <stdexcept>
 
 #include "ast_model.h"
+#include "sema_operator.h"
 
 namespace
 {
@@ -2307,7 +2308,7 @@ void SemaAnalyzer::write_transfer_assignment(SemaEntity& subobject,
 	Value chosen;
 	if (types_.is_class(member_copy_type(target.type)))
 	{
-		if (!operator_expression(OP_ASS, inner, step, operands, true, chosen))
+		if (!OperatorCall(*this).expression(OP_ASS, inner, step, operands, true, chosen))
 		{
 			throw std::runtime_error(
 				"a subobject of the class type " +

@@ -262,13 +262,13 @@ void ConstexprReading::declared(const AstNode& node, const SemaContext& ctx,
 			object.constant = false;
 			continue;
 		}
-		SemaConstant value = analyzer_.evaluate(*written->children[0], ctx);
-		if (analyzer_.arithmetic_type(type) != kNoType)
-		{
-			// 8.5p16 with 4: the value is converted to the declared type, which
-			// is what every later read of the object sees.
-			value = analyzer_.convert(value, type);
-		}
+		// 8.5 with 6.7p1: the object is initialized here exactly as one a
+		// declaration outside every body is - 8.5.1p2's clauses down an object
+		// of class or array type included, which is what `vec<pair<int,int> >
+		// r{{1, 2}};` written in a constexpr body is and what reading its one
+		// braced clause as an expression could never be.
+		const SemaConstant value =
+			initialized_value(*written->children[0], type, ctx);
 		object.value = value.bits;
 		object.real = value.real;
 		object.constant = true;
@@ -522,8 +522,8 @@ ConstexprFlow ConstexprReading::statement(const AstNode& node,
 	                  "implementation does not evaluate");
 }
 
-SemaEntity& ConstexprReading::assigned(const AstNode& node,
-                                       const SemaContext& ctx)
+SemaEntity* ConstexprReading::assignable(const AstNode& node,
+                                         const SemaContext& ctx)
 {
 	const AstNode* target = &node;
 	while (target->kind == AstKind::ParenthesizedExpression &&
@@ -533,8 +533,11 @@ SemaEntity& ConstexprReading::assigned(const AstNode& node,
 	}
 	if (target->kind != AstKind::IdExpression)
 	{
-		throw NotConstant("a constant expression writes to something that is "
-		                  "not a name the evaluation declared");
+		// 13.5.3p1: what stands here is no name at all - a call, an operator, a
+		// member access - so 5.17p1's write-back is not what was written and
+		// the caller asks 13.3.1.2 instead.  Nothing is looked up: the shape of
+		// the operand is the whole of the answer.
+		return nullptr;
 	}
 	SemaEntity& entity = analyzer_.require(
 		analyzer_.resolve(target->text, ctx, LookupKind::Any), target->text);
@@ -545,7 +548,19 @@ SemaEntity& ConstexprReading::assigned(const AstNode& node,
 		throw NotConstant(target->text + " is written by a constant expression "
 		                  "that did not declare it");
 	}
-	return entity;
+	return &entity;
+}
+
+SemaEntity& ConstexprReading::assigned(const AstNode& node,
+                                       const SemaContext& ctx)
+{
+	SemaEntity* const target = assignable(node, ctx);
+	if (target == nullptr)
+	{
+		throw NotConstant("a constant expression writes to something that is "
+		                  "not a name the evaluation declared");
+	}
+	return *target;
 }
 
 SemaConstant ConstexprReading::assignment_constant(const AstNode& node,
@@ -556,7 +571,25 @@ SemaConstant ConstexprReading::assignment_constant(const AstNode& node,
 		throw NotConstant("a constant expression holds an assignment with no "
 		                  "operands");
 	}
-	SemaEntity& target = assigned(*node.children[0], ctx);
+	SemaEntity* const named = assignable(*node.children[0], ctx);
+	if (named == nullptr)
+	{
+		// 13.5.3p1: an assignment written on something that is not a name is
+		// the call of an operator function, which 13.3.1.2 chooses over the two
+		// operands - and a class that declares none leaves this the write-back
+		// 5.17p1 has no object for.
+		std::vector<SemaConstant> operands;
+		operands.push_back(analyzer_.evaluate(*node.children[0], ctx));
+		operands.push_back(analyzer_.evaluate(*node.children[1], ctx));
+		SemaConstant called;
+		if (operator_constant(node.token, operands, ctx, called))
+		{
+			return called;
+		}
+		throw NotConstant("a constant expression writes to something that is "
+		                  "not a name the evaluation declared");
+	}
+	SemaEntity& target = *named;
 	const SemaConstant written = analyzer_.evaluate(*node.children[1], ctx);
 	SemaConstant value = written;
 	if (node.token != OP_ASS)

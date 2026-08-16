@@ -5,6 +5,7 @@
 #include "ast_model.h"
 #include "sema_analyzer.h"
 #include "sema_argument_lookup.h"
+#include "sema_operator.h"
 #include "sema_pack.h"
 #include "sema_reading.h"
 #include "sema_scope.h"
@@ -207,6 +208,25 @@ SemaConstant ConstexprReading::constant_of(TypeId entry, const TypeTable& types)
 	return out;
 }
 
+// 14.7.1p1 and 3.9p5: a use of the class that requires it completely defined.
+//
+// 8.5.1p1's aggregate, 9.2p13's members and 12.1's constructors are each a fact
+// the *definition* settles, and a specialization a spelling reached while 5.4p2's
+// ambiguity was being probed was declared without anyone asking for one - so a
+// reading that is about to ask any of those three asks for the definition first.
+// The ask is what 14.7.1p1 makes it and no more: an instantiation already made
+// is one `asked_specialization` returns from at once, so a clause read against a
+// class of n members costs one probe and not n.
+void ConstexprReading::ask_for_definition(TypeId bare)
+{
+	SemaEntity* const owner = analyzer_.model_.type_owner(bare);
+	if (owner != nullptr && owner->primary != nullptr && !owner->defined)
+	{
+		analyzer_.asked_specialization(*owner);
+	}
+	analyzer_.require_complete_type(bare);
+}
+
 void ConstexprReading::data_members(TypeId type,
                                     std::vector<SemaEntity*>& out) const
 {
@@ -238,17 +258,8 @@ SemaConstant ConstexprReading::object_of(TypeId type,
                                          const std::vector<SemaConstant>& written)
 {
 	const TypeId bare = analyzer_.types_.strip_cv(type);
-	SemaEntity* owner = analyzer_.model_.type_owner(bare);
-	if (owner != nullptr && owner->primary != nullptr && !owner->defined)
-	{
-		// 14.7.1p1 and 3.9p5: building an object of the class is a use that
-		// requires it completely defined, and a spelling met while 5.4p2's
-		// ambiguity was being probed made the declaration without asking for
-		// one - so the ask is made here, where the use stands.
-		analyzer_.asked_specialization(*owner);
-	}
-	analyzer_.require_complete_type(bare);
-	owner = analyzer_.model_.type_owner(bare);
+	ask_for_definition(bare);
+	SemaEntity* const owner = analyzer_.model_.type_owner(bare);
 	if (owner == nullptr || owner->scope == nullptr || !owner->bases.empty())
 	{
 		// 10p1's base subobject is one this milestone's object does not hold:
@@ -311,7 +322,17 @@ SemaConstant ConstexprReading::object_of(TypeId type,
 			const std::vector<SemaConstant> none;
 			value = object_of(member, none);
 		}
+		else if (analyzer_.types_.kind(member) == TypeKind::Array)
+		{
+			// 3.9p10 and 8.5p7: an array of literal type is a literal type too,
+			// so a member that is one holds a list exactly as a member of class
+			// type does, and one no clause reached holds the list 8.5.1p7
+			// value-initializes every element in.
+			const std::vector<SemaConstant> none;
+			value = array_of(member, none);
+		}
 		if (!analyzer_.types_.is_class(member) &&
+		    analyzer_.types_.kind(member) != TypeKind::Array &&
 		    analyzer_.arithmetic_type(member) == kNoType)
 		{
 			throw NotConstant("a member of " +
@@ -374,69 +395,7 @@ void ConstexprReading::fold_declared_object(SemaEntity& entity,
 	}
 	try
 	{
-		if (built && wrote->kind == AstKind::BracedInitList)
-		{
-			// 8.5.1p2: the clauses reach the object's subobjects, and a clause
-			// written as a list of its own reaches one whose type says how to
-			// read it - so the whole list is one reading down the object rather
-			// than a row of expressions this declaration then places.
-			const SemaConstant value = clause_of(*wrote, type, ctx);
-			entity.value = value.bits;
-			entity.real = value.real;
-			entity.constant = true;
-			return;
-		}
-		// The list is read only where 5.19p3 asks, so a declaration that folds
-		// nothing pays nothing for the clauses it wrote.  The node an entry
-		// comes to is the arena's and the region it is read in is the model's,
-		// so both outlive the walk that reads them out.
-		std::vector<SemaConstant> operands;
-		if (wrote->kind == AstKind::ParenInitializer ||
-		    wrote->kind == AstKind::BracedInitList)
-		{
-			InitializerClauses clauses(wrote, analyzer_, ctx);
-			if (clauses.list.unsettled())
-			{
-				// 14.6p8: a run no argument list has settled says neither how
-				// many clauses there are nor what they are worth.
-				return;
-			}
-			while (!clauses.spent())
-			{
-				const SemaContext inner = clauses.in(ctx);
-				const AstNode& clause = clauses.next();
-				++clauses.at;
-				operands.push_back(analyzer_.evaluate(clause, inner));
-			}
-		}
-		else
-		{
-			operands.push_back(analyzer_.evaluate(*wrote, ctx));
-		}
-		SemaConstant value;
-		if (!built)
-		{
-			if (operands.size() != 1)
-			{
-				return;
-			}
-			value = analyzer_.convert(operands[0], type);
-		}
-		else if (operands.size() == 1 &&
-		         analyzer_.types_.strip_cv(operands[0].type) == bare)
-		{
-			// 8.5p14: the initializer is a prvalue of the object's own type, so
-			// the object *is* that value and no constructor stands between.
-			value = operands[0];
-		}
-		else if (analyzer_.types_.kind(bare) == TypeKind::Array)
-		{
-			value = array_of(bare, operands);
-		}
-		else
-		{
-			value = object_of(bare, operands);
-		}
+		const SemaConstant value = initialized_value(*wrote, type, ctx);
 		entity.value = value.bits;
 		entity.real = value.real;
 		entity.constant = true;
@@ -445,6 +404,85 @@ void ConstexprReading::fold_declared_object(SemaEntity& entity,
 	{
 		entity.constant = false;
 	}
+}
+
+// 8.5: what the initializer `wrote` leaves an object of type `type` holding.
+//
+// It is one reading and not one per place a declaration may stand: 3.3.2 makes
+// `constexpr P p = {1, 2};` at namespace scope and the same declaration written
+// inside a constexpr body the same initialization, so the door the *statement*
+// walk comes through asks this too.  Which of 8.5's initializations it is comes
+// from the type and from the shape of the initializer together - 8.5.1p2's
+// clauses down the object where a braced-init-list reached one of class or array
+// type, 8.5p16's direct-initialization where parentheses or one expression did,
+// and 4's conversion where the object is of arithmetic type.
+SemaConstant ConstexprReading::initialized_value(const AstNode& wrote,
+                                                 TypeId type,
+                                                 const SemaContext& ctx)
+{
+	const TypeId bare = analyzer_.types_.strip_cv(type);
+	const bool built = analyzer_.types_.is_class(bare) ||
+		analyzer_.types_.kind(bare) == TypeKind::Array;
+	if (built && wrote.kind == AstKind::BracedInitList)
+	{
+		// 8.5.1p2: the clauses reach the object's subobjects, and a clause
+		// written as a list of its own reaches one whose type says how to
+		// read it - so the whole list is one reading down the object rather
+		// than a row of expressions this declaration then places.
+		return clause_of(wrote, type, ctx);
+	}
+	// The list is read only where 5.19p3 asks, so a declaration that folds
+	// nothing pays nothing for the clauses it wrote.  The node an entry
+	// comes to is the arena's and the region it is read in is the model's,
+	// so both outlive the walk that reads them out.
+	std::vector<SemaConstant> operands;
+	if (wrote.kind == AstKind::ParenInitializer ||
+	    wrote.kind == AstKind::BracedInitList)
+	{
+		InitializerClauses clauses(&wrote, analyzer_, ctx);
+		if (clauses.list.unsettled())
+		{
+			// 14.6p8: a run no argument list has settled says neither how
+			// many clauses there are nor what they are worth.
+			throw NotConstant("a constant expression initializes an object "
+			                  "from a run an argument list has yet to settle");
+		}
+		while (!clauses.spent())
+		{
+			const SemaContext inner = clauses.in(ctx);
+			const AstNode& clause = clauses.next();
+			++clauses.at;
+			operands.push_back(analyzer_.evaluate(clause, inner));
+		}
+	}
+	else
+	{
+		operands.push_back(analyzer_.evaluate(wrote, ctx));
+	}
+	if (!built)
+	{
+		if (operands.size() != 1)
+		{
+			throw NotConstant("a constant expression initializes " +
+			                  analyzer_.types_.description(type) +
+			                  " from more than one value");
+		}
+		SemaConstant value = analyzer_.convert(operands[0], type);
+		value.type = type;
+		return value;
+	}
+	if (operands.size() == 1 &&
+	    analyzer_.types_.strip_cv(operands[0].type) == bare)
+	{
+		// 8.5p14: the initializer is a prvalue of the object's own type, so
+		// the object *is* that value and no constructor stands between.
+		return operands[0];
+	}
+	if (analyzer_.types_.kind(bare) == TypeKind::Array)
+	{
+		return array_of(bare, operands);
+	}
+	return object_of(bare, operands);
 }
 
 // 8.5.1p2: one initializer-clause read for the subobject it initializes.
@@ -484,7 +522,15 @@ SemaConstant ConstexprReading::clause_of(const AstNode& clause, TypeId target,
 	// 8.5.1p1: a class that declares a constructor of its own takes the clauses
 	// as 13.3.1.7's arguments, whose types are the ones the chosen constructor's
 	// places have and not the members' - so those are read as expressions and
-	// `object_of` is what puts them where they go.
+	// `object_of` is what puts them where they go.  Which of the two a class
+	// template's specialization is, its definition says, and a fold reaching one
+	// may be the first use there has been of it: without the ask below every
+	// specialization answers "no aggregate", and the nested clause written for
+	// a member of class or array type is then read as an expression.
+	if (analyzer_.types_.is_class(bare))
+	{
+		ask_for_definition(bare);
+	}
 	const bool aggregate =
 		analyzer_.types_.is_class(bare) && analyzer_.aggregate_type(bare);
 	std::vector<SemaEntity*> members;
@@ -978,6 +1024,19 @@ SemaConstant ConstexprReading::called(const AstNode& callee,
 	}
 	if (callee.kind != AstKind::IdExpression)
 	{
+		// 13.3.1.2p1 with 13.5.4p1: the parentheses were written on something
+		// that is no name - a temporary a functional cast built, the value
+		// another call handed back - so what the call names is an `operator()`
+		// of that value's class, chosen over the object and the arguments as
+		// one operand list.
+		std::vector<SemaConstant> operands;
+		operands.push_back(analyzer_.evaluate(callee, ctx));
+		operands.insert(operands.end(), arguments.begin(), arguments.end());
+		SemaConstant called;
+		if (operator_constant(OP_LPAREN, operands, ctx, called))
+		{
+			return called;
+		}
 		throw NotConstant("a constant expression calls something this "
 		                  "milestone does not evaluate");
 	}
@@ -1171,6 +1230,127 @@ SemaEntity& ConstexprReading::selected(
 	// chose exactly as the expression layer does; 7.3.3p1's using-declaration
 	// is followed to the base's own declaration there and here alike.
 	return analyzer_.named_function(*one);
+}
+
+// 8.5p14 and 8.5p16: a constant read where a place of class type is
+// initialized from it.
+//
+// 13.3 has already ranked the call this place belongs to, and what it ranked
+// the argument by is the conversion sequence that reaches the place - so what
+// is left here is to *perform* it, which for a place of class type is the
+// constructor 13.3.1.3 chose called with the one value.  8.5p14 leaves a value
+// already of the place's own class as it stands: the fold holds the object, so
+// there is nothing for 12.8p31's copy to elide.  A place of no class type is
+// answered by `convert` where its caller reaches it, and a reference place is
+// the type it binds to.
+SemaConstant ConstexprReading::at_class_place(const SemaConstant& value,
+                                              TypeId place)
+{
+	TypeId bare = analyzer_.types_.strip_cv(place);
+	if (analyzer_.types_.is_reference(bare))
+	{
+		bare = analyzer_.types_.strip_cv(analyzer_.types_.target(bare));
+	}
+	if (!analyzer_.types_.is_class(bare) ||
+	    analyzer_.types_.strip_cv(value.type) == bare)
+	{
+		return value;
+	}
+	const std::vector<SemaConstant> one(1, value);
+	return object_of(bare, one);
+}
+
+// 13.3.1.2p2: an operator all of whose operands are of built-in type is the
+// built-in operator and no lookup is done for it at all, so this one test is
+// what keeps every arithmetic fold paying nothing for 13.3.1.2.
+bool ConstexprReading::overloadable_operand(const SemaConstant& value) const
+{
+	const TypeId bare = analyzer_.types_.strip_cv(value.type);
+	return analyzer_.types_.is_class(bare) ||
+		analyzer_.types_.kind(bare) == TypeKind::Enum;
+}
+
+// 13.3.1.2p1: the call an operator expression stands for, over the constants
+// its operands came to.
+//
+// 13.3.1p3 and 13.3.1.2p4 put the first operand in two places at once: it is
+// the implicit object argument of every member candidate and the first written
+// argument of every non-member one, and 13.3 is offered it as both.  That is
+// the whole of what this door does differently from `called_name`; the set, the
+// ranking, the naming of what was chosen and the reading of its body are the
+// call path's own.
+bool ConstexprReading::operator_constant(unsigned token,
+                                         const std::vector<SemaConstant>& operands,
+                                         const SemaContext& ctx,
+                                         SemaConstant& out)
+{
+	if (operands.empty() || ctx.scope == nullptr)
+	{
+		return false;
+	}
+	bool overloadable = false;
+	for (std::size_t index = 0; !overloadable && index < operands.size();
+	     ++index)
+	{
+		overloadable = overloadable_operand(operands[index]);
+	}
+	if (!overloadable)
+	{
+		return false;
+	}
+	std::vector<AnalyzedValue> written;
+	argument_values(operands, written);
+	std::vector<SemaEntity*> candidates;
+	const std::size_t singles =
+		OperatorCall(analyzer_).candidates(token, ctx, written, false,
+		                                   candidates);
+	if (candidates.empty())
+	{
+		return false;
+	}
+	const AnalyzedValue object = object_value(operands[0]);
+	const std::vector<AnalyzedValue> rest(written.begin() + 1, written.end());
+	const std::string name =
+		std::string("operator") + OperatorCall::spelling(token);
+	SemaEntity* chosen = nullptr;
+	try
+	{
+		// 13.3.1.2p4: the first operand stands in two places at once, so it is
+		// handed over twice - as the object argument a member candidate binds,
+		// and as the first written argument a non-member one takes.
+		chosen = analyzer_.select_overload(candidates, rest, name, &object,
+		                                   false, singles, &written[0]);
+	}
+	catch (const std::runtime_error& refused)
+	{
+		// 13.3 refuses the operator, which for an operand of class type leaves
+		// the expression no meaning at all rather than leaving a built-in one.
+		throw NotConstant(std::string(refused.what()));
+	}
+	if (chosen == nullptr || chosen->surrogate_for != nullptr)
+	{
+		// 13.3.1.2p2: nothing in the set is viable, so what is left is 13.6's
+		// built-in operator - which the caller reads, through 12.3.2p1's
+		// conversion function where an operand of class type needs one.
+		// 13.3.1.1.2p2's surrogate stands for a call through a pointer to
+		// function, which 5.19p2 holds no constant of.
+		return false;
+	}
+	if (analyzer_.better_builtin(*chosen, object, written))
+	{
+		// 13.6 and 13.3.3p1: a built-in operator is a candidate of the same set
+		// and reads these operands better than the declaration just chosen.
+		return false;
+	}
+	// 7.3.3p1 and 14.7.1p1: what the operator calls is the declaration the
+	// class made, reached through the using-declaration that named it, and the
+	// body a fold reads is one `named_function` asks the template for.
+	SemaEntity& run =
+		analyzer_.named_function(SemaAnalyzer::declared_member(*chosen));
+	const std::vector<SemaConstant> arguments(
+		operands.begin() + (run.object_member ? 1 : 0), operands.end());
+	out = call(run, run.object_member ? &operands[0] : nullptr, arguments);
+	return true;
 }
 
 // 12.3.2p1 with 14.3.2p5: an object of class type brought to an arithmetic type.
@@ -1455,6 +1635,14 @@ std::uint32_t ConstexprReading::passed_arguments(
 			given = analyzer_.convert(given, places[at]);
 			given.type = places[at];
 		}
+		else
+		{
+			// 5.2.2p4: the argument initializes the place, so a value of
+			// another type reaching one of class type is the constructor 13.3
+			// chose when it ranked this call - which is what makes `C(1) + 2`
+			// read `b.n` on an object and not on the integer that was written.
+			given = at_class_place(given, places[at]);
+		}
 		passed.push_back(given);
 		key.push_back(entry_of(given));
 	}
@@ -1538,6 +1726,14 @@ SemaConstant ConstexprReading::call(SemaEntity& callee,
 		answer = analyzer_.convert(answer, result);
 		answer.type = result;
 	}
+	else
+	{
+		// 6.6.3p2 again, where the return type is a class: `return token();`
+		// out of a function returning `property` is the copy-initialization
+		// 8.5p16 makes it, so what the caller reads is an object of the
+		// *declared* type and not of the one the expression was written with.
+		answer = at_class_place(answer, result);
+	}
 	analyzer_.model_.hold_folded_call(callee, list, entry_of(answer));
 	return answer;
 }
@@ -1593,6 +1789,20 @@ SemaConstant ConstexprReading::unary_constant(const AstNode& node,
 		// stands, so the operand is not read as a value first.
 		return increment_constant(node, ctx, true);
 	}
+	const SemaConstant given = analyzer_.evaluate(*node.children[0], ctx);
+	{
+		// 13.3.1.2p1: a unary operator on an operand of class or enumeration
+		// type is a call of an operator function, which is chosen before any of
+		// the readings below - 5.3.1p9's contextual `bool` among them, because
+		// a class that declares `operator!` reaches this operator through that
+		// declaration and not through a conversion to `bool`.
+		const std::vector<SemaConstant> one(1, given);
+		SemaConstant called;
+		if (operator_constant(node.token, one, ctx, called))
+		{
+			return called;
+		}
+	}
 	if (node.token == OP_LNOT)
 	{
 		// 5.3.1p9: the operand is contextually converted to `bool`, which is
@@ -1602,10 +1812,10 @@ SemaConstant ConstexprReading::unary_constant(const AstNode& node,
 		// is read by 4.12p1 rather than compared against zero here.
 		SemaConstant out;
 		out.type = analyzer_.types_.fundamental(FT_BOOL);
-		out.bits = truth(analyzer_.evaluate(*node.children[0], ctx)) ? 0 : 1;
+		out.bits = truth(given) ? 0 : 1;
 		return out;
 	}
-	const SemaConstant operand = analyzer_.promote(analyzer_.evaluate(*node.children[0], ctx));
+	const SemaConstant operand = analyzer_.promote(given);
 	SemaConstant out;
 	out.type = operand.type;
 	if (analyzer_.types_.is_floating(analyzer_.arithmetic_type(operand.type)))
@@ -1655,31 +1865,55 @@ SemaConstant ConstexprReading::binary_constant(const AstNode& node,
                                                const SemaContext& ctx)
 {
 	// 5.14p1 and 5.15p1: the right operand of `&&` and `||` is evaluated only
-	// when the left one does not decide the answer.
+	// when the left one does not decide the answer.  13.5p4 leaves that rule to
+	// the *built-in* operator alone: where one operand is of class or
+	// enumeration type the expression is a call, and a call evaluates both.
+	// Which of the two it is, is the operand types - so the left one is read
+	// first and the right one is read where either the left already makes this
+	// a call or the built-in reading would reach it anyway.
 	if (node.token == OP_LAND || node.token == OP_LOR)
 	{
-		const bool left = truth(analyzer_.evaluate(*node.children[0], ctx));
+		std::vector<SemaConstant> operands;
+		operands.push_back(analyzer_.evaluate(*node.children[0], ctx));
 		SemaConstant out;
 		out.type = analyzer_.types_.fundamental(FT_BOOL);
-		if (left == (node.token == OP_LOR))
+		const bool overloaded = overloadable_operand(operands[0]);
+		if (!overloaded && truth(operands[0]) == (node.token == OP_LOR))
 		{
-			out.bits = left ? 1 : 0;
+			out.bits = node.token == OP_LOR ? 1 : 0;
 			return out;
 		}
-		out.bits = truth(analyzer_.evaluate(*node.children[1], ctx)) ? 1 : 0;
+		operands.push_back(analyzer_.evaluate(*node.children[1], ctx));
+		SemaConstant called;
+		if (operator_constant(node.token, operands, ctx, called))
+		{
+			return called;
+		}
+		if (overloaded && truth(operands[0]) == (node.token == OP_LOR))
+		{
+			out.bits = node.token == OP_LOR ? 1 : 0;
+			return out;
+		}
+		out.bits = truth(operands[1]) ? 1 : 0;
 		return out;
 	}
 	// 5.18p1: the left operand of a comma is evaluated and its value discarded,
 	// and the result is the right one - which is what a for-statement's head
-	// writes to advance more than one object per pass.
+	// writes to advance more than one object per pass.  13.5.3 gives `,` an
+	// operator function too, which the same door answers.
+	std::vector<SemaConstant> operands;
+	operands.push_back(analyzer_.evaluate(*node.children[0], ctx));
+	operands.push_back(analyzer_.evaluate(*node.children[1], ctx));
+	SemaConstant called;
+	if (operator_constant(node.token, operands, ctx, called))
+	{
+		return called;
+	}
 	if (node.token == OP_COMMA)
 	{
-		analyzer_.evaluate(*node.children[0], ctx);
-		return analyzer_.evaluate(*node.children[1], ctx);
+		return operands[1];
 	}
-
-	return binary_value(node.token, analyzer_.evaluate(*node.children[0], ctx),
-	                    analyzer_.evaluate(*node.children[1], ctx));
+	return binary_value(node.token, operands[0], operands[1]);
 }
 
 // 5.6, 5.7 and 5.9 over two operands 5p10 has already brought to one floating

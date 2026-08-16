@@ -188,6 +188,40 @@ public:
 	                     const std::vector<AnalyzedValue>& written,
 	                     const AnalyzedValue* object, std::size_t singles);
 
+	// 13.3.1.2p1: `operands` read as the call of an operator function, which is
+	// what an operator written on one of class or enumeration type is.
+	//
+	// This is the third door 13.3 answers for a fold, beside `selected` for a
+	// call and `converted` for a conversion, and it is the same sentence: the
+	// set is 13.3.1.2p3's, which `OperatorCall` gathers for the expression
+	// layer and for this reading alike, and the ranking is `select_overload`.
+	// What a fold adds is only what it always adds - the chosen declaration has
+	// to be a constexpr function this unit defined, which `call` asks *after*
+	// 13.3 has chosen and never uses to choose.
+	//
+	// False - and `out` untouched - where 13.3.1.2p2 leaves the built-in
+	// operator: no operand of class or enumeration type, no candidate at all,
+	// nothing in the set viable, or a built-in candidate that reads these
+	// operands better.  Every caller then reads the operands as it always has,
+	// through 12.3.2p1's conversion function where one is needed.
+	bool operator_constant(unsigned token,
+	                       const std::vector<SemaConstant>& operands,
+	                       const SemaContext& ctx, SemaConstant& out);
+	// 13.3.1.2p2: whether an operand makes the operator a call to look a
+	// declaration up for at all, which is the one test every door runs before
+	// gathering anything.
+	bool overloadable_operand(const SemaConstant& value) const;
+
+	// 8.5p14 and 8.5p16: `value` read where a place of type `place` is
+	// initialized from it.  A place of class type the value is not already of
+	// is 13.3.1.3's constructor called with that one value, which is the
+	// conversion 13.3 chose when it ranked the call and this reading performs;
+	// a place of any other type is the value as it stands, because `convert`
+	// answers the arithmetic ones where they are reached.  It is what 5.2.2p4's
+	// argument and 6.6.3p2's returned value are each read through, so a
+	// constant crossing into or out of a call is one rule and not two.
+	SemaConstant at_class_place(const SemaConstant& value, TypeId place);
+
 	// 5.2.3p2 and p3: the object `T()` and `T{...}` stand for where `T` names a
 	// class, as the constant that holds its subobjects' values.  `written` is
 	// what the clauses came to.  8.5.1p1 says which of the two initializations
@@ -207,6 +241,14 @@ public:
 	// and is not itself ill formed, so the one failure is caught.
 	void fold_declared_object(SemaEntity& entity, const AstNode* initializer,
 	                          TypeId type, const SemaContext& ctx);
+
+	// 8.5: what the initializer `wrote` leaves an object of type `type`
+	// holding, which is the one reading both doors a declaration stands at ask
+	// - the fold of a declaration the program wrote, and the declaration
+	// statement 6.7p1 runs inside an evaluation.  Throws `NotConstant` where
+	// the initializer is not one 5.19 reads.
+	SemaConstant initialized_value(const AstNode& wrote, TypeId type,
+	                               const SemaContext& ctx);
 
 	// 8.5.1p2: what one initializer-clause comes to for the subobject it
 	// initializes, which is the reading a *list* of clauses is read through.
@@ -397,6 +439,9 @@ private:
 	ConstexprFlow counted_loop(const AstNode& node, const SemaContext& ctx,
 	                           ConstexprFrame& frame);
 	// 5.17p1: the object an assignment writes, which is one this fold bound.
+	// Null where the operand names no such object - which for 13.5.3p1's
+	// overloaded `=` is every operand, because what stands there is a call.
+	SemaEntity* assignable(const AstNode& node, const SemaContext& ctx);
 	SemaEntity& assigned(const AstNode& node, const SemaContext& ctx);
 	// What an evaluation has run so far, refused past the bound below.
 	void step(ConstexprFrame& frame);
@@ -469,6 +514,11 @@ private:
 	SemaConstant member_called(const AstNode& callee,
 	                           const std::vector<SemaConstant>& arguments,
 	                           const SemaContext& ctx);
+
+	// 14.7.1p1: the definition of the class `bare` names, asked for where a
+	// reading is about to want a fact only the definition settles - 8.5.1p1's
+	// aggregate, 9.2p13's members, 12.1's constructors.
+	void ask_for_definition(TypeId bare);
 
 	// 9.2p13: the non-static data members of `type`, in the order they were
 	// declared, which is the order 8.5.1p2's clauses reach them in.

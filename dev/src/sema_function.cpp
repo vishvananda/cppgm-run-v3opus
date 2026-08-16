@@ -7,6 +7,7 @@
 
 #include "ast_model.h"
 #include "ast_tokens.h"
+#include "sema_operator.h"
 #include "token_model.h"
 
 // 8.4 and 13.1: what a function declaration declares, and what its definition
@@ -390,7 +391,7 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 	require_no_abstract_boundary(written_type, name);
 	if (!entity.object_member)
 	{
-		require_operator_operand(name, type,
+		OperatorCall(*this).require_operand(name, type,
 		                         target.scope->kind == ScopeKind::Class);
 	}
 	record_definition_binding(entity, specifiers, ctx, target, spelled,
