@@ -5,6 +5,7 @@
 
 #include "ast_model.h"
 #include "ast_tokens.h"
+#include "sema_constexpr.h"
 #include "sema_derivation.h"
 #include "sema_string_init.h"
 
@@ -2513,31 +2514,67 @@ void SemaAnalyzer::fold_constant_object(SemaEntity& entity,
 		initializer == nullptr || initializer->children.empty()
 			? nullptr
 			: initializer->children[0];
+	const TypeId bare = types_.strip_cv(type);
+	// 3.9p10 and 7.1.5p9: an object of literal *class* type is a constant of
+	// the same standing - `constexpr Lit lit(42);` gives `lit.value` a value
+	// 5.19 reads - and what it comes to is the interned list of what its
+	// subobjects hold, which `ConstexprReading::object_of` builds.
+	const bool built = types_.is_class(bare);
 	if (wrote == nullptr || (types_.cv(type) & kCvConst) == 0 ||
-	    arithmetic_type(type) == kNoType)
-	{
-		return;
-	}
-	// The list is read only where 5.19p3 asks, so a declaration that folds
-	// nothing pays nothing for the clauses it wrote.
-	Context clause_ctx = ctx;
-	const AstNode* initialized = wrote;
-	if (wrote->kind == AstKind::ParenInitializer ||
-	    wrote->kind == AstKind::BracedInitList)
-	{
-		// The node an entry comes to is the arena's and the region it is read
-		// in is the model's, so both outlive the walk that read them out.
-		const Clauses clauses(wrote, *this, ctx);
-		clause_ctx = clauses.in(ctx);
-		initialized = clauses.list.size() == 1 ? &clauses.next() : nullptr;
-	}
-	if (initialized == nullptr)
+	    (!built && arithmetic_type(type) == kNoType))
 	{
 		return;
 	}
 	try
 	{
-		entity.value = convert(evaluate(*initialized, clause_ctx), type).bits;
+		// The list is read only where 5.19p3 asks, so a declaration that folds
+		// nothing pays nothing for the clauses it wrote.  The node an entry
+		// comes to is the arena's and the region it is read in is the model's,
+		// so both outlive the walk that reads them out.
+		std::vector<Constant> operands;
+		if (wrote->kind == AstKind::ParenInitializer ||
+		    wrote->kind == AstKind::BracedInitList)
+		{
+			Clauses clauses(wrote, *this, ctx);
+			if (clauses.list.unsettled())
+			{
+				// 14.6p8: a run no argument list has settled says neither how
+				// many clauses there are nor what they are worth.
+				return;
+			}
+			while (!clauses.spent())
+			{
+				const Context inner = clauses.in(ctx);
+				const AstNode& clause = clauses.next();
+				++clauses.at;
+				operands.push_back(evaluate(clause, inner));
+			}
+		}
+		else
+		{
+			operands.push_back(evaluate(*wrote, ctx));
+		}
+		Constant value;
+		if (!built)
+		{
+			if (operands.size() != 1)
+			{
+				return;
+			}
+			value = convert(operands[0], type);
+		}
+		else if (operands.size() == 1 &&
+		         types_.strip_cv(operands[0].type) == bare)
+		{
+			// 8.5p14: the initializer is a prvalue of the object's own type, so
+			// the object *is* that value and no constructor stands between.
+			value = operands[0];
+		}
+		else
+		{
+			value = ConstexprReading(*this).object_of(bare, operands);
+		}
+		entity.value = value.bits;
 		entity.constant = true;
 	}
 	catch (const NotConstant&)
@@ -2749,6 +2786,7 @@ void SemaAnalyzer::declare_object_declarator(const AstNode* initializer,
 		// wrote - which is a fact of the member and not of either declaration's
 		// syntax, and is what makes every unit that defines it define one object.
 		if (defines_object && declared != nullptr && entity.constant &&
+		    !types_.is_class(types_.strip_cv(type)) &&
 		    entity.region != nullptr &&
 		    entity.region->kind == ScopeKind::Class)
 		{
@@ -2764,7 +2802,12 @@ void SemaAnalyzer::declare_object_declarator(const AstNode* initializer,
 		// the program may read, and there is nothing to describe.
 		return;
 	}
-	if (entity.constant && specifiers.is_constexpr && !lowering())
+	// A constant of class type is one 5.19 reads a member out of and no line of
+	// this dump spells: its bits are the identifier of the list its subobjects
+	// hold, so the object it stands for is described by the initialization the
+	// declaration wrote exactly as any other object of that class is.
+	if (entity.constant && specifiers.is_constexpr && !lowering() &&
+	    !types_.is_class(types_.strip_cv(type)))
 	{
 		// The dump writes what the object is worth and stops there.  A lowering
 		// still has to give the storage that value: 7.1.5p9 makes a constexpr

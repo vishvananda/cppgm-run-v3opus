@@ -997,8 +997,12 @@ bool LowirUnitLowering::folded(const DumpNode& node, unsigned long long& bits)
 		return true;
 	}
 	if (fact.kind == FactKind::Id && fact.entity != nullptr &&
-	    fact.entity->constant)
+	    fact.entity->constant &&
+	    !types_.is_class(types_.strip_cv(fact.entity->type)))
 	{
+		// A constant of class type holds the identifier of the list its
+		// subobjects came to and not a value of the object's own width, so it
+		// is no operand a fold of this initializer may stand.
 		bits = fact.entity->value;
 		return true;
 	}
@@ -1235,6 +1239,33 @@ const DumpNode* LowirUnitLowering::global_image(
 		{
 			// 3.2p2: the initialization still named the constructor.
 			owe_internal_definition(built);
+		}
+		else if (types_.kind(types_.strip_cv(type)) == TypeKind::Class &&
+		         node.fact.entity != nullptr && node.fact.entity->constant)
+		{
+			// 3.6.2p2: where the call of the constructor is itself a constant
+			// expression - which is what the analysis says by having folded the
+			// object to a value at all - the object's storage *is* what that
+			// call leaves behind, and the program runs nothing before it.  The
+			// same fold already answers a member of class type inside an
+			// aggregate, so a whole object is asked the one question its
+			// subobjects are asked.  An object with no initializer, or one
+			// whose initializer the analysis could not fold, is not this: 3.6.2
+			// leaves its constructor to run before the program does.
+			global.data_items.clear();
+			unsigned long long laid = 0;
+			if (global_constructed(global, *written, 0, laid))
+			{
+				add_zero_item(global,
+				              types_.object_size(types_.strip_cv(type)) - laid);
+				// 3.2p2: the initialization named the constructor, whose
+				// definition the program still needs however much of its work
+				// the image already holds.
+				demand_definition(built);
+				return nullptr;
+			}
+			global.data_items.clear();
+			global.data_items.push_back(item);
 		}
 		dynamic = nothing_to_do || vpointer ? nullptr : written;
 		written = nullptr;

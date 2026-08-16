@@ -548,6 +548,7 @@ SemaAnalyzer::Value SemaAnalyzer::named_value(const AstNode& node,
 	if (entity.kind == SemaKind::Enumerator ||
 	    (entity.kind == SemaKind::TemplateValue && entity.constant) ||
 	    (entity.kind == SemaKind::Variable && entity.constant &&
+	     !types_.is_class(types_.strip_cv(entity.type)) &&
 	     !entity.object_definition && entity.region != nullptr &&
 	     entity.region->kind == ScopeKind::Class))
 	{

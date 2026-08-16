@@ -24,25 +24,25 @@ naming and lowering shapes are probed rather than guessed.
 
 ## Current Failure Map
 
-**46/129**; 83 failures remain.
+**48/129**; 81 failures remain.
 
 | Group | Shape | Count |
 |---|---|---|
-| O. constant-valued declarations | `X is not a constant expression` where `X` *is* a `constexpr` variable — its value was never recorded | 20 |
-| I. LowIR mismatch, not exit status | canonical diff only | 10 |
+| O2. constant-valued declarations still unfolded | `X is not a constant expression` where `X` *is* a `constexpr` variable — the initializer is a call/operator the fold refuses, not the declaration | 13 |
+| I. LowIR mismatch, not exit status | canonical diff only | 11 |
 | V. `constexpr` validation | a `-bad` case this compiler accepts (exit status inverted) | 9 |
-| F. floating constants | `a literal that has no integral value` | 8 |
+| F. floating constants | `a literal that has no integral value` — `SemaConstant` has no floating value at all | 8 |
 | N. `noexcept` operator | `a constant expression holds an operator PA11 does not evaluate` | 6 |
+| C. class-typed operands | `casts to`/`has a type that is not integral` — a class value reaching an arithmetic place, and 12.3.2p1's conversion | 6 |
 | T. template-id callees | `X<...> is written where a constant expression calls and names no function` | 5 |
-| B. objects with bases / dependent classes | `... is not a class a constant expression builds an object of` | 4 |
-| C. class-typed operands | `casts to`/`has a type that is not integral` — a class value reaching an arithmetic place | 6 |
-| misc | address-of, subscript of a real array, `this`, lookup gaps reached only through evaluation | 15 |
+| B. objects with bases / dependent classes | `... is not a class a constant expression builds an object of` — `object_of` refuses a class with a base | 4 |
+| misc | address-of, subscript of a real array, `this`, lookup gaps reached only through evaluation | 19 |
 
-Group O is the next checkpoint: `sema_analyzer.cpp`'s object declaration
-records `entity.constant` only for the integral case, so a `constexpr` variable
-of class type — or one whose initializer is a call the fold *can* answer —
-lands unmarked and every later read of it fails. It is the common root of most
-of group C and part of V.
+**F is the next checkpoint.** `SemaConstant` is `{TypeId, bits}` with the bits
+read as an integer everywhere, so a floating literal has nowhere to land; the
+group is self-contained (one widening of the value type plus the arithmetic
+that reads it) and it is the last typed-value kind the README names that the
+engine has none of. C and part of V follow from it.
 
 ## Active Checkpoint — none open
 
@@ -51,7 +51,7 @@ of group C and part of V.
 | Path | Shape | Measured |
 |---|---|---|
 | constexpr loop | one pass per iteration; the block's region and the objects it declares are opened/created once per fold and reused, so n iterations cost O(n) statements and O(1) regions | `for` of 1e3 / 1e4 / 1e5 passes with a body-local declaration: 0.00 / 0.02 / 0.19s, peak RSS 6.24 / 6.25 / 6.21 MB (flat). Ref: 0.61s at 1e4 and 4.09s at 1e5 |
-| folded call | memoised on (callee, converted argument list), so a call written n times is one walk | unchanged by checkpoint S |
+| constant object | one fold per declaration, and one interned list per distinct object; a constructor called twice with one argument list is one walk | 500 / 2000 / 8000 `constexpr` two-member objects, each read back by a `static_assert`: 0.02 / 0.10 / 0.44s (ref 3.68s at 8000). A chain of 20 / 40 / 80 nested class members: 0.00 / 0.00 / 0.01s — linear in depth, not 2^depth |
 | local-static symbol | one flatten per declaration, memoised in `entity_symbols_`; a name used *n* times costs one flatten and *n* lookups | 400 / 1600 / 6400 image-initialized statics in one body: 0.018 / 0.062 / 0.247s (ref 0.584 / 0.743 / 1.403s) |
 | local-static guard | one image read per declaration, one guard global per object | 400 / 1600 / 6400 guarded statics: 0.026 / 0.096 / 0.423s (ref 0.632 / 0.933 / 2.229s) |
 | array destruction | one `__cxa_atexit` per array, handed a generated body that walks the elements — written out below `kArrayLoopLimit` and a loop above it | 100000-element array of class type: 0.005s, 11 instructions |
@@ -63,6 +63,7 @@ of group C and part of V.
 | L | Function-local `static` objects: `record_storage` records the storage duration instead of refusing it; `record_lifetime` puts 12.4p11's destruction under the declaration; `global_symbol` answers `__local_static__<function>__<name>__tokens<b>_<e>`; `lowir_local_static.cpp` writes the image half, 6.7p4's guard and 3.6.3p3's `__cxa_atexit`. Carried 8.5.2p1 for a string literal initializing an array *element*, and 3.6.2's fold of a call in a block-scope static's initializer not odr-using the callee. | 29 → 38 |
 | L audit | `af299cb9`, 3 blockers: the owner part of the name flattened two functions to one symbol; 3.5p3's internal linkage was missing from both readings of "a definition every unit may hold"; 12.4p8 over an array was handed to `__cxa_atexit` as one call. See [audit.md](audit.md). | 38 → 38 |
 | S | **Statements inside a constant evaluation.** `sema_constexpr_statement.cpp` runs 6.1-6.6 over a constexpr body instead of matching 7.1.5p3's one-`return` shape: blocks, declaration-statements, `if`/`while`/`do`/`for` including 6.4p3's condition declarations, `break`/`continue`/`return`. `SemaEntity::fold_local` marks the one kind of object an evaluation may write, and 5.17's assignment, 5.17p7's compound assignment, 5.3.2p1/5.2.6p1's increment and 5.18p1's comma reach it through the shared `binary_value`. Carried the parser fix 6.5.3p1 needed: `parse_condition` took `)` as the token that ends the declaration arm, so `for (int i = 3; int j = i; ...)` never parsed. | 38 → 46 |
+| O | **Objects of literal class type as declared constants.** `fold_constant_object` no longer stops at 5.19p3's arithmetic case: a const object of literal class type is folded through `ConstexprReading::object_of` (or taken as-is where 8.5p14's initializer is already a prvalue of its own class), so `constexpr Lit lit(42); static_assert(lit.value == 42);` reads. The four readers that spell a constant's bits as an integer — two PA12 dump lines, the static-data-member literal and `LowirUnitLowering::folded` — now ask whether the type is a class, because a class constant's bits are a list identifier. 3.6.2p2's other half followed: a namespace-scope object the analysis folded takes `global_constructed`'s image and no startup body, which is the fold that already answered a class member inside an aggregate. | 46 → 48 |
 
 **Known gap (L).** The reference names a local static of an *inline* or
 *instantiated* function by source position (` at file:line:col`, hex-encoded).
