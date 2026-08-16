@@ -592,6 +592,13 @@ struct SemaEntity
 	// still the program's rather than this unit's, so what this changes is when
 	// the object file writes it and not how it binds.
 	bool explicitly_instantiated;
+	// 14.7.3p1 and p6: whether `template<>` wrote this declaration out for these
+	// arguments.  Such a declaration is not an instantiation of anything: it is
+	// a definition this unit's own source made, so 3.2p3 makes it the program's
+	// one definition and 14.7.3p6 leaves it `inline` only where it says so
+	// itself - where a specialization a pattern was read again for is a
+	// definition every unit that needs one may hold.
+	bool explicit_specialization;
 	// 3.2p3 and 14.6.4.1p1: whether anything in this unit has asked this unit
 	// for the definition of this function.  A definition 14.7.1p1 put aside
 	// waits for that ask, and 14.6.4.1p1 gives a specialization a second point

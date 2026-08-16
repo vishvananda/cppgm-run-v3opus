@@ -1063,9 +1063,13 @@ bool abi_instantiated(const SemaEntity& entity, TypeTable& types)
 {
 	// 14.7.1p1: a function template's specialization is the body read again
 	// for the arguments that named it, which is a definition of the *template*
-	// and not of this unit.
+	// and not of this unit.  14.7.3p1's is the other way round: `template<>`
+	// wrote it out here, so it is this unit's own definition and the program's
+	// one, and 14.7.3p6 leaves it `inline` only where its own declaration says
+	// so.
 	if (entity.kind == SemaKind::Function && entity.primary != nullptr &&
-	    entity.primary->template_parameters != nullptr)
+	    entity.primary->template_parameters != nullptr &&
+	    !entity.explicit_specialization)
 	{
 		return true;
 	}

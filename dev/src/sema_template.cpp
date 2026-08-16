@@ -274,6 +274,28 @@ SemaEntity* SemaAnalyzer::template_specializations(const std::string& spelling,
 	return found[0];
 }
 
+namespace
+{
+
+// 14.7.1p1 and 14.7.3p1: whether this specialization has a definition to read -
+// either the template's own pattern, or the body `template<>` wrote out for
+// exactly this argument list.  A template that defines no pattern still defines
+// the specializations its program wrote out, and those are definitions this
+// unit owns.
+bool has_written_definition(const SemaEntity& function)
+{
+	const SemaEntity& primary = *function.primary;
+	if (primary.defined)
+	{
+		return true;
+	}
+	return primary.templated != nullptr &&
+		primary.templated->explicit_functions.find(function.template_arguments) !=
+			primary.templated->explicit_functions.end();
+}
+
+}  // namespace
+
 void SemaAnalyzer::instantiate(SemaEntity& function)
 {
 	if (function.instantiated)
@@ -281,7 +303,7 @@ void SemaAnalyzer::instantiate(SemaEntity& function)
 		return;
 	}
 	function.instantiated = true;
-	if (function.primary->defined)
+	if (has_written_definition(function))
 	{
 		instantiate_body(function);
 		return;
@@ -338,7 +360,13 @@ void SemaAnalyzer::instantiate_body(SemaEntity& function)
 	// instantiates the same definition from the same template, so the
 	// definition is not this unit's to own - it binds the way an inline
 	// one does and the program keeps one of them.
-	function.inline_function = true;
+	//
+	// 14.7.3p6 is the other way round for a body `template<>` wrote out: that
+	// one is this unit's own source, so 3.2p3 makes it the program's one
+	// definition, and whether it is `inline` is what its own decl-specifiers
+	// say - which the reading of the definition below is what settles.
+	function.inline_function = function.inline_function ||
+		written == info.explicit_functions.end();
 	SemaEntity* const enclosing = instantiating_;
 	instantiating_ = &function;
 	function_definition(*body, inner);
@@ -348,7 +376,7 @@ void SemaAnalyzer::instantiate_body(SemaEntity& function)
 void SemaAnalyzer::write_instantiation(const Pending& pending)
 {
 	SemaEntity& asked = *pending.function;
-	if (asked.primary->defined)
+	if (has_written_definition(asked))
 	{
 		// 14.6.4.1p1: the definition read here is the one the template had by
 		// the end of the translation unit, which is a definition written after
@@ -770,6 +798,10 @@ bool SemaAnalyzer::record_explicit_function(const AstNode& declared,
 	}
 	chosen->primary->templated->explicit_functions[chosen->template_arguments] =
 		&declared;
+	// 14.7.3p6: what the program wrote out here is this unit's own definition
+	// and no reading of the pattern, so what says whether it is `inline` is its
+	// own declaration and not the template it specializes.
+	chosen->explicit_specialization = true;
 	// 14.7.3p6: the definition is this unit's own wherever it is named, and a
 	// use written above it has already asked for the pattern's - so the
 	// instantiation is started again from what was just written.
@@ -1493,15 +1525,38 @@ void SemaAnalyzer::explicit_instantiation(const AstNode& node,
 void SemaAnalyzer::record_function_template(SemaEntity& entity,
                                             Scope& parameters, Scope& region)
 {
-	if (!lowering() || template_pattern_ == nullptr ||
-	    template_pattern_->kind != AstKind::FunctionDefinition)
+	if (!lowering() || template_pattern_ == nullptr)
 	{
 		return;
 	}
-	template_patterns_.push_back(TemplateInfo());
-	entity.templated = &template_patterns_.back();
+	// 14.7.3p1: a template that declares no pattern still has the
+	// specializations `template<>` wrote out for it, and those are definitions
+	// this unit owns - so the record is made for a declaration too, and the
+	// definition read later is the pattern it had none of.
+	const AstNode* const pattern =
+		template_pattern_->kind == AstKind::FunctionDefinition ? template_pattern_
+		                                                       : nullptr;
+	if (entity.templated != nullptr && (pattern == nullptr ||
+	                                    entity.templated->pattern != nullptr))
+	{
+		// The record already stands, and this declaration is not the definition
+		// it was waiting for.
+		return;
+	}
+	if (entity.templated == nullptr)
+	{
+		template_patterns_.push_back(TemplateInfo());
+		entity.templated = &template_patterns_.back();
+	}
 	TemplateInfo& info = *entity.templated;
-	info.pattern = template_pattern_;
+	// 14.5.6.1p5: an earlier declaration of this same template spelled its
+	// parameters with names of its own, and what an instantiation reads is
+	// *this* definition's syntax - so the head the record carries is this one's
+	// and the specializations already written out for the template stay.
+	info.parameters.clear();
+	info.defaults.clear();
+	info.supported = true;
+	info.pattern = pattern;
 	info.region = &region;
 	info.dump = template_pattern_dump_;
 	for (std::size_t index = 0; index < parameters.declarations.size(); ++index)

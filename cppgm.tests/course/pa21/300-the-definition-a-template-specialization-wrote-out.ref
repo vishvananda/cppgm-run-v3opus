@@ -1,0 +1,50 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    %t1 = call i32 @declared_only()
+    %t2 = call i32 @declared_constexpr()
+    %t3 = binary add i32 %t1, %t2
+    %t4 = call i32 @with_pattern__ov2(1)
+    %t5 = binary add i32 %t3, %t4
+    %t6 = call i32 @with_pattern(0)
+    %t7 = binary add i32 %t5, %t6
+    %t8 = call i32 @from_pattern(3)
+    %t9 = binary add i32 %t7, %t8
+    %t10 = binary sub i32 %t9, 26
+    return i32 %t10
+}
+function @declared_only() -> i32 [binding=strong, object=_Z13declared_onlyIiEiv] {
+  block ^entry:
+    return i32 2
+}
+function @declared_constexpr() -> i32 [binding=weak, object=_Z18declared_constexprIiEiv] {
+  block ^entry:
+    return i32 3
+}
+function @with_pattern(%value : i8) -> i32 [binding=strong, object=_Z12with_patternIcEiT_] {
+  slot $value : i8
+
+  block ^entry:
+    store i8 %value, $value
+    %t1 = load i8 $value
+    %t2 = convert sext i32 i8 %t1
+    %t3 = binary add i32 %t2, 8
+    return i32 %t3
+}
+function @from_pattern(%value : i32) -> i32 [binding=weak, object=_Z12from_patternIiET_S0_] {
+  slot $value : i32
+
+  block ^entry:
+    store i32 %value, $value
+    %t1 = load i32 $value
+    %t2 = binary mul i32 %t1, 2
+    return i32 %t2
+}
+function @with_pattern__ov2(%value : i32) -> i32 [binding=weak, object=_Z12with_patternIiEiT_] {
+  slot $value : i32
+
+  block ^entry:
+    store i32 %value, $value
+    %t1 = load i32 $value
+    %t2 = binary add i32 %t1, 4
+    return i32 %t2
+}

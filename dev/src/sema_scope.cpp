@@ -335,6 +335,7 @@ SemaEntity& SemaModel::create(SemaKind kind, const std::string& name, TypeId typ
 	entity.partial_of = nullptr;
 	entity.instantiated = false;
 	entity.explicitly_instantiated = false;
+	entity.explicit_specialization = false;
 	entity.definition_required = false;
 	entity.instantiated_definition = false;
 	entity.storage_demanded = false;

@@ -734,8 +734,7 @@ SemaEntity& SemaAnalyzer::declare_function(const std::string& name, TypeId type,
 			throw std::runtime_error(name + " is defined twice");
 		}
 		prior->defined = prior->defined || define;
-		if (define && prior->template_parameters != nullptr &&
-		    prior->templated == nullptr)
+		if (define && prior->template_parameters != nullptr)
 		{
 			// 14.5.6.1p5 and 14p1: the definition is of the template an earlier
 			// declaration made, so what an instantiation reads is this
