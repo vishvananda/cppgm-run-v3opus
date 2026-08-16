@@ -288,21 +288,28 @@ this milestone's own layer owns: `T{item(0), item(1)}` over
 `struct array { T e[N]; }` is refused outright today, and the other failure is a
 single missing lowering case.
 
-- **Owner.**  `sema_init_list.cpp` for the clauses, `sema_lifetime.cpp` for the
-  object they build.
+- **Owner.**  `sema_init_list.cpp` for the constructor, `lowir_lower_object.cpp`
+  and the LowIR writer for the boundary it is called across.
 - **Data flow.**  `build_temporary` turns 8.5.1p2's aggregate prvalue into a
   call of the constructor `member_constructor` gives the class from its members;
   8.3.5p5 leaves an array member with no by-value parameter, so that constructor
-  does not exist and the shape is refused.  The clauses have to initialize the
-  subobjects of the temporary where they stand instead - which is the reading
-  `InitializerClauses` already makes for a declared object, over a destination
-  that is a temporary rather than a name.
-- **Expected complexity.**  One reading per clause, as the declared-object path
-  already is; no constructor is declared and no list is read twice.
+  does not exist and the shape is refused.  Initializing the temporary's
+  subobjects where they stand was tried and is the *wrong* answer: the
+  reference declares the constructor anyway, with the array member as a
+  parameter written `%elements : ptr [pass=decay]`, builds the elements in a
+  slot of the caller's (`$argarr__4`) and lets the constructor `copyobj` them
+  into the member.  So what this checkpoint owes is that boundary - a parameter
+  whose declared type is the array 8.3.5p5 adjusts, carried as its address and
+  copied by the callee - which is a mode the type table and the writer have
+  none of today.
+- **Expected complexity.**  One constructor per class, declared once as the
+  existing one is; one `copyobj` per array member rather than one store per
+  element.
 - **Validation.**  The fixture; a sweep of aggregates with array, class and
-  scalar members written as a prvalue, as a declared object and as a subobject
-  of another list, against g++ and `pa20/cppgm++-ref`; a scaling row for an
-  aggregate whose array member has 4096 elements; and a valgrind run.
+  scalar members written as a prvalue, as a declared object, as an array element
+  and as a subobject of another list, against g++ and `pa20/cppgm++-ref`; a
+  scaling row for an aggregate whose array member has 4096 elements; and a
+  valgrind run.
 
 ## Performance Model
 
