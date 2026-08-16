@@ -442,7 +442,7 @@ SemaConstant ConstexprReading::accessed_object(const AstNode& node,
 }
 
 SemaEntity* ConstexprReading::accessed_member(const SemaConstant& object,
-                                              const AstNode& node,
+                                              const std::string& name,
                                               const SemaContext& ctx)
 {
 	SemaEntity* const owner =
@@ -455,18 +455,22 @@ SemaEntity* ConstexprReading::accessed_member(const SemaConstant& object,
 	// name found through 10.2's chain, a using-declaration or a qualified-id is
 	// found here the same way it is anywhere else.
 	std::vector<SemaEntity*> found;
-	return analyzer_.member_named(*owner->scope, node.children[1]->text, ctx,
-	                              found);
+	return analyzer_.member_named(*owner->scope, name, ctx, found);
 }
 
 // 5.2.5p1 over 9.2p1's non-static data member: the subobject the object's own
 // interned list holds for it, which is the entry standing where 9.2p13 declared
 // the member.
-SemaConstant ConstexprReading::member_constant(const AstNode& node,
-                                               const SemaContext& ctx)
+SemaConstant ConstexprReading::member_value(const SemaConstant& object,
+                                            const std::string& name,
+                                            const SemaContext& ctx)
 {
-	const SemaConstant object = accessed_object(node, ctx);
-	SemaEntity* const named = accessed_member(object, node, ctx);
+	if (!is_object(object))
+	{
+		throw NotConstant("a constant expression reads a member of what is not "
+		                  "an object of class type");
+	}
+	SemaEntity* const named = accessed_member(object, name, ctx);
 	std::vector<SemaEntity*> members;
 	data_members(object.type, members);
 	const std::vector<TypeId>& held =
@@ -481,7 +485,7 @@ SemaConstant ConstexprReading::member_constant(const AstNode& node,
 			return constant_of(held[index], analyzer_.types_);
 		}
 	}
-	throw NotConstant(node.children[1]->text +
+	throw NotConstant(name +
 	                  " names no subobject a constant expression reads of " +
 	                  analyzer_.types_.description(object.type));
 }
@@ -489,21 +493,39 @@ SemaConstant ConstexprReading::member_constant(const AstNode& node,
 // 5.2.2p1 with 9.3.1p3: the call `E.f(args)`, whose object is `E` where 9.2p1
 // leaves `f` a non-static member and nothing at all where 9.4p1 makes it
 // static.
-SemaConstant ConstexprReading::member_called(
-	const AstNode& callee, const std::vector<SemaConstant>& arguments,
-	const SemaContext& ctx)
+SemaConstant ConstexprReading::member_call(
+	const SemaConstant& object, const std::string& name,
+	const std::vector<SemaConstant>& arguments, const SemaContext& ctx)
 {
-	const SemaConstant object = accessed_object(callee, ctx);
-	SemaEntity* const named = accessed_member(object, callee, ctx);
+	if (!is_object(object))
+	{
+		throw NotConstant("a constant expression calls a member of what is not "
+		                  "an object of class type");
+	}
+	SemaEntity* const named = accessed_member(object, name, ctx);
 	SemaEntity* const one =
 		named == nullptr ? nullptr : chosen(*named, arguments.size());
 	if (one == nullptr)
 	{
-		throw NotConstant(callee.children[1]->text +
+		throw NotConstant(name +
 		                  " names no one constexpr member function a constant "
 		                  "expression may call with these arguments");
 	}
 	return call(*one, one->object_member ? &object : nullptr, arguments);
+}
+
+SemaConstant ConstexprReading::member_constant(const AstNode& node,
+                                               const SemaContext& ctx)
+{
+	return member_value(accessed_object(node, ctx), node.children[1]->text, ctx);
+}
+
+SemaConstant ConstexprReading::member_called(
+	const AstNode& callee, const std::vector<SemaConstant>& arguments,
+	const SemaContext& ctx)
+{
+	return member_call(accessed_object(callee, ctx), callee.children[1]->text,
+	                   arguments, ctx);
 }
 
 SemaConstant ConstexprReading::called(const AstNode& callee,

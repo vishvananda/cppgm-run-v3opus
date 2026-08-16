@@ -679,14 +679,28 @@ std::size_t AstParser::template_id_memo_key(const Mark& start, bool qualified) c
 		(qualified ? 1u : 0u);
 }
 
+std::size_t AstParser::template_argument_memo_key(const Mark& start) const
+{
+	return start.pos * 4 + (start.angle ? 2u : 0u) +
+		(template_id_veto_depth_ == bracket_depth_ ? 1u : 0u);
+}
+
+bool AstParser::memo_is_current()
+{
+	if (template_id_memo_version_ == names_.version())
+	{
+		return true;
+	}
+	template_id_memo_.clear();
+	template_argument_memo_.clear();
+	template_id_memo_version_ = names_.version();
+	return false;
+}
+
 bool AstParser::skip_simple_template_id(bool qualified)
 {
 	const Mark start = mark();
-	if (template_id_memo_version_ != names_.version())
-	{
-		template_id_memo_.clear();
-		template_id_memo_version_ = names_.version();
-	}
+	memo_is_current();
 	const std::size_t key = template_id_memo_key(start, qualified);
 	const std::unordered_map<std::size_t, std::size_t>::const_iterator found =
 		template_id_memo_.find(key);

@@ -156,20 +156,33 @@ void AstTokenStream::append(unsigned type, const std::string& text)
 	tokens_.push_back(token);
 }
 
+void AstTokenStream::spell_stream()
+{
+	spelled_at_.resize(tokens_.size());
+	for (std::size_t index = 0; index < tokens_.size(); ++index)
+	{
+		if (index > 0 &&
+		    needs_separator(spelling(index - 1), spelling(index), spelling(index + 1)))
+		{
+			spelled_.push_back(' ');
+		}
+		spelled_at_[index] = spelled_.size();
+		spelled_.append(spelling(index));
+	}
+}
+
 std::string AstTokenStream::flatten(std::size_t begin, std::size_t end) const
 {
 	const std::size_t last = end < tokens_.size() ? end : tokens_.size();
-	std::string result;
-	for (std::size_t index = begin; index < last; ++index)
+	if (begin >= last)
 	{
-		if (index > begin &&
-		    needs_separator(spelling(index - 1), spelling(index), spelling(index + 1)))
-		{
-			result.push_back(' ');
-		}
-		result.append(spelling(index));
+		return std::string();
 	}
-	return result;
+	// The separator before `begin` stands in front of its spelling, so a range
+	// beginning there leaves it out by beginning at the spelling itself.
+	const std::size_t from = spelled_at_[begin];
+	const std::size_t to = spelled_at_[last - 1] + spelling(last - 1).size();
+	return spelled_.substr(from, to - from);
 }
 
 void PackTable::add(std::size_t begin, unsigned long long alignment)
@@ -312,4 +325,5 @@ void AstTokenStream::build(SourceFileTable& files, const PreprocessorOptions& op
 		}
 	}
 	append(ST_EOF, std::string());
+	spell_stream();
 }

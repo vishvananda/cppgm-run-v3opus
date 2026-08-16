@@ -109,9 +109,13 @@ bool is_literal_word(const std::string& word)
 // The operators 5.19 writes, longest first, so that `<<` is never read as two
 // `<` and `>=` never as `>` and `=`.
 const char* const kOperators[] = {
+	// 14.5.3p4's ellipsis stands before `.`, so that an expansion written
+	// inside a spelling is one word this reading has no operand for rather
+	// than three member accesses.
+	"...",
 	"<<", ">>", "<=", ">=", "==", "!=", "&&", "||", "::",
 	"+", "-", "*", "/", "%", "<", ">", "&", "|", "^", "!", "~", "?", ":",
-	"(", ")", "[", "]", "{", "}", ","
+	"(", ")", "[", "]", "{", "}", ",", "."
 };
 
 const std::size_t kOperatorCount = sizeof(kOperators) / sizeof(kOperators[0]);
@@ -331,6 +335,13 @@ private:
 	SemaConstant expression(const std::vector<std::string>& words,
 	                        unsigned bind, bool live);
 	SemaConstant unary(const std::vector<std::string>& words, bool live);
+	SemaConstant operand(const std::vector<std::string>& words, bool live);
+	// 5.2.5p1: the `.`s written after an operand, each reading a member of what
+	// stands to its left - a subobject on its own, and 5.2.2p1's call where an
+	// argument list follows.  It is the same rule the tree reading writes, asked
+	// of the object and the name because that is what a spelling holds.
+	SemaConstant accesses(SemaConstant value,
+	                      const std::vector<std::string>& words, bool live);
 	SemaConstant type_trait(const std::string& word,
 	                        const std::vector<std::string>& words, bool live);
 	SemaConstant pack_size(const std::vector<std::string>& words);
@@ -440,6 +451,58 @@ SemaConstant TemplateArgumentReader::expression(
 // 5.19 over one written operand: a literal, a name, a parenthesized expression,
 // a unary operator, or one of the folds `sizeof`, `alignof` and a cast write.
 SemaConstant TemplateArgumentReader::unary(
+	const std::vector<std::string>& words, bool live)
+{
+	return accesses(operand(words, live), words, live);
+}
+
+// 5.2.5p1 written after an operand, which binds tighter than every operator
+// above and is therefore read here rather than in the precedence walk.
+SemaConstant TemplateArgumentReader::accesses(
+	SemaConstant value, const std::vector<std::string>& words, bool live)
+{
+	while (at_ + 1 < words.size() && words[at_] == ".")
+	{
+		const std::string member = words[at_ + 1];
+		if (!names_one_identifier(member))
+		{
+			throw NotConstant("a member access written as a template argument "
+			                  "names no member");
+		}
+		at_ += 2;
+		if (at_ < words.size() && words[at_] == "(")
+		{
+			std::vector<SemaConstant> operands;
+			if (!operand_list(words, ")", live, operands))
+			{
+				throw NotConstant("a call written as a template argument does "
+				                  "not close its arguments");
+			}
+			if (!live)
+			{
+				continue;
+			}
+			const unsigned stood = analyzer_.stood_in_;
+			value = ConstexprReading(analyzer_).member_call(value, member,
+			                                                operands, ctx_);
+			if (analyzer_.stood_in_ != stood)
+			{
+				// 14.6p8, as a call written on a name says it: the body read
+				// something an argument list has yet to settle.
+				dependent_ = true;
+			}
+			continue;
+		}
+		if (!live)
+		{
+			continue;
+		}
+		value = ConstexprReading(analyzer_).member_value(value, member, ctx_);
+	}
+	return value;
+}
+
+SemaConstant TemplateArgumentReader::operand(
 	const std::vector<std::string>& words, bool live)
 {
 	if (at_ >= words.size())

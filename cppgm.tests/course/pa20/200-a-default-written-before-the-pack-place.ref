@@ -1,0 +1,16 @@
+global @written : i32 [binding=strong, object=_Z7written] = 4
+global @defaulted : i32 [binding=strong, object=_Z9defaulted] = 5
+global @stopped : i32 [binding=strong, object=_Z7stopped] = 7
+global @named : i32 [binding=strong, object=_Z5named] = 1
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    %t1 = load i32 @written
+    %t2 = load i32 @defaulted
+    %t3 = binary add i32 %t1, %t2
+    %t4 = load i32 @stopped
+    %t5 = binary add i32 %t3, %t4
+    %t6 = load i32 @named
+    %t7 = binary add i32 %t5, %t6
+    return i32 %t7
+}

@@ -106,6 +106,17 @@ public:
 	// members through the one lookup `member_named` is.  5.2.5p1's `->` is left
 	// out of both: its left operand is a pointer, which 5.19p2 leaves a
 	// constant expression none of.
+	//
+	// 5.19 is read twice in this compiler, and an access is written in either -
+	// `p.y` and `pt{2,5}.sum()` stand in a template-argument-list as readily as
+	// in a declaration.  So the rule is asked of the object and the name alone,
+	// which is all the reading over a spelling holds; the two below are the tree
+	// reading's own way of getting to those and ask exactly these.
+	SemaConstant member_value(const SemaConstant& object,
+	                          const std::string& name, const SemaContext& ctx);
+	SemaConstant member_call(const SemaConstant& object, const std::string& name,
+	                         const std::vector<SemaConstant>& arguments,
+	                         const SemaContext& ctx);
 	SemaConstant member_constant(const AstNode& node, const SemaContext& ctx);
 
 	// 12.3.2p1 with 14.3.2p5: `value`, an object of class type, brought to the
@@ -179,7 +190,7 @@ private:
 	// name after the `.` denotes in that object's class.
 	SemaConstant accessed_object(const AstNode& node, const SemaContext& ctx);
 	SemaEntity* accessed_member(const SemaConstant& object,
-	                            const AstNode& node, const SemaContext& ctx);
+	                            const std::string& name, const SemaContext& ctx);
 	// 5.2.2p1 with 9.3.1p3: a call whose postfix-expression is that access,
 	// which runs on the object where 9.2p1's member function is not static.
 	SemaConstant member_called(const AstNode& callee,

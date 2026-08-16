@@ -134,6 +134,14 @@ public:
 	// of them would otherwise read back as one longer token.  This is how the
 	// dump spells every name the grammar leaves for a later assignment to
 	// resolve, so `TC1 < TC2 < 1 >>` comes back as `TC1<TC2<1>>`.
+	//
+	// Whether a separator stands between two terminals is a fact of those two
+	// and the one after them, and of nothing else - the range being spelled
+	// does not enter into it.  So it is settled once per terminal when the
+	// stream is built, and spelling a range is the substring its own terminals
+	// occupy of the whole stream written out.  A rule that backtracks spells
+	// the same terminals many times, and this is what keeps that a copy rather
+	// than a re-reading.
 	std::string flatten(std::size_t begin, std::size_t end) const;
 
 	// 16.6: what `#pragma pack` asked for, by position in this stream.
@@ -151,8 +159,15 @@ public:
 private:
 	std::uint32_t intern(const std::string& text);
 	void append(unsigned type, const std::string& text);
+	// The whole stream written out, which every spelling of a range is a
+	// substring of.  Made once, where the last terminal has arrived.
+	void spell_stream();
 
 	std::vector<AstToken> tokens_;
+	std::string spelled_;
+	// Where each terminal's spelling begins in `spelled_`, so that the
+	// separator before it belongs to the terminal pair rather than to a range.
+	std::vector<std::size_t> spelled_at_;
 	PackTable packs_;
 	IncludeTable sources_;
 	std::vector<std::string> pool_;

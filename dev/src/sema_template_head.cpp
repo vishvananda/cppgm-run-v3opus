@@ -424,6 +424,15 @@ void SemaAnalyzer::bind_template_arguments(
 	}
 	for (std::size_t index = out.size(); index < info.parameters.size(); ++index)
 	{
+		if (index == places)
+		{
+			// 14.5.3p1 again, reached by the defaults rather than by the list:
+			// 14.1p11 lets a place written before the pack carry 14.1p9's own
+			// argument, so filling those is what brings the reading here, and
+			// the pack is bound to no arguments at all just as it is where the
+			// list itself stopped short of it.
+			break;
+		}
 		const TemplateInfo::Default& fill = info.defaults[index];
 		if (fill.written == nullptr)
 		{

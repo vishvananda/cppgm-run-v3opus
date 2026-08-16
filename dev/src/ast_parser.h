@@ -140,7 +140,12 @@ private:
 	bool accept_close_angle();
 	bool at_template_argument_end() const;
 	bool parse_template_argument();
+	bool parse_template_argument_body();
 	std::size_t template_id_memo_key(const Mark& start, bool qualified) const;
+	std::size_t template_argument_memo_key(const Mark& start) const;
+	// True where the table below still describes the position it was filled at,
+	// which is what the names in scope changing takes away.
+	bool memo_is_current();
 
 	// Names (ast_parser_name.cpp).  Each spells the span it matched, because
 	// every name the grammar leaves unresolved is dumped as it was written.
@@ -321,6 +326,17 @@ private:
 	// on; the names in scope are the rest of it, and the version they were
 	// read at says when the whole table stopped being true.
 	std::unordered_map<std::size_t, std::size_t> template_id_memo_;
+	// What one `template-argument` matched at a position, which is the same
+	// question as the one above at the level below it: a list is read once per
+	// attempt made at the list around it, and every attempt reads the same
+	// arguments.  `W<0>::v < W<1>::v, W<1>::v < W<2>::v, ...` is the shape that
+	// needs it - each `v` there reads as a template-name whose own list runs to
+	// the end of the outer one, so the k-th argument's reading covers every
+	// argument after it, and without a memo that is one whole re-reading of the
+	// suffix, with the nodes of it built again, per argument.  The key and the
+	// version are the template-id memo's, because the answer turns on the same
+	// state.
+	std::unordered_map<std::size_t, std::size_t> template_argument_memo_;
 	unsigned long template_id_memo_version_;
 	ParseDepth depth_;
 };

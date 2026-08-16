@@ -923,11 +923,47 @@ bool AstParser::at_template_argument_end() const
 	return at(OP_COMMA) || at(OP_DOTS) || at_close_angle();
 }
 
-// One `template-argument`, which the grammar writes as either a type-id or an
-// expression and leaves for a later assignment to choose between.  An argument
-// that neither reading completes is read once more with its outermost `<` as
-// the relational operator it also spells, which is how `C<a, b < c>` closes.
+// One `template-argument`, read once per position.
+//
+// The list around it is read once per attempt made at the name in front of it,
+// and every attempt reads the same arguments - so the reading below is the same
+// question `skip_simple_template_id` memoises one level up, and it is
+// remembered the same way.  The nodes it builds are dropped by the rule that
+// asks for it, which only wants to know where the argument ended, so a
+// remembered answer costs the position alone.
 bool AstParser::parse_template_argument()
+{
+	const Mark start = mark();
+	memo_is_current();
+	const std::size_t key = template_argument_memo_key(start);
+	const std::unordered_map<std::size_t, std::size_t>::const_iterator found =
+		template_argument_memo_.find(key);
+	if (found != template_argument_memo_.end())
+	{
+		if (found->second == 0)
+		{
+			return false;
+		}
+		pos_ = found->second - 1;
+		return true;
+	}
+	const bool matched = parse_template_argument_body();
+	// A reading the depth limit cut short is not a fact about the position, and
+	// the refusal is sticky, so the whole descent is already failing.  An
+	// argument holding a lambda declares names, which is what takes the table
+	// away, and `memo_is_current` says so.
+	if (!depth_.overflowed() && template_id_memo_version_ == names_.version())
+	{
+		template_argument_memo_[key] = matched ? pos_ + 1 : 0;
+	}
+	return matched;
+}
+
+// The grammar writes an argument as either a type-id or an expression and
+// leaves for a later assignment to choose between them.  An argument that
+// neither reading completes is read once more with its outermost `<` as the
+// relational operator it also spells, which is how `C<a, b < c>` closes.
+bool AstParser::parse_template_argument_body()
 {
 	const Mark start = mark();
 	if (parse_type_id() != nullptr && at_template_argument_end())
