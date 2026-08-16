@@ -363,7 +363,8 @@ SemaConstant ConstexprReading::object_of(TypeId type,
 // is still ill formed, so only the one failure is caught.
 void ConstexprReading::fold_declared_object(SemaEntity& entity,
                                             const AstNode* initializer,
-                                            TypeId type, const SemaContext& ctx)
+                                            TypeId type, const SemaContext& ctx,
+                                            bool required)
 {
 	const AstNode* const wrote =
 		initializer == nullptr || initializer->children.empty()
@@ -388,14 +389,40 @@ void ConstexprReading::fold_declared_object(SemaEntity& entity,
 	{
 		qualified = analyzer_.types_.target(analyzer_.types_.strip_cv(qualified));
 	}
-	if (wrote == nullptr || (analyzer_.types_.cv(qualified) & kCvConst) == 0 ||
+	if ((analyzer_.types_.cv(qualified) & kCvConst) == 0 ||
 	    (!built && analyzer_.arithmetic_type(type) == kNoType))
+	{
+		return;
+	}
+	// 8.5p6: a declaration that wrote no initializer default-initializes the
+	// object, which for one of class type calls its default constructor - so
+	// such a declaration is initialized like any other and what it comes to is
+	// that constructor's answer.  It is asked only where 12.1p5 makes that
+	// constructor a constexpr one, because default-initialization of anything
+	// else performs no initialization at all and leaves the object holding
+	// nothing 5.19 reads.
+	const TypeId element =
+		analyzer_.types_.strip_cv(analyzer_.types_.element_of(bare));
+	const SemaEntity* const built_by =
+		wrote != nullptr || !analyzer_.types_.is_class(element)
+			? nullptr
+			: analyzer_.default_constructor(element);
+	if (wrote == nullptr &&
+	    (built_by == nullptr || !built_by->constexpr_function))
 	{
 		return;
 	}
 	try
 	{
-		const SemaConstant value = initialized_value(*wrote, type, ctx);
+		const std::vector<SemaConstant> none;
+		// 12.6p1: default-initializing an array default-initializes each of its
+		// elements, which is the same constructor once per element - and one
+		// answer, because the elements are all the same object.
+		const SemaConstant value = wrote != nullptr
+			? initialized_value(*wrote, type, ctx)
+			: (analyzer_.types_.kind(bare) == TypeKind::Array
+				   ? array_of(bare, none)
+				   : object_of(bare, none));
 		entity.value = value.bits;
 		entity.real = value.real;
 		entity.constant = true;
@@ -403,6 +430,14 @@ void ConstexprReading::fold_declared_object(SemaEntity& entity,
 	catch (const NotConstant&)
 	{
 		entity.constant = false;
+		if (required && ConstexprRequirement(analyzer_).demanded(type, ctx))
+		{
+			// 7.1.5p9: the declaration asked for a constant expression, so why
+			// this one is not is the diagnostic the declaration owes - and it is
+			// the fold's own sentence rather than the requirement's summary of
+			// it.
+			throw;
+		}
 	}
 }
 
@@ -632,7 +667,11 @@ SemaConstant ConstexprReading::array_of(TypeId type,
 		                  "elements than this implementation evaluates");
 	}
 	const bool built = analyzer_.types_.is_class(element);
-	if (!built && analyzer_.arithmetic_type(element) == kNoType)
+	// 3.9p10 and 8.3.4p6: an array of literal type is a literal type too, so an
+	// element that is itself an array holds a list of its own exactly as one of
+	// class type does - which is what a second subscript then reads.
+	const bool nested = analyzer_.types_.kind(element) == TypeKind::Array;
+	if (!built && !nested && analyzer_.arithmetic_type(element) == kNoType)
 	{
 		throw NotConstant("an element of " +
 		                  analyzer_.types_.description(bare) +
@@ -652,7 +691,18 @@ SemaConstant ConstexprReading::array_of(TypeId type,
 				const std::vector<SemaConstant> none;
 				SemaConstant value;
 				value.type = element;
-				zero = entry_of(built ? object_of(element, none) : value);
+				if (built)
+				{
+					value = object_of(element, none);
+				}
+				else if (nested)
+				{
+					// 8.5.1p7: an element that is an array is
+					// value-initialized by value-initializing each of *its*
+					// elements, which is this same reading one level down.
+					value = array_of(element, none);
+				}
+				zero = entry_of(value);
 			}
 			held.push_back(zero);
 			continue;
@@ -750,7 +800,13 @@ SemaConstant ConstexprReading::object_from_constructor(
 	                                  std::vector<SemaEntity*>(
 		                                  1, owner.constructor),
 	                                  clauses, &self, 0);
-	if (one->constexpr_region == nullptr || one->constexpr_body == nullptr)
+	// 12.1p5 and 8.4.2p1: a constructor the standard defined has no body this
+	// reading walks and no ctor-initializer it wrote - what it initializes each
+	// member with is 12.6.2p8's brace-or-equal-initializer, and whether doing
+	// that leaves a constant is the `constexpr_function` its class settled.
+	const bool wrote_body = one->constexpr_region != nullptr &&
+		one->constexpr_body != nullptr;
+	if (!wrote_body && !(one->defaulted && one->constexpr_function))
 	{
 		throw NotConstant(analyzer_.types_.description(bare) +
 		                  " declares no one constexpr constructor a constant "
@@ -760,7 +816,8 @@ SemaConstant ConstexprReading::object_from_constructor(
 	// compound-statement holding what 7.1.5p3 leaves any other one - so what
 	// the object comes to is the mem-initializers and nothing the body runs.
 	const AstNode* const body =
-		child_kind(*one->constexpr_body, AstKind::CompoundStatement);
+		wrote_body ? child_kind(*one->constexpr_body, AstKind::CompoundStatement)
+		           : nullptr;
 	for (std::size_t at = 0;
 	     body != nullptr && at < body->children.size(); ++at)
 	{
@@ -786,14 +843,23 @@ SemaConstant ConstexprReading::object_from_constructor(
 		                  "than this implementation reads");
 	}
 	const ReadingDepth building(depth);
+	// 9.2p2 and 12.6.2p2: the mem-initializers are read where the constructor's
+	// parameters stand.  A constructor the standard defined wrote none, so the
+	// region the brace-or-equal-initializers of 12.6.2p8 are read in is the
+	// class's own - which is where the program wrote them.
+	Scope& around = wrote_body ? *one->constexpr_region : *owner.scope;
 	SemaContext inner;
-	inner.scope = &analyzer_.model_.open(ScopeKind::Block, *one->constexpr_region,
-	                                     nullptr, one->constexpr_region->dump);
-	inner.dump = one->constexpr_region->dump;
+	inner.scope = &analyzer_.model_.open(ScopeKind::Block, around, nullptr,
+	                                     around.dump);
+	inner.dump = around.dump;
 	bind_arguments(*one, nullptr, passed, inner);
 	std::unordered_map<std::string, const AstNode*> written_for;
-	mem_initializers(child_kind(*one->constexpr_body, AstKind::CtorInitializer),
-	                 written_for);
+	if (wrote_body)
+	{
+		mem_initializers(
+			child_kind(*one->constexpr_body, AstKind::CtorInitializer),
+			written_for);
+	}
 	std::vector<SemaEntity*> members;
 	data_members(bare, members);
 	std::vector<TypeId> holds;
@@ -834,6 +900,23 @@ SemaConstant ConstexprReading::object_from_constructor(
 					analyzer_.evaluate(*wrote->children[0], inner), member);
 			}
 			value.type = member;
+		}
+		else if (members[index]->default_initializer &&
+		         analyzer_.member_initializers_.count(members[index]->id) != 0)
+		{
+			// 12.6.2p8 and 9.2p2: a member no mem-initializer names is
+			// initialized by the brace-or-equal-initializer its own declaration
+			// wrote, read in the class it was written in rather than in the
+			// constructor's region.  It is the same reading a declaration's own
+			// initializer gets, because 8.5 makes it the same initialization -
+			// and it is the whole of what 12.1p5's implicitly-defined default
+			// constructor does.
+			const HeldInitializer& held =
+				analyzer_.member_initializers_[members[index]->id];
+			SemaContext where = inner;
+			where.scope = held.scope;
+			where.dump = held.scope == nullptr ? inner.dump : held.scope->dump;
+			value = clause_of(*held.written, member, where);
 		}
 		else if (analyzer_.types_.is_class(member))
 		{

@@ -1,0 +1,11 @@
+ERROR: unsupported constexpr variable initializer at course/pa21/500-a-constexpr-object-nothing-initializes-bad.t:18:32 [top-level declaration 1 kind=simple-declaration ast={simple-declaration
+  decl-specifier-seq
+    decl-specifier KW_CONSTEXPR:constexpr
+    decl-specifier TT_IDENTIFIER:uninitialized_member
+  init-declarator-list
+    init-declarator
+      declarator
+        identifier blank
+}]
+Diagnostic context:
+collect_simple_declaration [constexpr uninitialized_member blank;] at course/pa21/500-a-constexpr-object-nothing-initializes-bad.t:18:1

@@ -1,0 +1,82 @@
+global @wrote [binding=internal, object=_ZL5wrote] = {
+  i32 7
+}
+global @implied [binding=internal, object=_ZL7implied] = {
+  i32 5
+  i32 6
+}
+global @blank [binding=internal, object=_ZL5blank] = {
+  zero 1
+}
+global @made [binding=internal, object=_ZL4made] = {
+  i32 5
+  i32 6
+}
+global @grid [binding=internal, object=_ZL4grid] = {
+  i32 1
+  i32 2
+  i32 3
+  i32 4
+  i32 5
+  i32 6
+}
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $built : obj<4x4>
+  slot $local : obj<8x4>
+
+  block ^entry:
+    %t1 = addr $built
+    call void @written_constructor__written_constructor(%t1)
+    %t2 = addr $local
+    call void @standard_constructor__standard_constructor(%t2)
+    %t3 = addr @wrote
+    %t4 = index i8 [projection=field] %t3, 0
+    %t5 = load i32 %t4
+    %t6 = addr @implied
+    %t7 = index i8 [projection=field] %t6, 0
+    %t8 = load i32 %t7
+    %t9 = binary add i32 %t5, %t8
+    %t10 = addr @grid
+    %t11 = unary decay ptr %t10
+    %t12 = binary mul i64 0, 12
+    %t13 = index i8 [projection=array_element] %t11, %t12
+    %t14 = index i32 [projection=array_element] %t13, 0
+    %t15 = load i32 %t14
+    %t16 = binary add i32 %t9, %t15
+    %t17 = addr $local
+    %t18 = index i8 [projection=field] %t17, 0
+    %t19 = load i32 %t18
+    %t20 = binary add i32 %t16, %t19
+    %t21 = addr $built
+    %t22 = index i8 [projection=field] %t21, 0
+    %t23 = load i32 %t22
+    %t24 = binary add i32 %t20, %t23
+    %t25 = binary sub i32 %t24, 20
+    return i32 %t25
+}
+function @written_constructor__written_constructor(%this : ptr) -> void [binding=weak, object=_ZN19written_constructorC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    store i32 7, %t2
+    return void
+}
+function @standard_constructor__standard_constructor(%this : ptr) -> void [unwind=no, binding=weak, object=_ZN20standard_constructorC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    store i32 5, %t2
+    %t3 = load ptr $this
+    %t4 = index i8 [projection=field] %t3, 4
+    store i32 6, %t4
+    return void
+}
+alias object _ZN19written_constructorC2Ev = @written_constructor__written_constructor
+alias object _ZN20standard_constructorC2Ev = @standard_constructor__standard_constructor

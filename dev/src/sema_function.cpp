@@ -7,6 +7,7 @@
 
 #include "ast_model.h"
 #include "ast_tokens.h"
+#include "sema_constexpr.h"
 #include "sema_operator.h"
 #include "token_model.h"
 
@@ -91,6 +92,30 @@ void SemaAnalyzer::require_matching_exception_specification(
 		                         "exception-specifications 15.4p1 does not "
 		                         "make the same");
 	}
+}
+
+// 15.4p1 with p3: what one declarator said about what the function throws.
+//
+// The two facts a declaration carries are whether it wrote a specification at
+// all and whether what it wrote allows nothing, and 15.4p3 is asked here as
+// well because this is where the answer this declaration gives meets the one
+// the declarations before it gave.
+void SemaAnalyzer::record_exception_specification(SemaEntity& entity,
+                                                  const AstNode& declarator,
+                                                  const Context& target,
+                                                  const std::string& name,
+                                                  bool compared)
+{
+	const bool wrote = declarator_writes_exception_specification(declarator);
+	const bool nothrowing = declarator_nonthrowing(declarator, target);
+	if (compared)
+	{
+		require_matching_exception_specification(entity, wrote, nothrowing,
+		                                         name);
+	}
+	entity.nonthrowing = entity.nonthrowing || nothrowing;
+	entity.wrote_exception_specification =
+		entity.wrote_exception_specification || wrote;
 }
 
 // 6.6.4p1: every label a goto of this function names is one the function
@@ -357,17 +382,8 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 		                 type != written_type,
 		                 spelled.qualified() && granting == nullptr,
 		                 specializing, &redeclares);
-	const bool wrote_specification =
-		declarator_writes_exception_specification(declarator);
-	const bool nothrowing = declarator_nonthrowing(declarator, target);
-	if (redeclares && specializing == nullptr)
-	{
-		require_matching_exception_specification(entity, wrote_specification,
-		                                         nothrowing, name);
-	}
-	entity.nonthrowing = entity.nonthrowing || nothrowing;
-	entity.wrote_exception_specification =
-		entity.wrote_exception_specification || wrote_specification;
+	record_exception_specification(entity, declarator, target, name,
+	                               redeclares && specializing == nullptr);
 	entity.object_member = type != written_type;
 	// 7.1.5p1: the specifier is a fact of the function and not of the one
 	// declaration that wrote it, so it accumulates as 7.1.2p2's `inline` does -
@@ -388,6 +404,12 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 	entity.virtual_function =
 		entity.virtual_function || specifiers.is_virtual;
 	read_virt_specifiers(entity, declarator, nullptr);
+	if (entity.constexpr_function)
+	{
+		// 7.1.5p3: the requirements on the declaration, asked after `virtual`
+		// has been read off it because the first of them is about that.
+		ConstexprRequirement(*this).require_function(entity, type, name);
+	}
 	require_no_abstract_boundary(written_type, name);
 	if (!entity.object_member)
 	{

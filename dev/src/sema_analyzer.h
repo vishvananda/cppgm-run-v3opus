@@ -87,6 +87,9 @@ private:
 	// 7.1.5p2: the call of a constexpr function 5.19p2 folds, which walks a
 	// function-body and is `sema_constexpr.h`'s for that reason.
 	friend class ConstexprReading;
+	// 7.1.5: what a declaration written `constexpr` shall be, which is the
+	// other half of that header's subject and no part of any one fold.
+	friend class ConstexprRequirement;
 	// 3.4.2: the lookup that follows the argument types rather than the
 	// regions, which `sema_argument_lookup.h` owns for the same reason.
 	friend class ArgumentLookup;
@@ -1160,6 +1163,14 @@ private:
 	void require_matching_exception_specification(const SemaEntity& declared,
 	                                              bool wrote, bool nothrowing,
 	                                              const std::string& name);
+	// 15.4p1 with p3: what this declarator said about what the function throws,
+	// put on the declaration and compared with what the ones before it said.
+	// `compared` is false where 14.7.3p1's explicit specialization is what the
+	// declarator declares, which redeclares nothing.
+	void record_exception_specification(SemaEntity& entity,
+	                                    const AstNode& declarator,
+	                                    const Context& target,
+	                                    const std::string& name, bool compared);
 	// 13.1 and 9.3.1p3: the key the chain a name heads is indexed by, which is
 	// the parameter-type-list the declarator wrote wherever the region is a
 	// class - so a static and a non-static member function whose types agree

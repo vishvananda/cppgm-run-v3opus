@@ -3,6 +3,7 @@
 #include <stdexcept>
 
 #include "ast_model.h"
+#include "sema_constexpr.h"
 #include "sema_operator.h"
 
 namespace
@@ -1764,6 +1765,17 @@ void SemaAnalyzer::write_one_base_initialization(
 		open_full_expression();
 		construct_object(base, line, written, where, Placement::Base);
 		close_full_expression(line);
+		return;
+	}
+	const SemaEntity* const built = default_constructor(base.type);
+	if (built == nullptr || !built->constexpr_function)
+	{
+		// 7.1.5p4: a base class subobject shall be initialized too, and where
+		// nothing here has anything to construct that is because the base's own
+		// default constructor does nothing - which 12.1p5 makes a constexpr
+		// constructor only where it leaves no subobject holding no value.
+		ConstexprRequirement(*this).require_initialized(*pending.function,
+		                                               base.name);
 	}
 }
 
@@ -1879,6 +1891,17 @@ void SemaAnalyzer::write_member_initializations(const Pending& pending,
 			// action names.
 			if (written == nullptr && trivially_constructed(type))
 			{
+				const SemaEntity* const built =
+					default_constructor(types_.element_of(type));
+				if (built == nullptr || !built->constexpr_function)
+				{
+					// 7.1.5p4: every constructor involved in initializing a
+					// non-static data member shall be a constexpr constructor,
+					// and 12.1p5 leaves the one the standard defines for a
+					// class holding an uninitialized scalar outside that.
+					ConstexprRequirement(*this).require_initialized(
+						*pending.function, member.name);
+				}
 				continue;
 			}
 			// The action names the member through `this`, so it needs no line
@@ -1892,6 +1915,11 @@ void SemaAnalyzer::write_member_initializations(const Pending& pending,
 		{
 			// 8.5p6 and 12.6.2p8: a member of any other type that no
 			// initializer reaches is default-initialized, which does nothing.
+			// 7.1.5p4 is the one reader that cares that it does nothing: a
+			// constexpr constructor leaving a member holding no value is the
+			// program's error rather than a step with no action to write.
+			ConstexprRequirement(*this).require_initialized(*pending.function,
+			                                               member.name);
 			continue;
 		}
 		DumpNode& node = open_fact(line, "member-initialization " + member.name +

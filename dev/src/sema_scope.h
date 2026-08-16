@@ -47,6 +47,14 @@ const unsigned char kCopyAssignmentTransfer = 3;
 const unsigned char kMoveAssignmentTransfer = 4;
 const unsigned char kTransferKinds = 4;
 
+// 3.9p10 over one class, as the three answers a reader of it may get.  A class
+// a name only declared is `kLiteralUnsettled`: the walk that answers 3.9p10
+// stands where 9.2p2 completes the class, so before that there is no answer
+// rather than a negative one, and 7.1.5's requirements refuse only `kLiteralNo`.
+const unsigned char kLiteralUnsettled = 0;
+const unsigned char kLiteralNo = 1;
+const unsigned char kLiteralYes = 2;
+
 
 // 1.4p8 and 17.6.4.3.2p1: the names an implementation reserves for functions
 // of its own, which a program declares nothing of and every use of names the
@@ -485,6 +493,21 @@ struct SemaEntity
 	// 8.5.1p1: whether an object of this class is initialized from a
 	// braced-init-list by initializing its members from the clauses.
 	bool aggregate;
+	// Class: 3.9p10's four bullets over this class, settled where 9.2p2
+	// completes it because each of them reads an answer a subobject's own class
+	// already carries - a trivial destructor, an aggregate or a constexpr
+	// constructor, and members and bases of literal type.  It is one of
+	// `kLiteralUnsettled`, `kLiteralNo` or `kLiteralYes`: a class a name left
+	// declared has no answer at all, and 7.1.5 refuses a declaration only where
+	// the answer is *no* rather than wherever it is not yes.
+	unsigned char literal_class;
+	// Class: whether the constant values this build holds cover an object of
+	// this class completely - every subobject of it is of arithmetic,
+	// enumeration, class or array type that 5.19's values reach.  It is 3.9p10
+	// read again over the narrower set `SemaConstant` has, and it is what says
+	// whether a fold that came to nothing is this build's gap or the program's
+	// error.  Same three values, settled in the same walk.
+	unsigned char valued_class;
 	// 9.2p13: where in its class an object of this non-static data member
 	// begins, in bytes.  Layout is settled once, where 9.2p2 completes the
 	// class, so every later use of the member is one read rather than a walk

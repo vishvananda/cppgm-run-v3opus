@@ -1095,6 +1095,11 @@ void SemaAnalyzer::settle_class_answers(SemaEntity& entity, Scope& scope)
 		!entity.destructor->implicit_declaration ||
 			subobject_declares_destruction(entity, scope));
 	settle_transfers(entity, scope);
+	// 3.9p10 and 12.1p5: whether an object of this class is one a constant
+	// expression may build, which is the last of these because it reads the
+	// destructor's triviality, the constructors 12.1p5 just settled and
+	// 8.5.1p1's aggregate all at once.
+	ConstexprRequirement(*this).settle_class(entity, scope);
 }
 
 // 8.4.2p2 and 12.8p12: a definition written outside a class settles what the

@@ -246,9 +246,15 @@ public:
 	// makes a literal class type and an array of one constants of the same
 	// standing as an arithmetic type, and each of the three is folded here.
 	// A declaration that folds nothing leaves the object holding no constant
-	// and is not itself ill formed, so the one failure is caught.
+	// and is not itself ill formed, so the one failure is caught - unless
+	// `required` says 7.1.5p9 asked for the fold, in which case the refusal is
+	// this declaration's own diagnostic and is let through.  It is let through
+	// only where `ConstexprRequirement::valued_type` says a constant of the
+	// object's type is one this build holds at all: a fold that ran out of the
+	// values here is a gap and not the program's error.
 	void fold_declared_object(SemaEntity& entity, const AstNode* initializer,
-	                          TypeId type, const SemaContext& ctx);
+	                          TypeId type, const SemaContext& ctx,
+	                          bool required);
 
 	// 8.5: what the initializer `wrote` leaves an object of type `type`
 	// holding, which is the one reading both doors a declaration stands at ask
@@ -550,6 +556,89 @@ private:
 	// left: false where a line of it is a call the specification of whose
 	// callee allows an exception, and true where none is.
 	bool nonthrowing_tree(const DumpNode& node) const;
+
+	SemaAnalyzer& analyzer_;
+};
+
+// 7.1.5: what a declaration that wrote `constexpr` shall be, asked where the
+// declaration stands rather than where a use of it does.
+//
+// The fold beside this answers what an expression *comes to*; this answers
+// whether the program was allowed to write the declaration at all.  They are
+// two questions and not one: 7.1.5p3's return type, p4's initialized members
+// and p9's constant initializer are requirements on the declaration, and a
+// compiler that asks only whether some later fold happened to succeed accepts
+// every one of them silently and lowers a dynamic initialization for a
+// `constexpr` object 3.6.2 gives no constant one.  7.1.5p5 says such a program
+// is ill-formed with no diagnostic required; this is that diagnostic.
+//
+// 3.9p10's literal type is the fact all of them read, and it belongs to the
+// class rather than to any declaration that names one - so it is settled where
+// 9.2p2 completes the class, beside 12.1p5's triviality and 8.5.1p1's
+// aggregate, and every requirement here is one read of it.
+class ConstexprRequirement
+{
+public:
+	explicit ConstexprRequirement(SemaAnalyzer& analyzer);
+
+	// 3.9p10: whether an object of `type` may stand where a constant expression
+	// builds one.  A reference and a scalar are literal types outright, an
+	// array is one where its element type is, and a class carries its own
+	// answer.  True for every type the class walk has no answer for yet -
+	// 14.6.2p1's dependent type among them - because a requirement refuses a
+	// declaration only where the answer is known to be no.
+	bool literal_type(TypeId type) const;
+	// Whether 5.19's constant values cover an object of `type` completely,
+	// which is what says a fold that came to nothing found the program's error
+	// rather than this build's gap.  Pointers, references and pointers to
+	// members are the gap: no `SemaConstant` holds an address.
+	bool valued_type(TypeId type) const;
+	// Whether 7.1.5p9's constant initializer is a requirement this reading may
+	// hold a declaration to: the object's type is one the values cover, and the
+	// declaration is one the program wrote rather than one a template pattern
+	// or an instantiation of it did.  It is the one guard both halves ask - the
+	// fold, which lets its own refusal through where this says yes, and the
+	// requirement below, which asks for a constant where it does.
+	bool demanded(TypeId type, const SemaContext& ctx) const;
+
+	// 3.9p10 and 12.1p5 over the class `scope` declares, settled where the
+	// class-specifier closes and read from `SemaEntity::literal_class` and
+	// `::valued_class` afterwards.
+	void settle_class(SemaEntity& entity, Scope& scope) const;
+	// 12.1p5: whether the default constructor the standard defines for this
+	// class is a constexpr constructor - which it is exactly where a written
+	// `constexpr X() {}` would satisfy 7.1.5p4, so every member is reached by a
+	// brace-or-equal-initializer or is itself built by one of these.
+	bool constexpr_default_construction(Scope& scope) const;
+
+	// 7.1.5p9: `entity`, declared `constexpr` with `type`, shall have literal
+	// type and shall be initialized by a constant expression.  The second half
+	// is asked only where `valued_type` says this build could have held the
+	// answer.
+	void require_object(const SemaEntity& entity, TypeId type,
+	                    const SemaContext& ctx) const;
+	// 7.1.5p3: the return type and each parameter type of a constexpr function
+	// shall be a literal type, and 7.1.5p3's first bullet leaves it non-virtual.
+	// `type` is the function type, whose first parameter is the object one
+	// where 9.3.1p3 gave the declaration one.
+	void require_function(const SemaEntity& entity, TypeId type,
+	                      const std::string& name) const;
+	// 7.1.5p4: every non-static data member and base class subobject shall be
+	// initialized.  It is asked from the walk 12.6.2p10 already makes down the
+	// members of a constructor's class, at the two places that walk finds
+	// nothing initializing one - so the requirement is one read per member the
+	// definition leaves alone and no walk of its own.
+	void require_initialized(const SemaEntity& function,
+	                         const std::string& subobject) const;
+
+private:
+	ConstexprRequirement(const ConstexprRequirement&);
+	ConstexprRequirement& operator=(const ConstexprRequirement&);
+
+	// 14.6p8 and 7.1.5p6: whether this reading is of a template's pattern or of
+	// a declaration an instantiation made from one, neither of which is a
+	// declaration these requirements are asked of.
+	bool instantiated() const;
 
 	SemaAnalyzer& analyzer_;
 };
