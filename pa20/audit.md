@@ -16,124 +16,95 @@ the specialization it names, and the definition a program wrote for one.
 | C7 | `350c92f4` | 3 / 3 | **a list of *one* entry is a list too, and five readers took that entry by index.**  C7 gave every walk of a written list one reading and converted the readers that walk *many* entries; the readers that take the list's single entry kept indexing `children[0]`, so `int x(a...)`, `int(a...)` and `: v(a...)` over a run of one each reached a `pack-expansion-expression` no reader below answers for and were refused where both oracles accept - while their class-typed twins, which C7 did convert, were right.  8.5p16's arity was never asked either, so `int x(1,2)` was accepted where the reference and g++ both refuse.  And 5.19's own copy of 5.2.3 had no answer at all for a run 14.6p8's reading cannot count, so `int arr[int(N...)]` written in a template definition was refused where `sizeof...(N)` in the same place stands a value in |
 | C8 | `8dfad19a` | 5 / 5 | **the dialect a character-literal is read in, which covers two facts and was moved for one.**  What a c-char above the ordinary range is worth, and whether a run of them is a literal at all, are one question PA2's dump and the language answer differently - the reference splits them the same way, its `#if` reading `'é'` as 233 where its phase 7 reads -23 - so `MulticharacterLiterals` was the right shape and reached one of the two: every ordinary character literal above 127 stayed PA2's `int` holding a code point, so `sizeof('\xff')` was 4 here and 1 in the reference and g++ alike.  The packing was a second implementation of 2.14.5p5's execution encoding beside the one `string_literal.cpp` has owned since PA2, and it packed code *points*: `'aé'` was `0x61e9` where both oracles write `0x61c3a9`, and the acceptance set was wrong with it.  A `char` literal may now hold a negative value, which found `literal_value` shifting a literal's bytes together without 3.9.1p1's sign, so `long long g = '\xff'` wrote 255.  C8's own claim that one reading answers a tree and a spelling alike was untrue for 5.1.1p6's parentheses, which the tree strips and the spelling did not, so `p<("abc")[1]>` was refused where both oracles accept.  And 2.14.8p3's raw operator was asked before the literal operator template, where the reference calls the template |
 | C9 | `964bc63d` | 5 / 5 + 1 perf | **the tree a derivation became, which C9 built and the four readers of one base were left reading a chain.**  10p1's list gives a base subobject a byte of its own, and every reader that had only ever seen offset zero kept the answer it had: 5.2.9p11's cast back to a derived class wrote *no* step at all, so `static_cast<C*>(q)` where `C : A, B` held the address of the `B` subobject and a member read through it stood past the end of the object - the reference writes `index i8 %t, -4` there, and the same was true of a single base a class had put after its own vpointer since PA17.  11.2p4's access was asked of `reading_`, which is set while an *expression* is read and given back before the initialization converts it, so every conversion to a non-public base written as a declaration's initializer, a return, an aggregate clause or a bound reference was refused - `B* p = this;` inside the class that named the base among them, where both oracles accept.  10.3p1's refusal covered a base subobject that dispatches *and is not the only one* rather than one that does not begin where the object does, so a polymorphic first base beside a plain second - which the ABI lays out as its own primary base and needs no thunk - was refused with the shapes that do owe one.  12.6.2p2's index was keyed by the last component of the mem-initializer-id, which is not a name of a base once a class can have two: `struct both : n1::b, n2::b` reported `initializes n2::b twice`.  And 14.6.2p3 was made a fact of the whole base-clause, so a settled base beside a dependent one was left off 3.4.1's search and `struct A { int a; }; template<class T> struct C : A, T { int f() { return a; } };` named nothing.  The perf finding is 10.1p3's own check: it is quadratic in a derivation that adds a base per level, 0.011 / 0.049 / 0.154 / 0.584 s at 100 / 400 / 800 / 1600 levels |
+| C10 | `9196229b` | 3 / 3 | **the packs a pattern is written over, which C10 settled at one of the three readings that ask it.**  14.5.3p5 leaves a pack named inside an *inner* expansion to that expansion, and C10 answered it at the tree - so `sum(get<U>(t...)...)` reads once per element of `U` while the same shape written in 14.2's argument list, where the pattern is text, still counted `t`: `list<list<A, B...>...>` was refused as `a pack expansion names two parameter packs of different lengths` where both oracles read it, and a pattern whose *only* pack an inner expansion already took was accepted where both refuse.  5.3.3p5's `sizeof...` is the same question and neither reading asked it, so `f(x, sizeof...(A))...` and `nums<(N + sizeof...(A))...>` were runs of two packs of different lengths.  Behind that, 3.2p3's demand for the storage an instantiation lays out was made at 9.2p1's non-static data member, which lays out no object of its own and is met before the definition it looks for has been read: `struct holds { later<int> m; };` with no object of `holds` laid out storage the reference does not, and the same class with the definition written after it *latched* and laid out none where the reference does.  And 14.3.2p1's refusal of a type where a value belongs was asked of every pack the pattern names rather than of the argument each element is, so `sizes<sizeof(T)...>` was refused with `T...` |
 
 ## Current Checkpoint Review
 
-C9 made 10p1's derivation a tree.  `SemaEntity::bases` and `Scope::bases` are
-lists, one subobject is placed per base-specifier, 10.2p2's lookup asks each
-base and refuses the name two of them answer, 12.6.2p10 constructs them in the
-order the list wrote them and 12.4p8 destroys them in the reverse, 14.5.3p4's
-expansion reaches the ctor-initializer, and 10.1p3's repeated base is refused
-where the class is completed - which is what makes every walk of the tree one
-visit per class.  10p1's derivation became its own owner
-(`sema_derivation.h`), and 8.5.2's string literal initializing an array of
-character type became another (`sema_string_init.h`).
+C10 gave an argument list what it needed to say where a run ended.  14.1p11
+leaves a class template's pack last, but 14.8.2 deduces a function template's
+head place by place, so `template<class... U, class... T>` binds two runs and
+one flat list cannot tell `<char, short | int>` from `<char | short, int>`.  The
+run bound to the *last* place is written flat - which is every list PA19 and the
+class tier build - and every earlier run stands as one `Pack` entry
+(`place_argument`, `trailing_pack_place`), which the object file writes `J...E`
+around.  Four things came with it: 14.5.3p5's inner expansion owning the packs
+its own pattern names, 14.8.1p2's explicit list filling a non-trailing place,
+14.3.2p1's value argument carrying the type its digits do not say, and 14.7.1p1
+leaving the storage of a static data member to whatever reaches it.
 
-Both owners are right where they stand.  `StringInitialization` is one reading
-asked from the three places a program writes one, the code units are the ones
-phase 6 already built, and twelve string shapes swept against both oracles
-agree but the run of zeros the lowering has written for a short list since
-PA15.  `Derivation` keeps
-the four questions a tree answers together and each of them stops at the first
-answer, which is what 10.1p3 buys.  The base-clause reading, the layout, the
-lookup, the two orders and the ABI's `__vmi_class_type_info` were swept over 77
-base-class and conversion shapes against g++ and the reference, and every
-accepted pair writes the reference's LowIR but the offset-zero
-`base_subobject` step the plan already records.
+The list is right where it stands.  `place_argument` is the one reading of such
+a list and both tiers ask it, so a head's places and its arguments are paired in
+one place rather than in three; 26 pack shapes, 12 value-argument spellings and
+12 storage shapes were swept against g++ and the reference at the checkpoint,
+and a further 20 expansion spellings, 19 value-argument types and 13 storage
+orders on this review - every accepted pair writing the reference's LowIR, and
+every mangled name in them g++'s own byte for byte, including the empty run's
+`J E` and the three-run head's `JcEJilEJiiiE`.  14.1p11's class template with a
+pack anywhere but last is still refused, which is what keeps
+`open_member_parameters` and 14.5.5's pattern reading a flat list.
 
-What the review found is that a base subobject now stands at a byte of its own,
-and the readers that had only ever seen offset zero were not told.  Behind that,
-the *region* an access is asked in outlives the reading that set it; and behind
-that, two facts C9 made one - the base a class dispatches through, and the
-clause 14.6.2p3 leaves off a lookup - are facts of one base-specifier and not of
-the list.
+What the review found is that the rule C10 introduced - a name already expanded
+where it stands says nothing about how long *this* run is - was settled at one of
+the readings that ask it.  Behind that, 5.3.3p5's `sizeof...` is the same rule
+and no reading asked it; and beside it, two more questions about a pattern were
+answered of the packs it names rather than of what the pattern comes to: which
+place a demand for storage is made at, and what 14.3.2p1 refuses.
 
 ### Findings
 
-**1. 5.2.9p11's cast back to the object wrote no step.**  4.10p3's conversion
-to a base moves the address on by the place the derived class gave it, and the
-cast the other way about has to move it back.  It wrote nothing at all, on the
-reading that the base "begins where the derived object does" - true of every
-class this milestone could lay out before C9, and false for every base after
-the first:
+**1. 14.5.3p5 was answered at the tree and not at the spelling, and 5.3.3p5 at
+neither.**  `PackReading` counts a run three ways - `names_in` over the tree a
+call's argument list holds, `run_of` over the text 14.2 writes an argument in,
+and `packs_in` over a type.  C10 taught the first to step over a nested
+`pack-expansion-expression`; the second scans identifiers out of the flattened
+spelling and had no way to know one was already expanded, and neither knew that
+`sizeof...` counts a run rather than standing in one:
+
+| shape | before | `pa20/cppgm++-ref` | g++ |
+| --- | --- | --- | --- |
+| `list<list<A, B...>...>` in an argument spelling, `A` and `B` of different lengths | two packs of different lengths | accepted | accepted |
+| the same where they happen to be equally long | accepted, and right | accepted | accepted |
+| `: wrap<list<A, B...> >...` in a base-clause | two packs of different lengths | its own substitution fails | accepted |
+| `nums<(N + sizeof...(A))...>` in a spelling | a pack of types at a non-type place | accepted | accepted |
+| `add(one(sizeof(B) + sizeof...(A))...)` in a call | two packs of different lengths | accepted | accepted |
+| `list<wrap<list<B...> >...>`, whose only pack the inner one took | accepted | refused | refused |
+
+The spelling reading is `spelled_names_in` now, which is `names_in` asked of
+text: the operand each inner `...` was written after is left out - read
+backwards the way a postfix-expression is written, so a bracketed run closes up
+with the name before it and a name carries its nested-name-specifier - and
+`sizeof...` is left out with the parenthesized name after it.  Both readings
+name the same two node kinds, so a pattern that names no pack of its own is
+refused at either, which is the last row.
+
+**2. 3.2p3's demand was made where no object is laid out.**  C10 asks the
+classes in a declaration's type for the storage their static data members stand
+in, at every declarator that reaches `require_creatable_object` - which is
+9.2p1's non-static data member as well as an object.  A member lays out no
+object of its own: it is one subobject of every object of its class, which is
+where the walk already reaches it.  Asking at the member did both halves of the
+same damage, because the answer is latched once per class
+(`SemaEntity::storage_demanded`) and a class body is read before the definitions
+written after it:
 
 | shape | before | `pa20/cppgm++-ref` |
 | --- | --- | --- |
-| `static_cast<C*>(q)`, `C : A, B`, `q` a `B*` | the address `q` held | `index i8 %t, -4` |
-| `static_cast<C&>(r)`, the same classes | the address `r` named | `index i8 %t, -4` |
-| `static_cast<C*>(p)`, `C : A` with a vpointer C added | the address `p` held | `index i8 %t, -8` |
+| `struct holds { counter<char> m; };` and no object of `holds` | `counter<char>::held` laid out | nothing |
+| the same with the definition written *after* `holds`, and `holds h;` | nothing laid out | `later<int>::kept` |
+| `S<int> a;` before and after the definition | as the reference | the same |
+| 4096 objects over a 512-deep base chain | 0.094 s | - |
 
-A member read through the result then stood one base's width past the end of
-the object - `r->b = 5` wrote at `&c + 8` of an eight-byte object.  The step is
-`derived_value` now, which is `base_value` read the other way about and writes
-4.10p3's own `base-conversion` node with the offset and a `downward` fact the
-lowering spells as a negative index; a base that does begin where the object
-does still writes nothing, which is what leaves every single-inheritance cast
-the output it already had.
+The demand is made at `defines_object` now - the declarator that lays an object
+out - so the latch is set where the walk can answer and every object of a class
+reaches the whole tree it is.  The row is unmoved: 0.092 s for the same 4096
+objects, against 0.075 s for the same objects of a class with no base at all.
 
-**2. 11.2p4's access was asked where the operand's reading had already been
-given back.**  `reading_` is set by `read_expression` for the region an
-expression is written in and restored where that expression ends, and the
-conversion an *initialization* applies runs after it: 8.5's declaration
-initializer, 6.6.3p2's returned object, 8.5.1's clause and 8.5.3's bound
-reference each convert with `reading_` holding whatever the enclosing reading
-left, which at the top of a statement is nothing.  So a conversion to a
-protected or private base written in those four places was refused wherever it
-stood, including inside the class that named the base:
-
-| shape | before | both oracles |
-| --- | --- | --- |
-| `B* p = this;` in a member of `C : protected B` | refused | accepted |
-| `return this;` from `B* C::g()` | refused | accepted |
-| `B* q[1] = { this };`, `const B& r = *this;` | refused | accepted |
-| `take(this)`, `(B*)this`, `p = this` | accepted | accepted |
-
-The region is held over the whole conversion now (`Written`, asked once in
-`apply_conversion`), which is where 11.2p5 says the question is: the place the
-program *wrote* the conversion.  A conversion to a base of a class from outside
-it is still refused, as g++ refuses it.
-
-**3. 10.3p1's refusal counted the bases rather than where the one that
-dispatches stands.**  The ABI gives a class holding a base subobject that
-dispatches and does not begin at the object's first byte a secondary table and
-a thunk, and neither is emitted here - but the guard refused every class with a
-dispatching base and more than one base at all.  A polymorphic *first* base is
-the ABI's primary base, needs no secondary table, and was refused with the
-shapes that do owe one: `struct C : A, B` for polymorphic `A` and plain `B`,
-the same with a class below it, the same with a virtual destructor, and
-`struct C : empty, P` where the empty base takes no storage - all four accepted
-by both oracles and all four now writing the reference's LowIR.  What the class
-inherits is the table of the base it dispatches *through* (`dispatching_base`)
-rather than of `bases[0]`, which is what makes the empty-base shape right.
-
-**4. 12.6.2p2's index was keyed by a name two bases can share.**  A
-ctor-initializer is read into one entry per mem-initializer-id, keyed by the
-last component of what was written - which named the base uniquely while a
-class had one.  `struct both : n1::part, holder::part` writing
-`: n1::part(1), holder::part(2)` reported `initializes holder::part twice` where
-both oracles build it.  An id that names a direct base is held under the whole
-name that class has now, and every other id under the last component it wrote,
-which is 12.6.2p2's member - the class the id resolves to is what tells the two
-apart, so a member and a type of one name stay two questions.
-
-**5. 14.6.2p3 was made a fact of the base-clause and is a fact of each
-base-specifier.**  A name written in a template definition is not looked up in a
-base an argument list still has to settle, and C9 recorded that as one flag for
-the whole clause: a class deriving from a settled class *and* a dependent one
-had *both* left off 3.4.1's search, so `template<class T> struct C : A, T`
-could not name `A`'s own member in its definition - `a names nothing where the
-template that writes it is defined`, where both oracles read it.  The regions
-3.4.1 looks in are the bases whose own specifier named a settled type
-(`Scope::open_bases`), which the specialization an argument list makes answers
-the same way because the fact was recorded where the pattern was read.
-
-**6. 10.1p3's check is quadratic in the derivation, which is the shape and not
-a defect.**  Refusing a repeated base is what makes every other walk one visit
-per class, and it is one hash insert per class below the one being completed -
-so a derivation that adds a base per level pays that walk per level: 0.011 /
-0.049 / 0.154 / 0.584 s at 100 / 400 / 800 / 1600 levels, against 0.010 /
-0.028 / 0.058 s for the same class count as one chain of single bases, which
-pays nothing.  Every other walk of the tree is linear in what it walks and the
-rows are in the plan.  The reference is 90x slower on a base pack of 1024 and
-faster than this compiler on the plain class-declaration rows, so the two are
-measured side by side rather than one against the other.
+**3. 14.3.2p1 was asked of the packs a pattern names rather than of the argument
+each element is.**  A non-type place takes a value, and an expansion written at
+one whose pattern is the pack's own name would put a *type* there - which is
+what `f<T...>` does for a pack of types and what the reading refused.  The same
+refusal was made of every pattern that merely names such a pack, so
+`sizes<sizeof(T)...>` and `nums<traits<T>::value...>` - patterns 5.3.3p1 and
+5.19 make a value of - were refused where both oracles read them, and the
+refusal is now made only where the pattern *is* the pack: `f<T...>` at a value
+place is refused with the message the fixture pins and `f<sizeof(T)...>` is read.

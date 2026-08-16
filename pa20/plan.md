@@ -1,9 +1,12 @@
 # PA20 Plan — `cppgm++ --emit-lowir` compile-time metaprogramming
 
-PA20 stands at **196 / 203** - 157 of the 164 checked-in fixtures and all 39
-under `cppgm.tests/course/pa20` - from a turn-start baseline of **189 / 200**,
+PA20 stands at **201 / 208** - 159 of the 166 checked-in fixtures and all 42
+under `cppgm.tests/course/pa20` - from a turn-start baseline of **196 / 203**,
 with pa1-pa19 at **2169 / 2169** and the file audit passing with the five
-header-weight warnings it inherited.
+header-weight warnings it inherited.  Every checked-in `.ref` under `pa20/tests`
+and `cppgm.tests/course/pa20` was regenerated from `pa20/cppgm++-ref` on this
+turn and none of them moved, so each is the reference's own answer and not this
+compiler's.
 
 The milestone gives PA19's template tier two things its argument list did not
 have: 14.3.2p1's argument at a non-type place, which is a *value*, and
@@ -104,8 +107,13 @@ pattern is read again for each argument of the run, in a region binding the
 packs it names to that element, and nothing rewrites the pattern's syntax.
 14.5.3p5 leaves a pack named inside the pattern of an *inner* expansion to that
 one, so `sum(get<U>(t...)...)` is one reading per element of `U`, each of which
-reads the whole of `t` - the names a run is counted from stop at a nested
-`pack-expansion-expression`.  The
+reads the whole of `t`; 5.3.3p5's `sizeof...` is the same rule, because it
+counts a run rather than standing in one.  A name already expanded where it
+stands is therefore left out of *both* readings that ask which packs a pattern
+is over - `names_in` leaves out a nested `pack-expansion-expression` and a
+`sizeof-pack-expression` by node kind, and `spelled_names_in` leaves out the
+operand each inner `...` was written after and the parenthesized name after a
+`sizeof...`, read backwards the way a postfix-expression is written.  The
 same reading answers from the three shapes a list is written in - a spelling
 (`expand`), a type a declarator or a substitution built (`expand_type`), and
 the tree a call's argument list holds (`run_of_node`) - so a run of n elements
@@ -192,7 +200,12 @@ every reader that already folds one folds this.  14.5.5's pattern and 14.7.3's
 **A value place binds a constant, not a typedef-name.**  `bind_argument` is the
 one place a region takes an argument: a type argument is a typedef-name of it, a
 value argument is a `SemaKind::TemplateValue` declaration carrying
-`constant`/`value`, and a run is a `Pack`-typed binding of the pack's name.  A
+`constant`/`value`, and a run is a `Pack`-typed binding of the pack's name.  14.3.2p1's refusal of a
+type where a value belongs is asked of the argument each element *is*, so an
+expansion at a value place is refused where its pattern is the pack's own name
+(`f<T...>`) and read where the pattern computes something out of it
+(`f<sizeof(T)...>`), which a reading before any argument list settles the run
+can only tell from the pattern.  A
 place *standing for itself* - which 14.6.1p1's current instantiation puts at
 every argument, and which 14.5.1.3p1's out-of-class definition is read against -
 says which it is on its own type, so the two readings of one head bind it the
@@ -219,6 +232,11 @@ subobject are objects of their own, so `demand_object_storage` walks the tree
 the object is, once per class - and 14.7.3p1's `template<>`, which is written
 out and is this unit's own definition however little of the unit reaches it
 (`SemaContext::instantiated_member` tells that reading from an instantiation's).
+The declarator that asks is the one that *defines* an object: 9.2p1's non-static
+data member lays out none of its own and is one subobject of every object of its
+class, which is where the walk reaches it - so the answer, which is latched once
+per class, is settled where the walk can give it rather than while the class
+that holds the member is still being read.
 
 **14.1p4 reaches the object file too.**  An argument at a value place is an
 expression, so one no substitution has settled is written `X <expression> E` -
@@ -338,7 +356,23 @@ checking dialect is left with none of 12.1's members it is owed.
 | 8.5.1p2's aggregate built as an object of its own where a member is an array: 8.3.5p5 leaves the class no by-value parameter list, so `T{item(0), item(1)}` for `struct array { T e[N]; }` has no constructor to call and the clauses have to initialize the subobjects where they stand | 1 | `sema_lifetime.cpp`, `sema_init_list.cpp` |
 | three singletons: an alias rewrite whose `value_type` does not name a type inside 14.5.1.3p1's out-of-class definition; a value place whose type names the current instantiation (`typename uint_for<Bits>::fast Poly`), which leaves an object of an incomplete class declared; and `&function_template` as a constructor argument, which reaches a unary operator the PA15 lowering has no case for | 3 | mixed |
 
-Outside the fixtures, the sweeps leave these shapes this milestone refuses where
+Outside the fixtures, the largest shape the sweeps leave is **14.5.3p4's pattern
+that is a class template specialization** - `f(wrap<A>... p)` and
+`f(list<A>... p)`, which both oracles read and this milestone refuses at every
+call with `no declaration of f accepts the arguments of a call`.  A declarator
+reads such an expansion by building the type and expanding *that*
+(`expand_type`), so the run is substituted into the pattern before the pattern is
+read per element: `wrap<A>` becomes `wrap<` the whole run `>` and
+`TypeTable::substitute`, which has no `Class` case because it cannot instantiate
+one, then leaves every element the same type.  The three readings of one
+expansion are therefore not one reading - the spelling and the tree read the
+pattern once per element and the type reading reads it once - which is also why
+14.5.3p5's rule above has no type-side reader to fix: no well-formed nested
+expansion reaches `packs_in` until this does.  `A*...`, `A&...` and `A...`
+itself are right, because a run substituted at those places still stands where
+the expansion can walk it.
+
+Beside it the sweeps leave these shapes this milestone refuses where
 both oracles accept: 10.1p3's repeated base class, which is two subobjects a
 name of either is ambiguous between and which nothing here tells apart, and
 10.3p10's base subobject that dispatches and does not begin where the object
@@ -394,7 +428,12 @@ compared against.  10.2p6's ambiguous inherited name and ambiguous inherited
 typedef-name are refused here and by g++ where the reference takes one of them;
 and 11.2p4's conversion to a private or protected base of a class, *written
 outside* every class the access reaches from, is refused here and by g++ where
-the reference allows it.
+the reference allows it.  14.7.1p1's own storage stands the same way: naming one
+static data member of a specialization makes the reference lay out *every* one
+whose definition it has read - `S<int>::m` beside the `S<int>::n` a program
+named - where this compiler and g++ lay out only the ones a use reaches, and a
+`...::inner` whose base-clause writes a nested expansion is refused by the
+reference with its own substitution error where g++ and this compiler read it.
 
 Four more are metadata, a shape the comparison ignores, or a family already
 owned: 14.5.5p1 does not refuse a partial specialization of a *function*
@@ -419,35 +458,54 @@ checkpoint and none is a value the program can observe.
 
 ## Active Checkpoint
 
-**C11 - 5.19p2's call of a constexpr function, and the class prvalue that
-reaches one.**  Selected because it is the only group of more than one left and
-because it is the last thing 5.19 cannot read: `static constexpr size_type
-max_array_size = array::max_size();` is a `load` here where the reference folds
-64, and `box<B{}>` refuses a class prvalue whose conversion to `bool` is
-7.1.5's constexpr conversion function.  The README leaves constexpr function
-evaluation to PA21, and two of PA20's own fixtures need it.
+**C11 - 14.5.3p4's pattern that is a class template specialization, read once
+per element like every other pattern.**  Selected over the constexpr group,
+which owns two failing fixtures, because it is the largest shape both oracles
+read and this milestone refuses, because a metaprogramming milestone's ordinary
+idiom is `f(wrap<A>... p)`, and because the README leaves 5.19p2's call of a
+constexpr function to PA21 while it leaves this in.  Nothing outside the type
+reading is wrong: the spelling reading and the tree reading already read a
+pattern once per element, and `expand_type` reads it once, after the run has
+been substituted *into* it.
 
-- **Owner.**  `sema_constant.cpp`, which already walks an expression to a
-  `Constant` and already reads a call as 5.2.3p1's cast; the call of a function
-  is the other arm of that same node.
-- **Data flow.**  The callee's declaration carries `is_constexpr` and the body
-  the analysis already read, whose 7.1.5p3 form is one `return`; the arguments
-  are the constants this walk already makes, bound in a region of their own the
-  way 14.1p9's default already is, and the result is the same `Constant` every
-  other arm returns.  A class prvalue is 5.19p2's object with no bits, which is
-  what an implicit object argument of a constexpr member call needs and what
-  nothing declares.
-- **Expected complexity.**  One reading of one return expression per distinct
-  call, memoised by callee and argument list as `specialize` memoises a naming;
-  a depth guard, which the plan already owes `instantiate_class`, keeps a
-  recursive constexpr function from the machine stack.
-- **Validation.**  `100-static-constexpr-member-call-initializer` and
-  `100-dependent-bool-trait-nontype-argument`,
-  `make test-report-through-pa19`, a differential sweep of the constexpr shapes
-  7.1.5 admits - a call with no arguments, a call over a parameter, a recursive
-  call, a member call, a conversion function, and each of those written where
-  5.19 does *not* ask - against g++ and `pa20/cppgm++-ref`, a scaling row for a
-  chain of n calls, and a valgrind run of each.
+- **Owner.**  `sema_pack.cpp` - `PackReading::expand_type` and
+  `substitute_entry`, which are the type-side half of the reading `expand` and
+  `run_of_node` are the other two halves of.
+- **Data flow.**  What is read per element is the pattern the declarator built,
+  with the packs it names bound to that element, rather than the type a whole
+  run was substituted into: `packs_in` already answers which packs a pattern
+  names, so each element is one `SemaAnalyzer::substituted` of the *written*
+  pattern with the pack bound to its own element - which is what reaches
+  `instantiate_class` and what `TypeTable::substitute`, having no way to
+  instantiate one, cannot.  A run no argument list has settled leaves the
+  expansion standing as it does now.
+- **Expected complexity.**  n readings of one pattern for a run of n, which is
+  what the spelling and the tree already cost; one `instantiate_class` per
+  distinct element type, which is the memoised naming every other reading makes.
+  The memo `substituted` carries is per element rather than shared, so a pattern
+  of size m costs O(n*m) where it costs O(m) today - the same shape the
+  1/64/512/2048 expansion rows already measure.
+- **Validation.**  `f(wrap<A>... p)` and `f(list<A>... p)` deduced and written
+  explicitly, at a free template and at a member of a class template whose own
+  pack the pattern names; the nested `list<A, B...>...` shape, which is the
+  type-side twin of this audit's finding and which no well-formed program
+  reaches until this lands; `make test-report-through-pa19`; a differential
+  sweep of the pattern shapes 14.5.3p4 admits against g++ and
+  `pa20/cppgm++-ref`; scaling rows at 1 / 64 / 512 / 2048 elements and at a
+  pattern nested 24 deep; and a valgrind run of each.
+
+**C12 - 5.19p2's call of a constexpr function, and the class prvalue that
+reaches one.**  `static constexpr size_type max_array_size =
+array::max_size();` is a `load` here where the reference folds 64, and
+`box<B{}>` refuses a class prvalue whose conversion to `bool` is 7.1.5's
+constexpr conversion function.  `sema_constant.cpp` owns it - it already walks
+an expression to a `Constant` and already reads a call as 5.2.3p1's cast, and a
+call of a function is the other arm of that same node - reading one `return`
+expression per distinct call in a region binding the arguments the way 14.1p9's
+default already is, memoised by callee and argument list, behind the depth guard
+the plan already owes `instantiate_class`.  It clears
+`100-static-constexpr-member-call-initializer` and
+`100-dependent-bool-trait-nontype-argument`.
 
 ## Performance Model
 
@@ -523,6 +581,10 @@ and its own floor is 0.608 s, which is subtracted from the numbers in its column
 | 256 / 1024 / 4096 calls deducing two runs in one head | 0.065 / 0.276 / **1.221 s** | 0.55 / 4.2 s |
 | 4096 objects of a class with a 64 / 512-deep base chain | 0.117 / **0.139 s** | - |
 | the same 4096 objects of a class with no base at all | **0.114 s** | - |
+| 64 / 256 / 1024 inner expansions in one pattern | 0.006 / 0.011 / **0.033 s** | 1.87 s at 1024 |
+| an expansion nested 4 / 8 / 16 / 24 heads deep, each counting its own run | 0.004 / 0.006 / 0.010 / **0.019 s** | >300 s at 24 |
+| a run of 256 / 1024 / 4096 expanded through a pattern that computes a value | 0.006 / 0.011 / **0.034 s** | - |
+| 4096 objects of a class holding a member of a specialization, over a 0 / 64 / 512-deep base chain | 0.075 / 0.079 / **0.092 s** | - |
 
 The decltype table is one entry per *distinct* operand spelling and one hash
 lookup per naming, so the 512 / 2048 / 8192 row is linear in the spellings a
@@ -612,8 +674,23 @@ nothing rescanned: reading a bound list is one `place_argument` per place.
 read 0.139 s where 4096 objects of a class with no base at all read 0.114 s, so
 the whole derivation costs 0.025 s once - the same 4096 objects over a 64-deep
 chain read 0.117 s, which is the 8x deeper tree costing 0.022 s more.  A
-declaration that lays out no object - a pointer, a reference, a typedef - asks
-nothing at all.
+declaration that lays out no object - a pointer, a reference, a typedef, and
+9.2p1's non-static data member, which is a subobject of the object the walk
+already reaches - asks nothing at all.  The row above, which holds a member of a
+specialization at every level, is unmoved by that: 0.075 / 0.079 / 0.092 s at 0
+/ 64 / 512 levels against 0.075 / 0.078 / 0.094 s on the `9196229b` build.
+
+Both readings of which packs a pattern is over are linear in the pattern's text.
+The spelling one walks it once and steps back over the operand each inner `...`
+was written after, and those operands are disjoint except where expansions nest,
+so 1024 inner expansions in one pattern read 0.033 s - 3x the 256 row for 4x the
+expansions and 4x the text - and the deepest well-formed nesting, 24 heads each
+counting its own run, reads 0.019 s where the reference does not finish in five
+minutes.  Reading a run through a pattern that computes a value is the same n
+readings of one pattern every other expansion is: 0.006 / 0.011 / 0.034 s at
+256 / 1024 / 4096 elements.  Every row this checkpoint's readings do not touch
+is unmoved from the `9196229b` build - 0.015 s for a 2048-entry clause list and
+0.011 s for a pack of 4096 bound and counted, against 0.015 s and 0.012 s there.
 
 Two shapes are not linear in what they walk, and both are the shape's own cost
 rather than a reading's: a type whose arguments *double* is exponential in the
@@ -653,3 +730,4 @@ base-specifier answers.
 | C9 | 10p1's base-specifier-list of more than one entry, and the tree it makes: `SemaEntity::bases` and `Scope::bases` as lists, one subobject placed per entry, 10.2p2's lookup asking each base and refusing the name two of them answer, 12.6.2p10's construction in list order and 12.4p8's destruction in the reverse, 14.5.3p4's expansion reaching the ctor-initializer - the parse now records the `...` a mem-initializer wrote and the list is read once per element in the region binding its packs - 10.1p3's repeated base refused where the class is completed, which is what makes every walk of the tree one visit per class, and the ABI's `__vmi_class_type_info` for a class the one public base at the start of the object does not describe.  4.10p3's conversion now asks 14.7.1p1 for the definition of the specialization it converts.  8.5.2's string literal initializing an array of character type became its own owner (`sema_string_init.h`), read the same way from a declaration, a clause and 8.3.4p3's bound; and 10p1's derivation became one (`sema_derivation.h`), which is what freed the header ceiling `sema_analyzer.h` was at | 178 / 193 -> **185 / 196** with three fixtures added; pa1-pa19 2169 / 2169; 29 base-clause shapes and 9 string-literal shapes swept against g++ and the reference, every accepted pair writing the reference's LowIR but the two shapes it already wrote differently; linear at 1600 classes, 1024 direct bases, a base pack of 1024 and 8192 string arrays where the reference is 33-67x slower; valgrind clean |
 | C9 audit | the byte a base subobject stands at, at every reader that had only seen zero: 5.2.9p11's cast back to a derived class wrote no step, so `static_cast<C*>(q)` through the second base of `C : A, B` held the subobject's address and a member read through it stood past the end of the object; 11.2p4's access was asked of the region an *expression* was read in, which is given back before an initialization converts, so `B* p = this;` inside the class that named a protected base was refused with every other conversion written as an initializer, a return, a clause or a bound reference; 10.3p1 refused a dispatching base that was not the only base rather than one that does not begin where the object does, so a polymorphic first base beside a plain one - the ABI's own primary base - was refused with the shapes that owe a thunk; 12.6.2p2's index was keyed by the last component of a mem-initializer-id, so `struct both : n1::part, holder::part` initialized one base twice; and 14.6.2p3 was a fact of the base-clause where it is a fact of each specifier, so a settled base beside a dependent one was left off 3.4.1's search | 185 / 196 -> **189 / 200** with four fixtures added; pa1-pa19 2169 / 2169; 77 base-class and conversion shapes and 12 string shapes swept against g++ and the reference, every accepted pair writing the reference's LowIR but the offset-zero step it folds; linear at 1600 classes, 1024 direct bases, a base pack of 1024, 6400 conversions and 4096 casts back, with 10.1p3's own check quadratic in a derivation that adds a base per level and recorded as such; valgrind clean |
 | C10 | 14.1p11's *second* place binding a run, and the two things the argument list it makes had never carried: a run that is not the last place stands as one entry of the list (`place_argument`, `trailing_pack_place`), so `<class... U, class... T>` tells `<char, short \| int>` from `<char \| short, int>` and writes each the ABI's own `J...E J...E`; 14.5.3p5 leaves a pack named inside an inner expansion to that one, so `sum(get<U>(t...)...)` is one reading per element of `U`; 14.8.1p2's explicit list fills a non-trailing pack as the run it is; 14.3.2p1's value argument carries the type it was converted to where its digits would not say which value it is - `(policy)2` and `true`; and 14.7.1p1 leaves the storage a static data member stands in to whatever reaches it, which is a name, an object of the class (`demand_object_storage`) or 14.7.3p1's own `template<>` | 189 / 200 -> **196 / 203** with three fixtures added; pa1-pa19 2169 / 2169; 26 pack shapes, 12 value-argument spellings and 12 storage shapes swept against g++ and the reference, every accepted pair writing g++'s own mangled names; linear at 4096 two-run calls where the reference is 15x slower, and one walk per class rather than per object at 4096 objects over a 512-deep chain; valgrind clean |
+| C10 audit | the packs a pattern is written over, at both readings that ask and for the two nodes that already expanded one: 14.5.3p5's inner expansion was left out of the tree reading and not of the spelling, so `list<list<A, B...>...>` in an argument list and `: wrap<list<A, B...> >...` in a base-clause were refused as two packs of different lengths where both oracles read them, and a pattern whose only pack the inner one took was accepted where both refuse; 5.3.3p5's `sizeof...` counts a run rather than standing in one and neither reading knew it, so `add(one(sizeof(B) + sizeof...(A))...)` and `nums<(N + sizeof...(A))...>` were runs of two packs at once.  3.2p3's demand for storage was made at 9.2p1's non-static data member, which lays out no object and is read before the definitions written after its class - so a class declaring a member of a specialization laid out storage with no object of it anywhere, and the same class with the definition written after it laid out none where the reference does.  And 14.3.2p1's refusal of a type where a value belongs was asked of the packs a pattern names rather than of the argument each element is, so `sizes<sizeof(T)...>` was refused with `f<T...>` | 196 / 203 -> **201 / 208** with five fixtures added, three of them compile-pass and two refusing; pa1-pa19 2169 / 2169; 20 expansion spellings, 19 value-argument types and 13 storage orders swept against g++ and the reference, every accepted pair writing the reference's LowIR and every mangled name g++'s own; every checked-in `.ref` regenerated from the reference binary and unmoved; linear at 1024 inner expansions and 4096 computed elements, unmoved from the `9196229b` build at 2048 clause entries, 4096 bound elements and 4096 objects over a 512-deep chain; valgrind clean |

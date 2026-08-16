@@ -1,0 +1,10 @@
+global @reached_object [binding=strong, object=_Z14reached_object] = {
+  zero 2
+}
+global @later_int___kept : i32 [binding=weak, object=_ZN5laterIiE4keptE] = 5
+global @counter_short_int___held : i32 [binding=weak, object=_ZN7counterIsE4heldE] = 7
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    return i32 0
+}

@@ -34,6 +34,164 @@ bool identifier_char(char c)
 	return identifier_start(c) || (c >= '0' && c <= '9');
 }
 
+// A spelling with the spaces 14.2's list writes between its terminals taken
+// out, which is what tells a pattern that *is* a name from one that computes
+// something out of it.
+std::string bare_spelling(const std::string& text)
+{
+	std::string out;
+	for (std::string::size_type at = 0; at < text.size(); ++at)
+	{
+		if (text[at] != ' ')
+		{
+			out += text[at];
+		}
+	}
+	return out;
+}
+
+bool dots_at(const std::string& text, std::string::size_type at)
+{
+	return at + 3 <= text.size() && text.compare(at, 3, "...") == 0;
+}
+
+std::string::size_type past_spaces(const std::string& text,
+                                   std::string::size_type at)
+{
+	while (at < text.size() && text[at] == ' ')
+	{
+		++at;
+	}
+	return at;
+}
+
+// The first character of the operand written before the `...` at `at`, which is
+// the pattern that inner expansion is over.  A pattern is a postfix-expression
+// or a type-id, so it is read backwards the way it was written: a bracketed run
+// closes up with the name before it, and a name carries its
+// nested-name-specifier with it.
+std::string::size_type operand_start(const std::string& text,
+                                     std::string::size_type at)
+{
+	std::string::size_type start = at;
+	while (start > 0)
+	{
+		std::string::size_type back = start;
+		while (back > 0 && text[back - 1] == ' ')
+		{
+			--back;
+		}
+		if (back == 0)
+		{
+			break;
+		}
+		const char last = text[back - 1];
+		if (last == ')' || last == ']' || last == '>')
+		{
+			const char open = last == ')' ? '(' : (last == ']' ? '[' : '<');
+			std::size_t depth = 0;
+			std::string::size_type scan = back;
+			while (scan > 0)
+			{
+				--scan;
+				if (text[scan] == last)
+				{
+					++depth;
+				}
+				else if (text[scan] == open && --depth == 0)
+				{
+					break;
+				}
+			}
+			if (depth != 0)
+			{
+				// 5.9: a `<` this spelling wrote is an operator rather than a
+				// list, so there is no group to leave out and the names before
+				// it stand.
+				break;
+			}
+			start = scan;
+			continue;
+		}
+		if (!identifier_char(last))
+		{
+			break;
+		}
+		std::string::size_type scan = back;
+		while (scan > 0 && identifier_char(text[scan - 1]))
+		{
+			--scan;
+		}
+		start = scan;
+		while (scan > 0 && text[scan - 1] == ' ')
+		{
+			--scan;
+		}
+		if (scan < 2 || text[scan - 1] != ':' || text[scan - 2] != ':')
+		{
+			break;
+		}
+		// 3.4.3p1: the components before the `::` are part of the one name this
+		// operand is, so they were expanded with it.
+		start = scan - 2;
+	}
+	return start;
+}
+
+// The names a spelling wrote that an expansion of it is over - the same
+// question `names_in` answers of a tree, asked of the text 14.2 writes an
+// argument list in.
+//
+// 14.5.3p5 leaves a pack named inside the pattern of an inner `...` to that
+// expansion and 5.3.3p5 makes `sizeof...` a value rather than a use of the pack
+// it counts, so neither says how long this run is.  A tree tells the two by
+// node kind; here they are the operand an inner `...` was written after and the
+// parenthesized name `sizeof...` was written before.
+void spelled_names_in(const std::string& text, std::vector<std::string>& out)
+{
+	std::vector<std::pair<std::string::size_type, std::string> > found;
+	std::string::size_type at = 0;
+	while (at < text.size())
+	{
+		if (identifier_start(text[at]))
+		{
+			const std::string::size_type start = at;
+			while (at < text.size() && identifier_char(text[at]))
+			{
+				++at;
+			}
+			const std::string name = text.substr(start, at - start);
+			const std::string::size_type after = past_spaces(text, at);
+			if (name != "sizeof" || !dots_at(text, after))
+			{
+				found.push_back(std::make_pair(start, name));
+				continue;
+			}
+			at = past_spaces(text, after + 3);
+			while (at < text.size() && text[at] != ')' && text[at] != ',')
+			{
+				++at;
+			}
+			continue;
+		}
+		if (!dots_at(text, at))
+		{
+			++at;
+			continue;
+		}
+		const std::string::size_type from = operand_start(text, at);
+		while (!found.empty() && found[found.size() - 1].first >= from)
+		{
+			found.pop_back();
+		}
+		at += 3;
+	}
+	for (std::size_t index = 0; index < found.size(); ++index)
+	{
+		out.push_back(found[index].second);
+	}
+}
+
 }
 
 bool written_pack_expansion(const std::string& spelling, std::string& pattern)
@@ -341,21 +499,12 @@ void PackReading::note_name(const std::string& name, const SemaContext& ctx,
 PackReading::Run PackReading::run_of(const std::string& pattern,
                                      const SemaContext& ctx) const
 {
+	std::vector<std::string> names;
+	spelled_names_in(pattern, names);
 	Run run;
-	std::string::size_type at = 0;
-	while (at < pattern.size())
+	for (std::size_t index = 0; index < names.size(); ++index)
 	{
-		if (!identifier_start(pattern[at]))
-		{
-			++at;
-			continue;
-		}
-		const std::string::size_type start = at;
-		while (at < pattern.size() && identifier_char(pattern[at]))
-		{
-			++at;
-		}
-		note_name(pattern.substr(start, at - start), ctx, run);
+		note_name(names[index], ctx, run);
 	}
 	return run;
 }
@@ -365,8 +514,21 @@ namespace
 
 // The names a tree wrote, which for an expression is every spelling its nodes
 // carry - an id-expression, the callee of a call, a template-id's own text.
+//
+// 14.5.3p5 and 5.3.3p5: a name already expanded where it stands says nothing
+// about how long *this* run is, so the two nodes that expand one are left out
+// whole - the pattern of an inner expansion, which is read once per element of
+// its own run, and `sizeof...`, which is a value rather than a use of the pack
+// it counts.  `sum(get<U>(t...)...)` is one reading per element of `U`, each of
+// which reads the whole of `t`, and `f(x, sizeof...(A))...` is a run of `x`
+// however long `A` is.
 void names_in(const AstNode& node, std::vector<std::string>& out)
 {
+	if (node.kind == AstKind::PackExpansionExpression ||
+	    node.kind == AstKind::SizeofPackExpression)
+	{
+		return;
+	}
 	std::string::size_type at = 0;
 	while (at < node.text.size())
 	{
@@ -384,14 +546,6 @@ void names_in(const AstNode& node, std::vector<std::string>& out)
 	}
 	for (std::size_t index = 0; index < node.children.size(); ++index)
 	{
-		if (node.children[index]->kind == AstKind::PackExpansionExpression)
-		{
-			// 14.5.3p5: a pack named inside the pattern of an *inner* expansion
-			// is expanded by that one, so it says nothing about how long this
-			// run is - `sum(get<U>(t...)...)` is one reading per element of
-			// `U`, each of which reads the whole of `t`.
-			continue;
-		}
 		names_in(*node.children[index], out);
 	}
 }
@@ -547,7 +701,16 @@ void PackReading::expand(const std::string& pattern, const SemaContext& ctx,
 	}
 	if (!run.settled)
 	{
-		for (std::size_t which = 0; place != kNoType && which < run.packs.size();
+		// 14.3.2p1 is asked of the argument each element *is*, which is this
+		// pattern only where the pattern is the pack's own name: `f<T...>`
+		// writes the elements of the run at the places, and `f<sizeof(T)...>`
+		// writes a value 5.3.3p1 makes of each.  So a pattern that computes
+		// anything at all is left to the reading below, which answers for it
+		// the way it answers for an argument no pack was written into.
+		const bool writes_the_run =
+			run.packs.size() == 1 && bare_spelling(pattern) == run.packs[0]->name;
+		for (std::size_t which = 0;
+		     writes_the_run && place != kNoType && which < run.packs.size();
 		     ++which)
 		{
 			const TypeId named = run.packs[which]->type;

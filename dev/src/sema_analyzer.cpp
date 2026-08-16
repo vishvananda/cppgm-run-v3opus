@@ -2623,11 +2623,19 @@ void SemaAnalyzer::declare_object_declarator(const AstNode* initializer,
 		// declaration a class writes of its static data member ask for nothing.
 		require_complete_type(type);
 		require_creatable_object(type, name);
-		// 3.2p3 with 14.7.1p1: laying out an object is what reaches every
-		// static data member the classes in it declare, whether or not a name
-		// here writes one - so this is where a specialization is asked for the
-		// storage its own definition would lay out.
-		demand_object_storage(type, types_, model_);
+		if (defines_object)
+		{
+			// 3.2p3 with 14.7.1p1: laying out an object is what reaches every
+			// static data member the classes in it declare, whether or not a
+			// name here writes one - so this is where a specialization is asked
+			// for the storage its own definition would lay out.  9.2p1's
+			// non-static data member lays out no object of its own: it is one
+			// subobject of every object of its class, which is where the walk
+			// reaches it - and asking here would both lay out storage for a
+			// class no object of which is ever declared and settle the answer
+			// before the definition that would fill it has been read.
+			demand_object_storage(type, types_, model_);
+		}
 	}
 	record_storage(entity, prior, specifiers, target, type);
 	// 9.4.2p2: a definition written with a nested-name-specifier declares
