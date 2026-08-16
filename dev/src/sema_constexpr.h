@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "sema_declaration.h"
@@ -75,17 +76,22 @@ public:
 	                           const std::vector<SemaConstant>& arguments);
 
 	// 13.3 as far as a fold has to ask: the declaration of the set `named`
-	// heads that takes this many arguments and that this unit has a constexpr
+	// heads that this many arguments reach and that this unit has a constexpr
 	// definition of, or null where the set holds no such declaration or holds
 	// more than one.  A fold has constants and not typed expressions, so the
 	// arity is the whole of what it can rank by - and a name whose set leaves
-	// the choice open is one it refuses rather than guesses at.
+	// the choice open is one it refuses rather than guesses at.  8.3.6p1 makes
+	// that arity a range: a declaration whose later places all carry a
+	// default-argument is reached by a call that stops short of them.
 	SemaEntity* chosen(SemaEntity& named, std::size_t arguments) const;
 
 	// 5.2.3p2 and p3: the object `T()` and `T{...}` stand for where `T` names a
 	// class, as the constant that holds its subobjects' values.  `written` is
-	// what the clauses came to, and 8.5.1p7 value-initializes every member the
-	// list did not reach.
+	// what the clauses came to.  8.5.1p1 says which of the two initializations
+	// that is: an aggregate takes them as 8.5.1p2's clauses, one per member in
+	// declaration order with 8.5.1p7 value-initializing the rest, and every
+	// other class takes them as 8.5p16's direct-initialization, whose object is
+	// what 12.6.2's mem-initializers of the constructor 13.3.1.3 chose come to.
 	SemaConstant object_of(TypeId type,
 	                       const std::vector<SemaConstant>& written);
 
@@ -93,10 +99,23 @@ public:
 	// of arithmetic type, which is what says its bits are a list identifier.
 	bool is_object(const SemaConstant& value) const;
 
+	// 5.2.5p1 over an object a constant expression holds: what `E.m` comes to
+	// where `m` is 9.2p1's non-static data member, which is the subobject the
+	// object's own list holds for it.  A call written on such an object is the
+	// same access with 5.2.2p1's arguments after it, and both reach the class's
+	// members through the one lookup `member_named` is.  5.2.5p1's `->` is left
+	// out of both: its left operand is a pointer, which 5.19p2 leaves a
+	// constant expression none of.
+	SemaConstant member_constant(const AstNode& node, const SemaContext& ctx);
+
 	// 12.3.2p1 with 14.3.2p5: `value`, an object of class type, brought to the
-	// type `place` by a conversion function of its class.  Throws `NotConstant`
-	// where the class declares no constexpr conversion function that reaches an
-	// arithmetic type at all.
+	// type `place` by a conversion function of its class.  13.3.3p1 leaves the
+	// choice to a ranking of the conversion each answer then takes, which a
+	// fold cannot make: one that reaches `place` itself is the best there is,
+	// and a class offering two that reach it only through a further conversion
+	// is one this reading refuses rather than picks from.  Throws `NotConstant`
+	// there and where the class declares no constexpr conversion function that
+	// reaches an arithmetic type at all.
 	SemaConstant converted(const SemaConstant& value, TypeId place);
 
 private:
@@ -123,6 +142,49 @@ private:
 	                    const SemaContext& inner);
 	void bind_constant(const std::string& name, const SemaConstant& value,
 	                   const SemaContext& inner);
+
+	// 5.2.2p4 with 8.3.6p1: what the places of `callee` are filled with, which
+	// is each written argument converted to the type of the place it reached
+	// and, for every place the written list stopped short of, the
+	// default-argument the declaration wrote - read in the region 8.3.6p9
+	// leaves it to rather than in the one the call stands in.  The answer is
+	// `TypeTable::type_list` of the object and those values, which is the key
+	// the fold is held under: a call that writes an argument and one that lets
+	// the default stand for it are the same fold.
+	std::uint32_t passed_arguments(SemaEntity& callee,
+	                               const SemaConstant* object,
+	                               const std::vector<SemaConstant>& arguments,
+	                               std::vector<SemaConstant>& passed);
+
+	// 8.5p16 with 12.6.2: the object `T(x)` and `T{x}` come to where 8.5.1p1
+	// leaves the class no aggregate, which is what each mem-initializer of the
+	// chosen constructor comes to in a region binding its places - and, as
+	// 12.6.2p10 initializes in declaration order, the members already settled.
+	SemaConstant object_from_constructor(TypeId bare, SemaEntity& owner,
+	                                     const std::vector<SemaConstant>& written);
+	// 12.6.2p2 and p10: the initializer-clause the ctor-initializer wrote for
+	// each member, indexed by the name its mem-initializer-id spelled.  The
+	// members are initialized in declaration order and the mem-initializers may
+	// be written in any, so which one names each member is asked once per
+	// member rather than by a scan of the list per member - which is what keeps
+	// a constructor of n of them n readings and not n^2.  A mem-initializer-id
+	// that names a base is one entry too, and 10p1's base subobject is one this
+	// reading's object does not hold.
+	static void mem_initializers(
+		const AstNode* initializers,
+		std::unordered_map<std::string, const AstNode*>& out);
+
+	// 5.2.5p1: the object a member access is written on, which a constant
+	// expression holds only where it is one of literal class type, and what the
+	// name after the `.` denotes in that object's class.
+	SemaConstant accessed_object(const AstNode& node, const SemaContext& ctx);
+	SemaEntity* accessed_member(const SemaConstant& object,
+	                            const AstNode& node, const SemaContext& ctx);
+	// 5.2.2p1 with 9.3.1p3: a call whose postfix-expression is that access,
+	// which runs on the object where 9.2p1's member function is not static.
+	SemaConstant member_called(const AstNode& callee,
+	                           const std::vector<SemaConstant>& arguments,
+	                           const SemaContext& ctx);
 
 	// 9.2p13: the non-static data members of `type`, in the order they were
 	// declared, which is the order 8.5.1p2's clauses reach them in.

@@ -19,7 +19,110 @@ the specialization it names, and the definition a program wrote for one.
 | C10 | `9196229b` | 3 / 3 | **the packs a pattern is written over, which C10 settled at one of the three readings that ask it.**  14.5.3p5 leaves a pack named inside an *inner* expansion to that expansion, and C10 answered it at the tree - so `sum(get<U>(t...)...)` reads once per element of `U` while the same shape written in 14.2's argument list, where the pattern is text, still counted `t`: `list<list<A, B...>...>` was refused as `a pack expansion names two parameter packs of different lengths` where both oracles read it, and a pattern whose *only* pack an inner expansion already took was accepted where both refuse.  5.3.3p5's `sizeof...` is the same question and neither reading asked it, so `f(x, sizeof...(A))...` and `nums<(N + sizeof...(A))...>` were runs of two packs of different lengths.  Behind that, 3.2p3's demand for the storage an instantiation lays out was made at 9.2p1's non-static data member, which lays out no object of its own and is met before the definition it looks for has been read: `struct holds { later<int> m; };` with no object of `holds` laid out storage the reference does not, and the same class with the definition written after it *latched* and laid out none where the reference does.  And 14.3.2p1's refusal of a type where a value belongs was asked of every pack the pattern names rather than of the argument each element is, so `sizes<sizeof(T)...>` was refused with `T...` |
 | C11 | `51f8f135` | 1 / 1 | **the two things written *inside* a spelling rather than beside it, which the reading C11 built its fourth shape on could not see.**  A parameter-declaration became the fourth reading of which packs a pattern is over, and it asks `names_in` - the reading over a tree.  But a template-id is one terminal of that tree, so `list<A, B...>` carries its own `...` and `pair2<A, sizeof...(B)>` its own `sizeof...` in one node's *text*, where a rule answered by node kind reaches neither: both were counted as packs this run is over, so `list<A, B...>... p` and `pair2<A, sizeof...(B)>... p` in a parameter clause were refused as two packs of different lengths where g++ reads them - and so was `count(list<A, B...>()...)` in a call, at the very reading C10 changed, where the reference and g++ both read it.  The tree reading reads each node's text the way an argument list's is read now, so the spelling, the tree, the parameter-declaration and the type a substitution rebuilds answer alike |
 
+| C12 | `80cefaed` | 5 / 5 + 1 perf | **the object a constant expression builds, which C12 gave one initialization and every class type.**  5.2.3p2/p3's `T(x)` and `T{x}` were read as 8.5.1p2's clauses - one per member in declaration order - which is what an *aggregate* takes them as, and 8.5.1p1 leaves no class that declares 12.1's constructor one: `constexpr` was never read off a constructor at all, so `S(3)` with `S(int v) : a(v * 2)` was the object holding 3 where both oracles hold 6, `S(int v) : a(v), b(v + 1)` held `3, 0` where both hold `3, 4`, a default constructor's `a(9)` held 0, and a two-parameter constructor of a one-member class was refused as writing "more initializers than S has members".  8.3.6's default-argument was no part of the list a fold reads at any of its three exits, so `f(1)` where `f(int, int = 10)` was refused where both oracles accept and `f()` where `f(int a = 2)` wrote a `role=init` function and the definition of `@f` where the reference writes the value in the image and nothing else.  12.3.2p1's conversion was a fallback rather than a choice - the first constexpr conversion function reaching *any* arithmetic type where none reached the place - so a class declaring `operator char` beside `operator int` answered at a `long` place where both oracles refuse the ambiguity.  The answer of a fold was carried on the resolved node whatever it was, and an object's bits are the identifier of its interned subobject list, which is no value at all to the readers of one.  And 5.2.5p1 had no reading, so an object of a class one of whose members is a class - `wrapped { pair held; }`, the checkpoint's own fixture - could be converted and never taken apart.  The perf finding is 12.6.2p2's index: the ctor-initializer was scanned once per member, 0.394 / 1.400 s at 4096 / 8192 members against 0.191 / 0.479 s with the list indexed once, which is what declaring the class costs with the fold taken away |
+
 ## Current Checkpoint Review
+
+C12 gave 5.19p2 the two operands its arithmetic cannot answer: a call, whose
+answer is a *body*, and 5.2.3p2/p3's object of literal class type, which is
+what a value place reaches an integral type from through 12.3.2p1.  Both are
+`sema_constexpr.h`'s because what they walk is a function definition and its
+region, which is neither of the two operand walks' business.
+
+The reading is right where it stands.  The body is 7.1.5p3's grammar exactly,
+re-read per distinct argument list in a region of its own over the one the
+declarator opened, and `SemaEntity::constexpr_body` is recorded where the
+definition is *met*, which is what lets a member function defined in a class
+body answer a call written in the same class.  The answer is keyed by the
+callee and `TypeTable::type_list` of the converted arguments - 13.1's own key -
+so `fac(12)`, `fib(40)` and a chain 2040 deep are each n readings and not 2^n,
+and `folding_depth` turns a chain past the guard into a refusal where the
+reference is a SIGSEGV.  An object interned as a `TypeKind::Value` over the
+list of what its subobjects hold makes `S{5}` written twice one entry, and
+`{`/`}` joining the balanced runs a spelling is scanned by puts the comma in
+`A<S{1, 2}>` where 8.5.1 wrote it.
+
+What the review found is that the object half of that increment was given one
+initialization - 8.5.1p2's, which 8.5.1p1 leaves to an aggregate alone - and
+handed every class type; that 8.3.6's default-argument reached none of the
+three exits a fold's argument list has; and that an object nothing may read a
+member of is one only a conversion function can use.
+
+### Findings
+
+**1. 5.2.3p2/p3 read every class as an aggregate.**  `object_of` mapped the
+written clauses onto the non-static data members in declaration order and
+value-initialized the rest, which is 8.5.1p2 and is the whole of what a class
+that declares a constructor of its own is *not* initialized by.  Behind it,
+`special_member` read `explicit`, `inline` and `virtual` off a constructor's
+member-specifiers and not 7.1.5p1's `constexpr`, so no constructor had a body a
+fold could reach and the aggregate walk answered for all of them:
+
+| shape at a value place | before | `pa20/cppgm++-ref` | g++ |
+| --- | --- | --- | --- |
+| `S(3)`, `S(int v) : a(v * 2)` | 3 | 6 | 6 |
+| `S(3)`, `S(int v) : a(v), b(v + 1)` | 300 | 304 | 304 |
+| `S()`, `S() : a(9)` | 0 | 9 | reads `S()` as a type-id |
+| `S(3, 4)`, one member and two places | "more initializers than S has members" | 7 | 7 |
+| `S{}` where a member is private | its zero | refused | refused |
+| `S(3)` with a body that calls | 3 | refused | a C++14 extension |
+| `S(v)` where a member no mem-initializer reaches | its zero | refused | refused |
+
+8.5p16's direct-initialization is what those take, so `object_from_constructor`
+is the second half of the one reading: 13.3.1.3 chosen by the arity `chosen`
+already ranks by, the mem-initializers read in a region binding the places, in
+12.6.2p10's declaration order with each settled member a binding of that region
+so `b(a + 1)` names `a` and 8.3.5p10's place of that name still shadows it, and
+the answer held under the very key a call of a function is.  7.1.5p4 refuses a
+member no mem-initializer reaches and a body that is more than 7.1.5p3's
+declarations, which is what the reference refuses in the same words.
+
+**2. 8.3.6's default-argument was no part of the list a fold reads**, at each
+of the three exits a call's argument list has - `chosen`'s arity, the
+conversion `call` makes of each argument, and `finish_call`'s guard.  So a call
+that stops short of a place was refused in a constant expression
+(`f(1)` where `f(int, int = 10)`), and one written at namespace scope was not
+folded at all: `static const int v = f();` wrote `@v = zero`, a `role=init`
+function and the definition of `@f` where the reference writes `@v = 3` and
+emits neither.  `passed_arguments` is now the one reading of that list, and it
+reads 8.3.6p9's expression in the region the declaration stood in, so a call
+that writes an argument and one that lets the default stand for it are one
+fold under one key.
+
+**3. 12.3.2p1's conversion was a fallback and not a choice.**  `converted` took
+the first constexpr conversion function that reached any arithmetic type where
+none reached the place itself, so `struct S { operator char(); operator int(); }`
+at a `long` place answered with whichever was declared first - where the
+reference and g++ both refuse it as the ambiguity 13.3.3p1 makes it.  A class
+offering two that reach the place only through a further conversion is refused
+now; one that reaches it exactly is still the best there is.
+
+**4. An object a fold answered with was carried as a value.**  `finish_call`
+marked the resolved node constant with the answer's bits whatever the callee
+returned, and an object's bits are the identifier of the interned list of its
+subobjects - a number `SemaFact::value` means a value by, which is what
+`LowirUnitLowering::folded` writes into the image and what `demand_referenced`
+stops at.  Only a call whose result is arithmetic carries what it folded to.
+
+**5. 5.2.5p1 had no reading, so the object could only be converted.**  A class
+one of whose members is a class - `wrapped { pair held; }`, which the
+checkpoint's own fixture declares - was an object nothing could take apart:
+`held.v` reached the tree reading's default arm and `s.get()` reached the arm
+that wants an id-expression before the parentheses.  Both are one lookup
+(`member_named`, which is the expression layer's own 5.2.5p1) over the object
+the left operand came to, and a member function found that way is `call`'s
+`object` - the parameter the conversion-function path had been the only caller
+of.
+
+**6. 12.6.2p2's index was a scan per member.**  The ctor-initializer was walked
+once for each member, which is the n^2 `read_mem_initializers` records itself as
+not doing: 0.394 s at 4096 members and 1.400 s at 8192, against 0.191 / 0.479 s
+with the list indexed once - the same pair of runs, so the ratio is the finding.
+Re-measured on this review's final build the row is **0.095 / 0.204 s**, which
+is what the class costs to declare with the fold taken away.
+
+C11's own checkpoint review follows, for the reading the fourth shape was built
+on.
 
 C11 made 14.5.3p4's pattern one reading wherever it stands.  A
 parameter-declaration was the last shape still building the type *once* and

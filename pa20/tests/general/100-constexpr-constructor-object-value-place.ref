@@ -1,0 +1,34 @@
+function @later__later(%this : ptr, %x : i32) -> void [binding=weak, object=_ZN5laterC1Ei] {
+  slot $this : ptr
+  slot $x : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %x, $x
+    %t1 = load i32 $x
+    %t2 = binary mul i32 %t1, 5
+    %t3 = load ptr $this
+    %t4 = index i8 [projection=field] %t3, 0
+    store i32 %t2, %t4
+    return void
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $cond__1 : i32
+
+  block ^entry:
+    %t1 = cmp eq i32 202, 202
+    branch %t1, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t2 = load i32 $cond__1
+    return i32 %t2
+}
+alias object _ZN5laterC2Ei = @later__later

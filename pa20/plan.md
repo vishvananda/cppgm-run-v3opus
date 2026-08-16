@@ -1,7 +1,7 @@
 # PA20 Plan — `cppgm++ --emit-lowir` compile-time metaprogramming
 
-PA20 stands at **212 / 217** - 164 of the 171 checked-in fixtures and all 46
-under `cppgm.tests/course/pa20` - from a turn-start baseline of **205 / 212**,
+PA20 stands at **215 / 220** - 169 of the 174 checked-in fixtures and all 46
+under `cppgm.tests/course/pa20` - from a turn-start baseline of **212 / 217**,
 with pa1-pa19 at **2169 / 2169** and the file audit passing with the five
 header-weight warnings it inherited.  Every `.ref` was regenerated from
 `pa20/cppgm++-ref` through `make -C pa20 ref-test` on this turn and none moved,
@@ -24,7 +24,9 @@ entry however many times `f<3>` is written; `is_dependent` asks only its type.
 expansion and for a run holding a dependent element.  Nothing declares an
 object of either.  5.2.3p2's object of literal class type is a `Value` too: its
 type is the class and its bits are the identifier of the interned list of what
-its subobjects hold, so `S{5}` written twice is one entry.
+its subobjects hold, so `S{5}` written twice is one entry.  Those bits are no
+value, so only a fold whose result is arithmetic is carried on the node that
+folded it.
 
 **14.1p4 and 14.1p11's places say what each takes.**
 `TemplateInfo::Parameter` (`sema_template.h`) is a place rather than a name -
@@ -112,31 +114,54 @@ naming of a list already being read finds.  A template one of whose second
 bodies could not be read answers no argument list at all.
 
 **7.1.5's constexpr function is a body, so it is a reading of its own.**
-`sema_constexpr.h` owns 5.19p2's three operands the arithmetic cannot answer -
-an id-expression, a unary or binary operator, and the one shape the grammar
-hands on as a call.  That shape is 5.2.3p1's cast, 5.2.3p2/p3's object of
-literal class type, or 5.2.2p1's call, and the one lookup of the name before the
-parentheses says which.  A fold reads 7.1.5p3's body itself - one `return`
-statement with only typedefs, alias-declarations, using-declarations,
-using-directives, static_asserts and null statements around it - in a region of
-its own opened over the region the declarator gave the places, binding each
-parameter to what its argument came to and, for a call on an object, each
-non-static data member of that object to what the object holds.  So nothing
-waits for the body to have been walked: `SemaEntity::constexpr_body` and
-`constexpr_region` are recorded where the definition is *met*, which is what
+`sema_constexpr.h` owns 5.19p2's operands the arithmetic cannot answer - an
+id-expression, a unary or binary operator, 5.2.5p1's member access, and the one
+shape the grammar hands on as a call.  That shape is 5.2.3p1's cast,
+5.2.3p2/p3's object of literal class type, or 5.2.2p1's call, and the one lookup
+of the name before the parentheses says which.  A fold reads 7.1.5p3's body
+itself - one `return` statement with only typedefs, alias-declarations,
+using-declarations, using-directives, static_asserts and null statements around
+it - in a region of its own opened over the region the declarator gave the
+places, binding each parameter to what its argument came to and, for a call on
+an object, each non-static data member of that object to what the object holds.
+So nothing waits for the body to have been walked: `SemaEntity::constexpr_body`
+and `constexpr_region` are recorded where the definition is *met*, which is what
 lets a member function defined in a class body answer a call written in the same
-class.  The answer is a fact of the callee and the converted argument list, so
-it is keyed by the declaration and `TypeTable::type_list` of the entries -
-exactly the key 13.1 tells two overloads apart by - and held in the model
-(`SemaModel::folded_call`).  `folding_depth` bounds a function that calls itself.
+class.  The list the places are filled with is one reading
+(`passed_arguments`): each written argument converted to its place, and
+8.3.6p1's default-argument - read in the region 8.3.6p9 leaves it to - for every
+place the call stopped short of.  The answer is a fact of the callee and that
+list, so it is keyed by the declaration and `TypeTable::type_list` of the
+entries - exactly the key 13.1 tells two overloads apart by - and held in the
+model (`SemaModel::folded_call`).  `folding_depth` bounds a function that calls
+itself.
+
+**8.5.1p1 says which initialization an object at a value place takes.**  An
+aggregate takes 8.5.1p2's clauses, one per member in declaration order with
+8.5.1p7 value-initializing the rest.  Every other class takes 8.5p16's
+direct-initialization, and there the object is what 12.6.2's mem-initializers of
+the chosen constructor come to (`object_from_constructor`): read in a region
+binding the places and, in 12.6.2p10's declaration order, the members already
+settled, so `b(a + 1)` names `a` and 8.3.5p10's place of that name still shadows
+it.  7.1.5p1 is read off a constructor as off any other function, 7.1.5p4
+refuses a member no mem-initializer reaches and a body that is more than
+7.1.5p3's declarations, and the answer is held under the very key a call of a
+function is.  12.3.2p1's conversion function is how such an object reaches
+14.1p4's value place: one that reaches the place itself is chosen, and a class
+offering two that reach it only through a further conversion is 13.3.3p1's
+ambiguity and refused.  5.2.5p1 is the other reader of one - `E.m` is the
+subobject its list holds and `E.f(args)` is `call` on it - and both go through
+`member_named`, which is the expression layer's own lookup.
 
 **A folded call is a value where the image holds it and a call where a body
 runs it.**  7.1.5p2 makes a constexpr function implicitly inline, and the
-resolved call node carries the value when the callee is constexpr and every
-argument is constant - so 3.6.2p2 gives an object at namespace scope its value
-in the program image.  3.2p2 then reads that node as a use only inside a body:
-`demand_referenced` stops at a folded call standing outside every function
-definition, because nothing there ever runs it.
+resolved call node carries the value when the callee is constexpr, its result is
+arithmetic and every argument is constant - so 3.6.2p2 gives an object at
+namespace scope its value in the program image, and an object a fold answered
+with, whose bits are a list identifier and no value, carries nothing.  3.2p2
+then reads that node as a use only inside a body: `demand_referenced` stops at a
+folded call standing outside every function definition, because nothing there
+ever runs it.
 
 **10p1's derivation is a tree, and `sema_derivation.h` owns it.**  A
 base-specifier-list of n entries gives an object n subobjects: `SemaEntity::bases`
@@ -182,10 +207,19 @@ class, out-of-class member definitions of a partial specialization, a
 decltype-specifier in a base-specifier (which the reference refuses too), 10.3p10's
 base subobject that dispatches and does not begin where the object does, and
 12.1's constructor over a function parameter pack of *no* elements.
-**7.1.5's own edges:** a member call on a class prvalue (`pt{2,5}.sum()`) is
-outside the spelling reading, and a call of a function *template* is refused
-because the specialization's body is not read until the end of the unit - both
-accepted by g++ and the reference.  **The reference disagrees with g++ and this
+**7.1.5's own edges:** 5.19p3 folds an object of *arithmetic* type alone, so a
+named `constexpr` object of class type is no constant and `s.a` and `s.get()`
+on one are refused; the spelling reading answers no member access at all, so
+`pt{2,5}.sum()` and `p.y` written in an argument list are refused where the
+tree reading takes both; a braced clause nested inside another
+(`O{{1}, 2}`) is outside the spelling reading; 12.6.2p6's delegating
+constructor initializes no member of its own and is refused, as the reference
+refuses it; 12.6.2p8's brace-or-equal-initializer is not read, so a class with
+one builds no object; 5.2.5p1's `->` has a pointer on its left, which no
+constant expression here names; 8.5.4p3's narrowing is not refused, which the
+reference does not refuse either; and a call of a function *template* is
+refused because the specialization's body is not read until the end of the
+unit - the last accepted by g++ and the reference both.  **The reference disagrees with g++ and this
 compiler** on `arity=variadic` and a trailing `z` for every parameter clause
 writing `specialization... name`; on four pattern shapes it refuses
 (`pair_of<A, A>...`, `s<wrap<A>...>*`, `list<A, B...>...`, and such a head chosen
@@ -244,9 +278,13 @@ below were all taken on this turn's build.
 | --- | --- | --- |
 | a constexpr chain 200 / 800 / 2040 deep | 0.005 / 0.010 / **0.019 s** | SIGSEGV at 800 |
 | `fib(40)`, exponential without the memo | **0.004 s** | >30 s |
-| 256 / 1024 / 4096 folded calls over 8 distinct argument lists | 0.013 / 0.040 / **0.154 s** | - |
-| 256 / 1024 / 4096 class prvalues at a value place | 0.022 / 0.083 / **0.407 s** | - |
+| 256 / 1024 / 4096 folded calls over 8 distinct argument lists | 0.009 / 0.025 / **0.096 s** | - |
+| 256 / 1024 / 4096 class prvalues at a value place | 0.022 / 0.080 / **0.388 s** | - |
 | an object of 64 / 256 / 1024 members folded once | 0.005 / 0.006 / **0.012 s** | - |
+| 256 / 1024 / 4096 objects a constexpr constructor builds | 0.023 / 0.089 / **0.421 s** | 13.1 s at 4096 |
+| one such object written 4096 times | **0.115 s** | - |
+| an object of 1024 / 4096 / 8192 members a constructor builds | 0.025 / 0.095 / **0.204 s** | 1.92 s at 8192 |
+| 256 / 1024 / 4096 calls filling two default-arguments | 0.012 / 0.038 / **0.146 s** | 1.11 s at 4096 |
 | a constexpr chain deeper than the guard (12000) | refused in **0.03 s** | SIGSEGV |
 | 512 / 2048 / 8192 distinct `decltype` spellings in argument lists | 0.018 / 0.069 / **0.300 s** | 9.7 s at 8192 |
 | 256 / 1024 / 4096 `decltype` prefixes in one template definition | 0.021 / 0.082 / **0.410 s** | 23.9 s at 4096 |
@@ -300,3 +338,4 @@ level asks the whole class below it whether the base it adds is repeated.
 | C11 | 14.5.3p4's pattern that is a class template specialization: `PackReading::read_places` as the fourth shape of the one reading, and a substitution binding the pattern's places one element at a time | 201 -> **204 / 211**, three fixtures; 44 shapes; linear at 2048 |
 | C11 audit | the two things a *spelling* writes inside one node: `list<A, B...>` and `pair2<A, sizeof...(B)>` carry their own `...` and `sizeof...` in the text of one terminal, so `names_in` reads each node's text with `spelled_names_in` | 204 -> **205 / 212**, one fixture; linear at 2048 |
 | C12 | 5.19p2's call of a constexpr function, and the object of literal class type one may be called on: `sema_constexpr.h` as the owner of 5.19's three non-arithmetic operands, 7.1.5p3's body re-read in a region of its own binding the places and 9.2p1's members, the answer keyed by the callee and `type_list` of the converted arguments in `SemaModel::folded_call`, 5.2.3p2/p3's object interned as the list of its subobjects, 12.3.2p1's conversion function at 14.3.2p5, 7.1.5p2's implicit `inline` with `demand_referenced` stopping at a call the image folded, and `{`/`}` counted as a balanced run so `A<S{1, 2}>` is one argument | 205 / 212 -> **212 / 217** with five fixtures added, four compile-pass and one refusing; pa1-pa19 2169 / 2169; 25 constexpr shapes swept against g++ and the reference, every accepted pair writing the reference's own LowIR but the two it accepts and this milestone does not; every checked-in `.ref` regenerated from the reference binary and unmoved; linear at a chain of 2040, 4096 folded calls and 4096 class prvalues, `fib(40)` 0.004 s where the reference times out and g++ takes 7.9 s, a chain past the guard refused rather than crashed; valgrind clean |
+| C12 audit | the object a constant expression *builds*, which C12 gave one initialization and every class type: 8.5.1p1's aggregate told from 8.5p16's direct-initialization, 7.1.5p1 read off a constructor, 12.6.2's mem-initializers in declaration order under a call's own key, 7.1.5p4's uninitialized member and non-empty body refused, 8.3.6p1's default-argument in the one list a fold reads, 13.3.3p1's ambiguous conversion refused rather than guessed at, 5.2.5p1 given a reading so an object's member can be read at all, and an object never carried where a value is meant; 12.6.2p2's index built once rather than scanned per member | 212 / 217 -> **215 / 220**, three fixtures, two compile-pass and one refusing; pa1-pa19 2169 / 2169; 41 constexpr shapes swept against g++ and `pa20/cppgm++-ref`, every shape all three accept coming to the same value here as there - the two-unit program among them; every checked-in `.ref` regenerated and unmoved; linear at 4096 constructor-built objects, 4096 default-argument folds and 8192 members, with the per-member scan's 1.400 s at 8192 down to 0.204 s; valgrind clean |

@@ -554,6 +554,16 @@ void SemaAnalyzer::special_member(const AstNode& node, const Context& ctx)
 		{
 			entity->inline_function = true;
 		}
+		// 7.1.5p1: a constructor declared `constexpr` is what lets 5.2.3p2 and
+		// p3 build an object of the class where a constant expression stands,
+		// exactly as one on a conversion function is what lets that object
+		// reach 14.1p4's value place.  7.1.5p2 makes it implicitly inline
+		// besides, as it does every other function it stands on.
+		if (specifiers->children[index]->token == KW_CONSTEXPR)
+		{
+			entity->constexpr_function = true;
+			entity->inline_function = true;
+		}
 		// 10.3p1 and 12.4p9: a destructor declared `virtual` is dispatched
 		// through the object's own class, which is what makes `delete` of a
 		// base pointer end the whole object.  12.1p4 leaves a constructor no

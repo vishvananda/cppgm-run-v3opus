@@ -197,6 +197,14 @@ SemaConstant ConstexprReading::object_of(TypeId type,
 		                  " is not a class a constant expression builds an "
 		                  "object of");
 	}
+	if (!analyzer_.aggregate_type(bare))
+	{
+		// 8.5.1p1: a class that declares a constructor of its own - or that
+		// hides a member behind 11p1's access - is no aggregate, so what stands
+		// between the clauses and the members is 12.1's constructor and not
+		// 8.5.1p2's one-clause-per-member.
+		return object_from_constructor(bare, *owner, written);
+	}
 	std::vector<SemaEntity*> members;
 	data_members(bare, members);
 	if (written.size() > members.size())
@@ -246,10 +254,268 @@ SemaConstant ConstexprReading::object_of(TypeId type,
 	return out;
 }
 
+void ConstexprReading::mem_initializers(
+	const AstNode* initializers,
+	std::unordered_map<std::string, const AstNode*>& out)
+{
+	for (std::size_t at = 0;
+	     initializers != nullptr && at < initializers->children.size(); ++at)
+	{
+		const AstNode& one = *initializers->children[at];
+		const AstNode* const id = child_kind(one, AstKind::MemInitializerId);
+		// 14.5.3p4: a mem-initializer written as a pattern stands for one per
+		// element of a run, which 10p1 leaves to a base subobject - and this
+		// object holds none.
+		if (id == nullptr || one.children.size() < 2 ||
+		    child_kind(one, AstKind::ParameterPack) != nullptr)
+		{
+			continue;
+		}
+		// 12.6.2p3 leaves one mem-initializer per member, so a second entry of
+		// one name is one the class already refused.
+		out.insert(std::make_pair(id->text, one.children[1]));
+	}
+}
+
+// 8.5p16 with 12.1 and 12.6.2: the object `T(x)` and `T{x}` come to where the
+// class is no aggregate.
+//
+// 13.3.1.3 chooses the constructor, which a fold ranks by arity for the same
+// reason `chosen` does, and what the object holds is what each mem-initializer
+// of that constructor comes to - read in a region of its own binding the places
+// to what the arguments came to.  12.6.2p10 initializes in declaration order
+// whatever order the mem-initializers were written in, so a member already
+// settled is a binding of that region too and one written after it may name it;
+// 8.3.5p10's place of the same name is the one 3.3.7 leaves standing.  The
+// answer is a fact of the constructor and the converted list exactly as a call
+// of a function is, so it is held under the same key.
+SemaConstant ConstexprReading::object_from_constructor(
+	TypeId bare, SemaEntity& owner, const std::vector<SemaConstant>& written)
+{
+	SemaEntity* const one = owner.constructor == nullptr
+		? nullptr : chosen(*owner.constructor, written.size());
+	if (one == nullptr || one->constexpr_region == nullptr)
+	{
+		throw NotConstant(analyzer_.types_.description(bare) +
+		                  " declares no one constexpr constructor a constant "
+		                  "expression builds an object with");
+	}
+	// 7.1.5p4: a constexpr constructor's function-body shall be a
+	// compound-statement holding what 7.1.5p3 leaves any other one - so what
+	// the object comes to is the mem-initializers and nothing the body runs.
+	const AstNode* const body =
+		child_kind(*one->constexpr_body, AstKind::CompoundStatement);
+	for (std::size_t at = 0;
+	     body != nullptr && at < body->children.size(); ++at)
+	{
+		if (!is_body_declaration(body->children[at]->kind))
+		{
+			throw NotConstant(analyzer_.types_.description(bare) +
+			                  " is built by a constexpr constructor whose body "
+			                  "is outside what 7.1.5p4 leaves a constant "
+			                  "expression to read");
+		}
+	}
+	std::vector<SemaConstant> passed;
+	const std::uint32_t list = passed_arguments(*one, nullptr, written, passed);
+	const TypeId held = analyzer_.model_.folded_call(*one, list);
+	if (held != kNoType)
+	{
+		return constant_of(held, analyzer_.types_);
+	}
+	unsigned& depth = analyzer_.model_.folding_depth();
+	if (depth >= kMaxConstexprDepth)
+	{
+		throw NotConstant("a constant expression builds objects more deeply "
+		                  "than this implementation reads");
+	}
+	const ReadingDepth building(depth);
+	SemaContext inner;
+	inner.scope = &analyzer_.model_.open(ScopeKind::Block, *one->constexpr_region,
+	                                     nullptr, one->constexpr_region->dump);
+	inner.dump = one->constexpr_region->dump;
+	bind_arguments(*one, nullptr, passed, inner);
+	std::unordered_map<std::string, const AstNode*> written_for;
+	mem_initializers(child_kind(*one->constexpr_body, AstKind::CtorInitializer),
+	                 written_for);
+	std::vector<SemaEntity*> members;
+	data_members(bare, members);
+	std::vector<TypeId> holds;
+	holds.reserve(members.size());
+	for (std::size_t index = 0; index < members.size(); ++index)
+	{
+		const TypeId member = analyzer_.types_.strip_cv(members[index]->type);
+		const std::unordered_map<std::string, const AstNode*>::const_iterator
+			found = written_for.find(members[index]->name);
+		const AstNode* const wrote =
+			found == written_for.end() ? nullptr : found->second;
+		SemaConstant value;
+		value.type = member;
+		if (wrote != nullptr && analyzer_.types_.is_class(member))
+		{
+			std::vector<SemaConstant> clauses;
+			clauses.reserve(wrote->children.size());
+			for (std::size_t at = 0; at < wrote->children.size(); ++at)
+			{
+				clauses.push_back(analyzer_.evaluate(*wrote->children[at], inner));
+			}
+			value = object_of(member, clauses);
+		}
+		else if (wrote != nullptr)
+		{
+			if (wrote->children.size() > 1)
+			{
+				throw NotConstant("a mem-initializer of " +
+				                  analyzer_.types_.description(bare) +
+				                  " writes more than one value for a member");
+			}
+			// 8.5p7: `m()` and `m{}` are the value-initialization the member's
+			// own type zeroes, which is what an empty list already stands for.
+			value.bits = 0;
+			if (!wrote->children.empty())
+			{
+				value = analyzer_.convert(
+					analyzer_.evaluate(*wrote->children[0], inner), member);
+			}
+			value.type = member;
+		}
+		else if (analyzer_.types_.is_class(member))
+		{
+			// 12.6.2p8: a member no mem-initializer names is default-initialized,
+			// which for one of class type is the object its own default
+			// constructor - or 8.5.1p7's zeroes - builds.
+			const std::vector<SemaConstant> none;
+			value = object_of(member, none);
+		}
+		else
+		{
+			// 7.1.5p4: every non-static data member of a class a constexpr
+			// constructor builds shall be initialized, and one left
+			// default-initialized holds no value a constant expression reads.
+			throw NotConstant("a constexpr constructor of " +
+			                  analyzer_.types_.description(bare) +
+			                  " initializes no value for " +
+			                  members[index]->name);
+		}
+		if (!analyzer_.types_.is_class(member) &&
+		    analyzer_.arithmetic_type(member) == kNoType)
+		{
+			throw NotConstant("a member of " +
+			                  analyzer_.types_.description(bare) +
+			                  " is outside the values a constant expression "
+			                  "holds");
+		}
+		holds.push_back(entry_of(value));
+		if (inner.scope->names.count(members[index]->name) == 0)
+		{
+			bind_constant(members[index]->name, value, inner);
+		}
+	}
+	SemaConstant out;
+	out.type = bare;
+	out.bits = analyzer_.types_.type_list(holds);
+	analyzer_.model_.hold_folded_call(*one, list, entry_of(out));
+	return out;
+}
+
+// 5.2.5p1: the object a member access is written on.
+//
+// A constant expression holds an object only as 5.2.3p2/p3's object of literal
+// class type, so what may stand to the left of the `.` is one of those - and
+// 5.2.5p1's other form, `->`, has a pointer there, which 5.19p2 leaves a
+// constant expression none of.
+SemaConstant ConstexprReading::accessed_object(const AstNode& node,
+                                               const SemaContext& ctx)
+{
+	if (node.token != OP_DOT || node.children.size() < 2)
+	{
+		throw NotConstant("a constant expression reads a member through "
+		                  "something it holds no object of");
+	}
+	const SemaConstant object = analyzer_.evaluate(*node.children[0], ctx);
+	if (!is_object(object))
+	{
+		throw NotConstant("a constant expression reads a member of what is not "
+		                  "an object of class type");
+	}
+	return object;
+}
+
+SemaEntity* ConstexprReading::accessed_member(const SemaConstant& object,
+                                              const AstNode& node,
+                                              const SemaContext& ctx)
+{
+	SemaEntity* const owner =
+		analyzer_.model_.type_owner(analyzer_.types_.strip_cv(object.type));
+	if (owner == nullptr || owner->scope == nullptr)
+	{
+		return nullptr;
+	}
+	// 5.2.5p1 is one lookup, and the expression layer already writes it - so a
+	// name found through 10.2's chain, a using-declaration or a qualified-id is
+	// found here the same way it is anywhere else.
+	std::vector<SemaEntity*> found;
+	return analyzer_.member_named(*owner->scope, node.children[1]->text, ctx,
+	                              found);
+}
+
+// 5.2.5p1 over 9.2p1's non-static data member: the subobject the object's own
+// interned list holds for it, which is the entry standing where 9.2p13 declared
+// the member.
+SemaConstant ConstexprReading::member_constant(const AstNode& node,
+                                               const SemaContext& ctx)
+{
+	const SemaConstant object = accessed_object(node, ctx);
+	SemaEntity* const named = accessed_member(object, node, ctx);
+	std::vector<SemaEntity*> members;
+	data_members(object.type, members);
+	const std::vector<TypeId>& held =
+		analyzer_.types_.type_list_at(static_cast<std::uint32_t>(object.bits));
+	for (std::size_t index = 0;
+	     named != nullptr && index < members.size() && index < held.size();
+	     ++index)
+	{
+		if (members[index] == named ||
+		    members[index] == &SemaAnalyzer::declared_member(*named))
+		{
+			return constant_of(held[index], analyzer_.types_);
+		}
+	}
+	throw NotConstant(node.children[1]->text +
+	                  " names no subobject a constant expression reads of " +
+	                  analyzer_.types_.description(object.type));
+}
+
+// 5.2.2p1 with 9.3.1p3: the call `E.f(args)`, whose object is `E` where 9.2p1
+// leaves `f` a non-static member and nothing at all where 9.4p1 makes it
+// static.
+SemaConstant ConstexprReading::member_called(
+	const AstNode& callee, const std::vector<SemaConstant>& arguments,
+	const SemaContext& ctx)
+{
+	const SemaConstant object = accessed_object(callee, ctx);
+	SemaEntity* const named = accessed_member(object, callee, ctx);
+	SemaEntity* const one =
+		named == nullptr ? nullptr : chosen(*named, arguments.size());
+	if (one == nullptr)
+	{
+		throw NotConstant(callee.children[1]->text +
+		                  " names no one constexpr member function a constant "
+		                  "expression may call with these arguments");
+	}
+	return call(*one, one->object_member ? &object : nullptr, arguments);
+}
+
 SemaConstant ConstexprReading::called(const AstNode& callee,
                                       const std::vector<SemaConstant>& arguments,
                                       const SemaContext& ctx)
 {
+	if (callee.kind == AstKind::MemberExpression)
+	{
+		// 5.2.2p1: the postfix-expression is 5.2.5p1's member access, which is
+		// the one shape of a call that runs a body on an object.
+		return member_called(callee, arguments, ctx);
+	}
 	if (callee.kind != AstKind::IdExpression)
 	{
 		throw NotConstant("a constant expression calls something this "
@@ -305,7 +571,11 @@ SemaEntity* ConstexprReading::chosen(SemaEntity& named,
 		const std::vector<TypeId>& places =
 			analyzer_.types_.parameters(each->type);
 		const std::size_t implicit = each->object_member ? 1 : 0;
-		if (places.size() - implicit != arguments)
+		// 8.3.6p1: a call may stop short of a place every declaration of the
+		// function gave a default-argument, so the arity is the range
+		// `accepts_arity` already answers for and not the one count.
+		if (places.size() < arguments + implicit ||
+		    !analyzer_.accepts_arity(*each, arguments + implicit))
 		{
 			continue;
 		}
@@ -340,6 +610,8 @@ SemaConstant ConstexprReading::converted(const SemaConstant& value,
 		                  "it does not know");
 	}
 	SemaEntity* found = nullptr;
+	bool exact = false;
+	unsigned reaching = 0;
 	for (std::size_t index = 0; index < owner->conversions.size(); ++index)
 	{
 		SemaEntity& each = *owner->conversions[index];
@@ -355,8 +627,10 @@ SemaConstant ConstexprReading::converted(const SemaConstant& value,
 		if (place != kNoType && analyzer_.types_.strip_cv(to) == place)
 		{
 			found = &each;
+			exact = true;
 			break;
 		}
+		++reaching;
 		if (found == nullptr)
 		{
 			found = &each;
@@ -367,6 +641,17 @@ SemaConstant ConstexprReading::converted(const SemaConstant& value,
 		throw NotConstant(analyzer_.types_.description(value.type) +
 		                  " declares no constexpr conversion function a "
 		                  "constant expression reaches a value through");
+	}
+	if (!exact && reaching > 1)
+	{
+		// 13.3.3p1: which of two conversions is the better one is a ranking of
+		// what each answer then converts by, which a fold has no typed
+		// expression to make - so a class offering two that reach the place
+		// only through a further conversion is refused rather than picked from.
+		throw NotConstant(analyzer_.types_.description(value.type) +
+		                  " declares more than one constexpr conversion "
+		                  "function a constant expression reaches this place "
+		                  "through");
 	}
 	const std::vector<SemaConstant> none;
 	return call(*found, &value, none);
@@ -451,6 +736,76 @@ void ConstexprReading::bind_arguments(SemaEntity& callee,
 	}
 }
 
+// 5.2.2p4 with 8.3.6p1: the list the places of `callee` are filled with.
+//
+// 8.3.5p10 converts each argument to the type of the place it reached before
+// the body reads it, which is what makes the fold a fact of the converted list
+// and not of the spellings that wrote it - and 8.3.6p1 reads a call that stops
+// short of a place as if the default-argument stood where the argument is
+// missing, so those values are part of that same list.  8.3.6p9 leaves such an
+// expression to the region the declaration that introduced it was written in,
+// which is where it is read here.
+std::uint32_t ConstexprReading::passed_arguments(
+	SemaEntity& callee, const SemaConstant* object,
+	const std::vector<SemaConstant>& arguments,
+	std::vector<SemaConstant>& passed)
+{
+	const std::vector<TypeId>& places = analyzer_.types_.parameters(callee.type);
+	const std::size_t implicit = callee.object_member ? 1 : 0;
+	const std::unordered_map<std::uint32_t,
+	                         std::vector<ParameterRecord> >::const_iterator
+		wrote = analyzer_.defaults_.find(
+			SemaAnalyzer::wrote_defaults(callee).id);
+	passed.reserve(places.size());
+	std::vector<TypeId> key;
+	key.reserve(places.size() + 1);
+	key.push_back(object == nullptr ? kNoType : entry_of(*object));
+	for (std::size_t at = implicit; at < places.size(); ++at)
+	{
+		const std::size_t index = at - implicit;
+		SemaConstant given;
+		if (index < arguments.size())
+		{
+			given = arguments[index];
+		}
+		else
+		{
+			const AstNode* const written =
+				wrote == analyzer_.defaults_.end() || at >= wrote->second.size()
+					? nullptr
+					: wrote->second[at].initializer.written;
+			SemaContext where;
+			where.scope = written == nullptr
+				? nullptr : wrote->second[at].initializer.scope;
+			if (written == nullptr || where.scope == nullptr ||
+			    written->children.empty() ||
+			    written->children[0]->children.empty())
+			{
+				throw NotConstant(callee.name +
+				                  " is called with no argument for a place its "
+				                  "declaration gives no default-argument");
+			}
+			where.dump = where.scope->dump;
+			given = analyzer_.evaluate(*written->children[0]->children[0], where);
+		}
+		if (analyzer_.arithmetic_type(places[at]) != kNoType)
+		{
+			given = analyzer_.convert(given, places[at]);
+			given.type = places[at];
+		}
+		passed.push_back(given);
+		key.push_back(entry_of(given));
+	}
+	// 5.2.2p7: an argument the ellipsis matched fills no place, and what it is
+	// worth is still what tells one fold of this callee from another.
+	for (std::size_t index = passed.size(); index < arguments.size(); ++index)
+	{
+		passed.push_back(arguments[index]);
+		key.push_back(entry_of(arguments[index]));
+	}
+	return analyzer_.types_.type_list(key);
+}
+
 SemaConstant ConstexprReading::call(SemaEntity& callee,
                                     const SemaConstant* object,
                                     const std::vector<SemaConstant>& arguments)
@@ -462,31 +817,8 @@ SemaConstant ConstexprReading::call(SemaEntity& callee,
 		                  " is not a constexpr function this unit has defined");
 	}
 	const TypeId result = analyzer_.types_.target(callee.type);
-	// 8.3.5p10: each argument is converted to the type of its place before the
-	// body reads it, which is what makes the fold a fact of the converted list
-	// and not of the spellings that wrote it.
-	const std::vector<TypeId>& places = analyzer_.types_.parameters(callee.type);
-	const std::size_t implicit = callee.object_member ? 1 : 0;
 	std::vector<SemaConstant> passed;
-	passed.reserve(arguments.size());
-	std::vector<TypeId> key;
-	key.reserve(arguments.size() + 2);
-	key.push_back(object == nullptr ? kNoType : entry_of(*object));
-	for (std::size_t index = 0; index < arguments.size(); ++index)
-	{
-		const TypeId place = index + implicit < places.size()
-			? places[index + implicit]
-			: kNoType;
-		SemaConstant given = arguments[index];
-		if (place != kNoType && analyzer_.arithmetic_type(place) != kNoType)
-		{
-			given = analyzer_.convert(given, place);
-			given.type = place;
-		}
-		passed.push_back(given);
-		key.push_back(entry_of(given));
-	}
-	const std::uint32_t list = analyzer_.types_.type_list(key);
+	const std::uint32_t list = passed_arguments(callee, object, arguments, passed);
 	const TypeId held = analyzer_.model_.folded_call(callee, list);
 	if (held != kNoType)
 	{

@@ -307,6 +307,12 @@ SemaAnalyzer::Constant SemaAnalyzer::evaluate(const AstNode& node,
 		// `sema_constexpr.h` reads because the last of them walks a body.
 		return ConstexprReading(*this).call_or_cast(node, ctx);
 
+	case AstKind::MemberExpression:
+		// 5.2.5p1: a member of the object 5.2.3p2/p3 built, which is the one
+		// object a constant expression here holds - so it is read where that
+		// object is owned and not here.
+		return ConstexprReading(*this).member_constant(node, ctx);
+
 	case AstKind::SizeofPackExpression:
 	{
 		// 5.3.3p5: how many elements the run bound to the pack holds, which is

@@ -1,0 +1,3 @@
+ERROR: constexpr constructor must initialize every scalar data member at tests/general/100-constexpr-constructor-uninitialized-member-bad.t:9:3 [top-level declaration 0 kind=class-specifier value=partial text=partial]
+Diagnostic context:
+collect_class_declaration [partial] at tests/general/100-constexpr-constructor-uninitialized-member-bad.t:5:1

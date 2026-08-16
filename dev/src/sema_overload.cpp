@@ -2414,9 +2414,16 @@ SemaAnalyzer::Value SemaAnalyzer::finish_call(DumpNode& line, TypeId function,
 	// an object at namespace scope its value in the program image.  A call on
 	// an object is not one of these: the object it would read is one no
 	// constant expression here names.
+	// 8.3.6p1: a call that stops short of a place the declaration gave a
+	// default-argument is one the fold fills for itself, so the written
+	// arguments are all this asks for and the arity was settled above.
+	// 5.2.3p2: a fold whose answer is an *object* holds the identifier of the
+	// list its subobjects came to and not a value, and `value` is a value to
+	// every reader of one - so only a call whose result is arithmetic carries
+	// what it folded to.
 	if (chosen != nullptr && !chosen->object_member &&
 	    chosen->constexpr_function && chosen->constexpr_body != nullptr &&
-	    arguments.size() == parameters.size())
+	    arithmetic_type(value.type) != kNoType)
 	{
 		std::vector<Constant> folded;
 		folded.reserve(arguments.size());
