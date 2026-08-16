@@ -2716,15 +2716,17 @@ void SemaAnalyzer::describe_object_initialization(
 	// constructors it chooses, gives the storage its image, and is not a
 	// default-initialization the definition's silence asked for.
 	//
-	// A member of arithmetic type asks for none of that: what its object holds
-	// is one value, which the analysis already folded, and the line below writes
-	// it.  An object of class or array type is *built*, and 3.2p2 makes the
-	// constructors that initialization names uses of them - so that one is read
-	// as the initialization it is.
+	// It is asked of every declared type and not only of the ones an object is
+	// *built* in.  A member of arithmetic type would reach its image anyway,
+	// because 5.19p3 folded it to one value and `SemaEntity::value` carries that
+	// value on to 3.6.2p2 - but a scalar whose initializer is an *address* has no
+	// such value: `static constexpr const char* text = "ab";` comes to 4.10p1's
+	// pointer to the literal's own object, which no `bits` of a constant holds.
+	// A definition that read the silence as 8.5p6's default-initialization laid
+	// out zero for it and wrote no initialization at all, which is a null pointer
+	// where the program wrote the address of a string.
 	Context initializing = ctx;
-	if (written_clause == nullptr && declared != nullptr &&
-	    (types_.is_class(types_.strip_cv(type)) ||
-	     types_.kind(types_.strip_cv(type)) == TypeKind::Array))
+	if (written_clause == nullptr && declared != nullptr)
 	{
 		const std::unordered_map<std::uint32_t, HeldInitializer>::const_iterator
 			held = member_initializers_.find(entity.id);

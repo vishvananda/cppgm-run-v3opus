@@ -1308,6 +1308,33 @@ void LowirUnitLowering::owe_elided_construction(const SemaEntity& constructor,
 	}
 }
 
+// 3.2p2 and 8.4.2p1: the definition an initialization the *image* holds owes.
+//
+// The reading above is about a call a body left out, where nothing anywhere read
+// the constructor's definition - so 3.5p4's narrower question is the right one
+// there, and a definition every unit may hold is nobody's to owe.  An image is
+// not always that.  `read` says the definition 8.4.2p1 gives this constructor was
+// gone through to work the image out: the lowering walks it wherever the storage
+// is the member initializations it writes, and 5.19 walks it wherever the
+// analysis folded the object to a value.  A definition this unit went through is
+// one its object file holds, however little of the constructor's work the image
+// then kept.
+//
+// One the standard declared as well as defined is named by nothing the program
+// wrote and stays unwritten either way, which is what keeps `struct B { int x;
+// }; constexpr B b = B();` storage and nothing else, and 8.5.1's own entry for
+// an aggregate with it.
+void LowirUnitLowering::owe_folded_construction(const SemaEntity& constructor,
+                                                bool read)
+{
+	if (!read || constructor.implicit_declaration || constructor.member_entry)
+	{
+		owe_internal_definition(constructor);
+		return;
+	}
+	demand_definition(constructor);
+}
+
 void LowirUnitLowering::owe_internal_definition(const SemaEntity& entity)
 {
 	if (entity.internal_linkage || entity.instantiated_use)

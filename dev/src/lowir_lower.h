@@ -404,6 +404,11 @@ public:
 	// unit's alone, so the object file holds it wherever an initialization
 	// named it.
 	void owe_internal_definition(const SemaEntity& entity);
+	// 3.2p2 and 8.4.2p1: the same question where the initialization is 3.6.2p2's
+	// image.  `read` is whether working that image out went through the
+	// definition the standard gives a constructor the class declared - which is
+	// what makes that definition this unit's.
+	void owe_folded_construction(const SemaEntity& constructor, bool read);
 	// 12.1p5: whether running `constructor` on an object writes an instruction.
 	// A constructor whose definition the program wrote is answered by that
 	// definition alone - an empty body writes nothing - and one the standard
@@ -505,14 +510,16 @@ private:
 	// written as.  Every other item is left as it stands.
 	void null_pointer_item(lowir_model::GlobalDefinition::DataItem& item,
 	                       TypeId type, unsigned long long size);
+	// 3.6.2p2: whether a clause of a structured image holds a call, which is
+	// work the program runs and no item the translation lays out.  Asked of
+	// every clause of every object 5.2.2p1 *builds* - a class's subobjects, a
+	// constructor's member initializations and an array's elements alike.
+	bool runs_a_call(const DumpNode& node) const;
 	// 3.6.2p2: the image a `constructor-action` leaves the object holding,
 	// where the constructor's own definition is nothing but 12.6.2's member
 	// initializations of values the translation knows once its parameters hold
 	// the call's arguments.  False for every other constructor, which leaves
 	// the object to be built before the program runs.
-	// 3.6.2p2: whether a clause of a structured image holds a call, which is
-	// work the program runs and no item the translation lays out.
-	bool runs_a_call(const DumpNode& node) const;
 	bool global_constructed(lowir_model::GlobalDefinition& global,
 	                        const DumpNode& action, unsigned long long base,
 	                        unsigned long long& at);

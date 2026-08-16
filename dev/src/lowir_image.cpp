@@ -538,8 +538,13 @@ const DumpNode* LowirUnitLowering::global_image(
 	}
 	const DumpNode* dynamic = nullptr;
 	const TypeId bare = types_.strip_cv(type);
-	if (written == nullptr && node.fact.entity != nullptr &&
-	    node.fact.entity->constant &&
+	// 3.6.2p2 with 5.19: whether the object's value is one the analysis worked
+	// out.  That is what says the fold went through the definition of the
+	// constructor the initialization named, against storage that merely holds
+	// 3.6.2p1's zero and went through nothing.
+	const bool folded_object =
+		node.fact.entity != nullptr && node.fact.entity->constant;
+	if (written == nullptr && folded_object &&
 	    (types_.is_class(bare) || types_.kind(bare) == TypeKind::Array))
 	{
 		// 9.4.2p3: the definition of a static data member written outside its
@@ -633,22 +638,12 @@ const DumpNode* LowirUnitLowering::global_image(
 		else if (nothing_to_do)
 		{
 			// 3.2p2 and 8.4.2p1: the initialization still named the constructor,
-			// and where the *class* declared that constructor the name is one
-			// the program wrote and the object file holds - so the definition
-			// the standard gives it is one this unit owes, however little of its
-			// work the image kept.  One the standard declared as well as defined
-			// is named by nothing the program wrote and stays unwritten.
-			if (built.implicit_declaration)
-			{
-				owe_internal_definition(built);
-			}
-			else
-			{
-				demand_definition(built);
-			}
+			// so what this unit then owes is the one question asked of every
+			// image a constructor call stands for.
+			owe_folded_construction(built, folded_object);
 		}
 		else if (types_.kind(types_.strip_cv(type)) == TypeKind::Class &&
-		         node.fact.entity != nullptr && node.fact.entity->constant)
+		         folded_object)
 		{
 			// 3.6.2p2: where the call of the constructor is itself a constant
 			// expression - which is what the analysis says by having folded the
@@ -665,10 +660,6 @@ const DumpNode* LowirUnitLowering::global_image(
 			{
 				add_zero_item(global,
 				              types_.object_size(types_.strip_cv(type)) - laid);
-				// 3.2p2: the initialization named the constructor, whose
-				// definition the program still needs however much of its work
-				// the image already holds.
-				demand_definition(built);
 				return nullptr;
 			}
 			global.data_items.clear();
@@ -709,8 +700,7 @@ const DumpNode* LowirUnitLowering::global_image(
 	}
 	else if (written != nullptr && !global_initializer(global, *written, type))
 	{
-		if (node.fact.entity != nullptr && node.fact.entity->constant &&
-		    valued_type(type))
+		if (folded_object && valued_type(type))
 		{
 			// 3.6.2p2 with 5.19: which constant an initializer is is the
 			// *analysis's* answer, and it already made it - `SemaEntity::value`
@@ -884,6 +874,48 @@ void LowirUnitLowering::null_pointer_item(
 	item.zero_bytes = static_cast<std::size_t>(size);
 }
 
+namespace
+{
+
+// 5.2.2p4: one argument of the call a `constructor-action` is, as the place it
+// stands in holds it - the node, and what 3.6.2p2 then asks of it.
+//
+// A constructor carries one place into as many members as it likes, and both
+// questions are walks of the argument's whole expression: whether it runs a
+// call, and what value it comes to.  So each is answered once and kept here -
+// the first with the place, the second the first time a member of that type
+// asks, because what an argument comes to is one value spelled at the type of
+// the subobject it initializes.  `Point(int v) : x(v), y(v) {}` reads one
+// expression once however many members it feeds, where asking again per member
+// is that expression's size times their number.
+struct BoundArgument
+{
+	BoundArgument()
+		: value(nullptr), runs_a_call(false)
+	{
+	}
+
+	// 3.6.2p2: what the argument is worth as the storage of an object of one
+	// type holds it, and whether the translation knows that at all.
+	struct Image
+	{
+		Image()
+			: held(false), known(false)
+		{
+		}
+
+		bool held;
+		bool known;
+		std::string text;
+	};
+
+	const DumpNode* value;
+	bool runs_a_call;
+	std::unordered_map<TypeId, Image> images;
+};
+
+}  // namespace
+
 // 3.6.2p2: the value an object with static storage duration holds before the
 // program runs, where a constructor is what initializes it.  A constructor
 // whose whole definition is 12.6.2's member initializations, each of a value
@@ -908,8 +940,12 @@ bool LowirUnitLowering::global_constructed(
 	const DumpNode& definition = *found->second;
 	// 8.3.6p1 and 5.2.2p4: the arguments stand where the parameters do, in the
 	// order both were written, so each parameter is bound to one argument node
-	// once and every value read below is one probe of that map.
-	std::unordered_map<std::uint32_t, const DumpNode*> bound;
+	// once and every value read below is one probe of that map.  Whether that
+	// argument is work the program runs is a fact of the argument and is read
+	// with it: a constructor carrying one place into each of its n members would
+	// otherwise walk that one expression n times, which is n * its size for a
+	// declaration the program wrote once.
+	std::unordered_map<std::uint32_t, BoundArgument> bound;
 	std::size_t argument = 2;
 	bool self = true;
 	for (std::size_t index = 0; index < definition.children.size(); ++index)
@@ -929,7 +965,9 @@ bool LowirUnitLowering::global_constructed(
 		{
 			return false;
 		}
-		bound[child.fact.entity->id] = call.children[argument];
+		BoundArgument& place = bound[child.fact.entity->id];
+		place.value = call.children[argument];
+		place.runs_a_call = runs_a_call(*place.value);
 		++argument;
 	}
 	for (std::size_t index = 0; index < definition.children.size(); ++index)
@@ -967,15 +1005,19 @@ bool LowirUnitLowering::global_constructed(
 			return false;
 		}
 		const DumpNode* value = child.children[1];
+		BoundArgument* place = nullptr;
 		if (value->fact.entity != nullptr)
 		{
-			const std::unordered_map<std::uint32_t, const DumpNode*>::const_iterator
+			const std::unordered_map<std::uint32_t, BoundArgument>::iterator
 				passed = bound.find(value->fact.entity->id);
 			if (passed != bound.end())
 			{
-				value = passed->second;
+				place = &passed->second;
+				value = place->value;
 			}
 		}
+		const bool runs = place != nullptr ? place->runs_a_call
+		                                   : runs_a_call(*value);
 		const unsigned long long offset = base + member.offset;
 		if (offset < at)
 		{
@@ -992,31 +1034,44 @@ bool LowirUnitLowering::global_constructed(
 			item.symbol = symbol;
 			item.addr_addend = addend;
 		}
-		else if (!runs_a_call(*value) &&
-		         image_value(*value, type, item.literal_operand.text))
-		{
-			item.kind = lowir_model::GlobalDefinition::DataItem::ITEM_INTEGER;
-			item.literal_operand.kind = lowir_model::Operand::OP_INTEGER;
-		}
 		else
 		{
-			// 3.6.2p2: the value is not one the translation knows, so what the
-			// constructor does is what the program runs.
-			return false;
+			// 3.6.2p2: what the argument is worth at the type of the subobject
+			// it initializes.  A place carried into several members is one
+			// expression, and reading it again per member is its size times
+			// their number - so the answer is kept beside the place, one per
+			// type it is read at.
+			BoundArgument::Image alone;
+			BoundArgument::Image& image =
+				place != nullptr ? place->images[type] : alone;
+			if (!runs && !image.held)
+			{
+				image.held = true;
+				image.known = image_value(*value, type, image.text);
+			}
+			if (runs || !image.known)
+			{
+				// 3.6.2p2: the value is not one the translation knows - or is
+				// one a call produces, which the program runs - so what the
+				// constructor does is what the program runs.
+				return false;
+			}
+			item.kind = lowir_model::GlobalDefinition::DataItem::ITEM_INTEGER;
+			item.literal_operand.kind = lowir_model::Operand::OP_INTEGER;
+			item.literal_operand.text = image.text;
 		}
 		null_pointer_item(item, type, types_.object_size(types_.strip_cv(type)));
 		global.data_items.push_back(item);
 		at = offset + types_.object_size(types_.strip_cv(type));
 	}
-	if (!constructor.member_entry)
-	{
-		// 3.2p2: the initialization named the constructor the program wrote,
-		// which odr-uses it however the translation then works out what it
-		// leaves the object holding.  The one 8.5.1 gave an aggregate is named
-		// by nothing the program wrote, so folding its call leaves no use of it
-		// at all.
-		demand_definition(constructor);
-	}
+	// 3.2p2: the initialization named the constructor the program wrote, which
+	// odr-uses it however the translation then works out what it leaves the
+	// object holding.  The one 8.5.1 gave an aggregate is named by nothing the
+	// program wrote, so folding its call leaves no use of it at all - which is
+	// the question `owe_folded_construction` asks of every constructor an image
+	// stands for.  The definition was *read* to lay this image out, which is
+	// what says this unit holds it however the object was declared.
+	owe_folded_construction(constructor, true);
 	return true;
 }
 
@@ -1397,12 +1452,15 @@ bool LowirUnitLowering::global_array_initializer(
 			global.data_items.push_back(item);
 			continue;
 		}
-		if (!image_value(*node->children[index], element,
+		if (runs_a_call(*node->children[index]) ||
+		    !image_value(*node->children[index], element,
 		                 item.literal_operand.text))
 		{
-			// 3.6.2p2: the element's value is not one the translation knows,
-			// so the whole array is given what it holds before the program
-			// runs.
+			// 3.6.2p2: the element's value is not one the translation knows -
+			// or is one a *call* produces, which 5.2.2p1 makes work the program
+			// runs and no item an array of scalars may lay out any more than a
+			// class's clause or a member initialization may - so the whole array
+			// is given what it holds before the program runs.
 			return false;
 		}
 		if (addressed)
