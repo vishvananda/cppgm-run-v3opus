@@ -218,10 +218,11 @@ SemaConstant ConstexprReading::clause_of(const AstNode& clause, TypeId target,
 		if (analyzer_.types_.is_class(bare))
 		{
 			// 8.5p16 with 13.3.1.4: a clause of another type copy-initializes
-			// the subobject, which for one of class type is a constructor of its
-			// class called with that one value.
-			const std::vector<SemaConstant> one(1, value);
-			return object_of(bare, one);
+			// the subobject, which is the one reading every place of class type
+			// filled from one value asks - a converting constructor of the
+			// subobject's class, 4.10p3's base class subobject, or a conversion
+			// function of the clause's own class.
+			return at_class_place(value, bare);
 		}
 		value = analyzer_.convert(value, bare);
 		value.type = bare;
@@ -487,12 +488,21 @@ void ConstexprReading::mem_initializers(
 // 12.6.2p8's brace-or-equal-initializer where the declaration wrote one and
 // 8.5p6's default-initialization where it did not - which for a class is its
 // own default constructor and for anything else is no value 5.19 reads.
+//
+// 3.9p10 and 8.3.4p6 make a member of *array* type a subobject holding a list
+// of its own exactly as one of class type does, so it is neither of the two: a
+// mem-initializer's clauses are 8.5.1p2's elements and not 13.3.1.3's
+// arguments, and none of them is one value `convert` reaches.  Both directions
+// of that are `array_of`'s, which is the same reading `object_of`'s aggregate
+// arm and `clause_of` already give an array written anywhere else.
 SemaConstant ConstexprReading::subobject_initialized(
 	TypeId bare, const Subobject& held, const WrittenMemInitializer* wrote,
 	const SemaContext& inner)
 {
 	const TypeId type = analyzer_.types_.strip_cv(held.type);
 	const bool built = held.base || analyzer_.types_.is_class(type);
+	const bool listed =
+		!held.base && analyzer_.types_.kind(type) == TypeKind::Array;
 	SemaConstant value;
 	value.type = type;
 	if (wrote != nullptr)
@@ -514,6 +524,23 @@ SemaConstant ConstexprReading::subobject_initialized(
 				clauses.push_back(operand_constant(*list.children[at], where));
 			}
 			return object_of(type, clauses);
+		}
+		if (listed)
+		{
+			// 12.6.2p2 with 8.5.1p2: the clauses a mem-initializer writes for a
+			// member of array type initialize its *elements*, one clause per
+			// element against the element's own type, with 8.5.1p7's zeroes for
+			// the tail no clause reached - and 8.5p7's value-initialization
+			// where `arr()` or `arr{}` wrote no clause at all.
+			const TypeId element =
+				analyzer_.types_.strip_cv(analyzer_.types_.target(type));
+			std::vector<SemaConstant> clauses;
+			clauses.reserve(list.children.size());
+			for (std::size_t at = 0; at < list.children.size(); ++at)
+			{
+				clauses.push_back(clause_of(*list.children[at], element, where));
+			}
+			return array_of(type, clauses);
 		}
 		if (list.children.size() > 1)
 		{
@@ -556,6 +583,17 @@ SemaConstant ConstexprReading::subobject_initialized(
 		// their own default constructor - or 8.5.1p7's zeroes - builds.
 		const std::vector<SemaConstant> none;
 		return object_of(type, none);
+	}
+	if (listed && analyzer_.types_.is_class(analyzer_.types_.strip_cv(
+		              analyzer_.types_.element_of(type))))
+	{
+		// 12.6p1 with 12.6.2p4: an array of class type no mem-initializer names
+		// is default-initialized, which default-initializes each of its
+		// elements - the same constructor once per element, and one answer
+		// because the elements are all the same object.  An array of anything
+		// else is initialized with nothing at all, which is the refusal below.
+		const std::vector<SemaConstant> none;
+		return array_of(type, none);
 	}
 	// 7.1.5p4: every non-static data member of a class a constexpr constructor
 	// builds shall be initialized, and one left default-initialized holds no

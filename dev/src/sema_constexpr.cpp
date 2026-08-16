@@ -446,6 +446,17 @@ SemaConstant ConstexprReading::initialized_value(const AstNode& wrote,
 	{
 		return array_of(bare, operands);
 	}
+	if (operands.size() == 1 && wrote.kind != AstKind::ParenInitializer)
+	{
+		// 8.5p14 and 8.5p16: `T k = x` copy-initializes, which is the one
+		// reading every other place of class type filled from a single value
+		// asks - so 4.10p3's base class subobject and 13.3.1.4p1's conversion
+		// function reach a declaration exactly as they reach an argument.
+		// Parentheses are 8.5p16's *direct*-initialization instead: the
+		// clauses are 13.3.1.3's arguments over the class's own constructors,
+		// which is `object_of`'s question and not this one.
+		return at_class_place(operands[0], bare);
+	}
 	return object_of(bare, operands);
 }
 
@@ -739,6 +750,19 @@ SemaConstant ConstexprReading::at_class_place(const SemaConstant& value,
 		// class is between them and the answer is the entry the object's list
 		// already holds.
 		return base_subobject(value, *base);
+	}
+	if (is_object(value) &&
+	    analyzer_.converting_constructor(argument_value(value), bare) == nullptr)
+	{
+		// 13.3.1.4p1: the candidate set for a place of class type filled from a
+		// value of another class is the converting constructors of the place's
+		// class *and* the conversion functions of the value's, and
+		// `match_by_value` asks the second exactly where no one of the first
+		// takes the value.  A fold asks the same question in the same order:
+		// 5.19p3's converted constant expression is one rule, and a place of
+		// class type is one such place like the arithmetic and pointer places
+		// beside it.
+		return converted(value, bare, false);
 	}
 	const std::vector<SemaConstant> one(1, value);
 	return object_of(bare, one);

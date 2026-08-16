@@ -316,6 +316,19 @@ bool LowirUnitLowering::writes_base_entry(const SemaEntity& entity)
 		// code wrote.
 		return true;
 	}
+	if (entity.defined && entity.base_object_entry && entity.constexpr_function &&
+	    entity.user_provided)
+	{
+		// 7.1.5p2 with 3.2p2: a constructor the program declared `constexpr` is
+		// implicitly inline, and 5.19 may name it in any unit that reads its
+		// class to build a *complete* object of it - a use no call in this one
+		// spells.  So a unit that writes such a definition out at all owes both
+		// of the ABI's entry points and not only the base-subobject one a call
+		// here happened to name.  A constructor the standard declared or `=
+		// default` left trivial writes nothing this unit's own code has not
+		// already asked for.
+		return true;
+	}
 	return entity.complete_object_entry && entity.base_object_entry;
 }
 

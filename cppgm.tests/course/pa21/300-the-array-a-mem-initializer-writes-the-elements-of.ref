@@ -1,0 +1,209 @@
+global @one [binding=internal, object=_ZL3one] = {
+  zero 28
+}
+global @made [binding=internal, object=_ZL4made] = {
+  zero 8
+}
+global @rows [binding=internal, object=_ZL4rows] = {
+  zero 16
+}
+global @through [binding=internal, object=_ZL7through] = {
+  zero 32
+}
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    %t1 = addr @through
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    %t3 = index i8 [projection=field] %t2, 0
+    %t4 = unary decay ptr %t3
+    %t5 = index i32 [projection=array_element] %t4, 0
+    %t6 = load i32 %t5
+    %t7 = addr @through
+    %t8 = index i8 [projection=base_subobject] %t7, 0
+    %t9 = index i8 [projection=field] %t8, 8
+    %t10 = unary decay ptr %t9
+    %t11 = index i32 [projection=array_element] %t10, 2
+    %t12 = load i32 %t11
+    %t13 = binary add i32 %t6, %t12
+    %t14 = binary sub i32 %t13, 1
+    return i32 %t14
+}
+function @written__written__base_entry(%this : ptr) -> void [binding=weak, object=_ZN7writtenC2Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = unary decay ptr %t2
+    %t4 = index i32 [projection=array_element] %t3, 0
+    store i32 1, %t4
+    %t5 = load ptr $this
+    %t6 = index i8 [projection=field] %t5, 0
+    %t7 = unary decay ptr %t6
+    %t8 = index i32 [projection=array_element] %t7, 1
+    store i32 2, %t8
+    %t9 = load ptr $this
+    %t10 = index i8 [projection=field] %t9, 8
+    %t11 = unary decay ptr %t10
+    %t12 = index i32 [projection=array_element] %t11, 0
+    store i32 5, %t12
+    %t13 = load ptr $this
+    %t14 = index i8 [projection=field] %t13, 8
+    %t15 = unary decay ptr %t14
+    %t16 = index i32 [projection=array_element] %t15, 1
+    store i32 0, %t16
+    %t17 = load ptr $this
+    %t18 = index i8 [projection=field] %t17, 8
+    %t19 = unary decay ptr %t18
+    %t20 = index i32 [projection=array_element] %t19, 2
+    store i32 0, %t20
+    %t21 = load ptr $this
+    %t22 = index i8 [projection=field] %t21, 20
+    %t23 = unary decay ptr %t22
+    %t24 = index i32 [projection=array_element] %t23, 0
+    store i32 0, %t24
+    %t25 = load ptr $this
+    %t26 = index i8 [projection=field] %t25, 20
+    %t27 = unary decay ptr %t26
+    %t28 = index i32 [projection=array_element] %t27, 1
+    store i32 0, %t28
+    return void
+}
+function @written__written(%this : ptr) -> void [binding=weak, object=_ZN7writtenC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = unary decay ptr %t2
+    %t4 = index i32 [projection=array_element] %t3, 0
+    store i32 1, %t4
+    %t5 = load ptr $this
+    %t6 = index i8 [projection=field] %t5, 0
+    %t7 = unary decay ptr %t6
+    %t8 = index i32 [projection=array_element] %t7, 1
+    store i32 2, %t8
+    %t9 = load ptr $this
+    %t10 = index i8 [projection=field] %t9, 8
+    %t11 = unary decay ptr %t10
+    %t12 = index i32 [projection=array_element] %t11, 0
+    store i32 5, %t12
+    %t13 = load ptr $this
+    %t14 = index i8 [projection=field] %t13, 8
+    %t15 = unary decay ptr %t14
+    %t16 = index i32 [projection=array_element] %t15, 1
+    store i32 0, %t16
+    %t17 = load ptr $this
+    %t18 = index i8 [projection=field] %t17, 8
+    %t19 = unary decay ptr %t18
+    %t20 = index i32 [projection=array_element] %t19, 2
+    store i32 0, %t20
+    %t21 = load ptr $this
+    %t22 = index i8 [projection=field] %t21, 20
+    %t23 = unary decay ptr %t22
+    %t24 = index i32 [projection=array_element] %t23, 0
+    store i32 0, %t24
+    %t25 = load ptr $this
+    %t26 = index i8 [projection=field] %t25, 20
+    %t27 = unary decay ptr %t26
+    %t28 = index i32 [projection=array_element] %t27, 1
+    store i32 0, %t28
+    return void
+}
+function @built__built(%this : ptr) -> void [binding=weak, object=_ZN5builtC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = unary decay ptr %t2
+    %t4 = binary mul i64 0, 4
+    %t5 = index i8 [projection=array_element] %t3, %t4
+    call void @counted__counted(%t5)
+    %t6 = load ptr $this
+    %t7 = index i8 [projection=field] %t6, 0
+    %t8 = unary decay ptr %t7
+    %t9 = binary mul i64 1, 4
+    %t10 = index i8 [projection=array_element] %t8, %t9
+    call void @counted__counted(%t10)
+    return void
+}
+function @nested__nested(%this : ptr) -> void [binding=weak, object=_ZN6nestedC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = unary decay ptr %t2
+    %t4 = binary mul i64 0, 8
+    %t5 = index i8 [projection=array_element] %t3, %t4
+    %t6 = index i32 [projection=array_element] %t5, 0
+    store i32 1, %t6
+    %t7 = load ptr $this
+    %t8 = index i8 [projection=field] %t7, 0
+    %t9 = unary decay ptr %t8
+    %t10 = binary mul i64 0, 8
+    %t11 = index i8 [projection=array_element] %t9, %t10
+    %t12 = index i32 [projection=array_element] %t11, 1
+    store i32 2, %t12
+    %t13 = load ptr $this
+    %t14 = index i8 [projection=field] %t13, 0
+    %t15 = unary decay ptr %t14
+    %t16 = binary mul i64 1, 8
+    %t17 = index i8 [projection=array_element] %t15, %t16
+    %t18 = index i32 [projection=array_element] %t17, 0
+    store i32 3, %t18
+    %t19 = load ptr $this
+    %t20 = index i8 [projection=field] %t19, 0
+    %t21 = unary decay ptr %t20
+    %t22 = binary mul i64 1, 8
+    %t23 = index i8 [projection=array_element] %t21, %t22
+    %t24 = index i32 [projection=array_element] %t23, 1
+    store i32 4, %t24
+    return void
+}
+function @carried__carried(%this : ptr) -> void [binding=weak, object=_ZN7carriedC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    call void @written__written__base_entry(%t2)
+    %t3 = load ptr $this
+    %t4 = index i8 [projection=field] %t3, 28
+    store i32 9, %t4
+    return void
+}
+function @counted__counted(%this : ptr) -> void [binding=weak, object=_ZN7countedC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    store i32 4, %t2
+    return void
+}
+function @__cppgm_init() -> void [role=init, binding=internal] {
+  block ^entry:
+    %t1 = addr @one
+    call void @written__written(%t1)
+    %t2 = addr @made
+    call void @built__built(%t2)
+    %t3 = addr @rows
+    call void @nested__nested(%t3)
+    %t4 = addr @through
+    call void @carried__carried(%t4)
+    return void
+}
+alias object _ZN7writtenC2Ev = @written__written
+alias object _ZN5builtC2Ev = @built__built
+alias object _ZN6nestedC2Ev = @nested__nested
+alias object _ZN7carriedC2Ev = @carried__carried
+alias object _ZN7countedC2Ev = @counted__counted

@@ -1,0 +1,120 @@
+global @origin [binding=internal, object=_ZL6origin] = {
+  i32 1
+}
+global @assigned [binding=internal, object=_ZL8assigned] = {
+  zero 4
+}
+global @clauses [binding=internal, object=_ZL7clauses] = {
+  zero 8
+}
+global @elements [binding=internal, object=_ZL8elements] = {
+  zero 8
+}
+global @defaulted [binding=internal, object=_ZL9defaulted] = {
+  zero 4
+}
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    %t1 = addr @assigned
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i32 %t2
+    %t4 = binary sub i32 %t3, 2
+    return i32 %t4
+}
+function @source__source(%this : ptr, %given : i32) -> void [binding=weak, object=_ZN6sourceC1Ei] {
+  slot $this : ptr
+  slot $given : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %given, $given
+    %t1 = load i32 $given
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 %t1, %t3
+    return void
+}
+function @source__operatorpayload(%this : ptr) -> obj<4x4> [binding=weak, object=_ZNK6sourcecv7payloadEv] {
+  slot $this : ptr
+  slot $retobj__1 : obj<4x4>
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = addr $retobj__1
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    %t4 = load i32 %t3
+    %t5 = binary add i32 %t4, 1
+    call void @payload__payload(%t1, %t5)
+    return obj<4x4> $retobj__1
+}
+function @holding__holding(%this : ptr) -> void [binding=weak, object=_ZN7holdingC1Ev] {
+  slot $this : ptr
+  slot $tmpobj__1 : obj<4x4>
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = addr $tmpobj__1
+    call void @source__source(%t3, 20)
+    %t4 = call obj<4x4> @source__operatorpayload(%t3)
+    copyobj 4x4 %t4, %t2
+    return void
+}
+function @payload__payload(%this : ptr, %given : i32) -> void [binding=weak, object=_ZN7payloadC1Ei] {
+  slot $this : ptr
+  slot $given : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %given, $given
+    %t1 = load i32 $given
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 %t1, %t3
+    return void
+}
+function @__cppgm_init() -> void [role=init, binding=internal] {
+  slot $tmpobj__1 : obj<4x4>
+  slot $tmpobj__2 : obj<4x4>
+
+  block ^entry:
+    %t1 = addr @assigned
+    %t2 = addr @origin
+    %t3 = call obj<4x4> @source__operatorpayload(%t2)
+    copyobj 4x4 %t3, %t1
+    %t4 = addr @clauses
+    %t5 = index i8 [projection=field] %t4, 0
+    %t6 = addr @origin
+    %t7 = call obj<4x4> @source__operatorpayload(%t6)
+    copyobj 4x4 %t7, %t5
+    %t8 = addr @clauses
+    %t9 = index i8 [projection=field] %t8, 4
+    %t10 = addr $tmpobj__1
+    call void @source__source(%t10, 5)
+    %t11 = call obj<4x4> @source__operatorpayload(%t10)
+    copyobj 4x4 %t11, %t9
+    %t12 = addr @elements
+    %t13 = unary decay ptr %t12
+    %t14 = binary mul i64 0, 4
+    %t15 = index i8 [projection=array_element] %t13, %t14
+    %t16 = addr @origin
+    %t17 = call obj<4x4> @source__operatorpayload(%t16)
+    copyobj 4x4 %t17, %t15
+    %t18 = addr @elements
+    %t19 = unary decay ptr %t18
+    %t20 = binary mul i64 1, 4
+    %t21 = index i8 [projection=array_element] %t19, %t20
+    %t22 = addr $tmpobj__2
+    call void @source__source(%t22, 7)
+    %t23 = call obj<4x4> @source__operatorpayload(%t22)
+    copyobj 4x4 %t23, %t21
+    %t24 = addr @defaulted
+    call void @holding__holding(%t24)
+    return void
+}
+alias object _ZN6sourceC2Ei = @source__source
+alias object _ZN7holdingC2Ev = @holding__holding
+alias object _ZN7payloadC2Ei = @payload__payload

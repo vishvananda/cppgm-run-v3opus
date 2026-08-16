@@ -26,7 +26,12 @@ milestones deferred. Two ownership lines carry the whole assignment:
   what order — 12.6.2p10's, 10p1's base class subobjects before 9.2p13's
   members, which is the order 9.2p13 lays out, so one index is what a member
   access, a base conversion, an address path and an image all use — and
-  `member_path` is 10.2's lookup read back against it. **Done — checkpoint B.**
+  `member_path` is 10.2's lookup read back against it. Which of 8.5's
+  initializations a subobject takes is its *declared type*'s answer and not the
+  walker's: an array member holds a list exactly as a class member does, at a
+  mem-initializer as much as at a clause, and 8.5p16's one value filling a place
+  of class type is `at_class_place` wherever it is written. **Done — checkpoint
+  B and its audit.**
 - **Static-storage lowering** (`sema_analyzer.cpp` `record_storage`,
   `sema_lifetime.cpp`, `lowir_local_static.cpp`, `lowir_image.cpp`).
   Block-scope `static` objects were refused outright; 6.7p4's guard, 3.6.2's
@@ -136,11 +141,11 @@ the `.ref` files are the oracle and no fixture asks for the refusal.
 
 ## Current Failure Map
 
-**136/148**; 12 failures. 6 are a LowIR mismatch and the rest refuse a program
-the assignment asks it to translate. Groups N, T, I, P, V, R, C and B are
-closed, R and B with their audits pending only for B. Of the six LowIR rows, two
-are known gap L's symbol naming, one is I' below, one is the row checkpoint P
-reached, and two are group A below.
+**138/150**; 12 failures. 6 are a LowIR mismatch and the rest refuse a program
+the assignment asks it to translate. Groups N, T, I, P, V, R, C and B are all
+closed with their audits. Of the six LowIR rows, two are known gap L's symbol
+naming, one is I' below, one is the row checkpoint P reached, and two are group
+A below.
 
 | Group | Shape | Count |
 |---|---|---|
@@ -160,42 +165,39 @@ definition**: `extern const int k; const int k = 5;` is `binding=internal` and
 `_ZL1k` here and `binding=strong` and `_Z1k` in the reference, which 3.5p3
 agrees with; the same program with no `extern` is identical in both.
 
-## Active Checkpoint — the B audit
+## Active Checkpoint — group A, the constant a name reads through storage
 
-**Owner.** `sema_constexpr_object.cpp` for the list and the walks that build and
-read it, `sema_address.cpp` for the paths and the two directions of a
-derivation, `lowir_image.cpp` for the image, `sema_derivation.cpp` for the one
-walk all of them ask.
+**Owner.** `lowir_lower_expression.cpp` for what an id-expression lowers to,
+`lowir_image.cpp` and `lowir_lower.cpp` for which storage a unit then owes, with
+`SemaFact` carrying the fold's answer from `sema_constexpr_declaration.cpp`.
 
-**Data flow.** Checkpoint B widened one fact — the interned list an object of
-class type holds now has an entry per direct base before the members — and the
-audit is the sweep of every reader of it. The known shapes to probe: the sibling
-exits of `object_of` (the aggregate arm, 9.5p1's union, an array of a class with
-a base), of `at_class_place` (a place reached through a conversion function, a
-place of a class that is neither the value's nor a base of it) and of
-`at_reference_place` (a temporary bound where a *derived* place converts, a
-reference to a base of a base); every reader of `Subobject` that still asks only
-about a member (`bind_subobjects`' guard, `address_type`, `valued_subobject`);
-the declared types a base subobject may have, not just the `int` members both
-fixtures write; 11.2's access on a base-specifier the fold now walks through;
-source order — a use written before the derived class is complete; multiplicity
-— two bases of one class name (10.1p3 refuses it, so the probe is two *different*
-bases whose members share a name, which 10.2 makes ambiguous); and the
-nesting-depth and valgrind sweeps a widened list always needs.
+**Data flow.** 3.2p2 makes the lvalue-to-rvalue conversion of a `static
+constexpr` data member no odr-use, so `traits<int>::name` is `addr @__strlit__1`
+in the reference and no storage for the member is instantiated at all; here the
+id-expression lowers to `load ptr @traits_int___name` and the definition follows.
+The fold already *has* the value — checkpoints I and R put it on the declaration
+and on `AddressTable` — so the work is to ask it where the read is lowered rather
+than where the definition is written, and then to stop owing storage nothing
+names. The shapes to probe: a member read through its class name and through an
+object expression, an address taken of one (5.3.1p3 *is* an odr-use, so the
+storage comes back), a member of a class template specialization against one of
+a plain class, a member of pointer type against one of arithmetic type against
+one of class type, a definition written out beside one that is not, and a
+two-unit invocation where one unit reads and the other defines.
 
-**Expected complexity.** One `Subobject` vector per walk and one DFS step per
-class on a path; nothing here may become a scan of the hierarchy per member or a
-re-fold per base.
+**Expected complexity.** One read of the declaration's folded value per
+id-expression lowered, memoised where the fold already memoises it; nothing here
+may re-fold the initializer per use or walk the unit's globals per read.
 
 **Validation.** `make test-report ACTIVE_TEST_REPORT_PAS='pa21'` and
 `make test-report-through-pa20`, plus the differential sweep through
 `pa21/cppgm++-ref` and g++ over the shapes above, with each disagreement judged
 rather than copied.
 
-Group A is the substantial one after it: 3.2p2's lvalue-to-rvalue conversion of
-a static data member is no odr-use, so the lowering of an id-expression has to
-ask the fold what it holds before it emits a `load` of storage the reference
-never instantiates.
+Group T' is the substantial one after it: 14.7.1p1's demand for a member's
+definition queues it at the end of the instantiation, and a fold written in a
+later member of the same instantiation needs that one held definition where it
+stands.
 
 ## Performance Model
 
@@ -232,13 +234,16 @@ never instantiates.
 | an address constant | one `ConstantAddress` interned per distinct (object, path), memoised on the declaration for its own address - so a name read *n* times interns once and *n* map probes cost nothing; 5.7p5's walk interns one entry per step, and the addresses of one array are the same handful however many passes reach them, so a loop is flat | a fold loop walking a pointer over 1000 / 4000 / 16000 elements: 0.01 / 0.03 / 0.11s at 7 / 10 / 21 MB (ref 1.00s at 1000 and **189.37s** at 16000). A `while` walking a 4-element array to 5.7p4's bound 1e3 / 4e3 / 16e3 times over: 0.02 / 0.07 / 0.29s at a flat 6 MB (ref 1.20s at 14 MB). 500 / 2000 / 8000 declarations each keeping an object's address: 0.01 / 0.07 / 0.29s at 10 / 22 / 70 MB (ref 9.92s at 111 MB at 8000). 500 / 2000 / 8000 declarations each folding `&x` through a `const int &` place: 0.03 / 0.13 / 0.57s at 14 / 36 / 125 MB (ref 0.80 / - / 11.92s at 24 / - / 188 MB), and 500 / 2000 / 8000 folds each binding a reference place to a *different* object 0.02 / 0.11 / 0.46s at 12 / 29 / 99 MB (ref 6.61s at 117 MB) |
 | 8.5's operand | one reading per initializer-clause, whichever of 8.5's places it fills: the value reading, and where that refuses one lvalue walk of the *same* node with no second value reading in it — so an operand costs one walk when it folds and one and a bit when it does not, and a call written on a call is linear in the nesting and not 2^depth | `f(f(...(nonconst)))` 12 / 16 / 18 calls deep, refused: 0.00s at 6 MB throughout, against 0.05 / 0.67 / **2.67s** at `6d975910`. The same shape 8 / 16 / 32 / 64 deep and folding: 0.00s at 7 MB throughout, unchanged. The ten initializations of a pointer place the audit reopened, in one unit: 0.00s at 7 MB (ref 0.54s at 15 MB), refused at the first one before it |
 | a subobject an expression designates | one interning per member or element *read*, beside the value the list already held - so an aggregate fold pays one map probe per subobject and no walk | 1000 / 4000 / 16000 two-member class elements of an array, read back by a `static_assert`: 0.01 / 0.05 / 0.21s at 9 / 17 / 50 MB, against 0.01 / 0.05 / 0.20s before the checkpoint. 500 / 2000 / 8000 `constexpr` two-member objects: 0.02 / 0.07 / 0.33s at 10 / 21 / 64 MB (was 0.03 / 0.10 / 0.45s). A pointer into an array nested 8 / 12 / 16 / 20 deep, whose path is that long: 0.00s at a flat 6.1-6.4 MB - linear in depth. The 2^depth at depth 20 of a *class* nested that far is 8.5.1's dump and not this: `L20 deep = {};` costs 11.15s and 1.12 GB with no `constexpr` at all |
-| a base class subobject | one entry of the enclosing object's interned list per direct base, and 10.2's lookup read back as one step per class on the path — the class's own members asked before its bases, so an access costs one walk of the derivation and no search of it | a derivation 20 / 40 / 80 deep, each level with a member and a `constexpr` constructor, read at both ends: 0.00 / 0.00 / 0.01s at 6.9 / 7.4 / 8.7 MB. 500 / 2000 / 8000 objects of a class with a base, each member read back by a `static_assert`: 0.04 / 0.16 / 0.69s at 14 / 38 / 133 MB (ref 1.52s at 45 MB at 2000). 1000 / 4000 / 16000 reads of *one* base member: 0.01 / 0.03 / 0.13s at 7 / 10 / 23 MB (ref 0.85s at 53 MB). The cross product, 2000 reads of the deepest base member at depth 10 / 20 / 40: 0.02 / 0.03 / 0.06s — linear in depth, not 2^depth (ref 0.93s at depth 40) |
+| a base class subobject | one entry of the enclosing object's interned list per direct base, and 10.2's lookup read back as one step per class on the path — the class's own members asked before its bases, so an access costs one walk of the derivation and no search of it | a derivation 20 / 40 / 80 deep, each level with a member and a `constexpr` constructor, read at both ends: 0.00 / 0.00 / 0.01s at 6.9 / 7.4 / 8.7 MB. 500 / 2000 / 8000 objects of a class with a base, each member read back by a `static_assert`: 0.04 / 0.16 / 0.69s at 14 / 38 / 133 MB (ref 1.52s at 45 MB at 2000). 1000 / 4000 / 16000 reads of *one* base member: 0.01 / 0.03 / 0.13s at 7 / 10 / 23 MB (ref 0.85s at 53 MB). The cross product, 2000 reads of the deepest base member at depth 10 / 20 / 40: 0.02 / 0.03 / 0.06s — linear in depth, not 2^depth (ref 0.93s at depth 40). Depth 20 / 40 / 80 / 160 read at both ends: 0.00 / 0.00 / 0.01 / 0.03s at 6.9 / 7.9 / 9.7 / 12.8 MB, and 25 / 50 / 100 / 200 *direct* bases 0.00 / 0.01 / 0.02 / 0.04s. A member call on an object at depth 5 / 10 / 20 / 40, folded 2000 times with a distinct argument each pass so no memo answers: 0.05 / 0.08 / 0.14 / 0.29s — `bind_subobjects` walks the derivation once per call and not once per name |
+| a subobject of array type | one interned list per array wherever 8.5 fills one — a clause, an element, a declaration or a mem-initializer — so the reading is the declared type's and not the walker's, and 8.5.1p7's tail is one entry however long it is | 1000 / 4000 / 16000 elements of one array mem-initializer, read back by a `static_assert`: 0.01 / 0.05 / 0.23s at 10 / 23 / 76 MB (ref 0.59 / 0.80 / 1.70s at 25 / 55 / 178 MB), against a refusal at the mem-initializer before the B audit. 125 / 500 / 2000 array members each writing `{1, 2}`: 0.00 / 0.02 / 0.09s at 7.7 / 13 / 33 MB |
+| a place of class type filled from one value | 13.3.1.4p1's two halves asked in `match_by_value`'s order — one `converting_constructor` walk of the place's class, and only where none takes the value one `conversion_match` over the value's — so a value that is *not* of class type asks nothing new and one that is pays one extra pass over a set 13.3 has to walk anyway | 16000 folds of an `int` at a class place: 0.43s, unchanged. 16000 of a *class* value a converting constructor takes: 0.69s against 0.66s at `afbfc093` — 4%, and 4000 with 0 / 8 / 32 constructors declared 0.16 / 0.18 / 0.25s, linear in candidates. 1000 / 4000 / 16000 reaching the place through a conversion function: 0.04 / 0.19 / 0.83s at 17 / 49 / 178 MB, refused at the first one before it (the reference refuses the loop outright) |
 | an array of arrays | one interned list per row and one per column, with 8.5.1p7's value-initialized tail interned once *per level* - so a partly written array costs the clauses it wrote plus one entry per level and not one per element | `constexpr int grid[n][n] = {{1}};` at n = 100 / 300 / 1000, read back by a `static_assert` at the far corner: 0.00 / 0.00 / 0.00s at a flat 6.1-6.4 MB (ref 0.60 / 1.00 / 5.41s at 24 MB / 113 MB / 1.13 GB). `int deep[2]...[2] = {}` at depth 8 / 12 / 16 / 20: 0.10s at 6.8-7.1 MB throughout - linear in depth, not 2^depth |
 
 ## Completed Checkpoints
 
 | # | Checkpoint | Result |
 |---|---|---|
+| B audit | `afbfc093`, 3 blockers: `subobject_initialized` — the one of the three walkers that lays a list out which B split off and rewrote — had no arm for a subobject of *array* type, so `pair{1, 2}`, `partial{5}` and 12.6p1's default-initialized array of class type were **refused** where both oracles fold them and `emptied{}` took the scalar arm's `bits = 0`, which under an array type is the *empty* interned list and made `one.emptied[0]` read outside its bounds instead of 8.5p7's zero; 13.3.1.4p1's second half — the conversion functions of the value's own class — was asked at no place of class type at all, and asked nowhere because `initialized_value`, `clause_of` and `at_class_place` each performed 8.5p16's initialization themselves, so `constexpr payload p = source(1);` over `constexpr operator payload() const` was refused at a declaration, an aggregate clause, an array element, 12.6.2p8's brace-or-equal-initializer, an argument and 6.6.3p2's return alike; and the checkpoint's own known gap was written as a fold's and is the ABI's — the reference emits the *complete-object* entry of a constructor the program declared `constexpr` wherever it writes that definition out for a base subobject, with no fold, image or `constexpr` object anywhere, so every single-file program with such a base differed by one whole function. 8.5p16 is now one reading every door asks, an array subobject is `array_of`'s at a mem-initializer as at a clause, and 7.1.5p2's implicitly inline constructor owes both of the ABI's entry points. Two course fixtures pin both. See [audit.md](audit.md). | 136 → 138 (150) |
 | B | **10p1's base class subobject, as an entry of the list a constant of class type holds.** `sema_constexpr_object.cpp` split out of `sema_constexpr.cpp` to own both directions of that list, and `data_members` became `subobjects`: 12.6.2p10's order, the base subobjects before the members, which is the order 9.2p13 lays out and the one number a member access, a base conversion and an address path all index by. `Derivation::subobject_path` answers a fifth question of the one derivation walk - the *steps* rather than the byte. Every reading that already existed asks the widened list: `member_path` for a name 10.2's lookup finds in a base and `member_address` for its address, `subobject_initialized` for a mem-initializer that names a base by its type (14.5.3p4's `Base(v)...` keyed by `SemaAnalyzer::base_key` per element) and for 12.6.2p4's default-initialized one, `at_class_place` and `bound_object` for 4.10p3 down and 5.2.9p11 back up, and `constant_image` and `global_constructed` for the image - the second threading the enclosing frame's bindings, because a base's mem-initializer names the outer constructor's parameters. Carried four siblings the door reached: 12.8p15's implicitly-defined copy constructor is the argument's own list; 9.3.2p1's `this` is bound in the fold's region and 9.3.1p3 makes an unqualified member call one on it; `vpointer_image` asks 7.1.5p4 rather than who wrote the constructor; and 14.6p8 stands a value in for an object of a dependent type and for a call any operand stood in for. Two course fixtures pin both sides. | 126 → 136 (148) |
 | R audit | `6d975910`, 5 blockers: 4.2p1's decay of an object with no value was asked at two of the eleven places 8.5 fills a pointer from, so `(buf)`, `{buf}`, an aggregate clause, an array element, 12.6.2p8's held initializer, a mem-initializer, 8.3.6p1's default-argument, `return buf;`, `static_cast<char *>(buf)` and a function name each **refused a program both oracles translate**; the lvalue walk behind that door ended in the value reading that had just refused, so a refused operand cost its subtree twice and eighteen nested calls were **2.67s**; `holds_address` asked the type alone, so `static int *held;` reached a pointer place as 4.10p1's **null pointer value** and `static_assert(identity(held) == 0, "")` passed where both oracles refuse the program; 5.19p3's user-defined conversion was asked at every arithmetic place and at no pointer place; and the refusal a valueless operand makes claimed 5.19's answer about the program, which turned `constexpr int r = f(d.x);` over group B's class with a base into a hard error where the checkpoint before R accepted it. `operand_constant` is now 8.5's one operand reading at every place one is filled, `designated` is told when a value reading is no longer worth doing, and `covered_object` carries checkpoint V's answer through the object an address designates. Two course fixtures pin both sides. See [audit.md](audit.md). | 124 → 126 (146) |
 | R | **5.19p2's address constant, and the object one designates.** `sema_address.cpp` owns it: `ConstantAddress` is a base — a declaration, 2.14.5p8's literal, or 12.2p1's temporary interned by what it holds — and the path of subobject indices down it, `AddressTable` gives each one number so a constant of pointer type is interned like any other, and `SemaConstant` gains 3.10p1's `object` beside `::valued`, which is what a `static int n;` has an address and no value of. Every reading that already existed asks it: `designated` is the lvalue walk beside `evaluate`'s value one, `unary_constant` for `&` and `*`, `binary_value` for 5.10p1's equality and 5.7p5's arithmetic with its one-past-the-end bound, `accessed_object` for the `->` checkpoint P left unopened, `subscript_constant` for the three operands 5.2.1p1 has, `at_pointer_place` for 4.2p1 and 4.3p1's decay, and `at_reference_place` for 8.3.2p1's binding — which is what makes `&value` inside a body the *argument's* address and what keys a fold on which object it was written on. `call` hands a reference return back as the object it designates; `fold_declared_object` asks 5.19p2's own requirement that it be one with static storage duration. Carried the two siblings the door reached: 5.2.9's cast to a reference or a class type (group C), and `valued_subobject`, one sentence for the kinds a member and an element may be. Two course fixtures pin both sides. | 110 → 124 (144) |
@@ -263,20 +268,35 @@ never instantiates.
 | I | **3.6.2p2's image is the declaration's, and 9.4.2p3 makes that one declaration.** A static data member's out-of-class definition takes the in-class brace-or-equal-initializer (`member_initializers_` now holds a static member's too) and the array bound that initializer deduced, so it is initialized rather than default-initialized; `ConstexprReading::clause_of` reads a clause against the *subobject* it initializes, which is what folds `{{1,2},{3,4}}` into an array of class type; a scalar whose second fold over the dump stops takes `SemaEntity::value`/`::real`, and 3.2p2 then makes nothing in that initializer a use. Carried 4.2: a subscript names no array, so `a[1][0]` decays once. `lowir_image.cpp` split out of `lowir_lower.cpp`; `fold_constant_object` became `ConstexprReading::fold_declared_object` and 8.5.1p1's `aggregate_class` moved to `sema_scope.cpp`. | 75 → 82 |
 
 
-**Known gaps (B).** Two shapes the differential sweep found, both one layer past
-the fold. `vpointer_image` asks 7.1.5p4 of the constructor and 9p6 of the
-storage, so a class whose whole object *is* the vpointer takes the image and one
-with a member beside it does not — `struct object : base { int held; constexpr
-object() : base(), held(3) {} };` is `ptr addr @object__vtable + 16, i32 3` in
-the reference and `zero 16` with a startup body here, because no walk here
-writes the vpointer into a structured image beside the members. And the complete
--object constructor of a base a folded image went *through* is a definition this
-unit does not write: `constexpr tagged one(11);` over a `tagged_base` the program
-wrote a constructor for emits `@tagged_base__tagged_base__base_entry` alone,
-where the reference emits `@tagged_base__tagged_base` with the C2 alias beside
-it — the same sentence the I audit's row records, now reachable through a base.
-The course fixture works around it by letting 12.1p5 define the base's
-constructor, which neither oracle then writes out.
+**Known gap (B).** One shape the differential sweep found, one layer past the
+fold. `vpointer_image` asks 7.1.5p4 of the constructor and 9p6 of the storage, so
+a class whose whole object *is* the vpointer takes the image and one with a
+member beside it does not — `struct object : base { int held; constexpr object()
+: base(), held(3) {} };` is `ptr addr @object__vtable + 16, i32 3` in the
+reference and `zero 16` with a startup body here, because no walk here writes the
+vpointer into a structured image beside the members.
+
+**Known gaps (B audit).** Where the reference draws the base's complete-object
+line is a *file position*: with both class definitions in the primary source file
+it emits both of the ABI's entry points for a constructor the program declared
+`constexpr`, and with the identical tokens reached through `#include`, or in a
+two-unit invocation where both units use the base, it emits the base entry alone.
+Phases 1-7 keep no position, so this build owes both wherever it writes the
+definition out — which is what g++'s object file holds too, and which no fixture
+reaches, because none of the 150 uses an `#include`. Beside it, `constexpr A()
+= default;` on a base is a third answer again: the reference emits a
+`trivial_lifecycle=yes` complete-object entry for it and this build emits nothing,
+and nothing calls either. Two shapes stay refused with no oracle to pin the
+acceptance: `arr()` as a mem-initializer of an array member, which g++ folds and
+the reference calls an `unsupported constexpr variable initializer` two
+characters away from the `arr{}` it takes; and the *direct*-initialization
+`constexpr payload p(origin);` where one user-defined conversion stands inside the
+argument's sequence, which g++ folds and the reference **segfaults** on. And a
+reference *declaration* folds nothing at all — `constexpr int const &r = n;` and
+every reference to a class or a base of one is refused where both oracles fold,
+because `fold_declared_object` gates on `const` standing on a type that is built,
+addressed or arithmetic and a reference is none of the three. That one is
+`fold_declared_object`'s and reaches no reading checkpoint B owns.
 
 **Known gaps (R).** Three shapes the differential sweep found where
 `pa21/cppgm++-ref` refuses what g++ and this build fold, so no `.ref` can pin
