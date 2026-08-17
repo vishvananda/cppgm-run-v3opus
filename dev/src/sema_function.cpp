@@ -9,6 +9,7 @@
 #include "ast_tokens.h"
 #include "sema_constexpr.h"
 #include "sema_operator.h"
+#include "sema_specialize.h"
 #include "token_model.h"
 
 // 8.4 and 13.1: what a function declaration declares, and what its definition
@@ -531,6 +532,12 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 	pending.self = self;
 	pending.body = &node;
 	pending.scope = inner.scope;
+	// 14.7.3p1: whether this body is the pattern's read again for *one member of a
+	// class* one argument list makes, which is the one kind of body a definition
+	// written later replaces.  A specialization of a function template is the
+	// declaration 14.7.1p1 already made and its body is `explicit_functions`'
+	// question, so it is written whichever reading reached it.
+	pending.from_pattern = instantiating_pattern_ > 0 && specializing == nullptr;
 	if (entity.constexpr_function)
 	{
 		// 7.1.5p3: what a fold of a call reads - the body, and the region the
@@ -822,9 +829,23 @@ SemaEntity& SemaAnalyzer::declare_function(const std::string& name, TypeId type,
 		}
 		if (define && prior->defined)
 		{
-			throw std::runtime_error(name + " is defined twice");
+			// 14.7.3p1: the definition this unit holds of a member of a class
+			// template specialization is 14.7.1p1's reading of the pattern until
+			// the program writes one out for exactly those arguments, and the
+			// written one *is* that member's definition - so it replaces the
+			// instantiated body rather than standing beside it.  Two written ones
+			// are still 3.2p1's redefinition, and so are two instantiated: the
+			// second of those is 14.5.4p1's second instantiation of a class that
+			// defines a friend.
+			if (!prior->instantiated_definition || instantiating_pattern_ > 0)
+			{
+				throw std::runtime_error(name + " is defined twice");
+			}
+			Specialization(*this).supersede(*prior);
 		}
 		prior->defined = prior->defined || define;
+		prior->instantiated_definition = prior->instantiated_definition ||
+			(define && instantiating_pattern_ > 0);
 		if (define && prior->template_parameters != nullptr)
 		{
 			// 14.5.6.1p5 and 14p1: the definition is of the template an earlier
@@ -856,6 +877,10 @@ SemaEntity& SemaAnalyzer::declare_function(const std::string& name, TypeId type,
 	SemaEntity& entity = model_.create(SemaKind::Function, name, type);
 	name_in_region(entity, where, name);
 	entity.defined = define;
+	// 14.7.1p1 with 14.7.3p1: whether the definition this declaration arrives
+	// with is one no unit wrote out, which is what 14.7.3p1 lets a later written
+	// one replace.
+	entity.instantiated_definition = define && instantiating_pattern_ > 0;
 	entity.c_linkage = c_linkage_;
 	entity.tail = &entity;
 	if (head_region != nullptr)

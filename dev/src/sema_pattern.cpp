@@ -293,6 +293,31 @@ std::string PatternReading::member_spelling(const AstNode& node)
 	return id == nullptr ? std::string() : id->text;
 }
 
+// 14.7.1p1: the class one component of a nested-name-specifier names, or null
+// where the region cannot settle its arguments.
+//
+// It is the one question the two tiers of 14.5.2p3 both ask about a component:
+// a template-id the region can settle names a class the walk goes on inside, and
+// one it cannot names this head's own places - which is what says the definition
+// is a member of the template rather than of a class the program wrote out.  The
+// class is `instantiate_class`'s and so memoized, so asking costs one lookup per
+// component.
+SemaEntity* PatternReading::settled(const std::string& component,
+                                    const SemaContext& ctx, Scope* in)
+{
+	try
+	{
+		return analyzer_.template_id_entity(component, ctx, in,
+		                                    LookupKind::Region);
+	}
+	catch (const std::exception&)
+	{
+		// 14.6.2p1: the arguments name something this region does not bind, which
+		// is what the head standing over this declaration declares.
+		return nullptr;
+	}
+}
+
 // 14.5.1.3p1: the class template a definition written outside its class is a
 // member of.
 //
@@ -341,8 +366,17 @@ SemaEntity* PatternReading::owner(const AstNode& node, const SemaContext& ctx,
 		{
 			return nullptr;
 		}
-		if (written.valid() && named->kind == SemaKind::Class &&
-		    named->templated != nullptr)
+		const bool templated = written.valid() &&
+			named->kind == SemaKind::Class && named->templated != nullptr;
+		// 14.5.1.3p1: the nested-name-specifier of a definition written outside
+		// its class writes this head's own places as the arguments, which is why
+		// the region cannot settle them - and 14.7.3p1's own class is the other
+		// way round: `box<void>::apply` names a class the program wrote out, whose
+		// member template this definition is, so the walk goes on inside it
+		// exactly as `nested_owner` already does at the tier below.
+		SemaEntity* const inside =
+			templated ? settled(spelled.part(index), ctx, reached) : named;
+		if (templated && inside == nullptr)
 		{
 			if (wrote != nullptr)
 			{
@@ -354,7 +388,7 @@ SemaEntity* PatternReading::owner(const AstNode& node, const SemaContext& ctx,
 		// it, which is a declaration with no region of its own - so the region
 		// walked into is `region_of`'s answer, exactly as it is for the same
 		// prefix read by `resolve_prefix`.
-		reached = analyzer_.model_.region_of(*named);
+		reached = analyzer_.model_.region_of(*inside);
 		if (reached == nullptr)
 		{
 			return nullptr;
@@ -414,26 +448,11 @@ SemaEntity* PatternReading::nested_owner(const AstNode& node,
 		const bool templated =
 			id.valid() && named->kind == SemaKind::Class &&
 			named->templated != nullptr;
-		Scope* inside = nullptr;
-		try
-		{
-			// 14.7.1p1: a component the region can settle names one class, and
-			// the walk goes on inside it.  One this head has yet to declare the
-			// places of settles nothing, which is what stops the walk.
-			SemaEntity* const settled =
-				templated ? analyzer_.template_id_entity(
-					            spelled.part(index), ctx, reached,
-					            LookupKind::Region)
-				          : named;
-			inside = settled == nullptr ? nullptr
-			                            : analyzer_.model_.region_of(*settled);
-		}
-		catch (const std::exception&)
-		{
-			// 14.6.2p1: the arguments name something this region does not bind,
-			// which is what the head standing over this declaration declares.
-			inside = nullptr;
-		}
+		SemaEntity* const reachable =
+			templated ? settled(spelled.part(index), ctx, reached) : named;
+		Scope* const inside = reachable == nullptr
+			? nullptr
+			: analyzer_.model_.region_of(*reachable);
 		if (inside == nullptr)
 		{
 			if (index == 0 || !templated)
@@ -540,6 +559,10 @@ void PatternReading::instantiate(SemaEntity& made,
 	// is both what the clause forbids and what makes n such definitions over n
 	// specializations n^2 bodies for the ones a program calls.
 	const ReadingDepth instantiating(analyzer_.instantiating_class_);
+	// 14.7.3p1: what this reading writes is the template's definition read again
+	// for these arguments, which is exactly the definition a `template<>` written
+	// for them replaces.
+	const ReadingDepth reading(analyzer_.instantiating_pattern_);
 	if (region == nullptr)
 	{
 		// A head 14.5.5 parameterises names no member of this template, so the

@@ -657,6 +657,11 @@ struct SemaEntity
 	// and one 14.7.3p1's `template<>` wrote for these arguments is this unit's
 	// however little it reaches - while one a pattern was read again for
 	// belongs to the program where the program reaches it.
+	//
+	// 14.7.3p1 reads it of a function too, where it is what tells a redefinition
+	// from a replacement: an explicit specialization of one member of one class
+	// specialization *is* that member's definition, so the body the pattern's
+	// reading put aside is dropped and this becomes false again.
 	bool instantiated_definition;
 	// 3.2p3 with 14.7.1p1: whether an object of this class has already asked
 	// its static data members for the storage they stand in, which is one visit

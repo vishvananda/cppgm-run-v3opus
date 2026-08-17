@@ -386,6 +386,120 @@ bool Specialization::record_explicit(const AstNode& declared,
 	return true;
 }
 
+// 14.7.3p1: the definition this declaration held was 14.7.1p1's reading of the
+// pattern, and the program has now written its own out for these arguments.
+//
+// So the body that reading put aside is no definition of anything: what it was
+// read from is a pattern this argument list is no longer read from at all.  The
+// mark on the declaration is what says so, and the queued entry carries the
+// matching one - so this drops the one entry still reachable by name and leaves
+// the end of the unit to skip whatever is already in its list, which costs one
+// flag test per definition written there rather than a walk of the queue.
+void Specialization::supersede(SemaEntity& function)
+{
+	function.instantiated_definition = false;
+	analyzer_.held_definitions_.erase(function.id);
+	if (function.templated != nullptr)
+	{
+		// 14.5.2p1 and 14.7.3p1: the declaration is a member *template*, and what
+		// it held was the pattern the class pattern's own reading gave it - so the
+		// definition arriving now is the pattern every specialization of this
+		// member is read from, and `record_function_template` writes it where that
+		// reading wrote the other.  A specialization already read from the old one
+		// is 14.7.3p6's use written above the definition, which the clause leaves
+		// undiagnosed.
+		function.templated->pattern = nullptr;
+	}
+}
+
+// 14.7.3p1 with 5.19p2: what 9.4.2p2's definition of a static data member of a
+// class template specialization leaves a use of the name to read.
+//
+// `instantiated` says which definition this is: one 14.7.1p1 read from the
+// template's own, or one the program wrote out for exactly these arguments.  The
+// second is 14.7.3p1's, and it makes the initializer a fact of the definitions
+// rather than of the member - so the value the pattern wrote is no longer one
+// every specialization of this member was initialized with, and neither the
+// specializations already made nor the ones made after it may be read as
+// constants.  The one the program wrote keeps its own.
+//
+// The template is reached from the class the member belongs to, and the walk is
+// over the specializations that class's template already has - once per
+// `template<>` definition of a member, and nothing at all for the definitions of
+// a template no such declaration was written for.
+void Specialization::note_object(SemaEntity& member, bool instantiated)
+{
+	Scope* const region = member.region;
+	if (region == nullptr || region->kind != ScopeKind::Class ||
+	    region->owner == nullptr || region->owner->primary == nullptr ||
+	    region->owner->primary->templated == nullptr)
+	{
+		return;
+	}
+	TemplateInfo& info = *region->owner->primary->templated;
+	if (instantiated)
+	{
+		// 14.7.1p1: this is the template's definition read again for one argument
+		// list, so it is a constant only while it is the only definition of the
+		// member the unit has.
+		if (info.explicit_members.find(member.name) != info.explicit_members.end())
+		{
+			member.constant = false;
+			member.covered_constant = false;
+		}
+		return;
+	}
+	// 14.6.1p1 with 14.5.1.3p1: the template's *own* out-of-class definition
+	// declares into the current instantiation of whichever body it was written
+	// over, which is the class the head's own places make - so it is the one
+	// definition every specialization is read from and not one argument list's.
+	const std::unordered_map<std::uint32_t, std::size_t>::const_iterator wrote =
+		info.patterns.find(region->owner->template_arguments);
+	if (region->owner == info.current ||
+	    (wrote != info.patterns.end() &&
+	     info.partials[wrote->second].current == region->owner))
+	{
+		return;
+	}
+	if (!info.explicit_members.insert(member.name).second)
+	{
+		return;
+	}
+	for (std::size_t index = 0; index < info.specializations.size(); ++index)
+	{
+		SemaEntity* const made = info.specializations[index];
+		SemaEntity* const held = made->scope == nullptr
+			? nullptr
+			: analyzer_.model_.find(*made->scope, member.name, LookupKind::Any);
+		if (held != nullptr && held != &member && held->instantiated_definition)
+		{
+			held->constant = false;
+			held->covered_constant = false;
+		}
+	}
+}
+
+
+// 3.2p1 with 14.7.3p1: a second definition of one special member, and the one
+// kind of second definition the clause allows.
+//
+// 12's entry points are read exactly as `declare_function` reads every other
+// member: an instantiation of the class reads the pattern's body for them, and
+// what that body defines is the definition this unit holds only until the program
+// writes one out for these arguments.  `template<> tag<int>::~tag() {}` is that
+// definition, so it replaces the instantiated one; two written ones, and two
+// instantiated, are still the redefinition 3.2p1 refuses.
+void Specialization::require_replaceable(SemaEntity& member,
+                                        const std::string& spelled)
+{
+	if (!member.instantiated_definition || analyzer_.instantiating_pattern_ > 0)
+	{
+		throw std::runtime_error(spelled + " is defined twice");
+	}
+	supersede(member);
+	member.defined = false;
+}
+
 // 14.5.1p1: the variable template itself, which declares a name in the region
 // its head stands in and no object anywhere.
 //

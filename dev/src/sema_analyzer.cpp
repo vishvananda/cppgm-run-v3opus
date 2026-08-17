@@ -8,6 +8,7 @@
 #include "sema_constexpr.h"
 #include "sema_derivation.h"
 #include "sema_operator.h"
+#include "sema_specialize.h"
 #include "sema_string_init.h"
 #include "sema_template_head.h"
 
@@ -94,6 +95,7 @@ SemaAnalyzer::SemaAnalyzer(SemaDialect dialect)
 	, resettle_classes_(false)
 	, instantiating_class_(0)
 	, instantiated_body_(0)
+	, instantiating_pattern_(0)
 	, template_pattern_(nullptr)
 	, template_pattern_dump_(nullptr)
 	, instantiating_(nullptr)
@@ -121,6 +123,7 @@ PendingDefinition::PendingDefinition()
 	, initializers(nullptr)
 	, members(nullptr)
 	, instantiation(false)
+	, from_pattern(false)
 	, stands_in(nullptr)
 	, head(nullptr)
 {}
@@ -621,6 +624,14 @@ void SemaAnalyzer::write_definition(Pending& pending)
 	if (pending.instantiation)
 	{
 		write_instantiation(pending);
+		return;
+	}
+	if (pending.from_pattern && !function.instantiated_definition)
+	{
+		// 14.7.3p1: the program wrote a definition of this declaration out for
+		// these arguments after the reading that queued this one, and that
+		// definition is what the specialization has - so the pattern's reading is
+		// not a second body of it but no body at all.
 		return;
 	}
 	// 14.5.1.3p1 and 14.1p2: a definition written outside its class is read
@@ -1179,7 +1190,20 @@ void SemaAnalyzer::read_template_head(const AstNode& node, const Context& ctx)
 	// declarator-id that names a region of its own still has these parameters
 	// standing over it.  A reading nested inside that declaration opens a
 	// context of its own and inherits nothing of this.
-	inner.template_head = inner.scope;
+	//
+	// 14.7.3p1's own head is the exception: `template<>` declares no parameter, so
+	// it parameterises nothing and the declaration under it is written where the
+	// template-declaration stands.  Saying otherwise makes 14.5.6.1p5 compare
+	// `template<> int tag<int>::id()` against the class's own `static int id()` as
+	// two *templates*, which is 13.1's plain redeclaration written over no places
+	// at all.  A second head under this one says what it parameterises itself.
+	const AstNode* const clause =
+		child_of(node, AstKind::TemplateParameterClause);
+	if (clause == nullptr ||
+	    child_of(*clause, AstKind::TemplateParameterList) != nullptr)
+	{
+		inner.template_head = inner.scope;
+	}
 
 	for (std::size_t index = 0; index < node.children.size(); ++index)
 	{
@@ -2423,6 +2447,13 @@ void SemaAnalyzer::declare_object_declarator(const AstNode* initializer,
 	// this unit's own, which is what tells the two apart here.
 	entity.instantiated_definition = entity.instantiated_definition ||
 		(defines_object && ctx.instantiated_member);
+	if (defines_object && initializer != nullptr &&
+	    !initializer->children.empty())
+	{
+		// 14.7.3p1: which definition of a static data member of a class template
+		// specialization this unit holds, and what that leaves 5.19p2 to read.
+		Specialization(*this).note_object(entity, ctx.instantiated_member);
+	}
 	// 10.4p2: a class with a pure final overrider has no objects, so the
 	// declarations that lay one out are refused.  9.4.2p2's declaration of a
 	// static data member lays none out - the definition written outside the

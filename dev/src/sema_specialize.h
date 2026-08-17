@@ -59,6 +59,21 @@ public:
 	// that the reading of a specialization finds it in place of the pattern.
 	bool record_explicit(const AstNode& declared, const SemaContext& ctx);
 
+	// 14.7.3p1 over a member of a class template specialization: which of the two
+	// definitions of it this unit holds.
+	//
+	// 14.7.1p1's reading of the pattern gives one to every argument list, and the
+	// program may write one out for exactly one list - so what the clause needs is
+	// not a second record beside `record_explicit`'s but the answer to "which one
+	// is this declaration's", kept on the declaration itself.  `supersede` is what
+	// a written definition does to a read one, `require_replaceable` is 3.2p1's
+	// refusal of every other second definition, and `note_object` is 9.4.2p2's
+	// static data member, whose initializer is a value 5.19p2 reads only while the
+	// pattern's is the one definition the unit has.
+	void supersede(SemaEntity& function);
+	void require_replaceable(SemaEntity& member, const std::string& spelled);
+	void note_object(SemaEntity& member, bool instantiated);
+
 	// 7.1.3p2 with 14.5.7p1: the alias template a head over an
 	// alias-declaration declares, bound in the region the head stands in.
 	// False where the declaration is no alias-declaration or the head declares

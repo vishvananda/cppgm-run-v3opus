@@ -7,6 +7,7 @@
 #include "sema_constexpr.h"
 #include "sema_derivation.h"
 #include "sema_pack.h"
+#include "sema_specialize.h"
 
 namespace
 {
@@ -462,7 +463,7 @@ bool SemaAnalyzer::conversion_function_definition(const AstNode& node,
 	}
 	if (entity.defined)
 	{
-		throw std::runtime_error(node.text + " is defined twice");
+		Specialization(*this).require_replaceable(entity, node.text);
 	}
 	const AstNode* const specifiers = child_of(node, AstKind::MemberSpecifiers);
 	for (std::size_t index = 0;
@@ -741,6 +742,10 @@ void SemaAnalyzer::open_special_member_body(
 	Scope* head)
 {
 	entity.defined = true;
+	// 14.7.1p1 with 14.7.3p1: whether this body is the pattern's read again for
+	// one argument list, which is what 14.7.3p1 lets a definition written out for
+	// exactly those arguments replace.
+	entity.instantiated_definition = instantiating_pattern_ > 0;
 	// 2.2p1: which file this definition was read from, which is what says
 	// whether the object file owes the ABI's entry points for it or only the
 	// ones this unit's own code named.  It is read here for the same reason
@@ -813,11 +818,11 @@ void SemaAnalyzer::open_special_member_body(
 
 // 9.3p2 and 12.1p1: a constructor or a destructor defined outside its class.
 // 3.4.3p3 makes the declarator-id name the class the definition belongs to, so
-// the class is the region the whole definition is read against - its
-// parameters, its mem-initializers and its body alike - and what it defines is
-// the declaration that class already made rather than a second one.  A class
-// declares its special members once, where 9.2p2 completes it, so a definition
-// that matches none of them defines nothing and is refused rather than dropped.
+// the class is the region the whole definition is read against - its parameters,
+// its mem-initializers and its body alike - and what it defines is the
+// declaration that class already made rather than a second one.  A class declares
+// its special members once, where 9.2p2 completes it, so a definition that
+// matches none of them defines nothing and is refused rather than dropped.
 void SemaAnalyzer::special_member_definition(const AstNode& node,
                                              const Context& ctx)
 {
@@ -898,7 +903,7 @@ void SemaAnalyzer::special_member_definition(const AstNode& node,
 	}
 	if (entity->defined)
 	{
-		throw std::runtime_error(node.text + " is defined twice");
+		Specialization(*this).require_replaceable(*entity, node.text);
 	}
 	// 15.4p1: the definition is a declaration of the function like the one the
 	// class body wrote, so the two shall write the same exception-specification
@@ -963,6 +968,17 @@ void SemaAnalyzer::special_member_definition(const AstNode& node,
 	// class body wrote, so a parameter it left unnamed is named by whichever
 	// declaration of the constructor named it.
 	record_declared_parameters(*entity, parameters, target.scope);
+	if (node.kind == AstKind::SpecialMemberDeclaration)
+	{
+		// 14.7.3p1 with 12.1p1: a `template<>` head over a constructor of a class
+		// template specialization writes a *declaration* of the member that
+		// specialization already has, and no body - so what it says is that the
+		// declaration is the program's own for these arguments and there is
+		// nothing else to read.  Every other special-member-declaration written
+		// outside a class body wrote 8.4p2's `= default` or `= delete`, which the
+		// arm above already took.
+		return;
+	}
 	entity->out_of_class_definition = holds_written_definitions(*target.scope);
 	if (head != nullptr)
 	{

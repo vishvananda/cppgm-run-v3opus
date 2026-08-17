@@ -233,6 +233,13 @@ struct PendingDefinition
 	// write rather than a definition it did, and which the output writes as
 	// the declaration with the parameters of the template it was made from.
 	bool instantiation;
+	// 14.7.3p1: whether the body held here is one 14.7.1p1's reading of a pattern
+	// made.  Such a body is the definition of the specialization only until the
+	// program writes one out for exactly these arguments - so the entry is dropped
+	// where `SemaEntity::instantiated_definition` says the declaration no longer
+	// holds it, which is one flag test per definition written at the end of the
+	// unit and no walk of what was queued.
+	bool from_pattern;
 	// 14.5.1.3p1 and 14.1p2: the class an out-of-class member definition of a
 	// specialization stands inside while it is read, and the region its own
 	// head declared its places in.  14.7.1p1 leaves the body to the use that

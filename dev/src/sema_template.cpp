@@ -298,13 +298,18 @@ namespace
 bool has_written_definition(const SemaEntity& function)
 {
 	const SemaEntity& primary = *function.primary;
-	if (primary.defined)
+	const bool written = primary.templated != nullptr &&
+		primary.templated->explicit_functions.find(function.template_arguments) !=
+			primary.templated->explicit_functions.end();
+	if (written)
 	{
 		return true;
 	}
-	return primary.templated != nullptr &&
-		primary.templated->explicit_functions.find(function.template_arguments) !=
-			primary.templated->explicit_functions.end();
+	// 14.7.3p1: a `template<>` declaration of exactly this argument list says the
+	// specialization is not the pattern's to be read for - so a program that wrote
+	// one and no body for it left the definition to another unit, and this one
+	// writes the declaration.  The pattern's own body defines every *other* list.
+	return primary.defined && !function.explicit_specialization;
 }
 
 }  // namespace
@@ -469,6 +474,22 @@ const AstNode* first_child(const AstNode& node, AstKind kind)
 		}
 	}
 	return nullptr;
+}
+
+// 14.7.3p1: the one init-declarator a `template<>` declaration writes.  A head
+// parameterises one declaration, so a simple-declaration that declared two names
+// is no explicit specialization of either.
+const AstNode* only_declarator(const AstNode& declared)
+{
+	const AstNode* const list =
+		first_child(declared, AstKind::InitDeclaratorList);
+	if (list == nullptr || list->children.size() != 1 ||
+	    list->children[0]->children.empty() ||
+	    list->children[0]->children[0]->kind != AstKind::Declarator)
+	{
+		return nullptr;
+	}
+	return list->children[0];
 }
 
 // 14.5.4p1 with 11.3p11: `template<class U> friend class W;` - a
@@ -859,6 +880,20 @@ bool SemaAnalyzer::record_explicit_specialization(const AstNode& declared,
 	const std::uint32_t list = types_.type_list(arguments);
 	if (declared.kind == AstKind::ClassSpecifier)
 	{
+		// 14.7.3p6: the specialization shall be declared before the first use of
+		// it that would cause an implicit instantiation, and a class this unit has
+		// already read the pattern for is exactly such a use - the declarations
+		// that reading made are the pattern's and this body would give the same
+		// class a second set.
+		const SemaEntity* const already =
+			model_.specialization_of(*primary, list);
+		if (already != nullptr && already->defined &&
+		    info.explicit_classes.find(list) == info.explicit_classes.end())
+		{
+			throw std::runtime_error("an explicit specialization of " + id.name() +
+			                         " is written after the specialization it "
+			                         "names was instantiated");
+		}
 		// The body is recorded before the declaration is reached, so that a
 		// specialization the unit already named is completed from *this*
 		// definition rather than from the pattern.
@@ -889,16 +924,34 @@ bool SemaAnalyzer::record_explicit_specialization(const AstNode& declared,
 // list the specialization is of.  14.8.2's deduction of an argument list the
 // declaration left unwritten is a later milestone, so a head that wrote none
 // leaves the declaration to the ordinary walk.
+//
+// The clause writes a *declaration* as readily as a definition, and what that
+// declaration says is the whole of 14.7.3p1: this argument list is not the
+// pattern's to be read for.  So a simple-declaration is taken here too and the
+// body alone is what tells the two apart - `has_written_definition` reads the
+// mark, and a specialization named where no `template<>` wrote a body is a
+// declaration this unit writes and no instantiation of anything.
 bool SemaAnalyzer::record_explicit_function(const AstNode& declared,
                                             const Context& ctx)
 {
-	if (declared.kind != AstKind::FunctionDefinition)
+	const bool defines = declared.kind == AstKind::FunctionDefinition;
+	const AstNode* const init =
+		declared.kind == AstKind::SimpleDeclaration ? only_declarator(declared)
+		                                           : nullptr;
+	if (!defines &&
+	    (init == nullptr ||
+	     first_child(*init, AstKind::Initializer) != nullptr))
 	{
+		// 14.5.1p1's variable template specialization writes an initializer, and
+		// `Specialization::record_explicit` is what has already been asked about
+		// it; a declaration with none is what a function's may be.
 		return false;
 	}
-	const AstNode* const id = declared.children.size() > 1
-		? declarator_id(*declared.children[1])
-		: nullptr;
+	const AstNode* const id = defines
+		? (declared.children.size() > 1 ? declarator_id(*declared.children[1])
+		                                : nullptr)
+		: (init->children.empty() ? nullptr
+		                          : declarator_id(*init->children[0]));
 	if (id == nullptr || !TemplateId(QualifiedName(id->text).last()).valid())
 	{
 		return false;
@@ -925,11 +978,17 @@ bool SemaAnalyzer::record_explicit_function(const AstNode& declared,
 	{
 		return false;
 	}
-	chosen->primary->templated->explicit_functions[chosen->template_arguments] =
-		&declared;
+	if (defines)
+	{
+		chosen->primary->templated
+			->explicit_functions[chosen->template_arguments] = &declared;
+	}
 	// 14.7.3p6: what the program wrote out here is this unit's own definition
 	// and no reading of the pattern, so what says whether it is `inline` is its
-	// own declaration and not the template it specializes.
+	// own declaration and not the template it specializes.  A declaration with no
+	// body says the second half of that on its own: the pattern is not what this
+	// argument list is read from, so nothing instantiates one for it and the
+	// output writes the declaration alone.
 	chosen->explicit_specialization = true;
 	// 14.7.3p6: the definition is this unit's own wherever it is named, and a
 	// use written above it has already asked for the pattern's - so the
@@ -1245,6 +1304,11 @@ void SemaAnalyzer::complete_specialization(SemaEntity& made)
 		// naming a second specialization - is the same, which is why the fact
 		// is a depth rather than a flag.
 		const ReadingDepth instantiating(instantiating_class_);
+		// 14.7.3p1: the body `template<>` wrote is this unit's own source, so the
+		// definitions it holds are the program's and a second one of any of them is
+		// 3.2p1's redefinition.  Only the pattern's reading makes a definition a
+		// later written one replaces.
+		const ReadingDepth reading(instantiating_pattern_, !specialized);
 		class_declaration(*body, inner, span, true, std::string(), &made,
 		                  &spelled);
 		read_held_pattern_bodies(mark);

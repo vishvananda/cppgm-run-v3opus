@@ -9,6 +9,7 @@
 #include "sema_template.h"
 
 struct AstNode;
+class Scope;
 class SemaAnalyzer;
 struct SemaContext;
 struct SemaEntity;
@@ -98,6 +99,12 @@ private:
 	// a constructor's declarator-id, or the declarator-id of the one declarator
 	// the declaration writes.  Empty where the declaration names nothing.
 	static std::string member_spelling(const AstNode& node);
+
+	// 14.7.1p1: the class the template-id `component` names in the region `in` -
+	// null for one whose arguments that region cannot settle, which is what says
+	// the head standing over this declaration declares them.
+	SemaEntity* settled(const std::string& component, const SemaContext& ctx,
+	                    Scope* in);
 
 	PatternReading(const PatternReading&);
 	PatternReading& operator=(const PatternReading&);

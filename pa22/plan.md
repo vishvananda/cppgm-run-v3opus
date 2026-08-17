@@ -36,7 +36,10 @@ replaced:
 - `sema_specialize.h/.cpp` — the three heads whose declaration the primary's own
   three steps cannot answer for: 14.5.5's partial specialization, 14.5.1p1's
   variable template and 14.5.7p1's alias template. `member_pattern` is also
-  which of those bodies an out-of-class member definition was written over.
+  which of those bodies an out-of-class member definition was written over, and
+  14.7.3p1's *other* question lives here too: which of the two definitions of a
+  member of a class specialization this unit holds - the pattern's, read again,
+  or the one the program wrote out for exactly those arguments.
 - `sema_pattern.h/.cpp` — 14.6p8's reading of a template definition where it
   stands, and 14.6.1p1's class it is read as. One per body a naming may be read
   from - the primary's `TemplateInfo::current` and each `Partial::current` - and
@@ -61,32 +64,46 @@ replaced:
 
 ## Current Failure Map
 
-The O audit landed **285 / 336** — the 283 of 334 O left, plus the 2
-`course/pa22` fixtures the audit wrote. The 51 that fail are the same 51 O left
-and group by the compiler behaviour that owns them, from the diagnostic each one
-now reaches:
+X landed **295 / 338** — the 293 of 336 it left, plus the 2 `course/pa22`
+fixtures it wrote. The 43 that fail group by the compiler behaviour that owns
+them, from the diagnostic each one now reaches:
 
 | # | Group | Owner | Signature |
 |---|-------|-------|-----------|
-| 17 | compiles but the exit status or the LowIR does not match | `lowir_*`, mixed | none; `extern template` suppression is 3 of them and 7 more are `-bad` cases wrongly accepted |
+| 12 | compiles but the exit status or the LowIR does not match | `lowir_*`, mixed | none; `extern template` suppression is 3 of them and 6 more are `-bad` cases wrongly accepted |
 | 6 | a constant expression written inside a template argument | `sema_constant.cpp` | `names a type that is not integral`, `does not close its arguments`, `names no constant` |
-| 5 | 14.7.3p1's member of a specialization redeclared, or its definition matching none | declaration merge | `X is defined twice`, `a static_assert condition is false` |
 | 4 | dependent names an instantiation has to find | mixed | `no declaration of … is in scope` |
 | 3 | 11.3p2's `friend C;` naming a *dependent* class, and 11.2's reach into one | `grant_class_friendship` | `a friend declaration with no declarator names no class` |
 | 3 | `sizeof` over a stood-in call written as a template argument | `sema_constant.cpp` | `is written inside sizeof as a template argument and names no type` |
 | 2 | a default template argument the arity check counts | `TemplateHead` | `a template-argument-list gives X more arguments than it has parameters` |
 | 2 | an out-of-class member template whose owner renamed its places | `StandingIn` | `X does not name a type` |
 | 2 | a member alias template rebound through its owner | `Specialization::alias` | `rebind_alloc<T> does not name a type` |
-| 7 | call resolution, access, a dependent member typedef and lowering one-offs | mixed | various |
+| 9 | call resolution, access, a dependent member typedef and lowering one-offs | mixed | various |
 
-The 5 that stopped at `resolve_prefix` and 9 of the dependent-name failures were
-one owner and are gone: an out-of-class definition whose declarator-id names a
-member of a *partial specialization* or of a member *class template*. What is
-left of that shape is the two `StandingIn` renames and
-`spec/300-explicit-instantiation-out-of-class-nested-member`, each of which now
-stops somewhere else.
+The whole `X is defined twice` group and the `a static_assert condition is false`
+one are gone: they were 14.7.3p1's, and the two `StandingIn` renames plus
+`spec/300-explicit-instantiation-out-of-class-nested-member` are what is left of
+the out-of-class shapes, each stopping somewhere else now.
 
 Known gaps probed and deliberately left:
+
+- 5.19p2 at a static data member 9.4.2p2 defined outside its class: `code<char>::
+  value` is folded where the unit writes no `template<>` for that member and
+  loaded where it writes one, which is what `pa19/tests/general/300-class-
+  template-static-member-out-of-class-definition` and `spec/300-explicit-
+  specialization-static-data-member` pin between them and what
+  `Specialization::note_object` implements. The strict reading - 14.6.4.1p1 puts
+  an instantiated definition's initialization at the end of the unit, so it
+  precedes no use at all - is what `g++` gives and what the pa19 fixture refuses;
+  the ref folds a use written *above* the `template<>` too only where the use is
+  a namespace-scope initializer, which nothing pins.
+- `template<> outer<int>::inner::id()`, a member of a class a class template's
+  body declares, is accepted here and by `g++` and refused by
+  `pa22/cppgm++-ref`; the three special-member exits of 14.7.3p1 -
+  `template<> tag<int>::~tag()`, `template<> tag<int>::tag()` and
+  `template<> tag<int>::operator int()` - are the other way round, accepted here
+  and by `g++` and refused by the reference. So no `course/pa22` fixture pins
+  either: the ref would write the refusal into the `.ref`.
 
 - `pa22/cppgm++-ref` accepts a member of a partial specialization of a member
   class template defined outside its class and then emits a `declare function`
@@ -179,19 +196,16 @@ Known gaps probed and deliberately left:
 
 ## Active Checkpoint
 
-**O and its audit landed — see the ledger.** The next one is **X**, 14.7.3p1's
-explicit specialization of a member: `spec/300-explicit-specialization-member-
-function`, `…-out-of-class-member-overrides-primary`, `…-replaces-primary-
-instantiation` and `…-static-data-member` are one owner - a `template<>`
-definition of one member of one specialization is the definition that
-specialization *has*, so 14.7.1p1's instantiation of the pattern's own member
-shall not also write one and `X is defined twice` is this build writing both.
-`explicit_functions` is keyed by the template and the argument list, which a
-member of a class specialization has neither of: the declaration is the class's
-member and what `template<>` wrote for it is a fact of that declaration.
-`spec/300-explicit-specialization-after-instantiation` and
-`…-function-explicit-specialization-declaration-before-primary-definition` are
-the ordering half of the same clause.
+**X landed with its audit — see the ledger.** The next one is **R**, the two
+out-of-class member templates whose owner renamed its places:
+`spec/300-out-of-class-member-template-owner-param-rename` and
+`…-renamed-owner-parameters` stop at `Tp does not name a type` and `X does not
+name a type`, which is 14.1p2 read at the wrong tier - `StandingIn` moves the
+head a qualified declarator-id stands under inside the region that name reaches,
+and the names *this* head wrote are what the arguments have to be bound to, not
+the ones the class's own head spelled. `general/400-member-alias-template-owner-
+rebind-cache` and `…/400-alias-rebind-partial-specialization-shadow` are the
+alias tier of the same question.
 
 ## Performance Model
 
@@ -236,15 +250,37 @@ is checked for exit 0 before it is timed.
 | **O audit** n namings of a member class template's *pattern*, its member defined out of class | 50 → 400 | 0.01 → 0.19 s, 10 → 37 MB | 0.60 → 1.19 s |
 | **O audit** n out-of-class member definitions of one member-template pattern | 50 → 400 | 0.01 → 0.14 s, 8 → 20 MB | 0.57 → 0.86 s |
 | **O audit** n specializations of one pattern that has 8 out-of-class members | 100 → 800 | 0.03 → 0.26 s, 13 → 64 MB | — |
-| the whole 336-file corpus, one process per file | — | **1.40 s** | — |
+| **X** n members of one template, each explicitly specialized for one list | 100 → 800 | 0.00 → 0.04 s, 8 → 17 MB | 0.74 s at 800 |
+| **X** n specializations read from the pattern, then one `template<>` member | 100 → 800 | 0.01 → 0.09 s, 9 → 30 MB | refuses |
+| **X** n class specializations, each with one explicitly specialized member | 50 → 400 | 0.00 → 0.04 s, 8 → 18 MB | 0.68 s at 400 |
+| **X** n out-of-class member definitions of one template, against the turn-start build | 100 → 800 | 0.00 → 0.04 s, 8 → 17 MB | 0.00 → 0.03 s there; ref 0.76 s at 800 |
+| **X** a member class template nested d deep, each level defined out of class, against the turn-start build | depth 4 → 40 | 0.00 → 0.59 s, 7 → 34 MB | 0.00 → 0.60 s there |
+| the whole 338-file corpus, one process per file | — | **1.43 s** | — |
 | *(carried from F)* n friend declarations of one name, each revealed | 800 → 3200 | 0.19 → 0.79 s | 22.40 s at 800 |
 
-The corpus row is re-measured again and the 3.07 s carried here after O is not
-reproducible either: six runs give 1.39–1.47 s over the 336 files, which is the
-1.43 s that stood before O. 1.13 s of it is the process floor - 3.4 ms per run,
-measured by running `int main(){return 0;}` 336 times - so the compiler's own
-work is 0.8 ms per fixture. 290 of the 336 compile to the end; the other 46 stop
-at a diagnostic.
+The corpus row is re-measured after X: three runs give 1.43–1.45 s over the 338
+files, unchanged from the 1.43 s O left over 336. 1.13 s of it is the process
+floor - 3.4 ms per run, measured by running `int main(){return 0;}` 336 times -
+so the compiler's own work is 0.9 ms per fixture.
+
+X's four costs are each paid once per declaration and nothing scans.
+`instantiating_pattern_` is one unsigned increment per class instantiation and
+per out-of-class member reading, so `declare_function` and
+`open_special_member_body` answer "is this definition one no unit wrote" with a
+comparison against zero. `Pending::from_pattern` is one flag test per definition
+written at the end of the unit, which is what lets a superseded body be dropped
+without walking the queue; the entry still reachable by name is erased from
+`held_definitions_` by `SemaEntity::id`. `Specialization::note_object`'s walk is
+over `TemplateInfo::specializations` and runs once per `template<>` definition of
+a static data member - a template no such declaration was written for pays one
+hash probe of `explicit_members` per instantiated definition, which is the
+100 → 800 row's 0.01 → 0.09 s. And `PatternReading::owner`'s new `settled` call
+is the `template_id_entity` lookup `nested_owner` already paid, once per
+out-of-class definition, into a class `instantiate_class` memoized: n = 800
+definitions is 0.04 s against the turn-start build's 0.03 s and the reference's
+0.76 s, and the d-deep nest is 0.59 s at depth 40 against the turn-start build's
+0.60 s - the same superlinear d² component walk over d definitions the nest
+already was, unchanged by the checkpoint.
 
 Every dimension is linear in what it sweeps and flat in depth except the first,
 which is 14.5.5.1p1's own: n patterns beside one template and n lists naming it
@@ -291,11 +327,25 @@ takes a run per pack place rather than one — two packs over a run of 3200 is
 parameter rather than once per element; and the ptr-operator is one string
 compare on the word before a `*`, so a type-id that writes none pays nothing.
 
-`valgrind -q --error-exitcode=9` is clean over 57 inputs after the audit's fix,
-0 errors: its six largest scaling inputs, the twenty out-of-class shapes it
-swept, the four programs the fix turned green and the two `course/pa22` fixtures
-it added; it was clean over 107 before it, and over 87 before O. The audit's own
-run evidence: the twenty shapes - a static data member, a constructor, a
+`valgrind -q --error-exitcode=9` is clean over 37 inputs after X, 0 errors: its
+21 sibling-exit probes, the nine fixtures it turned green, its five largest
+scaling inputs and the two `course/pa22` fixtures it added; it was clean over 57
+after the O audit, over 107 before it, and over 87 before O. X's own run
+evidence: the nine fixtures it turned green and 20 of the 21 probes compile
+through `lowir2cy86` + `cy86` and return the value
+`g++ -std=c++11 -pedantic-errors` gives them - a destructor, a constructor, a
+conversion function, two members of one specialization, a member of a partial
+specialization, a member the pattern only declared, a static data member beside a
+partial specialization's, a nested class's member, two class specializations each
+with an out-of-class member template, a `template<>` declaration then its
+definition, an explicit instantiation over an explicit member specialization, and
+a member of a class the program wrote out with `template<>`. The 21st is 14.7.3p6's
+own: an explicit specialization written after a call already instantiated the
+member, which `g++` refuses to compile at all and both this build and
+`pa22/cppgm++-ref` accept with no diagnostic required. Third oracle for X: the
+same 21 probes run through `pa22/cppgm++-ref`, which agrees on 19 - it refuses
+`template<> outer<int>::inner::id()`, a nested class's member, where `g++` and
+this build take it. The audit's own run evidence: the twenty shapes - a static data member, a constructor, a
 destructor, a nested class, a member function template, a conversion function,
 an operator, a two-parameter pattern beside two more, a redeclaration that
 renamed its places, a use written before the definition, a namespace-qualified
@@ -340,3 +390,4 @@ with `g++` and with `pa22/cppgm++-ref` byte for byte.
 | **D audit** the fact 8.3.5p7 made part of a function type's identity, and the second reading of 8.1p1's type-id | D made the ref-qualifier part of a function type's identity in `Deduction::match` and neither reader that turns such a type back into a name had ever written one: `abi_type`'s `<function-type>` wrote no `<ref-qualifier>` and `type_spelling` wrote neither it nor 8.3.5p1's cv-qualifier-seq after the clause, so `holder<int(char) const>` and `holder<int(char) const &>` were two specializations, one LowIR label and one symbol - a program defining and calling both returned 22 where both oracles return 12. Beside it 8.3.3p1's `nested-name-specifier *` was a ptr-operator `SpelledTypeId` had never had, so `int C::*` read as a type-specifier-seq spelling `int C::`; and `match_run` took one pack place where `expand_type` and `substitute_entry` each read an expansion over as many as its pattern names, so `box<pr<A, B>...>` matched no list at all. | **267 / 332** |
 | **O** 14.6.1p1's current specialization of a partial specialization, and of a member class template | This build had one current instantiation per template - the primary's - so an out-of-class definition of a member of a *pattern* bound its own head to the primary's places and wrote a prefix naming a specialization nothing had read. `TemplateInfo::Partial` now gets what `info.current` already was: a class over its own head's places, read from its own body in its own region, keyed in `TemplateInfo::patterns` by the interned list the class already carries so `complete_specialization` routes one hash lookup. Which body a definition belongs to is 14.5.6.1p5's signature of the arguments it wrote; it joins that body's own `members`, and a specialization 14.5.5.1p1 read from another body holds none of them. Beside it, 14.6.1p1's injected-class-name is the *template's* name inside a body whose class-head wrote a template-id, which is what `typedef Iter<Vec, false> pointer;` inside `Vec<bool, A>` names. And 14.5.2p1's member class template: 14.6p8's reading recorded no template at all, so `outer<T>::inner` was undeclared in the current instantiation and `template<class T> template<class U> struct outer<T>::inner {…}` named nothing - the reading now records what a class-specifier declares, and 14.5.2p3's declarator-id says which head parameterises which class by how far the region has already bound, so the third head of `outer<T>::inner<U>::deeper` is `inner`'s and not `outer`'s. 14.6p8's reading and the class it is read as move to `sema_pattern.h`. | **283 / 334** |
 | **O audit** which of a template's bodies a declarator-id names, at the second tier the same commit opened | O taught `record_template` to ask `Specialization::member_pattern` which body an out-of-class definition belongs to, and `PatternReading::read_declaration` - 14.5.2p3's own tier, where a *second* head's declarator-id is read against the class the head above it settled - recorded against `kNoPartial` outright. So a member of any partial specialization of a member class template defined outside its class was read against the primary member template's places and came out `f is written after a name that is not a namespace, class or enumeration`: `A<T>::in<U*>::f`, two patterns beside each other, one three heads deep and one under a partial specialization of the enclosing template are four programs `g++` and `pa22/cppgm++-ref` both accept. `nested_owner` now hands back the component it stopped walking at, exactly as `owner` already did, and the same `member_pattern` reads it - so 14.5.6.1p5's signature answers it at both tiers and `in<K*>` defines the body `in<U*>` declared. | **285 / 336** |
+| **X** 14.7.3p1's explicit specialization of a member, and the definition it replaces | A `template<>` definition of one member of one class specialization *is* that member's definition, so 14.7.1p1's reading of the pattern shall not write a second one - `X is defined twice` was this build writing both. `explicit_functions` is keyed by the template and the argument list, which a member of a class specialization has neither of: the declaration is the class's member and which of its two definitions the unit holds is a fact of *that declaration*. So `SemaEntity::instantiated_definition` - already 9.4.2p2's for an object - is written for a function too, under a new `instantiating_pattern_` depth that tells 14.7.1p1's reading of a pattern from 14.7.3p1's own class body, which `complete_specialization` reads under one `instantiating_class_`; a written definition over a read one calls `Specialization::supersede` instead of throwing, and `Pending::from_pattern` lets the end of the unit drop the queued body whose mark is gone. 12's entry points are the same three exits - `require_replaceable` is the one rule read at the constructor's, the destructor's and 12.3.2p1's conversion function's, where `pa22/cppgm++-ref` refuses all three and `g++` accepts. Beside them: 14.7.3p1's *declaration*, a `template<>` over a simple-declaration, which says the list is not the pattern's to be read for and is what `has_written_definition` asks; `read_template_head` no longer lets an empty head parameterise what stands under it, so `template<> int tag<int>::id()` is 13.1's plain redeclaration of the class's own member and not 14.5.6.1p5's second template; `PatternReading::owner` gains `nested_owner`'s own test, so `box<void>::apply` is a member template of a class the program wrote out; `supersede` clears a member template's pattern, which is what makes an explicit definition replace the one the class pattern gave it; 14.7.3p6 refuses an explicit class specialization written after the pattern was read for that list; and `Specialization::note_object` is 5.19p2 at a static data member - the pattern's initializer is a value a use reads only while it is the one definition the unit has. | **295 / 338** |

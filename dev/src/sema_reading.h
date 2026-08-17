@@ -111,15 +111,19 @@ struct Written
 class ReadingDepth
 {
 public:
-	explicit ReadingDepth(unsigned& depth)
+	// `held` false leaves the depth alone, which is what lets one reading take
+	// two of them apart - a class body an instantiation read is always one of
+	// those, and only sometimes a pattern's.
+	explicit ReadingDepth(unsigned& depth, bool held = true)
 		: depth_(depth)
+		, held_(held)
 	{
-		++depth_;
+		depth_ += held_ ? 1u : 0u;
 	}
 
 	~ReadingDepth()
 	{
-		--depth_;
+		depth_ -= held_ ? 1u : 0u;
 	}
 
 private:
@@ -127,6 +131,7 @@ private:
 	ReadingDepth& operator=(const ReadingDepth&);
 
 	unsigned& depth_;
+	bool held_;
 };
 
 // 14.5.1.3p1: the region standing between a class and the one around it while

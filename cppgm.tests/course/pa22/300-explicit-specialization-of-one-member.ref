@@ -1,0 +1,210 @@
+global @tag_int___mark : i32 [binding=weak, object=_ZN3tagIiE4markE] = 6
+global @tag_char___mark : i32 [binding=weak, object=_ZN3tagIcE4markE] = 5
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $primary : u8
+  slot $land__1 : i64
+  slot $land__2 : i64
+  slot $written : u8
+  slot $land__3 : i64
+  slot $land__4 : i64
+  slot $pattern : u8
+  slot $land__5 : i64
+  slot $over_pattern : u8
+  slot $land__6 : i64
+  slot $cond__7 : i32
+  slot $land__8 : i64
+  slot $land__9 : i64
+  slot $land__10 : i64
+
+  block ^entry:
+    %t1 = call i32 @tag_char___first()
+    %t2 = cmp eq i32 %t1, 1
+    branch %t2, ^land_rhs_4, ^land_short_5
+
+  block ^land_rhs_4:
+    %t3 = call i32 @tag_char___second()
+    %t4 = cmp eq i32 %t3, 3
+    %t5 = cmp ne i64 %t4, 0
+    store i64 %t5, $land__2
+    jump ^land_end_6
+
+  block ^land_short_5:
+    store i64 0, $land__2
+    jump ^land_end_6
+
+  block ^land_end_6:
+    %t6 = load i64 $land__2
+    branch %t6, ^land_rhs_1, ^land_short_2
+
+  block ^land_rhs_1:
+    %t7 = load i32 @tag_char___mark
+    %t8 = cmp eq i32 %t7, 5
+    %t9 = cmp ne i64 %t8, 0
+    store i64 %t9, $land__1
+    jump ^land_end_3
+
+  block ^land_short_2:
+    store i64 0, $land__1
+    jump ^land_end_3
+
+  block ^land_end_3:
+    %t10 = load i64 $land__1
+    store u8 %t10, $primary
+    %t11 = call i32 @tag_int___first()
+    %t12 = cmp eq i32 %t11, 2
+    branch %t12, ^land_rhs_10, ^land_short_11
+
+  block ^land_rhs_10:
+    %t13 = call i32 @tag_int___second()
+    %t14 = cmp eq i32 %t13, 4
+    %t15 = cmp ne i64 %t14, 0
+    store i64 %t15, $land__4
+    jump ^land_end_12
+
+  block ^land_short_11:
+    store i64 0, $land__4
+    jump ^land_end_12
+
+  block ^land_end_12:
+    %t16 = load i64 $land__4
+    branch %t16, ^land_rhs_7, ^land_short_8
+
+  block ^land_rhs_7:
+    %t17 = cmp eq i32 6, 6
+    %t18 = cmp ne i64 %t17, 0
+    store i64 %t18, $land__3
+    jump ^land_end_9
+
+  block ^land_short_8:
+    store i64 0, $land__3
+    jump ^land_end_9
+
+  block ^land_end_9:
+    %t19 = load i64 $land__3
+    store u8 %t19, $written
+    %t20 = call i32 @tag_char_____first()
+    %t21 = cmp eq i32 %t20, 10
+    branch %t21, ^land_rhs_13, ^land_short_14
+
+  block ^land_rhs_13:
+    %t22 = call i32 @tag_char_____second()
+    %t23 = cmp eq i32 %t22, 30
+    %t24 = cmp ne i64 %t23, 0
+    store i64 %t24, $land__5
+    jump ^land_end_15
+
+  block ^land_short_14:
+    store i64 0, $land__5
+    jump ^land_end_15
+
+  block ^land_end_15:
+    %t25 = load i64 $land__5
+    store u8 %t25, $pattern
+    %t26 = call i32 @tag_int_____first()
+    %t27 = cmp eq i32 %t26, 20
+    branch %t27, ^land_rhs_16, ^land_short_17
+
+  block ^land_rhs_16:
+    %t28 = call i32 @tag_int_____second()
+    %t29 = cmp eq i32 %t28, 30
+    %t30 = cmp ne i64 %t29, 0
+    store i64 %t30, $land__6
+    jump ^land_end_18
+
+  block ^land_short_17:
+    store i64 0, $land__6
+    jump ^land_end_18
+
+  block ^land_end_18:
+    %t31 = load i64 $land__6
+    store u8 %t31, $over_pattern
+    %t32 = load u8 $primary
+    branch %t32, ^land_rhs_28, ^land_short_29
+
+  block ^land_rhs_28:
+    %t33 = load u8 $written
+    %t34 = cmp ne i64 %t33, 0
+    store i64 %t34, $land__10
+    jump ^land_end_30
+
+  block ^land_short_29:
+    store i64 0, $land__10
+    jump ^land_end_30
+
+  block ^land_end_30:
+    %t35 = load i64 $land__10
+    branch %t35, ^land_rhs_25, ^land_short_26
+
+  block ^land_rhs_25:
+    %t36 = load u8 $pattern
+    %t37 = cmp ne i64 %t36, 0
+    store i64 %t37, $land__9
+    jump ^land_end_27
+
+  block ^land_short_26:
+    store i64 0, $land__9
+    jump ^land_end_27
+
+  block ^land_end_27:
+    %t38 = load i64 $land__9
+    branch %t38, ^land_rhs_22, ^land_short_23
+
+  block ^land_rhs_22:
+    %t39 = load u8 $over_pattern
+    %t40 = cmp ne i64 %t39, 0
+    store i64 %t40, $land__8
+    jump ^land_end_24
+
+  block ^land_short_23:
+    store i64 0, $land__8
+    jump ^land_end_24
+
+  block ^land_end_24:
+    %t41 = load i64 $land__8
+    branch %t41, ^cond_then_19, ^cond_else_20
+
+  block ^cond_then_19:
+    store i32 0, $cond__7
+    jump ^cond_end_21
+
+  block ^cond_else_20:
+    store i32 1, $cond__7
+    jump ^cond_end_21
+
+  block ^cond_end_21:
+    %t42 = load i32 $cond__7
+    return i32 %t42
+}
+function @tag_int___first() -> i32 [binding=weak, object=_ZN3tagIiE5firstEv] {
+  block ^entry:
+    return i32 2
+}
+function @tag_int___second() -> i32 [binding=weak, object=_ZN3tagIiE6secondEv] {
+  block ^entry:
+    return i32 4
+}
+function @tag_int_____first() -> i32 [binding=weak, object=_ZN3tagIPiE5firstEv] {
+  block ^entry:
+    return i32 20
+}
+function @tag_int_____second() -> i32 [binding=weak, object=_ZN3tagIPiE6secondEv] {
+  block ^entry:
+    return i32 30
+}
+function @tag_char___first() -> i32 [binding=weak, object=_ZN3tagIcE5firstEv] {
+  block ^entry:
+    return i32 1
+}
+function @tag_char___second() -> i32 [binding=weak, object=_ZN3tagIcE6secondEv] {
+  block ^entry:
+    return i32 3
+}
+function @tag_char_____first() -> i32 [binding=weak, object=_ZN3tagIPcE5firstEv] {
+  block ^entry:
+    return i32 10
+}
+function @tag_char_____second() -> i32 [binding=weak, object=_ZN3tagIPcE6secondEv] {
+  block ^entry:
+    return i32 30
+}

@@ -2190,6 +2190,13 @@ private:
 	// body one made stands around it - what 3.2p3 asks of an elided use.
 	unsigned instantiating_class_;
 	unsigned instantiated_body_;
+	// 14.7.1p1 with 14.7.3p1: how many of those readings are of a *pattern*,
+	// which is the narrower question "is the definition this reading makes one no
+	// unit wrote out".  `complete_specialization` reads two kinds of body under
+	// one instantiation - the template's pattern, and the class body `template<>`
+	// wrote for exactly these arguments - and only the first makes definitions a
+	// later written one replaces rather than redefines.
+	unsigned instantiating_pattern_;
 	// 14.6.2p3: the base-specifiers a reading found to name a dependent type.
 	// It is the syntax that is dependent and not the class the arguments make
 	// of it, so the fact belongs to the clause the program wrote once - which

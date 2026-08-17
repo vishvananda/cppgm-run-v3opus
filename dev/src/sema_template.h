@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 struct AstNode;
@@ -185,6 +186,20 @@ struct TemplateInfo
 	// 14.5.1p1: the same for a variable template, whose specialization is the
 	// constant one init-declarator evaluates to rather than a class or a body.
 	std::unordered_map<std::uint32_t, const AstNode*> explicit_variables;
+	// 14.7.3p1: the static data members of this template that one argument list
+	// has a definition of its own for.
+	//
+	// 9.4.2p2's definition written outside the class is what lays a static data
+	// member's storage out and what its initializer initializes it with, and while
+	// the template's own is the only one, that initializer is a fact of the
+	// *declaration*: 5.19p2 reads it wherever a specialization's name is written.
+	// A `template<>` for one list makes it a fact of the definitions instead -
+	// which definition an argument list is read from is then what says what the
+	// object holds - so the pattern's value is no longer one every specialization
+	// was initialized with before the use.  It is keyed by the member's name
+	// because that is what a declarator-id in either definition wrote, and asked
+	// once per instantiated definition of a member of a template that has any.
+	std::unordered_set<std::string> explicit_members;
 	// 14.5.5p1: a declaration of this template for a *pattern* of arguments
 	// rather than for a list of them.
 	//
