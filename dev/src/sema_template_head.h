@@ -40,7 +40,13 @@ public:
 	{}
 
 	// 14.1p2: the parameters `clause` declared, written onto `info`.
-	void read(const AstNode& clause, TemplateInfo& info);
+	//
+	// 14.1p11 leaves a pack the last place a *primary* template's head
+	// declares, because the arguments a list writes past the places before it
+	// are all the pack's.  14.5.5p1's head declares places nothing writes an
+	// argument for - every one of them is deduced from the pattern - so a pack
+	// may stand anywhere in it, and `primary` is which of the two this is.
+	void read(const AstNode& clause, TemplateInfo& info, bool primary = true);
 	// 14.1p2: the head a template-template place wrote, read once per clause.
 	TemplateInfo& parameter_head(const AstNode* clause);
 	// 14.3.3p1: whether a template whose head is `argument` is at least as

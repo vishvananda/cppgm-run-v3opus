@@ -367,7 +367,8 @@ TypeId TemplateHead::place_signature(const TemplateInfo& head,
 // milestone gives no meaning to leaves the head unsupported rather than
 // refusing it here: 14p1 lets a program declare a template it never names, and
 // the declaration says nothing about a type until an instantiation asks.
-void TemplateHead::read(const AstNode& clause, TemplateInfo& info)
+void TemplateHead::read(const AstNode& clause, TemplateInfo& info,
+                        bool primary)
 {
 	const AstNode* const list =
 		first_child(clause, AstKind::TemplateParameterList);
@@ -415,13 +416,13 @@ void TemplateHead::read(const AstNode& clause, TemplateInfo& info)
 					first_child(parameter, AstKind::TemplateParameterClause));
 			}
 		}
-		if (place.pack && index + 1 != list->children.size())
+		if (place.pack && primary && index + 1 != list->children.size())
 		{
 			// 14.1p11: a pack in a primary template's head is the last place it
-			// declares, because every argument after the ones the places before
-			// it take belongs to the pack.  14.5.3's other arrangement -
-			// deducing a pack from a call and taking the places after it from
-			// the arguments - is a later milestone's.
+			// declares, because every argument a list writes past the places
+			// before it belongs to the pack.  14.5.5p1's head writes no such
+			// list - every place of it is deduced from the pattern - so a pack
+			// stands anywhere in one.
 			info.supported = false;
 		}
 		info.parameters.push_back(place);

@@ -257,7 +257,7 @@ bool Specialization::read_pattern(SemaEntity& primary, const TemplateId& id,
 	head = &analyzer_.template_patterns_.back();
 	head->region = ctx.scope;
 	head->dump = ctx.dump;
-	TemplateHead(analyzer_).read(clause, *head);
+	TemplateHead(analyzer_).read(clause, *head, false);
 	if (!head->supported)
 	{
 		return false;
@@ -476,8 +476,12 @@ bool Specialization::matches(const TemplateInfo& info, std::size_t index,
 			                         ", which its argument pattern does not "
 			                         "deduce");
 		}
-		if (!places[at].pack)
+		if (!places[at].pack || at + 1 != places.size())
 		{
+			// 14.5.5p1: a pack that is not the last place its head declared
+			// stands as the one run it took, because the places after it are
+			// places of their own and a flat list could not say where the run
+			// ended.
 			deduced.push_back(bound->second);
 			continue;
 		}
