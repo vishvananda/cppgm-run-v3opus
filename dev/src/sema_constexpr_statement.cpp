@@ -147,6 +147,42 @@ unsigned long long ConstexprReading::counted(const SemaConstant& given)
 	return value.bits;
 }
 
+// 14.6p8 over every place that counts: the count a constant expression written
+// in a *pattern* arrives at, and whether it is an answer at all.
+//
+// A reading of a pattern stands one value in wherever an argument list is what
+// settles something - the size of a dependent type, the length of a pack, the
+// value a call of a member the pattern declares comes to.  What that stand-in
+// is worth is nothing, and it is worth nothing however the reading ends: a
+// place that reads *through* it runs out - `make().v` is no object of class
+// type, `ptr()[0]` is no array - and the refusal it makes is about the
+// stand-in and not about the program.  So the answer is false for both, and the
+// place that asked waits for the specialization exactly as it does for a value
+// the reading did arrive at.  A reading that stood nothing in ran out on what
+// the program wrote and says so, which is what keeps the pattern's own errors
+// the pattern's.
+bool ConstexprReading::counted_where(const AstNode& node,
+                                     const SemaContext& ctx,
+                                     SemaConstant& value,
+                                     unsigned long long& count)
+{
+	const unsigned stood = analyzer_.stood_in_;
+	try
+	{
+		value = at_arithmetic_place(analyzer_.evaluate(node, ctx), kNoType);
+		count = counted(value);
+	}
+	catch (const NotConstant&)
+	{
+		if (analyzer_.checking_ == 0 || analyzer_.stood_in_ == stood)
+		{
+			throw;
+		}
+		return false;
+	}
+	return analyzer_.stood_in_ == stood;
+}
+
 SemaContext ConstexprReading::block_region(const AstNode& node,
                                            const SemaContext& ctx,
                                            ConstexprFrame& frame)

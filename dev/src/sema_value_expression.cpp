@@ -1216,8 +1216,25 @@ TypeId SemaAnalyzer::template_argument_value(const std::string& spelling,
 			return named->type;
 		}
 	}
+	const unsigned stood = stood_in_;
 	TemplateArgumentReader reader(*this, ctx);
-	const Constant value = reader.read(words);
+	Constant value;
+	try
+	{
+		value = reader.read(words);
+	}
+	catch (const NotConstant&)
+	{
+		// 14.6p8: the reading ran out on a value it stood in for and not on
+		// what the program wrote - `bc<make().v>` for a `make` the pattern
+		// declares reads a member of the stand-in - so the argument is the
+		// arguments' to settle, exactly as one the reading did arrive at is.
+		if (checking_ == 0 || stood_in_ == stood)
+		{
+			throw;
+		}
+		return dependent_value(spelling);
+	}
 	if (!reader.finished(words))
 	{
 		throw NotConstant(spelling + " is not a constant expression this "

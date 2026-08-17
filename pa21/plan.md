@@ -149,8 +149,14 @@ specialization made over a dependent argument — and `unsettled_callee` is that
 one sentence, which 14.6p8 stands a value in for rather than calling the
 missing body the program's error. And 5.1.1p13's third bullet is the one place
 a non-static data member is named with no object at all: an unevaluated operand,
-which `unevaluated_` is the depth of, taken at 5.3.3p1's own door. **Done —
-checkpoint M and its groups H, T' and U.**
+which `unevaluated_` is the depth of, taken at each of the three doors that open
+one — 5.3.3p1's `sizeof`, 7.1.6.2p4's decltype-specifier and 5.3.7p1's
+`noexcept` operand. Beside them, 14.6p8's stand-in is worth nothing however the
+reading ends: a place that reads *through* it runs out, so every place that
+decides something carries that answer on a refusal as much as on a value, and
+`ConstexprReading::counted_where` is the one reading 8.3.4p1's bound, 7.2p1's
+enumerator, 9.6p1's width and 7.6.2p1's alignment all count by. **Done —
+checkpoint M, its groups H, T' and U, and its audit.**
 
 Reference-binary note: `pa21/cppgm++-ref` exists and answers PA21 inputs, so
 naming and lowering shapes are probed rather than guessed — but it folds a
@@ -189,15 +195,16 @@ build agree — so 5.1.1p13's fixture is written over `sizeof` alone.
 
 ## Current Failure Map
 
-**152/157**; 5 failures, and only one of them refuses a program the assignment
+**154/159**; 5 failures, and only one of them refuses a program the assignment
 asks it to translate. Groups N, T, I, P, V, R, C, B, A and M are all closed with
 their audits. Groups H, T' and U closed with checkpoint M and three course
-fixtures; the four LowIR rows are unchanged — two are known gap L's symbol
-naming, one is I' below, and one is the row checkpoint P reached.
+fixtures, and the M audit added two more; the four LowIR rows are unchanged —
+two are known gap L's symbol naming, one is I' below, and one is the row
+checkpoint P reached.
 
 | Group | Shape | Count |
 |---|---|---|
-| E. an aggregate whose one member is an array | two shapes under `300-constexpr-template-aggregate-subscript-member`, and the only remaining refusal. 8.5.1p11's brace elision fills `struct array { T elems[N]; }` from `{7, 11, 13, 17}` with no inner braces, which is `flat is not a constant expression` here where both oracles fold it; and beside it a `constexpr` object *declared inside an instantiated function body* is `a constant expression reads a member of what is not an object of class type`, which the same declaration written in a non-template body folds. The second is the wider of the two — it refuses `{{3, 5}}` too, which the fold reads everywhere else | 1 |
+| E. an aggregate whose one member is an array | three shapes under `300-constexpr-template-aggregate-subscript-member`, and the only remaining refusal. 8.5.1p11's brace elision fills `struct array { T elems[N]; }` from `{7, 11, 13, 17}` with no inner braces, which is `flat is not a constant expression` here where both oracles fold it; beside it a `constexpr` object *declared inside an instantiated function body* is `a constant expression subscripts something that is not an array or a string literal`, which the same declaration written at namespace scope folds — `{{3, 5}}` and all; and beside both, `__builtin_expect` is declared by neither layer of this build (`no declaration of __builtin_expect is in scope` in an ordinary function body as much as in a fold), where the reference translates it. Stripping the builtin from the fixture leaves exactly the first two | 1 |
 | I'. a dead `@__strlit__` | `300-function-local-static-array-guard` differs by one global: for `static const char nested[1][2] = {"x"};` the ref emits the literal's own object beside the array that copied it. The boundary was probed and is the reference's own: it materializes the literal where 8.5.2 initializes an array that is an *element* of an enclosing array (`char two[2][2] = {"m","n"}` gets two), and not where the array is the whole object (`char flat[2] = "y"`) nor where it is a *member* of a class (`struct S { char a[2]; }; S s = {"q"}`). 2.14.5p8 makes the object exist in all four | 1 |
 | misc | the two symbol-naming rows of gap L and the owed-constructor row of gap P | 3 |
 
@@ -224,22 +231,28 @@ agrees with; the same program with no `extern` is identical in both.
 
 **Owner.** `ConstexprReading::fold_declared_object` and `initialized_value` in
 `sema_constexpr.cpp` over the region a body read for a specialization stands in,
-and `sema_constexpr_object.cpp`'s `subobject_initialized` for 8.5.1p11.
+`sema_constexpr_object.cpp`'s `subobject_initialized` for 8.5.1p11, and
+`SemaAnalyzer::builtin_call` in `sema_expression.cpp` for the one builtin the
+fixture writes and no declaration in this build makes.
 
 **Data flow.** Two sentences, and the wider is asked first. A `constexpr`
 object declared inside a function body an instantiation wrote is folded by the
 same reading a body the program wrote is — `constexpr array<T, 2> values = {{3,
-5}};` inside `template<class T> void check()` is `a constant expression reads a
-member of what is not an object of class type` where the identical declaration
-in a non-template body folds, so what the fold holds for the declaration is not
-the object the instantiated body's own region declared. Under it, 8.5.1p11's
-brace elision: `struct array { T elems[N]; }` filled from `{7, 11, 13, 17}` with
-no inner braces is one clause per *element of the member*, which the walker that
-lays a list out reads as one clause per member and refuses. The shapes to probe:
-the elision one and two levels deep, a class whose elided member is itself a
-class, an elided initializer of the trailing member beside a written first one,
-the same declarations at namespace scope and in a non-template body, and the
-subscript and member access read back off each.
+5}};` inside `template<class T> void check()` is `a constant expression
+subscripts something that is not an array or a string literal` where the
+identical declaration at namespace scope folds, so what the fold holds for the
+declaration is not the object the instantiated body's own region declared. Under
+it, 8.5.1p11's brace elision: `struct array { T elems[N]; }` filled from `{7,
+11, 13, 17}` with no inner braces is one clause per *element of the member*,
+which the walker that lays a list out reads as one clause per member and
+refuses. Beside them one declaration and no rule: 1.4p8's `__builtin_expect` is
+a name this build declares nowhere, so an ordinary function body writing it is
+refused as much as a fold is; the reference gives it its first operand's value
+and lowers nothing. The shapes to probe: the elision one and two levels deep, a
+class whose elided member is itself a class, an elided initializer of the
+trailing member beside a written first one, the same declarations at namespace
+scope and in a non-template body, and the subscript and member access read back
+off each.
 
 **Expected complexity.** One fold per declaration the instantiated body reads,
 keyed the way the non-template body's already is; the elision is one walk of the
@@ -295,12 +308,14 @@ rather than copied, and a multiplicity and nesting-depth sweep over the elision.
 | an array of arrays | one interned list per row and one per column, with 8.5.1p7's value-initialized tail interned once *per level* - so a partly written array costs the clauses it wrote plus one entry per level and not one per element | `constexpr int grid[n][n] = {{1}};` at n = 100 / 300 / 1000, read back by a `static_assert` at the far corner: 0.00 / 0.00 / 0.00s at a flat 6.1-6.4 MB (ref 0.60 / 1.00 / 5.41s at 24 MB / 113 MB / 1.13 GB). `int deep[2]...[2] = {}` at depth 8 / 12 / 16 / 20: 0.10s at 6.8-7.1 MB throughout - linear in depth, not 2^depth |
 | a call the ordinary lookup answers | one lookup per call the fold reads, `LookupKind::Any` where the door asked `LookupKind::Type` - the same probe of one `Binding`, so telling 5.2.3's cast from 5.2.2's call costs nothing the ranking did not already pay | 500 / 2000 / 8000 folded calls of a function that hides a class of its name: 0.02 / 0.10 / 0.45s at 12 / 29 / 97 MB, against 0.02 / 0.10 / 0.44s at 12 / 29 / 97 MB for the identical calls with no class declared at all - within measurement either way (ref 0.60 / 0.90 / 2.50s at 18 / 32 / 86 MB) |
 | a call a pattern cannot fold | one `unsettled_callee` read per *refused* call and none on a call that folds - one walk of the regions standing over the callee's declaration, then the callee's own argument list, both of them the nesting the program wrote | 500 / 2000 / 8000 template arguments in one pattern each holding a call of its own member: 0.01 / 0.05 / 0.24s at 8.6 / 14 / 36 MB (ref 0.55 / 0.62 / 0.92s at 18 / 27 / 61 MB). The same count with 8 parameters on the head rather than 1: 0.01 / 0.05 / 0.24s - the parameter scan is free. 500 such calls at class-template nesting depth 4 / 8 / 16 / 32: 0.01s at 8.2 / 8.3 / 8.3 / 8.6 MB, flat in depth |
-| a member an unevaluated operand names | one depth taken at 5.3.3p1's own door and one type read per operand; the member's declared type is the whole answer, so no object is built and no access is written | 500 / 2000 / 8000 `sizeof(S::keys)` folds: 0.02 / 0.07 / 0.32s at 10 / 20 / 62 MB (ref 0.70 / 0.90 / 2.70s at 19 / 34 / 90 MB) |
+| a member an unevaluated operand names | one depth taken at each of 5.3.3p1's, 7.1.6.2p4's and 5.3.7p1's own doors and one type read per operand; the member's declared type is the whole answer, so no object is built and no access is written, and a nest of operands is linear in depth | 500 / 2000 / 8000 `sizeof(S::keys)` folds: 0.02 / 0.07 / 0.32s at 10 / 20 / 62 MB (ref 0.70 / 0.90 / 2.70s at 19 / 34 / 90 MB). The same count reading `sizeof(<member> + 0)`, which the id-expression door does not answer: 0.01 / 0.06 / 0.26s at 9.3 / 18.6 / 55.0 MB (ref 0.60 / 0.83 / 2.44s at 18 / 30 / 75 MB), as `decltype(<member> + 0)` 0.02 / 0.08 / 0.38s at 10.9 / 24.8 / 80.3 MB and as `noexcept(<member> + n)` 0.01 / 0.06 / 0.25s at 9.6 / 18.7 / 56.6 MB — the reference refuses both of those shapes. 50 / 100 / 200 nested `sizeof` over one such operand: 0.00s at 6.4 / 6.5 / 6.9 MB |
+| a place that counts what a pattern stood a value in for | one `counted_where` per bound, enumerator, bit-field width and alignment-specifier — 5.19p3's converted constant expression and 5.19's integral one, taken where the expression stands, so 14.6p8's answer travels with the count and a reading that ran out on its own stand-in costs one refusal at the place that asked and no second reading of anything | 500 / 2000 / 8000 enumerators reading through a stand-in: 0.01 / 0.04 / 0.19s at 8.5 / 13.7 / 34.7 MB against 0.01 / 0.03 / 0.14s at 8.1 / 13.1 / 32.5 MB for the same count folding a scalar call — 36%, and refused at the first one before the audit. The same count as template arguments 0.02 / 0.11 / 0.49s against 0.02 / 0.09 / 0.43s (14%), and as bit-field widths 0.01 / 0.04 / 0.18s at 9.0 / 15.0 / 39.9 MB. 2000 / 8000 / 32000 *ordinary* bit-fields, which the shared door added one `counted` call to: 0.02 / 0.08 / 0.39s at 11.4 / 27.2 / 90.3 MB — linear |
 
 ## Completed Checkpoints
 
 | # | Checkpoint | Result |
 |---|---|---|
+| M audit | `8a154542`, 2 blockers: 5.1.1p13's third bullet is about an *unevaluated operand* and the depth was taken at `sizeof`'s door alone, so `decltype(S::first + 0)` and `noexcept(S::first)` were each **refused** with a diagnostic about `this` — the sentence group U exists to say does not apply — where g++ translates both and `pa21/cppgm++-ref` refuses them itself, so g++ is the oracle and the fixture stays written over `sizeof`; and 14.6p8's stand-in is an `int` of 1 whatever the call returns, so a place that reads *through* it runs out — 7.2p1's enumerator, 7p4's `static_assert`, 14.3.2p5's template argument, 9.6p1's bit-field width and 7.6.2p1's alignment-specifier each **refused** `make().v` for a `make` the pattern declares, one line from a bound that already folded it, because checkpoint A's audit carried the answer on the value a reading arrived at and only `array_bound` also caught the refusal. `ConstexprReading::counted_where` is now the one reading all four places that count ask, taken where the expression stands, and 7p4 and 14.3.2p5 ask the same question at their own doors. Two course fixtures pin both sides. See [audit.md](audit.md). | 152 → 154 (159) |
 | M | **The three questions the expression layer already answered, asked a second time and answered differently.** 3.3.10p2 hides a class or an enumeration behind a variable, a data member, a function or an enumerator of that name declared in the same region, in either order, and 3.4.4p2 leaves it reachable through an elaborated-type-specifier alone - so `LookupKind::Type` is 3.4.4p2's question and belongs at `elaborated`, and what tells 5.2.3's cast from 5.2.2's call at `call_or_cast` and at `SpelledTypeId::read` - the tree door and the flattened one - is 3.4.1's ordinary lookup with `names_a_type` after it, which is what the expression layer's own `call_expression` has always asked (group H). 14p1 declares no function until a template is instantiated, so a reading of a *pattern* holds the definition of nothing the pattern declares: `ConstexprReading::unsettled_callee` is that one sentence over both shapes - a member of the class the pattern describes, found by `dependent_reading` over the regions standing above it, and a specialization made over a dependent argument, found in its own argument list - and 14.6p8 stands a value in for the call rather than calling the missing body 7.1.5p2's error, leaving the instantiation to read the same call again and answer it (group T'). And 5.1.1p13's third bullet is the one place a non-static data member is named with no object at all: `SemaAnalyzer::unevaluated_` is the depth of a reading of an unevaluated operand, taken at 5.3.3p1's door, and `named_value` gives the id-expression the member's own declared type there instead of 9.3.1p3's `this` (group U). Three course fixtures pin the three. | 145 -> 152 (157) |
 | A audit | `d9d9a8af`, 3 blockers: 14.6p8 was asked of the enumerator that *wrote* a constant-expression and 7.2p1 gives the one that writes none the value of the one before it plus one, so `enum { first = sizeof(T), second };` marked `second` a constant holding the stand-in's arithmetic and `char check[second == 5 ? 1 : -1]` beside it was **refused as a negative array bound** where both oracles translate the program, with `second = first + 1` one character away already right; 4.2p1 — the sentence that makes `&numbers[2]` an address constant — was asked by a `named_array` lookup of the spelling at the subscript's left operand and nowhere else, so `numbers + 1`, `1 + numbers`, `numbers == numbers`, `numbers != other`, `!numbers`, `numbers ? a : b` and `*numbers` were each `numbers is not a constant expression` where g++ folds all seven and the reference folds four; and 3.2p2's pointer half was gated on `lowering()` where the arithmetic half above it was not, so `--emit-semantics` wrote the member's name where `pa12/cppgm++-ref` writes the initializer read at the name. A name of array type is now worth *which object it is* at `entity_constant`, each reader applies the conversion — `truth` for 4.12p1 and `unary_constant` for 5.3.1p1, beside the 5.7/5.9 operands that already did — and `global_address` owes `1 + numbers` the image `numbers + 1` had. Two course fixtures pin them. See [audit.md](audit.md). | 143 → 145 (154) |
 | A | **3.2p2's read of a name, and the bound a pattern cannot compute.** `named_value` is the one door every naming comes through - a qualified name, an unqualified one inside a member function, one after an object expression - and it now asks 5.3.1p3 there: `addressed` is `&`'s question, taken at the operand in `unary_expression` for every id-expression and not only the qualified one 5.3.1p3's pointer-to-member needs, and it is what tells a *read* of 9.4.2p3's member from a use of the object. A read of one of pointer type is 5.19p2's address, which no `bits` holds and no pool the lowering can reach names - so what it is worth is the class's own brace-or-equal-initializer read where the name stands, which gives `"x"` the literal's object, `&numbers[2]` the element, `&step` the function and `nullptr` 4.10p1's value, and leaves the member's storage named by nothing. Carried three siblings the door reached: `&T::n` and `&n` over an *arithmetic* member were refused as non-lvalues where both oracles fold; 14.6p8's stand-in is now carried by what it produced rather than lost at the next test, so 8.3.4p1's bound, 7.2p1's enumerator and 7.1.5p9's declaration each answer "the arguments'" instead of the arm a stood-in value chose; and 4.2p1's name of array type is no pointer to read, which is what made `&numbers[2]` an address constant at all. Two course fixtures pin both halves. | 138 → 143 (152) |
@@ -562,3 +577,23 @@ and only the reference's type for it disagrees; and `char arr[0]` written in a
 pattern is accepted here (14.6p8's stand-in for a bound of zero) and refused by
 g++, where a pattern's *non-dependent* non-constant bound - `char arr[g];` - is
 refused here and by g++ and accepted by the reference.
+
+**Known gaps (M audit).** Four shapes the sweep found beside the two blockers,
+none of them the checkpoint's own. `sizeof` written over an *expression* as a
+template argument is refused by the flattened reader — `H<sizeof(g)>` folds and
+`H<sizeof(g + 0)>` is `written inside sizeof as a template argument and names no
+type`, for a plain global as much as for a member, where g++ folds both; it is
+`TemplateArgumentReader`'s own reading and predates the checkpoint. Neither of
+finding 1's shapes can be pinned by a `.ref`: `pa21/cppgm++-ref` answers
+`decltype(S::first + 0)` with `failed to resolve member id-expression` and
+`noexcept(S::first)` with `static_assert unevaluated`, so the course fixture
+stays written over `sizeof` alone and g++ is the oracle for the other two. A
+pattern's *static data member* whose brace-or-equal-initializer is ill-formed is
+diagnosed only where its value is needed — `template<class U> struct W { static
+constexpr int n = S::a; };` over a non-static `S::a` is accepted until something
+reads `n`, where the same declaration outside a template is refused at the class;
+it is not `unevaluated_`'s, because the shape is accepted identically with the
+depth never set. And `make().at()[0]` written as a *class member's* initializer
+is `unsupported constexpr class member initializer` in the reference and folded
+by g++ and this build, so the finding-2 fixture pins the member access, the
+member call and the four counting places and leaves the subscript to g++.

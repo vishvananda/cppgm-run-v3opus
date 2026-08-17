@@ -63,9 +63,16 @@ unsigned long long SemaAnalyzer::requested_alignment(const AstNode& node,
 		// 7.6.2p1: what the specifier asks for is an integral constant
 		// expression, which 5.19p3 lets an object of class type reach through
 		// 12.3.2p1's conversion function.
-		const Constant value = ConstexprReading(*this).at_arithmetic_place(
-			evaluate(*child.children[0], ctx), kNoType);
-		const unsigned long long asked = ConstexprReading(*this).counted(value);
+		Constant value;
+		unsigned long long asked = 0;
+		if (!ConstexprReading(*this).counted_where(*child.children[0], ctx,
+		                                           value, asked))
+		{
+			// 14.6p8: a reading of a pattern stood a value in for what the
+			// specifier names, so it asks for no alignment here at all and the
+			// specialization reads the same specifier with its arguments bound.
+			continue;
+		}
 		// 7.6.2p3: what an alignment-specifier asks for is a fundamental
 		// alignment - a power of two no greater than the widest one the
 		// implementation gives an object - and zero, which asks for nothing.
@@ -129,11 +136,15 @@ void SemaAnalyzer::bit_field_declaration(const AstNode& node,
 		const AstNode& field = *node.children[index];
 		const AstNode& written = *field.children[field.children.size() - 1];
 		// 9.6p1: the width is an integral constant expression, so a floating
-		// value is no width however 4.9 would convert one.
-		const Constant value = ConstexprReading(*this).at_arithmetic_place(
-			evaluate(written, ctx), kNoType);
-		if (is_signed(value.type) &&
-		    (ConstexprReading(*this).counted(value) >> 63) != 0)
+		// value is no width however 4.9 would convert one.  14.6p8 answers it
+		// here as it answers 8.3.4p1's bound: a reading of a pattern that stood
+		// a value in for what the width names has arrived at no width, so one
+		// bit stands in and the specialization asks 9.6p1 of its own arguments.
+		Constant value;
+		unsigned long long width = 1;
+		const bool settled =
+			ConstexprReading(*this).counted_where(written, ctx, value, width);
+		if (settled && is_signed(value.type) && (width >> 63) != 0)
 		{
 			throw std::runtime_error("a bit-field has a negative width");
 		}
@@ -177,18 +188,18 @@ void SemaAnalyzer::bit_field_declaration(const AstNode& node,
 			throw std::runtime_error("a bit-field does not have integral or "
 			                         "enumeration type");
 		}
-		if (!dependent && value.bits > 8 * types_.object_size(bare))
+		if (!dependent && settled && width > 8 * types_.object_size(bare))
 		{
 			throw std::runtime_error("a bit-field is wider than the type it "
 			                         "was declared with");
 		}
-		if (value.bits == 0 && !member.name.empty())
+		if (settled && width == 0 && !member.name.empty())
 		{
 			// 9.6p2: only an unnamed bit-field may have a width of zero.
 			throw std::runtime_error("a named bit-field has a width of zero");
 		}
 		member.bit_field = true;
-		member.bit_width = static_cast<unsigned>(value.bits);
+		member.bit_width = static_cast<unsigned>(width);
 		member.bit_access = bit_field_access_type(member.type);
 	}
 }

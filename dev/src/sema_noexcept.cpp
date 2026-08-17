@@ -192,6 +192,11 @@ bool ConstexprReading::nonthrowing_operand(const AstNode& node,
 		throw NotConstant("a constant expression holds an operator PA11 does "
 		                  "not evaluate");
 	}
+	// 5.3.7p1 leaves the operand unevaluated, which is the door 5.1.1p13's
+	// third bullet stands in: an id-expression naming a non-static data member
+	// with no object at all is one of the operand's names here exactly as it is
+	// one of `sizeof`'s.
+	const ReadingDepth measuring(analyzer_.unevaluated_);
 	DumpNode scratch;
 	analyzer_.probe_expression(node, ctx, scratch);
 	return nonthrowing_tree(scratch);

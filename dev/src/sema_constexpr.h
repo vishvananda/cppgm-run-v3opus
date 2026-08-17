@@ -432,6 +432,15 @@ public:
 	// than truncated to one.
 	unsigned long long counted(const SemaConstant& value);
 
+	// The same reading taken where the expression *stands*, which is what lets
+	// 14.6p8 travel with the count: 8.3.4p1's bound, 7.2p1's enumerator,
+	// 9.6p1's bit-field width and 7.6.2p1's alignment each count with a
+	// constant expression written where a pattern may stand, and none of them
+	// is answered by a reading that stood a value in for something an argument
+	// list settles.  False says so, on a refusal as much as on a value.
+	bool counted_where(const AstNode& node, const SemaContext& ctx,
+	                   SemaConstant& value, unsigned long long& count);
+
 	// 12.3.2p1 with 14.3.2p5: `value`, an object of class type, brought to the
 	// type `place` by a conversion function of its class.
 	//

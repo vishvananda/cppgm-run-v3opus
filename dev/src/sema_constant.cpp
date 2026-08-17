@@ -596,37 +596,17 @@ unsigned long long SemaAnalyzer::array_bound(const AstNode& node,
 	// 8.3.4p1: the bound is a converted constant expression of type
 	// `std::size_t`, which 5.19p3 leaves its user-defined conversions - and
 	// which counts elements, so a floating value is no bound at all.
-	const unsigned stood = stood_in_;
 	Constant value;
-	try
-	{
-		value = ConstexprReading(*this).at_arithmetic_place(evaluate(node, ctx),
-		                                                    kNoType);
-	}
-	catch (const NotConstant&)
-	{
-		// 14.6p8: the reading stood a value in for something the arguments
-		// settle and then ran out on the stand-in - `values[0]` where `values`
-		// is an array as long as a pack.  What it ran out on is that stand-in
-		// and not the program, so the bound waits for the specialization like
-		// any other; a reading that stood nothing in ran out on the program's
-		// own expression and says so.
-		if (checking_ == 0 || stood_in_ == stood)
-		{
-			throw;
-		}
-		return 1;
-	}
-	const unsigned long long bound = ConstexprReading(*this).counted(value);
-	if (stood_in_ != stood)
+	unsigned long long bound = 0;
+	if (!ConstexprReading(*this).counted_where(node, ctx, value, bound))
 	{
 		// 14.6p8 over 8.3.4p1: the bound names something an argument list has
-		// yet to settle, so the reading stood a value in its place and what it
-		// came out as is no bound at all - `char check[sizeof(T) == 4 ? 1 : -1]`
-		// is the pattern's whole point, and the arm a stood-in value chose says
-		// nothing about the specialization.  One element stands in until the
-		// instantiation reads the bound its arguments make, which is where
-		// 8.3.4p1 is asked.
+		// yet to settle, so what the reading came out as - a value, or running
+		// out on the stand-in - is no bound at all.  `char check[sizeof(T) == 4
+		// ? 1 : -1]` is the pattern's whole point, and the arm a stood-in value
+		// chose says nothing about the specialization.  One element stands in
+		// until the instantiation reads the bound its arguments make, which is
+		// where 8.3.4p1 is asked.
 		return 1;
 	}
 	if (is_signed(value.type) && (bound >> 63) != 0)
@@ -695,6 +675,12 @@ TypeId SemaAnalyzer::decltype_type(const AstNode& node, const Context& ctx)
 		// is the expression's, with a reference added for an lvalue or an
 		// xvalue.  PA12 types every expression of its subset, so the question
 		// is the same one the expression layer already answers.
+		//
+		// 7.1.6.2p4 leaves that expression unevaluated, which is the same door
+		// 5.3.3p1 opens for `sizeof`: 5.1.1p13's third bullet lets an
+		// id-expression name a non-static data member with no object there, so
+		// `decltype(S::keys + 0)` is read where `decltype(S::keys)` above is.
+		const ReadingDepth measuring(unevaluated_);
 		DumpNode scratch;
 		const Value value =
 			SemaAnalyzer::probe_expression(*expression, ctx, scratch);

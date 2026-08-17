@@ -192,7 +192,6 @@ void SemaAnalyzer::enumerators(const AstNode& node, SemaEntity& entity,
 		}
 		unsigned long long value = next;
 		bool negative = false;
-		const unsigned stood = stood_in_;
 		if (!child.children.empty())
 		{
 			// 7.2p1: the constant-expression of an enumerator-definition.
@@ -203,12 +202,12 @@ void SemaAnalyzer::enumerators(const AstNode& node, SemaEntity& entity,
 			// an object of class type is 12.3.2p1's conversion function and not
 			// the identifier the constant holds - and which no value of
 			// 3.9.1p8's floating types is, however 4.9 would convert one.
-			const Constant written = ConstexprReading(*this).at_arithmetic_place(
-				evaluate(*child.children[0], inner), kNoType);
-			value = ConstexprReading(*this).counted(written);
-			negative = is_signed(written.type) &&
+			Constant written;
+			settled = ConstexprReading(*this).counted_where(*child.children[0],
+			                                                inner, written,
+			                                                value);
+			negative = settled && is_signed(written.type) &&
 				(value >> (width_of(written.type) - 1)) != 0;
-			settled = stood_in_ == stood;
 		}
 		next = value + 1;
 		// 7.2p5: the range of the enumeration is the values its enumerators

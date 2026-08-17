@@ -1414,7 +1414,22 @@ void SemaAnalyzer::static_assert_declaration(const AstNode& node,
                                              const Context& ctx)
 {
 	const unsigned stood = stood_in_;
-	const Constant value = evaluate(*node.children[0], ctx);
+	Constant value;
+	try
+	{
+		value = evaluate(*node.children[0], ctx);
+	}
+	catch (const NotConstant&)
+	{
+		// 14.6p8: the reading ran out on the stand-in rather than on what the
+		// program wrote - `make().v` for a `make` the pattern declares - so the
+		// condition is the arguments' to settle like any other.
+		if (checking_ == 0 || stood_in_ == stood)
+		{
+			throw;
+		}
+		return;
+	}
 	if (stood_in_ != stood)
 	{
 		// 14.6p8 and 7p4: the condition names something an argument list has

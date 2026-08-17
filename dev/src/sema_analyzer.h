@@ -2268,7 +2268,8 @@ private:
 	// it asserts nothing where the pattern stands.  It is a count and not a
 	// flag because one such reading stands inside another.
 	unsigned stood_in_;
-	// 5.3.3p1 and 7.1.6.2p4: the depth of a reading of an *unevaluated* operand.
+	// 5.3.3p1, 7.1.6.2p4 and 5.3.7p1: the depth of a reading of an
+	// *unevaluated* operand, taken at each of the three doors that open one.
 	// 5.1.1p13's third bullet is the one question that turns on it: an
 	// id-expression naming a non-static data member may stand in such an
 	// operand, where no object is named and the member's declared type is the

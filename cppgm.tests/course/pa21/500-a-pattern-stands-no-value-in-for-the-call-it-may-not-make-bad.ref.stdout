@@ -1,0 +1,11 @@
+ERROR: failed non-type template argument evaluation: counted() [scope holder<int>::<here>] [bindings holder<int>{types:T=int,holder=struct holder<int>} {types:T=int,holder<int>=struct holder<int>}] [parameter-scope holder<int>::<here>] [parameter-bindings holder<int>{types:T=int,holder=struct holder<int>} {types:T=int,holder<int>=struct holder<int>}] [phase template-resolution] [top-level declaration 2 kind=simple-declaration ast={simple-declaration
+  decl-specifier-seq
+    decl-specifier KW_TYPEDEF:typedef
+    decl-specifier holder<int>::measured
+  init-declarator-list
+    init-declarator
+      declarator
+        identifier asked
+}]
+Diagnostic context:
+collect_simple_declaration [typedef holder<int>::measured asked;] at course/pa21/500-a-pattern-stands-no-value-in-for-the-call-it-may-not-make-bad.t:35:1
