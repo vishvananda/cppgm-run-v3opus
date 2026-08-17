@@ -9,6 +9,7 @@
 #include "sema_deduce.h"
 #include "sema_name.h"
 #include "sema_template.h"
+#include "sema_template_head.h"
 
 // 14.5.5's partial specialization and 14.5.1p1's variable template.
 //
@@ -256,14 +257,14 @@ bool Specialization::read_pattern(SemaEntity& primary, const TemplateId& id,
 	head = &analyzer_.template_patterns_.back();
 	head->region = ctx.scope;
 	head->dump = ctx.dump;
-	analyzer_.read_template_head(clause, *head);
+	TemplateHead(analyzer_).read(clause, *head);
 	if (!head->supported)
 	{
 		return false;
 	}
 	// 14.6.1p1: the pattern names the places *this* head declared, so it is read
 	// in the region that head opened rather than in the one the primary's did.
-	analyzer_.open_parameter_region(*head);
+	TemplateHead(analyzer_).open_region(*head);
 	SemaContext inner;
 	inner.scope = head->parameter_region;
 	inner.dump = head->reading_dump;
@@ -271,7 +272,7 @@ bool Specialization::read_pattern(SemaEntity& primary, const TemplateId& id,
 	const unsigned stood = analyzer_.stood_in_;
 	try
 	{
-		analyzer_.bind_template_arguments(primary, id.arguments(), inner,
+		TemplateHead(analyzer_).bind_arguments(primary, id.arguments(), inner,
 		                                  pattern);
 	}
 	catch (const std::exception&)
@@ -312,7 +313,7 @@ bool Specialization::record_explicit(const AstNode& declared,
 		return false;
 	}
 	std::vector<TypeId> arguments;
-	analyzer_.bind_template_arguments(*primary, id.arguments(), ctx, arguments);
+	TemplateHead(analyzer_).bind_arguments(*primary, id.arguments(), ctx, arguments);
 	// 14.7.3p6: the declaration is what this argument list *is*, wherever it is
 	// named - so it is held before the specialization is made, and a naming
 	// above it that already made one from the pattern is an error the program
@@ -358,12 +359,12 @@ bool Specialization::declare_variable(const AstNode& clause,
 	info.region = ctx.scope;
 	info.dump = ctx.dump;
 	info.pattern = &declared;
-	analyzer_.read_template_head(clause, info);
+	TemplateHead(analyzer_).read(clause, info);
 	if (!info.supported)
 	{
 		return false;
 	}
-	analyzer_.open_parameter_region(info);
+	TemplateHead(analyzer_).open_region(info);
 	SemaContext inner;
 	inner.scope = info.parameter_region;
 	inner.dump = info.reading_dump;
@@ -589,12 +590,12 @@ Specialization::Reading Specialization::variable_reading(
 	if (at == kNoPartial)
 	{
 		out.declared = info.pattern;
-		out.region = &analyzer_.open_template_bindings(info, arguments);
+		out.region = &TemplateHead(analyzer_).open_bindings(info, arguments);
 		return out;
 	}
 	out.declared = info.partials[at].body;
 	out.region =
-		&analyzer_.open_template_bindings(*info.partials[at].head, deduced);
+		&TemplateHead(analyzer_).open_bindings(*info.partials[at].head, deduced);
 	return out;
 }
 

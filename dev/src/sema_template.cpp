@@ -8,6 +8,7 @@
 #include "sema_deduce.h"
 #include "sema_pack.h"
 #include "sema_specialize.h"
+#include "sema_template_head.h"
 #include "token_model.h"
 
 // Function templates, as far as one specialization of each.
@@ -223,7 +224,7 @@ SemaEntity* SemaAnalyzer::template_specializations(const std::string& spelling,
 				// fills the places the run it stands for is long, which is how
 				// `select<T...>` reaches a head of two fixed places.
 				PackReading(*this).expand(
-					pattern, ctx, place_type(places, what, arguments),
+					pattern, ctx, TemplateHead(*this).place_type(places, what, arguments),
 					arguments);
 				continue;
 			}
@@ -231,7 +232,7 @@ SemaEntity* SemaAnalyzer::template_specializations(const std::string& spelling,
 			{
 				break;
 			}
-			arguments.push_back(explicit_argument(places, what, arguments,
+			arguments.push_back(TemplateHead(*this).explicit_argument(places, what, arguments,
 			                                      id.arguments()[index], ctx));
 		}
 		if (!packed && arguments.size() > places.size())
@@ -345,7 +346,7 @@ void SemaAnalyzer::instantiate_body(SemaEntity& function)
 		? written->second
 		: info.pattern;
 	Context inner;
-	inner.scope = &open_template_bindings(
+	inner.scope = &TemplateHead(*this).open_bindings(
 		info, types_.type_list_at(function.template_arguments));
 	inner.dump = info.dump;
 	// 9.2p2 and 14.7.1p1: the definition is written where the output puts
@@ -589,7 +590,7 @@ bool SemaAnalyzer::record_template(const AstNode& node, const Context& ctx)
 		entity->templated = &template_patterns_.back();
 		entity->templated->region = target.scope;
 		entity->templated->dump = target.dump;
-		read_template_head(*clause, *entity->templated);
+		TemplateHead(*this).read(*clause, *entity->templated);
 		// 14.1p1 and 14.6.1p6: the head's parameters are declared in a region
 		// enclosing this declaration, and this declaration's own name stands
 		// inside it - but the region is opened after the name is bound and a
@@ -621,7 +622,7 @@ bool SemaAnalyzer::record_template(const AstNode& node, const Context& ctx)
 		// each head spelling the places as it likes, so what the merged default
 		// names them by travels with it.
 		TemplateInfo head;
-		read_template_head(*clause, head);
+		TemplateHead(*this).read(*clause, head);
 		if (head.parameters.size() != entity->templated->parameters.size())
 		{
 			throw std::runtime_error("two declarations of the class template " +
@@ -635,7 +636,7 @@ bool SemaAnalyzer::record_template(const AstNode& node, const Context& ctx)
 			// place *is* does not change with the spelling, so a region an
 			// earlier naming already opened keeps the types it settled and
 			// takes the new names beside the ones it was bound under.
-			rename_template_parameters(*entity->templated, head.parameters);
+			TemplateHead(*this).rename_parameters(*entity->templated, head.parameters);
 		}
 		entity->templated->supported =
 			entity->templated->supported && head.supported;
@@ -725,7 +726,7 @@ bool SemaAnalyzer::record_explicit_specialization(const AstNode& declared,
 		                         " names no class template");
 	}
 	std::vector<TypeId> arguments;
-	bind_template_arguments(*primary, id.arguments(), ctx, arguments);
+	TemplateHead(*this).bind_arguments(*primary, id.arguments(), ctx, arguments);
 	TemplateInfo& info = *primary->templated;
 	const std::uint32_t list = types_.type_list(arguments);
 	if (declared.kind == AstKind::ClassSpecifier)
@@ -1082,7 +1083,7 @@ void SemaAnalyzer::complete_specialization(SemaEntity& made)
 	inner.scope = specialized
 		? info.region
 		: (pattern ? info.parameter_region
-		           : &open_template_bindings(
+		           : &TemplateHead(*this).open_bindings(
 				         matched ? *info.partials[partial].head : info,
 				         matched ? deduced
 				                 : types_.type_list_at(made.template_arguments)));
@@ -1151,6 +1152,31 @@ SemaEntity* SemaAnalyzer::template_id_entity(const std::string& component,
 	SemaEntity* primary =
 		in != nullptr ? model_.lookup_in(*in, id.name(), LookupKind::Type)
 		              : model_.lookup(*ctx.scope, id.name(), LookupKind::Type);
+	if (primary != nullptr && types_.is_parameter_template(primary->type))
+	{
+		// 14.6.2p1: `C<A…>` where `C` is still the place its own head declared
+		// names whatever the template an argument list binds to `C` makes of
+		// the list, which is a type only that list settles.
+		const TemplateInfo* const head = place_head(primary->type);
+		std::vector<TypeId> arguments;
+		arguments.reserve(id.arguments().size());
+		for (std::size_t index = 0; index < id.arguments().size(); ++index)
+		{
+			std::string pattern;
+			if (written_pack_expansion(id.arguments()[index], pattern))
+			{
+				PackReading(*this).expand(pattern, ctx, kNoType, arguments);
+				continue;
+			}
+			arguments.push_back(
+				head != nullptr
+					? TemplateHead(*this).bound_argument(*head, arguments.size(),
+					                                     id.arguments()[index],
+					                                     arguments, ctx)
+					: template_argument_type(id.arguments()[index], ctx));
+		}
+		return &dependent_template_name(primary->type, arguments, component);
+	}
 	if (primary != nullptr && primary->templated == nullptr &&
 	    primary->primary != nullptr)
 	{
@@ -1165,8 +1191,41 @@ SemaEntity* SemaAnalyzer::template_id_entity(const std::string& component,
 		return variable_template_entity(id, ctx, in, filter);
 	}
 	std::vector<TypeId> arguments;
-	bind_template_arguments(*primary, id.arguments(), ctx, arguments);
+	TemplateHead(*this).bind_arguments(*primary, id.arguments(), ctx, arguments);
 	return &instantiate_class(*primary, arguments);
+}
+
+TemplateInfo* SemaAnalyzer::place_head(TypeId parameter) const
+{
+	const std::unordered_map<TypeId, TemplateInfo*>::const_iterator held =
+		place_heads_.find(parameter);
+	return held == place_heads_.end() ? nullptr : held->second;
+}
+
+// 14.6.2p1: the declaration `C<A…>` stands for while `C` is a place no argument
+// list has settled.
+//
+// It is 3.4's answer to one spelling, so it is made once per place and argument
+// list: a pattern that writes `C<T>` twice writes one type, and the
+// substitution below runs once for it however many namings reached it.
+SemaEntity& SemaAnalyzer::dependent_template_name(
+	TypeId parameter, const std::vector<TypeId>& arguments,
+	const std::string& spelling)
+{
+	const std::uint64_t key = (static_cast<std::uint64_t>(parameter) << 32) |
+		types_.type_list(arguments);
+	const std::unordered_map<std::uint64_t, SemaEntity*>::const_iterator held =
+		dependent_templates_.find(key);
+	if (held != dependent_templates_.end())
+	{
+		return *held->second;
+	}
+	const TypeId type = types_.dependent_template_id(
+		model_.type_entity_id(), parameter, arguments, spelling);
+	SemaEntity& entity = model_.create(SemaKind::Typedef, spelling, type);
+	own_type(type, entity);
+	dependent_templates_.insert(std::make_pair(key, &entity));
+	return entity;
 }
 
 // 14.5.1p1: the specialization a template-id written over a variable template
@@ -1195,7 +1254,7 @@ SemaEntity* SemaAnalyzer::variable_template_entity(const TemplateId& id,
 		return nullptr;
 	}
 	std::vector<TypeId> arguments;
-	bind_template_arguments(*primary, id.arguments(), ctx, arguments);
+	TemplateHead(*this).bind_arguments(*primary, id.arguments(), ctx, arguments);
 	return &Specialization(*this).variable(*primary, arguments, ctx);
 }
 
@@ -1772,13 +1831,13 @@ void SemaAnalyzer::instantiate_member(SemaEntity& specialization,
 	Scope* const enclosing = specialization.scope->parent;
 	Scope* const region =
 		enclosing != nullptr && enclosing->kind == ScopeKind::TemplateParameters
-			? open_member_parameters(*enclosing, *member.clause, arguments,
+			? TemplateHead(*this).open_member_parameters(*enclosing, *member.clause, arguments,
 			                         SemaKind::Typedef, info.dump)
 			: nullptr;
 	Context inner;
 	inner.scope = region != nullptr
 		? region
-		: &open_template_bindings(info, arguments);
+		: &TemplateHead(*this).open_bindings(info, arguments);
 	inner.dump = info.dump;
 	// 9.4.2p1 and 9.3p2: the definition declares into the class the
 	// declarator-id names, and writes its lines where that class writes them.
@@ -2125,6 +2184,36 @@ TypeId SemaAnalyzer::substituted(
 
 	default:
 	{
+		// 14.6.2p1 at a template place: `C<A…>` is the specialization the
+		// template bound to `C` makes of the arguments this substitution makes
+		// of the list.  Where the binding leaves `C` a place still - a template
+		// place of the head being read, forwarded on - the naming stands as it
+		// was for the substitution that follows.
+		const TypeId place = types_.applied_template(bare);
+		if (place != kNoType)
+		{
+			const std::vector<TypeId>& listed = types_.template_arguments(bare);
+			std::vector<TypeId> arguments;
+			arguments.reserve(listed.size());
+			for (std::size_t index = 0; index < listed.size(); ++index)
+			{
+				PackReading(*this).substitute_entry(listed[index], bindings,
+				                                    memo, arguments);
+			}
+			std::unordered_map<TypeId, TypeId> alone;
+			const TypeId bound = types_.substitute(place, bindings, alone);
+			SemaEntity* const named = types_.is_template_name(bound)
+				? model_.type_owner(bound)
+				: nullptr;
+			out = named != nullptr && named->templated != nullptr
+				? types_.qualified(instantiate_class(*named, arguments).type, cv)
+				: types_.qualified(
+					  types_.dependent_template_id(
+						  model_.type_entity_id(), bound, arguments,
+						  types_.user_name(bare)),
+					  cv);
+			break;
+		}
 		// 14.6.2p1 and 14.7.1p1: a name written after a prefix the definition
 		// could not settle is a member of whatever class an argument list makes
 		// of that prefix, so the substitution settles the prefix first and looks
@@ -2275,7 +2364,7 @@ SemaEntity& SemaAnalyzer::current_instantiation(SemaEntity& primary)
 	{
 		return *info.current;
 	}
-	open_parameter_region(info);
+	TemplateHead(*this).open_region(info);
 	std::vector<TypeId> arguments;
 	arguments.reserve(info.parameters.size());
 	for (std::size_t index = 0; index < info.parameters.size(); ++index)
@@ -2541,7 +2630,7 @@ void SemaAnalyzer::read_member_pattern(SemaEntity& primary,
 	// standing for the places the class's head declared.  They are bound as
 	// parameters and not as typedef-names of them, because 14.6.1p6 refuses a
 	// declaration of one anywhere in the template that declared it.
-	Scope* const region = open_member_parameters(
+	Scope* const region = TemplateHead(*this).open_member_parameters(
 		*info.current->scope->parent, clause,
 		types_.type_list_at(info.current->template_arguments),
 		SemaKind::TemplateType, info.reading_dump);

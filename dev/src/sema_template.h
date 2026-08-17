@@ -83,6 +83,8 @@ struct TemplateInfo
 		Parameter()
 			: written(nullptr)
 			, value(false)
+			, templated(false)
+			, head(nullptr)
 			, pack(false)
 			, self(0)
 			, type(0)
@@ -91,6 +93,13 @@ struct TemplateInfo
 		std::string name;
 		const AstNode* written;
 		bool value;
+		// 14.1p2: a place declared `template<…> class`, which binds a
+		// *template* and neither a type nor a value.  Its own
+		// template-parameter-clause is what 14.3.3p1 matches a written argument
+		// against, so it is read as a head of its own - once per clause, and
+		// null for every place that is not one.
+		bool templated;
+		TemplateInfo* head;
 		// 14.5.3p1: a place declared with `...`, which binds the run of
 		// arguments left over rather than one argument.  14.1p11 leaves it
 		// last in a primary template's head, so the places before it are the

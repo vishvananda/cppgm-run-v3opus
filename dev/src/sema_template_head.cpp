@@ -8,6 +8,7 @@
 #include "ast_model.h"
 #include "sema_pack.h"
 #include "sema_template.h"
+#include "sema_template_head.h"
 
 // 14.1p2's template-parameter-clause and 14.3p1's template-argument-list.
 //
@@ -79,23 +80,93 @@ const AstNode* declarator_name(const AstNode& declarator)
 // 14.3p1: the argument a written spelling makes at the place `places[index]`
 // declared, which a function template's head declares as a declaration of its
 // own rather than as an entry of a `TemplateInfo`.
-TypeId SemaAnalyzer::explicit_argument(const std::vector<SemaEntity*>& places,
+TypeId TemplateHead::explicit_argument(const std::vector<SemaEntity*>& places,
                                        std::size_t index,
                                        const std::vector<TypeId>& before,
                                        const std::string& written,
-                                       const Context& ctx)
+                                       const SemaContext& ctx)
 {
+	if (index < places.size() &&
+	    analyzer_.types_.is_parameter_template(places[index]->type))
+	{
+		// 14.3.3p1: a template place takes a template-name, which is neither
+		// 8.1p1's type-id nor 5.19's constant expression.
+		return template_argument(written, analyzer_.place_head(places[index]->type),
+		                         ctx);
+	}
 	const TypeId place = place_type(places, index, before);
 	if (place == kNoType)
 	{
-		return template_argument_type(written, ctx);
+		return analyzer_.template_argument_type(written, ctx);
 	}
-	return template_argument_value(written, place, ctx);
+	return analyzer_.template_argument_value(written, place, ctx);
+}
+
+// 14.3.3p1: the template a spelling written at a template place names.
+//
+// 14.2 writes the argument list inside a name, so the argument arrives as text
+// and the answer is 3.4.3's ordinary lookup of it.  What comes back is one of
+// three things: a template the program declared, which the argument *is*; a
+// place another head declared, which stands for itself until an argument list
+// settles it; or nothing a template-name may be, which is the program's error.
+TypeId TemplateHead::template_argument(const std::string& written,
+                                       const TemplateInfo* place,
+                                       const SemaContext& ctx)
+{
+	SemaEntity* named = analyzer_.resolve(written, ctx, LookupKind::Any);
+	if (named != nullptr && analyzer_.types_.is_parameter_template(named->type))
+	{
+		// 14.6.2p1: a place of the head being read stands for itself, and what
+		// 14.3.3p1 asks of it is asked again where the argument arrives.
+		return named->type;
+	}
+	if (named != nullptr && named->templated == nullptr &&
+	    named->primary != nullptr)
+	{
+		// 14.6.1p1: inside a specialization the injected-class-name names that
+		// specialization, and a template place is written the *template* it was
+		// made of.
+		named = named->primary;
+	}
+	if (named == nullptr || named->templated == nullptr ||
+	    (named->kind != SemaKind::Class && named->kind != SemaKind::Typedef))
+	{
+		throw std::runtime_error(written + " is written where a template-name "
+		                         "stands and names no class or alias template");
+	}
+	// 14.3.3p1 asks what the argument's own places are, which is what
+	// 14.6.1p1's region settles - so the template is asked the question every
+	// instantiation of it would have asked first.
+	open_region(*named->templated);
+	if (place != nullptr && !argument_matches(*place, *named->templated))
+	{
+		throw std::runtime_error(written + " declares places the template "
+		                         "parameter it is written at does not accept");
+	}
+	return name_argument(*named);
+}
+
+// 14.3.3p1: the entry standing for one template, made once per declaration -
+// so two argument lists that named the same template are one list, which is
+// what makes `holder<box>` written twice one specialization.
+TypeId TemplateHead::name_argument(SemaEntity& named)
+{
+	const TypeId made = analyzer_.types_.template_name_type(
+		named.id, named.name, abi_qualified_name(named));
+	analyzer_.model_.own_type(made, named);
+	return made;
+}
+
+SemaEntity* TemplateHead::named_template(TypeId argument) const
+{
+	return analyzer_.types_.is_template_name(argument)
+		? analyzer_.model_.type_owner(argument)
+		: nullptr;
 }
 
 // 14.1p4: the name a non-type parameter's declarator gave it, empty where it
 // wrote none.
-std::string SemaAnalyzer::non_type_parameter_name(const AstNode& parameter)
+std::string TemplateHead::non_type_name(const AstNode& parameter)
 {
 	const AstNode* const declarator =
 		first_child(parameter, AstKind::Declarator);
@@ -107,12 +178,140 @@ std::string SemaAnalyzer::non_type_parameter_name(const AstNode& parameter)
 	return id == nullptr ? std::string() : id->text;
 }
 
+// 14.1p2: the head a template-template place wrote inside another head.
+//
+// It is a head like any other - 14.3.3p1 asks its places what a written
+// argument's own places have to be - and 14.5.6.1p5 lets one template be
+// declared many times, each spelling that clause again.  So the reading is
+// keyed by the clause node: one head per clause, however many declarations
+// reach it, and a nest of them is read once at each level.
+TemplateInfo& TemplateHead::parameter_head(const AstNode* clause)
+{
+	const std::unordered_map<const AstNode*, TemplateInfo*>::const_iterator held =
+		analyzer_.parameter_heads_.find(clause);
+	if (held != analyzer_.parameter_heads_.end())
+	{
+		return *held->second;
+	}
+	analyzer_.template_patterns_.push_back(TemplateInfo());
+	TemplateInfo& made = analyzer_.template_patterns_.back();
+	analyzer_.parameter_heads_.insert(std::make_pair(clause, &made));
+	if (clause != nullptr)
+	{
+		read(*clause, made);
+	}
+	return made;
+}
+
+// 14.3.3p1: whether a template declared with the head `argument` may stand at a
+// place declared with the head `place`.
+//
+// 14.3.3p1 asks that each place A declares match the place P declared at the
+// same position, and that two places match when they are of the same *kind* - a
+// type place, a value place, a template place - with a template place asking the
+// same question one level down.  A pack on either side is the sentence after it:
+// it matches zero or more of the other head's places, whatever the other head
+// wrote them as, so a head that stops at a pack fits every longer one.
+//
+// 14.1p9 answers the one asymmetry left: a place A declares past everything P
+// wrote is one no naming through P can fill, so it stands only where A's own
+// head gave it a default.
+bool TemplateHead::argument_matches(const TemplateInfo& place,
+                                    const TemplateInfo& argument)
+{
+	if (!argument.supported)
+	{
+		return false;
+	}
+	const std::vector<TemplateInfo::Parameter>& wanted = place.parameters;
+	const std::vector<TemplateInfo::Parameter>& given = argument.parameters;
+	std::size_t index = 0;
+	for (; index < wanted.size() && index < given.size(); ++index)
+	{
+		if (wanted[index].pack || given[index].pack)
+		{
+			// 14.3.3p1: the pack matches every place the other head has left,
+			// which is what makes `template<class...> class` stand for a head
+			// of any length.
+			const TemplateInfo::Parameter& run =
+				wanted[index].pack ? wanted[index] : given[index];
+			const std::vector<TemplateInfo::Parameter>& rest =
+				wanted[index].pack ? given : wanted;
+			for (std::size_t at = index; at < rest.size(); ++at)
+			{
+				if (rest[at].value != run.value ||
+				    rest[at].templated != run.templated)
+				{
+					return false;
+				}
+			}
+			return true;
+		}
+		if (given[index].value != wanted[index].value ||
+		    given[index].templated != wanted[index].templated)
+		{
+			return false;
+		}
+		if (given[index].value &&
+		    place_signature(place, index) != place_signature(argument, index))
+		{
+			// 14.3.3p1: two value places match only where the types they name
+			// a value of are equivalent, so `template<class T, T>` does not
+			// stand at a place written `template<class, unsigned long>`.
+			return false;
+		}
+		if (given[index].templated && given[index].head != nullptr &&
+		    wanted[index].head != nullptr &&
+		    !argument_matches(*wanted[index].head, *given[index].head))
+		{
+			return false;
+		}
+	}
+	if (index < wanted.size())
+	{
+		// P declares a place A has not got, and A wrote no pack to take it.
+		return false;
+	}
+	for (; index < given.size(); ++index)
+	{
+		if (index >= argument.defaults.size() ||
+		    argument.defaults[index].written == nullptr)
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+// 14.3.3p1 with 14.5.6.1p5: the type one value place names a value of, with
+// each place of its own head standing for its position - which is what makes
+// the question "are the two types equivalent" one integer compare, and what
+// keeps two heads that spell `template<class T, T v>` one answer.
+TypeId TemplateHead::place_signature(const TemplateInfo& head,
+                                     std::size_t index)
+{
+	const TypeId written = head.parameters[index].type;
+	if (written == kNoType || !analyzer_.types_.is_dependent(written))
+	{
+		return written;
+	}
+	std::unordered_map<TypeId, TypeId> bindings;
+	for (std::size_t at = 0; at < head.parameters.size(); ++at)
+	{
+		bindings.insert(std::make_pair(
+			head.parameters[at].self,
+			analyzer_.canonical_parameter(at, head.parameters[at].pack)));
+	}
+	std::unordered_map<TypeId, TypeId> memo;
+	return analyzer_.substituted(written, bindings, memo);
+}
+
 // 14.1p2: the parameters a template-parameter-clause declared, in the order it
 // wrote them, and 14.1p9's default arguments beside them.  A parameter this
 // milestone gives no meaning to leaves the head unsupported rather than
 // refusing it here: 14p1 lets a program declare a template it never names, and
 // the declaration says nothing about a type until an instantiation asks.
-void SemaAnalyzer::read_template_head(const AstNode& clause, TemplateInfo& info)
+void TemplateHead::read(const AstNode& clause, TemplateInfo& info)
 {
 	const AstNode* const list =
 		first_child(clause, AstKind::TemplateParameterList);
@@ -133,12 +332,10 @@ void SemaAnalyzer::read_template_head(const AstNode& clause, TemplateInfo& info)
 			// type may name the parameters before it.
 			place.value = true;
 			place.written = &parameter;
-			place.name = non_type_parameter_name(parameter);
+			place.name = non_type_name(parameter);
 		}
-		else if (parameter.kind != AstKind::TypeParameter ||
-		         first_child(parameter, AstKind::TemplateTemplateParameter) != nullptr)
+		else if (parameter.kind != AstKind::TypeParameter)
 		{
-			// 14.1p1's template parameter belongs to a later milestone.
 			info.supported = false;
 			info.parameters.push_back(TemplateInfo::Parameter());
 			info.defaults.push_back(TemplateInfo::Default());
@@ -149,6 +346,18 @@ void SemaAnalyzer::read_template_head(const AstNode& clause, TemplateInfo& info)
 			// 14.1p3: a type parameter with no identifier declares nothing a
 			// dependent name can reach, but it still takes an argument.
 			place.name = id == nullptr ? std::string() : id->text;
+			if (first_child(parameter, AstKind::TemplateTemplateParameter) !=
+			    nullptr)
+			{
+				// 14.1p2: `template<…> class C` declares a place that binds a
+				// template.  Its own clause is a head of its own - the places
+				// 14.3.3p1 matches a written argument's head against - and it
+				// is read once per clause however many declarations of this
+				// template spell it.
+				place.templated = true;
+				place.head = &parameter_head(
+					first_child(parameter, AstKind::TemplateParameterClause));
+			}
 		}
 		if (place.pack && index + 1 != list->children.size())
 		{
@@ -196,8 +405,8 @@ void SemaAnalyzer::read_template_head(const AstNode& clause, TemplateInfo& info)
 // 14.1p7 leaves the rest of 8.3's declarators to later milestones: a parameter
 // of pointer, reference or class type is not part of the supported subset, and
 // the place is refused where its type is neither integral nor an enumeration.
-TypeId SemaAnalyzer::non_type_parameter_type(const AstNode& parameter,
-                                             const Context& ctx)
+TypeId TemplateHead::non_type_type(const AstNode& parameter,
+                                   const SemaContext& ctx)
 {
 	const AstNode* seq = first_child(parameter, AstKind::DeclSpecifierSeq);
 	if (seq == nullptr)
@@ -209,26 +418,26 @@ TypeId SemaAnalyzer::non_type_parameter_type(const AstNode& parameter,
 		throw std::runtime_error("a non-type template parameter declares no "
 		                         "type");
 	}
-	Span span;
+	SemaSpan span;
 	span.begin = parameter.begin;
 	span.end = parameter.end;
-	const Specifiers specifiers =
-		read_specifiers(*seq, ctx, span, true, std::string());
-	TypeId type = specifier_type(specifiers);
+	const DeclSpecifiers specifiers =
+		analyzer_.read_specifiers(*seq, ctx, span, true, std::string());
+	TypeId type = analyzer_.specifier_type(specifiers);
 	const AstNode* const declarator =
 		first_child(parameter, AstKind::Declarator);
 	if (declarator != nullptr)
 	{
 		std::string ignored;
-		type = declarator_type(*declarator, type, ctx, &ignored);
+		type = analyzer_.declarator_type(*declarator, type, ctx, &ignored);
 	}
 	// 14.1p4: the type shall be integral or an enumeration, or one of the forms
 	// this milestone leaves out; a dependent one is whatever the argument makes
 	// of it, so it is checked where the argument is bound.
-	if (!types_.is_dependent(type) && integral_type(type) == kNoType)
+	if (!analyzer_.types_.is_dependent(type) && analyzer_.integral_type(type) == kNoType)
 	{
 		throw std::runtime_error("a non-type template parameter of " +
-		                         types_.description(type) + " is outside the "
+		                         analyzer_.types_.description(type) + " is outside the "
 		                         "PA20 subset");
 	}
 	return type;
@@ -356,9 +565,9 @@ std::string SemaAnalyzer::type_spelling(TypeId type) const
 // `primary`, with 14.1p9's defaults filling in the ones the list stopped short
 // of.  A default is read in a region that already binds the parameters before
 // it, because 14.1p9 lets it name them.
-void SemaAnalyzer::bind_template_arguments(
+void TemplateHead::bind_arguments(
 	SemaEntity& primary, const std::vector<std::string>& written,
-	const Context& ctx, std::vector<TypeId>& out)
+	const SemaContext& ctx, std::vector<TypeId>& out)
 {
 	TemplateInfo& info = *primary.templated;
 	if (!info.supported)
@@ -378,7 +587,7 @@ void SemaAnalyzer::bind_template_arguments(
 	// 14.1p4: what each place *is* - a type or a value of a written type - is
 	// settled once, by the region the head opened, and every argument list read
 	// after that substitutes its own bindings into what it found.
-	open_parameter_region(info);
+	open_region(info);
 	out.reserve(info.parameters.size());
 	for (std::size_t index = 0; index < written.size(); ++index)
 	{
@@ -393,7 +602,7 @@ void SemaAnalyzer::bind_template_arguments(
 		// are bound to, which the places it lands on are the places of - a run
 		// of two given to `select<A, B>` fills both.
 		const std::size_t at = out.size() < places ? out.size() : places;
-		PackReading(*this).expand(
+		PackReading(analyzer_).expand(
 			pattern, ctx,
 			at < info.parameters.size() && info.parameters[at].value
 				? place_type(info, at, out)
@@ -414,10 +623,10 @@ void SemaAnalyzer::bind_template_arguments(
 	// many times the template is named that way, so the region they are read
 	// in is opened once and the answer is kept.
 	const std::uint64_t key =
-		(static_cast<std::uint64_t>(primary.id) << 32) | types_.type_list(out);
+		(static_cast<std::uint64_t>(primary.id) << 32) | analyzer_.types_.type_list(out);
 	const std::unordered_map<std::uint64_t, std::vector<TypeId> >::const_iterator
-		held = default_arguments_.find(key);
-	if (held != default_arguments_.end())
+		held = analyzer_.default_arguments_.find(key);
+	if (held != analyzer_.default_arguments_.end())
 	{
 		out = held->second;
 		return;
@@ -445,8 +654,8 @@ void SemaAnalyzer::bind_template_arguments(
 		// by.  So the region it is read in is its own head's, binding each
 		// earlier place to what the list wrote there or an earlier default
 		// already filled.
-		Context inner;
-		inner.scope = &model_.open(ScopeKind::TemplateParameters, *info.region,
+		SemaContext inner;
+		inner.scope = &analyzer_.model_.open(ScopeKind::TemplateParameters, *info.region,
 		                           nullptr, info.dump);
 		inner.dump = info.dump;
 		inner.node = nullptr;
@@ -459,40 +668,40 @@ void SemaAnalyzer::bind_template_arguments(
 				// have written.
 				continue;
 			}
-			bind_argument(*inner.scope, fill.spelled[before], out[before],
+			bind(*inner.scope, fill.spelled[before], out[before],
 			              SemaKind::Typedef);
 		}
 		if (!info.parameters[index].value)
 		{
-			out.push_back(type_id_type(*fill.written, inner));
+			out.push_back(analyzer_.type_id_type(*fill.written, inner));
 			continue;
 		}
 		// 14.1p9 at a value place: the default is an expression, read against
 		// the same region and converted to the type this place declared.
 		const TypeId place = place_type(info, index, out);
-		bool dependent = types_.is_dependent(place);
-		Constant value;
+		bool dependent = analyzer_.types_.is_dependent(place);
+		SemaConstant value;
 		if (!dependent)
 		{
-			value = evaluate(*fill.written, inner);
+			value = analyzer_.evaluate(*fill.written, inner);
 		}
 		out.push_back(dependent
-			              ? dependent_value(primary.name + "#" +
+			              ? analyzer_.dependent_value(primary.name + "#" +
 			                                std::to_string(index))
-			              : types_.value_type(place,
-			                                  convert(value, place).bits));
+			              : analyzer_.types_.value_type(place,
+			                                  analyzer_.convert(value, place).bits));
 	}
-	default_arguments_.insert(std::make_pair(key, out));
+	analyzer_.default_arguments_.insert(std::make_pair(key, out));
 }
 
 // 14.1p4: the type the place at `index` declares, with the arguments the places
 // before it took substituted into it - which is what `template<class T, T v>`
 // needs and what leaves every other head's answer the type it already had.
-TypeId SemaAnalyzer::place_type(const TemplateInfo& info, std::size_t index,
+TypeId TemplateHead::place_type(const TemplateInfo& info, std::size_t index,
                                 const std::vector<TypeId>& before)
 {
 	const TypeId written = info.parameters[index].type;
-	if (written == kNoType || !types_.is_dependent(written))
+	if (written == kNoType || !analyzer_.types_.is_dependent(written))
 	{
 		return written;
 	}
@@ -503,14 +712,14 @@ TypeId SemaAnalyzer::place_type(const TemplateInfo& info, std::size_t index,
 			std::make_pair(info.parameters[at].self, before[at]));
 	}
 	std::unordered_map<TypeId, TypeId> memo;
-	return substituted(written, bindings, memo);
+	return analyzer_.substituted(written, bindings, memo);
 }
 
 // 14.1p4 at the function tier, where each place is a declaration of its own
 // rather than an entry of a `TemplateInfo`: the same type, over the same
 // arguments, keyed by the type each place stands for.  A type place answers
 // `kNoType`, which is what says the argument written there is 8.1p1's type-id.
-TypeId SemaAnalyzer::place_type(const std::vector<SemaEntity*>& places,
+TypeId TemplateHead::place_type(const std::vector<SemaEntity*>& places,
                                 std::size_t index,
                                 const std::vector<TypeId>& before)
 {
@@ -518,8 +727,8 @@ TypeId SemaAnalyzer::place_type(const std::vector<SemaEntity*>& places,
 	{
 		return kNoType;
 	}
-	const TypeId written = types_.parameter_value_type(places[index]->type);
-	if (written == kNoType || !types_.is_dependent(written))
+	const TypeId written = analyzer_.types_.parameter_value_type(places[index]->type);
+	if (written == kNoType || !analyzer_.types_.is_dependent(written))
 	{
 		return written;
 	}
@@ -529,24 +738,30 @@ TypeId SemaAnalyzer::place_type(const std::vector<SemaEntity*>& places,
 		bindings.insert(std::make_pair(places[at]->type, before[at]));
 	}
 	std::unordered_map<TypeId, TypeId> memo;
-	return substituted(written, bindings, memo);
+	return analyzer_.substituted(written, bindings, memo);
 }
 
 // 14.3p1: the argument the list wrote at `index`, read as the place says.
-TypeId SemaAnalyzer::bound_argument(const TemplateInfo& info, std::size_t index,
+TypeId TemplateHead::bound_argument(const TemplateInfo& info, std::size_t index,
                                     const std::string& written,
                                     const std::vector<TypeId>& before,
-                                    const Context& ctx)
+                                    const SemaContext& ctx)
 {
 	// 14.5.3p1: every argument past the places before the pack is an argument
 	// of the pack, so they all read as the one place it declared.
 	const std::size_t places = pack_place(info);
 	const std::size_t at = index < places ? index : places;
+	if (at < info.parameters.size() && info.parameters[at].templated)
+	{
+		// 14.3.3p1: a template place takes a template-name, and the head that
+		// place wrote is what says which templates fit it.
+		return template_argument(written, info.parameters[at].head, ctx);
+	}
 	if (at >= info.parameters.size() || !info.parameters[at].value)
 	{
-		return template_argument_type(written, ctx);
+		return analyzer_.template_argument_type(written, ctx);
 	}
-	return template_argument_value(written, place_type(info, at, before), ctx);
+	return analyzer_.template_argument_value(written, place_type(info, at, before), ctx);
 }
 
 // 14.1p11 and 14.5.3p1: the place a pack was declared at, or the number of
@@ -564,10 +779,10 @@ std::size_t pack_place(const TemplateInfo& info)
 	return info.parameters.size();
 }
 
-Scope& SemaAnalyzer::open_template_bindings(const TemplateInfo& info,
-                                            const std::vector<TypeId>& arguments)
+Scope& TemplateHead::open_bindings(const TemplateInfo& info,
+                                   const std::vector<TypeId>& arguments)
 {
-	Scope& bindings = model_.open(ScopeKind::TemplateParameters, *info.region,
+	Scope& bindings = analyzer_.model_.open(ScopeKind::TemplateParameters, *info.region,
 	                              nullptr, info.dump);
 	for (std::size_t index = 0; index < info.parameters.size(); ++index)
 	{
@@ -575,13 +790,13 @@ Scope& SemaAnalyzer::open_template_bindings(const TemplateInfo& info,
 		// which is one entry of the type table and not one binding per element
 		// - so `sizeof...` and every expansion of it read the same fact.
 		const TypeId took =
-			place_argument(types_, arguments, index, info.parameters.size(),
+			place_argument(analyzer_.types_, arguments, index, info.parameters.size(),
 			               info.parameters[index].pack);
 		if (took == kNoType || info.parameters[index].name.empty())
 		{
 			continue;
 		}
-		bind_argument(bindings, info.parameters[index].name, took,
+		bind(bindings, info.parameters[index].name, took,
 		              SemaKind::Typedef);
 	}
 	return bindings;
@@ -594,38 +809,49 @@ Scope& SemaAnalyzer::open_template_bindings(const TemplateInfo& info,
 // argument is not a type at all: it is the constant 5.19 reads wherever the
 // place's name is written, so the declaration it binds carries the value and
 // the type the argument was converted to.
-SemaEntity& SemaAnalyzer::bind_argument(Scope& region, const std::string& name,
-                                        TypeId argument, SemaKind kind)
+SemaEntity& TemplateHead::bind(Scope& region, const std::string& name,
+                               TypeId argument, SemaKind kind)
 {
-	if (types_.is_pack_expansion(argument))
+	if (analyzer_.types_.is_pack_expansion(argument))
 	{
 		// 14.6.1p1: the current instantiation names a pack place by the
 		// expansion `Ts...`, and what a definition read against it binds is the
 		// place itself - the run is what an argument list settles, and until
 		// then the name stands for the pack the head declared.
-		argument = types_.target(argument);
+		argument = analyzer_.types_.target(argument);
 	}
-	if (!types_.is_value(argument))
+	SemaEntity* const templated = named_template(argument);
+	if (templated != nullptr)
+	{
+		// 14.3.3p1: the argument *is* a template, so the place's name is a
+		// second name for the declaration it named.  3.3p1 lets several names
+		// be bound to one entity, and binding it here is what makes every
+		// `C<A…>` written in the pattern the ordinary template-id path rather
+		// than a second reading of it.
+		analyzer_.model_.bind(region, name, *templated);
+		return *templated;
+	}
+	if (!analyzer_.types_.is_value(argument))
 	{
 		// 14.1p4 and 14.6.1p1: a place that binds a value is bound as one even
 		// where the argument is the place standing for itself, which is what
 		// the current instantiation puts at a non-type place - otherwise a
 		// definition read against it finds a type where its own head wrote a
 		// value, and 5.1.1p8 refuses every use of the name.
-		SemaEntity& bound = model_.create(
-			types_.parameter_value_type(argument) != kNoType
+		SemaEntity& bound = analyzer_.model_.create(
+			analyzer_.types_.parameter_value_type(argument) != kNoType
 				? SemaKind::TemplateValue : kind,
 			name, argument);
-		model_.bind(region, bound.name, bound);
-		model_.declare_in(region, bound);
+		analyzer_.model_.bind(region, bound.name, bound);
+		analyzer_.model_.declare_in(region, bound);
 		return bound;
 	}
-	SemaEntity& bound = model_.create(SemaKind::TemplateValue, name,
-	                                  types_.target(argument));
+	SemaEntity& bound = analyzer_.model_.create(SemaKind::TemplateValue, name,
+	                                  analyzer_.types_.target(argument));
 	bound.constant = true;
-	bound.value = types_.value_bits(argument);
-	model_.bind(region, bound.name, bound);
-	model_.declare_in(region, bound);
+	bound.value = analyzer_.types_.value_bits(argument);
+	analyzer_.model_.bind(region, bound.name, bound);
+	analyzer_.model_.declare_in(region, bound);
 	return bound;
 }
 
@@ -643,12 +869,12 @@ SemaEntity& SemaAnalyzer::bind_argument(Scope& region, const std::string& name,
 // Null where the head declares a different number of parameters than the class
 // takes arguments: that is 14.5.5's partial specialization, which this
 // milestone leaves out, and not a definition of a member of this template.
-Scope* SemaAnalyzer::open_member_parameters(
+Scope* TemplateHead::open_member_parameters(
 	Scope& enclosing, const AstNode& clause,
 	const std::vector<TypeId>& arguments, SemaKind kind, DumpScope* dump)
 {
 	TemplateInfo head;
-	read_template_head(clause, head);
+	read(clause, head);
 	// 14.5.3p1: a head whose last place is a pack takes every argument past the
 	// places before it, so what has to match is those places and not the count.
 	const std::size_t places = pack_place(head);
@@ -658,7 +884,7 @@ Scope* SemaAnalyzer::open_member_parameters(
 	{
 		return nullptr;
 	}
-	Scope& region = model_.open(ScopeKind::TemplateParameters, enclosing,
+	Scope& region = analyzer_.model_.open(ScopeKind::TemplateParameters, enclosing,
 	                            nullptr, dump);
 	for (std::size_t index = 0; index < places; ++index)
 	{
@@ -668,13 +894,13 @@ Scope* SemaAnalyzer::open_member_parameters(
 			// stands for an argument.
 			continue;
 		}
-		bind_argument(region, head.parameters[index].name, arguments[index],
+		bind(region, head.parameters[index].name, arguments[index],
 		              kind);
 	}
 	if (packed && !head.parameters[places].name.empty())
 	{
-		bind_argument(region, head.parameters[places].name,
-		              bound_run(types_, arguments, places), kind);
+		bind(region, head.parameters[places].name,
+		              bound_run(analyzer_.types_, arguments, places), kind);
 	}
 	return &region;
 }
@@ -688,17 +914,17 @@ Scope* SemaAnalyzer::open_member_parameters(
 // type-id read in this region, so `template<class T, T v>` reaches the place
 // before it.  Every later reading of an argument list substitutes into that
 // type rather than reading the syntax again.
-void SemaAnalyzer::open_parameter_region(TemplateInfo& info)
+void TemplateHead::open_region(TemplateInfo& info)
 {
 	if (info.parameter_region != nullptr)
 	{
 		return;
 	}
-	info.reading_dump = &model_.detached_dump();
-	Scope& region = model_.open(ScopeKind::TemplateParameters, *info.region,
+	info.reading_dump = &analyzer_.model_.detached_dump();
+	Scope& region = analyzer_.model_.open(ScopeKind::TemplateParameters, *info.region,
 	                            nullptr, info.reading_dump);
 	info.parameter_region = &region;
-	Context inner;
+	SemaContext inner;
 	inner.scope = &region;
 	inner.dump = info.reading_dump;
 	inner.node = nullptr;
@@ -708,20 +934,36 @@ void SemaAnalyzer::open_parameter_region(TemplateInfo& info)
 		// 14.1p2 and the ABI's `<template-param>`: a parameter stands for the
 		// place its head declared it in, which is what a name encoded from the
 		// current instantiation would be written by.
-		place.self = types_.template_parameter_type(
-			model_.type_entity_id(), false,
+		place.self = analyzer_.types_.template_parameter_type(
+			analyzer_.model_.type_entity_id(), place.templated,
 			place.name.empty() ? "#" + std::to_string(index) : place.name);
-		types_.set_template_index(place.self, static_cast<unsigned>(index));
+		analyzer_.types_.set_template_index(place.self, static_cast<unsigned>(index));
+		if (place.templated && place.head != nullptr)
+		{
+			// 14.1p2: what the place binds is a template, so the head it wrote
+			// travels with the type it stands for - `C<A…>` written inside the
+			// pattern reads it without the head that declared `C`.  The places
+			// of that head belong to it alone, so they are settled in a region
+			// of their own inside this one, which is what lets 14.3.3p1 compare
+			// the type a value place of it names a value of.
+			analyzer_.place_heads_.insert(
+				std::make_pair(place.self, place.head));
+			if (place.head->region == nullptr)
+			{
+				place.head->region = &region;
+			}
+			open_region(*place.head);
+		}
 		if (place.pack)
 		{
 			// 14.5.3p1: what the place stands for is a run, which is what makes
 			// a name written for it one an expansion has to settle.
-			types_.set_template_pack(place.self, true);
+			analyzer_.types_.set_template_pack(place.self, true);
 		}
 		if (place.value)
 		{
-			place.type = non_type_parameter_type(*place.written, inner);
-			types_.set_parameter_value_type(place.self, place.type);
+			place.type = non_type_type(*place.written, inner);
+			analyzer_.types_.set_parameter_value_type(place.self, place.type);
 		}
 		if (place.name.empty())
 		{
@@ -729,17 +971,17 @@ void SemaAnalyzer::open_parameter_region(TemplateInfo& info)
 			// stands for an argument.
 			continue;
 		}
-		SemaEntity& bound = model_.create(
+		SemaEntity& bound = analyzer_.model_.create(
 			place.value ? SemaKind::TemplateValue : SemaKind::TemplateType,
 			place.name, place.self);
-		model_.bind(region, bound.name, bound);
-		model_.declare_in(region, bound);
+		analyzer_.model_.bind(region, bound.name, bound);
+		analyzer_.model_.declare_in(region, bound);
 	}
 }
 
 // 14.1p2: the definition's own names for the places an earlier declaration
 // already named, taken after a region has been opened over them.
-void SemaAnalyzer::rename_template_parameters(
+void TemplateHead::rename_parameters(
 	TemplateInfo& info, const std::vector<TemplateInfo::Parameter>& head)
 {
 	for (std::size_t index = 0;
@@ -759,10 +1001,10 @@ void SemaAnalyzer::rename_template_parameters(
 		// definition's body looks it up under its own, so the region answers to
 		// both rather than being read a second time.
 		SemaEntity* const bound =
-			model_.find(*info.parameter_region, named, LookupKind::Any);
+			analyzer_.model_.find(*info.parameter_region, named, LookupKind::Any);
 		if (bound != nullptr)
 		{
-			model_.bind(*info.parameter_region, place.name, *bound);
+			analyzer_.model_.bind(*info.parameter_region, place.name, *bound);
 		}
 	}
 }

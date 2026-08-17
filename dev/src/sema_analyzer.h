@@ -1706,36 +1706,10 @@ private:
 	// the ordinary walk to read it as it did before.
 	bool record_explicit_specialization(const AstNode& declared, const Context& ctx);
 	bool record_explicit_function(const AstNode& declared, const Context& ctx);
-	// 14.1p2: the parameters a template-parameter-clause declared, written
-	// onto `info`.
-	void read_template_head(const AstNode& clause, TemplateInfo& info);
-	// 14.1p2 and 14.3p1, owned by `sema_template_head.cpp`: what a head's
-	// places are, and what one written argument list makes of them.
-	// `open_parameter_region` opens 14.6.1p1's own region and settles every
-	// place there, once per template; `place_type` is the type a value place
-	// declares over the arguments the places before it took; `bound_argument`
-	// and `explicit_argument` read one written argument as the place asks, and
-	// `bind_argument` binds the answer as a type or as a constant.
-	static std::string non_type_parameter_name(const AstNode& parameter);
-	TypeId non_type_parameter_type(const AstNode& parameter, const Context& ctx);
-	void open_parameter_region(TemplateInfo& info);
-	void rename_template_parameters(
-		TemplateInfo& info,
-		const std::vector<TemplateInfo::Parameter>& head);
-	SemaEntity& bind_argument(Scope& region, const std::string& name,
-	                          TypeId argument, SemaKind kind);
-	TypeId place_type(const TemplateInfo& info, std::size_t index,
-	                  const std::vector<TypeId>& before);
-	TypeId place_type(const std::vector<SemaEntity*>& places, std::size_t index,
-	                  const std::vector<TypeId>& before);
-	TypeId bound_argument(const TemplateInfo& info, std::size_t index,
-	                      const std::string& written,
-	                      const std::vector<TypeId>& before,
-	                      const Context& ctx);
-	TypeId explicit_argument(const std::vector<SemaEntity*>& places,
-	                         std::size_t index,
-	                         const std::vector<TypeId>& before,
-	                         const std::string& written, const Context& ctx);
+	// 14.1p2 and 14.3p1: what a head's places are, and what one written
+	// argument list makes of them, which `sema_template_head.h` owns because
+	// each is a reading of its own.
+	friend class TemplateHead;
 	// 14.2: the specialization a name written as a template-id denotes, or
 	// null when `component` is no template-id or names no template this
 	// milestone instantiates.  `in` is the region a qualified name looks into
@@ -1748,18 +1722,21 @@ private:
 	SemaEntity* variable_template_entity(const TemplateId& id,
 	                                     const Context& ctx, Scope* in,
 	                                     LookupKind filter);
+	// 14.1p2: the head the template place `parameter` stands for wrote, null
+	// for every type that is no such place.
+	TemplateInfo* place_head(TypeId parameter) const;
+	// 14.6.2p1: the declaration `C<A…>` stands for while `C` is still the place
+	// its own head declared - one per place and argument list, because the same
+	// spelling written twice in one pattern names the same type.
+	SemaEntity& dependent_template_name(TypeId parameter,
+	                                    const std::vector<TypeId>& arguments,
+	                                    const std::string& spelling);
 	// 14.3p1 and 14.7.1p1: the class `arguments` makes of the class template
 	// `primary`, made once however many times it is named.  The pattern is
 	// read against a region binding each parameter to its argument, so every
 	// name in the body is looked up with the arguments already in hand.
 	SemaEntity& instantiate_class(SemaEntity& primary,
 	                              const std::vector<TypeId>& arguments);
-	// 14.3p1: the argument list `written` gives `primary`, with 14.1p9's
-	// defaults filled in for the parameters the list stopped short of.
-	void bind_template_arguments(SemaEntity& primary,
-	                             const std::vector<std::string>& written,
-	                             const Context& ctx,
-	                             std::vector<TypeId>& out);
 	// The source spelling of a type, which is what a specialization is named
 	// by: `Box<int>` rather than the dump's description of what it holds.
 	std::string type_spelling(TypeId type) const;
@@ -1871,21 +1848,10 @@ private:
 	// with.  Null for a declaration that is a member of no such template.
 	SemaEntity* member_definition_owner(const AstNode& node,
 	                                    const Context& ctx);
-	// 14.3p1: a region binding each of `info`'s parameters to the argument
-	// beside it, which is what a pattern is read against.
-	Scope& open_template_bindings(const TemplateInfo& info,
-	                              const std::vector<TypeId>& arguments);
 	// 14.5.1.3p1: reads `pattern` - a member definition written outside its
 	// class - against the arguments `specialization` was made from.
 	void instantiate_member(SemaEntity& specialization,
 	                        const TemplateInfo::Member& member);
-	// 14.5.1.3p1 and 14.1p2: a region of one out-of-class member definition's
-	// own, binding the names *its* head wrote to the arguments their places
-	// took, opened inside `enclosing` - the region the class was completed
-	// against.  `sema_template.cpp` holds what stands where while it is read.
-	Scope* open_member_parameters(Scope& enclosing, const AstNode& clause,
-	                              const std::vector<TypeId>& arguments,
-	                              SemaKind kind, DumpScope* dump);
 	// 14.7.1p1: reads the template's class body for `made`, which is what
 	// completes it.  A specialization named before its template was defined is
 	// a declaration of an incomplete class until the definition arrives, and
@@ -2231,6 +2197,20 @@ private:
 	// pointer handed to an entity has to outlive every instantiation that
 	// reads it, and a deque never moves what it already holds.
 	std::deque<TemplateInfo> template_patterns_;
+	// 14.1p2: the head one template-template place wrote inside another head,
+	// keyed by the clause it was written as.  14.3.3p1 matches a written
+	// argument's own places against it, and 14.5.6.1p5 lets a template be
+	// declared many times over - so the clause is read once and every
+	// declaration that spells it reaches the same places.
+	std::unordered_map<const AstNode*, TemplateInfo*> parameter_heads_;
+	// 14.1p2: that same head, keyed by the type the place stands for.  A
+	// `C<A…>` written inside the pattern has the type and not the head that
+	// declared `C`, and 14.3.3p1 is asked again wherever the list arrives.
+	std::unordered_map<TypeId, TemplateInfo*> place_heads_;
+	// 14.6.2p1: the declaration one `C<A…>` written over a template place
+	// stands for, keyed by the place and the interned argument list - so one
+	// spelling written n times in a pattern is one declaration.
+	std::unordered_map<std::uint64_t, SemaEntity*> dependent_templates_;
 	// 14.1p9: the whole argument list one list of explicit arguments makes of a
 	// template, keyed by the template and that list.  A default is an
 	// expression read in a region binding the parameters before it, so it is

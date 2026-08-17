@@ -4,6 +4,7 @@
 
 #include "sema_analyzer.h"
 #include "sema_pack.h"
+#include "sema_template_head.h"
 
 // 14.8.2, the whole of it this milestone reads.
 //
@@ -29,6 +30,11 @@ bool Deduction::match(TypeId pattern, TypeId argument,
 		// pairs deduce and by the substitution that follows them, and 13.3 is
 		// then what asks whether the argument reaches it.
 		return true;
+	}
+	const TypeId applied = types.applied_template(types.strip_cv(pattern));
+	if (applied != kNoType)
+	{
+		return match_template_id(pattern, argument, applied, bindings);
 	}
 	if (types.kind(pattern) == TypeKind::TemplateParameter)
 	{
@@ -127,6 +133,52 @@ bool Deduction::match(TypeId pattern, TypeId argument,
 		// so the two agree exactly when they are the same type.
 		return pattern == argument;
 	}
+}
+
+// 14.8.2.5p4 at a template place: `L<A…>` against a class an argument list
+// already made.
+//
+// The pair says two things at once, which is what makes it one arm rather than
+// a case of the class arm below: which *template* the argument was made of,
+// which is what `L` is deduced to, and what its arguments were, which the rest
+// of the pattern is matched against.  14.3.3p1 stands over the first of them -
+// a template whose head does not fit the place is no deduction of it, and the
+// pattern simply does not match - so a partial specialization written over a
+// place of one shape passes a class made from another straight through to the
+// primary.
+bool Deduction::match_template_id(TypeId pattern, TypeId argument, TypeId place,
+                                  std::unordered_map<TypeId, TypeId>& bindings)
+{
+	TypeTable& types = analyzer_.types_;
+	const TypeId bare = types.strip_cv(argument);
+	if (types.kind(bare) != TypeKind::Class || !types.is_specialization(bare))
+	{
+		return false;
+	}
+	SemaEntity* const made = analyzer_.model_.type_owner(bare);
+	if (made == nullptr || made->primary == nullptr ||
+	    made->primary->templated == nullptr)
+	{
+		return false;
+	}
+	const TemplateInfo* const head = analyzer_.place_head(place);
+	if (head != nullptr &&
+	    !TemplateHead(analyzer_).argument_matches(*head,
+	                                              *made->primary->templated))
+	{
+		return false;
+	}
+	const TypeId named = TemplateHead(analyzer_).name_argument(*made->primary);
+	const std::pair<std::unordered_map<TypeId, TypeId>::iterator, bool> held =
+		bindings.insert(std::make_pair(place, named));
+	if (!held.second && held.first->second != named)
+	{
+		// 14.8.2.5p2: two arguments that deduce one place differently deduce
+		// nothing.
+		return false;
+	}
+	return match_arguments(types.template_arguments(types.strip_cv(pattern)),
+	                       types.template_arguments(bare), bindings);
 }
 
 // 14.5.3p1 with 14.8.2.5p4: two lists of entries - a template-argument-list or
@@ -479,7 +531,7 @@ bool Deduction::arguments_of(const SemaEntity& primary,
 				// stands for no argument at all.
 				continue;
 			}
-			analyzer_.bind_argument(*inner.scope, parameters[before]->name,
+			TemplateHead(analyzer_).bind(*inner.scope, parameters[before]->name,
 			                        took->second, SemaKind::Typedef);
 		}
 		std::unordered_map<TypeId, TypeId> memo;

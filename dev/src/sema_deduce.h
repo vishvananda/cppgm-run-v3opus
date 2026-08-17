@@ -73,6 +73,13 @@ private:
 	Deduction(const Deduction&);
 	Deduction& operator=(const Deduction&);
 
+	// 14.8.2.5p4 at a template place: `L<A…>` against a class an argument list
+	// already made, which deduces `L` from the template that class was made of
+	// and the rest from the arguments that made it.  `place` is the place `L`
+	// stands for.
+	bool match_template_id(TypeId pattern, TypeId argument, TypeId place,
+	                       std::unordered_map<TypeId, TypeId>& bindings);
+
 	// 14.8.2p5 and 14.1p9: the argument each parameter of `primary` was deduced
 	// or, where the deduction reached none, the one its head wrote a default
 	// for.  False where a place is left with neither.

@@ -7,6 +7,7 @@
 
 #include "ast_model.h"
 #include "sema_analyzer.h"
+#include "sema_template_head.h"
 
 // 14.5.3's parameter packs, read out of the spellings PA10 handed on.
 //
@@ -783,7 +784,7 @@ Scope& PackReading::element_region(const Run& run, std::size_t element,
 			// 14.5.3p4: the element stands for the pack for as long as this
 			// reading does, and the pack itself stands behind it - a pattern
 			// that names it as a pack again is read over the whole run.
-			analyzer_.bind_argument(
+			TemplateHead(analyzer_).bind(
 				region, pack.name,
 				analyzer_.types_.pack_elements(pack.type)[element],
 				SemaKind::Typedef).pack_element_of = &pack;

@@ -9,6 +9,7 @@
 #include "sema_derivation.h"
 #include "sema_operator.h"
 #include "sema_string_init.h"
+#include "sema_template_head.h"
 
 namespace
 {
@@ -488,7 +489,7 @@ void SemaAnalyzer::write_default_argument(const SemaEntity& function,
 	    where.scope != nullptr &&
 	    where.scope->kind == ScopeKind::TemplateParameters)
 	{
-		where.scope = &open_template_bindings(
+		where.scope = &TemplateHead(*this).open_bindings(
 			*function.primary->templated,
 			types_.type_list_at(function.template_arguments));
 	}
@@ -1254,7 +1255,7 @@ void SemaAnalyzer::template_parameter(const AstNode& node, const Context& ctx)
 void SemaAnalyzer::non_type_template_parameter(const AstNode& node,
                                                const Context& ctx)
 {
-	const std::string name = non_type_parameter_name(node);
+	const std::string name = TemplateHead::non_type_name(node);
 	const TypeId type = types_.template_parameter_type(
 		model_.type_entity_id(), false,
 		name.empty()
@@ -1263,7 +1264,7 @@ void SemaAnalyzer::non_type_template_parameter(const AstNode& node,
 	types_.set_template_index(
 		type, static_cast<unsigned>(ctx.scope->declarations.size()));
 	types_.set_template_pack(type, has_child(node, AstKind::ParameterPack));
-	types_.set_parameter_value_type(type, non_type_parameter_type(node, ctx));
+	types_.set_parameter_value_type(type, TemplateHead(*this).non_type_type(node, ctx));
 	// 14.1p3: a place its head left unnamed still takes an argument, and a
 	// function template's places are counted from the region - so it is
 	// declared under a name nothing writes, and 14.1p9's default is its own

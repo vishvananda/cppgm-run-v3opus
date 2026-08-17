@@ -68,7 +68,14 @@ enum class TypeKind
 	// by - the argument list, a function's parameter list - reads as types, and
 	// an expansion has to survive in one until the run arrives.  Nothing
 	// declares an object of either.
-	Pack
+	Pack,
+	// 14.3.3p1: a template named at a template-template place, which is neither
+	// a type nor a value - the argument *is* the template, and what tells two
+	// argument lists apart is which template each of them named.  It is a
+	// type-table entry for the reason `Value` is: every list a template tier is
+	// keyed by reads as types.  Nothing declares an object of one, and nothing
+	// depends on a parameter, because the entry names one declaration outright.
+	TemplateName
 };
 
 // 8.3.5p1: the ref-qualifier written after a member function's
@@ -200,6 +207,40 @@ public:
 	                 const std::string& qualified, TypeId underlying);
 	TypeId template_parameter_type(std::uint32_t entity, bool is_template,
 	                               const std::string& name);
+
+	// 14.1p2: whether the place a template parameter declared binds a template
+	// rather than a type or a value.  It is a fact of the type the place
+	// declared, so a naming written inside the pattern - `F<int>` - reads it
+	// without the head that declared `F`.
+	bool is_parameter_template(TypeId type) const
+	{
+		return kind(type) == TypeKind::TemplateParameter && user_at(type).scoped;
+	}
+
+	// 14.3.3p1: the entry standing for the template `entity` declares, which is
+	// what a template-template place binds.  One per template, so two argument
+	// lists that named the same template are one list.
+	TypeId template_name_type(std::uint32_t entity, const std::string& name,
+	                          const std::string& qualified);
+	bool is_template_name(TypeId type) const
+	{
+		return kind(type) == TypeKind::TemplateName;
+	}
+
+	// 14.6.2p1: a template-id whose template is a place no argument list has
+	// settled - `F<T>` inside the pattern that declared `F`.  It stands for
+	// whatever the argument bound to `F` makes of the list, so it is interned by
+	// the place and the list and answers dependent until a substitution reaches
+	// it.  `kNoType` for every type that is no such naming.
+	TypeId dependent_template_id(std::uint32_t entity, TypeId parameter,
+	                             const std::vector<TypeId>& arguments,
+	                             const std::string& name);
+	TypeId applied_template(TypeId type) const
+	{
+		return kind(type) == TypeKind::TemplateParameter
+			? user_at(type).applied_template
+			: kNoType;
+	}
 
 	// 14.3.2p1: the value a template-argument-list bound to a non-type place,
 	// as the type it was converted to and the bits it holds.  Two arguments are
@@ -724,6 +765,11 @@ private:
 		// type.
 		TypeId dependent_owner = kNoType;
 		std::string dependent_member;
+		// 14.6.2p1 at a template-template place: the place a dependent
+		// template-id applied its argument list to, `kNoType` for every type
+		// that is not one.  The list itself stands in `template_arguments`,
+		// which is the one spelling every other argument list is read as.
+		TypeId applied_template = kNoType;
 	};
 
 	// What makes two types the same type.

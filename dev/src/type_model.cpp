@@ -497,6 +497,39 @@ TypeId TypeTable::template_parameter_type(std::uint32_t entity, bool is_template
 	return user_type(TypeKind::TemplateParameter, entity, record);
 }
 
+TypeId TypeTable::template_name_type(std::uint32_t entity,
+                                     const std::string& name,
+                                     const std::string& qualified)
+{
+	UserType record;
+	record.name = name;
+	record.qualified = qualified;
+	record.tag = ClassTag::Struct;
+	record.scoped = false;
+	record.complete = false;
+	record.size = 0;
+	record.align = 1;
+	record.empty = false;
+	record.trivially_copied = true;
+	record.copy_deleted = false;
+	return user_type(TypeKind::TemplateName, entity, record);
+}
+
+// 14.6.2p1: `F<A…>` where `F` is still the place its own head declared.  The
+// naming is interned by `entity`, which the caller has already made one of per
+// place-and-list, so a spelling written twice in one pattern is one type and the
+// substitution below runs once for it.
+TypeId TypeTable::dependent_template_id(std::uint32_t entity, TypeId parameter,
+                                        const std::vector<TypeId>& arguments,
+                                        const std::string& name)
+{
+	const TypeId made = template_parameter_type(entity, false, name);
+	UserType& record = user_types_[nodes_[made].user];
+	record.applied_template = parameter;
+	record.template_arguments = arguments;
+	return made;
+}
+
 // A type has two spellings - the one a dump writes and the one PA14's encoder
 // reads - and a rename that moved only the first would leave the object file
 // naming the type the declaration was called before.  Both are written here.
@@ -1454,6 +1487,13 @@ void TypeTable::append_description(TypeId type, std::string& out) const
 			}
 			out += "pack expansion of ";
 			break;
+
+		case TypeKind::TemplateName:
+			// 14.3.3p1: the argument names a template, so what describes it is
+			// the template's own name and not any type it can be applied to.
+			out += "template ";
+			out += user_at(type).qualified;
+			return;
 		}
 		type = node.target;
 	}
