@@ -1,0 +1,134 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $h : obj<1x1>
+  slot $b : obj<4x4>
+  slot $t : obj<1x1>
+  slot $cond__1 : i32
+  slot $argobj__2 : obj<1x1>
+
+  block ^entry:
+    %t1 = call i32 @e(0)
+    %t2 = cmp ne i32 %t1, 1
+    branch %t2, ^if_then_1, ^lor_rhs_4
+
+  block ^lor_rhs_4:
+    %t3 = call i32 @e__ov2(0)
+    %t4 = cmp ne i32 %t3, 2
+    branch %t4, ^if_then_1, ^if_else_2
+
+  block ^if_then_1:
+    return i32 1
+
+  block ^if_else_2:
+    jump ^if_end_3
+
+  block ^if_end_3:
+    %t5 = addr $h
+    %t6 = addr $h
+    %t7 = call i32 @holder__m(%t6, 0)
+    %t8 = cmp ne i32 %t7, 1
+    branch %t8, ^if_then_5, ^lor_rhs_8
+
+  block ^lor_rhs_8:
+    %t9 = addr $h
+    %t10 = call i32 @holder__m__ov2(%t9, 0)
+    %t11 = cmp ne i32 %t10, 2
+    branch %t11, ^if_then_5, ^if_else_6
+
+  block ^if_then_5:
+    return i32 1
+
+  block ^if_else_6:
+    jump ^if_end_7
+
+  block ^if_end_7:
+    %t12 = addr $b
+    call void @built__built(%t12)
+    %t13 = addr $b
+    %t14 = index i8 [projection=field] %t13, 0
+    %t15 = load i32 %t14
+    %t16 = cmp ne i32 %t15, 0
+    branch %t16, ^if_then_9, ^if_else_10
+
+  block ^if_then_9:
+    return i32 1
+
+  block ^if_else_10:
+    jump ^if_end_11
+
+  block ^if_end_11:
+    %t17 = addr $t
+    %t18 = addr $argobj__2
+    %t19 = addr $t
+    %t20 = call i32 @space__reach($argobj__2)
+    %t21 = cmp eq i32 %t20, 3
+    branch %t21, ^cond_then_12, ^cond_else_13
+
+  block ^cond_then_12:
+    store i32 0, $cond__1
+    jump ^cond_end_14
+
+  block ^cond_else_13:
+    store i32 1, $cond__1
+    jump ^cond_end_14
+
+  block ^cond_end_14:
+    %t22 = load i32 $cond__1
+    return i32 %t22
+}
+function @e(%x : i32) -> i32 [binding=weak, object=_Z1eILi3EEii] {
+  slot $x : i32
+
+  block ^entry:
+    store i32 %x, $x
+    %t1 = load i32 $x
+    %t2 = binary add i32 %t1, 1
+    return i32 %t2
+}
+function @e__ov2(%x : i32) -> i32 [binding=weak, object=_Z1eI3KeyEii] {
+  slot $x : i32
+
+  block ^entry:
+    store i32 %x, $x
+    %t1 = load i32 $x
+    %t2 = binary add i32 %t1, 2
+    return i32 %t2
+}
+function @holder__m(%this : ptr, %x : i32) -> i32 [binding=weak, object=_ZN6holder1mILi3EEEii] {
+  slot $this : ptr
+  slot $x : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %x, $x
+    %t1 = load i32 $x
+    %t2 = binary add i32 %t1, 1
+    return i32 %t2
+}
+function @holder__m__ov2(%this : ptr, %x : i32) -> i32 [binding=weak, object=_ZN6holder1mI3KeyEEii] {
+  slot $this : ptr
+  slot $x : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %x, $x
+    %t1 = load i32 $x
+    %t2 = binary add i32 %t1, 2
+    return i32 %t2
+}
+function @space__reach(%__param0 : obj<1x1>) -> i32 [binding=weak, object=_ZN5space5reachINS_3tagEEEiT_] {
+  slot $__param0 : obj<1x1>
+
+  block ^entry:
+    return i32 3
+}
+function @built__built(%this : ptr) -> void [binding=weak, object=_ZN5builtC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    store i32 0, %t2
+    return void
+}
+alias object _ZN5builtC2Ev = @built__built

@@ -1,5 +1,7 @@
 #include "sema_analyzer.h"
 
+#include "sema_template_signature.h"
+
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -679,13 +681,22 @@ void SemaAnalyzer::require_mutable_data_member(const Specifiers& specifiers,
 // 8.3.5p7's cv-qualifier-seq beside it, which is the same key 7.3.3p14's hiding
 // already asks with.  A namespace declares no function with an object
 // parameter, so there the type's own list is the list and costs no rebuild.
+//
+// 14.5.6.1p5: a declaration written under a head wrote that list in places its
+// own head declared, so the list answers neither of 13.1's two questions about
+// it - `template<int N> int e(int)` and `template<class T> int e(int)` wrote one
+// list and declare two templates, and two declarations of one template wrote
+// two lists.  `TemplateSignature::indexed` is the form both are keyed by, which
+// what leaves the index's one probe the whole answer here too.
 std::uint32_t SemaAnalyzer::declaration_signature(const Scope& where,
                                                   TypeId type,
-                                                  bool object_member)
+                                                  bool object_member,
+                                                  const Scope* written_under)
 {
+	const TypeId keyed = TemplateSignature(*this).indexed(written_under, type);
 	return where.kind == ScopeKind::Class
-		? member_signature(type, object_member)
-		: types_.signature(type);
+		? member_signature(keyed, object_member)
+		: types_.signature(keyed);
 }
 
 // 13.1p2: a class shall not declare a member function with a ref-qualifier and
@@ -702,7 +713,8 @@ std::uint32_t SemaAnalyzer::declaration_signature(const Scope& where,
 // declarations already made.
 void SemaAnalyzer::require_uniform_ref_qualifiers(const SemaEntity& head,
                                                   const std::string& name,
-                                                  TypeId type)
+                                                  TypeId type,
+                                                  const Scope* written_under)
 {
 	static const unsigned kQualifications[] = {
 		kCvNone, kCvConst, kCvVolatile, kCvConst | kCvVolatile
@@ -728,8 +740,15 @@ void SemaAnalyzer::require_uniform_ref_qualifiers(const SemaEntity& head,
 		for (std::size_t spelling = 0; spelling < (qualified ? 1u : 2u);
 		     ++spelling)
 		{
-			const TypeId other = types_.ref_qualified_function(
-				probe, qualified ? RefQualifier::None : kSpellings[spelling]);
+			// 14.5.6.1p5: the declaration this asks about was keyed by the
+			// canonical form of whatever head it was written under, so the
+			// probe is built the same way or it finds a member template that
+			// is there and misses one that is.
+			const TypeId other = TemplateSignature(*this).indexed(
+				written_under,
+				types_.ref_qualified_function(
+					probe,
+					qualified ? RefQualifier::None : kSpellings[spelling]));
 			if (model_.overload_of(head, member_signature(other, true)) !=
 			    nullptr)
 			{
@@ -792,7 +811,8 @@ SemaEntity& SemaAnalyzer::declare_function(const std::string& name, TypeId type,
 		head = nullptr;
 	}
 	const std::uint32_t signature = declaration_signature(where, type,
-	                                                      object_member);
+	                                                      object_member,
+	                                                      head_region);
 	// 1.3.11 and 13.1: two declarations declare the same function exactly when
 	// their parameter type lists agree, which 8.3.5p5 has already normalised.
 	// The chain the name heads is indexed by that list, so the question is a
@@ -825,7 +845,7 @@ SemaEntity& SemaAnalyzer::declare_function(const std::string& name, TypeId type,
 		// else to find it - and the two were written over heads of their own,
 		// which is exactly what the index of parameter type lists above cannot
 		// pair.  Nothing was revealed here, or `prior` would not be null.
-		prior = equivalent_template(*concealed->second, *head_region, type);
+		prior = TemplateSignature(*this).equivalent(*concealed->second, *head_region, type);
 		if (prior != nullptr && !hidden)
 		{
 			reveal_friend(where, name, *prior);
@@ -839,7 +859,7 @@ SemaEntity& SemaAnalyzer::declare_function(const std::string& name, TypeId type,
 		// differ, because each head declared parameters of its own, so the
 		// chain's index of parameter type lists cannot answer this and the
 		// declarations of the name are asked one at a time.
-		prior = equivalent_template(*head, *head_region, type);
+		prior = TemplateSignature(*this).equivalent(*head, *head_region, type);
 	}
 	if (prior != nullptr)
 	{
@@ -910,7 +930,7 @@ SemaEntity& SemaAnalyzer::declare_function(const std::string& name, TypeId type,
 	}
 	if (object_member && where.kind == ScopeKind::Class && head != nullptr)
 	{
-		require_uniform_ref_qualifiers(*head, name, type);
+		require_uniform_ref_qualifiers(*head, name, type, head_region);
 	}
 
 	SemaEntity& entity = model_.create(SemaKind::Function, name, type);
@@ -982,7 +1002,8 @@ void SemaAnalyzer::reveal_friend(Scope& where, const std::string& name,
 	// declaration wrote wherever the two are templates: each head declared
 	// parameters of its own and the types are written over those.
 	const std::uint32_t signature =
-		declaration_signature(where, entity.type, entity.object_member);
+		declaration_signature(where, entity.type, entity.object_member,
+		                      entity.template_parameters);
 	const std::unordered_map<std::string, SemaEntity*>::iterator held =
 		where.hidden.find(name);
 	const std::unordered_map<std::string, SemaEntity*>::iterator indexed =

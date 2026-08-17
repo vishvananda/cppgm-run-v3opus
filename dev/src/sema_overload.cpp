@@ -30,6 +30,32 @@
 namespace
 {
 
+// 13.3.3.1.2p1 and 13.3.3.1p4: holds "no user-defined conversion may stand
+// here" over one measurement or one resolution, and puts back what stood before
+// however that reading leaves.
+//
+// A refusal is one of the probes around this catches and goes on asking
+// questions past - 14.6p8's reading of a pattern, a fold asked speculatively,
+// 8.5.1p11's probe of a clause - so the flag has to be put back where the
+// reading threw as much as where it returned.  Left standing, it says of every
+// later conversion in the unit that one user-defined conversion already stands
+// in the sequence, which is a wrong answer no diagnostic is written for.
+struct StandardOnly
+{
+	explicit StandardOnly(bool& held)
+		: held_(held)
+		, outer_(held)
+	{
+		held_ = true;
+	}
+
+	~StandardOnly() { held_ = outer_; }
+
+private:
+	bool& held_;
+	const bool outer_;
+};
+
 const AstNode* child_kind(const AstNode& node, AstKind kind)
 {
 	for (std::size_t index = 0; index < node.children.size(); ++index)
@@ -338,9 +364,11 @@ SemaEntity* SemaAnalyzer::converting_constructor(const Value& argument,
 		// and it is set here as well as around 13.3.1.5's second sequence
 		// because a candidate parameter of built-in type is exactly where a
 		// conversion function would otherwise slip a second one in.
-		standard_only_ = true;
-		const Match match = match_argument(argument, wanted);
-		standard_only_ = false;
+		Match match;
+		{
+			const StandardOnly measured(standard_only_);
+			match = match_argument(argument, wanted);
+		}
 		if (!match.viable || match.converting != nullptr)
 		{
 			continue;
@@ -457,9 +485,11 @@ SemaAnalyzer::Match SemaAnalyzer::conversion_match(const Value& argument,
 			continue;
 		}
 		const Value produced = conversion_result(*at);
-		standard_only_ = true;
-		const Match result = match_argument(produced, parameter);
-		standard_only_ = false;
+		Match result;
+		{
+			const StandardOnly measured(standard_only_);
+			result = match_argument(produced, parameter);
+		}
 		if (!result.viable)
 		{
 			continue;
@@ -2076,14 +2106,15 @@ void SemaAnalyzer::apply_conversion(Value& value, TypeId target,
 		// disagree about which constructor 13.3 chose: a class whose only
 		// converting constructor takes the ellipsis would be reached here by a
 		// copy constructor whose own argument came back through this same
-		// door, which is a regress with no bottom.
-		const bool held = standard_only_;
-		standard_only_ = true;
+		// door, which is a regress with no bottom.  It is held by `StandardOnly`
+		// because `build_temporary` refuses by throwing, and a refusal one of
+		// the probes above catches leaves the flag standing over everything the
+		// unit reads after it.
+		const StandardOnly resolved(standard_only_);
 		value = build_temporary(wanted, line, nullptr, &source, ctx,
 		                        requested_prefix(by, match.reference, wanted), false,
 		                        match.reference, false, false,
 		                        by != Requested::Written);
-		standard_only_ = held;
 		return;
 	}
 	if (by != Requested::Written && match.reference && !match.binds_lvalue &&
@@ -2488,8 +2519,8 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
 			candidates = *target.functions;
 		}
 		const std::size_t singles =
-			adl ? ArgumentLookup(*this).candidates(called, arguments,
-			                                       candidates)
+			adl ? ArgumentLookup(*this).call_candidates(called, arguments, ctx,
+			                                            candidates)
 			    : 0;
 		if (candidates.empty())
 		{

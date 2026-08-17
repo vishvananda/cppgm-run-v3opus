@@ -1,5 +1,7 @@
 #include "sema_analyzer.h"
 
+#include "sema_template_signature.h"
+
 #include <stdexcept>
 #include <unordered_set>
 
@@ -574,13 +576,16 @@ void SemaAnalyzer::special_member(const AstNode& node, const Context& ctx)
 		// declared in n steps rather than n^2 comparisons.
 		// 14.5.6.1p5 with 9.2p1: two heads that declared the same places over
 		// the same type declare *one* constructor template, whatever each
-		// called its places - so the chain's index of parameter type lists
-		// cannot see the second declaration of it and the heads are compared.
+		// called its places - and two heads that declared *different* places
+		// over one type declare two, which the list a declarator wrote says
+		// neither of.  So the chain's index is keyed by the canonical form of
+		// whichever head the declaration was written under.
 		if (owner.constructor != nullptr &&
 		    (model_.overload_of(*owner.constructor,
-		                        types_.signature(type)) != nullptr ||
+		                        types_.signature(TemplateSignature(*this).indexed(head, type))) !=
+		         nullptr ||
 		     (head != nullptr &&
-		      equivalent_template(*owner.constructor, *head, type) != nullptr)))
+		      TemplateSignature(*this).equivalent(*owner.constructor, *head, type) != nullptr)))
 		{
 			throw std::runtime_error(spelled +
 			                         " declares one constructor twice");
@@ -597,7 +602,8 @@ void SemaAnalyzer::special_member(const AstNode& node, const Context& ctx)
 			owner.constructor->tail->next = entity;
 		}
 		owner.constructor->tail = entity;
-		model_.hold_overload(*owner.constructor, types_.signature(type),
+		model_.hold_overload(*owner.constructor,
+		                     types_.signature(TemplateSignature(*this).indexed(head, type)),
 		                     *entity);
 	}
 	if (specializing == nullptr)
@@ -907,15 +913,16 @@ void SemaAnalyzer::special_member_definition(const AstNode& node,
 		destructor ? owner.destructor
 		           : (owner.constructor == nullptr
 		              ? nullptr
-		              : model_.overload_of(*owner.constructor,
-		                                   types_.signature(type)));
+		              : model_.overload_of(
+		                    *owner.constructor,
+		                    types_.signature(TemplateSignature(*this).indexed(head, type))));
 	if (entity == nullptr && head != nullptr && owner.constructor != nullptr)
 	{
 		// 14.5.6.1p5 with 14.5.2p1: two declarations of one constructor template
 		// write types that differ, because each head declared places of its own
 		// - so the chain's index of parameter type lists cannot answer this and
 		// the declaration is the one whose head declared the same places.
-		entity = equivalent_template(*owner.constructor, *head, type);
+		entity = TemplateSignature(*this).equivalent(*owner.constructor, *head, type);
 	}
 	if (entity == nullptr || entity->defaulted || entity->deleted ||
 	    entity->inherited != nullptr)
@@ -2542,13 +2549,13 @@ bool SemaAnalyzer::declares_static_member(Scope& where, const std::string& name,
 	// 14.5.2 and 14.5.6.1p5: a member template's definition writes a head of its
 	// own, so the declaration it redeclares carries a type over *those*
 	// parameters and 13.1's index - which is keyed by the list as written -
-	// cannot find it.  The question is the one `equivalent_template` answers:
+	// cannot find it.  The question is the one `TemplateSignature` answers:
 	// which declaration of this name has the same type once each head's
 	// parameters stand for the places they were declared in.
 	if (head != nullptr)
 	{
 		const SemaEntity* const templated =
-			equivalent_template(*declared, *head, type);
+			TemplateSignature(*this).equivalent(*declared, *head, type);
 		return templated != nullptr && !templated->object_member;
 	}
 	// 13.1's index of a class's chain is keyed by the list the declarator wrote,

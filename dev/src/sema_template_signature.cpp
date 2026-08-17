@@ -1,13 +1,16 @@
+#include "sema_template_signature.h"
+
 #include "sema_analyzer.h"
 
 #include <utility>
 
 // 14.5.6.1p5: when two template-declarations declare the same template.
 //
-// The clause is one comparison asked at three tiers - a redeclaration of a
-// function template, a definition written out for one, and 7.3.3p14's hiding
-// of a base's member template by a derived class's - and each of them has two
-// heads whose places are declarations of their own.  So the answer cannot be
+// The clause is one comparison asked at four tiers - a redeclaration of a
+// function template, a definition written out for one, 7.3.3p14's hiding of a
+// base's member template by a derived class's, and 13.1's own index of what a
+// region declares of one name - and each of them has two heads whose places are
+// declarations of their own.  So the answer cannot be
 // read off the types: `const K&` written under one head and `const K&` written
 // under another are two types, and a place *neither* declarator mentioned
 // stands in no type at all.  What settles both is one canonical form per
@@ -70,8 +73,15 @@ TypeId& TemplateSignatures::built(std::uint32_t declaration, bool& held)
 	return found.first->second;
 }
 
-TypeId SemaAnalyzer::template_signature(const Scope& parameters, TypeId type)
+TemplateSignature::TemplateSignature(SemaAnalyzer& analyzer)
+	: analyzer_(analyzer)
+{}
+
+TypeId TemplateSignature::of(const Scope& parameters, TypeId type)
 {
+	TypeTable& types = analyzer_.types_;
+	SemaModel& model = analyzer_.model_;
+	TemplateSignatures& held = analyzer_.signatures_;
 	const std::vector<SemaEntity*>& declared = parameters.declarations;
 	std::unordered_map<TypeId, TypeId> bindings;
 	std::unordered_map<TypeId, TypeId> memo;
@@ -88,10 +98,10 @@ TypeId SemaAnalyzer::template_signature(const Scope& parameters, TypeId type)
 			// a head that declares one is left declaring a template of its own.
 			return kNoType;
 		}
-		const bool pack = types_.is_template_pack(place.type);
+		const bool pack = types.is_template_pack(place.type);
 		if (place.kind == SemaKind::TemplateType)
 		{
-			shape.push_back(signatures_.place(types_, model_, index, pack));
+			shape.push_back(held.place(types, model, index, pack));
 			bindings.insert(std::make_pair(place.type, shape.back()));
 			continue;
 		}
@@ -100,14 +110,14 @@ TypeId SemaAnalyzer::template_signature(const Scope& parameters, TypeId type)
 		// has made so far - which are exactly those places, and no place after
 		// this one can stand in it.  That is what lets one memo serve every
 		// substitution here and the whole type below.
-		shape.push_back(signatures_.value_place(
-			types_, model_, index, pack,
-			substituted(types_.parameter_value_type(place.type), bindings,
-			            memo)));
+		shape.push_back(held.value_place(
+			types, model, index, pack,
+			analyzer_.substituted(types.parameter_value_type(place.type),
+			                      bindings, memo)));
 		bindings.insert(std::make_pair(place.type, shape.back()));
 	}
-	const TypeId built = substituted(type, bindings, memo);
-	if (types_.kind(built) != TypeKind::Function)
+	const TypeId built = analyzer_.substituted(type, bindings, memo);
+	if (types.kind(built) != TypeKind::Function)
 	{
 		return built;
 	}
@@ -118,17 +128,77 @@ TypeId SemaAnalyzer::template_signature(const Scope& parameters, TypeId type)
 	// alone.  The stand-ins themselves stand at the end of the parameter list
 	// of the answer, where they are part of every comparison of it and of
 	// 7.3.3p14's key alike: the list a declarator wrote is what precedes them.
-	std::vector<TypeId> list(types_.parameters(built));
+	std::vector<TypeId> list(types.parameters(built));
 	list.insert(list.end(), shape.begin(), shape.end());
-	return types_.ref_qualified_function(
-		types_.function_of(types_.target(built), list, types_.variadic(built)),
-		types_.function_ref_qualifier(built));
+	return types.ref_qualified_function(
+		types.function_of(types.target(built), list, types.variadic(built)),
+		types.function_ref_qualifier(built));
 }
 
-SemaEntity* SemaAnalyzer::equivalent_template(SemaEntity& head,
-                                              Scope& parameters, TypeId type)
+// 14.5.6.1p5 at 13.1's index: the type a declaration of one name is keyed by.
+//
+// 13.1 tells two declarations of one name apart by the parameter-type-list the
+// declarator wrote, and every chain a region holds is indexed by it - which is
+// one probe rather than a walk of the declarations already made.  A declaration
+// written under a head wrote that list in places its own head declared, so the
+// list alone says neither that two of them are one declaration nor that they
+// are two: `template<int N> int e(int)` and `template<class T> int e(int)`
+// wrote one list and declare two templates, and two declarations of one
+// template wrote two lists.  The canonical form is what the index has to be
+// keyed by for its one probe to answer either, and a head with no such form -
+// one that declares a template-template parameter - keeps the type it was
+// written with, which is what the declarations of it were already keyed by.
+TypeId TemplateSignature::indexed(const Scope* head, TypeId type)
 {
-	const TypeId wanted = template_signature(parameters, type);
+	if (head == nullptr)
+	{
+		return type;
+	}
+	const TypeId canonical = of(*head, type);
+	return canonical == kNoType ? type : canonical;
+}
+
+// 7.3.3p14 hides a member function template of a base with a member function
+// template of this class "with the same name, parameter-type-list,
+// cv-qualification and ref-qualifier", and the two lists are written in places
+// two different heads declared - `const K&` in the base and `const K&` in the
+// derived class are two types.  A head that declares a template-template
+// parameter has no canonical form, and the declaration's own type is then the
+// key it keeps - which matches nothing else, so the two declarations overload
+// as they did.
+std::uint32_t TemplateSignature::hiding_key(const SemaEntity& function)
+{
+	if (function.template_parameters == nullptr)
+	{
+		return analyzer_.member_signature(function);
+	}
+	// One canonical form per declaration, held where 14.5.6.1p5's own
+	// comparison already holds it: the class's declarations of one name are
+	// walked three times over one using-declaration - once where it is
+	// written and twice where 9.2p2 completes the class - and the
+	// substitution that builds the form is what a walk would otherwise pay
+	// for at every pass.
+	bool built = false;
+	TypeId canonical = analyzer_.signatures_.built(function.id, built);
+	if (!built)
+	{
+		// The build makes places of its own, so the entry is written back
+		// rather than filled through a reference the build could move.
+		canonical = of(*function.template_parameters, function.type);
+		analyzer_.signatures_.built(function.id, built) = canonical;
+	}
+	// A template and a non-template of one spelling hide nothing of each
+	// other's: the stand-ins stand in no type a declarator wrote, so the two
+	// keys differ wherever one head was read and the other was not.
+	return canonical == kNoType
+		? analyzer_.member_signature(function)
+		: analyzer_.member_signature(canonical, function.object_member);
+}
+
+SemaEntity* TemplateSignature::equivalent(SemaEntity& head, Scope& parameters,
+                                          TypeId type)
+{
+	const TypeId wanted = of(parameters, type);
 	if (wanted == kNoType)
 	{
 		return nullptr;
@@ -151,14 +221,14 @@ SemaEntity* SemaAnalyzer::equivalent_template(SemaEntity& head,
 			// own without either being a declaration of the other.
 			continue;
 		}
-		bool held = false;
-		TypeId signature = signatures_.built(at->id, held);
-		if (!held)
+		bool built = false;
+		TypeId signature = analyzer_.signatures_.built(at->id, built);
+		if (!built)
 		{
 			// The build makes places of its own, so the entry is written back
 			// rather than filled through a reference the build could move.
-			signature = template_signature(*at->template_parameters, at->type);
-			signatures_.built(at->id, held) = signature;
+			signature = of(*at->template_parameters, at->type);
+			analyzer_.signatures_.built(at->id, built) = signature;
 		}
 		if (signature == wanted)
 		{

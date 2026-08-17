@@ -219,6 +219,57 @@ std::size_t ArgumentLookup::candidates(
 	return singles;
 }
 
+// 3.4.2p2 with 14.8.1p2: the declarations a *call* reaches through its
+// arguments, for a callee written as a template-id.
+//
+// 14.2 writes the argument list inside the name, so a search made with the
+// spelling asks the associated namespaces for a name no declaration of them
+// has - `make<tag>` where each declares `make`.  The name the template-id names
+// is what 3.4.2 searches for, and what comes back is a template rather than a
+// declaration a call can rank: 14.8.1p2's written list has still to be read
+// against it, once per declaration of its chain, exactly as the ordinary
+// lookup's own declarations already had it read against them.  Every entry this
+// appends is a specialization of its own, so all of them stand alone.
+std::size_t ArgumentLookup::call_candidates(
+	const std::string& called, const std::vector<AnalyzedValue>& arguments,
+	const SemaContext& ctx, std::vector<SemaEntity*>& out)
+{
+	const TemplateId id(QualifiedName(called).last());
+	if (!id.valid())
+	{
+		return candidates(called, arguments, out);
+	}
+	// 13.3p1 puts each declaration in the set once, and the ordinary lookup
+	// reached its declarations through a chain the search may reach the head
+	// of - so what is already read is asked of the declaration each entry was
+	// made from rather than of the entry, which is a specialization no chain
+	// holds.
+	std::unordered_set<const SemaEntity*> read;
+	for (std::size_t index = 0; index < out.size(); ++index)
+	{
+		const SemaEntity* const from = out[index]->primary != nullptr
+			? out[index]->primary
+			: out[index];
+		for (const SemaEntity* at = from; at != nullptr; at = at->next)
+		{
+			read.insert(at);
+		}
+	}
+	std::vector<SemaEntity*> heads;
+	candidates(id.name(), arguments, heads);
+	const std::size_t before = out.size();
+	std::string refused;
+	for (std::size_t index = 0; index < heads.size(); ++index)
+	{
+		if (read.count(heads[index]) == 0)
+		{
+			analyzer_.explicit_specializations(*heads[index], id, ctx, out,
+			                                   refused);
+		}
+	}
+	return out.size() - before;
+}
+
 // 3.4.2p3: the lookup that named the callee suppresses the argument-dependent
 // one when what it found is a member of a class, a declaration written in a
 // block, or anything that is not a function.

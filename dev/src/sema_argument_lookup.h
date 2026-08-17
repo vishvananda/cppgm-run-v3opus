@@ -9,6 +9,7 @@
 
 class Scope;
 class SemaAnalyzer;
+struct SemaContext;
 struct SemaEntity;
 
 // 3.4.2: the declarations a use of a name reaches through the *types* of its
@@ -38,6 +39,16 @@ public:
 	std::size_t candidates(const std::string& name,
 	                       const std::vector<AnalyzedValue>& arguments,
 	                       std::vector<SemaEntity*>& out);
+
+	// 3.4.2p2 with 14.8.1p2: the same, for a callee the program wrote as a
+	// template-id.  14.2 writes the argument list inside the name, so the
+	// search is made with the name the template-id names and what it reaches
+	// are templates the written list has still to be read against - which is
+	// what the ordinary lookup's own declarations already had done to them.
+	std::size_t call_candidates(const std::string& called,
+	                            const std::vector<AnalyzedValue>& arguments,
+	                            const SemaContext& ctx,
+	                            std::vector<SemaEntity*>& out);
 
 	// 3.4.2p3: whether what the ordinary lookup found leaves the
 	// argument-dependent one to be done at all.  A name nothing was found of

@@ -28,18 +28,26 @@ replaced:
   as the one door a dependent type comes back through. `record_template` is also
   14.5.4p1's tier: a head over a friend elaborated-type-specifier declares a
   class template of the enclosing namespace and grants to it.
-- `sema_template_signature.cpp` — 14.5.6.1p5 alone: `TemplateSignatures` and the
-  one canonical form per declaration that three tiers compare - a redeclaration
-  of a function template, a definition written out for one, and 7.3.3p14's hiding
-  of a base's member template. The places stand for their positions, the type is
-  substituted onto them, and the stand-ins themselves stand at the end of it,
-  because a place neither declarator mentioned stands in no type at all.
+- `sema_template_signature.h/.cpp` — 14.5.6.1p5 alone: `TemplateSignature` and
+  the one canonical form per declaration that *four* tiers compare - a
+  redeclaration of a function template, a definition written out for one,
+  7.3.3p14's hiding of a base's member template, and 13.1's own index of what a
+  region declares of one name, which every declaration passes and which the list
+  a declarator wrote answers neither of 13.1's questions from. The places stand
+  for their positions, the type is substituted onto them, and the stand-ins
+  themselves stand at the end of it, because a place neither declarator
+  mentioned stands in no type at all.
 - `sema_overload.cpp` with `sema_argument_lookup.cpp` — 13.3 whole: one candidate
   set per call, and 3.4.2p3's answer about which lookups filled it. A callee the
   argument-dependent search still has declarations to add to denotes none of them
   yet, so 8.4.3p2's refusal and the line the callee is written on both wait for
-  the choice - and 13.3.3.1p4's flag is held over the temporary a user-defined
-  conversion builds, which is what leaves one such conversion in a sequence.
+  the choice; the search itself is made with the name a template-id names, and
+  14.8.1p2's written list is read against the declarations it reaches exactly as
+  it is against the ordinary lookup's. 13.3.3.1p4's flag is held over the
+  temporary a user-defined conversion builds, which is what leaves one such
+  conversion in a sequence - and it is held by a guard, because every reading
+  that holds it refuses by throwing and a refusal a probe catches would leave it
+  standing over everything the unit reads after.
 - `sema_class.cpp` — 12's special members, which 14.5.2p1 lets a head stand
   over.
 - `sema_access.h/.cpp` — 11 whole: which contexts reach what a class declared,
@@ -133,9 +141,10 @@ replaced:
 
 ## Current Failure Map
 
-The N audit stands at **348 / 363** — 293 of the 308 `tests/` fixtures plus all
-55 `course/pa22` ones, the last two of which N wrote. The 15 that fail group by
-the compiler behaviour that owns them, from the diagnostic each one reaches:
+The N audit stands at **349 / 364** — 293 of the 308 `tests/` fixtures plus all
+56 `course/pa22` ones, the last two of which N wrote and the last of which the
+audit added. The 15 that fail group by the compiler behaviour that owns them,
+from the diagnostic each one reaches:
 
 | # | Group | Owner | Signature |
 |---|-------|-------|-----------|
@@ -149,7 +158,11 @@ and 13.3.2p2's ellipsis constructor were four fixtures and are now four passes,
 and the last of them was misdiagnosed - 13.3.1.1.2's surrogate set was already
 built, and what refused the program was a converting constructor whose whole
 parameter-declaration-clause is `...` and a call written on an object whose class
-no naming had asked this unit for.
+no naming had asked this unit for. The audit closed 13.1's index under them: it
+was keyed by the list a declarator wrote at all three of its doors, so two heads
+over one list were one declaration; the naming that reads that list stopped at
+the first candidate the list did not fit; and 3.4.2's own search was made with
+the whole spelling of a template-id callee, which no namespace declares.
 
 The two left are 5.19's *second* readers: `&slot::impl<Handler>` is
 `ConstexprReading::designated`'s id-expression arm, which asks `resolve` for one
@@ -161,17 +174,11 @@ reading does not.
 
 Known gaps probed and deliberately left:
 
-- 14.8.1p2 at a *member* callee reads the written argument list against the first
-  declaration of the chain alone, so a chain holding a value place and a type
-  place at position 0 is `3 does not name a type` for `d.e<3>(0)` and
-  `Key is written as a template argument and names no constant` the other way.
-  `template_specializations` reads the list once per candidate at the unqualified
-  exit and the member exit does not; both oracles read both.
-- 13.1 keys a class's chain by 8.3.5p4's parameter-type-list alone, so
-  `template<int N> int e(int)` and `template<class T> int e(int)` in one class
-  are `e is defined twice` where `g++` accepts. 14.5.6.1p5's own comparison now
-  answers it - the stand-ins stand in `template_signature`'s form - but
-  `declaration_signature`'s index is asked first and has no head to key on.
+- 15.4p1's exception-specification is folded rather than required to be a
+  constant expression: `void f() noexcept(chk(1));` over a `chk` that is not
+  `constexpr` is refused by `g++ -pedantic-errors` and read here as
+  `noexcept(false)`. It is 5.19's own reader at a declarator and no part of what
+  13.3 owns.
 - 5.2.2p7's class object passed through the ellipsis: `A(...)` reaches the class
   from an argument of class type at 13.3, and the lowering then has `a value of
   the class type struct B is read where this milestone has no object to hold the
@@ -373,9 +380,10 @@ Known gaps probed and deliberately left:
 
 ## Active Checkpoint
 
-**N landed and its audit closed 7.3.3p14's other source order and the head
-14.5.6.1p5 compares — see the ledger.** The next one is **S**, 5.19's two
-*second* readers, which are the last two refusals the PA holds:
+**N landed and its audit closed 13.1's index, the naming that reads a written
+argument list, and the set 3.4.2p3 fills for a template-id callee — see the
+ledger.** The next one is **S**, 5.19's two *second* readers, which are the last
+two refusals the PA holds:
 `no declaration of slot<Signatures>::template impl<Handler> is in scope` is
 `ConstexprReading::designated`'s id-expression arm, which asks `resolve` for one
 spelling where 5.3.1p3's `&` over a function *template* wants 13.4p1's candidate
@@ -463,7 +471,11 @@ Every generated input is checked for exit 0 before it is timed.
 | **N** n calls of an ADL-reached name found through a block-scope using-declaration | 200 → 3200 | 0.10 s flat | 0.60 → 1.00 s; the turn-start build is the same 0.10 s |
 | **N** n parenthesized functional casts called as objects | 500 → 8000 | 0.10 → 0.50 s | 0.70 → 2.50 s; the turn-start build is 0.10 s and reads every one as a cast |
 | **N** 5.4p2's ambiguity at a cast nested d deep | depth 12 → 20 | 0.10 → 5.11 s | 5.51 s at depth **16**; the turn-start build is the same 5.11 s |
-| the whole 363-file corpus, one process per file | — | **1.54 s** | 1.53 s at the turn-start build; the loop's own floor is 0.70 s |
+| **N audit** n declarations of one function template name, each defined | 100 → 800 | 0.00 → 0.06 s, 8 → 21 MB | 0.75 s at 100, **over 60 s at 400**; the turn-start build is 0.07 s |
+| **N audit** n member templates of one class, each redeclared out of class | 100 → 800 | 0.01 → 0.06 s, 8 → 23 MB | 0.55 → 0.82 s; the turn-start build is the same 0.06 s |
+| **N audit** n calls of a template-id callee reached through 3.4.2 | 200 → 3200 | 0.01 → 0.11 s, 7 → 33 MB | 0.57 → 1.28 s; the turn-start build **refuses** |
+| **N audit** n constructor templates of one class | 100 → 800 | 0.00 → 0.03 s, 7 → 16 MB | 0.54 → 0.65 s; the turn-start build is the same 0.03 s |
+| the whole 364-file corpus, one process per file | — | **1.56 s** | 1.57 s at the turn-start build; the loop's own floor is 0.59 s |
 | *(carried from F)* n friend declarations of one name, each revealed | 800 → 3200 | 0.19 → 0.79 s | 22.40 s at 800 |
 
 B's own cost is the walk 11.2p4 added, and it is paid once per access at a
@@ -537,6 +549,27 @@ is what stops the copy constructor from being a second way into a class whose
 only converting constructor takes the ellipsis - a regress with no bottom before
 it. The whole 363-file corpus is 1.54 s against the turn-start build's 1.53 s.
 
+The N audit's own cost is one canonical form per declaration and one set per
+call, and both replace work rather than adding it. 13.1's index is keyed by
+`TemplateSignature::indexed`, which is one substitution over the places the
+declaration's head declared - and what it replaces is `equivalent_template`'s
+walk of the chain, which the index only fell through to: 800 declarations of one
+function template name is 0.06 s against the turn-start build's 0.07 s, 800
+member templates each redeclared out of class 0.06 s against 0.06 s, and 800
+constructor templates of one class 0.03 s against 0.03 s, where the reference is
+over 60 s at 400 on the first of the three. The form is held under the
+declaration's id in `TemplateSignatures::built` wherever a chain is walked, so a
+walk costs one comparison per link. `explicit_specializations` is the reading
+already made once per candidate, with the refusal of a candidate the list does
+not fit kept in a string rather than thrown - no reading is made twice and
+nothing is re-read. `call_candidates` is one `unordered_set` of the chains the
+ordinary lookup already read plus one reading of the list per declaration 3.4.2
+adds: 3200 calls of a template-id callee reached that way is 0.11 s and 33 MB
+against the reference's 1.28 s, where the turn-start build refuses. `StandardOnly`
+is a bool written twice. The whole 364-file corpus is 1.56 s against the
+turn-start build's 1.57 s over a 0.59 s loop floor - 0.97 s of compiler work
+against 0.98 s.
+
 U costs nothing that scans. `member_of_unknown_specialization` is four field
 reads on a region a lookup has already failed in, so a program with no dependent
 base never reaches it and one with a dependent base pays it once per name the
@@ -590,8 +623,9 @@ once per written parameter, `enclosed_by_a_head` is one walk per queued body,
 `TemplateInfo::reading_region` and `Member::carried` are pointers written where
 a definition is recorded, and `instantiating_pattern_` is one unsigned compare.
 
-`valgrind -q --error-exitcode=9` is clean over 78 inputs after the U audit, 0
-errors: its 74 probes and its 4 largest scaling inputs. It was clean over 46
+`valgrind -q --error-exitcode=9` is clean over 56 inputs after the N audit, 0
+errors: its 51 probes, its 4 largest scaling inputs and the fixture it adds. It
+was clean over 78 after the U audit, 46
 after U, 92 after the B audit, 79 after B, 69 after the C audit, 58 after C, 62
 after the R audit, 34 after R, 37 after X, and 57 after the O audit.
 
@@ -698,6 +732,26 @@ out-of-class shapes and their six mangled names, and D's function-type and
 pointer-to-member manglings, all agreeing with `g++` and, where it writes one,
 with `pa22/cppgm++-ref`.
 
+The N audit's run evidence: all 51 probes are judged against `g++ -std=c++11
+-pedantic-errors -x c++` and against `pa22/cppgm++-ref`, and 50 agree with `g++`
+on acceptance *and* on value - 6 shapes of 13.1's index over two heads that wrote
+one parameter-type-list, at a namespace, in a class body, over a class's
+constructors, over four heads at once, over a pack head beside a fixed one and
+over two heads 14.5.6.1p5 does make one declaration of; 10 of the naming that
+reads the written list, at the unqualified, qualified, member, `.template` and
+address-of exits in both written orders; 10 of 3.4.2p3's set, over a template-id
+callee whose only viable declaration the search adds, a deleted one, a private
+static member, a friend no region binds, a declaration both lookups reach and one
+candidate from each; 7 abstract-declarator spellings that must still read and 4
+that must not; 6 uses of an object of a specialization no declaration named; and
+6 ellipsis-constructor shapes. Every probe that translates runs through
+`lowir2cy86` + `cy86` and returns the value `g++` gives it, and so does the
+`course/pa22` fixture the audit adds - which the turn-start build refuses with
+`e is defined twice`. The one that differs is 15.4p1's noexcept-specification,
+recorded above. `pa22/cppgm++-ref` parts from `g++` and from this build on two:
+a private static member reached through a qualified name, and a class declaring
+one member template both with and without a ref-qualifier.
+
 N's run evidence: all 31 probes are judged against `g++ -std=c++11
 -pedantic-errors -x c++` and `pa22/cppgm++-ref`, and every accepted one is built
 by `g++` and run. The four fixtures the checkpoint turned green are joined by
@@ -732,4 +786,4 @@ has operands of unrelated types` - accepted by both oracles, and run to 0 by
 | **C, C audit** 5.19 read out of one spelling, at the five operators the reader had no answer for, and the two sentences the last of them is written about | 14.2 writes an argument list inside a name, so `TemplateArgumentReader` is the second implementation of 5.19 exactly as `SpelledTypeId` is of 8.1p1 - and four of the clause's own operators had no exit there. 5.18p1's comma is read inside 5.1.1p6's parentheses alone, because outside them a comma separates one argument from the next; 5.2.9p4's cast to cv void is a *discarded* value, which is what `valued` refuses at every reader that takes an operand's worth and what makes `((void)B, true)` read as `true`; 14.5.3p4's expansion stands in 5.2.2p1's argument list, and whether an operand is a pattern is settled by `operand_end` *before* it is read, because the `...` stands after it and `sum(Ns...)` runs out on `Ns` a word early; and 14.2p4's keyword is written inside a component, so `X::template f<A>::v` is one word the split closes up rather than two. 5.3.3p1's other arm is the fifth: how large the type an *expression* has is, is 13.3's answer over a typed operand, so the parenthesized operand closes up with its operator in the split and the tree the parse kept under that spelling is what answers it - beside 5.3.3p2 and 5.3.6p3's reference, which `measured_type` now owns for the three readers that write the operator. Two sweeps came with it: 14.7.1p1's demand is made outside the probe that settles 5.4p2's ambiguity, so `A<sizeof(box<4>)>` lays `box<4>` out; and 14.5.2p3's `nested_owner` is asked *before* the class tier, which reads the same nested-name-specifier as a prefix it must resolve - so `adaptor<T>::range<M>::iterator` is a class nested in a member class template rather than `M is written as a template argument and names no constant`. Then that last operator's own clauses were answered out of a table: `TypeTable::object_align` gives an incomplete class an alignment of zero and a dependent one a number too, and two of the three readings that write `alignof` called it bare - so `S<alignof(wrap<int>)>` was **1 where both oracles give 8**, at a template argument, in an array bound and in a static_assert alike, and `alignof(never)` was a program both oracles refuse and this build ran. `SemaAnalyzer::align_of` is `size_of`'s twin and all three ask it. Under it, 14.7.1p1's demand reads a mark `instantiate_class` writes only where the naming was a use, and neither 14.6p8's reading nor `trait_value`'s own probe leaves one - so `sizeof(box<4>)` inside any class template's body was `sizeof names an incomplete type`; the demand is now `require_settled_type`, asked of the type rather than of the mark, once inside `size_of` and `align_of`. And the demand the checkpoint did make, it made by reading the operand's type-id a *second* time, which is one reading per level doubled at every level below it: a `sizeof` nested 24 deep in its own operand was killed at 60 s where the reference is 0.60 s flat and this build is now 0.01 s at depth 128. | **318 / 348** |
 | **B, B module split, B audit** 11.2's access at a path the arguments built, the five refusals no reading made, and what the walk asks at each link | 11.2p4's answer is written about a member *as a member of the naming class*, and this build read the member's own access-specifier alone - so `derived::type` reached a public member of a **private** base from anywhere, at a prefix component as much as at the last one. `Access::base_path` is the one walk down to the declaring class asking each base-specifier on the way, which `Derivation::link_accessible` now asks too; and `resolve_prefix` asks 11.2 of every component rather than of the last, with 14.2's template-id component asked of the *template* the lookup found, because the specialization its arguments make is no declaration an access-specifier was written over. Then five clauses no door enforced: 14.5.6.1p5's equivalent template-parameter-lists, which `record_template` compared by *arity* alone - so `template<class> class F` and `template<int> class F` declared one template; 14.7.3p5's `template<>` over a member of an explicitly specialized class, whose body is unrelated to the pattern's and has no member of a template for a head to specialize; 5.1.1p13's id-expression naming a non-static data member, which `entity_constant` folded out of the member's own default initializer where no object was written; 14.5.4p1's friend declaration whose declarator-id is a *template-id*, which `declare_function` declared a namespace function literally named `operator+<>` and granted to *that*; and 11.3p2's `friend typename C::self;`, refused where 14.6p8's reading cannot see the class an argument list has yet to name and 14.7.1p1 reads the same declaration again where it can. 11.3p3 came with the last of those - a friend declaration naming no class is *ignored* - and 3.4.3p1 with the access ones: `this->Matcher::match(…)` names a class through whatever name reached it, a place an argument list bound as much as a typedef-name. The walk itself cost d² before it cost d: asking `derives_from` at every level is one reachability question per level over the levels below it, which was 3x the turn-start build at depth 128, where one visit per class is equal to it at depth 512. And 11 came out of `sema_class.cpp` whole: `sema_access.h/.cpp` is 11.2's reach and 11.3's grant as one reader, which is what freed both files' room. Then what the walk asks *at* each link was the whole derivation read again there: 11.2p1's second sentence and 11.2p5's befriending class between are questions about the point the name was written at, which does not move as the walk descends - so a protected chain was 0.97 s at depth 512 and a befriending class between 1.30 s, both slower than the reference, where one walk of what the point derives from is 0.07 s and 0.04 s, and `Derivation::path` opened a reader per link of its own descent for the same 0.55 s. Beside them, three clauses landed at one of the exits each is written at: 14.5.6.1p5's value places were compared behind `b.type != kNoType`, which a head nothing has bound never satisfies, so `template<int N> struct A; template<char N> struct A {};` was accepted - the comparison is one of the readings 14.6.1p1's region exists for and now opens it; 14.5.4p1's grant was written at the unqualified *declaration* alone, so `friend int n::peek<vault>(vault);` was refused where both oracles accept and `friend void g<int>(int) { }` was accepted with the body it wrote **silently dropped**, where both refuse; and 14.7.3p5 read `resolve_prefix`'s last region and the first declaration under the head, so a member of a class nested in an explicitly specialized one and a member template of it were two programs `g++` refuses and this build translated. | **336 / 357** |
 | **U, U audit** 14.6.2.1p6's member of an unknown specialization, the naming 3.2p3 leaves no use of, and the order 14.7.3p1 says nothing about | 14.6.2p3 leaves a base an argument list has still to settle off the chain 3.4.1 searches inside the definition, and this build then let the *qualified* lookup refuse outright - so `typename impl::expr` and `typename impl::data`, a name of the current instantiation whose only declaration is in that base, were `no declaration of … is in scope` where both oracles read them. 14.6.2.1p6 says such a name is a member of a class no argument list has named yet, which is the stand-in a prefix that named no region at all already got: `member_of_unknown_specialization` is that one door, asked at all three walks that look a component up - the name behind the prefix, a middle component of the prefix itself, and the one written after 7.1.6.2p1's decltype-specifier. Then 7.1.6.2p4 asks what an id-expression *names*, and 3.10p1 has no answer for a name that may turn out to be an object, a function, an enumerator or a type - so `decltype(D::pointer)` was refused where every other dependent operand of the specifier already came back through `dependent_expression_type`. Under the third fixture was a rule of its own: the definition that lays out a static data member of a class template specialization is storage no unit wrote, and 3.2p3 puts it in the program only where a use reaches it - but `storage_of` asked for it at the *naming*, before knowing whether the use would read the place or the value 9.4.2p3 folded. `LowValue::storage_owed` carries the unasked demand to whatever takes the address, so `box<int>::k == 4` writes no storage and `&box<int>::k` writes it, which is what `g++` does. That un-hid what the plan had recorded and nothing had reached: 14.7.3p1's `template<> const int code<int>::value = 7;` was still marked `instantiated_definition` by the pattern's own reading, so with the eager demand gone it was deferred and never written. `supersede` is the function tier of that clause and drops a held body; the object tier has no held thing but a line already in the dump, so `object_definitions_` keys that line by the declaration it defines and 14.7.3p1 takes its claim to define anything away.  Then that clause was read in one source order only: `PatternReading::record` reads a member definition again for every specialization already made, so a `template<>` written *above* the template's own out-of-class definition reached none of the three doors - an ordinary member function, a constructor, a destructor, a conversion function, a member function template and a member of a nested class were six programs both oracles accept and this build called `is defined twice`, and a static data member was the silent one, running the pattern's value where the program had written its own.  `holds_written_definition` is the clause the other way round, asked at the three doors that already ask it the first way, and leaving the reading unmade rather than refusing it; and `note_object`'s withdrawal was narrowed to the line 14.7.1p1's reading itself wrote. | **342 / 361** |
-| **N, N audit** the four calls 13.3 had to resolve before it had a set, and the head 14.5.6.1p5 compares two heads by | Four fixtures, four clauses, none of them 13.3's own ranking. 8.1p1 leaves no declarator-id inside a type-id's parentheses and this build read one, so `(dispatch<T>(ex))(f, w)` was `( type-id ) cast-expression` with `(ex)` as a *named* nested declarator - where `Recognizer` already required a ptr-abstract-declarator there and the two parsers had answered one rule two ways. 3.4.2p3's set is the ordinary lookup's *and* the argument-dependent one's, and `named_value` wrote the line for a name it found one declaration of, so 8.4.3p2 refused a deleted `adl_only::make_error_condition` before 3.4.2 had added the one the argument's own namespace declares - the naming is deferred to 13.3 now, and 14.7.1p1's demand it also carried is made on its own, because a specialization an explicit argument list made has 14.5.3p4's expansion still to come to as many parameters as the run is long. 13.3.2p2 counts a declaration whose whole parameter-declaration-clause is `...` viable for one argument, which `converting_constructor` did not - and once it does, 13.3.3.1p4 is what stops the class's copy constructor from being a second way in, a regress with no bottom that `standard_only_` held over the resolution closes. And 5.2.2p1's call on an object of class type asked its class for `operator()` and 13.3.1.1.2p2's surrogates without asking this unit for the class: a declaration of a *reference* to a specialization asks for nothing, so the call is the first use that does. Then the audit: 7.3.3p14's hiding is written about two heads' lists and this build compared the types, so `const K&` under one head and `const K&` under another were two lists - `hiding_signature` is 14.5.6.1p5's own form, held under the declaration's id - and the clause has two source orders, of which only one was read: `equivalent_template` read a brought-in declaration as one 14.5.6.1p5 makes the class's own a redeclaration of, so a using-declaration written *above* the declaration that hides it was `also is defined twice`. Under both was the same hole: a place neither declarator mentioned stands in no type at all, so `template<int N> f(int)` and `template<class T> f(int)` had one signature - the stand-ins now stand at the end of the form itself, and 14.5.6.1p5 came out of `sema_template.cpp` whole as the file's own module. | **348 / 363** |
+| **N, N audit** the four calls 13.3 had to resolve before it had a set, and the index every declaration of a name passes | Four fixtures, four clauses, none of them 13.3's own ranking. 8.1p1 leaves no declarator-id inside a type-id's parentheses and this build read one, so `(dispatch<T>(ex))(f, w)` was `( type-id ) cast-expression` with `(ex)` as a *named* nested declarator - where `Recognizer` already required a ptr-abstract-declarator there and the two parsers had answered one rule two ways. 3.4.2p3's set is the ordinary lookup's *and* the argument-dependent one's, and `named_value` wrote the line for a name it found one declaration of, so 8.4.3p2 refused a deleted `adl_only::make_error_condition` before 3.4.2 had added the one the argument's own namespace declares - the naming is deferred to 13.3 now, and 14.7.1p1's demand it also carried is made on its own, because a specialization an explicit argument list made has 14.5.3p4's expansion still to come to as many parameters as the run is long. 13.3.2p2 counts a declaration whose whole parameter-declaration-clause is `...` viable for one argument, which `converting_constructor` did not - and once it does, 13.3.3.1p4 is what stops the class's copy constructor from being a second way in, a regress with no bottom that `standard_only_` held over the resolution closes. And 5.2.2p1's call on an object of class type asked its class for `operator()` and 13.3.1.1.2p2's surrogates without asking this unit for the class: a declaration of a *reference* to a specialization asks for nothing, so the call is the first use that does. Then the audit: 7.3.3p14's hiding is written about two heads' lists and this build compared the types, so `const K&` under one head and `const K&` under another were two lists - `hiding_signature` is 14.5.6.1p5's own form, held under the declaration's id - and the clause has two source orders, of which only one was read: `equivalent_template` read a brought-in declaration as one 14.5.6.1p5 makes the class's own a redeclaration of, so a using-declaration written *above* the declaration that hides it was `also is defined twice`. Under both was the same hole: a place neither declarator mentioned stands in no type at all, so `template<int N> f(int)` and `template<class T> f(int)` had one signature - the stand-ins now stand at the end of the form itself, and 14.5.6.1p5 came out of `sema_template.cpp` whole as the file's own module.  Then the audit found that form landed at 7.3.3p14's three doors and **13.1's own index left keyed by the list a declarator wrote** - the door every declaration of a name passes, probed *before* `equivalent_template` at a chain, at 11.3p6's hidden chain and at a class's constructors alike, and holding the first entry under a key - so two heads over one list were one declaration and `template<int N> int e(int)` beside `template<class T> int e(int)` was `e is defined twice` at namespace scope, in a class body and over a constructor chain, three programs both oracles accept.  `TemplateSignature` is the reader all four tiers ask, and moving it out of `sema_analyzer.h` is what freed the header's own ceiling.  Under it the naming: 14.1p4 makes what an argument *is* a fact of the declaration it is bound to, and one candidate's refusal ended the *naming* - `e<3>` was `3 does not name a type` and `e<Key>` was `Key is not a constant expression` at all five exits, in either order, where the refusal is now that candidate's and 14.6p8's stand-in count says which are still the arguments' to settle.  And 3.4.2p3's set: the search that fills it was made with the whole spelling of a template-id callee, which no namespace declares, so `reach<tag>(t)` reached nothing 3.4.2 declares and a call with one candidate from each lookup was translated where both oracles call it ambiguous - `call_candidates` searches for the name the template-id names and reads the written list against what it finds, through the same `explicit_specializations` the ordinary exit walks.  Beside them, 13.3.3.1.2p1's flag is held over three readings that refuse by throwing and was put back only where they returned, which a caught refusal leaves standing over every conversion the unit reads after: `StandardOnly` is `sema_lifetime.cpp`'s own `DirectInitialization` shape. | **349 / 364** |

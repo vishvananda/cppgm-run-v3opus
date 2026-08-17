@@ -101,6 +101,9 @@ private:
 	// 3.4.2: the lookup that follows the argument types rather than the
 	// regions, which `sema_argument_lookup.h` owns for the same reason.
 	friend class ArgumentLookup;
+	// 14.5.6.1p5's canonical form, which four tiers compare two declarations
+	// by - and 13.1's own index keys every declaration of a name with.
+	friend class TemplateSignature;
 	// 13.3.1.2p3: the candidate set an operator reaches, which the expression
 	// layer and a fold ask alike - `sema_operator.h`'s for that reason.
 	friend class OperatorCall;
@@ -184,11 +187,6 @@ private:
 	// other rather than overload, which 9.4.1p2 does not allow.
 	std::uint32_t member_signature(const SemaEntity& function);
 	std::uint32_t member_signature(TypeId type, bool object_member);
-	// 7.3.3p14 read over a member *template*, whose parameter-type-list is
-	// written in places its own head declared - so 14.5.6.1p5's equivalence is
-	// what says two heads wrote one list, and the key is built over the
-	// stand-ins `template_signature` puts in their place.
-	std::uint32_t hiding_signature(const SemaEntity& function);
 	// 10.3p2's key: that signature beside the interned name, which is what tells
 	// an overriding declaration from one that merely reuses a name.
 	std::uint64_t override_key(const SemaEntity& member);
@@ -204,7 +202,8 @@ private:
 	// 13.1p2: a class shall not declare one member function both with and
 	// without a ref-qualifier where the two agree in everything else.
 	void require_uniform_ref_qualifiers(const SemaEntity& head,
-	                                    const std::string& name, TypeId type);
+	                                    const std::string& name, TypeId type,
+	                                    const Scope* written_under);
 	// 7.3.3p1: the declaration a name a using-declaration brought into a class
 	// reaches, which is the one the base made.  11p1's access and 7.3.3p14's
 	// hiding are facts about the declaration the class made; everything a use
@@ -1178,9 +1177,12 @@ private:
 	// 13.1 and 9.3.1p3: the key the chain a name heads is indexed by, which is
 	// the parameter-type-list the declarator wrote wherever the region is a
 	// class - so a static and a non-static member function whose types agree
-	// only because one carries the object parameter are two declarations.
+	// only because one carries the object parameter are two declarations.  A
+	// declaration written under a head wrote its list in places that head
+	// declared, so `written_under` is what 14.5.6.1p5 keys it by instead.
 	std::uint32_t declaration_signature(const Scope& where, TypeId type,
-	                                    bool object_member);
+	                                    bool object_member,
+	                                    const Scope* written_under = nullptr);
 	// 7.1.1p10: `mutable` says the const of the object holding a member stops
 	// at it, which is a fact about a non-static data member and about nothing
 	// else the declaration could declare.
@@ -1678,6 +1680,14 @@ private:
 	                                     const Context& ctx,
 	                                     std::vector<SemaEntity*>& found,
 	                                     Scope* in = nullptr);
+	// The walk itself, over the declarations `head` chains: one reading of the
+	// list per declaration, with a reading that refused handed back in
+	// `refused` rather than ending the walk.  3.4.2p3's search reaches
+	// declarations of its own, and the list is read against those the same way.
+	void explicit_specializations(SemaEntity& head, const TemplateId& id,
+	                              const Context& ctx,
+	                              std::vector<SemaEntity*>& found,
+	                              std::string& refused);
 	// 14.7.1: the declaration `arguments` makes of `primary`, made once
 	// however many times it is named.
 	SemaEntity& specialize(SemaEntity& primary,
@@ -1838,21 +1848,6 @@ private:
 	// instantiation at the end of the unit, so this is reached from there as
 	// well as from the name that asked for it.
 	void instantiate_body(SemaEntity& function);
-	// 14.5.6.1p5: the declaration in the chain `head` that declares the same
-	// function template as a head declaring `parameters` and a declarator that
-	// made `type`, or null where none does.  Two such declarations write types
-	// that differ, because each head declared parameters of its own, so what is
-	// compared is the signature below rather than the types themselves.
-	SemaEntity* equivalent_template(SemaEntity& head, Scope& parameters,
-	                                TypeId type);
-	// 14.5.6.1p5: `type` with each parameter `parameters` declared standing for
-	// the place it was declared in rather than for the declaration that made
-	// it.  Two declarations declare the same template exactly when this is the
-	// same type, so it is a fact of one declaration and not of a pair - which
-	// is what keeps declaring the nth overload of a template name from reading
-	// the n - 1 before it.  `kNoType` where a head declares a parameter that
-	// binds a template, which no substitution here stands for.
-	TypeId template_signature(const Scope& parameters, TypeId type);
 	// 14.7.1p1: reads the template's class body for `made`, which is what
 	// completes it.  A specialization named before its template was defined is
 	// a declaration of an incomplete class until the definition arrives, and

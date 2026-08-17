@@ -1,5 +1,7 @@
 #include "sema_analyzer.h"
 
+#include "sema_template_signature.h"
+
 #include <stdexcept>
 #include <utility>
 
@@ -199,16 +201,46 @@ SemaEntity* SemaAnalyzer::template_specializations(const std::string& spelling,
 		return nullptr;
 	}
 
-	// 14.8.1p2 and 13.4p1: the argument list is written once and makes one
-	// specialization of each declaration of the name it fits, which is still an
-	// overload set for a target type or a call to choose from.  Each of them is a
-	// declaration of its own that no region's chain holds, so the set the use
-	// carries is what holds them.
-	//
-	// 14.1p4 leaves what an argument *is* a fact of the declaration it is bound
-	// to: one spelling is a type-id at one head's place and a constant
-	// expression at another's, so the list is read once per candidate.
-	for (SemaEntity* at = primary; at != nullptr; at = at->next)
+	std::string refused;
+	explicit_specializations(*primary, id, ctx, found, refused);
+	if (found.empty())
+	{
+		throw std::runtime_error(
+			refused.empty() ? spelling + " names no template its argument "
+			                             "list fits"
+			                : refused);
+	}
+	return found[0];
+}
+
+// 14.8.1p2 and 13.4p1: the argument list is written once and makes one
+// specialization of each declaration of the name it fits, which is still an
+// overload set for a target type or a call to choose from.  Each of them is a
+// declaration of its own that no region's chain holds, so the set the use
+// carries is what holds them.
+//
+// 14.1p4 leaves what an argument *is* a fact of the declaration it is bound
+// to: one spelling is a type-id at one head's place and a constant expression
+// at another's, so the list is read once per candidate - and a spelling that is
+// neither at *this* candidate's place says this declaration is none of the ones
+// the list fits and says nothing about the others.  So the reading's own
+// refusal ends this candidate rather than the naming, and is handed back to be
+// made again where the walk found no candidate at all: `e<3>` over a head that
+// declared a type place and a head that declared a value place is one
+// declaration in either written order.  The count of 14.6p8's stand-ins goes
+// back with it, because a candidate this walk threw out made none.
+//
+// 3.4.2p3 is why the walk is a door of its own: the set is the ordinary
+// lookup's declarations *and* the argument-dependent search's, and the list has
+// to be read against each of the second lot exactly as it was against the
+// first.
+void SemaAnalyzer::explicit_specializations(SemaEntity& head,
+                                            const TemplateId& id,
+                                            const Context& ctx,
+                                            std::vector<SemaEntity*>& found,
+                                            std::string& refused)
+{
+	for (SemaEntity* at = &head; at != nullptr; at = at->next)
 	{
 		if (at->template_parameters == nullptr)
 		{
@@ -226,6 +258,9 @@ SemaEntity* SemaAnalyzer::template_specializations(const std::string& spelling,
 		}
 		std::vector<TypeId> arguments;
 		arguments.reserve(id.arguments().size());
+		const unsigned stood = stood_in_;
+		try
+		{
 		for (std::size_t index = 0; index < id.arguments().size(); ++index)
 		{
 			const std::size_t what =
@@ -247,6 +282,24 @@ SemaEntity* SemaAnalyzer::template_specializations(const std::string& spelling,
 			}
 			arguments.push_back(TemplateHead(*this).explicit_argument(places, what, arguments,
 			                                      id.arguments()[index], ctx));
+		}
+		}
+		catch (const std::runtime_error& why)
+		{
+			if (checking_ != 0 && stood_in_ != stood)
+			{
+				// 14.6p8: the reading ran out on a stand-in rather than on what
+				// the program wrote, which is no answer about this candidate
+				// and none about the head - the arguments settle it like any
+				// other operand a reading of a pattern cannot fold.
+				throw;
+			}
+			if (refused.empty())
+			{
+				refused = why.what();
+			}
+			stood_in_ = stood;
+			continue;
 		}
 		if (!packed && arguments.size() > places.size())
 		{
@@ -280,12 +333,6 @@ SemaEntity* SemaAnalyzer::template_specializations(const std::string& spelling,
 		// and not yet a specialization.
 		found.push_back(&partial_template(*at, arguments));
 	}
-	if (found.empty())
-	{
-		throw std::runtime_error(spelling + " names no template its argument "
-		                         "list fits");
-	}
-	return found[0];
 }
 
 namespace
