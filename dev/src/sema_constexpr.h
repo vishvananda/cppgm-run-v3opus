@@ -40,12 +40,18 @@ enum class ConstexprFlow
 struct ConstexprFrame
 {
 	ConstexprFrame()
-		: steps(0)
+		: returns(kNoType)
+		, steps(0)
 		, returned(false)
 	{}
 
 	// 6.6.3p2: what the return statement the walk reached handed back.
 	SemaConstant result;
+	// 6.6.3p2: the type of the object the call hands back, which is the place
+	// a `return` statement's operand fills - and 8.5.4p1 makes a
+	// braced-init-list standing there the initialization of that place, so the
+	// walk has to know it before it reads one.
+	TypeId returns;
 	// How many statements this fold has run, which is what bounds a loop whose
 	// condition the body never falsifies.
 	unsigned long long steps;
@@ -392,7 +398,11 @@ public:
 	bool literal_object(const std::string& spelling, SemaConstant& out);
 	SemaConstant subscripted(const SemaConstant& pointer,
 	                         const SemaConstant& index);
-	SemaConstant operand_constant(const AstNode& node, const SemaContext& ctx);
+	// 8.5.4p1: a braced-init-list is no expression, so what one standing here
+	// comes to is the initialization of the place it fills - which is what
+	// `place` says, where the reader knows it.
+	SemaConstant operand_constant(const AstNode& node, const SemaContext& ctx,
+	                              TypeId place = kNoType);
 	SemaConstant decayed_operand(const SemaConstant& value);
 	SemaEntity* called_through(const SemaConstant& value);
 	SemaConstant returned_constant(const SemaConstant& answer);

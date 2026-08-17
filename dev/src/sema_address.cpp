@@ -980,8 +980,19 @@ SemaConstant ConstexprReading::subscripted(const SemaConstant& pointer,
 // for the object it designates and refused again by every place that asks for
 // one.
 SemaConstant ConstexprReading::operand_constant(const AstNode& node,
-                                                const SemaContext& ctx)
+                                                const SemaContext& ctx,
+                                                TypeId place)
 {
+	if (node.kind == AstKind::BracedInitList && place != kNoType)
+	{
+		// 8.5.4p1: the list is no expression, so what it comes to is the
+		// initialization of the place standing here - which is the one reading
+		// every other place 8.5 fills from a list already comes through, and
+		// 8.5.3p5's temporary is what a reference place binds to.
+		return clause_of(node, analyzer_.types_.is_reference(place)
+			                       ? analyzer_.types_.target(place)
+			                       : place, ctx);
+	}
 	try
 	{
 		return analyzer_.evaluate(node, ctx);

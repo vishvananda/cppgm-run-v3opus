@@ -805,8 +805,17 @@ private:
 	// one child per element under `line`, taken from the cursor until the
 	// array's bound is reached - which is what 8.5.1p11's array member takes
 	// out of the enclosing list.
-	void array_from_clauses(TypeId array, Clauses& clauses, const Context& ctx,
-	                        DumpNode& line, bool image);
+	unsigned long long array_from_clauses(TypeId array, Clauses& clauses,
+	                                      const Context& ctx, DumpNode& line,
+	                                      bool image);
+	// 8.5.1p11: one element of that array whose own braces were left out, so
+	// that it takes a run of the enclosing list rather than one clause.
+	void elided_element(TypeId element, Clauses& clauses, const Context& ctx,
+	                    DumpNode& line, bool image);
+	// 8.3.4p3: how many elements that walk fills, which is what an array
+	// declared with no bound has.
+	unsigned long long deduced_array_bound(TypeId array, const AstNode& list,
+	                                       const Context& ctx);
 	// 8.3.5p5: the same list read as the argument the parameter carrying an
 	// array member is passed, which is an array object of the caller's own.
 	void array_argument(TypeId array, Clauses& clauses, const Context& ctx,

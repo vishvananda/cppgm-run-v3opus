@@ -286,9 +286,10 @@ void SemaAnalyzer::aggregate_subobject(TypeId type, Clauses& clauses,
 // elements.  The clauses are a cursor rather than a list because 8.5.1p11 lets
 // an array *member* take them out of the enclosing list, so how many this array
 // takes is its own bound and not the length of anything written.
-void SemaAnalyzer::array_from_clauses(TypeId array, Clauses& clauses,
-                                      const Context& ctx, DumpNode& line,
-                                      bool image)
+unsigned long long SemaAnalyzer::array_from_clauses(TypeId array,
+                                                    Clauses& clauses,
+                                                    const Context& ctx,
+                                                    DumpNode& line, bool image)
 {
 	const TypeId element = types_.target(array);
 	const bool of_class = types_.is_class(types_.strip_cv(element));
@@ -297,11 +298,13 @@ void SemaAnalyzer::array_from_clauses(TypeId array, Clauses& clauses,
 	const unsigned long long bound =
 		types_.bounded(array) ? types_.bound(array) : kUnboundedClauses;
 	unsigned long long taken = 0;
-	for (; taken < bound && !clauses.spent(); ++taken, ++clauses.at)
+	for (; taken < bound && !clauses.spent(); ++taken)
 	{
 		const AstNode& clause = clauses.next();
 		const Context inner = clauses.in(ctx);
 		const bool braced = clause.kind == AstKind::BracedInitList;
+		const bool of_array =
+			types_.kind(types_.strip_cv(element)) == TypeKind::Array;
 		if (of_class)
 		{
 			if (braced && aggregate_type(element))
@@ -312,6 +315,7 @@ void SemaAnalyzer::array_from_clauses(TypeId array, Clauses& clauses,
 					// the clauses could reach, so the element is one object
 					// built by the one its members give it.
 					construct_from_members(*from_members, clause, inner, line);
+					++clauses.at;
 					continue;
 				}
 				// 8.5.1p1: the clauses initialize the element's subobjects
@@ -319,6 +323,15 @@ void SemaAnalyzer::array_from_clauses(TypeId array, Clauses& clauses,
 				// static storage duration, and what a class no by-value
 				// parameter list describes asks for.
 				list_initialize(clause, element, inner, line, image);
+				++clauses.at;
+				continue;
+			}
+			if (elides_its_braces(element, clauses, ctx))
+			{
+				// 8.5.1p11: the braces around this element's own clauses were
+				// left out, so what initializes it is the run of clauses its
+				// members take out of this list and not the one standing here.
+				elided_element(element, clauses, ctx, line, image);
 				continue;
 			}
 			// 12.6p1 and 8.5.1p2: the element is an object of its class, so
@@ -327,17 +340,19 @@ void SemaAnalyzer::array_from_clauses(TypeId array, Clauses& clauses,
 			// its own type.  3.6.2p2 folds that call where the object holds
 			// what it writes before the program runs.
 			construct_subobject(element, &clause, inner, line, false);
+			++clauses.at;
 			continue;
 		}
-		if (braced && types_.kind(types_.strip_cv(element)) == TypeKind::Array)
+		if (braced && of_array)
 		{
 			// 8.5.1p3: an element that is itself an array takes the list
 			// written for it, and what 3.6.2 says about the whole object says
 			// the same about every element of it.
 			list_initialize(clause, element, inner, line, image);
+			++clauses.at;
 			continue;
 		}
-		if (types_.kind(types_.strip_cv(element)) == TypeKind::Array &&
+		if (of_array &&
 		    StringInitialization(*this).as_object(element, clause, inner, line))
 		{
 			// 8.5.2p1: an element that is an array of character type takes the
@@ -345,9 +360,19 @@ void SemaAnalyzer::array_from_clauses(TypeId array, Clauses& clauses,
 			// braces were written around that literal - `{"x"}` for an element
 			// and `"x"` for one are the same initialization, and the one place
 			// the braces would have been read is this clause.
+			++clauses.at;
+			continue;
+		}
+		if (of_array)
+		{
+			// 8.5.1p11 again, one family over: the braces around a *row* of an
+			// array of arrays may be left out too, and then the row takes as
+			// many of these clauses as its own elements do.
+			elided_element(element, clauses, ctx, line, image);
 			continue;
 		}
 		initialize(clause, element, inner, line, true);
+		++clauses.at;
 	}
 	for (; of_class && types_.bounded(array) && taken < bound; ++taken)
 	{
@@ -369,6 +394,76 @@ void SemaAnalyzer::array_from_clauses(TypeId array, Clauses& clauses,
 		}
 		construct_subobject(element, nullptr, ctx, line, true);
 	}
+	return taken;
+}
+
+// 8.3.4p3: an array declared with no bound has as many elements as its
+// initializer fills, which is how many clauses the list holds only where each
+// element takes exactly one - and 8.5.1p11 lets an element take a run of them.
+// So the bound is what 8.5.1's own walk arrives at, asked here rather than
+// counted a second way: the node the walk writes into is dropped, and the
+// temporaries it made are dropped with it, exactly as a probe of one clause is.
+unsigned long long SemaAnalyzer::deduced_array_bound(TypeId array,
+                                                     const AstNode& list,
+                                                     const Context& ctx)
+{
+	Clauses clauses(&list, *this, ctx);
+	DumpNode scratch;
+	open_full_expression();
+	try
+	{
+		// 3.6.2p2's reading, because it is the one that asks no function for
+		// anything: what this needs to know is how far down the list each
+		// element reaches, and a definition demanded here would be one the
+		// initialization the program wrote never asked for.
+		const unsigned long long taken =
+			array_from_clauses(array, clauses, ctx, scratch, true);
+		take_full_expression();
+		return taken;
+	}
+	catch (...)
+	{
+		take_full_expression();
+		throw;
+	}
+}
+
+// 8.5.1p11 over one element of an array: the braces the element's own clauses
+// would have stood in were left out, so what initializes it is the run of
+// clauses its subobjects take out of the enclosing list.  It is still one
+// element, so what it writes is the one child every other element writes -
+// which is the same node `list_initialize` writes where the braces were there
+// to read.
+void SemaAnalyzer::elided_element(TypeId element, Clauses& clauses,
+                                  const Context& ctx, DumpNode& line, bool image)
+{
+	const TypeId bare = types_.strip_cv(element);
+	if (types_.is_class(bare))
+	{
+		SemaEntity* const from_members = member_constructor(element);
+		if (from_members != nullptr && !image)
+		{
+			// 13.3.1.7 as the written braces ask it: the element is one object
+			// of its class, built by the constructor its members give it, and
+			// the run of clauses is what that call's arguments are.
+			construct_from_clauses(*from_members, clauses, ctx, line);
+			return;
+		}
+	}
+	DumpNode& node = model_.open_node(
+		line, spell("braced-init-list", ValueCategory::LValue, element,
+		            std::string()));
+	set_fact(node, FactKind::BracedInitList, element, ValueCategory::LValue);
+	if (types_.is_class(bare))
+	{
+		node.text = spell("aggregate-initialization", ValueCategory::PRValue,
+		                  element, std::string());
+		node.fact.kind = FactKind::AggregateInitialization;
+		node.fact.category = ValueCategory::PRValue;
+		aggregate_members(bare, clauses, ctx, node);
+		return;
+	}
+	array_from_clauses(bare, clauses, ctx, node, image);
 }
 
 SemaAnalyzer::Value SemaAnalyzer::list_initialize(const AstNode& node,
@@ -430,14 +525,18 @@ SemaAnalyzer::Value SemaAnalyzer::list_initialize_into(const AstNode& node,
 	{
 		// 8.5.1p2 and 8.5.1p3: the clauses initialize the elements in order,
 		// and an element that is itself an aggregate takes the list written
-		// for it.  8.5.1p6 leaves no element for a clause beyond the last.
+		// for it.  How many clauses an element takes is what its own walk
+		// arrives at, because 8.5.1p11 lets the braces around them be left
+		// out - so what says a clause reached no element is the walk running
+		// out of elements with clauses left, and not the length of the list.
 		Clauses clauses(&node, *this, ctx);
-		if (types_.bounded(wanted) && clauses.list.size() > types_.bound(wanted))
+		array_from_clauses(wanted, clauses, ctx, line, image);
+		if (!clauses.spent())
 		{
+			// 8.5.1p6: a clause that reached no element initializes nothing.
 			throw std::runtime_error("an array initializer has more clauses "
 			                         "than the array has elements");
 		}
-		array_from_clauses(wanted, clauses, ctx, line, image);
 	}
 	else
 	{

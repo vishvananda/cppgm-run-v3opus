@@ -898,6 +898,11 @@ SemaConstant ConstexprReading::object_from_constructor(
 	}
 	std::vector<Subobject> members;
 	subobjects(bare, members);
+	// 9.5p1: a union holds one of its members at a time, so a constructor of one
+	// begins the lifetime of exactly the member its ctor-initializer names -
+	// which is what tells a member this walk has no initialization to read from
+	// a member 7.1.5p4 says the constructor left uninitialized.
+	const bool one_member = analyzer_.one_storage(bare);
 	std::vector<TypeId> holds;
 	holds.reserve(members.size());
 	for (std::size_t index = 0; index < members.size(); ++index)
@@ -910,6 +915,18 @@ SemaConstant ConstexprReading::object_from_constructor(
 			found = written_for.find(
 				held.base ? analyzer_.types_.user_name(held.type)
 				          : held.entity->name);
+		if (one_member && found == written_for.end() &&
+		    (held.base || !held.entity->default_initializer ||
+		     analyzer_.member_initializers_.count(held.entity->id) == 0))
+		{
+			// 9.5p1 and 12.6.2p8: no initialization named this member, so its
+			// lifetime never began and it holds nothing - which is the entry
+			// no reader may take a value out of, rather than the refusal
+			// 7.1.5p4 makes of a member of a class every one of whose members
+			// an initialization has to reach.
+			holds.push_back(kNoType);
+			continue;
+		}
 		const SemaConstant value = subobject_initialized(
 			bare, held, found == written_for.end() ? nullptr : &found->second,
 			inner);
@@ -928,6 +945,14 @@ SemaConstant ConstexprReading::object_from_constructor(
 			// settled by that initialization rather than written again.
 			bind_constant(held.entity->name, value, inner, false);
 		}
+	}
+	while (one_member && !holds.empty() && holds.back() == kNoType)
+	{
+		// 9.5p1: the list stops at the member whose lifetime the initialization
+		// began, which is the same shape `object_of` gives a union an
+		// aggregate initializer wrote - so one reading of an entry past the end
+		// answers both.
+		holds.pop_back();
 	}
 	SemaConstant out;
 	out.type = bare;
@@ -1102,6 +1127,15 @@ SemaConstant ConstexprReading::subobject_value(const SemaConstant& object,
 					" other than the one it holds"
 				: "a constant expression reads outside " +
 					analyzer_.types_.description(object.type));
+	}
+	if (held[static_cast<std::size_t>(index)] == kNoType)
+	{
+		// 9.5p1: the entry stands for a member of a union whose lifetime the
+		// initialization did not begin, which holds no value at all - the same
+		// answer about the program an entry past the end of the list is.
+		throw NotConstant("a constant expression reads a member of " +
+		                  analyzer_.types_.description(object.type) +
+		                  " other than the one it holds");
 	}
 	SemaConstant out =
 		constant_of(held[static_cast<std::size_t>(index)], analyzer_.types_);

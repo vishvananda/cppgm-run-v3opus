@@ -1118,20 +1118,24 @@ void ConstexprReading::bind_subobjects(const SemaConstant& object,
 	for (std::size_t index = 0; index < members.size(); ++index)
 	{
 		SemaConstant value;
+		bool holds = true;
 		try
 		{
 			value = subobject_value(object, index);
 		}
 		catch (const NotConstant&)
 		{
-			// A body that names no such member reads nothing of it, so a list
-			// that holds fewer entries than the class declares is left to the
-			// name that asks for one rather than refused here.
-			break;
+			// A body that names no such member reads nothing of it, so an entry
+			// the list does not hold is left to the name that asks for one
+			// rather than refused here.  9.5p1 is why it is this member and not
+			// every member after it: a union holds one at a time, so the one
+			// whose lifetime an initialization began may stand anywhere in the
+			// class's own order and the ones beside it hold nothing.
+			holds = false;
 		}
 		held.push_back(value);
-		if (members[index].base || inner.scope->names.count(
-			                           members[index].entity->name) != 0)
+		if (!holds || members[index].base ||
+		    inner.scope->names.count(members[index].entity->name) != 0)
 		{
 			continue;
 		}
@@ -1312,7 +1316,8 @@ std::uint32_t ConstexprReading::passed_arguments(
 				                  "declaration gives no default-argument");
 			}
 			where.dump = where.scope->dump;
-			given = operand_constant(*written->children[0]->children[0], where);
+			given = operand_constant(*written->children[0]->children[0],
+			                         where, places[at]);
 		}
 		if (analyzer_.types_.is_reference(places[at]))
 		{
@@ -1482,6 +1487,9 @@ SemaConstant ConstexprReading::call(SemaEntity& callee,
 	// the call is not a constant expression is a statement the walk cannot run
 	// or a value it cannot read, not the shape of the body.
 	ConstexprFrame frame;
+	// 6.6.3p2: the place a `return` statement's operand fills, which is what
+	// 8.5.4p1 makes a braced-init-list written there the initialization of.
+	frame.returns = result;
 	statement(*compound, inner, frame);
 	if (!frame.returned)
 	{

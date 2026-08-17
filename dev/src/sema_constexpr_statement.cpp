@@ -515,7 +515,8 @@ ConstexprFlow ConstexprReading::statement(const AstNode& node,
 			// which for a return type of reference or pointer type is filled from
 			// the object the expression designates - so it is read as 8.5's
 			// operand here and `call` converts it to the return type.
-			frame.result = operand_constant(*node.children[0], ctx);
+			frame.result =
+				operand_constant(*node.children[0], ctx, frame.returns);
 		}
 		frame.returned = true;
 		return ConstexprFlow::Returned;
