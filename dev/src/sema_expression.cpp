@@ -842,8 +842,9 @@ SemaEntity* SemaAnalyzer::member_named(Scope& region, const std::string& id,
 		// class or one 10.2's chain reaches from it, because the member has to
 		// be a member of the object.  3.4.5p1 looks the specifier up in that
 		// class first and then where the whole expression stands.
-		const std::string prefix = id.substr(0, id.size() -
-		                                     written.last().size() - 2);
+		const std::string qualifier = written.prefix();
+		const std::string prefix =
+			qualifier.substr(0, qualifier.size() - 2);
 		SemaEntity* named = model_.lookup_in(region, prefix, LookupKind::Region);
 		if (named == nullptr)
 		{
@@ -871,6 +872,20 @@ SemaEntity* SemaAnalyzer::member_named(Scope& region, const std::string& id,
 	{
 		return member;
 	}
+	// 14.2: a member name no declaration of the class bound may still be a
+	// template-id, which names the specializations its argument list makes of
+	// the member template the class did declare.  It is the exit `resolve`
+	// already has at both of its own - the difference is only that the region
+	// to look the template up in is the object expression's class and not one
+	// the spelling reaches.
+	found.clear();
+	SemaEntity* const specialized =
+		template_specializations(id, ctx, found, &region);
+	if (specialized != nullptr)
+	{
+		return specialized;
+	}
+	found.clear();
 	SemaEntity* const destructor = destructor_named(region, id, ctx);
 	if (destructor != nullptr)
 	{

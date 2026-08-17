@@ -793,7 +793,7 @@ std::string AstParser::name_qualifier(const std::string& spelling)
 	{
 		return std::string();
 	}
-	return spelling.substr(0, spelling.size() - written.last().size());
+	return written.prefix();
 }
 
 std::string AstParser::declarator_qualifier(const AstNode* declarator)

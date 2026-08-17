@@ -118,6 +118,14 @@ public:
 	std::string part(std::size_t index) const;
 	// The name a declaration of this name introduces.
 	std::string last() const { return part(size() - 1); }
+	// 3.4.3p1: the nested-name-specifier written before the last component,
+	// with the `::` that ends it, and empty where none was written.
+	//
+	// It is read here rather than taken off the spelling by the length of
+	// `last()`: a component is handed back without the `template` keyword it
+	// may have been written with, so what `last()` is long is no longer the
+	// span of the spelling the component came from.
+	std::string prefix() const;
 	// True when a nested-name-specifier was written, so that the declaration
 	// names an entity of another region.
 	bool qualified() const { return !starts_.empty(); }

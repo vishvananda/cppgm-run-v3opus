@@ -473,6 +473,15 @@ std::string QualifiedName::part(std::size_t index) const
 	return spelling_->substr(start, end - start);
 }
 
+std::string QualifiedName::prefix() const
+{
+	// The last component starts one past the `::` that ends the specifier, so
+	// the split already made says where the prefix ends - and it says so
+	// whatever the component itself was written with.
+	return starts_.empty() ? std::string()
+	                       : spelling_->substr(0, starts_.back());
+}
+
 namespace
 {
 

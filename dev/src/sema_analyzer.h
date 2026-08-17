@@ -1669,10 +1669,13 @@ private:
 	// specializations its argument list makes of each template of that name,
 	// chained as one overload set for 13.3 or 13.4 to choose from.
 	// The specializations are appended to `found`, each a declaration of its own
-	// that no chain holds, and the first of them is returned.
+	// that no chain holds, and the first of them is returned.  `in` is the
+	// class 5.2.5p1 looks a member named after `.` or `->` up in, and null
+	// where the spelling itself says where to look.
 	SemaEntity* template_specializations(const std::string& spelling,
 	                                     const Context& ctx,
-	                                     std::vector<SemaEntity*>& found);
+	                                     std::vector<SemaEntity*>& found,
+	                                     Scope* in = nullptr);
 	// 14.7.1: the declaration `arguments` makes of `primary`, made once
 	// however many times it is named.
 	SemaEntity& specialize(SemaEntity& primary,

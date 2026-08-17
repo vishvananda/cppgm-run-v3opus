@@ -8,261 +8,237 @@ place is, and which declaration a list selects.
 
 | # | reviewed at | blockers | what the review found |
 | --- | --- | --- | --- |
-| T | `598d0d4a` | 7 / 7 + 7 recorded | **the template a place accepts, asked at one of the two tiers that declare a place - and the pair 14.8.2.5p4 reads, written for one of the three things an argument list can be applied to.**  Group T made 14.1p2's template place an owner: a head per written clause, `TypeKind::TemplateName` for the template an argument named, `place_heads_` for the head a place stands for, and 14.3.3p1 asked of the two heads.  The rules are right and each was written at one exit.  A *function* template's places are declarations rather than entries of a `TemplateInfo`, and nothing there ever wrote `place_heads_` - so `template<template<class> class C> int use(); use<pair2>()` and `use<box>()` at a place written `template<template<class> class> class` were both **accepted** where both oracles refuse, and `template<template<class> class C = box> int use()` was **refused** as `no declaration of C<int> is in scope`, because `arguments_of` reads every default that is not a value place's as 8.1p1's type-id.  14.6.1p1's injected-class-name arm - a lookup that lands on a specialization is retargeted to the template it was made of - is right for `box` written inside `box<T>`'s own body and swallowed `holder<box<int> >` and `= box<int>` with it, two programs both oracles refuse; which of the two was written is a fact of the *spelling*, and `QualifiedName::names_a_template_id` is the reading this file already had.  14.3.3p1's pack matched every place the other head had left and none where it had none, so `template<class, class...> class C` refused `template<class T> struct box`; and inside the loop the pack compared only the *kind* of each place where the fixed arm compares the kind, the value signature and the nested head, so `template<int...>` stood at a place written `template<unsigned...>`.  Under all of it `match_template_id` read `L<A…>` against a class an argument list had already made and against nothing else - so 14.5.5.2p1's ordering, which hands it `L<A…>` against `M<B…>`, ordered no two patterns written over a template place, and it carried neither of 14.8.2.1's two allowances, so `take(const C<T>&)` called with `box<int>` deduced nothing where both oracles deduce |
+| T | `598d0d4a` | 7 / 7 + 7 recorded | **the template a place accepts, asked at one of the two tiers that declare a place - and the pair 14.8.2.5p4 reads, written for one of the three things an argument list can be applied to.**  Group T made 14.1p2's template place an owner: a head per written clause, `TypeKind::TemplateName` for the template an argument named, `place_heads_` for the head a place stands for, and 14.3.3p1 asked of the two heads.  The rules are right and each was written at one exit.  A *function* template's places are declarations rather than entries of a `TemplateInfo`, and nothing there ever wrote `place_heads_`, so a template-name at a function-tier place was unchecked in both directions; 14.6.1p1's injected-class-name arm swallowed a template-*id* written at a place; 14.3.3p1's pack matched no run of none and compared only each place's kind; and `match_template_id` read `L<A…>` against a class alone, so 14.5.5.2p1 ordered no two patterns over a template place and 14.8.2.1's two allowances reached neither |
+| A | `202f04ec` | 4 / 4 + 6 recorded | **the three things a template-id can be looked up in, with 14.2's own exit written at two of them - and the access 11p1 gives a member template, carried by one of the three tiers that make a declaration from an argument list.**  Checkpoint A landed 14.5.7p1's alias template and moved 14.2p4's keyword into `QualifiedName::part`.  The alias is right and swept clean: 7.1.3p2's transparency, 14.5.7p2's identity, the ABI name, the region a member alias's access travels from, the memo that keeps a nest naming the one below twice flat to depth 24 - 84 probes pass the assignment's own comparator against the reference.  What the keyword's move did not carry is the *reason* it was moved: the commit names `a.template f<A>()` as one of three refusals it ends, and `member_named` - 5.2.5p1's lookup, the third of the three - had no 14.2 exit at all, so every `a.template f<int>()`, `p->template f<int>()` and `this->template f<int>()` was still `no declaration of f<int> is in scope` where both oracles translate.  Beside it the move made `last()` shorter than the span it was taken from, and three readers took the nested-name-specifier off the spelling by that length: `d.B::template f<int>()` came out as `B::templat names no class`.  Under the new exit, 11p1's access is a fact `instantiate_class` and the alias arm both write onto the declaration one argument list makes and the two function-tier exits never did, so a *private* member template reached through `.` was accepted where both oracles refuse.  And `template_id_entity` may now answer with a typedef-name: 14.7.2p2's reader took `made.primary` without asking, so `template struct P<int>;` over an alias **segfaulted** where both oracles refuse |
+
 
 ## Current Checkpoint Review
 
-Checkpoint T is where 14.1p2's *third* kind of place arrived. A head declared a
-type or a value; it now declares a template as well, and the whole of the
-checkpoint follows from what that place is worth. `TemplateHead` is the reader:
-a head is settled once in 14.6.1p1's own region, `parameter_head` reads a
-template place's own clause once per clause node, `argument_matches` is
-14.3.3p1, and `TypeKind::TemplateName` is the type-table entry standing for the
-template a written argument named — interned per declaration, which is what
-makes `holder<box>` written twice one specialization and what T3 had to teach
-`operand_of` before two templates stopped being one symbol. Beside it
-`dependent_template_id` is 14.6.2p1's `C<A…>` while `C` is still a place, and
-`match_template_id` is 14.8.2.5p4's pair over one.
+Checkpoint A is where a template-id stopped having to name a class. 7.1.3p2
+makes an alias-declaration *another name for* the type its type-id wrote, so
+14.5.7p1's alias template declares nothing an argument list can specialize:
+`X<A…>` **is** the type the arguments substitute into the pattern. It joins the
+two heads `sema_specialize` already owns whose last step differs from the
+primary's, and the declaration it leaves is a `Typedef` carrying a
+`TemplateInfo`. Beside it the checkpoint moved 14.2p4's keyword out of one
+reader and into `QualifiedName::part`, which is where every reader already asks
+for a component.
 
-All of it is the right shape. The head is read once per clause and a nest of
-them is flat to depth 12; the interned entry gives `_ZN6holderIN1N3boxEE3getEv`
-and `_ZN6holderIN1Q3boxEE3getEv` byte for byte with `g++ -std=c++11`; the
-dependent naming is one declaration per place and interned list, so a pattern
-that writes `C<T>` two hundred times substitutes once; and 64 probe programs
-lower to LowIR the assignment's own comparator finds identical to the reference.
+The alias half is right and is right everywhere it was asked. 7.1.3p2's
+transparency holds through a parameter, a pointer, a base-specifier, a
+`typedef`, a template-template argument and a second translation unit -
+`_Z3use3boxIiE` for a parameter written through the alias agrees with
+`g++ -std=c++11` byte for byte; 14.5.7p2 leaves two namings of one list one
+type, and `A1<int>` and `A2<int>` over two aliases with one pattern one type;
+`Specialization::alias` memoises on `(template, interned argument list)`, so a
+nest of aliases each naming the one below **twice** is flat at 6.5 MB and 0.00 s
+to depth 24 where the unmemoised reading is 2^depth; 11p1's access travels from
+the template onto the typedef-name one list makes, so a private member alias is
+refused as `g++` refuses it and the reference does not; and 84 probe programs
+pass `pa22/scripts/compare_results.pl` itself against the reference's LowIR.
 
-What the review found is the shape this stage keeps finding. Each of the four
-new facts was written at one exit of its own family: 14.3.3p1 at the class tier
-and not at the function tier, the template-name-or-template-id question at the
-lookup and not at the spelling, the pack's own match beside the fixed one rather
-than through it, and 14.8.2.5p4's pair over a class alone where the ordering,
-the qualifiers and a base each hand it something else.
+What the review found is one sentence about the *other* half. The keyword's
+move is a good move - the split is the one place that knows where a component
+begins - but a component handed back without the keyword is no longer as long
+as the span of the spelling it came from, and the exit it was moved out of was
+never the exit that made the three refusals it was moved to end.
 
 ### Findings
 
-**1. 14.3.3p1 is asked at the class tier and at neither exit of the function
-tier.** `explicit_argument` asks `place_head(places[index]->type)` and
-`match_template_id` asks it again, and nothing at the function tier ever wrote
-that entry: `SemaAnalyzer::template_parameter` makes the place's type with
-`is_template` set and stops, while the class tier's `open_region` records the
-head, gives it a region and settles its places. So
+**1. 5.2.5p1's lookup had no 14.2 exit.** `resolve` answers a name no
+declaration bound with `template_id_entity` at *both* of its exits, and
+`call_expression` answers an id-expression callee with `template_specializations`
+before it resolves anything. `member_named` - the third region a name can be
+looked up in, the class of the object expression - had neither: its unqualified
+arm is `lookup_in` and 12.4's destructor and nothing else. So
 
 ```cpp
-template<class A, class B> struct pair2 { };
-template<template<class> class C> int use() { return 0; }
-int main() { return use<pair2>(); }              // accepted
+struct S { template<class T> int f() { return 0; } };
+int main() { S s; return s.template f<int>(); }   // no declaration of f<int> is in scope
 ```
 
-and the same with a place one level deeper (`template<template<class> class>
-class W` given `box`) were programs `pa22/cppgm++-ref` and g++ both refuse and
-this build **translated**. The same missing entry is why 14.1p9's default was
-read as a type-id: `arguments_of` asks `parameter_value_type`, which is
-`kNoType` for a type place *and* for a template place, so
+and the same through `->` and through `this->` were three programs both oracles
+translate and this build refused - the refusal the checkpoint's own commit names
+as one of the three it ends. `template_specializations` now takes the region
+5.2.5p1 looks a member up in, which is the one thing the member-access path
+knows that a spelling does not, and `member_named` asks it where `resolve`
+already asks. `p->~box<int>()` and a member id that is no template-id are
+unaffected: the arm answers null for a name the class declares no template of,
+and the destructor arm still stands behind it.
+
+**2. Three readers took the prefix off the spelling by the length of the last
+component.** `part` hands back a component without 14.2p4's keyword, so
+`last().size()` is no longer the width of the span it was read from, and
 
 ```cpp
-template<class T> struct box { int n; };
-template<template<class> class C = box> int use() { C<int> c; return c.n; }
-int main() { return use<>(); }                   // no declaration of C<int> is in scope
+struct B { template<class T> int f() { return 0; } };
+struct D : B { };
+int main() { D d; return d.B::template f<int>(); }   // B::templat names no class …
 ```
 
-was **refused** where both oracles accept it. `TemplateHead::record_place` is
-now the one recording — the class tier's own three steps, named — and
-`TemplateHead::place_default` is the one reading of a default at a template
-place, which `bind_arguments` and `arguments_of` both call.
+sliced the nested-name-specifier nine characters late. The other two -
+`AstParser::name_qualifier` and `template_specializations`'s own
+`spelling - component + id.name()` - reach the same wrong span for the same
+spelling; the second happened to heal, because what it left the keyword in front
+of was a component `resolve` splits and strips again. `QualifiedName::prefix`
+is the reading: the split already recorded where the last component starts, so
+the prefix is that offset and depends on nothing the component was written with.
 
-**2. A template-id written at a template place was taken for the template it
-specializes.** 14.6.1p1 lets the injected-class-name of a specialization be used
-as a template-name, so a lookup that lands on a specialization is retargeted to
-`named->primary` — and 3.4.3 answers `box` written inside `box<T>`'s body and
-`box<int>` written at a template place with the same kind of entity. So
-`holder<box<int> >` and `template<template<class> class C = box<int> >` were
-both **accepted** as `holder<box>`, where both oracles refuse. Which of the two
-was written is a fact of the spelling and nothing the lookup can recover;
-`QualifiedName::names_a_template_id` — 7.3.3p5's own reading, aware that four of
-13.5's operators are spelled with `<` — is asked before the lookup. `box`
-written inside `box<T>` and `outer<char>::inner` written at a place are
-unaffected, because neither writes a list at its last component.
-
-**3. 14.3.3p1's pack was two readings, and neither matched a run of none.**
-`argument_matches` walks the two heads to the shorter one and then refuses
-outright wherever P declared more, so a trailing pack in P matched every length
-but zero:
+**3. 11p1's access is carried by one of the three tiers that make a declaration
+from an argument list.** `instantiate_class` writes `made->access =
+primary.access` and the checkpoint's own alias arm writes it too; `specialize`,
+`partial_template` and `Specialization::read_variable` never did. It was
+invisible while every reader asked 11.2 of the name a lookup *found* - which for
+a qualified naming is the primary - and finding 1 makes the member-access path
+ask it of the specialization instead, where
 
 ```cpp
-template<class T> struct box { int n; };
-template<template<class, class...> class C> struct holder { C<int> c; };
-int main() { holder<box> h; return h.c.n; }      // refused; both oracles translate
+class S { template<class T> int f() { return 0; } };
+int main() { S s; return s.template f<int>(); }   // accepted; both oracles refuse
 ```
 
-And the pack arm compared `value` and `templated` of each remaining place where
-the fixed arm compares those, 14.3.3p1's value signature and the nested head one
-level down — so `template<int... Ns>` stood at a place written
-`template<unsigned...>`, which both oracles refuse. `places_match` is now the one
-pair reading and the pack asks it of each place the other head has left, which
-is what the clause says a pack does.
+Every tier now says the same thing: the access a class gave was given to the
+template, and the declaration one argument list makes of it is only that.
 
-**4. 14.5.5.2p1's ordering could not read a pair of two patterns.**
-`match_template_id` deduces the place from *which template* the argument was
-made of, and it read that fact off a class an argument list had already made —
-`kind(bare) != Class` was the door. 14.5.5.2p1 rewrites two partial
-specializations as function templates and deduces one from the other, so what it
-hands the arm is `L<A…>` against `M<B…>`, a naming over a place at both ends.
-Every two patterns written over a template place were therefore unordered, and
-the diagnostic is `matches two partial specializations and neither is more
-specialized than the other` — the plan's own failure group. What the argument
-was applied to is a template the program declared where a list already made a
-class of it and a place standing for itself where it did not; both are then
-asked the same two questions of the same two heads. Two of the suite's tests
-pass on this alone, and finding 3 would have cost a third without it.
-
-**5. The pair carried neither of 14.8.2.1's two allowances.** Every other pair
-of this walk takes `relaxed` and `derived` — the class arm's own cv test is
-`relaxed ? (cv(A) & ~cv(P)) != 0 : cv(P) != cv(A)` — and the new arm compared
-the qualifiers strictly and looked only at the argument itself. So
+**4. 14.7.2p2's reader took `made.primary` without asking.** `template_id_entity`
+answers a template-id, and after this checkpoint one of its answers is a
+typedef-name over an alias template - which has no primary, because 7.1.3p2
+leaves it no specialization to be one of. `explicit_instantiation` handed that
+straight to `require_specialization`, which dereferences
+`made.primary->templated`:
 
 ```cpp
-template<template<class> class C, class T> int take(const C<T>& b);
-int main() { box<int> b; return take(b); }       // refused; both oracles deduce
+template<class T> struct box { T n; };
+template<class T> using P = box<T>;
+template struct P<int>;                          // SIGSEGV; both oracles refuse
 ```
 
-and a class *derived* from a specialization deduced nothing where g++ deduces.
-The base is the second half: `named_below` looks for a base made of one *named*
-template, which a place names none of — what a place asks of a base is
-14.3.3p1's question, the same one the pair itself asks, so
-`specialization_below` asks it. 14.8.2.1p3's pointer form is the same sentence
-one indirection out, and its `simple` test spelled a simple-template-id as
-`kind(inner) == Class && is_specialization(inner)`, which is the form written
-over a named template and not the one written over a place.
-
-**6. The substitution minted a second type for a naming the pattern had already
-made.** `template_id_entity` answers `C<A…>` out of `dependent_templates_`,
-keyed by the place and the interned list, so one spelling written n times is one
-declaration. `substituted`'s arm for the same construct — reached wherever the
-bindings leave `C` a place still — called `dependent_template_id` with a fresh
-`type_entity_id()` every time it ran. Instrumenting the arm shows one file of
-the suite minting `bound=22 args0=27` twice, which is two type-table entries for
-one type: the mirror of the collision T3 found in `operand_of`, where two
-templates were one entry. It is bounded — the count is flat in the number of
-instantiations, one per written naming — so nothing measures slower; what it
-costs is that two readings of one naming compare unequal. Both exits now ask
-`dependent_template_name`.
+14.7.2p2's own words are the gate - the elaborated-type-specifier shall name a
+class template specialization - and it now covers 14.6.2p1's naming over an
+unsettled place as well, which reaches the same reader with the same null.
 
 ### What the review confirmed rather than found
 
-- **The head is read once per clause.** `parameter_heads_` is keyed by the
-  clause node and `place_heads_` by the type the place stands for; nesting depth
-  2 → 12 is flat, and nesting × namings is linear in the product to 11 × 3200
-  (0.77 s, 189 MB) at the pre-audit build's numbers to within measurement.
-- **The interned `TemplateName` is one entry per declaration.** `holder<box>`
-  written twice is one specialization, two `box` templates in two namespaces are
-  two symbols, and both agree with `g++ -std=c++11` byte for byte.
-- **The dependent naming is one declaration per place and list.** 400 namings of
-  `C<T>` in one pattern cost 0.01 s, and 160 instantiations over one pattern mint
-  the substitution's entry once.
-- **The LowIR is the reference's.** 64 probe programs — every shape below where
-  this build and `pa22/cppgm++-ref` agree on the verdict — pass through
-  `pa22/scripts/compare_results.pl` itself, single-unit and across two units.
-- **No gate and no skipped work.** The checkpoint's diff holds no `getenv`, no
-  fixture name, no dialect switch and no environment read; `record_place` and the
-  new pair arms are reached in all three dialects alike.
-- **valgrind is clean** over all 77 probe programs and over the three largest
-  scaling inputs.
+- **The alias is one reading per template and interned list.** `alias` asks
+  `specialization_of` first and `hold_specialization` last, so `P<int>` written
+  3200 times is read once (0.16 s, 47 MB) and a nest whose every level names the
+  one below twice is flat from depth 4 to depth 24. The `ReadingList` guard
+  refuses an alias whose type-id names its own list rather than recursing, where
+  the reference crashes.
+- **The alias is transparent to the object file.** One symbol
+  `_Z3use3boxIiE` across two translation units, and `holder<P>`'s member is
+  `box<int>` and not a class of the alias's own name - the same answer `g++`
+  gives.
+- **The keyword is dropped once.** `part` and `without_template_keyword` share
+  one `past_template_keyword`, so `X::template f<A>`, `a.template f<A>()`,
+  `typename A<T>::template B<int>`, `holder<S::template X>` and a chain of them
+  are one rule read at one place.
+- **No gate and no skipped work.** Neither the checkpoint's diff nor this
+  audit's holds a `getenv`, a fixture name, a dialect switch or an environment
+  read; the new exits are reached in all three dialects alike.
+- **valgrind is clean** over all 90 probe programs and over the five largest
+  scaling inputs, 0 errors.
 
 ### Recorded, not landed
 
-- **`--emit-semantics` and `--emit-types` refuse `box<int>` at all** in this
-  build, where `pa12/cppgm++-ref --emit-semantics` answers it. An ordinary class
-  template with no template place written shows it, so it is neither this
-  checkpoint's nor a gate this checkpoint added.
-- **14.5.5.2's ordering by pack prefix length** leaves `list<A0, Rest...>` and
-  `list<A0, A1, Rest...>` unordered where both oracles select the second — with
-  no template place written anywhere, so it is the plan's failure group and not
-  this checkpoint's.
-- **`trait<const box<int> >` selects the primary here** and the partial in the
-  reference; g++ agrees with this build, and 14.5.5.1p1's pair writes no
-  qualifier the argument did not.
-- **`template<class T, unsigned N>` at a place written `template<class, int>`**
-  and **`template<class T, class... Rest>` at a place written
-  `template<class>`** are refused here and in the reference and accepted by g++,
-  which is P0522's relaxation and not C++11's clause.
-- **`template<class T, class U = int>` at a place written `template<class>`** is
-  accepted here and in the reference and refused by g++, which is the same
-  clause read the other way; the checkpoint's own 14.1p9 arm wrote it.
-- **A qualified template-id prefix in a default at a template place** —
-  `= outer<char>::inner` — is accepted here and by g++ and refused by the
-  reference.
+- **Two function templates of one name overloaded by *arity*** -
+  `f<int>()` and `f<int, char>()` over `template<class>` and
+  `template<class, class>` - are `f is defined twice` here and translate in both
+  oracles. It is written with no alias, no keyword and no class, so it is the
+  declaration-merge tier and not this checkpoint's.
+- **`&S::f<int>`** is `a binary operator is outside the PA12 subset`: a
+  template-id at a member name outside a call is the plan's parse group, which
+  the next checkpoint owns.
+- **`s.template f()` on a member that is no template** is accepted here and in
+  the reference and refused by `g++`, which is 14.2p5's requirement neither
+  oracle asks about.
+- **A second `using P = …` with a *different* type-id**, `extern template struct
+  P<int>;` and `struct P<int> { };` are accepted here and in the reference and
+  refused by `g++`.
+- **`template<class T> int P<T>::get()`**, a member definition written through
+  an alias template's name, is refused here and in the reference and accepted by
+  `g++`.
+- **A private member class template, a private member variable template and a
+  use written before the alias template's declaration** are refused here and by
+  `g++` and accepted by the reference.
 
 ## Changes
 
-- **`sema_template_head.cpp/.h` — `record_place`**, called from `open_region`
-  and from `sema_analyzer.cpp`'s `template_parameter`: 14.1p2's head recorded
-  against the type a place stands for, whichever tier declared the place.
-- **`sema_template_head.cpp/.h` — `place_default`**, called from
-  `bind_arguments` and from `sema_deduce.cpp`'s `arguments_of`: 14.1p9's default
-  at a template place read as a template-name and not as 8.1p1's type-id.
-- **`sema_template_head.cpp` — `template_argument`**: 14.3.3p1's room for a
-  template-name asked of the spelling, through `QualifiedName`, before 3.4.3
-  answers it.
-- **`sema_template_head.cpp/.h` — `places_match`**, with `argument_matches`
-  rewritten around it: one pair reading, asked of each place a pack has left, and
-  a pack P declared past everything A wrote matching the run of none.
-- **`sema_deduce.cpp/.h` — `match_template_id`**, with `derived_template_id` and
-  `specialization_below`: the pair read over a place as over a named template,
-  carrying 14.8.2.1p3 and p4's allowances, with the base a place asks 14.3.3p1
-  of; and `match`'s pointer arm reading a simple-template-id written either way.
-- **`sema_template.cpp` — `substituted`**: 14.6.2p1's naming over an unsettled
-  place answered by `dependent_template_name`, which is where the other exit
-  already asks.
+- **`sema_name.cpp/.h` — `QualifiedName::prefix`**, called from
+  `sema_expression.cpp`'s `member_named`, `ast_parser_declarator.cpp`'s
+  `name_qualifier` and `sema_template.cpp`'s `template_specializations`: the
+  nested-name-specifier read off the split that already recorded where the last
+  component starts, rather than off the spelling by that component's length.
+- **`sema_expression.cpp` — `member_named`**, with
+  `sema_template.cpp`'s `template_specializations` taking the region: 14.2's
+  exit at 5.2.5p1's lookup, so a member template named through `.`, `->` or
+  `this->` reaches the specializations its argument list makes.
+- **`sema_template.cpp` — `specialize` and `partial_template`, and
+  `sema_specialize.cpp` — `read_variable`**: 11p1's access carried onto the
+  declaration one argument list makes, which the class tier and the alias
+  already carry.
+- **`sema_template.cpp` — `explicit_instantiation`**: 14.7.2p2 asked of what the
+  template-id answered, so an alias template's typedef-name and a naming over an
+  unsettled place are refused where they were dereferenced.
 
 ## Performance Evidence
 
-Best of three with `/usr/bin/time`, against a `make build` of `598d0d4a` in a
+Best of three with `/usr/bin/time`, against a `make build` of `202f04ec` in a
 worktree so every number has a baseline rather than a memory, and against
 `pa22/cppgm++-ref`.
 
 | shape | this build | pre-audit build | `pa22/cppgm++-ref` |
 | --- | --- | --- | --- |
-| nested template places in one head, depth 2 / 12 | 0.00 / 0.00 s at 6 MB | 0.00 / 0.00 s | 0.53 s |
-| function-tier template place, 400 / 800 / 1600 / 3200 namings | **0.06 / 0.13 / 0.28 / 0.58 s** at 22 / 39 / 72 / 138 MB | 0.06 / 0.13 / 0.27 / 0.57 s | 0.97 / 1.60 / 3.49 / 10.64 s |
-| nesting depth × namings, 3×200 → 11×3200 (cross product) | **0.03 / 0.06 / 0.15 / 0.36 / 0.77 s** at 14 → 189 MB | 0.02 / 0.06 / 0.15 / 0.34 / 0.76 s | 0.70 → 7.60 s |
-| one template named at a place 400 times | 0.01 s at 8 MB | 0.01 s | 0.61 s |
-| 400 distinct templates each named once | 0.04 s at 17 MB | 0.04 s | 0.81 s |
-| `C<T>` written 400 times in one pattern | 0.01 s at 11 MB | 0.01 s | 0.75 s |
-| one `C<T>` pattern over 400 argument lists | 0.07 s at 23 MB | 0.07 s | 1.10 s |
-| out-of-class member definition, 400 specializations | 0.05 s at 18 MB | 0.04 s | 0.83 s |
-| one partial-specialization pattern, 160 instantiations | 0.01 s at 10 MB | 0.01 s | 0.58 s |
-| the whole 169-file PA22 corpus | **1.31 s** | 1.30 s | — |
+| one alias named 400 / 800 / 1600 / 3200 times | 0.02 / 0.04 / 0.07 / **0.16 s** at 11 → 48 MB | 0.02 / — / — / 0.16 s | 3.62 s at 3200 |
+| n distinct argument lists through one alias, 400 → 3200 | 0.05 / 0.12 / 0.25 / **0.54 s** at 22 → 135 MB | 0.05 / — / — / 0.54 s | 7.11 s at 3200 |
+| member alias template named 400 / 3200 times | 0.02 / **0.16 s** at 12 / 48 MB | 0.02 / 0.16 s | 2.25 s at 3200 |
+| alias nest, each naming the one below **twice**, depth 4 → 24 | **0.00 s, flat at 6.5 MB** | 0.00 s | 0.56 s at 24 |
+| `S::template f<int>()` written 400 / 3200 times | 0.01 / **0.07 s** at 8 / 24 MB | 0.01 / 0.07 s | 1.10 s at 3200 |
+| `s.template f<int>()` written 400 / 3200 times | 0.01 / **0.08 s** at 9 / 27 MB | refused | 0.93 s at 3200 |
+| `s.template f<Ti>()` over 3200 *distinct* lists | **0.34 s** at 92 MB | refused | 11.06 s |
+| `.template g<int>()` chained, depth 4 / 16 / 64 | 0.00 s, flat at 6.4 / 7.2 MB | refused | — |
+| the whole 308-file PA22 corpus | **1.26 s** | 1.26 s | — |
 
-Every dimension is linear and every one matches its baseline to within
-measurement: the audit added one recording per function-tier place, one spelling
-scan per written template argument, and one memo lookup per substituted naming,
-and none of the three is a term of the input. The reference is 10× to 18× slower
-on the two cross-product sweeps. The multiplicity sweeps were run to 3200 and
-the nesting sweep to depth 12; neither carries a 2^depth term, because the head
-is read once per clause node and the naming is interned per place and list.
+Every dimension is linear in what it sweeps and every one that has a baseline
+matches it: `prefix` reads one offset the split already held, the access is one
+assignment per specialization made, and the member-access exit is the probe the
+qualified path already pays - none of the three is a term of the input. The two
+member-access rows have no baseline because the pre-audit build refuses those
+programs; both are linear to 3200 and 33× faster than the reference on the
+distinct-list sweep. The nesting sweeps were run to depth 24 and the
+multiplicity sweeps to 3200; the alias nest carries no 2^depth term because the
+reading is interned per template and list.
+
+Not this checkpoint's, but re-measured: an alias nest whose *result* type
+doubles per level (`pair2<a<T>, a<T> >`) is inherently 2^depth - depth 20 is
+0.39 s / 178 MB and depth 24 is 6.80 s / 2.37 GB, which is the known
+per-subobject layout cost and not the alias layer's.
 
 ## Validation
 
-- `make test-report ACTIVE_TEST_REPORT_PAS='pa22'` — **156 / 308**, from the
-  turn's 154 baseline, with the failing set a strict subset: the two partial
-  ordering tests `400-defaulted-nested-cv-template-template-partial-specialization`
-  and `400-repeated-pack-partial-specialization-ordering` now pass and nothing
-  regressed.
+- `make test-report ACTIVE_TEST_REPORT_PAS='pa22'` — **193 / 308**, the turn's
+  baseline held, with the failing set byte-identical to the turn's: the three
+  `.template`/`->template` tests in it also want the two-clause out-of-class head
+  the next checkpoint owns, so the new exit unblocks them without flipping them.
 - `make test-report-through-pa21` — **pass**, 2568 / 2568, 21 / 21 stages.
 - `perl scripts/cppgm_file_audit.pl --stage pa22 --paths dev/src` — **pass**,
   with the five `bad-division` warnings the stage inherited and no sixth.
-- 77 systematic probe programs swept against `pa22/cppgm++-ref`, `g++
-  -std=c++11 -pedantic-errors` and, where the verdicts agree, the assignment's
-  own LowIR comparator: 7 over what may stand at a template place, 9 over
-  14.3.3p1's pack, 7 over the function tier, 7 over 14.1p9's default, 8 over
-  `C<A…>` written over an unsettled place, 8 over 14.8.2.5p4's pair, 5 over
-  14.5.5's ordering, 4 over the object-file name and 3.4.2p2's regions, and the
-  rest over the cross-product. Every disagreement judged against the standard
-  and the third oracle rather than copied.
-- Nesting-depth sweep to 12 levels and multiplicity sweep to 3200 namings on
-  each new reading, with the cross product of the two; all linear.
-- `valgrind -q --error-exitcode=9` over all 77 probes and the three largest
+- 90 systematic probe programs swept against `pa22/cppgm++-ref` and
+  `g++ -std=c++11 -pedantic-errors`: 30 over 7.1.3p2 and 14.5.7's alias
+  template, 21 over 14.2p4's keyword at each of the three lookups, 10 over the
+  access a member template's specialization carries, 8 over what a template-id
+  may be explicitly instantiated or specialized as, and the rest over the cross
+  product with packs, defaults, value places, template places, bases,
+  namespaces, two translation units and source order. Every disagreement judged
+  against the standard and the third oracle rather than copied.
+- 84 of them - every shape where this build and the reference agree on the
+  verdict - through `pa22/scripts/compare_results.pl` itself in a scratch
+  directory under `pa22/`: **PASS (84 / 84)**, so the LowIR and not only the
+  exit status is the reference's.
+- Nesting-depth sweeps to 24 and multiplicity sweeps to 3200 on each new
+  reading; all linear, all matched to the `202f04ec` baseline.
+- `valgrind -q --error-exitcode=9` over all 90 probes and the five largest
   scaling inputs: **clean**, 0 errors.
 - No `.ref` regenerated: every producer this audit changed either refuses a
-  program the fixtures do not write or answers one they already pin, which is
-  what the 64-probe comparator run and the unchanged failing set together show.
+  program the fixtures do not write or answers one they already pin, which the
+  unchanged failing set and the 84-probe comparator run together show.

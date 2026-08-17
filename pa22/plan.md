@@ -30,29 +30,32 @@ replaced:
 
 ## Current Failure Map
 
-Turn-start baseline **156 / 308**; checkpoint A landed **193 / 308**, 115
-failures. Grouped by the compiler behaviour that owns them (one test can want
-two):
+Checkpoint A landed **193 / 308** and its audit held it there, 115 failures,
+with the failing set unchanged. Grouped by the compiler behaviour that owns
+them, from the diagnostic each one now reaches:
 
 | # | Group | Owner | Signature |
 |---|---|---|---|
-| 18 | compiles but the LowIR does not match | `lowir_*` | no diagnostic; explicit-instantiation ownership and `extern template` |
-| 14 | **parse failures** — `a.f<int>()` for a member template, out-of-class member-template heads, `extern template` over a constructor | `recognizer_*`, `ast_parser_*` | `… is not a translation unit` |
-| 12 | out-of-class member-template definitions | `member_definition_owner` | `X is defined where no class declares it, which 12.1p1 gives no meaning` |
+| 14 | **parse failures** — `a.f<int>()` for a member template, out-of-class member-template heads, `extern template` over a constructor or operator | `recognizer_*`, `ast_parser_*` | `… is not a translation unit` |
+| 13 | out-of-class member-template definitions | `member_definition_owner` | `X is defined where no class declares it, which 12.1p1 gives no meaning` |
+| 11 | compiles but the LowIR does not match | `lowir_*` | none; explicit-instantiation ownership and `extern template` |
+| 10 | dependent names an instantiation has to find | mixed | `no declaration of … is in scope` |
 | 8 | a definition whose head is written apart from the declaration | `sema_function.cpp` | `a definition of X matches no declaration of it` |
 | 7 | a template-id before `::` this walk does not settle | `resolve_prefix` | `X is written after a name that is not a namespace, class or enumeration` |
-| 5 | friend templates | `sema_class.cpp` | `a friend declaration is written outside a class definition`, `… with no declarator names no class` |
-| 4 | access through member class templates and nested type paths | `sema_access.cpp` | `named where the access its class gave it does not reach` |
+| 7 | friend templates | `sema_class.cpp` | `a friend declaration is written outside a class definition`, `… with no declarator names no class` |
+| 7 | `-bad` cases wrongly accepted | mixed | none |
 | 4 | 14.5.5.2 ordering by pack *prefix length* | `most_specialized` | `matches two partial specializations` |
 | 4 | a template-id that names no type at a dependent prefix | `sema_type_id.cpp` | `X does not name a type` |
-| 3 | `-bad` cases wrongly accepted | mixed | none |
-| rest | dependent-name and instantiation timing | mixed | `no declaration of … is in scope` |
+| 4 | access through member class templates and nested type paths | `sema_access.cpp` | `named where the access its class gave it does not reach` |
+| 3 | a head 14.1p2 declares that this milestone still refuses to instantiate | `TemplateHead` | `X is a template whose parameters PA20 does not instantiate` |
+| 3 | two declarations of one name overloaded by *arity* | declaration merge | `X is defined twice` |
+| 20 | constant-expression, sizeof-in-argument and call-resolution one-offs | mixed | various |
 
 ## Active Checkpoint
 
-**A landed this turn — see the ledger. The next one is P (the member-template
-parse boundary), which owns the 14-test parse group and feeds the 12-test
-out-of-class group behind it.**
+**A landed and was audited this turn — see the ledger. The next one is P (the
+member-template parse boundary), which owns the 14-test parse group and feeds
+the 13-test out-of-class group behind it.**
 
 *Owner.* `recognizer_expression.cpp` and `ast_parser_name.cpp` for `a.f<int>()`
 and `X::f<int>()` where `f` is a member template written with no `template`
@@ -66,6 +69,12 @@ is `DeclaredNames`, which already answers that question for an unqualified name
 name written after `.`, `->` or `::`. The member's own declaration is what
 settles it, and the parser records member names already.
 
+*The semantic half is done.* The A audit gave 5.2.5p1's lookup 14.2's exit, so
+a member id the parser hands over as a template-id is answered:
+`300-nondependent-member-template-id-call` translates verbatim once its
+`h.get<int>(4)` is written `h.template get<int>(4)`. What P has to change is
+where the argument list is recognised and nothing behind it.
+
 *Expected complexity.* One `DeclaredNames` probe per member name written with a
 following `<`, which is the probe the unqualified path already pays; no
 backtracking beyond the one the recognizer already does at `<`.
@@ -77,41 +86,47 @@ narrowest of them.
 
 ## Performance Model
 
-Best of three with `/usr/bin/time` on generated inputs under `/tmp/perf`, and
-against `pa22/cppgm++-ref`. The paths at risk this turn are the alias
-substitution (one per naming unless memoised), a nest of aliases each naming the
-one below it twice (2^depth unless the memo is keyed by the interned list), and
-`QualifiedName::part`, which every lookup in the compiler now runs 14.2p4's test
-inside.
+Best of three with `/usr/bin/time` on generated inputs under `/tmp/perf`,
+against a `make build` of the pre-audit commit in a worktree, and against
+`pa22/cppgm++-ref`. The paths at risk are the alias substitution (one per naming
+unless memoised), a nest of aliases each naming the one below it twice (2^depth
+unless the memo is keyed by the interned list), `QualifiedName::part`, which
+every lookup in the compiler now runs 14.2p4's test inside, and 5.2.5p1's new
+14.2 exit, which every member access that finds no member now reaches.
 
 | Path | Sweep | This build | `pa22/cppgm++-ref` |
 |---|---|---|---|
-| one alias named n times | 400 → 3200 | 0.02 → 0.21 s, 12 → 54 MB | 1.90 s at 3200 |
-| alias nest, each naming the one below **twice** | depth 4 → 24 | 0.00 s, flat at 6 MB | 0.60 s at 24 |
-| n distinct alias templates | 400 → 1600 | 0.03 → 0.14 s, 15 → 42 MB | — |
-| n distinct argument lists through one alias | 400 → 3200 | 0.05 → 0.45 s, 18 → 106 MB | 4.81 s at 3200 |
-| member alias template named n times | 400 → 3200 | 0.03 → 0.22 s, 12 → 56 MB | 2.60 s at 3200 |
-| `a.template f<int>()` written n times | 400 → 3200 | 0.00 → 0.03 s, 6 → 11 MB | 1.00 s at 3200 |
-| the whole 169-file PA22 corpus | — | 1.25 s | — |
+| one alias named n times | 400 → 3200 | 0.02 → 0.16 s, 11 → 48 MB | 3.62 s at 3200 |
+| alias nest, each naming the one below **twice** | depth 4 → 24 | 0.00 s, flat at 6.5 MB | 0.56 s at 24 |
+| n distinct argument lists through one alias | 400 → 3200 | 0.05 → 0.54 s, 22 → 135 MB | 7.11 s at 3200 |
+| member alias template named n times | 400 → 3200 | 0.02 → 0.16 s, 12 → 48 MB | 2.25 s at 3200 |
+| `S::template f<int>()` written n times | 400 → 3200 | 0.01 → 0.07 s, 8 → 24 MB | 1.10 s at 3200 |
+| `s.template f<int>()` written n times | 400 → 3200 | 0.01 → 0.08 s, 9 → 27 MB | 0.93 s at 3200 |
+| `s.template f<Ti>()` over n *distinct* lists | 400 → 3200 | 0.04 → 0.34 s, 17 → 92 MB | 11.06 s at 3200 |
+| `.template g<int>()` chained | depth 4 → 64 | 0.00 s, flat at 6.4 → 7.2 MB | — |
+| the whole 308-file PA22 corpus | — | 1.26 s | — |
 
 Every dimension is linear in what it sweeps. The nest is the one that could have
 been 2^depth: `Specialization::alias` memoises on `(template, interned argument
 list)` through `SemaModel::hold_specialization`, so a type-id that writes
 `f<T>` twice reads it once and depth 24 costs what depth 4 does. 14.2p4's test is
 two integer comparisons and one `compare` on the component a split already
-built — `part` makes no copy it did not make before.
+built — `part` makes no copy it did not make before, and `prefix` reads an offset
+the split already recorded. The member-access exit is the probe the qualified
+path already pays, and it runs only where the class declares no member of the
+name.
 
 Not this checkpoint's, but measured and recorded: a nest of aliases whose
-*result* type doubles per level (`pair<a<T>, a<T>>`) is inherently 2^depth — at
-depth 20 the type has 2^20 subobjects, and `g++ -fsyntax-only` takes 0.85 s /
-164 MB against our 2.35 s / 1002 MB. The gap is the known per-subobject layout
-cost, not the alias layer.
+*result* type doubles per level (`pair2<a<T>, a<T> >`) is inherently 2^depth — at
+depth 20 it is 0.39 s / 178 MB and at depth 24 it is 6.80 s / 2.37 GB. The cost
+is the known per-subobject layout cost, not the alias layer's.
 
 `valgrind -q --error-exitcode=9` is clean over the five largest scaling inputs
-and over 70 alias/template fixtures. Correctness cross-check against the third
-oracle: `_Z4use1P3boxIiE` for a parameter written through an alias agrees with
-`g++ -std=c++11` byte for byte across two translation units, and 13 hand-written
-alias shapes agree with g++ on accept/reject including the private member alias.
+and over 90 alias/keyword/member-template probes. Correctness cross-check
+against the third oracle: `_Z3use3boxIiE` for a parameter written through an
+alias agrees with `g++ -std=c++11` byte for byte across two translation units,
+and 84 probe shapes pass the assignment's own comparator against the reference's
+LowIR.
 
 ## Completed Checkpoints
 
@@ -124,3 +139,4 @@ alias shapes agree with g++ on accept/reject including the private member alias.
 | **T5** the region an argument associates | 3.4.2p2 gives an argument at a template place the namespace or class that declares the template it named, and no more. 14.6.2p1 answers the other end: `U::template fn` behind an unsettled prefix stands as written. | 154 / 308 |
 | **T audit** the exits the four new facts were written at | 14.3.3p1 was asked at the class tier and at neither exit of the function tier. `QualifiedName::names_a_template_id` tells 14.6.1p1's injected-class-name from a template-*id* written at a place. `places_match` is one pair reading, asked of each place a pack has left. `substituted` asks `dependent_template_name` where it minted a second type for one naming. | 156 / 308 |
 | **A** 14.5.7p1's alias template, and the name a template-id is looked up by | `template<…> using X = T;` records a head and a *pattern that is a type-id*, so `X<A…>` declares nothing: 7.1.3p2 makes it another name for the type the arguments substitute into that type-id, which is what leaves 14.5.7p2's two namings one type and the ABI name the aliased type's. The declaration is a `Typedef` carrying a `TemplateInfo`, so `TemplateHead::template_argument` — which already accepted one at a template place — reaches it, and 11p1's access travels from the template onto the typedef-name one argument list makes. Beside it, 14.2p4's keyword: it was dropped at one exit, the template-argument reader, and at none of the others, so `a.template f<A>()`, `X::template f<A>` and `typename A<T>::template B<int>` were four different refusals. `sema_name.h` — already the one place a spelling is turned back into components — now drops it inside `QualifiedName::part`, which is where every reader already asks. | **193 / 308** |
+| **A audit** the three regions a template-id is looked up in | A name no declaration bound may still be a template-id, and `resolve` answers that at both its exits where 5.2.5p1's member lookup answered it at neither — so `a.template f<int>()`, the refusal the checkpoint was written to end, still stood. `template_specializations` now takes the region a member access looks in. `QualifiedName::prefix` is the nested-name-specifier read off the split rather than off the spelling by `last().size()`, which the keyword's move made shorter than the span it came from. 11p1's access is written by every tier that makes a declaration from an argument list and not only by the class tier and the alias. 14.7.2p2 is asked of what the template-id answered, so an alias template's typedef-name is refused where it was dereferenced. | 193 / 308 |

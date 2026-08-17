@@ -113,6 +113,11 @@ SemaEntity& SemaAnalyzer::specialize(SemaEntity& primary,
 		made->primary = &primary;
 		made->region = primary.region;
 		made->object_member = primary.object_member;
+		// 11p1: the access a class gave a member was given to the *template*,
+		// and this declaration is only what one argument list makes of it - so
+		// the access a naming of it is refused by is the template's, which is
+		// what the class tier and 14.5.7p1's alias template each already say.
+		made->access = primary.access;
 		// 14.7.1p1: the specialization is a declaration of the template's own
 		// name, which is what the output calls it wherever it names a
 		// declaration rather than repeating what a use wrote.
@@ -157,6 +162,9 @@ SemaEntity& SemaAnalyzer::partial_template(SemaEntity& primary,
 		held->template_parameters = primary.template_parameters;
 		held->region = primary.region;
 		held->object_member = primary.object_member;
+		// 11p1 as above: the list this declaration wrote is no part of what
+		// the class said a naming of the member may reach.
+		held->access = primary.access;
 		held->dump_name = primary.dump_name;
 		held->abi_name = primary.abi_name;
 		held->template_arguments = list;
@@ -166,7 +174,8 @@ SemaEntity& SemaAnalyzer::partial_template(SemaEntity& primary,
 
 SemaEntity* SemaAnalyzer::template_specializations(const std::string& spelling,
                                                    const Context& ctx,
-                                                   std::vector<SemaEntity*>& found)
+                                                   std::vector<SemaEntity*>& found,
+                                                   Scope* in)
 {
 	const QualifiedName written(spelling);
 	const std::string component = written.last();
@@ -178,9 +187,14 @@ SemaEntity* SemaAnalyzer::template_specializations(const std::string& spelling,
 	// The template-id is the last component of the name, so what the
 	// nested-name-specifier before it reaches is looked up as it is for any
 	// other name.
-	const std::string named =
-		spelling.substr(0, spelling.size() - component.size()) + id.name();
-	SemaEntity* const primary = resolve(named, ctx, LookupKind::Any);
+	//
+	// 5.2.5p1: a member named after `.` or `->` is looked up in the class of
+	// the object expression instead, which is a region no spelling reaches and
+	// the caller hands over.
+	const std::string named = written.prefix() + id.name();
+	SemaEntity* const primary =
+		in != nullptr ? model_.lookup_in(*in, id.name(), LookupKind::Any)
+		              : resolve(named, ctx, LookupKind::Any);
 	if (primary == nullptr || primary->kind != SemaKind::Function)
 	{
 		return nullptr;
@@ -1574,6 +1588,19 @@ void SemaAnalyzer::explicit_instantiation(const AstNode& node,
 		// PA11 and PA12 describe what a declaration says and instantiate
 		// nothing, so the template layer has no specialization to answer with.
 		return;
+	}
+	if (made->kind != SemaKind::Class || made->primary == nullptr)
+	{
+		// 14.7.2p2 again, over a name a template-id *does* answer without
+		// naming a specialization of a class template: 7.1.3p2 makes
+		// `X<int>` over 14.5.7p1's alias template another name for the type
+		// its type-id wrote, and 14.5.7p1 leaves an alias template with no
+		// specializations for an instantiation to name.  14.6.2p1's naming
+		// over a place that no list has settled is the same answer.
+		throw std::runtime_error("an explicit instantiation names " +
+		                         target.text +
+		                         ", which is no class template "
+		                         "specialization");
 	}
 	require_specialization(*made);
 	// 14.7.2p8 and 3.2p3: this declaration is the one demand with no use to

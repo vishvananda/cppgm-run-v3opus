@@ -755,6 +755,10 @@ SemaEntity& Specialization::read_variable(SemaEntity& primary,
 	made.primary = &primary;
 	made.template_arguments = list;
 	made.region = primary.templated->region;
+	// 11p1: the access travels from the variable template onto the declaration
+	// one argument list makes of it, exactly as it does over a class and over
+	// 14.5.7p1's alias template.
+	made.access = primary.access;
 	made.constant = true;
 	made.value = folded.bits;
 	analyzer_.model_.hold_specialization(primary, list, made);
