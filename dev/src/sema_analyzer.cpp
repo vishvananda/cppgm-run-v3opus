@@ -1539,6 +1539,16 @@ SemaEntity& SemaAnalyzer::class_declaration(const AstNode& node,
 	if (!name.empty())
 	{
 		model_.bind(scope, name, *entity);
+		// 14.6.1p1 and 9p2: where the class-head wrote a template-id - which
+		// 14.5.5p1's pattern and 14.7.3p1's explicit specialization both do -
+		// the injected-class-name is still the template's own name, and what it
+		// names inside this body is this class.  The primary's own pattern
+		// wrote that name alone and the binding above is already it.
+		const TemplateId head(name);
+		if (head.valid() && !head.name().empty())
+		{
+			model_.bind(scope, head.name(), *entity);
+		}
 	}
 	// 10p1: the base-clause is read before the members, because from here on
 	// the class holds what its base declares - a type the base named, a member

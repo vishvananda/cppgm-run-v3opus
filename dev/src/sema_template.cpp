@@ -8,6 +8,7 @@
 #include "sema_deduce.h"
 #include "sema_operator.h"
 #include "sema_pack.h"
+#include "sema_pattern.h"
 #include "sema_specialize.h"
 #include "sema_template_head.h"
 #include "token_model.h"
@@ -591,23 +592,33 @@ bool SemaAnalyzer::record_template(const AstNode& node, const Context& ctx)
 	// the body - including for one the unit already made.  A class-head-name
 	// with a nested-name-specifier is one of those, so the question is asked
 	// before the class tier's.
-	SemaEntity* const owner = member_definition_owner(*innermost, ctx);
+	std::string wrote;
+	SemaEntity* const owner = PatternReading(*this).owner(*innermost, ctx, &wrote);
 	if (owner != nullptr)
 	{
-		owner->templated->members.push_back(
-			TemplateInfo::Member(clause, declared));
+		// 14.5.5p1: the template that component named may hold several bodies,
+		// and the arguments the declarator-id wrote say which of them this
+		// definition is a member of - the primary's where they are the
+		// template's own places, and a pattern's where they are that pattern.
+		TemplateInfo& holder = *owner->templated;
+		const std::size_t at =
+			Specialization(*this).member_pattern(*owner, wrote, *clause, ctx);
+		std::vector<TemplateInfo::Member>& members =
+			at == Specialization::kNoPartial ? holder.members
+			                                 : holder.partials[at].members;
+		members.push_back(TemplateInfo::Member(clause, declared));
 		// 14.6p8: the definition is read where it stands too, against the
-		// class the template's own definition declares.
-		read_member_pattern(*owner, *clause, *declared);
-		for (std::size_t index = 0;
-		     index < owner->templated->specializations.size(); ++index)
+		// class that body's own definition declares.
+		PatternReading(*this).read_member(*owner, *clause, *declared, at);
+		for (std::size_t index = 0; index < holder.specializations.size();
+		     ++index)
 		{
 			// 10.3p10's table asked for every virtual member of a class already
 			// made when that class was completed, so a definition arriving here
 			// is one `definition_required` already says this unit owes: nothing
 			// re-walks the specialization's members for it.
-			instantiate_member(*owner->templated->specializations[index],
-			                   owner->templated->members.back());
+			PatternReading(*this).instantiate(*holder.specializations[index],
+			                                  members.back(), at);
 		}
 		return true;
 	}
@@ -768,7 +779,7 @@ bool SemaAnalyzer::record_template(const AstNode& node, const Context& ctx)
 		// specialization is completed from it, because what it says about the
 		// names no template parameter stands in the way of is a fact about the
 		// definition rather than about any argument list.
-		read_class_pattern(*entity);
+		PatternReading(*this).read_class(*entity);
 		// 14.7.1p1: a specialization the unit named before the definition
 		// arrived is an incomplete class until here, and the definition is
 		// what completes it.
@@ -1169,7 +1180,19 @@ void SemaAnalyzer::complete_specialization(SemaEntity& made)
 	// 14.6.1p1: the current instantiation is the one specialization over
 	// dependent arguments that *is* read, because it is what the template's own
 	// definition declares - so the reading that made it is what completes it.
-	const bool pattern = &made == info.current;
+	// 14.5.5p1 leaves one such class per body a naming may be read from, and
+	// which of them this is, the argument list the class already carries says.
+	const std::unordered_map<std::uint32_t, std::size_t>::const_iterator own =
+		info.patterns.find(made.template_arguments);
+	const std::size_t wrote = own != info.patterns.end() &&
+			info.partials[own->second].current == &made
+		? own->second : Specialization::kNoPartial;
+	const bool pattern =
+		&made == info.current || wrote != Specialization::kNoPartial;
+	// 14.6.1p1 and 14.1p2: the head whose places this body writes over, which
+	// for a pattern is its own and not the primary's.
+	const TemplateInfo& head =
+		wrote == Specialization::kNoPartial ? info : *info.partials[wrote].head;
 	// 14.7.3p1: an explicit specialization of this argument list is what the
 	// class *is*, so it is read in place of the template's pattern and against
 	// no bindings at all: the body was written with the arguments spelled out.
@@ -1190,7 +1213,8 @@ void SemaAnalyzer::complete_specialization(SemaEntity& made)
 				  deduced);
 	const bool matched = partial != Specialization::kNoPartial;
 	const AstNode* const body = specialized ? written->second
-		: (matched ? info.partials[partial].body : info.pattern);
+		: (wrote != Specialization::kNoPartial ? info.partials[wrote].body
+		   : (matched ? info.partials[partial].body : info.pattern));
 	if (made.defined || body == nullptr ||
 	    body->kind != AstKind::ClassSpecifier ||
 	    (!pattern && !specialized && types_.is_dependent(made.type)))
@@ -1205,12 +1229,12 @@ void SemaAnalyzer::complete_specialization(SemaEntity& made)
 	Context inner;
 	inner.scope = specialized
 		? info.region
-		: (pattern ? info.parameter_region
+		: (pattern ? head.parameter_region
 		           : &TemplateHead(*this).open_bindings(
 				         matched ? *info.partials[partial].head : info,
 				         matched ? deduced
 				                 : types_.type_list_at(made.template_arguments)));
-	inner.dump = pattern ? info.reading_dump : info.dump;
+	inner.dump = pattern ? head.reading_dump : info.dump;
 	inner.node = nullptr;
 	Span span;
 	span.begin = body->begin;
@@ -1237,14 +1261,18 @@ void SemaAnalyzer::complete_specialization(SemaEntity& made)
 	// current instantiation has none of them yet: a definition outside the
 	// class can only be written after it, so `record_template` is where each
 	// one's own reading stands.
+	//
+	// 14.5.5p1: the definitions this class holds are the ones written over the
+	// body it was read from - the primary's where the list matched no pattern,
+	// and that pattern's where it matched one.
+	const std::vector<TemplateInfo::Member>& outside =
+		matched ? info.partials[partial].members : info.members;
 	for (std::size_t index = 0;
-	     !pattern && !specialized && !matched && index < info.members.size();
-	     ++index)
+	     !pattern && !specialized && index < outside.size(); ++index)
 	{
-		// 14.7.3p1 and 14.5.5p1: a member the *template* defined outside its
-		// class is no member of a specialization the program wrote out for
-		// itself, nor of one a partial specialization's own body declared.
-		instantiate_member(made, info.members[index]);
+		// 14.7.3p1: a member the *template* defined outside its class is no
+		// member of a specialization the program wrote out for itself.
+		PatternReading(*this).instantiate(made, outside[index], partial);
 	}
 	// 10.3p10's table names a virtual member whatever it is defined by, so the
 	// demand stands after the definitions written outside the class have been
@@ -1985,156 +2013,6 @@ SemaEntity* SemaAnalyzer::equivalent_template(SemaEntity& head,
 	return nullptr;
 }
 
-// 14.5.1.3p1: the class template a definition written outside its class is a
-// member of.
-//
-// The declarator-id names it, and 14.5.1.3p1 makes the nested-name-specifier a
-// template-id over the same parameters the head declared - so the owner is the
-// template the first such component reaches.  Null where the declaration is a
-// member of no template, which is every ordinary out-of-class definition.
-SemaEntity* SemaAnalyzer::member_definition_owner(const AstNode& node,
-                                                  const Context& ctx)
-{
-	const AstNode* id = nullptr;
-	std::string spelling;
-	if (node.kind == AstKind::ClassSpecifier ||
-	    node.kind == AstKind::ClassForwardDeclaration ||
-	    node.kind == AstKind::SpecialMemberDefinition ||
-	    node.kind == AstKind::SpecialMemberDeclaration)
-	{
-		// 9.1p2 and 12.1p1: a class-head-name and a constructor's declarator-id
-		// are the name the node itself carries.
-		spelling = node.text;
-	}
-	else if (node.kind == AstKind::FunctionDefinition && node.children.size() > 1)
-	{
-		id = declarator_id(*node.children[1]);
-	}
-	else
-	{
-		for (std::size_t index = 0; id == nullptr &&
-		     index < node.children.size(); ++index)
-		{
-			const AstNode& child = *node.children[index];
-			if (child.kind != AstKind::InitDeclaratorList)
-			{
-				continue;
-			}
-			for (std::size_t at = 0; id == nullptr &&
-			     at < child.children.size(); ++at)
-			{
-				if (!child.children[at]->children.empty())
-				{
-					id = declarator_id(*child.children[at]->children[0]);
-				}
-			}
-		}
-	}
-	if (id != nullptr)
-	{
-		spelling = id->text;
-	}
-	if (spelling.empty())
-	{
-		return nullptr;
-	}
-	// 3.4.3p1: each component of the nested-name-specifier is looked up in the
-	// region the one before it reached, and the first of them where the
-	// declaration stands - so a class template written as `v::S<T>::` is found
-	// wherever the namespace holding it is.
-	const QualifiedName spelled(spelling);
-	Scope* reached = nullptr;
-	for (std::size_t index = 0; index + 1 < spelled.size(); ++index)
-	{
-		const TemplateId written(spelled.part(index));
-		const std::string component =
-			written.valid() ? written.name() : spelled.part(index);
-		if (index == 0 && component.empty())
-		{
-			// 3.4.3p1: a name written `::x` names what the global namespace
-			// declares, which is the region the component before it reached.
-			reached = &model_.global();
-			continue;
-		}
-		SemaEntity* const named =
-			reached == nullptr
-				? model_.lookup(*ctx.scope, component, LookupKind::Region)
-				: model_.lookup_in(*reached, component, LookupKind::Region);
-		if (named == nullptr)
-		{
-			return nullptr;
-		}
-		if (written.valid() && named->kind == SemaKind::Class &&
-		    named->templated != nullptr)
-		{
-			return named;
-		}
-		// 3.4.3p1 again: a component may name a class through a typedef-name of
-		// it, which is a declaration with no region of its own - so the region
-		// walked into is `region_of`'s answer, exactly as it is for the same
-		// prefix read by `resolve_prefix`.
-		reached = model_.region_of(*named);
-		if (reached == nullptr)
-		{
-			return nullptr;
-		}
-	}
-	return nullptr;
-}
-
-void SemaAnalyzer::instantiate_member(SemaEntity& specialization,
-                                      const TemplateInfo::Member& member)
-{
-	const TemplateInfo& info = *specialization.primary->templated;
-	if (specialization.scope == nullptr)
-	{
-		// 14.6.2p1: a specialization over a dependent argument list is a
-		// declaration and no class, so it holds no member for a definition
-		// written outside the class to declare into.  The one the arguments
-		// make of it reads this definition where they are known.
-		return;
-	}
-	const std::vector<TypeId>& arguments =
-		types_.type_list_at(specialization.template_arguments);
-	Scope* const enclosing = specialization.scope->parent;
-	Scope* const region =
-		enclosing != nullptr && enclosing->kind == ScopeKind::TemplateParameters
-			? TemplateHead(*this).open_member_parameters(*enclosing, *member.clause, arguments,
-			                         SemaKind::Typedef, info.dump)
-			: nullptr;
-	Context inner;
-	inner.scope = region != nullptr
-		? region
-		: &TemplateHead(*this).open_bindings(info, arguments);
-	inner.dump = info.dump;
-	// 9.4.2p1 and 9.3p2: the definition declares into the class the
-	// declarator-id names, and writes its lines where that class writes them.
-	inner.node = &model_.unit();
-	// 14.7.1p1: this reading instantiates the *declaration* the definition
-	// writes and not the definition, exactly as the reading of the class's own
-	// body does - so the body is put aside for the use that names the member.
-	// A definition written outside the class is otherwise the one member body
-	// every specialization reads whether or not anything ever calls it, which
-	// is both what the clause forbids and what makes n such definitions over n
-	// specializations n^2 bodies for the ones a program calls.
-	const ReadingDepth instantiating(instantiating_class_);
-	if (region == nullptr)
-	{
-		// A head 14.5.5 parameterises names no member of this template, so the
-		// declarator is read against the class's own parameter names and fails
-		// on whatever it wrote.
-		read_member_declaration(*member.declaration, inner);
-		return;
-	}
-	const EnclosedBy enclosed(specialization.scope, region);
-	// 14.7.1p1: this head parameterises the definition, so what the reading
-	// lays out is a definition no unit wrote for these arguments.  14.7.3p1's
-	// `template<>` declares no place at all and is read above, where it is the
-	// definition the program itself wrote.
-	inner.instantiated_member = true;
-	read_member_declaration(*member.declaration, inner);
-}
-
 // 14.6.2.2p1: whether an expression written in this region is type-dependent.
 //
 // It is exactly when a name it writes can reach a type an argument list has yet
@@ -2623,47 +2501,6 @@ void SemaAnalyzer::check_template_definition(
 	read_held_pattern_bodies(mark);
 }
 
-// 14.6.1p1: the current instantiation of a class template, which is the class
-// its own definition declares.
-//
-// A class template's body names its own class - a member of it, a pointer to
-// it, the injected-class-name 14.6.1p1 binds - and what it names there is the
-// specialization over the template's own parameters.  So the parameters are
-// bound to types standing for themselves, in a region of their own, and the
-// class is the specialization those types make: `S<T>` inside `S`'s definition
-// and `S<T>` written anywhere else in the template are then one declaration,
-// found the way every other specialization is.
-//
-// The region and the class are made once and kept, because 14.5.1.3p1's
-// out-of-class member definitions are read against the same two however long
-// after the class body they were written.
-SemaEntity& SemaAnalyzer::current_instantiation(SemaEntity& primary)
-{
-	TemplateInfo& info = *primary.templated;
-	if (info.current != nullptr)
-	{
-		return *info.current;
-	}
-	TemplateHead(*this).open_region(info);
-	std::vector<TypeId> arguments;
-	arguments.reserve(info.parameters.size());
-	for (std::size_t index = 0; index < info.parameters.size(); ++index)
-	{
-		// 14.6.1p1: the current instantiation is what the template's own name
-		// over its own parameters denotes, which for a pack place is the
-		// expansion `Ts...` a definition has to write - so the argument list
-		// this class is made from is the one that spelling reads back to.
-		arguments.push_back(info.parameters[index].pack
-			                    ? types_.pack_expansion(
-				                      info.parameters[index].self)
-			                    : info.parameters[index].self);
-	}
-	// The declaration is made before the body is read, so that a name the body
-	// writes for its own class finds it rather than starting a second reading.
-	info.current = &instantiate_class(primary, arguments);
-	return *info.current;
-}
-
 // 14.7.1p1: the implicit instantiation of a class template specialization
 // causes the implicit instantiation of the *declarations* of its members, and
 // not of their definitions.
@@ -2862,90 +2699,6 @@ void SemaAnalyzer::note_dependent_base(const AstNode& specifier)
 bool SemaAnalyzer::wrote_dependent_base(const AstNode& specifier) const
 {
 	return dependent_bases_.find(&specifier) != dependent_bases_.end();
-}
-
-// 14.6p8: the reading a class template's definition gets where it stands.
-//
-// The body is read once, as the class 14.6.1p1 says it declares, in the PA11
-// dialect: a type that depends on a parameter has no layout, no conversion and
-// no overload set until an argument arrives, so what the definition can be
-// asked is what its declarations say and 3.4p1's lookup of the names it writes.
-// Nothing the reading leaves reaches the output - its lines stand in a dump
-// nothing writes out, and 14.7.1p1 makes a template-id it names a declaration
-// rather than a use requiring a definition.
-void SemaAnalyzer::read_class_pattern(SemaEntity& primary)
-{
-	const TemplateInfo& info = *primary.templated;
-	if (!info.supported || info.pattern == nullptr ||
-	    info.pattern->kind != AstKind::ClassSpecifier)
-	{
-		// A head this milestone gives no meaning to declares a template no
-		// specialization can be generated from, so 14.6p8 has nothing to read.
-		return;
-	}
-	const FunctionReading held(*this, nullptr, kNoType);
-	const DialectReading dialect(*this);
-	complete_specialization(current_instantiation(primary));
-}
-
-// 14.6p8 and 14.5.1.3p1: the reading an out-of-class member definition gets
-// where it stands, which is against the same region and the same class the
-// class body was read against.
-void SemaAnalyzer::read_member_pattern(SemaEntity& primary,
-                                       const AstNode& clause,
-                                       const AstNode& pattern)
-{
-	const TemplateInfo& info = *primary.templated;
-	if (info.current == nullptr || !info.current->defined ||
-	    info.current->scope == nullptr)
-	{
-		// 9.4.2p1 and 9.3p2: a definition outside the class declares into a
-		// class the template has to have defined, and one whose definition this
-		// milestone never read has no region to declare into.
-		return;
-	}
-	// 14.5.1.3p1 and 14.1p2: the definition's own head declares parameters of
-	// its own, which need not be spelled the way the class's head spelled them
-	// - so the names this reading binds are the ones the definition wrote,
-	// standing for the places the class's head declared.  They are bound as
-	// parameters and not as typedef-names of them, because 14.6.1p6 refuses a
-	// declaration of one anywhere in the template that declared it.
-	Scope* const region = TemplateHead(*this).open_member_parameters(
-		*info.current->scope->parent, clause,
-		types_.type_list_at(info.current->template_arguments),
-		SemaKind::TemplateType, info.reading_dump);
-	if (region == nullptr)
-	{
-		return;
-	}
-	const EnclosedBy enclosed(info.current->scope, region);
-	const FunctionReading held(*this, nullptr, kNoType);
-	const DialectReading dialect(*this);
-	Context inner;
-	inner.scope = region;
-	inner.dump = info.reading_dump;
-	inner.node = nullptr;
-	const std::size_t mark = held_bodies_.size();
-	read_member_declaration(pattern, inner);
-	read_held_pattern_bodies(mark);
-}
-
-// 14.5.2p3: the declaration one out-of-class member definition writes, read in
-// a region that already binds the class template's own head to its arguments.
-//
-// A member template writes a second head there, which parameterises the
-// declaration exactly as any head parameterises the one under it - so what is
-// left to do is open its region and read what it stands over.  The record was
-// made where the whole nest was found, so this reading records nothing.
-void SemaAnalyzer::read_member_declaration(const AstNode& node,
-                                           const Context& ctx)
-{
-	if (node.kind == AstKind::TemplateDeclaration)
-	{
-		read_template_head(node, ctx);
-		return;
-	}
-	declaration(node, ctx);
 }
 
 void SemaAnalyzer::hold_pattern_body(const AstNode& node, const Context& inner,

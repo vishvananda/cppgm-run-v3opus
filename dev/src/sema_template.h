@@ -201,6 +201,7 @@ struct TemplateInfo
 			: head(nullptr)
 			, body(nullptr)
 			, signature(0)
+			, current(nullptr)
 		{}
 
 		TemplateInfo* head;
@@ -210,8 +211,27 @@ struct TemplateInfo
 		// which is what tells a redeclaration of one pattern from a second
 		// pattern - two heads spell one pattern over places of their own.
 		std::uint32_t signature;
+		// 14.6.1p1: the current instantiation of *this* body - the class its
+		// own definition declares, which is the specialization its pattern
+		// names.  A pattern is a template of its own, so it has one for the
+		// same reason the primary does: its body writes its own class's name
+		// and 14.5.1.3p1's out-of-class member definitions of it declare into
+		// that class.  Null until the first reading that needs one.
+		SemaEntity* current;
+		// 14.5.1.3p1: the members of *this* body a definition outside its class
+		// wrote, in the order they were written.  They are members of the class
+		// this pattern declares and of no other, so a specialization read from
+		// the primary or from another pattern holds none of them.
+		std::vector<Member> members;
 	};
 	std::vector<Partial> partials;
+	// 14.6.1p1: which pattern's current instantiation one class is, keyed by
+	// the interned argument list that class was made from - which is its
+	// pattern, and which the class already carries.  It is what tells the
+	// reading that completes a specialization to read this pattern's body in
+	// this pattern's own region rather than the primary's, and it costs one
+	// hash lookup on a number every specialization holds.
+	std::unordered_map<std::uint32_t, std::size_t> patterns;
 	// 14.5.5.1p1: which pattern one argument list chose, and the arguments the
 	// match deduced for that pattern's head - as the interned list every other
 	// fact about an argument list is keyed by.  The choice is a fact of the

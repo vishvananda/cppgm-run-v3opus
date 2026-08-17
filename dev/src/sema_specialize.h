@@ -78,6 +78,15 @@ public:
 	                   const std::vector<TypeId>& arguments,
 	                   std::vector<TypeId>& deduced);
 
+	// 14.5.5p1 with 14.5.1.3p1: which pattern of `primary` an out-of-class
+	// member definition is a member of, where `wrote` is the template-id its
+	// declarator-id named that template by and `clause` is the definition's own
+	// head.  A pattern is matched by 14.5.6.1p5's signature, because this head
+	// spells the places its own way; `kNoPartial` where the arguments written
+	// are the template's own places, which is a member of the primary.
+	std::size_t member_pattern(SemaEntity& primary, const std::string& wrote,
+	                           const AstNode& clause, const SemaContext& ctx);
+
 	// 14.7.1p1 over a variable template: the declaration `arguments` makes of
 	// `primary`, which is the constant its initializer evaluates to.
 	SemaEntity& variable(SemaEntity& primary,

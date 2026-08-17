@@ -260,6 +260,57 @@ std::uint32_t Specialization::canonical_pattern(const TemplateInfo& head,
 	return analyzer_.types_.type_list(canonical);
 }
 
+// 14.5.5p1 with 14.5.1.3p1: which body an out-of-class member definition was
+// written over.
+//
+// `template<class K, class V> int Map<Pair<K, V>, tag>::get()` declares a member
+// of the class `template<class K, class V> struct Map<Pair<K, V>, tag>` declares
+// and of nothing else - so what says which body it belongs to is the argument
+// *pattern* its declarator-id wrote, read exactly as the pattern of a partial
+// specialization's own declaration is: in a region binding the places this
+// definition's own head declared.  14.1p2 lets the two heads spell those places
+// differently, so what is compared is 14.5.6.1p5's signature and not the types.
+//
+// A template no head partially specialized pays one test of an empty vector; the
+// reading below costs one head and one argument list per definition written over
+// a template that has patterns, which is what the declaration of the pattern
+// itself already cost.
+std::size_t Specialization::member_pattern(SemaEntity& primary,
+                                           const std::string& wrote,
+                                           const AstNode& clause,
+                                           const SemaContext& ctx)
+{
+	const TemplateInfo& info = *primary.templated;
+	const TemplateId id(wrote);
+	if (info.partials.empty() || !id.valid())
+	{
+		return kNoPartial;
+	}
+	// 14.6p8: this reading answers which declaration the definition belongs to
+	// and nothing else, so it asks for no definition of what it names - the
+	// specializations its arguments write are declarations like any a pattern
+	// names.
+	const DialectReading dialect(analyzer_);
+	TemplateInfo* head = nullptr;
+	std::vector<TypeId> pattern;
+	if (!read_pattern(primary, id, clause, ctx, head, pattern))
+	{
+		// 14.5.5p1: a pattern this milestone cannot read names no partial
+		// specialization it recorded either, so the definition is left to the
+		// primary the way every unreadable head already is.
+		return kNoPartial;
+	}
+	const std::uint32_t signature = canonical_pattern(*head, pattern);
+	for (std::size_t at = 0; at < info.partials.size(); ++at)
+	{
+		if (info.partials[at].signature == signature)
+		{
+			return at;
+		}
+	}
+	return kNoPartial;
+}
+
 bool Specialization::read_pattern(SemaEntity& primary, const TemplateId& id,
                                   const AstNode& clause, const SemaContext& ctx,
                                   TemplateInfo*& head,

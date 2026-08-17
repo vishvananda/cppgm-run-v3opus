@@ -88,6 +88,10 @@ private:
 	// neither the primary template nor a specialization of it, which
 	// `sema_specialize.h` owns because each changes one step of the three.
 	friend class Specialization;
+	// 14.6p8 and 14.6.1p1: the reading a template definition gets where it
+	// stands and the current instantiation it is read as, which
+	// `sema_pattern.h` owns because it is a reading of its own.
+	friend class PatternReading;
 	// 7.1.5p2: the call of a constexpr function 5.19p2 folds, which walks a
 	// function-body and is `sema_constexpr.h`'s for that reason.
 	friend class ConstexprReading;
@@ -1796,11 +1800,6 @@ private:
 	                          std::size_t level,
 	                          const std::unordered_map<TypeId, TypeId>& bindings,
 	                          std::unordered_map<TypeId, TypeId>& memo);
-	// 14.6.1p1: the current instantiation of `primary`, the class its own
-	// definition is read as, beside the kept region binding each parameter to a
-	// type standing for itself - 14.5.1.3p1's out-of-class member definitions
-	// are read against that same one however long after the class body.
-	SemaEntity& current_instantiation(SemaEntity& primary);
 	// 14.6.2p3: records that `specifier` names a dependent base, and asks it.
 	void note_dependent_base(const AstNode& specifier);
 	bool wrote_dependent_base(const AstNode& specifier) const;
@@ -1813,14 +1812,6 @@ private:
 	void note_instantiated_transfer(SemaEntity& constructor);
 	// 10.3p10: the virtual members every table this instantiation made names.
 	void require_table_definitions(SemaEntity& made);
-	// 14.6p8: the reading a class template's definition, and an out-of-class
-	// member definition of it, each get where they stand.
-	void read_class_pattern(SemaEntity& primary);
-	void read_member_pattern(SemaEntity& primary, const AstNode& clause,
-	                         const AstNode& pattern);
-	// 14.5.2p3: what one such definition declares, which for a member template
-	// is a head of its own standing over the declaration.
-	void read_member_declaration(const AstNode& node, const Context& ctx);
 	// 9.2p2: a member function body read for a pattern is read where the class
 	// is complete, so the reading holds each until the class-specifier closes.
 	void hold_pattern_body(const AstNode& node, const Context& inner,
@@ -1870,15 +1861,6 @@ private:
 	// the n - 1 before it.  `kNoType` where a head declares a parameter that
 	// binds a template, which no substitution here stands for.
 	TypeId template_signature(const Scope& parameters, TypeId type);
-	// 14.5.1.3p1: the class template a definition written outside its class is
-	// a member of, found from the template-id its declarator-id was qualified
-	// with.  Null for a declaration that is a member of no such template.
-	SemaEntity* member_definition_owner(const AstNode& node,
-	                                    const Context& ctx);
-	// 14.5.1.3p1: reads `pattern` - a member definition written outside its
-	// class - against the arguments `specialization` was made from.
-	void instantiate_member(SemaEntity& specialization,
-	                        const TemplateInfo::Member& member);
 	// 14.7.1p1: reads the template's class body for `made`, which is what
 	// completes it.  A specialization named before its template was defined is
 	// a declaration of an incomplete class until the definition arrives, and
