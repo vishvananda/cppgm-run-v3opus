@@ -435,6 +435,16 @@ bool SemaAnalyzer::conversion_function_definition(const AstNode& node,
 	Context target = ctx;
 	target.scope = &region;
 	target.dump = region.dump;
+	// 14.5.2p1 and 3.4.1p8: the head this definition wrote stands inside the
+	// region its declarator-id names, so the conversion-type-id `U` and the body
+	// alike read the places it declared with the class's members behind them.
+	Scope* const head = ctx.template_head == ctx.scope ? ctx.scope : nullptr;
+	target.template_head = head;
+	const StandingIn stood(head, region);
+	if (head != nullptr)
+	{
+		target.scope = head;
+	}
 	// 13.1: the declaration this definition defines is the one of the class's
 	// own whose name and object parameter agree, which the chain the name heads
 	// answers in one probe.  A definition that matches none of them would
@@ -466,8 +476,15 @@ bool SemaAnalyzer::conversion_function_definition(const AstNode& node,
 	// outside its class like any other, so the object file holds the definition
 	// the program wrote here whether or not a conversion here names it.
 	entity.out_of_class_definition = holds_written_definitions(region);
+	if (head != nullptr)
+	{
+		// 14.5.6.1p5 and 14p1: the definition of the conversion function
+		// template the class body declared, whose syntax is what an
+		// instantiation of it reads.
+		record_function_template(entity, *head, region);
+	}
 	const std::vector<Parameter> none;
-	open_special_member_body(node, entity, target, entity.name, none);
+	open_special_member_body(node, entity, target, entity.name, none, head);
 	return true;
 }
 
@@ -765,7 +782,13 @@ void SemaAnalyzer::open_special_member_body(
 	pending.scope = &inner;
 	pending.parameters = parameters;
 	pending.initializers = child_of(node, AstKind::CtorInitializer);
-	pending.members = ctx.scope;
+	// 12.6.2p2: the members a mem-initializer-id may name are the class's, and
+	// this reading may stand a region below it - 14.5.2p1's head over a
+	// definition written outside the class, and 14.7.1p1's bindings a
+	// specialization of a constructor template is read against are both such a
+	// region - so the class is asked for rather than taken from where the
+	// reading happens to stand.
+	pending.members = &declaring_region(*ctx.scope);
 	if (entity.constexpr_function)
 	{
 		// 7.1.5p3: what a fold of a call of this member reads - the body, and
@@ -815,20 +838,41 @@ void SemaAnalyzer::special_member_definition(const AstNode& node,
 	Context target = ctx;
 	target.scope = &region;
 	target.dump = region.dump;
+	// 14.5.2p1 and 3.4.1p8: a head standing over a definition whose
+	// declarator-id is qualified stands *inside* the region that name reaches
+	// for as long as the declarator and the body are read - so the places
+	// `template<class U> A::A(U)` declared are where its parameter clause looks
+	// and the class's own members are still behind them.
+	Scope* const head = ctx.template_head == ctx.scope ? ctx.scope : nullptr;
+	target.template_head = head;
+	const StandingIn stood(head, region);
+	Context looked_up = target;
+	if (head != nullptr)
+	{
+		looked_up.scope = head;
+	}
 	std::vector<Parameter> parameters;
 	bool variadic = false;
-	const TypeId type = special_member_type(node, target, owner, destructor,
+	const TypeId type = special_member_type(node, looked_up, owner, destructor,
 	                                        parameters, variadic);
 	// 13.1: the declaration this definition defines is the one of the class's
 	// own whose parameter-type-list agrees, which is one probe of the chain the
 	// class holds.  12.1p5 and 12.4p3's implicitly declared members are not
 	// declarations the program wrote, so a definition never names one.
-	SemaEntity* const entity =
+	SemaEntity* entity =
 		destructor ? owner.destructor
 		           : (owner.constructor == nullptr
 		              ? nullptr
 		              : model_.overload_of(*owner.constructor,
 		                                   types_.signature(type)));
+	if (entity == nullptr && head != nullptr && owner.constructor != nullptr)
+	{
+		// 14.5.6.1p5 with 14.5.2p1: two declarations of one constructor template
+		// write types that differ, because each head declared places of its own
+		// - so the chain's index of parameter type lists cannot answer this and
+		// the declaration is the one whose head declared the same places.
+		entity = equivalent_template(*owner.constructor, *head, type);
+	}
 	if (entity == nullptr || entity->defaulted || entity->deleted ||
 	    entity->inherited != nullptr)
 	{
@@ -904,7 +948,15 @@ void SemaAnalyzer::special_member_definition(const AstNode& node,
 	// declaration of the constructor named it.
 	record_declared_parameters(*entity, parameters, target.scope);
 	entity->out_of_class_definition = holds_written_definitions(*target.scope);
-	open_special_member_body(node, *entity, target, written, parameters);
+	if (head != nullptr)
+	{
+		// 14.5.6.1p5 and 14p1: this is the definition of the template the class
+		// body declared, so what an instantiation reads is *this* syntax and the
+		// places this head wrote - which is what `declare_function` records for
+		// every other member template on the definition that gives it a body.
+		record_function_template(*entity, *head, region);
+	}
+	open_special_member_body(node, *entity, looked_up, written, parameters, head);
 }
 
 // 12.9p1: how many parameters the shortest constructor in the candidate set a

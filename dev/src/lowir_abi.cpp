@@ -882,11 +882,18 @@ void build_function_name(const SemaEntity& entity, TypeTable& types,
 		              contexts, written.argument_refs);
 		records.push_back(written);
 		// The ABI writes a function template's result type, because two
-		// specializations of one template can differ in it alone.
-		abi_mangle::AbiFunctionRecord result;
-		result.kind = abi_mangle::ABI_FUNCTION_RECORD_RESULT;
-		result.type = abi_type(types, types.target(templated->type), contexts);
-		records.push_back(result);
+		// specializations of one template can differ in it alone.  12.1p1 and
+		// 12.4p1 leave a constructor and a destructor no return type to write,
+		// and 12.3.2p1 wrote a conversion function's as the name above - so
+		// 14.5.2p1's member template of one of those three writes none here.
+		if (!special && !entity.conversion_function)
+		{
+			abi_mangle::AbiFunctionRecord result;
+			result.kind = abi_mangle::ABI_FUNCTION_RECORD_RESULT;
+			result.type =
+				abi_type(types, types.target(templated->type), contexts);
+			records.push_back(result);
+		}
 	}
 	for (std::size_t index = first; index < parameters.size(); ++index)
 	{

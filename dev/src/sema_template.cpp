@@ -99,6 +99,13 @@ SemaEntity& SemaAnalyzer::specialize(SemaEntity& primary,
 		made->nonthrowing = primary.nonthrowing;
 		made->wrote_exception_specification =
 			primary.wrote_exception_specification;
+		// 12.1p1 and 12.3.2p1 with 14.5.2p1: which special member of its class
+		// the *template* declares is what one argument list makes a declaration
+		// of - a constructor template's specialization is a constructor, which
+		// is what says 12.6.2's mem-initializers are what a definition of it
+		// runs and what the object file spells its entry with.
+		made->special = primary.special;
+		made->conversion_function = primary.conversion_function;
 		// 14.2: the arguments that made it, which the object file writes after
 		// the template's name and which no spelling of the declaration holds.
 		made->template_arguments = list;
