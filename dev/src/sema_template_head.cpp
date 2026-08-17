@@ -169,6 +169,14 @@ TypeId TemplateHead::template_argument(const std::string& written,
 		return named->type;
 	}
 	if (named != nullptr && named->templated == nullptr &&
+	    analyzer_.types_.is_dependent(named->type))
+	{
+		// 14.6.2p1: a name written after a prefix no argument list has settled
+		// says nothing this reading can answer - which template it names is the
+		// instantiation's to find, so the naming stands as it was written.
+		return named->type;
+	}
+	if (named != nullptr && named->templated == nullptr &&
 	    named->primary != nullptr)
 	{
 		// 14.6.1p1: inside a specialization the injected-class-name names that

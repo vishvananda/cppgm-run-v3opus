@@ -53,6 +53,20 @@ void ArgumentLookup::associate_type(TypeId type, AssociatedRegions& out)
 		associate_type(analyzer_.types_.target(bare), out);
 		return;
 
+	case TypeKind::TemplateName:
+	{
+		// 3.4.2p2: an argument at a template place associates the namespace or
+		// class that declares the template it named.  A template is no type, so
+		// that region is the whole of what it associates - there are no base
+		// classes and no arguments of its own to walk.
+		SemaEntity* const templated = analyzer_.model_.type_owner(bare);
+		if (templated != nullptr)
+		{
+			associate_region(templated->region, out);
+		}
+		return;
+	}
+
 	default:
 		break;
 	}
