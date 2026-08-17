@@ -384,7 +384,13 @@ TypeId SpelledTypeId::read(const std::vector<std::string>& words,
 				analyzer_.types_.qualified(elaborated(key, keyed), cv),
 				words, at, end, spelling);
 		}
-		SemaEntity* const named = analyzer_.resolve(name, ctx_, LookupKind::Type);
+		// 3.3.10p2: a class or enumeration name is hidden wherever a variable,
+		// a data member, a function or an enumerator of that name declared in
+		// the same region is visible, so a name written with no class-key is
+		// 3.4.1's ordinary lookup and not 3.4.4p2's - which ignores every
+		// declaration that is not a type and is the reading `elaborated` above
+		// is given, and is the one reading this door had for both.
+		SemaEntity* const named = analyzer_.resolve(name, ctx_, LookupKind::Any);
 		if (named == nullptr || !names_a_type(*named))
 		{
 			throw std::runtime_error(spelling + " does not name a type");

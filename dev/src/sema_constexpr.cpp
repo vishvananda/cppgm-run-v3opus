@@ -1332,6 +1332,39 @@ std::uint32_t ConstexprReading::passed_arguments(
 	return analyzer_.types_.type_list(key);
 }
 
+// 14p1 and 14.6p8: which declarations a reading of a pattern holds no
+// definition of, however the program wrote them.
+//
+// Two shapes reach the fold, and both are one sentence: a template declares no
+// function until an argument list is given for it.  A member of the class a
+// pattern declares stands in a region a head bound its own parameters in, and
+// `dependent_reading` is that walk; a specialization of a function template
+// named with an argument that depends on a parameter is a declaration made for
+// an argument list that says nothing yet, and its own arguments are where that
+// shows.  Neither is a body this unit is missing - the instantiation reads the
+// same call again, and that reading is where 7.1.5p2 is answered.
+bool ConstexprReading::unsettled_callee(const SemaEntity& callee) const
+{
+	if (callee.region != nullptr && analyzer_.dependent_reading(*callee.region))
+	{
+		return true;
+	}
+	if (callee.primary == nullptr || callee.template_arguments == 0)
+	{
+		return false;
+	}
+	const std::vector<TypeId>& arguments =
+		analyzer_.types_.type_list_at(callee.template_arguments);
+	for (std::size_t index = 0; index < arguments.size(); ++index)
+	{
+		if (analyzer_.types_.is_dependent(arguments[index]))
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
 SemaConstant ConstexprReading::call(SemaEntity& callee,
                                     const SemaConstant* object,
                                     const std::vector<SemaConstant>& arguments)
@@ -1339,6 +1372,24 @@ SemaConstant ConstexprReading::call(SemaEntity& callee,
 	if (!callee.constexpr_function || callee.constexpr_body == nullptr ||
 	    callee.constexpr_region == nullptr)
 	{
+		if (callee.constexpr_function && analyzer_.checking_ > 0 &&
+		    unsettled_callee(callee))
+		{
+			// 14p1 and 14.6p8: a template declares no function until it is
+			// instantiated, so a reading of the *pattern* holds the definition
+			// of nothing the pattern declares - `check_template_definition`
+			// reads the body against types it has none of yet and records
+			// none.  What a call of one comes to is therefore the arguments'
+			// to say, exactly as the size of a dependent type is, and the
+			// reading stands one value in its place rather than calling this
+			// the program's error.  The instantiation reads the same call
+			// again with the arguments bound, which is where it is answered.
+			++analyzer_.stood_in_;
+			SemaConstant stood;
+			stood.type = analyzer_.types_.fundamental(FT_INT);
+			stood.bits = 1;
+			return stood;
+		}
 		// 7.1.5p2: a call of a function no declaration wrote `constexpr` on is
 		// 5.19's own answer about the program; one of a constexpr function
 		// whose definition this reading has not got is where the walk stops,
@@ -2039,12 +2090,22 @@ SemaConstant ConstexprReading::call_or_cast(const AstNode& node,
 		// 7.1.6.2p1: the simple-type-specifier may be a typedef-name or an
 		// enum-name the program declared, which 3.4 answers for - and a
 		// name that reaches no region at all is a call and not a cast.
+		//
+		// 3.3.10p2: a class or enumeration name declared in the same region as
+		// a variable, a data member, a function or an enumerator of that name
+		// is hidden wherever that other name is visible, so what tells 5.2.3's
+		// cast from 5.2.2's call is 3.4.1's ordinary lookup - which finds the
+		// function and leaves the class unreachable to everything but an
+		// elaborated-type-specifier.  `LookupKind::Type` is 3.4.4p2's reading
+		// and answers the class here, which is the question a *cast* is asked
+		// and not the one this door has.
 		const unsigned stood = analyzer_.stood_in_;
 		try
 		{
 			SemaEntity* const named =
-				analyzer_.resolve(callee.text, ctx, LookupKind::Type);
-			target = named == nullptr ? kNoType : named->type;
+				analyzer_.resolve(callee.text, ctx, LookupKind::Any);
+			target = named == nullptr || !names_a_type(*named) ? kNoType
+			                                                   : named->type;
 		}
 		catch (const std::exception&)
 		{

@@ -896,35 +896,9 @@ private:
 	// wrote a clause for an element does.
 	bool element_constructed(TypeId type, const AstNode* written);
 	// 8.5 and 13.3.1.3: the `constructor-action` an object of class type is
-	// initialized by, and the definition of the constructor it calls.
-	// `written` is the initializer the program wrote, or null for an object
-	// with none; `member` says the object is a non-static data member of the
-	// one the constructor being written is initializing, so that the action
-	// names it through `this` rather than by a name of its own.
-	// `copied` says the initializer was written with `=`, which 8.5.4p3 makes
-	// an initialization no `explicit` constructor may answer.
-	// `given` is an initializer already analysed where it was written, which
-	// 13.3.3.1.2's conversion has and no source form does: the value is taken
-	// as it stands and its line moves into the place the call gives it.
-	// `value_init` says the initializer was an empty list the grammar wrote no
-	// node for, which is what 5.2.3p2's `T()` is.
-	// `forwarded`, where given, are the parameters whose values 12.9p8 passes
-	// to the constructor of the base subobject an inheriting constructor
-	// initializes, in place of an initializer the program wrote.
-	// `direct` says the place that asked for the initialization wrote it as a
-	// direct-initialization, which 13.3.1.4 leaves the class's `explicit`
-	// constructors in: 5.2.9p4's cast is one and 13.3.3.1.2's conversion is
-	// not, and the two reach here the same way - with the one operand already
-	// read.
-	// `into_temporary` says the object being initialized is one the analysis
-	// made to hold a prvalue rather than one that stands of its own, which is
-	// what 12.8p31's elision asks about the destination.
-	// `boundary_object` says which kind of temporary that is: 5.2.2p4's
-	// parameter and 6.6.3p2's returned object are made by a boundary to carry
-	// a value across it, and the rest are objects an expression the program
-	// wrote asked for.
-	// `chosen`, where given, is left holding the constructor 13.3 picked, which
-	// 12.6.2p6's chain of delegations is walked over.
+	// initialized by, and the definition of the constructor it calls.  What
+	// each of its optional parameters says is written where it is read, at the
+	// definition in `sema_lifetime.cpp`.
 	void construct_object(SemaEntity& variable, DumpNode& line,
 	                      const AstNode* written, const Context& ctx,
 	                      Placement where = Placement::Named,
@@ -2294,6 +2268,15 @@ private:
 	// it asserts nothing where the pattern stands.  It is a count and not a
 	// flag because one such reading stands inside another.
 	unsigned stood_in_;
+	// 5.3.3p1 and 7.1.6.2p4: the depth of a reading of an *unevaluated* operand.
+	// 5.1.1p13's third bullet is the one question that turns on it: an
+	// id-expression naming a non-static data member may stand in such an
+	// operand, where no object is named and the member's declared type is the
+	// whole answer.  It is a depth and not a flag because one unevaluated
+	// operand is written inside another, and it is taken at the operand's own
+	// door so that a body read on the way - a member function of a class an
+	// instantiation completed there - carries its own `self_` and not this.
+	unsigned unevaluated_;
 	// 14.7.1p1: how many specializations a name has left declared, waiting for
 	// the first context that requires a completely-defined type.  A demand for
 	// a definition costs the count being zero at every place the standard

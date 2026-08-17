@@ -1,0 +1,86 @@
+global @by_name : i32 [binding=internal, object=_ZL7by_name] = 6
+global @by_scope : i32 [binding=internal, object=_ZL8by_scope] = 8
+global @by_namespace : i32 [binding=internal, object=_ZL12by_namespace] = 15
+global @first_object [binding=internal, object=_ZL12first_object] = {
+  i32 1
+}
+global @second_object [binding=internal, object=_ZL13second_object] = {
+  i32 2
+}
+global @third_object [binding=internal, object=_ZL12third_object] = {
+  i32 3
+}
+global @cast_written : i32 [binding=internal, object=_ZL12cast_written] = 7
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $cond__1 : i32
+
+  block ^entry:
+    %t1 = load i32 @by_name
+    %t2 = load i32 @by_scope
+    %t3 = binary add i32 %t1, %t2
+    %t4 = load i32 @by_namespace
+    %t5 = binary add i32 %t3, %t4
+    %t6 = addr @first_object
+    %t7 = index i8 [projection=field] %t6, 0
+    %t8 = load i32 %t7
+    %t9 = binary add i32 %t5, %t8
+    %t10 = addr @second_object
+    %t11 = index i8 [projection=field] %t10, 0
+    %t12 = load i32 %t11
+    %t13 = binary add i32 %t9, %t12
+    %t14 = addr @third_object
+    %t15 = index i8 [projection=field] %t14, 0
+    %t16 = load i32 %t15
+    %t17 = binary add i32 %t13, %t16
+    %t18 = load i32 @cast_written
+    %t19 = binary add i32 %t17, %t18
+    %t20 = binary add i32 %t19, 15
+    %t21 = cmp eq i32 %t20, 57
+    branch %t21, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t22 = load i32 $cond__1
+    return i32 %t22
+}
+function @hidden__hidden(%this : ptr) -> void [binding=weak, object=_ZN6hiddenC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    store i32 1, %t2
+    return void
+}
+function @item__item(%this : ptr) -> void [binding=weak, object=_ZN4itemC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    store i32 2, %t2
+    return void
+}
+function @inner__part__part(%this : ptr) -> void [binding=weak, object=_ZN5inner4partC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    store i32 3, %t2
+    return void
+}
+alias object _ZN6hiddenC2Ev = @hidden__hidden
+alias object _ZN4itemC2Ev = @item__item
+alias object _ZN5inner4partC2Ev = @inner__part__part

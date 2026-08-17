@@ -389,6 +389,33 @@ WrittenInitializer SemaAnalyzer::read_initializer(
 // constructors of its class, chosen from the arguments its initializer wrote.
 // The action is one call like any other, written under the declaration of the
 // object, and the definition of the constructor it names is asked for here.
+//
+// `written` is the initializer the program wrote, or null for an object with
+// none; `member` says the object is a non-static data member of the one the
+// constructor being written is initializing, so that the action names it
+// through `this` rather than by a name of its own.
+// `copied` says the initializer was written with `=`, which 8.5.4p3 makes an
+// initialization no `explicit` constructor may answer.
+// `given` is an initializer already analysed where it was written, which
+// 13.3.3.1.2's conversion has and no source form does: the value is taken as it
+// stands and its line moves into the place the call gives it.
+// `value_init` says the initializer was an empty list the grammar wrote no node
+// for, which is what 5.2.3p2's `T()` is.
+// `forwarded`, where given, are the parameters whose values 12.9p8 passes to
+// the constructor of the base subobject an inheriting constructor initializes,
+// in place of an initializer the program wrote.
+// `direct` says the place that asked for the initialization wrote it as a
+// direct-initialization, which 13.3.1.4 leaves the class's `explicit`
+// constructors in: 5.2.9p4's cast is one and 13.3.3.1.2's conversion is not,
+// and the two reach here the same way - with the one operand already read.
+// `into_temporary` says the object being initialized is one the analysis made
+// to hold a prvalue rather than one that stands of its own, which is what
+// 12.8p31's elision asks about the destination.
+// `boundary_object` says which kind of temporary that is: 5.2.2p4's parameter
+// and 6.6.3p2's returned object are made by a boundary to carry a value across
+// it, and the rest are objects an expression the program wrote asked for.
+// `chosen`, where given, is left holding the constructor 13.3 picked, which
+// 12.6.2p6's chain of delegations is walked over.
 void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
                                     const AstNode* written, const Context& ctx,
                                     Placement where, bool copied,

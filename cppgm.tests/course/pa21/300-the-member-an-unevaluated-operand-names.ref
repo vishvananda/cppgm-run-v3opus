@@ -1,0 +1,39 @@
+global @by_name : i64 [binding=internal, object=_ZL7by_name] = 32
+global @one [binding=internal, object=_ZL3one] = {
+  i32 7
+}
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $cond__1 : i32
+
+  block ^entry:
+    %t1 = load i64 @by_name
+    %t2 = binary add i64 %t1, 32
+    %t3 = binary add i64 %t2, 32
+    %t4 = convert sext i64 i32 96
+    %t5 = cmp eq i64 %t3, %t4
+    branch %t5, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t6 = load i32 $cond__1
+    return i32 %t6
+}
+function @held__held(%this : ptr) -> void [binding=weak, object=_ZN4heldC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    store i32 7, %t2
+    return void
+}
+alias object _ZN4heldC2Ev = @held__held

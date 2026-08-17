@@ -647,7 +647,8 @@ SemaAnalyzer::Value SemaAnalyzer::named_value(const AstNode& node,
 		throw std::runtime_error(node.text + " does not name an object or a "
 		                         "function");
 	}
-	if (entity.kind == SemaKind::Variable && entity.object_member)
+	if (entity.kind == SemaKind::Variable && entity.object_member &&
+	    !(unevaluated_ > 0 && self_ == nullptr))
 	{
 		// 9.3.1p3 and 9.5p1: a member named with no object expression is a
 		// member of the object `this` points to, or of the object an anonymous
@@ -655,6 +656,13 @@ SemaAnalyzer::Value SemaAnalyzer::named_value(const AstNode& node,
 		// 7.3.3p1: 11.2p5's naming class is the class the using-declaration was
 		// written in rather than the base that declared the member, which
 		// leaves the base-specifier's own access unasked about.
+		//
+		// 5.1.1p13's third bullet is the one place there is no such object:
+		// an id-expression denoting a non-static data member may stand in an
+		// unevaluated operand, and `sizeof(S::keys)` written where no member
+		// function stands has no `this` to be a member of.  What it denotes is
+		// the member itself, of the type its own declaration wrote, which is
+		// what the reading below every other name already writes.
 		DumpNode& line = model_.open_node(parent, std::string());
 		return member_value(entity, implied_object(entity, line), entity.name,
 		                    line, named.shadowed == nullptr);
@@ -1749,7 +1757,10 @@ SemaAnalyzer::Value SemaAnalyzer::sizeof_expression(const AstNode& node,
 	else
 	{
 		// The operand is unevaluated, so nothing it names is written, but it is
-		// still looked up: 5.3.3p1 needs its type.
+		// still looked up: 5.3.3p1 needs its type.  Saying so is what lets
+		// 5.1.1p13's third bullet stand here - `sizeof(S::keys)` names a member
+		// of no object at all.
+		const ReadingDepth measuring(unevaluated_);
 		DumpNode scratch;
 		const Value read = probe_expression(operand, ctx, scratch);
 		require_complete_value(read);

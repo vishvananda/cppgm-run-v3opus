@@ -120,6 +120,13 @@ public:
 	// region the *call* was written in says nothing about the answer.
 	SemaConstant call(SemaEntity& callee, const SemaConstant* object,
 	                  const std::vector<SemaConstant>& arguments);
+	// 14p1: whether the declaration a call reached is one no argument list has
+	// settled - a member of the class a *pattern* being read declares, or a
+	// specialization made over an argument that depends on a parameter.  A
+	// template declares no function until it is instantiated, so this reading
+	// holds the definition of neither and 14.6p8 stands a value in for the
+	// call rather than calling the missing body the program's error.
+	bool unsettled_callee(const SemaEntity& callee) const;
 
 	// 5.19p2's three operands whose reading is more than the arithmetic: a
 	// name, which may be a place an argument list has yet to settle; a unary
