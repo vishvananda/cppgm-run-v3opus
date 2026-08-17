@@ -2522,6 +2522,16 @@ void LowirFunctionLowering::initialize_array(const LowObject& object,
 				                 *node.children[index]);
 				continue;
 			}
+			if (!subobject)
+			{
+				// 2.14.5p8: an element of array type filled by 8.5.2p1's copy
+				// of a string literal leaves the literal's own object named by
+				// nothing, and the object exists all the same - so the unit
+				// lays it out here, as the image of such an array does.  An
+				// array that is a subobject of a class holds the units alone,
+				// which is the same boundary the image draws.
+				unit_.kept_string_object(*node.children[index], element);
+			}
 			if (subobject)
 			{
 				// The element keeps the walk that named it, so an element of

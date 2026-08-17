@@ -41,6 +41,12 @@ private:
 	PPToken held_;
 	bool has_held_;
 	StringLiteralSequence sequence_;
+	// Where the open sequence began, and where the token last produced did:
+	// 2.14.5p13 makes a sequence one token, so it stands where its first
+	// literal was written, and the identifier `operator ""x` defers stands
+	// where the sequence it was taken out of did.
+	std::size_t sequence_offset_;
+	std::size_t produced_offset_;
 	std::string deferred_identifier_;
 	bool previous_is_operator_;
 	bool finished_;

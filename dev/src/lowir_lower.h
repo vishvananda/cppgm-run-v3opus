@@ -13,6 +13,7 @@
 struct DumpNode;
 struct SemaEntity;
 class LowirFunctionLowering;
+class SourcePositionTable;
 
 // 12.4p8 and 15.2p2: how many destructions a handler still writes out as the
 // destructions they are.  Each of them needs the ones behind it as its own
@@ -203,8 +204,12 @@ public:
 
 	// Lowers one analysed translation unit into the program being built.
 	// `types` answers what a type is; both belong to the analysis that
-	// produced `unit` and are read, never changed.
-	void add_unit(const DumpNode& unit, TypeTable& types);
+	// produced `unit` and are read, never changed.  `positions` says where in
+	// the source each terminal of that unit was written, which is what names a
+	// declaration no program spells a name for; it is the token stream's and
+	// may be null where the caller kept none.
+	void add_unit(const DumpNode& unit, TypeTable& types,
+	              const SourcePositionTable* positions = nullptr);
 
 	// Closes what the program as a whole owns, which is the initialization
 	// 3.6.2 gives the objects no constant initializes.
@@ -284,7 +289,8 @@ private:
 class LowirUnitLowering
 {
 public:
-	LowirUnitLowering(TypeTable& types, LowirProgramBuilder& builder);
+	LowirUnitLowering(TypeTable& types, LowirProgramBuilder& builder,
+	                  const SourcePositionTable* positions = nullptr);
 	~LowirUnitLowering();
 
 	void run(const DumpNode& unit);
@@ -352,6 +358,9 @@ public:
 	// storage duration and no name a program can write, so the program holds
 	// it under one of its own.
 	std::string string_literal(const std::string& data, TypeId array);
+	// 2.14.5p8: that object where 8.5.2p1 copied the literal into an *element*
+	// of an array, which is the one place the copy is all that names it.
+	void kept_string_object(const DumpNode& node, TypeId element);
 	// 3.7.2p2 and 3.6.3p3: the runtime entries an object destroyed at the end
 	// of its thread needs - the function the destruction is handed to, and the
 	// handle that says which loaded image the pair belongs to.  Each is
@@ -631,7 +640,8 @@ private:
 	// `running` says the walk stands inside a body the program carries out,
 	// which is what tells a call that runs from one 3.6.2p2 folded into the
 	// image.
-	void demand_referenced(const DumpNode& node, bool running = false);
+	void demand_referenced(const DumpNode& node, bool running = false,
+	                       bool befriended = false);
 	std::vector<std::uint32_t> referenced_;
 	// Lowers the definitions asked for so far, and the ones lowering those asks
 	// for.  It runs between top level declarations and never inside one, so no
@@ -732,6 +742,10 @@ private:
 	// this unit has already named, which is what a translation unit can agree
 	// with another one on where the terminals it read cannot.
 	std::unordered_map<std::string, unsigned> local_static_places_;
+	// Where in the source this unit's terminals were written, which is what
+	// two units reading one shared definition do agree on.  Null where the
+	// caller kept no such record, and then the counter above stands in.
+	const SourcePositionTable* positions_;
 	// 12.4p8: the body that ends every element of one array, against the symbol
 	// the array was laid out under.
 	std::unordered_map<std::string, std::string> destruction_entries_;

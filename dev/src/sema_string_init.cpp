@@ -88,7 +88,8 @@ bool StringInitialization::as_object(TypeId array, const AstNode& written,
                                      const SemaContext& ctx, DumpNode& line)
 {
 	std::vector<unsigned long long> units;
-	if (!units_of(array, written, ctx, units))
+	std::string literal;
+	if (!units_of(array, written, ctx, units, &literal))
 	{
 		return false;
 	}
@@ -99,6 +100,13 @@ bool StringInitialization::as_object(TypeId array, const AstNode& written,
 	list.fact.type = array;
 	list.fact.spelled = array;
 	list.fact.category = ValueCategory::LValue;
+	// 2.14.5p8: the literal the units were copied out of is an object of its
+	// own with static storage duration, and the copy leaves nothing else
+	// naming it - so the list carries which literal it was read from, and the
+	// places the image lays that object out beside the array ask this.  The
+	// spelling is a fact of the list rather than of its elements, which hold
+	// values and no longer say where they came from.
+	list.fact.spelling = literal;
 	write_units(array, units, list);
 	return true;
 }
@@ -111,10 +119,12 @@ bool StringInitialization::units_into(TypeId array, const AstNode& written,
                                       const SemaContext& ctx, DumpNode& list)
 {
 	std::vector<unsigned long long> units;
-	if (!units_of(array, written, ctx, units))
+	std::string literal;
+	if (!units_of(array, written, ctx, units, &literal))
 	{
 		return false;
 	}
+	list.fact.spelling = literal;
 	write_units(array, units, list);
 	return true;
 }
@@ -154,7 +164,8 @@ void StringInitialization::write_unit(TypeId element,
 // and every array of some other type, and is read as the expression it is.
 bool StringInitialization::units_of(TypeId array, const AstNode& written,
                                     const SemaContext& ctx,
-                                    std::vector<unsigned long long>& units)
+                                    std::vector<unsigned long long>& units,
+                                    std::string* object)
 {
 	TypeTable& types = analyzer_.types_;
 	if (written.kind != AstKind::Literal ||
@@ -185,6 +196,10 @@ bool StringInitialization::units_of(TypeId array, const AstNode& written,
 	{
 		throw std::runtime_error("a string literal initializes an array that is "
 		                         "too short to hold it");
+	}
+	if (object != nullptr)
+	{
+		*object = data;
 	}
 	for (std::size_t index = 0; index + width <= data.size(); index += width)
 	{

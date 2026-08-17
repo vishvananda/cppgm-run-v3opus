@@ -38,6 +38,13 @@ struct PostToken
 	PostTokenKind kind;
 	std::string source;
 
+	// The byte offset, in the source file the reading was in, of the first
+	// preprocessing-token this one was made from.  Phase 4 locates a token a
+	// macro produced at the invocation that produced it, so this is where the
+	// program *wrote* the token whatever replacement it came through, and a
+	// string-literal sequence stands where its first literal does.
+	std::size_t offset;
+
 	// Simple.
 	ETokenType simple_type;
 
@@ -57,6 +64,7 @@ struct PostToken
 
 	PostToken()
 		: kind(PostTokenKind::EndOfFile)
+		, offset(0)
 		, simple_type(kTokenTypeCount)
 		, type(FT_INT)
 		, element_count(0)

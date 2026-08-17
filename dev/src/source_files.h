@@ -48,8 +48,16 @@ public:
 
 	// The one-based physical line containing byte `offset`.
 	unsigned line_of(std::size_t offset) const;
+	// The one-based column of byte `offset` within its physical line, counted
+	// in code points rather than in bytes: phase 1 reads a multi-byte
+	// character as one character, so it stands in one column.
+	unsigned column_of(std::size_t offset) const;
 
 private:
+	// The index into `line_starts_` of the line holding `offset`, which both
+	// answers above are read off.
+	std::size_t line_index_of(std::size_t offset) const;
+
 	std::string path_;
 	SourceText text_;
 	std::vector<std::uint32_t> line_starts_;

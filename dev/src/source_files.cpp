@@ -41,12 +41,36 @@ SourceFile::SourceFile(std::string path, std::string bytes)
 	}
 }
 
-unsigned SourceFile::line_of(std::size_t offset) const
+std::size_t SourceFile::line_index_of(std::size_t offset) const
 {
 	const std::vector<std::uint32_t>::const_iterator found =
 		std::upper_bound(line_starts_.begin(), line_starts_.end(),
 			static_cast<std::uint32_t>(offset));
-	return static_cast<unsigned>(found - line_starts_.begin());
+	return static_cast<std::size_t>(found - line_starts_.begin());
+}
+
+unsigned SourceFile::line_of(std::size_t offset) const
+{
+	return static_cast<unsigned>(line_index_of(offset));
+}
+
+unsigned SourceFile::column_of(std::size_t offset) const
+{
+	const std::string& body = *text_;
+	const std::size_t at = offset < body.size() ? offset : body.size();
+	const std::size_t line = line_index_of(at);
+	const std::size_t begin = line == 0 ? 0 : line_starts_[line - 1];
+	// One column per code point: a UTF-8 continuation byte is the middle of a
+	// character phase 1 already read as one, so it opens no column of its own.
+	unsigned column = 1;
+	for (std::size_t index = begin; index < at; ++index)
+	{
+		if ((static_cast<unsigned char>(body[index]) & 0xc0) != 0x80)
+		{
+			++column;
+		}
+	}
+	return column;
 }
 
 const SourceFile* SourceFileTable::open(const std::string& path)

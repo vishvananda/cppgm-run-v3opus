@@ -1412,6 +1412,23 @@ bool LowirUnitLowering::global_initializer(lowir_model::GlobalDefinition& global
 }
 
 
+// 2.14.5p8: the object a string literal is, where 8.5.2p1 copied it into an
+// *element* of an array.
+//
+// The literal has static storage duration whatever is done with it, and the
+// copy leaves the array holding its own code units and nothing naming the
+// literal - so the object would go unwritten unless the copy itself asks for
+// it.  8.5.2p1 fills three kinds of place and this is the one that asks: the
+// array that is the whole object and the array that is a member of a class
+// each hold the units alone, which is what the reference lays out for them.
+void LowirUnitLowering::kept_string_object(const DumpNode& node, TypeId element)
+{
+	if (node.fact.kind == FactKind::BracedInitList && !node.fact.spelling.empty())
+	{
+		string_literal(node.fact.spelling, element);
+	}
+}
+
 bool LowirUnitLowering::global_array_initializer(
 	lowir_model::GlobalDefinition& global, const DumpNode* node, TypeId type)
 {
@@ -1458,6 +1475,7 @@ bool LowirUnitLowering::global_array_initializer(
 		{
 			// 8.5.1p3: an element that is itself an aggregate holds what its own
 			// list says, so its items are this one's items in the same order.
+			kept_string_object(*node->children[index], element);
 			if (!global_array_initializer(global, node->children[index], element))
 			{
 				return false;

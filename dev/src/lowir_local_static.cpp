@@ -2,6 +2,8 @@
 
 #include <sstream>
 
+#include "ast_tokens.h"
+#include "lowir_abi.h"
 #include "sema_scope.h"
 
 // 3.7.1p3 and 6.7p4: the object a block declares `static`.
@@ -46,36 +48,6 @@ Operand named_operand(Operand::Kind kind, const std::string& text)
 	return operand;
 }
 
-// Whether the qualified name flattens to a symbol that still tells it apart
-// from every other one: an identifier written with `::` between its components
-// loses nothing when the separator is written `__`, and a name holding anything
-// else - a template-id's arguments, an operator's punctuation - would flatten
-// two different names to one symbol.
-bool spellable_name(const std::string& name)
-{
-	for (std::size_t index = 0; index < name.size(); ++index)
-	{
-		const char written = name[index];
-		if (written == ':')
-		{
-			if (index + 1 >= name.size() || name[index + 1] != ':')
-			{
-				return false;
-			}
-			++index;
-			continue;
-		}
-		const bool ordinary = (written >= 'a' && written <= 'z') ||
-			(written >= 'A' && written <= 'Z') ||
-			(written >= '0' && written <= '9') || written == '_';
-		if (!ordinary)
-		{
-			return false;
-		}
-	}
-	return true;
-}
-
 // A string an identifier cannot hold, written as one an identifier can: the
 // bytes, in order, as hexadecimal.  What it names is exactly what it was made
 // from, which is what a symbol two translation units have to agree on needs.
@@ -118,27 +90,26 @@ std::string LowirUnitLowering::local_static_symbol(const SemaEntity& entity)
 // The function part of that name, whose one job is to say which function of
 // the program the object belongs to.
 //
-// A qualified name made of identifiers says that where the object file gives
-// the function that very name, and is written the way the object file writes
-// it, with `__` for `::`.  Where it does not, two functions would flatten to
-// one part and the object file would hold one storage for both of them: a name
-// holding anything an identifier cannot - 14.2's template arguments, 13.5's
-// operator punctuation - is the obvious way, and 13.1's second declaration of
-// one name is the way that is not, `f(int)` and `f(double)` being two
-// functions with one spelling and `value<1>` and `value<2>` two more.  What
-// tells those apart is what already tells their symbols apart, so it is
-// carried whole instead.
+// The qualified name written with `__` for `::` says that for every function a
+// program *declares*, because the declaration part below tells two of one name
+// apart: 13.1's `f(int)` and `f(double)` are two declarations at two places,
+// and so are 13.5's `operator+` and `operator-`, whose punctuation flattens to
+// one spelling.
+//
+// 14.7's specializations are the one shape that is not: `value<1>` and
+// `value<2>` are two functions made from *one* declaration, so they stand at
+// one place and the part below cannot tell them apart.  What does is what
+// already tells their object-file names apart, which is carried whole instead.
 std::string LowirUnitLowering::local_static_owner(const SemaEntity& owner)
 {
-	const std::string& named = abi_qualified_name(owner);
-	const std::string written =
-		(owner.region == nullptr ? std::string() : owner.region->prefix) + named;
-	if (spellable_name(written) &&
-	    flatten_symbol_name(named) == function_symbol(owner))
+	if (abi_instantiated(owner, types_))
 	{
-		return flatten_symbol_name(written);
+		return "function_symbol_" + hex_of(abi_symbol_of(owner, types_));
 	}
-	return "function_symbol_" + hex_of(function_symbol(owner));
+	const std::string written =
+		(owner.region == nullptr ? std::string() : owner.region->prefix) +
+		abi_qualified_name(owner);
+	return flatten_symbol_name(written);
 }
 
 // 3.5p3 and 7.1.2p4: whether the definition that declared the object is one
@@ -161,8 +132,15 @@ bool LowirUnitLowering::local_static_shared(const SemaEntity* owner)
 // 7.1.2p4 and 14.7.1p1 leave a definition every unit may hold, though, and two
 // units reading one such body reach it after different amounts of text - so a
 // span of *this* unit's stream would name two symbols for one object.  What
-// those units do agree on is the body itself, so the declaration is named there
-// by its place among the ones that body declares.
+// those units do agree on is the source the definition was written in, so such
+// a declaration is named by the place its declarator-id stands at: the file the
+// reading was in and the line and column within it, which is one fact of the
+// program rather than of a reading of it.
+//
+// The counter below it is the last resort, for a stream that kept no such
+// record: it names the declaration by its place among the ones the body
+// declares, which two units reading the same body in the same order agree on
+// and nothing else does.
 std::string LowirUnitLowering::local_static_place(const SemaEntity& entity,
                                                   const SemaEntity* owner)
 {
@@ -171,6 +149,14 @@ std::string LowirUnitLowering::local_static_place(const SemaEntity& entity,
 	{
 		return "tokens" + decimal(entity.declared_begin) + "_" +
 			decimal(entity.declared_end);
+	}
+	if (positions_ != nullptr)
+	{
+		const std::string written = positions_->text_at(entity.declared_begin);
+		if (!written.empty())
+		{
+			return "source" + hex_of(" at " + written);
+		}
 	}
 	const std::string key =
 		owner == nullptr ? std::string() : function_symbol(*owner);

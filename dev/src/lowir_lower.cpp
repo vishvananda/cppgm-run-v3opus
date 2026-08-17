@@ -81,7 +81,8 @@ LowirProgramBuilder::LowirProgramBuilder()
 {}
 
 LowirUnitLowering::LowirUnitLowering(TypeTable& types,
-                                     LowirProgramBuilder& builder)
+                                     LowirProgramBuilder& builder,
+                                     const SourcePositionTable* positions)
 	: types_(types)
 	, builder_(builder)
 	, program_(builder.program_)
@@ -91,6 +92,7 @@ LowirUnitLowering::LowirUnitLowering(TypeTable& types,
 	, startup_(nullptr)
 	, shutdown_(nullptr)
 	, strings_(builder.strings_)
+	, positions_(positions)
 {}
 
 LowirUnitLowering::~LowirUnitLowering()
@@ -420,9 +422,10 @@ const std::string& LowirUnitLowering::object_symbol_of(const SemaEntity& entity,
 	return held;
 }
 
-void LowirProgramBuilder::add_unit(const DumpNode& unit, TypeTable& types)
+void LowirProgramBuilder::add_unit(const DumpNode& unit, TypeTable& types,
+                                   const SourcePositionTable* positions)
 {
-	LowirUnitLowering lowering(types, *this);
+	LowirUnitLowering lowering(types, *this, positions);
 	lowering.run(unit);
 }
 
@@ -1120,7 +1123,8 @@ std::string LowirUnitLowering::string_literal(const std::string& data,
 // 11.3p5's friend definition is the one this walk still reads: it defines a
 // member of the enclosing namespace, and the class that wrote it is the only
 // place this unit reads it, so what it names is read where it is.
-void LowirUnitLowering::demand_referenced(const DumpNode& node, bool running)
+void LowirUnitLowering::demand_referenced(const DumpNode& node, bool running,
+                                          bool befriended)
 {
 	if (node.fact.kind == FactKind::FunctionDefinition &&
 	    node.fact.entity != nullptr && !node.fact.entity->friend_definition &&
@@ -1128,6 +1132,9 @@ void LowirUnitLowering::demand_referenced(const DumpNode& node, bool running)
 	{
 		return;
 	}
+	befriended = befriended ||
+		(node.fact.kind == FactKind::FunctionDefinition &&
+		 node.fact.entity != nullptr && node.fact.entity->friend_definition);
 	if (node.fact.kind == FactKind::Variable && node.fact.entity != nullptr &&
 	    node.fact.entity->constant && valued_type(node.fact.type) &&
 	    (!running || node.fact.entity->local_static))
@@ -1157,9 +1164,18 @@ void LowirUnitLowering::demand_referenced(const DumpNode& node, bool running)
 	}
 	if (node.fact.entity != nullptr &&
 	    node.fact.entity->kind == SemaKind::Function &&
-	    node.fact.entity->special == kOrdinaryFunction &&
+	    (node.fact.entity->special == kOrdinaryFunction ||
+	     (befriended && node.fact.kind == FactKind::Callee &&
+	      node.fact.entity->special == kConstructorFunction)) &&
 	    (node.fact.kind == FactKind::Callee || node.fact.kind == FactKind::Id))
 	{
+		// 3.2p2 and 11.3p6: a friend defined inside a class is a definition of
+		// the namespace it belongs to that no declaration there wrote, so the
+		// walk reads it for uses whether or not the definition itself is one -
+		// and 12.1p1 gives a constructor no name a program can write, so a call
+		// of one is the whole of what such a body says about it.  Every other
+		// body is read only where this unit writes it, and the constructor a
+		// call of it names is asked for as that call is lowered.
 		referenced_.push_back(node.fact.entity->id);
 	}
 	// 3.7.1p3 and 3.6.2p1: an object a block declares `static` has the storage
@@ -1177,7 +1193,7 @@ void LowirUnitLowering::demand_referenced(const DumpNode& node, bool running)
 		(running || node.fact.kind == FactKind::FunctionDefinition) && !image;
 	for (std::size_t index = 0; index < node.children.size(); ++index)
 	{
-		demand_referenced(*node.children[index], inside);
+		demand_referenced(*node.children[index], inside, befriended);
 	}
 }
 

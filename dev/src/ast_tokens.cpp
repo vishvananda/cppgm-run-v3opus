@@ -1,6 +1,7 @@
 #include "ast_tokens.h"
 
 #include <cctype>
+#include <sstream>
 #include <unordered_set>
 #include <utility>
 
@@ -148,12 +149,62 @@ std::uint32_t AstTokenStream::intern(const std::string& text)
 	return index;
 }
 
-void AstTokenStream::append(unsigned type, const std::string& text)
+void AstTokenStream::append(unsigned type, const std::string& text,
+                            std::size_t offset)
 {
 	AstToken token;
 	token.type = static_cast<std::uint16_t>(type);
 	token.spelling = intern(text);
 	tokens_.push_back(token);
+	positions_.append(offset);
+}
+
+void SourcePositionTable::open(std::size_t begin, const SourceFile* file)
+{
+	Region region;
+	region.begin = begin;
+	region.file = file;
+	files_.push_back(region);
+}
+
+void SourcePositionTable::append(std::size_t offset)
+{
+	offsets_.push_back(static_cast<std::uint32_t>(offset));
+}
+
+std::string SourcePositionTable::text_at(std::size_t index) const
+{
+	if (index >= offsets_.size() || files_.empty())
+	{
+		return std::string();
+	}
+	// The regions are appended in stream order, so the file in force is the
+	// last that begins at or before `index`, exactly as the packing alignment
+	// and the inclusion depth are.
+	std::size_t low = 0;
+	std::size_t high = files_.size();
+	while (low < high)
+	{
+		const std::size_t middle = low + (high - low) / 2;
+		if (files_[middle].begin <= index)
+		{
+			low = middle + 1;
+		}
+		else
+		{
+			high = middle;
+		}
+	}
+	const SourceFile* const file = low == 0 ? nullptr : files_[low - 1].file;
+	if (file == nullptr)
+	{
+		return std::string();
+	}
+	const std::size_t offset = offsets_[index];
+	std::ostringstream out;
+	out << file->path() << ':' << file->line_of(offset) << ':'
+	    << file->column_of(offset);
+	return out.str();
 }
 
 void AstTokenStream::spell_stream()
@@ -265,11 +316,20 @@ void AstTokenStream::build(SourceFileTable& files, const PreprocessorOptions& op
 	PostToken token;
 	unsigned long long pack_epoch = preprocessor.pack_epoch();
 	bool own_source = true;
+	const SourceFile* open_file = nullptr;
 	while (tokenizer.next(token))
 	{
 		if (token.kind == PostTokenKind::EndOfFile)
 		{
 			break;
+		}
+		// The byte offset the token carries is an offset into whichever file
+		// the reading is in, which is the same reading the two records below
+		// take and changes at the same places.
+		if (preprocessor.current_source() != open_file)
+		{
+			open_file = preprocessor.current_source();
+			positions_.open(tokens_.size(), open_file);
 		}
 		// 2.2p1: this token was read wherever the reading is now, because an
 		// inclusion opens its file before the first token of it arrives and the
@@ -295,15 +355,17 @@ void AstTokenStream::build(SourceFileTable& files, const PreprocessorOptions& op
 		case PostTokenKind::Simple:
 			if (token.simple_type == OP_RSHIFT)
 			{
-				append(ST_RSHIFT_1, ">");
-				append(ST_RSHIFT_2, ">");
+				// 14.2.3 reads one spelling as two terminals, and both of them
+				// stand where the one spelling was written.
+				append(ST_RSHIFT_1, ">", token.offset);
+				append(ST_RSHIFT_2, ">", token.offset);
 				break;
 			}
-			append(token.simple_type, token.source);
+			append(token.simple_type, token.source, token.offset);
 			break;
 
 		case PostTokenKind::Identifier:
-			append(TT_IDENTIFIER, token.source);
+			append(TT_IDENTIFIER, token.source, token.offset);
 			break;
 
 		case PostTokenKind::LiteralArray:
@@ -312,18 +374,18 @@ void AstTokenStream::build(SourceFileTable& files, const PreprocessorOptions& op
 				string_values_[tokens_.size()] =
 					token.data.substr(0, token.data.size() - 1);
 			}
-			append(TT_LITERAL, token.source);
+			append(TT_LITERAL, token.source, token.offset);
 			break;
 
 		case PostTokenKind::Literal:
 		case PostTokenKind::UserDefinedLiteral:
-			append(TT_LITERAL, token.source);
+			append(TT_LITERAL, token.source, token.offset);
 			break;
 
 		default:
 			throw SourceError(" a token of the file is not a token of C++");
 		}
 	}
-	append(ST_EOF, std::string());
+	append(ST_EOF, std::string(), token.offset);
 	spell_stream();
 }

@@ -11,6 +11,8 @@ PostTokenizer::PostTokenizer(PPTokenSource& source,
 	: source_(source)
 	, characters_(characters)
 	, has_held_(false)
+	, sequence_offset_(0)
+	, produced_offset_(0)
 	, previous_is_operator_(false)
 	, finished_(false)
 {}
@@ -21,6 +23,7 @@ bool PostTokenizer::next(PostToken& token)
 	{
 		token.reset(PostTokenKind::Identifier);
 		token.source.swap(deferred_identifier_);
+		token.offset = produced_offset_;
 		deferred_identifier_.clear();
 		previous_is_operator_ = false;
 		return true;
@@ -51,6 +54,10 @@ bool PostTokenizer::next(PostToken& token)
 		if (current_.type == PPTokenType::StringLiteral ||
 		    current_.type == PPTokenType::UserDefinedStringLiteral)
 		{
+			if (sequence_.empty())
+			{
+				sequence_offset_ = current_.offset;
+			}
 			sequence_.add(current_.spelling);
 			continue;
 		}
@@ -60,18 +67,23 @@ bool PostTokenizer::next(PostToken& token)
 			// The sequence is maximal, so this token belongs to the next one.
 			std::swap(current_, held_);
 			has_held_ = true;
+			produced_offset_ = sequence_offset_;
 			flush_sequence(token);
+			token.offset = sequence_offset_;
 			return true;
 		}
 		if (current_.type == PPTokenType::EndOfFile)
 		{
 			token.reset(PostTokenKind::EndOfFile);
 			token.source.clear();
+			token.offset = current_.offset;
 			finished_ = true;
 			return true;
 		}
 
+		produced_offset_ = current_.offset;
 		convert(token);
+		token.offset = current_.offset;
 		previous_is_operator_ = token.kind == PostTokenKind::Simple &&
 			token.simple_type == KW_OPERATOR;
 		return true;

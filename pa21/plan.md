@@ -179,6 +179,18 @@ folded where `call` reads it and lowered with no call boundary, found by the one
 `reserved_function` door both the expression layer and `callee_candidates` ask.
 **Done — checkpoint E.**
 
+Beside them, one fact that belongs to no layer of PA21 and that PA21 is the
+first assignment to need: where in the source a terminal was written.
+`AstTokenStream::positions()` is it — one byte offset per terminal beside one
+region per `#include`, the same run encoding `PackTable` and `IncludeTable`
+already use, with the file's line and column counted where a reader asks rather
+than for every terminal.  3.7.1p3's block-scope `static` of a definition every
+unit may hold is what asks for it here: nothing the program spells names such an
+object, so what two units agree on is the place the declarator-id stands at, and
+`lowir_emit.cpp` hands the record to the lowering beside the types.
+`lowir_model::InstructionDebugLocation` is the next reader waiting for it.
+**Done — checkpoint L.**
+
 Reference-binary note: `pa21/cppgm++-ref` exists and answers PA21 inputs, so
 naming and lowering shapes are probed rather than guessed — but it folds a
 conversion function only where the place is an *initializer* or 4p3's contextual
@@ -216,140 +228,137 @@ build agree — so 5.1.1p13's fixture is written over `sizeof` alone.
 
 ## Current Failure Map
 
-**162/166**; 4 failures, and none of them refuses a program the assignment asks
-it to translate — every remaining row is a LowIR difference. Groups N, T, I, P,
-V, R, C, B, A, M and E are all closed with their audits. The four LowIR rows are
-unchanged — two are known gap L's symbol naming, one is I' below, and one is the
-row checkpoint P reached; the four course fixtures the E audit added pass.
+**169/169 — the assignment passes.** Groups N, T, I, P, V, R, C, B, A, M, E and
+L are all closed with their audits, and the three course fixtures checkpoint L
+added pass. Nothing below fails a fixture; every row is a shape a sweep of the
+reference or of g++ found, kept so a later assignment has the boundary written
+down rather than re-probed.
 
-| Group | Shape | Count |
-|---|---|---|
-| I'. a dead `@__strlit__` | `300-function-local-static-array-guard` differs by one global: for `static const char nested[1][2] = {"x"};` the ref emits the literal's own object beside the array that copied it. The boundary was probed and is the reference's own: it materializes the literal where 8.5.2 initializes an array that is an *element* of an enclosing array (`char two[2][2] = {"m","n"}` gets two), and not where the array is the whole object (`char flat[2] = "y"`) nor where it is a *member* of a class (`struct S { char a[2]; }; S s = {"q"}`). 2.14.5p8 makes the object exist in all four | 1 |
-| misc | the two symbol-naming rows of gap L and the owed-constructor row of gap P | 3 |
-
-Four groups beside them that no fixture fails on, all found by checkpoint E's
-sweep and its audit's, and each one layer off the walk E landed. **E'. the array
-a *declaration*
-names elides no braces**: `array_from_clauses` takes one clause per element with
-no 8.5.1p11 question, so `int g[2][3] = {1,2,3,4,5,6};`, `P a[2] = {1,2,3,4};`
-and `A() : e{1,2,3,4}` over `int e[2][2]` are each `an array initializer has more
-clauses than the array has elements` — the analysis's refusal and not the fold's,
-which is why a class whose *member* is that array (`struct A { int e[2][2]; }; A
-a = {1,2,3,4};`) is accepted here one line away. The reference refuses all three
-itself (`too many array initializer elements`) where g++ folds them, so no `.ref`
-can pin the acceptance, and the walk that would close it writes its elements
-inline under one line rather than under `open_subobject` steps — a different
-emission shape from the one `aggregate_subobject` already elides in. **E''. a
+**Refuses a program the assignment asks it to translate.** **E'. the array a
+*declaration* names elides no braces**: `array_from_clauses` takes one clause
+per element with no 8.5.1p11 question, so `int g[2][3] = {1,2,3,4,5,6};`, `P
+a[2] = {1,2,3,4};` and `A() : e{1,2,3,4}` over `int e[2][2]` are each `an array
+initializer has more clauses than the array has elements` — the analysis's
+refusal and not the fold's, which is why a class whose *member* is that array
+(`struct A { int e[2][2]; }; A a = {1,2,3,4};`) is accepted here one line away.
+The reference refuses all three itself (`too many array initializer elements`)
+where g++ folds them, so no `.ref` can pin the acceptance. **E''. a
 braced-init-list standing where an *operand* does**: 8.5.4p1 makes the list the
 initialization of the place it fills, so its meaning is the place's type, and
 `evaluate` has no node for one at all — `return {4,5,6};` from a constexpr
 function, `f({4,5,6})`, `int f(A a = {8,9})` and `H<f({7,8})>` are each `a
 constant expression holds a construct PA11 does not evaluate`, where `clause_of`
-answers all four the moment the type is threaded to `operand_constant`. g++ folds
-all four; the reference folds the return and the default-argument and refuses the
-argument and the template argument. **I''''. a mem-initializer of a member of
-*class* type takes no image**: `struct P { int x; int y; }; struct A { P p;
-constexpr A() : p{1,2} {} }; constexpr A a;` folds — a `static_assert` reads
-`a.p.y` — and lays out `zero 8` with a startup body where the reference and g++
-both write `i32 1, i32 2`, while the same constructor over a member of *scalar*
-type lays out. It is `lowir_image.cpp`'s walk of a mem-initializer and not the
-fold's, which is the same owner the three V gaps below have. **U'. a union built
-by a constructor is neither folded nor laid out** (found by the E audit): `union
-U { int a; double b; constexpr U(double v) : b(v) {} }; constexpr U u(1.5);`
-leaves `u.b` `an object it holds no value of` and lays out `zero 8` with a
-startup body, where both oracles fold the object and write `f64 1.5` —
-`object_from_constructor` reads every member of the class in turn and a union's
-other members have no mem-initializer to read, which 9.5p1 says they may not
-have. The fold's *aggregate* union is right in both directions since the E
-audit: it holds the member 8.5.1p15 initialized and refuses a read of any other.
+answers all four the moment the type is threaded to `operand_constant`. g++
+folds all four; the reference folds the return and the default-argument and
+refuses the argument and the template argument.
 
-Beside them, seven shapes checkpoint E now folds that `pa21/cppgm++-ref` refuses
-outright, each of them one g++ folds too, so the course fixtures are written
-around them: 8.5.1p11's elision two and three levels down (`struct A { P p; int
-t; }` over a `P` holding `int e[2]`), an elided member of union type, a
-brace-or-equal-initializer of class or array type read for a `constexpr` object,
-a mem-initializer whose braces list-initialize an aggregate member, an
-out-of-class definition of a `static constexpr` member of array type, and a
-mem-initializer holding a string literal. The reference calls all seven
-`unsupported constexpr variable initializer`.
+**Folds nothing where both oracles fold.** **I''''. a mem-initializer of a
+member of *class* type takes no image**: `struct P { int x; int y; }; struct A {
+P p; constexpr A() : p{1,2} {} }; constexpr A a;` folds — a `static_assert`
+reads `a.p.y` — and lays out `zero 8` with a startup body where the reference and
+g++ both write `i32 1, i32 2`. It is `lowir_image.cpp`'s walk of a
+mem-initializer and not the fold's. **U'. a union built by a constructor is
+neither folded nor laid out**: `union U { int a; double b; constexpr U(double v)
+: b(v) {} }; constexpr U u(1.5);` leaves `u.b` `an object it holds no value of`
+and lays out `zero 8` with a startup body, where both oracles fold the object and
+write `f64 1.5` — `object_from_constructor` reads every member of the class in
+turn and a union's other members have no mem-initializer to read, which 9.5p1
+says they may not have. The fold's *aggregate* union is right in both directions
+since the E audit. **I'''. a pointer whose second fold over the dump stops takes
+no image**: checkpoint I's rule is that where the walk of the dump lines cannot
+re-fold the initializer the analysis's own answer stands, and `SemaEntity::value`
+/`::real` are numbers, so a *pointer* has nothing there to stand — `constexpr int
+*p = true ? &one : &two;` and one initialized from another constexpr pointer each
+take `zero` and a startup body where the reference writes `addr @one`, and a null
+pointer read through a name is written `= 0` where 4.10p1's own image is `=
+zero`. It is `global_address`'s question.
 
-Two shapes beside them where this build and the reference write different LowIR
-for the same bytes, both found by the E audit and neither one a fixture reaches.
-**Z'. a value-initialized tail is one span**: `int t[3] = {7};` lays out `i32 7,
-zero 8` where the reference writes two `i32 0`, and `char s[4] = "ab";` the same
-one byte over — it is the image's own writing, in every dialect and for a plain
-declaration, so it is neither the fold's nor a checkpoint's. **E'''. the branch
-hint's operand keeps its own width**: 1.4p8's call computes nothing, so what a
-body lowers is the operand's reading, and where the operand is not already
-`long` this build converts it to the declared parameter type and the reference
-does not — `pa21/cppgm++-ref` writes `binary sub i64` over a `u32` operand and
-`return i64` of an `i32` value. g++'s answer for the value needs the conversion,
-so the fixtures are written over `long` operands.
+**Writes different LowIR for the same bytes.** **Z'. a value-initialized tail is
+one span**: `int t[3] = {7};` lays out `i32 7, zero 8` where the reference writes
+two `i32 0`, and `char s[4] = "ab";` the same one byte over — the image's own
+writing, in every dialect and for a plain declaration. **E'''. the branch hint's
+operand keeps its own width**: 1.4p8's call computes nothing, so what a body
+lowers is the operand's reading, and where the operand is not already `long` this
+build converts it to the declared parameter type and the reference does not.
+g++'s answer for the value needs the conversion, so the fixtures are written over
+`long` operands. **D'. an array member of an object of class type decays where
+the reference indexes** (found by checkpoint L's fixture): `struct pair { char
+inner[1][2]; }; int rows() { static const pair held = {{"h"}}; return
+held.inner[0][0]; }` writes five `unary decay` where the reference writes three —
+one extra at each element step *inside* a member of array-of-array type, at both
+the initialization and the read. A member of a *single* array type and an array
+that is the whole object are both identical, so it is the second dimension of a
+member alone. **I''. the definition of an implicitly declared default
+constructor an image was folded through**: `struct held { int inside = 4; };
+constexpr held h;` lays out the reference's image and emits no `@held__held`,
+which the reference does — `owe_folded_construction` reads `implicit_declaration`
+as 8.5.1's aggregate, which a class 12.6.2p8 leaves a constructor to run is not.
+**L''. 3.5p3's `extern` before a `const` definition**: `extern const int k; const
+int k = 5;` is `binding=internal` and `_ZL1k` here and `binding=strong` and
+`_Z1k` in the reference, which 3.5p3 agrees with; the same program with no
+`extern` is identical in both.
 
-Three gaps beside them that no fixture fails on, each belonging to an earlier
-group. **I'''. a pointer whose second fold over the dump stops takes no image**
-(found by the A audit): checkpoint I's rule is that where the walk of the dump
-lines cannot re-fold the initializer the analysis's own answer stands, and
-`SemaEntity::value`/`::real` are numbers, so a *pointer* has nothing there to
-stand — `constexpr int *p = true ? &one : &two;` and one initialized from
-another constexpr pointer each take `zero` and a startup body where the
-reference writes `addr @one`, and a null pointer read through a name is written
-`= 0` where 4.10p1's own image is `= zero`. It is `global_address`'s question.
-The two below it were found by the R audit. **I''. the definition of an implicitly
-declared default constructor an image was folded through**: `struct held { int
-inside = 4; }; constexpr held h;` lays out the reference's image and emits no
-`@held__held`, which the reference does — `owe_folded_construction` reads
-`implicit_declaration` as 8.5.1's aggregate, which a class 12.6.2p8 leaves a
-constructor to run is not. **L''. 3.5p3's `extern` before a `const`
-definition**: `extern const int k; const int k = 5;` is `binding=internal` and
-`_ZL1k` here and `binding=strong` and `_Z1k` in the reference, which 3.5p3
-agrees with; the same program with no `extern` is identical in both.
+**Judged against the reference and not followed.** **L'''. an explicit
+specialization is one unit's definition**: `template<> int tv<5>() { static int u
+= 9; ... }` names its local static `tv__u__tokens114_117` at `binding=internal`
+here and `function_symbol_<_Z2tvILi5EEiv>__u__source…` at `binding=weak` in the
+reference. 14.7.3p6 leaves such a definition in exactly one translation unit,
+and g++ agrees with this build and not with the reference: it gives `tv<5>` a
+strong `T` symbol and its local static a local `d` one, against the weak `W` and
+unique `u` it gives the *instantiation* `tv<3>` beside it. Seven shapes beside
+it that checkpoint E folds and `pa21/cppgm++-ref` refuses outright, each one g++
+folds too, so the course fixtures are written around them: 8.5.1p11's elision
+two and three levels down, an elided member of union type, a brace-or-equal-
+initializer of class or array type read for a `constexpr` object, a
+mem-initializer whose braces list-initialize an aggregate member, an out-of-class
+definition of a `static constexpr` member of array type, and a mem-initializer
+holding a string literal. The reference calls all seven `unsupported constexpr
+variable initializer`.
 
-## Next Checkpoint — G: the clauses an array takes where it stands, and the list standing where an operand does
+## Active Checkpoint — L: the place in the source a terminal stands, and the three names that read it (**done**, 162 → 169/169)
 
-**Owner.** `sema_init_list.cpp`'s `array_from_clauses` and the count
-`list_initialize_into` takes in front of it; `sema_constexpr.cpp`'s
-`operand_constant` and `evaluate` for a `BracedInitList` node.
+**Owner.** `ast_tokens.h/.cpp`'s `SourcePositionTable`, fed by `PostToken::offset`
+through `posttokenizer.cpp` and by `Preprocessor::current_source()`;
+`source_files.cpp`'s `column_of` beside the existing `line_of`;
+`lowir_local_static.cpp`'s `local_static_owner` and `local_static_place`;
+`sema_string_init.cpp`'s 8.5.2p1 doors and `lowir_image.cpp`'s
+`kept_string_object`; `lowir_lower.cpp`'s `demand_referenced`.
 
-**Why it is next.** Checkpoint E made 8.5.1p11 one question the *fold* asks per
-subobject, and the analysis still asks nothing: `array_from_clauses` takes one
-clause per element, so `int g[2][3] = {1,2,3,4,5,6};`, `P a[2] = {1,2,3,4};` and
-`A() : e{1,2,3,4}` over `int e[2][2]` are each refused where g++ translates them
-and where a class whose *member* is that array is accepted one line away —
-`aggregate_subobject` already elides for a member, so this is one rule with two
-implementations and the wrong one is reached by the shape a program is most
-likely to write. Beside it, 8.5.4p1 makes a braced-init-list the initialization
-of the place it fills, so `return {4,5,6};` from a constexpr function, `f({4,5,6})`,
-`int f(A a = {8,9})` and `H<f({7,8})>` are a construct the fold has no node for
-at all, where `clause_of` answers every one of them the moment the place's type
-is threaded to `operand_constant`. Both groups refuse programs the assignment
-asks the compiler to translate, which the four remaining LowIR rows do not.
+**Data flow.** Phase 3 already puts a byte offset on every `PPToken`, and phase 4
+locates a token a macro produced at its invocation — so the offset reaches phase
+7 unchanged, `PostToken` carries it, and `AstTokenStream::build` records one
+`std::uint32_t` per terminal beside one region per `#include` that changed which
+file the reading was in.  `lowir_emit.cpp` hands the table to `add_unit`, and
+`local_static_place` reads it at the declarator-id's own terminal, which is what
+`SemaEntity::declared_begin` already is.  8.5.2p1's literal travels the other
+way: `units_of` hands back the code units the copy was made from, `as_object`
+and `units_into` keep them on the list they write, and the two walkers that fill
+an *element* of an array — the image's `global_array_initializer` and the body's
+`initialize_array` — lay 2.14.5p8's object out beside the array.
 
-**Data flow.** The array walk takes a *run* of clauses per element rather than
-one, which is the cursor `aggregate_elements` already walks with: an element of
-array type with no braces takes what its own walk arrives at, an element of
-class type takes `elides_its_braces`' answer, and 8.5.1p6's refusal moves from
-the count in front of the walk to what the walk left — which is what
-`list_constant` does for the fold. What to distrust: the analysis writes its
-elements *inline* under one line where `aggregate_subobject` writes them under
-`open_subobject` steps, so the emission shape of an elided element is the one
-thing to settle first and the images of every array declaration are what would
-move; 8.3.4p3's deduced bound is read before the walk and an elided list changes
-what it deduces; and the operand door threading a type reaches `at_class_place`,
-`array_of` and 8.5.4p7's narrowing, each of which already has an answer for a
-list that arrived as a declaration's initializer.
-
-**Expected complexity.** One cursor and no second pass: the walk is the one the
-fold already makes, the elision question is one scratch-node probe per subobject
-as it is there, and no clause is read twice.
+**Complexity.** Four bytes per terminal and one region per inclusion; the line
+and column are counted where a reader asks, so a unit with one local static pays
+one binary search and not one per token.  Measured below: +1.9 MB and +2% on a
+1.25 MB unit, output byte-identical.
 
 **Validation.** `make test-report ACTIVE_TEST_REPORT_PAS='pa21'` and
-`make test-report-through-pa20` — the array images every earlier stage writes
-are the regression surface here, not pa21's. `pa21/cppgm++-ref` refuses both
-groups (`too many array initializer elements`, and an argument or a template
-argument holding a list), so g++ is the oracle and the course fixtures have to
-be written around what the reference will not translate; a multiplicity and
-nesting sweep over the elided shapes, and a valgrind pass.
+`make test-report-through-pa20`; a differential sweep of every owner shape
+(ordinary, overloaded, `operator+`, member, namespace, unnamed namespace,
+`inline`, implicit instantiation, explicit specialization) and of every place
+8.5.2p1 fills (whole object, braced whole object, element, element two deep,
+class member, class member inside an array, mem-initializer, automatic, static,
+`constexpr`, wide, repeated) through `pa21/cppgm++-ref`; two units sharing a
+header, which is what the source place exists for; g++ as the third oracle where
+the reference disagreed; a multiplicity and nesting sweep; and a valgrind pass.
+
+**What is next.** Group **G**, the two rows at the top of the failure map:
+8.5.1p11's elision in `array_from_clauses`, whose refusal the analysis owns and
+the fold does not, and 8.5.4p1's list standing where an *operand* does, which
+`clause_of` answers the moment the place's type is threaded to
+`operand_constant`.  Both refuse programs the assignment asks the compiler to
+translate, and `pa21/cppgm++-ref` refuses both itself, so g++ is the oracle and
+the course fixtures have to be written around what the reference will not
+translate.  **D'** is the cheapest row beside them and is one walker's.
 
 ## Performance Model
 
@@ -402,12 +411,15 @@ nesting sweep over the elided shapes, and a valgrind pass.
 | a clause 8.5.1p11 has to place | one `elides_its_braces` per level of a nesting, which reads the clause standing there with a scratch-node probe — so the cost is the depth times that one clause and carries no term in the clauses below it. The fold asks it beside the analysis rather than instead of it, so a `constexpr` object of such a nesting pays the product twice | (re-measured at the E audit) a class nested 10 / 40 / 80 deep whose first clause is a 1600-term expression: 0.09 / 0.33 / 0.65s at 26 / 78 / 148 MB, and at depth 40 with 400 / 1600 terms 0.08 / 0.33s — linear in each, not 2^depth. The same declaration with no `constexpr` is 0.33s at 78 MB at depth 80, which is the analysis's half of it; the reference refuses the shape |
 | a cast, and the temporary a reference binds | one type test per cast at the two exits both spellings come through, and one conversion where 8.5.3p5's temporary is of a type the value is not already at — neither reads an operand twice | 400 / 1600 / 6400 casts to cv `void`: 0.00 / 0.02 / 0.10s at 7 / 11 / 28 MB; the same count in 5.2.3p1's functional notation: 0.01 / 0.04 / 0.17s at 8 / 15 / 44 MB |
 | a union a constant expression holds | one `one_storage` test per object built, and a list that stops at the member 8.5.1p15 initialized — so a union costs less than the aggregate beside it rather than more, and a read of any other member is refused where it is read | 400 / 1600 / 6400 constant unions read back by a `static_assert`: 0.01 / 0.05 / 0.24s at 9 / 16 / 47 MB (ref 0.73s at 1600) |
+| a terminal's place in the source | one `std::uint32_t` per terminal and one region per `#include` that changed which file the reading was in, so the record is built beside the two the stream already keeps and costs one comparison per token; the line and the column are counted at the reader, so a unit with n local statics pays n binary searches and not one per terminal | a 1.25 MB unit of 20000 functions: 1.48 / 1.49 / 1.47s at 352.9 MB against 1.48 / 1.48 / 1.44s at 351.2 MB without the record - +1.9 MB and +2%, and the LowIR byte-identical. Two units sharing a header name one object each, at the header's own place and not the including unit's |
+| the literal an array element was copied from | one interned `@__strlit__` per distinct (element width, code units), asked once per element the copy fills and by both walkers - the image's and the body's - so a literal written n times is one object and n map probes | 500 / 2000 / 8000 string-literal clauses of an array of arrays: 0.00 / 0.02 / 0.09s at 7.6 / 11.2 / 27.1 MB, linear in clauses and 10 objects throughout because only ten of them are distinct. The same nested 8 / 16 / 32 deep: 0.00s at 6.3 / 6.4 / 6.8 MB - flat in depth |
 | a branch hint | one `reserved_function` probe per callee name the ordinary lookup found nothing of, and one declaration for the unit however many calls name it; a call of it is its first operand read as 5.2.2p10's prvalue and no boundary at all, so nothing is declared, ranked or emitted twice | byte-identical to the reference at every lowering shape probed, one unit and two |
 
 ## Completed Checkpoints
 
 | # | Checkpoint | Result |
 |---|---|---|
+| L | **The place in the source a terminal stands at, and the three names that read it.** Phase 3 puts a byte offset on every preprocessing-token and phase 4 locates a macro's output at the invocation, so where a terminal was *written* is a fact the stream can keep for four bytes: `SourcePositionTable` is that record, one offset per terminal beside one region per `#include`, with the line and column counted at the reader.  It is what two units reading one shared definition agree on where the terminals they read differ, so 3.7.1p3's block-scope `static` of an `inline` function, of a member function and of a specialization is named `source<hex " at file:line:col">` and not by a per-unit counter - and 14.7's specialization, whose two instantiations stand at *one* place, is told from its siblings by the object-file name the ABI already gives it rather than by a spelling that flattens `value<1>` and `value<2>` together.  13.1's overloads and 13.5's `operator+` need neither, because the place already tells them apart, and g++ says the explicit specialization this build calls one unit's is one unit's.  Beside it two sentences about what an initialization leaves behind: 2.14.5p8's literal is an object wherever 8.5.2p1 copies it into an *element* of an array, which the copy is otherwise the last thing naming - so `units_of` hands the code units back and the image's walker and the body's each lay it out; and 3.2p2 makes a constructor a *friend defined in a class* calls a use of it, which is the one body 11.3p6 leaves the walk reading whether or not the definition is itself used.  Three course fixtures pin the three. | 162 → 166 (169) |
 | E audit | `bc25598c`, 4 blockers: 5.2.3p1 makes `int((void)0)` the same construct as `(int)((void)0)` and the refusal stood at the second alone, so the functional notation **translated** it into `convert zext i32 void`, an instruction with no operand, and a const reference bound to it — the reading now stands at `cast_conversion` and `cast_to_reference`, the two exits both spellings share; 8.5.2p1's units are written by a reading that opens the list itself, so a mem-initializer written `: s{"ab"}`, whose caller had opened one already, left them under a node *inside* the list and the constructor stored `'a'` and three zeroes where both oracles store `'a', 'b'`; `object_of` padded a union's list back out to every member with 8.5.1p7's tail, which is the sentence `aggregate_constant` had just stopped for, so `constexpr U u = {5}; u.b` **folded to 0.0** where both oracles refuse the read; and 8.5.3p5's temporary was laid out at the operand's width rather than the referenced type's, so `const long &r = __builtin_expect(6, 0)` named four bytes and read eight. Four course fixtures pin them. See [audit.md](audit.md). | 158 → 162 |
 | E | **The clauses a subaggregate takes out of the list.** 8.5.1p2 is written about the *subobjects*, so the fold's walk goes down the object with one cursor and not one clause per step: `aggregate_constant` is that walk, `subobject_constant` is one step of it, and `list_constant` is where the two questions only the braces' own place can answer stand — 8.5.2p1's string literal for a whole array of character type and 8.5.1p6's clause that reached no subobject. All four places a list stands ask it: a declaration's initializer, a clause of an enclosing list, 12.6.2p2's mem-initializer (braces there list-initialize an aggregate rather than passing 13.3.1.3's arguments) and 12.6.2p8's brace-or-equal-initializer, whose 8.5.2p1 door the *analysis* had not got either. 8.5.1p11's own question about a subobject of class type is `elides_its_braces` borrowed from the analysis rather than restated, and for an array it is the whole of the answer. Beside it two sentences about what is not a value: 5.2.9p4's cast to cv `void` is a discarded-value expression — evaluated, holding nothing — and a cast of a `void` operand to anything else is refused where both oracles refuse it and this build accepted it; and 1.4p8's `__builtin_expect` is `long (long, long)`, declared by the one `reserved_function` door `callee_candidates` now asks too, folded to its first operand and lowered as that operand with no call boundary, byte-identical to the reference. Three course fixtures pin the three. | 154 → 158 (162) |
 | M audit | `8a154542`, 2 blockers: 5.1.1p13's third bullet is about an *unevaluated operand* and the depth was taken at `sizeof`'s door alone, so `decltype(S::first + 0)` and `noexcept(S::first)` were each **refused** with a diagnostic about `this` — the sentence group U exists to say does not apply — where g++ translates both and `pa21/cppgm++-ref` refuses them itself, so g++ is the oracle and the fixture stays written over `sizeof`; and 14.6p8's stand-in is an `int` of 1 whatever the call returns, so a place that reads *through* it runs out — 7.2p1's enumerator, 7p4's `static_assert`, 14.3.2p5's template argument, 9.6p1's bit-field width and 7.6.2p1's alignment-specifier each **refused** `make().v` for a `make` the pattern declares, one line from a bound that already folded it, because checkpoint A's audit carried the answer on the value a reading arrived at and only `array_bound` also caught the refusal. `ConstexprReading::counted_where` is now the one reading all four places that count ask, taken where the expression stands, and 7p4 and 14.3.2p5 ask the same question at their own doors. Two course fixtures pin both sides. See [audit.md](audit.md). | 152 → 154 (159) |

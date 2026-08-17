@@ -74,7 +74,12 @@ void emit_lowir(const std::string& outfile,
 		// hold - so the arena that owns the nodes travels with the tree.
 		analyzer.set_expressions(arena);
 		analyzer.run(*root);
-		builder.add_unit(analyzer.resolved(), analyzer.types());
+		// 3.7.1p3: a block-scope `static` of a definition every unit may hold
+		// is one object of the program, and no program spells a name that
+		// reaches it - so what two units naming it agree on is where in the
+		// source it was written, which is the record the stream kept.
+		builder.add_unit(analyzer.resolved(), analyzer.types(),
+		                 &tokens.positions());
 	}
 	builder.finish();
 	// The PA13 validator also holds a program to the runtime roles a linked

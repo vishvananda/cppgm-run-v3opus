@@ -1,0 +1,95 @@
+global @__strlit__1 [binding=internal] = {
+  i8 97
+  i8 98
+  i8 0
+}
+global @__strlit__2 [binding=internal] = {
+  i8 99
+  i8 100
+  i8 0
+}
+global @__strlit__3 [binding=internal] = {
+  i8 101
+  i8 0
+}
+global @held [binding=internal, object=_ZL4held] = {
+  i8 104
+  i8 0
+}
+global @__local_static__rows__nested__tokens32_45 [binding=internal] = {
+  i8 97
+  i8 98
+  i8 0
+  i8 99
+  i8 100
+  i8 0
+}
+global @__local_static__rows__whole__tokens63_69 [binding=internal] = {
+  i8 102
+  i8 103
+  i8 0
+}
+
+function @rows() -> i32 [binding=strong, object=_Z4rowsv] {
+  slot $here : obj<2x1>
+
+  block ^entry:
+    %t1 = addr $here
+    store i8 101, %t1
+    %t2 = index i8 %t1, 1
+    store i8 0, %t2
+    %t3 = addr @__local_static__rows__nested__tokens32_45
+    %t4 = unary decay ptr %t3
+    %t5 = binary mul i64 1, 3
+    %t6 = index i8 [projection=array_element] %t4, %t5
+    %t7 = index i8 [projection=array_element] %t6, 1
+    %t8 = load i8 %t7
+    %t9 = addr $here
+    %t10 = unary decay ptr %t9
+    %t11 = binary mul i64 0, 2
+    %t12 = index i8 [projection=array_element] %t10, %t11
+    %t13 = index i8 [projection=array_element] %t12, 0
+    %t14 = load i8 %t13
+    %t15 = convert sext i32 i8 %t8
+    %t16 = convert sext i32 i8 %t14
+    %t17 = binary add i32 %t15, %t16
+    %t18 = addr @__local_static__rows__whole__tokens63_69
+    %t19 = unary decay ptr %t18
+    %t20 = index i8 [projection=array_element] %t19, 1
+    %t21 = load i8 %t20
+    %t22 = convert sext i32 i8 %t21
+    %t23 = binary add i32 %t17, %t22
+    %t24 = addr @held
+    %t25 = index i8 [projection=field] %t24, 0
+    %t26 = unary decay ptr %t25
+    %t27 = binary mul i64 0, 2
+    %t28 = index i8 [projection=array_element] %t26, %t27
+    %t29 = index i8 [projection=array_element] %t28, 0
+    %t30 = load i8 %t29
+    %t31 = convert sext i32 i8 %t30
+    %t32 = binary add i32 %t23, %t31
+    return i32 %t32
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $cond__1 : i32
+
+  block ^entry:
+    %t1 = call i32 @rows()
+    %t2 = binary add i32 100, 101
+    %t3 = binary add i32 %t2, 103
+    %t4 = binary add i32 %t3, 104
+    %t5 = cmp eq i32 %t1, %t4
+    branch %t5, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t6 = load i32 $cond__1
+    return i32 %t6
+}

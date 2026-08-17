@@ -101,6 +101,43 @@ private:
 	std::vector<Region> regions_;
 };
 
+// 2.2p1 and 16.3: the place in the source each terminal was written at.
+//
+// A place is a file and a byte offset into it, and the two are recorded the
+// two ways they change: the file changes once per `#include`, which is the run
+// encoding `IncludeTable` and `PackTable` already use, and the offset changes
+// at every terminal, which is one `std::uint32_t` beside each.  The line and
+// column a reader wants are counted off the file where they are asked for,
+// because only a handful of terminals are ever asked about and every one of
+// them would otherwise be counted for.
+class SourceFile;
+
+class SourcePositionTable
+{
+public:
+	bool empty() const { return offsets_.empty(); }
+
+	// Records that the reading is in `file` from `begin` on.  Positions arrive
+	// in stream order.
+	void open(std::size_t begin, const SourceFile* file);
+	// Records the place of the next terminal.
+	void append(std::size_t offset);
+
+	// "file:line:column" of the terminal at `index`, or an empty string where
+	// the stream recorded no place for it.
+	std::string text_at(std::size_t index) const;
+
+private:
+	struct Region
+	{
+		std::size_t begin;
+		const SourceFile* file;
+	};
+
+	std::vector<Region> files_;
+	std::vector<std::uint32_t> offsets_;
+};
+
 // The terminals of one translation unit, with the spellings the dump needs.
 //
 // PA10 spells a name back out in several places - a template-id, a qualified
@@ -150,6 +187,9 @@ public:
 	// 2.2p1: which tokens this unit's own source wrote, by position.
 	const IncludeTable& sources() const { return sources_; }
 
+	// Where in the source each terminal was written, by position.
+	const SourcePositionTable& positions() const { return positions_; }
+
 	// The characters of a narrow string literal, as phase 7 decoded them.
 	// False for every other token.  One rule - the language a
 	// linkage-specification names - wants a literal's value rather than its
@@ -158,7 +198,7 @@ public:
 
 private:
 	std::uint32_t intern(const std::string& text);
-	void append(unsigned type, const std::string& text);
+	void append(unsigned type, const std::string& text, std::size_t offset);
 	// The whole stream written out, which every spelling of a range is a
 	// substring of.  Made once, where the last terminal has arrived.
 	void spell_stream();
@@ -170,6 +210,7 @@ private:
 	std::vector<std::size_t> spelled_at_;
 	PackTable packs_;
 	IncludeTable sources_;
+	SourcePositionTable positions_;
 	std::vector<std::string> pool_;
 	std::unordered_map<std::string, std::uint32_t> interned_;
 	// By token index, for the string literals only: most tokens have no value

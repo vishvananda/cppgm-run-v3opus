@@ -62,6 +62,16 @@ public:
 	// writes or one every unit including that header also holds.
 	std::size_t source_depth() const { return open_.size(); }
 
+	// The file the reading is in, which is the file the byte offset a token
+	// carries is an offset into.  It is a fact of a *position* the same way
+	// the two above are, and for the same reason: a file is opened before the
+	// first token of it arrives and stays open until the token after its last
+	// is wanted.
+	const SourceFile* current_source() const
+	{
+		return open_.empty() ? nullptr : open_.back()->source;
+	}
+
 protected:
 	void run_directive_line(const MacroToken* begin, const MacroToken* end) override;
 	bool pop_source() override;

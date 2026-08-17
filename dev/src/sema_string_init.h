@@ -1,5 +1,6 @@
 #pragma once
 
+#include <string>
 #include <vector>
 
 #include "type_model.h"
@@ -62,8 +63,12 @@ public:
 	// is the whole of the reading where nothing is being written out - a
 	// constant expression holds the elements as values and lays no line down,
 	// so it asks this one question and interns the list itself.
+	// `literal`, where it is given, takes the code units of the literal itself
+	// - 2.14.5p8's object, which exists whether or not the copy 8.5.2p1 makes
+	// of it leaves anything naming it.
 	bool units_of(TypeId array, const AstNode& written, const SemaContext& ctx,
-	              std::vector<unsigned long long>& units);
+	              std::vector<unsigned long long>& units,
+	              std::string* object = nullptr);
 
 private:
 	StringInitialization(const StringInitialization&);
