@@ -339,6 +339,7 @@ SemaEntity& SemaModel::create(SemaKind kind, const std::string& name, TypeId typ
 	entity.explicit_specialization = false;
 	entity.definition_required = false;
 	entity.instantiated_definition = false;
+	entity.member_specialized = false;
 	entity.storage_demanded = false;
 	entity.reached_at = 0;
 	entity.template_arguments = 0;

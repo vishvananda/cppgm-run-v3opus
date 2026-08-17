@@ -417,11 +417,16 @@ void Specialization::supersede(SemaEntity& function)
 //
 // `instantiated` says which definition this is: one 14.7.1p1 read from the
 // template's own, or one the program wrote out for exactly these arguments.  The
-// second is 14.7.3p1's, and it makes the initializer a fact of the definitions
-// rather than of the member - so the value the pattern wrote is no longer one
-// every specialization of this member was initialized with, and neither the
-// specializations already made nor the ones made after it may be read as
-// constants.  The one the program wrote keeps its own.
+// second is 14.7.3p1's, and it makes *which definition an argument list is read
+// from* a question the program answers rather than the template - so a use of a
+// specialization the pattern was read for reads the object 9.4.2p2's definition
+// laid out and not the value that reading folded.  The one the program wrote is
+// this unit's own definition, exactly as `supersede` leaves a function's.
+//
+// 5.19p2 is untouched by any of that: what a specialization's member is worth is
+// what its own definition initialized it with, so `code<char>::value` is the
+// integral constant expression it was before the program wrote a `template<>`
+// for `code<int>::value`, and an array bound and a template argument each read it.
 //
 // The template is reached from the class the member belongs to, and the walk is
 // over the specializations that class's template already has - once per
@@ -440,12 +445,11 @@ void Specialization::note_object(SemaEntity& member, bool instantiated)
 	if (instantiated)
 	{
 		// 14.7.1p1: this is the template's definition read again for one argument
-		// list, so it is a constant only while it is the only definition of the
-		// member the unit has.
+		// list, so a use of it is a read of the object while any other list has a
+		// definition the program wrote.
 		if (info.explicit_members.find(member.name) != info.explicit_members.end())
 		{
-			member.constant = false;
-			member.covered_constant = false;
+			member.member_specialized = true;
 		}
 		return;
 	}
@@ -473,8 +477,7 @@ void Specialization::note_object(SemaEntity& member, bool instantiated)
 			: analyzer_.model_.find(*made->scope, member.name, LookupKind::Any);
 		if (held != nullptr && held != &member && held->instantiated_definition)
 		{
-			held->constant = false;
-			held->covered_constant = false;
+			held->member_specialized = true;
 		}
 	}
 }

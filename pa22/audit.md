@@ -15,94 +15,107 @@ place is, and which declaration a list selects.
 | M | `d2e26a4d` | 6 / 6 + 6 recorded | **the two facts 12 writes about a special member, read off the template and never off the declaration one argument list makes - and the class 12.1's second entry point is owed by.**  Checkpoint M, M2 and the M audit gave a head over a constructor and over a conversion function the class's own declaration, at all four exits it can be written at, and 14.5.6.1p5 is what matches a definition to it.  The declaration side is right and swept clean: 30 shapes over those four exits - value places, packs, defaults, nests, `const`, a base's, a mem-initializer, an out-of-class definition that renames its place - translate and run the value `g++` gives them.  What none of it carried is what 12 says about the *declaration*: `specialize` copied `object_member`, `access` and M2's `special` and left 12.3.1p2's `explicit` and 8.4.3's `= delete` default-constructed, so `only_direct a = 3` and a call of a deleted constructor template were two programs both oracles refuse and this build accepted.  12.3.2p1's conversion function template was landed and **unreachable**: 13.3.1.5p1's candidate set held the template, whose result type is a place, so `int k = a;` was `an expression has no conversion to the type it initialises` where both oracles translate it - the ref binary's own refusal of `a.operator int()` had been recorded as the whole of the gap and it was the *named* exit alone.  The ABI wrote such a specialization's name from the substituted type, `_ZN1AcviIiEEv` against the `_ZN1AcvT_IiEEv` `g++` and the reference both write, at the one of `build_function_name`'s three readings `templated` had not been threaded to.  And a constructor template reached only through a base subobject wrote both of 12.1's entry points where the reference writes one: `writes_base_entry` asked whether the *function* is an instantiation, which for a special member is true on exactly this checkpoint's new surface and nowhere else |
 | D | `852d9e97` | 3 / 3 + 5 recorded | **the fact 8.3.5p7 made part of a function type's identity, asked by the match and by neither the name nor the object file - and the second implementation of 8.1p1's type-id, which is still missing one of 8.3's forms whole.**  Checkpoint D and D2 taught `SpelledTypeId` three of 8.3.5's rules, made 14.3.2p1's value at a dependent place a settled constant over the place, and settled four of 14.5.5's orderings.  Those rules are right and swept clean: 14 declarator forms, 10 function-type patterns, 7 value-place shapes and 6 pack shapes agree with `g++` and with `pa22/cppgm++-ref`, 14.8.2.5p5's non-deduced context is answered at the function tier too, and every dimension is linear or flat where the plan says it is.  What none of it carried is what the *other* readers of a function type do with the qualifier it had just made part of one: `abi_type`'s `<function-type>` wrote no `<ref-qualifier>` and `type_spelling` wrote neither it nor 8.3.5p1's cv-qualifier-seq after the clause, so `holder<int(char) const>` and `holder<int(char) const &>` were two specializations, one LowIR label and **one symbol** - `_ZN6holderIKFicEE1fEv` against the two the reference and `g++` both write - and a program that defines and calls both returned **22 where both oracles return 12**.  Beside it, 8.3.3p1's `nested-name-specifier *` was a ptr-operator this reading had never had, so `int C::*` read as a type-specifier-seq spelling `int C::` and five pointer-to-member spellings were type-ids this build refused and both oracles accept; and `match_run` took one pack place where `expand_type` and `substitute_entry` - the checkpoint's own other two readings of 14.5.3p4 - each read an expansion over as many as its pattern names, so `box<pr<A, B>...>` matched no list at all |
 | O | `bbe701cd` | 1 / 1 + 2 recorded | **which of a template's bodies a declarator-id names, asked at the tier a definition written at namespace scope reaches and written out at the tier the same commit opened beside it.**  Checkpoint O gave `TemplateInfo::Partial` what `info.current` already was - a class over its own head's places, read from its own body in its own region, keyed in `TemplateInfo::patterns` by the interned list that class carries - and taught 14.6p8's reading to record 14.5.2p1's member class template, so `outer<T>::inner` is a name the current instantiation declares and 14.5.2p3's own tier reads each further head against the class the one above it settled.  Those rules are right and swept clean: 20 out-of-class shapes over a pattern - a static data member, a constructor, a destructor, a nested class, a member function template, a conversion function, an operator, two-parameter patterns, a redeclaration that renamed its places, a use written before the definition, a namespace-qualified owner - translate and run the value `g++` gives them; the six mangled names a pattern's members are written by agree with `g++` and with `pa22/cppgm++-ref` byte for byte; every dimension is linear and depth is flat to 40, where the reference is OOM-killed at 32; and `valgrind` is clean over 57 inputs.  What none of it carried is that same question at the *nested* tier: `record_template` asks `Specialization::member_pattern` which body the arguments the declarator-id wrote name, and `PatternReading::read_declaration` - 14.5.2p3's own tier, opened by this checkpoint - wrote `Specialization::kNoPartial` outright, so a member of *any* partial specialization of a member class template defined outside its class was read against the primary's places, could not reach the class the program named, and came out as `f is written after a name that is not a namespace, class or enumeration`: `A<T>::in<U*>::f`, two patterns beside each other, one nested three heads deep and one under a partial specialization of the enclosing template are four programs `g++` and the reference both accept and this build refused.  Recorded rather than fixed: `pa22/cppgm++-ref` **accepts** those programs and emits a `declare function` for the member it never defines - `_ZN6holderIiE4slotIPcE5widthEv` is a symbol its own LowIR leaves undefined and `lowir2cy86` refuses - which is why the course fixture pins the reading and not the materialization; and the pattern a declarator-id writes that matches no body of the template it named is left to the primary at both tiers, where the refusal that follows is the declarator's rather than 14.5.5p1's own |
+| X | `0c922d29` | 1 / 1 + 5 recorded | **which definition of one member of one class specialization this unit holds, asked of the object file and of 5.19p2 - and answered for both by one flag that only the object file may read.**  Checkpoint X made 14.7.3p1's written definition replace 14.7.1p1's reading of the pattern rather than stand beside it: `SemaEntity::instantiated_definition` is written for a function under a new `instantiating_pattern_` depth, `supersede` drops the held body, `Pending::from_pattern` drops one already queued, and `require_replaceable` is that same rule at 12's three entry points.  Those rules are right and swept clean: a member function, a static data member, a constructor, a destructor, a conversion function, a member template of a written-out class, a pattern's member, a `template<>` declaration with no body and a redeclaration ahead of a definition all translate and run the value `g++ -pedantic-errors` gives them; 14.7.3p6's new refusal of a specialization written after the pattern was read agrees with `g++` where `pa22/cppgm++-ref` accepts; five scaling dimensions are linear to n = 800 and the members x specializations cross product to 6400 uses, where the reference is 21.27 s at n = 800 against 0.34 s; `valgrind` is clean over 31 inputs.  What none of it carried is that the *same* commit's other half answers a second question with the first one's field: `note_object` said "a use of this member reads the object rather than the value" by clearing `SemaEntity::constant`, which is 5.19p2's own answer - so `template<> const int code<int>::value = 7;` written anywhere in the unit made `code<char>::value` no constant expression at all, and `int arr[code<char>::value];` and `box<code<char>::value>` were two programs the reference, `g++` and the pre-X build all accept and this one refused with `code<char>::value is not a constant expression`.  The two answers part company at one site - `storage_of`, where the lowering writes the folded value beside the place - so the fact is `member_specialized` and 5.19p2 keeps its own.  Beside it, 12's three entry points queue their bodies through `open_special_member_body`, which set no `from_pattern` at all: a body 10.3p10's table demanded before the `template<>` was read is one `supersede` can no longer reach.  Recorded rather than fixed: an explicitly specialized static data member no use names is dropped where both oracles write it, because the object tier of `supersede` has to withdraw the *definition line* the pattern's reading already wrote and not just its mark; 14.7.3p14's declaration form - `template<> int code<int>::value;` with no initializer - is read here as a definition; `template<> int tag<int>::f();` reads the pattern's out-of-class definition where both oracles write a declaration, and the reference contradicts itself on the in-class spelling of it; one explicit class specialization written twice is accepted; and a `template<>` over a member *class* is refused here where both oracles accept and the reference then runs the wrong body |
 
 
 ## Current Checkpoint Review
 
-Checkpoint O is where a template stopped having one body. 14.5.5p1 leaves a
-class template holding the primary's and one per pattern written beside it, and
-14.6.1p1 gives *each* of them the class its own definition declares over its own
-places — so `TemplateInfo::Partial` got what `info.current` already was, keyed in
-`TemplateInfo::patterns` by the interned argument list that class already
-carries. Beside it, 14.6p8's reading learned to record 14.5.2p1's member class
-template, and 14.5.2p3's own tier reads each further head against the class the
-head above it settled.
+Checkpoint X is where a specialization stopped having two definitions of one
+member. 14.7.1p1 reads the template's own body again for every argument list and
+14.7.3p1 lets the program write one out for exactly one of them, so the written
+one *is* that member's definition and the read one is no second definition of
+anything — which is what `X is defined twice` had been. `explicit_functions` is
+keyed by a template and an argument list and a member of a class specialization
+has neither, so the answer lives on the declaration:
+`SemaEntity::instantiated_definition` is written for a function too, under a new
+`instantiating_pattern_` depth that tells 14.7.1p1's reading of a pattern from
+the class body `template<>` wrote; `Specialization::supersede` drops the held
+body and `Pending::from_pattern` drops one already queued; and
+`require_replaceable` is that one rule read at 12's three entry points.
 
-Those rules are right and each was written at the exits it has. Twenty
-out-of-class shapes over a pattern — a static data member, a constructor, a
-destructor, a nested class, a member function template, a conversion function, an
-operator, a two-parameter pattern beside two more, a redeclaration that renamed
-its places, a use written before the definition, a namespace-qualified owner —
-translate and run the value `g++ -pedantic-errors` gives them, and the six
-mangled names a pattern's members are written by agree with `g++` and with
-`pa22/cppgm++-ref` byte for byte. The reading is flat where the reference is
-exponential: a member class template nested 40 deep is 0.09 s and 16 MB here
-against 17.78 s and 7.99 GB at 24 and the OOM killer at 32 there.
+Those rules are right and each was written at the exits it has. Nine written
+shapes over a specialization — a member function, a static data member, a
+constructor, a destructor, a conversion function, a member template of a class
+the program wrote out, a member of a *pattern*, a `template<>` declaration with
+no body, and a declaration written ahead of its own definition — translate and
+run the value `g++ -pedantic-errors` gives them, and 14.7.3p6's new refusal of a
+specialization written after the pattern was already read for that list agrees
+with `g++` where `pa22/cppgm++-ref` accepts. Five dimensions are linear to
+n = 800 and the members × specializations cross product is linear in the 6400
+uses it writes; the reference is 21.27 s at n = 800 against 0.34 s here.
 
-What none of it carried is that the same question has a *second* exit, and that
-the same commit opened it: **which of a template's bodies a definition written
-outside the class belongs to is asked by `record_template` and written out by
-`PatternReading::read_declaration`, the nested tier beside it.**
+What none of it carried is that the same commit's other half answers a *second*
+question with the first one's field: **which definition an argument list is read
+from is the object file's question, and 5.19p2 asks its own — `note_object`
+answered both by clearing `SemaEntity::constant`.**
 
 ### Findings
 
-**1. A member of a partial specialization of a member class template was a
-definition of nothing.** `record_template` reaches an out-of-class definition
-written at namespace scope and asks `Specialization::member_pattern` which body
-the arguments its declarator-id wrote name. A *second* head does not reach it —
-14.5.2p3 leaves that declarator-id to `read_declaration`, which found the member
-template with `nested_owner` and then recorded against
-`Specialization::kNoPartial` outright:
+**1. A `template<>` for one list made every other list's member no constant
+expression.** `Specialization::note_object` implements the reference's own
+reading: `code<char>::value` is folded in generated code while the pattern's
+definition is the only one the unit has, and read out of the object once the
+program writes `template<> const int code<int>::value = 7;` beside it. It said
+so by writing `constant = false` and `covered_constant = false` onto every
+instantiated member of that name — and those two are 5.19p2's answer about the
+declaration, not the lowering's about a use:
 
 ```cpp
-template<class T> struct A {
-  template<class U> struct in { int f() { return 1; } };
-  template<class U> struct in<U*> { int f(); };
-};
-template<class T> template<class U> int A<T>::in<U*>::f() { return 2; }
+template<class T> struct code { static const int value; };
+template<class T> const int code<T>::value = 3;
+template<> const int code<int>::value = 7;
+int arr[code<char>::value];                      // ERROR: not a constant expression
 ```
 
-The definition joined the *primary* member template's `members`, was read
-against places that never bound `in<U*>`, and came out as `f is written after a
-name that is not a namespace, class or enumeration` — where `g++` and
-`pa22/cppgm++-ref` both accept. Four shapes were refused: this one, two patterns
-beside each other, one written three heads deep as `A<T>::in<U>::deeper<V*>::f`,
-and one under a partial specialization of the enclosing template. The fix is the
-`wrote` out-parameter `owner` already hands back for exactly this question,
-taken at the component `nested_owner` stopped walking at, and the same
-`member_pattern` call the other tier makes — one head and one argument list per
-definition of a member template that *has* patterns, and a test of an empty
-vector for every one that has none. 14.1p2's renamed places fall out of it,
-because what is compared is 14.5.6.1p5's signature: `in<K*>` defines the body
-`in<U*>` declared.
+`pa22/cppgm++-ref`, `g++ -pedantic-errors` and the pre-X build all accept it and
+all fold the bound to 3; `box<code<char>::value>` written as a template argument
+is the same refusal one door along. The two questions part company at exactly
+one site — `LowirFunctionLowering::storage_of`, where 9.4.2p3's value is written
+*beside* the place a use reads — so the fact the reading needs is its own,
+`SemaEntity::member_specialized`, and 5.19p2 keeps `constant` and the value it
+folded. The reference's fold-versus-load is unchanged by the fix:
+`spec/300-explicit-specialization-static-data-member` and every probe still load
+`code<char>::value` in a body and fold `code<int>::value`, and the pa19 fixture
+still folds where the unit writes no `template<>` at all.
+
+**2. 12's three entry points queue a body `supersede` cannot reach.**
+`function_definition` marks its queued body `from_pattern` and
+`open_special_member_body` — the one door a constructor's, a destructor's and a
+conversion function's body is queued through — marked nothing. A body still in
+`held_definitions_` is dropped by `supersede` either way, so the shapes the
+fixtures write are unaffected; a body 10.3p10's table demanded at the class's own
+completion is already in `pending_`, and the end of the unit would have written
+it beside the definition `require_replaceable` had just accepted. The mark is
+taken at the same depth `function_definition` reads.
 
 ### What the review confirmed rather than found
 
-- **The pattern's own current instantiation is the one class its body
-  declares.** `current_pattern` registers it under `partial.pattern` before the
-  body is read, so a recursive `complete_specialization` finds it; the primary's
-  is a different interned list because each head's places are distinct types.
-  A specialization the pattern's body itself names — `A<T*>` inside
-  `template<class T> struct A<T*>` — is that same entity and not a second one,
-  and `A` written bare inside it is the injected-class-name 14.6.1p1 binds.
-- **The current instantiation is on no `specializations` list.** `record`'s loop
-  over them would otherwise read a member definition against the places and
-  write it into the unit: probed through a body that names `A<T>` and requires
-  it complete, the emitted symbols are the specialization's alone.
-- **The `kNoPartial` fallback is not a success path.** A declarator-id writing a
-  pattern no body of the template has — `A<T*>::f` with no such pattern, `A<T* const>::f`
-  beside a `T*` one, `in<U&>::f` beside a `U*` one — falls to the primary at
-  both tiers and is then refused by the declarator reading, which is the answer
-  both oracles give. It is recorded because the refusal is the declarator's and
-  not 14.5.5p1's own.
-- **Nothing scans and nothing re-reads per element.** `member_pattern` reads one
-  head per definition, `nested_owner` walks the declarator-id once per head and
-  stops at the first component the region cannot settle, and `instantiate` asks
-  `TemplateInfo::chosen`, which is a hash lookup on a number the specialization
-  carries. Six dimensions are linear to n = 800 and depth is flat to 40.
+- **The two 14.7.3p1 refusals are still refusals.** Two written definitions of
+  one member, and two instantiated ones, are `is defined twice` here and in both
+  oracles; `require_replaceable` throws under `instantiating_pattern_ > 0`, which
+  is what keeps 14.5.4p1's second instantiation of a class defining a friend a
+  redefinition.
+- **The empty head parameterises nothing, at every exit.**
+  `template<> int tag<int>::id()` is 13.1's redeclaration, `template<> void
+  f<int>(int) {}` is still the function template's specialization, `template<>
+  struct A<int> {…}` still records its body, `template<> template<class U> int
+  box<void>::apply()` is still a member template, and `template<> struct A<int>;`
+  ahead of a definition is still accepted — five shapes over the one line X
+  changed in `read_template_head`.
+- **14.7.3p6's new refusal is bounded by what the unit read.** A forward
+  declaration of the specialization, and a use of a specialization the unit only
+  named, still reach the definition; `sizeof(A<int>)` and `A<int> a;` written
+  above it are refused, which is `g++`'s answer where the reference accepts.
+- **Nothing scans and nothing re-reads per element.** `note_object` walks the
+  specializations a template already has once per `template<>` definition of a
+  member, `supersede` erases one hash entry, `from_pattern` is one flag test per
+  definition written at the end of the unit, and `member_specialized` is one test
+  per use lowered. n specializations, n explicitly specialized members, n uses of
+  a superseded member and n specialized destructors are each linear to n = 800,
+  and n members × n specializations is linear in its own n² uses.
 - **No gate and no skipped work.** Neither the checkpoint's diff nor this
   audit's holds a `getenv`, a fixture name, a dialect switch keyed on anything
   but a dialect, a timeout or an environment read. `valgrind -q
-  --error-exitcode=9` is clean over 57 inputs, the six largest scaling ones
-  among them. Two `course/pa22` fixtures were generated by `pa22/cppgm++-ref`
-  and `g++ -pedantic-errors -x c++` agrees with both.
+  --error-exitcode=9` is clean over 31 inputs. The two `course/pa22` fixtures
+  were generated by `pa22/cppgm++-ref` and `g++ -pedantic-errors -x c++` agrees
+  with both.

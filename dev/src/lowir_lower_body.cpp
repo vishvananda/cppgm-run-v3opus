@@ -403,8 +403,14 @@ LowValue LowirFunctionLowering::storage_of(const SemaEntity& entity)
 	// that object, so the value is held *beside* the place rather than in place
 	// of it - which is the same thing an assignment leaves behind, and the same
 	// thing reading it back costs nothing.
+	//
+	// 14.7.3p1 is where that stops: a member one argument list of its template
+	// has a `template<>` definition of is read from whichever definition the
+	// program wrote for the list this name spelled, so a use of one the pattern
+	// was read for reads the object rather than the value that reading folded.
+	// 5.19p2 is a different question and keeps its own answer.
 	const TypeId bare = types.strip_cv(entity.type);
-	if (entity.constant && entity.region != nullptr &&
+	if (entity.constant && !entity.member_specialized && entity.region != nullptr &&
 	    entity.region->kind == ScopeKind::Class &&
 	    (types.cv(entity.type) & kCvVolatile) == 0 &&
 	    (types.is_integral(bare) || types.kind(bare) == TypeKind::Enum))

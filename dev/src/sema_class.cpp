@@ -797,6 +797,12 @@ void SemaAnalyzer::open_special_member_body(
 	pending.scope = &inner;
 	pending.parameters = parameters;
 	pending.initializers = child_of(node, AstKind::CtorInitializer);
+	// 14.7.3p1: 12's entry points are read from the pattern exactly as every
+	// other member is, so a body queued here is one a definition the program
+	// writes out for these arguments replaces - and a use that asked for it
+	// before that definition was written left this entry where the end of the
+	// unit reaches it, which is what the mark is read for there.
+	pending.from_pattern = instantiating_pattern_ > 0;
 	// 12.6.2p2: the members a mem-initializer-id may name are the class's, and
 	// this reading may stand a region below it - 14.5.2p1's head over a
 	// definition written outside the class, and 14.7.1p1's bindings a

@@ -663,6 +663,18 @@ struct SemaEntity
 	// specialization *is* that member's definition, so the body the pattern's
 	// reading put aside is dropped and this becomes false again.
 	bool instantiated_definition;
+	// 14.7.3p1 with 5.19p2: whether some argument list of the template this
+	// member belongs to has a definition of it the program wrote out.
+	//
+	// 5.19p2 still reads this declaration's own value - the pattern's
+	// initializer is what 14.7.1p1 initialized this specialization with, so a
+	// naming of it is an integral constant expression like any other, and
+	// `template<> const int code<int>::value = 6;` beside it says nothing about
+	// what `code<char>::value` is worth.  What it does say is which definition
+	// each argument list is read from, so a use written in a body reads the
+	// object 9.4.2p2's definition laid out rather than the value the fold has:
+	// the two answers part company here and nowhere else.
+	bool member_specialized;
 	// 3.2p3 with 14.7.1p1: whether an object of this class has already asked
 	// its static data members for the storage they stand in, which is one visit
 	// per class however many objects of it a unit lays out.

@@ -2436,10 +2436,11 @@ void SemaAnalyzer::declare_object_declarator(const AstNode* initializer,
 	// of it however it was written, so the one that defines it is the one
 	// written outside the class, which is the one whose declarator-id carries
 	// the nested-name-specifier that named the class.
+	const bool written_initializer =
+		initializer != nullptr && !initializer->children.empty();
 	const bool defines_object =
 		(target.scope->kind != ScopeKind::Class || spelled.qualified()) &&
-		(!specifiers.is_extern ||
-		 (initializer != nullptr && !initializer->children.empty()));
+		(!specifiers.is_extern || written_initializer);
 	entity.object_definition = entity.object_definition || defines_object;
 	// 14.7.1p1: a definition an instantiation read is one no unit wrote for
 	// these arguments, so the storage it lays out belongs to the program where
@@ -2447,11 +2448,10 @@ void SemaAnalyzer::declare_object_declarator(const AstNode* initializer,
 	// this unit's own, which is what tells the two apart here.
 	entity.instantiated_definition = entity.instantiated_definition ||
 		(defines_object && ctx.instantiated_member);
-	if (defines_object && initializer != nullptr &&
-	    !initializer->children.empty())
+	if (defines_object && written_initializer)
 	{
 		// 14.7.3p1: which definition of a static data member of a class template
-		// specialization this unit holds, and what that leaves 5.19p2 to read.
+		// specialization this unit holds, and what that leaves a use to read.
 		Specialization(*this).note_object(entity, ctx.instantiated_member);
 	}
 	// 10.4p2: a class with a pure final overrider has no objects, so the
