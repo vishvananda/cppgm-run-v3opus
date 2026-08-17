@@ -714,6 +714,31 @@ const DumpNode* LowirUnitLowering::global_image(
 	}
 	else if (written != nullptr && !global_initializer(global, *written, type))
 	{
+		std::string symbol;
+		long long addend = 0;
+		if (folded_object && !runs_a_call(*written) &&
+		    types_.kind(types_.strip_cv(type)) == TypeKind::Pointer &&
+		    folded_address(static_cast<std::uint32_t>(node.fact.entity->value),
+		                   symbol, addend))
+		{
+			// 5.19p2 read one type over: what a constant of pointer type came
+			// to is *which object* it designates and never a number, so where
+			// this second walk over the lines stops - a conditional that chose
+			// between two addresses - the analysis's own answer stands here
+			// exactly as it stands for a value.
+			//
+			// 5.2.2p1 is the one thing it does not stand for.  An initializer
+			// that holds a *call* is work the program runs however well 5.19
+			// folded it, which is the line this file draws for a clause of an
+			// aggregate and for an element of an array alike - and the line the
+			// reference draws too, so `by_default`, `from_return` and
+			// `through_conversion` each start as zero in both.
+			global.init_kind = lowir_model::GlobalDefinition::INIT_ADDR;
+			global.init_operand.kind = lowir_model::Operand::OP_GLOBAL;
+			global.init_operand.text = symbol;
+			global.addr_addend = addend;
+			return nullptr;
+		}
 		if (folded_object && valued_type(type))
 		{
 			// 3.6.2p2 with 5.19: which constant an initializer is is the
@@ -1361,10 +1386,77 @@ bool LowirUnitLowering::constant_image(lowir_model::GlobalDefinition& global,
 // 3.6.2p2 over the resolved tree: the address a constant initializer names.
 // An entity is an address in itself, a cast leaves an address where it stood,
 // and pointer arithmetic over a constant moves it by whole elements.
+// 5.19p2: the object the *fold* came to, where the lines below the declaration
+// spell no address this walk can read - `true ? &one : &two`, a pointer
+// initialized from another constant one, a reference bound where a name stands.
+// A constant of pointer type holds the identifier its object was interned
+// under, so the answer is that entry read back: the declaration whose storage
+// it is, or 2.14.5p8's literal, and the path down to the subobject designated.
+//
+// 3.7.3 and 5.19p2 bound it: an image may name only an object with static
+// storage duration, and 12.2p1's temporary is named by nothing at all.  So does
+// the path: 5.19 answers *which object*, and which byte of it a subobject
+// stands at is 9.2p13's and 8.3.4p6's layout answered where the lines spell the
+// step - `numbers + 1` is one this walk reads and writes as an addend, and
+// `&numbers[2]` is one it does not, which is the line the reference draws too
+// and what `300-the-array-an-operator-is-written-on` pins.
+bool LowirUnitLowering::folded_address(std::uint32_t held, std::string& symbol,
+                                       long long& addend)
+{
+	if (addresses_ == nullptr || held == 0)
+	{
+		return false;
+	}
+	const ConstantAddress& address = addresses_->at(held);
+	if (address.automatic || address.past_end || address.temporary != kNoType)
+	{
+		return false;
+	}
+	if (!address.path.empty() || address.object == nullptr)
+	{
+		return false;
+	}
+	if (address.object->kind == SemaKind::Function)
+	{
+		symbol = function_symbol(*address.object);
+		declare_entity(*address.object);
+		return true;
+	}
+	if (address.object->region == nullptr ||
+	    address.object->region->kind != ScopeKind::Namespace)
+	{
+		return false;
+	}
+	symbol = global_symbol(*address.object);
+	declare_entity(*address.object);
+	addend = 0;
+	return true;
+}
+
 bool LowirUnitLowering::global_address(const DumpNode& node,
                                        std::string& symbol, long long& addend)
 {
 	const SemaFact& fact = node.fact;
+	if (fact.constant && fact.value != 0 &&
+	    types_.kind(types_.strip_cv(fact.type)) == TypeKind::Pointer &&
+	    folded_address(static_cast<std::uint32_t>(fact.value), symbol, addend))
+	{
+		// 5.19p2: the fold already answered *which object* this initializer
+		// designates, and a constant of pointer type holds nothing else - so
+		// the walk below is what spells an address the analysis did not fold,
+		// and this is the answer it did.
+		return true;
+	}
+	if (fact.kind == FactKind::Id && fact.entity != nullptr &&
+	    fact.entity->constant && fact.entity->value != 0 &&
+	    types_.kind(types_.strip_cv(fact.entity->type)) == TypeKind::Pointer &&
+	    folded_address(static_cast<std::uint32_t>(fact.entity->value), symbol,
+	                   addend))
+	{
+		// 3.2p2: the name reaches a declaration whose own fold came to an
+		// address, which is the same answer read one declaration along.
+		return true;
+	}
 	if (fact.kind == FactKind::Cast && node.children.size() == 1)
 	{
 		return global_address(*node.children[0], symbol, addend);

@@ -64,6 +64,10 @@ public:
 	// carrying the typed facts of `SemaFact`; the table answers what a type is.
 	const DumpNode& resolved() const { return model_.unit(); }
 	TypeTable& types() { return types_; }
+	// 5.19p2: the pool the identifier a constant of pointer type carries
+	// indexes into, which is what says *which object* an address constant
+	// designates.
+	AddressTable& addresses() { return model_.addresses(); }
 
 private:
 	// 6.6.1, 6.6.3, 12.2p3 and 14.6p8: what one reading of a function body and

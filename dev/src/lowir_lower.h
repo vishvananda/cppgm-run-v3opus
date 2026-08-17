@@ -14,6 +14,7 @@ struct DumpNode;
 struct SemaEntity;
 class LowirFunctionLowering;
 class SourcePositionTable;
+class AddressTable;
 
 // 12.4p8 and 15.2p2: how many destructions a handler still writes out as the
 // destructions they are.  Each of them needs the ones behind it as its own
@@ -208,8 +209,13 @@ public:
 	// the source each terminal of that unit was written, which is what names a
 	// declaration no program spells a name for; it is the token stream's and
 	// may be null where the caller kept none.
+	// `addresses` is 5.19p2's own answer about an initializer of pointer type -
+	// *which* object it designates - which is the one thing no walk of the
+	// lines below a declaration can work out for itself, because a constant of
+	// pointer type holds an interned identifier and not a number.
 	void add_unit(const DumpNode& unit, TypeTable& types,
-	              const SourcePositionTable* positions = nullptr);
+	              const SourcePositionTable* positions = nullptr,
+	              const AddressTable* addresses = nullptr);
 
 	// Closes what the program as a whole owns, which is the initialization
 	// 3.6.2 gives the objects no constant initializes.
@@ -290,7 +296,8 @@ class LowirUnitLowering
 {
 public:
 	LowirUnitLowering(TypeTable& types, LowirProgramBuilder& builder,
-	                  const SourcePositionTable* positions = nullptr);
+	                  const SourcePositionTable* positions = nullptr,
+	                  const AddressTable* addresses = nullptr);
 	~LowirUnitLowering();
 
 	void run(const DumpNode& unit);
@@ -575,6 +582,13 @@ private:
 	                        const DumpNode& action, unsigned long long base,
 	                        unsigned long long& at,
 	                        const BoundArguments* outer = nullptr);
+	// 5.19p2: the symbol and addend the *fold's* own answer names, where the
+	// initializer came to an address this walk cannot re-read off the lines -
+	// a conditional that chose between two of them, another constant pointer's
+	// value, 2.14.5p8's literal.  False where the object it designates is one
+	// no image may name.
+	bool folded_address(std::uint32_t held, std::string& symbol,
+	                    long long& addend);
 	// 12.6.2p2: which member of class type the constructor call a
 	// mem-initializer wrote builds, which is the object that call stands on.
 	static const SemaEntity* constructed_member(const DumpNode& action);
@@ -749,6 +763,10 @@ private:
 	// two units reading one shared definition do agree on.  Null where the
 	// caller kept no such record, and then the counter above stands in.
 	const SourcePositionTable* positions_;
+	// 5.19p2: the pool the identifier a constant of pointer type carries
+	// indexes into.  Null where the caller kept none, and then an image is owed
+	// only where the lines below the declaration spell the address themselves.
+	const AddressTable* addresses_;
 	// 12.4p8: the body that ends every element of one array, against the symbol
 	// the array was laid out under.
 	std::unordered_map<std::string, std::string> destruction_entries_;

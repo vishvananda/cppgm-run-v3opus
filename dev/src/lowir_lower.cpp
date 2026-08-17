@@ -82,7 +82,8 @@ LowirProgramBuilder::LowirProgramBuilder()
 
 LowirUnitLowering::LowirUnitLowering(TypeTable& types,
                                      LowirProgramBuilder& builder,
-                                     const SourcePositionTable* positions)
+                                     const SourcePositionTable* positions,
+                                     const AddressTable* addresses)
 	: types_(types)
 	, builder_(builder)
 	, program_(builder.program_)
@@ -93,6 +94,7 @@ LowirUnitLowering::LowirUnitLowering(TypeTable& types,
 	, shutdown_(nullptr)
 	, strings_(builder.strings_)
 	, positions_(positions)
+	, addresses_(addresses)
 {}
 
 LowirUnitLowering::~LowirUnitLowering()
@@ -423,9 +425,10 @@ const std::string& LowirUnitLowering::object_symbol_of(const SemaEntity& entity,
 }
 
 void LowirProgramBuilder::add_unit(const DumpNode& unit, TypeTable& types,
-                                   const SourcePositionTable* positions)
+                                   const SourcePositionTable* positions,
+                                   const AddressTable* addresses)
 {
-	LowirUnitLowering lowering(types, *this, positions);
+	LowirUnitLowering lowering(types, *this, positions, addresses);
 	lowering.run(unit);
 }
 

@@ -78,8 +78,11 @@ void emit_lowir(const std::string& outfile,
 		// is one object of the program, and no program spells a name that
 		// reaches it - so what two units naming it agree on is where in the
 		// source it was written, which is the record the stream kept.
+		// 5.19p2: an initializer of pointer type came to *which object* it
+		// designates, and no spelling below the declaration holds that - so the
+		// pool those identifiers index into travels with the tree too.
 		builder.add_unit(analyzer.resolved(), analyzer.types(),
-		                 &tokens.positions());
+		                 &tokens.positions(), &analyzer.addresses());
 	}
 	builder.finish();
 	// The PA13 validator also holds a program to the runtime roles a linked
