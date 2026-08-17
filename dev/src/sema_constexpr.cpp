@@ -1504,6 +1504,22 @@ SemaConstant ConstexprReading::entity_constant(SemaEntity& entity,
 			stood.bits = 1;
 			return stood;
 		}
+		if ((entity.kind == SemaKind::Variable ||
+		     entity.kind == SemaKind::Parameter) &&
+		    analyzer_.types_.kind(analyzer_.types_.strip_cv(entity.type)) ==
+		        TypeKind::Array)
+		{
+			// 4.2p1: a name of array type is one no reading takes a *value* out
+			// of - `int numbers[4];` has none for a fold to wait on, and every
+			// operand position it may stand at converts it to the address of
+			// its first element before looking at it.  So what the name is
+			// worth is which object it is, exactly as `static int n;` is, and
+			// the conversion is each reader's: `numbers + 1`, `1 + numbers`,
+			// `numbers != other`, `!numbers`, `*numbers` and `numbers[2]` are
+			// one sentence asked at one door, and 8.3.2p1's binding of a
+			// reference to the array reads the same object without it.
+			return held_at(designated_entity(entity, spelling));
+		}
 		// 5.19p2 asked of a declaration whose own initializer this reading ran
 		// out on is the same running out one name further along: `constexpr
 		// char text[] = "ab";` holds a value 5.19 has and this build has not,
@@ -1575,8 +1591,10 @@ SemaConstant ConstexprReading::unary_constant(const AstNode& node,
 	if (node.token == OP_STAR)
 	{
 		// 5.3.1p1: the unary `*` names the object its operand points to, whose
-		// value is what the expression is worth where one is asked for.
-		return loaded(pointed_object(given));
+		// value is what the expression is worth where one is asked for.  4.2p1
+		// stands in front of it, because `*numbers` is written on the array and
+		// read through the pointer its first element has.
+		return loaded(pointed_object(decayed_operand(given)));
 	}
 	if (node.token == OP_LNOT)
 	{

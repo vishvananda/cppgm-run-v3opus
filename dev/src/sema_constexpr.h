@@ -482,9 +482,6 @@ private:
 	std::uint32_t pointed_object(const SemaConstant& value);
 	std::uint32_t array_object(const AstNode& node, const SemaContext& ctx,
 	                           bool value_fallback);
-	// 4.2p1: whether `spelling` names a declaration of array type, which is the
-	// one operand of a subscript that holds no pointer value to read.
-	bool named_array(const std::string& spelling, const SemaContext& ctx) const;
 	std::uint32_t advanced(std::uint32_t address, long long step);
 	long long address_distance(std::uint32_t left, std::uint32_t right);
 

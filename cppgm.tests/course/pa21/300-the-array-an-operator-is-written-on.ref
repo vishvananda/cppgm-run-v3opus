@@ -1,0 +1,86 @@
+global @numbers [binding=strong, object=_Z7numbers] = {
+  i32 1
+  i32 2
+  i32 3
+  i32 4
+}
+global @other [binding=strong, object=_Z5other] = {
+  i32 5
+  i32 6
+  i32 7
+  i32 8
+}
+global @stepped : ptr [binding=internal, object=_ZL7stepped] = addr @numbers + 4
+global @mirrored : ptr [binding=internal, object=_ZL8mirrored] = addr @numbers + 4
+global @element : ptr [binding=internal, object=_ZL7element] = zero
+
+function @read_int(%at : ptr) -> i32 [binding=strong, object=_Z8read_intPKi] {
+  slot $at : ptr
+
+  block ^entry:
+    store ptr %at, $at
+    %t1 = load ptr $at
+    %t2 = load i32 %t1
+    return i32 %t2
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $total : i32
+  slot $cond__1 : i32
+
+  block ^entry:
+    store i32 0, $total
+    %t1 = load i32 $total
+    %t2 = load ptr @stepped
+    %t3 = call i32 @read_int(%t2)
+    %t4 = binary add i32 %t1, %t3
+    store i32 %t4, $total
+    %t5 = load i32 $total
+    %t6 = load ptr @mirrored
+    %t7 = call i32 @read_int(%t6)
+    %t8 = binary add i32 %t5, %t7
+    store i32 %t8, $total
+    %t9 = load i32 $total
+    %t10 = load ptr @element
+    %t11 = call i32 @read_int(%t10)
+    %t12 = binary add i32 %t9, %t11
+    store i32 %t12, $total
+    %t13 = load i32 $total
+    %t14 = addr @numbers
+    %t15 = unary decay ptr %t14
+    %t16 = binary mul i64 2, 4
+    %t17 = index i8 %t15, %t16
+    %t18 = call i32 @read_int(%t17)
+    %t19 = binary add i32 %t13, %t18
+    store i32 %t19, $total
+    %t20 = load i32 $total
+    %t21 = addr @other
+    %t22 = unary decay ptr %t21
+    %t23 = binary mul i64 3, 4
+    %t24 = index i8 %t22, %t23
+    %t25 = call i32 @read_int(%t24)
+    %t26 = binary add i32 %t20, %t25
+    store i32 %t26, $total
+    %t27 = load i32 $total
+    %t28 = cmp eq i32 %t27, 0
+    branch %t28, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t29 = load i32 $cond__1
+    return i32 %t29
+}
+function @__cppgm_init() -> void [role=init, binding=internal] {
+  block ^entry:
+    %t1 = addr @numbers
+    %t2 = unary decay ptr %t1
+    %t3 = index i32 [projection=array_element] %t2, 2
+    store ptr %t3, @element
+    return void
+}

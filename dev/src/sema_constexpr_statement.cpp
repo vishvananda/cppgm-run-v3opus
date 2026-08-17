@@ -124,8 +124,15 @@ bool ConstexprReading::truth(const SemaConstant& value)
 	// it is asked contextually and 5.19p3's other places are not.  4.12p1 makes
 	// the answer `bool`, so the conversion is what reads a floating value and
 	// this looks at the bits it left.
+	// 4.2p1 and 4.3p1 stand in front of it: the conversion 4p3 asks for is a
+	// standard conversion sequence, whose first step is the one an operand of
+	// array or function type takes wherever it is written - so `!numbers` and
+	// `numbers ? a : b` read the address of the first element and not a value
+	// the array has none of.
 	const TypeId to_bool = analyzer_.types_.fundamental(FT_BOOL);
-	return analyzer_.convert(at_arithmetic_place(value, to_bool, true), to_bool)
+	return analyzer_.convert(
+		       at_arithmetic_place(decayed_operand(value), to_bool, true),
+		       to_bool)
 		       .bits != 0;
 }
 

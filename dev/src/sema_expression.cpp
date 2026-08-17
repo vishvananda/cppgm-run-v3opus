@@ -584,7 +584,7 @@ SemaAnalyzer::Value SemaAnalyzer::named_value(const AstNode& node,
 			parent, spell(value.what, value.category, value.type, value.payload));
 		return value;
 	}
-	if (declared_constant && lowering() &&
+	if (declared_constant &&
 	    types_.kind(types_.strip_cv(entity.type)) == TypeKind::Pointer)
 	{
 		// 5.19p2: the other kind of constant such a member may be, and the one

@@ -1347,7 +1347,20 @@ bool LowirUnitLowering::global_address(const DumpNode& node,
 	if (!global_address(*node.children[0], symbol, addend) ||
 	    !folded(*node.children[1], count))
 	{
-		return false;
+		// 5.7p5: the operands of `+` are a pointer and an integer *in either
+		// order*, so an image is owed for `1 + numbers` exactly as for
+		// `numbers + 1`.  5.7p6's `-` takes the pointer on the left alone.
+		if (fact.op != OP_PLUS)
+		{
+			return false;
+		}
+		symbol.clear();
+		addend = 0;
+		if (!global_address(*node.children[1], symbol, addend) ||
+		    !folded(*node.children[0], count))
+		{
+			return false;
+		}
 	}
 	const long long step =
 		static_cast<long long>(count * types_.object_size(types_.target(pointer)));

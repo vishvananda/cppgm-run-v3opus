@@ -178,6 +178,11 @@ void SemaAnalyzer::enumerators(const AstNode& node, SemaEntity& entity,
 	unsigned long long next = 0;
 	unsigned long long widest = 0;
 	bool signed_values = false;
+	// 7.2p1: an enumerator that writes no constant-expression is worth the one
+	// before it plus one, so what this reading knows of it is what it knew of
+	// that one - a predecessor a value was stood in for leaves the successor
+	// just as unsettled, however well the arithmetic on the stand-in went.
+	bool settled = true;
 	for (std::size_t index = 0; index < node.children.size(); ++index)
 	{
 		const AstNode& child = *node.children[index];
@@ -203,6 +208,7 @@ void SemaAnalyzer::enumerators(const AstNode& node, SemaEntity& entity,
 			value = ConstexprReading(*this).counted(written);
 			negative = is_signed(written.type) &&
 				(value >> (width_of(written.type) - 1)) != 0;
+			settled = stood_in_ == stood;
 		}
 		next = value + 1;
 		// 7.2p5: the range of the enumeration is the values its enumerators
@@ -223,7 +229,7 @@ void SemaAnalyzer::enumerators(const AstNode& node, SemaEntity& entity,
 		// gives it, and the reading that stood one in arrived at none - so the
 		// enumerator carries no constant where the pattern stands and a name
 		// that reaches it stands a value in exactly as it does for a member.
-		enumerator.constant = checking_ == 0 || stood_in_ == stood;
+		enumerator.constant = checking_ == 0 || settled;
 		enumerator.covered_constant = enumerator.constant;
 		enumerator.value = value;
 		require_no_template_parameter(child.text, scope);
