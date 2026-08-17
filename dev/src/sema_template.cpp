@@ -5,6 +5,7 @@
 
 #include "ast_model.h"
 #include "ast_tokens.h"
+#include "sema_access.h"
 #include "sema_deduce.h"
 #include "sema_operator.h"
 #include "sema_pack.h"
@@ -529,6 +530,38 @@ const AstNode* friend_class_declared(const AstNode& declared)
 
 }
 
+// 14.7.3p1: the declarator-id a `template<>` head stands over.
+//
+// The head parameterises one declaration and the clause writes it in one of
+// three shapes: 8.4p1's function definition, 7p1's simple-declaration, and 12's
+// own node for a constructor, a destructor or a conversion function - which
+// carries the spelling its declarator-id wrote on the node itself.  Empty where
+// the declaration wrote no single declarator-id, which is a shape 14.7.3p1 says
+// nothing about.
+std::string SemaAnalyzer::specialized_declarator_id(const AstNode& declared)
+{
+	const AstNode* declarator = nullptr;
+	if (declared.kind == AstKind::FunctionDefinition)
+	{
+		declarator = declared.children.size() > 1 ? declared.children[1] : nullptr;
+	}
+	else if (declared.kind == AstKind::SimpleDeclaration)
+	{
+		const AstNode* const init = only_declarator(declared);
+		declarator = init == nullptr || init->children.empty()
+			? nullptr
+			: init->children[0];
+	}
+	else
+	{
+		return declared.text;
+	}
+	const AstNode* const id =
+		declarator == nullptr ? nullptr
+		                      : declarator_id(*declarator);
+	return id == nullptr ? std::string() : id->text;
+}
+
 // 14p1: records what a template-declaration parameterises rather than reading
 // it.  A class template declares no class until 14.7.1p1 instantiates one, so
 // the name the class-head wrote is bound in the region the template-declaration
@@ -569,7 +602,7 @@ bool SemaAnalyzer::record_template(const AstNode& node, const Context& ctx,
 	SemaEntity* granting = nullptr;
 	if (const AstNode* const elaborated = friend_class_declared(*declared))
 	{
-		granting = granting_class(ctx);
+		granting = Access(*this).granting_class(ctx);
 		if (granting == nullptr)
 		{
 			throw std::runtime_error("a friend declaration is written outside a "
@@ -778,6 +811,19 @@ bool SemaAnalyzer::record_template(const AstNode& node, const Context& ctx,
 			                         name + " write different numbers of "
 			                         "template parameters");
 		}
+		// 14.5.6.1p5: every declaration of one template writes equivalent
+		// template-parameter-lists.  A second head that declares the same number
+		// of places and not the same *places* - a value place where the first
+		// wrote a type place, or a template place whose own head accepts other
+		// arguments - redeclares nothing this name can stand for, and 14.1p2's
+		// merge of the defaults below would be reading one head's positions off
+		// another's.
+		if (!TemplateHead(*this).heads_equivalent(*entity->templated, head))
+		{
+			throw std::runtime_error("two declarations of the class template " +
+			                         name + " write template parameters that are "
+			                         "not equivalent");
+		}
 		if (define)
 		{
 			// 14.1p2: the parameter names of the definition are the ones its
@@ -866,6 +912,10 @@ bool SemaAnalyzer::record_explicit_specialization(const AstNode& declared,
 	if (declared.kind != AstKind::ClassSpecifier &&
 	    declared.kind != AstKind::ClassForwardDeclaration)
 	{
+		// 14.7.3p5: whatever this head stands over, it stands over a member of
+		// the class its declarator-id names - and a class the program wrote out
+		// for itself has none the pattern declared.
+		require_unspecialized_owner(specialized_declarator_id(declared), ctx);
 		// 14.5.1p1: what a `template<>` head wrote over an object is the
 		// specialization of a variable template, whose body is one
 		// init-declarator rather than a class body or a function body.
@@ -951,6 +1001,43 @@ bool SemaAnalyzer::record_explicit_specialization(const AstNode& declared,
 // body alone is what tells the two apart - `has_written_definition` reads the
 // mark, and a specialization named where no `template<>` wrote a body is a
 // declaration this unit writes and no instantiation of anything.
+// 14.7.3p5: the definition of an explicitly specialized class is unrelated to
+// the one a generated specialization would have had - its members need not have
+// the same names or types at all - so its members are defined the way a normal
+// class's are, and not with the `template<>` syntax.
+//
+// What the head would specialize is a member of the *pattern*, and a class the
+// program wrote out for these arguments has no member the pattern declared: the
+// body the class specifier wrote is the whole of it.  So the refusal is asked
+// of the class the declarator-id's nested-name-specifier names, which is the
+// same walk every other qualified declarator-id makes, and `explicit_classes`
+// is the fact the class tier already recorded for exactly this argument list.
+void SemaAnalyzer::require_unspecialized_owner(const std::string& written,
+                                               const Context& ctx)
+{
+	const QualifiedName spelled(written);
+	if (!spelled.qualified())
+	{
+		return;
+	}
+	Scope* const region = resolve_prefix(spelled, ctx);
+	const SemaEntity* const owner = region == nullptr ? nullptr : region->owner;
+	if (owner == nullptr || owner->primary == nullptr ||
+	    owner->primary->templated == nullptr)
+	{
+		return;
+	}
+	const TemplateInfo& info = *owner->primary->templated;
+	if (info.explicit_classes.find(owner->template_arguments) !=
+	    info.explicit_classes.end())
+	{
+		throw std::runtime_error("a member of the explicitly specialized class " +
+		                         owner->name + " is defined with a template<> "
+		                         "head, which 14.7.3p5 leaves to the members of "
+		                         "a specialization the pattern was read for");
+	}
+}
+
 bool SemaAnalyzer::record_explicit_function(const AstNode& declared,
                                             const Context& ctx)
 {

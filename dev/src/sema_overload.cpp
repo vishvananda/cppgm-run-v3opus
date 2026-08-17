@@ -7,6 +7,7 @@
 
 #include "ast_model.h"
 #include "ast_tokens.h"
+#include "sema_access.h"
 #include "sema_argument_lookup.h"
 #include "sema_constexpr.h"
 #include "sema_deduce.h"
@@ -1948,7 +1949,7 @@ SemaAnalyzer::Value SemaAnalyzer::call_conversion(const Value& object,
 	SemaEntity& run = declared_member(chosen);
 	SemaEntity* const declared =
 		run.region != nullptr ? run.region->owner : nullptr;
-	require_access(chosen, ctx.scope,
+	Access(*this).require_access(chosen, ctx.scope,
 	               chosen.region != nullptr ? chosen.region : nullptr);
 	if (declared != nullptr &&
 	    types_.strip_cv(self.type) != types_.strip_cv(declared->type))

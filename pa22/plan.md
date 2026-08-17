@@ -27,8 +27,14 @@ replaced:
   14.5.4p1's tier: a head over a friend elaborated-type-specifier declares a
   class template of the enclosing namespace and grants to it.
 - `sema_class.cpp` — 12's special members, which 14.5.2p1 lets a head stand
-  over; and 11.3's `granting_class`/`friend_target`/`accessible`, where 11.2p5's
-  naming class and 11.3p1's grant meet.
+  over.
+- `sema_access.h/.cpp` — 11 whole: which contexts reach what a class declared,
+  and 11.3's two ways a class gives that reach away. They are one reader because
+  they are one question asked from either end - 11.2p4 walks from 11.2p5's
+  naming class down to the class that declared the member and asks each
+  base-specifier on the way what 11.2p1 asks, and every step of that walk asks
+  11.3p1's record. Nothing here reads syntax: the two facts it stands on are
+  settled before any name is looked up.
 - `sema_function.cpp` with `Scope::hidden`/`hidden_index` — 11.3p6's chain of
   declarations one region holds and binds nothing of, indexed by the declaration
   it was made with so 7.3.1.2p3's reveal costs one probe. `declare_function` is
@@ -54,6 +60,10 @@ replaced:
   prefix it must resolve.
 - `sema_name.h/.cpp` — the one place a written spelling is turned back into what
   the program wrote: components, template-argument lists, and 14.2p4's keyword.
+- `sema_derivation.cpp` — 10p1's tree, and the one walk down it every reader
+  makes. 11.2p1's question about one base-specifier is asked from here and from
+  `Access` alike, so `base_accessible` is written once and `link_accessible` is
+  4.10p3's conversion asking it at the region the conversion stands in.
 - `sema_deduce.cpp` — one P/A walk, shared by 14.8.2 and 14.5.5.1. What a type
   *is* is settled here as much as what it deduces: a function type's
   cv-qualifier-seq and ref-qualifier and a value argument's bits are compared,
@@ -88,25 +98,26 @@ replaced:
 
 ## Current Failure Map
 
-The C audit stands at **318 / 348** — 278 of the 308 `tests/` fixtures plus all
-40 `course/pa22` ones, the last of which it wrote. The 30 that fail group by the
-compiler behaviour that owns them, from the diagnostic each one reaches:
+B stands at **335 / 356** — 287 of the 308 `tests/` fixtures plus all 48
+`course/pa22` ones, the last eight of which it wrote. The 21 that fail group by
+the compiler behaviour that owns them, from the diagnostic each one reaches:
 
 | # | Group | Owner | Signature |
 |---|-------|-------|-----------|
-| 8 | compiles and the LowIR does not match | `lowir_*`, mixed | none; `extern template` suppression is 2 of them |
-| 6 | a `-bad` case wrongly accepted | mixed | none; 3 are 11p1's access, 2 are 14.5.6.1p5's shape |
+| 9 | compiles and the LowIR does not match | `lowir_*`, mixed | none; `extern template` suppression is 2 of them |
 | 5 | a dependent name an instantiation has to find | mixed | `no declaration of … is in scope`, `does not name a type`, `decltype names … which is not an object` |
 | 4 | call resolution over a member template or a using-declaration | `sema_overload.cpp` | `has no best declaration`, `accepts the arguments of a call`, `is a deleted function`, `no function call operator` |
-| 2 | 11.3p2's `friend C;` naming a *dependent* class, and 11.2's reach into one | `grant_class_friendship` | `a friend declaration with no declarator names no class` |
-| 2 | 11p1's access at a template-id path | `accessible` | `the access its class gave it does not reach`, `names no class the member access can be looked up in` |
 | 3 | one-offs | mixed | `abi-mangle: empty source name`, `an expression is outside the PA12 subset`, `PA20 does not instantiate` |
 
-C's own group is gone whole: the five `sema_constant.cpp` diagnostics and the two
-`sizeof`-over-a-stood-in-call failures all compile and match. What is left of the
-constant-expression reader is nothing the fixtures reach, and the C audit's three
-findings were nothing they reach either — the `course/pa22` fixture it added is
-what pins them.
+B's own column is gone whole: the six `-bad` cases, the two access refusals in
+the compile-pass column and the two dependent-friend ones all compile and answer
+the way `g++` and `pa22/cppgm++-ref` do. What is left of 11's surface is nothing
+the fixtures reach — the eight `course/pa22` fixtures B added are what pin it.
+`300-friend-existing-template-private-ctor-access` moved out of the refusal
+column and into the LowIR one: this build now grants and lowers the call, and
+`pa22/cppgm++-ref` writes a `main` that constructs `s`, takes `addr $x` twice and
+calls `operator+` nowhere - it emits the instantiated definition and drops the
+initialization, so matching the `.ref` means reproducing that elision.
 
 Known gaps probed and deliberately left:
 
@@ -263,21 +274,22 @@ Known gaps probed and deliberately left:
 
 ## Active Checkpoint
 
-**C and its audit landed — see the ledger.** The next one is **B**, the six
-`-bad` cases this build accepts and both oracles refuse. Three of them are 11p1's
-access asked at a path the *arguments* built - `spec/300-private-leading-
-template-id-path-rejected`, `spec/300-private-base-inherited-member-template-
-argument-rejected` and `spec/200-private-intermediate-alias-member-rejected` -
-and they share their owner with the two access failures in the compile-pass
-column, `basic_string is named where the access its class gave it does not
-reach` and `Matcher names no class the member access can be looked up in`. So
-the owner is `accessible` with 11.2p5's naming class, the data flow is one
-template-id path to one naming class per component, and the other three - 9.2p1's
-redeclaration in `spec/200-template-template-redeclaration-shape-bad` and
-`spec/300-explicit-specialized-ctor-template-header-bad`, and 5.19p2's
-non-static member in `200-bad-dependent-nonstatic-member-constant` - are two
-clauses no reading enforces at all, each one refusal written at a door the
-readings already pass through.
+**B and its module split landed — see the ledger.** The next one is **N**, the
+five namings an instantiation has to find and the four calls 13.3 has to resolve
+over a member template or a using-declaration. They are one owner between them:
+`no declaration of slot<Signatures>::template impl<Handler> is in scope`,
+`typename impl::expr does not name a type`, `no declaration of impl::data is in
+scope`, `decltype names D::pointer, which is not an object` and `no declaration
+of position<2,sizes[2]> is in scope` are 14.6.2p1's dependent name asked again
+where the arguments stand, and `a call of erase has no best declaration`, `no
+declaration of dispatch accepts the arguments of a call`,
+`make_error_condition is named and is a deleted function` and `an object of
+class type is called where its class declares no function call operator` are
+13.3's candidate set built from the same lookup. So the owner is
+`sema_definition_names.cpp` with `sema_overload.cpp`, the data flow is one
+dependent spelling to one region per instantiation, and the two remaining
+one-offs - `abi-mangle: empty source name` at an anonymous union and `an
+expression is outside the PA12 subset` - are separate doors.
 
 ## Performance Model
 
@@ -329,8 +341,25 @@ Every generated input is checked for exit 0 before it is timed.
 | **C audit** n class templates, each named once under `alignof` at a declarator | 100 → 800 | 0.02 → 0.16 s, 9 → 29 MB | 1.21 → 1.44 s; the turn-start build is 0.08 s and **answers 1** |
 | **C** n member class templates of one class template, each defined out of class, against the turn-start build | 50 → 400 | 0.03 → 0.25 s, 9 → 28 MB | 0.03 → 0.24 s there; ref 1.73 s |
 | **C** n nested classes of member class templates, each defined out of class | 50 → 400 | 0.06 → 0.49 s, 11 → 40 MB | 2.03 s at 400; the turn-start build **refuses** |
-| the whole 348-file corpus, one process per file | — | **1.65 s** | 1.61 s at the turn-start build; the loop's own floor is 1.36 s |
+| **B** a member inherited from a class d deep in a chain, named 200 times | depth 4 → 512 | 0.00 → 0.05 s, 7 → 12 MB | 0.55 → 3.01 s; the turn-start build is the same 0.05 s |
+| **B** n classes, each with one base, each with one member access through it | 100 → 800 | 0.02 → 0.18 s, 11 → 48 MB | 1.33 s at 800; the turn-start build is the same 0.18 s |
+| **B** n three-component qualified paths through one specialization | 100 → 800 | 0.00 → 0.01 s, 6 → 8 MB | 0.63 s at 800; the turn-start build is the same 0.01 s |
+| **B** n `template<>` member definitions, each over its own specialization | 100 → 800 | 0.01 → 0.07 s, 9 → 24 MB | 0.76 s at 800; the turn-start build is the same 0.07 s |
+| the whole 356-file corpus, one process per file | — | **1.63 s** | 1.63 s at the turn-start build; the loop's own floor is 0.59 s |
 | *(carried from F)* n friend declarations of one name, each revealed | 800 → 3200 | 0.19 → 0.79 s | 22.40 s at 800 |
+
+B's own cost is the walk 11.2p4 added, and it is paid once per access at a
+naming class the member was not declared in - every other access returns before
+it. The walk that finds the path asks each link on the way down rather than
+asking reachability again at every level, which is `Derivation::path`'s shape:
+the first version wrote `derives_from` per level and was **3x** at depth 128 -
+0.03 s against the turn-start build's 0.01 s - where the one-visit-per-class walk
+is 0.05 s at depth 512 and equal to the turn-start build at every depth measured.
+The other three doors cost one call apiece of work already done: `require_access`
+at a prefix component reads the entity the component's own lookup returned,
+`require_component_access` is one `lookup_in` of the template a template-id
+component names, and `require_unspecialized_owner` is one `resolve_prefix` per
+`template<>` head, which the declaration below it makes anyway.
 
 C's four costs are each paid once and nothing scans. `operand_end` is one
 forward scan of the words the reading below it is about to read anyway, made
@@ -355,11 +384,12 @@ asking
 declaration, which the tier below made anyway: n = 400 member class templates
 defined out of class is 0.25 s against the turn-start build's 0.24 s.
 
-The corpus row is re-measured after the C audit over 348 files: 3.01 s of wall
-clock against the turn-start build's 2.97 s, over a 1.36 s floor the loop's own
-fork-and-exec costs - so 1.65 s of compiler work against 1.61 s, about 5 ms per
-fixture, and the 0.04 s is the classes a `sizeof` or an `alignof` now asks to be
-laid out.
+The corpus row is re-measured after B over 356 files with a harness that reads
+the file list once rather than spawning a timer per run: 1.63 s of wall clock
+against the turn-start build's 1.63 s, over a 0.59 s floor the loop's own
+fork-and-exec costs - so 1.04 s of compiler work either way, about 3 ms per
+fixture. The earlier harness's 1.36 s floor is the same measurement read through
+one `date` per file.
 
 Every dimension is linear in what it sweeps and flat in depth except 14.5.5.1p1's
 own: n patterns beside one template and n lists naming it is n candidate scans of
@@ -376,10 +406,26 @@ once per written parameter, `enclosed_by_a_head` is one walk per queued body,
 `TemplateInfo::reading_region` and `Member::carried` are pointers written where
 a definition is recorded, and `instantiating_pattern_` is one unsigned compare.
 
-`valgrind -q --error-exitcode=9` is clean over 69 inputs after the C audit, 0
-errors: its 65 sibling-exit probes and its four largest scaling inputs. It was
-clean over 58 after C, 62 after the R audit, 34 after R, 37 after X, 57 after the
-O audit.
+`valgrind -q --error-exitcode=9` is clean over 79 inputs after B, 0 errors: its
+58 sibling-exit probes, its 8 course fixtures and its 13 scaling inputs. It was
+clean over 69 after the C audit, 58 after C, 62 after the R audit, 34 after R,
+37 after X, and 57 after the O audit.
+
+B's run evidence: all 58 probes are judged against `g++ -std=c++11
+-pedantic-errors` and against `pa22/cppgm++-ref` - 12 shapes of 11.2p4's base
+path, 8 of 11.2 at a nested-name-specifier's own components, 8 head-equivalence
+shapes, 7 of 14.7.3p5's `template<>` over a member, 10 of 5.1.1p13's non-static
+data member, 8 friend shapes and 3 qualified member accesses - and agree with
+`g++` on 55. The three are one shape: `int owner::*p = &owner::value;` is
+`an expression is outside the PA15 lowering subset` here and at the turn-start
+build alike, which is pointer-to-member-data lowering and no part of 11. Nine of
+the 58 are shapes `pa22/cppgm++-ref` answers differently from `g++` and from this
+build - the two `template<>`-over-an-explicit-specialization refusals, a
+protected prefix component, a friend template-id naming no template, a qualified
+member access on a class the object is not of - so no `course/pa22` fixture pins
+them. The eight fixtures B wrote are each accepted or refused alike by all three
+oracles, and every one that translates runs through `lowir2cy86` + `cy86` and
+returns the value `g++` gives it.
 
 The C audit's run evidence: all 65 probes are judged against `g++ -std=c++11
 -pedantic-errors` and against `pa22/cppgm++-ref`, and agree with `g++` on every
@@ -429,3 +475,4 @@ with `pa22/cppgm++-ref`.
 | **X, X audit** 14.7.3p1's explicit specialization of a member, and the question 5.19p2 asks with the same words | A `template<>` definition of one member of one class specialization *is* that member's definition, so 14.7.1p1's reading of the pattern shall not write a second one: `SemaEntity::instantiated_definition` is written for a function too, under an `instantiating_pattern_` depth, and `Pending::from_pattern` lets the end of the unit drop the queued body. Then `note_object` answered two questions with one field - "a use reads the object" and 5.19p2's own answer about the declaration - so a `template<>` written for one list made every *other* list's member no constant expression at all. | 295 / 338 |
 | **R, R audit** 14.1p2's names a definition written outside its class wrote, and the region its head bound | An out-of-class member definition stands under one head per class it is nested in, and 14.1p2 lets each spell the enclosing classes' places with names of its own - which this build bound nowhere 14.7.1p1 could reach. `TemplateInfo::reading_region` is the region the head above opened, taken before `StandingIn` moves the nest, and `Member::carried` is it one tier down. Then R bound those names where the *declaration* is made and 14.7.1p1 leaves the *body* to the use, so `enclosed_by_a_head` asks it once at the one door every queued body passes; and 14.5.3p4's count may not be asked at 14.6p8's reading, where the expansion stands for itself. | 306 / 343 |
 | **C, C audit** 5.19 read out of one spelling, at the five operators the reader had no answer for, and the two sentences the last of them is written about | 14.2 writes an argument list inside a name, so `TemplateArgumentReader` is the second implementation of 5.19 exactly as `SpelledTypeId` is of 8.1p1 - and four of the clause's own operators had no exit there. 5.18p1's comma is read inside 5.1.1p6's parentheses alone, because outside them a comma separates one argument from the next; 5.2.9p4's cast to cv void is a *discarded* value, which is what `valued` refuses at every reader that takes an operand's worth and what makes `((void)B, true)` read as `true`; 14.5.3p4's expansion stands in 5.2.2p1's argument list, and whether an operand is a pattern is settled by `operand_end` *before* it is read, because the `...` stands after it and `sum(Ns...)` runs out on `Ns` a word early; and 14.2p4's keyword is written inside a component, so `X::template f<A>::v` is one word the split closes up rather than two. 5.3.3p1's other arm is the fifth: how large the type an *expression* has is, is 13.3's answer over a typed operand, so the parenthesized operand closes up with its operator in the split and the tree the parse kept under that spelling is what answers it - beside 5.3.3p2 and 5.3.6p3's reference, which `measured_type` now owns for the three readers that write the operator. Two sweeps came with it: 14.7.1p1's demand is made outside the probe that settles 5.4p2's ambiguity, so `A<sizeof(box<4>)>` lays `box<4>` out; and 14.5.2p3's `nested_owner` is asked *before* the class tier, which reads the same nested-name-specifier as a prefix it must resolve - so `adaptor<T>::range<M>::iterator` is a class nested in a member class template rather than `M is written as a template argument and names no constant`. Then that last operator's own clauses were answered out of a table: `TypeTable::object_align` gives an incomplete class an alignment of zero and a dependent one a number too, and two of the three readings that write `alignof` called it bare - so `S<alignof(wrap<int>)>` was **1 where both oracles give 8**, at a template argument, in an array bound and in a static_assert alike, and `alignof(never)` was a program both oracles refuse and this build ran. `SemaAnalyzer::align_of` is `size_of`'s twin and all three ask it. Under it, 14.7.1p1's demand reads a mark `instantiate_class` writes only where the naming was a use, and neither 14.6p8's reading nor `trait_value`'s own probe leaves one - so `sizeof(box<4>)` inside any class template's body was `sizeof names an incomplete type`; the demand is now `require_settled_type`, asked of the type rather than of the mark, once inside `size_of` and `align_of`. And the demand the checkpoint did make, it made by reading the operand's type-id a *second* time, which is one reading per level doubled at every level below it: a `sizeof` nested 24 deep in its own operand was killed at 60 s where the reference is 0.60 s flat and this build is now 0.01 s at depth 128. | **318 / 348** |
+| **B, B module split** 11.2's access at a path the arguments built, and the five refusals no reading made | 11.2p4's answer is written about a member *as a member of the naming class*, and this build read the member's own access-specifier alone - so `derived::type` reached a public member of a **private** base from anywhere, at a prefix component as much as at the last one. `Access::base_path` is the one walk down to the declaring class asking each base-specifier on the way, which `Derivation::link_accessible` now asks too; and `resolve_prefix` asks 11.2 of every component rather than of the last, with 14.2's template-id component asked of the *template* the lookup found, because the specialization its arguments make is no declaration an access-specifier was written over. Then five clauses no door enforced: 14.5.6.1p5's equivalent template-parameter-lists, which `record_template` compared by *arity* alone - so `template<class> class F` and `template<int> class F` declared one template; 14.7.3p5's `template<>` over a member of an explicitly specialized class, whose body is unrelated to the pattern's and has no member of a template for a head to specialize; 5.1.1p13's id-expression naming a non-static data member, which `entity_constant` folded out of the member's own default initializer where no object was written; 14.5.4p1's friend declaration whose declarator-id is a *template-id*, which `declare_function` declared a namespace function literally named `operator+<>` and granted to *that*; and 11.3p2's `friend typename C::self;`, refused where 14.6p8's reading cannot see the class an argument list has yet to name and 14.7.1p1 reads the same declaration again where it can. 11.3p3 came with the last of those - a friend declaration naming no class is *ignored* - and 3.4.3p1 with the access ones: `this->Matcher::match(…)` names a class through whatever name reached it, a place an argument list bound as much as a typedef-name. The walk itself cost d² before it cost d: asking `derives_from` at every level is one reachability question per level over the levels below it, which was 3x the turn-start build at depth 128, where one visit per class is equal to it at depth 512. And 11 came out of `sema_class.cpp` whole: `sema_access.h/.cpp` is 11.2's reach and 11.3's grant as one reader, which is what freed both files' room. | **335 / 356** |

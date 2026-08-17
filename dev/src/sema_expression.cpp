@@ -7,6 +7,7 @@
 #include "ast_tokens.h"
 #include "literal_scan.h"
 #include "post_token.h"
+#include "sema_access.h"
 #include "sema_constexpr.h"
 #include "sema_derivation.h"
 #include "sema_operator.h"
@@ -745,8 +746,9 @@ SemaAnalyzer::Value SemaAnalyzer::member_expression(const AstNode& node,
 	std::vector<SemaEntity*>& found = model_.open_overloads();
 	SemaEntity& found_member =
 		require(member_named(region, looked, ctx, found), looked);
-	require_access(found_member, ctx.scope, &region);
-	require_protected_object(found, found_member, ctx.scope, &region);
+	Access(*this).require_access(found_member, ctx.scope, &region);
+	Access(*this).require_protected_object(found, found_member, ctx.scope,
+	                                       &region);
 	// 7.3.3p1 and 11.2p5: the class the name was written on is the class that
 	// declared what a using-declaration brought in, so the access above was
 	// asked of that declaration - and the base subobject the member belongs to
@@ -849,6 +851,16 @@ SemaEntity* SemaAnalyzer::member_named(Scope& region, const std::string& id,
 		if (named == nullptr)
 		{
 			named = resolve(prefix, ctx, LookupKind::Region);
+		}
+		if (named != nullptr && named->kind != SemaKind::Class &&
+		    types_.is_class(types_.strip_cv(named->type)))
+		{
+			// 3.4.3p1: a nested-name-specifier names a class through whatever
+			// name reached it - 7.1.3's typedef-name, and 14.1p2's place an
+			// argument list bound to a class type - so what the member is
+			// looked up in is the class the type is of and not the declaration
+			// the spelling found.
+			named = model_.type_owner(types_.strip_cv(named->type));
 		}
 		if (named == nullptr || named->kind != SemaKind::Class ||
 		    named->scope == nullptr)
@@ -1019,8 +1031,9 @@ void SemaAnalyzer::member_callee(const AstNode& callee, const Context& ctx,
 	std::vector<SemaEntity*>& found = model_.open_overloads();
 	SemaEntity& found_member =
 		require(member_named(region, looked, ctx, found), looked);
-	require_access(found_member, ctx.scope, &region);
-	require_protected_object(found, found_member, ctx.scope, &region);
+	Access(*this).require_access(found_member, ctx.scope, &region);
+	Access(*this).require_protected_object(found, found_member, ctx.scope,
+	                                       &region);
 	// 7.3.3p1: what a using-declaration brought into this class was found here
 	// and named the base's declaration, which is what the use reaches.
 	const bool checked_base = found_member.shadowed == nullptr;

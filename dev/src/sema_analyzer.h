@@ -904,25 +904,13 @@ private:
 	DumpNode& open_subobject(DumpNode& parent, TypeId type,
 	                         const SemaEntity* member,
 	                         unsigned long long index);
-	// 11.2: whether a context in `from` may name `member`, and the error that
-	// it may not.
-	// `naming_class` is 11.2p5's class the name was written on, whose own
-	// bases may grant what the declaring class does not; null where the name
-	// was not written on an object.
-	bool accessible(const SemaEntity& member, const Scope* from,
-	                const Scope* naming_class = nullptr) const;
-	// 11.2p5: whether any class between the one a name was written on and the
-	// one that declared the member grants `from` the reach of its own members.
-	bool befriends_between(const Scope& at, const Scope& declaring,
-	                       const Scope& from) const;
-	void require_access(const SemaEntity& member, const Scope* from,
-	                    const Scope* naming_class = nullptr);
 	// 11p6: the class a declaration written outside it names a member of, whose
 	// access every name of that declaration is checked with - the leading return
 	// type of an out-of-class member function and the initializer of a static
 	// data member alike.  Null for a declaration that names no member.
 	Scope* naming_context(const std::string& written, const Context& ctx);
 	friend struct Naming;
+	friend class Access;
 	friend struct Written;
 	// 5.2.5p1: the error a member access which turns out to name no subobject
 	// gives where `observable_expression` says the object expression may not be
@@ -1203,33 +1191,16 @@ private:
 	// over the declarations each brought-in name has, and nothing at all for a
 	// class that wrote no using-declaration.
 	void hide_using_members(Scope& where);
-	// 11.3p6: a friend declaration declares its function in the innermost
-	// enclosing namespace, so a declarator written after `friend` is read
-	// against that region rather than against the class it stands in.  Returns
-	// the class the declaration grants access to, and leaves `target` naming
-	// the region the function is declared in.
-	SemaEntity* friend_target(const Context& ctx, const QualifiedName& spelled,
-	                          Context& target, SemaEntity* granting);
 	// 11.3p6 and 7.3.1.2p3: the declaration a friend declaration made visible,
 	// which a later namespace-scope declaration of the same function is.  The
 	// entity moves from the region's hidden chain into the one its name binds,
 	// so the program has one function rather than two.
 	void reveal_friend(Scope& where, const std::string& name,
 	                   SemaEntity& entity);
-	// 11.3p2: `friend C;` and `friend class C;` grant this class's access to
-	// the class the specifiers named, which declares nothing.
-	void grant_class_friendship(const Context& ctx,
-	                            const Specifiers& specifiers);
 	// 3.3.6 and 7.3.1.2p3: the innermost namespace a region is written in,
 	// which is what a friend declaration declares into however deeply the class
 	// it is written in is nested.
 	static Scope& friend_namespace(Scope& scope);
-	// 11.3p1: the innermost class around a friend declaration, which is the one
-	// that grants what the declaration grants.
-	SemaEntity* granting_class(const Context& ctx) const;
-	// 11.3p1: whether a name read in `from` reaches what `granting` declared
-	// because `granting` befriended what owns `from`.
-	bool befriended(const Scope& granting, const Scope& from) const;
 	// The `parameter` lines of a function, and the declarations of them in the
 	// region the definition opened.  `written` is how many parameters of the
 	// function type the declarator did not write, which is the implicit object
@@ -1543,15 +1514,6 @@ private:
 	// from the operand's names.  False where that base begins where the object
 	// does and the address is the one the operand already held.
 	bool derived_value(Value& object, TypeId derived, SemaEntity& base);
-	// 11.4p1: the additional check a protected non-static member named on an
-	// object asks, which is that the object is of the class the access occurs
-	// in rather than of the base that declared the member.
-	void require_protected_object(const std::vector<SemaEntity*>& found,
-	                              const SemaEntity& member, const Scope* from,
-	                              const Scope* object_class);
-	// 12.4p11: the destructor an object's lifetime ends in a call of, which is
-	// named where the object is declared and has to be accessible there.
-	void require_destruction_access(const SemaEntity& entity, const Scope* from);
 	// 11.2: the region the expression being read was written in.
 	Scope* reading_;
 	// 10.2: the object a member found through a base class is a member of,
@@ -1738,6 +1700,14 @@ private:
 	// the ordinary walk to read it as it did before.
 	bool record_explicit_specialization(const AstNode& declared, const Context& ctx);
 	bool record_explicit_function(const AstNode& declared, const Context& ctx);
+	// 14.7.3p1: the declarator-id one `template<>` head stands over, whichever
+	// of the three shapes of declaration it wrote.
+	static std::string specialized_declarator_id(const AstNode& declared);
+	// 14.7.3p5: the members of an explicitly specialized class are defined the
+	// way a normal class's are, so a `template<>` head over one is refused.
+	// `written` is the declarator-id the head stands over.
+	void require_unspecialized_owner(const std::string& written,
+	                                 const Context& ctx);
 	// 14.1p2 and 14.3p1: what a head's places are, and what one written
 	// argument list makes of them, which `sema_template_head.h` owns because
 	// each is a reading of its own.

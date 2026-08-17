@@ -1,0 +1,78 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $one : obj<4x4>
+  slot $two : obj<4x4>
+
+  block ^entry:
+    %t1 = addr $one
+    call void @n__box_char___box(%t1, 1)
+    %t2 = addr $two
+    call void @n__box_long_int___box(%t2, 2)
+    %t3 = addr $one
+    %t4 = call i32 @n__deduced(%t3)
+    %t5 = addr $two
+    %t6 = call i32 @n__written__ov2(%t5)
+    %t7 = binary add i32 %t4, %t6
+    %t8 = addr $one
+    %t9 = call i32 @n__under_a_head(%t8)
+    %t10 = binary add i32 %t7, %t9
+    %t11 = binary sub i32 %t10, 4
+    return i32 %t11
+}
+function @n__box_char___box(%this : ptr, %v : i32) -> void [binding=weak, object=_ZN1n3boxIcEC1Ei] {
+  slot $this : ptr
+  slot $v : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %v, $v
+    %t1 = load i32 $v
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 %t1, %t3
+    return void
+}
+function @n__box_long_int___box(%this : ptr, %v : i32) -> void [binding=weak, object=_ZN1n3boxIlEC1Ei] {
+  slot $this : ptr
+  slot $v : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %v, $v
+    %t1 = load i32 $v
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 %t1, %t3
+    return void
+}
+function @n__deduced(%b : ptr [pass=reference]) -> i32 [binding=weak, object=_ZN1n7deducedIcEEiRKNS_3boxIT_EE] {
+  slot $b : ptr
+
+  block ^entry:
+    store ptr %b, $b
+    %t1 = load ptr $b
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i32 %t2
+    return i32 %t3
+}
+function @n__written__ov2(%b : ptr [pass=reference]) -> i32 [binding=weak, object=_ZN1n7writtenIlEEiRKNS_3boxIT_EE] {
+  slot $b : ptr
+
+  block ^entry:
+    store ptr %b, $b
+    %t1 = load ptr $b
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i32 %t2
+    return i32 %t3
+}
+function @n__under_a_head(%b : ptr [pass=reference]) -> i32 [binding=weak, object=_ZN1n12under_a_headIcEEiRKNS_3boxIT_EE] {
+  slot $b : ptr
+
+  block ^entry:
+    store ptr %b, $b
+    %t1 = load ptr $b
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i32 %t2
+    return i32 %t3
+}
+alias object _ZN1n3boxIcEC2Ei = @n__box_char___box
+alias object _ZN1n3boxIlEC2Ei = @n__box_long_int___box

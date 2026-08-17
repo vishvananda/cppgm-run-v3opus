@@ -1,0 +1,13 @@
+ERROR: conflicting class template redeclaration at course/pa22/200-class-template-redeclaration-value-place-bad.t:10:1 [previous declaration at course/pa22/200-class-template-redeclaration-value-place-bad.t:7:1] [top-level declaration 1 kind=template-declaration ast={template-declaration
+  template-parameter-clause
+    template-parameter-list
+      non-type-template-parameter
+        decl-specifier-seq
+          decl-specifier KW_INT:int
+        declarator
+          identifier N
+  class-specifier holder
+    class-key KW_STRUCT:struct
+}]
+Diagnostic context:
+collect_template_declaration [template<int N>struct holder{};] at course/pa22/200-class-template-redeclaration-value-place-bad.t:9:1

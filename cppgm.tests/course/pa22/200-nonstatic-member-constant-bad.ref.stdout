@@ -1,0 +1,7 @@
+ERROR: failed to resolve member id-expression
+Diagnostic context:
+analyze_expression_for_target [owner::value -> const int] at course/pa22/200-nonstatic-member-constant-bad.t:13:29
+  semantic_expression::analyze_expression_for_target [owner::value -> const int] at course/pa22/200-nonstatic-member-constant-bad.t:13:29
+    analyze_expression [owner::value] at course/pa22/200-nonstatic-member-constant-bad.t:13:29
+      semantic_expression::analyze_expression [owner::value] at course/pa22/200-nonstatic-member-constant-bad.t:13:29
+        analyze_id_expression [owner::value] at course/pa22/200-nonstatic-member-constant-bad.t:13:29

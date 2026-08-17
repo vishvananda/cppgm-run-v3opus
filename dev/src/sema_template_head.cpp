@@ -337,6 +337,54 @@ bool TemplateHead::argument_matches(const TemplateInfo& place,
 	return true;
 }
 
+// 14.5.6.1p5 with 14.1p2: whether the two heads declare the same places.
+//
+// 14.3.3p1's matching is written about an argument standing at a place, so it
+// takes a pack for a run of fixed places and a shorter head for a longer one
+// whose rest carries defaults.  Two *declarations of one template* are the same
+// question with neither side standing for the other: the places pair off one
+// for one, each is the same kind of place as its opposite number, a value place
+// names a value of an equivalent type, and a template place wrote an equivalent
+// head one level down.
+//
+// 14.1p2 lets each declaration spell the places by names of its own, and
+// `place_signature` is what makes the names no part of the answer: a place is
+// canonicalized to its own position before the two are compared, so
+// `template<class T, T v>` and `template<class U, U w>` are one head.
+bool TemplateHead::heads_equivalent(const TemplateInfo& left,
+                                    const TemplateInfo& right)
+{
+	if (left.parameters.size() != right.parameters.size())
+	{
+		return false;
+	}
+	for (std::size_t index = 0; index < left.parameters.size(); ++index)
+	{
+		const TemplateInfo::Parameter& a = left.parameters[index];
+		const TemplateInfo::Parameter& b = right.parameters[index];
+		if (a.value != b.value || a.templated != b.templated || a.pack != b.pack)
+		{
+			return false;
+		}
+		if (a.value && a.type != kNoType && b.type != kNoType &&
+		    place_signature(left, index) != place_signature(right, index))
+		{
+			// 14.6.1p1's region is opened by the first reading that needs it, so
+			// a head no naming has reached yet has settled no type for its value
+			// places - and what a place *is* may not be answered out of a
+			// reading that has not been made.  The kinds above are the head's own
+			// syntax and are always there to compare.
+			return false;
+		}
+		if (a.templated && a.head != nullptr && b.head != nullptr &&
+		    !heads_equivalent(*a.head, *b.head))
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
 // 14.3.3p1: whether the place `place` declared at `at` accepts the place
 // `argument` declared at `index`.
 //

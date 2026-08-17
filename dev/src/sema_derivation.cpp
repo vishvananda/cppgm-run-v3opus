@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "ast_model.h"
+#include "sema_access.h"
 #include "sema_analyzer.h"
 #include "sema_pack.h"
 
@@ -431,36 +432,11 @@ bool Derivation::link_accessible(const SemaEntity& derived,
 	{
 		return true;
 	}
-	const Scope* const from =
-		analyzer_.naming_ != nullptr ? analyzer_.naming_ : analyzer_.reading_;
-	const bool friends = analyzer_.model_.has_friends();
-	for (const Scope* at = from; at != nullptr; at = at->parent)
-	{
-		if (at == derived.scope)
-		{
-			return true;
-		}
-		if (friends && analyzer_.befriended(*derived.scope, *at))
-		{
-			// 11.2p1 and 11.3p1: a friend of the derived class reaches what
-			// the class itself reaches, which is the base its base-specifier
-			// named however it named it.
-			return true;
-		}
-		if (access != kProtectedAccess || at->kind != ScopeKind::Class)
-		{
-			continue;
-		}
-		// 11.2p1 again: a class derived from the one that named the base
-		// reaches a protected base-specifier of it, which is one walk of that
-		// class's own derivation.
-		for (std::size_t index = 0; index < at->bases.size(); ++index)
-		{
-			if (derives_from(*at->bases[index], *derived.scope))
-			{
-				return true;
-			}
-		}
-	}
-	return false;
+	// 4.10p3's conversion is written where the initialization is, so the point
+	// R the access is asked at is the region the conversion stands in rather
+	// than the one the operand's own reading left behind.
+	return Access(analyzer_).base_accessible(*derived.scope, access,
+	                                        analyzer_.naming_ != nullptr
+	                                            ? analyzer_.naming_
+	                                            : analyzer_.reading_);
 }

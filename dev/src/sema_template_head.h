@@ -64,6 +64,10 @@ public:
 	// template-name may stand at that place.
 	bool argument_matches(const TemplateInfo& place,
 	                      const TemplateInfo& argument);
+	// 14.5.6.1p5 with 14.1p2: whether two heads declare equivalent places, which
+	// is what every declaration of one template has to write.  It is 14.3.3p1's
+	// question with its direction taken away.
+	bool heads_equivalent(const TemplateInfo& left, const TemplateInfo& right);
 	// 14.3.3p1: the entry standing for the template `named`, which is what a
 	// template-template place binds, and the template such an entry names.
 	TypeId name_argument(SemaEntity& named);

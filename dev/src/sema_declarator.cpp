@@ -4,6 +4,7 @@
 
 #include "ast_model.h"
 #include "ast_tokens.h"
+#include "sema_access.h"
 #include "sema_pack.h"
 
 // Specifiers, declarators and names: what a declaration says the type of the
@@ -1043,8 +1044,9 @@ SemaEntity* SemaAnalyzer::resolve(const std::string& spelling, const Context& ct
 		// expression writes - the member is reached through the bases between
 		// it and the class that declared the member, and a base that grants the
 		// access is what a member declared further up is reached through.
-		require_access(*named, ctx.scope,
-		               region->kind == ScopeKind::Class ? region : nullptr);
+		Access(*this).require_access(
+			*named, ctx.scope,
+			region->kind == ScopeKind::Class ? region : nullptr);
 	}
 	return named;
 }
@@ -1132,7 +1134,23 @@ Scope* SemaAnalyzer::resolve_prefix(const QualifiedName& name,
 		SemaEntity* next = model_.lookup_in(*region, part, LookupKind::Region);
 		if (next == nullptr)
 		{
+			// 14.2: a component that is a template-id names the specialization
+			// its arguments make, and 11.2 is asked about the *template* the
+			// lookup found rather than about the class the arguments made - the
+			// access-specifier the program wrote stands over the declaration.
+			Access(*this).require_component_access(part, ctx, *region);
 			next = template_id_entity(part, ctx, region, LookupKind::Region);
+		}
+		else
+		{
+			// 11.2: every component of a nested-name-specifier is a name written
+			// on the region the one before it named, so each is asked the
+			// question the last component is asked.  A path whose leading
+			// components are private is one no context outside them may write,
+			// however public the member it ends at.
+			Access(*this).require_access(
+				*next, ctx.scope,
+				region->kind == ScopeKind::Class ? region : nullptr);
 		}
 		named = &require(next, part);
 		require_settled_type(named->type);
@@ -1253,8 +1271,9 @@ SemaEntity* SemaAnalyzer::qualified_in_type(TypeId head,
 		// 11.2 and 11.2p5: the name reaches a member of the class the prefix
 		// named, which is where the access that class gave the member is asked
 		// about and which is the naming class the bases between are read from.
-		require_access(*named, ctx.scope,
-		               naming->kind == ScopeKind::Class ? naming : nullptr);
+		Access(*this).require_access(
+			*named, ctx.scope,
+			naming->kind == ScopeKind::Class ? naming : nullptr);
 	}
 	return named;
 }

@@ -1632,6 +1632,20 @@ SemaConstant ConstexprReading::id_constant(const AstNode& node,
 SemaConstant ConstexprReading::entity_constant(SemaEntity& entity,
                                                const std::string& spelling)
 {
+	if (entity.object_member && analyzer_.self_ == nullptr)
+	{
+		// 5.1.1p13: an id-expression that denotes a non-static data member is
+		// written as part of a class member access, or to form a pointer to
+		// member, or inside an unevaluated operand - because the member is a
+		// subobject of an object and the name alone does not say of which.
+		// 5.2.5p1's access reaches this reading with the object already in hand
+		// and never through here, and a name written inside a member function
+		// has 9.3.1p3's implied one.  A name that arrives with neither is the
+		// program's error rather than a reading that ran out, so 5.19p2's own
+		// refusal - which a caller may answer with a stand-in - is not it.
+		throw std::runtime_error(spelling + " names a non-static data member "
+		                         "and no object it is a member of is written");
+	}
 	if (entity.address != 0 && analyzer_.types_.is_reference(entity.type))
 	{
 		// 8.3.2p1: the name of a reference names the object it was bound to, so

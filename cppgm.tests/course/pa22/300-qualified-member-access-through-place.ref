@@ -1,0 +1,57 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $one : obj<1x1>
+
+  block ^entry:
+    %t1 = addr $one
+    %t2 = addr $one
+    %t3 = call i32 @through_place_counted___by_place(%t2, 2)
+    %t4 = addr $one
+    %t5 = call i32 @through_place_counted___by_typedef(%t4, 3)
+    %t6 = binary add i32 %t3, %t5
+    %t7 = binary sub i32 %t6, 7
+    return i32 %t7
+}
+function @through_place_counted___by_place(%this : ptr, %v : i32) -> i32 [binding=weak, object=_ZNK13through_placeI7countedE8by_placeEi] {
+  slot $this : ptr
+  slot $v : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %v, $v
+    %t1 = load i32 $v
+    %t2 = call i32 @counted__twice(%t1)
+    return i32 %t2
+}
+function @through_place_counted___by_typedef(%this : ptr, %v : i32) -> i32 [binding=weak, object=_ZNK13through_placeI7countedE10by_typedefEi] {
+  slot $this : ptr
+  slot $v : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %v, $v
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    %t3 = load i32 $v
+    %t4 = call i32 @counted__once(%t2, %t3)
+    return i32 %t4
+}
+function @counted__once(%this : ptr, %v : i32) -> i32 [binding=weak, object=_ZNK7counted4onceEi] {
+  slot $this : ptr
+  slot $v : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %v, $v
+    %t1 = load i32 $v
+    return i32 %t1
+}
+function @counted__twice(%v : i32) -> i32 [binding=weak, object=_ZN7counted5twiceEi] {
+  slot $v : i32
+
+  block ^entry:
+    store i32 %v, $v
+    %t1 = load i32 $v
+    %t2 = load i32 $v
+    %t3 = binary add i32 %t1, %t2
+    return i32 %t3
+}

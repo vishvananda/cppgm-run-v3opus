@@ -7,6 +7,7 @@
 
 #include "ast_model.h"
 #include "ast_tokens.h"
+#include "sema_access.h"
 #include "sema_constexpr.h"
 #include "sema_operator.h"
 #include "sema_specialize.h"
@@ -357,7 +358,7 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 	// 11.3p1: which class grants this definition its access, taken before the
 	// declarator is read for the reason `friend_target` gives.
 	SemaEntity* const befriending =
-		specifiers.is_friend ? granting_class(ctx) : nullptr;
+		specifiers.is_friend ? Access(*this).granting_class(ctx) : nullptr;
 
 	// 3.4.1p8: the rest of a declarator whose declarator-id is qualified is
 	// looked up in the region that name reaches.
@@ -403,7 +404,7 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 	// 11.3p1 of the regions it stands in would find no class at all.
 	SemaEntity* const granting =
 		specifiers.is_friend && specializing == nullptr
-			? friend_target(ctx, spelled, target, befriending)
+			? Access(*this).friend_target(ctx, spelled, target, befriending)
 			: nullptr;
 	if (specifiers.is_friend && spelled.qualified())
 	{

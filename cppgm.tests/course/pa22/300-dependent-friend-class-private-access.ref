@@ -1,0 +1,75 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $one : obj<1x1>
+  slot $two : obj<1x1>
+  slot $a : obj<4x4>
+  slot $b : obj<8x8>
+
+  block ^entry:
+    %t1 = addr $one
+    %t2 = addr $two
+    %t3 = addr $a
+    %t4 = addr $one
+    %t5 = call obj<4x4> @host__make(%t4, 3)
+    copyobj 4x4 %t5, %t3
+    %t6 = addr $b
+    %t7 = addr $two
+    %t8 = call obj<8x8> @other__make(%t7, 4)
+    copyobj 8x8 %t8, %t6
+    %t9 = addr $a
+    %t10 = addr $b
+    return i32 0
+}
+function @host__make(%this : ptr, %v : i32) -> obj<4x4> [binding=weak, object=_ZN4host4makeEi] {
+  slot $this : ptr
+  slot $v : i32
+  slot $retobj__1 : obj<4x4>
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %v, $v
+    %t1 = addr $retobj__1
+    %t2 = load i32 $v
+    call void @ref_host___ref(%t1, %t2)
+    return obj<4x4> $retobj__1
+}
+function @ref_host___ref(%this : ptr, %v : i32) -> void [binding=weak, object=_ZN3refI4hostEC1Ei] {
+  slot $this : ptr
+  slot $v : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %v, $v
+    %t1 = load i32 $v
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 %t1, %t3
+    return void
+}
+function @other__make(%this : ptr, %v : i64) -> obj<8x8> [binding=weak, object=_ZN5other4makeEl] {
+  slot $this : ptr
+  slot $v : i64
+  slot $retobj__1 : obj<8x8>
+
+  block ^entry:
+    store ptr %this, $this
+    store i64 %v, $v
+    %t1 = addr $retobj__1
+    %t2 = load i64 $v
+    call void @ref_other___ref(%t1, %t2)
+    return obj<8x8> $retobj__1
+}
+function @ref_other___ref(%this : ptr, %v : i64) -> void [binding=weak, object=_ZN3refI5otherEC1El] {
+  slot $this : ptr
+  slot $v : i64
+
+  block ^entry:
+    store ptr %this, $this
+    store i64 %v, $v
+    %t1 = load i64 $v
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i64 %t1, %t3
+    return void
+}
+alias object _ZN3refI4hostEC2Ei = @ref_host___ref
+alias object _ZN3refI5otherEC2El = @ref_other___ref

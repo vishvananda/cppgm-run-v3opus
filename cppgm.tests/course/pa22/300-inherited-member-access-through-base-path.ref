@@ -1,0 +1,94 @@
+function @through_friend(%o : ptr [pass=reference]) -> i32 [binding=strong, object=_Z14through_friendRK5owner] {
+  slot $o : ptr
+  slot $v : i32
+
+  block ^entry:
+    store ptr %o, $o
+    %t1 = load ptr $o
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    %t3 = index i8 [projection=field] %t2, 0
+    %t4 = load i32 %t3
+    store i32 %t4, $v
+    %t5 = load i32 $v
+    return i32 %t5
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $one : obj<4x4>
+  slot $two : obj<4x4>
+  slot $three : i32
+
+  block ^entry:
+    %t1 = addr $one
+    call void @owner__owner(%t1)
+    %t2 = addr $two
+    call void @lower__lower(%t2)
+    store i32 4, $three
+    %t3 = addr $one
+    %t4 = call i32 @owner__from_member(%t3)
+    %t5 = addr $one
+    %t6 = call i32 @through_friend(%t5)
+    %t7 = binary add i32 %t4, %t6
+    %t8 = addr $two
+    %t9 = call i32 @lower__from_derived(%t8)
+    %t10 = binary add i32 %t7, %t9
+    %t11 = load i32 $three
+    %t12 = binary add i32 %t10, %t11
+    %t13 = binary sub i32 %t12, 8
+    return i32 %t13
+}
+function @owner__from_member(%this : ptr) -> i32 [binding=weak, object=_ZNK5owner11from_memberEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    %t3 = index i8 [projection=field] %t2, 0
+    %t4 = load i32 %t3
+    return i32 %t4
+}
+function @owner__owner(%this : ptr) -> void [binding=weak, object=_ZN5ownerC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 1, %t3
+    return void
+}
+function @lower__from_derived(%this : ptr) -> i32 [binding=weak, object=_ZNK5lower12from_derivedEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    %t3 = index i8 [projection=field] %t2, 0
+    %t4 = load i32 %t3
+    return i32 %t4
+}
+function @lower__lower(%this : ptr) -> void [binding=weak, object=_ZN5lowerC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    call void @guarded__guarded__base_entry(%t2)
+    return void
+}
+function @guarded__guarded__base_entry(%this : ptr) -> void [binding=weak, object=_ZN7guardedC2Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 2, %t3
+    return void
+}
+alias object _ZN5ownerC2Ev = @owner__owner
+alias object _ZN5lowerC2Ev = @lower__lower

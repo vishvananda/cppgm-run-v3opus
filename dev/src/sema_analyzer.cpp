@@ -5,6 +5,7 @@
 
 #include "ast_model.h"
 #include "ast_tokens.h"
+#include "sema_access.h"
 #include "sema_constexpr.h"
 #include "sema_derivation.h"
 #include "sema_operator.h"
@@ -1831,7 +1832,7 @@ void SemaAnalyzer::simple_declaration(const AstNode& node, const Context& ctx)
 		{
 			// 11.3p2: a friend declaration with no declarator names a class,
 			// and what it does is grant rather than declare.
-			grant_class_friendship(ctx, specifiers);
+			Access(*this).grant_class_friendship(ctx, specifiers);
 			return;
 		}
 		inject_anonymous_members(specifiers.introduced, ctx, span,
@@ -1873,6 +1874,17 @@ void SemaAnalyzer::declare_function_declarator(
 	const Context& target, SemaEntity* granting,
 	std::vector<Parameter>& spelled_parameters, const AstNode* initializer)
 {
+	if (granting != nullptr && !spelled.qualified() &&
+	    TemplateId(spelled.last()).valid())
+	{
+		// 14.5.4p1: `friend str operator+<>(…);` names a specialization of a
+		// function template.  11.3p6's declaration into the namespace is not
+		// what it wrote - the template is already declared there - so nothing is
+		// declared here and the grant is all of it.
+		Access(*this).grant_template_friendship(spelled.last(), target,
+		                                        *granting);
+		return;
+	}
 	// 9.3.1p3: a member function is called on an object, which is a
 	// parameter of it that the declarator does not write.
 	const TypeId written_type = type;
@@ -2140,7 +2152,7 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 	// moves the head this declaration stands under inside the region its
 	// declarator-id names - which leaves no class on the regions around it.
 	SemaEntity* const befriending =
-		specifiers.is_friend ? granting_class(ctx) : nullptr;
+		specifiers.is_friend ? Access(*this).granting_class(ctx) : nullptr;
 	// 3.4.3p3: a declarator-id with a nested-name-specifier declares into the
 	// region that names, wherever the declaration is written.
 	Context target = ctx;
@@ -2248,7 +2260,8 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 	// the class, so the declarator is read against that region and the class
 	// gets the grant.
 	SemaEntity* const granting =
-		specifiers.is_friend ? friend_target(ctx, spelled, target, befriending)
+		specifiers.is_friend ? Access(*this).friend_target(ctx, spelled, target,
+		                                                   befriending)
 		                     : nullptr;
 
 	if (specifiers.is_typedef)

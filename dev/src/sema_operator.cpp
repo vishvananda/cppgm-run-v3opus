@@ -4,6 +4,7 @@
 
 #include "ast_model.h"
 #include "ast_tokens.h"
+#include "sema_access.h"
 #include "sema_analyzer.h"
 #include "sema_argument_lookup.h"
 
@@ -532,11 +533,12 @@ bool OperatorCall::expression(unsigned token, const SemaContext& ctx,
 	// has chosen by now, so the question is asked of the one declaration.
 	Scope* const naming =
 		chosen->object_member && owner != nullptr ? owner->scope : nullptr;
-	analyzer_.require_access(*chosen, ctx.scope, naming);
+	Access(analyzer_).require_access(*chosen, ctx.scope, naming);
 	if (naming != nullptr)
 	{
 		const std::vector<SemaEntity*> settled;
-		analyzer_.require_protected_object(settled, *chosen, ctx.scope, naming);
+		Access(analyzer_).require_protected_object(settled, *chosen, ctx.scope,
+		                                           naming);
 	}
 
 	// 7.3.3p1: 13.3 ranked the declaration the class made, and what an operator

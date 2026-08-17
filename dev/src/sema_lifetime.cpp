@@ -3,6 +3,7 @@
 #include <stdexcept>
 
 #include "ast_model.h"
+#include "sema_access.h"
 #include "sema_constexpr.h"
 #include "sema_operator.h"
 #include "sema_string_init.h"
@@ -214,7 +215,7 @@ void SemaAnalyzer::require_elided_transfer(TypeId type, const Context& ctx)
 			" is initialized from a value of its own class, whose copy 12.8p32 "
 			"asks for a constructor the program has none of");
 	}
-	if (ctx.scope != nullptr && !accessible(*chosen, *ctx.scope))
+	if (ctx.scope != nullptr && !Access(*this).accessible(*chosen, ctx.scope))
 	{
 		throw std::runtime_error(
 			"an object of " + types_.description(types_.strip_cv(type)) +
@@ -590,7 +591,7 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 		                                     : kNoType);
 	SemaEntity& constructor = *select_overload(candidates, arguments,
 	                                           head->name, &object, converting);
-	require_access(constructor, ctx.scope);
+	Access(*this).require_access(constructor, ctx.scope);
 	if (copy_list && constructor.explicit_function)
 	{
 		// 8.5.4p3: copy-list-initialization that chooses an `explicit`
@@ -1067,7 +1068,7 @@ SemaEntity* SemaAnalyzer::register_temporary(DumpNode& node, const Scope* from,
 	// declaration the prvalue came from already asked for.
 	if (from != nullptr)
 	{
-		require_destruction_access(*object, from);
+		Access(*this).require_destruction_access(*object, from);
 	}
 	if (extended)
 	{
@@ -2480,7 +2481,7 @@ void SemaAnalyzer::write_member_destructions(Scope& members, DumpNode& line)
 		// 12.4p5 and 12.4p11: the destructor of the class is what names the
 		// destructor of each of its members, so that is where the access 11 gave
 		// the member's own is asked for.
-		require_destruction_access(member, &members);
+		Access(*this).require_destruction_access(member, &members);
 		destructor_action(member, line, Placement::Member);
 	}
 	for (std::size_t index = members.owner != nullptr
@@ -2490,7 +2491,7 @@ void SemaAnalyzer::write_member_destructions(Scope& members, DumpNode& line)
 		// 12.4p8: the base class subobjects are destroyed after every member,
 		// in the reverse of the order 12.6.2p10 constructed them in.
 		SemaEntity& base = *members.owner->bases[index - 1].entity;
-		require_destruction_access(base, &members);
+		Access(*this).require_destruction_access(base, &members);
 		destructor_action(base, line, Placement::Base);
 	}
 }
@@ -2506,7 +2507,7 @@ void SemaAnalyzer::record_lifetime(SemaEntity& entity, const Context& target,
 	// 12.4p11: whichever region ends it, the lifetime ends in a call of the
 	// destructor of the object's class, and the region that declares the object
 	// is where that call is named.
-	require_destruction_access(entity, target.scope);
+	Access(*this).require_destruction_access(entity, target.scope);
 	if (target.scope->kind == ScopeKind::Namespace ||
 	    target.scope->kind == ScopeKind::Class)
 	{
