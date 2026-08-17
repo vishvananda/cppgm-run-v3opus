@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "ast_model.h"
+#include "sema_name.h"
 #include "sema_pack.h"
 #include "sema_template.h"
 #include "sema_template_head.h"
@@ -146,6 +147,18 @@ TypeId TemplateHead::explicit_argument(const std::vector<SemaEntity*>& places,
 	return analyzer_.template_argument_value(written, place, ctx);
 }
 
+// 14.1p9 at a template place: the default argument names a template.
+//
+// 8.1p1's type-id is the shape every default argument is written in, and a
+// template-name has no type-specifier of its own - so what stands in that shape
+// is the one name, read as an argument at the place rather than as a type.
+TypeId TemplateHead::place_default(const AstNode& written,
+                                   const TemplateInfo* head,
+                                   const SemaContext& ctx)
+{
+	return template_argument(written_name(written), head, ctx);
+}
+
 // 14.3.3p1: the template a spelling written at a template place names.
 //
 // 14.2 writes the argument list inside a name, so the argument arrives as text
@@ -161,6 +174,17 @@ TypeId TemplateHead::template_argument(const std::string& written,
 	// front of its name, which says the name is a template and is no part of
 	// the name a lookup asks for.
 	const std::string spelling = without_template_keyword(written);
+	if (QualifiedName(spelling).names_a_template_id())
+	{
+		// 14.3.3p1 leaves room at a template place for a template-name, and a
+		// template-id is 14.3.1p1's type argument - the class one list already
+		// made.  The two reach 3.4.3 as one spelling and the lookup answers
+		// both, because 14.6.1p1's injected-class-name names the current
+		// specialization *and* the template it was made of - so which of them
+		// was written is a fact of the spelling and is read here.
+		throw std::runtime_error(spelling + " names a specialization where "
+		                         "14.3.3p1 leaves room for a template-name");
+	}
 	SemaEntity* named = analyzer_.resolve(spelling, ctx, LookupKind::Any);
 	if (named != nullptr && analyzer_.types_.is_parameter_template(named->type))
 	{
@@ -296,45 +320,33 @@ bool TemplateHead::argument_matches(const TemplateInfo& place,
 		{
 			// 14.3.3p1: the pack matches every place the other head has left,
 			// which is what makes `template<class...> class` stand for a head
-			// of any length.
-			const TemplateInfo::Parameter& run =
-				wanted[index].pack ? wanted[index] : given[index];
-			const std::vector<TemplateInfo::Parameter>& rest =
-				wanted[index].pack ? given : wanted;
-			for (std::size_t at = index; at < rest.size(); ++at)
+			// of any length - and it is the *same* place matched against each
+			// of them, so each pair is asked what a fixed pair is asked.
+			const bool run_wanted = wanted[index].pack;
+			const std::size_t rest = run_wanted ? given.size() : wanted.size();
+			for (std::size_t at = index; at < rest; ++at)
 			{
-				if (rest[at].value != run.value ||
-				    rest[at].templated != run.templated)
+				if (!places_match(place, run_wanted ? index : at, argument,
+				                  run_wanted ? at : index))
 				{
 					return false;
 				}
 			}
 			return true;
 		}
-		if (given[index].value != wanted[index].value ||
-		    given[index].templated != wanted[index].templated)
-		{
-			return false;
-		}
-		if (given[index].value &&
-		    place_signature(place, index) != place_signature(argument, index))
-		{
-			// 14.3.3p1: two value places match only where the types they name
-			// a value of are equivalent, so `template<class T, T>` does not
-			// stand at a place written `template<class, unsigned long>`.
-			return false;
-		}
-		if (given[index].templated && given[index].head != nullptr &&
-		    wanted[index].head != nullptr &&
-		    !argument_matches(*wanted[index].head, *given[index].head))
+		if (!places_match(place, index, argument, index))
 		{
 			return false;
 		}
 	}
 	if (index < wanted.size())
 	{
-		// P declares a place A has not got, and A wrote no pack to take it.
-		return false;
+		// 14.3.3p1: the pack P declared matches every place A has left, and A
+		// having none left is a run of none rather than a place it is missing -
+		// so `template<class, class...> class` takes a head of one.  A place P
+		// declared that is no pack is one A has not got, and 14.1p11 leaves the
+		// pack last, so nothing stands past it to be missing either.
+		return wanted[index].pack && index + 1 == wanted.size();
 	}
 	for (; index < given.size(); ++index)
 	{
@@ -345,6 +357,35 @@ bool TemplateHead::argument_matches(const TemplateInfo& place,
 		}
 	}
 	return true;
+}
+
+// 14.3.3p1: whether the place `place` declared at `at` accepts the place
+// `argument` declared at `index`.
+//
+// It is three questions - the kind, the type a value place names a value of,
+// and the head a template place wrote one level down - and it is one reading,
+// because a pack matches each of the other head's remaining places by exactly
+// what a fixed place is matched by.
+bool TemplateHead::places_match(const TemplateInfo& place, std::size_t at,
+                                const TemplateInfo& argument,
+                                std::size_t index)
+{
+	const TemplateInfo::Parameter& wanted = place.parameters[at];
+	const TemplateInfo::Parameter& given = argument.parameters[index];
+	if (given.value != wanted.value || given.templated != wanted.templated)
+	{
+		return false;
+	}
+	if (given.value &&
+	    place_signature(place, at) != place_signature(argument, index))
+	{
+		// 14.3.3p1: two value places match only where the types they name a
+		// value of are equivalent, so `template<class T, T>` does not stand at
+		// a place written `template<class, unsigned long>`.
+		return false;
+	}
+	return !given.templated || given.head == nullptr || wanted.head == nullptr ||
+		argument_matches(*wanted.head, *given.head);
 }
 
 // 14.3.3p1 with 14.5.6.1p5: the type one value place names a value of, with
@@ -741,10 +782,8 @@ void TemplateHead::bind_arguments(
 		}
 		if (info.parameters[index].templated)
 		{
-			// 14.1p2: the default at a template place names a template, which
-			// 8.1p1's reading of a type-id has nothing to make of.
-			out.push_back(template_argument(written_name(*fill.written),
-			                                info.parameters[index].head, inner));
+			out.push_back(place_default(*fill.written,
+			                            info.parameters[index].head, inner));
 			continue;
 		}
 		if (!info.parameters[index].value)
@@ -1018,17 +1057,8 @@ void TemplateHead::open_region(TemplateInfo& info)
 		{
 			// 14.1p2: what the place binds is a template, so the head it wrote
 			// travels with the type it stands for - `C<A…>` written inside the
-			// pattern reads it without the head that declared `C`.  The places
-			// of that head belong to it alone, so they are settled in a region
-			// of their own inside this one, which is what lets 14.3.3p1 compare
-			// the type a value place of it names a value of.
-			analyzer_.place_heads_.insert(
-				std::make_pair(place.self, place.head));
-			if (place.head->region == nullptr)
-			{
-				place.head->region = &region;
-			}
-			open_region(*place.head);
+			// pattern reads it without the head that declared `C`.
+			record_place(place.self, *place.head, region);
 		}
 		if (place.pack)
 		{
@@ -1053,6 +1083,27 @@ void TemplateHead::open_region(TemplateInfo& info)
 		analyzer_.model_.bind(region, bound.name, bound);
 		analyzer_.model_.declare_in(region, bound);
 	}
+}
+
+// 14.1p2: the head a template place wrote, settled and recorded against the
+// type that place stands for.
+//
+// The two tiers read a head in two shapes - a class template's places are
+// entries of one `TemplateInfo` and a function template's are declarations of
+// their own - and 14.3.3p1 is one question either way, asked of the type the
+// place stands for.  So the recording is one reading: the head's own places
+// belong to it alone and are settled in a region of their own inside the one
+// the place was declared in, which is what lets 14.3.3p1 compare the type a
+// value place of it names a value of.
+void TemplateHead::record_place(TypeId place, TemplateInfo& head,
+                                Scope& enclosing)
+{
+	analyzer_.place_heads_.insert(std::make_pair(place, &head));
+	if (head.region == nullptr)
+	{
+		head.region = &enclosing;
+	}
+	open_region(head);
 }
 
 // 14.1p2: the definition's own names for the places an earlier declaration

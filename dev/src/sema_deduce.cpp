@@ -34,7 +34,8 @@ bool Deduction::match(TypeId pattern, TypeId argument,
 	const TypeId applied = types.applied_template(types.strip_cv(pattern));
 	if (applied != kNoType)
 	{
-		return match_template_id(pattern, argument, applied, bindings);
+		return match_template_id(pattern, argument, applied, bindings, relaxed,
+		                         derived);
 	}
 	if (types.kind(pattern) == TypeKind::TemplateParameter)
 	{
@@ -73,8 +74,13 @@ bool Deduction::match(TypeId pattern, TypeId argument,
 		// written as, so the qualifiers P writes over it are its own; a pointee
 		// that is no simple-template-id is matched as it stands.
 		const TypeId inner = types.target(pattern);
-		const bool simple = derived && types.kind(inner) == TypeKind::Class &&
-			types.is_specialization(inner);
+		// A simple-template-id is written two ways here - over a template the
+		// program declared, and over a place its own head declared - and the
+		// clause is about the form and not about which of the two it named.
+		const bool simple = derived &&
+			((types.kind(inner) == TypeKind::Class &&
+			  types.is_specialization(inner)) ||
+			 types.applied_template(types.strip_cv(inner)) != kNoType);
 		return match(inner, types.target(argument), bindings, simple, simple);
 	}
 
@@ -135,47 +141,124 @@ bool Deduction::match(TypeId pattern, TypeId argument,
 	}
 }
 
-// 14.8.2.5p4 at a template place: `L<A…>` against a class an argument list
-// already made.
+// 14.8.2.1p3 at a template place: the A a pair written out by the use deduces
+// may be a base of what was passed, and `L<A…>` names no one template for
+// `named_below` to look for - what it asks of a base is 14.3.3p1's question,
+// which is the same one the pair itself asks.
+//
+// `argument` itself where it already is a naming this pair can read, and the
+// first class below it that is one otherwise.  10p1 makes a base of a base a
+// base, so the whole tree is walked.
+TypeId Deduction::derived_template_id(TypeId argument, TypeId place,
+                                      bool derived) const
+{
+	TypeTable& types = analyzer_.types_;
+	if (types.applied_template(argument) != kNoType ||
+	    (types.kind(argument) == TypeKind::Class &&
+	     types.is_specialization(argument)))
+	{
+		return argument;
+	}
+	const SemaEntity* const owner = analyzer_.model_.type_owner(argument);
+	return derived && owner != nullptr ? specialization_below(*owner, place)
+	                                   : kNoType;
+}
+
+TypeId Deduction::specialization_below(const SemaEntity& at, TypeId place) const
+{
+	TemplateHead heads(analyzer_);
+	const TemplateInfo* const wanted = analyzer_.place_head(place);
+	for (std::size_t index = 0; index < at.bases.size(); ++index)
+	{
+		const SemaEntity& base = *at.bases[index].entity;
+		const TypeId type = analyzer_.types_.strip_cv(base.type);
+		if (analyzer_.types_.is_specialization(type) &&
+		    base.primary != nullptr && base.primary->templated != nullptr &&
+		    (wanted == nullptr ||
+		     heads.argument_matches(*wanted, *base.primary->templated)))
+		{
+			return type;
+		}
+		const TypeId deeper = specialization_below(base, place);
+		if (deeper != kNoType)
+		{
+			return deeper;
+		}
+	}
+	return kNoType;
+}
+
+// 14.8.2.5p4 at a template place: `L<A…>` against what an argument list was
+// already applied to.
 //
 // The pair says two things at once, which is what makes it one arm rather than
-// a case of the class arm below: which *template* the argument was made of,
+// a case of the class arm below: which *template* the argument was applied to,
 // which is what `L` is deduced to, and what its arguments were, which the rest
 // of the pattern is matched against.  14.3.3p1 stands over the first of them -
 // a template whose head does not fit the place is no deduction of it, and the
 // pattern simply does not match - so a partial specialization written over a
 // place of one shape passes a class made from another straight through to the
 // primary.
+//
+// What the argument was applied to is a template the program declared wherever
+// an argument list already made a class of it, and a place standing for itself
+// where it did not.  14.5.5.2p1's ordering asks this pair of two patterns, so
+// the second is the reading that says which of two partial specializations is
+// the more specialized - and it is the same two questions of the same two
+// heads.
 bool Deduction::match_template_id(TypeId pattern, TypeId argument, TypeId place,
-                                  std::unordered_map<TypeId, TypeId>& bindings)
+                                  std::unordered_map<TypeId, TypeId>& bindings,
+                                  bool relaxed, bool derived)
 {
 	TypeTable& types = analyzer_.types_;
-	if (types.cv(pattern) != types.cv(argument))
+	if (relaxed ? (types.cv(argument) & ~types.cv(pattern)) != 0
+	            : types.cv(pattern) != types.cv(argument))
 	{
 		// 14.8.2.5p4: the qualifiers stand in the pair as they are written, so
 		// `L<T…>` is no match for a class an argument list wrote `const` on -
 		// which is what leaves `holder<T const>` the one pattern it matches.
+		// 14.8.2.1p4 is the one allowance: binding a reference parameter adds
+		// the qualifiers P wrote, so a pair reached through one asks only that
+		// the argument's own are among them - the same reading every other pair
+		// of this walk is given.
 		return false;
 	}
-	const TypeId bare = types.strip_cv(argument);
-	if (types.kind(bare) != TypeKind::Class || !types.is_specialization(bare))
+	const TypeId bare = derived_template_id(types.strip_cv(argument), place,
+	                                        derived);
+	if (bare == kNoType)
 	{
 		return false;
 	}
-	SemaEntity* const made = analyzer_.model_.type_owner(bare);
-	if (made == nullptr || made->primary == nullptr ||
-	    made->primary->templated == nullptr)
+	const TypeId over = types.applied_template(bare);
+	const TemplateInfo* given = nullptr;
+	TypeId named = kNoType;
+	if (over != kNoType)
 	{
-		return false;
+		given = analyzer_.place_head(over);
+		named = over;
+	}
+	else
+	{
+		if (types.kind(bare) != TypeKind::Class ||
+		    !types.is_specialization(bare))
+		{
+			return false;
+		}
+		SemaEntity* const made = analyzer_.model_.type_owner(bare);
+		if (made == nullptr || made->primary == nullptr ||
+		    made->primary->templated == nullptr)
+		{
+			return false;
+		}
+		given = made->primary->templated;
+		named = TemplateHead(analyzer_).name_argument(*made->primary);
 	}
 	const TemplateInfo* const head = analyzer_.place_head(place);
-	if (head != nullptr &&
-	    !TemplateHead(analyzer_).argument_matches(*head,
-	                                              *made->primary->templated))
+	if (head != nullptr && given != nullptr &&
+	    !TemplateHead(analyzer_).argument_matches(*head, *given))
 	{
 		return false;
 	}
-	const TypeId named = TemplateHead(analyzer_).name_argument(*made->primary);
 	const std::pair<std::unordered_map<TypeId, TypeId>::iterator, bool> held =
 		bindings.insert(std::make_pair(place, named));
 	if (!held.second && held.first->second != named)
@@ -548,7 +631,16 @@ bool Deduction::arguments_of(const SemaEntity& primary,
 		const TypeId place = analyzer_.substituted(
 			types.parameter_value_type(parameters[index]->type), filled, memo);
 		TypeId given;
-		if (place == kNoType)
+		if (types.is_parameter_template(parameters[index]->type))
+		{
+			// 14.1p9 at a template place: what the default names is a template,
+			// which is neither 8.1p1's type-id nor 5.19's constant expression -
+			// the same reading the class tier's own fill gives it.
+			given = TemplateHead(analyzer_).place_default(
+				*written->second,
+				analyzer_.place_head(parameters[index]->type), inner);
+		}
+		else if (place == kNoType)
 		{
 			given = analyzer_.substituted(
 				analyzer_.type_id_type(*written->second, inner), filled, memo);

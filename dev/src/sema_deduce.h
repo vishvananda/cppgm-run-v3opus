@@ -76,9 +76,17 @@ private:
 	// 14.8.2.5p4 at a template place: `L<A…>` against a class an argument list
 	// already made, which deduces `L` from the template that class was made of
 	// and the rest from the arguments that made it.  `place` is the place `L`
-	// stands for.
+	// stands for, and `relaxed` and `derived` are 14.8.2.1p3 and p4's two
+	// allowances, carried here as they are carried into every other pair.
 	bool match_template_id(TypeId pattern, TypeId argument, TypeId place,
-	                       std::unordered_map<TypeId, TypeId>& bindings);
+	                       std::unordered_map<TypeId, TypeId>& bindings,
+	                       bool relaxed, bool derived);
+	// 14.8.2.1p3 at a template place: `argument` itself where it is a naming
+	// this pair reads, and the first class below it that is one otherwise -
+	// which is what a place stands for rather than a named template.
+	TypeId derived_template_id(TypeId argument, TypeId place,
+	                           bool derived) const;
+	TypeId specialization_below(const SemaEntity& at, TypeId place) const;
 
 	// 14.8.2p5 and 14.1p9: the argument each parameter of `primary` was deduced
 	// or, where the deduction reached none, the one its head wrote a default

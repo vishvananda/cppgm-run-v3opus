@@ -1214,6 +1214,20 @@ void SemaAnalyzer::template_parameter(const AstNode& node, const Context& ctx)
 	const bool is_template = has_child(node, AstKind::TemplateTemplateParameter);
 	const TypeId type = types_.template_parameter_type(model_.type_entity_id(),
 	                                                   is_template, id->text);
+	if (is_template)
+	{
+		// 14.1p2: the clause the place wrote is a head of its own, and what a
+		// written argument's own head is matched against.  A function
+		// template's places are declarations rather than entries of a
+		// `TemplateInfo`, so the head is recorded against the type the place
+		// stands for - which is the one thing both tiers hand 14.3.3p1.
+		TemplateHead heads(*this);
+		heads.record_place(
+			type,
+			heads.parameter_head(child_of(node,
+			                              AstKind::TemplateParameterClause)),
+			*ctx.scope);
+	}
 	// 14.1p2 and the ABI's `<template-param>`: a specialization's own name is
 	// encoded from the template's signature, where the parameter stands for
 	// itself and is written by its place rather than by its spelling.

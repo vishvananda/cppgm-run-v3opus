@@ -49,6 +49,16 @@ public:
 	void read(const AstNode& clause, TemplateInfo& info, bool primary = true);
 	// 14.1p2: the head a template-template place wrote, read once per clause.
 	TemplateInfo& parameter_head(const AstNode* clause);
+	// 14.1p2: that head settled and recorded against the type `place` stands
+	// for, which is what 14.3.3p1 is asked of wherever an argument arrives at
+	// the place - however the head that declared it was read.  `enclosing` is
+	// the region the place itself was declared in, which the head's own places
+	// are settled inside.
+	void record_place(TypeId place, TemplateInfo& head, Scope& enclosing);
+	// 14.1p9 at a template place: the default argument names a template, which
+	// 8.1p1's reading of a type-id has nothing to make of.
+	TypeId place_default(const AstNode& written, const TemplateInfo* head,
+	                     const SemaContext& ctx);
 	// 14.3.3p1: whether a template whose head is `argument` is at least as
 	// specialized as the place `place` declared, which is what says a written
 	// template-name may stand at that place.
@@ -115,6 +125,11 @@ public:
 	                    const SemaContext& ctx, std::vector<TypeId>& out);
 
 private:
+	// 14.3.3p1: whether one place of `place` accepts one place of `argument` -
+	// the kind, a value place's own signature, and a template place's head one
+	// level down.  A pack asks it of each place the other head has left.
+	bool places_match(const TemplateInfo& place, std::size_t at,
+	                  const TemplateInfo& argument, std::size_t index);
 	// 14.3.3p1 with 14.5.6.1p5: the type the value place at `index` names a
 	// value of, with each place of `head` standing for its own position.
 	TypeId place_signature(const TemplateInfo& head, std::size_t index);

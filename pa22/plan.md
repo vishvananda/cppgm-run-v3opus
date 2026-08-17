@@ -28,26 +28,28 @@ replaced:
 
 ## Current Failure Map
 
-Turn-start baseline **132 / 308**; now **154 / 308**, 154 failures.
+Turn-start baseline **132 / 308**; checkpoint T landed **154 / 308**; the audit
+of T leaves **156 / 308**, 152 failures.
 
 Grouped by the compiler behaviour that owns them (one test can want two):
 
 | # | Group | Owner | Signature |
 |---|---|---|---|
-| 39 | **alias templates** (`template<…> using X = …`) — 40 such tests, 39 fail | `sema_analyzer.cpp` alias path + `template_id_entity` | `no declaration of X is in scope` |
+| 39 | **alias templates** (`template<…> using X = …`) — 40 such tests, 39 fail | `sema_analyzer.cpp` alias path + `template_id_entity` | `no declaration of X is in scope`, `X does not name a type` |
+| 17 | compiles but the LowIR or the expected refusal does not match | `lowir_*`, `sema_access.cpp` | no diagnostic; explicit-instantiation ownership, `extern template`, and `-bad` cases wrongly accepted |
 | 14 | parse failures | `ast_parser_*` | `… is not a translation unit` |
-| 12 | out-of-class member-template definitions | `member_definition_owner` | `X is defined where no class declares it, which 9.3p1 gives no meaning` |
-| 10 | LowIR mismatch (explicit-instantiation ownership, `extern template`) | `lowir_*` | `does not match reference` |
-| 8 | a template-id written before `::` that this walk does not settle | `resolve_prefix` | `X is written after a name that is not a namespace, class or enumeration` |
+| 12 | out-of-class member-template definitions | `member_definition_owner` | `X is defined where no class declares it, which 12.1p1 gives no meaning` |
+| 7 | a template-id written before `::` that this walk does not settle | `resolve_prefix` | `X is written after a name that is not a namespace, class or enumeration` |
 | 7 | friend templates | `sema_class.cpp` | `a friend declaration is written outside a class definition`, `… with no declarator names no class` |
-| 6 | 14.5.5.2 ordering leaves two patterns unordered | `most_specialized` | `matches two partial specializations` |
 | 5 | dependent array bound `T[N]` in a partial-specialization pattern | `sema_type_id.cpp`, `TypeTable::array_of` | `X is a template whose parameters PA20 does not instantiate` |
-| 4 | access through member class templates and nested type paths | `sema_access.cpp` | `named where the access its class gave it does not reach`, plus `-bad` cases wrongly accepted |
+| 4 | access through member class templates and nested type paths | `sema_access.cpp` | `named where the access its class gave it does not reach` |
+| 4 | 14.5.5.2 ordering by pack *prefix length* — `list<A0, Rest...>` against `list<A0, A1, Rest...>`, with no template place written | `most_specialized` | `matches two partial specializations` |
 | rest | dependent-name and instantiation timing | mixed | `no declaration of … is in scope` |
 
 ## Active Checkpoint
 
-**Landed this turn — see the ledger. The next one is A (alias templates).**
+**T landed and was audited this turn — see the ledger and `audit.md`. The next
+one is A (alias templates).**
 
 *Owner.* `sema_analyzer.cpp`'s `alias_declaration` and `record_template` own the
 declaration; `template_id_entity` owns the naming; the entity is a `Typedef`
@@ -66,33 +68,47 @@ the class's own head standing outside it.
 memoised on the alias's `TemplateInfo` the way `chosen` already is, so an alias
 named n times costs one substitution.
 
-*Validation.* `make test-report ACTIVE_TEST_REPORT_PAS='pa22'` above 154 with
+*Validation.* `make test-report ACTIVE_TEST_REPORT_PAS='pa22'` above 156 with
 `make test-report-through-pa21` clean; the four
 `400-member-alias-template-template-*` tests are the cross-check that the alias
-entity reaches a template place.
+entity reaches a template place, and `TemplateHead::template_argument` already
+refuses a template-*id* there, so the alias must arrive as a template-name.
 
 ## Performance Model
 
-Measured with `dev/cppgm++ --emit-lowir -O0 -o <out>` on generated inputs under
-`/tmp/perf`. The paths at risk this turn are the head read (once per clause), the
-14.3.3p1 match (recursive, one level per nested template place), the interned
-`TemplateName` entry, and the dependent-`C<A…>` memo.
+Best of three with `/usr/bin/time` on generated inputs under `/tmp/perf`,
+against a `make build` of the pre-audit checkpoint in a worktree and against
+`pa22/cppgm++-ref`. The paths at risk are the head read (once per written
+clause), the 14.3.3p1 match (one level per nested template place, and one pair
+per place a pack has left), the interned `TemplateName` entry, and the
+dependent-`C<A…>` memo — which both the naming and the substitution now ask.
 
-| Path | Sweep | Result |
-|---|---|---|
-| nested template places in one head | depth 2 → 10 | 0.004s → 0.005s — flat; the head is read once per clause node and the match recurses one level per nesting |
-| distinct templates at a template place | 10 → 200 namings, each a different template | 0.006 → 0.044s — linear, one interned entry per template |
-| one template named at a place n times | 10 → 200 | 0.006 → 0.031s — linear; the entry is interned, so the n namings share it |
-| partial-specialization patterns over a template place × candidate count | 25×4 → 100×8 (cross product, not one axis) | 0.006 → 0.008s — flat in both |
-| nested heads each named | depth 4 → 16 | 0.005 → 0.007s — flat |
+| Path | Sweep | This build | Pre-audit | `pa22/cppgm++-ref` |
+|---|---|---|---|---|
+| nested template places in one head | depth 2 → 12 | 0.00 s, flat at 6 MB | same | 0.53 s |
+| nesting × namings (cross product) | 3×200 → 11×3200 | 0.03 → 0.77 s, 14 → 189 MB | 0.02 → 0.76 s | 0.70 → 7.60 s |
+| function-tier template place | 400 → 3200 namings | 0.06 → 0.58 s, 22 → 138 MB | 0.06 → 0.57 s | 0.97 → 10.64 s |
+| distinct templates at a template place | 400 | 0.04 s, 17 MB | 0.04 s | 0.81 s |
+| one template named at a place n times | 400 | 0.01 s, 8 MB | 0.01 s | 0.61 s |
+| `C<T>` written n times in one pattern | 400 | 0.01 s, 11 MB | 0.01 s | 0.75 s |
+| one `C<T>` pattern over n argument lists | 400 | 0.07 s, 23 MB | 0.07 s | 1.10 s |
+| out-of-class member definition | 400 specializations | 0.05 s, 18 MB | 0.04 s | 0.83 s |
+| the whole 169-file PA22 corpus | — | 1.31 s | 1.30 s | — |
 
-`valgrind -q --error-exitcode=9` is clean on a two-argument template-place case
-and on `200-adl-template-template-argument-namespace.t`; the memo keyed by
-`const AstNode*` holds `TemplateInfo*` into `template_patterns_`, a deque, so
-nothing it hands out moves.
+Every dimension is linear in what it sweeps and none carries a 2^depth term: the
+head is read once per clause node, the naming is interned per place and interned
+list, and the substitution's own arm asks that same memo rather than minting a
+type of its own.
+
+`valgrind -q --error-exitcode=9` is clean over 77 probe programs and over the
+three largest scaling inputs; the memo keyed by `const AstNode*` holds
+`TemplateInfo*` into `template_patterns_`, a deque, so nothing it hands out
+moves.
 
 Correctness cross-check against the third oracle: `_ZN6holderIN1N3boxEE3getEv`
-and `_ZN6holderIN1Q2fnEE3getEv` agree with `g++ -std=c++11` byte for byte.
+and `_ZN6holderIN1Q3boxEE3getEv` agree with `g++ -std=c++11` byte for byte, and
+64 probe programs lower to LowIR the assignment's own comparator finds identical
+to the reference.
 
 ## Completed Checkpoints
 
@@ -104,3 +120,4 @@ and `_ZN6holderIN1Q2fnEE3getEv` agree with `g++ -std=c++11` byte for byte.
 | **T3** the object-file name | `TypeKind::TemplateName` had no `operand_of` arm, so two entries standing for two templates interned as one type and two specializations became one symbol. Beside it: `<template-arg>` writes such an argument as `ABI_TEMPLATE_ARGUMENT_TEMPLATE_ENTITY`, and 3.4.3 names the template from outside every region around it. | 147 / 308 |
 | **T4** 14.1p11 is about a primary head | A pack was refused anywhere but last in *every* head. 14.1p11 is written about a head an argument list is read against; 14.5.5p1's head writes no such list, so a pack stands anywhere in one — and what the deduction leaves for it is one entry per place rather than one flat list. | 152 / 308 |
 | **T5** the region an argument associates | 3.4.2p2 gives an argument at a template place the namespace or class that declares the template it named, and no more — a template is no type. 14.6.2p1 answers the other end: `U::template fn` behind an unsettled prefix stands as written. | 154 / 308 |
+| **T audit** the exits the four new facts were written at | 14.3.3p1 was asked at the class tier and at neither exit of the function tier, whose places are declarations rather than entries of a head — so `use<pair2>()` was accepted and a template place's default was read as 8.1p1's type-id. `QualifiedName::names_a_template_id` now tells 14.6.1p1's injected-class-name from a template-*id* written at a place, which the lookup answers alike. `places_match` is one pair reading, asked of each place a pack has left, and a pack P declared matches the run of none. `match_template_id` reads a naming over a place as it reads one over a named template — which is what 14.5.5.2p1's ordering hands it — and carries 14.8.2.1p3 and p4's allowances. `substituted` asks `dependent_template_name` where it minted a second type for one naming. | 156 / 308 |

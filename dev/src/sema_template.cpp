@@ -1207,7 +1207,10 @@ TemplateInfo* SemaAnalyzer::place_head(TypeId parameter) const
 //
 // It is 3.4's answer to one spelling, so it is made once per place and argument
 // list: a pattern that writes `C<T>` twice writes one type, and the
-// substitution below runs once for it however many namings reached it.
+// substitution below runs once for it however many namings reached it.  A
+// substitution that leaves the place a place still arrives here too, so the two
+// readings of one naming - the one the pattern wrote and the one a partly
+// settled list left - are one type and not two that spell the same.
 SemaEntity& SemaAnalyzer::dependent_template_name(
 	TypeId parameter, const std::vector<TypeId>& arguments,
 	const std::string& spelling)
@@ -2208,9 +2211,8 @@ TypeId SemaAnalyzer::substituted(
 			out = named != nullptr && named->templated != nullptr
 				? types_.qualified(instantiate_class(*named, arguments).type, cv)
 				: types_.qualified(
-					  types_.dependent_template_id(
-						  model_.type_entity_id(), bound, arguments,
-						  types_.user_name(bare)),
+					  dependent_template_name(bound, arguments,
+					                          types_.user_name(bare)).type,
 					  cv);
 			break;
 		}
