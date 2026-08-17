@@ -575,6 +575,9 @@ private:
 	                        const DumpNode& action, unsigned long long base,
 	                        unsigned long long& at,
 	                        const BoundArguments* outer = nullptr);
+	// 12.6.2p2: which member of class type the constructor call a
+	// mem-initializer wrote builds, which is the object that call stands on.
+	static const SemaEntity* constructed_member(const DumpNode& action);
 	// 10p1 and 9.2p13: the byte the class a constructor belongs to laid its
 	// direct base subobject of this type out at, which is where that base's own
 	// construction writes its image.

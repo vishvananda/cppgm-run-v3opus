@@ -152,6 +152,10 @@ public:
 	// it opened for the call, so the answer is that binding read back and no
 	// question about where the body stands.
 	SemaConstant this_constant(const SemaContext& ctx);
+	// 9.3.2p1: the binding the innermost folded call made for the object it was
+	// called on, told from 8.3.5p10's own declaration of the name by the object
+	// it names.  Null where this reading has no such object.
+	SemaEntity* folded_this(const SemaContext& ctx) const;
 	SemaConstant call_or_cast(const AstNode& node, const SemaContext& ctx);
 	// 5.2.1p1's subscript and 5.4p4/5.2.9's cast, each of which is one operator
 	// with a reading per kind of operand or destination - so each is a reading

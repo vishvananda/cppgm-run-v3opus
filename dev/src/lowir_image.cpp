@@ -918,6 +918,26 @@ bool LowirUnitLowering::base_subobject_offset(const SemaEntity& constructor,
 	return false;
 }
 
+// 12.6.2p2 and 12.6p1: the member of class type a mem-initializer wrote a
+// constructor call for, which the walk of the constructor's own definition
+// writes as the construction of that subobject.  Which subobject it is is the
+// object the call was written on - `&this->m`, which is the one place the
+// member's declaration is named.
+const SemaEntity* LowirUnitLowering::constructed_member(const DumpNode& action)
+{
+	if (action.children.empty() || action.children[0]->children.size() < 2)
+	{
+		return nullptr;
+	}
+	const DumpNode* at = action.children[0]->children[1];
+	if (at->fact.kind == FactKind::Unary && at->fact.op == OP_AMP &&
+	    !at->children.empty())
+	{
+		at = at->children[0];
+	}
+	return at->fact.kind == FactKind::Member ? at->fact.entity : nullptr;
+}
+
 bool LowirUnitLowering::global_constructed(
 	lowir_model::GlobalDefinition& global, const DumpNode& action,
 	unsigned long long base, unsigned long long& at,
@@ -1000,6 +1020,32 @@ bool LowirUnitLowering::global_constructed(
 			continue;
 		}
 		if (child.fact.kind == FactKind::ConstructorAction &&
+		    !child.fact.base_subobject && child.fact.subobject_step)
+		{
+			// 12.6.2p2 and 12.6p1: the mem-initializer named a constructor of
+			// the member's own class, so what the image holds for the member is
+			// this same walk one level down, at the byte 9.2p13 laid it out at.
+			const SemaEntity* const member = constructed_member(child);
+			if (member == nullptr || base + member->offset < at ||
+			    child.fact.elements != 0 ||
+			    types_.kind(types_.strip_cv(member->type)) == TypeKind::Array)
+			{
+				// 12.6p1: a member of *array* type is one action per element -
+				// or one run standing for them all - so the byte the member
+				// stands at is not where any one of them writes, and the image
+				// the reference leaves such a member is a startup body.
+				return false;
+			}
+			const unsigned long long where = base + member->offset;
+			add_zero_item(global, where - at);
+			at = where;
+			if (!global_constructed(global, child, where, at, &bound))
+			{
+				return false;
+			}
+			continue;
+		}
+		if (child.fact.kind == FactKind::ConstructorAction &&
 		    child.fact.base_subobject)
 		{
 			// 12.6.2p10: the base class subobjects are constructed before the
@@ -1023,9 +1069,7 @@ bool LowirUnitLowering::global_constructed(
 		}
 		const SemaEntity& member = *child.fact.entity;
 		const TypeId type = child.fact.type;
-		if (member.bit_field || types_.is_reference(type) ||
-		    types_.kind(types_.strip_cv(type)) == TypeKind::Array ||
-		    types_.is_class(types_.strip_cv(type)))
+		if (member.bit_field || types_.is_reference(type))
 		{
 			return false;
 		}
@@ -1047,6 +1091,34 @@ bool LowirUnitLowering::global_constructed(
 		if (offset < at)
 		{
 			return false;
+		}
+		const TypeId bare = types_.strip_cv(type);
+		if (types_.kind(bare) == TypeKind::Array)
+		{
+			// 8.5.1p2: the clauses reach the member's *elements*, and what the
+			// image would hold for them is the array's own walk - which the
+			// reference leaves to a startup body here, so this does too.
+			return false;
+		}
+		if (types_.is_class(bare))
+		{
+			// 12.6.2p2 with 3.6.2p2: a mem-initializer of a member of class
+			// type reaches that member's *own* subobjects, so what the image
+			// holds for it is the walk of those subobjects at the byte 9.2p13
+			// laid the member out at - the same walk a clause of an aggregate
+			// standing anywhere else is read by.
+			if (value->fact.kind != FactKind::AggregateInitialization &&
+			    value->fact.kind != FactKind::BracedInitList)
+			{
+				return false;
+			}
+			add_zero_item(global, offset - at);
+			at = offset;
+			if (!global_subobjects(global, *value, offset, at))
+			{
+				return false;
+			}
+			continue;
 		}
 		add_zero_item(global, offset - at);
 		lowir_model::GlobalDefinition::DataItem item;

@@ -557,10 +557,7 @@ SemaConstant ConstexprReading::called_name(
 	// argument here as it is there, and 13.3.1p4 makes that place an exact match
 	// for every candidate that has no object parameter - so offering it decides
 	// nothing between a member and the non-members beside it.
-	SemaEntity* const bound =
-		ctx.scope == nullptr
-			? nullptr
-			: analyzer_.model_.lookup(*ctx.scope, kFoldThis, LookupKind::Any);
+	SemaEntity* const bound = folded_this(ctx);
 	SemaConstant object;
 	if (bound != nullptr)
 	{
@@ -1162,14 +1159,30 @@ void ConstexprReading::bind_subobjects(const SemaConstant& object,
 	}
 }
 
-// 9.3.2p1: the object the innermost folded call was written on, as the prvalue
-// of pointer type the keyword is.
-SemaConstant ConstexprReading::this_constant(const SemaContext& ctx)
+// 9.3.2p1 and 9.2p1: the binding the innermost folded call made for the object
+// it was called on, or null where this reading has no such object.
+//
+// 8.3.5p10 puts the keyword's own name in a member function's declarator region
+// too - the analysis declares `this` there as the parameter 9.3.1p3 makes it -
+// so a lookup of the name alone finds that declaration wherever the fold made
+// no binding of its own: inside a constructor, whose object is the one being
+// built and is designated by nothing yet, and inside any member body read for a
+// use rather than for a call.  What tells them apart is which object the
+// binding names, because the fold writes one and the declaration names none.
+SemaEntity* ConstexprReading::folded_this(const SemaContext& ctx) const
 {
 	SemaEntity* const bound =
 		ctx.scope == nullptr
 			? nullptr
 			: analyzer_.model_.lookup(*ctx.scope, kFoldThis, LookupKind::Any);
+	return bound != nullptr && bound->value != 0 ? bound : nullptr;
+}
+
+// 9.3.2p1: the object the innermost folded call was written on, as the prvalue
+// of pointer type the keyword is.
+SemaConstant ConstexprReading::this_constant(const SemaContext& ctx)
+{
+	SemaEntity* const bound = folded_this(ctx);
 	if (bound == nullptr)
 	{
 		// 9.3.2p1: `this` may be written only in a non-static member function,
