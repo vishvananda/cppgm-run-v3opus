@@ -316,6 +316,32 @@ public:
 	SemaConstant clause_of(const AstNode& clause, TypeId target,
 	                       const SemaContext& ctx);
 
+	// 8.5.1p2 and 8.5.2p1 over the whole of one list: the two questions only the
+	// place the braces stand can answer - whether the one clause in them is the
+	// string literal that initializes the whole array, and whether every clause
+	// reached a subobject.  Every place a list stands asks it.
+	SemaConstant list_constant(TypeId bare, const AstNode& list,
+	                           const SemaContext& ctx);
+	// 8.5.1p2 over one aggregate, taking what it needs out of a list the caller
+	// may still be walking.  8.5.1p11 lets the braces around a subaggregate's
+	// clauses be left out, so how many clauses an aggregate takes is what its
+	// own walk of its subobjects arrives at rather than a count worked out in
+	// front of it - which is why the cursor and not a list is the argument, and
+	// why the walk goes one *subobject* per step and not one clause.
+	SemaConstant aggregate_constant(TypeId bare, InitializerClauses& clauses,
+	                                const SemaContext& ctx);
+	// One subobject of that walk: the clause standing here where its braces
+	// were written, the run of clauses its own subobjects take where 8.5.1p11
+	// left them out, and 8.5.2p1's code units where the clause is a string
+	// literal for an array of character type.
+	SemaConstant subobject_constant(TypeId type, InitializerClauses& clauses,
+	                                const SemaContext& ctx);
+	// 8.5.2p1: the array of character type a string literal initializes, whose
+	// elements hold the literal's own code units and no clause at all.  False
+	// where the initializer is no string literal for this array.
+	bool string_constant(TypeId array, const AstNode& written,
+	                     const SemaContext& ctx, SemaConstant& out);
+
 	// 8.5.1p2 and p7 over an array: the same reading where the subobjects the
 	// clauses reach are 8.3.4p6's elements rather than 9.2p1's members, so
 	// which one a clause initializes is its position and no lookup at all, and

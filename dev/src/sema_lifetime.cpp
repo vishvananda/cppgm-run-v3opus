@@ -5,6 +5,7 @@
 #include "ast_model.h"
 #include "sema_constexpr.h"
 #include "sema_operator.h"
+#include "sema_string_init.h"
 
 namespace
 {
@@ -2002,8 +2003,15 @@ void SemaAnalyzer::write_member_initializations(const Pending& pending,
 			// laid this one out inside the object being constructed.
 			list_initialize(*written, type, where, node);
 		}
-		else
+		else if (!StringInitialization(*this).as_object(types_.strip_cv(type),
+		                                               *written, where, node))
 		{
+			// 8.5.2p1: a member that is an array of character type takes the
+			// code units of a string literal written for it, which is no
+			// conversion of the literal to the array's type and so is asked
+			// before the initialization every other expression gets - the same
+			// order a declaration of such an array is read in, because 12.6.2p8
+			// makes the brace-or-equal-initializer that initialization.
 			initialize(*written, type, where, node);
 		}
 		close_full_expression(line);

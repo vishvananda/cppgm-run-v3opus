@@ -81,6 +81,17 @@ SemaAnalyzer::Value SemaAnalyzer::cast_expression(const AstNode& node,
 		name_function(source, *chosen, "id-expression");
 	}
 
+	if (types_.is_void(types_.strip_cv(source.type)) &&
+	    !types_.is_void(types_.strip_cv(target)))
+	{
+		// 5.2.9p4: a cast to anything but cv `void` is the direct-initialization
+		// of a temporary of the target's type from the operand, and 3.9.1p9
+		// leaves an expression of type `void` no value to initialize one with -
+		// so `(int)((void)0)` reaches nothing, where `(void)((void)0)` is the
+		// discarded-value expression it already was.
+		throw std::runtime_error("an operand of type void is cast to " +
+		                         types_.description(target));
+	}
 	Value value;
 	value.type = target;
 	value.spelled = target;

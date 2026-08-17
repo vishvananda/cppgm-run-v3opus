@@ -1,0 +1,126 @@
+global @filled [binding=internal, object=_ZL6filled] = {
+  i32 7
+  i32 11
+  i32 13
+  i32 17
+}
+global @partly [binding=internal, object=_ZL6partly] = {
+  i32 7
+  i32 11
+  i32 0
+  i32 0
+}
+global @braced [binding=internal, object=_ZL6braced] = {
+  i32 7
+  i32 11
+  i32 13
+  i32 17
+}
+global @split [binding=internal, object=_ZL5split] = {
+  i32 1
+  i32 2
+  i32 3
+}
+global @held [binding=internal, object=_ZL4held] = {
+  i32 4
+  i32 5
+  i32 6
+}
+global @source [binding=internal, object=_ZL6source] = {
+  i32 8
+  i32 9
+}
+global @copied [binding=internal, object=_ZL6copied] = {
+  zero 12
+}
+global @two [binding=internal, object=_ZL3two] = {
+  i8 97
+  i8 98
+  i8 0
+}
+global @two_braced [binding=internal, object=_ZL10two_braced] = {
+  i8 97
+  i8 98
+  i8 0
+}
+global @counted [binding=internal, object=_ZL7counted] = {
+  i8 97
+  i8 98
+  i8 99
+  i8 0
+}
+global @tagged [binding=internal, object=_ZL6tagged] = {
+  i8 104
+  i8 105
+  i8 0
+  i8 0
+  i8 0
+  zero 3
+  i32 12
+}
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    call void @reading()
+    %t1 = addr @filled
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = unary decay ptr %t2
+    %t4 = index i32 [projection=array_element] %t3, 0
+    %t5 = load i32 %t4
+    %t6 = addr @split
+    %t7 = index i8 [projection=field] %t6, 8
+    %t8 = load i32 %t7
+    %t9 = binary add i32 %t5, %t8
+    %t10 = binary sub i32 %t9, 10
+    return i32 %t10
+}
+function @reading() -> void [binding=weak, object=_Z7readingIiEvv] {
+  slot $flat : obj<16x4>
+  slot $written : obj<8x4>
+
+  block ^entry:
+    %t1 = addr $flat
+    %t2 = addr $flat
+    %t3 = index i8 [projection=field] %t2, 0
+    %t4 = unary decay ptr %t3
+    %t5 = index i32 [projection=array_element] %t4, 0
+    store i32 30, %t5
+    %t6 = addr $flat
+    %t7 = index i8 [projection=field] %t6, 0
+    %t8 = unary decay ptr %t7
+    %t9 = index i32 [projection=array_element] %t8, 1
+    store i32 31, %t9
+    %t10 = addr $flat
+    %t11 = index i8 [projection=field] %t10, 0
+    %t12 = unary decay ptr %t11
+    %t13 = index i32 [projection=array_element] %t12, 2
+    store i32 32, %t13
+    %t14 = addr $flat
+    %t15 = index i8 [projection=field] %t14, 0
+    %t16 = unary decay ptr %t15
+    %t17 = index i32 [projection=array_element] %t16, 3
+    store i32 33, %t17
+    %t18 = addr $written
+    %t19 = addr $written
+    %t20 = index i8 [projection=field] %t19, 0
+    %t21 = unary decay ptr %t20
+    %t22 = index i32 [projection=array_element] %t21, 0
+    store i32 40, %t22
+    %t23 = addr $written
+    %t24 = index i8 [projection=field] %t23, 0
+    %t25 = unary decay ptr %t24
+    %t26 = index i32 [projection=array_element] %t25, 1
+    store i32 41, %t26
+    return void
+}
+function @__cppgm_init() -> void [role=init, binding=internal] {
+  block ^entry:
+    %t1 = addr @copied
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = addr @source
+    copyobj 8x4 %t3, %t2
+    %t4 = addr @copied
+    %t5 = index i8 [projection=field] %t4, 8
+    store i32 10, %t5
+    return void
+}

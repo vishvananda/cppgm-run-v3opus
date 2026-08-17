@@ -394,6 +394,16 @@ SemaConstant ConstexprReading::initialized_value(const AstNode& wrote,
 	const TypeId bare = analyzer_.types_.strip_cv(type);
 	const bool built = analyzer_.types_.is_class(bare) ||
 		analyzer_.types_.kind(bare) == TypeKind::Array;
+	if (analyzer_.types_.kind(bare) == TypeKind::Array &&
+	    wrote.kind != AstKind::ParenInitializer)
+	{
+		// 8.5.1p2 and 8.5.2p1: what initializes an array is its own list of
+		// clauses or the string literal 8.5.2p1 gives it the code units of, and
+		// a declaration's initializer is read for both exactly as a clause
+		// written for an array subobject is - so `= "x"`, `= {"x"}` and
+		// `= {1, 2}` come through the one reading.
+		return clause_of(wrote, type, ctx);
+	}
 	if (built && wrote.kind == AstKind::BracedInitList)
 	{
 		// 8.5.1p2: the clauses reach the object's subobjects, and a clause
@@ -659,6 +669,15 @@ SemaEntity* ConstexprReading::callee_candidates(
 	{
 		candidates.clear();
 		named = analyzer_.resolve(name, ctx, LookupKind::Any, &candidates);
+	}
+	if (named == nullptr)
+	{
+		// 1.4p8: the name is one the implementation reserves for a function of
+		// its own, so what the program did not declare the implementation
+		// declares here - the same one declaration the expression layer's own
+		// lookup makes, and 3.4.3.2p1's `::__builtin_expect` among them, because
+		// a fold that made a second declaration would rank a different set.
+		named = analyzer_.reserved_function(name, &candidates);
 	}
 	if (named != nullptr && named->kind != SemaKind::Function)
 	{
@@ -1369,6 +1388,26 @@ SemaConstant ConstexprReading::call(SemaEntity& callee,
                                     const SemaConstant* object,
                                     const std::vector<SemaConstant>& arguments)
 {
+	if (callee.builtin != kNotBuiltin)
+	{
+		// 1.4p8: the callee is one of the functions the implementation provides,
+		// so no definition of it is anything the program wrote and 7.1.5p2's
+		// question about `constexpr` is not the one to ask.  What such a call is
+		// worth is what the implementation says it is - and only the branch hint
+		// says anything: it hands back its first operand, already brought to the
+		// parameter's type by the same conversion an ordinary call's argument
+		// takes.  Every other one of them names storage or ends the program, and
+		// none of those is a value 5.19 reads.
+		std::vector<SemaConstant> given;
+		passed_arguments(callee, object, arguments, given);
+		if (callee.builtin == kBuiltinExpect && !given.empty())
+		{
+			return given[0];
+		}
+		throw NotConstant(callee.name +
+		                  " is not a function a constant expression evaluates",
+		                  false);
+	}
 	if (!callee.constexpr_function || callee.constexpr_body == nullptr ||
 	    callee.constexpr_region == nullptr)
 	{
@@ -2056,6 +2095,22 @@ SemaConstant ConstexprReading::cast_constant(const AstNode& node,
 		// to the object the operand designates, and one to a class type builds
 		// an object of it.
 		return at_object_place(operand_constant(*node.children[1], ctx), type);
+	}
+	if (types.is_void(types.strip_cv(type)))
+	{
+		// 5.2.9p4: any expression converts to cv `void`, and what it becomes is
+		// a discarded-value expression - so the operand is evaluated, for the
+		// writes 5.19 lets an evaluation make and for the refusal a subexpression
+		// that is no constant expression is, and the result holds no value.  It
+		// is 5.18p1's left operand and 5.16p2's arm of `void` type that reach
+		// this, and neither of them reads what it comes to.
+		SemaConstant discarded = operand_constant(*node.children[1], ctx);
+		discarded.type = type;
+		discarded.bits = 0;
+		discarded.real = 0;
+		discarded.object = 0;
+		discarded.valued = false;
+		return discarded;
 	}
 	if (analyzer_.arithmetic_type(type) == kNoType)
 	{

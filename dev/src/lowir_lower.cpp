@@ -1674,6 +1674,13 @@ void LowirUnitLowering::describe_builtin(
 		declaration.params[0].metadata.access = lowir_model::PAM_READ;
 		return;
 
+	case kBuiltinExpect:
+		// 1.4p8: the hint is worth its first operand and reads nothing at all -
+		// the declaration is written only where something names the function
+		// without calling it, because a call of it crosses no boundary.
+		declaration.boundary.effects = lowir_model::CFXM_READNONE;
+		return;
+
 	case kBuiltinUnreachable:
 		// 1.9p4: control never reaches the call, so it reads nothing, writes
 		// nothing and does not come back.

@@ -77,6 +77,12 @@ const unsigned char kBuiltinOperatorNew = 5;
 const unsigned char kBuiltinOperatorNewArray = 6;
 const unsigned char kBuiltinOperatorDelete = 7;
 const unsigned char kBuiltinOperatorDeleteArray = 8;
+// 1.4p8: the one reserved function whose *definition* the implementation states
+// here rather than in an object file - a call of it is worth its first operand,
+// with the second telling a backend which way the branch is expected to go and
+// saying nothing about the value.  So it is the one that both a constant
+// expression evaluates and a body lowers without a call boundary at all.
+const unsigned char kBuiltinExpect = 9;
 
 enum class SemaKind
 {

@@ -7,9 +7,17 @@
 #include "sema_derivation.h"
 #include "sema_reading.h"
 #include "sema_scope.h"
+#include "sema_string_init.h"
 
 namespace
 {
+
+// 8.3.4p3: an array whose declaration wrote no bound takes as many elements as
+// the initializer gives it, so the walk of its elements is bounded by the
+// clauses left rather than by the type.  By the time a fold reads a declaration
+// the deduced bound is already on the type, so this stands for a subobject the
+// walk reaches with none - which the standard leaves no way to declare.
+const unsigned long long kUnboundedElements = ~0ull;
 
 const AstNode* child_kind(const AstNode& node, AstKind kind)
 {
@@ -207,6 +215,15 @@ SemaConstant ConstexprReading::clause_of(const AstNode& clause, TypeId target,
 	const TypeId bare = analyzer_.types_.strip_cv(target);
 	if (clause.kind != AstKind::BracedInitList)
 	{
+		SemaConstant units;
+		if (analyzer_.types_.kind(bare) == TypeKind::Array &&
+		    string_constant(bare, clause, ctx, units))
+		{
+			// 8.5.2p1: the clause is a string literal for an array of character
+			// type, so what the elements hold is its code units and the clause
+			// is no expression this reading converts.
+			return units;
+		}
 		SemaConstant value = operand_constant(clause, ctx);
 		if (value.valued && analyzer_.types_.strip_cv(value.type) == bare)
 		{
@@ -243,10 +260,9 @@ SemaConstant ConstexprReading::clause_of(const AstNode& clause, TypeId target,
 	}
 	const bool aggregate =
 		analyzer_.types_.is_class(bare) && analyzer_.aggregate_type(bare);
-	std::vector<Subobject> members;
-	if (aggregate)
+	if (array || aggregate)
 	{
-		subobjects(bare, members);
+		return list_constant(bare, clause, ctx);
 	}
 	std::vector<SemaConstant> written;
 	InitializerClauses clauses(&clause, analyzer_, ctx);
@@ -259,27 +275,13 @@ SemaConstant ConstexprReading::clause_of(const AstNode& clause, TypeId target,
 	}
 	while (!clauses.spent())
 	{
+		// 8.5.1p1 and 13.3.1.7: what the clauses of a class that is no aggregate
+		// are, are the arguments of one of its constructors, whose types the
+		// chosen declaration gives and the members do not.
 		const SemaContext inner = clauses.in(ctx);
 		const AstNode& one = clauses.next();
-		const std::size_t index = clauses.at;
 		++clauses.at;
-		if (array)
-		{
-			written.push_back(
-				clause_of(one, analyzer_.types_.target(bare), inner));
-		}
-		else if (aggregate && index < members.size())
-		{
-			written.push_back(clause_of(one, members[index].type, inner));
-		}
-		else
-		{
-			written.push_back(operand_constant(one, inner));
-		}
-	}
-	if (array)
-	{
-		return array_of(bare, written);
+		written.push_back(operand_constant(one, inner));
 	}
 	if (analyzer_.types_.is_class(bare))
 	{
@@ -308,6 +310,161 @@ SemaConstant ConstexprReading::clause_of(const AstNode& clause, TypeId target,
 		value.type = bare;
 	}
 	return value;
+}
+
+// 8.5.1p2 and 8.5.2p1: the whole of one list, read for the aggregate it
+// initializes.
+//
+// This is where the list's own braces stand, so the two questions the walk of a
+// cursor cannot ask are asked here: whether the one clause in them is 8.5.2p1's
+// string literal for the whole array, and whether every clause reached a
+// subobject.  It stands wherever a list does - a declaration's initializer, a
+// clause of an enclosing one, a mem-initializer, a brace-or-equal-initializer -
+// so all four get one answer.
+SemaConstant ConstexprReading::list_constant(TypeId bare, const AstNode& list,
+                                             const SemaContext& ctx)
+{
+	InitializerClauses clauses(&list, analyzer_, ctx);
+	if (clauses.list.unsettled())
+	{
+		// 14.6p8: a run no argument list has settled says neither how many
+		// clauses there are nor what they are worth.
+		throw NotConstant("a constant expression writes a list of clauses an "
+		                  "argument list has yet to settle", false);
+	}
+	SemaConstant units;
+	if (clauses.list.size() == 1 &&
+	    analyzer_.types_.kind(bare) == TypeKind::Array &&
+	    string_constant(bare, clauses.next(), clauses.in(ctx), units))
+	{
+		// 8.5.2p1: the braces hold a string literal for this array, which is the
+		// same initialization the array gets where they were left out.
+		return units;
+	}
+	const SemaConstant out = aggregate_constant(bare, clauses, ctx);
+	if (!clauses.spent())
+	{
+		// 8.5.1p6: a clause that reached no subobject initializes nothing.
+		throw NotConstant("a constant expression writes more initializers than " +
+		                  analyzer_.types_.description(bare) + " has subobjects");
+	}
+	return out;
+}
+
+// 8.5.1p2 over one aggregate, against a cursor the caller may still be walking.
+//
+// The walk is the *subobjects*' and not the clauses': 8.5.1p11 lets the braces
+// around a subaggregate's own clauses be left out, and then the clauses standing
+// in the enclosing list initialize its subobjects rather than it - so how many
+// of them a subobject takes is what its own walk arrives at and no count is
+// worked out in front of it.  Which is the same walk `aggregate_subobject`
+// makes where a line is being written for each subobject; here nothing is
+// written and the entries are interned instead.
+SemaConstant ConstexprReading::aggregate_constant(TypeId bare,
+                                                  InitializerClauses& clauses,
+                                                  const SemaContext& ctx)
+{
+	std::vector<SemaConstant> written;
+	if (analyzer_.types_.kind(bare) == TypeKind::Array)
+	{
+		const TypeId element = analyzer_.types_.target(bare);
+		const unsigned long long bound = analyzer_.types_.bounded(bare)
+			? analyzer_.types_.bound(bare)
+			: kUnboundedElements;
+		for (unsigned long long index = 0; index < bound && !clauses.spent();
+		     ++index)
+		{
+			written.push_back(subobject_constant(element, clauses, ctx));
+		}
+		return array_of(bare, written);
+	}
+	std::vector<Subobject> members;
+	subobjects(bare, members);
+	for (std::size_t index = 0; index < members.size() && !clauses.spent();
+	     ++index)
+	{
+		written.push_back(subobject_constant(members[index].type, clauses, ctx));
+		if (analyzer_.one_storage(bare))
+		{
+			// 8.5.1p15: a union is initialized by its first member alone.
+			break;
+		}
+	}
+	return object_of(bare, written);
+}
+
+// 8.5.1p2 and p11: one subobject of that walk, and the clauses it takes.
+//
+// Three readings, and which one it is, is the clause standing here read against
+// the subobject's own type.  Braces written around it are the whole of the
+// subobject, whatever it is.  A string literal standing for an array of
+// character type is 8.5.2p1's initialization and no clause at all.  Anything
+// else at a subobject that is itself an aggregate is a clause 8.5.1p11's elided
+// braces left standing for that aggregate's *own* first subobject - which is
+// the question `elides_its_braces` answers for a class, taking 5.2.3p3's
+// `T{...}` and a value of the subobject's own class out of it, and which for an
+// array is the whole of the answer, because no expression of array type
+// initializes one.
+SemaConstant ConstexprReading::subobject_constant(TypeId type,
+                                                  InitializerClauses& clauses,
+                                                  const SemaContext& ctx)
+{
+	const TypeId bare = analyzer_.types_.strip_cv(type);
+	const SemaContext inner = clauses.in(ctx);
+	const AstNode& one = clauses.next();
+	if (one.kind == AstKind::BracedInitList)
+	{
+		++clauses.at;
+		return clause_of(one, bare, inner);
+	}
+	if (analyzer_.types_.kind(bare) == TypeKind::Array)
+	{
+		SemaConstant units;
+		if (string_constant(bare, one, inner, units))
+		{
+			++clauses.at;
+			return units;
+		}
+		return aggregate_constant(bare, clauses, ctx);
+	}
+	if (analyzer_.types_.is_class(bare))
+	{
+		ask_for_definition(bare);
+		if (analyzer_.elides_its_braces(bare, clauses, ctx))
+		{
+			return aggregate_constant(bare, clauses, ctx);
+		}
+	}
+	++clauses.at;
+	return clause_of(one, bare, inner);
+}
+
+// 8.5.2p1: an array of character type initialized by a string literal holds the
+// literal's own code units, and 8.5.1p7 value-initializes every element past
+// them.  Which units those are is `StringInitialization`'s one reading, asked
+// here for the values rather than for the elements a line is written for.
+bool ConstexprReading::string_constant(TypeId array, const AstNode& written,
+                                       const SemaContext& ctx,
+                                       SemaConstant& out)
+{
+	std::vector<unsigned long long> units;
+	if (!StringInitialization(analyzer_).units_of(array, written, ctx, units))
+	{
+		return false;
+	}
+	const TypeId element =
+		analyzer_.types_.strip_cv(analyzer_.types_.target(array));
+	std::vector<SemaConstant> held;
+	held.reserve(units.size());
+	for (std::size_t index = 0; index < units.size(); ++index)
+	{
+		SemaConstant unit;
+		unit.type = element;
+		unit.bits = units[index];
+		held.push_back(unit);
+	}
+	out = array_of(array, held);
+	return true;
 }
 
 // 8.5.1p2 and p7 over an array, which 8.5.1p1 makes an aggregate whatever its
@@ -517,6 +674,17 @@ SemaConstant ConstexprReading::subobject_initialized(
 		const AstNode& list = *wrote->written;
 		if (built)
 		{
+			ask_for_definition(type);
+			if (list.kind == AstKind::BracedInitList &&
+			    analyzer_.aggregate_type(type))
+			{
+				// 12.6.2p2 with 8.5.4p3: braces around the clauses
+				// list-initialize the subobject, so an aggregate takes them as
+				// 8.5.1p2's clauses down its *own* subobjects - 8.5.1p11's
+				// elided braces among them - and not as 13.3.1.3's arguments of
+				// a constructor it has not got.
+				return list_constant(type, list, where);
+			}
 			std::vector<SemaConstant> clauses;
 			clauses.reserve(list.children.size());
 			for (std::size_t at = 0; at < list.children.size(); ++at)
@@ -528,19 +696,12 @@ SemaConstant ConstexprReading::subobject_initialized(
 		if (listed)
 		{
 			// 12.6.2p2 with 8.5.1p2: the clauses a mem-initializer writes for a
-			// member of array type initialize its *elements*, one clause per
-			// element against the element's own type, with 8.5.1p7's zeroes for
-			// the tail no clause reached - and 8.5p7's value-initialization
+			// member of array type initialize its *elements* and are no
+			// constructor's arguments - so what stands between them and the
+			// member is the one list reading, 8.5.1p11's elided braces and
+			// 8.5.2p1's string literal among it, and 8.5p7's value-initialization
 			// where `arr()` or `arr{}` wrote no clause at all.
-			const TypeId element =
-				analyzer_.types_.strip_cv(analyzer_.types_.target(type));
-			std::vector<SemaConstant> clauses;
-			clauses.reserve(list.children.size());
-			for (std::size_t at = 0; at < list.children.size(); ++at)
-			{
-				clauses.push_back(clause_of(*list.children[at], element, where));
-			}
-			return array_of(type, clauses);
+			return list_constant(type, list, where);
 		}
 		if (list.children.size() > 1)
 		{

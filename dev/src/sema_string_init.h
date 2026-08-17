@@ -50,14 +50,18 @@ public:
 	bool as_subobject(TypeId array, InitializerClauses& clauses,
 	                  const SemaContext& ctx, DumpNode& parent);
 
+	// 8.5.2p1: the code units the literal initializes the elements with, which
+	// is the whole of the reading where nothing is being written out - a
+	// constant expression holds the elements as values and lays no line down,
+	// so it asks this one question and interns the list itself.
+	bool units_of(TypeId array, const AstNode& written, const SemaContext& ctx,
+	              std::vector<unsigned long long>& units);
+
 private:
 	StringInitialization(const StringInitialization&);
 	StringInitialization& operator=(const StringInitialization&);
 
-	// 8.5.2p1: the code units the literal initializes the elements with, and
-	// the one element each of them is written as.
-	bool units_of(TypeId array, const AstNode& written, const SemaContext& ctx,
-	              std::vector<unsigned long long>& units);
+	// 8.5.2p1: the one element each code unit is written as.
 	void write_unit(TypeId element, unsigned long long bits, DumpNode& parent);
 
 	SemaAnalyzer& analyzer_;

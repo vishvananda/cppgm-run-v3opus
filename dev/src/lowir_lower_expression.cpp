@@ -631,6 +631,23 @@ LowValue LowirFunctionLowering::call_expression(const DumpNode& node,
 	call.kind = Instruction::IK_CALL;
 	const DumpNode& callee = *node.children[0];
 	const bool direct = callee.fact.kind == FactKind::Callee;
+	if (direct && callee.fact.entity != nullptr &&
+	    callee.fact.entity->builtin == kBuiltinExpect &&
+	    node.children.size() == 3)
+	{
+		// 1.4p8: the branch hint has a definition here rather than in an object
+		// file, so no boundary is crossed and no declaration of it is owed.
+		// 5.2.2p8 still evaluates both operands, in the order this walk writes
+		// them, and what the call hands back is the first - as 5.2.2p10's
+		// prvalue, so the object the argument named is read where the call would
+		// have read it and not after the second operand has run.
+		LowValue expected = expression(*node.children[1]);
+		expected.operand = rvalue(expected);
+		expected.lvalue = false;
+		expected.has_held = false;
+		expression(*node.children[2]);
+		return expected;
+	}
 	// 15.4p1: a call of a function that says it throws nothing is not a place
 	// an exception leaves this step by; every other call is, including one
 	// through a pointer, whose declaration says nothing about the function.

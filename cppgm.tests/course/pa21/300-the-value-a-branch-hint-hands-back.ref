@@ -1,0 +1,46 @@
+function @hinted(%held : i64) -> i64 [binding=strong, object=_Z6hintedl] {
+  slot $held : i64
+
+  block ^entry:
+    store i64 %held, $held
+    %t1 = load i64 $held
+    %t2 = load i64 $held
+    %t3 = binary add i64 %t1, %t2
+    return i64 %t3
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    %t1 = call i64 @hinted(0)
+    %t2 = convert trunc i32 i64 %t1
+    %t3 = call i32 @guarded(0, 2)
+    %t4 = binary add i32 %t2, %t3
+    return i32 %t4
+}
+function @guarded(%index : i32, %bound : i32) -> i32 [binding=weak, object=_Z7guardedii] {
+  slot $index : i32
+  slot $bound : i32
+  slot $cond__1 : i32
+
+  block ^entry:
+    store i32 %index, $index
+    store i32 %bound, $bound
+    %t1 = load i32 $index
+    %t2 = load i32 $bound
+    %t3 = cmp lt i32 %t1, %t2
+    %t4 = cmp eq u8 %t3, 0
+    branch %t4, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    %t5 = unary neg i32 1
+    store i32 %t5, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    %t6 = load i32 $index
+    store i32 %t6, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t7 = load i32 $cond__1
+    return i32 %t7
+}

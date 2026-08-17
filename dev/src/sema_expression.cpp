@@ -1922,6 +1922,18 @@ SemaEntity* SemaAnalyzer::reserved_function(const std::string& written,
 	{
 		which = kBuiltinUnreachable;
 	}
+	else if (name == "__builtin_expect")
+	{
+		// 1.4p8: the branch hint, which takes the value a condition came to and
+		// the value it is expected to take and hands the first of them back.
+		// Both are `long`, so 4.5 and 4.7 bring an operand of any other
+		// integral type to it the way an ordinary declaration's parameter does.
+		which = kBuiltinExpect;
+		const TypeId counted = types_.fundamental(FT_LONG_INT);
+		result = counted;
+		parameters.push_back(counted);
+		parameters.push_back(counted);
+	}
 	else
 	{
 		return nullptr;
