@@ -1036,6 +1036,22 @@ SemaEntity* SemaAnalyzer::resolve(const std::string& spelling, const Context& ct
 	{
 		named = template_id_entity(written.last(), ctx, region, filter);
 	}
+	if (named == nullptr)
+	{
+		// 14.6.2.1p6: the prefix named a class whose definition this reading
+		// *has* - the current instantiation, or any class an argument list has
+		// still to settle a base of - and the lookup in it found nothing.  What
+		// the name stands for is then a member of a class no list has named
+		// yet: 14.6.2p3 leaves such a base off the chain 3.4.3 searches here,
+		// because which class it is only an argument list says, so the member
+		// is the same stand-in a prefix that named no region at all leaves.
+		SemaEntity* const unknown =
+			member_of_unknown_specialization(*region, written.last());
+		if (unknown != nullptr)
+		{
+			return unknown;
+		}
+	}
 	if (named != nullptr)
 	{
 		// 11.2: a qualified name reaches a member of the class it names, which
@@ -1140,6 +1156,22 @@ Scope* SemaAnalyzer::resolve_prefix(const QualifiedName& name,
 			// access-specifier the program wrote stands over the declaration.
 			Access(*this).require_component_access(part, ctx, *region);
 			next = template_id_entity(part, ctx, region, LookupKind::Region);
+			if (next == nullptr && dependent != nullptr &&
+			    member_of_unknown_specialization(*region, part) != nullptr)
+			{
+				// 14.6.2.1p6 at a component of the prefix rather than at the
+				// name it stands before: the class the component was looked up
+				// in has a base an argument list has still to settle, so this
+				// component and every one after it is a member of a class no
+				// list has named yet.  The walk stops here and leaves them to
+				// the same stand-in a prefix that named no region leaves.
+				*dependent = region->owner->type;
+				if (unresolved != nullptr)
+				{
+					*unresolved = index;
+				}
+				return nullptr;
+			}
 		}
 		else
 		{
@@ -1212,6 +1244,31 @@ SemaEntity& SemaAnalyzer::dependent_member_name(TypeId prefix,
 	return entity;
 }
 
+// 14.6.2.1p6: a qualified name whose prefix named a class this reading does
+// have a definition of, and which that definition does not declare.
+//
+// The definition is not the whole class: 14.6.2p3 leaves a base-specifier whose
+// type depends on a template parameter off the chain 10.2 searches, because
+// which class that base is only an argument list says.  So a name the lookup in
+// such a class does not find is not a name the program failed to declare - it
+// is a member of a class no argument list has named yet, exactly as a name
+// written after a prefix that named no region at all is, and it stands in the
+// same way until the substitution looks it up in the class the arguments made.
+//
+// A class with no such base answers for itself, and so does every region that
+// is not a class, so both give null here and the lookup's own refusal stands.
+SemaEntity* SemaAnalyzer::member_of_unknown_specialization(
+	const Scope& region, const std::string& component)
+{
+	if (!templating() || region.kind != ScopeKind::Class ||
+	    !region.dependent_base || region.owner == nullptr ||
+	    !types_.is_dependent(region.owner->type))
+	{
+		return nullptr;
+	}
+	return &dependent_member_name(region.owner->type, component);
+}
+
 // 7.1.6.2p1: a nested-name-specifier whose first component is a
 // decltype-specifier.  The spelling cannot say what region that component
 // names, so the expression the parser kept beside the name is what answers it;
@@ -1266,6 +1323,18 @@ SemaEntity* SemaAnalyzer::qualified_in_type(TypeId head,
 	Scope* const naming = resolve_prefix(written, ctx, region);
 	SemaEntity* const named =
 		model_.lookup_in(*naming, written.last(), filter, found);
+	if (named == nullptr)
+	{
+		// 14.6.2.1p6: the same answer a prefix written as a name gets - the
+		// class this one named has a base an argument list has still to settle,
+		// so the name is a member of a class no list has named yet.
+		SemaEntity* const unknown =
+			member_of_unknown_specialization(*naming, written.last());
+		if (unknown != nullptr)
+		{
+			return unknown;
+		}
+	}
 	if (named != nullptr)
 	{
 		// 11.2 and 11.2p5: the name reaches a member of the class the prefix

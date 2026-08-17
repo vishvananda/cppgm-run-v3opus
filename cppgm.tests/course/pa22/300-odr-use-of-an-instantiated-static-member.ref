@@ -1,0 +1,121 @@
+global @box_int___addressed : i32 [binding=weak, object=_ZN3boxIiE9addressedE] = 5
+global @box_int___bound : i32 [binding=weak, object=_ZN3boxIiE5boundE] = 6
+
+function @through_pointer(%p : ptr) -> i32 [binding=strong, object=_Z15through_pointerPKi] {
+  slot $p : ptr
+
+  block ^entry:
+    store ptr %p, $p
+    %t1 = load ptr $p
+    %t2 = load i32 %t1
+    return i32 %t2
+}
+function @through_reference(%r : ptr [pass=reference]) -> i32 [binding=strong, object=_Z17through_referenceRKi] {
+  slot $r : ptr
+
+  block ^entry:
+    store ptr %r, $r
+    %t1 = load ptr $r
+    %t2 = load i32 %t1
+    return i32 %t2
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $sized : obj<4x1>
+  slot $listed : i32
+  slot $held : ptr
+  slot $tied : ptr
+  slot $cond__1 : i32
+  slot $land__2 : i64
+  slot $land__3 : i64
+  slot $land__4 : i64
+  slot $land__5 : i64
+
+  block ^entry:
+    %t1 = call i32 @tally_4___n()
+    store i32 %t1, $listed
+    %t2 = addr @box_int___addressed
+    store ptr %t2, $held
+    %t3 = addr @box_int___bound
+    store ptr %t3, $tied
+    %t4 = const i64 4
+    %t5 = convert sext i64 i32 4
+    %t6 = cmp eq i64 %t4, %t5
+    branch %t6, ^land_rhs_13, ^land_short_14
+
+  block ^land_rhs_13:
+    %t7 = load i32 $listed
+    %t8 = cmp eq i32 %t7, 4
+    %t9 = cmp ne i64 %t8, 0
+    store i64 %t9, $land__5
+    jump ^land_end_15
+
+  block ^land_short_14:
+    store i64 0, $land__5
+    jump ^land_end_15
+
+  block ^land_end_15:
+    %t10 = load i64 $land__5
+    branch %t10, ^land_rhs_10, ^land_short_11
+
+  block ^land_rhs_10:
+    %t11 = cmp eq i32 4, 4
+    %t12 = cmp ne i64 %t11, 0
+    store i64 %t12, $land__4
+    jump ^land_end_12
+
+  block ^land_short_11:
+    store i64 0, $land__4
+    jump ^land_end_12
+
+  block ^land_end_12:
+    %t13 = load i64 $land__4
+    branch %t13, ^land_rhs_7, ^land_short_8
+
+  block ^land_rhs_7:
+    %t14 = load ptr $held
+    %t15 = call i32 @through_pointer(%t14)
+    %t16 = cmp eq i32 %t15, 5
+    %t17 = cmp ne i64 %t16, 0
+    store i64 %t17, $land__3
+    jump ^land_end_9
+
+  block ^land_short_8:
+    store i64 0, $land__3
+    jump ^land_end_9
+
+  block ^land_end_9:
+    %t18 = load i64 $land__3
+    branch %t18, ^land_rhs_4, ^land_short_5
+
+  block ^land_rhs_4:
+    %t19 = load ptr $tied
+    %t20 = call i32 @through_reference(%t19)
+    %t21 = cmp eq i32 %t20, 6
+    %t22 = cmp ne i64 %t21, 0
+    store i64 %t22, $land__2
+    jump ^land_end_6
+
+  block ^land_short_5:
+    store i64 0, $land__2
+    jump ^land_end_6
+
+  block ^land_end_6:
+    %t23 = load i64 $land__2
+    branch %t23, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t24 = load i32 $cond__1
+    return i32 %t24
+}
+function @tally_4___n() -> i32 [binding=weak, object=_ZN5tallyILi4EE1nEv] {
+  block ^entry:
+    return i32 4
+}

@@ -1,0 +1,95 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $d : obj<24x8>
+  slot $cond__1 : i32
+  slot $land__2 : i64
+  slot $land__3 : i64
+
+  block ^entry:
+    %t1 = addr $d
+    %t2 = addr $d
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 1, %t3
+    %t4 = addr $d
+    %t5 = index i8 [projection=field] %t4, 4
+    store i32 2, %t5
+    %t6 = addr $d
+    %t7 = index i8 [projection=field] %t6, 8
+    store i32 3, %t7
+    %t8 = addr $d
+    %t9 = index i8 [projection=field] %t8, 16
+    store i64 4, %t9
+    %t10 = addr $d
+    %t11 = index i8 [projection=field] %t10, 0
+    %t12 = load i32 %t11
+    %t13 = addr $d
+    %t14 = index i8 [projection=field] %t13, 4
+    %t15 = load i32 %t14
+    %t16 = binary add i32 %t12, %t15
+    %t17 = addr $d
+    %t18 = index i8 [projection=field] %t17, 8
+    %t19 = load i32 %t18
+    %t20 = binary add i32 %t16, %t19
+    %t21 = addr $d
+    %t22 = index i8 [projection=field] %t21, 16
+    %t23 = load i64 %t22
+    %t24 = convert sext i64 i32 %t20
+    %t25 = binary add i64 %t24, %t23
+    %t26 = cmp eq i64 %t25, 10
+    branch %t26, ^land_rhs_7, ^land_short_8
+
+  block ^land_rhs_7:
+    %t27 = call i32 @derived_int___mark_plus()
+    %t28 = cmp eq i32 %t27, 6
+    %t29 = cmp ne i64 %t28, 0
+    store i64 %t29, $land__3
+    jump ^land_end_9
+
+  block ^land_short_8:
+    store i64 0, $land__3
+    jump ^land_end_9
+
+  block ^land_end_9:
+    %t30 = load i64 $land__3
+    branch %t30, ^land_rhs_4, ^land_short_5
+
+  block ^land_rhs_4:
+    %t31 = call i32 @derived_int___call_through()
+    %t32 = cmp eq i32 %t31, 12
+    %t33 = cmp ne i64 %t32, 0
+    store i64 %t33, $land__2
+    jump ^land_end_6
+
+  block ^land_short_5:
+    store i64 0, $land__2
+    jump ^land_end_6
+
+  block ^land_end_6:
+    %t34 = load i64 $land__2
+    branch %t34, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t35 = load i32 $cond__1
+    return i32 %t35
+}
+function @derived_int___mark_plus() -> i32 [binding=weak, object=_ZN7derivedIiE9mark_plusEv] {
+  block ^entry:
+    %t1 = binary add i32 5, 1
+    return i32 %t1
+}
+function @derived_int___call_through() -> i32 [binding=weak, object=_ZN7derivedIiE12call_throughEv] {
+  block ^entry:
+    %t1 = call i32 @base_int___twice()
+    return i32 %t1
+}
+function @base_int___twice() -> i32 [binding=weak, object=_ZN4baseIiE5twiceEv] {
+  block ^entry:
+    return i32 12
+}

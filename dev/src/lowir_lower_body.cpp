@@ -355,6 +355,26 @@ void LowirFunctionLowering::close_element_run(std::size_t opened)
 	--element_runs_;
 }
 
+// 9.4.2p3 and 3.2p3: whether a name of this declaration reads a value this
+// translation knows rather than the object 9.4.2p2's definition lays out - a
+// non-volatile const static data member of integral or enumeration type that an
+// initializer gave a value.
+//
+// 14.7.3p1 is where that stops: a member one argument list of its template has a
+// `template<>` definition of is read from whichever definition the program wrote
+// for the list this name spelled, so a use of one the pattern was read for reads
+// the object rather than the value that reading folded.  5.19p2 is a different
+// question and keeps its own answer.
+bool LowirFunctionLowering::folds_to_value(const SemaEntity& entity) const
+{
+	TypeTable& types = unit_.types();
+	const TypeId bare = types.strip_cv(entity.type);
+	return entity.constant && !entity.member_specialized &&
+		entity.region != nullptr && entity.region->kind == ScopeKind::Class &&
+		(types.cv(entity.type) & kCvVolatile) == 0 &&
+		(types.is_integral(bare) || types.kind(bare) == TypeKind::Enum);
+}
+
 LowValue LowirFunctionLowering::storage_of(const SemaEntity& entity)
 {
 	LowValue value;
@@ -377,7 +397,22 @@ LowValue LowirFunctionLowering::storage_of(const SemaEntity& entity)
 	}
 	else
 	{
-		unit_.declare_entity(entity);
+		// 3.2p3: naming 9.4.2p3's member is a use of it only where the name
+		// reads the place rather than the value, so the definition that lays
+		// the storage out is asked for by whatever reads the place - which is
+		// what `storage_owed` carries to it below.
+		//
+		// 7.1.5p9 is where the reference draws the line the clause does not:
+		// a member the class declared `const` is written out with the
+		// instantiation that made it, and only 7.1.5p9's `constexpr` member
+		// waits for the use.  Both are pinned by fixtures, so the specifier the
+		// program wrote is what says which.
+		const bool folds = folds_to_value(entity) && entity.constexpr_object;
+		unit_.declare_entity(entity, !folds);
+		if (folds)
+		{
+			value.storage_owed = &entity;
+		}
 		// 3.7.2p2: there is no point in the program before every thread that
 		// names a thread-local object, so what initializes one runs where the
 		// object is named rather than before the program.  The body it runs
@@ -396,24 +431,13 @@ LowValue LowirFunctionLowering::storage_of(const SemaEntity& entity)
 			named_operand(Operand::OP_GLOBAL, unit_.global_symbol(entity));
 	}
 	TypeTable& types = unit_.types();
-	// 9.4.2p3 and 3.2p3: a non-volatile const static data member of integral or
-	// enumeration type that an initializer gave a value is a constant, and a use
-	// of it that reads nothing but that value is the value rather than a load of
-	// the object 9.4.2p2's definition gave it.  Taking its address still names
-	// that object, so the value is held *beside* the place rather than in place
-	// of it - which is the same thing an assignment leaves behind, and the same
-	// thing reading it back costs nothing.
-	//
-	// 14.7.3p1 is where that stops: a member one argument list of its template
-	// has a `template<>` definition of is read from whichever definition the
-	// program wrote for the list this name spelled, so a use of one the pattern
-	// was read for reads the object rather than the value that reading folded.
-	// 5.19p2 is a different question and keeps its own answer.
-	const TypeId bare = types.strip_cv(entity.type);
-	if (entity.constant && !entity.member_specialized && entity.region != nullptr &&
-	    entity.region->kind == ScopeKind::Class &&
-	    (types.cv(entity.type) & kCvVolatile) == 0 &&
-	    (types.is_integral(bare) || types.kind(bare) == TypeKind::Enum))
+	// 9.4.2p3 and 3.2p3: a member `folds_to_value` answers for is a constant,
+	// and a use of it that reads nothing but that value is the value rather
+	// than a load of the object 9.4.2p2's definition gave it.  Taking its
+	// address still names that object, so the value is held *beside* the place
+	// rather than in place of it - which is the same thing an assignment leaves
+	// behind, and the same thing reading it back costs nothing.
+	if (folds_to_value(entity))
 	{
 		value.has_held = true;
 		value.held = literal_operand(entity.type, entity.value);
@@ -733,6 +757,15 @@ LowValue LowirFunctionLowering::as_value(const LowValue& value)
 
 Operand LowirFunctionLowering::address_of(const LowValue& value)
 {
+	if (value.storage_owed != nullptr)
+	{
+		// 3.2p2: the address of the object is what this reads, so the name is a
+		// use of it after all and 14.7.1p1 owes the program the definition that
+		// lays its storage out.  The declaration line the name already wrote is
+		// written once however many times it is asked for, so the whole naming
+		// is made again here rather than half of it.
+		unit_.declare_entity(*value.storage_owed);
+	}
 	if (value.field != nullptr)
 	{
 		// 5.3.1p3 and 9.6p3: a bit-field has no address of its own, so there is

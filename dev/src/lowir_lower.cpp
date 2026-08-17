@@ -1558,7 +1558,7 @@ const std::string* LowirUnitLowering::thread_initializer_of(
 	                                                    : &found->second;
 }
 
-void LowirUnitLowering::declare_entity(const SemaEntity& entity)
+void LowirUnitLowering::declare_entity(const SemaEntity& entity, bool used)
 {
 	if (entity.kind == SemaKind::Function)
 	{
@@ -1567,8 +1567,13 @@ void LowirUnitLowering::declare_entity(const SemaEntity& entity)
 		return;
 	}
 	// 3.2p3: a use is what asks the program for the storage an instantiation
-	// lays out, so naming the object here is what writes its definition.
-	demand_definition(entity);
+	// lays out, so naming the object here is what writes its definition - and
+	// 9.4.2p3's member named for its value alone is the one naming that is no
+	// use, which asks when the place itself is read and not before.
+	if (used)
+	{
+		demand_definition(entity);
+	}
 	const std::string symbol = global_symbol(entity);
 	if (defined_.count(symbol) != 0 || !declared_.insert(symbol).second)
 	{

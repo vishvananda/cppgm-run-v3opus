@@ -55,6 +55,7 @@ struct LowValue
 		, unnamed(false)
 		, named(false)
 		, field(nullptr)
+		, storage_owed(nullptr)
 	{}
 
 	lowir_model::Operand operand;
@@ -84,6 +85,14 @@ struct LowValue
 	// for every other lvalue, which names whole storage; where it is set, a
 	// read masks what it loads and a write puts the other bits back.
 	const SemaEntity* field;
+	// 3.2p3: the declaration this lvalue names, where naming it was not yet a
+	// use of it.  9.4.2p3's member is the one such name a body writes: a use
+	// that reads nothing but the value is the value `held` carries and asks the
+	// program for no storage at all, while one that reads the *place* - an
+	// address taken, a reference bound, an array decayed - is 3.2p2's use and
+	// asks 14.7.1p1 for the definition that lays the storage out.  Null
+	// wherever naming the entity already asked, which is every other lvalue.
+	const SemaEntity* storage_owed;
 };
 
 // The three shapes a value written into a bit-field is put there with.
@@ -405,7 +414,12 @@ public:
 	// Names `entity` in the program as a declaration, for a use of a function
 	// or object this unit does not define.  A use of a function whose definition
 	// belongs to every unit that needs one also asks for that definition here.
-	void declare_entity(const SemaEntity& entity);
+	//
+	// 3.2p3: `used` says whether naming it is a use of it.  A name of 9.4.2p3's
+	// member that reads nothing but the value is not, and asks the program for
+	// no definition; every other name is, and the declaration line is written
+	// either way because the *name* is what the line stands for.
+	void declare_entity(const SemaEntity& entity, bool used = true);
 	// 10.3p10 and the ABI: the internal symbol of `owner`'s virtual function
 	// table, which a constructor or destructor of the class writes into the
 	// object.  The table is emitted here the first time one is asked for -
@@ -1733,6 +1747,10 @@ private:
 	// The storage a name denotes: the slot a local was given, or the global
 	// symbol a namespace-scope object has.
 	LowValue storage_of(const SemaEntity& entity);
+	// 9.4.2p3: whether a name of this declaration reads a value rather than the
+	// object 9.4.2p2's definition lays out, which is what makes the naming no
+	// use of it under 3.2p3.
+	bool folds_to_value(const SemaEntity& entity) const;
 
 	LowirUnitLowering& unit_;
 	lowir_model::Function& out_;

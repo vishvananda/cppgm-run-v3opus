@@ -2395,6 +2395,10 @@ void SemaAnalyzer::declare_object_declarator(const AstNode* initializer,
 	SemaEntity& entity = declared != nullptr
 		? *declared
 		: model_.create(SemaKind::Variable, name, type);
+	// 7.1.5p9: the specifier is a fact of the object rather than of one
+	// declaration of it, so 9.4.2p2's definition written outside the class and
+	// the declaration the class wrote both say it for the one object.
+	entity.constexpr_object = entity.constexpr_object || specifiers.is_constexpr;
 	// 7.1.5p9: what the fold comes to is also a requirement on the declaration
 	// that wrote `constexpr`, asked here because this is where that declaration
 	// is - the fold says why an initializer is no constant expression, and the
@@ -2526,6 +2530,13 @@ void SemaAnalyzer::declare_object_declarator(const AstNode* initializer,
 	line.fact.entity = &entity;
 	line.fact.type = type;
 	line.fact.object_definition = line.fact.object_definition || defines_object;
+	if (defines_object)
+	{
+		// 14.7.3p1: this is the line that lays the storage out, and a definition
+		// the program writes out for one argument list is what takes the claim
+		// away from the one 14.7.1p1's reading of the pattern wrote.
+		object_definitions_[entity.id] = &line;
+	}
 	describe_object_initialization(entity, line, type, initializer, specifiers,
 	                               ctx, target, declared, defines_object);
 }

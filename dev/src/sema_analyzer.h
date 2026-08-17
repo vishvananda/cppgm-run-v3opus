@@ -1302,6 +1302,11 @@ private:
 	                             unsigned cv, TypeId written);
 	SemaEntity& dependent_member_name(TypeId prefix,
 	                                  const std::string& component);
+	// 14.6.2.1p6: the same stand-in for a name looked up *in* a class whose
+	// definition this reading has and whose base-clause an argument list has
+	// still to settle - null where the region is no such class.
+	SemaEntity* member_of_unknown_specialization(const Scope& region,
+	                                             const std::string& component);
 	// 7.1.6.2p1: the declaration a name whose nested-name-specifier begins with
 	// a decltype-specifier reaches.  The expression the parser kept beside the
 	// spelling is what says which region the rest of the name is looked up in,
@@ -2156,6 +2161,13 @@ private:
 	// lets a specialization be laid out over an argument the bodies of the
 	// members nothing calls could not have been read against.
 	std::unordered_map<std::uint32_t, Pending> held_definitions_;
+	// 14.7.3p1 at the object tier: the line each defined object's definition
+	// wrote, keyed by the declaration it defines.  A body 14.7.1p1's reading
+	// held is dropped from the map above where the program writes its own out
+	// for these arguments; an object's definition is no held thing but a line
+	// already in the dump, so what is dropped is that line's own claim to be
+	// the definition.  One pointer per object a definition was written for.
+	std::unordered_map<std::uint32_t, DumpNode*> object_definitions_;
 	// 9.2p2 and 8.4.2p2: the classes this unit completed, in the order their
 	// answers were first settled - which settles a subobject's class before
 	// whatever holds it, so asking them again in it costs one pass.  The flag is

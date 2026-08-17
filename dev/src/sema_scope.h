@@ -782,6 +782,15 @@ struct SemaEntity
 	// The specifier is a fact of the function rather than of one declaration of
 	// it, so it accumulates over them exactly as 7.1.2p2's `inline` does.
 	bool constexpr_function;
+	// 7.1.5p9 and 9.4.2p3: the same question about an object.  A static data
+	// member the class declared `constexpr` and one it declared `const` are both
+	// members a use has to read out of storage only where 3.2p3 makes the
+	// naming a use; where the definition is 14.7.1p1's reading of a pattern,
+	// the reference leaves the `constexpr` one to that use and writes the
+	// `const` one out with the instantiation, and the fixtures pin both - so
+	// which of the two the program wrote is a fact the lowering reads.  It
+	// accumulates over the declarations exactly as the line above does.
+	bool constexpr_object;
 	// 7.1.5p3: the function-definition this unit read for it, and the region
 	// its own declarator opened for its parameters.  A fold reads the body in a
 	// region of its own opened over that one - binding each parameter to what

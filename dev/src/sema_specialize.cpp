@@ -465,6 +465,24 @@ void Specialization::note_object(SemaEntity& member, bool instantiated)
 	{
 		return;
 	}
+	// 14.7.3p1 at the object tier: the definition this declaration held was
+	// 14.7.1p1's reading of the pattern, and the program has now written its own
+	// out for exactly these arguments - so what the reading laid out is no
+	// definition of anything and this unit's own is.  It is `supersede`'s first
+	// line for a function, asked here of the storage rather than of a body: a
+	// definition every unit that needs one may hold becomes one this unit owes
+	// the program wherever the program reaches it or not.
+	//
+	// A body the reading held is dropped by name; a line it already wrote into
+	// the dump is dropped by taking its claim to define anything away, which
+	// leaves the definition below it the only line that lays this storage out.
+	member.instantiated_definition = false;
+	const std::unordered_map<std::uint32_t, DumpNode*>::const_iterator wrote_line =
+		analyzer_.object_definitions_.find(member.id);
+	if (wrote_line != analyzer_.object_definitions_.end())
+	{
+		wrote_line->second->fact.object_definition = false;
+	}
 	if (!info.explicit_members.insert(member.name).second)
 	{
 		return;

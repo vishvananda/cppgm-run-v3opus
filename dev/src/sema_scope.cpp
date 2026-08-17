@@ -351,6 +351,7 @@ SemaEntity& SemaModel::create(SemaKind kind, const std::string& name, TypeId typ
 	entity.pack_run = 0;
 	entity.pack_element_of = nullptr;
 	entity.constexpr_function = false;
+	entity.constexpr_object = false;
 	entity.constexpr_body = nullptr;
 	entity.constexpr_region = nullptr;
 	entity.covered_constant = true;

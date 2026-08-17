@@ -740,8 +740,20 @@ TypeId SemaAnalyzer::decltype_type(const AstNode& node, const Context& ctx)
 		}
 		return value.type;
 	}
-	SemaEntity& entity =
-		require(resolve(expression->text, ctx, LookupKind::Any), expression->text);
+	SemaEntity* const found = resolve(expression->text, ctx, LookupKind::Any);
+	if (found != nullptr && types_.dependent_owner(found->type) != kNoType)
+	{
+		// 14.6.2.2p1 at the other kind of operand: the id-expression is a
+		// member of a class no argument list has named yet, so what it *names*
+		// is a question this reading cannot ask - 3.10p1 has no answer for a
+		// name that may turn out to be an object, a function, an enumerator or
+		// a type at all.  The specifier stands for a type of its own until
+		// 14.7.1p1 reads the same id-expression against the class the arguments
+		// made, which is the one door every dependent operand comes back
+		// through.
+		return dependent_expression_type(node, ctx);
+	}
+	SemaEntity& entity = require(found, expression->text);
 	switch (entity.kind)
 	{
 	case SemaKind::Variable:
