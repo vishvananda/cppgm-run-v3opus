@@ -191,29 +191,61 @@ void PatternReading::read_declaration(const AstNode& node,
 {
 	if (node.kind == AstKind::TemplateDeclaration)
 	{
+		// 14.5.2p1: what that head parameterises may be a member *class*
+		// template, and 14.5.1.3p1 makes this its definition - so the class the
+		// declarator-id names is one the enclosing class already declares and
+		// the record is made against it, exactly as it is where the definition
+		// stands inside the class body.  Every other declaration under a second
+		// head is one 14.1p1's own reading takes.
+		if (analyzer_.templating() && analyzer_.record_template(node, ctx, true))
+		{
+			return;
+		}
+		// 14.5.2p3: or it parameterises a member of a member template, whose
+		// own places it declares - so the definition belongs to *that* template
+		// and is read against the class its body declares.
+		const AstNode* clause = nullptr;
+		const AstNode* declared = nullptr;
+		for (std::size_t index = 0; index < node.children.size(); ++index)
+		{
+			const AstNode& child = *node.children[index];
+			if (child.kind == AstKind::TemplateParameterClause)
+			{
+				clause = &child;
+				continue;
+			}
+			declared = &child;
+		}
+		// 14.5.2p3: a member of a member of a member writes a head apiece, and
+		// the declarator-id that says which template *this* one parameterises a
+		// member of is the innermost declaration's - the heads after it travel
+		// with the definition and are read where this one's arguments stand.
+		const AstNode* innermost = declared;
+		while (innermost != nullptr &&
+		       innermost->kind == AstKind::TemplateDeclaration &&
+		       !innermost->children.empty())
+		{
+			innermost = innermost->children[innermost->children.size() - 1];
+		}
+		SemaEntity* const nested =
+			analyzer_.templating() && clause != nullptr && innermost != nullptr
+				? nested_owner(*innermost, ctx) : nullptr;
+		if (nested != nullptr)
+		{
+			record(*nested, Specialization::kNoPartial, *clause, *declared);
+			return;
+		}
 		analyzer_.read_template_head(node, ctx);
 		return;
 	}
 	analyzer_.declaration(node, ctx);
 }
 
-// 14.5.1.3p1: the class template a definition written outside its class is a
-// member of.
-//
-// The declarator-id names it, and 14.5.1.3p1 makes the nested-name-specifier a
-// template-id over the same parameters the head declared - so the owner is the
-// template the first such component reaches.  Null where the declaration is a
-// member of no template, which is every ordinary out-of-class definition.
-//
-// 14.5.5p1 leaves the template that component named holding several bodies, and
-// which of them this definition is a member of is what the *arguments* it wrote
-// say - so the component's own spelling travels back to the caller rather than
-// being looked for a second time.
-SemaEntity* PatternReading::owner(const AstNode& node, const SemaContext& ctx,
-                                  std::string* wrote)
+// 14.5.1.3p1: the name one out-of-class definition wrote, which is the
+// class-head-name of a class, a constructor's own declarator-id, and the
+// declarator-id of the one declarator every other such definition writes.
+std::string PatternReading::member_spelling(const AstNode& node)
 {
-	const AstNode* id = nullptr;
-	std::string spelling;
 	if (node.kind == AstKind::ClassSpecifier ||
 	    node.kind == AstKind::ClassForwardDeclaration ||
 	    node.kind == AstKind::SpecialMemberDefinition ||
@@ -221,9 +253,10 @@ SemaEntity* PatternReading::owner(const AstNode& node, const SemaContext& ctx,
 	{
 		// 9.1p2 and 12.1p1: a class-head-name and a constructor's declarator-id
 		// are the name the node itself carries.
-		spelling = node.text;
+		return node.text;
 	}
-	else if (node.kind == AstKind::FunctionDefinition && node.children.size() > 1)
+	const AstNode* id = nullptr;
+	if (node.kind == AstKind::FunctionDefinition && node.children.size() > 1)
 	{
 		id = SemaAnalyzer::declarator_id(*node.children[1]);
 	}
@@ -248,10 +281,25 @@ SemaEntity* PatternReading::owner(const AstNode& node, const SemaContext& ctx,
 			}
 		}
 	}
-	if (id != nullptr)
-	{
-		spelling = id->text;
-	}
+	return id == nullptr ? std::string() : id->text;
+}
+
+// 14.5.1.3p1: the class template a definition written outside its class is a
+// member of.
+//
+// The declarator-id names it, and 14.5.1.3p1 makes the nested-name-specifier a
+// template-id over the same parameters the head declared - so the owner is the
+// template the first such component reaches.  Null where the declaration is a
+// member of no template, which is every ordinary out-of-class definition.
+//
+// 14.5.5p1 leaves the template that component named holding several bodies, and
+// which of them this definition is a member of is what the *arguments* it wrote
+// say - so the component's own spelling travels back to the caller rather than
+// being looked for a second time.
+SemaEntity* PatternReading::owner(const AstNode& node, const SemaContext& ctx,
+                                  std::string* wrote)
+{
+	const std::string spelling = member_spelling(node);
 	if (spelling.empty())
 	{
 		return nullptr;
@@ -304,6 +352,104 @@ SemaEntity* PatternReading::owner(const AstNode& node, const SemaContext& ctx,
 		}
 	}
 	return nullptr;
+}
+
+// 14.5.2p3 with 14.5.1.3p1: the member template a *second* head's declarator-id
+// declares a member of.
+//
+// `template<class T> template<class U> void outer<T>::inner<U>::call()` writes
+// one head per class the member is nested in, and a reading arrives here having
+// bound every one of them but this.  So 3.4.3p1's walk over the components tells
+// the two apart on its own: every component the region can walk *into* names a
+// class the enclosing readings already settled, and the first it cannot is the
+// one whose arguments this head declares - which is the template the definition
+// is a member of.  The definition joins *its* members rather than the enclosing
+// one's, and the heads after this one travel with it.
+//
+// Null wherever the specifier writes no such component, which is every
+// definition whose head parameterises a member of the class the head above it
+// already named.
+SemaEntity* PatternReading::nested_owner(const AstNode& node,
+                                         const SemaContext& ctx)
+{
+	// `QualifiedName` reads the spelling it was given rather than copying it, so
+	// the string outlives the walk over its components.
+	const std::string spelling = member_spelling(node);
+	const QualifiedName spelled(spelling);
+	if (spelled.size() < 3)
+	{
+		return nullptr;
+	}
+	Scope* reached = nullptr;
+	for (std::size_t index = 0; index + 1 < spelled.size(); ++index)
+	{
+		const TemplateId id(spelled.part(index));
+		const std::string component =
+			id.valid() ? id.name() : spelled.part(index);
+		SemaEntity* const named =
+			reached == nullptr
+				? analyzer_.model_.lookup(*ctx.scope, component,
+				                          LookupKind::Region)
+				: analyzer_.model_.lookup_in(*reached, component,
+				                             LookupKind::Region);
+		if (named == nullptr)
+		{
+			return nullptr;
+		}
+		const bool templated =
+			id.valid() && named->kind == SemaKind::Class &&
+			named->templated != nullptr;
+		Scope* inside = nullptr;
+		try
+		{
+			// 14.7.1p1: a component the region can settle names one class, and
+			// the walk goes on inside it.  One this head has yet to declare the
+			// places of settles nothing, which is what stops the walk.
+			SemaEntity* const settled =
+				templated ? analyzer_.template_id_entity(
+					            spelled.part(index), ctx, reached,
+					            LookupKind::Region)
+				          : named;
+			inside = settled == nullptr ? nullptr
+			                            : analyzer_.model_.region_of(*settled);
+		}
+		catch (const std::exception&)
+		{
+			// 14.6.2p1: the arguments name something this region does not bind,
+			// which is what the head standing over this declaration declares.
+			inside = nullptr;
+		}
+		if (inside == nullptr)
+		{
+			return index != 0 && templated ? named : nullptr;
+		}
+		reached = inside;
+	}
+	return nullptr;
+}
+
+// 14.5.1.3p1: the definition joins the body it was written over, is read where
+// it stands, and is read again for every specialization already made from that
+// body.
+void PatternReading::record(SemaEntity& primary, std::size_t at,
+                            const AstNode& clause, const AstNode& declared)
+{
+	TemplateInfo& holder = *primary.templated;
+	std::vector<TemplateInfo::Member>& members =
+		at == Specialization::kNoPartial ? holder.members
+		                                 : holder.partials[at].members;
+	members.push_back(TemplateInfo::Member(&clause, &declared));
+	// 14.6p8: the definition is read where it stands too, against the class
+	// that body's own definition declares.
+	read_member(primary, clause, declared, at);
+	for (std::size_t index = 0; index < holder.specializations.size(); ++index)
+	{
+		// 10.3p10's table asked for every virtual member of a class already
+		// made when that class was completed, so a definition arriving here is
+		// one `definition_required` already says this unit owes: nothing
+		// re-walks the specialization's members for it.
+		instantiate(*holder.specializations[index], members.back(), at);
+	}
 }
 
 // 14.7.1p1 with 14.5.1.3p1: the member definition `member` read again for the

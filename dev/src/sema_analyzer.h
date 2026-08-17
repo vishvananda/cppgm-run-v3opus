@@ -1726,8 +1726,10 @@ private:
 	// 14p1: records what a template-declaration parameterises rather than
 	// reading it, for the declarations this milestone instantiates.  False for
 	// a template-declaration whose declaration is not one of them, which is
-	// then read the way the earlier assignments read it.
-	bool record_template(const AstNode& node, const Context& ctx);
+	// then read the way the earlier assignments read it.  `member` says the
+	// head stands under one already bound, so 14.5.2p3's own tier is not asked.
+	bool record_template(const AstNode& node, const Context& ctx,
+	                     bool member = false);
 	// 14.7.3p1: the declaration a `template<>` head wrote, which declares the
 	// specialization itself.  False outside the supported slice, which leaves
 	// the ordinary walk to read it as it did before.

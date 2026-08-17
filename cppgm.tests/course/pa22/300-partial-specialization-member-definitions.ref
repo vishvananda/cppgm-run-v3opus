@@ -1,0 +1,126 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $chosen : obj<1x1>
+  slot $primary : obj<1x1>
+  slot $from_pattern : obj<1x1>
+  slot $from_primary : obj<1x1>
+  slot $cond__1 : i32
+  slot $land__2 : i64
+  slot $land__3 : i64
+  slot $land__4 : i64
+
+  block ^entry:
+    %t1 = addr $chosen
+    %t2 = addr $primary
+    %t3 = addr $from_pattern
+    %t4 = addr $from_primary
+    %t5 = addr $chosen
+    %t6 = call i32 @map_base_pair_int__char___enabled___get(%t5)
+    %t7 = cmp eq i32 %t6, 7
+    branch %t7, ^land_rhs_10, ^land_short_11
+
+  block ^land_rhs_10:
+    %t8 = addr $primary
+    %t9 = call i32 @map_base_int__int___get(%t8)
+    %t10 = cmp eq i32 %t9, 1
+    %t11 = cmp ne i64 %t10, 0
+    store i64 %t11, $land__4
+    jump ^land_end_12
+
+  block ^land_short_11:
+    store i64 0, $land__4
+    jump ^land_end_12
+
+  block ^land_end_12:
+    %t12 = load i64 $land__4
+    branch %t12, ^land_rhs_7, ^land_short_8
+
+  block ^land_rhs_7:
+    %t13 = addr $from_pattern
+    %t14 = call i32 @map_base_pair_int__char___enabled___held__value(%t13)
+    %t15 = cmp eq i32 %t14, 13
+    %t16 = cmp ne i64 %t15, 0
+    store i64 %t16, $land__3
+    jump ^land_end_9
+
+  block ^land_short_8:
+    store i64 0, $land__3
+    jump ^land_end_9
+
+  block ^land_end_9:
+    %t17 = load i64 $land__3
+    branch %t17, ^land_rhs_4, ^land_short_5
+
+  block ^land_rhs_4:
+    %t18 = addr $from_primary
+    %t19 = call i32 @map_base_int__int___held__value(%t18)
+    %t20 = cmp eq i32 %t19, 11
+    %t21 = cmp ne i64 %t20, 0
+    store i64 %t21, $land__2
+    jump ^land_end_6
+
+  block ^land_short_5:
+    store i64 0, $land__2
+    jump ^land_end_6
+
+  block ^land_end_6:
+    %t22 = load i64 $land__2
+    branch %t22, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t23 = load i32 $cond__1
+    return i32 %t23
+}
+function @map_base_pair_int__char___enabled___get(%this : ptr) -> i32 [binding=weak, object=_ZN8map_baseI4pairIicE7enabledE3getEv] {
+  slot $this : ptr
+  slot $reached : ptr
+  slot $cond__1 : i32
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    store ptr %t1, $reached
+    %t2 = load ptr $reached
+    %t3 = cmp ne ptr %t2, 0
+    branch %t3, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 7, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 2, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t4 = load i32 $cond__1
+    return i32 %t4
+}
+function @map_base_pair_int__char___enabled___held__value(%this : ptr) -> i32 [binding=weak, object=_ZN8map_baseI4pairIicE7enabledE4held5valueEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    return i32 13
+}
+function @map_base_int__int___get(%this : ptr) -> i32 [binding=weak, object=_ZN8map_baseIiiE3getEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    return i32 1
+}
+function @map_base_int__int___held__value(%this : ptr) -> i32 [binding=weak, object=_ZN8map_baseIiiE4held5valueEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    return i32 11
+}

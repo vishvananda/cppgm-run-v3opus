@@ -35,7 +35,13 @@ replaced:
   template definition writes, looked up where the definition stands.
 - `sema_specialize.h/.cpp` — the three heads whose declaration the primary's own
   three steps cannot answer for: 14.5.5's partial specialization, 14.5.1p1's
-  variable template and 14.5.7p1's alias template.
+  variable template and 14.5.7p1's alias template. `member_pattern` is also
+  which of those bodies an out-of-class member definition was written over.
+- `sema_pattern.h/.cpp` — 14.6p8's reading of a template definition where it
+  stands, and 14.6.1p1's class it is read as. One per body a naming may be read
+  from - the primary's `TemplateInfo::current` and each `Partial::current` - and
+  14.5.1.3p1's out-of-class member definition is that same reading arriving
+  later, against whichever of them its declarator-id named.
 - `sema_name.h/.cpp` — the one place a written spelling is turned back into what
   the program wrote: components, template-argument lists, and 14.2p4's keyword.
 - `sema_deduce.cpp` — one P/A walk, shared by 14.8.2 and 14.5.5.1. What a type
@@ -55,34 +61,37 @@ replaced:
 
 ## Current Failure Map
 
-The D audit landed **267 / 332** — D's 264 of 329 plus the 3 `course/pa22`
-fixtures this audit wrote; the 65 that fail are the same 65, file for file. They
-group by the compiler behaviour that owns them, from the diagnostic each one now
-reaches:
+O landed **283 / 334** — 281 of the 332 files O started from, plus the 2
+`course/pa22` fixtures it wrote. The 51 that fail group by the compiler
+behaviour that owns them, from the diagnostic each one now reaches:
 
 | # | Group | Owner | Signature |
 |---|-------|-------|-----------|
-| 19 | compiles but the exit status or the LowIR does not match | `lowir_*`, mixed | none; `extern template` suppression is 3 of them and 6 more are `-bad` cases wrongly accepted |
-| 12 | dependent names an instantiation has to find | mixed | `no declaration of … is in scope` |
-| 5 | a template-id before `::` this walk does not settle | `resolve_prefix` | `X is written after a name that is not a namespace, class or enumeration` |
-| 5 | 14.7.3p1's member of a specialization redeclared, or its definition matching none | declaration merge | `X is defined twice`, `a definition of X matches no declaration of it` |
-| 3 | 11.3p2's `friend C;` naming a *dependent* class | `grant_class_friendship` | `a friend declaration with no declarator names no class` |
-| 3 | a constant expression written inside a template argument | `sema_constant.cpp` | `names a type that is not integral`, `does not close its arguments` |
+| 17 | compiles but the exit status or the LowIR does not match | `lowir_*`, mixed | none; `extern template` suppression is 3 of them and 7 more are `-bad` cases wrongly accepted |
+| 6 | a constant expression written inside a template argument | `sema_constant.cpp` | `names a type that is not integral`, `does not close its arguments`, `names no constant` |
+| 5 | 14.7.3p1's member of a specialization redeclared, or its definition matching none | declaration merge | `X is defined twice`, `a static_assert condition is false` |
+| 4 | dependent names an instantiation has to find | mixed | `no declaration of … is in scope` |
+| 3 | 11.3p2's `friend C;` naming a *dependent* class, and 11.2's reach into one | `grant_class_friendship` | `a friend declaration with no declarator names no class` |
+| 3 | `sizeof` over a stood-in call written as a template argument | `sema_constant.cpp` | `is written inside sizeof as a template argument and names no type` |
 | 2 | a default template argument the arity check counts | `TemplateHead` | `a template-argument-list gives X more arguments than it has parameters` |
-| 2 | `sizeof` over a stood-in call written as a template argument | `sema_constant.cpp` | `is written inside sizeof as a template argument and names no type` |
 | 2 | an out-of-class member template whose owner renamed its places | `StandingIn` | `X does not name a type` |
-| 12 | call resolution, access, alias caching and lowering one-offs | mixed | various |
+| 2 | a member alias template rebound through its owner | `Specialization::alias` | `rebind_alloc<T> does not name a type` |
+| 7 | call resolution, access, a dependent member typedef and lowering one-offs | mixed | various |
 
-The 5 that stop at `resolve_prefix` and 4 of the 12 dependent-name failures are
-one owner: an out-of-class definition whose declarator-id names a member of a
-*partial specialization* or a member *class template*. `MapBase<Pair<Key,
-Value>, enabled_tag>::get` builds an argument list over the definition's own
-head places, which is a list no `TemplateInfo::Partial` was ever given a class
-for - 14.6.1p1's current specialization exists for the primary (`info.current`)
-and for nothing else.
+The 5 that stopped at `resolve_prefix` and 9 of the dependent-name failures were
+one owner and are gone: an out-of-class definition whose declarator-id names a
+member of a *partial specialization* or of a member *class template*. What is
+left of that shape is the two `StandingIn` renames and
+`spec/300-explicit-instantiation-out-of-class-nested-member`, each of which now
+stops somewhere else.
 
 Known gaps probed and deliberately left:
 
+- 14.5.2p3's declarator-id says which head parameterises which class by how far
+  the region has already bound, so a head written over a class the *enclosing*
+  head has yet to name is read as the enclosing one's. Every spelling the
+  fixtures write is read; what is not is a definition whose second head names a
+  member of a class the first head's own arguments do not reach.
 - 11.3p11 leaves the name a friend elaborated-type-specifier first declares
   unbound until a matching declaration is written in the namespace, and both
   spellings bind it: `class host { friend class late; };` and `class host {
@@ -161,33 +170,38 @@ Known gaps probed and deliberately left:
 
 ## Active Checkpoint
 
-**The D audit landed this turn — see the ledger.** The next one is **O**,
-14.6.1p1's current specialization of a partial specialization and of a member
-class template: `TemplateInfo::Partial` gets what `info.current` already is for
-the primary - a region binding its own head's places and the class the pattern
-read in it declares - and `resolve_prefix` answers a written prefix from it, so
-`template<class K, class V> int MapBase<Pair<K, V>, tag>::get()` and
-`template<class T> struct outer<T>::inner { … }` declare into the owner the
-program named rather than into a fresh dependent specialization nothing read.
-The 5 `resolve_prefix` failures and 4 of the dependent-name ones are that owner;
-the definition then joins the *partial's* own `members` list, which is where
-`instantiate_member` already reads one for the primary.
+**O landed this turn — see the ledger.** The next one is **X**, 14.7.3p1's
+explicit specialization of a member: `spec/300-explicit-specialization-member-
+function`, `…-out-of-class-member-overrides-primary`, `…-replaces-primary-
+instantiation` and `…-static-data-member` are one owner - a `template<>`
+definition of one member of one specialization is the definition that
+specialization *has*, so 14.7.1p1's instantiation of the pattern's own member
+shall not also write one and `X is defined twice` is this build writing both.
+`explicit_functions` is keyed by the template and the argument list, which a
+member of a class specialization has neither of: the declaration is the class's
+member and what `template<>` wrote for it is a fact of that declaration.
+`spec/300-explicit-specialization-after-instantiation` and
+`…-function-explicit-specialization-declaration-before-primary-definition` are
+the ordering half of the same clause.
 
 ## Performance Model
 
-Best of three with `/usr/bin/time` on generated inputs under `/tmp/perf22e` and
-`/tmp/perf22f`, against `pa22/cppgm++-ref`. Eight traps are recorded rather than
-re-measured: `timeout`/`date` spawned per run invents a ~0.1 s floor that reads
-as 33 s over the corpus, `cppgm++` run by hand needs `-o` or it compiles
-nothing, a relative binary path measures 0.00 s and 1 MB from a shell whose
-directory moved, the whole corpus handed to one process is one ill-formed unit
-and times as 0.00 s, `/usr/bin/time` writes to stderr so a child whose stderr is
-discarded loses every measurement, `g++ file.t` treats a `.t` as a *linker
-input* and exits 0 with a warning, `bc` is absent so a best-of-three written
-around it silently keeps the first run, and `make ref-test` regenerates only
-`tests/` - a course fixture needs `TEST='course/pa22/x.t'` spelled **relative**,
-and it writes through the `course` symlink into `cppgm.tests/`. Every generated
-input is checked for exit 0 before it is timed.
+Best of three with `/usr/bin/time` on generated inputs under `/tmp/perf22e`,
+`/tmp/perf22f` and `/tmp/perf22g`, against `pa22/cppgm++-ref` and, where a row
+says so, against the turn-start build in a worktree of `eac77160`. Nine traps
+are recorded rather than re-measured: `timeout`/`date` spawned per run invents a
+~0.1 s floor that reads as 33 s over the corpus, `cppgm++` run by hand needs
+`-o` or it compiles nothing, a relative binary path measures 0.00 s and 1 MB
+from a shell whose directory moved, the whole corpus handed to one process is
+one ill-formed unit and times as 0.00 s, `/usr/bin/time` writes to stderr so a
+child whose stderr is discarded loses every measurement, `g++ file.t` treats a
+`.t` as a *linker input* and exits 0 with a warning, `bc` is absent so a
+best-of-three written around it silently keeps the first run, `date +%s.%N`
+interpolated into `python3 -c` loses the second reading and prints a syntax
+error rather than a time, and `make ref-test` regenerates only `tests/` - a
+course fixture needs `TEST='course/pa22/x.t'` spelled **relative**, and it
+writes through the `course` symlink into `cppgm.tests/`. Every generated input
+is checked for exit 0 before it is timed.
 
 | Path | Sweep | This build | `pa22/cppgm++-ref` |
 |------|-------|-----------|-------------------|
@@ -202,8 +216,20 @@ input is checked for exit 0 before it is timed.
 | a function type nested d deep as one argument | depth 4 → 24 | 0.00 s, 6 MB | — |
 | a d-deep dependent member chain in a non-deduced pattern | depth 4 → 24 | 0.00 s, 6 → 7 MB | — |
 | n namings of two multi-pack patterns beside each other | 2 → 64 | 0.00 → 0.02 s, 6 → 12 MB | — |
-| the whole 332-file corpus, one process per file | — | 1.43 s | — |
+| **O** n patterns of one template, each with an out-of-class member definition, each named | 100 → 800 | 0.02 → 0.36 s, 13 → 59 MB | 12.13 s at 800 |
+| **O** n out-of-class member definitions of one pattern | 100 → 800 | 0.00 → 0.04 s, 8 → 19 MB | 0.81 s at 800 |
+| **O** n member class templates of one class template, each defined out of class | 50 → 400 | 0.00 → 0.03 s, 8 → 16 MB | 0.56 s at 400 |
+| **O** a member class template nested d deep, each level defined out of class | depth 4 → 32 | 0.00 → 0.02 s, 7 → 9 MB | 17.78 s and **7.99 GB** at 24; killed at 32 |
+| **O** n member class templates defined *in* class, against the turn-start build | 50 → 400 | 0.00 → 0.03 s, 7 → 15 MB | 0.02 → 0.03 s there; ref 0.55 s at 400 |
+| the whole 334-file corpus, one process per file | — | 3.07 s; **3.07 s** on the turn-start build | — |
 | *(carried from F)* n friend declarations of one name, each revealed | 800 → 3200 | 0.19 → 0.79 s | 22.40 s at 800 |
+
+The corpus row is re-measured: the 1.43 s carried in this table before O is not
+reproducible and 3.07 s is what both the turn-start build and this one take, so
+O costs nothing over the corpus. 332 of those milliseconds are the process floor
+- 3.7 ms per run, measured on `int main(){return 0;}` - and the rest is 8.5 ms
+of real work per fixture, which is more than before only because 16 more of them
+now compile to the end instead of stopping at a diagnostic.
 
 Every dimension is linear in what it sweeps and flat in depth except the first,
 which is 14.5.5.1p1's own: n patterns beside one template and n lists naming it
@@ -215,6 +241,25 @@ reading, is not what the quadratic is made of. It is memoized by
 list, so a list named twice pays for one scan. This build is faster than the
 reference in every dimension measured against it.
 
+O's own three costs are each paid once per definition and nothing scans:
+`Specialization::member_pattern` reads one head and one argument list per
+out-of-class member definition of a template that *has* patterns and one test of
+an empty vector for every template that has none; `PatternReading::nested_owner`
+walks the components of one declarator-id once per head, stopping at the first
+one the region cannot settle; and `PatternReading::instantiate` asks
+`TemplateInfo::chosen`, which is a hash lookup on a number the specialization
+already carries. `TemplateInfo::patterns` keys the current instantiation of each
+body by its interned argument list, so `complete_specialization` tells one from
+the primary's without scanning `partials`. What the guard change costs is one
+14.6p8 reading per member class template a pattern declares - 0.02 s to 0.03 s
+and 14.2 MB to 15.4 MB at n = 400, linear, and 18x the reference's 0.55 s.
+
+The reference is exponential in that nesting: 0.53 s at depth 8, 2.08 s and
+546 MB at 20, 17.78 s and 7.99 GB at 24, and the OOM killer at 32, where this
+build is 0.02 s and 9 MB. Reading each level once against the class the level
+above declared is what keeps it flat; re-reading the whole prefix per level is
+what does not.
+
 The per-element costs are flat: `match_run` copies the outer bindings into each
 element's map, which is a map of one or two entries however long the run is, and
 takes a run per pack place rather than one — two packs over a run of 3200 is
@@ -222,9 +267,14 @@ takes a run per pack place rather than one — two packs over a run of 3200 is
 parameter rather than once per element; and the ptr-operator is one string
 compare on the word before a `*`, so a type-id that writes none pays nothing.
 
-`valgrind -q --error-exitcode=9` is clean over 87 inputs, 0 errors: the seven
-largest scaling ones, every probe program this audit wrote and the three
-`course/pa22` fixtures it added. Run evidence: `holder<int(char) const>::f()`
+`valgrind -q --error-exitcode=9` is clean over 107 inputs, 0 errors: the seven
+largest scaling ones, O's six new scaling and probe inputs, the fourteen
+fixtures O turned green, every probe program the D audit wrote and the five
+`course/pa22` fixtures the two of them added. O's own run evidence: the partial
+specialization's member definitions and the three-deep member class template
+nest both compile through `lowir2cy86` + `cy86` and return the 0 that
+`g++ -std=c++11 -pedantic-errors` gives them. Earlier run evidence:
+`holder<int(char) const>::f()`
 beside `holder<int(char) const &>::f()`, a pointer-to-member pattern beside a
 member-function-pointer one, and 14.5.3p4's expansion over two packs all compile
 through `lowir2cy86` + `cy86` and run the value `g++ -std=c++11` gives them.
@@ -254,3 +304,4 @@ with `g++` and with `pa22/cppgm++-ref` byte for byte.
 | **F audit** the two readings one friend definition gets, and the region 11.3p6 moved the declaration out of | A friend declaration written in a class *template* is read twice - 14.6p8's reading of the pattern and 14.7.1p1's for each specialization - and 11.3p6 puts both in one namespace, so the pattern reading's `defined` made one instantiation of a class defining a friend function template `unwrap is defined twice`. It declares and does not define; the instantiation defines, which is also what makes a second one 14.5.4p1's redefinition. `record_function_template` recorded the *namespace* as the region 14.7.1p1 reads the pattern against, where 3.4.1p10 reads a friend definition where it was written - the only region binding what the class's own instantiation bound - so `friend T mixed(box<T>, U)` was `T does not name a type` at the call that deduced it. 11.3p6's other half, that a friend declaration defines only under an unqualified declarator-id, was unwritten. And `Scope::hidden_index` keys a hidden chain by the declaration it was made with, so 7.3.1.2p3's reveal drops one entry rather than re-keying the whole chain: 15.64 s to 0.79 s at n = 3200. | **249 / 326** |
 | **D** 8.3.5's function type as a template argument, and the ordering of the patterns written over it | 14.2 writes a template-argument-list inside a name, so a type-id reaches the semantic layer as text and `SpelledTypeId` is the second implementation of 8.3.5p1's parameter clause. It had learned neither 14.5.3p4 - `R(Args...)` read its `...` as 8.3.5p3's ellipsis, so `box<R(Args...)>` was a variadic function of one `Args` matching no `int(int, float)` at all - nor 8.3.5p7's trailing qualifiers, so `holder<R(A...) const &>` was a head this milestone refused to read, nor 8.3.5p5's adjustment, so `call<Fun(A0)>` deduced `A0` to a function rather than to a pointer. Four of 14.5.5's own rules came with it, each of which had left one list matching two patterns and neither more specialized: 8.3.5p7's ref-qualifier is part of a function type's identity in `Deduction::match`; a fixed place facing an entry that stands for a run takes nothing from it, which is what 14.5.5.2p1 needs when it asks the match of two *patterns*; 14.5.6.1p5's signature is built through `substitute_entry`, because `substituted` leaves an expansion standing and one pattern written twice kept each head's own pack place; and 14.8.2.5p5's non-deduced context is settled by `substitution_agrees`, the pattern read back with each place standing for what it was deduced to. Beside them: 14.3.2p1's value argument at a *dependent* place is the settled constant over that place and no longer an opaque stand-in named after its spelling - which 14.8.2.5p4 had been reading as a deducible place, so `all_true<ic<T, true>...>` matched an `ic<bool, false>` by deducing "true" from `false` - with `Deduction::match`'s own `Value` arm beside it; and `collect_packs` reaches through `S<E>`, a template-id whose template is a place, while `match_run` merges back what each element deduced for every place that is not the pack. | **264 / 329** |
 | **D audit** the fact 8.3.5p7 made part of a function type's identity, and the second reading of 8.1p1's type-id | D made the ref-qualifier part of a function type's identity in `Deduction::match` and neither reader that turns such a type back into a name had ever written one: `abi_type`'s `<function-type>` wrote no `<ref-qualifier>` and `type_spelling` wrote neither it nor 8.3.5p1's cv-qualifier-seq after the clause, so `holder<int(char) const>` and `holder<int(char) const &>` were two specializations, one LowIR label and one symbol - a program defining and calling both returned 22 where both oracles return 12. Beside it 8.3.3p1's `nested-name-specifier *` was a ptr-operator `SpelledTypeId` had never had, so `int C::*` read as a type-specifier-seq spelling `int C::`; and `match_run` took one pack place where `expand_type` and `substitute_entry` each read an expansion over as many as its pattern names, so `box<pr<A, B>...>` matched no list at all. | **267 / 332** |
+| **O** 14.6.1p1's current specialization of a partial specialization, and of a member class template | This build had one current instantiation per template - the primary's - so an out-of-class definition of a member of a *pattern* bound its own head to the primary's places and wrote a prefix naming a specialization nothing had read. `TemplateInfo::Partial` now gets what `info.current` already was: a class over its own head's places, read from its own body in its own region, keyed in `TemplateInfo::patterns` by the interned list the class already carries so `complete_specialization` routes one hash lookup. Which body a definition belongs to is 14.5.6.1p5's signature of the arguments it wrote; it joins that body's own `members`, and a specialization 14.5.5.1p1 read from another body holds none of them. Beside it, 14.6.1p1's injected-class-name is the *template's* name inside a body whose class-head wrote a template-id, which is what `typedef Iter<Vec, false> pointer;` inside `Vec<bool, A>` names. And 14.5.2p1's member class template: 14.6p8's reading recorded no template at all, so `outer<T>::inner` was undeclared in the current instantiation and `template<class T> template<class U> struct outer<T>::inner {…}` named nothing - the reading now records what a class-specifier declares, and 14.5.2p3's declarator-id says which head parameterises which class by how far the region has already bound, so the third head of `outer<T>::inner<U>::deeper` is `inner`'s and not `outer`'s. 14.6p8's reading and the class it is read as move to `sema_pattern.h`. | **283 / 334** |

@@ -1,0 +1,89 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $reached : obj<1x1>
+  slot $beside : obj<8x8>
+  slot $cond__1 : i32
+  slot $land__2 : i64
+  slot $land__3 : i64
+  slot $land__4 : i64
+
+  block ^entry:
+    %t1 = addr $reached
+    %t2 = addr $beside
+    %t3 = addr $beside
+    %t4 = index i8 [projection=field] %t3, 0
+    store i64 4, %t4
+    %t5 = cmp eq i32 5, 5
+    branch %t5, ^land_rhs_10, ^land_short_11
+
+  block ^land_rhs_10:
+    %t6 = cmp eq i32 13, 13
+    %t7 = cmp ne i64 %t6, 0
+    store i64 %t7, $land__4
+    jump ^land_end_12
+
+  block ^land_short_11:
+    store i64 0, $land__4
+    jump ^land_end_12
+
+  block ^land_end_12:
+    %t8 = load i64 $land__4
+    branch %t8, ^land_rhs_7, ^land_short_8
+
+  block ^land_rhs_7:
+    %t9 = addr $reached
+    %t10 = call i32 @outer_int___inner_char___scaled(%t9, 6)
+    %t11 = cmp eq i32 %t10, 6
+    %t12 = cmp ne i64 %t11, 0
+    store i64 %t12, $land__3
+    jump ^land_end_9
+
+  block ^land_short_8:
+    store i64 0, $land__3
+    jump ^land_end_9
+
+  block ^land_end_9:
+    %t13 = load i64 $land__3
+    branch %t13, ^land_rhs_4, ^land_short_5
+
+  block ^land_rhs_4:
+    %t14 = addr $beside
+    %t15 = index i8 [projection=field] %t14, 0
+    %t16 = load i64 %t15
+    %t17 = cmp eq i64 %t16, 4
+    %t18 = cmp ne i64 %t17, 0
+    store i64 %t18, $land__2
+    jump ^land_end_6
+
+  block ^land_short_5:
+    store i64 0, $land__2
+    jump ^land_end_6
+
+  block ^land_end_6:
+    %t19 = load i64 $land__2
+    branch %t19, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t20 = load i32 $cond__1
+    return i32 %t20
+}
+function @outer_int___inner_char___scaled(%this : ptr, %by : i32) -> i32 [binding=weak, object=_ZN5outerIiE5innerIcE6scaledEi] {
+  slot $this : ptr
+  slot $by : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %by, $by
+    %t1 = load i32 $by
+    %t2 = const i64 1
+    %t3 = convert trunc i32 i64 %t2
+    %t4 = binary mul i32 %t1, %t3
+    return i32 %t4
+}

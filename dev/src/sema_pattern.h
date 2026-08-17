@@ -69,6 +69,17 @@ public:
 	SemaEntity* owner(const AstNode& node, const SemaContext& ctx,
 	                  std::string* wrote);
 
+	// 14.5.2p3: the member template a second head's declarator-id declares a
+	// member of, where the classes the specifier writes before it are ones the
+	// reading that reached here already settled.  Null where it names none.
+	SemaEntity* nested_owner(const AstNode& node, const SemaContext& ctx);
+
+	// 14.5.1.3p1: holds `declared` as an out-of-class member definition of the
+	// body at `at` of `primary`, reads it where it stands, and reads it again
+	// for every specialization already made from that body.
+	void record(SemaEntity& primary, std::size_t at, const AstNode& clause,
+	            const AstNode& declared);
+
 	// 14.5.1.3p1: reads the member definition `member` of the body at `at`
 	// against the arguments `made` was made from.  A specialization 14.5.5.1p1
 	// read from another body holds no member of this one, so it is skipped
@@ -81,6 +92,11 @@ public:
 	std::vector<TypeId> places(const TemplateInfo& head);
 
 private:
+	// 14.5.1.3p1: the name one out-of-class definition wrote - a class-head-name,
+	// a constructor's declarator-id, or the declarator-id of the one declarator
+	// the declaration writes.  Empty where the declaration names nothing.
+	static std::string member_spelling(const AstNode& node);
+
 	PatternReading(const PatternReading&);
 	PatternReading& operator=(const PatternReading&);
 

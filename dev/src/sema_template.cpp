@@ -513,7 +513,8 @@ const AstNode* friend_class_declared(const AstNode& declared)
 // the name the class-head wrote is bound in the region the template-declaration
 // stands in - which is what a use of the template looks in - and the body is
 // left as the syntax an instantiation reads.
-bool SemaAnalyzer::record_template(const AstNode& node, const Context& ctx)
+bool SemaAnalyzer::record_template(const AstNode& node, const Context& ctx,
+                                   bool member)
 {
 	const AstNode* clause = nullptr;
 	const AstNode* declared = nullptr;
@@ -555,15 +556,19 @@ bool SemaAnalyzer::record_template(const AstNode& node, const Context& ctx)
 		}
 		declared = elaborated;
 	}
-	else if (!lowering())
+	else if (!lowering() && declared->kind != AstKind::ClassSpecifier &&
+	         declared->kind != AstKind::ClassForwardDeclaration)
 	{
 		// 14.6p8's reading of a class template's own definition is the PA11
-		// dialect, which records no template because what it asks is what the
-		// declaration *says*.  14.5.4p1's friend above is the one record it
-		// does make: the class it names belongs to the namespace around the
-		// class template, so declaring a plain class of that spelling there
-		// would leave the unit holding a declaration the program never wrote
-		// and refusing the template-declaration that follows.
+		// dialect, which describes what the declarations it holds *say* and
+		// declares nothing this unit has - so a head over a function or an
+		// object records no template there and 14.1p1's own reading takes it.
+		// 14.5.2p1's member *class* template is the exception, and 14.5.4p1's
+		// friend above is another: what each declares is a class the names the
+		// pattern writes have to reach - `outer<T>::inner` is looked up in the
+		// current instantiation exactly as `outer<int>::inner` is in the class
+		// one argument list makes - so the reading that leaves it undeclared
+		// leaves 14.5.1.3p1's out-of-class definition of it naming nothing.
 		return false;
 	}
 	if (first_child(*clause, AstKind::TemplateParameterList) == nullptr &&
@@ -592,34 +597,23 @@ bool SemaAnalyzer::record_template(const AstNode& node, const Context& ctx)
 	// the body - including for one the unit already made.  A class-head-name
 	// with a nested-name-specifier is one of those, so the question is asked
 	// before the class tier's.
+	// 14.5.2p3: a head standing under one whose arguments already bind writes
+	// no out-of-class definition of *this* template - the reading that opened
+	// those bindings is what is reading this declaration, and the class its
+	// declarator-id names is one that reading already settled.
 	std::string wrote;
-	SemaEntity* const owner = PatternReading(*this).owner(*innermost, ctx, &wrote);
+	SemaEntity* const owner =
+		member ? nullptr : PatternReading(*this).owner(*innermost, ctx, &wrote);
 	if (owner != nullptr)
 	{
 		// 14.5.5p1: the template that component named may hold several bodies,
 		// and the arguments the declarator-id wrote say which of them this
 		// definition is a member of - the primary's where they are the
 		// template's own places, and a pattern's where they are that pattern.
-		TemplateInfo& holder = *owner->templated;
-		const std::size_t at =
-			Specialization(*this).member_pattern(*owner, wrote, *clause, ctx);
-		std::vector<TemplateInfo::Member>& members =
-			at == Specialization::kNoPartial ? holder.members
-			                                 : holder.partials[at].members;
-		members.push_back(TemplateInfo::Member(clause, declared));
-		// 14.6p8: the definition is read where it stands too, against the
-		// class that body's own definition declares.
-		PatternReading(*this).read_member(*owner, *clause, *declared, at);
-		for (std::size_t index = 0; index < holder.specializations.size();
-		     ++index)
-		{
-			// 10.3p10's table asked for every virtual member of a class already
-			// made when that class was completed, so a definition arriving here
-			// is one `definition_required` already says this unit owes: nothing
-			// re-walks the specialization's members for it.
-			PatternReading(*this).instantiate(*holder.specializations[index],
-			                                  members.back(), at);
-		}
+		PatternReading(*this).record(
+			*owner,
+			Specialization(*this).member_pattern(*owner, wrote, *clause, ctx),
+			*clause, *declared);
 		return true;
 	}
 	// 14.5.5p1, 14.5.1p1 and 14.5.7p1: a head whose declaration writes an
