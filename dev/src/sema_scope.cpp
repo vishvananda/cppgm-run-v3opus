@@ -462,6 +462,14 @@ Scope& declaring_region(Scope& scope)
 	return *where;
 }
 
+bool declares_member_template(Scope* scope, const Scope* head)
+{
+	return scope != nullptr && head == scope &&
+		scope->kind == ScopeKind::TemplateParameters &&
+		declaring_region(*scope).kind == ScopeKind::Class &&
+		declaring_region(*scope).owner != nullptr;
+}
+
 void SemaModel::own_type(TypeId type, SemaEntity& entity)
 {
 	type_owners_[type] = &entity;

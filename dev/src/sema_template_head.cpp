@@ -383,7 +383,8 @@ TypeId TemplateHead::place_signature(const TemplateInfo& head,
 	{
 		bindings.insert(std::make_pair(
 			head.parameters[at].self,
-			analyzer_.canonical_parameter(at, head.parameters[at].pack)));
+			analyzer_.signatures_.place(analyzer_.types_, analyzer_.model_, at,
+			                            head.parameters[at].pack)));
 	}
 	std::unordered_map<TypeId, TypeId> memo;
 	return analyzer_.substituted(written, bindings, memo);

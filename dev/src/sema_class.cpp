@@ -249,7 +249,8 @@ std::string SemaAnalyzer::conversion_name(TypeId type) const
 // that 13.1 tells apart exactly as it tells any two member functions apart.
 SemaEntity& SemaAnalyzer::declare_conversion(const AstNode& node,
                                              const Context& target,
-                                             const AstNode& carried)
+                                             const AstNode& carried,
+                                             SemaEntity* as)
 {
 	const AstNode* const declarator = child_of(node, AstKind::Declarator);
 	if (declarator == nullptr || carried.children.empty())
@@ -301,7 +302,7 @@ SemaEntity& SemaAnalyzer::declare_conversion(const AstNode& node,
 		                         "a member");
 	}
 	SemaEntity& entity = declare_function(name, type, target, false, false,
-	                                      true);
+	                                      true, false, as);
 	entity.object_member = true;
 	entity.conversion_function = true;
 	// 15.4p1: a conversion function's declarator writes an
@@ -321,9 +322,18 @@ SemaEntity& SemaAnalyzer::declare_conversion(const AstNode& node,
 // 11p1's access, 9.2p2's deferred body - and the one thing about it that is not
 // ordinary is that its name is a type.
 void SemaAnalyzer::conversion_function(const AstNode& node, const Context& ctx,
-                                       const AstNode& carried)
+                                       const AstNode& carried,
+                                       SemaEntity* specializing)
 {
-	SemaEntity& entity = declare_conversion(node, ctx, carried);
+	SemaEntity& entity = declare_conversion(node, ctx, carried, specializing);
+	// 14.1p1 and 14.5.2p1: the head standing over this declaration, which makes
+	// it a conversion function *template* whose body 14.6p8 reads where it
+	// stands.  A reading for one argument list stands in such a region too and
+	// is no head: what it binds is arguments, and the declaration is made.
+	Scope* const head =
+		specializing == nullptr && &declaring_region(*ctx.scope) != ctx.scope
+			? ctx.scope
+			: nullptr;
 	const AstNode* const specifiers = child_of(node, AstKind::MemberSpecifiers);
 	for (std::size_t index = 0;
 	     specifiers != nullptr && index < specifiers->children.size(); ++index)
@@ -391,7 +401,7 @@ void SemaAnalyzer::conversion_function(const AstNode& node, const Context& ctx,
 		return;
 	}
 	const std::vector<Parameter> none;
-	open_special_member_body(node, entity, ctx, entity.name, none);
+	open_special_member_body(node, entity, ctx, entity.name, none, head);
 }
 
 // 12.3.2 and 9.3p2: a conversion function defined outside its class.  3.4.3p3
@@ -465,18 +475,38 @@ bool SemaAnalyzer::conversion_function_definition(const AstNode& node,
 // are functions of the class whose name no lookup reaches: an object of the
 // class asks the class for them, so they are chained on the class rather than
 // bound to a name in it.
+//
+// 14.5.2p1's member template is the same declaration with a head over it: what
+// the class declares is a function *template* whose specializations 14.8.2
+// deduces, and the only thing the head changes is that the declarator's names
+// are read in its region while the member is still the class's.  So `region`
+// below is the class either way, and `ctx.scope` is where the declarator reads.
 void SemaAnalyzer::special_member(const AstNode& node, const Context& ctx)
 {
+	// 14.7.1p1: a reading of the pattern for one argument list declares nothing
+	// - the specialization was made where the call deduced it - so this reading
+	// gives that declaration the type the arguments made of the pattern and the
+	// body below, exactly as `function_definition` does for every other one.  A
+	// definition read inside this one is the ordinary declaration it is.
+	SemaEntity* const specializing = instantiating_;
+	instantiating_ = nullptr;
 	const AstNode* const carried = child_of(node, AstKind::CarriedTypeId);
 	if (carried != nullptr)
 	{
 		// 12.3.2p1: a conversion function is an ordinary member function whose
 		// name is a type, so what it declares is read from the type and not
 		// from the name the grammar flattened.
-		conversion_function(node, ctx, *carried);
+		conversion_function(node, ctx, *carried, specializing);
 		return;
 	}
-	SemaEntity& owner = *ctx.scope->owner;
+	Scope& region = declaring_region(*ctx.scope);
+	// 14.1p1 and 14.5.2p1: the head standing over this declaration, which is
+	// the region the walk is reading in wherever that is not the class itself.
+	// A reading for one argument list stands in such a region too and is no
+	// head: what it binds is arguments, and the declaration is already made.
+	Scope* const head =
+		specializing == nullptr && &region != ctx.scope ? ctx.scope : nullptr;
+	SemaEntity& owner = *region.owner;
 	const std::string written = QualifiedName(node.text).last();
 	const bool destructor = !written.empty() && written[0] == '~';
 	const std::string spelled = special_member_name(written, owner);
@@ -484,8 +514,12 @@ void SemaAnalyzer::special_member(const AstNode& node, const Context& ctx)
 	bool variadic = false;
 	const TypeId type = special_member_type(node, ctx, owner, destructor,
 	                                        parameters, variadic);
-	SemaEntity* entity = nullptr;
-	if (destructor)
+	SemaEntity* entity = specializing;
+	if (specializing != nullptr)
+	{
+		specializing->type = type;
+	}
+	else if (destructor)
 	{
 		if (owner.destructor != nullptr)
 		{
@@ -495,7 +529,7 @@ void SemaAnalyzer::special_member(const AstNode& node, const Context& ctx)
 		entity->tail = entity;
 		owner.destructor = entity;
 		entity->special = kDestructorFunction;
-		model_.bind(*ctx.scope, written, *entity);
+		model_.bind(region, written, *entity);
 	}
 	else
 	{
@@ -526,8 +560,21 @@ void SemaAnalyzer::special_member(const AstNode& node, const Context& ctx)
 		model_.hold_overload(*owner.constructor, types_.signature(type),
 		                     *entity);
 	}
-	name_in_region(*entity, *ctx.scope, written);
+	if (specializing == nullptr)
+	{
+		name_in_region(*entity, region, written);
+	}
 	entity->object_member = true;
+	if (head != nullptr)
+	{
+		// 14p1 and 14.5.2p1: this declares a template rather than a function,
+		// and the parameters it is written over are what a deduction binds -
+		// which is the pair of facts `declare_function` writes for every other
+		// member template, asked here because a constructor and a conversion
+		// function reach neither it nor `function_definition`.
+		entity->template_parameters = head;
+		record_function_template(*entity, *head, region);
+	}
 	// 15.4p1: a constructor and a destructor carry an exception-specification
 	// the same way every other member function does, and it is written on the
 	// same declarator - so what says the function throws nothing is read here
@@ -612,7 +659,10 @@ void SemaAnalyzer::special_member(const AstNode& node, const Context& ctx)
 		ConstexprRequirement(*this).require_function(*entity, type, spelled);
 	}
 	record_declared_parameters(*entity, parameters, ctx.scope);
-	model_.declare_in(*ctx.scope, *entity);
+	if (specializing == nullptr)
+	{
+		model_.declare_in(region, *entity);
+	}
 	if (!destructor)
 	{
 		// 12.9p8: an inheriting using-declaration in a class derived from this
@@ -650,7 +700,7 @@ void SemaAnalyzer::special_member(const AstNode& node, const Context& ctx)
 	{
 		return;
 	}
-	open_special_member_body(node, *entity, ctx, written, parameters);
+	open_special_member_body(node, *entity, ctx, written, parameters, head);
 }
 
 // 12.6.2 and 9.2p2: the body a special member's definition gives it, read where
@@ -660,7 +710,8 @@ void SemaAnalyzer::special_member(const AstNode& node, const Context& ctx)
 // declarator-id was written.
 void SemaAnalyzer::open_special_member_body(
 	const AstNode& node, SemaEntity& entity, const Context& ctx,
-	const std::string& written, const std::vector<Parameter>& parameters)
+	const std::string& written, const std::vector<Parameter>& parameters,
+	Scope* head)
 {
 	entity.defined = true;
 	// 2.2p1: which file this definition was read from, which is what says
@@ -690,6 +741,21 @@ void SemaAnalyzer::open_special_member_body(
 		model_.create(SemaKind::Parameter, "this", this_type(entity));
 	model_.bind(inner, self.name, self);
 	model_.declare_in(inner, self);
+	if (head != nullptr)
+	{
+		// 14p1 and 14.6p8: a template declares no function until it is
+		// instantiated, so the output has no definition to write here and the
+		// body is not read against the types it has none of yet.  What it says
+		// about the names no template parameter stands in the way of is settled
+		// where it stands, exactly as `function_definition` settles it for every
+		// other member template - and 14.7.1p1's reading for one argument list
+		// is the one that writes a body.
+		Context reading = ctx;
+		reading.scope = &inner;
+		reading.dump = &dump;
+		check_template_definition(node, reading, parameters, entity.type, 1);
+		return;
+	}
 	// 9.2p2: the body and the mem-initializers are read where the class is
 	// complete, which is the end of the translation unit.
 	Pending pending;

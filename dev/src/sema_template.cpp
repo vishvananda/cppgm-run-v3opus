@@ -364,7 +364,20 @@ void SemaAnalyzer::instantiate_body(SemaEntity& function)
 		written == info.explicit_functions.end();
 	SemaEntity* const enclosing = instantiating_;
 	instantiating_ = &function;
-	function_definition(*body, inner);
+	if (body->kind == AstKind::SpecialMemberDefinition ||
+	    body->kind == AstKind::SpecialMemberDeclaration)
+	{
+		// 14.5.2p1 with 12.1p1: the pattern of a constructor template, or of
+		// 12.3.2p1's conversion function template, is the syntax 12 writes a
+		// member with no declared type in - so the reading that declares one is
+		// the one that reads it, and 14.7.1p1's specialization is what it
+		// gives the type and the body to.
+		special_member(*body, inner);
+	}
+	else
+	{
+		function_definition(*body, inner);
+	}
 	instantiating_ = enclosing;
 }
 
@@ -480,12 +493,24 @@ bool SemaAnalyzer::record_template(const AstNode& node, const Context& ctx)
 		// pattern is made.
 		return true;
 	}
+	// 14.5.2p3: an out-of-class definition of a *member template* writes one
+	// head per class the member is nested in and then the member's own, so the
+	// declarator-id whose nested-name-specifier names the owner is the innermost
+	// declaration's.  The heads after this one parameterise that declaration and
+	// are read where the arguments this one takes already stand, so the whole
+	// nest travels as the member's pattern.
+	const AstNode* innermost = declared;
+	while (innermost->kind == AstKind::TemplateDeclaration &&
+	       !innermost->children.empty())
+	{
+		innermost = innermost->children[innermost->children.size() - 1];
+	}
 	// 14.5.1.3p1: a definition written outside its class belongs to the
 	// template that class is one of, and is read for a specialization after
 	// the body - including for one the unit already made.  A class-head-name
 	// with a nested-name-specifier is one of those, so the question is asked
 	// before the class tier's.
-	SemaEntity* const owner = member_definition_owner(*declared, ctx);
+	SemaEntity* const owner = member_definition_owner(*innermost, ctx);
 	if (owner != nullptr)
 	{
 		owner->templated->members.push_back(
@@ -1683,9 +1708,14 @@ void SemaAnalyzer::record_function_template(SemaEntity& entity,
 	// specializations `template<>` wrote out for it, and those are definitions
 	// this unit owns - so the record is made for a declaration too, and the
 	// definition read later is the pattern it had none of.
+	// 14.5.2p1 with 12.1p1: a constructor template's pattern is the syntax 12
+	// writes a constructor with, which reaches no function-definition - and
+	// 12.3.2p1's conversion function template is written the same way.
 	const AstNode* const pattern =
-		template_pattern_->kind == AstKind::FunctionDefinition ? template_pattern_
-		                                                       : nullptr;
+		template_pattern_->kind == AstKind::FunctionDefinition ||
+		template_pattern_->kind == AstKind::SpecialMemberDefinition
+			? template_pattern_
+			: nullptr;
 	if (entity.templated != nullptr && (pattern == nullptr ||
 	                                    entity.templated->pattern != nullptr))
 	{
@@ -1731,47 +1761,91 @@ void SemaAnalyzer::record_function_template(SemaEntity& entity,
 	}
 }
 
-TypeId SemaAnalyzer::canonical_parameter(std::size_t index, bool pack)
+TypeId TemplateSignatures::place(TypeTable& types, SemaModel& model,
+                                 std::size_t index, bool pack)
 {
 	// 14.5.3p1: a place that binds a *run* is not the place that binds one
 	// argument, so the two stand for different things - otherwise
 	// `f(T)` and `f(Ts...)` are one signature, because the expansion over a
 	// place standing for no pack is the place itself.
-	std::vector<TypeId>& canonical =
-		pack ? canonical_packs_ : canonical_parameters_;
+	std::vector<TypeId>& canonical = pack ? packs_ : places_;
 	while (canonical.size() <= index)
 	{
 		// 14.5.6.1p5 asks whether two heads declared their parameters in the
 		// same places, so a place is what a parameter stands for here: one type
 		// per position, made once and shared by every signature.
-		const TypeId made = types_.template_parameter_type(
-			model_.type_entity_id(), false,
+		const TypeId made = types.template_parameter_type(
+			model.type_entity_id(), false,
 			(pack ? "#..." : "#") + std::to_string(canonical.size()));
-		types_.set_template_pack(made, pack);
+		types.set_template_pack(made, pack);
 		canonical.push_back(made);
 	}
 	return canonical[index];
+}
+
+TypeId TemplateSignatures::value_place(TypeTable& types, SemaModel& model,
+                                       std::size_t index, bool pack, TypeId of)
+{
+	const std::uint64_t key = (static_cast<std::uint64_t>(index) << 33) |
+		(static_cast<std::uint64_t>(pack ? 1u : 0u) << 32) | of;
+	const std::pair<std::unordered_map<std::uint64_t, TypeId>::iterator, bool>
+		held = values_.insert(std::make_pair(key, kNoType));
+	if (held.second)
+	{
+		const TypeId made = types.template_parameter_type(
+			model.type_entity_id(), false,
+			(pack ? "#v..." : "#v") + std::to_string(index) + "_" +
+			std::to_string(of));
+		types.set_template_pack(made, pack);
+		types.set_parameter_value_type(made, of);
+		held.first->second = made;
+	}
+	return held.first->second;
+}
+
+TypeId& TemplateSignatures::built(std::uint32_t declaration, bool& held)
+{
+	const std::pair<std::unordered_map<std::uint32_t, TypeId>::iterator, bool>
+		found = built_.insert(std::make_pair(declaration, kNoType));
+	held = !found.second;
+	return found.first->second;
 }
 
 TypeId SemaAnalyzer::template_signature(const Scope& parameters, TypeId type)
 {
 	const std::vector<SemaEntity*>& declared = parameters.declarations;
 	std::unordered_map<TypeId, TypeId> bindings;
+	std::unordered_map<TypeId, TypeId> memo;
 	for (std::size_t index = 0; index < declared.size(); ++index)
 	{
-		if (declared[index]->kind != SemaKind::TemplateType)
+		const SemaEntity& place = *declared[index];
+		if (place.kind != SemaKind::TemplateType &&
+		    place.kind != SemaKind::TemplateValue)
 		{
-			// 14.1p1's other parameters are values rather than types, and
-			// nothing this walk substitutes stands for one - so a head that
-			// declares one is left declaring a template of its own.
+			// 14.1p1's remaining parameter binds a template rather than a type
+			// or a value, and nothing this walk substitutes stands for one - so
+			// a head that declares one is left declaring a template of its own.
 			return kNoType;
 		}
+		const bool pack = types_.is_template_pack(place.type);
+		if (place.kind == SemaKind::TemplateType)
+		{
+			bindings.insert(std::make_pair(
+				place.type, signatures_.place(types_, model_, index, pack)));
+			continue;
+		}
+		// 14.1p4: the type a value place binds a value of is written over the
+		// places before it, so it is canonicalized with the bindings this walk
+		// has made so far - which are exactly those places, and no place after
+		// this one can stand in it.  That is what lets one memo serve every
+		// substitution here and the whole type below.
 		bindings.insert(std::make_pair(
-			declared[index]->type,
-			canonical_parameter(index,
-			                    types_.is_template_pack(declared[index]->type))));
+			place.type,
+			signatures_.value_place(
+				types_, model_, index, pack,
+				substituted(types_.parameter_value_type(place.type), bindings,
+				            memo))));
 	}
-	std::unordered_map<TypeId, TypeId> memo;
 	return substituted(type, bindings, memo);
 }
 
@@ -1792,15 +1866,16 @@ SemaEntity* SemaAnalyzer::equivalent_template(SemaEntity& head,
 		{
 			continue;
 		}
-		const std::pair<std::unordered_map<std::uint32_t, TypeId>::iterator,
-		                bool> held =
-			template_signatures_.insert(std::make_pair(at->id, kNoType));
-		if (held.second)
+		bool held = false;
+		TypeId signature = signatures_.built(at->id, held);
+		if (!held)
 		{
-			held.first->second =
-				template_signature(*at->template_parameters, at->type);
+			// The build makes places of its own, so the entry is written back
+			// rather than filled through a reference the build could move.
+			signature = template_signature(*at->template_parameters, at->type);
+			signatures_.built(at->id, held) = signature;
 		}
-		if (held.first->second == wanted)
+		if (signature == wanted)
 		{
 			return at;
 		}
@@ -1946,7 +2021,7 @@ void SemaAnalyzer::instantiate_member(SemaEntity& specialization,
 		// A head 14.5.5 parameterises names no member of this template, so the
 		// declarator is read against the class's own parameter names and fails
 		// on whatever it wrote.
-		declaration(*member.declaration, inner);
+		read_member_declaration(*member.declaration, inner);
 		return;
 	}
 	const EnclosedBy enclosed(specialization.scope, region);
@@ -1955,7 +2030,7 @@ void SemaAnalyzer::instantiate_member(SemaEntity& specialization,
 	// `template<>` declares no place at all and is read above, where it is the
 	// definition the program itself wrote.
 	inner.instantiated_member = true;
-	declaration(*member.declaration, inner);
+	read_member_declaration(*member.declaration, inner);
 }
 
 // 14.6.2.2p1: whether an expression written in this region is type-dependent.
@@ -2405,7 +2480,8 @@ DialectReading::~DialectReading()
 
 void SemaAnalyzer::check_template_definition(
 	const AstNode& node, const Context& inner,
-	const std::vector<Parameter>& parameters, TypeId type)
+	const std::vector<Parameter>& parameters, TypeId type,
+	std::size_t implicit)
 {
 	if (!lowering())
 	{
@@ -2421,14 +2497,26 @@ void SemaAnalyzer::check_template_definition(
 	reading.node = nullptr;
 	const FunctionReading held(*this, nullptr, types_.target(type));
 	const DialectReading dialect(*this);
-	declare_parameters(parameters, type, reading, nullptr);
+	declare_parameters(parameters, type, reading, nullptr, implicit);
 	// 9.2p2: a class this body declares writes member functions whose bodies
 	// are read where that class is complete, so this reading owns them the way
 	// a class pattern's own reading owns the ones its body held.
 	const std::size_t mark = held_bodies_.size();
-	for (std::size_t index = 2; index < node.children.size(); ++index)
+	if (node.kind == AstKind::SpecialMemberDefinition)
 	{
-		statement(*node.children[index], reading);
+		// 12.1p1 and 12.3.2p1: a special member's declarator writes no type of
+		// its own for a body to stand after, so the body is the last thing the
+		// definition holds - and 12.6.2's mem-initializers name members whose
+		// types an argument list is what settles, which is the instantiation's
+		// to read rather than this reading's.
+		statement(*node.children.back(), reading);
+	}
+	else
+	{
+		for (std::size_t index = 2; index < node.children.size(); ++index)
+		{
+			statement(*node.children[index], reading);
+		}
 	}
 	read_held_pattern_bodies(mark);
 }
@@ -2736,8 +2824,26 @@ void SemaAnalyzer::read_member_pattern(SemaEntity& primary,
 	inner.dump = info.reading_dump;
 	inner.node = nullptr;
 	const std::size_t mark = held_bodies_.size();
-	declaration(pattern, inner);
+	read_member_declaration(pattern, inner);
 	read_held_pattern_bodies(mark);
+}
+
+// 14.5.2p3: the declaration one out-of-class member definition writes, read in
+// a region that already binds the class template's own head to its arguments.
+//
+// A member template writes a second head there, which parameterises the
+// declaration exactly as any head parameterises the one under it - so what is
+// left to do is open its region and read what it stands over.  The record was
+// made where the whole nest was found, so this reading records nothing.
+void SemaAnalyzer::read_member_declaration(const AstNode& node,
+                                           const Context& ctx)
+{
+	if (node.kind == AstKind::TemplateDeclaration)
+	{
+		read_template_head(node, ctx);
+		return;
+	}
+	declaration(node, ctx);
 }
 
 void SemaAnalyzer::hold_pattern_body(const AstNode& node, const Context& inner,

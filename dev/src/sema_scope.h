@@ -1322,6 +1322,14 @@ bool names_a_space(const SemaEntity& entity);
 // elaborated-type-specifier in a parameter-clause first declares stands.
 Scope& declaring_region(Scope& scope);
 
+// 14.5.2p1: whether a declaration read in `scope` with `head` standing over it
+// is a member template - a head written inside a class body, whose declaration
+// the class declares like any other member of it.  Both the head's own region
+// and a reading that binds one argument list stand between the declaration and
+// the class, so what tells them apart is the caller's, which passes null for
+// the second.
+bool declares_member_template(Scope* scope, const Scope* head);
+
 // 14.1p1 and 3.4.1p8: where a template head stands while the declaration it
 // parameterises is read through a qualified declarator-id.
 //

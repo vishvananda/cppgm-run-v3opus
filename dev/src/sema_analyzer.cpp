@@ -818,6 +818,17 @@ void SemaAnalyzer::declaration(const AstNode& node, const Context& ctx)
 		// like any other: what differs is that the standard writes the body.
 		if (semantics() || checking_ > 0)
 		{
+			if (declares_member_template(ctx.scope, ctx.template_head))
+			{
+				// 14.5.2p1: a head written over a constructor or a conversion
+				// function *inside* a class body declares a member template of
+				// that class, which is a member the class declares like any
+				// other - so it is read where every other special member of a
+				// class body is, with the head's own region standing over the
+				// declarator its parameters are written in.
+				special_member(node, ctx);
+				return;
+			}
 			// 14.6p8: a reading of a template's own definition reads this one
 			// too, because what it says about the declaration the class made
 			// is settled where the definition stands.
@@ -1144,6 +1155,15 @@ void SemaAnalyzer::template_declaration(const AstNode& node, const Context& ctx)
 	{
 		return;
 	}
+	read_template_head(node, ctx);
+}
+
+// 14.1p1: the reading of a template-declaration that records nothing - either
+// because no milestone here instantiates what it parameterises, or because the
+// record was already made and this is 14.5.2p3's *second* head, whose own
+// declaration `read_member_pattern` is reading against the class's arguments.
+void SemaAnalyzer::read_template_head(const AstNode& node, const Context& ctx)
+{
 	// 14.1p1 and 3.3.2p4: the template parameters are declared in a region of
 	// their own that encloses the declaration they parameterise.
 	DumpScope& dump = model_.open_dump(*ctx.dump, "scope template-parameters");

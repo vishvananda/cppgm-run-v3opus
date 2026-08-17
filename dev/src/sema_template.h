@@ -9,7 +9,44 @@ struct AstNode;
 class Scope;
 struct DumpScope;
 struct SemaEntity;
+class SemaModel;
 class TypeTable;
+
+// 14.5.6.1p5: the stand-ins two template heads are compared through, and the
+// signature each declaration was built into.
+//
+// Two heads declare the same template when their parameters stand in the same
+// places and their types agree once each head's parameters stand for the
+// other's.  The types themselves differ - each head declared parameters of its
+// own - so a comparison substitutes both onto one set of stand-ins: one per
+// position, made once here and shared by every signature built from then on.
+// 14.1p4's place binds a value rather than a type, and two heads spell one such
+// place only where the type it binds a value of agrees too - so that place
+// stands for its position and that type together and is keyed by both.
+//
+// It lives beside the head itself because it is the head's own vocabulary: what
+// a signature is built from is what `TemplateInfo` declared.
+class TemplateSignatures
+{
+public:
+	// The stand-in for a type place at `index`, and for one declared with
+	// `...`, which stands for a run rather than for one argument.
+	TypeId place(TypeTable& types, SemaModel& model, std::size_t index,
+	             bool pack);
+	// The stand-in for a value place at `index` binding a value of `of`, which
+	// is the type the places before it have already been canonicalized to.
+	TypeId value_place(TypeTable& types, SemaModel& model, std::size_t index,
+	                   bool pack, TypeId of);
+	// The signature one declaration was built into, or `kNoType` where none has
+	// been.  `held` says whether this call is the one that has to build it.
+	TypeId& built(std::uint32_t declaration, bool& held);
+
+private:
+	std::vector<TypeId> places_;
+	std::vector<TypeId> packs_;
+	std::unordered_map<std::uint64_t, TypeId> values_;
+	std::unordered_map<std::uint32_t, TypeId> built_;
+};
 
 // 14p1: what a template-declaration parameterises.
 //

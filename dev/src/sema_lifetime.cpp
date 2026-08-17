@@ -721,6 +721,16 @@ void SemaAnalyzer::construct_subobject(TypeId type, const AstNode* written,
 // a definition elsewhere.
 void SemaAnalyzer::demand_constructor_definition(SemaEntity& constructor)
 {
+	if (constructor.primary != nullptr &&
+	    constructor.primary->template_parameters != nullptr)
+	{
+		// 14.5.2p1 with 14.7.1p1: what 13.3.1.3 chose may be a specialization of
+		// a *constructor template*, which is a declaration the deduction made and
+		// no definition - so building the object is what asks the template for
+		// one, exactly as naming any other specialization does.  A constructor is
+		// reached by no name, so this is where that ask stands.
+		instantiate(constructor);
+	}
 	// 14.7.1p1: building an object is a use of the constructor 13.3.1.3 chose,
 	// and a specialization's own is a body the instantiation put aside.
 	require_definition(constructor);

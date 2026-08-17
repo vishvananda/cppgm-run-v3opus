@@ -239,7 +239,8 @@ std::uint32_t Specialization::canonical_pattern(const TemplateInfo& head,
 	{
 		bindings.insert(std::make_pair(
 			head.parameters[at].self,
-			analyzer_.canonical_parameter(at, head.parameters[at].pack)));
+			analyzer_.signatures_.place(analyzer_.types_, analyzer_.model_, at,
+			                            head.parameters[at].pack)));
 	}
 	std::vector<TypeId> canonical;
 	canonical.reserve(pattern.size());

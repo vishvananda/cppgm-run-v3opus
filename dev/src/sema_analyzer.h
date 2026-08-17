@@ -226,6 +226,10 @@ private:
 	void alias_declaration(const AstNode& node, const Context& ctx);
 	void static_assert_declaration(const AstNode& node, const Context& ctx);
 	void template_declaration(const AstNode& node, const Context& ctx);
+	// 14.1p1: the head's own region, opened over the declaration it
+	// parameterises.  It is the whole of `template_declaration` where nothing
+	// is recorded, and 14.5.2p3's second head reaches it on its own.
+	void read_template_head(const AstNode& node, const Context& ctx);
 	// 14.7.2p1: a specialization named where no use of it stands.
 	void explicit_instantiation(const AstNode& node, const Context& ctx);
 	// 14.7.2p1's simple-declaration target, which names a function or an
@@ -339,14 +343,18 @@ private:
 	// one defined outside it.  Both read the conversion-type-id the parse
 	// carried beside the name, because two spellings of one type declare one
 	// function and only the resolved type says so.
+	// 14.5.2p1: `specializing` is 14.7.1p1's declaration a reading of the
+	// pattern for one argument list is giving the type and the body to, and
+	// null wherever this declares a conversion function of its own.
 	void conversion_function(const AstNode& node, const Context& ctx,
-	                         const AstNode& carried);
+	                         const AstNode& carried, SemaEntity* specializing);
 	bool conversion_function_definition(const AstNode& node,
 	                                    const Context& ctx);
 	// 12.3.2p1: the declaration `carried` makes in the class `target` is the
 	// region of, declared or found among the ones already there.
 	SemaEntity& declare_conversion(const AstNode& node, const Context& target,
-	                               const AstNode& carried);
+	                               const AstNode& carried,
+	                               SemaEntity* as = nullptr);
 	// 12.3.2p1: the name a member access looked a conversion-function-id up
 	// under, which is the type it named rather than the tokens it spelled -
 	// `a.operator T()` and `a.operator U()` name one function where `T` and `U`
@@ -366,10 +374,15 @@ private:
 	// 9.2p2: the body a special member's definition gives it, left for the end
 	// of the translation unit whether the definition was written in the class
 	// body or outside it.
+	// 14.5.2p1: `head` is the region a template head standing over the
+	// definition declared its places in, which makes this the pattern of a
+	// member template - 14.6p8 reads such a body where it stands and leaves the
+	// output nothing to write.  Null for every definition of a function.
 	void open_special_member_body(const AstNode& node, SemaEntity& entity,
 	                              const Context& ctx,
 	                              const std::string& written,
-	                              const std::vector<Parameter>& parameters);
+	                              const std::vector<Parameter>& parameters,
+	                              Scope* head = nullptr);
 	// 12.1p5 and 12.4p3: the constructor and the destructor a class with no
 	// declared one has, declared into the class where its definition ends.
 	// 9.2p2: the special members the class has where its definition ends.
@@ -1764,9 +1777,11 @@ private:
 	// depends on a parameter to the instantiation.  `sema_template.cpp` holds
 	// what the reading does and does not ask.  Nothing it finds reaches the
 	// output.
+	// `implicit` is how many of the type's parameters 9.3.1p3 wrote rather than
+	// the declarator, which is one for a member template and none otherwise.
 	void check_template_definition(const AstNode& node, const Context& inner,
 	                               const std::vector<Parameter>& parameters,
-	                               TypeId type);
+	                               TypeId type, std::size_t implicit = 0);
 	// 14.6.2.2p1: whether a name written in `scope` can reach a type an argument
 	// list has yet to say, which is what leaves 7.1.6.2p4's question to the
 	// instantiation; and the type the specifier stands for until then.
@@ -1802,6 +1817,9 @@ private:
 	void read_class_pattern(SemaEntity& primary);
 	void read_member_pattern(SemaEntity& primary, const AstNode& clause,
 	                         const AstNode& pattern);
+	// 14.5.2p3: what one such definition declares, which for a member template
+	// is a head of its own standing over the declaration.
+	void read_member_declaration(const AstNode& node, const Context& ctx);
 	// 9.2p2: a member function body read for a pattern is read where the class
 	// is complete, so the reading holds each until the class-specifier closes.
 	void hold_pattern_body(const AstNode& node, const Context& inner,
@@ -1848,14 +1866,9 @@ private:
 	// it.  Two declarations declare the same template exactly when this is the
 	// same type, so it is a fact of one declaration and not of a pair - which
 	// is what keeps declaring the nth overload of a template name from reading
-	// the n - 1 before it.  `kNoType` where a head declares a parameter that is
-	// not a type, which no substitution here stands for.
+	// the n - 1 before it.  `kNoType` where a head declares a parameter that
+	// binds a template, which no substitution here stands for.
 	TypeId template_signature(const Scope& parameters, TypeId type);
-	// The type standing for the `index`th place a template head declares,
-	// made once and shared by every signature.  14.5.3p1's place that binds a
-	// run stands for one of its own, because it is not the place a head that
-	// declared no pack wrote there.
-	TypeId canonical_parameter(std::size_t index, bool pack);
 	// 14.5.1.3p1: the class template a definition written outside its class is
 	// a member of, found from the template-id its declarator-id was qualified
 	// with.  Null for a declaration that is a member of no such template.
@@ -2239,12 +2252,10 @@ private:
 	// the other, keyed by the two declarations.  It is a fact of the pair, and
 	// 13.3.3p1 asks it of the same pair once for every comparison a call makes.
 	std::unordered_map<std::uint64_t, bool> specialization_order_;
-	// 14.5.6.1p5: the place each parameter of a template head was declared in,
-	// standing for the parameter itself, and the signature `template_signature`
-	// builds out of them, kept per declaration.
-	std::vector<TypeId> canonical_parameters_;
-	std::vector<TypeId> canonical_packs_;
-	std::unordered_map<std::uint32_t, TypeId> template_signatures_;
+	// 14.5.6.1p5: the stand-ins two template heads are compared through and the
+	// signature each declaration was built into, which `sema_template.h` owns
+	// beside the head they are built from.
+	TemplateSignatures signatures_;
 	// 14.8.1p2: the declaration a template and a leading part of its argument
 	// list stand for, keyed by the two - so a name written twice reaches one
 	// candidate and a use that deduces the rest makes one specialization.
