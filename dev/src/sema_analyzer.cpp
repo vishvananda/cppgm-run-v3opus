@@ -2395,6 +2395,28 @@ void SemaAnalyzer::declare_object_declarator(const AstNode* initializer,
 	SemaEntity& entity = declared != nullptr
 		? *declared
 		: model_.create(SemaKind::Variable, name, type);
+	// 3.1p2: an `extern` declaration with no initializer declares the object
+	// and does not define it; every other declaration of one at namespace scope
+	// does, and a later definition of the same object says so once.  9.4.2p2
+	// makes the declaration a static data member's class writes no definition
+	// of it however it was written, so the one that defines it is the one
+	// written outside the class, which is the one whose declarator-id carries
+	// the nested-name-specifier that named the class.
+	const bool written_initializer =
+		initializer != nullptr && !initializer->children.empty();
+	const bool defines_object =
+		(target.scope->kind != ScopeKind::Class || spelled.qualified()) &&
+		(!specifiers.is_extern || written_initializer);
+	if (defines_object &&
+	    Specialization(*this).holds_written_definition(entity))
+	{
+		// 14.7.3p1: the program wrote this member's definition out for exactly
+		// these arguments above the template's own, so 14.7.1p1's reading of the
+		// pattern lays out no storage and initializes nothing - and it is left
+		// before the fold below, because what the written definition's own
+		// initializer came to is what 5.19p2 reads of the member from here on.
+		return;
+	}
 	// 7.1.5p9: the specifier is a fact of the object rather than of one
 	// declaration of it, so 9.4.2p2's definition written outside the class and
 	// the declaration the class wrote both say it for the one object.
@@ -2452,18 +2474,6 @@ void SemaAnalyzer::declare_object_declarator(const AstNode* initializer,
 			held.scope = target.scope;
 		}
 	}
-	// 3.1p2: an `extern` declaration with no initializer declares the object
-	// and does not define it; every other declaration of one at namespace scope
-	// does, and a later definition of the same object says so once.  9.4.2p2
-	// makes the declaration a static data member's class writes no definition
-	// of it however it was written, so the one that defines it is the one
-	// written outside the class, which is the one whose declarator-id carries
-	// the nested-name-specifier that named the class.
-	const bool written_initializer =
-		initializer != nullptr && !initializer->children.empty();
-	const bool defines_object =
-		(target.scope->kind != ScopeKind::Class || spelled.qualified()) &&
-		(!specifiers.is_extern || written_initializer);
 	entity.object_definition = entity.object_definition || defines_object;
 	// 14.7.1p1: a definition an instantiation read is one no unit wrote for
 	// these arguments, so the storage it lays out belongs to the program where

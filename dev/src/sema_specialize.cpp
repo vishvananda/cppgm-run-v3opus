@@ -386,6 +386,33 @@ bool Specialization::record_explicit(const AstNode& declared,
 	return true;
 }
 
+// 14.7.3p1 read in the source order the clause says nothing about: the program
+// wrote its own definition of this member out for exactly these arguments
+// *above* the template's own, so 14.7.1p1's reading of the pattern is not made
+// for it at all.
+//
+// `supersede` and `note_object` are the same clause the other way round - a
+// written definition arriving below the reading takes the claim away from it -
+// and which definition the unit holds is what 14.7.3p1 is about rather than
+// which of the two the program wrote first.  `PatternReading::record` reads a
+// member definition again for every specialization already made, so the two
+// orders differ only in whether the `template<>` stands above that definition
+// or below it, and neither of them is 3.2p1's second definition.
+//
+// A member of a class is the only declaration this can be true of: nothing but
+// an instantiation or a `template<>` defines one, and 11.3p6's friend a class
+// template's body defines is declared in a namespace - where a second
+// instantiation is still the redefinition 14.5.4p1 leaves it as, and where a
+// definition the program wrote at namespace scope is still one 3.2p1 refuses a
+// second of.
+bool Specialization::holds_written_definition(const SemaEntity& member) const
+{
+	return analyzer_.instantiating_pattern_ > 0 &&
+		!member.instantiated_definition && member.region != nullptr &&
+		member.region->kind == ScopeKind::Class &&
+		(member.defined || member.object_definition);
+}
+
 // 14.7.3p1: the definition this declaration held was 14.7.1p1's reading of the
 // pattern, and the program has now written its own out for these arguments.
 //
@@ -476,12 +503,19 @@ void Specialization::note_object(SemaEntity& member, bool instantiated)
 	// A body the reading held is dropped by name; a line it already wrote into
 	// the dump is dropped by taking its claim to define anything away, which
 	// leaves the definition below it the only line that lays this storage out.
-	member.instantiated_definition = false;
-	const std::unordered_map<std::uint32_t, DumpNode*>::const_iterator wrote_line =
-		analyzer_.object_definitions_.find(member.id);
-	if (wrote_line != analyzer_.object_definitions_.end())
+	//
+	// The claim taken away is 14.7.1p1's reading's alone, which is what the mark
+	// says: a line another definition the *program* wrote laid the storage out
+	// with is 3.2p1's second definition and no line this clause may drop.
+	if (member.instantiated_definition)
 	{
-		wrote_line->second->fact.object_definition = false;
+		member.instantiated_definition = false;
+		const std::unordered_map<std::uint32_t, DumpNode*>::const_iterator
+			wrote_line = analyzer_.object_definitions_.find(member.id);
+		if (wrote_line != analyzer_.object_definitions_.end())
+		{
+			wrote_line->second->fact.object_definition = false;
+		}
 	}
 	if (!info.explicit_members.insert(member.name).second)
 	{
@@ -510,15 +544,25 @@ void Specialization::note_object(SemaEntity& member, bool instantiated)
 // writes one out for these arguments.  `template<> tag<int>::~tag() {}` is that
 // definition, so it replaces the instantiated one; two written ones, and two
 // instantiated, are still the redefinition 3.2p1 refuses.
-void Specialization::require_replaceable(SemaEntity& member,
-                                        const std::string& spelled)
+//
+// False where the definition arriving is the pattern's own read again *below*
+// the one the program wrote out, which `holds_written_definition` is: 14.7.3p1
+// leaves that reading unmade, so the caller reads no body rather than refusing
+// the program.
+bool Specialization::require_replaceable(SemaEntity& member,
+                                         const std::string& spelled)
 {
+	if (holds_written_definition(member))
+	{
+		return false;
+	}
 	if (!member.instantiated_definition || analyzer_.instantiating_pattern_ > 0)
 	{
 		throw std::runtime_error(spelled + " is defined twice");
 	}
 	supersede(member);
 	member.defined = false;
+	return true;
 }
 
 // 14.5.1p1: the variable template itself, which declares a name in the region

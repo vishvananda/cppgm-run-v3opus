@@ -480,6 +480,14 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 		                 // defines a declaration its region already made.
 		                 spelled.qualified(),
 		                 specializing, &redeclares);
+	if (Specialization(*this).holds_written_definition(entity))
+	{
+		// 14.7.3p1: the program wrote this member's definition out for exactly
+		// these arguments above the template's own, so `declare_function` left
+		// the reading of the pattern a declaration - and the body it wrote is a
+		// definition of nothing, which is what reading no further leaves.
+		return;
+	}
 	record_exception_specification(entity, declarator, target, name,
 	                               redeclares && specializing == nullptr);
 	entity.object_member = type != written_type;
@@ -854,11 +862,24 @@ SemaEntity& SemaAnalyzer::declare_function(const std::string& name, TypeId type,
 			// are still 3.2p1's redefinition, and so are two instantiated: the
 			// second of those is 14.5.4p1's second instantiation of a class that
 			// defines a friend.
-			if (!prior->instantiated_definition || instantiating_pattern_ > 0)
+			//
+			// The program writes the two in either order, and which definition the
+			// unit holds is what the clause answers rather than which of them came
+			// first - so a reading of the pattern arriving *below* the written one
+			// is the definition 14.7.3p1 leaves unmade: it declares here and
+			// defines nothing, which is what the caller reads no body for.
+			if (Specialization(*this).holds_written_definition(*prior))
+			{
+				define = false;
+			}
+			else if (!prior->instantiated_definition || instantiating_pattern_ > 0)
 			{
 				throw std::runtime_error(name + " is defined twice");
 			}
-			Specialization(*this).supersede(*prior);
+			else
+			{
+				Specialization(*this).supersede(*prior);
+			}
 		}
 		prior->defined = prior->defined || define;
 		prior->instantiated_definition = prior->instantiated_definition ||

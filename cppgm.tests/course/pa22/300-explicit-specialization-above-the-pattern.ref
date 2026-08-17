@@ -1,0 +1,241 @@
+global @side : i32 [binding=strong, object=_Z4side] = 0
+global @tag_int___value : i32 [binding=weak, object=_ZN3tagIiE5valueE] = 7
+global @tag_char___value : i32 [binding=weak, object=_ZN3tagIcE5valueE] = 1
+
+function @through_pointer(%p : ptr) -> i32 [binding=strong, object=_Z15through_pointerPKi] {
+  slot $p : ptr
+
+  block ^entry:
+    store ptr %p, $p
+    %t1 = load ptr $p
+    %t2 = load i32 %t1
+    return i32 %t2
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $built : i32
+  slot $written : obj<4x4>
+  slot $read_again : obj<4x4>
+  slot $destroyed : i32
+  slot $cond__1 : i32
+  slot $land__2 : i64
+  slot $land__3 : i64
+  slot $land__4 : i64
+  slot $land__5 : i64
+  slot $land__6 : i64
+  slot $land__7 : i64
+  slot $land__8 : i64
+
+  block ^entry:
+    store i32 0, $built
+    %t1 = addr $written
+    call void @tag_int___tag(%t1)
+    %t2 = addr $read_again
+    eh_try ^call_unwind_dispatch_1
+    call void @tag_char___tag(%t2)
+    eh_end
+    jump ^call_unwind_end_2
+
+  block ^call_unwind_dispatch_1:
+    %t3 = addr $written
+    call void @tag_int____tag(%t3)
+    resume
+
+  block ^call_unwind_end_2:
+    %t4 = addr $written
+    %t5 = index i8 [projection=field] %t4, 0
+    %t6 = load i32 %t5
+    %t7 = binary mul i32 %t6, 10
+    %t8 = addr $read_again
+    %t9 = index i8 [projection=field] %t8, 0
+    %t10 = load i32 %t9
+    %t11 = binary add i32 %t7, %t10
+    store i32 %t11, $built
+    %t12 = addr $read_again
+    call void @tag_char____tag(%t12)
+    %t13 = addr $written
+    call void @tag_int____tag(%t13)
+    %t14 = load i32 @side
+    store i32 %t14, $destroyed
+    %t15 = load i32 $built
+    %t16 = cmp eq i32 %t15, 71
+    branch %t16, ^land_rhs_24, ^land_short_25
+
+  block ^land_rhs_24:
+    %t17 = load i32 $destroyed
+    %t18 = cmp eq i32 %t17, 8
+    %t19 = cmp ne i64 %t18, 0
+    store i64 %t19, $land__8
+    jump ^land_end_26
+
+  block ^land_short_25:
+    store i64 0, $land__8
+    jump ^land_end_26
+
+  block ^land_end_26:
+    %t20 = load i64 $land__8
+    branch %t20, ^land_rhs_21, ^land_short_22
+
+  block ^land_rhs_21:
+    %t21 = call i32 @tag_int___plain()
+    %t22 = cmp eq i32 %t21, 7
+    %t23 = cmp ne i64 %t22, 0
+    store i64 %t23, $land__7
+    jump ^land_end_23
+
+  block ^land_short_22:
+    store i64 0, $land__7
+    jump ^land_end_23
+
+  block ^land_end_23:
+    %t24 = load i64 $land__7
+    branch %t24, ^land_rhs_18, ^land_short_19
+
+  block ^land_rhs_18:
+    %t25 = call i32 @tag_char___plain()
+    %t26 = cmp eq i32 %t25, 1
+    %t27 = cmp ne i64 %t26, 0
+    store i64 %t27, $land__6
+    jump ^land_end_20
+
+  block ^land_short_19:
+    store i64 0, $land__6
+    jump ^land_end_20
+
+  block ^land_end_20:
+    %t28 = load i64 $land__6
+    branch %t28, ^land_rhs_15, ^land_short_16
+
+  block ^land_rhs_15:
+    %t29 = call i32 @tag_int___in__nested()
+    %t30 = cmp eq i32 %t29, 7
+    %t31 = cmp ne i64 %t30, 0
+    store i64 %t31, $land__5
+    jump ^land_end_17
+
+  block ^land_short_16:
+    store i64 0, $land__5
+    jump ^land_end_17
+
+  block ^land_end_17:
+    %t32 = load i64 $land__5
+    branch %t32, ^land_rhs_12, ^land_short_13
+
+  block ^land_rhs_12:
+    %t33 = call i32 @tag_char___in__nested()
+    %t34 = cmp eq i32 %t33, 1
+    %t35 = cmp ne i64 %t34, 0
+    store i64 %t35, $land__4
+    jump ^land_end_14
+
+  block ^land_short_13:
+    store i64 0, $land__4
+    jump ^land_end_14
+
+  block ^land_end_14:
+    %t36 = load i64 $land__4
+    branch %t36, ^land_rhs_9, ^land_short_10
+
+  block ^land_rhs_9:
+    %t37 = addr @tag_int___value
+    %t38 = call i32 @through_pointer(%t37)
+    %t39 = cmp eq i32 %t38, 7
+    %t40 = cmp ne i64 %t39, 0
+    store i64 %t40, $land__3
+    jump ^land_end_11
+
+  block ^land_short_10:
+    store i64 0, $land__3
+    jump ^land_end_11
+
+  block ^land_end_11:
+    %t41 = load i64 $land__3
+    branch %t41, ^land_rhs_6, ^land_short_7
+
+  block ^land_rhs_6:
+    %t42 = addr @tag_char___value
+    %t43 = call i32 @through_pointer(%t42)
+    %t44 = cmp eq i32 %t43, 1
+    %t45 = cmp ne i64 %t44, 0
+    store i64 %t45, $land__2
+    jump ^land_end_8
+
+  block ^land_short_7:
+    store i64 0, $land__2
+    jump ^land_end_8
+
+  block ^land_end_8:
+    %t46 = load i64 $land__2
+    branch %t46, ^cond_then_3, ^cond_else_4
+
+  block ^cond_then_3:
+    store i32 0, $cond__1
+    jump ^cond_end_5
+
+  block ^cond_else_4:
+    store i32 1, $cond__1
+    jump ^cond_end_5
+
+  block ^cond_end_5:
+    %t47 = load i32 $cond__1
+    return i32 %t47
+}
+function @tag_int___tag(%this : ptr) -> void [binding=weak, object=_ZN3tagIiEC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    store i32 7, %t2
+    return void
+}
+function @tag_int____tag(%this : ptr) -> void [binding=weak, object=_ZN3tagIiED1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load i32 @side
+    %t2 = binary add i32 %t1, 7
+    store i32 %t2, @side
+    return void
+}
+function @tag_int___plain() -> i32 [binding=weak, object=_ZN3tagIiE5plainEv] {
+  block ^entry:
+    return i32 7
+}
+function @tag_int___in__nested() -> i32 [binding=weak, object=_ZN3tagIiE2in6nestedEv] {
+  block ^entry:
+    return i32 7
+}
+function @tag_char___tag(%this : ptr) -> void [binding=weak, object=_ZN3tagIcEC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    store i32 1, %t2
+    return void
+}
+function @tag_char____tag(%this : ptr) -> void [binding=weak, object=_ZN3tagIcED1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load i32 @side
+    %t2 = binary add i32 %t1, 1
+    store i32 %t2, @side
+    return void
+}
+function @tag_char___plain() -> i32 [binding=weak, object=_ZN3tagIcE5plainEv] {
+  block ^entry:
+    return i32 1
+}
+function @tag_char___in__nested() -> i32 [binding=weak, object=_ZN3tagIcE2in6nestedEv] {
+  block ^entry:
+    return i32 1
+}
+alias object _ZN3tagIiEC2Ev = @tag_int___tag
+alias object _ZN3tagIiED2Ev = @tag_int____tag
+alias object _ZN3tagIcEC2Ev = @tag_char___tag
+alias object _ZN3tagIcED2Ev = @tag_char____tag

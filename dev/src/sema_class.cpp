@@ -465,9 +465,14 @@ bool SemaAnalyzer::conversion_function_definition(const AstNode& node,
 		throw std::runtime_error(node.text + " defines a conversion function "
 		                         "its class does not declare");
 	}
-	if (entity.defined)
+	if (entity.defined &&
+	    !Specialization(*this).require_replaceable(entity, node.text))
 	{
-		Specialization(*this).require_replaceable(entity, node.text);
+		// 14.7.3p1: the program wrote this member's definition out for exactly
+		// these arguments above the template's own, so the reading of the
+		// pattern defines nothing here.  The definition is still this reading's
+		// to have read, which is what the answer says.
+		return true;
 	}
 	const AstNode* const specifiers = child_of(node, AstKind::MemberSpecifiers);
 	for (std::size_t index = 0;
@@ -919,9 +924,13 @@ void SemaAnalyzer::special_member_definition(const AstNode& node,
 		                         (destructor ? "destructor" : "constructor") +
 		                         " this definition defines");
 	}
-	if (entity->defined)
+	if (entity->defined &&
+	    !Specialization(*this).require_replaceable(*entity, node.text))
 	{
-		Specialization(*this).require_replaceable(*entity, node.text);
+		// 14.7.3p1: the program wrote this entry point's definition out for
+		// exactly these arguments above the template's own, so the reading of
+		// the pattern defines nothing here.
+		return;
 	}
 	// 15.4p1: the definition is a declaration of the function like the one the
 	// class body wrote, so the two shall write the same exception-specification

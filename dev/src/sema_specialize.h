@@ -70,8 +70,16 @@ public:
 	// refusal of every other second definition, and `note_object` is 9.4.2p2's
 	// static data member, whose initializer is a value 5.19p2 reads only while the
 	// pattern's is the one definition the unit has.
+	//
+	// Which definition the unit holds is what the clause is about and not which
+	// of the two the program wrote first, so each of the three doors asks the
+	// question both ways round: `holds_written_definition` is the reading of the
+	// pattern arriving *below* a definition the program already wrote out, which
+	// 14.7.3p1 leaves unmade rather than refuses.  `require_replaceable` says so
+	// by answering false, and the other two doors ask it themselves.
+	bool holds_written_definition(const SemaEntity& member) const;
 	void supersede(SemaEntity& function);
-	void require_replaceable(SemaEntity& member, const std::string& spelled);
+	bool require_replaceable(SemaEntity& member, const std::string& spelled);
 	void note_object(SemaEntity& member, bool instantiated);
 
 	// 7.1.3p2 with 14.5.7p1: the alias template a head over an
