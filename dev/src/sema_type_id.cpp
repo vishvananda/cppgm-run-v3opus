@@ -159,6 +159,20 @@ bool split_type_id(const std::string& spelling, std::vector<std::string>& out)
 	return !out.empty();
 }
 
+// 8.3.3p1's `nested-name-specifier *`, recognised in the words the spelling was
+// split into.  The split leaves a nested-name-specifier standing on its own
+// only where the character after its `::` opens no name, so a word that ends in
+// one and is followed by `*` is the ptr-operator and nothing else - which is
+// what keeps `int C::*` out of the type-specifier-seq that would otherwise read
+// `int C::` as a name.
+bool names_member_pointer(const std::vector<std::string>& words,
+                          std::size_t at, std::size_t end)
+{
+	return at + 1 < end && words[at].size() > 2 &&
+		words[at].compare(words[at].size() - 2, 2, "::") == 0 &&
+		words[at + 1] == "*";
+}
+
 // The terminals of a type-specifier-seq joined back into the one spelling a
 // lookup asks about: `long long` keeps the space two keywords need, and a
 // qualified name keeps none around its `::`.
@@ -198,6 +212,8 @@ public:
 private:
 	TypeId decltype_specifier(const std::string& spelling);
 	TypeId elaborated(const std::string& key, const std::string& name);
+	// 8.3.3p1: the class a `X::*` names the members of.
+	TypeId member_owner(const std::string& written, const std::string& spelling);
 	// 8.3p1's abstract-declarator, and 8.3.4p1's bound and 8.3.5p1's
 	// parameter-clause written after it.
 	TypeId declarator(TypeId base, const std::vector<std::string>& words,
@@ -326,6 +342,22 @@ TypeId SpelledTypeId::elaborated(const std::string& key,
 		->type;
 }
 
+// 8.3.3p1 and 3.4.3p1: the class a ptr-operator's nested-name-specifier names,
+// looked up the way the type-specifier-seq looks its own name up - so a place a
+// head declared answers here as much as a class the program wrote, which is
+// what `template<class K, class R> struct probe<R K::*>` needs.
+TypeId SpelledTypeId::member_owner(const std::string& written,
+                                   const std::string& spelling)
+{
+	SemaEntity* const named = analyzer_.resolve(written, ctx_, LookupKind::Any);
+	if (named == nullptr || !names_a_type(*named))
+	{
+		throw std::runtime_error(spelling + " writes a pointer to a member of " +
+		                         written + ", which names no class");
+	}
+	return named->type;
+}
+
 // 8.1p1: a type-id is a type-specifier-seq and an abstract-declarator, read
 // from the words the spelling was split into.  `at` is left one past the last
 // word read, which is what lets a parameter-clause read its list one type-id
@@ -344,6 +376,12 @@ TypeId SpelledTypeId::read(const std::vector<std::string>& words,
 		if (word == "*" || word == "&" || word == "&&" || word == "(" ||
 		    word == ")" || word == "[" || word == "," || word == "...")
 		{
+			break;
+		}
+		if (names_member_pointer(words, at, end))
+		{
+			// 8.3.3p1: the nested-name-specifier belongs to the declarator's
+			// ptr-operator and is no specifier of this seq.
 			break;
 		}
 		if (word == "const")
@@ -411,12 +449,27 @@ TypeId SpelledTypeId::declarator(TypeId base,
                                  std::size_t& at, std::size_t end,
                                  const std::string& spelling)
 {
-	if (at < end && (words[at] == "*" || words[at] == "&" || words[at] == "&&"))
+	if (at < end &&
+	    (words[at] == "*" || words[at] == "&" || words[at] == "&&" ||
+	     names_member_pointer(words, at, end)))
 	{
-		const std::string op = words[at];
+		// 8.3.3p1: `X::*` makes a pointer to a member of `X`, which is the same
+		// ptr-operator as `*` with the class the members belong to written before
+		// it - so it takes the cv-qualifiers written after it the same way.
+		const bool member = names_member_pointer(words, at, end);
+		const std::string op = member ? "*" : words[at];
+		TypeId owner = kNoType;
+		if (member)
+		{
+			owner = member_owner(words[at].substr(0, words[at].size() - 2),
+			                     spelling);
+			++at;
+		}
 		++at;
-		TypeId inner = op == "*" ? analyzer_.types_.pointer_to(base)
-		                         : analyzer_.types_.reference_to(base, op == "&&");
+		TypeId inner = member
+			? analyzer_.types_.member_pointer_to(owner, base)
+			: (op == "*" ? analyzer_.types_.pointer_to(base)
+			             : analyzer_.types_.reference_to(base, op == "&&"));
 		while (at < end && (words[at] == "const" || words[at] == "volatile"))
 		{
 			// 8.3.1p1: a cv-qualifier after a `*` qualifies the pointer.
@@ -433,7 +486,8 @@ TypeId SpelledTypeId::declarator(TypeId base,
 	std::size_t group_end = 0;
 	if (at < end && words[at] == "(" && at + 1 < end &&
 	    (words[at + 1] == "*" || words[at + 1] == "&" ||
-	     words[at + 1] == "&&" || words[at + 1] == "("))
+	     words[at + 1] == "&&" || words[at + 1] == "(" ||
+	     names_member_pointer(words, at + 1, end)))
 	{
 		group_begin = at + 1;
 		unsigned depth = 0;

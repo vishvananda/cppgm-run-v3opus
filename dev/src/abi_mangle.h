@@ -195,6 +195,12 @@ struct AbiType
   bool is_const = false;
   bool is_volatile = false;
   bool variadic = false;
+  // `<ref-qualifier>`: 8.3.5p7 makes the `&` or `&&` written after a
+  // parameter-clause part of the function type, so two that differ only in it
+  // are two types the object file has to name apart.  Both false for a function
+  // type written without one, which is nearly all of them.
+  bool function_lvalue_ref = false;
+  bool function_rvalue_ref = false;
   bool substitutable = false;
   bool standard_substitution_includes_arguments = false;
   std::vector<AbiType> types;

@@ -757,6 +757,10 @@ void Encoder::emit_function_type(const AbiType & type)
   if(type.types.empty()) { fail("function type without a result"); }
   emit_type(type.types[0]);
   emit_parameter_types(type.types, 1, type.variadic);
+  // `<function-type> ::= F <bare-function-type> [<ref-qualifier>] E`: 8.3.5p7's
+  // qualifier stands after the parameter types and inside the `E`.
+  if(type.function_lvalue_ref) { put("R"); }
+  else if(type.function_rvalue_ref) { put("O"); }
   put("E");
 }
 

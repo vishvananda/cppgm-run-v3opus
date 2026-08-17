@@ -342,17 +342,26 @@ bool Deduction::match_run(TypeId expansion, const std::vector<TypeId>& given,
 	std::vector<TypeId> runs;
 	std::vector<TypeId> places;
 	PackReading(analyzer_).packs_in(inner, runs, places);
-	if (places.size() != 1)
+	if (places.empty())
 	{
-		// 14.8.2.5p9: a pattern this milestone deduces names one pack.
+		// 14.8.2.5p9: an expansion whose pattern names no place this pair could
+		// deduce says nothing about how long the run is.
 		return false;
 	}
-	std::vector<TypeId> run;
-	run.reserve(given.size() - from);
+	// 14.5.3p4 and 14.5.3p6: one expansion may be written over several packs,
+	// which are expanded together and are the same length - `pair<A, B>...` is
+	// one run of pairs and two runs of one element each per pair.  So the pair
+	// takes a run per place, which is what `expand_type` and `substitute_entry`
+	// already read one over.
+	std::vector<std::vector<TypeId> > taken(places.size());
+	for (std::size_t index = 0; index < places.size(); ++index)
+	{
+		taken[index].reserve(given.size() - from);
+	}
 	for (std::size_t at = from; at < given.size(); ++at)
 	{
 		// Each element is a P/A pair of its own, over bindings of its own: what
-		// the place took there is one element of the run, and what it took in
+		// a pack place took there is one element of its run, and what it took in
 		// another element is a different one.
 		//
 		// 14.8.2.5p2: every *other* place the pattern names binds one argument
@@ -360,29 +369,32 @@ bool Deduction::match_run(TypeId expansion, const std::vector<TypeId>& given,
 		// element - so each pair starts from what the pairs before it deduced
 		// and what this one adds is merged back.
 		std::unordered_map<TypeId, TypeId> one(bindings);
-		// The pack place itself is the one this pair may not start from: what an
-		// earlier list deduced it to is a *run*, and what this element deduces
-		// it to is one element of one.
-		one.erase(places[0]);
+		// A pack place is one this pair may not start from: what an earlier list
+		// deduced it to is a *run*, and what this element deduces it to is one
+		// element of one.
+		for (std::size_t index = 0; index < places.size(); ++index)
+		{
+			one.erase(places[index]);
+		}
 		if (!match(inner, given[at], one))
 		{
 			return false;
 		}
-		const std::unordered_map<TypeId, TypeId>::const_iterator took =
-			one.find(places[0]);
-		if (took == one.end())
+		for (std::size_t index = 0; index < places.size(); ++index)
 		{
-			return false;
+			const std::unordered_map<TypeId, TypeId>::const_iterator took =
+				one.find(places[index]);
+			if (took == one.end())
+			{
+				return false;
+			}
+			taken[index].push_back(took->second);
+			one.erase(places[index]);
 		}
-		run.push_back(took->second);
 		for (std::unordered_map<TypeId, TypeId>::const_iterator entry =
 			     one.begin();
 		     entry != one.end(); ++entry)
 		{
-			if (entry->first == places[0])
-			{
-				continue;
-			}
 			const std::pair<std::unordered_map<TypeId, TypeId>::iterator, bool>
 				held = bindings.insert(*entry);
 			if (!held.second && held.first->second != entry->second)
@@ -393,10 +405,17 @@ bool Deduction::match_run(TypeId expansion, const std::vector<TypeId>& given,
 	}
 	// 14.8.2.5p2 over a run: two lists that deduce one pack differently deduce
 	// nothing, exactly as two arguments at one place do.
-	const TypeId bound = types.pack_type(run);
-	const std::pair<std::unordered_map<TypeId, TypeId>::iterator, bool> held =
-		bindings.insert(std::make_pair(places[0], bound));
-	return held.second || held.first->second == bound;
+	for (std::size_t index = 0; index < places.size(); ++index)
+	{
+		const TypeId bound = types.pack_type(taken[index]);
+		const std::pair<std::unordered_map<TypeId, TypeId>::iterator, bool> held =
+			bindings.insert(std::make_pair(places[index], bound));
+		if (!held.second && held.first->second != bound)
+		{
+			return false;
+		}
+	}
+	return true;
 }
 
 TypeId Deduction::derived_from(TypeId pattern, TypeId argument) const

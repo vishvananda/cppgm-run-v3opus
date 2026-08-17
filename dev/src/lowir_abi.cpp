@@ -208,6 +208,13 @@ AbiType abi_type(TypeTable& types, TypeId type, LocalContexts& contexts)
 		AbiType out;
 		out.kind = abi_mangle::ABI_TYPE_FUNCTION;
 		out.variadic = types.variadic(type);
+		// 8.3.5p7: the ref-qualifier is part of the function type, so a template
+		// argument that writes one is a different argument from the one that does
+		// not - `holder<int(char) const>` and `holder<int(char) const &>` are two
+		// specializations and two symbols.
+		const RefQualifier ref = types.function_ref_qualifier(type);
+		out.function_lvalue_ref = ref == RefQualifier::LValue;
+		out.function_rvalue_ref = ref == RefQualifier::RValue;
 		out.types.push_back(abi_type(types, types.target(type), contexts));
 		const std::vector<TypeId>& parameters = types.parameters(type);
 		for (std::size_t index = 0; index < parameters.size(); ++index)

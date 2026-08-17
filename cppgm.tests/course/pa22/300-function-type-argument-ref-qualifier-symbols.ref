@@ -1,0 +1,48 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $all : i32
+  slot $cond__1 : i32
+
+  block ^entry:
+    %t1 = call i32 @holder_int_char____which()
+    %t2 = call i32 @holder_int_char__const___which()
+    %t3 = binary mul i32 %t2, 10
+    %t4 = binary add i32 %t1, %t3
+    %t5 = call i32 @holder_int_char__const_____which()
+    %t6 = binary mul i32 %t5, 100
+    %t7 = binary add i32 %t4, %t6
+    %t8 = call i32 @holder_int_char__volatile______which()
+    %t9 = binary mul i32 %t8, 1000
+    %t10 = binary add i32 %t7, %t9
+    store i32 %t10, $all
+    %t11 = load i32 $all
+    %t12 = cmp eq i32 %t11, 4321
+    branch %t12, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t13 = load i32 $cond__1
+    return i32 %t13
+}
+function @holder_int_char____which() -> i32 [binding=weak, object=_ZN6holderIFicEE5whichEv] {
+  block ^entry:
+    return i32 1
+}
+function @holder_int_char__const___which() -> i32 [binding=weak, object=_ZN6holderIKFicEE5whichEv] {
+  block ^entry:
+    return i32 2
+}
+function @holder_int_char__const_____which() -> i32 [binding=weak, object=_ZN6holderIKFicREE5whichEv] {
+  block ^entry:
+    return i32 3
+}
+function @holder_int_char__volatile______which() -> i32 [binding=weak, object=_ZN6holderIVFicOEE5whichEv] {
+  block ^entry:
+    return i32 4
+}

@@ -360,10 +360,22 @@ AbiType parse_type_words(const vector<string> & words, size_t position)
     type.types.push_back(parse_type_words(words, position + 2));
     return type;
   }
-  if(head == "function-type" || head == "function-type-variadic") {
+  // 8.3.5p7's ref-qualifier is part of the function type, and the head carries
+  // it because the words after it are the result and the parameters and nothing
+  // else - a function type written without one keeps the two spellings it had.
+  if(head.compare(0, 13, "function-type") == 0 &&
+     (head.size() == 13 || head[13] == '-')) {
+    const string tail = head.substr(13);
     AbiType type;
     type.kind = ABI_TYPE_FUNCTION;
-    type.variadic = head == "function-type-variadic";
+    type.variadic = tail.compare(0, 9, "-variadic") == 0;
+    const string qualifier = tail.substr(type.variadic ? 9 : 0);
+    type.function_lvalue_ref = qualifier == "-lvalue-ref";
+    type.function_rvalue_ref = qualifier == "-rvalue-ref";
+    if(!qualifier.empty() && !type.function_lvalue_ref &&
+       !type.function_rvalue_ref) {
+      fail("unknown function type fact " + head);
+    }
     for(size_t i = position + 1; i < words.size(); ++i) {
       type.types.push_back(parse_compact_type(words[i]));
     }
@@ -1206,7 +1218,11 @@ vector<string> serialize_type(const AbiType & type)
     append_words(words, serialize_type(type.types.at(1)));
     return words;
   case ABI_TYPE_FUNCTION:
-    words.push_back(type.variadic ? "function-type-variadic" : "function-type");
+    words.push_back(string("function-type") +
+                    (type.variadic ? "-variadic" : "") +
+                    (type.function_lvalue_ref
+                       ? "-lvalue-ref"
+                       : (type.function_rvalue_ref ? "-rvalue-ref" : "")));
     for(size_t i = 0; i < type.types.size(); ++i) {
       words.push_back(serialize_compact_type(type.types[i]));
     }

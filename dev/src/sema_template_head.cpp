@@ -568,11 +568,16 @@ std::string SemaAnalyzer::type_spelling(TypeId type) const
 			at = types_.target(at);
 			continue;
 		}
-		if ((cv & kCvConst) != 0)
+		// 8.3.5p1 writes a function type's cv-qualifier-seq after its
+		// parameter-clause rather than before its result, so the Function arm
+		// below spells its own - together with 8.3.5p7's ref-qualifier, which
+		// nothing here wrote and which is what tells `R(A...) const` from
+		// `R(A...) const &`.
+		if ((cv & kCvConst) != 0 && kind != TypeKind::Function)
 		{
 			out += "const ";
 		}
-		if ((cv & kCvVolatile) != 0)
+		if ((cv & kCvVolatile) != 0 && kind != TypeKind::Function)
 		{
 			out += "volatile ";
 		}
@@ -631,6 +636,22 @@ std::string SemaAnalyzer::type_spelling(TypeId type) const
 				out += given.empty() ? "..." : ",...";
 			}
 			out += ")";
+			if ((cv & kCvConst) != 0)
+			{
+				out += " const";
+			}
+			if ((cv & kCvVolatile) != 0)
+			{
+				out += " volatile";
+			}
+			if (types_.function_ref_qualifier(at) == RefQualifier::LValue)
+			{
+				out += " &";
+			}
+			else if (types_.function_ref_qualifier(at) == RefQualifier::RValue)
+			{
+				out += " &&";
+			}
 			break;
 		}
 
