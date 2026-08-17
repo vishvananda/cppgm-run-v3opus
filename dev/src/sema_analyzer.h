@@ -184,6 +184,11 @@ private:
 	// other rather than overload, which 9.4.1p2 does not allow.
 	std::uint32_t member_signature(const SemaEntity& function);
 	std::uint32_t member_signature(TypeId type, bool object_member);
+	// 7.3.3p14 read over a member *template*, whose parameter-type-list is
+	// written in places its own head declared - so 14.5.6.1p5's equivalence is
+	// what says two heads wrote one list, and the key is built over the
+	// stand-ins `template_signature` puts in their place.
+	std::uint32_t hiding_signature(const SemaEntity& function);
 	// 10.3p2's key: that signature beside the interned name, which is what tells
 	// an overriding declaration from one that merely reuses a name.
 	std::uint64_t override_key(const SemaEntity& member);
@@ -1420,10 +1425,13 @@ private:
 	// here is the *object* the name denotes rather than what it is worth.  The
 	// two part company at a constant a class declared: 3.2p2 makes reading its
 	// value no odr-use, so a read is the value and `&` is the storage.
+	// `gathering` is 3.4.2p3: the caller has candidates of its own still to
+	// add, so what the lookup found is not yet the whole set and the name
+	// denotes no one declaration however few declarations that set holds.
 	Value named_value(const AstNode& node, SemaEntity& entity,
 	                  const Context& ctx, DumpNode& parent,
 	                  const std::vector<SemaEntity*>* found = nullptr,
-	                  bool addressed = false);
+	                  bool addressed = false, bool gathering = false);
 	Value literal_expression(const AstNode& node, const Context& ctx,
 	                         DumpNode& parent);
 	// 2.14: the one line an analysed literal token is worth, which a literal

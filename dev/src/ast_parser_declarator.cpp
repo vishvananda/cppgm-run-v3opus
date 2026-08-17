@@ -361,9 +361,14 @@ AstNode* AstParser::parse_declarator(DeclaratorForm form)
 		const Mark nested = mark();
 		++pos_;
 		BracketGuard brackets(*this, false);
-		AstNode* inner = parse_declarator(form == DeclaratorForm::Abstract
-			? DeclaratorForm::Parameter
-			: form);
+		// 8.1p1: a type-id names an unnamed object, so what stands inside the
+		// parentheses of its declarator is a ptr-abstract-declarator and writes
+		// no declarator-id either - which is what parts `int (*)(char)` from
+		// `dispatch<T>(ex)`.  The latter is no type-id at all, so 5.4p2's
+		// `( type-id ) cast-expression` is not what `(dispatch<T>(ex))(f, w)`
+		// is: the parentheses hold an expression and the arguments after them
+		// call the object it made.
+		AstNode* inner = parse_declarator(form);
 		if (inner != nullptr && !inner->children.empty() && at(OP_RPAREN))
 		{
 			++pos_;

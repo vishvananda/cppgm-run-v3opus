@@ -1,0 +1,105 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $k : obj<1x1>
+  slot $below : obj<1x1>
+  slot $above : obj<1x1>
+  slot $kept : obj<1x1>
+  slot $cond__1 : i32
+  slot $land__2 : i64
+
+  block ^entry:
+    %t1 = addr $k
+    %t2 = addr $below
+    %t3 = addr $above
+    %t4 = addr $kept
+    %t5 = addr $below
+    %t6 = addr $k
+    %t7 = call i32 @derived_below__pick(%t5, %t6)
+    %t8 = cmp ne i32 %t7, 2
+    branch %t8, ^if_then_1, ^lor_rhs_4
+
+  block ^lor_rhs_4:
+    %t9 = addr $above
+    %t10 = addr $k
+    %t11 = call i32 @derived_above__also(%t9, %t10)
+    %t12 = cmp ne i32 %t11, 2
+    branch %t12, ^if_then_1, ^if_else_2
+
+  block ^if_then_1:
+    return i32 1
+
+  block ^if_else_2:
+    jump ^if_end_3
+
+  block ^if_end_3:
+    %t13 = addr $kept
+    %t14 = index i8 [projection=base_subobject] %t13, 0
+    %t15 = addr $k
+    %t16 = call i32 @base__kept(%t14, %t15)
+    %t17 = cmp eq i32 %t16, 1
+    branch %t17, ^land_rhs_8, ^land_short_9
+
+  block ^land_rhs_8:
+    %t18 = addr $kept
+    %t19 = addr $k
+    %t20 = call i32 @derived_kept__kept(%t18, %t19)
+    %t21 = cmp eq i32 %t20, 2
+    %t22 = cmp ne i64 %t21, 0
+    store i64 %t22, $land__2
+    jump ^land_end_10
+
+  block ^land_short_9:
+    store i64 0, $land__2
+    jump ^land_end_10
+
+  block ^land_end_10:
+    %t23 = load i64 $land__2
+    branch %t23, ^cond_then_5, ^cond_else_6
+
+  block ^cond_then_5:
+    store i32 0, $cond__1
+    jump ^cond_end_7
+
+  block ^cond_else_6:
+    store i32 1, $cond__1
+    jump ^cond_end_7
+
+  block ^cond_end_7:
+    %t24 = load i32 $cond__1
+    return i32 %t24
+}
+function @derived_below__pick(%this : ptr, %__param1 : ptr [pass=reference]) -> i32 [binding=weak, object=_ZNK13derived_below4pickI3KeyEEiRKT_] {
+  slot $this : ptr
+  slot $__param1 : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    store ptr %__param1, $__param1
+    return i32 2
+}
+function @derived_above__also(%this : ptr, %__param1 : ptr [pass=reference]) -> i32 [binding=weak, object=_ZNK13derived_above4alsoI3KeyEEiRKT_] {
+  slot $this : ptr
+  slot $__param1 : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    store ptr %__param1, $__param1
+    return i32 2
+}
+function @base__kept(%this : ptr, %__param1 : ptr [pass=reference]) -> i32 [binding=weak, object=_ZNK4base4keptI3KeyEEiRKT_] {
+  slot $this : ptr
+  slot $__param1 : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    store ptr %__param1, $__param1
+    return i32 1
+}
+function @derived_kept__kept(%this : ptr, %__param1 : ptr [pass=reference]) -> i32 [binding=weak, object=_ZNK12derived_kept4keptI3KeyiEEiRKT_] {
+  slot $this : ptr
+  slot $__param1 : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    store ptr %__param1, $__param1
+    return i32 2
+}

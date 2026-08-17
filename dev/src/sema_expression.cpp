@@ -527,7 +527,7 @@ SemaAnalyzer::Value SemaAnalyzer::named_value(const AstNode& node,
                                               const Context& ctx,
                                               DumpNode& parent,
                                               const std::vector<SemaEntity*>* found,
-                                              bool addressed)
+                                              bool addressed, bool gathering)
 {
 	// 7.3.3p1: a using-declaration made this class declare what its base
 	// declared, and what the name denotes is the base's declaration - the same
@@ -631,7 +631,7 @@ SemaAnalyzer::Value SemaAnalyzer::named_value(const AstNode& node,
 		value.name = &node;
 		value.node = &model_.open_node(parent, std::string());
 		if (value.functions->size() == 1 && named.next == nullptr &&
-		    named.template_parameters == nullptr)
+		    named.template_parameters == nullptr && !gathering)
 		{
 			// One declaration, so the name already denotes it and the line can
 			// be written where it is read.  14p1 leaves a template denoting no

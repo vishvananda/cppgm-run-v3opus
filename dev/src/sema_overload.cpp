@@ -290,10 +290,35 @@ SemaEntity* SemaAnalyzer::converting_constructor(const Value& argument,
 	{
 		const std::vector<TypeId>& parameters = types_.parameters(at->type);
 		// 9.3.1p3 put the object 12.1 constructs in the type, so a constructor
-		// that converts takes exactly one argument beside it.
-		if (at->explicit_function || at->deleted || parameters.size() < 2 ||
-		    !accepts_arity(*at, 2))
+		// that converts takes exactly one argument beside it.  13.3.2p2 counts
+		// a declaration whose parameter-declaration-clause ends in `...` viable
+		// for every argument past the ones it wrote, so `A(...)` is a
+		// constructor one argument reaches too - and 13.3.3.1.3 gives that
+		// argument the ellipsis conversion sequence, which is the worst there
+		// is and asks nothing of the argument's own type.
+		if (at->explicit_function || at->deleted || !accepts_arity(*at, 2))
 		{
+			continue;
+		}
+		if (parameters.size() < 2)
+		{
+			if (!types_.variadic(at->type) || argument.braced != nullptr)
+			{
+				continue;
+			}
+			Match through;
+			through.viable = true;
+			through.rank = kEllipsis;
+			if (best == nullptr || compare_matches(through, chosen) > 0)
+			{
+				best = at;
+				chosen = through;
+				tied = false;
+			}
+			else if (compare_matches(through, chosen) == 0)
+			{
+				tied = true;
+			}
 			continue;
 		}
 		const TypeId wanted = parameters[1];
@@ -2042,10 +2067,23 @@ void SemaAnalyzer::apply_conversion(Value& value, TypeId target,
 		DumpNode& line = model_.wrap_node(*value.node, std::string());
 		source.node = line.children[0];
 		line.children.clear();
+		// 13.3.3.1p4: this resolution is 13.3.1.4's, and there the first
+		// parameter of a constructor candidate considers no user-defined
+		// conversion sequence of its own - so the class's copy constructor is
+		// not a way to reach the class from an argument of another type.  The
+		// flag has to be held over the resolution and not only over the
+		// measurement `converting_constructor` made, because otherwise the two
+		// disagree about which constructor 13.3 chose: a class whose only
+		// converting constructor takes the ellipsis would be reached here by a
+		// copy constructor whose own argument came back through this same
+		// door, which is a regress with no bottom.
+		const bool held = standard_only_;
+		standard_only_ = true;
 		value = build_temporary(wanted, line, nullptr, &source, ctx,
 		                        requested_prefix(by, match.reference, wanted), false,
 		                        match.reference, false, false,
 		                        by != Requested::Written);
+		standard_only_ = held;
 		return;
 	}
 	if (by != Requested::Written && match.reference && !match.binds_lvalue &&
@@ -2402,8 +2440,21 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
 		// asking for it again.
 		target = callee.kind == AstKind::IdExpression
 			? named_value(callee, require(named, callee.text), ctx, line,
-			              found)
+			              found, false, adl)
 			: expression(callee, ctx, line);
+		if (adl && named != nullptr && named->primary != nullptr &&
+		    named->template_parameters == nullptr && named->next == nullptr &&
+		    found != nullptr && found->size() == 1)
+		{
+			// 14.7.1p1: naming a specialization an explicit
+			// template-argument-list already made is what settles the
+			// declaration - its parameter-type-list is the pattern's
+			// declarator read again with the arguments bound, and 14.5.3p4's
+			// expansion comes to as many parameters as the run is long only
+			// there.  3.4.2p3 has just taken the naming away, and 13.3 ranks
+			// the candidate by that list, so the demand stands on its own.
+			instantiate(*named);
+		}
 		if (target.functions != nullptr && target.addressed == nullptr)
 		{
 			implicit_object_argument(*target.functions, line, object);
@@ -2519,6 +2570,16 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
 		// operator may be declared as.
 		if (types_.is_class(types_.strip_cv(target.type)))
 		{
+			// 5.2.2p1 with 14.7.1p1: the class of the object called shall be
+			// complete where the call stands, because what the call names is a
+			// member of it - the `operator()`s 13.5.4p1 looks up and the
+			// conversions 13.3.1.1.2p2 builds a surrogate per.  A declaration
+			// of a *reference* to a specialization asks for none of that, so a
+			// call written on one is the first use that does.
+			if (!types_.is_dependent(types_.strip_cv(target.type)))
+			{
+				require_settled_type(types_.strip_cv(target.type));
+			}
 			std::vector<Value> operands;
 			operands.push_back(target);
 			for (std::size_t index = 0; index < arguments.size(); ++index)

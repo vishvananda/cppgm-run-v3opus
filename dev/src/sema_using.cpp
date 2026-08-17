@@ -156,6 +156,45 @@ void SemaAnalyzer::using_declaration(const AstNode& node, const Context& ctx)
 	model_.declare_in(*ctx.scope, entity);
 	write_entity_line(*ctx.dump, entity);
 }
+// 7.3.3p14 hides a member function template of a base with a member function
+// template of this class "with the same name, parameter-type-list,
+// cv-qualification and ref-qualifier", and the two lists are written in places
+// two different heads declared - `const K&` in the base and `const K&` in the
+// derived class are two types.  14.5.6.1p5 is what makes them one list: each
+// head's places stand for their positions, which is what `template_signature`
+// substitutes them onto.  A head that declares a template-template parameter
+// has no such form, and the declaration's own type is then the key it keeps -
+// which matches nothing else, so the two declarations overload as they did.
+std::uint32_t SemaAnalyzer::hiding_signature(const SemaEntity& function)
+{
+	if (function.template_parameters == nullptr)
+	{
+		return member_signature(function);
+	}
+	// One canonical form per declaration, held where 14.5.6.1p5's own
+	// comparison already holds it: the class's declarations of one name are
+	// walked three times over one using-declaration - once where it is
+	// written and twice where 9.2p2 completes the class - and the
+	// substitution that builds the form is what a walk would otherwise pay
+	// for at every pass.
+	bool held = false;
+	TypeId canonical = signatures_.built(function.id, held);
+	if (!held)
+	{
+		// The build makes places of its own, so the entry is written back
+		// rather than filled through a reference the build could move.
+		canonical =
+			template_signature(*function.template_parameters, function.type);
+		signatures_.built(function.id, held) = canonical;
+	}
+	// A template and a non-template of one spelling hide nothing of each
+	// other's: the stand-ins stand in no type a declarator wrote, so the two
+	// keys differ wherever one head was read and the other was not.
+	return canonical == kNoType
+		? member_signature(function)
+		: member_signature(canonical, function.object_member);
+}
+
 void SemaAnalyzer::hide_using_members(Scope& where)
 {
 	for (std::size_t index = 0; index < where.using_names.size(); ++index)
@@ -182,7 +221,7 @@ void SemaAnalyzer::hide_using_members(Scope& where)
 			}
 			else
 			{
-				declared.insert(member_signature(*at));
+				declared.insert(hiding_signature(*at));
 			}
 		}
 		if (!brought_in || declared.empty())
@@ -196,7 +235,7 @@ void SemaAnalyzer::hide_using_members(Scope& where)
 			SemaEntity* const next = at->next;
 			at->next = nullptr;
 			if (at->shadowed == nullptr ||
-			    declared.count(member_signature(*at)) == 0)
+			    declared.count(hiding_signature(*at)) == 0)
 			{
 				if (kept == nullptr)
 				{
@@ -246,7 +285,7 @@ void SemaAnalyzer::declare_using_members(SemaEntity& named, Scope& where,
 	for (SemaEntity* at = model_.find(where, name, LookupKind::Any);
 	     at != nullptr && at->kind == SemaKind::Function; at = at->next)
 	{
-		declared.insert(member_signature(*at));
+		declared.insert(hiding_signature(*at));
 	}
 	for (SemaEntity* at = &named; at != nullptr; at = at->next)
 	{
@@ -258,7 +297,7 @@ void SemaAnalyzer::declare_using_members(SemaEntity& named, Scope& where,
 			declare_using_member(*at, where, name);
 			return;
 		}
-		if (declared.insert(member_signature(*at)).second)
+		if (declared.insert(hiding_signature(*at)).second)
 		{
 			declare_using_member(*at, where, name);
 		}
