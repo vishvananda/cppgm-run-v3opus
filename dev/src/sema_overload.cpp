@@ -391,12 +391,32 @@ SemaAnalyzer::Match SemaAnalyzer::conversion_match(const Value& argument,
 	object.object_category = argument.category;
 	object.category = ValueCategory::PRValue;
 	SemaEntity* best = nullptr;
+	SemaEntity* chosen_from = nullptr;
 	Match chosen_object;
 	Match chosen_result;
 	bool tied = false;
 	for (std::size_t index = 0; index < candidates.size(); ++index)
 	{
-		SemaEntity* const at = candidates[index];
+		SemaEntity* at = candidates[index];
+		// 13.3.3p1: the template this candidate was deduced from, and null for
+		// one the class declared - which is the last thing that tells two of
+		// them apart.
+		SemaEntity* const from =
+			at->template_parameters != nullptr ? at : nullptr;
+		if (from != nullptr)
+		{
+			// 13.3.1.5p1 and 14.8.2.3: a conversion function *template* of the
+			// class is a candidate through the specialization the destination
+			// type deduces for it, and through no other - the template itself
+			// hands back a place, which reaches nothing.  It is deduced here
+			// rather than where the class collected its conversions because the
+			// destination is what says which specialization there is.
+			at = Deduction(*this).from_conversion(*at, parameter);
+			if (at == nullptr)
+			{
+				continue;
+			}
+		}
 		if (at->deleted || (at->explicit_function && !direct))
 		{
 			// 12.3.2p2: only a direct-initialization, an explicit cast and a
@@ -434,14 +454,35 @@ SemaAnalyzer::Match SemaAnalyzer::conversion_match(const Value& argument,
 		// `operator int` of a base beat `operator long` of a nearer one for an
 		// `int` destination, and `operator T()` beat `operator T() const` on an
 		// object that is not const.
-		const int order = best == nullptr
-			? 1
-			: (compare_matches(result, chosen_result) != 0
-			   ? compare_matches(result, chosen_result)
-			   : compare_matches(reached, chosen_object));
+		int order = best == nullptr ? 1 : compare_matches(result, chosen_result);
+		if (best != nullptr && order == 0)
+		{
+			order = compare_matches(reached, chosen_object);
+		}
+		if (best != nullptr && order == 0 &&
+		    (from == nullptr) != (chosen_from == nullptr))
+		{
+			// 13.3.3p1: a conversion function the class declared beats a
+			// specialization of one of its templates that gets exactly as far,
+			// which is what leaves `explicit operator bool` chosen for a
+			// contextual conversion beside an `operator T` that deduces `bool`.
+			order = from == nullptr ? 1 : -1;
+		}
+		if (best != nullptr && order == 0 && from != nullptr &&
+		    chosen_from != nullptr && from != chosen_from)
+		{
+			// 13.3.3p1: two specializations whose conversions are
+			// indistinguishable are told apart by 14.5.6.2's ordering of the
+			// templates they were made from, exactly as a call tells any two
+			// deduced candidates apart.
+			order = more_specialized(*from, *chosen_from)
+				? 1
+				: (more_specialized(*chosen_from, *from) ? -1 : 0);
+		}
 		if (order > 0)
 		{
 			best = at;
+			chosen_from = from;
 			chosen_object = reached;
 			chosen_result = result;
 			tied = false;

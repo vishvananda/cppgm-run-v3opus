@@ -391,6 +391,8 @@ void SemaAnalyzer::conversion_function(const AstNode& node, const Context& ctx,
 		// 8.4.3: `= delete` declares a function every use of is ill formed.
 		entity.deleted = initializer->children[0]->text == "delete";
 		entity.defaulted = !entity.deleted;
+		require_template_special_member(entity.name, head, false,
+		                                entity.defaulted);
 		entity.defined = false;
 		entity.inline_function = true;
 		return;
@@ -527,15 +529,7 @@ void SemaAnalyzer::special_member(const AstNode& node, const Context& ctx)
 	const std::string written = QualifiedName(node.text).last();
 	const bool destructor = !written.empty() && written[0] == '~';
 	const std::string spelled = special_member_name(written, owner);
-	if (destructor && head != nullptr)
-	{
-		// 14.5.2p1: a destructor shall not be a template.  A class has one
-		// destructor, and 12.4p1 leaves its declarator no parameters for a
-		// deduction to read - so a head written over it parameterises nothing a
-		// use of it could ever choose between.
-		throw std::runtime_error(spelled + " declares a destructor template, "
-		                         "which 14.5.2p1 does not allow");
-	}
+	require_template_special_member(spelled, head, destructor, false);
 	std::vector<Parameter> parameters;
 	bool variadic = false;
 	const TypeId type = special_member_type(node, ctx, owner, destructor,
@@ -714,6 +708,7 @@ void SemaAnalyzer::special_member(const AstNode& node, const Context& ctx)
 		// 8.5.1p1 leaves the class an aggregate.
 		entity->deleted = initializer->children[0]->text == "delete";
 		entity->defaulted = !entity->deleted;
+		require_template_special_member(spelled, head, false, entity->defaulted);
 		entity->defined = false;
 		// 8.4.2p1: a function explicitly defaulted on its first declaration is
 		// implicitly inline, so the definition the standard gives it belongs to
@@ -846,14 +841,18 @@ void SemaAnalyzer::special_member_definition(const AstNode& node,
 	SemaEntity& owner = *region.owner;
 	const bool destructor = !written.empty() && written[0] == '~';
 	const std::string spelled_class = special_member_name(written, owner);
-	if (destructor && ctx.template_head == ctx.scope &&
-	    ctx.scope->kind == ScopeKind::TemplateParameters)
-	{
-		// 14.5.2p1 as above: a destructor shall not be a template, wherever the
-		// head that would have parameterised it was written.
-		throw std::runtime_error(spelled_class + " defines a destructor "
-		                         "template, which 14.5.2p1 does not allow");
-	}
+	// 14.5.2p1 and 3.4.1p8: a head standing over a definition whose
+	// declarator-id is qualified stands *inside* the region that name reaches
+	// for as long as the declarator and the body are read - so the places
+	// `template<class U> A::A(U)` declared are where its parameter clause looks
+	// and the class's own members are still behind them.  What such a head may
+	// not stand over is the same question wherever it was written.
+	Scope* const head = ctx.template_head == ctx.scope ? ctx.scope : nullptr;
+	const AstNode* const written_default = child_of(node, AstKind::Initializer);
+	require_template_special_member(
+		spelled_class, head, destructor,
+		written_default != nullptr && !written_default->children.empty() &&
+			written_default->children[0]->text == "default");
 	// 7.1.2p1, 9.2p8 and 8.4p2: a definition written outside the class repeats
 	// neither `virtual` nor the virt-specifiers, which is the same question the
 	// declarator of every other member function is asked.
@@ -861,12 +860,6 @@ void SemaAnalyzer::special_member_definition(const AstNode& node,
 	Context target = ctx;
 	target.scope = &region;
 	target.dump = region.dump;
-	// 14.5.2p1 and 3.4.1p8: a head standing over a definition whose
-	// declarator-id is qualified stands *inside* the region that name reaches
-	// for as long as the declarator and the body are read - so the places
-	// `template<class U> A::A(U)` declared are where its parameter clause looks
-	// and the class's own members are still behind them.
-	Scope* const head = ctx.template_head == ctx.scope ? ctx.scope : nullptr;
 	target.template_head = head;
 	const StandingIn stood(head, region);
 	Context looked_up = target;

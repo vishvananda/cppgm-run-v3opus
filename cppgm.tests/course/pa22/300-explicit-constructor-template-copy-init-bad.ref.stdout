@@ -1,0 +1,6 @@
+ERROR: no viable constructor [class only_direct] [arg_count 1] [ctor-set only_direct::only_direct:function of (pointer to struct only_direct, lvalue-reference to const struct only_direct) returning void; only_direct::only_direct:function of (pointer to struct only_direct, rvalue-reference to struct only_direct) returning void] [rejections only_direct::only_direct: arg 0 conversion failed param=lvalue-reference to const struct only_direct arg=int category=1; only_direct::only_direct: arg 0 conversion failed param=rvalue-reference to struct only_direct arg=int category=1] [context copy-initialization] [function main] [is_method no] [body_parent_scope <here>] [body_parent_bindings ] [body_function_scope <here>] [body_function_bindings {values:copied=struct only_direct}]
+Diagnostic context:
+analyze_function_binding_output [main]
+  analyze_statement [simple-declaration] at course/pa22/300-explicit-constructor-template-copy-init-bad.t:18:3
+    try_argument_conversion [target rvalue-reference to struct only_direct]
+      select_constructor_from_exprs [only_direct, args=1]

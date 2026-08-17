@@ -1,0 +1,183 @@
+function @widened(%v : i64) -> i32 [binding=strong, object=_Z7widenedl] {
+  slot $v : i64
+
+  block ^entry:
+    store i64 %v, $v
+    %t1 = load i64 $v
+    %t2 = convert trunc i32 i64 %t1
+    %t3 = binary add i32 %t2, 1
+    return i32 %t3
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $seven : obj<4x4>
+  slot $as_int : i32
+  slot $as_long : i64
+  slot $as_char : i8
+  slot $none : obj<4x4>
+  slot $nothing : ptr
+  slot $cond__1 : i32
+  slot $land__2 : i64
+  slot $land__3 : i64
+  slot $land__4 : i64
+  slot $land__5 : i64
+
+  block ^entry:
+    %t1 = addr $seven
+    call void @counted__counted(%t1, 7)
+    %t2 = addr $seven
+    %t3 = call i32 @counted__operatorU(%t2)
+    store i32 %t3, $as_int
+    %t4 = addr $seven
+    %t5 = call i64 @counted__operatorU__ov2(%t4)
+    store i64 %t5, $as_long
+    %t6 = addr $seven
+    %t7 = call i8 @counted__operatorU__ov3(%t6)
+    store i8 %t7, $as_char
+    %t8 = addr $none
+    call void @pointed__pointed(%t8)
+    %t9 = addr $none
+    %t10 = call ptr @pointed__operatorU_(%t9)
+    store ptr %t10, $nothing
+    %t11 = load i32 $as_int
+    %t12 = cmp eq i32 %t11, 7
+    branch %t12, ^land_rhs_13, ^land_short_14
+
+  block ^land_rhs_13:
+    %t13 = load i64 $as_long
+    %t14 = cmp eq i64 %t13, 7
+    %t15 = cmp ne i64 %t14, 0
+    store i64 %t15, $land__5
+    jump ^land_end_15
+
+  block ^land_short_14:
+    store i64 0, $land__5
+    jump ^land_end_15
+
+  block ^land_end_15:
+    %t16 = load i64 $land__5
+    branch %t16, ^land_rhs_10, ^land_short_11
+
+  block ^land_rhs_10:
+    %t17 = load i8 $as_char
+    %t18 = convert sext i32 i8 %t17
+    %t19 = cmp eq i32 %t18, 7
+    %t20 = cmp ne i64 %t19, 0
+    store i64 %t20, $land__4
+    jump ^land_end_12
+
+  block ^land_short_11:
+    store i64 0, $land__4
+    jump ^land_end_12
+
+  block ^land_end_12:
+    %t21 = load i64 $land__4
+    branch %t21, ^land_rhs_7, ^land_short_8
+
+  block ^land_rhs_7:
+    %t22 = load ptr $nothing
+    %t23 = cmp eq ptr %t22, 0
+    %t24 = cmp ne i64 %t23, 0
+    store i64 %t24, $land__3
+    jump ^land_end_9
+
+  block ^land_short_8:
+    store i64 0, $land__3
+    jump ^land_end_9
+
+  block ^land_end_9:
+    %t25 = load i64 $land__3
+    branch %t25, ^land_rhs_4, ^land_short_5
+
+  block ^land_rhs_4:
+    %t26 = addr $seven
+    %t27 = call i64 @counted__operatorU__ov2(%t26)
+    %t28 = call i32 @widened(%t27)
+    %t29 = cmp eq i32 %t28, 8
+    %t30 = cmp ne i64 %t29, 0
+    store i64 %t30, $land__2
+    jump ^land_end_6
+
+  block ^land_short_5:
+    store i64 0, $land__2
+    jump ^land_end_6
+
+  block ^land_end_6:
+    %t31 = load i64 $land__2
+    branch %t31, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t32 = load i32 $cond__1
+    return i32 %t32
+}
+function @counted__operatorU(%this : ptr) -> i32 [binding=weak, object=_ZNK7countedcvT_IiEEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i32 %t2
+    return i32 %t3
+}
+function @counted__operatorU__ov2(%this : ptr) -> i64 [binding=weak, object=_ZNK7countedcvT_IlEEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i32 %t2
+    %t4 = convert sext i64 i32 %t3
+    return i64 %t4
+}
+function @counted__operatorU__ov3(%this : ptr) -> i8 [binding=weak, object=_ZNK7countedcvT_IcEEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i32 %t2
+    %t4 = convert trunc i8 i32 %t3
+    return i8 %t4
+}
+function @pointed__operatorU_(%this : ptr) -> ptr [binding=weak, object=_ZNK7pointedcvPT_IiEEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    return ptr 0
+}
+function @counted__counted(%this : ptr, %start : i32) -> void [binding=weak, object=_ZN7countedC1Ei] {
+  slot $this : ptr
+  slot $start : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %start, $start
+    %t1 = load i32 $start
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 %t1, %t3
+    return void
+}
+function @pointed__pointed(%this : ptr) -> void [binding=weak, object=_ZN7pointedC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    store i32 0, %t2
+    return void
+}
+alias object _ZN7countedC2Ei = @counted__counted
+alias object _ZN7pointedC2Ev = @pointed__pointed

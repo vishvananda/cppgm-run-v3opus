@@ -1,0 +1,136 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $under : obj<4x4>
+  slot $twice : obj<4x4>
+  slot $whole : obj<4x4>
+  slot $cond__1 : i32
+  slot $land__2 : i64
+  slot $land__3 : i64
+
+  block ^entry:
+    %t1 = addr $under
+    call void @only_base__only_base(%t1)
+    %t2 = addr $twice
+    call void @both_ways__both_ways(%t2)
+    %t3 = addr $whole
+    call void @root__root__ov3(%t3, 2)
+    %t4 = addr $under
+    %t5 = index i8 [projection=base_subobject] %t4, 0
+    %t6 = index i8 [projection=field] %t5, 0
+    %t7 = load i32 %t6
+    %t8 = cmp eq i32 %t7, 6
+    branch %t8, ^land_rhs_7, ^land_short_8
+
+  block ^land_rhs_7:
+    %t9 = addr $twice
+    %t10 = index i8 [projection=base_subobject] %t9, 0
+    %t11 = index i8 [projection=field] %t10, 0
+    %t12 = load i32 %t11
+    %t13 = cmp eq i32 %t12, 3
+    %t14 = cmp ne i64 %t13, 0
+    store i64 %t14, $land__3
+    jump ^land_end_9
+
+  block ^land_short_8:
+    store i64 0, $land__3
+    jump ^land_end_9
+
+  block ^land_end_9:
+    %t15 = load i64 $land__3
+    branch %t15, ^land_rhs_4, ^land_short_5
+
+  block ^land_rhs_4:
+    %t16 = addr $whole
+    %t17 = index i8 [projection=field] %t16, 0
+    %t18 = load i32 %t17
+    %t19 = cmp eq i32 %t18, 6
+    %t20 = cmp ne i64 %t19, 0
+    store i64 %t20, $land__2
+    jump ^land_end_6
+
+  block ^land_short_5:
+    store i64 0, $land__2
+    jump ^land_end_6
+
+  block ^land_end_6:
+    %t21 = load i64 $land__2
+    branch %t21, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t22 = load i32 $cond__1
+    return i32 %t22
+}
+function @root__root__ov3__base_entry(%this : ptr, %start : i8) -> void [binding=weak, object=_ZN4rootC2IcEET_] {
+  slot $this : ptr
+  slot $start : i8
+
+  block ^entry:
+    store ptr %this, $this
+    store i8 %start, $start
+    %t1 = load i8 $start
+    %t2 = convert sext i32 i8 %t1
+    %t3 = binary mul i32 %t2, 3
+    %t4 = load ptr $this
+    %t5 = index i8 [projection=field] %t4, 0
+    store i32 %t3, %t5
+    return void
+}
+function @root__root__ov3(%this : ptr, %start : i8) -> void [binding=weak, object=_ZN4rootC1IcEET_] {
+  slot $this : ptr
+  slot $start : i8
+
+  block ^entry:
+    store ptr %this, $this
+    store i8 %start, $start
+    %t1 = load i8 $start
+    %t2 = convert sext i32 i8 %t1
+    %t3 = binary mul i32 %t2, 3
+    %t4 = load ptr $this
+    %t5 = index i8 [projection=field] %t4, 0
+    store i32 %t3, %t5
+    return void
+}
+function @only_base__only_base(%this : ptr) -> void [binding=weak, object=_ZN9only_baseC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    call void @root__root__ov4__base_entry(%t2, 2)
+    return void
+}
+function @both_ways__both_ways(%this : ptr) -> void [binding=weak, object=_ZN9both_waysC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    call void @root__root__ov3__base_entry(%t2, 1)
+    return void
+}
+function @root__root__ov4__base_entry(%this : ptr, %start : i32) -> void [binding=weak, object=_ZN4rootC2IiEET_] {
+  slot $this : ptr
+  slot $start : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %start, $start
+    %t1 = load i32 $start
+    %t2 = binary mul i32 %t1, 3
+    %t3 = load ptr $this
+    %t4 = index i8 [projection=field] %t3, 0
+    store i32 %t2, %t4
+    return void
+}
+alias object _ZN4rootC2IcEET_ = @root__root__ov3
+alias object _ZN9only_baseC2Ev = @only_base__only_base
+alias object _ZN9both_waysC2Ev = @both_ways__both_ways

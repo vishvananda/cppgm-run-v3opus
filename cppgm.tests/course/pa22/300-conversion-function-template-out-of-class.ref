@@ -1,0 +1,108 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $five : obj<4x4>
+  slot $raised : i32
+  slot $below : obj<4x4>
+  slot $inherited : i64
+  slot $cond__1 : i32
+  slot $land__2 : i64
+
+  block ^entry:
+    %t1 = addr $five
+    call void @held__held(%t1, 5)
+    %t2 = addr $five
+    %t3 = call i32 @held__operatorU(%t2)
+    store i32 %t3, $raised
+    %t4 = addr $below
+    call void @derived_from__derived_from(%t4)
+    %t5 = addr $below
+    %t6 = index i8 [projection=base_subobject] %t5, 0
+    %t7 = call i64 @base_of__operatorU(%t6)
+    store i64 %t7, $inherited
+    %t8 = load i32 $raised
+    %t9 = cmp eq i32 %t8, 6
+    branch %t9, ^land_rhs_4, ^land_short_5
+
+  block ^land_rhs_4:
+    %t10 = load i64 $inherited
+    %t11 = cmp eq i64 %t10, 4
+    %t12 = cmp ne i64 %t11, 0
+    store i64 %t12, $land__2
+    jump ^land_end_6
+
+  block ^land_short_5:
+    store i64 0, $land__2
+    jump ^land_end_6
+
+  block ^land_end_6:
+    %t13 = load i64 $land__2
+    branch %t13, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t14 = load i32 $cond__1
+    return i32 %t14
+}
+function @held__operatorU(%this : ptr) -> i32 [binding=weak, object=_ZNK4heldcvT_IiEEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i32 %t2
+    %t4 = binary add i32 %t3, 1
+    return i32 %t4
+}
+function @base_of__operatorU(%this : ptr) -> i64 [binding=weak, object=_ZNK7base_ofcvT_IlEEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i32 %t2
+    %t4 = convert sext i64 i32 %t3
+    return i64 %t4
+}
+function @held__held(%this : ptr, %start : i32) -> void [binding=weak, object=_ZN4heldC1Ei] {
+  slot $this : ptr
+  slot $start : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %start, $start
+    %t1 = load i32 $start
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 %t1, %t3
+    return void
+}
+function @derived_from__derived_from(%this : ptr) -> void [binding=weak, object=_ZN12derived_fromC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    call void @base_of__base_of__base_entry(%t2)
+    return void
+}
+function @base_of__base_of__base_entry(%this : ptr) -> void [binding=weak, object=_ZN7base_ofC2Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    store i32 4, %t2
+    return void
+}
+alias object _ZN4heldC2Ei = @held__held
+alias object _ZN12derived_fromC2Ev = @derived_from__derived_from

@@ -470,6 +470,26 @@ bool declares_member_template(Scope* scope, const Scope* head)
 		declaring_region(*scope).owner != nullptr;
 }
 
+void require_template_special_member(const std::string& spelled,
+                                     const Scope* head, bool destructor,
+                                     bool defaulted)
+{
+	if (head == nullptr)
+	{
+		return;
+	}
+	if (destructor)
+	{
+		throw std::runtime_error(spelled + " declares a destructor template, "
+		                         "which 14.5.2p1 does not allow");
+	}
+	if (defaulted)
+	{
+		throw std::runtime_error(spelled + " is explicitly defaulted under a "
+		                         "template head, which 8.4.2p1 does not allow");
+	}
+}
+
 void SemaModel::own_type(TypeId type, SemaEntity& entity)
 {
 	type_owners_[type] = &entity;

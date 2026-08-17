@@ -1330,6 +1330,19 @@ Scope& declaring_region(Scope& scope);
 // the second.
 bool declares_member_template(Scope* scope, const Scope* head);
 
+// 14.5.2p1 and 8.4.2p1: what a template head standing over one of 12's special
+// members refuses, asked of `spelled` wherever `head` is one.
+//
+// A class has one destructor and 12.4p1 leaves its declarator no parameters, so
+// a head over it parameterises nothing a use could choose between; and 12.1p5's
+// and 12.8p2's implicit declarations are written over no places at all, so a
+// head leaves `= default` nothing the standard would write.  Both are questions
+// about the head alone, asked at each of the four exits a special member's
+// declaration and its definition can be written at.
+void require_template_special_member(const std::string& spelled,
+                                     const Scope* head, bool destructor,
+                                     bool defaulted);
+
 // 14.1p1 and 3.4.1p8: where a template head stands while the declaration it
 // parameterises is read through a qualified declarator-id.
 //

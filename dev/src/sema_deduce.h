@@ -41,6 +41,13 @@ public:
 	// result and every parameter - is the one pair the deduction is over.
 	SemaEntity* from_target(SemaEntity& primary, TypeId wanted);
 
+	// 14.8.2.3: the specialization of the conversion function template
+	// `primary` that a conversion to `wanted` deduces, or null when it deduces
+	// none.  12.3.2p1 writes the conversion-type-id where every other function
+	// writes its result type, so the one P/A pair is that result against the
+	// type 13.3.1.5p1 asked the class to reach.
+	SemaEntity* from_conversion(SemaEntity& primary, TypeId wanted);
+
 	// 14.8.2.5: the bindings the argument type `argument` gives the template
 	// parameters `pattern` is written over, added to `bindings`.  False when
 	// the two do not agree, which is a deduction that failed.

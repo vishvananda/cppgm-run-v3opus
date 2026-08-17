@@ -106,6 +106,16 @@ SemaEntity& SemaAnalyzer::specialize(SemaEntity& primary,
 		// runs and what the object file spells its entry with.
 		made->special = primary.special;
 		made->conversion_function = primary.conversion_function;
+		// 12.3.1p2, 12.3.2p2 and 8.4.3p1: which initializations may choose this
+		// declaration, and whether naming it is ill formed at all, are facts the
+		// declarator wrote about the *template* - and no argument list changes
+		// either - so they are what one argument list makes a declaration of.
+		// 13.3 reads both off the declaration it chose, before any body of it
+		// is instantiated, so a specialization that carried neither was an
+		// implicit `A a = 3` through an `explicit` constructor template and a
+		// call of a deleted one.
+		made->explicit_function = primary.explicit_function;
+		made->deleted = primary.deleted;
 		// 14.2: the arguments that made it, which the object file writes after
 		// the template's name and which no spelling of the declaration holds.
 		made->template_arguments = list;

@@ -805,8 +805,15 @@ void build_function_name(const SemaEntity& entity, TypeTable& types,
 			// 12.3.2p1: a conversion function is named by the type it converts
 			// to, which the encoding spells as `cv` and that type - and, having
 			// written it as the name, does not write it again as the result.
+			// 14.5.2p1's conversion function template is named by the
+			// conversion-type-id its *head* was written over, exactly as its
+			// signature below is - so the place stands for itself here and the
+			// arguments that bound it are written once, after the name.
 			written.kind = abi_mangle::ABI_FUNCTION_RECORD_CONVERSION_TERMINAL;
-			written.type = abi_type(types, types.target(entity.type), contexts);
+			written.type = abi_type(
+				types, types.target(templated != nullptr ? templated->type
+				                                         : entity.type),
+				contexts);
 		}
 		else if (named_by_terminal)
 		{

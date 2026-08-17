@@ -740,3 +740,38 @@ SemaEntity* Deduction::from_target(SemaEntity& primary, TypeId wanted)
 	// so a substitution that produced another one chose nothing.
 	return made.type == wanted ? &made : nullptr;
 }
+
+SemaEntity* Deduction::from_conversion(SemaEntity& primary, TypeId wanted)
+{
+	TypeTable& types = analyzer_.types_;
+	SemaEntity& made_of =
+		primary.partial_of != nullptr ? *primary.partial_of : primary;
+	std::unordered_map<TypeId, TypeId> bindings;
+	// 12.3.2p1: the conversion-type-id is the function's result type, so the
+	// one P of this deduction is what the declarator handed back.
+	TypeId pattern = types.target(written_part(primary, made_of, bindings));
+	TypeId argument = wanted;
+	if (!types.is_reference(argument))
+	{
+		// 14.8.2.3p2: where A is no reference type, a P that is one is the type
+		// it refers to and neither side carries the cv-qualification a prvalue
+		// of the type would not - so `operator U()` deduces `U` from `const
+		// int` exactly as it does from `int`.
+		if (types.is_reference(pattern))
+		{
+			pattern = types.target(pattern);
+		}
+		pattern = types.strip_cv(pattern);
+		argument = types.strip_cv(argument);
+	}
+	if (!match(pattern, argument, bindings))
+	{
+		return nullptr;
+	}
+	std::vector<TypeId> deduced;
+	if (!arguments_of(made_of, bindings, deduced))
+	{
+		return nullptr;
+	}
+	return &analyzer_.specialize(made_of, deduced);
+}

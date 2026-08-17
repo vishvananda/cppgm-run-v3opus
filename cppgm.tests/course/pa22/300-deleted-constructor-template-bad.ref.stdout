@@ -1,0 +1,4 @@
+ERROR: use of deleted refuses::refuses [function main] [is_method no] [body_parent_scope <here>] [body_parent_bindings ] [body_function_scope <here>] [body_function_bindings {values:made=struct refuses}]
+Diagnostic context:
+analyze_function_binding_output [main]
+  analyze_statement [simple-declaration] at course/pa22/300-deleted-constructor-template-bad.t:19:3

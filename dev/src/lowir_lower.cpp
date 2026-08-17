@@ -306,7 +306,8 @@ bool LowirUnitLowering::writes_base_entry(const SemaEntity& entity)
 	}
 	if (entity.defined && entity.base_object_entry &&
 	    (entity.source_base_entry || entity.instantiated_use) &&
-	    (abi_instantiated(entity, types_) || entity.out_of_class_definition))
+	    (abi_instantiated_class(entity, types_) ||
+	     entity.out_of_class_definition))
 	{
 		// 14.7.1p1: what the use that made this instantiated definition asked
 		// for is what the object file holds.  A base subobject the program
@@ -318,6 +319,13 @@ bool LowirUnitLowering::writes_base_entry(const SemaEntity& entity)
 		// the rest - and a member defined in the body of a class the program
 		// wrote out is 9.3p2's: the names it owes are the names this unit's own
 		// code wrote.
+		//
+		// 14.5.2p1 asks it of the *class*: what one argument list makes of a
+		// constructor template of a class the program itself wrote is the one
+		// declaration the use named, and 12.1's other entry of it is a
+		// declaration nothing here made - where the class is what a template-id
+		// named, instantiating it is what makes its constructors and the unit
+		// owes them whole.
 		return true;
 	}
 	if (entity.defined && entity.base_object_entry && entity.constexpr_function &&
