@@ -1,0 +1,35 @@
+global @held_globally : ptr [binding=strong, object=_Z13held_globally] = zero
+
+function @counted(%held : i64) -> i64 [binding=strong, object=_Z7countedl] {
+  slot $held : i64
+  slot $bound : ptr
+  slot $tmpref__1 : i64
+
+  block ^entry:
+    store i64 %held, $held
+    %t1 = load i64 $held
+    store i64 %t1, $tmpref__1
+    %t2 = addr $tmpref__1
+    store ptr %t2, $bound
+    %t3 = load ptr $bound
+    %t4 = load i64 %t3
+    return i64 %t4
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    %t1 = call i64 @counted(3)
+    %t2 = load ptr @held_globally
+    %t3 = load i64 %t2
+    %t4 = binary add i64 %t1, %t3
+    %t5 = convert trunc i32 i64 %t4
+    return i32 %t5
+}
+function @__cppgm_init() -> void [role=init, binding=internal] {
+  slot $tmpref__1 : i64
+
+  block ^entry:
+    store i64 6, $tmpref__1
+    %t1 = addr $tmpref__1
+    store ptr %t1, @held_globally
+    return void
+}

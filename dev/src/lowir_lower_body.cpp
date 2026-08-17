@@ -874,14 +874,22 @@ Operand LowirFunctionLowering::convert_scalar(const Operand& operand,
 	return emit(instruction);
 }
 
-// 8.5.3p5 and 12.2p1: the address a reference's storage holds.
+// 8.5.3p5 and 12.2p1: the address a reference of type `bound` holds.
 //
 // Where the initializer named an object it is that object's address, and where
 // it was a value there is no object there at all: 3.10p1 makes a prvalue a
 // value, so the reference binds a temporary and the function gives that
 // temporary storage of its own.  A class prvalue is already an object, which
 // `address_of` is what materializes.
-Operand LowirFunctionLowering::bound_address(const LowValue& value)
+//
+// 8.5.3p5 says what that temporary is: an object of the *referenced* type,
+// initialized from the operand.  The two are usually one type already, because
+// a conversion the initialization needed stands in the tree as a line of its
+// own - but they are not where an expression is worth an operand read at
+// another width than its own type, which 1.4p8's branch hint is, so the
+// conversion is asked here rather than assumed.  A reference reads the object
+// at the type it was declared with, and that is the type the storage has to be.
+Operand LowirFunctionLowering::bound_address(const LowValue& value, TypeId bound)
 {
 	TypeTable& types = unit_.types();
 	const TypeId held = types.strip_cv(value.type);
@@ -891,11 +899,19 @@ Operand LowirFunctionLowering::bound_address(const LowValue& value)
 	{
 		return address_of(value);
 	}
-	const std::string slot = add_generated_slot("tmpref", held);
+	const TypeId referenced = types.is_reference(bound)
+		? types.strip_cv(types.target(bound))
+		: held;
+	const TypeId wanted = types.is_class(referenced) ||
+		types.kind(referenced) == TypeKind::Array ||
+		types.kind(referenced) == TypeKind::Function
+			? held
+			: referenced;
+	const std::string slot = add_generated_slot("tmpref", wanted);
 	const Operand storage = named_operand(Operand::OP_SLOT, slot);
-	store(rvalue(value), storage, held);
+	store(converted(value, wanted), storage, wanted);
 	LowValue object;
-	object.type = held;
+	object.type = wanted;
 	object.lvalue = true;
 	object.named = true;
 	object.operand = storage;
@@ -2016,7 +2032,7 @@ void LowirFunctionLowering::initialize_declared(const DumpNode& node,
 		// 8.5.3p5: a reference binds the object its initializer names, so what
 		// the initializer is read for is that object and not its value.
 		const LowValue bound = expression(*node.children[0], true);
-		store(bound_address(bound), storage, type);
+		store(bound_address(bound, type), storage, type);
 		return;
 	}
 	initialize_into(opened, type, *node.children[0]);

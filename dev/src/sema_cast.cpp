@@ -81,17 +81,6 @@ SemaAnalyzer::Value SemaAnalyzer::cast_expression(const AstNode& node,
 		name_function(source, *chosen, "id-expression");
 	}
 
-	if (types_.is_void(types_.strip_cv(source.type)) &&
-	    !types_.is_void(types_.strip_cv(target)))
-	{
-		// 5.2.9p4: a cast to anything but cv `void` is the direct-initialization
-		// of a temporary of the target's type from the operand, and 3.9.1p9
-		// leaves an expression of type `void` no value to initialize one with -
-		// so `(int)((void)0)` reaches nothing, where `(void)((void)0)` is the
-		// discarded-value expression it already was.
-		throw std::runtime_error("an operand of type void is cast to " +
-		                         types_.description(target));
-	}
 	Value value;
 	value.type = target;
 	value.spelled = target;
@@ -171,6 +160,19 @@ SemaAnalyzer::Value SemaAnalyzer::cast_to_reference(TypeId target, Value& source
 		value.category = types_.kind(target) == TypeKind::LValueReference
 			? ValueCategory::LValue
 			: ValueCategory::XValue;
+		// 3.9.1p9 and 5.4p4: an expression of type `void` names no object and
+		// holds no value, so neither half of 8.5.3p5 has anything to bind - the
+		// reference binds no object the operand named, and the temporary it
+		// would bind instead has nothing to be initialized from.  5.4p4's own
+		// last resort, reinterpreting the storage the operand named, reaches no
+		// storage either.  This is 5.2.9's reference reading of the sentence
+		// `cast_conversion` asks of every other target, and both the cast and
+		// 5.2.3p1's functional notation come through here.
+		if (types_.is_void(types_.strip_cv(source.type)))
+		{
+			throw std::runtime_error("a cast binds a reference to an operand of "
+			                         "type void");
+		}
 		// 8.5.3p5: an lvalue reference that is not to a non-volatile const binds
 		// only an lvalue, and 5.4p4 offers a cast no reading that would bind one
 		// to a value naming no object.

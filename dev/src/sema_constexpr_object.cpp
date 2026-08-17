@@ -148,9 +148,18 @@ SemaConstant ConstexprReading::object_of(TypeId type,
 		throw NotConstant("a constant expression writes more initializers than " +
 		                  analyzer_.types_.description(bare) + " has members");
 	}
+	// 8.5.1p15 and 9.5p1: a union holds one of its members at a time, so the
+	// entries its list has are the ones an initialization began the lifetime of
+	// - the first member, which is the only one a clause reaches and the one
+	// 8.5p7 value-initializes where no clause does.  8.5.1p7's tail is no part
+	// of this: a member no initialization named holds nothing, and a list padded
+	// with the zeroes it gives an aggregate's tail would answer every one of
+	// them, which is the reading `aggregate_constant` stops for.
+	const std::size_t reached =
+		analyzer_.one_storage(bare) && !members.empty() ? 1 : members.size();
 	std::vector<TypeId> held;
-	held.reserve(members.size());
-	for (std::size_t index = 0; index < members.size(); ++index)
+	held.reserve(reached);
+	for (std::size_t index = 0; index < reached; ++index)
 	{
 		const TypeId member = analyzer_.types_.strip_cv(members[index].type);
 		// 8.5.1p2 and p7: the clause written for the member, or the zero
@@ -1082,8 +1091,17 @@ SemaConstant ConstexprReading::subobject_value(const SemaConstant& object,
 		analyzer_.types_.type_list_at(static_cast<std::uint32_t>(object.bits));
 	if (index >= held.size())
 	{
-		throw NotConstant("a constant expression reads outside " +
-		                  analyzer_.types_.description(object.type));
+		// 9.5p1: a union's list holds the member whose lifetime its
+		// initialization began and stops there, so every entry past it is a
+		// member that holds nothing - reading one is 5.19's own answer about
+		// the program and not this reading running out of a value.
+		throw NotConstant(
+			analyzer_.one_storage(object.type)
+				? "a constant expression reads a member of " +
+					analyzer_.types_.description(object.type) +
+					" other than the one it holds"
+				: "a constant expression reads outside " +
+					analyzer_.types_.description(object.type));
 	}
 	SemaConstant out =
 		constant_of(held[static_cast<std::size_t>(index)], analyzer_.types_);

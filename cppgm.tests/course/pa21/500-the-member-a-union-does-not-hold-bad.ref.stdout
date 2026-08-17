@@ -1,0 +1,15 @@
+ERROR: unsupported constexpr variable initializer at course/pa21/500-the-member-a-union-does-not-hold-bad.t:23:18 [top-level declaration 2 kind=simple-declaration ast={simple-declaration
+  decl-specifier-seq
+    decl-specifier KW_CONSTEXPR:constexpr
+    decl-specifier KW_DOUBLE:double
+  init-declarator-list
+    init-declarator
+      declarator
+        identifier read_back
+      initializer
+        member-expression OP_DOT:.
+          id-expression held
+          identifier measured
+}]
+Diagnostic context:
+collect_simple_declaration [constexpr double read_back=held.measured;] at course/pa21/500-the-member-a-union-does-not-hold-bad.t:23:1

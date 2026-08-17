@@ -44,6 +44,14 @@ public:
 	bool as_object(TypeId array, const AstNode& written, const SemaContext& ctx,
 	               DumpNode& line);
 
+	// The same reading where the list the elements stand under has already been
+	// written - 8.5.4p1's braces around the literal, whose own node is that
+	// list.  A place that opens the list itself asks this one, so an array
+	// written `{"ab"}` stands under exactly the node one written `{'a','b'}`
+	// does and no reader has two shapes to know.
+	bool units_into(TypeId array, const AstNode& written,
+	                const SemaContext& ctx, DumpNode& list);
+
 	// 8.5.2p1 where the array is a subobject of an enclosing one: each element
 	// is a subobject of its own, and the ones past the literal hold what any
 	// other unreached element holds.  The clause is taken where it answers.
@@ -61,8 +69,11 @@ private:
 	StringInitialization(const StringInitialization&);
 	StringInitialization& operator=(const StringInitialization&);
 
-	// 8.5.2p1: the one element each code unit is written as.
+	// 8.5.2p1: the one element each code unit is written as, and the run of
+	// them one list holds.
 	void write_unit(TypeId element, unsigned long long bits, DumpNode& parent);
+	void write_units(TypeId array, const std::vector<unsigned long long>& units,
+	                 DumpNode& list);
 
 	SemaAnalyzer& analyzer_;
 };

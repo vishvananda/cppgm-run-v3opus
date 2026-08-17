@@ -89,7 +89,7 @@ void LowirFunctionLowering::add_initialization(const Operand& storage,
 	if (types.is_reference(type))
 	{
 		const LowValue bound = expression(node, true);
-		store(bound_address(bound), storage, type);
+		store(bound_address(bound, type), storage, type);
 		return;
 	}
 	if (types.kind(types.strip_cv(type)) == TypeKind::Array &&
@@ -2011,7 +2011,7 @@ void LowirFunctionLowering::member_initialization(const DumpNode& node)
 		// `reference_field` a read through the reference makes it.
 		const LowValue bound = expression(written, true);
 		const Operand storage = member_storage(*node.children[0], member, true);
-		store(bound_address(bound), storage, type);
+		store(bound_address(bound, type), storage, type);
 		return;
 	}
 	if (written.fact.entity != nullptr &&

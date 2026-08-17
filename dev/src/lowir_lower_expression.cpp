@@ -641,6 +641,13 @@ LowValue LowirFunctionLowering::call_expression(const DumpNode& node,
 		// them, and what the call hands back is the first - as 5.2.2p10's
 		// prvalue, so the object the argument named is read where the call would
 		// have read it and not after the second operand has run.
+		//
+		// What is handed back is the operand's own reading and not a value
+		// brought to the parameter's width: the hint computes nothing, so the
+		// operand's line *is* the call's, which is the shape the reference
+		// writes too.  A reader that needs it at the type 5.2.2p10 gives the
+		// call converts it from the type this value carries, exactly as it
+		// would convert any other operand of that width.
 		LowValue expected = expression(*node.children[1]);
 		expected.operand = rvalue(expected);
 		expected.lvalue = false;

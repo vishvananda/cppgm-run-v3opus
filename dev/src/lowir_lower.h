@@ -1634,7 +1634,7 @@ private:
 	// 8.5.3p5 and 12.2p1: the address a reference's storage is written with -
 	// the object the initializer named, or the temporary it binds where the
 	// initializer was a value and not an object.
-	lowir_model::Operand bound_address(const LowValue& value);
+	lowir_model::Operand bound_address(const LowValue& value, TypeId bound);
 	// Clause 4: `value` converted to `target`, as the one conversion the two
 	// types call for.  `bound` is 12.2p1's name for the storage a reference
 	// target gives the temporary it binds, which the place that asked for the

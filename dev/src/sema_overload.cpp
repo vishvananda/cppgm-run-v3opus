@@ -523,6 +523,18 @@ void SemaAnalyzer::cast_conversion(Value& source, TypeId target,
                                    const Context& ctx)
 {
 	const TypeId wanted = types_.strip_cv(target);
+	if (types_.is_void(types_.strip_cv(source.type)) && !types_.is_void(wanted))
+	{
+		// 5.2.9p4 with 3.9.1p9: a cast to anything but cv `void` is the
+		// direct-initialization of a temporary of the target's type from the
+		// operand, and an expression of type `void` has no value to initialize
+		// one with - so `(int)((void)0)` and 5.2.3p1's `int((void)0)` reach
+		// nothing, where `(void)((void)0)` is the discarded-value expression it
+		// already was.  Every cast to a type that is not a reference comes
+		// through here, however it was written.
+		throw std::runtime_error("an operand of type void is cast to " +
+		                         types_.description(target));
+	}
 	// 12.8p31: a prvalue of the target's own class already *is* the object the
 	// cast is worth, so there is nothing between the two and no second one to
 	// build.  Every other operand names an object that goes on existing, which

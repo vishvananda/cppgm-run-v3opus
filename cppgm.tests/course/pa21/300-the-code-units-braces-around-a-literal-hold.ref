@@ -1,0 +1,121 @@
+global @written_plainly [binding=strong, object=_Z15written_plainly] = {
+  i8 101
+  i8 102
+  i8 0
+}
+global @written_in_braces [binding=strong, object=_Z17written_in_braces] = {
+  i8 103
+  i8 104
+  i8 0
+}
+global @clause_written [binding=strong, object=_Z14clause_written] = {
+  i8 105
+  i8 106
+  i8 0
+  zero 1
+  i32 5
+}
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $first : obj<4x1>
+  slot $second : obj<4x1>
+
+  block ^entry:
+    %t1 = addr $first
+    call void @held_in_braces__held_in_braces(%t1)
+    %t2 = addr $second
+    call void @held_by_equals__held_by_equals(%t2)
+    %t3 = addr $first
+    %t4 = index i8 [projection=field] %t3, 0
+    %t5 = unary decay ptr %t4
+    %t6 = index i8 [projection=array_element] %t5, 1
+    %t7 = load i8 %t6
+    %t8 = addr $second
+    %t9 = index i8 [projection=field] %t8, 0
+    %t10 = unary decay ptr %t9
+    %t11 = index i8 [projection=array_element] %t10, 1
+    %t12 = load i8 %t11
+    %t13 = convert sext i32 i8 %t7
+    %t14 = convert sext i32 i8 %t12
+    %t15 = binary add i32 %t13, %t14
+    %t16 = addr @written_plainly
+    %t17 = unary decay ptr %t16
+    %t18 = index i8 [projection=array_element] %t17, 1
+    %t19 = load i8 %t18
+    %t20 = convert sext i32 i8 %t19
+    %t21 = binary add i32 %t15, %t20
+    %t22 = addr @written_in_braces
+    %t23 = unary decay ptr %t22
+    %t24 = index i8 [projection=array_element] %t23, 1
+    %t25 = load i8 %t24
+    %t26 = convert sext i32 i8 %t25
+    %t27 = binary add i32 %t21, %t26
+    %t28 = addr @clause_written
+    %t29 = index i8 [projection=field] %t28, 0
+    %t30 = unary decay ptr %t29
+    %t31 = index i8 [projection=array_element] %t30, 1
+    %t32 = load i8 %t31
+    %t33 = convert sext i32 i8 %t32
+    %t34 = binary add i32 %t27, %t33
+    %t35 = addr @clause_written
+    %t36 = index i8 [projection=field] %t35, 4
+    %t37 = load i32 %t36
+    %t38 = binary add i32 %t34, %t37
+    return i32 %t38
+}
+function @held_in_braces__held_in_braces(%this : ptr) -> void [binding=weak, object=_ZN14held_in_bracesC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = unary decay ptr %t2
+    %t4 = index i8 [projection=array_element] %t3, 0
+    store i8 97, %t4
+    %t5 = load ptr $this
+    %t6 = index i8 [projection=field] %t5, 0
+    %t7 = unary decay ptr %t6
+    %t8 = index i8 [projection=array_element] %t7, 1
+    store i8 98, %t8
+    %t9 = load ptr $this
+    %t10 = index i8 [projection=field] %t9, 0
+    %t11 = unary decay ptr %t10
+    %t12 = index i8 [projection=array_element] %t11, 2
+    store i8 0, %t12
+    %t13 = load ptr $this
+    %t14 = index i8 [projection=field] %t13, 0
+    %t15 = unary decay ptr %t14
+    %t16 = index i8 [projection=array_element] %t15, 3
+    store i8 0, %t16
+    return void
+}
+function @held_by_equals__held_by_equals(%this : ptr) -> void [unwind=no, binding=weak, object=_ZN14held_by_equalsC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = unary decay ptr %t2
+    %t4 = index i8 [projection=array_element] %t3, 0
+    store i8 99, %t4
+    %t5 = load ptr $this
+    %t6 = index i8 [projection=field] %t5, 0
+    %t7 = unary decay ptr %t6
+    %t8 = index i8 [projection=array_element] %t7, 1
+    store i8 100, %t8
+    %t9 = load ptr $this
+    %t10 = index i8 [projection=field] %t9, 0
+    %t11 = unary decay ptr %t10
+    %t12 = index i8 [projection=array_element] %t11, 2
+    store i8 0, %t12
+    %t13 = load ptr $this
+    %t14 = index i8 [projection=field] %t13, 0
+    %t15 = unary decay ptr %t14
+    %t16 = index i8 [projection=array_element] %t15, 3
+    store i8 0, %t16
+    return void
+}
+alias object _ZN14held_in_bracesC2Ev = @held_in_braces__held_in_braces
+alias object _ZN14held_by_equalsC2Ev = @held_by_equals__held_by_equals

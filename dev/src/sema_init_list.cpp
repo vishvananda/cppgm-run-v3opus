@@ -389,22 +389,25 @@ SemaAnalyzer::Value SemaAnalyzer::list_initialize_into(const AstNode& node,
 	const TypeId wanted = types_.is_reference(target)
 		? types_.target(target)
 		: types_.strip_cv(target);
-	if (types_.kind(wanted) == TypeKind::Array && node.children.size() == 1 &&
-	    StringInitialization(*this).as_object(wanted, *node.children[0], ctx,
-	                                          line))
-	{
-		// 8.5.2p1: the braces hold a string literal and the array is of
-		// character type, so what initializes the elements is the literal's own
-		// code units - the same initialization 8.5p14 gives the array where the
-		// braces were left out, and not 8.5.1's walk of a list of clauses.
-		return value_of_list(line, wanted, target);
-	}
 	line.text = spell("braced-init-list", ValueCategory::LValue, target,
 	                  std::string());
 	line.fact.kind = FactKind::BracedInitList;
 	line.fact.type = target;
 	line.fact.spelled = target;
 	line.fact.category = ValueCategory::LValue;
+	if (types_.kind(wanted) == TypeKind::Array && node.children.size() == 1 &&
+	    StringInitialization(*this).units_into(wanted, *node.children[0], ctx,
+	                                           line))
+	{
+		// 8.5.2p1: the braces hold a string literal and the array is of
+		// character type, so what initializes the elements is the literal's own
+		// code units - the same initialization 8.5p14 gives the array where the
+		// braces were left out, and not 8.5.1's walk of a list of clauses.  The
+		// braces the program wrote are the list, so the elements stand under
+		// this node rather than under one opened inside it: a reader of a list
+		// has one shape to know, whether the clauses were units or expressions.
+		return value_of_list(line, wanted, target);
+	}
 	if (types_.is_class(wanted))
 	{
 		// 8.5.1p1: the clauses initialize the members of the aggregate in

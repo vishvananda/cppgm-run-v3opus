@@ -87,7 +87,6 @@ bool StringInitialization::as_subobject(TypeId array,
 bool StringInitialization::as_object(TypeId array, const AstNode& written,
                                      const SemaContext& ctx, DumpNode& line)
 {
-	TypeTable& types = analyzer_.types_;
 	std::vector<unsigned long long> units;
 	if (!units_of(array, written, ctx, units))
 	{
@@ -100,12 +99,35 @@ bool StringInitialization::as_object(TypeId array, const AstNode& written,
 	list.fact.type = array;
 	list.fact.spelled = array;
 	list.fact.category = ValueCategory::LValue;
-	const TypeId element = types.strip_cv(types.target(array));
+	write_units(array, units, list);
+	return true;
+}
+
+// 8.5.2p1 where the list is already open: 8.5.4p1's `{"ab"}` initializes the
+// array with the literal's own code units exactly as `"ab"` does, and the
+// braces the program wrote are the list they stand under - so the elements go
+// under that node and no second one is opened around them.
+bool StringInitialization::units_into(TypeId array, const AstNode& written,
+                                      const SemaContext& ctx, DumpNode& list)
+{
+	std::vector<unsigned long long> units;
+	if (!units_of(array, written, ctx, units))
+	{
+		return false;
+	}
+	write_units(array, units, list);
+	return true;
+}
+
+void StringInitialization::write_units(
+	TypeId array, const std::vector<unsigned long long>& units, DumpNode& list)
+{
+	const TypeId element =
+		analyzer_.types_.strip_cv(analyzer_.types_.target(array));
 	for (std::size_t index = 0; index < units.size(); ++index)
 	{
 		write_unit(element, units[index], list);
 	}
-	return true;
 }
 
 // 5.19 and 8.5.2p1: the one element a code unit of the literal initializes.
