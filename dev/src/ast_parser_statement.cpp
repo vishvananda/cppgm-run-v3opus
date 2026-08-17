@@ -52,18 +52,27 @@ AstNode* AstParser::parse_compound_statement()
 	{
 		BracketGuard brackets(*this, false);
 		ScopeGuard scope(names_);
+		// 14.7.2p1 and 14.7.3p1: the fact that the declaration being read
+		// names a specialization is about the one declarator its head was
+		// written over.  A statement of the body is a declaration of its own
+		// that the head says nothing about, so the fact is put down here and
+		// taken up again where the body ends.
+		const bool outer = names_specialization_;
+		names_specialization_ = false;
 		++pos_;
-		while (!at(OP_RBRACE) && !at(ST_EOF))
+		while (node != nullptr && !at(OP_RBRACE) && !at(ST_EOF))
 		{
 			AstNode* item = parse_block_item();
 			if (item == nullptr)
 			{
-				return fail(start);
+				node = nullptr;
+				break;
 			}
 			node->add(item);
 		}
+		names_specialization_ = outer;
 	}
-	if (!accept(OP_RBRACE))
+	if (node == nullptr || !accept(OP_RBRACE))
 	{
 		return fail(start);
 	}

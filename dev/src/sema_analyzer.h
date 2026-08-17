@@ -234,6 +234,10 @@ private:
 	// specialization.
 	void explicit_instantiation_declarator(const AstNode& target,
 	                                       const Context& ctx, bool owed);
+	// 14.7.2p2: the class template specialization the elaborated name either
+	// form wrote names, which both forms ask for alike.
+	SemaEntity* instantiated_class(const std::string& written,
+	                               const Context& ctx);
 	// 14.7.2p2: the specialization the type such a declaration wrote names.
 	SemaEntity* instantiation_named(const std::string& written,
 	                                const std::string& name, TypeId declared,

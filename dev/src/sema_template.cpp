@@ -1329,6 +1329,22 @@ const AstNode* instantiated_declarator(const AstNode& target)
 	return nullptr;
 }
 
+// 14.7.2p1: whether a name reaches through a class template specialization,
+// which is what lets an ordinary member class of one be a thing an explicit
+// instantiation names.  A specialization is written as a template-id, so a
+// component before the last that is one is the whole of the question.
+bool names_a_specialization_member(const QualifiedName& spelled)
+{
+	for (std::size_t index = 0; index + 1 < spelled.size(); ++index)
+	{
+		if (TemplateId(spelled.part(index)).valid())
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
 }
 
 // 14.7.2p2: which declaration the type an explicit instantiation wrote names.
@@ -1547,55 +1563,54 @@ void SemaAnalyzer::explicit_instantiation(const AstNode& node,
 		explicit_instantiation_declarator(target, ctx, owed);
 		return;
 	}
-	if (!owed)
+	std::string written = target.text;
+	if (target.kind == AstKind::SpecialMemberDeclaration)
 	{
-		// 14.7.2p9 over a class: the specialization's members are another
-		// unit's to instantiate, which is a fact about what this unit owes
-		// rather than about what the declaration names.
-		return;
+		// 12.1p1 and 14.7.2p1: a constructor has no type a declarator can be
+		// read for, so a declaration naming one is written the way 12 writes
+		// it and reaches no simple-declaration.  The specialization p2 asks
+		// about is its *prefix*, which is the same elaborated name the class
+		// form writes on its own.
+		const std::string prefix = QualifiedName(target.text).prefix();
+		if (prefix.size() < 2)
+		{
+			throw std::runtime_error("an explicit instantiation names " +
+			                         target.text +
+			                         ", which is no member of a class template "
+			                         "specialization");
+		}
+		written = prefix.substr(0, prefix.size() - 2);
 	}
-	if (target.kind != AstKind::ClassForwardDeclaration)
+	else if (target.kind != AstKind::ClassForwardDeclaration)
 	{
 		// 14.7.2p2: a class-specifier defines a class, and an explicit
 		// instantiation names one the template already gave a definition to.
 		throw std::runtime_error("an explicit instantiation defines a class "
 		                         "rather than naming a specialization");
 	}
-	const QualifiedName spelled(target.text);
-	Scope* const in =
-		spelled.qualified() ? resolve_prefix(spelled, ctx) : nullptr;
-	SemaEntity* const made =
-		template_id_entity(spelled.last(), ctx, in, LookupKind::Type);
-	if (made == nullptr)
+	SemaEntity* const made = instantiated_class(written, ctx);
+	if (made == nullptr || !owed)
 	{
-		if (templating())
-		{
-			// 14.7.2p2: the elaborated-type-specifier shall name a class
-			// template specialization, so a name that is no template-id and a
-			// template-id over a name no template declares are both refused.
-			throw std::runtime_error("an explicit instantiation names " +
-			                         target.text +
-			                         ", which is no class template "
-			                         "specialization");
-		}
-		// PA11 and PA12 describe what a declaration says and instantiate
-		// nothing, so the template layer has no specialization to answer with.
+		// 14.7.2p9: `extern template` says another unit owes the definitions,
+		// which is what a specialization no use of this unit names already
+		// leaves - so p2 above is the whole of what its form asks.
 		return;
 	}
-	if (made->kind != SemaKind::Class || made->primary == nullptr)
+	if (made->primary != nullptr)
 	{
-		// 14.7.2p2 again, over a name a template-id *does* answer without
-		// naming a specialization of a class template: 7.1.3p2 makes
-		// `X<int>` over 14.5.7p1's alias template another name for the type
-		// its type-id wrote, and 14.5.7p1 leaves an alias template with no
-		// specializations for an instantiation to name.  14.6.2p1's naming
-		// over a place that no list has settled is the same answer.
-		throw std::runtime_error("an explicit instantiation names " +
-		                         target.text +
-		                         ", which is no class template "
-		                         "specialization");
+		// 14.7.2p1 over a *member* class of a specialization: the class its
+		// prefix named is what a template made, and this member is an ordinary
+		// declaration of it that the same instantiation already completed.
+		require_specialization(*made);
 	}
-	require_specialization(*made);
+	if (target.kind == AstKind::SpecialMemberDeclaration)
+	{
+		// 14.7.2p1 names one member and not the class, and the member 12.1p1
+		// writes this way is a constructor - which 14.5.2's constructor
+		// template is what gives a definition to, so the definitions this unit
+		// owes for the whole class are not what this declaration asked for.
+		return;
+	}
 	// 14.7.2p8 and 3.2p3: this declaration is the one demand with no use to
 	// point at, so a member whose definition the instantiation put aside is
 	// asked for it here exactly as a call would ask.
@@ -1605,6 +1620,49 @@ void SemaAnalyzer::explicit_instantiation(const AstNode& node,
 	{
 		require_definition(*demanded[index]);
 	}
+}
+
+// 14.7.2p2: the class template specialization an explicit instantiation names,
+// which is the one requirement p8's form and p9's each write the same way - so
+// it is read off the elaborated name either form wrote, and only p8's demand
+// for the definitions is left out.  Null is no answer but PA11's and PA12's,
+// which describe what a declaration says and instantiate nothing.
+SemaEntity* SemaAnalyzer::instantiated_class(const std::string& written,
+                                             const Context& ctx)
+{
+	const QualifiedName spelled(written);
+	Scope* const in =
+		spelled.qualified() ? resolve_prefix(spelled, ctx) : nullptr;
+	SemaEntity* made =
+		template_id_entity(spelled.last(), ctx, in, LookupKind::Type);
+	if (made == nullptr && in != nullptr && !TemplateId(spelled.last()).valid())
+	{
+		// 14.7.2p1's other class target: a *member* class of a class template
+		// specialization, which is no specialization of a template of its own
+		// - the class its prefix named declared it as an ordinary member.  p2
+		// is therefore asked of the prefix, which `resolve_prefix` above has
+		// just had to settle, and the member is looked up in it as any
+		// qualified name is.
+		made = model_.lookup(*in, spelled.last(), LookupKind::Type);
+	}
+	if (made == nullptr && !templating())
+	{
+		return nullptr;
+	}
+	if (made == nullptr || made->kind != SemaKind::Class ||
+	    (made->primary == nullptr && !names_a_specialization_member(spelled)))
+	{
+		// 14.7.2p2: the elaborated-type-specifier shall name a class template
+		// specialization, or a member class of one.  A name that is no
+		// template-id and a template-id over a name no template declares
+		// answer nothing at all; 7.1.3p2's `X<int>` over 14.5.7p1's alias
+		// template answers a typedef-name that 14.5.7p1 leaves no
+		// specialization behind, and 14.6.2p1's naming over a place no list
+		// has settled is the same answer.
+		throw std::runtime_error("an explicit instantiation names " + written +
+		                         ", which is no class template specialization");
+	}
+	return made;
 }
 
 // 14p1: the pattern a function template's declaration was written from, taken

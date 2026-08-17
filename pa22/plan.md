@@ -32,9 +32,10 @@ replaced:
 
 ## Current Failure Map
 
-Checkpoint P landed **200 / 308**. The 14 `… is not a translation unit`
-failures are gone — every PA22 test now parses. Grouped by the compiler
-behaviour that owns them, from the diagnostic each one now reaches:
+Checkpoint P landed **200 / 308** and its audit held that count with the failing
+set byte-identical. The 14 `… is not a translation unit` failures are gone —
+every PA22 test now parses. Grouped by the compiler behaviour that owns them,
+from the diagnostic each one now reaches:
 
 | # | Group | Owner | Signature |
 |---|---|---|---|
@@ -53,8 +54,8 @@ behaviour that owns them, from the diagnostic each one now reaches:
 
 ## Active Checkpoint
 
-**P landed this turn — see the ledger. The next one is C, 14.5.2's constructor
-template, which owns the single largest group.**
+**P's audit landed this turn — see the ledger. The next one is C, 14.5.2's
+constructor template, which owns the single largest group.**
 
 *Owner.* `sema_class.cpp`'s `special_member` (the in-class declaration) and
 `sema_template.cpp`'s `record_template` (the head it stands under), with
@@ -90,34 +91,41 @@ narrowest of them.
 
 ## Performance Model
 
-Best of three with `/usr/bin/time` on generated inputs under `/tmp/perf22`, and
-against `pa22/cppgm++-ref`. Two traps are recorded rather than re-measured:
+Best of three with `/usr/bin/time` on generated inputs under `/tmp/perf22a`,
+against a `make build` of the pre-audit tree in a worktree, and against
+`pa22/cppgm++-ref`. Three traps are recorded rather than re-measured:
 `timeout`/`date` spawned per run invents a ~0.1 s floor that reads as 33 s over
-the 308-file corpus, and `cppgm++` run by hand needs `-o` or it compiles
-nothing.
+the 308-file corpus, `cppgm++` run by hand needs `-o` or it compiles nothing,
+and 308 files handed to one process is one ill-formed unit and times as 0.00 s.
 
-| Path | Sweep | This build | `pa22/cppgm++-ref` |
-|---|---|---|---|
-| `h.get<int>(…)` with no keyword, n times | 400 → 3200 | 0.01 → 0.10 s, 9 → 29 MB | 1.03 s at 3200 |
-| `h.get < a` where `get` is *also* a template of the unit | 400 → 3200 | 0.02 → 0.20 s, 12 → 59 MB | 1.18 s at 3200 |
-| `h.get<Ti>(…)` over n *distinct* argument lists | 400 → 3200 | 0.08 → 0.68 s, 25 → 158 MB | 26.89 s at 3200 |
-| `extern template int operator+<Bi>(…)`, n of them | 400 → 3200 | 0.02 → 0.19 s, 12 → 55 MB | — |
-| n partial specializations each naming their own head | 400 → 3200 | 0.02 → 0.24 s, 14 → 66 MB | 1.08 s at 3200 |
-| `.get<H>(h)` chained | depth 4 → 256 | 0.00 → 0.01 s, 6.5 → 9 MB | — |
-| the whole 308-file PA22 corpus | — | 1.29 s | — |
+| Path | Sweep | This build | Baseline | `pa22/cppgm++-ref` |
+|---|---|---|---|---|
+| `h.get<int>(i)` with no keyword, n times | 400 → 3200 | 0.01 → 0.10 s, 8 → 28 MB | matches | 1.04 s at 3200 |
+| `h.get<Ai>(a)` over n *distinct* argument lists | 400 → 3200 | 0.07 → 0.61 s, 23 → 141 MB | matches | 35.37 s at 3200 |
+| `h.get < a` where `get` is *also* a template of the unit | 400 → 3200 | 0.02 → 0.20 s, 12 → 59 MB | — | 1.18 s at 3200 |
+| `extern template struct box<Ti>;`, n distinct | 400 → 3200 | 0.02 → 0.18 s, 11 → 52 MB | 0.17 s, 47 MB | 0.76 s at 3200 |
+| `extern template box<Ti>::box();`, n distinct | 400 → 3200 | 0.02 → 0.17 s, 11 → 51 MB | matches | 0.74 s at 3200 |
+| `template struct box<Ti>;`, n distinct | 400 → 3200 | 0.03 → 0.33 s, 15 → 85 MB | matches | 3.75 s at 3200 |
+| n partial specializations each naming their own head | 400 → 3200 | 0.02 → 0.24 s, 14 → 66 MB | — | 1.08 s at 3200 |
+| `.get<H>(h)` chained | depth 4 → 256 | 0.00 → 0.01 s, 6.5 → 9 MB | — | — |
+| compound statements nested in a specialization's body | depth 4 → 256 | 0.00 → 0.01 s, 6.5 → 8 MB | matches | — |
+| the whole 308-file corpus, one process per file | — | 1.31 s | 1.28 s | — |
 
-Every dimension is linear. The one that could not have been is the second: a
-member name that is *also* a template spelling now tries a template-id reading
-at every `<`, and a reading that fails is remembered by
-`skip_simple_template_id`'s `(position, qualified)` memo, so a backtracking
-caller pays it once. 14.2p4's definition-time check is one `find('<')` on the
-member spelling before any `QualifiedName` split or `AngleReading` is made, so
-an ordinary `a.b` inside a template definition costs one scan and no
-allocation. 13.5p6 on a new specialization is one `compare(0, 8, "operator")`.
+Every dimension is linear. The one that could not have been is the third: a
+member name that is *also* a template spelling tries a template-id reading at
+every `<`, and a reading that fails is remembered by `skip_simple_template_id`'s
+`(position, qualified)` memo, so a backtracking caller pays it once. 5.2.2p1's
+`(` is what bounds the guess, and 14.2p4's definition-time check is one
+`find('<')` on the member spelling before any `QualifiedName` split is made.
+13.5p6 on a new specialization is one `compare(0, 8, "operator")`. 14.7.2p2 is
+one reading per explicit instantiation, now taken for both of p8's and p9's
+forms - which costs p9's form the specialization entity p8's always made, 5 MB
+over 3200 declarations and no term of the input.
 
 `valgrind -q --error-exitcode=9` is clean over the six largest inputs above.
 Third oracle: `_ZN1H3getIiEET_S1_` for `h.get<int>(4)` written with no keyword
-agrees with `g++ -std=c++11` byte for byte.
+agrees with `g++ -std=c++11` byte for byte, and all 25 of the audit's probe
+programs agree with `g++ -std=c++11 -pedantic-errors` on the verdict.
 
 ## Completed Checkpoints
 
@@ -132,3 +140,4 @@ agrees with `g++ -std=c++11` byte for byte.
 | **A** 14.5.7p1's alias template, and the name a template-id is looked up by | `template<…> using X = T;` records a head and a *pattern that is a type-id*, so 7.1.3p2 makes `X<A…>` another name for the type the arguments substitute into it. The declaration is a `Typedef` carrying a `TemplateInfo`, and 11p1's access travels from the template onto the typedef-name. Beside it, 14.2p4's keyword is dropped inside `QualifiedName::part`, where every reader already asks. | 193 / 308 |
 | **A audit** the three regions a template-id is looked up in | `resolve` answered a template-id at both its exits where 5.2.5p1's member lookup answered it at neither. `QualifiedName::prefix` is read off the split rather than by `last().size()`. 11p1's access is written by every tier that makes a declaration from an argument list. 14.7.2p2 is asked of what the template-id answered. | 193 / 308 |
 | **P** the three places a template-argument-list is read, and the head that names a specialization | 14.2p4 makes the keyword optional wherever the object expression is not type-dependent, so `h.get<int>(4)` is a template-id the parse has to recognise with no keyword to lean on: `DeclaredNames::names_a_template` answers it from the unit-wide record 6.8p1 is already settled by, and 5.2.2p1 - a member function template can only be called - bounds the guess to a list a `(` follows, which keeps `a.b < c > d` two comparisons. 14.6p8's own reading is where the *dependent* case is refused, since 14.2p4 there reads the name as a non-template. 14.2p1's other two template-ids - `operator+<int>` and `operator+<>` - are read by one `skip_template_arguments` shared with the simple-template-id. 14.7.2p1 and 14.7.3p1 let a declaration name a specialization rather than declare anything, so `extern template box<int>::box();` and `template<> S<int>::S();` end at a `;` no out-of-class constructor otherwise may. `extern template` now reads its target for the same p2 requirement p8's form is read for, and 13.5p6 is asked where a function template specialization is *made*, which is the one place every argument list reaches. And 14.5.5p1: a class-head written on a template-id declared the whole flattened spelling as a template-name, so `MapBase<K,int>` written anywhere after it stopped being a type. | **200 / 308** |
+| **P audit** the two forms 14.7.2 writes one requirement in | `explicit_instantiation` returned on `!owed` before reading its target, so p2 was asked of `template struct X<int>;` and of nothing `extern template` wrote - an alias, an ordinary class, a name no template declares and a prefix naming no type were four programs `g++` refuses and this build accepted. `instantiated_class` is p2's one reading and both forms reach it, with the `owed` gate moved onto p8's demand for the definitions. Beside it: the `SpecialMemberDeclaration` the same commit let the parse accept reached no sema arm, so 12.1p1's own declaration now asks p2 of its *prefix*; 14.7.2p1's member class of a specialization is looked up in the region the prefix resolved to; and the parser's `names_specialization_` is put down for the body a declaration holds, so a statement inside a specialization reads as a statement. | **200 / 308** |
