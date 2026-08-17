@@ -995,12 +995,15 @@ SemaEntity* SemaAnalyzer::resolve(const std::string& spelling, const Context& ct
 	const QualifiedName written(name);
 	if (!written.qualified())
 	{
-		SemaEntity* const here = model_.lookup(*ctx.scope, name, filter, found);
+		// 14.2p4: `a.template f<A>` reaches this walk as one component, and the
+		// keyword it wrote is no part of the name a lookup asks for.
+		const std::string alone = written.last();
+		SemaEntity* const here = model_.lookup(*ctx.scope, alone, filter, found);
 		// 14.2: a name no declaration bound may still be a template-id, which
 		// names the specialization its arguments make of the template the
 		// program did declare.
 		return here != nullptr ? here
-		                       : template_id_entity(name, ctx, nullptr, filter);
+		                       : template_id_entity(alone, ctx, nullptr, filter);
 	}
 	// 14.6.2p1: a name written after a prefix that depends on a template
 	// parameter is a member of a class no argument list has named yet.  While

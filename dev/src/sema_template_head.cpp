@@ -53,28 +53,6 @@ const AstNode* first_child(const AstNode& node, AstKind kind)
 	return nullptr;
 }
 
-// 14.2p4: `X::template f` names the member template `f`, and the keyword says
-// only that the name is one - so what a lookup asks for is the name without it.
-std::string without_template_keyword(const std::string& written)
-{
-	static const std::string keyword = "template ";
-	std::string out;
-	out.reserve(written.size());
-	for (std::string::size_type at = 0; at < written.size();)
-	{
-		const bool begins = at == 0 ||
-			(at >= 2 && written.compare(at - 2, 2, "::") == 0);
-		if (begins && written.compare(at, keyword.size(), keyword) == 0)
-		{
-			at += keyword.size();
-			continue;
-		}
-		out.push_back(written[at]);
-		++at;
-	}
-	return out;
-}
-
 // The name a declarator declares, taken from the syntax alone.  14.1p2's
 // parameter names are read before any region exists to look them up in, so the
 // walk is over the tree and not over a declaration.

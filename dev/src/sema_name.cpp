@@ -433,16 +433,43 @@ QualifiedName::QualifiedName(const std::string& spelling)
 	}
 }
 
+namespace
+{
+
+// 14.2p4: one past the `template` keyword `spelling[from, to)` begins with, or
+// `from` itself where the component wrote none - which is nearly every one, and
+// costs the one comparison the answer needs.
+std::string::size_type past_template_keyword(const std::string& spelling,
+                                             std::string::size_type from,
+                                             std::string::size_type to)
+{
+	static const std::string keyword = "template ";
+	return to - from > keyword.size() &&
+			spelling.compare(from, keyword.size(), keyword) == 0
+		? from + keyword.size()
+		: from;
+}
+
+}
+
+std::string without_template_keyword(const std::string& written)
+{
+	const std::string::size_type at =
+		past_template_keyword(written, 0, written.size());
+	return at == 0 ? written : written.substr(at);
+}
+
 std::string QualifiedName::part(std::size_t index) const
 {
-	if (starts_.empty())
-	{
-		return *spelling_;
-	}
-	const std::string::size_type start = starts_[index];
-	const std::string::size_type end = index + 1 < starts_.size()
-		? starts_[index + 1] - 2
-		: spelling_->size();
+	const std::string::size_type end =
+		starts_.empty() || index + 1 >= starts_.size()
+			? spelling_->size()
+			: starts_[index + 1] - 2;
+	// 14.2p4: the keyword stands inside the component and says only that the
+	// name is a template, so the component this hands back is the name alone -
+	// and the split it is taken from is where every reader already asks.
+	const std::string::size_type start = past_template_keyword(
+		*spelling_, starts_.empty() ? 0 : starts_[index], end);
 	return spelling_->substr(start, end - start);
 }
 

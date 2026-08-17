@@ -58,6 +58,18 @@ public:
 	// that the reading of a specialization finds it in place of the pattern.
 	bool record_explicit(const AstNode& declared, const SemaContext& ctx);
 
+	// 7.1.3p2 with 14.5.7p1: the alias template a head over an
+	// alias-declaration declares, bound in the region the head stands in.
+	// False where the declaration is no alias-declaration or the head declares
+	// a place this milestone gives no meaning to.
+	bool record_alias(const AstNode& clause, const AstNode& declared,
+	                  const SemaContext& ctx);
+
+	// 7.1.3p2: the *type* a template-id over an alias template names, which is
+	// the type-id it was declared with and the arguments substituted into it.
+	SemaEntity& alias(SemaEntity& primary, const TemplateId& id,
+	                  const SemaContext& ctx);
+
 	// 14.5.5.1p1: which partial specialization of `primary` the argument list
 	// `arguments` matches, and the arguments *its* own head took.  `kNoPartial`
 	// where the list matches none, which leaves the primary's own pattern.
@@ -105,6 +117,11 @@ private:
 	// 8p1: the type one init-declarator of `declared` declares, read in `ctx`.
 	TypeId declared_type(const AstNode& declared, const AstNode& init,
 	                     const SemaContext& ctx);
+
+	// 14.2: the template-id one argument list spells over `primary`, which is
+	// what names the declaration that list made of it.
+	std::string spelled(const SemaEntity& primary,
+	                    const std::vector<TypeId>& arguments);
 
 	// 14.5.5.1p1: whether the pattern at `index` matches `arguments`, and what
 	// the places its own head declared were deduced to.

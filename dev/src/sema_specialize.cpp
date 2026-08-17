@@ -11,16 +11,19 @@
 #include "sema_template.h"
 #include "sema_template_head.h"
 
-// 14.5.5's partial specialization and 14.5.1p1's variable template.
+// 14.5.5's partial specialization, 14.5.1p1's variable template and 14.5.7p1's
+// alias template.
 //
-// Both are heads that write a declaration the primary template's own three
+// All three are heads that write a declaration the primary template's own three
 // steps - record the pattern, bind an argument list, read the pattern once per
 // list - cannot answer for.  A partial specialization writes a *pattern* where
 // the primary wrote parameters, so the step it changes is the middle one: an
 // argument list no longer reaches the primary's body directly but is first
 // matched against every pattern beside it.  A variable template writes an
 // object where the primary wrote a class, so the step it changes is the last:
-// what one argument list makes of it is a constant rather than a type.
+// what one argument list makes of it is a constant rather than a type.  An
+// alias template writes a type-id there, so the step it changes is the last one
+// too: what an argument list makes of it is a type that already exists.
 //
 // Nothing here re-reads the primary's syntax and nothing scans the argument
 // lists already made: the choice is asked once per template and list, over the
@@ -378,6 +381,115 @@ bool Specialization::declare_variable(const AstNode& clause,
 	return true;
 }
 
+// 7.1.3p2 and 14.5.7p1: the alias template itself, which declares a name in the
+// region its head stands in and no type anywhere.
+//
+// 7.1.3p2 makes the name a *template-name* and not a typedef-name: what it
+// names is settled only once an argument list arrives, so nothing of the type-id
+// is read here.  The declaration is bound as a type-name all the same, because
+// that is the lookup a naming of it makes - `X<A…>` asks 3.4 for `X` before it
+// has an argument list to give it - and 7.1.3p3's leniency about a second
+// declaration of one typedef-name is what a header included twice needs.
+bool Specialization::record_alias(const AstNode& clause,
+                                  const AstNode& declared,
+                                  const SemaContext& ctx)
+{
+	if (declared.kind != AstKind::AliasDeclaration ||
+	    child_of(declared, AstKind::TypeId) == nullptr)
+	{
+		return false;
+	}
+	analyzer_.template_patterns_.push_back(TemplateInfo());
+	TemplateInfo& info = analyzer_.template_patterns_.back();
+	info.region = ctx.scope;
+	info.dump = ctx.dump;
+	info.pattern = &declared;
+	TemplateHead(analyzer_).read(clause, info);
+	if (!info.supported)
+	{
+		// 14p1: a head this milestone gives no meaning to leaves the template
+		// undeclared, exactly as it does over a class - what a naming of it then
+		// gets is the refusal every unsupported head already earns.
+		return false;
+	}
+	SemaEntity& entity = analyzer_.declare_type_alias(declared.text, kNoType,
+	                                                  *ctx.scope);
+	entity.templated = &info;
+	entity.region = ctx.scope;
+	return true;
+}
+
+// 7.1.3p2: the type a template-id over an alias template names.
+//
+// 7.1.3p2 makes an alias-declaration "another name for" the type its type-id
+// wrote, so a template-id over one declares nothing of its own: it *is* the type
+// the arguments substitute into the pattern, which is why 14.5.7p2 leaves two
+// namings of one alias with one argument list one type and why 14.5.7p1 gives an
+// alias template no specializations to write.  So the reading gives back the
+// type the type-id already interned, and the declaration made here is a
+// typedef-name of it - one per template and interned argument list, so an alias
+// named n times is read once.
+SemaEntity& Specialization::alias(SemaEntity& primary, const TemplateId& id,
+                                  const SemaContext& ctx)
+{
+	std::vector<TypeId> arguments;
+	TemplateHead(analyzer_).bind_arguments(primary, id.arguments(), ctx,
+	                                       arguments);
+	const std::uint32_t list = analyzer_.types_.type_list(arguments);
+	SemaEntity* const made = analyzer_.model_.specialization_of(primary, list);
+	if (made != nullptr)
+	{
+		return *made;
+	}
+	TemplateInfo& info = *primary.templated;
+	for (std::size_t at = 0; at < info.reading.size(); ++at)
+	{
+		// 14.5.7p1 with 3.2p1: the type-id is read in place of the name, so an
+		// alias whose own type-id names this same argument list is a type
+		// defined in terms of itself and there is nothing to hold in its place.
+		if (info.reading[at] == list)
+		{
+			throw std::runtime_error("the type-id of a specialization of " +
+			                         primary.name + " names that same "
+			                         "specialization");
+		}
+	}
+	SemaContext inner;
+	inner.scope = &TemplateHead(analyzer_).open_bindings(info, arguments);
+	inner.dump = info.dump;
+	inner.node = nullptr;
+	TypeId type = kNoType;
+	{
+		const ReadingList held(info.reading, list);
+		type = analyzer_.type_id_type(*child_of(*info.pattern, AstKind::TypeId),
+		                              inner);
+	}
+	SemaEntity& entity = analyzer_.model_.create(
+		SemaKind::Typedef, spelled(primary, arguments), type);
+	entity.region = info.region;
+	// 11p1 and 14.5.7p1: the alias template is the declaration a class gave an
+	// access to, and this typedef-name is only the type one argument list makes
+	// of it - so the access a qualified naming is refused by is the template's.
+	entity.access = primary.access;
+	analyzer_.model_.hold_specialization(primary, list, entity);
+	return entity;
+}
+
+std::string Specialization::spelled(const SemaEntity& primary,
+                                    const std::vector<TypeId>& arguments)
+{
+	std::string out = primary.name + "<";
+	for (std::size_t index = 0; index < arguments.size(); ++index)
+	{
+		if (index != 0)
+		{
+			out += ", ";
+		}
+		out += analyzer_.type_spelling(arguments[index]);
+	}
+	return out + ">";
+}
+
 // 8p1: the type one init-declarator of a simple-declaration declares, read in
 // `ctx`.  A variable template's is read twice - once where the head stands, for
 // the declaration, and once per argument list, because the places may be what
@@ -638,18 +750,8 @@ SemaEntity& Specialization::read_variable(SemaEntity& primary,
 	}
 	const SemaConstant folded =
 		analyzer_.convert(analyzer_.evaluate(*value->children[0], inner), type);
-	std::string spelled = primary.name + "<";
-	for (std::size_t index = 0; index < arguments.size(); ++index)
-	{
-		if (index != 0)
-		{
-			spelled += ", ";
-		}
-		spelled += analyzer_.type_spelling(arguments[index]);
-	}
-	spelled += ">";
-	SemaEntity& made =
-		analyzer_.model_.create(SemaKind::TemplateValue, spelled, type);
+	SemaEntity& made = analyzer_.model_.create(
+		SemaKind::TemplateValue, spelled(primary, arguments), type);
 	made.primary = &primary;
 	made.template_arguments = list;
 	made.region = primary.templated->region;

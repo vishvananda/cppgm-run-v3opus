@@ -203,7 +203,9 @@ std::string SemaAnalyzer::member_id_name(const AstNode& id, const Context& ctx)
 	const AstNode* const carried = child_of(id, AstKind::CarriedTypeId);
 	if (carried == nullptr || carried->children.empty())
 	{
-		return id.text;
+		// 14.2p4: `a.template f<A>` writes the keyword to say the name is a
+		// template, and the class is asked for the name without it.
+		return without_template_keyword(id.text);
 	}
 	// 3.4.5p1: the conversion-type-id is looked up in the class of the object
 	// expression and in the region the whole expression stands in; the second

@@ -511,12 +511,14 @@ bool SemaAnalyzer::record_template(const AstNode& node, const Context& ctx)
 		}
 		return true;
 	}
-	// 14.5.5p1 and 14.5.1p1: a head whose declaration writes an argument
-	// *pattern* declares no template of that spelling but a second body for the
-	// one it names, and a head over an object declares a variable template.
-	// Both are asked before the primary tier, because what tells them apart from
-	// it is the declarator-id alone.
-	if (Specialization(*this).record(*clause, *declared, ctx))
+	// 14.5.5p1, 14.5.1p1 and 14.5.7p1: a head whose declaration writes an
+	// argument *pattern* declares no template of that spelling but a second body
+	// for the one it names, a head over an object declares a variable template,
+	// and a head over an alias-declaration declares an alias template.  All
+	// three are asked before the primary tier, because what tells them apart
+	// from it is the declaration the head parameterises alone.
+	if (Specialization(*this).record(*clause, *declared, ctx) ||
+	    Specialization(*this).record_alias(*clause, *declared, ctx))
 	{
 		return true;
 	}
@@ -1176,6 +1178,14 @@ SemaEntity* SemaAnalyzer::template_id_entity(const std::string& component,
 					: template_argument_type(id.arguments()[index], ctx));
 		}
 		return &dependent_template_name(primary->type, arguments, component);
+	}
+	if (primary != nullptr && primary->kind == SemaKind::Typedef &&
+	    primary->templated != nullptr)
+	{
+		// 7.1.3p2: an alias template names no declaration of its own, so what
+		// the id stands for is the type its arguments substitute into the
+		// type-id the alias was declared with.
+		return &Specialization(*this).alias(*primary, id, ctx);
 	}
 	if (primary != nullptr && primary->templated == nullptr &&
 	    primary->primary != nullptr)

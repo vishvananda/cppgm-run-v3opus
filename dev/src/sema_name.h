@@ -96,6 +96,17 @@ private:
 std::string::size_type spelling_balanced_end(const std::string& spelling,
                                              std::string::size_type at);
 
+// 14.2p4: `X::template f<A>` and `a.template f<A>` name the member template
+// `f`, and the keyword says only that the name is one - so what a lookup asks
+// for is the name without it.
+//
+// It is written *inside* a component, after the `::` or the `.` that ends the
+// prefix, so the place that turns a spelling back into components is the place
+// that drops it: every reader below asks for a component and none of them has
+// to know the keyword can stand there.  A spelling that never wrote one - which
+// is nearly every spelling - is returned unchanged after one comparison.
+std::string without_template_keyword(const std::string& written);
+
 class QualifiedName
 {
 public:
