@@ -200,6 +200,9 @@ std::uint32_t TypeTable::operand_of(const Node& node)
 	case TypeKind::Class:
 	case TypeKind::Enum:
 	case TypeKind::TemplateParameter:
+	// 14.3.3p1: an entry standing for a template is told from another by the
+	// declaration it names, which is the record, exactly as a class is.
+	case TypeKind::TemplateName:
 		// The record identifies the entity that declared the type, which is
 		// what tells two of them apart; the underlying type of an enumeration
 		// is not, because 7.2p5 lets it be fixed after the name is known.

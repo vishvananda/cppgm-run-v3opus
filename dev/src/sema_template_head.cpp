@@ -199,8 +199,16 @@ TypeId TemplateHead::template_argument(const std::string& written,
 // what makes `holder<box>` written twice one specialization.
 TypeId TemplateHead::name_argument(SemaEntity& named)
 {
+	// 3.4.3: the object file names the template from outside every region
+	// around it, which for a class template is the spelling its own type
+	// already carries - a name written through the regions the declaration
+	// stands in rather than through the one that reached it.
+	const std::string qualified =
+		named.kind == SemaKind::Class && named.type != kNoType
+			? analyzer_.types_.user_qualified_name(named.type)
+			: abi_qualified_name(named);
 	const TypeId made = analyzer_.types_.template_name_type(
-		named.id, named.name, abi_qualified_name(named));
+		named.id, named.name, qualified);
 	analyzer_.model_.own_type(made, named);
 	return made;
 }
@@ -544,6 +552,9 @@ std::string SemaAnalyzer::type_spelling(TypeId type) const
 		case TypeKind::Class:
 		case TypeKind::Enum:
 		case TypeKind::TemplateParameter:
+		// 14.3.3p1: an argument at a template place is spelled as the template
+		// it named, which is the whole of what the place took.
+		case TypeKind::TemplateName:
 			out += types_.user_qualified_name(at);
 			break;
 

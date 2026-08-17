@@ -933,6 +933,17 @@ const std::string& LocalContexts::argument_of(TypeId type)
 			static_cast<long long>(types_.value_bits(type));
 		return placed->second;
 	}
+	if (types_.is_template_name(type))
+	{
+		// 14.3.3p1 and `<template-arg>`'s `<template-name>`: an argument at a
+		// template place is written as the template it named, which is the
+		// declaration's own name and no type at all - so the entry carries the
+		// name rather than anything a type could be encoded from.
+		record.template_argument.kind =
+			abi_mangle::ABI_TEMPLATE_ARGUMENT_TEMPLATE_ENTITY;
+		record.template_argument.name = types_.user_qualified_name(type);
+		return placed->second;
+	}
 	if (types_.is_settled_run(type))
 	{
 		// 14.5.3p1 and `<template-arg>`'s `J...E`: the run a pack place took is
