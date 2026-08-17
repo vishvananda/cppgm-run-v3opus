@@ -8,6 +8,7 @@
 #include "sema_analyzer.h"
 #include "sema_deduce.h"
 #include "sema_name.h"
+#include "sema_pack.h"
 #include "sema_template.h"
 #include "sema_template_head.h"
 
@@ -247,7 +248,14 @@ std::uint32_t Specialization::canonical_pattern(const TemplateInfo& head,
 	std::unordered_map<TypeId, TypeId> memo;
 	for (std::size_t at = 0; at < pattern.size(); ++at)
 	{
-		canonical.push_back(analyzer_.substituted(pattern[at], bindings, memo));
+		// 14.5.3p4: an entry of the list may be an expansion, and a substitution
+		// reaches *through* one rather than past it - `substituted` leaves an
+		// expansion standing as it was, which would keep this head's own pack
+		// place in the canonical list and make two declarations of one pattern
+		// two patterns.  The stand-ins bind no run, so the reading appends the
+		// one entry `#...n` the two declarations then share.
+		PackReading(analyzer_).substitute_entry(pattern[at], bindings, memo,
+		                                        canonical);
 	}
 	return analyzer_.types_.type_list(canonical);
 }
@@ -604,6 +612,61 @@ bool Specialization::matches(const TemplateInfo& info, std::size_t index,
 		const std::vector<TypeId>& run =
 			analyzer_.types_.pack_elements(bound->second);
 		deduced.insert(deduced.end(), run.begin(), run.end());
+	}
+	return substitution_agrees(partial.pattern, bindings, arguments);
+}
+
+// 14.8.2.5p5 at 14.5.5.1p1's match: the pattern read back with each place
+// standing for what it was deduced to, which has to be the list itself.
+//
+// A pattern that writes a qualified-id over one of its own places - `typename
+// Type::value_type` - names a *non-deduced context*: the pair says nothing
+// about what the prefix is, so the match walks past it and every such pattern
+// takes every list.  What makes the list one pattern's rather than another's is
+// this second reading, where the prefix is settled and the member it names is
+// looked up.  Two patterns that differ only in the member they name then take
+// different lists rather than making every list ambiguous.
+//
+// A pattern that named no such context substitutes back to what the match
+// already paired entry for entry, so this reading confirms what it found and
+// finds nothing new; it costs one substitution per candidate, which the
+// `chosen` memo pays once per argument list.
+bool Specialization::substitution_agrees(
+	const std::vector<TypeId>& pattern,
+	const std::unordered_map<TypeId, TypeId>& bindings,
+	const std::vector<TypeId>& arguments)
+{
+	std::vector<TypeId> read;
+	read.reserve(pattern.size());
+	std::unordered_map<TypeId, TypeId> memo;
+	for (std::size_t at = 0; at < pattern.size(); ++at)
+	{
+		PackReading(analyzer_).substitute_entry(pattern[at], bindings, memo,
+		                                        read);
+		if (read.size() > arguments.size())
+		{
+			return false;
+		}
+	}
+	if (read.size() != arguments.size())
+	{
+		return false;
+	}
+	for (std::size_t at = 0; at < read.size(); ++at)
+	{
+		if (read[at] == arguments[at])
+		{
+			continue;
+		}
+		// 14.6.2p1: a prefix this substitution could not settle leaves the
+		// member standing as it was written, which says nothing either way -
+		// the match is what paired the two and there is nothing here to
+		// contradict it.
+		if (analyzer_.types_.is_dependent(read[at]))
+		{
+			continue;
+		}
+		return false;
 	}
 	return true;
 }

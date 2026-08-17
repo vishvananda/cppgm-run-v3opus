@@ -7,6 +7,7 @@
 
 #include "ast_model.h"
 #include "ast_tokens.h"
+#include "sema_pack.h"
 #include "token_model.h"
 
 // 8.1p1's type-id, read out of the spelling PA10 handed on.
@@ -520,11 +521,36 @@ TypeId SpelledTypeId::suffix(TypeId base,
 			}
 			if (words[at] == "...")
 			{
+				// 8.3.5p3: a `...` that follows no parameter-declaration of its
+				// own is the ellipsis, which says the list goes on and names no
+				// type.
 				variadic = true;
 				++at;
 				continue;
 			}
-			parameters.push_back(read(words, at, end, spelling));
+			const TypeId one = read(words, at, end, spelling);
+			if (at >= end || words[at] != "...")
+			{
+				parameters.push_back(one);
+				continue;
+			}
+			// 14.5.3p4 and 8.3.5p1: a `...` written directly after a
+			// parameter-declaration whose type holds an unexpanded pack expands
+			// *that* parameter rather than opening 8.3.5p3's ellipsis - so
+			// `R(Args...)` is a list of however many entries the run holds and
+			// `R(int...)` is one entry and an ellipsis.  This is the same reading
+			// `read_parameters` gives the tree PA10 handed on; a type-id reaches
+			// this layer as the text 14.2 wrote it inside a name, which is why the
+			// rule is answered twice.
+			++at;
+			std::vector<TypeId> run;
+			if (!PackReading(analyzer_).expand_type(one, run))
+			{
+				variadic = true;
+				parameters.push_back(one);
+				continue;
+			}
+			parameters.insert(parameters.end(), run.begin(), run.end());
 		}
 		if (at >= end)
 		{
@@ -538,7 +564,34 @@ TypeId SpelledTypeId::suffix(TypeId base,
 			parameters.clear();
 		}
 	}
+	// 8.3.5p1 and 8.3.5p7: the cv-qualifier-seq and the ref-qualifier written
+	// after a parameter-clause are part of the function type the declarator made,
+	// which is what 14.5.5's `holder<R(A...) const &>` writes a pattern over.
+	// They are read before the suffixes after them, because the type is folded
+	// from the innermost outwards.
+	unsigned function_cv = kCvNone;
+	RefQualifier function_ref = RefQualifier::None;
+	if (!array)
+	{
+		while (at < end && (words[at] == "const" || words[at] == "volatile"))
+		{
+			function_cv |= words[at] == "const" ? kCvConst : kCvVolatile;
+			++at;
+		}
+		if (at < end && (words[at] == "&" || words[at] == "&&"))
+		{
+			function_ref = words[at] == "&" ? RefQualifier::LValue
+			                                : RefQualifier::RValue;
+			++at;
+		}
+	}
 	const TypeId rest = suffix(base, words, at, end, spelling);
-	return array ? analyzer_.types_.array_of(rest, bounded, bound)
-	             : analyzer_.types_.function_of(rest, parameters, variadic);
+	if (array)
+	{
+		return analyzer_.types_.array_of(rest, bounded, bound);
+	}
+	return analyzer_.types_.ref_qualified_function(
+		analyzer_.types_.qualified_function(
+			analyzer_.types_.function_of(rest, parameters, variadic), function_cv),
+		function_ref);
 }

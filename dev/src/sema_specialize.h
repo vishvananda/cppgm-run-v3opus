@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "type_model.h"
@@ -128,6 +129,13 @@ private:
 	bool matches(const TemplateInfo& info, std::size_t index,
 	             const std::vector<TypeId>& arguments,
 	             std::vector<TypeId>& deduced);
+
+	// 14.8.2.5p5: whether the pattern read back with each place standing for what
+	// it was deduced to is the argument list itself, which is what settles a
+	// pattern the match walked past a non-deduced context of.
+	bool substitution_agrees(const std::vector<TypeId>& pattern,
+	                         const std::unordered_map<TypeId, TypeId>& bindings,
+	                         const std::vector<TypeId>& arguments);
 
 	// 14.5.5.2p1: which of `matched` every other one is at least as general as.
 	std::size_t most_specialized(const TemplateInfo& info,

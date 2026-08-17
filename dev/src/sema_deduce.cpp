@@ -104,7 +104,15 @@ bool Deduction::match(TypeId pattern, TypeId argument,
 		// before it did not take - which is what a template-argument-list is,
 		// so it is the same match.  14.8.2.2's target type is the one A written
 		// over a whole function type, and this is where its parameters are read.
+		//
+		// 8.3.5p7: the ref-qualifier is part of the function type and holds no
+		// place to deduce, so two that spell it differently are two types - which
+		// is what leaves `holder<R(A...)>` and `holder<R(A...) &>` two patterns
+		// one argument list matches one of.  The cv-qualifier-seq is compared
+		// above, where every other type's is.
 		return types.variadic(pattern) == types.variadic(argument) &&
+			types.function_ref_qualifier(pattern) ==
+				types.function_ref_qualifier(argument) &&
 			match(types.target(pattern), types.target(argument), bindings) &&
 			match_arguments(types.parameters(pattern),
 			                types.parameters(argument), bindings);
@@ -294,6 +302,17 @@ bool Deduction::match_arguments(const std::vector<TypeId>& wanted,
 		{
 			// 14.5.3p1: a run this milestone deduces is the last of the list,
 			// because an expansion before one is a run of no known length.
+			return false;
+		}
+		if (types.is_pack_expansion(given[index]))
+		{
+			// 14.5.3p1 the other way round: this place takes one entry and the
+			// entry facing it stands for a run of no known length, so there is no
+			// argument for it to take.  It matters where A is itself a *pattern* -
+			// 14.5.5.2p1 asks this pair of two partial specializations, and
+			// `<Prev, Last>` deducing its `Last` from `<Prev, Others...>`'s run
+			// would make each of the two at least as specialized as the other and
+			// every list they both match ambiguous.
 			return false;
 		}
 		if (!match(wanted[index], given[index], bindings))
