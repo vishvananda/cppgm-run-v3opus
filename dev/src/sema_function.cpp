@@ -482,12 +482,20 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 		                 // defines a declaration its region already made.
 		                 spelled.qualified(),
 		                 specializing, &redeclares);
-	if (Specialization(*this).holds_written_definition(entity))
+	if (specializing == nullptr &&
+	    Specialization(*this).holds_written_definition(entity))
 	{
 		// 14.7.3p1: the program wrote this member's definition out for exactly
 		// these arguments above the template's own, so `declare_function` left
 		// the reading of the pattern a declaration - and the body it wrote is a
 		// definition of nothing, which is what reading no further leaves.
+		//
+		// The clause is about a member of a class an argument list made, which
+		// is the reading `instantiating_pattern_` counts.  A specialization of a
+		// *function* template is the declaration 14.7.1p1 already made and its
+		// body is `explicit_functions`' question, exactly as `from_pattern`
+		// below says - and such a reading stands inside a class instantiation
+		// wherever a name written in a member's own initializer asked for it.
 		return;
 	}
 	record_exception_specification(entity, declarator, target, name,

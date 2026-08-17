@@ -165,6 +165,12 @@ public:
 	// with a reading per kind of operand or destination - so each is a reading
 	// of its own rather than an arm of the dispatch that reaches it.
 	SemaConstant subscript_constant(const AstNode& node, const SemaContext& ctx);
+	// 5.2.1p1 over two operands already read, which is what a reading holding a
+	// spelling rather than a tree has: the array or pointer on the left and the
+	// index on the right, with 13.5.5p1's call the third arm.
+	SemaConstant element_at(const SemaConstant& held, const SemaConstant& index,
+	                        const SemaContext& ctx);
+	bool indexable(const SemaConstant& value) const;
 	SemaConstant cast_constant(const AstNode& node, const SemaContext& ctx);
 
 	// The arithmetic of one binary operator over what its operands came to,

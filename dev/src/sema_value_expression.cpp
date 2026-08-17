@@ -547,8 +547,33 @@ SemaConstant TemplateArgumentReader::unary(
 SemaConstant TemplateArgumentReader::accesses(
 	SemaConstant value, const std::vector<std::string>& words, bool live)
 {
-	while (at_ + 1 < words.size() && words[at_] == ".")
+	for (;;)
 	{
+		if (at_ < words.size() && words[at_] == "[")
+		{
+			// 5.2.1p1: the index is written between the brackets, which bind as
+			// tightly as `.` does and are read here for the same reason.  A
+			// string literal never reaches this walk - `literal_operand` reads
+			// its own subscript, because 2.14.5p8's array is the word itself.
+			++at_;
+			const SemaConstant index = expression(words, 0, live);
+			if (at_ >= words.size() || words[at_] != "]")
+			{
+				throw NotConstant("a subscript written as a template argument "
+				                  "does not close its index");
+			}
+			++at_;
+			if (live)
+			{
+				value =
+					ConstexprReading(analyzer_).element_at(value, index, ctx_);
+			}
+			continue;
+		}
+		if (at_ + 1 >= words.size() || words[at_] != ".")
+		{
+			return value;
+		}
 		const std::string member = words[at_ + 1];
 		if (!names_one_identifier(member))
 		{
@@ -585,7 +610,6 @@ SemaConstant TemplateArgumentReader::accesses(
 		}
 		value = ConstexprReading(analyzer_).member_value(value, member, ctx_);
 	}
-	return value;
 }
 
 SemaConstant TemplateArgumentReader::operand(
@@ -1149,8 +1173,12 @@ SemaConstant TemplateArgumentReader::trait_value(const std::string& op,
 SemaConstant TemplateArgumentReader::literal_operand(
 	const std::string& word, const std::vector<std::string>& words, bool live)
 {
-	if (at_ >= words.size() || words[at_] != "[")
+	if (at_ >= words.size() || words[at_] != "[" ||
+	    word.find('"') == std::string::npos)
 	{
+		// 5.2.1p1's other operand order: `2[a]` writes an integer where the
+		// array belongs, and what it subscripts is the operand after it - which
+		// is the postfix walk's reading and no question about this word at all.
 		return analyzer_.literal_constant(word);
 	}
 	++at_;
@@ -1222,11 +1250,14 @@ TypeId TemplateArgumentReader::probe_type_id(const std::string& spelling)
 
 // 5.19p2: an id-expression naming a constant binding, which is what an
 // enumerator, a const object of integral type with a constant initializer, and
-// 14.1p4's non-type parameter each are.
+// 14.1p4's non-type parameter each are.  14.2's own door stands in front of
+// the lookup here as it does at the tree's two readings: a word this split
+// closed a template-argument-list up into may name a specialization of a
+// function template rather than anything a region declares.
 SemaConstant TemplateArgumentReader::name(const std::string& spelling,
                                           bool live)
 {
-	SemaEntity* const named = analyzer_.resolve(spelling, ctx_, LookupKind::Any);
+	SemaEntity* const named = analyzer_.folded_name(spelling, ctx_);
 	if (named == nullptr)
 	{
 		throw NotConstant(spelling + " is written as a template argument and "

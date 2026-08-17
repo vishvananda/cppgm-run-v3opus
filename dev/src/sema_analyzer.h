@@ -1680,6 +1680,16 @@ private:
 	                                     const Context& ctx,
 	                                     std::vector<SemaEntity*>& found,
 	                                     Scope* in = nullptr);
+	// 14.2 at the doors 5.19's readings look one name up: the same two doors
+	// `id_expression` asks in the same order, because a template-id denotes the
+	// specializations its list makes and ordinary lookup finds only the template
+	// it was written from.  Null where neither door reaches a declaration.
+	//
+	// 13.4p1 chooses among several with a target type, which a fold has none of
+	// to defer to - `&f<int>` comes to an address where it stands - so a list
+	// that fits more than one declaration of the name names none here.  Choosing
+	// one is 14.7.1p1's own ask, so the specialization is named as a use of it.
+	SemaEntity* folded_name(const std::string& spelling, const Context& ctx);
 	// The walk itself, over the declarations `head` chains: one reading of the
 	// list per declaration, with a reading that refused handed back in
 	// `refused` rather than ending the walk.  3.4.2p3's search reaches

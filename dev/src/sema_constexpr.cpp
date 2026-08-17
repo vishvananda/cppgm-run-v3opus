@@ -1618,10 +1618,12 @@ SemaConstant ConstexprReading::id_constant(const AstNode& node,
 	// 7.1.6.2p1: a nested-name-specifier that begins with a decltype-specifier
 	// reaches its region through the expression the parser kept beside the
 	// name, which no spelling holds - so 5.19's reading asks the same question
-	// of an id-expression that every other reader of one asks.
+	// of an id-expression that every other reader of one asks.  14.2 is the
+	// other half of that question and `folded_name` is where both are asked:
+	// `f<int>` names a specialization ordinary lookup finds no declaration of.
 	SemaEntity* const named =
 		child_kind(node, AstKind::CarriedExpression) == nullptr
-		? analyzer_.resolve(node.text, ctx, LookupKind::Any)
+		? analyzer_.folded_name(node.text, ctx)
 		: analyzer_.decltype_qualified_name(node, ctx, LookupKind::Any);
 	return entity_constant(analyzer_.require(named, node.text), node.text);
 }
@@ -2107,20 +2109,44 @@ SemaConstant ConstexprReading::subscript_constant(const AstNode& node,
 	}
 	// The subscript names an element, so what it is worth is an integer and
 	// 4.9's conversion of a floating one is no part of it.
-	if (array->kind == AstKind::Literal)
+	if (array->kind == AstKind::Literal && literal_type(array->text) != kNoType)
 	{
 		// 2.14.5p8: a string literal is an array object no declaration named,
-		// so what it holds is read out of the literal itself.
+		// so what it holds is read out of the literal itself.  Every other
+		// literal standing here is 5.2.1p1's *index* - `2[a]` writes the
+		// addition the other way round - and is read below with the operand
+		// after it.
 		return analyzer_.string_element(
 			array->text, counted(analyzer_.evaluate(*node.children[1], ctx)));
 	}
-	const SemaConstant held = analyzer_.evaluate(*array, ctx);
-	const SemaConstant index = analyzer_.evaluate(*node.children[1], ctx);
-	if (holds_address(held))
+	return element_at(analyzer_.evaluate(*array, ctx),
+	                  analyzer_.evaluate(*node.children[1], ctx), ctx);
+}
+
+// The same operator over two operands already read, which is what the reading
+// that has a *spelling* rather than a tree holds - 14.2 writes a subscript
+// inside a template-argument-list, and `sema_value_expression.cpp` splits it
+// back out of the words.  The three arms are 5.2.1p1's three left operands; the
+// string literal is the fourth and is the one arm a spelling answers on its
+// own, because 2.14.5p8's array is the literal itself and no operand at all.
+SemaConstant ConstexprReading::element_at(const SemaConstant& held,
+                                          const SemaConstant& index,
+                                          const SemaContext& ctx)
+{
+	// 5.2.1p1: `E1[E2]` is `*(E1 + E2)`, and 5.7p5's addition is written either
+	// way round - so which of the two operands is the array is what says which
+	// is the index, and `2[a]` names the element `a[2]` does.  13.5.5p1's
+	// `operator[]` is asked below in the order the program wrote, because that
+	// one is a member of the left operand's class and not a commutative
+	// operator at all.
+	const bool reversed = !indexable(held) && indexable(index);
+	const SemaConstant& array = reversed ? index : held;
+	const SemaConstant& at = reversed ? held : index;
+	if (holds_address(array))
 	{
 		// `E1[E2]` is `*(E1 + E2)`, which over a pointer operand is 5.7p5's
 		// element and no reading of an array's own list.
-		return subscripted(held, index);
+		return subscripted(array, at);
 	}
 	// 13.3.1.2p1 with 13.5.5p1: a subscript of an object of class type is the
 	// call of a member `operator[]` and no reading of an array at all.
@@ -2132,7 +2158,16 @@ SemaConstant ConstexprReading::subscript_constant(const AstNode& node,
 	{
 		return called;
 	}
-	return element_value(held, counted(index));
+	return element_value(array, counted(at));
+}
+
+// Whether an operand of 5.2.1p1's subscript is the array rather than the index:
+// a pointer into one, or an array read as the list of its own elements.
+bool ConstexprReading::indexable(const SemaConstant& value) const
+{
+	return holds_address(value) ||
+		analyzer_.types_.kind(analyzer_.types_.strip_cv(value.type)) ==
+			TypeKind::Array;
 }
 
 // 5.4p4 and 5.2.9: a cast written in either notation direct-initializes an

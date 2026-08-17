@@ -213,6 +213,44 @@ SemaEntity* SemaAnalyzer::template_specializations(const std::string& spelling,
 	return found[0];
 }
 
+// 14.2 asked of one spelling by a reading that folds it rather than types it.
+//
+// `id_expression` asks these same two doors in this same order and hands the
+// set on: a target type or a call's arguments choose from it later, and the
+// line that names one declaration is written then.  A constant expression has
+// no later - `&f<int>` comes to an address where it stands, and 5.19 has no
+// place to hang an unresolved set on - so the two differences are here.  A list
+// that fits several declarations of the name is 13.4p1's set with nothing to
+// choose from it and names none; and the one it does fit is chosen, which is
+// what 14.7.1p1 asks the template for the body with.
+SemaEntity* SemaAnalyzer::folded_name(const std::string& spelling,
+                                      const Context& ctx)
+{
+	std::vector<SemaEntity*> found;
+	SemaEntity* const specialized =
+		template_specializations(spelling, ctx, found);
+	if (specialized == nullptr)
+	{
+		return resolve(spelling, ctx, LookupKind::Any);
+	}
+	if (found.size() > 1)
+	{
+		throw NotConstant(spelling + " names more than one function template "
+		                  "specialization and a constant expression writes no "
+		                  "target type for 13.4 to choose between them", false);
+	}
+	if (checking_ != 0)
+	{
+		// 14.6p8: a reading of a pattern declares nothing into the output and
+		// names nothing the unit owes a definition of - the member template of
+		// a class template's own body has no pattern recorded there at all.
+		// The instantiation reads this same spelling again with the arguments
+		// bound, and that naming is where 14.7.1p1's demand is made.
+		return specialized;
+	}
+	return &named_function(*specialized);
+}
+
 // 14.8.1p2 and 13.4p1: the argument list is written once and makes one
 // specialization of each declaration of the name it fits, which is still an
 // overload set for a target type or a call to choose from.  Each of them is a

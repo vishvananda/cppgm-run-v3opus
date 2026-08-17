@@ -1,0 +1,112 @@
+global @addressed : ptr [binding=internal, object=_ZL9addressed] = addr @free_function__ov2
+global @decayed : ptr [binding=internal, object=_ZL7decayed] = addr @free_function__ov2
+global @keyword : ptr [binding=internal, object=_ZL7keyword] = addr @plain__member
+global @unkeyed : ptr [binding=internal, object=_ZL7unkeyed] = addr @plain__member
+global @nested : ptr [binding=internal, object=_ZL6nested] = addr @holder_long_int___nested
+global @own : ptr [binding=internal, object=_ZL3own] = addr @holder_long_int___own
+global @table_long_int___entries [binding=weak, object=_ZN5tableIlE7entriesE] = {
+  ptr addr @holder_long_int___nested
+  ptr addr @free_function__ov3
+}
+
+function @free_function(%__param0 : i32) -> i32 [binding=strong, object=_Z13free_functioni] {
+  slot $__param0 : i32
+
+  block ^entry:
+    store i32 %__param0, $__param0
+    return i32 100
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $reached : i32
+  slot $through : i32
+  slot $cond__1 : i32
+  slot $land__2 : i64
+
+  block ^entry:
+    %t1 = load ptr @addressed
+    %t2 = call i32 %t1() as () -> i32
+    %t3 = load ptr @decayed
+    %t4 = call i32 %t3() as () -> i32
+    %t5 = binary add i32 %t2, %t4
+    %t6 = load ptr @keyword
+    %t7 = call i32 %t6() as () -> i32
+    %t8 = binary add i32 %t5, %t7
+    %t9 = load ptr @unkeyed
+    %t10 = call i32 %t9() as () -> i32
+    %t11 = binary add i32 %t8, %t10
+    %t12 = load ptr @nested
+    %t13 = call i32 %t12() as () -> i32
+    %t14 = binary add i32 %t11, %t13
+    %t15 = load ptr @own
+    %t16 = call i32 %t15() as () -> i32
+    %t17 = binary add i32 %t14, %t16
+    store i32 %t17, $reached
+    %t18 = addr @table_long_int___entries
+    %t19 = unary decay ptr %t18
+    %t20 = index ptr [projection=array_element] %t19, 0
+    %t21 = load ptr %t20
+    %t22 = call i32 %t21() as () -> i32
+    %t23 = addr @table_long_int___entries
+    %t24 = unary decay ptr %t23
+    %t25 = index ptr [projection=array_element] %t24, 1
+    %t26 = load ptr %t25
+    %t27 = call i32 %t26() as () -> i32
+    %t28 = binary add i32 %t22, %t27
+    store i32 %t28, $through
+    %t29 = load i32 $reached
+    %t30 = binary add i32 1, 1
+    %t31 = binary add i32 %t30, 4
+    %t32 = binary add i32 %t31, 4
+    %t33 = binary add i32 %t32, 8
+    %t34 = binary add i32 %t33, 16
+    %t35 = cmp eq i32 %t29, %t34
+    branch %t35, ^land_rhs_4, ^land_short_5
+
+  block ^land_rhs_4:
+    %t36 = load i32 $through
+    %t37 = binary add i32 8, 1
+    %t38 = cmp eq i32 %t36, %t37
+    %t39 = cmp ne i64 %t38, 0
+    store i64 %t39, $land__2
+    jump ^land_end_6
+
+  block ^land_short_5:
+    store i64 0, $land__2
+    jump ^land_end_6
+
+  block ^land_end_6:
+    %t40 = load i64 $land__2
+    branch %t40, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t41 = load i32 $cond__1
+    return i32 %t41
+}
+function @holder_long_int___own() -> i32 [binding=weak, object=_ZN6holderIlE3ownEv] {
+  block ^entry:
+    return i32 16
+}
+function @free_function__ov2() -> i32 [binding=weak, object=_Z13free_functionIcEiv] {
+  block ^entry:
+    return i32 1
+}
+function @plain__member() -> i32 [binding=weak, object=_ZN5plain6memberIcEEiv] {
+  block ^entry:
+    return i32 4
+}
+function @holder_long_int___nested() -> i32 [binding=weak, object=_ZN6holderIlE6nestedIcEEiv] {
+  block ^entry:
+    return i32 8
+}
+function @free_function__ov3() -> i32 [binding=weak, object=_Z13free_functionIlEiv] {
+  block ^entry:
+    return i32 1
+}

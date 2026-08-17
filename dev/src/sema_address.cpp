@@ -410,9 +410,13 @@ std::uint32_t ConstexprReading::designated(const AstNode& node,
 
 	case AstKind::IdExpression:
 	{
+		// 14.2 with 5.3.1p3: `&f<int>` takes the address of the specialization
+		// the argument list makes, which is no declaration ordinary lookup
+		// finds - so the name is asked of the same two doors the value reading
+		// beside this one asks, and of 13.4p1's set where they leave one.
 		SemaEntity* const named =
 			child_kind(node, AstKind::CarriedExpression) == nullptr
-			? analyzer_.resolve(node.text, ctx, LookupKind::Any)
+			? analyzer_.folded_name(node.text, ctx)
 			: analyzer_.decltype_qualified_name(node, ctx, LookupKind::Any);
 		return designated_entity(analyzer_.require(named, node.text), node.text);
 	}
