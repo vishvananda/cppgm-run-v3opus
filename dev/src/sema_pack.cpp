@@ -305,6 +305,23 @@ void collect_packs(TypeTable& types, TypeId pattern,
 	{
 	case TypeKind::TemplateParameter:
 	{
+		const TypeId applied = types.applied_template(pattern);
+		if (applied != kNoType)
+		{
+			// 14.6.2p1: `F<A…>` where `F` is a place no argument list has
+			// settled is a naming written *over* its arguments, so a pack one
+			// of them names is one this pattern names - which is what
+			// `tuple<S<E>...>` writes.  The place `F` stands for itself and is
+			// walked too, because a head may declare it a pack of its own.
+			collect_packs(types, applied, runs, places, seen);
+			const std::vector<TypeId>& listed =
+				types.template_arguments(pattern);
+			for (std::size_t index = 0; index < listed.size(); ++index)
+			{
+				collect_packs(types, listed[index], runs, places, seen);
+			}
+			return;
+		}
 		if (!types.is_template_pack(pattern))
 		{
 			return;

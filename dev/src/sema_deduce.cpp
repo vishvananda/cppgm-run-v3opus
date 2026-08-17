@@ -142,6 +142,15 @@ bool Deduction::match(TypeId pattern, TypeId argument,
 			                types.template_arguments(base), bindings);
 	}
 
+	case TypeKind::Value:
+		// 14.3.2p1: a value argument is the bits it holds together with the type
+		// it was converted to, and only the second of those can name a place -
+		// `template<class T, T v>` written in a pattern as `ic<T, true>` is the
+		// settled `true` over a type this pair deduces.  So the bits agree
+		// exactly and the types are a pair of their own.
+		return types.value_bits(pattern) == types.value_bits(argument) &&
+			match(types.target(pattern), types.target(argument), bindings);
+
 	default:
 		// A fundamental type or an enumeration holds no parameter to deduce,
 		// so the two agree exactly when they are the same type.
@@ -345,7 +354,16 @@ bool Deduction::match_run(TypeId expansion, const std::vector<TypeId>& given,
 		// Each element is a P/A pair of its own, over bindings of its own: what
 		// the place took there is one element of the run, and what it took in
 		// another element is a different one.
-		std::unordered_map<TypeId, TypeId> one;
+		//
+		// 14.8.2.5p2: every *other* place the pattern names binds one argument
+		// and not a run - `tuple<S<E>...>` deduces its `S` once from every
+		// element - so each pair starts from what the pairs before it deduced
+		// and what this one adds is merged back.
+		std::unordered_map<TypeId, TypeId> one(bindings);
+		// The pack place itself is the one this pair may not start from: what an
+		// earlier list deduced it to is a *run*, and what this element deduces
+		// it to is one element of one.
+		one.erase(places[0]);
 		if (!match(inner, given[at], one))
 		{
 			return false;
@@ -357,6 +375,21 @@ bool Deduction::match_run(TypeId expansion, const std::vector<TypeId>& given,
 			return false;
 		}
 		run.push_back(took->second);
+		for (std::unordered_map<TypeId, TypeId>::const_iterator entry =
+			     one.begin();
+		     entry != one.end(); ++entry)
+		{
+			if (entry->first == places[0])
+			{
+				continue;
+			}
+			const std::pair<std::unordered_map<TypeId, TypeId>::iterator, bool>
+				held = bindings.insert(*entry);
+			if (!held.second && held.first->second != entry->second)
+			{
+				return false;
+			}
+		}
 	}
 	// 14.8.2.5p2 over a run: two lists that deduce one pack differently deduce
 	// nothing, exactly as two arguments at one place do.

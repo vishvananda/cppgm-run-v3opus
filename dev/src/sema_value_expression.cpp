@@ -1240,8 +1240,7 @@ TypeId SemaAnalyzer::template_argument_value(const std::string& spelling,
 		throw NotConstant(spelling + " is not a constant expression this "
 		                  "milestone reads as a template argument");
 	}
-	if (reader.dependent() ||
-	    (place != kNoType && types_.is_dependent(place)))
+	if (reader.dependent())
 	{
 		return dependent_value(spelling);
 	}
@@ -1258,6 +1257,20 @@ TypeId SemaAnalyzer::template_argument_value(const std::string& spelling,
 		// `explicit` out of it.
 		given = ConstexprReading(*this).converted(
 			given, place == kNoType ? kNoType : types_.strip_cv(place), false);
+	}
+	if (place != kNoType && types_.is_dependent(place))
+	{
+		// 14.3.2p1: the value is settled and the type it is a converted constant
+		// expression *of* is not, which is what `template<class T, T v>` writes -
+		// so the argument is that constant standing over the place, exactly as
+		// the type table already describes a `Value` whose target is dependent.
+		// An argument list settling the place is what carries the bits onto it.
+		//
+		// The reading it replaces made an opaque stand-in named after the
+		// spelling, which no substitution could ever settle and which 14.8.2.5p4
+		// read as a *place* - so `at<integral_constant<T, true>...>` matched an
+		// `integral_constant<bool, false>` by deducing "true" from `false`.
+		return types_.value_type(place, given.bits);
 	}
 	const TypeId type = place == kNoType ? given.type : place;
 	if (integral_type(type) == kNoType)

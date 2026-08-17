@@ -563,6 +563,18 @@ TypeId SpelledTypeId::suffix(TypeId base,
 		{
 			parameters.clear();
 		}
+		// 8.3.5p5: a parameter of array or function type contributes a pointer,
+		// and its top-level cv-qualifiers are dropped - so `Fun(A0(B0))` is a
+		// function of a *pointer to* `A0(B0)`, which is what a pattern written
+		// `call<Fun(A0)>` deduces its `A0` to.  This is the adjustment
+		// `parameter_types` makes of the clause PA10 handed on as a tree, made
+		// here for the one PA10 handed on as text.
+		for (std::size_t index = 0; analyzer_.semantics() &&
+		                            index < parameters.size(); ++index)
+		{
+			parameters[index] =
+				analyzer_.types_.adjust_parameter(parameters[index]);
+		}
 	}
 	// 8.3.5p1 and 8.3.5p7: the cv-qualifier-seq and the ref-qualifier written
 	// after a parameter-clause are part of the function type the declarator made,
