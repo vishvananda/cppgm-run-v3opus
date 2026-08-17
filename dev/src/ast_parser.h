@@ -314,6 +314,11 @@ private:
 	// body: `template<class T> int f(T) { return f<int>(1); }` reads the
 	// second `f` against the first.
 	bool template_pending_;
+	// 14.1p2: set while the default argument of a template-template parameter
+	// is being read, where 14.3.3p1 makes the argument a template-name rather
+	// than 8.1p1's type-id - so a name declared only as a template stands there
+	// as the one thing that place accepts.
+	bool template_place_default_;
 	// What `simple-template-id` matched at a position, so that the readings of
 	// a template-argument - a type-id, an expression, and an expression with
 	// the veto above - descend into a nested template-id once between them

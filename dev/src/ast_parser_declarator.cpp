@@ -203,7 +203,8 @@ bool AstParser::parse_name_specifier(AstNode* seq, SpecifierMode mode,
 	// written where no class of that name encloses it is 6.8p1's expression and
 	// not a declaration of `which`.
 	if (kind == NameKind::Value || named == NameKind::FunctionTemplate ||
-	    (kind == NameKind::Template && (!plain || !names_.injected(text))))
+	    (kind == NameKind::Template && !template_place_default_ &&
+	     (!plain || !names_.injected(text))))
 	{
 		reset(start);
 		return false;

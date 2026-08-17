@@ -150,6 +150,13 @@ bool Deduction::match_template_id(TypeId pattern, TypeId argument, TypeId place,
                                   std::unordered_map<TypeId, TypeId>& bindings)
 {
 	TypeTable& types = analyzer_.types_;
+	if (types.cv(pattern) != types.cv(argument))
+	{
+		// 14.8.2.5p4: the qualifiers stand in the pair as they are written, so
+		// `L<T…>` is no match for a class an argument list wrote `const` on -
+		// which is what leaves `holder<T const>` the one pattern it matches.
+		return false;
+	}
 	const TypeId bare = types.strip_cv(argument);
 	if (types.kind(bare) != TypeKind::Class || !types.is_specialization(bare))
 	{

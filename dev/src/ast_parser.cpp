@@ -10,6 +10,7 @@ AstParser::AstParser(const AstTokenStream& tokens, AstArena& arena)
 	, bracket_depth_(0)
 	, template_id_veto_depth_(-1)
 	, template_pending_(false)
+	, template_place_default_(false)
 	, template_id_memo_version_(names_.version())
 {
 }

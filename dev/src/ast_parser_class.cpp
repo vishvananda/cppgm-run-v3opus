@@ -391,8 +391,10 @@ AstNode* AstParser::parse_type_parameter()
 {
 	const Mark start = mark();
 	AstNode* node = make(AstKind::TypeParameter);
+	bool place = false;
 	if (accept(KW_TEMPLATE))
 	{
+		place = true;
 		node->add(make(AstKind::TemplateTemplateParameter));
 		AstNode* clause = parse_template_parameter_clause();
 		if (clause == nullptr || !at(KW_CLASS))
@@ -418,7 +420,15 @@ AstNode* AstParser::parse_type_parameter()
 	}
 	if (accept(OP_ASS))
 	{
+		// 14.1p2: the default argument at a template place is an id-expression
+		// naming a template, which 14.2 leaves no type-specifier of its own -
+		// so the one reading is told that a template-name stands there, and
+		// what it builds is the shape every other default argument is written
+		// in.
+		const bool enclosing = template_place_default_;
+		template_place_default_ = place;
 		AstNode* type = parse_type_id();
+		template_place_default_ = enclosing;
 		if (type == nullptr)
 		{
 			return fail(start);

@@ -13,16 +13,17 @@
 // 14.1p2's template-parameter-clause and 14.3p1's template-argument-list.
 //
 // A template head declares *places* rather than declarations: what each place
-// is - a type or a value of a written type - is settled once, in 14.6.1p1's own
-// region, and every argument list read afterwards substitutes its own bindings
-// into what was settled there rather than reading the head's syntax again.
-// This file owns both halves of that: the head, and the reading of one written
-// argument list against it.
+// is - a type, a value of a written type, or a template - is settled once, in
+// 14.6.1p1's own region, and every argument list read afterwards substitutes its
+// own bindings into what was settled there rather than reading the head's syntax
+// again.  This file owns both halves of that: the head, and the reading of one
+// written argument list against it.
 //
 // 14.2 writes an argument list inside a name, so an argument arrives as text.
-// A type argument is turned back into what was written by `sema_type_id.cpp`
-// and a value argument by `sema_value_expression.cpp`; what belongs here is
-// which of the two a place asked for, and what the answer is bound as.
+// A type argument is turned back into what was written by `sema_type_id.cpp`,
+// a value argument by `sema_value_expression.cpp` and a template argument by
+// 3.4.3's ordinary lookup of the name; what belongs here is which of the three
+// a place asked for, and what the answer is bound as.
 
 namespace
 {
@@ -51,9 +52,52 @@ const AstNode* first_child(const AstNode& node, AstKind kind)
 	return nullptr;
 }
 
+// 14.2p4: `X::template f` names the member template `f`, and the keyword says
+// only that the name is one - so what a lookup asks for is the name without it.
+std::string without_template_keyword(const std::string& written)
+{
+	static const std::string keyword = "template ";
+	std::string out;
+	out.reserve(written.size());
+	for (std::string::size_type at = 0; at < written.size();)
+	{
+		const bool begins = at == 0 ||
+			(at >= 2 && written.compare(at - 2, 2, "::") == 0);
+		if (begins && written.compare(at, keyword.size(), keyword) == 0)
+		{
+			at += keyword.size();
+			continue;
+		}
+		out.push_back(written[at]);
+		++at;
+	}
+	return out;
+}
+
 // The name a declarator declares, taken from the syntax alone.  14.1p2's
 // parameter names are read before any region exists to look them up in, so the
 // walk is over the tree and not over a declaration.
+// 14.1p2 at a template place: the name the default argument wrote, taken from
+// the type-id shape every default argument is written in.  A template-name has
+// no type-specifier of its own, so what stands there is the one name.
+std::string written_name(const AstNode& node)
+{
+	if (node.kind == AstKind::TypeName || node.kind == AstKind::Identifier ||
+	    node.kind == AstKind::DeclSpecifier)
+	{
+		return node.text;
+	}
+	for (std::size_t index = 0; index < node.children.size(); ++index)
+	{
+		const std::string found = written_name(*node.children[index]);
+		if (!found.empty())
+		{
+			return found;
+		}
+	}
+	return std::string();
+}
+
 const AstNode* declarator_name(const AstNode& declarator)
 {
 	for (std::size_t index = 0; index < declarator.children.size(); ++index)
@@ -113,7 +157,11 @@ TypeId TemplateHead::template_argument(const std::string& written,
                                        const TemplateInfo* place,
                                        const SemaContext& ctx)
 {
-	SemaEntity* named = analyzer_.resolve(written, ctx, LookupKind::Any);
+	// 14.2p4: a member template named through a class writes `template` in
+	// front of its name, which says the name is a template and is no part of
+	// the name a lookup asks for.
+	const std::string spelling = without_template_keyword(written);
+	SemaEntity* named = analyzer_.resolve(spelling, ctx, LookupKind::Any);
 	if (named != nullptr && analyzer_.types_.is_parameter_template(named->type))
 	{
 		// 14.6.2p1: a place of the head being read stands for itself, and what
@@ -131,7 +179,7 @@ TypeId TemplateHead::template_argument(const std::string& written,
 	if (named == nullptr || named->templated == nullptr ||
 	    (named->kind != SemaKind::Class && named->kind != SemaKind::Typedef))
 	{
-		throw std::runtime_error(written + " is written where a template-name "
+		throw std::runtime_error(spelling + " is written where a template-name "
 		                         "stands and names no class or alias template");
 	}
 	// 14.3.3p1 asks what the argument's own places are, which is what
@@ -140,7 +188,7 @@ TypeId TemplateHead::template_argument(const std::string& written,
 	open_region(*named->templated);
 	if (place != nullptr && !argument_matches(*place, *named->templated))
 	{
-		throw std::runtime_error(written + " declares places the template "
+		throw std::runtime_error(spelling + " declares places the template "
 		                         "parameter it is written at does not accept");
 	}
 	return name_argument(*named);
@@ -670,6 +718,14 @@ void TemplateHead::bind_arguments(
 			}
 			bind(*inner.scope, fill.spelled[before], out[before],
 			              SemaKind::Typedef);
+		}
+		if (info.parameters[index].templated)
+		{
+			// 14.1p2: the default at a template place names a template, which
+			// 8.1p1's reading of a type-id has nothing to make of.
+			out.push_back(template_argument(written_name(*fill.written),
+			                                info.parameters[index].head, inner));
+			continue;
 		}
 		if (!info.parameters[index].value)
 		{
