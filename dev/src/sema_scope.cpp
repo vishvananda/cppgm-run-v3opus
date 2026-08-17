@@ -437,8 +437,37 @@ void SemaModel::befriend(const SemaEntity& granting, const SemaEntity& friendly)
 	                    friendly.id);
 }
 
+// 14.5.4p1: a friend of a class may be a template, and a grant written inside
+// a class template's own definition was made by a template - so the pair a
+// grant was recorded between is a pair of *templates* where either side was
+// written under a head, while every access check asks the question of the two
+// declarations a use actually named.  `primary` is the one fact that joins
+// them: both tiers put it on every specialization they make, so the pair is
+// asked as the use spelled it and then with each side replaced by the template
+// it came from.  A grant recorded between two specializations reaches no other
+// one, because the substitution only ever runs in this direction.
 bool SemaModel::befriended(const SemaEntity& granting,
                            const SemaEntity& friendly) const
+{
+	if (holds_friendship(granting, friendly))
+	{
+		return true;
+	}
+	if (friendly.primary != nullptr && holds_friendship(granting, *friendly.primary))
+	{
+		return true;
+	}
+	if (granting.primary == nullptr)
+	{
+		return false;
+	}
+	return holds_friendship(*granting.primary, friendly) ||
+		(friendly.primary != nullptr &&
+		 holds_friendship(*granting.primary, *friendly.primary));
+}
+
+bool SemaModel::holds_friendship(const SemaEntity& granting,
+                                 const SemaEntity& friendly) const
 {
 	return friendships_.find((static_cast<std::uint64_t>(granting.id) << 32) |
 	                         friendly.id) != friendships_.end();

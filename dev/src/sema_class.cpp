@@ -1993,11 +1993,15 @@ void SemaAnalyzer::grant_class_friendship(const Context& ctx,
 // - where the declarator-id is unqualified - binds its name nowhere.  A
 // qualified declarator-id names a function that region already declares, which
 // 11.3p10 is the only thing it may name.
+//
+// `granting` is taken by the caller before the declarator is read, because
+// 3.4.1p8 moves the head a qualified declarator-id stands under *inside* the
+// region that name reaches - so by the time the declarator has been read the
+// class the declaration was written in is on none of the regions around it.
 SemaEntity* SemaAnalyzer::friend_target(const Context& ctx,
                                         const QualifiedName& spelled,
-                                        Context& target)
+                                        Context& target, SemaEntity* granting)
 {
-	SemaEntity* const granting = granting_class(ctx);
 	if (granting == nullptr)
 	{
 		throw std::runtime_error("a friend declaration is written outside a "

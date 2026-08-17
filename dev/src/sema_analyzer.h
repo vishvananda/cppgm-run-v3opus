@@ -261,14 +261,15 @@ private:
 	// from the point its type is known.  `granting` is the class a friend
 	// declaration gives this declaration the access of, and null for every
 	// other declaration.
-	// 11.3p5, 3.5p3, 3.5p4 and 7.1.2p2: where the name a definition declares is
-	// reached from and how the object file binds it, which its own declaration
-	// says and its body does not.
-	void record_definition_binding(SemaEntity& entity,
+	// 7.1.5p1, 10.3p1, 11.3p5, 3.5p3 and 7.1.2p2: what a definition's own
+	// declaration says about the function, which its body does not - and which
+	// stands for the function however its other declarations were written.
+	void record_definition_binding(SemaEntity& entity, const AstNode& node,
 	                               const Specifiers& specifiers,
 	                               const Context& ctx, const Context& target,
 	                               const QualifiedName& spelled,
-	                               SemaEntity* granting);
+	                               SemaEntity* granting, TypeId type,
+	                               TypeId written_type);
 	void declare_function_declarator(const AstNode& node,
 	                                 const std::string& name, TypeId type,
 	                                 const QualifiedName& spelled,
@@ -1204,13 +1205,13 @@ private:
 	// the class the declaration grants access to, and leaves `target` naming
 	// the region the function is declared in.
 	SemaEntity* friend_target(const Context& ctx, const QualifiedName& spelled,
-	                          Context& target);
+	                          Context& target, SemaEntity* granting);
 	// 11.3p6 and 7.3.1.2p3: the declaration a friend declaration made visible,
 	// which a later namespace-scope declaration of the same function is.  The
 	// entity moves from the region's hidden chain into the one its name binds,
 	// so the program has one function rather than two.
 	void reveal_friend(Scope& where, const std::string& name,
-	                   SemaEntity& entity, std::uint32_t signature);
+	                   SemaEntity& entity);
 	// 11.3p2: `friend C;` and `friend class C;` grant this class's access to
 	// the class the specifiers named, which declares nothing.
 	void grant_class_friendship(const Context& ctx,

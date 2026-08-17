@@ -1,0 +1,48 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $cond__1 : i32
+  slot $argobj__2 : obj<4x4>
+
+  block ^entry:
+    %t1 = addr $argobj__2
+    call void @store__crate_int___crate(%t1, 7)
+    %t2 = call i32 @store__detail__weigh($argobj__2)
+    %t3 = cmp eq i32 %t2, 7
+    branch %t3, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t4 = load i32 $cond__1
+    return i32 %t4
+}
+function @store__crate_int___crate(%this : ptr, %m : i32) -> void [binding=weak, object=_ZN5store5crateIiEC1Ei] {
+  slot $this : ptr
+  slot $m : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %m, $m
+    %t1 = load i32 $m
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 %t1, %t3
+    return void
+}
+function @store__detail__weigh(%c : obj<4x4>) -> i32 [binding=weak, object=_ZN5store6detail5weighIiEEiNS_5crateIT_EE] {
+  slot $c : obj<4x4>
+
+  block ^entry:
+    %t1 = addr $c
+    copyobj 4x4 %c, %t1
+    %t2 = addr $c
+    %t3 = index i8 [projection=field] %t2, 0
+    %t4 = load i32 %t3
+    return i32 %t4
+}
+alias object _ZN5store5crateIiEC2Ei = @store__crate_int___crate

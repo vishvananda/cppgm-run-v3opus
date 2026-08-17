@@ -1151,7 +1151,10 @@ void SemaAnalyzer::template_declaration(const AstNode& node, const Context& ctx)
 	// milestone instantiates one the pattern is recorded rather than read.
 	// PA11 and PA12 describe what the declaration *says*, which is the walk
 	// below, and neither instantiates anything.
-	if (lowering() && record_template(node, ctx))
+	// 14.5.4p1 is the one thing 14.6p8's reading of a pattern records, so the
+	// question is asked wherever a template is being read at all and
+	// `record_template` is what tells that declaration from the rest.
+	if (templating() && record_template(node, ctx))
 	{
 		return;
 	}
@@ -1844,7 +1847,13 @@ void SemaAnalyzer::declare_function_declarator(
 	SemaEntity& function =
 		declare_function(name, type, target, false,
 		                 granting != nullptr && !spelled.qualified(),
-		                 type != written_type);
+		                 type != written_type,
+		                 // 11.3p10: a friend declaration whose declarator-id is
+		                 // qualified names a function the region that name
+		                 // reaches already declared, and declares none of its
+		                 // own - so a declarator that matches nothing there
+		                 // names no function however nearly it spells one.
+		                 granting != nullptr && spelled.qualified());
 	// 15.4p1: one declaration written with a non-throwing
 	// exception-specification is what says the function throws nothing,
 	// however the others were written.
@@ -2092,6 +2101,12 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 	const AstNode* const id = declarator_id(node);
 	const std::string written_id = id == nullptr ? std::string() : id->text;
 	const QualifiedName spelled(written_id);
+	// 11.3p1: which class grants a friend declaration its access is a fact of
+	// where the declaration was written, taken here because `StandingIn` below
+	// moves the head this declaration stands under inside the region its
+	// declarator-id names - which leaves no class on the regions around it.
+	SemaEntity* const befriending =
+		specifiers.is_friend ? granting_class(ctx) : nullptr;
 	// 3.4.3p3: a declarator-id with a nested-name-specifier declares into the
 	// region that names, wherever the declaration is written.
 	Context target = ctx;
@@ -2199,7 +2214,8 @@ void SemaAnalyzer::init_declarator(const AstNode& node,
 	// the class, so the declarator is read against that region and the class
 	// gets the grant.
 	SemaEntity* const granting =
-		specifiers.is_friend ? friend_target(ctx, spelled, target) : nullptr;
+		specifiers.is_friend ? friend_target(ctx, spelled, target, befriending)
+		                     : nullptr;
 
 	if (specifiers.is_typedef)
 	{

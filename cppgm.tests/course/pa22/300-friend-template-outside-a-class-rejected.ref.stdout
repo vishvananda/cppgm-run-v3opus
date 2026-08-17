@@ -1,0 +1,19 @@
+ERROR: unsupported template declaration [inner kind=simple-declaration] [inner text ] [has specifiers yes] [has declarator no] [children decl-specifier-seq] [inner ast={simple-declaration
+  decl-specifier-seq
+    decl-specifier KW_FRIEND:friend
+    class-forward-declaration stranger
+      class-key KW_CLASS:class
+}] [top-level declaration 0 kind=template-declaration ast={template-declaration
+  template-parameter-clause
+    template-parameter-list
+      type-parameter
+        parameter-key KW_CLASS:class
+        identifier U
+  simple-declaration
+    decl-specifier-seq
+      decl-specifier KW_FRIEND:friend
+      class-forward-declaration stranger
+        class-key KW_CLASS:class
+}]
+Diagnostic context:
+collect_template_declaration [template<class U>friend class stranger;] at course/pa22/300-friend-template-outside-a-class-rejected.t:7:1

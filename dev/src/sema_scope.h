@@ -1156,6 +1156,9 @@ public:
 	bool has_friends() const { return !friendships_.empty(); }
 
 private:
+	// One recorded pair, with neither side stood in for.
+	bool holds_friendship(const SemaEntity& granting,
+	                      const SemaEntity& friendly) const;
 	// The regions that bind `name`, or null when no region does.
 	const std::vector<Scope*>* declarers(const std::string& name) const;
 	// 3.4: the one declaration of `name` there is, when the search reaches the

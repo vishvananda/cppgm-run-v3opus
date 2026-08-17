@@ -1039,7 +1039,12 @@ SemaEntity* SemaAnalyzer::resolve(const std::string& spelling, const Context& ct
 	{
 		// 11.2: a qualified name reaches a member of the class it names, which
 		// is where the access that class gave the member is asked about.
-		require_access(*named, ctx.scope);
+		// 11.2p5: that class is the naming class as much as the one an object
+		// expression writes - the member is reached through the bases between
+		// it and the class that declared the member, and a base that grants the
+		// access is what a member declared further up is reached through.
+		require_access(*named, ctx.scope,
+		               region->kind == ScopeKind::Class ? region : nullptr);
 	}
 	return named;
 }
@@ -1240,14 +1245,16 @@ SemaEntity* SemaAnalyzer::qualified_in_type(TypeId head,
 		throw std::runtime_error("a decltype-specifier written before `::` "
 		                         "names no class or enumeration");
 	}
+	Scope* const naming = resolve_prefix(written, ctx, region);
 	SemaEntity* const named =
-		model_.lookup_in(*resolve_prefix(written, ctx, region), written.last(),
-		                 filter, found);
+		model_.lookup_in(*naming, written.last(), filter, found);
 	if (named != nullptr)
 	{
-		// 11.2: the name reaches a member of the class the prefix named, which
-		// is where the access that class gave the member is asked about.
-		require_access(*named, ctx.scope);
+		// 11.2 and 11.2p5: the name reaches a member of the class the prefix
+		// named, which is where the access that class gave the member is asked
+		// about and which is the naming class the bases between are read from.
+		require_access(*named, ctx.scope,
+		               naming->kind == ScopeKind::Class ? naming : nullptr);
 	}
 	return named;
 }

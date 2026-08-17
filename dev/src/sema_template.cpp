@@ -470,6 +470,41 @@ const AstNode* first_child(const AstNode& node, AstKind kind)
 	return nullptr;
 }
 
+// 14.5.4p1 with 11.3p11: `template<class U> friend class W;` - a
+// template-declaration whose declaration is a friend declaration with no
+// declarator.  What the head parameterises is the elaborated-type-specifier the
+// decl-specifier-seq wrote, so the class tier below reads that node and the
+// grant is made to the template it settles on.  Null for every other
+// declaration, including a friend one that writes a declarator: that one
+// declares a function and 11.3p6 already owns it.
+const AstNode* friend_class_declared(const AstNode& declared)
+{
+	if (declared.kind != AstKind::SimpleDeclaration ||
+	    first_child(declared, AstKind::InitDeclaratorList) != nullptr)
+	{
+		return nullptr;
+	}
+	const AstNode* const specifiers =
+		first_child(declared, AstKind::DeclSpecifierSeq);
+	if (specifiers == nullptr)
+	{
+		return nullptr;
+	}
+	const AstNode* elaborated = nullptr;
+	bool wrote_friend = false;
+	for (std::size_t index = 0; index < specifiers->children.size(); ++index)
+	{
+		const AstNode& child = *specifiers->children[index];
+		wrote_friend = wrote_friend || (child.kind == AstKind::DeclSpecifier &&
+		                                child.token == KW_FRIEND);
+		if (child.kind == AstKind::ClassForwardDeclaration)
+		{
+			elaborated = &child;
+		}
+	}
+	return wrote_friend ? elaborated : nullptr;
+}
+
 }
 
 // 14p1: records what a template-declaration parameterises rather than reading
@@ -499,6 +534,35 @@ bool SemaAnalyzer::record_template(const AstNode& node, const Context& ctx)
 	}
 	if (clause == nullptr || declared == nullptr)
 	{
+		return false;
+	}
+	// 14.5.4p1 and 11.3p11: a friend declaration under a head names a class
+	// *template* - the one the innermost enclosing namespace declares, or the
+	// one declared there when it declares none yet - and grants it the reach
+	// the class around the declaration has.  The class tier below is what
+	// settles which template that is, so the elaborated-type-specifier stands
+	// as this head's declaration and the region it is read against is the
+	// namespace rather than the class.
+	SemaEntity* granting = nullptr;
+	if (const AstNode* const elaborated = friend_class_declared(*declared))
+	{
+		granting = granting_class(ctx);
+		if (granting == nullptr)
+		{
+			throw std::runtime_error("a friend declaration is written outside a "
+			                         "class definition");
+		}
+		declared = elaborated;
+	}
+	else if (!lowering())
+	{
+		// 14.6p8's reading of a class template's own definition is the PA11
+		// dialect, which records no template because what it asks is what the
+		// declaration *says*.  14.5.4p1's friend above is the one record it
+		// does make: the class it names belongs to the namespace around the
+		// class template, so declaring a plain class of that spelling there
+		// would leave the unit holding a declaration the program never wrote
+		// and refusing the template-declaration that follows.
 		return false;
 	}
 	if (first_child(*clause, AstKind::TemplateParameterList) == nullptr &&
@@ -577,7 +641,18 @@ bool SemaAnalyzer::record_template(const AstNode& node, const Context& ctx)
 	// over that region for as long as the body is read, which the pattern's own
 	// region already says.
 	Context target = ctx;
-	if (spelled.qualified())
+	if (granting != nullptr && !spelled.qualified())
+	{
+		// 11.3p11 and 3.3.2p6: the class an *unqualified* friend
+		// elaborated-type-specifier names belongs to the innermost enclosing
+		// namespace and is no member of the class the declaration is written
+		// in - which is where the non-template friend path already declares
+		// one.  A qualified one names the template that region already
+		// declares, exactly as every other qualified class-head-name does.
+		target.scope = &friend_namespace(*ctx.scope);
+		target.dump = target.scope->dump;
+	}
+	else if (spelled.qualified())
 	{
 		target.scope = resolve_prefix(spelled, ctx);
 		target.dump = target.scope->dump;
@@ -703,6 +778,16 @@ bool SemaAnalyzer::record_template(const AstNode& node, const Context& ctx)
 			complete_specialization(
 				*entity->templated->specializations[index]);
 		}
+	}
+	if (granting != nullptr)
+	{
+		// 11.3p1 with 14.5.4p1: the grant is between the two templates, and
+		// every specialization either of them makes carries the pattern it came
+		// from - so one entry answers `friend class W;` for every `W<A...>`
+		// this unit goes on to make, and nothing is re-recorded per argument
+		// list.
+		model_.befriend(*granting, *entity);
+		return true;
 	}
 	// The dump names the template where it was written, as the declaration it
 	// parameterises spells it.

@@ -19,11 +19,12 @@ replaced:
 - `sema_template.h/.cpp` — the template entity graph: `TemplateInfo` per
   template, `TemplateSignatures` for 14.5.6.1p5's comparison of two heads,
   `instantiate_class`/`specialize` per argument list, and `substituted` as the
-  one door a dependent type comes back through.
+  one door a dependent type comes back through. `record_template` is also
+  14.5.4p1's tier: a head over a friend elaborated-type-specifier declares a
+  class template of the enclosing namespace and grants to it.
 - `sema_class.cpp` — 12's special members, which 14.5.2p1 lets a head stand
-  over: a constructor template and a conversion function template reach neither
-  `function_definition` nor `declare_function`, so this file writes for them
-  what those write for every other member template.
+  over; and 11.3's `granting_class`/`friend_target`/`accessible`, where 11.2p5's
+  naming class and 11.3p1's grant meet.
 - `sema_definition_names.cpp` — 14.6p8's first of the two readings: the names a
   template definition writes, looked up where the definition stands.
 - `sema_specialize.h/.cpp` — the three heads whose declaration the primary's own
@@ -37,24 +38,27 @@ replaced:
 
 ## Current Failure Map
 
-The M audit landed **229 / 318** — the same 224 of 313 the checkpoint left,
-plus the 5 new `course/pa22` fixtures this audit wrote for what it fixed. The
-89 that fail are byte-identical to the set checkpoint M left, grouped by the
-compiler behaviour that owns them, from the diagnostic each one now reaches:
+Checkpoint F landed **246 / 323** — the 241 of 318 the fixture set had after the
+12 friend fixtures F fixed, plus the 5 new `course/pa22` fixtures it wrote. The
+77 that fail are the set checkpoint M's audit left minus those 12, grouped by
+the compiler behaviour that owns them, from the diagnostic each one now reaches:
 
 | # | Group | Owner | Signature |
-|---|---|---|---|
+|---|-------|-------|-----------|
 | 19 | compiles but the exit status or the LowIR does not match | `lowir_*`, mixed | none; `extern template` suppression is 3 of them and 3 more are `-bad` cases wrongly accepted |
-| 10 | dependent names an instantiation has to find | mixed | `no declaration of … is in scope` |
+| 12 | dependent names an instantiation has to find | mixed | `no declaration of … is in scope` |
 | 9 | a template-id before `::` this walk does not settle | `resolve_prefix` | `X is written after a name that is not a namespace, class or enumeration` |
-| 7 | friend templates | `sema_class.cpp` | `a friend declaration is written outside a class definition`, `… with no declarator names no class` |
-| 6 | access through member class templates and nested type paths | `sema_access.cpp` | `named where the access its class gave it does not reach` |
-| 4 | 14.5.5.2 ordering by pack *prefix length* | `most_specialized` | `matches two partial specializations` |
 | 3 | 14.7.3p1's member of a specialization redeclared | declaration merge | `X is defined twice` |
 | 3 | a `static_assert` whose fold comes out false | mixed | `a static_assert condition is false` |
 | 3 | a head 14.1p2 declares that this milestone still refuses to instantiate | `TemplateHead` | `X is a template whose parameters PA20 does not instantiate` |
+| 2 | 11.3p2's `friend C;` naming a *dependent* class | `grant_class_friendship` | `a friend declaration with no declarator names no class` |
+| 2 | a default template argument the arity check counts | `TemplateHead` | `a template-argument-list gives X more arguments than it has parameters` |
 | 2 | a cast written as a template argument | `sema_constant.cpp` | `names a type that is not integral` |
-| 23 | constant-expression, sizeof-in-argument, arity and call-resolution one-offs | mixed | various |
+| 22 | constant-expression, sizeof-in-argument, arity and call-resolution one-offs | mixed | various |
+
+14.5.5.2's ordering by pack *prefix* length and the six access failures through
+member class templates, which checkpoint M's audit recorded as groups of their
+own, are gone: F's 11.2p5 naming class and 14.5.4p1 grant answered them.
 
 Known gaps probed and deliberately left:
 
@@ -66,43 +70,26 @@ Known gaps probed and deliberately left:
   conversion-type-id, so `operator U()` and `operator V()` over one head are two
   members and an out-of-class definition that renames its place matches none.
   14.8.2.3 at the *named* exit rests on the same fact: `a.operator int()`
-  reaches no declaration here or in `pa22/cppgm++-ref`. The candidate-set exit
-  is landed and swept; naming one needs a canonical name a lookup can ask for.
+  reaches no declaration here or in `pa22/cppgm++-ref`.
 - An **empty** out-of-class destructor of a class template is elided by 12.4p8
-  where `pa22/cppgm++-ref` and `g++` both write the definition. It is not the
-  member-template path and the `d2e26a4d` build does the same.
+  where `pa22/cppgm++-ref` and `g++` both write the definition.
+- `template<class U> friend class W;` inside a class that is itself a *private*
+  nested class, and then `W<T>` naming that class: we refuse where `g++` accepts
+  and the non-template spelling of the same program is refused by `g++` too. The
+  refusal is the one the non-template path already gives, so g++ is the outlier.
 
 ## Active Checkpoint
 
-**The M audit landed this turn — see the ledger. The next one is F, 14.5.4 and
-11.3's friend templates, which owns the largest group with a single owner.**
-
-*Owner.* `sema_class.cpp`'s friend path with `sema_function.cpp`'s
-`friend_target`, reached from the class-body walk.
-
-*Where it stops now.* A `friend` declaration written under a template head
-inside a class body reaches the namespace-scope arm and is refused with `a
-friend declaration is written outside a class definition`; a `friend class T;`
-whose declarator is absent reaches `… with no declarator names no class`. Both
-are the same missing fact: the class the declaration was *written in*, which
-the head's own region now stands between.
-
-*Data flow.* 11.3p1 makes the friend a declaration of the region around the
-class with the class's access; `declaring_region` already answers which class a
-head was written in — the same fact checkpoint M gave `special_member` — so
-`friend_target` is asked of it rather than of `ctx.scope`.
-
-*Expected complexity.* One region walk per friend declaration, which is the
-walk `declares_member_template` already makes.
-
-*Validation.* `make test-report ACTIVE_TEST_REPORT_PAS='pa22'` above 229 with
-`make test-report-through-pa21` clean; the 7 friend diagnostics are the direct
-count.
+**Checkpoint F landed this turn — see the ledger.** The next one is **D**,
+14.6.2's dependent names an instantiation has to find (`no declaration of … is
+in scope`, 12 fixtures) together with the 9 that stop at `resolve_prefix`: both
+are one owner, the walk that turns a written prefix into a region once the
+arguments are in hand, and the 9 are the same failure one component earlier.
 
 ## Performance Model
 
-Best of three with `/usr/bin/time` on generated inputs under `/tmp/perf22c`,
-against a `make build` of `d2e26a4d` in a worktree and against
+Best of three with `/usr/bin/time` on generated inputs under `/tmp/perf22f`,
+against a `make build` of `1b336b81` in a worktree and against
 `pa22/cppgm++-ref`. Five traps are recorded rather than re-measured:
 `timeout`/`date` spawned per run invents a ~0.1 s floor that reads as 33 s over
 the corpus, `cppgm++` run by hand needs `-o` or it compiles nothing, the whole
@@ -112,39 +99,35 @@ every measurement, and `g++ file.t` treats a `.t` as a *linker input* and exits
 0 with a warning — a verdict sweep without `-x c++` reads every ill-formed
 program as accepted.
 
-| Path | Sweep | This build | `d2e26a4d` | `pa22/cppgm++-ref` |
-|---|---|---|---|---|
-| a conversion function template, n *distinct* destination types | 100 → 800 | 0.01 → 0.10 s, 10 → 35 MB | refused | 2.00 s at 800 |
-| a conversion function template, n uses of one destination | 100 → 800 | 0.00 → 0.03 s, 7 → 15 MB | refused | 0.66 s at 800 |
-| n classes each with a non-template and a template conversion | 100 → 800 | 0.02 → 0.17 s, 12 → 53 MB | 0.02 → 0.17 s | 1.29 s at 800 |
-| n constructor templates × n calls | 100 → 800 | 0.03 → 0.99 s, 12 → 52 MB | 0.03 → 1.06 s | 46.61 s at 800 |
-| a conversion template reached through a derivation | depth 4 → 256 | 0.00 → 0.01 s, 6 → 11 MB | refused | 1.13 s at 256 |
-| the whole 313-file corpus, one process per file | — | 1.33 s | 1.31 s | — |
+| Path | Sweep | This build | `1b336b81` | `pa22/cppgm++-ref` |
+|------|-------|-----------|-----------|-------------------|
+| n specializations of a class template that declares a friend class template | 100 → 800 | 0.02 → 0.15 s, 10 → 38 MB | refused | 2.60 s at 800 |
+| n distinct friend class templates in one class, each used | 100 → 800 | 0.01 → 0.13 s, 10 → 39 MB | refused | 1.10 s at 800 |
+| n hidden friend function templates, each called through ADL | 100 → 800 | 0.02 → 0.18 s, 11 → 48 MB | refused | 1.40 s at 800 |
+| a protected member reached through a friend across a derivation chain | depth 4 → 256 | 0.00 → 0.01 s, 6 → 9 MB | refused | 0.00 s at 256 |
+| the whole 318-file corpus, one process per file | — | 1.26 s | 1.24 s | — |
 
-Every dimension is linear in what it swept and every one that had a baseline
-matched it. The three rows the baseline refuses are the ones this audit's
-14.8.2.3 opened: they are linear because the deduction is one `match` walk of
-the conversion-type-id against the destination and `specialize` is memoised on
-the template and the interned argument list — so n *uses* of one destination
-deduce n times and specialize once, and n distinct destinations are n
-specializations and no re-reading of any. 13.3.3p1's two new tie-breaks read
-`template_parameters` off the candidate and ask 14.5.6.2 only of two
-specializations of *different* templates, which no sweep here reaches twice.
-The one quadratic row is 13.3's own cross product — n calls each comparing n
-candidates — and it is 0.07 s faster than the baseline rather than slower.
+Every dimension is linear in what it swept; the four rows the baseline refuses
+are the shapes this checkpoint opened. They are linear because the grant is one
+entry per *pair of templates* rather than per argument list — `befriended` asks
+the pair as the use spelled it and then with each side replaced by its
+`primary`, which is four hash probes and no walk — and because 11.2p5's new
+naming class only reaches `befriends_between`, whose walk is the single base
+path 10.1p3 already refuses a second of. The derivation row is that walk: 64×
+the depth for 1.5× the time, and flat against the ref.
 
-`valgrind -q --error-exitcode=9` is clean over the five largest scaling inputs
-and over all 72 probe programs, 0 errors. Run evidence: the conversion and
-constructor shapes compile through `lowir2cy86` + `cy86` and exit the value
-`g++ -std=c++11` gives them, including three that return a computed value
-rather than 0 — 25, 21 and 23 against g++'s 25, 21 and 23. Third oracle:
-`_ZN1AcvT_IiEEv` for a conversion function template and `_ZN1AC1IiEET_` for a
-constructor template agree with `g++` byte for byte.
+`valgrind -q --error-exitcode=9` is clean over the four largest scaling inputs
+and over all 50 probe programs, 0 errors. Run evidence: a unit holding a hidden
+friend function template, a friend function template declared in a class
+template and a friend class template compiles through `lowir2cy86` + `cy86` and
+exits **22**, the computed value `g++ -std=c++11` gives it. Third oracle:
+`_Z5applyI5valueEiRT_RK3adl`, `_Z4peekIiEi3boxIT_E` and
+`_ZN6readerIiE3getER5owner` agree with `g++` byte for byte.
 
 ## Completed Checkpoints
 
 | Checkpoint | What landed | Pass count |
-|---|---|---|
+|------------|-------------|-----------|
 | **T** 14.1p2's template place | A `type-parameter` written `template<…> class` binds a template: its own clause is a head read once per clause node, a written argument is `TypeKind::TemplateName` interned per declaration, and the place's name is bound *to that declaration*. 14.3.3p1 matches the two heads by kind, by a value place's own signature, and with a pack on either side taking the rest. | 142 / 308 |
 | **T2** the place's own default, and a pattern's qualifiers | 14.1p2's default at a template place is an id-expression naming a template; 14.2p4's `X::template f` keyword is no part of the name a lookup asks for; 14.8.2.5p4 leaves a pair's qualifiers where they were written. | 146 / 308 |
 | **T3** the object-file name | `TypeKind::TemplateName` had no `operand_of` arm, so two templates interned as one type and two specializations became one symbol. Beside it: `<template-arg>` writes such an argument as `ABI_TEMPLATE_ARGUMENT_TEMPLATE_ENTITY`. | 147 / 308 |
@@ -155,6 +138,7 @@ constructor template agree with `g++` byte for byte.
 | **A audit** the three regions a template-id is looked up in | `resolve` answered a template-id at both its exits where 5.2.5p1's member lookup answered it at neither. `QualifiedName::prefix` is read off the split rather than by `last().size()`. 11p1's access is written by every tier that makes a declaration from an argument list. 14.7.2p2 is asked of what the template-id answered. | 193 / 308 |
 | **P** the three places a template-argument-list is read, and the head that names a specialization | 14.2p4 makes the keyword optional wherever the object expression is not type-dependent, so `h.get<int>(4)` is a template-id the parse has to recognise with no keyword to lean on: `DeclaredNames::names_a_template` answers it from the unit-wide record 6.8p1 is already settled by, and 5.2.2p1 bounds the guess to a list a `(` follows, which keeps `a.b < c > d` two comparisons. 14.6p8's own reading is where the *dependent* case is refused. 14.2p1's other two template-ids are read by one `skip_template_arguments`. 14.7.2p1 and 14.7.3p1 let a declaration name a specialization rather than declare anything. And 14.5.5p1: a class-head written on a template-id declared the whole flattened spelling as a template-name. | 200 / 308 |
 | **P audit** the two forms 14.7.2 writes one requirement in | `explicit_instantiation` returned on `!owed` before reading its target, so p2 was asked of nothing `extern template` wrote - four programs `g++` refuses and this build accepted. `instantiated_class` is p2's one reading and both forms reach it. Beside it: 12.1p1's own declaration asks p2 of its *prefix*, 14.7.2p1's member class is looked up in the region the prefix resolved to, and `names_specialization_` is put down for the body a declaration holds. | 200 / 308 |
-| **M** 14.5.2's member template, and the two heads its definition writes | A head over a constructor or a conversion function inside a class body declares a member *template* of that class, which reaches neither `function_definition` nor `declare_function` - so the class body walk sent it to `special_member_definition`, where an unqualified constructor name reads as an out-of-class definition of nothing and 12.1p1 refuses it. `special_member` now declares into `declaring_region`'s class with the head over the declarator, writes `template_parameters` and `record_function_template`, and takes 14.7.1p1's specialization rather than declaring a second member when a reading for one argument list reached it; `demand_constructor_definition` is where building the object asks the template for the body, since a constructor is reached by no name; and 14.6p8 reads such a body where it stands, which keeps a worse conversion function template uninstantiated where a non-template one wins. 14.5.2p3's out-of-class definition writes one head per enclosing class template and then the member's own, so `record_template` looks through the nest to ask `member_definition_owner`. 14.5.6.1p5 gained the value place: the stand-in carries the type it binds a value of, over the places before it. | **212 / 308** |
-| **M2** the four exits a member template's definition can be written at | `template<class U> A::A(U) {}` and `template<class T> template<class U> A<T>::A(U) {}` read their parameter clause against the class alone and found no `U`; 3.4.1p8 puts the head *inside* the region its declarator-id names, which is what `StandingIn` already does for `function_definition`. `specialize` copied `object_member` and `access` from the template but not which special member it declares, so a constructor template's specialization was an ordinary function - 12.6.2's mem-initializers never ran and the object file spelled it as a source name; and 12.6.2p2's members were taken from wherever the reading stood rather than from the class. The ABI writes a function template's result type, which 12.1p1, 12.4p1 and 12.3.2p1 leave those three writing none of. Beside it, 14.5.2p1's "a destructor shall not be a template" and 14.5.6.1p5's second declaration of one constructor template, both found by a `g++ -pedantic-errors` verdict sweep. | **219 / 308** |
-| **M audit** the two facts 12 writes about a special member, and the class 12.1's entry points are owed by | 14.7.1p1's specialization is the declaration the template declares, so 12.3.1p2's `explicit` and 8.4.3's `= delete` travel onto it - `A a = 3` through an explicit constructor template and a call of a deleted one were both accepted where both oracles refuse. 12.3.2p1's conversion function template reached *no* use at all: 13.3.1.5p1's candidate set held the template, whose result is a place, so `int k = a;` was refused where both oracles translate it - `Deduction::from_conversion` is 14.8.2.3's one P/A pair, asked at the one of `gather_conversions`' four readers that has a destination, and 13.3.3p1's last two tie-breaks came with it. The ABI named such a specialization from the *substituted* type where `templated` was already threaded to the parameter list and the result record. And `writes_base_entry` asked whether the *function* is an instantiation where 12.1's second entry point is a question about the class. Beside them, 8.4.2p1's `= default` under a head, refused at all four exits by the reader that already owns 14.5.2p1's destructor. | **229 / 318** |
+| **M** 14.5.2's member template, and the two heads its definition writes | A head over a constructor or a conversion function inside a class body declares a member *template* of that class, which reaches neither `function_definition` nor `declare_function` - so the class body walk sent it to `special_member_definition`, where an unqualified constructor name reads as an out-of-class definition of nothing and 12.1p1 refuses it. `special_member` now declares into `declaring_region`'s class with the head over the declarator, writes `template_parameters` and `record_function_template`, and takes 14.7.1p1's specialization rather than declaring a second member. 14.5.2p3's out-of-class definition writes one head per enclosing class template and then the member's own. 14.5.6.1p5 gained the value place. | 212 / 308 |
+| **M2** the four exits a member template's definition can be written at | `template<class U> A::A(U) {}` and `template<class T> template<class U> A<T>::A(U) {}` read their parameter clause against the class alone and found no `U`; 3.4.1p8 puts the head *inside* the region its declarator-id names. `specialize` copied `object_member` and `access` but not which special member it declares, so 12.6.2's mem-initializers never ran. The ABI writes a function template's result type, which 12.1p1, 12.4p1 and 12.3.2p1 leave writing none. Beside it, 14.5.2p1's "a destructor shall not be a template" and 14.5.6.1p5's second declaration of one constructor template. | 219 / 308 |
+| **M audit** the two facts 12 writes about a special member, and the class 12.1's entry points are owed by | 14.7.1p1's specialization is the declaration the template declares, so 12.3.1p2's `explicit` and 8.4.3's `= delete` travel onto it. 12.3.2p1's conversion function template reached *no* use at all: `Deduction::from_conversion` is 14.8.2.3's one P/A pair, asked at the one of `gather_conversions`' four readers that has a destination, and 13.3.3p1's last two tie-breaks came with it. The ABI named such a specialization from the *substituted* type. And `writes_base_entry` asked whether the *function* is an instantiation where 12.1's second entry point is a question about the class. Beside them, 8.4.2p1's `= default` under a head. | 229 / 318 |
+| **F** 14.5.4's friend templates, and the class 11.2p5 names a member in | A friend declaration under a head reached none of what 11.3 already knew. `SemaModel::befriended` now asks the pair as the use spelled it and then with each side replaced by its `primary`, which is what 14.5.4p1 means: the grant a class template's own definition wrote is between two *templates* and every access check asks it of two specializations. `record_template` gained 14.5.4p1's tier - a head over a friend elaborated-type-specifier declares a class *template* in 11.3p11's enclosing namespace and grants to it - and `template_declaration` asks it under `templating()` rather than `lowering()`, because 14.6p8's PA11-dialect reading of a pattern was declaring a plain class of that spelling and refusing the program's own `template<class T> class W`. 14.7.1p1's instantiation reads the definition again in a region that binds arguments under no class at all, so `function_definition` asks 11.3p1 of the *template* rather than of the regions it stands in, and the head a friend declaration is written under is what says it declares a template - not the namespace 11.3p6 moved the declaration into. `equivalent_template` is asked of 11.3p6's hidden chain, where a later declaration of one friend function template has nowhere else to find it, and `reveal_friend` indexes the declaration that leaves by its *own* parameter type list. 11.3p1's granting class is taken at entry, because `StandingIn` moves the head a qualified declarator-id stands under inside the region that name reaches. 11.3p10's qualified friend now has to name a declaration that region made. And 11.2p5's naming class is the class a *qualified name* was looked up in as much as the one an object expression writes, which is what lets a member reach a protected member of a base through a class between them that befriends it. | **246 / 323** |

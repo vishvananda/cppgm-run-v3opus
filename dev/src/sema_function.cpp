@@ -252,24 +252,55 @@ void SemaAnalyzer::declare_parameters(const std::vector<Parameter>& parameters,
 	}
 }
 
-// 11.3p5, 3.5p3, 3.5p4 and 7.1.2p2: where a definition's name is reached from,
-// and how the object file binds what it defines.
+// What one function-definition's decl-specifier-seq and declarator say about
+// the function they define, beside its type and its body.
 //
-// All four are facts of the declaration this definition *is* rather than of the
-// body it wrote: a friend definition declares a member of the enclosing
-// namespace that no lookup written there finds, so the class that granted it is
-// where this unit reads it; a `static` declaration and 7.3.1.1p1's unnamed
-// namespace each give the name internal linkage however the other declarations
-// of it were written; and 9.3p2 makes a member function defined inside its
-// class body inline exactly as `inline` does, which is a fact of where the
-// definition stands and not of the region it declares into.
+// Every one of them is a fact of the *function* rather than of this declaration
+// of it - 7.1.5p1's `constexpr`, 10.3p1's `virtual`, 7.1.2p2's `inline`,
+// 11.3p5's friend definition and 3.5p3's linkage each stand for the function
+// however the other declarations of it were written, and a definition written
+// outside the class repeats none of them - so each accumulates onto the
+// declaration `declare_function` found rather than being read off this
+// declaration alone.  9.3p2's inline is the same fact about where the
+// definition stands rather than about the region it declares into.
 void SemaAnalyzer::record_definition_binding(SemaEntity& entity,
+                                             const AstNode& node,
                                              const Specifiers& specifiers,
                                              const Context& ctx,
                                              const Context& target,
                                              const QualifiedName& spelled,
-                                             SemaEntity* granting)
+                                             SemaEntity* granting, TypeId type,
+                                             TypeId written_type)
 {
+	const AstNode& declarator = *node.children[1];
+	const std::string name = spelled.last();
+	// 7.1.5p2 makes a constexpr function implicitly inline, so the definition
+	// belongs to every unit that needs one and this one writes it only where a
+	// use asks - which a call 5.19p2 folded does not.
+	entity.constexpr_function =
+		entity.constexpr_function || specifiers.is_constexpr;
+	entity.inline_function = entity.inline_function || specifiers.is_constexpr;
+	// 10.3p4/p5: what the definition wrote about dispatch stands for the
+	// function whether or not another declaration of it wrote the same thing,
+	// and 7.1.2p1 lets the one written in the class body write `virtual` and
+	// the one written outside it not.
+	require_virtual_placement(specifiers.is_virtual, &declarator, *target.scope,
+	                          spelled.qualified(), name);
+	entity.virtual_function =
+		entity.virtual_function || specifiers.is_virtual;
+	read_virt_specifiers(entity, declarator, nullptr);
+	if (entity.constexpr_function)
+	{
+		// 7.1.5p3: the requirements on the declaration, asked after `virtual`
+		// has been read off it because the first of them is about that.
+		ConstexprRequirement(*this).require_function(entity, type, name);
+	}
+	require_no_abstract_boundary(written_type, name);
+	if (!entity.object_member)
+	{
+		OperatorCall(*this).require_operand(name, type,
+		                         target.scope->kind == ScopeKind::Class);
+	}
 	if (granting != nullptr)
 	{
 		model_.befriend(*granting, entity);
@@ -285,6 +316,17 @@ void SemaAnalyzer::record_definition_binding(SemaEntity& entity,
 		(specifiers.is_static && target.scope->kind == ScopeKind::Namespace);
 	entity.inline_function = entity.inline_function || specifiers.is_inline ||
 		ctx.scope->kind == ScopeKind::Class;
+	// 2.2p1: which file this definition was read from, asked here for the same
+	// reason `open_special_member_body` asks it of a special member's.
+	entity.own_source_definition = own_source(node);
+	// 9.3p2 and 3.2p4: a member function defined outside its class is a
+	// definition the program wrote in *this* unit, so the object file holds it
+	// whether or not anything here names it - which is what tells it from a
+	// definition written in the class body, one every unit that needs one
+	// writes for itself and 3.2p3 leaves to the use that asks.
+	entity.out_of_class_definition = entity.out_of_class_definition ||
+		(spelled.qualified() && granting == nullptr &&
+		 holds_written_definitions(*target.scope));
 }
 
 void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
@@ -311,6 +353,10 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 		read_specifiers(*node.children[0], ctx, span, true, std::string());
 	const QualifiedName spelled(written);
 	const std::string name = spelled.last();
+	// 11.3p1: which class grants this definition its access, taken before the
+	// declarator is read for the reason `friend_target` gives.
+	SemaEntity* const befriending =
+		specifiers.is_friend ? granting_class(ctx) : nullptr;
 
 	// 3.4.1p8: the rest of a declarator whose declarator-id is qualified is
 	// looked up in the region that name reaches.
@@ -342,8 +388,17 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 	// member function's are read, so the region its parameters and body are
 	// written in is enclosed by the class while the declaration is not.
 	Scope* const lexical = ctx.scope;
+	// 14.5.4p1 with 14.7.1p1: an instantiation reads the same syntax again, and
+	// the region it reads it in binds the arguments inside the namespace 11.3p6
+	// already declared the template into - no class stands around it.  Which
+	// class granted the declaration, where it was declared and whose name no
+	// lookup finds are all facts the friend declaration settled about the
+	// *template*; this reading declares nothing and grants nothing, and asking
+	// 11.3p1 of the regions it stands in would find no class at all.
 	SemaEntity* const granting =
-		specifiers.is_friend ? friend_target(ctx, spelled, target) : nullptr;
+		specifiers.is_friend && specializing == nullptr
+			? friend_target(ctx, spelled, target, befriending)
+			: nullptr;
 
 	std::string ignored;
 	std::vector<Parameter> parameters;
@@ -380,55 +435,15 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 		declare_function(name, type, target, true,
 		                 granting != nullptr && !spelled.qualified(),
 		                 type != written_type,
-		                 spelled.qualified() && granting == nullptr,
+		                 // 9.3p2 and 11.3p10 alike: a qualified declarator-id
+		                 // defines a declaration its region already made.
+		                 spelled.qualified(),
 		                 specializing, &redeclares);
 	record_exception_specification(entity, declarator, target, name,
 	                               redeclares && specializing == nullptr);
 	entity.object_member = type != written_type;
-	// 7.1.5p1: the specifier is a fact of the function and not of the one
-	// declaration that wrote it, so it accumulates as 7.1.2p2's `inline` does -
-	// a definition written outside the class repeats neither.  7.1.5p2 makes a
-	// constexpr function implicitly inline, so the definition belongs to every
-	// unit that needs one and this one writes it only where a use asks - which
-	// a call 5.19p2 folded does not.
-	entity.constexpr_function =
-		entity.constexpr_function || specifiers.is_constexpr;
-	entity.inline_function = entity.inline_function || specifiers.is_constexpr;
-	// 10.3p1 and 10.3p4/p5: the definition is a declaration like any other, so
-	// what it wrote about dispatch stands for the function whether or not
-	// another declaration of it wrote the same thing - and 7.1.2p1 lets the one
-	// written in the class body write `virtual` and the one written outside it
-	// not.
-	require_virtual_placement(specifiers.is_virtual, &declarator, *target.scope,
-	                          spelled.qualified(), name);
-	entity.virtual_function =
-		entity.virtual_function || specifiers.is_virtual;
-	read_virt_specifiers(entity, declarator, nullptr);
-	if (entity.constexpr_function)
-	{
-		// 7.1.5p3: the requirements on the declaration, asked after `virtual`
-		// has been read off it because the first of them is about that.
-		ConstexprRequirement(*this).require_function(entity, type, name);
-	}
-	require_no_abstract_boundary(written_type, name);
-	if (!entity.object_member)
-	{
-		OperatorCall(*this).require_operand(name, type,
-		                         target.scope->kind == ScopeKind::Class);
-	}
-	record_definition_binding(entity, specifiers, ctx, target, spelled,
-	                          granting);
-	// 2.2p1: which file this definition was read from, asked here for the same
-	// reason `open_special_member_body` asks it of a special member's.
-	entity.own_source_definition = own_source(node);
-	// 9.3p2 and 3.2p4: a member function defined outside its class is a
-	// definition the program wrote in *this* unit, so the object file holds it
-	// whether or not anything here names it - which is what tells it from a
-	// definition written in the class body, one every unit that needs one
-	// writes for itself and 3.2p3 leaves to the use that asks.
-	entity.out_of_class_definition = entity.out_of_class_definition ||
-		(spelled.qualified() && granting == nullptr &&
-		 holds_written_definitions(*target.scope));
+	record_definition_binding(entity, node, specifiers, ctx, target, spelled,
+	                          granting, type, written_type);
 	record_declared_parameters(entity, parameters, target.scope);
 
 	DumpScope& dump = model_.open_dump(*target.dump, "scope function " + name);
@@ -471,8 +486,14 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 		model_.bind(*inner.scope, self->name, *self);
 		model_.declare_in(*inner.scope, *self);
 	}
-	if ((target.scope->kind == ScopeKind::TemplateParameters || head != nullptr) &&
-	    specializing == nullptr)
+	// 11.3p6 with 14.5.4p1: a friend declaration declares into the namespace
+	// around the class, so the region this declaration was *made* in says
+	// nothing about whether a head parameterises it - only the head it was
+	// written under does, which is the region the reading itself stands in.
+	const bool parameterised =
+		target.scope->kind == ScopeKind::TemplateParameters || head != nullptr ||
+		(granting != nullptr && ctx.template_head == ctx.scope);
+	if (parameterised && specializing == nullptr)
 	{
 		// 14p1 and 14.6: a template declares no function until it is
 		// instantiated, so the output has no definition to write and the body
@@ -728,7 +749,22 @@ SemaEntity& SemaAnalyzer::declare_function(const std::string& name, TypeId type,
 			// 7.3.1.2p3: a matching declaration at namespace scope is what
 			// makes the friend's name visible, and the two declare one
 			// function.
-			reveal_friend(where, name, *prior, signature);
+			reveal_friend(where, name, *prior);
+		}
+	}
+	if (prior == nullptr && head_region != nullptr &&
+	    concealed != where.hidden.end())
+	{
+		// 14.5.6.1p5 over 11.3p6's hidden chain: the friend declaration
+		// declared a *template* whose name no lookup written here binds, so a
+		// later declaration of the same template has that chain and nowhere
+		// else to find it - and the two were written over heads of their own,
+		// which is exactly what the index of parameter type lists above cannot
+		// pair.  Nothing was revealed here, or `prior` would not be null.
+		prior = equivalent_template(*concealed->second, *head_region, type);
+		if (prior != nullptr && !hidden)
+		{
+			reveal_friend(where, name, *prior);
 		}
 	}
 	if (prior == nullptr && head != nullptr && head_region != nullptr)
@@ -838,8 +874,14 @@ SemaEntity& SemaAnalyzer::declare_function(const std::string& name, TypeId type,
 // friend declarations of that name stay where they are, because each is made
 // visible by a declaration of its own.
 void SemaAnalyzer::reveal_friend(Scope& where, const std::string& name,
-                                 SemaEntity& entity, std::uint32_t signature)
+                                 SemaEntity& entity)
 {
+	// 14.5.6.1p5: the declaration leaving the chain is indexed in the visible
+	// one by its *own* parameter type list, which is not the one the matching
+	// declaration wrote wherever the two are templates: each head declared
+	// parameters of its own and the types are written over those.
+	const std::uint32_t signature =
+		declaration_signature(where, entity.type, entity.object_member);
 	const std::unordered_map<std::string, SemaEntity*>::iterator held =
 		where.hidden.find(name);
 	SemaEntity* concealed = held->second;
