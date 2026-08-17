@@ -1,0 +1,39 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $total : i64
+  slot $cond__1 : i32
+
+  block ^entry:
+    %t1 = convert sext i64 i32 0
+    store i64 %t1, $total
+    %t2 = load i64 $total
+    %t3 = binary add i64 %t2, 10
+    store i64 %t3, $total
+    %t4 = load i64 $total
+    %t5 = binary add i64 %t4, 0
+    store i64 %t5, $total
+    %t6 = load i64 $total
+    %t7 = binary add i64 %t6, 13
+    store i64 %t7, $total
+    %t8 = load i64 $total
+    %t9 = binary add i64 %t8, 505
+    store i64 %t9, $total
+    %t10 = load i64 $total
+    %t11 = binary add i32 10, 0
+    %t12 = binary add i32 %t11, 13
+    %t13 = binary add i32 %t12, 505
+    %t14 = convert sext i64 i32 %t13
+    %t15 = cmp eq i64 %t10, %t14
+    branch %t15, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t16 = load i32 $cond__1
+    return i32 %t16
+}

@@ -611,6 +611,13 @@ public:
 	// the assignment.  Zero for an incomplete type, which has neither.
 	unsigned long long object_size(TypeId type) const;
 	unsigned long long object_align(TypeId type) const;
+	// 5.3.3p2 and 5.3.6p3: the type `sizeof` and `alignof` measure when a
+	// type-id names a reference, which is the type referred to and not the
+	// storage a reference occupies.  It stands beside the two answers it is
+	// asked before, because 5.19's tree reading, its spelling reading and the
+	// expression layer each write the operator and one of them writing this
+	// clause and not the others is how `sizeof(char (&)[2])` came to be 8.
+	TypeId measured_type(TypeId type) const;
 
 	// What makes two function declarations declare the same function under
 	// 3.5 and 13.1: their parameter type lists, already adjusted by 8.3.5p5.

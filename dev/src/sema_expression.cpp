@@ -1765,9 +1765,7 @@ SemaAnalyzer::Value SemaAnalyzer::sizeof_expression(const AstNode& node,
 		// the size of the type referred to - which is what a name of reference
 		// type already answers, because 5p5 read the reference away before the
 		// operand had a type at all.
-		const TypeId named = type_id_type(operand, ctx);
-		value.value = size_of(types_.is_reference(named) ? types_.target(named)
-		                                                 : named);
+		value.value = size_of(types_.measured_type(type_id_type(operand, ctx)));
 	}
 	else
 	{
@@ -1812,11 +1810,10 @@ SemaAnalyzer::Value SemaAnalyzer::alignof_expression(const AstNode& node,
 		throw std::runtime_error("alignof is applied to something other than a "
 		                         "type-id");
 	}
-	const TypeId named = type_id_type(*node.children[0], ctx);
 	// 5.3.6p3: applied to a reference type, the result is the alignment of the
 	// type referred to, which is also the type p3 asks to be complete.
 	const TypeId type =
-		types_.is_reference(named) ? types_.target(named) : named;
+		types_.measured_type(type_id_type(*node.children[0], ctx));
 	require_complete_type(type);
 	if (types_.is_incomplete(type))
 	{

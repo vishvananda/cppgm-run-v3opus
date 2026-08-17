@@ -1,0 +1,72 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $total : i32
+  slot $cond__1 : i32
+  slot $cond__2 : i32
+  slot $cond__3 : i32
+
+  block ^entry:
+    store i32 0, $total
+    %t1 = load i32 $total
+    %t2 = binary add i32 %t1, 2
+    store i32 %t2, $total
+    %t3 = load i32 $total
+    %t4 = binary add i32 %t3, 3
+    store i32 %t4, $total
+    %t5 = load i32 $total
+    %t6 = binary add i32 %t5, 5
+    store i32 %t6, $total
+    %t7 = load i32 $total
+    %t8 = binary add i32 %t7, 4
+    store i32 %t8, $total
+    %t9 = load i32 $total
+    %t10 = binary add i32 %t9, 7
+    store i32 %t10, $total
+    %t11 = load i32 $total
+    %t12 = binary add i32 %t11, 5
+    store i32 %t12, $total
+    %t13 = load i32 $total
+    branch 1, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 100, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t14 = load i32 $cond__1
+    %t15 = binary add i32 %t13, %t14
+    store i32 %t15, $total
+    %t16 = load i32 $total
+    branch 0, ^cond_then_4, ^cond_else_5
+
+  block ^cond_then_4:
+    store i32 0, $cond__2
+    jump ^cond_end_6
+
+  block ^cond_else_5:
+    store i32 200, $cond__2
+    jump ^cond_end_6
+
+  block ^cond_end_6:
+    %t17 = load i32 $cond__2
+    %t18 = binary add i32 %t16, %t17
+    store i32 %t18, $total
+    %t19 = load i32 $total
+    %t20 = cmp eq i32 %t19, 326
+    branch %t20, ^cond_then_7, ^cond_else_8
+
+  block ^cond_then_7:
+    store i32 0, $cond__3
+    jump ^cond_end_9
+
+  block ^cond_else_8:
+    store i32 1, $cond__3
+    jump ^cond_end_9
+
+  block ^cond_end_9:
+    %t21 = load i32 $cond__3
+    return i32 %t21
+}

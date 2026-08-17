@@ -192,19 +192,16 @@ void PatternReading::read_declaration(const AstNode& node,
 {
 	if (node.kind == AstKind::TemplateDeclaration)
 	{
-		// 14.5.2p1: what that head parameterises may be a member *class*
-		// template, and 14.5.1.3p1 makes this its definition - so the class the
-		// declarator-id names is one the enclosing class already declares and
-		// the record is made against it, exactly as it is where the definition
-		// stands inside the class body.  Every other declaration under a second
-		// head is one 14.1p1's own reading takes.
-		if (analyzer_.templating() && analyzer_.record_template(node, ctx, true))
-		{
-			return;
-		}
-		// 14.5.2p3: or it parameterises a member of a member template, whose
-		// own places it declares - so the definition belongs to *that* template
-		// and is read against the class its body declares.
+		// 14.5.2p3: the head may parameterise a member of a member template,
+		// whose own places it declares - so the definition belongs to *that*
+		// template and is read against the class its body declares.
+		//
+		// It is the first question asked, exactly as `owner` is the first the
+		// tier above asks: what tells this shape from the class tier below is a
+		// component of the nested-name-specifier whose arguments the region
+		// cannot settle, and the class tier reads that same specifier as a
+		// prefix it must resolve - so asking it second is asking it after a
+		// reading that has already refused the program.
 		const AstNode* clause = nullptr;
 		const AstNode* declared = nullptr;
 		for (std::size_t index = 0; index < node.children.size(); ++index)
@@ -245,6 +242,16 @@ void PatternReading::read_declaration(const AstNode& node,
 			       *clause, *declared,
 			       ctx.scope->kind == ScopeKind::TemplateParameters ? ctx.scope
 			                                                        : nullptr);
+			return;
+		}
+		// 14.5.2p1: what that head parameterises may be a member *class*
+		// template, and 14.5.1.3p1 makes this its definition - so the class the
+		// declarator-id names is one the enclosing class already declares and
+		// the record is made against it, exactly as it is where the definition
+		// stands inside the class body.  Every other declaration under a second
+		// head is one 14.1p1's own reading takes.
+		if (analyzer_.templating() && analyzer_.record_template(node, ctx, true))
+		{
 			return;
 		}
 		analyzer_.read_template_head(node, ctx);

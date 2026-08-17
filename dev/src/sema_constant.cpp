@@ -555,7 +555,7 @@ SemaAnalyzer::Constant SemaAnalyzer::evaluate(const AstNode& node,
 			read.bits = probe_expression(node, ctx, scratch).value;
 			return read;
 		}
-		const TypeId type = type_id_type(*node.children[0], ctx);
+		const TypeId type = types_.measured_type(type_id_type(*node.children[0], ctx));
 		Constant out;
 		out.type = types_.fundamental(FT_UNSIGNED_LONG_INT);
 		out.bits = node.kind == AstKind::SizeofExpression

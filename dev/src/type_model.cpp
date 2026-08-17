@@ -1196,6 +1196,16 @@ unsigned long long TypeTable::element_size(TypeId type) const
 // The assignment fixes the alignment of every fundamental type at its size, of
 // every pointer and reference at 8, and of the mock function stub at 4; an
 // array takes its element's.
+TypeId TypeTable::measured_type(TypeId type) const
+{
+	// 5.3.3p2 and 5.3.6p3: applied to a reference or a reference type, the two
+	// operators answer for the type referred to.  An operand that is an
+	// *expression* never reaches here, because 5p5 read the reference away
+	// before that operand had a type at all - so this is the one arm of either
+	// clause a type-id writes.
+	return is_reference(type) ? target(type) : type;
+}
+
 unsigned long long TypeTable::object_align(TypeId type) const
 {
 	while (kind(type) == TypeKind::Array)

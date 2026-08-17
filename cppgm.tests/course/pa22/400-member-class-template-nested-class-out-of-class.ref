@@ -1,0 +1,105 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $held : obj<4x4>
+  slot $tip : obj<1x1>
+  slot $cond__1 : i32
+  slot $land__2 : i64
+  slot $land__3 : i64
+  slot $tmpobj__4 : obj<4x4>
+  slot $tmpobj__5 : obj<4x4>
+
+  block ^entry:
+    %t1 = addr $held
+    %t2 = addr $held
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 5, %t3
+    %t4 = addr $tip
+    %t5 = addr $tip
+    %t6 = index i8 [projection=field] %t5, 0
+    store i8 97, %t6
+    %t7 = addr $tmpobj__4
+    %t8 = addr $held
+    %t9 = call obj<4x4> @adaptor_int___range_7___begin(%t8)
+    copyobj 4x4 %t9, %t7
+    %t10 = call i32 @adaptor_int___range_7___iterator__mark(%t7)
+    %t11 = cmp eq i32 %t10, 11
+    branch %t11, ^land_rhs_7, ^land_short_8
+
+  block ^land_rhs_7:
+    %t12 = addr $tmpobj__5
+    %t13 = addr $held
+    %t14 = call obj<4x4> @adaptor_int___range_7___begin(%t13)
+    copyobj 4x4 %t14, %t12
+    %t15 = index i8 [projection=field] %t12, 0
+    %t16 = load i32 %t15
+    %t17 = cmp eq i32 %t16, 5
+    %t18 = cmp ne i64 %t17, 0
+    store i64 %t18, $land__3
+    jump ^land_end_9
+
+  block ^land_short_8:
+    store i64 0, $land__3
+    jump ^land_end_9
+
+  block ^land_end_9:
+    %t19 = load i64 $land__3
+    branch %t19, ^land_rhs_4, ^land_short_5
+
+  block ^land_rhs_4:
+    %t20 = addr $tip
+    %t21 = index i8 [projection=field] %t20, 0
+    %t22 = load i8 %t21
+    %t23 = convert sext i32 i8 %t22
+    %t24 = cmp eq i32 %t23, 97
+    %t25 = cmp ne i64 %t24, 0
+    store i64 %t25, $land__2
+    jump ^land_end_6
+
+  block ^land_short_5:
+    store i64 0, $land__2
+    jump ^land_end_6
+
+  block ^land_end_6:
+    %t26 = load i64 $land__2
+    branch %t26, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t27 = load i32 $cond__1
+    return i32 %t27
+}
+function @adaptor_int___range_7___begin(%this : ptr) -> obj<4x4> [binding=weak, object=_ZNK7adaptorIiE5rangeILi7EE5beginEv] {
+  slot $this : ptr
+  slot $made : obj<4x4>
+  slot $retobj__1 : obj<4x4>
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = addr $made
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    %t4 = load i32 %t3
+    %t5 = addr $made
+    %t6 = index i8 [projection=field] %t5, 0
+    store i32 %t4, %t6
+    %t7 = addr $retobj__1
+    %t8 = addr $made
+    copyobj 4x4 %t8, %t7
+    return obj<4x4> $retobj__1
+}
+function @adaptor_int___range_7___iterator__mark(%this : ptr) -> i32 [binding=weak, object=_ZNK7adaptorIiE5rangeILi7EE8iterator4markEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = const i64 4
+    %t2 = convert trunc i32 i64 %t1
+    %t3 = binary add i32 7, %t2
+    return i32 %t3
+}

@@ -323,9 +323,10 @@ AstNode* AstParser::parse_unary_expression()
 	}
 	if (at(KW_SIZEOF))
 	{
+		const bool parenthesized = peek(1) == OP_LPAREN;
 		++pos_;
 		AstNode* node = make(AstKind::SizeofExpression);
-		AstNode* operand = at(OP_LPAREN)
+		AstNode* operand = parenthesized
 			? parse_parenthesized_operand(false)
 			: parse_unary_expression();
 		if (operand == nullptr)
@@ -333,6 +334,19 @@ AstNode* AstParser::parse_unary_expression()
 			return fail(start);
 		}
 		node->add(operand);
+		if (parenthesized)
+		{
+			// 14.2: a template-argument-list is flattened into the name around
+			// it, and 5.3.3p1's other arm is an operand no reading of that
+			// spelling can answer - which declaration a call in it reaches is
+			// 13.3's question and not the text's.  So the tree is kept beside
+			// the spelling it flattens to, exactly as 5.3.7p3's operand and
+			// 7.1.6.2p1's decltype operand are.  Only the parenthesized
+			// spelling is kept: an operand written without parentheses ends
+			// where the enclosing expression says it does, so what a reader of
+			// one word would ask for is no key.
+			arena_.keep_spelled(spelled(start), node);
+		}
 		return node;
 	}
 	// 1.4p8 and 5.3.6: `__alignof` and `__alignof__` are the spellings this

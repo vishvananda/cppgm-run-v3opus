@@ -196,13 +196,20 @@ bool split_value_expression(const std::string& spelling,
 				// 14.2 writes a template-argument-list after a name and
 				// 7.1.6.2p1 a decltype-specifier's expression, each of which
 				// belongs to the name it closes up with.  A `<` that opens no
-				// balanced run is 5.9's operator instead.
+				// balanced run is 5.9's operator instead.  5.3.3p1 and 5.3.6p1
+				// write a parenthesized operand the same way: what stands
+				// inside the parentheses is a type-id or an expression rather
+				// than a run of 5.19's own operators, so the whole of it is one
+				// word this reading hands on to the readings that answer for
+				// either.
 				if (at < spelling.size() &&
 				    ((spelling[at] == '<' &&
 				      spelling.compare(start, at - start, "operator") != 0) ||
 				     (spelling[at] == '(' &&
 				      (spelling.compare(start, at - start, "decltype") == 0 ||
-				       spelling.compare(start, at - start, "noexcept") == 0))))
+				       spelling.compare(start, at - start, "noexcept") == 0 ||
+				       spelling.compare(start, at - start, "sizeof") == 0 ||
+				       spelling.compare(start, at - start, "alignof") == 0))))
 				{
 					const std::string::size_type closed =
 						angles.balanced_end(at);
@@ -215,6 +222,21 @@ bool split_value_expression(const std::string& spelling,
 				    spelling[at + 1] == ':')
 				{
 					at += 2;
+					continue;
+				}
+				// 14.2p4: the keyword is written *inside* a component, after
+				// the `::` that ended the prefix, and phase 7 wrote a space
+				// between it and the name it says is a template - so it closes
+				// up with that name rather than standing as a word of its own,
+				// exactly as an argument list closes up with the name before
+				// it.  The component readers drop it where every other reader
+				// already asks, so nothing below has to know it can stand here.
+				if (at - start > 10 && at + 1 < spelling.size() &&
+				    spelling[at] == ' ' && is_name_char(spelling[at + 1]) &&
+				    spelling.compare(at - 8, 8, "template") == 0 &&
+				    spelling.compare(at - 10, 2, "::") == 0)
+				{
+					++at;
 					continue;
 				}
 				break;
@@ -296,6 +318,39 @@ std::string cast_target(const std::string& word)
 	return word.substr(open + 1, word.size() - open - 2);
 }
 
+// Where the operand a list writes at `at` ends: the index of the `,` or of the
+// bracket that closes the list, and `words.size()` where the list does not
+// close at all.  A `<` or `>` is no bracket here, because 14.2's list and 5.9's
+// operator were told apart when the spelling was split and every name closed up
+// with the arguments written after it.
+std::size_t operand_end(const std::vector<std::string>& words, std::size_t at)
+{
+	std::size_t depth = 0;
+	for (; at < words.size(); ++at)
+	{
+		const std::string& word = words[at];
+		if (word == "(" || word == "[" || word == "{")
+		{
+			++depth;
+			continue;
+		}
+		if (word == ")" || word == "]" || word == "}")
+		{
+			if (depth == 0)
+			{
+				return at;
+			}
+			--depth;
+			continue;
+		}
+		if (depth == 0 && word == ",")
+		{
+			return at;
+		}
+	}
+	return words.size();
+}
+
 
 
 }
@@ -345,6 +400,12 @@ private:
 	                      const std::vector<std::string>& words, bool live);
 	SemaConstant type_trait(const std::string& word,
 	                        const std::vector<std::string>& words, bool live);
+	// 5.3.3p1 and 5.3.6p1 over the operand a parenthesized spelling holds,
+	// which is one word: what stands inside the parentheses is a type-id or an
+	// expression rather than a run of 5.19's operators, and 5.3.3p1's second
+	// arm is answered off the tree the parse kept beside that spelling.
+	SemaConstant trait_value(const std::string& op, const std::string& held,
+	                         const AstNode* tree, bool live);
 	// 5.3.7: `noexcept(E)`, whose whole spelling is one word because the
 	// operand is 13.3's question and not the text's - so the answer is read off
 	// the tree the parse kept beside that spelling and not off the words.
@@ -361,6 +422,21 @@ private:
 	bool operand_list(const std::vector<std::string>& words,
 	                  const std::string& close, bool live,
 	                  std::vector<SemaConstant>& out);
+	// 14.5.3p4 inside one of those lists: the operand `words[from, to)` wrote
+	// before a `...`, which stands for as many operands as the run its packs
+	// are bound to holds.  Each is that same pattern read again in a region of
+	// its own, exactly as `PackReading::expand` reads a whole argument.
+	void expand_operand(const std::vector<std::string>& words,
+	                    std::size_t from, std::size_t to, bool live,
+	                    std::vector<SemaConstant>& out);
+	// The reading of one operand begun at `at`, which is what an element of an
+	// expansion is: the same words, a region of its own, a reader of its own.
+	SemaConstant read_from(const std::vector<std::string>& words,
+	                       std::size_t at, bool live)
+	{
+		at_ = at;
+		return expression(words, 0, live);
+	}
 	// 5.2.3p2 and p3: `T()` and `T{...}` where `T` names a class, which at a
 	// value place is what 12.3.2p1's conversion function reads.
 	SemaConstant object_operand(TypeId target,
@@ -371,6 +447,11 @@ private:
 	SemaConstant call_operand(const std::string& word,
 	                          const std::vector<std::string>& words, bool live);
 	SemaConstant cast(TypeId target, const SemaConstant& operand);
+	// 5.2.9p4: an operand whose value is read.  A cast to cv void has none -
+	// 5.18p1's left operand is the one place a constant expression may write
+	// such an operand at all - so every reader that takes a value asks here,
+	// which is one type test on an operand already in hand.
+	const SemaConstant& valued(const SemaConstant& given);
 	SemaConstant binary(unsigned op, const SemaConstant& left,
 	                    const SemaConstant& right);
 	TypeId probe_type_id(const std::string& spelling);
@@ -405,7 +486,7 @@ SemaConstant TemplateArgumentReader::expression(
 			// 5.16p1: the second and third operands, of which only the one the
 			// condition chose is evaluated.
 			++at_;
-			const bool taken = live && left.bits != 0;
+			const bool taken = live && valued(left).bits != 0;
 			const SemaConstant chosen =
 				expression(words, 0, live && taken);
 			if (at_ >= words.size() || words[at_] != ":")
@@ -422,8 +503,8 @@ SemaConstant TemplateArgumentReader::expression(
 			}
 			// 5.16p6: the result is one type however the condition came out,
 			// which for two integral operands is the usual conversions.
-			const SemaConstant one = analyzer_.promote(chosen);
-			const SemaConstant two = analyzer_.promote(other);
+			const SemaConstant one = analyzer_.promote(valued(chosen));
+			const SemaConstant two = analyzer_.promote(valued(other));
 			const TypeId type = analyzer_.common_type(one.type, two.type);
 			return analyzer_.convert(taken ? one : two, type);
 		}
@@ -438,18 +519,18 @@ SemaConstant TemplateArgumentReader::expression(
 		{
 			// 5.14p1 and 5.15p1: the right operand is evaluated only where the
 			// left one does not decide the answer.
-			const bool decided = live && (left.bits != 0) == (op == "||");
+			const bool decided = live && (valued(left).bits != 0) == (op == "||");
 			const SemaConstant right = expression(words, precedence + 1, live && !decided);
 			SemaConstant out;
 			out.type = analyzer_.types_.fundamental(FT_BOOL);
 			out.bits = decided ? (op == "||" ? 1 : 0)
-			                   : (right.bits != 0 ? 1 : 0);
+			                   : (valued(right).bits != 0 ? 1 : 0);
 			left = out;
 			continue;
 		}
 		const SemaConstant right =
 			expression(words, precedence + 1, live);
-		left = live ? binary(token_of(op), left, right) : left;
+		left = live ? binary(token_of(op), valued(left), valued(right)) : left;
 	}
 }
 
@@ -524,7 +605,7 @@ SemaConstant TemplateArgumentReader::operand(
 		{
 			return operand;
 		}
-		const SemaConstant promoted = analyzer_.promote(operand);
+		const SemaConstant promoted = analyzer_.promote(valued(operand));
 		SemaConstant out;
 		out.type = promoted.type;
 		if (word == "+")
@@ -605,8 +686,18 @@ SemaConstant TemplateArgumentReader::operand(
 			at_ = close + 1;
 			return literal_operand(held, words, live);
 		}
-		const SemaConstant inner =
-			expression(words, 0, live);
+		SemaConstant inner = expression(words, 0, live);
+		while (at_ < words.size() && words[at_] == ",")
+		{
+			// 5.18p1: the pair is evaluated left to right and the value is the
+			// right operand's.  It is read here rather than in the precedence
+			// walk because outside 5.1.1p6's parentheses a comma written in a
+			// constant expression separates one argument of a list from the
+			// next - which is what makes `A<(1, 2)>` one argument and
+			// `A<1, 2>` two.
+			++at_;
+			inner = expression(words, 0, live);
+		}
 		if (at_ >= words.size() || words[at_] != ")")
 		{
 			throw NotConstant("a constant expression written as a template "
@@ -638,6 +729,20 @@ SemaConstant TemplateArgumentReader::operand(
 	if (word.compare(0, 9, "noexcept(") == 0)
 	{
 		return noexcept_operand(word, live);
+	}
+	if (word.compare(0, 7, "sizeof(") == 0 || word.compare(0, 8, "alignof(") == 0)
+	{
+		// 5.3.3p1 and 5.3.6p1: the parenthesized operand closed up with the
+		// operator in the split, so the whole of it is this word and the
+		// spelling it is written as is the key the parse kept its reading
+		// under.
+		const std::string::size_type open = word.find('(');
+		return trait_value(word.substr(0, open),
+		                   word.substr(open + 1, word.size() - open - 2),
+		                   analyzer_.written_ == nullptr
+		                       ? nullptr
+		                       : analyzer_.written_->spelled(word),
+		                   live);
 	}
 	if (is_cast_word(word))
 	{
@@ -711,7 +816,24 @@ bool TemplateArgumentReader::operand_list(const std::vector<std::string>& words,
 	}
 	for (;;)
 	{
-		out.push_back(expression(words, 0, live));
+		const std::size_t from = at_;
+		// 14.5.3p4: whether this operand is a pattern is settled *before* it is
+		// read, because the `...` stands after it and a pattern that is a
+		// pack's own name is no operand at all where the pack is bound to a
+		// run - `sum(Ns...)` would run out on `Ns` a word before the reading
+		// reached the ellipsis that says how to read it.  Where the operand
+		// ends is one forward scan of the words the reading is about to take.
+		const std::size_t stop = operand_end(words, from);
+		if (stop > from && words[stop - 1] == "...")
+		{
+			expand_operand(words, from, stop - 1, live, out);
+			at_ = stop;
+		}
+		else
+		{
+			const SemaConstant value = expression(words, 0, live);
+			out.push_back(live ? valued(value) : value);
+		}
 		if (at_ >= words.size())
 		{
 			return false;
@@ -726,6 +848,58 @@ bool TemplateArgumentReader::operand_list(const std::vector<std::string>& words,
 			return false;
 		}
 		++at_;
+	}
+}
+
+void TemplateArgumentReader::expand_operand(
+	const std::vector<std::string>& words, std::size_t from, std::size_t to,
+	bool live, std::vector<SemaConstant>& out)
+{
+	std::string pattern;
+	for (std::size_t index = from; index < to; ++index)
+	{
+		pattern += (pattern.empty() ? "" : " ") + words[index];
+	}
+	const PackReading::Run run = PackReading(analyzer_).run_of(pattern, ctx_);
+	if (!run.found)
+	{
+		// 14.5.3p5: the pattern of a pack expansion shall name at least one
+		// parameter pack.
+		throw NotConstant(pattern + " is written as a template argument, is "
+		                  "expanded and names no parameter pack");
+	}
+	if (!run.settled)
+	{
+		// 14.6.2p1: how many operands the expansion writes, an argument list
+		// is what says - so which declaration the call reaches is that list's
+		// to settle too, and nothing about it is read here.
+		dependent_ = true;
+		++analyzer_.stood_in_;
+		SemaConstant stood;
+		stood.type = analyzer_.types_.fundamental(FT_INT);
+		stood.bits = 1;
+		out.push_back(stood);
+		return;
+	}
+	for (std::size_t element = 0; element < run.length; ++element)
+	{
+		// The region is this element's alone, so nothing one reading binds
+		// stands for the next; the words are the ones already split, so the
+		// pattern is read again and never re-split.
+		SemaContext inner = ctx_;
+		inner.scope =
+			&PackReading(analyzer_).element_region(run, element, ctx_);
+		TemplateArgumentReader reader(analyzer_, inner);
+		out.push_back(reader.read_from(words, from, live));
+		if (reader.at_ != to)
+		{
+			throw NotConstant(pattern + " is written as a template argument "
+			                  "and is no expanded operand");
+		}
+		if (reader.dependent())
+		{
+			dependent_ = true;
+		}
 	}
 }
 
@@ -877,7 +1051,59 @@ SemaConstant TemplateArgumentReader::type_trait(
 		                  "close its operand");
 	}
 	at_ = close + 1;
+	return trait_value(word, held, nullptr, live);
+}
+
+// 5.3.3p1 and 5.3.6p1 over the operand `held` the operator `op` was written
+// over, and over `tree` where the parse kept the reading it built for it.
+SemaConstant TemplateArgumentReader::trait_value(const std::string& op,
+                                                 const std::string& held,
+                                                 const AstNode* tree, bool live)
+{
 	TypeId type = probe_type_id(held);
+	if (type != kNoType && live)
+	{
+		// 5.3.3p1 and 14.7.1p1: the operator requires the operand's type
+		// complete, and naming a specialization where a complete type is
+		// required is the one use that demands its definition - where the probe
+		// above settled only *whether* the spelling is a type-id, under a
+		// reading that asks for no definition at all.  So the type-id is read
+		// once more where the demand belongs: `A<sizeof(box<4>)>` is a program
+		// `g++` and `pa22/cppgm++-ref` both lay `box<4>` out for, and the probe
+		// alone leaves it declared and never completed.  One reading per
+		// `sizeof` a spelling wrote, never one per name.
+		type = analyzer_.template_argument_type(held, ctx_);
+	}
+	if (type == kNoType && tree != nullptr && !tree->children.empty() &&
+	    tree->children[0]->kind != AstKind::TypeId)
+	{
+		// 5.3.3p1's other arm: the operand is an *expression*, and how large
+		// the type it has is, is 13.3's answer over a typed operand rather
+		// than anything a reading of the words could reach - the return type
+		// of whichever declaration `f(&x)` calls is what `sizeof(f(&x))`
+		// asks for, and neither the overload set nor the conversions ranked
+		// over it are in the text.  So the operand is not re-read here: the
+		// parse kept the tree it built beside the spelling it flattened to,
+		// and the one reading that answers this operator over a tree is asked
+		// exactly as the declaration that wrote it would have asked - which is
+		// where 14.6p8's stand-in for a dependent operand is written too.
+		if (!live)
+		{
+			// 5.14p1 and 5.16p1: the arm the answer does not depend on is read
+			// for its shape, and reading this operand is a whole analysis.
+			SemaConstant out;
+			out.type = analyzer_.types_.fundamental(FT_UNSIGNED_LONG_INT);
+			out.bits = 1;
+			return out;
+		}
+		const unsigned stood = analyzer_.stood_in_;
+		const SemaConstant out = analyzer_.evaluate(*tree, ctx_);
+		if (analyzer_.stood_in_ != stood)
+		{
+			dependent_ = true;
+		}
+		return out;
+	}
 	if (type == kNoType)
 	{
 		// 5.3.3p1: the operand is an expression, and its *type* is what the
@@ -886,7 +1112,7 @@ SemaConstant TemplateArgumentReader::type_trait(
 		SemaEntity* const named = analyzer_.resolve(held, ctx_, LookupKind::Any);
 		if (named == nullptr)
 		{
-			throw NotConstant(held + " is written inside " + word +
+			throw NotConstant(held + " is written inside " + op +
 			                  " as a template argument and names no type");
 		}
 		type = named->type;
@@ -911,7 +1137,9 @@ SemaConstant TemplateArgumentReader::type_trait(
 	}
 	SemaConstant out;
 	out.type = analyzer_.types_.fundamental(FT_UNSIGNED_LONG_INT);
-	out.bits = word == "sizeof" ? analyzer_.size_of(type) : analyzer_.types_.object_align(type);
+	type = analyzer_.types_.measured_type(type);
+	out.bits = op == "sizeof" ? analyzer_.size_of(type)
+	                          : analyzer_.types_.object_align(type);
 	return out;
 }
 
@@ -935,7 +1163,7 @@ SemaConstant TemplateArgumentReader::literal_operand(
 		                  "close its index");
 	}
 	++at_;
-	return analyzer_.string_element(word, index.bits);
+	return analyzer_.string_element(word, valued(index).bits);
 }
 
 // 5.3.3p5: how many elements the run bound to the pack holds, which is the
@@ -1041,16 +1269,40 @@ SemaConstant TemplateArgumentReader::name(const std::string& spelling,
 	return ConstexprReading(analyzer_).entity_constant(*named, spelling);
 }
 
+const SemaConstant& TemplateArgumentReader::valued(const SemaConstant& given)
+{
+	if (analyzer_.types_.is_void(analyzer_.types_.strip_cv(given.type)))
+	{
+		throw NotConstant("a constant expression written as a template "
+		                  "argument reads the value of an operand 5.2.9p4 "
+		                  "discarded");
+	}
+	return given;
+}
+
 // 5.4p4 and 4.7: an integral value read as another integral type.
 SemaConstant TemplateArgumentReader::cast(TypeId target,
                                           const SemaConstant& operand)
 {
+	if (analyzer_.types_.is_void(analyzer_.types_.strip_cv(target)))
+	{
+		// 5.2.9p4: a cast to cv void names no value at all - the operand is
+		// evaluated and its result discarded.  So what stands here is a
+		// discarded value rather than a constant, which 5.18p1's left operand
+		// is the one place a constant expression may write: `((void)B, true)`
+		// is `true` however `B` came out, and any other reader of this result
+		// refuses it because no place takes a void.
+		SemaConstant out;
+		out.type = target;
+		out.bits = 0;
+		return out;
+	}
 	if (analyzer_.integral_type(target) == kNoType)
 	{
 		throw NotConstant("a cast written as a template argument names a type "
 		                  "that is not integral");
 	}
-	SemaConstant out = analyzer_.convert(operand, target);
+	SemaConstant out = analyzer_.convert(valued(operand), target);
 	out.type = target;
 	return out;
 }
@@ -1243,6 +1495,14 @@ TypeId SemaAnalyzer::template_argument_value(const std::string& spelling,
 	if (reader.dependent())
 	{
 		return dependent_value(spelling);
+	}
+	if (types_.is_void(types_.strip_cv(value.type)))
+	{
+		// 14.3.2p1 with 5.2.9p4: the argument is a value, and a cast to cv void
+		// leaves the expression with none - so `A<(void)0>` names no argument
+		// however the place is declared, where `A<((void)0, 3)>` names 3.
+		throw NotConstant(spelling + " is written as a template argument and "
+		                  "5.2.9p4 discarded its value");
 	}
 	// 14.3.2p5: the argument is a converted constant expression of the type the
 	// place declared, so what tells two arguments apart is the value after that
