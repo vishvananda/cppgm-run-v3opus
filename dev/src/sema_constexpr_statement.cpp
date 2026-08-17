@@ -305,6 +305,16 @@ void ConstexprReading::declared(const AstNode& node, const SemaContext& ctx,
 			object.constant = false;
 			continue;
 		}
+		if (analyzer_.types_.is_reference(type))
+		{
+			// 8.3.2p1: a declaration of reference type binds its name to an
+			// object another declaration owns, wherever it is written - so a
+			// body's own `const int &r = one;` is the same binding 3.3.2 makes
+			// of the identical declaration outside every body.
+			bind_declared_reference(object, *written->children[0], type, ctx);
+			object.constant = false;
+			continue;
+		}
 		// 8.5 with 6.7p1: the object is initialized here exactly as one a
 		// declaration outside every body is - 8.5.1p2's clauses down an object
 		// of class or array type included, which is what `vec<pair<int,int> >

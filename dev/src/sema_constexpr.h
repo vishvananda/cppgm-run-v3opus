@@ -156,6 +156,10 @@ public:
 	// called on, told from 8.3.5p10's own declaration of the name by the object
 	// it names.  Null where this reading has no such object.
 	SemaEntity* folded_this(const SemaContext& ctx) const;
+	// 8.3.2p1: which object a declaration of reference type bound its name to,
+	// recorded on the declaration so every reading of the name answers from it.
+	void bind_declared_reference(SemaEntity& entity, const AstNode& wrote,
+	                             TypeId type, const SemaContext& ctx);
 	SemaConstant call_or_cast(const AstNode& node, const SemaContext& ctx);
 	// 5.2.1p1's subscript and 5.4p4/5.2.9's cast, each of which is one operator
 	// with a reading per kind of operand or destination - so each is a reading

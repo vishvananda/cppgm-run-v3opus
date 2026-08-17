@@ -253,6 +253,35 @@ void ConstexprReading::ask_for_definition(TypeId bare)
 // fold refused for a value kind or a construct it has none of, which is no
 // statement about the program and which 7.1.5p9's requirement beside it then
 // asks nothing of.
+// 8.3.2p1: which object a declaration of reference type bound its name to.
+//
+// The initializer is read as 8.5's *operand* rather than for a value, because
+// there need be none: `static int n;` is an object a reference binds to and
+// holds nothing.  A refusal here says only that this reading does not know
+// which object it is, which leaves the binding unmade and the name answered by
+// whatever 3.6.2 then does with it.
+void ConstexprReading::bind_declared_reference(SemaEntity& entity,
+                                               const AstNode& wrote,
+                                               TypeId type,
+                                               const SemaContext& ctx)
+{
+	try
+	{
+		const SemaConstant bound =
+			at_reference_place(operand_constant(wrote, ctx, type), type);
+		if (bound.object != 0 && static_address(bound))
+		{
+			entity.address = bound.object;
+		}
+	}
+	catch (const NotConstant&)
+	{
+		// 5.19p2 read one name further along: a reference this build cannot say
+		// which object it names is one no reading of the name may answer from,
+		// and the declaration carries that by binding nothing.
+	}
+}
+
 bool ConstexprReading::fold_declared_object(SemaEntity& entity,
                                             const AstNode* initializer,
                                             TypeId type, const SemaContext& ctx,
@@ -280,6 +309,21 @@ bool ConstexprReading::fold_declared_object(SemaEntity& entity,
 	       TypeKind::Array)
 	{
 		qualified = analyzer_.types_.target(analyzer_.types_.strip_cv(qualified));
+	}
+	if (analyzer_.types_.is_reference(type))
+	{
+		// 8.3.2p1 and 5.19p2: a declaration of reference type binds its name to
+		// an object some *other* declaration owns, so what the name is worth is
+		// what that object holds and never a value of the reference's own -
+		// which is the binding `SemaEntity::address` already carries for a
+		// reference place a call filled, written here where a declaration wrote
+		// one.  5.19p2 asks only that the object be one whose lifetime does not
+		// end inside the evaluation, which is what `static_address` answers.
+		if (wrote != nullptr)
+		{
+			bind_declared_reference(entity, *wrote, type, ctx);
+		}
+		return true;
 	}
 	// 3.9.2p1 and 5.19p2: a pointer is a constant of the same standing as an
 	// arithmetic value, and what it is worth is the object it designates.
