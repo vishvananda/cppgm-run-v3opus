@@ -527,6 +527,15 @@ void SemaAnalyzer::special_member(const AstNode& node, const Context& ctx)
 	const std::string written = QualifiedName(node.text).last();
 	const bool destructor = !written.empty() && written[0] == '~';
 	const std::string spelled = special_member_name(written, owner);
+	if (destructor && head != nullptr)
+	{
+		// 14.5.2p1: a destructor shall not be a template.  A class has one
+		// destructor, and 12.4p1 leaves its declarator no parameters for a
+		// deduction to read - so a head written over it parameterises nothing a
+		// use of it could ever choose between.
+		throw std::runtime_error(spelled + " declares a destructor template, "
+		                         "which 14.5.2p1 does not allow");
+	}
 	std::vector<Parameter> parameters;
 	bool variadic = false;
 	const TypeId type = special_member_type(node, ctx, owner, destructor,
@@ -555,9 +564,15 @@ void SemaAnalyzer::special_member(const AstNode& node, const Context& ctx)
 		// A constructor has no name a lookup binds, so the chain the class holds
 		// is what the parameter list indexes - and a class with n of them is
 		// declared in n steps rather than n^2 comparisons.
+		// 14.5.6.1p5 with 9.2p1: two heads that declared the same places over
+		// the same type declare *one* constructor template, whatever each
+		// called its places - so the chain's index of parameter type lists
+		// cannot see the second declaration of it and the heads are compared.
 		if (owner.constructor != nullptr &&
-		    model_.overload_of(*owner.constructor,
-		                       types_.signature(type)) != nullptr)
+		    (model_.overload_of(*owner.constructor,
+		                        types_.signature(type)) != nullptr ||
+		     (head != nullptr &&
+		      equivalent_template(*owner.constructor, *head, type) != nullptr)))
 		{
 			throw std::runtime_error(spelled +
 			                         " declares one constructor twice");
@@ -831,6 +846,14 @@ void SemaAnalyzer::special_member_definition(const AstNode& node,
 	SemaEntity& owner = *region.owner;
 	const bool destructor = !written.empty() && written[0] == '~';
 	const std::string spelled_class = special_member_name(written, owner);
+	if (destructor && ctx.template_head == ctx.scope &&
+	    ctx.scope->kind == ScopeKind::TemplateParameters)
+	{
+		// 14.5.2p1 as above: a destructor shall not be a template, wherever the
+		// head that would have parameterised it was written.
+		throw std::runtime_error(spelled_class + " defines a destructor "
+		                         "template, which 14.5.2p1 does not allow");
+	}
 	// 7.1.2p1, 9.2p8 and 8.4p2: a definition written outside the class repeats
 	// neither `virtual` nor the virt-specifiers, which is the same question the
 	// declarator of every other member function is asked.

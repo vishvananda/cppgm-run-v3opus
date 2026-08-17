@@ -1,0 +1,65 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $d : obj<1x1>
+  slot $cond__1 : i32
+  slot $land__2 : i64
+
+  block ^entry:
+    %t1 = addr $d
+    %t2 = addr $d
+    %t3 = call i32 @dispatch_int___pick(%t2, 0, 1)
+    %t4 = cmp eq i32 %t3, 1
+    branch %t4, ^land_rhs_4, ^land_short_5
+
+  block ^land_rhs_4:
+    %t5 = addr $d
+    %t6 = call i32 @dispatch_int___pick__ov2(%t5, 0, 1)
+    %t7 = cmp eq i32 %t6, 11
+    %t8 = cmp ne i64 %t7, 0
+    store i64 %t8, $land__2
+    jump ^land_end_6
+
+  block ^land_short_5:
+    store i64 0, $land__2
+    jump ^land_end_6
+
+  block ^land_end_6:
+    %t9 = load i64 $land__2
+    branch %t9, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t10 = load i32 $cond__1
+    return i32 %t10
+}
+function @dispatch_int___pick(%this : ptr, %__param1 : ptr, %x : i32) -> i32 [binding=weak, object=_ZN8dispatchIiE4pickIiEEiPNS0_5firstET_] {
+  slot $this : ptr
+  slot $__param1 : ptr
+  slot $x : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store ptr %__param1, $__param1
+    store i32 %x, $x
+    %t1 = load i32 $x
+    return i32 %t1
+}
+function @dispatch_int___pick__ov2(%this : ptr, %__param1 : ptr, %x : i32) -> i32 [binding=weak, object=_ZN8dispatchIiE4pickIiEEiPNS0_6secondET_] {
+  slot $this : ptr
+  slot $__param1 : ptr
+  slot $x : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store ptr %__param1, $__param1
+    store i32 %x, $x
+    %t1 = load i32 $x
+    %t2 = binary add i32 %t1, 10
+    return i32 %t2
+}
