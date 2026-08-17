@@ -1060,20 +1060,18 @@ SemaConstant TemplateArgumentReader::trait_value(const std::string& op,
                                                  const std::string& held,
                                                  const AstNode* tree, bool live)
 {
+	// 5.3.3p1, 5.3.6p3 and 14.7.1p1: the operator requires the operand's type
+	// complete, and naming a specialization where a complete type is required is
+	// the one use that demands its definition - where the probe above settled
+	// only *whether* the spelling is a type-id, in the dialect that asks for no
+	// definition at all.  So the demand is made of the type that reading already
+	// has in hand, by `size_of` and `align_of` below, and never by reading the
+	// same text a second time to make it: a second reading is one reading per
+	// level *doubled* at every level below it, which is what
+	// `template_argument_value` says about the lookup it does not make - a
+	// `sizeof` of a specialization nested 20 deep in its own operand was 15 s of
+	// it against the reference's 0.60 s.
 	TypeId type = probe_type_id(held);
-	if (type != kNoType && live)
-	{
-		// 5.3.3p1 and 14.7.1p1: the operator requires the operand's type
-		// complete, and naming a specialization where a complete type is
-		// required is the one use that demands its definition - where the probe
-		// above settled only *whether* the spelling is a type-id, under a
-		// reading that asks for no definition at all.  So the type-id is read
-		// once more where the demand belongs: `A<sizeof(box<4>)>` is a program
-		// `g++` and `pa22/cppgm++-ref` both lay `box<4>` out for, and the probe
-		// alone leaves it declared and never completed.  One reading per
-		// `sizeof` a spelling wrote, never one per name.
-		type = analyzer_.template_argument_type(held, ctx_);
-	}
 	if (type == kNoType && tree != nullptr && !tree->children.empty() &&
 	    tree->children[0]->kind != AstKind::TypeId)
 	{
@@ -1139,7 +1137,7 @@ SemaConstant TemplateArgumentReader::trait_value(const std::string& op,
 	out.type = analyzer_.types_.fundamental(FT_UNSIGNED_LONG_INT);
 	type = analyzer_.types_.measured_type(type);
 	out.bits = op == "sizeof" ? analyzer_.size_of(type)
-	                          : analyzer_.types_.object_align(type);
+	                          : analyzer_.align_of(type);
 	return out;
 }
 

@@ -560,7 +560,7 @@ SemaAnalyzer::Constant SemaAnalyzer::evaluate(const AstNode& node,
 		out.type = types_.fundamental(FT_UNSIGNED_LONG_INT);
 		out.bits = node.kind == AstKind::SizeofExpression
 			? size_of(type)
-			: types_.object_align(type);
+			: align_of(type);
 		return out;
 	}
 
@@ -581,13 +581,46 @@ unsigned long long SemaAnalyzer::size_of(TypeId type)
 		++stood_in_;
 		return 1;
 	}
-	require_complete_type(type);
+	// The demand is `require_settled_type`'s and not `require_complete_type`'s,
+	// because a reading that asked for nothing is what writes an operand here:
+	// 14.6p8's reading of a template definition names a specialization its own
+	// arguments already settled, and `sema_value_expression.cpp` probes a
+	// type-id in a reading of its own and keeps the answer.  Neither left the
+	// mark the narrower demand reads, and the clause requires the type complete
+	// however the reading that named it stood.
+	require_settled_type(type);
 	if (types_.is_incomplete(type))
 	{
 		// 5.3.3p1: `sizeof` shall not be applied to an incomplete type.
 		throw std::runtime_error("sizeof names an incomplete type");
 	}
 	return types_.object_size(type);
+}
+
+// 5.3.6p1 and p3 as `size_of`'s twin, asked in the same order and for the same
+// reason: the clause writes the same two sentences 5.3.3p1 does about an
+// operand an argument list has yet to settle and about one whose type shall be
+// complete, and `TypeTable::object_align` answers neither - an incomplete class
+// has an alignment of zero there, which is a number a reader would write out.
+// Three readings write this operator - the expression layer, 5.19's tree
+// reading and its spelling reading - and a clause one of them holds is a clause
+// the other two are wrong about.
+unsigned long long SemaAnalyzer::align_of(TypeId type)
+{
+	if (checking_ > 0 && types_.is_dependent(type))
+	{
+		// 14.6p8 and 5.3.6p1: how a type that depends on a template parameter
+		// is aligned, an argument list is what says.
+		++stood_in_;
+		return 1;
+	}
+	require_settled_type(type);
+	if (types_.is_incomplete(type))
+	{
+		// 5.3.6p3: the type shall be complete, which is what has an alignment.
+		throw std::runtime_error("alignof names an incomplete type");
+	}
+	return types_.object_align(type);
 }
 
 unsigned long long SemaAnalyzer::array_bound(const AstNode& node,

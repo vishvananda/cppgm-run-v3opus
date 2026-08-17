@@ -1370,8 +1370,11 @@ private:
 	                               const Context& ctx);
 	TypeId dependent_value(const std::string& spelling);
 
-	// 5.3.3 and 5.3.6 over a type-id, which is the whole of what PA11 needs.
+	// 5.3.3 and 5.3.6 over a type-id, which is the whole of what PA11 needs: one
+	// answer apiece, because neither p3's demand nor 14.6p8's stand-in is
+	// `TypeTable`'s to make and three readings write each operator.
 	unsigned long long size_of(TypeId type);
+	unsigned long long align_of(TypeId type);
 	bool is_signed(TypeId type) const;
 	unsigned width_of(TypeId type) const;
 	// 3.9.1p8: the arithmetic type a value of `type` is read as - an

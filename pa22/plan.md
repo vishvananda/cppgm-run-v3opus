@@ -70,6 +70,14 @@ replaced:
   5.1.1p6's parentheses, 5.2.9p4's discarded value, and 14.5.3p4's expansion
   inside 5.2.2p1's argument list. What no reading of words can answer it asks of
   the tree the parse kept: 5.3.7p3's operator and 5.3.3p1's expression operand.
+  What 5.3.3 and 5.3.6 *come to* is not this reader's and not the type table's:
+  `SemaAnalyzer::size_of` and `align_of` are the one answer apiece, because
+  14.6p8's stand-in, p3's demand and p3's refusal are three things a lookup of a
+  type's size cannot make and three readings write each operator. The demand is
+  `require_settled_type` - asked of the type rather than of the mark
+  `instantiate_class` leaves, so it reaches a specialization a reading that asked
+  for nothing named, and so that no reader makes it by reading the same text
+  twice.
 - `sema_pack.cpp` — 14.5.3p4's expansion: which packs a pattern names
   (`collect_packs`, through a template-id whose template is a place), what an
   expansion comes to (`expand_type`), how a substitution reaches through one
@@ -80,9 +88,9 @@ replaced:
 
 ## Current Failure Map
 
-C landed **317 / 347** — 313 of 343 plus the 4 `course/pa22` fixtures it wrote.
-The 30 that fail group by the compiler behaviour that owns them, from the
-diagnostic each one reaches:
+The C audit stands at **318 / 348** — 278 of the 308 `tests/` fixtures plus all
+40 `course/pa22` ones, the last of which it wrote. The 30 that fail group by the
+compiler behaviour that owns them, from the diagnostic each one reaches:
 
 | # | Group | Owner | Signature |
 |---|-------|-------|-----------|
@@ -96,9 +104,18 @@ diagnostic each one reaches:
 
 C's own group is gone whole: the five `sema_constant.cpp` diagnostics and the two
 `sizeof`-over-a-stood-in-call failures all compile and match. What is left of the
-constant-expression reader is nothing the fixtures reach.
+constant-expression reader is nothing the fixtures reach, and the C audit's three
+findings were nothing they reach either — the `course/pa22` fixture it added is
+what pins them.
 
 Known gaps probed and deliberately left:
+
+- `A<sizeof x>` is 5.3.3p1's *unparenthesized* operand, the sixth exit of the
+  reader C opened five: the split leaves `sizeof` a word of its own and the
+  parse keeps no tree under a spelling whose end the enclosing expression is
+  what says. Both oracles take it. Reaching it means the reader finding the span
+  of one unary-expression before it can ask the parse for a key, which is the
+  operand boundary 5.3.3 owns and not one the words carry.
 
 - `Trait<int>::value && constraints<Traits...>::value` inside a partial
   specialization over a template-template pack is `no declaration of Trait<int>
@@ -236,10 +253,17 @@ Known gaps probed and deliberately left:
 - `pa22/cppgm++-ref` reads three declarations of one pattern over a pack as three
   partial specializations and calls the naming ambiguous. `g++ -pedantic-errors`
   accepts it and so does this build.
+- Three shapes of C's own surface where `pa22/cppgm++-ref` parts from `g++` and
+  from this build, so no `course/pa22` fixture pins them: a `sizeof` of the
+  specialization whose own body writes it - `template<int N> struct A { char
+  pad[N]; static const int v = sizeof(A<1>); };` - is accepted there and refused
+  here and by `g++`; `sum(1 ...)`, an expansion whose pattern names no parameter
+  pack, is accepted there and refused by both; and `sum(0, Ns...)` over a run of
+  none is refused there and taken by both.
 
 ## Active Checkpoint
 
-**C and its sweep landed — see the ledger.** The next one is **B**, the six
+**C and its audit landed — see the ledger.** The next one is **B**, the six
 `-bad` cases this build accepts and both oracles refuse. Three of them are 11p1's
 access asked at a path the *arguments* built - `spec/300-private-leading-
 template-id-path-rejected`, `spec/300-private-base-inherited-member-template-
@@ -299,10 +323,13 @@ Every generated input is checked for exit 0 before it is timed.
 | **C** n operands written in one call as a template argument | 100 → 800 | 0.00 s, 7 → 9 MB | 1.13 s at 800 |
 | **C** one pattern expanded into a call's arguments over a run of n | 400 → 3200 | 0.00 → 0.03 s, 9 → 22 MB | 12.46 s at 3200 |
 | **C** calls nested d deep inside one template argument | depth 4 → 128 | 0.00 → 0.01 s, 7 MB | **killed at 120 s** at depth 24 |
-| **C** n `sizeof` type-ids in one argument spelling, each a specialization | 100 → 800 | 0.04 → 0.30 s, 9 → 29 MB | 1.73 s at 800; the turn-start build **refuses** |
+| **C** n `sizeof` type-ids in one argument spelling, each a specialization | 100 → 800 | 0.00 → 0.01 s, 6 → 7 MB | 1.73 s at 800; the turn-start build **refuses** |
+| **C audit** n `alignof` type-ids in one argument spelling, each a specialization | 100 → 800 | 0.00 → 0.01 s, 6 → 7 MB | 0.70 s at 800 |
+| **C audit** a `sizeof` of a specialization nested d deep in its own operand | depth 8 → 128 | 0.00 → 0.01 s, 6 → 7 MB | 0.60 s flat; the turn-start build is **2^d** — 15.42 s at 20, killed at 60 s at 24 |
+| **C audit** n class templates, each named once under `alignof` at a declarator | 100 → 800 | 0.02 → 0.16 s, 9 → 29 MB | 1.21 → 1.44 s; the turn-start build is 0.08 s and **answers 1** |
 | **C** n member class templates of one class template, each defined out of class, against the turn-start build | 50 → 400 | 0.03 → 0.25 s, 9 → 28 MB | 0.03 → 0.24 s there; ref 1.73 s |
 | **C** n nested classes of member class templates, each defined out of class | 50 → 400 | 0.06 → 0.49 s, 11 → 40 MB | 2.03 s at 400; the turn-start build **refuses** |
-| the whole 347-file corpus, one process per file | — | **1.53 s** | 1.52 s at the turn-start build |
+| the whole 348-file corpus, one process per file | — | **1.65 s** | 1.61 s at the turn-start build; the loop's own floor is 1.36 s |
 | *(carried from F)* n friend declarations of one name, each revealed | 800 → 3200 | 0.19 → 0.79 s | 22.40 s at 800 |
 
 C's four costs are each paid once and nothing scans. `operand_end` is one
@@ -313,18 +340,26 @@ reading reaches the ellipsis that says how to read it - a list nested d deep
 scans its own contents once per level, which is 0.01 s and 7 MB at depth 128
 where `pa22/cppgm++-ref` is killed at 120 s at depth 24. `expand_operand` is one
 reading of the pattern per element, over the words already split, so a run of
-3200 is 0.03 s against the reference's 12.46 s. The second
-`template_argument_type` in `trait_value` is one type-id reading per live
-`sizeof`/`alignof` a spelling wrote, and it is what puts 14.7.1p1's demand
-outside the probe that settled 5.4p2's ambiguity: 800 of them is 0.30 s against
-the reference's 1.73 s and a refusal at the turn-start build. And asking
+3200 is 0.03 s against the reference's 12.46 s. 14.7.1p1's demand under
+`sizeof` and `alignof` is one call of `require_settled_type` on the type the
+probe already has in hand, made inside `size_of` and `align_of` so that every
+reading of either operator makes it: the second `template_argument_type` the
+checkpoint wrote in its place was a *reading* per level doubled at every level
+below it - 15.42 s at depth 20 and killed at 60 s at 24, where the reference is
+0.60 s flat and this build is 0.01 s at depth 128. What the demand costs is the
+work it was owed: 800 class templates each named once under `alignof` at a
+declarator is 0.16 s and 29 MB against the reference's 1.44 s, where the
+turn-start build was 0.08 s because it laid none of them out and answered 1. And
+asking
 `nested_owner` before the class tier costs one components walk per second-head
 declaration, which the tier below made anyway: n = 400 member class templates
 defined out of class is 0.25 s against the turn-start build's 0.24 s.
 
-The corpus row is re-measured after C over 347 files: 1.53–1.54 s against the
-turn-start build's 1.51–1.52 s over the same 347. About 1.15 s of it is the
-process floor, so the compiler's own work is about 1 ms per fixture.
+The corpus row is re-measured after the C audit over 348 files: 3.01 s of wall
+clock against the turn-start build's 2.97 s, over a 1.36 s floor the loop's own
+fork-and-exec costs - so 1.65 s of compiler work against 1.61 s, about 5 ms per
+fixture, and the 0.04 s is the classes a `sizeof` or an `alignof` now asks to be
+laid out.
 
 Every dimension is linear in what it sweeps and flat in depth except 14.5.5.1p1's
 own: n patterns beside one template and n lists naming it is n candidate scans of
@@ -341,9 +376,23 @@ once per written parameter, `enclosed_by_a_head` is one walk per queued body,
 `TemplateInfo::reading_region` and `Member::carried` are pointers written where
 a definition is recorded, and `instantiating_pattern_` is one unsigned compare.
 
-`valgrind -q --error-exitcode=9` is clean over 58 inputs after C, 0 errors: its
-52 sibling-exit probes and its six largest scaling inputs. It was clean over 62
-after the R audit, 34 after R, 37 after X, 57 after the O audit.
+`valgrind -q --error-exitcode=9` is clean over 69 inputs after the C audit, 0
+errors: its 65 sibling-exit probes and its four largest scaling inputs. It was
+clean over 58 after C, 62 after the R audit, 34 after R, 37 after X, 57 after the
+O audit.
+
+The C audit's run evidence: all 65 probes are judged against `g++ -std=c++11
+-pedantic-errors` and against `pa22/cppgm++-ref`, and agree with `g++` on every
+one - 13 discarded-value shapes and 5 comma shapes, 12 `alignof` shapes over a
+specialization, a reference type-id, an array bound, a static_assert and a class
+template's own body, 10 expansion shapes including two packs together, an
+expansion nested in a call inside another, a template-id pattern and a run of
+none, 6 `::template` shapes, and 6 `sizeof`-off-the-kept-tree shapes including
+one spelling written over two different overload sets in two namespaces. Every
+probe that translates runs through `lowir2cy86` + `cy86` and returns the value
+`g++` gives it, and the `course/pa22` fixture the audit added does too. Three of
+the 65 are shapes `pa22/cppgm++-ref` answers differently from `g++` and from this
+build, recorded above.
 
 C's own run evidence: all 52 probes are judged against `g++ -std=c++11
 -pedantic-errors` and agree with it on every one - 6 comma and void-cast shapes
@@ -379,4 +428,4 @@ with `pa22/cppgm++-ref`.
 | **O, O audit** 14.6.1p1's current specialization of a partial specialization, and which of a template's bodies a declarator-id names | This build had one current instantiation per template - the primary's - so an out-of-class definition of a member of a *pattern* bound its own head to the primary's places. `TemplateInfo::Partial` now gets what `info.current` already was, keyed in `TemplateInfo::patterns` by the interned list. 14.5.2p1's member class template: 14.6p8's reading recorded no template at all. Then `read_declaration` - 14.5.2p3's own tier - recorded against `kNoPartial` outright, so a member of any partial specialization of a member class template was read against the primary's places. | 285 / 336 |
 | **X, X audit** 14.7.3p1's explicit specialization of a member, and the question 5.19p2 asks with the same words | A `template<>` definition of one member of one class specialization *is* that member's definition, so 14.7.1p1's reading of the pattern shall not write a second one: `SemaEntity::instantiated_definition` is written for a function too, under an `instantiating_pattern_` depth, and `Pending::from_pattern` lets the end of the unit drop the queued body. Then `note_object` answered two questions with one field - "a use reads the object" and 5.19p2's own answer about the declaration - so a `template<>` written for one list made every *other* list's member no constant expression at all. | 295 / 338 |
 | **R, R audit** 14.1p2's names a definition written outside its class wrote, and the region its head bound | An out-of-class member definition stands under one head per class it is nested in, and 14.1p2 lets each spell the enclosing classes' places with names of its own - which this build bound nowhere 14.7.1p1 could reach. `TemplateInfo::reading_region` is the region the head above opened, taken before `StandingIn` moves the nest, and `Member::carried` is it one tier down. Then R bound those names where the *declaration* is made and 14.7.1p1 leaves the *body* to the use, so `enclosed_by_a_head` asks it once at the one door every queued body passes; and 14.5.3p4's count may not be asked at 14.6p8's reading, where the expansion stands for itself. | 306 / 343 |
-| **C** 5.19 read out of one spelling, at the four operators the reader had no answer for | 14.2 writes an argument list inside a name, so `TemplateArgumentReader` is the second implementation of 5.19 exactly as `SpelledTypeId` is of 8.1p1 - and four of the clause's own operators had no exit there. 5.18p1's comma is read inside 5.1.1p6's parentheses alone, because outside them a comma separates one argument from the next; 5.2.9p4's cast to cv void is a *discarded* value, which is what `valued` refuses at every reader that takes an operand's worth and what makes `((void)B, true)` read as `true`; 14.5.3p4's expansion stands in 5.2.2p1's argument list, and whether an operand is a pattern is settled by `operand_end` *before* it is read, because the `...` stands after it and `sum(Ns...)` runs out on `Ns` a word early; and 14.2p4's keyword is written inside a component, so `X::template f<A>::v` is one word the split closes up rather than two. 5.3.3p1's other arm is the fifth: how large the type an *expression* has is, is 13.3's answer over a typed operand, so the parenthesized operand closes up with its operator in the split and the tree the parse kept under that spelling is what answers it - beside 5.3.3p2 and 5.3.6p3's reference, which `measured_type` now owns for the three readers that write the operator. Two sweeps came with it: 14.7.1p1's demand is made outside the probe that settles 5.4p2's ambiguity, so `A<sizeof(box<4>)>` lays `box<4>` out; and 14.5.2p3's `nested_owner` is asked *before* the class tier, which reads the same nested-name-specifier as a prefix it must resolve - so `adaptor<T>::range<M>::iterator` is a class nested in a member class template rather than `M is written as a template argument and names no constant`. | **317 / 347** |
+| **C, C audit** 5.19 read out of one spelling, at the five operators the reader had no answer for, and the two sentences the last of them is written about | 14.2 writes an argument list inside a name, so `TemplateArgumentReader` is the second implementation of 5.19 exactly as `SpelledTypeId` is of 8.1p1 - and four of the clause's own operators had no exit there. 5.18p1's comma is read inside 5.1.1p6's parentheses alone, because outside them a comma separates one argument from the next; 5.2.9p4's cast to cv void is a *discarded* value, which is what `valued` refuses at every reader that takes an operand's worth and what makes `((void)B, true)` read as `true`; 14.5.3p4's expansion stands in 5.2.2p1's argument list, and whether an operand is a pattern is settled by `operand_end` *before* it is read, because the `...` stands after it and `sum(Ns...)` runs out on `Ns` a word early; and 14.2p4's keyword is written inside a component, so `X::template f<A>::v` is one word the split closes up rather than two. 5.3.3p1's other arm is the fifth: how large the type an *expression* has is, is 13.3's answer over a typed operand, so the parenthesized operand closes up with its operator in the split and the tree the parse kept under that spelling is what answers it - beside 5.3.3p2 and 5.3.6p3's reference, which `measured_type` now owns for the three readers that write the operator. Two sweeps came with it: 14.7.1p1's demand is made outside the probe that settles 5.4p2's ambiguity, so `A<sizeof(box<4>)>` lays `box<4>` out; and 14.5.2p3's `nested_owner` is asked *before* the class tier, which reads the same nested-name-specifier as a prefix it must resolve - so `adaptor<T>::range<M>::iterator` is a class nested in a member class template rather than `M is written as a template argument and names no constant`. Then that last operator's own clauses were answered out of a table: `TypeTable::object_align` gives an incomplete class an alignment of zero and a dependent one a number too, and two of the three readings that write `alignof` called it bare - so `S<alignof(wrap<int>)>` was **1 where both oracles give 8**, at a template argument, in an array bound and in a static_assert alike, and `alignof(never)` was a program both oracles refuse and this build ran. `SemaAnalyzer::align_of` is `size_of`'s twin and all three ask it. Under it, 14.7.1p1's demand reads a mark `instantiate_class` writes only where the naming was a use, and neither 14.6p8's reading nor `trait_value`'s own probe leaves one - so `sizeof(box<4>)` inside any class template's body was `sizeof names an incomplete type`; the demand is now `require_settled_type`, asked of the type rather than of the mark, once inside `size_of` and `align_of`. And the demand the checkpoint did make, it made by reading the operand's type-id a *second* time, which is one reading per level doubled at every level below it: a `sizeof` nested 24 deep in its own operand was killed at 60 s where the reference is 0.60 s flat and this build is now 0.01 s at depth 128. | **318 / 348** |

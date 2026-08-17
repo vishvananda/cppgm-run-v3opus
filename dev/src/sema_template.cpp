@@ -1170,8 +1170,8 @@ void SemaAnalyzer::require_complete_type(TypeId type)
 	require_specialization(*owner);
 }
 
-// 10p1 and 14.6p8: a type a reading of a template definition requires to be
-// complete *there*, which is one no argument list can still change.
+// 10p1 and 14.6p8: a type a reading that asked for nothing requires to be
+// complete anyway, which is one no argument list can still change.
 //
 // 14.6p8's reading asks for no definition, because a name written in a template
 // definition is no use of anything; but a base class an argument list has
@@ -1179,6 +1179,14 @@ void SemaAnalyzer::require_complete_type(TypeId type)
 // clause requires it complete where it stands.  So the reading is put aside for
 // the demand - the specialization is instantiated as an instantiation makes it,
 // with 12.1's members and its own layout - and taken up again after.
+//
+// `require_complete_type` cannot answer for such a type, and that is the whole
+// difference between the two: its own demand reads the mark `instantiate_class`
+// writes where a naming *was* a use, and no reading that asks for nothing wrote
+// one.  So the question is asked of the type rather than of the mark, at every
+// depth and not only inside 14.6p8's dialect - `sema_value_expression.cpp`
+// probes a type-id in a reading of its own and keeps the answer, which leaves a
+// specialization named by `sizeof`'s operand in exactly that state.
 void SemaAnalyzer::require_settled_type(TypeId type)
 {
 	TypeId bare = types_.strip_cv(type);
@@ -1186,7 +1194,7 @@ void SemaAnalyzer::require_settled_type(TypeId type)
 	{
 		bare = types_.strip_cv(types_.target(bare));
 	}
-	SemaEntity* const owner = checking_ > 0 &&
+	SemaEntity* const owner =
 			types_.kind(bare) == TypeKind::Class && !types_.is_dependent(bare)
 		? model_.type_owner(bare)
 		: nullptr;

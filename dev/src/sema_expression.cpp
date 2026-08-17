@@ -1814,18 +1814,12 @@ SemaAnalyzer::Value SemaAnalyzer::alignof_expression(const AstNode& node,
 	// type referred to, which is also the type p3 asks to be complete.
 	const TypeId type =
 		types_.measured_type(type_id_type(*node.children[0], ctx));
-	require_complete_type(type);
-	if (types_.is_incomplete(type))
-	{
-		// 5.3.6p3: the type shall be complete, which is what has an alignment.
-		throw std::runtime_error("alignof names an incomplete type");
-	}
 	Value value;
 	value.type = result;
 	value.spelled = result;
 	value.category = ValueCategory::PRValue;
 	value.constant = true;
-	value.value = types_.object_align(type);
+	value.value = align_of(type);
 	value.what = "sizeof-expression";
 	value.node = &model_.open_node(
 		parent, spell(value.what, value.category, result, value.payload));

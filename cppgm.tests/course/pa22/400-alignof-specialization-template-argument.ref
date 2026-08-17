@@ -1,0 +1,56 @@
+global @bound [binding=strong, object=_Z5bound] = {
+  zero 8
+}
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $total : i64
+  slot $cond__1 : i32
+
+  block ^entry:
+    %t1 = convert sext i64 i32 0
+    store i64 %t1, $total
+    %t2 = load i64 $total
+    %t3 = binary add i64 %t2, 8
+    store i64 %t3, $total
+    %t4 = load i64 $total
+    %t5 = binary add i64 %t4, 8
+    store i64 %t5, $total
+    %t6 = load i64 $total
+    %t7 = binary add i64 %t6, 8
+    store i64 %t7, $total
+    %t8 = load i64 $total
+    %t9 = binary add i64 %t8, 8
+    store i64 %t9, $total
+    %t10 = load i64 $total
+    %t11 = binary add i64 %t10, 4
+    store i64 %t11, $total
+    %t12 = load i64 $total
+    %t13 = binary add i64 %t12, 10
+    store i64 %t13, $total
+    %t14 = load i64 $total
+    %t15 = const i64 8
+    %t16 = binary add i64 %t14, %t15
+    store i64 %t16, $total
+    %t17 = load i64 $total
+    %t18 = binary add i32 8, 8
+    %t19 = binary add i32 %t18, 8
+    %t20 = binary add i32 %t19, 8
+    %t21 = binary add i32 %t20, 4
+    %t22 = binary add i32 %t21, 10
+    %t23 = binary add i32 %t22, 8
+    %t24 = convert sext i64 i32 %t23
+    %t25 = cmp eq i64 %t17, %t24
+    branch %t25, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t26 = load i32 $cond__1
+    return i32 %t26
+}
