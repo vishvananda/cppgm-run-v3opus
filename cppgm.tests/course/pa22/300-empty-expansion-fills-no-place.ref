@@ -1,0 +1,85 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $none : obj<4x4>
+  slot $both : obj<4x4>
+
+  block ^entry:
+    %t1 = addr $none
+    %t2 = addr $none
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 1, %t3
+    %t4 = addr $none
+    %t5 = index i8 [projection=field] %t4, 0
+    %t6 = load i32 %t5
+    %t7 = cmp ne i32 %t6, 1
+    branch %t7, ^if_then_1, ^if_else_2
+
+  block ^if_then_1:
+    return i32 1
+
+  block ^if_else_2:
+    jump ^if_end_3
+
+  block ^if_end_3:
+    %t8 = addr $both
+    %t9 = addr $both
+    %t10 = index i8 [projection=field] %t9, 0
+    store i32 2, %t10
+    %t11 = addr $both
+    %t12 = index i8 [projection=field] %t11, 0
+    %t13 = load i32 %t12
+    %t14 = cmp ne i32 %t13, 2
+    branch %t14, ^if_then_4, ^if_else_5
+
+  block ^if_then_4:
+    return i32 2
+
+  block ^if_else_5:
+    jump ^if_end_6
+
+  block ^if_end_6:
+    %t15 = cmp ne i32 3, 3
+    branch %t15, ^if_then_7, ^if_else_8
+
+  block ^if_then_7:
+    return i32 3
+
+  block ^if_else_8:
+    jump ^if_end_9
+
+  block ^if_end_9:
+    %t16 = cmp ne i32 2, 2
+    branch %t16, ^if_then_10, ^if_else_11
+
+  block ^if_then_10:
+    return i32 4
+
+  block ^if_else_11:
+    jump ^if_end_12
+
+  block ^if_end_12:
+    %t17 = call i32 @held()
+    %t18 = cmp ne i32 %t17, 4
+    branch %t18, ^if_then_13, ^if_else_14
+
+  block ^if_then_13:
+    return i32 5
+
+  block ^if_else_14:
+    jump ^if_end_15
+
+  block ^if_end_15:
+    return i32 0
+}
+function @held() -> i32 [binding=weak, object=_Z4heldv] {
+  slot $made : obj<4x4>
+
+  block ^entry:
+    %t1 = addr $made
+    %t2 = addr $made
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 4, %t3
+    %t4 = addr $made
+    %t5 = index i8 [projection=field] %t4, 0
+    %t6 = load i32 %t5
+    return i32 %t6
+}

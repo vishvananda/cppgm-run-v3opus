@@ -710,6 +710,7 @@ void TemplateHead::bind_arguments(
 	// after that substitutes its own bindings into what it found.
 	open_region(info);
 	out.reserve(info.parameters.size());
+	bool unsettled = false;
 	for (std::size_t index = 0; index < written.size(); ++index)
 	{
 		std::string pattern;
@@ -723,12 +724,28 @@ void TemplateHead::bind_arguments(
 		// are bound to, which the places it lands on are the places of - a run
 		// of two given to `select<A, B>` fills both.
 		const std::size_t at = out.size() < places ? out.size() : places;
+		const std::size_t before = out.size();
 		PackReading(analyzer_).expand(
 			pattern, ctx,
 			at < info.parameters.size() && info.parameters[at].value
 				? place_type(info, at, out)
 				: kNoType,
 			out);
+		// 14.6.2p1: a run no argument list has settled leaves the expansion
+		// standing for itself - one entry of this list standing for a number of
+		// arguments this reading has no way to count.
+		unsettled = unsettled ||
+			(out.size() == before + 1 &&
+			 analyzer_.types_.is_pack_expansion(out[before]));
+	}
+	if (unsettled)
+	{
+		// 14.5.3p4 with 14.3p1: what a list gives is what its expansions came
+		// to, and a run standing for itself came to no number at all - so
+		// neither count below, nor 14.1p9's defaults under them, can be asked
+		// here.  They are asked of the list the run settles into, which is the
+		// reading 14.7.1p1 makes of this one for an argument list of its own.
+		return;
 	}
 	if (out.size() > places && places == info.parameters.size())
 	{

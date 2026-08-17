@@ -2581,6 +2581,32 @@ void SemaAnalyzer::check_template_definition(
 	read_held_pattern_bodies(mark);
 }
 
+// 14.5.1.3p1 and 14.1p2: the class one out-of-class member definition stands
+// inside while it is read, which is the innermost one a template-parameter
+// region encloses.
+//
+// `EnclosedBy` puts that region between the class and the one around it for as
+// long as the definition is read, and the names the definition's own head wrote
+// for the enclosing classes' places are bound there and nowhere in the class.
+// The class the *declarator-id* names may be nested below it - `outer<A>::
+// inner::f` declares into a nested class whose region is the class around it -
+// so the pair is found by walking out from the region the body is read in
+// rather than taken from the declaration, which is what makes it one answer for
+// every tier such a definition can be written at.  Null for a body no head
+// stands over, which is every definition read where it stands.
+Scope* enclosed_by_a_head(Scope* from)
+{
+	for (Scope* at = from; at != nullptr; at = at->parent)
+	{
+		if (at->kind == ScopeKind::Class && at->parent != nullptr &&
+		    at->parent->kind == ScopeKind::TemplateParameters)
+		{
+			return at;
+		}
+	}
+	return nullptr;
+}
+
 // 14.7.1p1: the implicit instantiation of a class template specialization
 // causes the implicit instantiation of the *declarations* of its members, and
 // not of their definitions.
@@ -2593,8 +2619,17 @@ void SemaAnalyzer::check_template_definition(
 // taken off the list where it is granted.  A body written for a class the
 // program itself wrote out is the unit's whatever it names, which is what
 // 9.2p2 already says: it is written at the end of the unit.
-void SemaAnalyzer::queue_definition(const Pending& pending)
+void SemaAnalyzer::queue_definition(Pending& pending)
 {
+	// 14.5.1.3p1 and 14.1p2: the link `EnclosedBy` is holding while this body is
+	// put aside, which is the one that has to stand again where it is read.  It
+	// is asked here, at the one door every body the program wrote is queued
+	// through, because 12's three entry points reach the queue without ever
+	// naming a class and a declarator-id may name one nested below the one the
+	// head stands over.
+	pending.stands_in = enclosed_by_a_head(pending.scope);
+	pending.head =
+		pending.stands_in != nullptr ? pending.stands_in->parent : nullptr;
 	// 14.6.4.1p1: a specialization named above the definition its template has
 	// by the end of the unit is instantiated there, so a definition read after
 	// the use that asked for it has nothing left to wait for.

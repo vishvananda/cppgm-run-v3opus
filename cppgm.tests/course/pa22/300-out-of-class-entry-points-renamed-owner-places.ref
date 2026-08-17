@@ -1,0 +1,255 @@
+global @sink : i32 [binding=strong, object=_Z4sink] = zero
+global @outer_char___inner__held : i32 [binding=weak, object=_ZN5outerIcE5inner4heldE] = 10
+global @outer_seven___inner__held : i32 [binding=weak, object=_ZN5outerI5sevenE5inner4heldE] = 70
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $one : obj<4x4>
+  slot $other : obj<4x4>
+  slot $held : obj<4x4>
+  slot $made : i32
+  slot $call__1 : i32
+  slot $call__2 : i32
+
+  block ^entry:
+    %t1 = addr $one
+    call void @outer_char___inner__inner(%t1)
+    %t2 = addr $one
+    %t3 = index i8 [projection=field] %t2, 0
+    %t4 = load i32 %t3
+    %t5 = cmp ne i32 %t4, 1
+    branch %t5, ^if_then_1, ^if_else_2
+
+  block ^if_then_1:
+    return i32 1
+
+  block ^if_else_2:
+    jump ^if_end_3
+
+  block ^if_end_3:
+    %t6 = addr $one
+    %t7 = call i32 @outer_char___inner__width(%t6)
+    %t8 = cmp ne i32 %t7, 2
+    branch %t8, ^if_then_4, ^if_else_5
+
+  block ^if_then_4:
+    return i32 2
+
+  block ^if_else_5:
+    jump ^if_end_6
+
+  block ^if_end_6:
+    %t9 = load i32 @outer_char___inner__held
+    %t10 = cmp ne i32 %t9, 10
+    branch %t10, ^if_then_7, ^if_else_8
+
+  block ^if_then_7:
+    return i32 3
+
+  block ^if_else_8:
+    jump ^if_end_9
+
+  block ^if_end_9:
+    %t11 = addr $other
+    call void @outer_seven___inner__inner(%t11)
+    %t12 = addr $other
+    %t13 = call i32 @outer_seven___inner__width(%t12)
+    %t14 = cmp ne i32 %t13, 14
+    branch %t14, ^if_then_10, ^if_else_11
+
+  block ^if_then_10:
+    return i32 4
+
+  block ^if_else_11:
+    jump ^if_end_12
+
+  block ^if_end_12:
+    %t15 = load i32 @outer_seven___inner__held
+    %t16 = cmp ne i32 %t15, 70
+    branch %t16, ^if_then_13, ^if_else_14
+
+  block ^if_then_13:
+    return i32 5
+
+  block ^if_else_14:
+    jump ^if_end_15
+
+  block ^if_end_15:
+    %t17 = addr $held
+    call void @outer_char___outer(%t17)
+    %t18 = addr $held
+    %t19 = index i8 [projection=field] %t18, 0
+    %t20 = load i32 %t19
+    %t21 = cmp ne i32 %t20, 1
+    branch %t21, ^if_then_16, ^if_else_17
+
+  block ^if_then_16:
+    %t22 = addr $held
+    call void @outer_char____outer(%t22)
+    return i32 6
+
+  block ^if_else_17:
+    jump ^if_end_18
+
+  block ^if_end_18:
+    eh_try ^call_unwind_dispatch_19
+    %t23 = addr $held
+    %t24 = call i32 @outer_char___operatorint(%t23)
+    store i32 %t24, $call__1
+    %t25 = load i32 $call__1
+    store i32 %t25, $made
+    eh_end
+    jump ^call_unwind_end_20
+
+  block ^call_unwind_dispatch_19:
+    %t26 = addr $held
+    call void @outer_char____outer(%t26)
+    resume
+
+  block ^call_unwind_end_20:
+    %t27 = load i32 $made
+    %t28 = cmp ne i32 %t27, 1000
+    branch %t28, ^if_then_21, ^if_else_22
+
+  block ^if_then_21:
+    %t29 = addr $held
+    call void @outer_char____outer(%t29)
+    return i32 7
+
+  block ^if_else_22:
+    jump ^if_end_23
+
+  block ^if_end_23:
+    eh_try ^call_unwind_dispatch_19
+    %t30 = addr $held
+    %t31 = call i32 @outer_char___plus(%t30, 2)
+    store i32 %t31, $call__2
+    %t32 = load i32 $call__2
+    %t33 = cmp ne i32 %t32, 3
+    eh_end
+    branch %t33, ^if_then_24, ^if_else_25
+
+  block ^if_then_24:
+    %t34 = addr $held
+    call void @outer_char____outer(%t34)
+    return i32 8
+
+  block ^if_else_25:
+    jump ^if_end_26
+
+  block ^if_end_26:
+    %t35 = addr $held
+    call void @outer_char____outer(%t35)
+    %t36 = load i32 @sink
+    %t37 = cmp ne i32 %t36, 1
+    branch %t37, ^if_then_27, ^if_else_28
+
+  block ^if_then_27:
+    return i32 9
+
+  block ^if_else_28:
+    jump ^if_end_29
+
+  block ^if_end_29:
+    return i32 0
+}
+function @outer_char___operatorint(%this : ptr) -> i32 [binding=weak, object=_ZN5outerIcEcviEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = const i64 1
+    %t2 = convert trunc i32 i64 %t1
+    %t3 = binary mul i32 %t2, 1000
+    return i32 %t3
+}
+function @outer_char___outer(%this : ptr) -> void [binding=weak, object=_ZN5outerIcEC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = const i64 1
+    %t2 = convert trunc i32 i64 %t1
+    %t3 = load ptr $this
+    %t4 = index i8 [projection=field] %t3, 0
+    store i32 %t2, %t4
+    return void
+}
+function @outer_char___plus(%this : ptr, %k : i32) -> i32 [binding=weak, object=_ZN5outerIcE4plusEi] {
+  slot $this : ptr
+  slot $k : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %k, $k
+    %t1 = load i32 $k
+    %t2 = const i64 1
+    %t3 = convert trunc i32 i64 %t2
+    %t4 = binary add i32 %t1, %t3
+    return i32 %t4
+}
+function @outer_char____outer(%this : ptr) -> void [binding=weak, object=_ZN5outerIcED1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load i32 @sink
+    %t2 = const i64 1
+    %t3 = convert trunc i32 i64 %t2
+    %t4 = binary add i32 %t1, %t3
+    store i32 %t4, @sink
+    return void
+}
+function @outer_char___inner__inner(%this : ptr) -> void [binding=weak, object=_ZN5outerIcE5innerC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = const i64 1
+    %t2 = convert trunc i32 i64 %t1
+    %t3 = load ptr $this
+    %t4 = index i8 [projection=field] %t3, 0
+    store i32 %t2, %t4
+    return void
+}
+function @outer_char___inner__width(%this : ptr) -> i32 [binding=weak, object=_ZN5outerIcE5inner5widthEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i32 %t2
+    %t4 = const i64 1
+    %t5 = convert trunc i32 i64 %t4
+    %t6 = binary add i32 %t3, %t5
+    return i32 %t6
+}
+function @outer_seven___inner__inner(%this : ptr) -> void [binding=weak, object=_ZN5outerI5sevenE5innerC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = const i64 7
+    %t2 = convert trunc i32 i64 %t1
+    %t3 = load ptr $this
+    %t4 = index i8 [projection=field] %t3, 0
+    store i32 %t2, %t4
+    return void
+}
+function @outer_seven___inner__width(%this : ptr) -> i32 [binding=weak, object=_ZN5outerI5sevenE5inner5widthEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i32 %t2
+    %t4 = const i64 7
+    %t5 = convert trunc i32 i64 %t4
+    %t6 = binary add i32 %t3, %t5
+    return i32 %t6
+}
+alias object _ZN5outerIcEC2Ev = @outer_char___outer
+alias object _ZN5outerIcED2Ev = @outer_char____outer
+alias object _ZN5outerIcE5innerC2Ev = @outer_char___inner__inner
+alias object _ZN5outerI5sevenE5innerC2Ev = @outer_seven___inner__inner

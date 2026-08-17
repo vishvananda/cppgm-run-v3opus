@@ -1813,7 +1813,7 @@ private:
 	// instantiation is what made it - and then the use that names the member
 	// is what asks for it, which `require_definition` is - or, for 3.2p3's use
 	// with no call under it, `note_instantiated_transfer`.
-	void queue_definition(const Pending& pending);
+	void queue_definition(Pending& pending);
 	void require_definition(SemaEntity& function);
 	void note_instantiated_transfer(SemaEntity& constructor);
 	// 10.3p10: the virtual members every table this instantiation made names.

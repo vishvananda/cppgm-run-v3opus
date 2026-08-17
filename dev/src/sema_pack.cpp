@@ -867,13 +867,27 @@ void PackReading::expand(const std::string& pattern, const SemaContext& ctx,
 				                         "place and names a pack of types");
 			}
 		}
+		// 14.5.3p4 with 14.1p4: an expansion written past the last place of a
+		// template that declared no pack lands on no place at all, and the list
+		// is still one a run of none settles into - `num<3, Ns...>` over a
+		// `template<int N> struct num` is `num<3>` wherever `Ns` is empty.  So
+		// what says whether the entry standing there is a type or a value is
+		// the pack it writes, which is the same fact the elements are read over
+		// once the run settles.
+		const TypeId named =
+			writes_the_run && place == kNoType ? run.packs[0]->type : kNoType;
+		const TypeId stands = analyzer_.types_.is_pack_expansion(named)
+			? analyzer_.types_.target(named) : named;
+		const TypeId stood =
+			place != kNoType ? place
+			                 : analyzer_.types_.parameter_value_type(stands);
 		// 14.6.2p1: the expansion stands for itself until an argument list
 		// says how long it is, which is one entry of the list it was written
 		// in and not none.
 		out.push_back(analyzer_.types_.pack_expansion(
-			place == kNoType
+			stood == kNoType
 				? analyzer_.template_argument_type(pattern, ctx)
-				: analyzer_.template_argument_value(pattern, place, ctx)));
+				: analyzer_.template_argument_value(pattern, stood, ctx)));
 		return;
 	}
 	for (std::size_t index = 0; index < run.length; ++index)

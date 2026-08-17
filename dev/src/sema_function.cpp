@@ -565,14 +565,11 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 		specializing == nullptr && spelled.qualified() && granting == nullptr;
 	if (target.node == nullptr || instantiated_member)
 	{
-		if (instantiated_member)
-		{
-			// 14.1p2: the head this definition wrote its own places in stands
-			// between the class and the region around it, and the reading that
-			// put the body aside is over by the time the body is read.
-			pending.stands_in = target.scope;
-			pending.head = target.scope->parent;
-		}
+		// 14.1p2: the head this definition wrote its own places in stands
+		// between a class and the region around it, and the reading that put
+		// the body aside is over by the time the body is read.  Which class it
+		// stands over `queue_definition` asks of the region the body is read
+		// in, because a declarator-id may name a class nested below it.
 		queue_definition(pending);
 		return;
 	}

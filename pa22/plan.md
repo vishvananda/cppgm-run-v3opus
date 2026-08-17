@@ -64,9 +64,9 @@ replaced:
 
 ## Current Failure Map
 
-R landed **304 / 341** — the 301 of 338 it turned green, plus the 3
-`course/pa22` fixtures it wrote. The 37 that fail group by the compiler
-behaviour that owns them, from the diagnostic each one now reaches:
+The R audit landed **306 / 343** — R's 304 of 341 plus the 2 `course/pa22`
+fixtures the audit wrote. The 37 that fail are the same 37 R left; they group by
+the compiler behaviour that owns them, from the diagnostic each one now reaches:
 
 | # | Group | Owner | Signature |
 |---|-------|-------|-----------|
@@ -82,10 +82,32 @@ member alias templates rebound through their owner, and the two lists 14.5.3p4's
 expansion made the arity check miscount — which was the `a template-argument-list
 gives X more arguments than it has parameters` group. Nothing is left of the
 out-of-class shapes but `spec/300-explicit-instantiation-out-of-class-nested-member`,
-which stops at `sema_constant.cpp` now.
+which stops at `sema_constant.cpp` now. The audit's own two groups reached no
+fixture and are pinned by the two it wrote: the region an out-of-class
+definition's head bound had to stand again where 14.7.1p1 finally reads the
+body, at 12's three entry points and for a member of a class nested below the
+one the head stands over; and R's 14.5.3p4 count was asked at 14.6p8's reading
+of the pattern, where no run is settled and no count exists.
 
 Known gaps probed and deliberately left:
 
+- `pa22/cppgm++-ref` accepts an out-of-class definition of a member of a class
+  nested **two** deep inside a class template and emits only a `declare
+  function` for it — `_ZN5outerIcE3mid4deep1fEv` is a symbol its own LowIR never
+  defines and `lowir2cy86` refuses to link — where `g++` and this build both
+  write the definition and run its value. One level of nesting it defines, so
+  the `course/pa22` fixture for 14.5.1.3p1's entry points pins that tier and
+  stops short of the one the reference cannot materialize. Its inner-head twin
+  is the same shape: a member class template whose out-of-class definition
+  renames the *inner* head's places is `invalid sizeof type-id` there for a
+  destructor, a constructor, a conversion function, an operator and an ordinary
+  member function alike, all of which `g++` and this build run.
+- 9.2p9 is enforced nowhere: `struct A { A a; };` is accepted, and so is a
+  member whose type is the class an alias template in the same body names —
+  `template<class U> using rebind = box<U>; rebind<int> other;` inside
+  `box<T>` is `field 'other' has incomplete type` in `g++` and translates here.
+  It is 9.2p1's shape one clause along, and like it belongs to the general class
+  reading rather than to anything a template path owns.
 - 5.19p2 at a static data member 9.4.2p2 defined outside its class: `code<char>::
   value` is folded in generated code where the unit writes no `template<>` for
   that member and read out of the object where it writes one, which is what
@@ -237,7 +259,7 @@ Known gaps probed and deliberately left:
 
 ## Active Checkpoint
 
-**R landed — see the ledger.** The next one is **C**, the five failures whose
+**R and its audit landed — see the ledger.** The next one is **C**, the five failures whose
 diagnostic comes from `sema_constant.cpp` reading a constant expression written
 *inside* a template argument: `400-alias-pack-nontype-expression-fast-path`
 stops at `a call written as a template argument does not close its arguments`,
@@ -255,11 +277,12 @@ one clause along.
 ## Performance Model
 
 Best of three with `/usr/bin/time` on generated inputs under `/tmp/perf22e`,
-`/tmp/perf22f`, `/tmp/perf22g`, `/tmp/pa22audit`, `/tmp/perf22x` and
-`/tmp/perf22r`, against
+`/tmp/perf22f`, `/tmp/perf22g`, `/tmp/pa22audit`, `/tmp/perf22x`,
+`/tmp/perf22r` and `/tmp/perf22ra`, against
 `pa22/cppgm++-ref` and, where a row says so, against the turn-start build in a
 worktree of the checkpoint before the row's own (`eac77160` for the O rows,
-`08d582ad` for the X audit's, `d5bade37` for R's). A turn-start build that **refuses** the generated
+`08d582ad` for the X audit's, `d5bade37` for R's, `c706f7d2` for the R audit's).
+A turn-start build that **refuses** the generated
 input times a refusal and not the work, so such a row says so rather than
 carrying the number. The rows a checkpoint carried forward are that checkpoint's own
 generators; the audit's rows are its own. Ten traps are recorded rather than
@@ -316,13 +339,32 @@ is checked for exit 0 before it is timed.
 | **R** a chain of n member alias templates, each naming the one before it | 100 → 800 | 0.00 → 0.02 s, 7 → 15 MB | 0.54 → 0.70 s; the turn-start build **refuses** |
 | **R** n expansions of one pack written in one template-argument-list | 100 → 800 | 0.00 s, 7 → 8 MB | 0.54 → 0.59 s |
 | **R** a member class template nested d deep, every head renaming the places above it | depth 4 → 40 | 0.00 → 0.03 s, 7 → 11 MB | 23.81 s and **8.53 GB** at 24; killed at 40 |
-| the whole 341-file corpus, one process per file | — | **1.47 s** | 1.49 s at the turn-start build |
+| **R audit** n class templates, each with an out-of-class constructor renaming its place | 100 → 800 | 0.02 → 0.23 s, 12 → 50 MB | 0.63 → 1.43 s; the turn-start build **refuses** |
+| **R audit** n out-of-class members of one nested class, each head renaming | 100 → 800 | 0.01 → 0.11 s, 10 → 32 MB | 0.88 → **22.25 s** and 1.34 GB; the turn-start build **refuses** |
+| **R audit** a class nested d deep in a class template, one out-of-class member | depth 4 → 64 | 0.00 s, 7 → 8 MB | 0.53 → 0.54 s; the turn-start build **refuses** |
+| **R audit** n specializations of one renamed out-of-class constructor | 100 → 800 | 0.02 → 0.22 s, 12 → 50 MB | 0.62 → 1.57 s; the turn-start build **refuses** |
+| the whole 343-file corpus, one process per file | — | **1.51 s** | 1.52 s at the turn-start build |
 | *(carried from F)* n friend declarations of one name, each revealed | 800 → 3200 | 0.19 → 0.79 s | 22.40 s at 800 |
 
-The corpus row is re-measured after R: three runs give 1.47–1.48 s over the 341
-files against the turn-start build's 1.49–1.52 s over the same 341, so the
-checkpoint costs nothing over the corpus. 1.15 s of it is the process floor -
-3.4 ms per run - so the compiler's own work is about 1 ms per fixture.
+The corpus row is re-measured after the R audit: three runs give 1.51–1.54 s
+over the 343 files against the checkpoint build's 1.52–1.53 s over the same 343,
+so the audit costs nothing over the corpus. About 1.15 s of it is the process
+floor - 3.4 ms per run - so the compiler's own work is about 1 ms per fixture.
+
+The audit's own two costs are each paid once and nothing scans.
+`enclosed_by_a_head` is one walk of the class nesting per body the program wrote
+and this unit queued, stopping at the innermost class a template-parameter
+region encloses - which is what makes it one answer for `function_definition`
+and for 12's three entry points alike, and what makes a class nested d deep flat
+rather than a question asked of the declaration: depth 4 to 64 is 0.00 s and
+7 MB to 8 MB. n out-of-class constructors renaming their place is 0.23 s at
+n = 800 against the reference's 1.43 s, n members of one nested class is 0.11 s
+against its 22.25 s and 1.34 GB, and n specializations of one such constructor
+is 0.22 s against its 1.57 s - each of the four refused outright by the
+turn-start build, so no row carries a number for it. And 14.5.3p4's `unsettled`
+is one flag set per written expansion, inside the loop that reads the argument
+anyway, so a list that writes none pays nothing and a list that writes one pays
+one test of the entry it just pushed.
 
 R's own three costs are each paid once per definition and nothing scans.
 `enclosing_template_head` is one kind test on the head's parent, taken at the
@@ -406,7 +448,21 @@ takes a run per pack place rather than one — two packs over a run of 3200 is
 parameter rather than once per element; and the ptr-operator is one string
 compare on the word before a `*`, so a type-id that writes none pays nothing.
 
-`valgrind -q --error-exitcode=9` is clean over 34 inputs after R, 0 errors: the
+`valgrind -q --error-exitcode=9` is clean over 62 inputs after the R audit, 0
+errors: its 58 sibling-exit probes and its four largest scaling inputs. The
+audit's own run evidence: the twenty-one out-of-class shapes the fix turned
+green - a constructor, a destructor, a conversion function, an operator, a
+static data member, a member of a nested class, a member of a class nested two
+deep, the two-head member-class-template form of each, a use written above the
+definition, three specializations of one renamed constructor, a base's
+mem-initializer and a local class inside the body - and the thirteen arity
+shapes all compile through `lowir2cy86` + `cy86` and return the value
+`g++ -std=c++11 -pedantic-errors` gives them, over two translation units as well
+as one, where the four symbols the two units owe are owed once each. Third
+oracle for the audit: the thirteen mangled names of those members agree with
+`g++` byte for byte, and with `pa22/cppgm++-ref` wherever it writes one - it
+refuses the six shapes whose *inner* head renames and leaves the two-deep nested
+member declared and undefined. It was clean over 34 inputs after R, 0 errors: the
 six fixtures it turned green, the three `course/pa22` fixtures it added, its 21
 sibling-exit probes and its six largest scaling inputs. R's own run evidence: the
 member class template nest, the static data member of one, a constructor
@@ -487,3 +543,4 @@ with `g++` and with `pa22/cppgm++-ref` byte for byte.
 | **X** 14.7.3p1's explicit specialization of a member, and the definition it replaces | A `template<>` definition of one member of one class specialization *is* that member's definition, so 14.7.1p1's reading of the pattern shall not write a second one - `X is defined twice` was this build writing both. `explicit_functions` is keyed by the template and the argument list, which a member of a class specialization has neither of: the declaration is the class's member and which of its two definitions the unit holds is a fact of *that declaration*. So `SemaEntity::instantiated_definition` - already 9.4.2p2's for an object - is written for a function too, under a new `instantiating_pattern_` depth that tells 14.7.1p1's reading of a pattern from 14.7.3p1's own class body, which `complete_specialization` reads under one `instantiating_class_`; a written definition over a read one calls `Specialization::supersede` instead of throwing, and `Pending::from_pattern` lets the end of the unit drop the queued body whose mark is gone. 12's entry points are the same three exits - `require_replaceable` is the one rule read at the constructor's, the destructor's and 12.3.2p1's conversion function's, where `pa22/cppgm++-ref` refuses all three and `g++` accepts. Beside them: 14.7.3p1's *declaration*, a `template<>` over a simple-declaration, which says the list is not the pattern's to be read for and is what `has_written_definition` asks; `read_template_head` no longer lets an empty head parameterise what stands under it, so `template<> int tag<int>::id()` is 13.1's plain redeclaration of the class's own member and not 14.5.6.1p5's second template; `PatternReading::owner` gains `nested_owner`'s own test, so `box<void>::apply` is a member template of a class the program wrote out; `supersede` clears a member template's pattern, which is what makes an explicit definition replace the one the class pattern gave it; 14.7.3p6 refuses an explicit class specialization written after the pattern was read for that list; and `Specialization::note_object` is 5.19p2 at a static data member - the pattern's initializer is a value a use reads only while it is the one definition the unit has. | **295 / 338** |
 | **X audit** which definition of one member this unit holds, and the question 5.19p2 asks with the same words | X answered two questions with one field: `note_object` said "a use of this member reads the object rather than the value" by clearing `SemaEntity::constant`, which is 5.19p2's own answer about the declaration - so a `template<>` written for one argument list made every *other* list's member no constant expression at all, and `int arr[code<char>::value];` and `box<code<char>::value>` were two programs the reference, `g++` and the pre-X build all accept and this one refused. The two part company at one site, `storage_of`, where 9.4.2p3's value is written beside the place a use reads - so the lowering's question is `SemaEntity::member_specialized` and 5.19p2 keeps the value it folded. Beside it, 12's three entry points queue their bodies through `open_special_member_body`, which set no `Pending::from_pattern`, so a body 10.3p10's table demanded before the `template<>` was read is one `supersede` can no longer reach. | **295 / 338** |
 | **R** 14.1p2's names a definition written outside its class wrote, at every tier it can be written at | An out-of-class member definition stands under one head per class it is nested in, and 14.1p2 lets each of them spell the enclosing classes' places with names of its own - which this build bound nowhere 14.7.1p1 could reach. `declare_function` read the pattern against the *class*, whose region binds only the names the class's own head spelled, so `template<class Tp> template<class Up> int S<Tp>::h(Up)` was `Tp does not name a type` at the instantiation and `X does not name a type` in the declarator. `TemplateInfo::reading_region` is the region the head above this one opened, taken at the four sites that read a qualified declarator-id under a head - `function_definition`, `special_member_definition`, `conversion_function_definition` and `special_member` - before `StandingIn` moves the nest; `open_bindings` binds those names beside this head's own rather than in a region of their own, because 14.7.1p1 reads the body long after the reading that made it and `StandingIn` would flatten a chain away. `record_template`'s class tier records the same fact, and `TemplateInfo::Member::carried` is it one tier down: a member of a member class template writes a head apiece, the entry is made once per enclosing specialization, and `open_member_parameters` carries those names into the region it opens. Beside them: 14.6p8's reading of a class template's body now records a member *alias* template, because 7.1.3p2 makes the name it declares a template-name and `A<T>` written beside it is a template-id whose `A` the reading has to look up - where 14.1p1's own reading declared a typedef-name of a type-id read on the spot and left `rebind_alloc<T> does not name a type`; and 14.5.3p4's expansion is not one argument but as many as its run stands for, so what says a list gives a template more arguments than it has parameters is the count *after* the expansions are read and never the count of entries the list wrote. | **304 / 341** |
+| **R audit** the region an out-of-class definition's head bound, put back where 14.7.1p1 finally reads the body | R bound 14.1p2's names where the *declaration* is made and 14.7.1p1 leaves the *body* to the use that names the member, so the link `EnclosedBy` held has to stand again at the end of the unit - and `PendingDefinition::stands_in` was written at `declare_function` alone, as `target.scope->parent`. 12's three entry points reach `queue_definition` through `open_special_member_body` and named no class at all, and a declarator-id may name a class nested *below* the one the head stands over, whose parent binds none of its names: a constructor, a destructor, a conversion function, an operator, a static data member, a member of a nested class and the two-head member-class-template form of each were twenty-one programs `g++` accepts and this build refused with `no declaration of A is in scope`, every one of them the moment the head spelled the class's place with a name of its own. `enclosed_by_a_head` now asks it once, at the one door every body the program wrote is queued through, of the region that body is read in - one walk out to the innermost class a template-parameter region encloses, flat to depth 64. Beside it, R's own 14.5.3p4 clause was written at the exit where the run is settled and left at the exit where it is not: `one<int, As...>` inside `template<class... As> struct wrap` was `a template-argument-list gives one more arguments than it has parameters` at 14.6p8's reading of the pattern, where the expansion stands for itself and no count exists, so neither count nor 14.1p9's defaults under them may be asked there - and 14.1p4 travels with it, because an entry standing past the last place of a template that declared no pack lands on no place and what says type or value is the pack it names. | **306 / 343** |
