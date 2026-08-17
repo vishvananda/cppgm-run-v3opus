@@ -1874,13 +1874,19 @@ void SemaAnalyzer::declare_function_declarator(
 	const Context& target, SemaEntity* granting,
 	std::vector<Parameter>& spelled_parameters, const AstNode* initializer)
 {
-	if (granting != nullptr && !spelled.qualified() &&
-	    TemplateId(spelled.last()).valid())
+	if (granting != nullptr && TemplateId(spelled.last()).valid())
 	{
 		// 14.5.4p1: `friend str operator+<>(…);` names a specialization of a
 		// function template.  11.3p6's declaration into the namespace is not
 		// what it wrote - the template is already declared there - so nothing is
 		// declared here and the grant is all of it.
+		//
+		// 11.3p10's *qualified* spelling - `friend int n::peek<>(…);` - is the
+		// same declaration written the other way, and `target` is already the
+		// region that name reached: what a friend declaration whose
+		// declarator-id is a template-id may name is a specialization of a
+		// template some region declares, and which region that is is the only
+		// thing the two spellings differ by.
 		Access(*this).grant_template_friendship(spelled.last(), target,
 		                                        *granting);
 		return;

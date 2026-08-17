@@ -538,8 +538,21 @@ const AstNode* friend_class_declared(const AstNode& declared)
 // carries the spelling its declarator-id wrote on the node itself.  Empty where
 // the declaration wrote no single declarator-id, which is a shape 14.7.3p1 says
 // nothing about.
-std::string SemaAnalyzer::specialized_declarator_id(const AstNode& declared)
+//
+// 14.5.2p3 writes one head per class the member is nested in and the member's
+// own last, so `template<> template<class U> void A<int>::g(U) {}` is a head
+// standing over further heads - and the declarator-id the clause parameterises
+// is the innermost declaration's, which is the same descent `record_template`
+// makes to find it.
+std::string SemaAnalyzer::specialized_declarator_id(const AstNode& node)
 {
+	const AstNode* innermost = &node;
+	while (innermost->kind == AstKind::TemplateDeclaration &&
+	       !innermost->children.empty())
+	{
+		innermost = innermost->children[innermost->children.size() - 1];
+	}
+	const AstNode& declared = *innermost;
 	const AstNode* declarator = nullptr;
 	if (declared.kind == AstKind::FunctionDefinition)
 	{
@@ -804,6 +817,11 @@ bool SemaAnalyzer::record_template(const AstNode& node, const Context& ctx,
 		// each head spelling the places as it likes, so what the merged default
 		// names them by travels with it.
 		TemplateInfo head;
+		// 14.1p1: the region this head's own places would be bound in is the
+		// one the declaration stands in, which is what lets 14.5.6.1p5's
+		// comparison below read what a value place of it names a value of.
+		head.region = target.scope;
+		head.dump = target.dump;
 		TemplateHead(*this).read(*clause, head);
 		if (head.parameters.size() != entity->templated->parameters.size())
 		{
@@ -1020,21 +1038,31 @@ void SemaAnalyzer::require_unspecialized_owner(const std::string& written,
 	{
 		return;
 	}
-	Scope* const region = resolve_prefix(spelled, ctx);
-	const SemaEntity* const owner = region == nullptr ? nullptr : region->owner;
-	if (owner == nullptr || owner->primary == nullptr ||
-	    owner->primary->templated == nullptr)
+	// 14.7.3p5 is written about the class the *member* belongs to, and a
+	// declarator-id may name a class nested below one the program wrote out:
+	// `template<> void A<int>::in::f() {}` writes the head over a member of
+	// `in`, whose own definition is the body the explicit specialization of
+	// `A` wrote.  So every class the declarator-id walked through is asked,
+	// which is the chain of regions the prefix it resolved stands in.
+	for (const Scope* at = resolve_prefix(spelled, ctx);
+	     at != nullptr && at->kind == ScopeKind::Class; at = at->parent)
 	{
-		return;
-	}
-	const TemplateInfo& info = *owner->primary->templated;
-	if (info.explicit_classes.find(owner->template_arguments) !=
-	    info.explicit_classes.end())
-	{
-		throw std::runtime_error("a member of the explicitly specialized class " +
-		                         owner->name + " is defined with a template<> "
-		                         "head, which 14.7.3p5 leaves to the members of "
-		                         "a specialization the pattern was read for");
+		const SemaEntity* const owner = at->owner;
+		if (owner == nullptr || owner->primary == nullptr ||
+		    owner->primary->templated == nullptr)
+		{
+			continue;
+		}
+		const TemplateInfo& info = *owner->primary->templated;
+		if (info.explicit_classes.find(owner->template_arguments) !=
+		    info.explicit_classes.end())
+		{
+			throw std::runtime_error("a member of the explicitly specialized "
+			                         "class " + owner->name + " is defined with "
+			                         "a template<> head, which 14.7.3p5 leaves "
+			                         "to the members of a specialization the "
+			                         "pattern was read for");
+		}
 	}
 }
 

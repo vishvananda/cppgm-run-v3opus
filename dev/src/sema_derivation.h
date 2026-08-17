@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 
+#include "sema_access.h"
 #include "type_model.h"
 
 class SemaAnalyzer;
@@ -107,6 +108,12 @@ private:
 	SemaEntity* below(const SemaEntity& at, TypeId wanted) const;
 
 	SemaAnalyzer& analyzer_;
+	// 11's reader, held for the length of this walk rather than opened at each
+	// link: what it answers a link with is a walk of what the point the
+	// conversion is written at derives from, which is the same at every link -
+	// so a reader opened per link is that walk once per level of the levels
+	// below it.
+	Access access_;
 	// Scratch of one access walk: the class whose base-specifier the access did
 	// not reach through, which is what the refusal names.
 	const SemaEntity* blocked_;

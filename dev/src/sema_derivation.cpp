@@ -21,6 +21,7 @@
 
 Derivation::Derivation(SemaAnalyzer& analyzer)
 	: analyzer_(analyzer)
+	, access_(analyzer)
 	, blocked_(nullptr)
 {}
 
@@ -435,8 +436,8 @@ bool Derivation::link_accessible(const SemaEntity& derived,
 	// 4.10p3's conversion is written where the initialization is, so the point
 	// R the access is asked at is the region the conversion stands in rather
 	// than the one the operand's own reading left behind.
-	return Access(analyzer_).base_accessible(*derived.scope, access,
-	                                        analyzer_.naming_ != nullptr
-	                                            ? analyzer_.naming_
-	                                            : analyzer_.reading_);
+	return access_.base_accessible(*derived.scope, access,
+	                               analyzer_.naming_ != nullptr
+	                                   ? analyzer_.naming_
+	                                   : analyzer_.reading_);
 }

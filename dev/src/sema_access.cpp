@@ -13,7 +13,54 @@
 
 Access::Access(SemaAnalyzer& analyzer)
 	: analyzer_(analyzer)
+	, context_point_(nullptr)
+	, context_walked_(false)
 {}
+
+// 11.2p1's second sentence: whether one of the classes the access occurs in
+// derives from the class that wrote the base-specifier.
+//
+// `base_path` asks this of every link on its way down and the point the name
+// was written at is the same at each of them, so what the classes around that
+// point derive from is one walk of their own - made where the first link needs
+// it and read by the rest.  The walk that answered it per link was the whole
+// derivation read again once per level of the levels below it, which put 92 %
+// of a depth-512 run in `derives_from`.
+bool Access::context_derives(const Scope* from, const Scope& base) const
+{
+	if (!context_walked_ || context_point_ != from)
+	{
+		context_bases_.clear();
+		context_point_ = from;
+		context_walked_ = true;
+		for (const Scope* at = from; at != nullptr; at = at->parent)
+		{
+			if (at->kind != ScopeKind::Class)
+			{
+				continue;
+			}
+			for (std::size_t index = 0; index < at->bases.size(); ++index)
+			{
+				collect_bases(*at->bases[index]);
+			}
+		}
+	}
+	return context_bases_.find(&base) != context_bases_.end();
+}
+
+// One visit per class of a derivation, which is what makes the walk above cost
+// the classes it reaches rather than the paths that reach them.
+void Access::collect_bases(const Scope& at) const
+{
+	if (!context_bases_.insert(&at).second)
+	{
+		return;
+	}
+	for (std::size_t index = 0; index < at.bases.size(); ++index)
+	{
+		collect_bases(*at.bases[index]);
+	}
+}
 
 // 11.3p1: the class a friend declaration written in it grants access to, which
 // is the innermost class around the declaration.
@@ -152,20 +199,33 @@ bool Access::befriended(const Scope& granting, const Scope& from) const
 bool Access::befriends_between(const Scope& at, const Scope& declaring,
                                const Scope& from) const
 {
+	bool grants = false;
+	friend_path(at, declaring, from, grants);
+	return grants;
+}
+
+// The walk that finds that path, asking each class on it as it comes back up -
+// which is the one `base_path` makes for the same path.  Choosing the branch by
+// asking `derives_from` of each base is the derivation read again once per
+// level, where one visit per class costs the path itself.
+bool Access::friend_path(const Scope& at, const Scope& declaring,
+                         const Scope& from, bool& grants) const
+{
 	if (&at == &declaring)
-	{
-		return false;
-	}
-	if (befriended(at, from))
 	{
 		return true;
 	}
 	for (std::size_t index = 0; index < at.bases.size(); ++index)
 	{
-		if (derives_from(*at.bases[index], declaring))
+		if (!friend_path(*at.bases[index], declaring, from, grants))
 		{
-			return befriends_between(*at.bases[index], declaring, from);
+			continue;
 		}
+		if (befriended(at, from))
+		{
+			grants = true;
+		}
+		return true;
 	}
 	return false;
 }
@@ -196,19 +256,13 @@ bool Access::base_accessible(const Scope& derived, unsigned char access,
 			// however it named it.
 			return true;
 		}
-		if (access != kProtectedAccess || at->kind != ScopeKind::Class)
-		{
-			continue;
-		}
-		for (std::size_t index = 0; index < at->bases.size(); ++index)
-		{
-			if (derives_from(*at->bases[index], derived))
-			{
-				return true;
-			}
-		}
 	}
-	return false;
+	// 11.2p1 again: a class derived from the one that named the base reaches a
+	// protected base-specifier of it.  The classes the access occurs in are the
+	// ones the loop above walked, so this is one question about the point
+	// rather than one per class of it - and one walk of what that point
+	// derives from, however many links of a derivation ask it.
+	return access == kProtectedAccess && context_derives(from, derived);
 }
 
 // 11.2p4's last bullet: a member is accessible when named in a class that did

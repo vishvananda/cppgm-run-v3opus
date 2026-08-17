@@ -416,6 +416,20 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 		                         name + " under a qualified declarator-id, "
 		                         "which 11.3p6 does not allow");
 	}
+	if (granting != nullptr && TemplateId(name).valid())
+	{
+		// 14.5.4p1 with 11.3p6: a friend declaration whose declarator-id is a
+		// template-id names a *specialization* of a template some region
+		// already declares and declares nothing of its own - which is what the
+		// declaration form of this reading grants on and returns for.  So there
+		// is no declaration here for a body to be the definition of, and a
+		// reading that took the body anyway would translate a program by
+		// dropping what it wrote.
+		throw std::runtime_error("a friend declaration writes a definition of " +
+		                         name + ", whose declarator-id is a template-id "
+		                         "and names a specialization 14.5.4p1 leaves "
+		                         "the template's own declaration to define");
+	}
 
 	std::string ignored;
 	std::vector<Parameter> parameters;

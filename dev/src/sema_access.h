@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 class SemaAnalyzer;
@@ -98,9 +99,28 @@ private:
 	// it that denies the access.  True where the class was reached at all.
 	bool base_path(const Scope& naming, const Scope& declaring,
 	               const Scope* from, bool& reaches) const;
+	// 11.2p1's second sentence and 11.2p5 ask of *every* link on those walks a
+	// question about the point the name was written at, which does not move as
+	// the walk descends: which classes the access occurs in, and what they
+	// derive from.  So both are one walk of their own, made where the first
+	// link asks for it and read by every link after - asking reachability
+	// again per link is that walk once per level over the levels below it,
+	// which is d² down a chain of d.  The answer is cached on this object,
+	// whose life is the one access query the call site opened it for.
+	bool context_derives(const Scope* from, const Scope& base) const;
+	void collect_bases(const Scope& at) const;
+	// 11.2p5's walk with the same shape: whether any class strictly between
+	// `at` and `declaring` befriends `from`, asked as one descent that visits
+	// each class of the path once rather than a reachability question per
+	// level.  True where `declaring` was reached at all.
+	bool friend_path(const Scope& at, const Scope& declaring, const Scope& from,
+	                 bool& grants) const;
 
 	Access(const Access&);
 	Access& operator=(const Access&);
 
 	SemaAnalyzer& analyzer_;
+	mutable std::unordered_set<const Scope*> context_bases_;
+	mutable const Scope* context_point_;
+	mutable bool context_walked_;
 };

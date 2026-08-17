@@ -18,135 +18,160 @@ place is, and which declaration a list selects.
 | X | `0c922d29` | 1 / 1 + 5 recorded | **which definition of one member of one class specialization this unit holds, asked of the object file and of 5.19p2 - and answered for both by one flag that only the object file may read.**  Checkpoint X made 14.7.3p1's written definition replace 14.7.1p1's reading of the pattern rather than stand beside it: `SemaEntity::instantiated_definition` is written for a function under a new `instantiating_pattern_` depth, `supersede` drops the held body, `Pending::from_pattern` drops one already queued, and `require_replaceable` is that same rule at 12's three entry points.  Those rules are right and swept clean: a member function, a static data member, a constructor, a destructor, a conversion function, a member template of a written-out class, a pattern's member, a `template<>` declaration with no body and a redeclaration ahead of a definition all translate and run the value `g++ -pedantic-errors` gives them; 14.7.3p6's new refusal of a specialization written after the pattern was read agrees with `g++` where `pa22/cppgm++-ref` accepts; five scaling dimensions are linear to n = 800 and the members x specializations cross product to 6400 uses, where the reference is 21.27 s at n = 800 against 0.34 s; `valgrind` is clean over 31 inputs.  What none of it carried is that the *same* commit's other half answers a second question with the first one's field: `note_object` said "a use of this member reads the object rather than the value" by clearing `SemaEntity::constant`, which is 5.19p2's own answer - so `template<> const int code<int>::value = 7;` written anywhere in the unit made `code<char>::value` no constant expression at all, and `int arr[code<char>::value];` and `box<code<char>::value>` were two programs the reference, `g++` and the pre-X build all accept and this one refused with `code<char>::value is not a constant expression`.  The two answers part company at one site - `storage_of`, where the lowering writes the folded value beside the place - so the fact is `member_specialized` and 5.19p2 keeps its own.  Beside it, 12's three entry points queue their bodies through `open_special_member_body`, which set no `from_pattern` at all: a body 10.3p10's table demanded before the `template<>` was read is one `supersede` can no longer reach.  Recorded rather than fixed: an explicitly specialized static data member no use names is dropped where both oracles write it, because the object tier of `supersede` has to withdraw the *definition line* the pattern's reading already wrote and not just its mark; 14.7.3p14's declaration form - `template<> int code<int>::value;` with no initializer - is read here as a definition; `template<> int tag<int>::f();` reads the pattern's out-of-class definition where both oracles write a declaration, and the reference contradicts itself on the in-class spelling of it; one explicit class specialization written twice is accepted; and a `template<>` over a member *class* is refused here where both oracles accept and the reference then runs the wrong body |
 | R | `c706f7d2` | 3 / 3 + 3 recorded | **the region an out-of-class definition's own head bound, recorded at the one exit that declares a function and derived from a class that may not be the one the head stands over - and the count 14.5.3p4 made a fact of the settled run, asked where nothing has settled it.**  Checkpoint R bound 14.1p2's names a definition written outside its class wrote: `TemplateInfo::reading_region` at the four sites that read a qualified declarator-id under a head, `Member::carried` one tier down, `open_bindings` and `open_member_parameters` standing those names beside this head's own.  That reading is right and swept clean - a member function template, its owner's own names, two heads renaming in opposite orders, a member alias template chain, a nest 40 deep, and the ABI names of thirteen such members agree with `g++` byte for byte.  What none of it carried is that 14.7.1p1 leaves the *body* to the use that names the member, so the region has to stand again where the body is finally read - and `PendingDefinition::stands_in` was written at `declare_function` alone, as `target.scope->parent`.  12's three entry points reach `queue_definition` through `open_special_member_body`, which named no class at all, and a declarator-id may name a class *nested below* the one the head stands over: `template<class A> outer<A>::outer()`, `~outer()`, `operator int()`, `outer<A>::inner::f()`, `outer<A>::inner::inner()`, `outer<A>::mid::inner::f()` and the static data member of each were programs `g++` and `pa22/cppgm++-ref` both accept and this build refused with **`no declaration of A is in scope`** - every one of them the moment the head spelled the class's place with a name of its own, and every one of them accepted where it spelled the class's own.  The pair is now asked once, at the one door every body the program wrote is queued through, of the region that body is read in.  Beside it, R's own clause - "the count is what the expansions came to and never the count of entries the list wrote" - was written at the exit where the run is settled and left at the exit where it is not: `one<int, As...>` inside `template<class... As> struct wrap` is `a template-argument-list gives one more arguments than it has parameters` at 14.6p8's reading of the pattern, where `As` stands for itself and no count exists - three programs both oracles accept, and `three<int, As...>` is the same clause's `too few` twin.  14.1p4 travels with it: an entry standing past the last place of a template that declared no pack has no place to be read at, so `num<3, Ns...>` was `Ns does not name a type` where what says type or value is the pack itself.  Recorded rather than fixed: `pa22/cppgm++-ref` refuses a member class template whose *inner* head renames, and emits a `declare function` its own LowIR never defines for a member of a class nested two deep, so the course fixture pins neither; and 9.2p9 is enforced nowhere - `struct A { A a; };` is accepted here and refused by `g++`, which is 9.2p1's shape one clause along |
 | C | `02e5d6cc` | 3 / 3 + 4 recorded | **the two things 5.3.3p1 and 5.3.6p3 ask of one operand, asked by one of the three readings that write the operator - and the demand the other two make by reading the same text a second time.**  Checkpoint C made `TemplateArgumentReader` the second implementation of 5.19 that `SpelledTypeId` is of 8.1p1: 5.18p1's comma inside 5.1.1p6's parentheses alone, 5.2.9p4's discarded value refused at every reader that takes an operand's worth, 14.5.3p4's expansion in 5.2.2p1's argument list settled by `operand_end` before the operand is read, 14.2p4's keyword closed up inside a component, and 5.3.3p1's *expression* operand answered off the tree the parse kept beside the spelling it flattened to.  Those five are right and swept clean: 13 discarded-value shapes, 5 comma shapes, 10 expansion shapes - two packs, a nested call, a template-id pattern, an empty run, `sizeof...` written beside one - and 6 `::template` shapes agree with `g++` and with `pa22/cppgm++-ref`, and the kept tree's first-wins key is sound because one spelling is one parse, so `sizeof(g())` written in two namespaces over two `g`s is 2 and 8.  What none of it carried is the *other* two sentences of the same two clauses.  `TypeTable::object_align` is a table lookup that gives an incomplete class an alignment of zero, and the operator was written out of it at two of the three readings - so `S<alignof(wrap<int>)>` was **1 where `g++` and the reference both give 8**, at a template argument, in an array bound and in a static_assert alike, and `alignof(never)` over a class the unit only declared was a program both oracles refuse and this build ran.  Beside it 14.7.1p1's demand: `trait_value` probes the type-id in a reading of its own, which asks for no definition and leaves no mark for `require_complete_type` to read, and 14.6p8's reading leaves none either - so `sizeof(box<4>)` was `sizeof names an incomplete type` inside any class template's body and inside a static data member's initializer, three programs both oracles translate.  The commit made the demand by reading the operand's type-id a **second** time, which is one reading per level doubled at every level below it: a `sizeof` of a specialization nested in its own operand was 1.00 s at depth 16, 15.42 s at 20 and **killed at 60 s at 24**, where `pa22/cppgm++-ref` is 0.60 s flat.  `size_of` and `align_of` are now the one door each clause is answered at, and what they demand is `require_settled_type` - the demand asked of the type rather than of the mark, so it reaches a specialization no reading asked for.  Recorded rather than fixed: `A<sizeof x>`, 5.3.3p1's unparenthesized operand, is the sixth exit and is refused here where both oracles take it; and three shapes where `pa22/cppgm++-ref` parts from `g++` and from this build - a `sizeof` of the class whose own body writes it, an expansion whose pattern names no pack, and a pattern expanded over a run of none |
+| B | `5f70d915` | 4 / 4 + 2 recorded | **the walk 11.2p4 opened, asked link by link and answered with the whole derivation read again at each of them - and the three clauses the checkpoint landed at one of the exits each is written at.**  Checkpoint B made 11.2p4's answer a question about the member *as a member of the naming class*: `Access::base_path` is the one walk down to the declaring class, `resolve_prefix` asks 11.2 of every component, and five clauses no door enforced got one.  The reach itself is right and swept clean - 10 base-path shapes, 10 per-component shapes, 12 of 5.1.1p13 and 8 of 11.3p2 and 3.4.3p1 all agree with `g++`.  What the walk carries is what it asks at each link: `base_accessible`'s 11.2p1 second sentence and `befriends_between`'s 11.2p5 each answered one link by walking the whole derivation, so a protected base chain of depth 512 was **0.97 s** and a befriending class between was **1.30 s**, both slower than `pa22/cppgm++-ref`'s 0.69 s and 0.56 s, where one walk of what the point derives from is 0.07 s and 0.04 s - the shape the checkpoint's own note says it avoided, fixed at the outer walk and left at both inner ones.  `Derivation::path` is the third: it opens a reader per link, which held that walk at d² until the reader is held for the length of the descent - 0.55 s to 0.09 s at depth 512 against the reference's 3.03 s.  Beside them, 14.5.6.1p5's value places were compared behind `a.type != kNoType && b.type != kNoType`, which the *new* head never satisfies because nothing binds its places before the comparison - so the arm was dead at its only caller and `template<int N> struct A; template<char N> struct A {};` was accepted where `g++` refuses; 14.5.4p1's grant was written at one of its three spellings, so a qualified `friend int n::peek<int>(…)` was refused where both oracles accept and an *unqualified definition* was accepted with **the body it wrote silently dropped**, where both oracles refuse; and 14.7.3p5 was asked of the class the declarator-id's last prefix names and of the `template<>`-over-a-declaration shape alone, so `template<> void A<int>::in::f() {}` and `template<> template<class U> void A<int>::g(U) {}` over an explicitly specialized class were two programs `g++` refuses and this build translated |
 
 
 ## Current Checkpoint Review
 
-Checkpoint C is where 5.19 became a clause this compiler implements twice.
-14.2 writes a template-argument-list inside a name, so an argument reaches the
-semantic layer as text and `TemplateArgumentReader` reads a constant expression
-out of one spelling exactly as `SpelledTypeId` reads 8.1p1's type-id out of
-one — and five of the clause's own operators had no exit there. 5.18p1's comma
-is read inside 5.1.1p6's parentheses alone, because outside them a comma
-separates one argument of a list from the next; 5.2.9p4's cast to cv void is a
-*discarded* value, which `valued` refuses at every reader that takes an
-operand's worth; 14.5.3p4's expansion stands in 5.2.2p1's argument list, and
-whether an operand is a pattern is settled by `operand_end` **before** it is
-read, because the `...` stands after it; 14.2p4's keyword is written inside a
-component, so `X::template f<A>::v` is one word the split closes up; and
-5.3.3p1's *expression* operand is 13.3's answer over a typed operand and
-nothing a reading of words could reach, so the parenthesized operand closes up
-with its operator and the tree the parse kept under that spelling answers it.
+Checkpoint B is where 11 became one reader. 11.2p4 answers whether a member may
+be named here *of the member as a member of the class the name was written on*,
+and this build read the member's own access-specifier alone — so `derived::type`
+reached a public member of a private base from anywhere. `Access::base_path` is
+the one walk down to the class that declared the member, asking of each
+base-specifier on the way what 11.2p1 asks; `resolve_prefix` asks 11.2 of every
+component rather than of the last, with 14.2's template-id component asked of
+the *template* the lookup found; and five clauses no door enforced got one -
+14.5.6.1p5's equivalent parameter lists, 14.7.3p5's `template<>` over a member
+of an explicitly specialized class, 5.1.1p13's id-expression naming a non-static
+data member, 14.5.4p1's friend declaration whose declarator-id is a template-id,
+and 11.3p2's `friend typename C::self;`. `sema_access.h/.cpp` is 11.2's reach and
+11.3's grant as one reader, which is what freed both files' room.
 
-Those five are right and swept clean. Thirteen discarded-value shapes — a lone
-`(void)0`, one under every unary operator, in a condition, in a call argument,
-in a functional cast, in a subscript, inside `sizeof`, cast to void twice, and
-`((void)0, (void)1, 5)` — agree with `g++ -pedantic-errors` and with
-`pa22/cppgm++-ref` on acceptance and on value; five comma shapes tell `A<(1,2)>`
-from `A<1,2>`; ten expansion shapes — two packs expanded together, an expansion
-nested inside a call inside an expansion, a template-id pattern, a run of none,
-`sizeof...` written beside one, an unclosed list — agree with both oracles; six
-`::template` shapes do too. The kept tree's key is sound: one spelling is one
-parse, so `sizeof(g())` written in two namespaces over two different `g`s is 2
-and 8, and the same spelling written in two class templates is answered twice.
+The reach itself is right and swept clean. Ten base-path shapes — a private
+base's typedef, its nested class, its member function, its data member, its
+operator, its conversion function, a protected base from outside and from a
+class derived from it, a friend of the derived class — agree with
+`g++ -pedantic-errors` and with `pa22/cppgm++-ref` on acceptance and on value;
+ten per-component shapes tell a private prefix from a public one at the first,
+the middle and the last component, through a template-id component, from a
+friend, from a member and from a class derived from the owner; twelve 5.1.1p13
+shapes place the member in a mem-initializer, a default member initializer, a
+`sizeof`, a `decltype`, an array bound, an enumerator, a template argument, a
+static member's initializer and a default argument; eight more cover 11.3p2's
+dependent friend, 11.3p3's ignored one and 3.4.3p1's class reached through a
+typedef-name, through a place an argument list bound and through `this->`.
+10.1p3 is what makes the walk well defined and it is enforced before any of it:
+a class holding two subobjects of one base is refused where it is read, so a
+walk that visits each class once costs the path and never the paths into it.
 
-What none of it carried is the **other two sentences of the two clauses the
-checkpoint's own last operator is written about — asked by one of the three
-readings that write it, and made by the other two out of a second reading of the
-same text.**
+What none of it carried is **what the walk asks at each of its links, and the
+three clauses whose refusal was written at one of the exits each is spelled
+at.**
 
 ### Findings
 
-**1. 5.3.6p3 was answered out of a table lookup at two of the three readers, so
-`alignof` of a specialization was 1.** `TypeTable::object_align` says how a type
-is aligned; it has no answer for a class that is not complete yet and none for
-one an argument list has yet to settle, and it returns a number for both. The
-expression layer wrapped it in 5.3.6p3's demand and its refusal. The other two
-readings that write the operator — 5.19's tree reading in `sema_constant.cpp`
-and its spelling reading in `sema_value_expression.cpp` — called it bare:
+**1. The walk answers each link by reading the whole derivation again, so a
+protected base chain of depth d costs d² and this build was slower than the
+reference.** `base_path` visits one class per level; `base_accessible`, which it
+asks at every level, answers 11.2p1's second sentence — *a class derived from
+the one that named the base reaches a protected base-specifier of it* — by
+asking `derives_from` of every base of every class the access occurs in. The
+classes the access occurs in do not move as the walk descends, so that is one
+walk of the derivation per level over the levels below it. 11.2p5's
+`befriends_between` is the same shape one clause along: it chose which base to
+descend into by asking `derives_from` of each. `perf` on the depth-512 case put
+**92 %** of the run in `derives_from`:
+
+| depth (200 accesses) | before | after | `pa22/cppgm++-ref` |
+|------|--------|-------|--------------------|
+| 11.2p1 protected chain, 256 | 0.17 s | 0.03 s | 0.59 s |
+| 11.2p1 protected chain, 512 | **0.97 s** | 0.07 s | 0.69 s |
+| 11.2p5 befriending class between, 256 | 0.22 s | 0.02 s | 0.56 s |
+| 11.2p5 befriending class between, 512 | **1.30 s** | 0.04 s | 0.56 s |
+| 10.2 conversion through d base-specifiers, 512 | 0.55 s | 0.09 s | 3.03 s |
+
+What the point the name was written at derives from is one walk of its own, made
+where the first link asks for it and read by every link after — which is what
+`Access::context_derives` is, and the reader is held for the length of the walk
+that asks it. `befriends_between` became the same descent `base_path` already
+makes. `Derivation::path` is the third site: it opened a reader per link, which
+held that walk at d² until the reader became a member of the walk itself.
+
+**2. 14.5.6.1p5's value places were compared behind a guard the comparison can
+never pass.** The clause the checkpoint landed reads
 
 ```cpp
-template<class T> struct wrap { T first; double second; };
-template<unsigned long N> struct S { static const unsigned long value = N; };
-int main() { return S<alignof(wrap<int>)>::value == 8 ? 0 : 1; }   // returned 1
+if (a.value && a.type != kNoType && b.type != kNoType &&
+    place_signature(left, index) != place_signature(right, index))
 ```
 
-`char bound[alignof(wrap<int>)];`, `static_assert(alignof(wrap<int>) == 8, …)`
-and the same argument written inside a class template's body are the rest of it,
-each one 1 where `g++` and `pa22/cppgm++-ref` both give 8; and `alignof(never)`
-over a class the unit only declared was a program both oracles refuse and this
-build ran. `SemaAnalyzer::align_of` is now `size_of`'s twin — 14.6p8's stand-in,
-p3's demand, p3's refusal, the table — and all three readings ask it.
-
-**2. 14.7.1p1's demand was made at one of the three readings an operand reaches
-this operator through.** A specialization owes a definition only where a use
-requires a complete type, so `instantiate_class` marks it where the naming was
-that use and `require_complete_type` reads the mark. Two readings write a name
-and leave no mark: 14.6p8's reading of a template definition, which asks for
-nothing, and `trait_value`'s own probe, which reads the type-id in a reading of
-its own to settle whether the spelling *is* one and keeps the answer. So the
-demand found nothing to make:
+and what a value place names a value of is settled only in 14.6.1p1's region,
+which `open_region` opens lazily. The *new* head is a local `TemplateInfo` read
+one line above, whose places nothing has ever bound — so `b.type` is `kNoType`
+at every index and the arm was dead at its only caller:
 
 ```cpp
-template<unsigned long M> struct box { char pad[M]; };
-template<class T> struct reader { typedef S<sizeof(box<4>)> sized; };
-// ERROR: sizeof names an incomplete type
+template<int N> struct A;
+template<char N> struct A { };   // accepted; `g++` refuses
 ```
 
-The static data member form — `static const unsigned long v = alignof(wrap<char>)
-+ sizeof(box<2>);` inside a class template — is the same reading one door along,
-and both are programs `g++` and `pa22/cppgm++-ref` translate. The demand is now
-`require_settled_type`, asked of the type rather than of the mark, which is what
-lets it reach a specialization no reading asked for; and it is asked once, inside
-`size_of` and `align_of`, so every reading of either operator makes it.
+The comparison is one of the readings 14.6.1p1's region exists for, so it opens
+it — of both heads, and only where the head declares a value place at any depth,
+so the heads a program mostly writes open nothing. `template<template<int> class
+F>` against `template<template<char> class F>` is the same refusal one level
+down, because opening a head records the places of the heads its template places
+wrote.
 
-**3. The demand the checkpoint did make, it made by reading the operand's
-type-id a second time — one reading per level doubled at every level below it.**
-`trait_value` probed the spelling and then called `template_argument_type` on the
-same text to make 14.7.1p1's demand, so a `sizeof` whose operand names a
-specialization whose argument is another such `sizeof` paid two readings per
-level:
+**3. 14.5.4p1's grant was written at one of the three spellings a friend
+declaration names a specialization by — and the one that got no arm translated
+by dropping the body it read.** A friend declaration whose declarator-id is a
+template-id names a specialization of a template some region already declares
+and declares nothing of its own, so all it does is grant. The checkpoint wrote
+that at `declare_function_declarator`, under `!spelled.qualified()`:
 
-| depth | before | after | `pa22/cppgm++-ref` |
-|-------|--------|-------|--------------------|
-| 12 | 0.10 s | 0.00 s | 0.60 s |
-| 16 | 1.00 s | 0.00 s | 0.60 s |
-| 20 | 15.42 s | 0.00 s | 0.60 s |
-| 24 | **killed at 60 s** | 0.00 s | 0.60 s |
-| 128 | — | 0.01 s | — |
+```cpp
+namespace n { template<class T> int peek(T); }
+struct vault { friend int n::peek<vault>(vault); … };   // refused; both oracles accept
+template<class T> void g(T);
+struct A { friend void g<int>(int) { } };               // accepted, body dropped
+```
 
-`perf` on the depth-20 case put the run in `_Unwind_Find_FDE` and
-`__gxx_personality_v0`: the doubling is a retry whose fallback re-reads, which is
-the shape `template_argument_value` already refuses one line above — *"asking the
-lookup of anything else is the whole reading of that name made a second time -
-which over `W<W<W<3>::v>::v>::v` is a reading per level doubled at every level
-below it."* The demand is made of the type the probe already has in hand, so the
-operand is read once.
+The qualified spelling differs from the unqualified one by which region declares
+the template, which `target` already names. And 8.4p1's form of the same
+declaration reaches `function_definition`, which had no arm at all: it declared
+nothing, emitted nothing and translated a program both oracles refuse — a
+success path that succeeds by discarding what the program wrote.
+
+**4. 14.7.3p5 was asked of the class the declarator-id's last prefix names, and
+of the one shape that writes the head over a declaration.** A member of an
+explicitly specialized class is defined the way an ordinary class's members are,
+because the body the program wrote out has no member the pattern declared. The
+refusal read `resolve_prefix`'s final region alone and `specialized_declarator_id`
+stopped at the first declaration under the head:
+
+```cpp
+template<> struct A<int> { struct in { void f(); }; template<class U> void g(U); };
+template<> void A<int>::in::f() { }              // accepted; `g++` refuses
+template<> template<class U> void A<int>::g(U) { }   // accepted; `g++` refuses
+```
+
+14.7.3p5 is written about the class the *member* belongs to, and a declarator-id
+may name a class nested below one the program wrote out — so every class the
+prefix walked through is asked. 14.5.2p3 writes one head per class the member is
+nested in, so the declarator-id a `template<>` clause parameterises is the
+innermost declaration's, which is the descent `record_template` already makes.
 
 ### What the review confirmed rather than found
 
-- **Nothing else scans and nothing re-reads per element.** `operand_end` is one
-  forward scan of the words the reading below it is about to take, so a list
-  nested d deep scans its own contents once per level: depth 128 is 0.01 s and
-  7 MB. `expand_operand` reads the pattern once per element over the words
-  already split. n `sizeof` type-ids and n `alignof` type-ids in one spelling are
-  0.00 → 0.01 s from 100 to 800. n class templates each named once under
-  `alignof` at a declarator are 0.02 → 0.16 s and 9 → 29 MB from 100 to 800,
-  linear, against `pa22/cppgm++-ref`'s 1.21 → 1.44 s; the turn-start build is
-  0.08 s there because it never completed the classes, which is finding 1.
-- **The demand costs the corpus nothing.** 348 files one process per file is
-  3.01 s against the turn-start build's 2.97 s over a 1.36 s process floor — so
-  1.65 s of compiler work against 1.61 s, and the difference is the classes that
-  are now laid out because a `sizeof` or an `alignof` asked for them.
-- **The recursion the demand opens is bounded.** A class whose own body writes
-  `sizeof` of its own specialization, and two class templates each writing
-  `sizeof` of the other's, are refused here and by `g++`; `pa22/cppgm++-ref`
-  accepts the first. Nothing hangs and nothing overruns.
-- **`valgrind -q --error-exitcode=9` is clean over 69 inputs**: the 65 probes of
-  this review and its four largest scaling inputs.
+- **Nothing else re-reads and nothing scans per element.** `resolve_prefix` asks
+  11.2 once per component of a name the program wrote, over the lookup that
+  component made anyway; `require_component_access` is one `lookup_in` of the
+  template a template-id names; `require_unspecialized_owner` is one walk up the
+  regions `resolve_prefix` already resolved. n = 800 classes each with a
+  protected base and one access through it is 0.12 s and 36 MB, equal to the
+  turn-start build at every n measured; n = 800 redeclared heads over value
+  places is 0.07 s and 26 MB against the turn-start build's 0.06 s and 20 MB -
+  the 6 MB is the regions the comparison now opens - and against the reference's
+  0.66 s. A public base chain is 0.04 s at depth 512, unchanged.
+- **The corpus is unchanged.** 357 files one process per file is 1.63 s against
+  the turn-start build's 1.63 s over a 0.59 s process floor, so 1.04 s of
+  compiler work either way.
+- **`valgrind -q --error-exitcode=9` is clean over 92 inputs**: the 79 probes of
+  this review, its 5 largest scaling inputs, the fixture it adds and the 10.1p3
+  refusal's own.
 - **No gate and no skipped work.** Neither the checkpoint's diff nor this
   audit's holds a `getenv`, a fixture name, a dialect switch keyed on anything
-  but a dialect, a timeout or an environment read. The file audit passes with the
-  five `bad-division` warnings it already had. All 40 `course/pa22` fixtures
-  regenerate byte for byte from `pa22/cppgm++-ref`, including the one this audit
-  adds.
+  but a dialect, a timeout, an environment read or a caught exception. The file
+  audit passes with the five `bad-division` warnings it already had. All 48
+  `course/pa22` fixtures regenerate byte for byte from `pa22/cppgm++-ref`,
+  including the one this audit adds.

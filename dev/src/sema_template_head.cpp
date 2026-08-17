@@ -351,8 +351,7 @@ bool TemplateHead::argument_matches(const TemplateInfo& place,
 // `place_signature` is what makes the names no part of the answer: a place is
 // canonicalized to its own position before the two are compared, so
 // `template<class T, T v>` and `template<class U, U w>` are one head.
-bool TemplateHead::heads_equivalent(const TemplateInfo& left,
-                                    const TemplateInfo& right)
+bool TemplateHead::heads_equivalent(TemplateInfo& left, TemplateInfo& right)
 {
 	if (left.parameters.size() != right.parameters.size())
 	{
@@ -366,14 +365,27 @@ bool TemplateHead::heads_equivalent(const TemplateInfo& left,
 		{
 			return false;
 		}
-		if (a.value && a.type != kNoType && b.type != kNoType &&
-		    place_signature(left, index) != place_signature(right, index))
+	}
+	// 14.6.1p1's region is opened by the first reading that needs it and this
+	// is one of them: what a value place names a value of is a type-id read in
+	// that region, so a head no naming has reached yet has settled no type at
+	// all and a comparison made over what it settled would always agree.  The
+	// kinds above are the head's own syntax and want no reading; the type is
+	// asked for only where the head declares a value place, so the heads a
+	// program mostly writes open nothing.
+	if (has_value_place(left) && left.region != nullptr &&
+	    right.region != nullptr)
+	{
+		open_region(left);
+		open_region(right);
+	}
+	for (std::size_t index = 0; index < left.parameters.size(); ++index)
+	{
+		const TemplateInfo::Parameter& a = left.parameters[index];
+		const TemplateInfo::Parameter& b = right.parameters[index];
+		if (a.value && place_signature(left, index) !=
+		               place_signature(right, index))
 		{
-			// 14.6.1p1's region is opened by the first reading that needs it, so
-			// a head no naming has reached yet has settled no type for its value
-			// places - and what a place *is* may not be answered out of a
-			// reading that has not been made.  The kinds above are the head's own
-			// syntax and are always there to compare.
 			return false;
 		}
 		if (a.templated && a.head != nullptr && b.head != nullptr &&
@@ -383,6 +395,23 @@ bool TemplateHead::heads_equivalent(const TemplateInfo& left,
 		}
 	}
 	return true;
+}
+
+// Whether any place this head declares - or any place of a head one of its
+// template places wrote - names a value, which is the one thing about a place
+// that no reading has settled until 14.6.1p1's region is opened.
+bool TemplateHead::has_value_place(const TemplateInfo& head)
+{
+	for (std::size_t index = 0; index < head.parameters.size(); ++index)
+	{
+		const TemplateInfo::Parameter& place = head.parameters[index];
+		if (place.value ||
+		    (place.head != nullptr && has_value_place(*place.head)))
+		{
+			return true;
+		}
+	}
+	return false;
 }
 
 // 14.3.3p1: whether the place `place` declared at `at` accepts the place
