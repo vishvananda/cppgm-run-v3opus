@@ -67,18 +67,8 @@ private:
 	class BracketGuard
 	{
 	public:
-		BracketGuard(AstParser& parser, bool angle)
-			: parser_(parser)
-			, saved_(parser.angle_)
-		{
-			parser_.angle_ = angle;
-			++parser_.bracket_depth_;
-		}
-		~BracketGuard()
-		{
-			parser_.angle_ = saved_;
-			--parser_.bracket_depth_;
-		}
+		BracketGuard(AstParser& parser, bool angle);
+		~BracketGuard();
 
 	private:
 		BracketGuard(const BracketGuard&);
@@ -164,6 +154,12 @@ private:
 	// type rather than the spelling.  Null where the operator-function-id names
 	// an operator instead.
 	bool skip_operator_id(AstNode** conversion = nullptr);
+	// 14.2p1's `< template-argument-list_opt >`, read from the `<` the cursor
+	// stands on.
+	bool skip_template_arguments();
+	// 14.2p1: the one an operator-function-id or a literal-operator-id carries,
+	// which is optional and which no lookup has to settle.
+	void skip_operator_template_arguments();
 	AstNode* parse_conversion_type_id();
 	bool skip_balanced(unsigned closer);
 	// 7.6.2: the attribute forms the grammar accepts.  `alignments`, when
@@ -194,6 +190,12 @@ private:
 	// Declared names (ast_parser_name.cpp).
 	void declare_template_name(const AstNode* declaration);
 	NameKind take_declared_kind(NameKind fallback);
+	// 14.5.5p1 and 14.7.3p1: the same for a class-head, whose name may be a
+	// template-id and then declares a specialization rather than a template.
+	NameKind take_class_head_kind(const std::string& name);
+	// 14.5.5p1: whether a class-head-name is a simple-template-id, which is the
+	// one class-name that ends in `>`.
+	static bool class_head_is_template_id(const std::string& name);
 
 	// Declarations (ast_parser.cpp).
 	AstNode* parse_declaration(bool in_class);
@@ -314,6 +316,12 @@ private:
 	// body: `template<class T> int f(T) { return f<int>(1); }` reads the
 	// second `f` against the first.
 	bool template_pending_;
+	// 14.7.2p1 and 14.7.3p1: whether the declaration being read names a
+	// specialization a template already declared rather than introducing a name
+	// of its own.  3.4.3p3 leaves such a declarator-id nothing to declare, so
+	// the only form 12.1p1 would otherwise give an out-of-class constructor - a
+	// definition - is not the only one that reaches a rule here.
+	bool names_specialization_;
 	// 14.1p2: set while the default argument of a template-template parameter
 	// is being read, where 14.3.3p1 makes the argument a template-name rather
 	// than 8.1p1's type-id - so a name declared only as a template stands there

@@ -43,7 +43,7 @@ AstNode* AstParser::parse_class_specifier()
 		}
 		AstNode* node = make_text(AstKind::ClassForwardDeclaration, name);
 		node->add(key);
-		names_.declare_member(name, take_declared_kind(NameKind::Type));
+		names_.declare_member(name, take_class_head_kind(name));
 		return node;
 	}
 	AstNode* node = make_text(AstKind::ClassSpecifier, name);
@@ -53,7 +53,7 @@ AstNode* AstParser::parse_class_specifier()
 		node->add(alignments[index]);
 	}
 	node->add(bases);
-	names_.declare_member(name, take_declared_kind(NameKind::Type));
+	names_.declare_member(name, take_class_head_kind(name));
 	names_.declare_class(name);
 	// 10.2p2: the declarations of a base class are found in the scope of this
 	// one, which the base-clause is where the parse learns.
@@ -315,7 +315,13 @@ AstNode* AstParser::parse_template_declaration(bool in_class)
 			// not the opening of one.
 			specialization = clause->children.empty();
 			template_pending_ = !specialization;
+			// 14.7.3p1: the declaration such a head stands on names the
+			// specialization rather than declaring anything of its own, which
+			// is what lets it be a constructor's and end at a `;`.
+			const bool outer = names_specialization_;
+			names_specialization_ = specialization;
 			declaration = parse_declaration(in_class);
+			names_specialization_ = outer;
 			template_pending_ = false;
 		}
 	}

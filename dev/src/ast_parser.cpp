@@ -10,9 +10,26 @@ AstParser::AstParser(const AstTokenStream& tokens, AstArena& arena)
 	, bracket_depth_(0)
 	, template_id_veto_depth_(-1)
 	, template_pending_(false)
+	, names_specialization_(false)
 	, template_place_default_(false)
 	, template_id_memo_version_(names_.version())
 {
+}
+
+// One bracket pair, opened and closed inside one rule, so the state a `>` is
+// read against is restored by leaving that rule however it leaves.
+AstParser::BracketGuard::BracketGuard(AstParser& parser, bool angle)
+	: parser_(parser)
+	, saved_(parser.angle_)
+{
+	parser_.angle_ = angle;
+	++parser_.bracket_depth_;
+}
+
+AstParser::BracketGuard::~BracketGuard()
+{
+	parser_.angle_ = saved_;
+	--parser_.bracket_depth_;
 }
 
 std::string AstParser::spelled(const Mark& start) const
@@ -325,7 +342,12 @@ bool is_explicit_instantiation_target(const AstNode& target)
 {
 	return target.kind == AstKind::ClassSpecifier ||
 		target.kind == AstKind::ClassForwardDeclaration ||
-		target.kind == AstKind::SimpleDeclaration;
+		target.kind == AstKind::SimpleDeclaration ||
+		// 12.1p1 and 14.7.2p1: a constructor has no type a declarator can be
+		// read for, so 12's own declaration is what names one - and an
+		// explicit instantiation of a constructor template names a
+		// specialization written exactly that way.
+		target.kind == AstKind::SpecialMemberDeclaration;
 }
 
 }
@@ -339,7 +361,14 @@ AstNode* AstParser::parse_explicit_instantiation()
 	// than a terminal inside it, so each form is a node of its own.
 	const bool extern_form = accept(KW_EXTERN);
 	++pos_;
+	// 14.7.2p1: the declaration names a specialization some template already
+	// declared, so its declarator-id may be one 3.4.3p3 lets no declaration
+	// introduce - a constructor of a class the prefix names - and it still
+	// ends at the `;` that would otherwise have to be a definition.
+	const bool outer = names_specialization_;
+	names_specialization_ = true;
 	AstNode* target = parse_declaration(false);
+	names_specialization_ = outer;
 	if (target == nullptr || !is_explicit_instantiation_target(*target))
 	{
 		return fail(start);
@@ -560,7 +589,8 @@ AstNode* AstParser::parse_special_member(bool in_class)
 	// only `;` form there is - 3.4.3p3's qualified declarator-id declares
 	// nothing new - so the tail is tried there only where one of the two was
 	// written and a bare `;` still reaches no rule.
-	if (in_class || (at(OP_ASS) && (peek(1) == KW_DEFAULT || peek(1) == KW_DELETE)))
+	if (in_class || names_specialization_ ||
+	    (at(OP_ASS) && (peek(1) == KW_DEFAULT || peek(1) == KW_DELETE)))
 	{
 		AstNode* declaration =
 			parse_special_member_tail(specifiers, declarator, conversion);

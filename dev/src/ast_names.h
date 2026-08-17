@@ -118,6 +118,13 @@ public:
 		return kind_of(name) == NameKind::Value;
 	}
 
+	// 14.2p4: whether some declaration of this unit made the spelling a
+	// template.  A name written after `.`, `->` or an `operator` is looked up
+	// in a class this parse does not model, so no scope answers whether the
+	// `<` after it opens a template-argument-list; what does is the same
+	// unit-wide record 6.8p1's ambiguity is settled by.
+	bool names_a_template(const std::string& name) const;
+
 	// How many times the scopes have changed.  Two answers taken at the same
 	// version are the same answer.
 	unsigned long version() const { return version_; }

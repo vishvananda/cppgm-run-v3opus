@@ -395,6 +395,16 @@ NameKind DeclaredNames::reached_kind(const std::string& spelling) const
 	}
 }
 
+bool DeclaredNames::names_a_template(const std::string& name) const
+{
+	const std::unordered_map<std::string, unsigned>::const_iterator seen =
+		declared_.find(name);
+	const unsigned templates =
+		(1u << static_cast<unsigned>(NameKind::Template)) |
+		(1u << static_cast<unsigned>(NameKind::FunctionTemplate));
+	return seen != declared_.end() && (seen->second & templates) != 0;
+}
+
 NameKind DeclaredNames::kind_of(const std::string& name) const
 {
 	const bool qualified = name.find(':') != std::string::npos;
@@ -537,6 +547,30 @@ NameKind AstParser::take_declared_kind(NameKind fallback)
 	template_pending_ = false;
 	return fallback == NameKind::Value ? NameKind::FunctionTemplate
 	                                  : NameKind::Template;
+}
+
+// 14.5.5p1 and 14.7.3p1: the same question for a class-head, whose name may be
+// a template-id.
+//
+// A head written on one declares a *specialization* of the template that name
+// was already declared for and no template of its own, so the spelling names a
+// type: `MapBase<K, int>` written in the body of the partial specialization it
+// is the head of - or anywhere after it - is a type-specifier, and not a
+// template-name 14.2 leaves waiting for a list it has already been given.  A
+// class-name that is a simple-template-id is the one class-head-name that ends
+// in `>`, which is what tells it from the member class `A<T>::B` an
+// out-of-class definition writes the same head over.
+bool AstParser::class_head_is_template_id(const std::string& name)
+{
+	return !name.empty() && *name.rbegin() == '>';
+}
+
+NameKind AstParser::take_class_head_kind(const std::string& name)
+{
+	const NameKind kind = take_declared_kind(NameKind::Type);
+	return kind == NameKind::Template && class_head_is_template_id(name)
+		? NameKind::Type
+		: kind;
 }
 
 bool AstParser::at_close_angle() const
@@ -735,6 +769,37 @@ bool AstParser::skip_simple_template_id(bool qualified)
 	return matched;
 }
 
+// 14.2p1's `< template-argument-list_opt >`, read from the `<` the caller is
+// standing on.  It is the same list after each of the three names a template-id
+// may be built on - a template-name, an operator-function-id or a
+// literal-operator-id - so one reader answers all three, and the angle bracket
+// rule of 14.2p3 is in force for exactly the span it covers.
+bool AstParser::skip_template_arguments()
+{
+	const Mark start = mark();
+	++pos_;
+	BracketGuard guard(*this, true);
+	if (!at_close_angle())
+	{
+		do
+		{
+			if (!parse_template_argument())
+			{
+				reset(start);
+				return false;
+			}
+			accept(OP_DOTS);
+		}
+		while (accept(OP_COMMA));
+	}
+	if (!accept_close_angle())
+	{
+		reset(start);
+		return false;
+	}
+	return true;
+}
+
 bool AstParser::skip_simple_template_id_body(bool qualified)
 {
 	const Mark start = mark();
@@ -753,22 +818,7 @@ bool AstParser::skip_simple_template_id_body(bool qualified)
 		reset(start);
 		return false;
 	}
-	++pos_;
-	BracketGuard guard(*this, true);
-	if (!at_close_angle())
-	{
-		do
-		{
-			if (!parse_template_argument())
-			{
-				reset(start);
-				return false;
-			}
-			accept(OP_DOTS);
-		}
-		while (accept(OP_COMMA));
-	}
-	if (!accept_close_angle())
+	if (!skip_template_arguments())
 	{
 		reset(start);
 		return false;
@@ -816,6 +866,23 @@ bool AstParser::skip_nested_name_specifier()
 	}
 }
 
+// 14.2p1: the two template-ids that are not built on a template-name are built
+// on the name just read - `operator+<int>` and `operator""_s<'a'>` - and the
+// list is optional there in the same sense a simple-template-id's is: 14.5.6.1
+// writes `operator+<>` for the specialization the arguments are deduced for.
+//
+// Unlike the identifier form, no lookup settles whether the `<` is 5.9's
+// operator: an operator-function-id is a name and never an operand, so a `<`
+// that follows one and closes is a list and one that does not close is the
+// comparison a declarator cannot hold anyway.
+void AstParser::skip_operator_template_arguments()
+{
+	if (at(OP_LT) && template_id_veto_depth_ != bracket_depth_)
+	{
+		skip_template_arguments();
+	}
+}
+
 bool AstParser::skip_operator_id(AstNode** conversion)
 {
 	const Mark start = mark();
@@ -835,6 +902,7 @@ bool AstParser::skip_operator_id(AstNode** conversion)
 		++pos_;
 		if (joined || accept(TT_IDENTIFIER))
 		{
+			skip_operator_template_arguments();
 			return true;
 		}
 		reset(start);
@@ -847,12 +915,14 @@ bool AstParser::skip_operator_id(AstNode** conversion)
 			reset(start);
 			return false;
 		}
+		skip_operator_template_arguments();
 		return true;
 	}
 	if ((at(OP_LPAREN) && peek(1) == OP_RPAREN) ||
 	    (at(OP_LSQUARE) && peek(1) == OP_RSQUARE))
 	{
 		pos_ += 2;
+		skip_operator_template_arguments();
 		return true;
 	}
 	if (is_operator_token(peek()))
@@ -862,6 +932,7 @@ bool AstParser::skip_operator_id(AstNode** conversion)
 		{
 			++pos_;
 		}
+		skip_operator_template_arguments();
 		return true;
 	}
 	AstNode* const written = parse_conversion_type_id();
@@ -1018,9 +1089,11 @@ AstNode* AstParser::parse_id_expression()
 	return node;
 }
 
-// The name after `.` or `->`.  A member name is not looked up before a
-// semantic assignment exists, so `a.b < c` is a comparison unless `template`
-// says the name is a template.
+// The name after `.` or `->`.  A member name is in a class this parse does not
+// model, so `a.b < c` is a comparison unless something says the name is a
+// template: 14.2p4's keyword, or - where the object expression is not
+// type-dependent and the keyword is therefore optional - a declaration of the
+// unit that made the spelling one.
 AstNode* AstParser::parse_member_id()
 {
 	const Mark start = mark();
@@ -1065,10 +1138,24 @@ AstNode* AstParser::parse_member_id()
 		}
 		return make_text(AstKind::Identifier, spelled(start));
 	}
-	if (!accept(TT_IDENTIFIER))
+	if (!at(TT_IDENTIFIER))
 	{
 		return fail(start);
 	}
+	// 5.2.2p1 and 5.3.1p3: a member function template named through an object
+	// expression can only be called, so the argument list read here is one a
+	// call follows.  That is what keeps `a.b < c > d` the two comparisons it
+	// also spells for a name some unrelated template of the unit shares.
+	if (peek(1) == OP_LT && names_.names_a_template(spelling()))
+	{
+		const Mark id = mark();
+		if (skip_simple_template_id(true) && at(OP_LPAREN))
+		{
+			return make_text(AstKind::Identifier, spelled(start));
+		}
+		reset(id);
+	}
+	++pos_;
 	return make_text(AstKind::Identifier, spelled(start));
 }
 

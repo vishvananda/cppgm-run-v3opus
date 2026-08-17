@@ -229,9 +229,11 @@ private:
 	// 14.7.2p1: a specialization named where no use of it stands.
 	void explicit_instantiation(const AstNode& node, const Context& ctx);
 	// 14.7.2p1's simple-declaration target, which names a function or an
-	// object rather than a class.
+	// object rather than a class.  `owed` is p8's form, which asks this unit
+	// for the definitions; p9's asks for none and names the same
+	// specialization.
 	void explicit_instantiation_declarator(const AstNode& target,
-	                                       const Context& ctx);
+	                                       const Context& ctx, bool owed);
 	// 14.7.2p2: the specialization the type such a declaration wrote names.
 	SemaEntity* instantiation_named(const std::string& written,
 	                                const std::string& name, TypeId declared,
@@ -1817,6 +1819,10 @@ private:
 	// 3.4p1 and 5.1.1p8: the one unqualified name an id-expression wrote,
 	// which shall name something, name one thing, and not name a type.
 	void check_value_name(const AstNode& node, const Context& ctx);
+	// 14.2p4: the keyword a member template-id shall be written with where the
+	// object expression is type-dependent and the name is not a member of the
+	// current instantiation.
+	void check_member_template_keyword(const AstNode& node, const Context& ctx);
 	// 3.4p1: the callee of a call 3.4.2p2 adds nothing to, which shall name
 	// something - and 5.2.3p1 lets what it names be a type.
 	void check_callee_name(const AstNode& node, const Context& ctx);

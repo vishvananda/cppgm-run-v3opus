@@ -856,6 +856,15 @@ void AstParser::declare_template_name(const AstNode* declaration)
 
 	case AstKind::ClassSpecifier:
 	case AstKind::ClassForwardDeclaration:
+		// 14.5.5p1: a class-head written on a template-id declares a
+		// specialization of a template already declared, so the spelling names
+		// the type its arguments make and no template of its own.
+		names_.declare_member(
+			declaration->text,
+			class_head_is_template_id(declaration->text) ? NameKind::Type
+			                                             : NameKind::Template);
+		return;
+
 	case AstKind::EnumSpecifier:
 	case AstKind::AliasDeclaration:
 		names_.declare_member(declaration->text, NameKind::Template);

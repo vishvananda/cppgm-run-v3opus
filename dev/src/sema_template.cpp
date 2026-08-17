@@ -6,6 +6,7 @@
 #include "ast_model.h"
 #include "ast_tokens.h"
 #include "sema_deduce.h"
+#include "sema_operator.h"
 #include "sema_pack.h"
 #include "sema_specialize.h"
 #include "sema_template_head.h"
@@ -40,40 +41,6 @@
 
 namespace
 {
-
-// 5.2.3p1 and Table 10: whether a spelling standing where a callee does is a
-// simple-type-specifier written out of keywords, which the parser leaves as the
-// text of an id-expression.  An explicit type conversion written that way names
-// a type rather than a function, so no lookup answers for it.
-bool names_a_builtin_type(const std::string& spelling)
-{
-	static const char* const kSpecifiers[] = {
-		"char", "char16_t", "char32_t", "wchar_t", "bool", "short", "int",
-		"long", "signed", "unsigned", "float", "double", "void"
-	};
-	std::string::size_type at = 0;
-	bool any = false;
-	while (at < spelling.size())
-	{
-		const std::string::size_type end = spelling.find(' ', at);
-		const std::string word = spelling.substr(
-			at, end == std::string::npos ? end : end - at);
-		bool found = false;
-		for (std::size_t index = 0;
-		     !found && index < sizeof(kSpecifiers) / sizeof(kSpecifiers[0]);
-		     ++index)
-		{
-			found = word == kSpecifiers[index];
-		}
-		if (!found)
-		{
-			return false;
-		}
-		any = true;
-		at = end == std::string::npos ? spelling.size() : end + 1;
-	}
-	return any;
-}
 
 }
 
@@ -136,6 +103,19 @@ SemaEntity& SemaAnalyzer::specialize(SemaEntity& primary,
 		// the template's name and which no spelling of the declaration holds.
 		made->template_arguments = list;
 		model_.hold_specialization(primary, list, *made);
+		// 13.5p6: a parameter written over a template parameter is of no type
+		// until an argument list gives it one, so the clause is a question
+		// about this declaration and not about the template that made it.  It
+		// is asked where the declaration is made - once per argument list,
+		// however many namings reach it - and the name says in one comparison
+		// that nearly every specialization has nothing to answer.
+		if (!made->object_member)
+		{
+			OperatorCall(*this).require_operand(
+				primary.name, made->type,
+				primary.region != nullptr &&
+					primary.region->kind == ScopeKind::Class);
+		}
 	}
 	return *made;
 }
@@ -1433,7 +1413,8 @@ SemaEntity* SemaAnalyzer::instantiation_named(const std::string& written,
 // its name, and what it changes is which unit's object file owes the
 // definition.
 void SemaAnalyzer::explicit_instantiation_declarator(const AstNode& target,
-                                                     const Context& ctx)
+                                                     const Context& ctx,
+                                                     bool owed)
 {
 	const AstNode* const declarator = instantiated_declarator(target);
 	if (declarator == nullptr)
@@ -1518,7 +1499,7 @@ void SemaAnalyzer::explicit_instantiation_declarator(const AstNode& target,
 	// use to point at.  A static data member's definition waits for no use, so
 	// naming its class is the whole of what this asks for - which is where the
 	// class form leaves one too.
-	if (made->kind != SemaKind::Function)
+	if (made->kind != SemaKind::Function || !owed)
 	{
 		return;
 	}
@@ -1550,15 +1531,27 @@ void SemaAnalyzer::explicit_instantiation_declarator(const AstNode& target,
 void SemaAnalyzer::explicit_instantiation(const AstNode& node,
                                           const Context& ctx)
 {
-	if (node.kind != AstKind::ExplicitInstantiationDefinition ||
-	    node.children.empty())
+	if (node.children.empty())
 	{
 		return;
 	}
+	// 14.7.2p9: `extern template` differs from p8's form in what it asks of
+	// this unit and in nothing else - p2's requirement that the declaration
+	// name a specialization is the same requirement written the same way - so
+	// the target is read either way and only p8's demand for the definitions
+	// is left out.
+	const bool owed = node.kind == AstKind::ExplicitInstantiationDefinition;
 	const AstNode& target = *node.children[0];
 	if (target.kind == AstKind::SimpleDeclaration)
 	{
-		explicit_instantiation_declarator(target, ctx);
+		explicit_instantiation_declarator(target, ctx, owed);
+		return;
+	}
+	if (!owed)
+	{
+		// 14.7.2p9 over a class: the specialization's members are another
+		// unit's to instantiate, which is a fact about what this unit owes
+		// rather than about what the declaration names.
 		return;
 	}
 	if (target.kind != AstKind::ClassForwardDeclaration)
@@ -2731,194 +2724,5 @@ void SemaAnalyzer::read_held_pattern_bodies(std::size_t from)
 				statement(*held.node->children[at], held.inner);
 			}
 		}
-	}
-}
-
-// 14.6p8 and 3.4p1: the names an expression written in a template definition
-// writes, looked up where the definition stands.
-//
-// Only what the definition can answer is asked.  A name written after `.`,
-// `->` or `::` is a member of whatever the prefix turned out to be, and
-// 14.6.2p1 leaves that to the instantiation; a template-id names a
-// specialization no argument list has been given yet; and 3.4.2p2 lets the
-// name of a called function be one only the arguments' own namespaces
-// declare.  What is left is the unqualified name of a value, and 3.4p1 settles
-// it here: it names something, it names one thing, and what it names is not a
-// type.
-void SemaAnalyzer::check_expression_names(const AstNode& node,
-                                          const Context& ctx)
-{
-	switch (node.kind)
-	{
-	case AstKind::IdExpression:
-	{
-		check_value_name(node, ctx);
-		return;
-	}
-
-	case AstKind::MemberExpression:
-		// 5.2.5p2 and 14.6.2p1: the object expression is an expression of this
-		// definition; the member name belongs to the class it turns out to
-		// have, which an argument is what settles.
-		if (!node.children.empty())
-		{
-			check_expression_names(*node.children[0], ctx);
-		}
-		return;
-
-	case AstKind::CallExpression:
-	{
-		// 3.4.2p2: an unqualified name written as the callee of a call is
-		// looked up in the namespaces its arguments are associated with as
-		// well, which are classes an argument list has yet to name - so
-		// 14.6.2p1 leaves the callee to the instantiation wherever an argument
-		// can carry a namespace this reading cannot see.  A literal cannot:
-		// 3.4.2p2 associates nothing with a fundamental type, so a call written
-		// with no arguments, or with none but literals, reaches exactly the
-		// declarations ordinary lookup does and its callee is settled here.
-		for (std::size_t index = 0; index < node.children.size(); ++index)
-		{
-			const AstNode& child = *node.children[index];
-			if (index == 0 && child.kind == AstKind::IdExpression)
-			{
-				if (arguments_associate_nothing(node))
-				{
-					check_callee_name(child, ctx);
-				}
-				continue;
-			}
-			check_expression_names(child, ctx);
-		}
-		return;
-	}
-
-	case AstKind::TypeId:
-	case AstKind::TypeSpecifierSeq:
-	case AstKind::DecltypeSpecifier:
-	case AstKind::LambdaExpression:
-		// A type-id's own names are the declarator layer's to read, and
-		// 7.1.6.2p1's decltype-specifier holds an expression that says what
-		// type it is rather than what value.  A cast, a `sizeof`, an `alignof`
-		// and a `new` each write one of those beside an expression, so the walk
-		// below reaches the expression and stops at the type-id - 5.3.3p1
-		// leaves the operand of `sizeof` unevaluated and 3.4p1 still looks its
-		// names up.
-		return;
-
-	default:
-		for (std::size_t index = 0; index < node.children.size(); ++index)
-		{
-			check_expression_names(*node.children[index], ctx);
-		}
-		return;
-	}
-}
-
-// 3.4.2p2: whether the arguments of a call name any namespace ordinary lookup
-// has not already read.
-//
-// The associated namespaces and classes of an argument are its *type's*, and a
-// fundamental type has none - so a call written with no arguments, or with none
-// but literals, is one 3.4.2p2 adds nothing to.  Anything else may turn out to
-// be a class an argument list has yet to name, which is what 14.6.2p1 leaves
-// the callee to the instantiation for.
-bool SemaAnalyzer::arguments_associate_nothing(const AstNode& call) const
-{
-	for (std::size_t index = 1; index < call.children.size(); ++index)
-	{
-		const AstNode& written = *call.children[index];
-		for (std::size_t at = 0; at < written.children.size(); ++at)
-		{
-			const AstKind kind = written.children[at]->kind;
-			if (kind != AstKind::Literal && kind != AstKind::KeywordLiteral)
-			{
-				return false;
-			}
-		}
-	}
-	return true;
-}
-
-// 3.4p1: what an unqualified name written in a template definition names where
-// that definition stands.
-//
-// `answered` is false where this reading is not the one that settles the name:
-// 3.4.3p1's qualified name reaches a region a template parameter may stand for,
-// 14.2's template-id names a specialization this reading makes none of, and
-// 1.4p8's reserved name is declared where it is used rather than where the
-// program wrote it.  Otherwise the answer is what the name names, and null says
-// nothing declares it.
-SemaEntity* SemaAnalyzer::definition_time_name(const AstNode& node,
-                                               const Context& ctx,
-                                               bool& answered)
-{
-	answered = false;
-	if (node.text.empty() ||
-	    first_child(node, AstKind::CarriedExpression) != nullptr)
-	{
-		return nullptr;
-	}
-	const QualifiedName written(node.text);
-	if (written.qualified() || node.text.find('<') != std::string::npos ||
-	    names_a_builtin_type(node.text))
-	{
-		// 5.2.3p1: a simple-type-specifier written where a callee stands is an
-		// explicit type conversion, and the type it names is a keyword no
-		// declaration bound.
-		return nullptr;
-	}
-	SemaEntity* const named =
-		model_.lookup(*ctx.scope, node.text, LookupKind::Any);
-	if (named == nullptr && reserved_function(node.text, nullptr) != nullptr)
-	{
-		return nullptr;
-	}
-	answered = true;
-	return named;
-}
-
-// 3.4p1 and 3.4.2p2: the callee of a call this reading can look up, which shall
-// name something.  5.2.3p1's explicit type conversion is written the same way,
-// so a type-name stands here and only the first of 5.1.1p8's questions is asked.
-void SemaAnalyzer::check_callee_name(const AstNode& node, const Context& ctx)
-{
-	bool answered = false;
-	if (definition_time_name(node, ctx, answered) != nullptr || !answered)
-	{
-		return;
-	}
-	throw std::runtime_error(node.text + " names nothing where the template "
-	                         "that calls it is defined, and its arguments "
-	                         "associate no namespace 3.4.2p2 could find it in");
-}
-
-void SemaAnalyzer::check_value_name(const AstNode& node, const Context& ctx)
-{
-	bool answered = false;
-	SemaEntity* const named = definition_time_name(node, ctx, answered);
-	if (!answered)
-	{
-		return;
-	}
-	if (named == nullptr)
-	{
-		throw std::runtime_error(node.text + " names nothing where the "
-		                         "template that writes it is defined");
-	}
-	switch (named->kind)
-	{
-	case SemaKind::Class:
-	case SemaKind::Enum:
-	case SemaKind::Typedef:
-	case SemaKind::TemplateType:
-	case SemaKind::Namespace:
-		// 5.1.1p8: an id-expression names a variable, a data member, a
-		// function or an enumerator, and a type-name written where one of
-		// those belongs names no value however the arguments come out.
-		throw std::runtime_error(node.text + " names a type where the template "
-		                         "that writes it uses it as a value");
-
-	default:
-		return;
 	}
 }
