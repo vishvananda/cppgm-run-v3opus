@@ -1,0 +1,34 @@
+ERROR: class template member owner does not match the primary or an existing partial specialization at course/pa22/300-member-class-template-unwritten-pattern-bad.t:21:5 [top-level declaration 1 kind=template-declaration ast={template-declaration
+  template-parameter-clause
+    template-parameter-list
+      type-parameter
+        parameter-key KW_CLASS:class
+        identifier T
+  template-declaration
+    template-parameter-clause
+      template-parameter-list
+        type-parameter
+          parameter-key KW_CLASS:class
+          identifier U
+    function-definition
+      decl-specifier-seq
+        decl-specifier KW_INT:int
+      declarator
+        identifier holder<T>::slot<U*>::width
+        parameter-clause
+      compound-statement
+        return-statement
+          binary-expression OP_PLUS:+
+            literal 100
+            cast-expression KW_STATIC_CAST:static_cast
+              type-id
+                type-specifier-seq
+                  type-specifier KW_INT:int
+              sizeof-expression
+                type-id
+                  type-specifier-seq
+                    type-name U
+}]
+Diagnostic context:
+collect_template_declaration [template<class T>template<class U>int holder<T>::slot<U*>::width(){return 100+static_cast<int>(sizeof(U));}] at course/pa22/300-member-class-template-unwritten-pattern-bad.t:19:1
+  collect_template_declaration [template<class U>int holder<T>::slot<U*>::width(){return 100+static_cast<int>(sizeof(U));}] at course/pa22/300-member-class-template-unwritten-pattern-bad.t:20:1

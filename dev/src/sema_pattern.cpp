@@ -227,12 +227,21 @@ void PatternReading::read_declaration(const AstNode& node,
 		{
 			innermost = innermost->children[innermost->children.size() - 1];
 		}
+		std::string wrote;
 		SemaEntity* const nested =
 			analyzer_.templating() && clause != nullptr && innermost != nullptr
-				? nested_owner(*innermost, ctx) : nullptr;
+				? nested_owner(*innermost, ctx, &wrote) : nullptr;
 		if (nested != nullptr)
 		{
-			record(*nested, Specialization::kNoPartial, *clause, *declared);
+			// 14.5.5p1: that template may hold several bodies here for the same
+			// reason one named at namespace scope may, and the arguments the
+			// declarator-id wrote are what say which of them this definition is
+			// a member of - the primary's where they are the member template's
+			// own places, and a pattern's where they are that pattern.
+			record(*nested,
+			       Specialization(analyzer_).member_pattern(*nested, wrote,
+			                                                *clause, ctx),
+			       *clause, *declared);
 			return;
 		}
 		analyzer_.read_template_head(node, ctx);
@@ -369,8 +378,14 @@ SemaEntity* PatternReading::owner(const AstNode& node, const SemaContext& ctx,
 // Null wherever the specifier writes no such component, which is every
 // definition whose head parameterises a member of the class the head above it
 // already named.
+//
+// 14.5.5p1 leaves the template that component named holding several bodies, so
+// the component's own spelling travels back to the caller rather than being
+// looked for a second time - exactly as `owner` hands back the one it stopped
+// at for the same question.
 SemaEntity* PatternReading::nested_owner(const AstNode& node,
-                                         const SemaContext& ctx)
+                                         const SemaContext& ctx,
+                                         std::string* wrote)
 {
 	// `QualifiedName` reads the spelling it was given rather than copying it, so
 	// the string outlives the walk over its components.
@@ -421,7 +436,15 @@ SemaEntity* PatternReading::nested_owner(const AstNode& node,
 		}
 		if (inside == nullptr)
 		{
-			return index != 0 && templated ? named : nullptr;
+			if (index == 0 || !templated)
+			{
+				return nullptr;
+			}
+			if (wrote != nullptr)
+			{
+				*wrote = spelled.part(index);
+			}
+			return named;
 		}
 		reached = inside;
 	}

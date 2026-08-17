@@ -1,0 +1,51 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $plain : obj<1x1>
+  slot $pointed : obj<1x1>
+  slot $cond__1 : i32
+  slot $land__2 : i64
+
+  block ^entry:
+    %t1 = addr $plain
+    %t2 = addr $pointed
+    %t3 = addr $plain
+    %t4 = call i32 @holder_int___slot_char___width(%t3)
+    %t5 = cmp eq i32 %t4, 1
+    branch %t5, ^land_rhs_4, ^land_short_5
+
+  block ^land_rhs_4:
+    %t6 = const i64 1
+    %t7 = convert sext i64 i32 1
+    %t8 = cmp eq i64 %t6, %t7
+    %t9 = cmp ne i64 %t8, 0
+    store i64 %t9, $land__2
+    jump ^land_end_6
+
+  block ^land_short_5:
+    store i64 0, $land__2
+    jump ^land_end_6
+
+  block ^land_end_6:
+    %t10 = load i64 $land__2
+    branch %t10, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t11 = load i32 $cond__1
+    return i32 %t11
+}
+function @holder_int___slot_char___width(%this : ptr) -> i32 [binding=weak, object=_ZN6holderIiE4slotIcE5widthEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = const i64 1
+    %t2 = convert trunc i32 i64 %t1
+    return i32 %t2
+}

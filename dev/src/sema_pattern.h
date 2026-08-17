@@ -71,8 +71,10 @@ public:
 
 	// 14.5.2p3: the member template a second head's declarator-id declares a
 	// member of, where the classes the specifier writes before it are ones the
-	// reading that reached here already settled.  Null where it names none.
-	SemaEntity* nested_owner(const AstNode& node, const SemaContext& ctx);
+	// reading that reached here already settled, and that component's own
+	// spelling in `wrote`.  Null where it names none.
+	SemaEntity* nested_owner(const AstNode& node, const SemaContext& ctx,
+	                         std::string* wrote);
 
 	// 14.5.1.3p1: holds `declared` as an out-of-class member definition of the
 	// body at `at` of `primary`, reads it where it stands, and reads it again
