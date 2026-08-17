@@ -1,0 +1,32 @@
+ERROR: unsupported template declarator [decl-specifier-seq] [top-level declaration 1 kind=class-specifier value=crate text=crate]
+Diagnostic context:
+collect_class_declaration [crate] at course/pa22/300-qualified-friend-template-definition-bad.t:17:1
+  ensure_class_reference_members [crate]
+    populate_class_reference_members [crate]
+      reference_class_member [template-declaration] text=[] ast={template-declaration
+  template-parameter-clause
+    template-parameter-list
+      type-parameter
+        parameter-key KW_CLASS:class
+        identifier T
+  function-definition
+    decl-specifier-seq
+      decl-specifier KW_FRIEND:friend
+      decl-specifier KW_INT:int
+    declarator
+      identifier store::weigh
+      parameter-clause
+        parameter-declaration
+          decl-specifier-seq
+            decl-specifier TT_IDENTIFIER:T
+          declarator
+            identifier t
+    compound-statement
+      return-statement
+        cast-expression OP_LPAREN:
+          type-id
+            type-specifier-seq
+              type-specifier KW_INT:int
+          id-expression t
+}
+        collect_template_declaration [template<class T>friend int store::weigh(T t){return(int)t;}] at course/pa22/300-qualified-friend-template-definition-bad.t:27:3

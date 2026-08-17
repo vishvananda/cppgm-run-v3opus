@@ -399,6 +399,16 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 		specifiers.is_friend && specializing == nullptr
 			? friend_target(ctx, spelled, target, befriending)
 			: nullptr;
+	if (specifiers.is_friend && spelled.qualified())
+	{
+		// 11.3p6: a friend declaration defines a function only where the name
+		// it writes is unqualified.  11.3p10's qualified one names a function
+		// the region that name reaches already declared, and a declaration
+		// made elsewhere is no place to write a body.
+		throw std::runtime_error("a friend declaration writes a definition of " +
+		                         name + " under a qualified declarator-id, "
+		                         "which 11.3p6 does not allow");
+	}
 
 	std::string ignored;
 	std::vector<Parameter> parameters;
@@ -431,8 +441,18 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 	                             name, spelled.qualified());
 
 	bool redeclares = false;
+	// 14.6p8 with 11.3p6: a friend declaration declares into the namespace
+	// around the class, and every reading of the class's own definition writes
+	// the same declaration there - the one 14.6p8 makes where the template
+	// stands and the one 14.7.1p1 makes for each specialization.  14.6p8's
+	// describes what the declaration says and translates nothing, so it is a
+	// declaration of this function and no definition of it; the instantiation
+	// is what defines it, once per specialization, which is what makes a
+	// second instantiation of a class that defines a friend function template
+	// the redefinition 14.5.4p1 leaves it as.
+	const bool defines = granting == nullptr || checking_ == 0;
 	SemaEntity& entity =
-		declare_function(name, type, target, true,
+		declare_function(name, type, target, defines,
 		                 granting != nullptr && !spelled.qualified(),
 		                 type != written_type,
 		                 // 9.3p2 and 11.3p10 alike: a qualified declarator-id
@@ -723,6 +743,17 @@ SemaEntity& SemaAnalyzer::declare_function(const std::string& name, TypeId type,
 	// the region `declaring_region` steps out to.
 	require_no_template_parameter(name, head_region != nullptr ? *head_region
 	                                                           : *target.scope);
+	// 11.3p6 with 14.5.4p1: a friend declaration is *made* in the namespace
+	// around the class and *written* inside it, and what 14.7.1p1 reads a
+	// pattern against is where the definition stands - which is the region the
+	// head it was written under encloses, and the only one that binds what an
+	// enclosing class template's own instantiation bound.  So a friend function
+	// template whose declarator or body writes that class template's parameter
+	// reads it there, exactly as the class-body reading of the same definition
+	// already reads its body there.  Every other declaration is made where it
+	// was written and asks the same question either way.
+	Scope& pattern_region =
+		hidden && head_region != nullptr ? *head_region : where;
 	SemaEntity* head = model_.find(where, name, LookupKind::Any);
 	if (head != nullptr && head->kind != SemaKind::Function)
 	{
@@ -743,7 +774,8 @@ SemaEntity& SemaAnalyzer::declare_function(const std::string& name, TypeId type,
 		where.hidden.empty() ? where.hidden.end() : where.hidden.find(name);
 	if (prior == nullptr && concealed != where.hidden.end())
 	{
-		prior = model_.overload_of(*concealed->second, signature);
+		prior = model_.overload_of(*where.hidden_index.find(name)->second,
+		                           signature);
 		if (prior != nullptr && !hidden)
 		{
 			// 7.3.1.2p3: a matching declaration at namespace scope is what
@@ -800,7 +832,7 @@ SemaEntity& SemaAnalyzer::declare_function(const std::string& name, TypeId type,
 			// definition's syntax and the parameter names *it* wrote - against
 			// the parameters the declaration's own type is written over, which
 			// is what a deduction binds.
-			record_function_template(*prior, *head_region, where);
+			record_function_template(*prior, *head_region, pattern_region);
 		}
 		return *prior;
 	}
@@ -832,7 +864,7 @@ SemaEntity& SemaAnalyzer::declare_function(const std::string& name, TypeId type,
 		// parameters it is written over are what an instantiation of it
 		// substitutes arguments for.
 		entity.template_parameters = head_region;
-		record_function_template(entity, *head_region, where);
+		record_function_template(entity, *head_region, pattern_region);
 	}
 	if (hidden)
 	{
@@ -840,16 +872,20 @@ SemaEntity& SemaAnalyzer::declare_function(const std::string& name, TypeId type,
 		// lookup written in it finds, so it joins the region's hidden chain and
 		// binds nothing.  3.4.2p2 reaches it through the class that wrote it.
 		SemaEntity*& concealed_head = where.hidden[name];
+		SemaEntity*& indexed = where.hidden_index[name];
 		if (concealed_head == nullptr)
 		{
 			concealed_head = &entity;
+			// 13.1: the chain is made here, so this is the declaration its
+			// index is keyed by for as long as it holds anything.
+			indexed = &entity;
 		}
 		else
 		{
 			concealed_head->tail->next = &entity;
 			concealed_head->tail = &entity;
 		}
-		model_.hold_overload(*concealed_head, signature, entity);
+		model_.hold_overload(*indexed, signature, entity);
 		model_.declare_in(where, entity);
 		return entity;
 	}
@@ -884,17 +920,16 @@ void SemaAnalyzer::reveal_friend(Scope& where, const std::string& name,
 		declaration_signature(where, entity.type, entity.object_member);
 	const std::unordered_map<std::string, SemaEntity*>::iterator held =
 		where.hidden.find(name);
+	const std::unordered_map<std::string, SemaEntity*>::iterator indexed =
+		where.hidden_index.find(name);
 	SemaEntity* concealed = held->second;
-	// The chain is indexed by the declaration the name would be bound to, and
-	// that is the declaration that may be leaving, so the whole index of this
-	// chain is dropped and rebuilt.  A chain holds the friend declarations of
-	// one name in one namespace, which is what the source wrote.
-	for (SemaEntity* at = concealed; at != nullptr; at = at->next)
-	{
-		model_.drop_overload(
-			*concealed,
-			declaration_signature(where, at->type, at->object_member));
-	}
+	SemaEntity* const last = concealed->tail;
+	// 13.1: the chain's index is keyed by the declaration the chain was made
+	// with rather than by the one heading it now, so what leaves takes its own
+	// entry and everything still hidden is left where it already is - one probe
+	// rather than a walk of every friend declaration of this name the region
+	// holds, which is what makes n of them n reveals and not n^2.
+	model_.drop_overload(*indexed->second, signature);
 	SemaEntity* before = nullptr;
 	for (SemaEntity* at = concealed; at != &entity; at = at->next)
 	{
@@ -902,33 +937,32 @@ void SemaAnalyzer::reveal_friend(Scope& where, const std::string& name,
 	}
 	if (before == nullptr)
 	{
+		// The declaration heading the chain is the one leaving, so the chain
+		// that is left is what followed it and ends where the whole one did.
 		concealed = entity.next;
+		if (concealed != nullptr)
+		{
+			concealed->tail = last;
+		}
 	}
 	else
 	{
 		before->next = entity.next;
+		if (last == &entity)
+		{
+			concealed->tail = before;
+		}
 	}
 	entity.next = nullptr;
 	entity.tail = &entity;
 	if (concealed == nullptr)
 	{
 		where.hidden.erase(held);
+		where.hidden_index.erase(indexed);
 	}
 	else
 	{
-		SemaEntity* last = concealed;
-		while (last->next != nullptr)
-		{
-			last = last->next;
-		}
-		concealed->tail = last;
 		held->second = concealed;
-		for (SemaEntity* at = concealed; at != nullptr; at = at->next)
-		{
-			model_.hold_overload(
-				*concealed,
-				declaration_signature(where, at->type, at->object_member), *at);
-		}
 	}
 	SemaEntity* head = model_.find(where, name, LookupKind::Any);
 	if (head != nullptr && head->kind == SemaKind::Function)

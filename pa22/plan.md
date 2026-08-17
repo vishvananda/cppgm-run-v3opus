@@ -25,6 +25,12 @@ replaced:
 - `sema_class.cpp` — 12's special members, which 14.5.2p1 lets a head stand
   over; and 11.3's `granting_class`/`friend_target`/`accessible`, where 11.2p5's
   naming class and 11.3p1's grant meet.
+- `sema_function.cpp` with `Scope::hidden`/`hidden_index` — 11.3p6's chain of
+  declarations one region holds and binds nothing of, indexed by the declaration
+  it was made with so 7.3.1.2p3's reveal costs one probe. `declare_function` is
+  also where 11.3p6 and 3.4.1p10 part company: a friend declaration is *made* in
+  the namespace and *written* inside the class, and what 14.7.1p1 reads a
+  pattern against is the second of those.
 - `sema_definition_names.cpp` — 14.6p8's first of the two readings: the names a
   template definition writes, looked up where the definition stands.
 - `sema_specialize.h/.cpp` — the three heads whose declaration the primary's own
@@ -38,10 +44,10 @@ replaced:
 
 ## Current Failure Map
 
-Checkpoint F landed **246 / 323** — the 241 of 318 the fixture set had after the
-12 friend fixtures F fixed, plus the 5 new `course/pa22` fixtures it wrote. The
-77 that fail are the set checkpoint M's audit left minus those 12, grouped by
-the compiler behaviour that owns them, from the diagnostic each one now reaches:
+The F audit landed **249 / 326** — F's own 246 of 323 plus the 3 `course/pa22`
+fixtures this audit wrote, with the failing set unchanged. The 77 that fail are
+the set checkpoint M's audit left minus the 12 F fixed, grouped by the compiler
+behaviour that owns them, from the diagnostic each one now reaches:
 
 | # | Group | Owner | Signature |
 |---|-------|-------|-----------|
@@ -62,6 +68,22 @@ own, are gone: F's 11.2p5 naming class and 14.5.4p1 grant answered them.
 
 Known gaps probed and deliberately left:
 
+- 11.3p11 leaves the name a friend elaborated-type-specifier first declares
+  unbound until a matching declaration is written in the namespace, and both
+  spellings bind it: `class host { friend class late; };` and `class host {
+  template<class U> friend class late; };` each leave `late` findable, so `late*
+  p = 0;` and `late<int>* p = 0;` are two programs `pa22/cppgm++-ref` and `g++`
+  both refuse and this build accepts. The non-template spelling predates PA22
+  and the template one is the tier 14.5.4p1 added beside it, so the fix is one
+  hidden *type* chain read by the two declaration sites - `class_declaration`'s
+  elaborated arm and `record_template`'s class tier - rather than anything
+  14.5.4p1 owns.
+- 14.5.4p1's grant is recorded in the lowering dialect alone, because PA11 and
+  PA12 model a class template's class inside the head's own region and a friend
+  declaration's class in the namespace, so the two can never be one entity
+  there: `pa12/cppgm++-ref --emit-semantics` accepts a `late<T>` reaching a
+  private member of the class that befriended `late` and this build refuses it.
+  The PA11/PA12 dumps themselves agree byte for byte.
 - 9.2p1 is enforced nowhere: `struct A { int f(); int f(); };` is accepted, and
   so are two equivalent member-template declarations. The template case is the
   shadow of the general one, so half-fixing it in the template path alone would
@@ -80,7 +102,7 @@ Known gaps probed and deliberately left:
 
 ## Active Checkpoint
 
-**Checkpoint F landed this turn — see the ledger.** The next one is **D**,
+**The F audit landed this turn — see the ledger.** The next one is **D**,
 14.6.2's dependent names an instantiation has to find (`no declaration of … is
 in scope`, 12 fixtures) together with the 9 that stop at `resolve_prefix`: both
 are one owner, the walk that turns a written prefix into a region once the
@@ -88,41 +110,57 @@ arguments are in hand, and the 9 are the same failure one component earlier.
 
 ## Performance Model
 
-Best of three with `/usr/bin/time` on generated inputs under `/tmp/perf22f`,
-against a `make build` of `1b336b81` in a worktree and against
-`pa22/cppgm++-ref`. Five traps are recorded rather than re-measured:
+Best of three with `/usr/bin/time` on generated inputs under `/tmp/perf22g`,
+against `pa22/cppgm++-ref`. Six traps are recorded rather than re-measured:
 `timeout`/`date` spawned per run invents a ~0.1 s floor that reads as 33 s over
-the corpus, `cppgm++` run by hand needs `-o` or it compiles nothing, the whole
-corpus handed to one process is one ill-formed unit and times as 0.00 s,
+the corpus, `cppgm++` run by hand needs `-o` or it compiles nothing, a relative
+binary path measures 0.00 s and 1 MB from a shell whose directory moved, the
+whole corpus handed to one process is one ill-formed unit and times as 0.00 s,
 `/usr/bin/time` writes to stderr so a child whose stderr is discarded loses
 every measurement, and `g++ file.t` treats a `.t` as a *linker input* and exits
 0 with a warning — a verdict sweep without `-x c++` reads every ill-formed
-program as accepted.
+program as accepted. Every generated input is checked for exit 0 before it is
+timed.
 
-| Path | Sweep | This build | `1b336b81` | `pa22/cppgm++-ref` |
-|------|-------|-----------|-----------|-------------------|
-| n specializations of a class template that declares a friend class template | 100 → 800 | 0.02 → 0.15 s, 10 → 38 MB | refused | 2.60 s at 800 |
-| n distinct friend class templates in one class, each used | 100 → 800 | 0.01 → 0.13 s, 10 → 39 MB | refused | 1.10 s at 800 |
-| n hidden friend function templates, each called through ADL | 100 → 800 | 0.02 → 0.18 s, 11 → 48 MB | refused | 1.40 s at 800 |
-| a protected member reached through a friend across a derivation chain | depth 4 → 256 | 0.00 → 0.01 s, 6 → 9 MB | refused | 0.00 s at 256 |
-| the whole 318-file corpus, one process per file | — | 1.26 s | 1.24 s | — |
+| Path | Sweep | This build | `pa22/cppgm++-ref` |
+|------|-------|-----------|-------------------|
+| n specializations of a class template that declares a friend class template | 100 → 800 | 0.02 → 0.20 s, 12 → 51 MB | 2.00 s at 800 |
+| n distinct friend class templates in one class, each used | 100 → 800 | 0.01 → 0.14 s, 10 → 41 MB | 1.24 s at 800 |
+| n hidden friend function templates, each called through ADL | 100 → 800 | 0.02 → 0.18 s, 11 → 50 MB | 1.60 s at 800 |
+| n class templates each *defining* a friend function template, each instantiated | 100 → 800 | 0.03 → 0.28 s, 13 → 67 MB | 2.06 s at 800 |
+| n friend function templates of one name in one hidden chain, each reached by ADL | 100 → 800 | 0.02 → 0.22 s, 12 → 59 MB | 7.24 s at 800 |
+| n friend declarations of one name, each revealed by a namespace declaration | 800 → 3200 | 0.19 → 0.79 s, 53 → 197 MB | 22.40 s at 800 |
+| a protected member reached through a friend across a derivation chain | depth 4 → 256 | 0.00 → 0.02 s, 6 → 11 MB | 1.13 s at 256 |
+| a friend template declared in a class nested d deep, and one named d deep | depth 2 → 24 | 0.00 s, 6 MB | — |
+| the whole 326-file corpus, one process per file | — | 1.36 s | — |
 
-Every dimension is linear in what it swept; the four rows the baseline refuses
-are the shapes this checkpoint opened. They are linear because the grant is one
-entry per *pair of templates* rather than per argument list — `befriended` asks
-the pair as the use spelled it and then with each side replaced by its
-`primary`, which is four hash probes and no walk — and because 11.2p5's new
-naming class only reaches `befriends_between`, whose walk is the single base
-path 10.1p3 already refuses a second of. The derivation row is that walk: 64×
-the depth for 1.5× the time, and flat against the ref.
+Every dimension is linear in what it swept and flat in depth. They are linear
+because the grant is one entry per *pair of templates* rather than per argument
+list — `befriended` asks the pair as the use spelled it and then with each side
+replaced by its `primary`, which is four hash probes and no walk — because
+11.2p5's new naming class only reaches `befriends_between`, whose walk is the
+single base path 10.1p3 already refuses a second of, and because
+`Scope::hidden_index` keys a hidden chain by the declaration it was *made* with,
+so 7.3.1.2p3's reveal drops one entry instead of re-keying everything left. That
+last one is the audit's own fix: keyed by the chain's head it was 0.82 / 3.23 /
+**15.64 s** at n = 800 / 1600 / 3200 and it is 0.19 / 0.38 / **0.79 s** now.
 
-`valgrind -q --error-exitcode=9` is clean over the four largest scaling inputs
-and over all 50 probe programs, 0 errors. Run evidence: a unit holding a hidden
-friend function template, a friend function template declared in a class
-template and a friend class template compiles through `lowir2cy86` + `cy86` and
-exits **22**, the computed value `g++ -std=c++11` gives it. Third oracle:
-`_Z5applyI5valueEiRT_RK3adl`, `_Z4peekIiEi3boxIT_E` and
-`_ZN6readerIiE3getER5owner` agree with `g++` byte for byte.
+The one quadratic left on this surface is 13.3's own: n overloads of one name
+and n calls of it is n candidate sets of n, which is what the program wrote
+rather than what a reader repeats — `perf` puts 17 % of that run in
+`converting_constructor` and none of it in the friend readers, and the same
+shape with distinct names is linear. The reference is 57 s at n = 200 there.
+
+`valgrind -q --error-exitcode=9` is clean over 36 inputs, 0 errors: the four
+largest scaling ones, the two deepest nests and every probe program this audit
+wrote. Run evidence: a unit holding a hidden friend function template, a friend
+class template, a friend function template *defined* inside a class template
+whose declarator writes the owner's parameter, and one declared there and
+defined at namespace scope compiles through `lowir2cy86` + `cy86` and exits
+**18**, the value `g++ -std=c++11` gives it; a two-unit build of the friend
+class-template grant links and runs. Third oracle: all nine `object=` names that
+unit writes — `_Z4grabIiET_3boxIiES0_` and `_Z4grabIiET_3boxIcES0_` among them —
+agree with `g++` byte for byte.
 
 ## Completed Checkpoints
 
@@ -142,3 +180,4 @@ exits **22**, the computed value `g++ -std=c++11` gives it. Third oracle:
 | **M2** the four exits a member template's definition can be written at | `template<class U> A::A(U) {}` and `template<class T> template<class U> A<T>::A(U) {}` read their parameter clause against the class alone and found no `U`; 3.4.1p8 puts the head *inside* the region its declarator-id names. `specialize` copied `object_member` and `access` but not which special member it declares, so 12.6.2's mem-initializers never ran. The ABI writes a function template's result type, which 12.1p1, 12.4p1 and 12.3.2p1 leave writing none. Beside it, 14.5.2p1's "a destructor shall not be a template" and 14.5.6.1p5's second declaration of one constructor template. | 219 / 308 |
 | **M audit** the two facts 12 writes about a special member, and the class 12.1's entry points are owed by | 14.7.1p1's specialization is the declaration the template declares, so 12.3.1p2's `explicit` and 8.4.3's `= delete` travel onto it. 12.3.2p1's conversion function template reached *no* use at all: `Deduction::from_conversion` is 14.8.2.3's one P/A pair, asked at the one of `gather_conversions`' four readers that has a destination, and 13.3.3p1's last two tie-breaks came with it. The ABI named such a specialization from the *substituted* type. And `writes_base_entry` asked whether the *function* is an instantiation where 12.1's second entry point is a question about the class. Beside them, 8.4.2p1's `= default` under a head. | 229 / 318 |
 | **F** 14.5.4's friend templates, and the class 11.2p5 names a member in | A friend declaration under a head reached none of what 11.3 already knew. `SemaModel::befriended` now asks the pair as the use spelled it and then with each side replaced by its `primary`, which is what 14.5.4p1 means: the grant a class template's own definition wrote is between two *templates* and every access check asks it of two specializations. `record_template` gained 14.5.4p1's tier - a head over a friend elaborated-type-specifier declares a class *template* in 11.3p11's enclosing namespace and grants to it - and `template_declaration` asks it under `templating()` rather than `lowering()`, because 14.6p8's PA11-dialect reading of a pattern was declaring a plain class of that spelling and refusing the program's own `template<class T> class W`. 14.7.1p1's instantiation reads the definition again in a region that binds arguments under no class at all, so `function_definition` asks 11.3p1 of the *template* rather than of the regions it stands in, and the head a friend declaration is written under is what says it declares a template - not the namespace 11.3p6 moved the declaration into. `equivalent_template` is asked of 11.3p6's hidden chain, where a later declaration of one friend function template has nowhere else to find it, and `reveal_friend` indexes the declaration that leaves by its *own* parameter type list. 11.3p1's granting class is taken at entry, because `StandingIn` moves the head a qualified declarator-id stands under inside the region that name reaches. 11.3p10's qualified friend now has to name a declaration that region made. And 11.2p5's naming class is the class a *qualified name* was looked up in as much as the one an object expression writes, which is what lets a member reach a protected member of a base through a class between them that befriends it. | **246 / 323** |
+| **F audit** the two readings one friend definition gets, and the region 11.3p6 moved the declaration out of | A friend declaration written in a class *template* is read twice - 14.6p8's reading of the pattern and 14.7.1p1's for each specialization - and 11.3p6 puts both in one namespace, so the pattern reading's `defined` made one instantiation of a class defining a friend function template `unwrap is defined twice`. It declares and does not define; the instantiation defines, which is also what makes a second one 14.5.4p1's redefinition. `record_function_template` recorded the *namespace* as the region 14.7.1p1 reads the pattern against, where 3.4.1p10 reads a friend definition where it was written - the only region binding what the class's own instantiation bound - so `friend T mixed(box<T>, U)` was `T does not name a type` at the call that deduced it. 11.3p6's other half, that a friend declaration defines only under an unqualified declarator-id, was unwritten. And `Scope::hidden_index` keys a hidden chain by the declaration it was made with, so 7.3.1.2p3's reveal drops one entry rather than re-keying the whole chain: 15.64 s to 0.79 s at n = 3200. | **249 / 326** |

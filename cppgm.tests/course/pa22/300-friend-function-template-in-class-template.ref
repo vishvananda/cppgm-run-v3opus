@@ -1,0 +1,84 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $cond__1 : i32
+  slot $argobj__2 : obj<4x4>
+  slot $argobj__3 : obj<4x4>
+  slot $argobj__4 : obj<1x1>
+
+  block ^entry:
+    %t1 = addr $argobj__2
+    call void @box_int___box(%t1, 4)
+    %t2 = call i32 @unwrap($argobj__2)
+    %t3 = addr $argobj__3
+    call void @box_int___box(%t3, 5)
+    %t4 = call i32 @unwrap($argobj__3)
+    %t5 = binary add i32 %t2, %t4
+    %t6 = addr $argobj__4
+    call void @holder_char___holder(%t6, 1)
+    %t7 = call i8 @peek($argobj__4)
+    %t8 = convert sext i32 i8 %t7
+    %t9 = binary add i32 %t5, %t8
+    %t10 = cmp eq i32 %t9, 10
+    branch %t10, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t11 = load i32 $cond__1
+    return i32 %t11
+}
+function @box_int___box(%this : ptr, %x : i32) -> void [binding=weak, object=_ZN3boxIiEC1Ei] {
+  slot $this : ptr
+  slot $x : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %x, $x
+    %t1 = load i32 $x
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 %t1, %t3
+    return void
+}
+function @holder_char___holder(%this : ptr, %x : i8) -> void [binding=weak, object=_ZN6holderIcEC1Ec] {
+  slot $this : ptr
+  slot $x : i8
+
+  block ^entry:
+    store ptr %this, $this
+    store i8 %x, $x
+    %t1 = load i8 $x
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i8 %t1, %t3
+    return void
+}
+function @unwrap(%b : obj<4x4>) -> i32 [binding=weak, object=_Z6unwrapIiET_3boxIS0_E] {
+  slot $b : obj<4x4>
+
+  block ^entry:
+    %t1 = addr $b
+    copyobj 4x4 %b, %t1
+    %t2 = addr $b
+    %t3 = index i8 [projection=field] %t2, 0
+    %t4 = load i32 %t3
+    return i32 %t4
+}
+function @peek(%h : obj<1x1>) -> i8 [binding=weak, object=_Z4peekIcET_6holderIS0_E] {
+  slot $h : obj<1x1>
+
+  block ^entry:
+    %t1 = addr $h
+    copyobj 1x1 %h, %t1
+    %t2 = addr $h
+    %t3 = index i8 [projection=field] %t2, 0
+    %t4 = load i8 %t3
+    return i8 %t4
+}
+alias object _ZN3boxIiEC2Ei = @box_int___box
+alias object _ZN6holderIcEC2Ec = @holder_char___holder

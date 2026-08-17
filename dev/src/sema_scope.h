@@ -987,6 +987,14 @@ public:
 	// bind.  It is what a later namespace-scope declaration of the same
 	// function finds, so the two declare one entity rather than two.
 	std::unordered_map<std::string, SemaEntity*> hidden;
+	// 13.1: the declaration each of those chains is *indexed* by, which is the
+	// one it was made with and stays that however many of them 7.3.1.2p3 later
+	// reveals.  The index of a chain is keyed by a declaration rather than by
+	// the name, and the declaration a reveal takes out is the one the chain
+	// heads with - so keying on what the chain was made with is what leaves the
+	// entries of everything still hidden where they already are.  Same keys as
+	// `hidden`, and a chain that empties drops both.
+	std::unordered_map<std::string, SemaEntity*> hidden_index;
 
 	// Every region a lookup written in which reaches this one's declarations,
 	// which is the closure of 7.3.4p2 read from the region that declares rather
