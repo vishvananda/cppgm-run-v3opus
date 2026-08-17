@@ -141,7 +141,8 @@ void PatternReading::read_class(SemaEntity& primary)
 // where it stands, which is against the same region and the same class the body
 // it was written over was read against.
 void PatternReading::read_member(SemaEntity& primary, const AstNode& clause,
-                                 const AstNode& pattern, std::size_t at)
+                                 const AstNode& pattern, std::size_t at,
+                                 Scope* carried)
 {
 	const TemplateInfo& info = *primary.templated;
 	const bool own = at == Specialization::kNoPartial;
@@ -162,7 +163,7 @@ void PatternReading::read_member(SemaEntity& primary, const AstNode& clause,
 	// of one anywhere in the template that declared it.
 	Scope* const region = TemplateHead(analyzer_).open_member_parameters(
 		*made->scope->parent, clause, places(head), SemaKind::TemplateType,
-		head.reading_dump);
+		head.reading_dump, carried);
 	if (region == nullptr)
 	{
 		return;
@@ -241,7 +242,9 @@ void PatternReading::read_declaration(const AstNode& node,
 			record(*nested,
 			       Specialization(analyzer_).member_pattern(*nested, wrote,
 			                                                *clause, ctx),
-			       *clause, *declared);
+			       *clause, *declared,
+			       ctx.scope->kind == ScopeKind::TemplateParameters ? ctx.scope
+			                                                        : nullptr);
 			return;
 		}
 		analyzer_.read_template_head(node, ctx);
@@ -474,16 +477,17 @@ SemaEntity* PatternReading::nested_owner(const AstNode& node,
 // it stands, and is read again for every specialization already made from that
 // body.
 void PatternReading::record(SemaEntity& primary, std::size_t at,
-                            const AstNode& clause, const AstNode& declared)
+                            const AstNode& clause, const AstNode& declared,
+                            Scope* carried)
 {
 	TemplateInfo& holder = *primary.templated;
 	std::vector<TemplateInfo::Member>& members =
 		at == Specialization::kNoPartial ? holder.members
 		                                 : holder.partials[at].members;
-	members.push_back(TemplateInfo::Member(&clause, &declared));
+	members.push_back(TemplateInfo::Member(&clause, &declared, carried));
 	// 14.6p8: the definition is read where it stands too, against the class
 	// that body's own definition declares.
-	read_member(primary, clause, declared, at);
+	read_member(primary, clause, declared, at, carried);
 	for (std::size_t index = 0; index < holder.specializations.size(); ++index)
 	{
 		// 10.3p10's table asked for every virtual member of a class already
@@ -541,7 +545,7 @@ void PatternReading::instantiate(SemaEntity& made,
 		enclosing != nullptr && enclosing->kind == ScopeKind::TemplateParameters
 			? TemplateHead(analyzer_).open_member_parameters(
 				  *enclosing, *member.clause, own ? arguments : deduced,
-				  SemaKind::Typedef, info.dump)
+				  SemaKind::Typedef, info.dump, member.carried)
 			: nullptr;
 	SemaContext inner;
 	inner.scope = region != nullptr

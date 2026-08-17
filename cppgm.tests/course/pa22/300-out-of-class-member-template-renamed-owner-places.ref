@@ -1,0 +1,112 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $made : obj<4x4>
+  slot $pair : ptr
+  slot $same : ptr
+  slot $cond__1 : i32
+
+  block ^entry:
+    %t1 = addr $made
+    call void @holder_char___holder__ov3(%t1, 2)
+    %t2 = addr $made
+    %t3 = index i8 [projection=field] %t2, 0
+    %t4 = load i32 %t3
+    %t5 = cmp ne i32 %t4, 3
+    branch %t5, ^if_then_1, ^if_else_2
+
+  block ^if_then_1:
+    return i32 1
+
+  block ^if_else_2:
+    jump ^if_end_3
+
+  block ^if_end_3:
+    store ptr 0, $pair
+    %t6 = load ptr $pair
+    %t7 = call i32 @two_char__int___f(%t6)
+    %t8 = cmp ne i32 %t7, 1
+    branch %t8, ^if_then_4, ^if_else_5
+
+  block ^if_then_4:
+    return i32 2
+
+  block ^if_else_5:
+    jump ^if_end_6
+
+  block ^if_end_6:
+    %t9 = load ptr $pair
+    %t10 = call i32 @two_char__int___g(%t9)
+    %t11 = cmp ne i32 %t10, 4
+    branch %t11, ^if_then_7, ^if_else_8
+
+  block ^if_then_7:
+    return i32 3
+
+  block ^if_else_8:
+    jump ^if_end_9
+
+  block ^if_end_9:
+    store ptr 0, $same
+    %t12 = load ptr $same
+    %t13 = call i32 @sel_int__int___f(%t12)
+    %t14 = cmp eq i32 %t13, 5
+    branch %t14, ^cond_then_10, ^cond_else_11
+
+  block ^cond_then_10:
+    store i32 0, $cond__1
+    jump ^cond_end_12
+
+  block ^cond_else_11:
+    store i32 4, $cond__1
+    jump ^cond_end_12
+
+  block ^cond_end_12:
+    %t15 = load i32 $cond__1
+    return i32 %t15
+}
+function @holder_char___holder__ov3(%this : ptr, %u : i32) -> void [binding=weak, object=_ZN6holderIcEC1IiEET_] {
+  slot $this : ptr
+  slot $u : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %u, $u
+    %t1 = load i32 $u
+    %t2 = const i64 1
+    %t3 = convert trunc i32 i64 %t2
+    %t4 = binary add i32 %t1, %t3
+    %t5 = load ptr $this
+    %t6 = index i8 [projection=field] %t5, 0
+    store i32 %t4, %t6
+    return void
+}
+function @sel_int__int___f(%this : ptr) -> i32 [binding=weak, object=_ZN3selIiiE1fIcEEiv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = const i64 4
+    %t2 = convert trunc i32 i64 %t1
+    %t3 = const i64 1
+    %t4 = convert trunc i32 i64 %t3
+    %t5 = binary add i32 %t2, %t4
+    return i32 %t5
+}
+function @two_char__int___f(%this : ptr) -> i32 [binding=weak, object=_ZN3twoIciE1fEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = const i64 1
+    %t2 = convert trunc i32 i64 %t1
+    return i32 %t2
+}
+function @two_char__int___g(%this : ptr) -> i32 [binding=weak, object=_ZN3twoIciE1gEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = const i64 4
+    %t2 = convert trunc i32 i64 %t1
+    return i32 %t2
+}
+alias object _ZN6holderIcEC2IiEET_ = @holder_char___holder__ov3

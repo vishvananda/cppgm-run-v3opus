@@ -1776,8 +1776,12 @@ private:
 	void own_type(TypeId type, SemaEntity& entity);
 	// 14p1: records the pattern the template-declaration being read wrote onto
 	// the function it just declared, so that 14.7.1p1 can read it again.
+	// `reading` is 14.5.1.3p1's other region: the head standing outside this
+	// declaration's own, where the names an out-of-class definition wrote for
+	// the enclosing classes' places are bound.  Null for every definition
+	// written where its declaration is made.
 	void record_function_template(SemaEntity& entity, Scope& parameters,
-	                              Scope& region);
+	                              Scope& region, Scope* reading = nullptr);
 	// 14.6p8: the reading a template definition's body gets where it stands,
 	// against the parameters themselves - one this milestone makes ill-formed
 	// where no valid specialization could be generated from it, leaving what

@@ -1371,6 +1371,21 @@ void require_template_special_member(const std::string& spelled,
                                      const Scope* head, bool destructor,
                                      bool defaulted);
 
+// 14.5.1.3p1: the head standing outside `head`, which a declaration has one of
+// exactly where it was written outside its class under a head per class it is
+// nested in - and which binds the names *that* definition wrote for the
+// enclosing classes' places.  Null for a declaration whose one head stands
+// where it was written, and for one no head parameterises.
+//
+// It is asked before `StandingIn` moves the nest, because after that the head's
+// parent is the region its declarator-id named.
+inline Scope* enclosing_template_head(Scope* head)
+{
+	return head != nullptr && head->parent != nullptr &&
+	       head->parent->kind == ScopeKind::TemplateParameters ? head->parent
+	                                                           : nullptr;
+}
+
 // 14.1p1 and 3.4.1p8: where a template head stands while the declaration it
 // parameterises is read through a qualified declarator-id.
 //
@@ -1382,6 +1397,7 @@ void require_template_special_member(const std::string& spelled,
 // the head binds outlives the declaration, so it goes back where it was
 // written afterwards.  A null head stands nowhere, which is every declaration
 // no template-declaration parameterises.
+//
 class StandingIn
 {
 public:

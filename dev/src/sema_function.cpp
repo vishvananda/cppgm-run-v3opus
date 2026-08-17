@@ -371,6 +371,10 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 	Scope* const head =
 		spelled.qualified() && ctx.template_head == ctx.scope ? ctx.scope
 		                                                      : nullptr;
+	// 14.5.1.3p1: and which head stands outside it, taken here because
+	// `StandingIn` below moves the nest into the region the declarator-id
+	// names.
+	Scope* const enclosing_head = enclosing_template_head(head);
 	// 3.4.1p8 again: where the names the declarator and the body write are
 	// looked up, which is the head where one stands and the region the
 	// declarator-id reaches otherwise.
@@ -380,6 +384,7 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 		target.scope = resolve_prefix(spelled, ctx);
 		target.dump = target.scope->dump;
 		target.template_head = head;
+		target.enclosing_head = enclosing_head;
 		looked_up.scope = head != nullptr ? head : target.scope;
 		looked_up.dump = target.dump;
 	}
@@ -853,7 +858,8 @@ SemaEntity& SemaAnalyzer::declare_function(const std::string& name, TypeId type,
 			// definition's syntax and the parameter names *it* wrote - against
 			// the parameters the declaration's own type is written over, which
 			// is what a deduction binds.
-			record_function_template(*prior, *head_region, pattern_region);
+			record_function_template(*prior, *head_region, pattern_region,
+			                         target.enclosing_head);
 		}
 		return *prior;
 	}
@@ -889,7 +895,8 @@ SemaEntity& SemaAnalyzer::declare_function(const std::string& name, TypeId type,
 		// parameters it is written over are what an instantiation of it
 		// substitutes arguments for.
 		entity.template_parameters = head_region;
-		record_function_template(entity, *head_region, pattern_region);
+		record_function_template(entity, *head_region, pattern_region,
+		                         target.enclosing_head);
 	}
 	if (hidden)
 	{

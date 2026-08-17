@@ -96,10 +96,15 @@ public:
 	// own, binding the names *its* head wrote to the arguments their places
 	// took, opened inside `enclosing` - the region the class was completed
 	// against.  Null where the head declares a different number of places than
-	// the specialization takes arguments.
+	// the specialization takes arguments.  `carried` is the region the heads
+	// standing outside this one bound, whose names stand here beside this
+	// head's own: a member of a member template writes one head per class it is
+	// nested in, and the region this one is opened inside is the *inner*
+	// class's, which binds none of what the heads above wrote.
 	Scope* open_member_parameters(Scope& enclosing, const AstNode& clause,
 	                              const std::vector<TypeId>& arguments,
-	                              SemaKind kind, DumpScope* dump);
+	                              SemaKind kind, DumpScope* dump,
+	                              Scope* carried = nullptr);
 
 	// 14.1p4: the type the place at `index` declares, with the arguments the
 	// places before it took substituted into it.  The second overload is the

@@ -578,7 +578,8 @@ bool SemaAnalyzer::record_template(const AstNode& node, const Context& ctx,
 		declared = elaborated;
 	}
 	else if (!lowering() && declared->kind != AstKind::ClassSpecifier &&
-	         declared->kind != AstKind::ClassForwardDeclaration)
+	         declared->kind != AstKind::ClassForwardDeclaration &&
+	         declared->kind != AstKind::AliasDeclaration)
 	{
 		// 14.6p8's reading of a class template's own definition is the PA11
 		// dialect, which describes what the declarations it holds *say* and
@@ -590,6 +591,13 @@ bool SemaAnalyzer::record_template(const AstNode& node, const Context& ctx,
 		// current instantiation exactly as `outer<int>::inner` is in the class
 		// one argument list makes - so the reading that leaves it undeclared
 		// leaves 14.5.1.3p1's out-of-class definition of it naming nothing.
+		//
+		// 14.5.7p1's member alias template is the third: 7.1.3p2 makes the name
+		// it declares a *template-name*, so `A<T>` written beside it in the same
+		// body is a template-id the reading has to look `A` up for - and
+		// 14.1p1's own reading declares a typedef-name of the type-id read on
+		// the spot, which is a type the places have not settled and a name no
+		// template-id reaches.
 		return false;
 	}
 	if (first_child(*clause, AstKind::TemplateParameterList) == nullptr &&
@@ -634,7 +642,9 @@ bool SemaAnalyzer::record_template(const AstNode& node, const Context& ctx,
 		PatternReading(*this).record(
 			*owner,
 			Specialization(*this).member_pattern(*owner, wrote, *clause, ctx),
-			*clause, *declared);
+			*clause, *declared,
+			ctx.scope->kind == ScopeKind::TemplateParameters ? ctx.scope
+			                                                 : nullptr);
 		return true;
 	}
 	// 14.5.5p1, 14.5.1p1 and 14.5.7p1: a head whose declaration writes an
@@ -790,6 +800,16 @@ bool SemaAnalyzer::record_template(const AstNode& node, const Context& ctx,
 	if (define)
 	{
 		entity->templated->pattern = declared;
+		// 14.5.1.3p1 and 14.1p2: a member class template defined outside its
+		// class is read under a head per class it is nested in, and 14.1p2 lets
+		// this definition spell those classes' places with names of its own -
+		// which the head above this one bound and the class binds nowhere.  So
+		// 14.7.1p1's reading of the body opens its bindings there.  Every
+		// definition written where its declaration is made stands in a class or
+		// a namespace and records none.
+		entity->templated->reading_region =
+			ctx.scope->kind == ScopeKind::TemplateParameters ? ctx.scope
+			                                                 : nullptr;
 		// 14.6p8: the definition is read once where it stands, before any
 		// specialization is completed from it, because what it says about the
 		// names no template parameter stands in the way of is a fact about the
@@ -1886,7 +1906,8 @@ SemaEntity* SemaAnalyzer::instantiated_class(const std::string& written,
 // it what 14.7.1p1 needs to read the same syntax again: the syntax, the region
 // its names are looked up from, and the parameters its head declared.
 void SemaAnalyzer::record_function_template(SemaEntity& entity,
-                                            Scope& parameters, Scope& region)
+                                            Scope& parameters, Scope& region,
+                                            Scope* reading)
 {
 	if (!lowering() || template_pattern_ == nullptr)
 	{
@@ -1926,6 +1947,7 @@ void SemaAnalyzer::record_function_template(SemaEntity& entity,
 	info.supported = true;
 	info.pattern = pattern;
 	info.region = &region;
+	info.reading_region = reading;
 	info.dump = template_pattern_dump_;
 	for (std::size_t index = 0; index < parameters.declarations.size(); ++index)
 	{

@@ -35,6 +35,7 @@ struct SemaContext
 		, dump(nullptr)
 		, node(nullptr)
 		, template_head(nullptr)
+		, enclosing_head(nullptr)
 		, instantiated_member(false)
 	{}
 
@@ -54,6 +55,16 @@ struct SemaContext
 	// from it that region is.  Null for a declaration no template-declaration
 	// parameterises, and for every reading nested inside one.
 	Scope* template_head;
+	// 14.5.1.3p1: the head standing outside the one above, taken before
+	// `StandingIn` moves the nest into the region the declarator-id names.
+	// A member template defined outside its class stands under a head per class
+	// it is nested in and then its own, and 14.1p2 lets that definition spell
+	// the enclosing classes' places with names of its own - so this is the
+	// region binding those names, and 14.7.1p1's reading of the pattern is
+	// opened there rather than in the class, which binds only the names the
+	// class's own head spelled.  Null for every declaration written where its
+	// one head stands.
+	Scope* enclosing_head;
 	// 14.5.1.3p1 with 14.7.1p1: whether this reading is an instantiation of a
 	// member definition written outside its class template - which 9.4.2p2
 	// makes the definition that lays a static data member's storage out.  What

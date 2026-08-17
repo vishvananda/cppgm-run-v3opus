@@ -55,9 +55,11 @@ public:
 
 	// 14.6p8 and 14.5.1.3p1: the reading one out-of-class member definition
 	// gets where it stands, against the current instantiation of the body at
-	// `at` - `Specialization::kNoPartial` for the primary's own.
+	// `at` - `Specialization::kNoPartial` for the primary's own.  `carried` is
+	// the region the heads standing outside this one bound, whose names travel
+	// into the one this reading opens.
 	void read_member(SemaEntity& primary, const AstNode& clause,
-	                 const AstNode& pattern, std::size_t at);
+	                 const AstNode& pattern, std::size_t at, Scope* carried);
 
 	// 14.5.2p3: what one such definition declares, which for a member template
 	// is a head of its own standing over the declaration.
@@ -81,7 +83,7 @@ public:
 	// body at `at` of `primary`, reads it where it stands, and reads it again
 	// for every specialization already made from that body.
 	void record(SemaEntity& primary, std::size_t at, const AstNode& clause,
-	            const AstNode& declared);
+	            const AstNode& declared, Scope* carried);
 
 	// 14.5.1.3p1: reads the member definition `member` of the body at `at`
 	// against the arguments `made` was made from.  A specialization 14.5.5.1p1

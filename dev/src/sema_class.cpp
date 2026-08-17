@@ -442,6 +442,9 @@ bool SemaAnalyzer::conversion_function_definition(const AstNode& node,
 	// region its declarator-id names, so the conversion-type-id `U` and the body
 	// alike read the places it declared with the class's members behind them.
 	Scope* const head = ctx.template_head == ctx.scope ? ctx.scope : nullptr;
+	// 14.5.1.3p1: and the head standing outside it, which binds the names this
+	// definition wrote for the class template's own places.
+	Scope* const enclosing_head = enclosing_template_head(head);
 	target.template_head = head;
 	const StandingIn stood(head, region);
 	if (head != nullptr)
@@ -484,7 +487,7 @@ bool SemaAnalyzer::conversion_function_definition(const AstNode& node,
 		// 14.5.6.1p5 and 14p1: the definition of the conversion function
 		// template the class body declared, whose syntax is what an
 		// instantiation of it reads.
-		record_function_template(entity, *head, region);
+		record_function_template(entity, *head, region, enclosing_head);
 	}
 	const std::vector<Parameter> none;
 	open_special_member_body(node, entity, target, entity.name, none, head);
@@ -526,6 +529,10 @@ void SemaAnalyzer::special_member(const AstNode& node, const Context& ctx)
 	// head: what it binds is arguments, and the declaration is already made.
 	Scope* const head =
 		specializing == nullptr && &region != ctx.scope ? ctx.scope : nullptr;
+	// 14.5.1.3p1: and the head standing outside it, which is one only where the
+	// definition was written outside the class under a head per class it is
+	// nested in.
+	Scope* const enclosing_head = enclosing_template_head(head);
 	SemaEntity& owner = *region.owner;
 	const std::string written = QualifiedName(node.text).last();
 	const bool destructor = !written.empty() && written[0] == '~';
@@ -600,7 +607,7 @@ void SemaAnalyzer::special_member(const AstNode& node, const Context& ctx)
 		// member template, asked here because a constructor and a conversion
 		// function reach neither it nor `function_definition`.
 		entity->template_parameters = head;
-		record_function_template(*entity, *head, region);
+		record_function_template(*entity, *head, region, enclosing_head);
 	}
 	// 15.4p1: a constructor and a destructor carry an exception-specification
 	// the same way every other member function does, and it is written on the
@@ -859,6 +866,10 @@ void SemaAnalyzer::special_member_definition(const AstNode& node,
 	// and the class's own members are still behind them.  What such a head may
 	// not stand over is the same question wherever it was written.
 	Scope* const head = ctx.template_head == ctx.scope ? ctx.scope : nullptr;
+	// 14.5.1.3p1: and the head standing outside it, taken before `StandingIn`
+	// below moves the nest into the class - which is where `template<class Tp>
+	// template<class Up> holder<Tp>::holder(Up)` bound `Tp`.
+	Scope* const enclosing_head = enclosing_template_head(head);
 	const AstNode* const written_default = child_of(node, AstKind::Initializer);
 	require_template_special_member(
 		spelled_class, head, destructor,
@@ -992,7 +1003,7 @@ void SemaAnalyzer::special_member_definition(const AstNode& node,
 		// body declared, so what an instantiation reads is *this* syntax and the
 		// places this head wrote - which is what `declare_function` records for
 		// every other member template on the definition that gives it a body.
-		record_function_template(*entity, *head, region);
+		record_function_template(*entity, *head, region, enclosing_head);
 	}
 	open_special_member_body(node, *entity, looked_up, written, parameters, head);
 }

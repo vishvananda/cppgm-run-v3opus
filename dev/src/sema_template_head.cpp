@@ -687,7 +687,19 @@ void TemplateHead::bind_arguments(
 	// 14.5.3p1: a pack takes every argument the places before it did not, so
 	// what bounds the list is the places up to the pack rather than all of them.
 	const std::size_t places = pack_place(info);
-	if (written.size() > places && places == info.parameters.size())
+	// 14.5.3p4: an expansion is not one argument but as many as the run its
+	// packs stand for, which may be none - `A<U, Args...>` written over a place
+	// `Args` bound to a run of none gives one argument and not two.  So the
+	// entries written *without* one are what can be counted before the list is
+	// read, and the count the clause is about is made below once every
+	// expansion has come to what it stands for.
+	std::size_t spelled = 0;
+	for (std::size_t index = 0; index < written.size(); ++index)
+	{
+		std::string pattern;
+		spelled += written_pack_expansion(written[index], pattern) ? 0u : 1u;
+	}
+	if (spelled > places && places == info.parameters.size())
 	{
 		throw std::runtime_error("a template-argument-list gives " +
 		                         primary.name + " more arguments than it has "
@@ -717,6 +729,14 @@ void TemplateHead::bind_arguments(
 				? place_type(info, at, out)
 				: kNoType,
 			out);
+	}
+	if (out.size() > places && places == info.parameters.size())
+	{
+		// 14.5.3p4: what the expansions came to is what the list gives, so this
+		// is the clause the count above could not yet be asked.
+		throw std::runtime_error("a template-argument-list gives " +
+		                         primary.name + " more arguments than it has "
+		                         "parameters");
 	}
 	if (out.size() >= places && places < info.parameters.size())
 	{
@@ -899,6 +919,18 @@ Scope& TemplateHead::open_bindings(const TemplateInfo& info,
 {
 	Scope& bindings = analyzer_.model_.open(ScopeKind::TemplateParameters, *info.region,
 	                              nullptr, info.dump);
+	if (info.reading_region != nullptr)
+	{
+		// 14.5.1.3p1 and 14.1p2: a definition written outside its class spells
+		// the enclosing classes' places with names of its own, which the head
+		// above this one bound - and 14.7.1p1 reads the pattern long after that
+		// reading, in a region only the class encloses.  So those names stand
+		// beside this head's own rather than in a region of their own: one
+		// entry per place the definition wrote, bound to the declaration that
+		// reading already made for it.  The head's own places are bound below
+		// and hide them, which 14.6.1p6 says no definition writes anyway.
+		bindings.names = info.reading_region->names;
+	}
 	for (std::size_t index = 0; index < info.parameters.size(); ++index)
 	{
 		// 14.5.3p1: a pack's name stands for the whole run the list left it,
@@ -986,7 +1018,8 @@ SemaEntity& TemplateHead::bind(Scope& region, const std::string& name,
 // milestone leaves out, and not a definition of a member of this template.
 Scope* TemplateHead::open_member_parameters(
 	Scope& enclosing, const AstNode& clause,
-	const std::vector<TypeId>& arguments, SemaKind kind, DumpScope* dump)
+	const std::vector<TypeId>& arguments, SemaKind kind, DumpScope* dump,
+	Scope* carried)
 {
 	TemplateInfo head;
 	read(clause, head);
@@ -1001,6 +1034,15 @@ Scope* TemplateHead::open_member_parameters(
 	}
 	Scope& region = analyzer_.model_.open(ScopeKind::TemplateParameters, enclosing,
 	                            nullptr, dump);
+	if (carried != nullptr)
+	{
+		// 14.5.1.3p1: the heads standing outside this one are this definition's
+		// too, and the class this region is opened inside binds nothing they
+		// wrote - so their names stand here, one entry per place, bound to the
+		// declarations that reading already made.  This head's own places are
+		// bound below and hide them, which 14.6.1p6 says no definition writes.
+		region.names = carried->names;
+	}
 	for (std::size_t index = 0; index < places; ++index)
 	{
 		if (head.parameters[index].name.empty())

@@ -1,0 +1,65 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $owned : i32
+  slot $held : obj<1x1>
+  slot $same : ptr
+  slot $cond__1 : i32
+
+  block ^entry:
+    store i32 3, $owned
+    %t1 = load i32 $owned
+    %t2 = cmp ne i32 %t1, 3
+    branch %t2, ^if_then_1, ^if_else_2
+
+  block ^if_then_1:
+    return i32 1
+
+  block ^if_else_2:
+    jump ^if_end_3
+
+  block ^if_end_3:
+    %t3 = addr $held
+    %t4 = addr $held
+    %t5 = index i8 [projection=field] %t4, 0
+    store i8 5, %t5
+    %t6 = addr $held
+    %t7 = index i8 [projection=field] %t6, 0
+    %t8 = load i8 %t7
+    %t9 = convert sext i32 i8 %t8
+    %t10 = cmp ne i32 %t9, 5
+    branch %t10, ^if_then_4, ^if_else_5
+
+  block ^if_then_4:
+    return i32 2
+
+  block ^if_else_5:
+    jump ^if_end_6
+
+  block ^if_end_6:
+    store ptr 0, $same
+    %t11 = load ptr $same
+    %t12 = call i32 @sel_int__int___f(%t11)
+    %t13 = cmp eq i32 %t12, 7
+    branch %t13, ^cond_then_7, ^cond_else_8
+
+  block ^cond_then_7:
+    store i32 0, $cond__1
+    jump ^cond_end_9
+
+  block ^cond_else_8:
+    store i32 3, $cond__1
+    jump ^cond_end_9
+
+  block ^cond_end_9:
+    %t14 = load i32 $cond__1
+    return i32 %t14
+}
+function @sel_int__int___f(%this : ptr) -> i32 [binding=weak, object=_ZN3selIiiE1fEv] {
+  slot $this : ptr
+  slot $seven : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 7, $seven
+    %t1 = load i32 $seven
+    return i32 %t1
+}

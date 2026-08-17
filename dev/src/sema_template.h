@@ -63,6 +63,7 @@ struct TemplateInfo
 	TemplateInfo()
 		: pattern(nullptr)
 		, region(nullptr)
+		, reading_region(nullptr)
 		, dump(nullptr)
 		, parameter_region(nullptr)
 		, reading_dump(nullptr)
@@ -72,6 +73,16 @@ struct TemplateInfo
 
 	const AstNode* pattern;
 	Scope* region;
+	// 14.5.1.3p1: where 14.7.1p1 opens its bindings, which parts company with
+	// `region` for a definition written outside its class.  Such a definition
+	// stands under a head per class it is nested in and then its own, and
+	// 14.1p2 lets it spell the enclosing classes' places with names of its own
+	// - names bound in the region that outer head opened and nowhere in the
+	// class the declaration was made in.  So the pattern is read where the nest
+	// stands, while the declaration, its object-file name and the region a use
+	// finds it in stay the class's.  Null for every definition written where
+	// its declaration is made.
+	Scope* reading_region;
 	DumpScope* dump;
 	// 14.6.1p1: the region binding each parameter to a type standing for
 	// itself, and the class the definition read in it makes - the current
@@ -164,13 +175,22 @@ struct TemplateInfo
 	// reading of it opens are spelled by.
 	struct Member
 	{
-		Member(const AstNode* wrote, const AstNode* declares)
+		Member(const AstNode* wrote, const AstNode* declares, Scope* stood)
 			: clause(wrote)
 			, declaration(declares)
+			, carried(stood)
 		{}
 
 		const AstNode* clause;
 		const AstNode* declaration;
+		// 14.5.1.3p1 and 14.1p2: the region the heads standing *outside* this
+		// definition's own bound when it was recorded - which is where the
+		// names it wrote for the enclosing classes' places stand.  A member of
+		// a member template writes one head per class it is nested in, and this
+		// entry is made once per enclosing specialization, so the region is
+		// that specialization's own.  Null for a definition whose one head is
+		// the outermost.
+		Scope* carried;
 	};
 	std::vector<Member> members;
 	// 14.7.1p1: the specializations made so far, which is what a member
