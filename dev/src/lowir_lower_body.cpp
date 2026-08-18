@@ -91,9 +91,11 @@ LowirFunctionLowering::LowirFunctionLowering(LowirUnitLowering& unit,
 	, region_open_(false)
 	, region_pending_(false)
 	, call_since_mark_(false)
+	, throwing_since_mark_(false)
 	, closing_region_(false)
 	, full_expressions_(0)
 	, pending_calls_(0)
+	, pending_throwing_calls_(0)
 	, step_depth_(0)
 {}
 
@@ -171,6 +173,7 @@ void LowirFunctionLowering::open_block(const std::string& label)
 	unwind_mark_.block = current_;
 	unwind_mark_.at = 0;
 	call_since_mark_ = false;
+	throwing_since_mark_ = false;
 	step_depth_ = 0;
 }
 
@@ -269,7 +272,19 @@ std::string LowirFunctionLowering::add_slot(const SemaEntity& entity,
 	std::string name = entity.name;
 	if (name.empty())
 	{
-		name = std::string(unnamed) + decimal(out_.params.size());
+		// 8.3.5p11: a parameter the declaration left unnamed is named after the
+		// place it stands at in the parameter list the declarator wrote, which
+		// 5.2.2p4's implicit object parameter is the first of and 6.6.3p2's
+		// storage for the returned object is no part of - that one is the
+		// caller's object and no parameter of the function at all.
+		std::size_t ordinal = out_.params.size();
+		if (!out_.params.empty() &&
+		    out_.params[0].metadata.passing ==
+			    lowir_model::PPM_INDIRECT_RESULT)
+		{
+			--ordinal;
+		}
+		name = std::string(unnamed) + decimal(ordinal);
 	}
 	// The suffix already given to that identifier is where the next one starts,
 	// so a function that declares one name in n blocks names n slots in n

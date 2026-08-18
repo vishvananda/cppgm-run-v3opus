@@ -45,6 +45,25 @@ Operand named_operand(Operand::Kind kind, const std::string& text)
 // with a bound the source only wrote a number for.
 const unsigned long long kZeroSpanLimit = 64;
 
+// 12.1p5 and 12.8p15: whether this initialization builds its object where it
+// stands out of nothing, which is what a constructor handed no operand but the
+// storage does.  A copy is handed the object it copies from, so it names two
+// places and not one however little 12.8p15 then carries between them.
+bool built_in_place_trivially(const DumpNode& initialization)
+{
+	if (initialization.fact.kind != FactKind::ConstructorAction ||
+	    initialization.children.empty())
+	{
+		return false;
+	}
+	const DumpNode& call = *initialization.children[0];
+	// The call is the callee, the address of the object being built, and one
+	// operand per argument the resolution chose the constructor with.
+	return call.children.size() <= 2 && !call.children.empty() &&
+		call.children[0]->fact.entity != nullptr &&
+		call.children[0]->fact.entity->trivial;
+}
+
 }  // namespace
 
 void LowirFunctionLowering::add_initialization(const Operand& storage,
@@ -1037,9 +1056,12 @@ void LowirFunctionLowering::constructor_call(const Operand& address,
 	{
 		++step_depth_;
 	}
+	// The same call still to be written, counted however 15.4p1 specifies the
+	// constructor: an argument's own temporary stands until this call is made.
+	++pending_calls_;
 	if (!constructor.nonthrowing)
 	{
-		++pending_calls_;
+		++pending_throwing_calls_;
 	}
 	// 12.6.2: whatever else the constructor was chosen with is passed after the
 	// object, in the order the resolved call wrote them.
@@ -1078,9 +1100,10 @@ void LowirFunctionLowering::constructor_call(const Operand& address,
 		out.args.push_back(
 			passed_operand(*call.children[index], argument, parameters, at));
 	}
+	--pending_calls_;
 	if (!constructor.nonthrowing)
 	{
-		--pending_calls_;
+		--pending_throwing_calls_;
 	}
 	if (region.dispatch.empty())
 	{
@@ -2334,9 +2357,7 @@ void LowirFunctionLowering::initialize_subobject(
 	if (node.fact.op == 0 &&
 	    unit_.types().is_empty_class(
 		    unit_.types().strip_cv(node.fact.type)) &&
-	    (node.children.empty() ||
-	     (node.children[0]->fact.kind == FactKind::ConstructorAction &&
-	      node.children[0]->children[0]->children[0]->fact.entity->trivial)))
+	    (node.children.empty() || built_in_place_trivially(*node.children[0])))
 	{
 		// 8.5p7 and 9p6: a subobject of a class that holds nothing, whose
 		// initialization is the zero of storage it has none of and a
@@ -2345,6 +2366,14 @@ void LowirFunctionLowering::initialize_subobject(
 		// write for a member no clause reached and for one whose clause chose
 		// that same trivial constructor, an element of an array of the class
 		// included.
+		//
+		// 8.5.1p2's *copy* is the other side of that line: a clause naming an
+		// object that stands somewhere else reached the subobject, and 12.8p15
+		// then carries no byte because the class holds none - but the subobject
+		// the clause reached is still named, which is what the references
+		// write.  So the two are told apart by what the constructor was given
+		// rather than by what it does: a constructor handed nothing but the
+		// storage it builds in has no other object to name this one against.
 		path.pop_back();
 		return;
 	}

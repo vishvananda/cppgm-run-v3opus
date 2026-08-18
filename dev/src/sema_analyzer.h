@@ -1286,9 +1286,13 @@ private:
 	// resolved from `ctx`.  Null when nothing of the kind is declared.  `found`,
 	// when given, takes the declarations the lookup associated with the name,
 	// which 3.4p2 lets be more than one where they are all functions.
+	// 11.2p5: `naming_region`, when given, takes the region the
+	// nested-name-specifier reached, which is the naming class of what was
+	// found there.
 	SemaEntity* resolve(const std::string& name, const Context& ctx,
 	                    LookupKind filter,
-	                    std::vector<SemaEntity*>* found = nullptr);
+	                    std::vector<SemaEntity*>* found = nullptr,
+	                    Scope** naming_region = nullptr);
 	// The region the nested-name-specifier of `name` reaches, for a declaration
 	// that names an entity of another region.  14.6.2p1: `dependent`, when
 	// given, takes the type of the component that names a region only an
@@ -1487,7 +1491,8 @@ private:
 	// outside a member function, where 13.3.1p4 leaves a non-static member no
 	// candidate at all.
 	void implicit_object_argument(const std::vector<SemaEntity*>& candidates,
-	                              DumpNode& line, Value& object);
+	                              DumpNode& line, Value& object,
+	                              const Scope* naming_region = nullptr);
 	// 5.3.1p3: the address of the object a member call is made on, written into
 	// `node` in place of the object expression already under it.
 	void address_of_object(Value& object, DumpNode& node, bool through_pointer);

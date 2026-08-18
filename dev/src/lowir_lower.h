@@ -1923,9 +1923,14 @@ private:
 	UnwindRegion region_;
 	bool region_open_;
 	bool region_pending_;
-	// Whether a call that may throw has been written since the mark, which is
-	// what says the step 15.2p2's handler would cover holds anything.
+	// Whether a call has been written since the mark, which is what says the
+	// step 15.2p2's handler would cover holds anything.  The second is the same
+	// question asked of 15.4p1's calls alone: where no object stands yet, the
+	// handler would end no lifetime at all, so it is written only where an
+	// exception could reach it - and where one does stand, the step is covered
+	// however its calls are specified.
 	bool call_since_mark_;
+	bool throwing_since_mark_;
 	// Whether the region machinery is writing its own instructions, so that the
 	// jump and the handler-stack instructions a close writes do not re-enter it.
 	bool closing_region_;
@@ -1942,6 +1947,7 @@ private:
 	// made and an array prvalue has none, so this is where it stands.
 	std::vector<const DumpNode*> discarded_arrays_;
 	unsigned pending_calls_;
+	unsigned pending_throwing_calls_;
 	// How deep the lowering stands inside the call that opened the current
 	// step.  A call written as an operand of another belongs to the step that
 	// one opened, so only the outermost of them marks where the step began.

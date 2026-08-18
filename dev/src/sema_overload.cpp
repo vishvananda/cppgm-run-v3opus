@@ -2459,6 +2459,9 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
 	const AstNode& callee = written_callee(*node.children[0], parenthesized);
 	SemaEntity* named = nullptr;
 	std::vector<SemaEntity*>* found = nullptr;
+	// 11.2p5: the class the callee's nested-name-specifier named, which 9.3.1p3
+	// reaches the object through where the call wrote no object expression.
+	Scope* naming_region = nullptr;
 	if (callee.kind == AstKind::DecltypeSpecifier)
 	{
 		// 5.2.3 and 7.1.6.2p4: a call written on a decltype-specifier is an
@@ -2492,7 +2495,8 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
 		}
 		if (named == nullptr)
 		{
-			named = resolve(callee.text, ctx, LookupKind::Any, found);
+			named = resolve(callee.text, ctx, LookupKind::Any, found,
+			                &naming_region);
 			if (named != nullptr && names_a_type(*named))
 			{
 				return functional_cast(node, ctx, parent, named->type);
@@ -2585,7 +2589,8 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
 		}
 		if (target.functions != nullptr && target.addressed == nullptr)
 		{
-			implicit_object_argument(*target.functions, line, object);
+			implicit_object_argument(*target.functions, line, object,
+			                         naming_region);
 		}
 	}
 

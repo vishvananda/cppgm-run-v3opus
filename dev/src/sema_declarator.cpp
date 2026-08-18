@@ -982,7 +982,8 @@ SemaEntity& SemaAnalyzer::require(SemaEntity* entity, const std::string& name)
 
 SemaEntity* SemaAnalyzer::resolve(const std::string& spelling, const Context& ctx,
                                   LookupKind filter,
-                                  std::vector<SemaEntity*>* found)
+                                  std::vector<SemaEntity*>* found,
+                                  Scope** naming_region)
 {
 	if (spelling.empty())
 	{
@@ -1029,6 +1030,14 @@ SemaEntity* SemaAnalyzer::resolve(const std::string& spelling, const Context& ct
 			dependent = member->type;
 		}
 		return member;
+	}
+	if (naming_region != nullptr)
+	{
+		// 11.2p5: the region the prefix reached is the naming class of whatever
+		// the lookup below finds in it, which is a fact about the *name* and
+		// not about the declaration it reaches - a member declared in a base
+		// is named through this class however far up it was declared.
+		*naming_region = region;
 	}
 	SemaEntity* named =
 		model_.lookup_in(*region, written.last(), filter, found);

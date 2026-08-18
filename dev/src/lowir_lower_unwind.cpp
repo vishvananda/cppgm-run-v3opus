@@ -58,6 +58,7 @@ void LowirFunctionLowering::mark_unwind_step(bool at_call)
 	unwind_mark_.block = current_;
 	unwind_mark_.at = out_.blocks[current_].instructions.size();
 	call_since_mark_ = false;
+	throwing_since_mark_ = false;
 }
 
 // 15.2p2: the step one call belongs to.  A call written as the operand of
@@ -78,6 +79,7 @@ bool LowirFunctionLowering::mark_call_step()
 	unwind_mark_.block = current_;
 	unwind_mark_.at = out_.blocks[current_].instructions.size();
 	call_since_mark_ = false;
+	throwing_since_mark_ = false;
 	return true;
 }
 
@@ -92,14 +94,25 @@ void LowirFunctionLowering::release_call_step(bool)
 // 15.2p2 and 15.4p1: a call about to be written.  Where objects stand whose
 // lifetimes an exception out of it would have to end, the handler that ends
 // them is opened where this step began.
+//
+// 15.4p1 is written about *this* call and about nothing else: a function whose
+// exception-specification says it throws nothing is no place an exception
+// leaves this step by, so the step before it needs no handler of its own around
+// it.  What it does not say is that the call was not made - so a step that has
+// made one has made one however the callee is specified, and a region 12.2p3's
+// temporary already asked for still covers whatever the step writes next.  That
+// is what the references write: `g();` beside a standing object opens no
+// handler, and the same `g()` written where a temporary of the same
+// full-expression stands opens one.
 void LowirFunctionLowering::note_call(bool throwing, bool returned_object)
 {
+	call_since_mark_ = true;
+	settle_pending_region();
 	if (!throwing)
 	{
 		return;
 	}
-	call_since_mark_ = true;
-	settle_pending_region();
+	throwing_since_mark_ = true;
 	if (region_open_ || unwind_live_.empty() || !unwind_mark_.active ||
 	    unwind_mark_.block != current_ || returned_object)
 	{
@@ -177,8 +190,14 @@ void LowirFunctionLowering::begin_object_lifetime(
 	{
 		return;
 	}
-	if (!region_open_ && call_since_mark_ && pending_calls_ != 0 &&
-	    mark.active && mark.block == current_)
+	// Where objects already stand, the step is covered however 15.4p1 specifies
+	// the calls it makes; where none do, the handler would end no lifetime at
+	// all, so it is written only where an exception could reach it.
+	const bool standing = !unwind_live_.empty();
+	const bool made = standing ? call_since_mark_ : throwing_since_mark_;
+	const bool ahead =
+		standing ? pending_calls_ != 0 : pending_throwing_calls_ != 0;
+	if (!region_open_ && made && ahead && mark.active && mark.block == current_)
 	{
 		// A call still to be written in this full-expression is a place the
 		// object could be left standing by, and the step that built it is what
@@ -212,6 +231,7 @@ void LowirFunctionLowering::begin_object_lifetime(
 	unwind_mark_.block = current_;
 	unwind_mark_.at = out_.blocks[current_].instructions.size();
 	call_since_mark_ = false;
+	throwing_since_mark_ = false;
 }
 
 // 3.8p1: the program wrote the end of this object's lifetime, so an exception

@@ -1077,7 +1077,8 @@ void SemaAnalyzer::member_callee(const AstNode& callee, const Context& ctx,
 // called on the object `this` points to, and the call passes it as its first
 // argument like any other.
 void SemaAnalyzer::implicit_object_argument(
-	const std::vector<SemaEntity*>& candidates, DumpNode& line, Value& object)
+	const std::vector<SemaEntity*>& candidates, DumpNode& line, Value& object,
+	const Scope* naming_region)
 {
 	if (self_ == nullptr)
 	{
@@ -1091,6 +1092,26 @@ void SemaAnalyzer::implicit_object_argument(
 			if (at->object_member)
 			{
 				object = this_value(line);
+				// 9.3.1p3 and 11.2p5: the callee named the member through a
+				// class of its own, and the object the call is made on is
+				// reached through that class - so `B::f()` written in a class
+				// derived from `B` names the `B` subobject of `*this` and the
+				// member is then reached from *there*, which is one step per
+				// class named and not one step to the class that declared the
+				// member.  A naming class that is the enclosing class itself,
+				// or one no subobject of it stands in, is no step at all.
+				SemaEntity* const through =
+					naming_region != nullptr &&
+						naming_region->kind == ScopeKind::Class &&
+						naming_region->owner != nullptr
+					? Derivation(*this).base_in(
+						  types_.strip_cv(types_.target(self_->type)),
+						  naming_region->owner->type)
+					: nullptr;
+				if (through != nullptr)
+				{
+					object = base_value(object, *through, false);
+				}
 				// 9.3.2p1 and 13.3.1p4: the object argument is `(*this)`, which
 				// 5.3.1p1 makes an lvalue - so a call written with no object
 				// expression reaches an `&`-qualified member and not an

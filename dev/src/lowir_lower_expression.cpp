@@ -676,9 +676,15 @@ LowValue LowirFunctionLowering::call_expression(const DumpNode& node,
 	// 15.2p2: the step this call belongs to, which a call written as one of its
 	// operands stands inside rather than opening one of its own.
 	const bool step = mark_call_step();
+	// A call this expression has still to write, which is what says a temporary
+	// one of its operands creates is one the step could leave standing.  That
+	// is a fact of the step and not of the callee: 15.4p1 answers whether an
+	// exception leaves *this* call and says nothing about where the object an
+	// operand of it built has to be destroyed from.
+	++pending_calls_;
 	if (throwing)
 	{
-		++pending_calls_;
+		++pending_throwing_calls_;
 	}
 
 	// What the call boundary is, is known from the callee's resolved type
@@ -808,9 +814,10 @@ LowValue LowirFunctionLowering::call_expression(const DumpNode& node,
 	LowValue value;
 	value.type = types.is_reference(result) ? types.target(result) : result;
 	note_call(throwing);
+	--pending_calls_;
 	if (throwing)
 	{
-		--pending_calls_;
+		--pending_throwing_calls_;
 	}
 	if (indirect)
 	{
