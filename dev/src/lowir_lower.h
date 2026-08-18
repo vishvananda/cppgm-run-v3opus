@@ -1207,6 +1207,10 @@ private:
 	// asked for it and named before the initializer that fills it runs.
 	LowValue class_object_slot(const DumpNode& node, TypeId type,
 	                           const char* prefix);
+	// 5.2.3p3 and 12.2p1: the same for an *array* prvalue, whose elements the
+	// clauses standing under it initialize where they stand.
+	LowValue array_object_slot(const DumpNode& node, TypeId type,
+	                           const char* prefix);
 	// 5.2.2p4: one argument of a call standing where a parameter of class type
 	// is, which is the storage that parameter object occupies.
 	lowir_model::Operand class_argument(const DumpNode& node, TypeId type);

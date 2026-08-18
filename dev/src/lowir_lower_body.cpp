@@ -1885,11 +1885,22 @@ void LowirFunctionLowering::expression_statement(const DumpNode& node)
 // storage; a call handing one back has none until the statement gives it some.
 bool LowirFunctionLowering::discarded_class_object(const DumpNode& node)
 {
+	TypeTable& types = unit_.types();
+	if (node.fact.kind == FactKind::BracedInitList &&
+	    types.kind(types.strip_cv(node.fact.type)) == TypeKind::Array)
+	{
+		// 5.2.3p3 over an array: the prvalue is an object of the function's
+		// however little of it anything reads, because 12.2p1 makes it one and
+		// the clauses under it run - so the discarding is what its storage is
+		// named after, exactly as a prvalue of class type's is.
+		array_object_slot(node, types.strip_cv(node.fact.type), "discardarr");
+		return true;
+	}
 	if (!stands_in_no_storage(node))
 	{
 		return false;
 	}
-	class_object_slot(node, unit_.types().strip_cv(node.fact.type), "discard");
+	class_object_slot(node, types.strip_cv(node.fact.type), "discard");
 	return true;
 }
 

@@ -1588,6 +1588,31 @@ LowValue LowirFunctionLowering::class_object_slot(const DumpNode& node,
 	return standing;
 }
 
+// 5.2.3p3 and 12.2p1: an array prvalue - which `T{...}` over an array type is
+// the one spelling that writes - is an object of the function's, so the function
+// gives it storage and the clauses initialize its elements there.  That is the
+// same walk a declaration of an array already gets, over storage no declaration
+// named; 8.5.3p5 names it after whatever asked, which is a discarding at one
+// door and the expression itself at the rest.
+LowValue LowirFunctionLowering::array_object_slot(const DumpNode& node,
+                                                   TypeId type,
+                                                   const char* prefix)
+{
+	const Operand into = open_object_slot(
+		type, node.fact.spelling.empty() ? prefix : node.fact.spelling.c_str());
+	initialize(into, type, node);
+	LowValue value;
+	value.type = node.fact.type;
+	value.lvalue = true;
+	// 4.2: the function gave this array storage of its own and a name for it,
+	// so a use that reads it as a pointer is a point where a name of the array
+	// became a pointer view of it - which is what `unary decay` marks, and what
+	// storage nothing named leaves unmarked.
+	value.named = true;
+	value.operand = into;
+	return value;
+}
+
 // 5.2.2p4: the storage the parameter of class type stands in belongs to the
 // caller, so the call names it here and the argument creates its object in it.
 // What crosses the boundary is that storage as the ABI carries it: the address

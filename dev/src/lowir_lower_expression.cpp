@@ -118,6 +118,14 @@ LowValue LowirFunctionLowering::expression(const DumpNode& node,
 
 	case FactKind::BracedInitList:
 	{
+		if (types.kind(types.strip_cv(node.fact.type)) == TypeKind::Array)
+		{
+			// 8.5.1p2 with 12.2p1: the list initializes the elements of an
+			// object of array type, and standing where an expression does it
+			// names no destination - so the object is the function's own.
+			return array_object_slot(node, types.strip_cv(node.fact.type),
+			                         "arraytmp");
+		}
 		// 8.5.4 over a scalar: the value is what its one clause says, and an
 		// empty list is the zero of the type it initializes.
 		if (!node.children.empty())

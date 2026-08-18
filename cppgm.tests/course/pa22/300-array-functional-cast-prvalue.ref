@@ -1,0 +1,151 @@
+global @sink : i32 [binding=strong, object=_Z4sink] = 0
+
+function @bump(%n : i32) -> i32 [binding=strong, object=_Z4bumpi] {
+  slot $n : i32
+
+  block ^entry:
+    store i32 %n, $n
+    %t1 = load i32 @sink
+    %t2 = load i32 $n
+    %t3 = binary add i32 %t1, %t2
+    store i32 %t3, @sink
+    %t4 = load i32 $n
+    return i32 %t4
+}
+function @use(%p : ptr) -> i32 [binding=strong, object=_Z3usePKi] {
+  slot $p : ptr
+
+  block ^entry:
+    store ptr %p, $p
+    %t1 = load ptr $p
+    %t2 = index i32 [projection=array_element] %t1, 0
+    %t3 = load i32 %t2
+    %t4 = load ptr $p
+    %t5 = index i32 [projection=array_element] %t4, 2
+    %t6 = load i32 %t5
+    %t7 = binary add i32 %t3, %t6
+    return i32 %t7
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $discardarr__1 : obj<12x4>
+  slot $discardarr__2 : obj<12x4>
+  slot $discardarr__3 : obj<24x4>
+  slot $discardarr__4 : obj<8x4>
+  slot $width : i32
+  slot $read : i32
+  slot $arraytmp__5 : obj<12x4>
+  slot $arraytmp__6 : obj<12x4>
+  slot $expanded : i32
+
+  block ^entry:
+    %t1 = addr $discardarr__1
+    store i32 0, %t1
+    %t2 = index i8 %t1, 4
+    store i32 0, %t2
+    %t3 = index i8 %t1, 8
+    store i32 0, %t3
+    %t4 = addr $discardarr__2
+    %t5 = call i32 @bump(1)
+    store i32 %t5, %t4
+    %t6 = index i8 %t4, 4
+    store i32 0, %t6
+    %t7 = index i8 %t4, 8
+    store i32 0, %t7
+    %t8 = addr $discardarr__3
+    %t9 = call i32 @bump(2)
+    store i32 %t9, %t8
+    %t10 = index i8 %t8, 4
+    %t11 = call i32 @bump(4)
+    store i32 %t11, %t10
+    %t12 = index i8 %t8, 8
+    %t13 = call i32 @bump(8)
+    store i32 %t13, %t12
+    %t14 = index i8 %t8, 12
+    %t15 = call i32 @bump(16)
+    store i32 %t15, %t14
+    %t16 = index i8 %t14, 4
+    %t17 = call i32 @bump(32)
+    store i32 %t17, %t16
+    %t18 = index i8 %t14, 8
+    %t19 = call i32 @bump(64)
+    store i32 %t19, %t18
+    %t20 = addr $discardarr__4
+    %t21 = call i32 @bump(128)
+    call void @C__C__ov4(%t20, %t21)
+    %t22 = index i8 %t20, 4
+    %t23 = call i32 @bump(256)
+    call void @C__C__ov4(%t22, %t23)
+    %t24 = const i64 12
+    %t25 = convert trunc i32 i64 %t24
+    store i32 %t25, $width
+    %t26 = addr $arraytmp__5
+    store i32 1, %t26
+    %t27 = index i8 %t26, 4
+    store i32 0, %t27
+    %t28 = index i8 %t26, 8
+    store i32 2, %t28
+    %t29 = unary decay ptr %t26
+    %t30 = call i32 @use(%t29)
+    %t31 = addr $arraytmp__6
+    store i32 4, %t31
+    %t32 = index i8 %t31, 4
+    store i32 8, %t32
+    %t33 = index i8 %t31, 8
+    store i32 16, %t33
+    %t34 = unary decay ptr %t31
+    %t35 = index i32 [projection=array_element] %t34, 1
+    %t36 = load i32 %t35
+    %t37 = binary add i32 %t30, %t36
+    store i32 %t37, $read
+    %t38 = call i32 @spread()
+    store i32 %t38, $expanded
+    %t39 = load i32 $expanded
+    %t40 = load i32 $width
+    %t41 = cmp ne i32 %t40, 12
+    %t42 = convert zext i32 u8 %t41
+    %t43 = binary add i32 %t39, %t42
+    %t44 = load i32 $read
+    %t45 = cmp ne i32 %t44, 11
+    %t46 = convert zext i32 u8 %t45
+    %t47 = binary add i32 %t43, %t46
+    %t48 = load i32 @sink
+    %t49 = cmp ne i32 %t48, 518
+    %t50 = convert zext i32 u8 %t49
+    %t51 = binary add i32 %t47, %t50
+    return i32 %t51
+}
+function @spread() -> i32 [binding=weak, object=_Z6spreadIJcsiEEiv] {
+  slot $discardarr__1 : obj<12x4>
+
+  block ^entry:
+    %t1 = addr $discardarr__1
+    %t2 = const i64 1
+    %t3 = convert trunc i32 i64 %t2
+    %t4 = call i32 @bump(%t3)
+    store i32 0, %t1
+    %t5 = index i8 %t1, 4
+    %t6 = const i64 2
+    %t7 = convert trunc i32 i64 %t6
+    %t8 = call i32 @bump(%t7)
+    store i32 0, %t5
+    %t9 = index i8 %t1, 8
+    %t10 = const i64 4
+    %t11 = convert trunc i32 i64 %t10
+    %t12 = call i32 @bump(%t11)
+    store i32 0, %t9
+    return i32 0
+}
+function @C__C__ov4(%this : ptr, %a : i32) -> void [unwind=no, binding=weak, object=_ZN1CC1Ei] {
+  slot $this : ptr
+  slot $a : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %a, $a
+    %t1 = load i32 $a
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 %t1, %t3
+    return void
+}
+alias object _ZN1CC2Ei = @C__C__ov4
