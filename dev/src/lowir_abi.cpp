@@ -102,6 +102,11 @@ public:
 	// has settled is written as the expression it is - the parameter, or
 	// 14.5.3p4's expansion of one - and not as the type standing for it.
 	const std::string& expression_of(TypeId type);
+	// 14.3.2p1 and `<expr-primary>`'s `L <mangled-name> E`: the identifier the
+	// encoder reads back the *declaration* an address argument designates.  It
+	// is a name of its own with its own substitution table, which is why the
+	// encoder is handed the declaration rather than a spelling of it.
+	const std::string& entity_of(const SemaEntity& object);
 
 	const abi_mangle::AbiDefinitionMap& definitions() const { return map_; }
 
@@ -112,6 +117,7 @@ private:
 	// and a reference already handed out has to survive that.
 	std::deque<abi_mangle::AbiDefinitionRecord> records_;
 	std::map<const SemaEntity*, std::string> ids_;
+	std::map<const SemaEntity*, std::string> entities_;
 	std::map<TypeId, std::string> arguments_;
 	std::map<TypeId, std::string> expressions_;
 	abi_mangle::AbiDefinitionMap map_;
@@ -951,6 +957,27 @@ const std::string& LocalContexts::argument_of(TypeId type)
 	map_[id] = &record;
 	if (types_.is_value(type))
 	{
+		const SemaEntity* const designated =
+			types_.address_object(types_.value_bits(type));
+		if (designated != nullptr)
+		{
+			// 14.3.2p1 and the ABI's `<expr-primary>`: an argument at one of
+			// 14.1p4's address places is *which object* it designates, so the
+			// name writes that declaration's own encoding - `&left` at a
+			// pointer place and the bare name at a reference place, which is
+			// the difference between `X ad L_Z4left E E` and `L_Z4left E`.
+			//
+			// The value beside it is this unit's entry number for the address
+			// and says nothing a second unit would agree with: two units that
+			// each name `at<&left>` write one weak definition under two names
+			// unless the declaration is what is encoded.
+			record.template_argument.kind =
+				abi_mangle::ABI_TEMPLATE_ARGUMENT_ENTITY;
+			record.template_argument.address_of =
+				!types_.is_reference(types_.target(type));
+			record.template_argument.entity_ref = entity_of(*designated);
+			return placed->second;
+		}
 		// 14.3.2p1 and the ABI's `<expr-primary>`: an argument at a non-type
 		// place is written as the value and the type it was converted to, which
 		// is what makes `f<3>` and `f<'\3'>` one name in the object file.
@@ -999,6 +1026,44 @@ const std::string& LocalContexts::argument_of(TypeId type)
 	}
 	record.template_argument.kind = abi_mangle::ABI_TEMPLATE_ARGUMENT_TYPE;
 	record.template_argument.type = abi_type(types_, type, *this);
+	return placed->second;
+}
+
+const std::string& LocalContexts::entity_of(const SemaEntity& object)
+{
+	const std::map<const SemaEntity*, std::string>::iterator held =
+		entities_.find(&object);
+	if (held != entities_.end())
+	{
+		return held->second;
+	}
+	const std::string id = "entity" + decimal(entities_.size());
+	const std::map<const SemaEntity*, std::string>::iterator placed =
+		entities_.insert(std::make_pair(&object, id)).first;
+	records_.push_back(abi_mangle::AbiDefinitionRecord());
+	abi_mangle::AbiDefinitionRecord& record = records_.back();
+	record.kind = abi_mangle::ABI_DEFINITION_ENTITY;
+	record.id = id;
+	map_[id] = &record;
+	// `<expr-primary> ::= L <mangled-name> E`, and the mangled name of the
+	// declaration is the one this unit already names its definition by - which
+	// is the whole signature for a function 13.4p1 chose, and the template and
+	// its arguments for a static data member of a specialization, neither of
+	// which any spelling of the name can be split back into.
+	const std::string symbol = abi_symbol_of(object, types_);
+	if (symbol.compare(0, 2, "_Z") == 0)
+	{
+		record.entity.kind = abi_mangle::ABI_ENTITY_FACT_SYMBOL;
+		record.entity.qualified_name = symbol;
+		return placed->second;
+	}
+	// 3.5p9 leaves a variable at namespace scope named by its own identifier in
+	// the object file, and `<mangled-name>` writes the encoding of that name
+	// rather than the symbol - so `left` stands here as `_Z4left`, with 3.5p3's
+	// internal linkage written on the last component as `_ZL6hidden`.
+	record.entity.kind = abi_mangle::ABI_ENTITY_FACT_VARIABLE;
+	record.entity.qualified_name = abi_qualified_name(object);
+	record.entity.internal_linkage = object.internal_linkage;
 	return placed->second;
 }
 

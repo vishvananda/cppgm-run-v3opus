@@ -386,6 +386,7 @@ public:
 		, at_(0)
 		, dependent_(false)
 		, designating_(false)
+		, targeting_(kNoType)
 	{}
 
 	SemaConstant read(const std::vector<std::string>& words)
@@ -397,6 +398,12 @@ public:
 	// reference binds to and no value of it, so the first name is read as
 	// storage exactly as the operand of `&` is.
 	void designate() { designating_ = true; }
+
+	// 13.4p1 at 14.1p4's function place: the place's own type is one of the
+	// targets that chooses one declaration of an overloaded name, so the first
+	// name read is asked of it - `H<f>` and `H<&f>` beside two declarations of
+	// `f` each name the one whose type the place wrote.
+	void target(TypeId place) { targeting_ = place; }
 
 	// True where the words the spelling split into are all read, which is what
 	// says the spelling was one constant expression and not a prefix of one.
@@ -489,6 +496,11 @@ private:
 	// the first name that answers it and no other, so `&items[n]` designates
 	// `items` and reads `n`.
 	bool designating_;
+	// 13.4p1's target type, where the place is a pointer or a reference to a
+	// function.  It is taken by the first name read exactly as `designating_`
+	// is: the name of an overload set is the whole of what a target chooses
+	// between, and nothing written under one is such a name.
+	TypeId targeting_;
 };
 
 // 5.19 read from the words of one spelling.
@@ -1294,11 +1306,29 @@ TypeId TemplateArgumentReader::probe_type_id(const std::string& spelling)
 SemaConstant TemplateArgumentReader::name(const std::string& spelling,
                                           bool live)
 {
-	SemaEntity* const named = analyzer_.folded_name(spelling, ctx_);
+	SemaEntity* named = analyzer_.folded_name(spelling, ctx_);
 	if (named == nullptr)
 	{
 		throw NotConstant(spelling + " is written as a template argument and "
 		                  "names no constant");
+	}
+	const TypeId wanted = targeting_;
+	targeting_ = kNoType;
+	if (wanted != kNoType &&
+	    (named->kind == SemaKind::Function || named->template_parameters != nullptr))
+	{
+		// 13.4p1: a template-parameter of pointer or reference to function is
+		// one of the targets that chooses one declaration of an overloaded
+		// name, and 14.8.2.2p1's deduction from that target is how a function
+		// template in the set is one of them.  It is the same door
+		// `int (*p)() = f;` goes through, asked with the place's own type -
+		// `resolve_target` reads the whole chain the lookup reached and leaves
+		// the name as it stands where the target names nothing in it.
+		const std::vector<SemaEntity*> set(1, named);
+		SemaAnalyzer::Value carrying;
+		carrying.functions = &set;
+		SemaEntity* const chosen = analyzer_.resolve_target(carrying, wanted);
+		named = chosen == nullptr ? named : chosen;
 	}
 	const bool designating = designating_;
 	designating_ = false;
@@ -1561,6 +1591,14 @@ TypeId SemaAnalyzer::template_argument_value(const std::string& spelling,
 		// place reads what it holds.
 		reader.designate();
 	}
+	if (place != kNoType && TemplateHead(*this).function_place(place))
+	{
+		// 13.4p1: the place's own type is one of the targets that chooses one
+		// declaration of an overloaded name, and the reading below is where
+		// that name is looked up - so it is handed the target rather than the
+		// set travelling up out of it as it does over a tree.
+		reader.target(place);
+	}
 	Constant value;
 	try
 	{
@@ -1635,8 +1673,28 @@ TypeId SemaAnalyzer::template_argument_value(const std::string& spelling,
 	const TypeId type = place == kNoType ? given.type : place;
 	if (integral_type(type) == kNoType)
 	{
-		throw NotConstant("a template argument is bound to a place whose type "
-		                  "is outside the PA20 subset");
+		const TypeId bare = types_.strip_cv(type);
+		if (types_.kind(bare) != TypeKind::Fundamental ||
+		    types_.fundamental_type(bare) != FT_NULLPTR_T)
+		{
+			throw NotConstant("a template argument is bound to a place whose "
+			                  "type is outside the PA20 subset");
+		}
+		// 14.3.2p1's last bullet: an address constant expression of type
+		// `std::nullptr_t`, which is 14.1p4's fifth place and the one that
+		// takes no address at all - there being one value of that type.  The
+		// line it draws is the same one the note beside 14.3.2p5 draws at a
+		// pointer place: `nullptr` is such an expression and a zero-valued
+		// integral constant expression is not.
+		const TypeId written = types_.strip_cv(given.type);
+		if (types_.kind(written) != TypeKind::Fundamental ||
+		    types_.fundamental_type(written) != FT_NULLPTR_T)
+		{
+			throw NotConstant("a template argument at a place of "
+			                  "std::nullptr_t is written as an expression of " +
+			                  types_.description(given.type));
+		}
+		return types_.value_type(type, 0);
 	}
 	return types_.value_type(type, convert(given, type).bits);
 }

@@ -1029,8 +1029,13 @@ void Encoder::emit_argument_fact(const AbiTemplateArgument & argument)
     put("E");
     return;
   case ABI_TEMPLATE_ARGUMENT_ENTITY:
+    // `<template-arg> ::= <expr-primary>` where the argument is the entity
+    // itself, and `X <expression> E` where an operator stands over it: a
+    // reference argument names the object and writes `L _Z... E` alone, while a
+    // pointer one is the address of it and writes `X ad L _Z... E E`.
+    if(!argument.address_of) { emit_entity_symbol(argument.entity_ref); return; }
     put("X");
-    if(argument.address_of) { put("ad"); }
+    put("ad");
     emit_entity_symbol(argument.entity_ref);
     put("E");
     return;

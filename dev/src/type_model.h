@@ -427,6 +427,19 @@ public:
 		return user_at(type).declaration;
 	}
 
+	// 14.3.2p1: the object or function a value at one of 14.1p4's address
+	// places designates, asked by the entry number that value holds.
+	//
+	// Those bits are an entry of the constant-address table, which is this
+	// translation unit's own numbering in the order the unit reached each
+	// address - so an object-file name built from a *use* of the type would
+	// name one entity differently in every unit that wrote it.  What the name
+	// has to write is the declaration, and the type is the whole of what such a
+	// use holds, so the table carries the answer beside it.  Null for the null
+	// pointer value and for every entry no argument named.
+	void set_address_object(unsigned long long bits, const SemaEntity* object);
+	const SemaEntity* address_object(unsigned long long bits) const;
+
 	// 9.8p1: the function whose body declared this class or enumeration, and
 	// its place among the types of that name the function declares.  Settled
 	// where the declaration is read, because the region it was written in is
@@ -884,6 +897,9 @@ private:
 	std::unordered_map<std::uint64_t, TypeId> user_ids_;
 	std::unordered_map<std::vector<TypeId>, std::uint32_t, ListHash> parameter_ids_;
 	std::vector<const std::vector<TypeId>*> parameter_lists_;
+	// 14.3.2p1: which declaration each entry of the constant-address table
+	// stands for, for the one reader that has a value and needs a name.
+	std::unordered_map<unsigned long long, const SemaEntity*> address_objects_;
 	// 14.6.2p1's answer for each type it has been asked of.  A specialization's
 	// arguments are a graph, so the walk below reaches one type by as many
 	// paths as the nest above it has; the answer is a fact of the type, so it

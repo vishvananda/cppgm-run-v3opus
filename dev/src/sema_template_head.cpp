@@ -677,6 +677,17 @@ bool TemplateHead::address_place(TypeId place) const
 		types.kind(reached) != TypeKind::RValueReference;
 }
 
+// 13.4p1 asked of one of those places: whether what it takes is the address of
+// a *function*, which is the one form of argument whose name may still stand
+// for a set of declarations when the reading reaches it.
+bool TemplateHead::function_place(TypeId place) const
+{
+	TypeTable& types = analyzer_.types_;
+	const TypeId bare = types.strip_cv(place);
+	return address_place(bare) &&
+		types.kind(types.strip_cv(types.target(bare))) == TypeKind::Function;
+}
+
 // The source spelling of a type, which is what a specialization is named by.
 // 14.7.1p1 makes one declaration of every naming of one argument list, so two
 // spellings of one type - a typedef-name and what it names - have to reach the
@@ -1203,13 +1214,64 @@ SemaEntity& TemplateHead::bind(Scope& region, const std::string& name,
 	return bound;
 }
 
+// 14.3.2p5's own list of conversions at an address place, which is not 8.5's.
+//
+// The clause names three at a place of pointer type - 4.4's qualification
+// conversion, 4.2p1's array-to-pointer, and 4.10p1's null pointer conversion
+// *from an argument of type `std::nullptr_t`* - and the note beside it says
+// which two an initialization of an object of that type would also take and
+// this does not: neither the null pointer conversion of a zero-valued integral
+// constant expression nor 4.10p3's derived-to-base.  A place of reference type
+// takes none at all: 8.3.2p1 binds the reference to the object the argument
+// designates, whose type may be less cv-qualified than the referred-to type and
+// is otherwise identical to it.
+//
+// `at_pointer_place` and `at_reference_place` below are 8.5's readings and take
+// every one of those, so the list is asked here before either of them runs.
+// The derived-to-base one is not merely accepted: a `B2 *` place handed `&d`
+// over a `struct D : B1, B2` keeps the address of the whole object and reads
+// the wrong storage through it.
+bool TemplateHead::reaches_place(const SemaConstant& given, TypeId place) const
+{
+	TypeTable& types = analyzer_.types_;
+	const TypeId written = types.strip_cv(given.type);
+	const bool wrote_nullptr = types.kind(written) == TypeKind::Fundamental &&
+		types.fundamental_type(written) == FT_NULLPTR_T;
+	if (types.is_reference(place))
+	{
+		// 14.3.2p4: a temporary and an unnamed lvalue are in none of p1's
+		// categories, which is what an argument designating no object is.
+		return given.object != 0 && !wrote_nullptr &&
+			types.strip_cv(types.target(place)) == written &&
+			(types.cv(given.type) & ~types.cv(types.target(place))) == 0;
+	}
+	if (wrote_nullptr)
+	{
+		return true;
+	}
+	// 4.2p1 and 4.3p1: the one decay a pointer place takes, over an argument
+	// that designates an object of array type or a function.
+	TypeId from = given.type;
+	if (given.object != 0 && types.kind(written) == TypeKind::Array)
+	{
+		from = types.pointer_to(types.target(written));
+	}
+	else if (given.object != 0 && types.kind(written) == TypeKind::Function)
+	{
+		from = types.pointer_to(written);
+	}
+	return types.kind(types.strip_cv(from)) == TypeKind::Pointer &&
+		analyzer_.qualification_convertible(types.strip_cv(from), place);
+}
+
 // 14.3.2p5 where the place is one of 14.1p4's address places.
 //
 // The argument is a converted constant expression of the place's own type, and
 // the conversions that reach one are 4.2p1's decay, 4.3p1's function-to-pointer
-// and 4.10p1's null pointer constant - which is exactly what an initialization
-// of an object of that type reads, so the one reading answers both.  8.3.2p1's
-// reference binds to the object the operand designates and copies nothing.
+// and 4.10p1's null pointer constant - which `reaches_place` above is the list
+// of, because 8.5's reading of the same three below takes three more the clause
+// leaves out.  8.3.2p1's reference binds to the object the operand designates
+// and copies nothing.
 //
 // 14.3.2p1 asks for an object or function with static storage duration: one
 // this evaluation itself gave storage to is gone by the time any use of the
@@ -1218,6 +1280,14 @@ TypeId TemplateHead::address_argument(const SemaConstant& given, TypeId place)
 {
 	ConstexprReading reading(analyzer_);
 	const TypeId bare = analyzer_.types_.strip_cv(place);
+	if (!reaches_place(given, bare))
+	{
+		throw NotConstant("a template argument of " +
+		                  analyzer_.types_.description(given.type) +
+		                  " reaches a place of " +
+		                  analyzer_.types_.description(place) +
+		                  " through no conversion 14.3.2p5 applies");
+	}
 	SemaConstant reached;
 	if (analyzer_.types_.is_reference(bare))
 	{
@@ -1284,6 +1354,13 @@ TypeId TemplateHead::address_argument(const SemaConstant& given, TypeId place)
 			}
 			walked = analyzer_.types_.target(bare);
 		}
+		// 14.3.2p1 with 3.5p9: what the argument is, is that declaration - and
+		// the bits standing for it here are this unit's own entry number, which
+		// it took in the order this unit reached each address.  An object-file
+		// name built out of them would name one weak entity differently in
+		// every unit that wrote it, so the table is told which declaration the
+		// entry is, and 14.2's encoding reads it back rather than the number.
+		analyzer_.types_.set_address_object(reached.bits, held.object);
 	}
 	return analyzer_.types_.value_type(place, reached.bits);
 }

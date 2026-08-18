@@ -97,6 +97,17 @@ public:
 	// everywhere the argument is - bound, spelled, mangled, and read back where
 	// the name stands - because what such an argument holds is *which object*.
 	bool address_place(TypeId place) const;
+	// 13.4p1 at such a place: whether it takes the address of a function, which
+	// is the one argument whose name may still stand for a set of declarations
+	// when the template-argument reader looks it up.
+	bool function_place(TypeId place) const;
+	// 14.3.2p5's own conversions at such a place: 4.4's qualification
+	// conversion, 4.2p1's array-to-pointer, and 4.10p1's null pointer
+	// conversion from an argument of type `std::nullptr_t` alone.  A reference
+	// place takes none, and the note beside the clause leaves out the two
+	// 8.5's reading of the same place would also take - the zero-valued
+	// integral constant and 4.10p3's derived-to-base.
+	bool reaches_place(const SemaConstant& given, TypeId place) const;
 	// 14.3.2p5 at one of those places: the argument entry, whose bits are the
 	// identifier `AddressTable` interned the object under.  4.2p1's decay,
 	// 4.3p1's function-to-pointer conversion and 8.3.2p1's binding of the

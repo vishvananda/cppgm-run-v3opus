@@ -696,6 +696,22 @@ void TypeTable::set_declaration(TypeId type, const SemaEntity* declaration)
 	user_types_[nodes_[type].user].declaration = declaration;
 }
 
+void TypeTable::set_address_object(unsigned long long bits,
+                                   const SemaEntity* object)
+{
+	if (bits != 0 && object != nullptr)
+	{
+		address_objects_[bits] = object;
+	}
+}
+
+const SemaEntity* TypeTable::address_object(unsigned long long bits) const
+{
+	const std::unordered_map<unsigned long long, const SemaEntity*>::
+		const_iterator held = address_objects_.find(bits);
+	return held == address_objects_.end() ? nullptr : held->second;
+}
+
 void TypeTable::set_local_name(TypeId type, const SemaEntity* function,
                                unsigned occurrence, bool unnamed)
 {
