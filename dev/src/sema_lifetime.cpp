@@ -2452,11 +2452,21 @@ void SemaAnalyzer::write_member_parameters(const Pending& pending,
 			parameters.push_back(&declared);
 		}
 	}
+	// 9.5p1 and 8.5.1p15: the subobjects the parameters carry, which is the one
+	// walk the parameter list was counted by - the object an anonymous
+	// aggregate declared is no parameter of its own and the members written in
+	// it are.
+	std::vector<MemberTarget> targets;
+	collect_member_targets(members,
+	                       members.owner != nullptr &&
+	                               one_storage(members.owner->type)
+	                           ? members.owner : nullptr,
+	                       model_, types_, targets, true);
 	std::size_t at = 0;
-	for (std::size_t index = 0; index < members.declarations.size(); ++index)
+	for (std::size_t index = 0; index < targets.size(); ++index)
 	{
-		SemaEntity& member = *members.declarations[index];
-		if (!declares_subobject(member, members) || at >= parameters.size())
+		SemaEntity& member = *targets[index].member;
+		if (at >= parameters.size())
 		{
 			continue;
 		}

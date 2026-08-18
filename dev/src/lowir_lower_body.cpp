@@ -82,6 +82,7 @@ LowirFunctionLowering::LowirFunctionLowering(LowirUnitLowering& unit,
 	, indirect_result_(false)
 	, returned_object_open_(false)
 	, returned_object_(false)
+	, designated_subobject_(false)
 	, return_slot_local_(nullptr)
 	, element_runs_(0)
 	, destroyed_class_(kNoType)
@@ -1767,7 +1768,15 @@ void LowirFunctionLowering::statement(const DumpNode& node)
 		const std::size_t opened = current_;
 		const std::size_t standing = out_.blocks[opened].instructions.size();
 		const unsigned counted = temps_;
+		// 12.6.2p2: a subobject of class type is named by the same
+		// member-expression a use of the name would be, so what tells the two
+		// apart is that this one is what the initialization designated - which
+		// is 9.5p1's object standing between them.  10.2's base subobject is
+		// named by a conversion instead and reads nothing of it.
+		designated_subobject_ =
+			node.fact.subobject_step && !node.fact.base_subobject;
 		const LowValue object = expression(*node.children[0]->children[1]);
+		designated_subobject_ = false;
 		const std::size_t addressed = out_.blocks[current_].instructions.size();
 		constructor_call(rvalue(object), node);
 		if (current_ == opened &&

@@ -631,16 +631,33 @@ SemaEntity* SemaAnalyzer::member_constructor(TypeId type)
 	// the one subobject a parameter of this constructor carries.  Every member
 	// of a union stands in the same storage, and a parameter list holding all
 	// of them would write each of them into it in turn.
-	const bool is_union = one_storage(type);
+	//
+	// 9.5p1's object is no parameter of its own: what the clauses reach through
+	// it are the members written in it, which is the walk `aggregate_members`
+	// already makes of the same subobjects - so the parameter list is that walk
+	// and the two are counted alike.
+	std::vector<MemberTarget> targets;
+	collect_member_targets(scope, one_storage(type) ? owner : nullptr, model_,
+	                       types_, targets, true);
 	std::vector<TypeId> types;
 	types.push_back(types_.pointer_to(owner->type));
 	std::vector<Parameter> named;
-	for (std::size_t index = 0; index < scope.declarations.size(); ++index)
+	// 9.5p1: the parameter carries the one member of the union that stands in
+	// the storage, and what it is *called* is that storage rather than the
+	// member - the class declared the object and 9.5p2 gave the name reaching
+	// it away, so the place carrying it is named after the object the class
+	// numbered.  A union the program named is a member like any other and keeps
+	// its own name.
+	unsigned long long unions = 0;
+	const SemaEntity* counted = nullptr;
+	for (std::size_t index = 0; index < targets.size(); ++index)
 	{
-		SemaEntity& member = *scope.declarations[index];
-		if (!declares_subobject(member, scope))
+		SemaEntity& member = *targets[index].member;
+		const SemaEntity* const one_of = targets[index].one_of;
+		if (one_of != nullptr && one_of->anonymous_storage && one_of != counted)
 		{
-			continue;
+			counted = one_of;
+			++unions;
 		}
 		const TypeId bare = types_.strip_cv(member.type);
 		const bool of_array = types_.kind(bare) == TypeKind::Array;
@@ -665,13 +682,11 @@ SemaEntity* SemaAnalyzer::member_constructor(TypeId type)
 		// the callee.  No declaration can write such a parameter, which is why
 		// it is the object model rather than 8.3.5 that declares this one.
 		one.type = of_array ? bare : types_.adjust_parameter(member.type);
-		one.name = member.name;
+		one.name = one_of != nullptr && one_of->anonymous_storage
+			? "__anonymous_union_storage" + decimal(unions)
+			: member.name;
 		named.push_back(one);
 		types.push_back(one.type);
-		if (is_union)
-		{
-			break;
-		}
 	}
 	const std::string spelled =
 		QualifiedName(types_.user_name(owner->type)).last();
@@ -775,14 +790,17 @@ void SemaAnalyzer::construct_from_clauses(SemaEntity& constructor,
 	// element of the array, the storage a temporary took - so the call holds
 	// the place that argument stands in and nothing else.
 	model_.open_node(call, std::string());
+	// 9.5p1 and 8.5.1p15: the members the clauses reach, which is the one walk
+	// the parameter list above was counted by.
+	std::vector<MemberTarget> targets;
+	collect_member_targets(
+		scope, scope.owner != nullptr && one_storage(scope.owner->type)
+		           ? scope.owner : nullptr,
+		model_, types_, targets, true);
 	std::size_t at = 1;
-	for (std::size_t index = 0; index < scope.declarations.size(); ++index)
+	for (std::size_t index = 0; index < targets.size(); ++index)
 	{
-		SemaEntity& member = *scope.declarations[index];
-		if (!declares_subobject(member, scope))
-		{
-			continue;
-		}
+		SemaEntity& member = *targets[index].member;
 		if (at >= parameters.size())
 		{
 			// 8.5.1p15: the constructor holds one parameter per member it

@@ -1,0 +1,167 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $inner : obj<32x8>
+  slot $outer : obj<48x8>
+  slot $alone : obj<16x8>
+
+  block ^entry:
+    %t1 = addr $inner
+    call void @Inner__Inner__ov2(%t1, 1, 2)
+    %t2 = index i8 %t1, 16
+    call void @Inner__Inner__ov2(%t2, 3, 4)
+    %t3 = addr $outer
+    call void @Outer__Outer__ov2(%t3, 5, 6, 7)
+    %t4 = index i8 %t3, 24
+    call void @Outer__Outer__ov2(%t4, 8, 9, 10)
+    %t5 = addr $alone
+    call void @Alone__Alone__ov4(%t5, 11)
+    %t6 = index i8 %t5, 8
+    call void @Alone__Alone__ov4(%t6, 12)
+    %t7 = addr $inner
+    %t8 = unary decay ptr %t7
+    %t9 = binary mul i64 0, 16
+    %t10 = index i8 [projection=array_element] %t8, %t9
+    %t11 = index i8 [projection=field] %t10, 0
+    %t12 = load i32 %t11
+    %t13 = addr $inner
+    %t14 = unary decay ptr %t13
+    %t15 = binary mul i64 0, 16
+    %t16 = index i8 [projection=array_element] %t14, %t15
+    %t17 = index i8 [projection=field] %t16, 8
+    %t18 = load i32 %t17
+    %t19 = binary add i32 %t12, %t18
+    %t20 = addr $inner
+    %t21 = unary decay ptr %t20
+    %t22 = binary mul i64 1, 16
+    %t23 = index i8 [projection=array_element] %t21, %t22
+    %t24 = index i8 [projection=field] %t23, 0
+    %t25 = load i32 %t24
+    %t26 = binary add i32 %t19, %t25
+    %t27 = addr $inner
+    %t28 = unary decay ptr %t27
+    %t29 = binary mul i64 1, 16
+    %t30 = index i8 [projection=array_element] %t28, %t29
+    %t31 = index i8 [projection=field] %t30, 8
+    %t32 = load i32 %t31
+    %t33 = binary add i32 %t26, %t32
+    %t34 = addr $outer
+    %t35 = unary decay ptr %t34
+    %t36 = binary mul i64 0, 24
+    %t37 = index i8 [projection=array_element] %t35, %t36
+    %t38 = index i8 [projection=field] %t37, 0
+    %t39 = load i32 %t38
+    %t40 = binary add i32 %t33, %t39
+    %t41 = addr $outer
+    %t42 = unary decay ptr %t41
+    %t43 = binary mul i64 0, 24
+    %t44 = index i8 [projection=array_element] %t42, %t43
+    %t45 = index i8 [projection=field] %t44, 8
+    %t46 = load i32 %t45
+    %t47 = binary add i32 %t40, %t46
+    %t48 = addr $outer
+    %t49 = unary decay ptr %t48
+    %t50 = binary mul i64 0, 24
+    %t51 = index i8 [projection=array_element] %t49, %t50
+    %t52 = index i8 [projection=field] %t51, 16
+    %t53 = load i32 %t52
+    %t54 = binary add i32 %t47, %t53
+    %t55 = addr $outer
+    %t56 = unary decay ptr %t55
+    %t57 = binary mul i64 1, 24
+    %t58 = index i8 [projection=array_element] %t56, %t57
+    %t59 = index i8 [projection=field] %t58, 0
+    %t60 = load i32 %t59
+    %t61 = binary add i32 %t54, %t60
+    %t62 = addr $outer
+    %t63 = unary decay ptr %t62
+    %t64 = binary mul i64 1, 24
+    %t65 = index i8 [projection=array_element] %t63, %t64
+    %t66 = index i8 [projection=field] %t65, 8
+    %t67 = load i32 %t66
+    %t68 = binary add i32 %t61, %t67
+    %t69 = addr $outer
+    %t70 = unary decay ptr %t69
+    %t71 = binary mul i64 1, 24
+    %t72 = index i8 [projection=array_element] %t70, %t71
+    %t73 = index i8 [projection=field] %t72, 16
+    %t74 = load i32 %t73
+    %t75 = binary add i32 %t68, %t74
+    %t76 = addr $alone
+    %t77 = unary decay ptr %t76
+    %t78 = binary mul i64 0, 8
+    %t79 = index i8 [projection=array_element] %t77, %t78
+    %t80 = index i8 [projection=field] %t79, 0
+    %t81 = load i32 %t80
+    %t82 = binary add i32 %t75, %t81
+    %t83 = addr $alone
+    %t84 = unary decay ptr %t83
+    %t85 = binary mul i64 1, 8
+    %t86 = index i8 [projection=array_element] %t84, %t85
+    %t87 = index i8 [projection=field] %t86, 0
+    %t88 = load i32 %t87
+    %t89 = binary add i32 %t82, %t88
+    %t90 = binary sub i32 %t89, 78
+    return i32 %t90
+}
+function @Inner__Inner__ov2(%this : ptr, %lead : i32, %__anonymous_union_storage1 : i32) -> void [unwind=no, binding=weak, object=_ZN5InnerC1Eii] {
+  slot $this : ptr
+  slot $lead : i32
+  slot $__anonymous_union_storage1 : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %lead, $lead
+    store i32 %__anonymous_union_storage1, $__anonymous_union_storage1
+    %t1 = load i32 $lead
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 %t1, %t3
+    %t4 = load i32 $__anonymous_union_storage1
+    %t5 = load ptr $this
+    %t6 = index i8 [projection=field] %t5, 8
+    %t7 = index i8 [projection=field] %t6, 0
+    store i32 %t4, %t7
+    return void
+}
+function @Outer__Outer__ov2(%this : ptr, %head : i32, %__anonymous_union_storage1 : i32, %__anonymous_union_storage2 : i32) -> void [unwind=no, binding=weak, object=_ZN5OuterC1Eiii] {
+  slot $this : ptr
+  slot $head : i32
+  slot $__anonymous_union_storage1 : i32
+  slot $__anonymous_union_storage2 : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %head, $head
+    store i32 %__anonymous_union_storage1, $__anonymous_union_storage1
+    store i32 %__anonymous_union_storage2, $__anonymous_union_storage2
+    %t1 = load i32 $head
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 %t1, %t3
+    %t4 = load i32 $__anonymous_union_storage1
+    %t5 = load ptr $this
+    %t6 = index i8 [projection=field] %t5, 8
+    %t7 = index i8 [projection=field] %t6, 0
+    store i32 %t4, %t7
+    %t8 = load i32 $__anonymous_union_storage2
+    %t9 = load ptr $this
+    %t10 = index i8 [projection=field] %t9, 16
+    %t11 = index i8 [projection=field] %t10, 0
+    store i32 %t8, %t11
+    return void
+}
+function @Alone__Alone__ov4(%this : ptr, %only : i32) -> void [unwind=no, binding=weak, object=_ZN5AloneC1Ei] {
+  slot $this : ptr
+  slot $only : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %only, $only
+    %t1 = load i32 $only
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 %t1, %t3
+    return void
+}
+alias object _ZN5InnerC2Eii = @Inner__Inner__ov2
+alias object _ZN5OuterC2Eiii = @Outer__Outer__ov2
+alias object _ZN5AloneC2Ei = @Alone__Alone__ov4

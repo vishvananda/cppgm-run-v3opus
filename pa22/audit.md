@@ -28,127 +28,157 @@ place is, and which declaration a list selects.
 
 | Y | `f604a5f9` | 2 / 2 + 3 recorded | **8.3.4p1's bound as a place, asked by every walk that reads what a type is written over - and the one type 14.8.2.5p17 says a bound may deduce.**  Group Y made the bound two facts: `bound_place` beside `bound`, `kNoType` for every settled one so interning is exactly what it was, written by the tree reading and the spelled one alike and read back by `substituted_array`, `match_bound` and 14.5.5.2's ordering.  The rule is right and its rebuilds are one reading - `rebuilt_array` carries the place through cv-qualification, 13.3's bare type and `unqualified`, the two substitutions agree, and `TemplateSignature` canonicalizes it, so an out-of-class definition that renames the head's places matches where the reference cannot compile the program at all.  What the place is a *new edge* on is the type graph, and one walk of it was never told: `collect_packs` read the element type alone, so a pattern whose only pack is between the brackets named no pack, 14.8.2.5p9 deduced nothing and the partial specialization was silently not selected - a wrong value with no diagnostic.  And `match_bound` converted the bound to whatever type the place declared, where 14.8.2.5p17 admits an integral type and no other, so an enumeration place matched an array `g++` leaves to the primary |
 
+| Z | `b4362edf` | 2 / 2 + 8 recorded | **which subobject an initialization designates, answered by 9.5p1's object at 8.5.1's walk of them and folded away at 12.6.2's - and the third walk of the same subobjects, which an aggregate's parameter list is counted by.**  Checkpoint Z made the object an anonymous aggregate declares a subobject at every reading that walks a class's: `SemaEntity::anonymous_storage` is the fact, `collect_member_targets` the walk, and 12.6.2p8's construction, 12.4p8's destruction and 12.6.2p2's mem-initializer-id read one flattened list carrying `one_of`.  Those rules are right and swept clean - 12.6.2p8's refusal of two members of one union is `g++`'s where the reference writes both stores, `trivial_default_construction` and `vacuous_destruction` answer 9.5p1's storage alike, the constexpr reader folds through the object where the reference cannot fold at all, and `name_regions` is what every namespace-scope anonymous union needs, the pre-Z build having refused each of them with `abi-mangle: empty source name`.  What none of it carried is that the same clause has a *second* reader that was already right: 8.5.1's walk names 9.5p1's object as the subobject a clause reaches, and 12.6.2p2's designation folded it into the member's own offset - so a mem-initializer designating a variant member was one `index` here and two in the reference, at a base, in a class template, at a class-type member, an array member, a bit-field, a delegating constructor and a written copy constructor alike, 12 shapes none of which any fixture could pin.  Under it the walk that counts an aggregate's own constructor: `member_constructor` gave 9.5p1's object a parameter of its own, so `N cells[2] = {{1, 2}, {3, 4}}` over `struct N { int lead; union { int a; long wide; }; };` passed a union object where the clause wrote an `int`, initialized no member at all and **ran to -10 where `g++` runs it to 0** - a program the pre-Z build refused and this one translated.  8.5.1p15's `one_per_union` is that walk asked once for the parameter list, the argument list and the definition, and the place carrying a variant member is named after the object the class numbered, as the reference names it.  Recorded rather than fixed: 12.4p8's empty destructor chain, which the reference writes for a *named* union exactly as for an anonymous one and `g++` refuses both; 9.5p3's `static`, one token in at each end of the storage object's name there; 3.6.2p2 at a namespace-scope union with an initializer; the reference's layout of an anonymous struct inside a union, 4 bytes there against `g++`'s 8; and the two shapes of 9.5p1 the reference reads the other way round |
+
 ## Current Checkpoint Review
 
-Checkpoint Y is one rule: 8.3.4p1's bound is a bound *and* a place. A
-constant-expression that names a non-type template parameter and nothing else
-leaves `TypeTable::Node::bound_place` beside the number, `kNoType` for every
-bound a reading settled — so a settled array interns by its number exactly as it
-did, and `T[N]` and `T[M]` are two types where the 1 both stand in with is one.
-Two readings write it, the tree's `named_place` and the spelled type-id's
-`written_bound`, and three read it back: `substituted_array` under 14.3p1,
-`match_bound` at 14.8.2.5p13, and 14.5.5.2's ordering of a place against a
-place.
+Checkpoint Z is one fact and one walk: 9.5p1's anonymous aggregate declares an
+object no name reaches, and `collect_member_targets` is the flattening of a
+class's subobjects that descends through it. `SemaEntity::anonymous_storage` is
+written where `inject_anonymous_members` declares the object; the walk carries
+`one_of`, the union whose single storage each member it reaches stands in; and
+12.6.2p8's construction, 12.4p8's destruction and 12.6.2p2's mem-initializer-id
+read that one list. Beside them `trivial_default_construction` reads 9.5p1's
+storage the way `vacuous_destruction` already did, `through_anonymous_storage`
+leaves the operand below the step it takes, `ConstexprReading` walks the object
+with the index the layout gave it, and `name_regions` writes the name the
+translation gave an unnamed class where a `<source-name>` stands.
 
-The rule is of the right shape and its rebuilds are one reading rather than
-several. `rebuilt_array` is the single door every rebuild of an array over
-another element type goes through — cv-qualification travelling to the element,
-13.3's bare type, `unqualified`'s copy of the whole node — so no caller has to
-know the bound is two facts. The two implementations of substitution agree word
-for word. `adjust_parameter` drops the array as 8.3.5p5 says. `associate_type`
-walks past the bound, which is right: 3.4.2p2 associates the types a type is
-written over and a value is none. `object_size` still guards its own overflow.
+The fact is of the right shape and the readers Z wrote are right. 12.6.2p8's
+refusal of a constructor initializing two members of one union is exactly what
+`g++` makes and what `pa22/cppgm++-ref` does not - the reference writes both
+stores into the one storage. `member_path` and `subobject_entries` fold a
+`constexpr` object through 9.5p1's object where the reference refuses the
+program outright and `g++` folds it. `name_regions` is no dead arm: the pre-Z
+build refuses *every* namespace-scope anonymous union with `abi-mangle: empty
+source name`, so the component it writes is what each of them needs. Nothing
+scans: the walk is one pass over the declarations a class already holds, the
+`designated`/`initialized` sets are probed once per subobject, and the
+per-constructor cost is a constant.
 
-What the place is, though, is a **new edge on the type graph**, and a graph has
-more walks than the checkpoint taught.
+What Z did not carry is that **which subobject an initialization designates**
+already had a second reader, and the two answer it differently.
 
 ### Findings
 
-**1. 14.5.3p4's walk of what a pattern is written over did not walk the bound.**
-`collect_packs` had one arm for a pointer, a reference, an array and a value
-alike: follow `target` and return. The element type is only half of what an
-array is written over now, so a pattern whose *only* pack is between the
-brackets named no pack at all:
+**1. 12.6.2p2's designation folded 9.5p1's object away where 8.5.1's walk of the
+same subobjects names it.** `member_storage` walks `member.storage` and adds
+every anonymous object's offset into the member's own, which is right for
+5.2.5p1's access - 9.5p2 made the member a member of the class around the union,
+so a *use* reaches it in the one step the layout gives. It is not right for the
+initialization: what a mem-initializer designates is a member of the **union**,
+which holds one member at a time, and the aggregate walk in `initialize_into`
+already wrote that object's step. So one clause had two answers inside this
+build, and the reference agrees with the aggregate one:
 
-```cpp
-template<class... Ts> struct list { };
-template<class C> struct P { static const unsigned long w = 0; };
-template<unsigned long... Ns> struct P<list<int[Ns]...> >
-{ static const unsigned long w = sum<Ns...>::v; };
-P<list<int[2],int[3],int[4]> >::w   // 9 in g++; 0 here
+```
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 8
+    %t3 = index i8 [projection=field] %t2, 0     // the reference and 8.5.1's walk
+    store i32 2, %t3                             // 12.6.2 wrote `index 8` alone
 ```
 
-`Deduction::match_run` asks `packs_in` which places the pattern names and
-refuses at 14.8.2.5p9 where it names none, so the partial specialization was
-**silently not selected** and the naming folded to the primary's 0. It compiles,
-it links, it runs, and it returns the wrong number — `pa22/cppgm++-ref` returns
-the same wrong number and `g++` returns 9.
+12 shapes diverged - a variant member of class type, two unions in one class,
+9.5p2's brace-or-equal-initializer, an anonymous union declared in a base, one
+written inside an anonymous struct, a class with a destructor beside it, the
+implicit copy of one, a class template, the ABI name of a member function
+reading one, an access through a pointer, a local class, and a class declaring a
+static data member beside it. `member_storage` now takes 12.6.2p2's
+question as well as 5.2.5p1's: it writes the union's own `index` where the
+initialization designated the member and folds it where a name reached it, with
+the anonymous *structs* between folded either way, because only a union is a
+storage its members stand in one at a time. All 12 are byte for byte the
+reference's.
 
-The fix is the one arm: an array walks `bound_place` and then `target`, which
-`kNoType` reads as the nothing it is. That arm is what all four readers built on
-`packs_in` ask — `expand_type`, `substitute_entry`, `match_run` and 14.8.2.1p1's
-trailing pattern — so the whole family is answered once. Four shapes of it move
-from the primary's value to the specialization's, and a pack of 1600 bounds is
-0.014 s against the reference's 0.708 s.
+**2. 8.5.1p2's member constructor counted 9.5p1's object as a parameter of its
+own, and an array of such an aggregate initialized nothing at all.**
+`member_constructor` gave one parameter per member the class declares, which for
+`struct N { int lead; union { int a; long wide; }; };` is `lead` and *the union
+object* - where the clause walk hands out `1` and `2`. The two disagreed about
+what the parameter list is, so the argument for the union was built in a slot of
+its own and no member was ever written:
 
-**2. 14.8.2.5p17's *integral* was not asked, so an enumeration place deduced a
-bound.** `match_bound` took the number the argument's declarator arrived at,
-gave it 14.8.2.5p13's `std::size_t` and handed it to 14.3.2p5's conversion to
-whatever type the place declared. The clause is narrower than that: an argument
-deduced from an array bound may be of any *integral* type, and 3.9.1p7 does not
-name an enumeration one — 5.19p3 admits no conversion from `std::size_t` to one
-either. So `template<class T, E N> struct P<T[N]>` selected itself for
-`P<int[3]>` where `g++` leaves the naming to the primary, and the pair invented
-an argument no expression could have written. A wrong value again, and again
-`pa22/cppgm++-ref` answers it the old way. The pair now refuses where the place
-declares anything but a fundamental integral type; `bool` stays inside the
-clause, and the narrowing round trip that already keeps `T[2]` out of a `bool`
-place is untouched, which is what `g++` answers at both.
+```cpp
+N cells[2] = {{1, 2}, {3, 4}};
+return cells[0].lead + cells[0].a + cells[1].lead + cells[1].a - 10;
+```
 
-Neither finding can be pinned by a fixture: the reference writes the defective
-answer into the `.ref` in every shape of both, so a `course/pa22` or `tests/`
-fixture would carry it. Both are recorded in the plan as divergences `g++`
-settles.
+returned **-10 where `g++` returns 0**, and translated and linked to do it - a
+program the pre-Z build refused with `abi-mangle: empty source name` and this one
+silently miscompiled. The reference passes `(ptr, i32, i32)`. `collect_member_targets`
+now answers this walk too, with 8.5.1p15's `one_per_union` - a union is
+initialized by its first member alone, and where that member is an anonymous
+aggregate the whole of it is that first member. The parameter list, the argument
+list and the definition are counted by the one walk, so the three cannot part
+company again; and the place carrying a variant member is named after the object
+the class numbered - `__anonymous_union_storage1` - which is the name the
+reference writes, because 9.5p2 gave away the name that reaches the member and
+the class kept the object's.
+
+Two `course/pa22` fixtures pin what the findings fixed:
+`300-anonymous-union-variant-member-designated` writes the ctor-initializer at a
+base, in a class template, at a class-type member, an array member and an
+anonymous union inside an anonymous struct, and
+`300-anonymous-union-aggregate-array-member-constructor` writes the array of
+aggregates at all three tiers - an anonymous union, one nested in an anonymous
+struct beside a second union, and a union the program named. Both are byte for
+byte the reference's and both run the value `g++` gives them; the checkpoint's
+own build differs from the reference at both, and what it writes for the second
+**segfaults** through `lowir2cy86` + `cy86`.
 
 ### What the review confirmed rather than found
 
-- **The two writers of the clause agree, and the five readers of the fact are
-  right.** `named_place` steps through 5.1p1's parentheses and takes a bare
-  identifier that resolves to an unbound value place; `written_bound` hands
-  anything but digits to the value reading and takes what comes back only where
-  it is a place. 14 spellings agree between them — a bare place, a place through
-  parentheses, a settled `const` name, `sizeof(int)`, a place of `char` read
-  through a spelled type-id, two places in one pattern, a place inside a nested
-  head, and a place of an enclosing head named from a member. `TemplateSignature`
-  carries the place through 14.5.6.1p5's canonical form, so a redeclaration, an
-  out-of-class member definition and a member returning a reference to the array
-  all match under renamed places where `pa22/cppgm++-ref` fails to build the
-  symbol at all.
-- **8.3.4p1's own refusals hold at every door the place opened.** A zero bound
-  and a negative one are refused at `A<0>`, `A<-1>`, a bare `typedef T (*p)[N]`,
-  `sizeof(T[N])` and an explicit `f<int,0>` alike — five shapes `g++` refuses and
-  the reference accepts. An array of unknown bound deduces nothing. A bound that
-  names anything else is stood in for as it was.
-- **Nothing scans, nothing is re-read, nothing retries.** The place is one word
-  on the node, written where the array is built and read where it is rebuilt;
-  `is_dependent` records its answer before the walk, so the new edge is walked
-  once per type. 32 dimensions of 32 places is 0.005 s and flat; 1600 patterns
-  over `T[N]` 0.069 s; 6400 array declarators bounded by a named constant
-  0.246 s; 3200 spelled `int[MAX]` arguments 0.210 s against a digit bound's
-  0.216 s, so the value reading the widened bound needs costs nothing measurable;
-  3200 place-bounded members 0.050 s; and 400 patterns against 400
-  instantiations — the cross product, not one feature — 0.082 s against the
-  reference's 1.385 s.
+- **The other readers of a class's subobjects were probed and are right where
+  they are.** `write_member_destructions` skips a variant member and destroys
+  the rest in reverse declaration order with the anonymous ones flattened in
+  place; 12.8p15's copy and copy-assignment carry the union object whole;
+  8.5.1's clause walk reaches the members through it; `subobject_declares_destruction`
+  and `destruction_nonthrowing` already read 12.4p8's union. `trivial_destruction`
+  and `default_construction_nonthrowing` are the two that do *not* ask 9.5p1's
+  question - both were probed at the shapes that would show it and neither
+  changes a line of LowIR, because a union whose member declares a destructor is
+  a program `g++` refuses and one whose member's constructor throws initializes
+  nothing.
+- **The fold and the step are the *site*'s answer and not a flag left
+  standing.** The mark is taken at entry to the one member-expression it names
+  and cleared there, so the object expression under it - and the initializer
+  beside it, which may read another member of the same union - are read as the
+  uses they are. `N(const N& o) : a(o.a + 1)` writes `a` through the union's step
+  and reads `o.a` through the fold, byte for byte the reference's.
+- **Nothing scans, nothing is re-read, nothing retries.** `collect_member_targets`
+  is one pass per constructor, per destructor and per aggregate parameter list
+  over the declarations the class already holds; `member_storage` walks a chain
+  whose length is the nesting depth and emits at most one step per union in it.
+  n anonymous unions in one class, each designated, is 0.01 → 0.06 s at 100 → 800
+  against the reference's 0.56 → 1.99 s; one union of n variant members 0.00 s
+  flat; n reads through 9.5p1's object 0.00 → 0.02 s; n classes each with one
+  0.02 → 0.17 s; an anonymous aggregate nested d deep 0.00 s flat to 64, where
+  the pre-Z build refuses every one of them; n `constexpr` objects folded through
+  the object 0.01 → 0.05 s, which the reference cannot compile; and the array of
+  aggregates the second finding rewrote 0.01 → 0.07 s at 100 → 800 against 2.03 s.
 - **The corpus is unchanged.** The same 309 files one process per file is
-  1.330 s against the checkpoint's 1.380 s and the pre-checkpoint build's
-  1.351 s.
-- **`valgrind -q --error-exitcode=9` is clean over 153 inputs**, 0 errors: the
-  audit's probes and its scaling inputs, the 6400-declarator and 3200-argument
-  ones among them.
-- **54 probes judged through the assignment's own comparator against
-  `pa22/cppgm++-ref`, and against `g++ -std=c++11 -pedantic-errors -x c++`.** 42
-  match the reference byte for byte. Of the 12 that do not, three are programs
-  the reference cannot compile, six are the two findings above, and three are a
-  narrowing conversion at a bound place where `g++` refuses two of the three
-  outright. `g++` accepts 52 of the 54; all 54 translate and link through
-  `lowir2cy86` + `cy86`, and every one of the 52 returns exactly the value `g++`
-  gives it.
+  1.31 s at the audited build against 1.34 s at the checkpoint and 1.36 s at the
+  pre-Z build.
+- **`valgrind -q --error-exitcode=9` is clean over 51 inputs**, 0 errors: the 47
+  probes and the four `course/pa22` fixtures that write an anonymous union.
+- **47 probes judged through the assignment's own comparator against
+  `pa22/cppgm++-ref`, and against `g++ -std=c++11 -x c++`.** 31 match the
+  reference byte for byte. `g++` accepts 40 of the
+  47 and every one of the 40 returns exactly the value this build gives it,
+  through `lowir2cy86` + `cy86`. The 16 that differ from the reference are eight
+  readings recorded in the plan: 12.6.2p8's refusal and 5.19's fold, where `g++`
+  agrees with this build; the reference's layout of an anonymous struct inside a
+  union, 4 bytes there against `g++`'s 8; its refusal of an anonymous union
+  inside an anonymous union; 9.5p3's `static` at the storage object's name and
+  3.6.2p2 at its initializer; 12.4p8's empty destructor chain, which the
+  reference writes for a *named* union exactly as for an anonymous one, so it is
+  no part of what 9.5p1's object owns and `g++` refuses both programs; and
+  9.4.2p2's image for a static data member defined outside its class, which
+  reaches no anonymous union at all and which `g++` writes as this build does.
 - **No gate and no skipped work.** Neither the checkpoint's diff nor this
   audit's holds a `getenv`, a fixture name, a dialect switch keyed on anything
   but a dialect, a timeout, an environment read or a caught exception standing
-  for a success. The one `catch` the checkpoint added, around the value reading
-  of a written bound, rethrows on every path, so it is no fallback and leaves no
-  guard standing that the refusal would not have unwound. Earlier assignments
-  are intact: `make test-report-through-pa21` is 2568 / 2568, and PA22 holds
-  369 / 373 with the same four failures the checkpoint left. The file audit
-  passes with the five `bad-division` warnings it already had.
+  for a success. Earlier assignments are intact: `make test-report-through-pa21`
+  is 2568 / 2568, and PA22 holds 374 / 377 with the same three failures the
+  checkpoint left. The file audit passes with the five `bad-division` warnings it
+  already had.

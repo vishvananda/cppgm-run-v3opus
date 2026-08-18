@@ -245,28 +245,57 @@ LowValue LowirFunctionLowering::id_expression(const DumpNode& node)
 // anything else is a use that reads the object through it.
 Operand LowirFunctionLowering::member_storage(const DumpNode& object,
                                               const SemaEntity& member,
-                                              bool bound)
+                                              bool bound, bool designated)
 {
 	TypeTable& types = unit_.types();
 	// 9.5p1: an anonymous class declared an object no name reaches, and its
 	// members are reached through it - so the access the analysis wrote holds
-	// one step for that object and one for the member.  Nothing reads the
-	// object itself, so where the member stands is one offset from where the
-	// enclosing object stands, and it is written as the one step it is.
+	// one step for that object and one for the member.  9.5p2 made the member a
+	// member of the region around that object, so a *use* of the name reads it
+	// where the class put it: nothing reads the object itself, and the access is
+	// written as the one step it is.
+	//
+	// 12.6.2p2 asks the other question.  What a mem-initializer designates is a
+	// member of the *union*, which is 9.5p1's object and holds one member at a
+	// time - so the initialization names that object and then the member in it,
+	// which is what 8.5.1's walk of the same subobjects already writes for an
+	// aggregate.  Only a union is such a storage: an anonymous struct's members
+	// stand beside one another and fold into the step below exactly as a use of
+	// them does.
 	const DumpNode* at = &object;
 	unsigned long long offset = member.offset;
+	unsigned long long through = 0;
+	bool split = false;
 	for (const SemaEntity* held = member.storage;
 	     held != nullptr && held->object_member && !at->children.empty();
 	     held = held->storage)
 	{
-		offset += held->offset;
+		const TypeId bare = types.strip_cv(held->type);
+		if (designated && !split && types.is_class(bare) &&
+		    types.class_tag(bare) == ClassTag::Union)
+		{
+			// The union's own place goes in the step that names it, and
+			// everything written inside it folds into the member's.
+			split = true;
+		}
+		(split ? through : offset) += held->offset;
 		at = at->children[0];
 	}
 	const LowValue held = expression(*at, true);
-	const Operand base =
+	Operand base =
 		types.kind(types.strip_cv(held.type)) == TypeKind::Pointer
 			? rvalue(held)
 			: address_of(held);
+	if (split)
+	{
+		Instruction into;
+		into.kind = Instruction::IK_INDEX;
+		into.type.text = "i8";
+		into.index_projection = lowir_model::IPK_FIELD;
+		into.first = base;
+		into.second = named_operand(Operand::OP_INTEGER, decimal(through));
+		base = emit(into);
+	}
 	Instruction step;
 	step.kind = Instruction::IK_INDEX;
 	step.type.text = "i8";
@@ -456,11 +485,16 @@ LowValue LowirFunctionLowering::member_expression(const DumpNode& node)
 {
 	TypeTable& types = unit_.types();
 	const SemaEntity& member = *node.fact.entity;
+	// 12.6.2p2: the mark is this one member-expression's - what stands under it
+	// is the object the member is a member *of*, which is a use of a name like
+	// any other.
+	const bool designated = designated_subobject_;
+	designated_subobject_ = false;
 	LowValue value;
 	value.type = node.fact.type;
 	value.lvalue = true;
 	value.named = true;
-	value.operand = member_storage(*node.children[0], member);
+	value.operand = member_storage(*node.children[0], member, false, designated);
 	if (member.bit_field)
 	{
 		// 9.6p2: the member names a run of bits inside the unit just addressed,

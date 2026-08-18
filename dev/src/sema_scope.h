@@ -1396,9 +1396,14 @@ struct MemberTarget
 	const SemaEntity* one_of;
 };
 
+// `one_per_union` is 8.5.1p15 asked of the same walk: an aggregate is
+// initialized by the first member of each union it holds and by no other, so
+// the walk 8.5.1's clauses and the parameters carrying them are counted by
+// leaves every member of one past the first out.
 void collect_member_targets(Scope& members, const SemaEntity* one_of,
                             const SemaModel& model, TypeTable& types,
-                            std::vector<MemberTarget>& targets);
+                            std::vector<MemberTarget>& targets,
+                            bool one_per_union = false);
 
 // 8.5.1p1: whether an object of the class `scope` declares is initialized from
 // a braced-init-list by initializing its members with the clauses, which is a

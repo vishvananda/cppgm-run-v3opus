@@ -80,8 +80,14 @@ bool one_storage_type(TypeId type, TypeTable& types)
 
 void collect_member_targets(Scope& members, const SemaEntity* one_of,
                             const SemaModel& model, TypeTable& types,
-                            std::vector<MemberTarget>& targets)
+                            std::vector<MemberTarget>& targets,
+                            bool one_per_union)
 {
+	// 8.5.1p15: a union is initialized by its first member alone, so the walk
+	// of one stops at the first subobject it reaches - the whole of that
+	// member, which for an anonymous aggregate is everything written in it.
+	const bool stops_at_one = one_per_union && members.owner != nullptr &&
+		one_storage_type(members.owner->type, types);
 	for (std::size_t index = 0; index < members.declarations.size(); ++index)
 	{
 		SemaEntity& member = *members.declarations[index];
@@ -97,13 +103,21 @@ void collect_member_targets(Scope& members, const SemaEntity* one_of,
 			collect_member_targets(*held->scope,
 			                       one_storage_type(member.type, types)
 			                           ? &member : one_of,
-			                       model, types, targets);
+			                       model, types, targets, one_per_union);
+			if (stops_at_one)
+			{
+				return;
+			}
 			continue;
 		}
 		MemberTarget target;
 		target.member = &member;
 		target.one_of = one_of;
 		targets.push_back(target);
+		if (stops_at_one)
+		{
+			return;
+		}
 	}
 }
 

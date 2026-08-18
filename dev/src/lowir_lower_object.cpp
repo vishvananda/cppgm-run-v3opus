@@ -2079,7 +2079,8 @@ void LowirFunctionLowering::member_initialization(const DumpNode& node)
 		// binding reaches, so the projection is the member's own and not the
 		// `reference_field` a read through the reference makes it.
 		const LowValue bound = expression(written, true);
-		const Operand storage = member_storage(*node.children[0], member, true);
+		const Operand storage =
+			member_storage(*node.children[0], member, true, true);
 		store(bound_address(bound, type), storage, type);
 		return;
 	}
@@ -2091,7 +2092,8 @@ void LowirFunctionLowering::member_initialization(const DumpNode& node)
 		// caller's array rather than its elements - so the member is
 		// initialized with the whole of what stands there, one copy of the
 		// array and not one initialization per element.
-		const Operand into = member_storage(*node.children[0], member);
+		const Operand into =
+			member_storage(*node.children[0], member, false, true);
 		LowValue at;
 		at.type = types.pointer_to(types.target(types.strip_cv(type)));
 		at.lvalue = true;
@@ -2110,6 +2112,7 @@ void LowirFunctionLowering::member_initialization(const DumpNode& node)
 		LowObject base;
 		base.written = node.children[0];
 		base.member = &member;
+		base.designated = true;
 		initialize_into(base, type, written);
 		return;
 	}
@@ -2122,11 +2125,13 @@ void LowirFunctionLowering::member_initialization(const DumpNode& node)
 		LowObject into;
 		into.written = node.children[0];
 		into.member = &member;
+		into.designated = true;
 		const std::vector<const DumpNode*> path;
 		initialize_bit_field(member, into, path, member.offset, held, type);
 		return;
 	}
-	const Operand storage = member_storage(*node.children[0], member);
+	const Operand storage =
+		member_storage(*node.children[0], member, false, true);
 	store(held, storage, type);
 }
 
@@ -2227,7 +2232,8 @@ Operand LowirFunctionLowering::object_storage(const LowObject& object)
 		return object_address(object);
 	}
 	return object.written != nullptr
-		? member_storage(*object.written, *object.member)
+		? member_storage(*object.written, *object.member, false,
+		                 object.designated)
 		: object.storage;
 }
 
@@ -2236,7 +2242,8 @@ Operand LowirFunctionLowering::object_address(const LowObject& object)
 	Operand at;
 	if (object.written != nullptr)
 	{
-		at = member_storage(*object.written, *object.member);
+		at = member_storage(*object.written, *object.member, false,
+		                    object.designated);
 	}
 	else
 	{

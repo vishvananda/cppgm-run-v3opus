@@ -136,6 +136,7 @@ struct LowObject
 		: written(nullptr)
 		, member(nullptr)
 		, addressed(false)
+		, designated(false)
 	{}
 
 	lowir_model::Operand storage;
@@ -147,6 +148,11 @@ struct LowObject
 	// rather than computing a second one for the same storage.
 	lowir_model::Operand address;
 	bool addressed;
+	// 12.6.2p2 and 9.5p1: whether the member above is the subobject an
+	// initialization designated rather than one a use of the name reached,
+	// which is what says the object an anonymous union declared is a step of
+	// its own - see `member_storage`.
+	bool designated;
 	// 8.5.1p1: the object is the element these subscripts name inside the array
 	// the two members above reach - one entry per dimension the walk has
 	// stepped through, from the outside in, which is how 5.2.1p1 would write
@@ -986,9 +992,13 @@ private:
 	// the storage a use of the member reads through - and, for a member of
 	// reference type, the storage of the pointer it holds rather than of the
 	// object that pointer names.
+	//
+	// `designated` is 12.6.2p2's question rather than 5.2.5p1's: see the
+	// definition for what the two answer differently about 9.5p1's object.
 	lowir_model::Operand member_storage(const DumpNode& object,
 	                                    const SemaEntity& member,
-	                                    bool bound = false);
+	                                    bool bound = false,
+	                                    bool designated = false);
 	// 12.6.2: one member of the object a constructor is initializing.
 	void member_initialization(const DumpNode& node);
 	// 12.8p15 and p28: one step of a value transfer the standard defines that
@@ -1786,6 +1796,14 @@ private:
 	// prvalue would have held.  It is read and cleared by the one call it marks,
 	// because an argument written inside that call builds an object of its own.
 	bool returned_object_;
+	// 12.6.2p2 and 9.5p1: whether the member-expression about to be lowered is
+	// the subobject a constructor's own initialization designated rather than
+	// one a use of the name reached.  A subobject of class type is built by a
+	// call, so what names it is an ordinary member-expression under that call's
+	// object - and the two questions part company over 9.5p1's object alone.
+	// It is read and cleared by the one member-expression it marks, because the
+	// object expression under that one names a member of its own.
+	bool designated_subobject_;
 	// 12.8p31: the one local object this function's returns copy into that
 	// destination, which is then the object standing in it.
 	const SemaEntity* return_slot_local_;
