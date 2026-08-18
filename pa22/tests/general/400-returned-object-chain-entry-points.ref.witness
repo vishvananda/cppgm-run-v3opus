@@ -1,0 +1,64 @@
+translation-unit
+  class-use at tests/general/400-returned-object-chain-entry-points.t:28:3
+    template maker
+    selected primary
+    bind #1 = int source=explicit
+  class-use at tests/general/400-returned-object-chain-entry-points.t:29:3
+    template derived_a
+    selected primary
+    bind #1 = int source=explicit
+  class-use at tests/general/400-returned-object-chain-entry-points.t:30:3
+    template derived_b
+    selected primary
+    bind #1 = int source=explicit
+  function-call at tests/general/400-returned-object-chain-entry-points.t:30:22
+    callee free_made
+    selected instantiation
+    bind #1 = int source=deduced
+  class-use at tests/general/400-returned-object-chain-entry-points.t:31:3
+    template derived_c
+    selected primary
+    bind #1 = int source=explicit
+template-closure-events
+  ensure-definition
+    entity free_made
+  ensure-definition
+    entity maker<int>::held
+  ensure-definition
+    entity maker<int>::written
+  function-instantiation
+    entity base_a<int>::base_a
+  function-instantiation
+    entity base_b<int>::base_b
+  function-instantiation
+    entity base_c<int>::base_c
+  function-instantiation
+    entity derived_a<int>::derived_a
+  function-instantiation
+    entity derived_b<int>::derived_b
+  function-instantiation
+    entity derived_c<int>::derived_c
+  function-instantiation
+    entity free_made
+  function-instantiation
+    entity maker<int>::held
+  function-instantiation
+    entity maker<int>::written
+  require-definition
+    entity base_a<int>::base_a
+  require-definition
+    entity base_b<int>::base_b
+  require-definition
+    entity base_c<int>::base_c
+  require-definition
+    entity derived_a<int>::derived_a
+  require-definition
+    entity derived_b<int>::derived_b
+  require-definition
+    entity derived_c<int>::derived_c
+  require-definition
+    entity free_made
+  require-definition
+    entity maker<int>::held
+  require-definition
+    entity maker<int>::written

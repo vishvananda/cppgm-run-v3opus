@@ -131,6 +131,7 @@ PendingDefinition::PendingDefinition()
 	, head(nullptr)
 	, returned_object_chain(false)
 	, from_instantiated_body(false)
+	, held_by_class(false)
 {}
 
 AnalyzedValue::AnalyzedValue()
@@ -630,10 +631,15 @@ void SemaAnalyzer::write_pending_definitions()
 		// inside a body that returns an object of class type was made for
 		// storage the caller itself named, so the chain either reaches the
 		// program's own code through such readings alone or does not reach it.
+		// The chain either continues - this reading stands at the end of one
+		// already - or begins here, and a body the class's own instantiation put
+		// aside begins none: 14.7.1p1 made it before any use named the storage
+		// 6.6.3p2 puts the object in.
 		reading_chain_ = pending_[index].returned_object_chain;
 		queued_chain_ = instantiated_body_ != 0 &&
 			(pending_[index].returned_object_chain ||
-			 !pending_[index].from_instantiated_body) &&
+			 (!pending_[index].from_instantiated_body &&
+			  !pending_[index].held_by_class)) &&
 			returns_class_object(*pending_[index].function, types_);
 		write_definition(pending_[index]);
 		instantiated_body_ = 0;

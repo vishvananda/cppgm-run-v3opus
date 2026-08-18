@@ -2732,7 +2732,15 @@ void SemaAnalyzer::queue_definition(Pending& pending)
 	}
 	// 6.6.3p2: an entry put aside here joins the list only where a use asks for
 	// it, so the chain it stands at the end of is the one the *grant* was made
-	// from and not the one the class instantiation that built it was.
+	// from and not the one the class instantiation that built it was.  What the
+	// class instantiation does settle is that this body is the class's own and
+	// no start of such a chain: the entry points 6.6.3p2 owes are owed by the
+	// reading whose returned object the caller named storage for, and this one
+	// was made before any use named anything.  9.3p2 draws the same line here it
+	// draws at the ABI: a definition written outside the class is this unit's own
+	// and not one the class instantiation made, so it starts a chain like any
+	// other body a use asked for.
+	pending.held_by_class = !pending.function->out_of_class_definition;
 	held_definitions_.insert(
 		std::make_pair(pending.function->id, pending));
 }

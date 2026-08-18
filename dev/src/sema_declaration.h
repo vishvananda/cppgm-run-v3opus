@@ -270,6 +270,13 @@ struct PendingDefinition
 	// fact of the entry and not of where it is read.
 	bool returned_object_chain;
 	bool from_instantiated_body;
+	// 14.7.1p1: whether the class's own instantiation is what made this body and
+	// put it aside, rather than the use that later asked for it.  Such a body is
+	// no *start* of 6.6.3p2's chain: the reading that returned the object is the
+	// one the entry points are owed for, and a member the class made was made
+	// before any of them was read.  It says nothing about a body queued while a
+	// chain is already standing, which carries the chain it was queued under.
+	bool held_by_class;
 };
 
 // 9.6p2: the storage unit a run of bit-fields is being placed in, which one
