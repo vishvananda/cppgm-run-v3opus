@@ -20,7 +20,7 @@ void emit_translation_units(const std::string& outfile,
                             const std::vector<std::string>& inputs,
                             void (*write_unit)(std::ostream& out,
                                                const AstNode& unit,
-                                               const AstArena& written));
+                                               AstArena& written));
 
 // `cppgm++ --emit-ast`: the syntax tree dump of each translation unit.
 void emit_ast(const std::string& outfile, const std::vector<std::string>& inputs);

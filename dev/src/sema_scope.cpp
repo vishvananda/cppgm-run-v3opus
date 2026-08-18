@@ -499,6 +499,20 @@ SemaEntity* SemaModel::specialization_of(const SemaEntity& primary,
 	return found == specializations_.end() ? nullptr : found->second;
 }
 
+SemaEntity* SemaModel::closure_of(const Scope& in, std::uint32_t at) const
+{
+	const std::unordered_map<std::uint64_t, SemaEntity*>::const_iterator found =
+		closures_.find((static_cast<std::uint64_t>(in.id) << 32) | at);
+	return found == closures_.end() ? nullptr : found->second;
+}
+
+void SemaModel::hold_closure(const Scope& in, std::uint32_t at,
+                             SemaEntity& entity)
+{
+	closures_.insert(
+		std::make_pair((static_cast<std::uint64_t>(in.id) << 32) | at, &entity));
+}
+
 void SemaModel::hold_specialization(const SemaEntity& primary,
                                     std::uint32_t arguments, SemaEntity& entity)
 {

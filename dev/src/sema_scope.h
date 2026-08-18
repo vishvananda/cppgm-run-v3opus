@@ -1143,6 +1143,15 @@ public:
 	void hold_specialization(const SemaEntity& primary, std::uint32_t arguments,
 	                         SemaEntity& entity);
 
+	// 5.1.2p3: the closure class the lambda-expression written at `at` declared
+	// in `in`, or nothing where that region has not read it yet.  One
+	// lambda-expression is one class however many times the reading that
+	// declares it is made, and 14.7.1p1 makes one such reading per
+	// specialization - so the region is half the key and the position the
+	// expression stands at is the other half.
+	SemaEntity* closure_of(const Scope& in, std::uint32_t at) const;
+	void hold_closure(const Scope& in, std::uint32_t at, SemaEntity& entity);
+
 	// 5.19p2 with 7.1.5p2: what a call of the constexpr function `callee` came
 	// to, as the `TypeKind::Value` entry the fold interned, or `kNoType` where
 	// no fold of it has been made.  It is keyed by the declaration and the
@@ -1308,6 +1317,9 @@ private:
 	// declaration and the interned list of what its object and its arguments
 	// came to.
 	std::unordered_map<std::uint64_t, TypeId> folded_calls_;
+	// 5.1.2p3's closure classes, keyed by the region one was declared in and
+	// the position the lambda-expression that declares it was written at.
+	std::unordered_map<std::uint64_t, SemaEntity*> closures_;
 	// 5.19p2's address constants met so far, whose identifiers are what a
 	// constant of pointer type carries in place of a number.
 	AddressTable addresses_;

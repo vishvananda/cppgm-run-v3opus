@@ -104,10 +104,21 @@ void LowirFunctionLowering::release_call_step(bool)
 // is what the references write: `g();` beside a standing object opens no
 // handler, and the same `g()` written where a temporary of the same
 // full-expression stands opens one.
-void LowirFunctionLowering::note_call(bool throwing, bool returned_object)
+void LowirFunctionLowering::note_call(bool throwing, bool returned_object,
+                                      bool building)
 {
 	call_since_mark_ = true;
-	settle_pending_region();
+	// A handler a change in the live objects left pending stands around this
+	// call, because 12.2p3's temporary asked for one however 15.4p1 specifies
+	// the callee.  The one call this is not asked of is 12.2p1's own temporary
+	// being built: a construction that says it throws nothing is no place an
+	// exception leaves the step by and no place the objects standing before it
+	// could be left by either, so the region opens where that step ends.  A
+	// call that may throw is such a place however little it builds.
+	if (!building || throwing)
+	{
+		settle_pending_region();
+	}
 	if (!throwing)
 	{
 		return;
@@ -127,7 +138,11 @@ void LowirFunctionLowering::note_call(bool throwing, bool returned_object)
 // of a full-expression that has nothing more to do.
 void LowirFunctionLowering::settle_pending_region()
 {
-	if (!region_pending_ || closing_region_)
+	// 15.2p2: naming the storage a new object will stand in is no place an
+	// exception could leave the objects already standing, so a region left
+	// pending opens after that naming rather than around it - the same place
+	// the mark of the step advances past.
+	if (!region_pending_ || closing_region_ || naming_storage_)
 	{
 		return;
 	}
@@ -142,6 +157,33 @@ void LowirFunctionLowering::settle_pending_region()
 	here.at = out_.blocks[current_].instructions.size();
 	region_ = open_unwind_region(here);
 	region_open_ = true;
+}
+
+// 15.2p2: the end of the region that stood around the code before a step, which
+// is where that step began rather than where it ended.
+//
+// A handler is what an exception out of the code it covers runs, and the step
+// that builds an object is no such place: an exception out of it leaves the
+// object unbuilt, so what the handler before it owed it does not owe.  The
+// instructions the step has already written therefore move out of the region
+// and stand after it, which is one move of a step's own instructions and never
+// of the block around them - a block ends at its terminator, and a step that
+// wrote one is not one this is asked of.
+void LowirFunctionLowering::close_region_at_step(std::size_t step)
+{
+	std::vector<Instruction>& written = out_.blocks[current_].instructions;
+	if (!region_open_ || step >= written.size())
+	{
+		close_region();
+		return;
+	}
+	const std::vector<Instruction> stepped(
+		written.begin() + static_cast<std::ptrdiff_t>(step), written.end());
+	written.erase(written.begin() + static_cast<std::ptrdiff_t>(step),
+	              written.end());
+	close_region();
+	std::vector<Instruction>& after = out_.blocks[current_].instructions;
+	after.insert(after.end(), stepped.begin(), stepped.end());
 }
 
 void LowirFunctionLowering::close_region()
@@ -186,10 +228,19 @@ void LowirFunctionLowering::begin_object_lifetime(
 	const DumpNode& node, const UnwindMark& mark, const Operand& at,
 	const std::vector<Instruction>& address)
 {
-	if (node.fact.destruction == nullptr)
-	{
-		return;
-	}
+	// 12.2p1 gives every prvalue of class type an object, and the step that
+	// built one is over here whether or not 12.4p8 leaves anything to run at
+	// the end of its lifetime.  A step that leaves nothing to destroy adds
+	// nothing to the set an exception has to end, so no handler is written for
+	// it - but where the next step needs one, the one before it is over here
+	// and the region for it ends where this step began.
+	const bool ends = node.fact.destruction != nullptr;
+	// 15.2p2: where this step began, which is where a region that covers what
+	// came before it has to end.  A step that built no object of its own leaves
+	// the mark where it stood, so the two are the same place and the region
+	// ends where the code does.
+	const bool step_here = unwind_mark_.active && unwind_mark_.block == current_;
+	std::size_t step = step_here ? unwind_mark_.at : 0;
 	// Where objects already stand, the step is covered however 15.4p1 specifies
 	// the calls it makes; where none do, the handler would end no lifetime at
 	// all, so it is written only where an exception could reach it.
@@ -197,29 +248,47 @@ void LowirFunctionLowering::begin_object_lifetime(
 	const bool made = standing ? call_since_mark_ : throwing_since_mark_;
 	const bool ahead =
 		standing ? pending_calls_ != 0 : pending_throwing_calls_ != 0;
-	if (!region_open_ && made && ahead && mark.active && mark.block == current_)
+	if (ends && !region_open_ && made && ahead && mark.active &&
+	    mark.block == current_)
 	{
 		// A call still to be written in this full-expression is a place the
 		// object could be left standing by, and the step that built it is what
 		// the handler for that has to cover.
 		region_ = open_unwind_region(mark);
 		region_open_ = true;
+		if (step_here && step >= region_.at)
+		{
+			// The `eh_try` went in where the region opens, so everything the
+			// block already held after that place stands one further along.
+			++step;
+		}
 	}
 	const bool covered = region_open_;
-	close_region();
-	LowUnwind live;
-	live.destructor = node.fact.destruction;
-	live.object = node.fact.object != nullptr ? node.fact.object
-	                                          : node.fact.entity;
-	live.base_subobject = false;
-	live.address = address;
-	live.at = at;
-	// 3.8p1: an object a declaration named of array type is one object whose end
-	// is one end per element - which is the walk `leave_blocks` writes where the
-	// block ends, so it is the walk an exception leaving that block owes too.
-	// The destructor the analysis wrote on the node is already the element's.
-	array_entry(node.fact.type, live);
-	unwind_live_.push_back(live);
+	// The region ends where this step began, and only where that leaves it
+	// holding something: a region that would hold nothing at all is one whose
+	// own open stands where the step does, and there the code the step wrote is
+	// what it covers.
+	const bool at_step = ends && step_here && region_open_ &&
+		region_.block == current_ && step > region_.at + 1;
+	close_region_at_step(at_step ? step
+	                             : out_.blocks[current_].instructions.size());
+	if (ends)
+	{
+		LowUnwind live;
+		live.destructor = node.fact.destruction;
+		live.object = node.fact.object != nullptr ? node.fact.object
+		                                          : node.fact.entity;
+		live.base_subobject = false;
+		live.address = address;
+		live.at = at;
+		// 3.8p1: an object a declaration named of array type is one object whose
+		// end is one end per element - which is the walk `leave_blocks` writes
+		// where the block ends, so it is the walk an exception leaving that
+		// block owes too.  The destructor the analysis wrote on the node is
+		// already the element's.
+		array_entry(node.fact.type, live);
+		unwind_live_.push_back(live);
+	}
 	// Where a handler already stood, the rest of the full-expression stands
 	// under one too: the set it owes has changed, so the region it stood in
 	// ends and another begins.  Where none stood, nothing yet asks for one.
@@ -303,6 +372,8 @@ LowirFunctionLowering::UnwindRegion LowirFunctionLowering::open_unwind_region(
 	// naming is the step's own and stands inside it.
 	const std::size_t opens = mark.at_call ? written.size() : mark.at;
 	written.insert(written.begin() + static_cast<std::ptrdiff_t>(opens), open);
+	region.block = mark.block;
+	region.at = opens;
 	return region;
 }
 

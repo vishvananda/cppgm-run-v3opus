@@ -6,6 +6,7 @@
 #include "ast_tokens.h"
 #include "sema_access.h"
 #include "sema_constexpr.h"
+#include "sema_lambda.h"
 #include "sema_pack.h"
 
 // Specifiers, declarators and names: what a declaration says the type of the
@@ -169,6 +170,16 @@ void SemaAnalyzer::read_type_specifier(const AstNode& node, Specifiers& out,
 		out.introduced = entity;
 		out.has_type_name = true;
 		out.type_name = entity->type;
+		return;
+	}
+	if (node.kind == AstKind::DeducedReturnType)
+	{
+		// 5.1.2p4: the call operator of a closure class whose lambda-declarator
+		// wrote no trailing-return-type returns what its body returns.  The
+		// specifier stands where 8.3.5p2's trailing-return-type does, so the
+		// parameters are already declared and the expression may name them.
+		out.has_type_name = true;
+		out.type_name = LambdaReading(*this).deduced_return_type(node, ctx);
 		return;
 	}
 	if (node.kind == AstKind::EnumSpecifier)

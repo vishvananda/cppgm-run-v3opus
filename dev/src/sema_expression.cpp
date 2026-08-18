@@ -10,6 +10,7 @@
 #include "sema_access.h"
 #include "sema_constexpr.h"
 #include "sema_derivation.h"
+#include "sema_lambda.h"
 #include "sema_operator.h"
 #include "sema_pack.h"
 #include "string_literal.h"
@@ -473,6 +474,12 @@ SemaAnalyzer::Value SemaAnalyzer::dispatch_expression(const AstNode& node,
 		return node.token == KW_ALIGNOF
 			? alignof_expression(node, ctx, parent)
 			: ConstexprReading(*this).noexcept_value(node, ctx, parent);
+
+	case AstKind::LambdaExpression:
+		// 5.1.2p2: the expression is a prvalue of the closure class p3
+		// declares, which is a class this reading makes rather than one the
+		// program wrote a class-specifier for.
+		return LambdaReading(*this).expression(node, ctx, parent);
 
 	default:
 		break;

@@ -36,7 +36,7 @@ void emit_translation_unit(std::ostream& out, SourceFileTable& files,
                            const PreprocessorOptions& options,
                            const std::string& path,
                            void (*write_unit)(std::ostream&, const AstNode&,
-                                              const AstArena&))
+                                              AstArena&))
 {
 	AstTokenStream tokens;
 	tokens.build(files, options, path);
@@ -51,7 +51,7 @@ void emit_translation_unit(std::ostream& out, SourceFileTable& files,
 	write_unit(out, *root, arena);
 }
 
-void write_unit_ast(std::ostream& out, const AstNode& unit, const AstArena&)
+void write_unit_ast(std::ostream& out, const AstNode& unit, AstArena&)
 {
 	write_ast(out, unit, 0);
 }
@@ -66,7 +66,7 @@ void emit_ast(const std::string& outfile, const std::vector<std::string>& inputs
 void emit_translation_units(const std::string& outfile,
                             const std::vector<std::string>& inputs,
                             void (*write_unit)(std::ostream&, const AstNode&,
-                                               const AstArena&))
+                                               AstArena&))
 {
 	PreprocessorOptions options;
 	options.author = kAuthor;

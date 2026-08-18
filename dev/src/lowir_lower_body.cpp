@@ -94,6 +94,7 @@ LowirFunctionLowering::LowirFunctionLowering(LowirUnitLowering& unit,
 	, call_since_mark_(false)
 	, throwing_since_mark_(false)
 	, closing_region_(false)
+	, naming_storage_(false)
 	, full_expressions_(0)
 	, pending_calls_(0)
 	, pending_throwing_calls_(0)

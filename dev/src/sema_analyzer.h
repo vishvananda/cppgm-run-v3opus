@@ -51,7 +51,7 @@ public:
 	// 7.1.6.2p1: the trees the parse read for the decltype-specifiers it then
 	// flattened into a name, borrowed the same way.  Null says no spelling
 	// holds one, which is every mode that reads no template-argument-list.
-	void set_expressions(const AstArena& written) { written_ = &written; }
+	void set_expressions(AstArena& written) { written_ = &written; }
 
 	// Analyses `unit`, a PA10 `translation-unit`.  Throws for a program the
 	// assignment gives no meaning to.
@@ -107,6 +107,8 @@ private:
 	// 13.3.1.2p3: the candidate set an operator reaches, which the expression
 	// layer and a fold ask alike - `sema_operator.h`'s for that reason.
 	friend class OperatorCall;
+	// 5.1.2p3: the closure class, whose class-specifier `sema_lambda.h` builds.
+	friend class LambdaReading;
 
 	// 3.3, 7p1, 8.3.5p4, 12.6.2p1 and 5.19p3: the records the declaration
 	// layer passes between its steps, which `sema_declaration.h` defines.  The
@@ -143,7 +145,6 @@ private:
 	// has, which 5.2.2p4 reads to say whether the boundary carries it as bytes
 	// or as the address of the one object the caller and the callee share.
 	const char* requested_prefix(Requested by, bool reference, TypeId passed);
-
 
 	// Declarations (sema_analyzer.cpp).
 	void declaration(const AstNode& node, const Context& ctx);
@@ -2128,8 +2129,9 @@ private:
 	// 2.2p1: which positions of that stream this unit's own source wrote,
 	// borrowed the same way and null in the same modes.
 	const IncludeTable* sources_;
-	// 7.1.6.2p1: the trees the parse kept for the operands it flattened.
-	const AstArena* written_;
+	// 7.1.6.2p1: the trees the parse kept, and 5.1.2p3: where the syntax the
+	// analysis builds is owned - the arena owns a unit's nodes, not the tree.
+	AstArena* written_;
 	TypeTable types_;
 	SemaModel model_;
 	// The unnamed enumerations declared so far, which are numbered rather than

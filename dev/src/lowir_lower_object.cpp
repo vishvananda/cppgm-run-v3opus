@@ -864,7 +864,8 @@ void LowirFunctionLowering::destruction_step(const DumpNode& node, bool element,
 // its constructor on it.  A constructor that does nothing is no call at all.
 void LowirFunctionLowering::constructor_call(const Operand& address,
                                              const DumpNode& node, bool always,
-                                             TypeId zeroed, bool storage)
+                                             TypeId zeroed, bool storage,
+                                             bool standing_alone)
 {
 	TypeTable& types = unit_.types();
 	const DumpNode& call = *node.children[0];
@@ -1120,7 +1121,8 @@ void LowirFunctionLowering::constructor_call(const Operand& address,
 		// a declaration named is not that, and the copy that fills it is a step
 		// like any other.  A region already covering the full-expression -
 		// because 12.2p1's temporary is standing in it - still covers this.
-		note_call(!constructor.nonthrowing, transfers_value && always);
+		note_call(!constructor.nonthrowing, transfers_value && always,
+		          standing_alone);
 	}
 	emit_void(out);
 	release_call_step(step);
@@ -1305,6 +1307,45 @@ LowValue LowirFunctionLowering::temporary_object(const DumpNode& node,
 		value.operand = named_operand(Operand::OP_SLOT, found->second);
 		return value;
 	}
+	if (node.children.empty())
+	{
+		// 5.1.2p14: what initializes a closure object is one initialization per
+		// capture, so a lambda that captured nothing has none - and 5.1.2p19
+		// leaves its class no default constructor for a call to stand for.  The
+		// object is the storage alone: 12.2p1 gives it a place in the function
+		// and nothing runs where its lifetime begins.
+		if (into != nullptr)
+		{
+			place_object(entity.id, *into);
+			value.operand = *into;
+			return value;
+		}
+		LowValue alone;
+		alone.type = node.fact.type;
+		alone.lvalue = true;
+		alone.named = true;
+		alone.operand = named_operand(
+			Operand::OP_SLOT,
+			add_generated_slot(node.fact.spelling.c_str(), node.fact.type));
+		name_object(entity.id, alone.operand.text);
+		const std::size_t opens = current_;
+		const std::size_t through = out_.blocks[current_].instructions.size();
+		naming_storage_ = true;
+		value.operand = address_of(alone);
+		naming_storage_ = false;
+		place_object(entity.id, value.operand);
+		// 15.2p2: naming the storage a new object will stand in is no place an
+		// exception could leave the objects already standing, so it stands in
+		// front of the region a call still to be written asks for - the same
+		// advance the naming in front of a constructor's own call makes.
+		if (!unwind_live_.empty() && unwind_mark_.active &&
+		    unwind_mark_.block == current_ && opens == current_ &&
+		    unwind_mark_.at == through)
+		{
+			unwind_mark_.at = out_.blocks[current_].instructions.size();
+		}
+		return value;
+	}
 	if (into != nullptr)
 	{
 		// 12.8p31: the initialization named the storage this object stands in
@@ -1333,9 +1374,13 @@ LowValue LowirFunctionLowering::temporary_object(const DumpNode& node,
 	held.operand = named_operand(Operand::OP_SLOT, slot);
 	const std::size_t opens = current_;
 	const std::size_t written_through = out_.blocks[current_].instructions.size();
+	// 15.2p2: the naming stands in front of a region a change in the standing
+	// objects left pending, for the same reason the mark advances past it.
+	naming_storage_ = written.fact.kind == FactKind::None;
 	const Operand at = written.fact.kind == FactKind::None
 		? address_of(held)
 		: expression(written).operand;
+	naming_storage_ = false;
 	// 12.2p1: every later reader of this temporary reads the one object, so the
 	// address the construction named it by is the address they all use - a
 	// member of it, an argument bound to it, and 12.2p3's end of its lifetime
@@ -1363,7 +1408,7 @@ LowValue LowirFunctionLowering::temporary_object(const DumpNode& node,
 	{
 		unwind_mark_.at = out_.blocks[current_].instructions.size();
 	}
-	constructor_call(at, action, true);
+	constructor_call(at, action, true, kNoType, false, true);
 	// 12.2p1 and 15.2p2: the temporary's lifetime has begun, so an exception
 	// out of anything written while it stands has to end it.
 	begin_object_lifetime(node, opened, at, std::vector<Instruction>());

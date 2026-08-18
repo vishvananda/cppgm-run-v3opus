@@ -938,6 +938,12 @@ AstNode* AstParser::parse_lambda_expression()
 		return fail(start);
 	}
 	node->add(body);
+	// 5.1.2p3: the class this expression declares is unnamed, and the terminals
+	// the expression was written from are what tell it from every other one -
+	// the same thing 9.5p2's unnamed union is named by, and the one fact about
+	// a lambda-expression that is neither a name nor a part of its body.
+	node->begin = static_cast<std::uint32_t>(start.pos);
+	node->end = static_cast<std::uint32_t>(pos_);
 	return node;
 }
 

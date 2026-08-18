@@ -12,7 +12,7 @@ namespace
 // 3.5 makes a declaration a fact about one translation unit, so each is
 // analysed on its own and nothing of one is reachable from another.
 void write_unit_semantics(std::ostream& out, const AstNode& unit,
-                          const AstArena& written)
+                          AstArena& written)
 {
 	SemaAnalyzer analyzer(SemaDialect::Semantics);
 	// 7.1.6.2p1: a name whose nested-name-specifier begins with a

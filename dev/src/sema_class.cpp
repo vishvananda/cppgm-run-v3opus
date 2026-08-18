@@ -15,6 +15,60 @@
 namespace
 {
 
+// 12.4p8 as 12.8p11's boundary asks it: whether the end of an object of this
+// class's lifetime comes to nothing *and* the definition this unit read it off
+// is one the boundary may read it off at all.
+//
+// `vacuous` is 12.4p8's own answer, read from the destructor's body.  A
+// boundary is an agreement between two units, and the body a use of the class
+// has in front of it when the class completes is the one written in the class
+// body of the source the unit itself wrote: a definition written outside the
+// class stands wherever the program put it - after the class, and after
+// anything already carrying an object of it - and a class an included file
+// defined is read for the use that asks rather than where the file was read.
+// Neither is a body this question may be answered from, so an object of a
+// class whose destructor the program provided anywhere else is carried through
+// a place the caller names rather than as its bytes.
+//
+// The question is asked of the whole object: 12.4p8 destroys every base class
+// subobject and every non-static data member, so a class holding one whose
+// bytes do not stand for it does not have bytes that stand for its own.  Each
+// of those was completed before this class, so what they settled is read
+// rather than walked again.
+bool carried_by_its_bytes(const SemaEntity& entity, const Scope& scope,
+                          TypeTable& types, bool vacuous)
+{
+	if (!vacuous)
+	{
+		return false;
+	}
+	const SemaEntity* const destructor = entity.destructor;
+	if (destructor != nullptr && destructor->user_provided &&
+	    (!destructor->own_source_definition ||
+	     destructor->out_of_line_definition))
+	{
+		return false;
+	}
+	for (std::size_t index = 0; index < entity.bases.size(); ++index)
+	{
+		if (!types.has_vacuous_destruction(entity.bases[index].entity->type))
+		{
+			return false;
+		}
+	}
+	for (std::size_t index = 0; index < scope.declarations.size(); ++index)
+	{
+		const SemaEntity& member = *scope.declarations[index];
+		if (declares_subobject(member, scope) &&
+		    !types.is_reference(member.type) &&
+		    !types.has_vacuous_destruction(types.element_of(member.type)))
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
 std::string decimal(unsigned long long value)
 {
 	std::string digits;
@@ -1826,7 +1880,8 @@ void SemaAnalyzer::settle_transfers(SemaEntity& entity, Scope& scope)
 	const bool deleted_copy = copy == nullptr || copy->deleted;
 	types_.settle_copy_facts(types_.strip_cv(entity.type),
 	                         !deleted_copy && copy->trivial, deleted_copy,
-	                         vacuous_destruction(entity.type),
+	                         carried_by_its_bytes(entity, scope, types_,
+	                                              vacuous_destruction(entity.type)),
 	                         !entity.bases.empty());
 }
 

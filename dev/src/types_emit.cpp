@@ -13,7 +13,7 @@ namespace
 // about one unit, so the scopes, entities and types of one are never reachable
 // from another.
 void write_unit_types(std::ostream& out, const AstNode& unit,
-                      const AstArena& written)
+                      AstArena& written)
 {
 	SemaAnalyzer analyzer;
 	// 7.1.6.2p1: a name whose nested-name-specifier begins with a

@@ -1081,9 +1081,14 @@ private:
 	// than an object of the function's own, which is what 8.5p7's zero covers
 	// there: the whole extent the allocation asked for, and not only the bytes
 	// an object of the class holds.
+	// `standing_alone` says the object being built is 12.2p1's own temporary,
+	// standing in storage of the function's that nothing else named: the step
+	// that builds one is no place a region left pending for the objects already
+	// standing belongs inside.
 	void constructor_call(const lowir_model::Operand& address,
 	                      const DumpNode& node, bool always = false,
-	                      TypeId zeroed = kNoType, bool storage = false);
+	                      TypeId zeroed = kNoType, bool storage = false,
+	                      bool standing_alone = false);
 	// 12.6p1 and 12.4p8: the action `node` names, run on every element of the
 	// array it names rather than on one object.  The object the action names is
 	// read again for each element, because where the element is, is where the
@@ -1507,6 +1512,8 @@ private:
 			, live(0)
 			, chained(false)
 			, ended(0)
+			, block(0)
+			, at(0)
 		{}
 
 		std::string dispatch;
@@ -1534,6 +1541,11 @@ private:
 		// that does needs the list as it was, and there is one such list rather
 		// than one per region.
 		unsigned long long ended;
+		// 15.2p2: where the `eh_try` went in, which is what says whether a
+		// close asked to end the region where a step began would leave it
+		// holding anything at all.
+		std::size_t block;
+		std::size_t at;
 	};
 	// 12.6p1 and 8.5.1p7: `count` consecutive elements standing at `base`, each
 	// built by the one call `action` names, written as the loop that one call
@@ -1564,7 +1576,11 @@ private:
 	// stands after it, so a handler it needed would be one over objects the
 	// caller is about to see destroyed anyway.  A region already open around
 	// the full-expression still covers it.
-	void note_call(bool throwing, bool returned_object = false);
+	// `building` says the call is the construction of 12.2p1's own temporary:
+	// the step that builds one is not where a region left pending for the code
+	// after the last change of the live set belongs.
+	void note_call(bool throwing, bool returned_object = false,
+	               bool building = false);
 	// 1.9p10: a full-expression opened and closed, which is where 12.2p3 ends
 	// the temporaries it created and where the region around it ends.
 	void open_full_expression();
@@ -1573,6 +1589,9 @@ private:
 	// inside an open full-expression, a new one left pending for whatever is
 	// written next.  A pending region that nothing follows is no region.
 	void close_region();
+	// The same, ending where the step now being written began: what that step
+	// has already written moves out of the region and stands after it.
+	void close_region_at_step(std::size_t step);
 	void settle_pending_region();
 	// 3.8p1: the object `node` begins a lifetime for joins the ones an
 	// exception has to end, and the region around the step that built it is
@@ -1952,6 +1971,10 @@ private:
 	// Whether the region machinery is writing its own instructions, so that the
 	// jump and the handler-stack instructions a close writes do not re-enter it.
 	bool closing_region_;
+	// 15.2p2: whether what is being written is the naming of storage a new
+	// object will stand in, which is no place an exception could leave the
+	// objects already standing - so a region left pending opens after it.
+	bool naming_storage_;
 	// 1.9p10: how many full-expressions are open, and how many calls that may
 	// throw are still being lowered around the point being written.  A
 	// temporary created where a call is still to be made is one that call may
