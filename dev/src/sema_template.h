@@ -13,6 +13,19 @@ struct SemaEntity;
 class SemaModel;
 class TypeTable;
 
+// 14.8.2.4p3: which of the two declarations' types a partial ordering is asked
+// over, which is one of the clause's three answers.  A call is ordered over the
+// parameters it wrote arguments for - so a default argument, which p3's
+// footnote says is no argument here, orders nothing; a call of a conversion
+// function is ordered over the type each hands back, its parameters being the
+// object alone; and 14.5.6.2's own contexts take the whole function type.
+const std::size_t kEveryPlace = static_cast<std::size_t>(-1);
+const std::size_t kResultPlace = static_cast<std::size_t>(-2);
+
+// The answers 14.5.6.2p2 has been given for one ordered pair of declarations,
+// one entry per limit the pair has been asked under - which is one or two.
+typedef std::vector<std::pair<std::size_t, bool> > OrderingAnswers;
+
 // 14.5.6.1p5: the stand-ins two template heads are compared through, and the
 // signature each declaration was built into.
 //

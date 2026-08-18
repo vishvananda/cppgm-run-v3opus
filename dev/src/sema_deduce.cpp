@@ -1115,19 +1115,27 @@ SemaEntity* Deduction::deduced_conversion(SemaEntity& primary, TypeId wanted)
 	// one P of this deduction is what the declarator handed back.
 	TypeId pattern = types.target(written_part(primary, made_of, bindings));
 	TypeId argument = wanted;
-	if (!types.is_reference(argument))
+	// 14.8.2.3p2: a P that is a reference type is the type it refers to, and
+	// p4's second sentence says the same of A - whichever of the two the other
+	// is.  What is left after that carries no top-level qualification on either
+	// side: p3 takes P's off and p4's first sentence takes A's, and where A was
+	// a reference p5's first bullet is what lets the deduced A be the less
+	// qualified type the reference refers to.
+	//
+	// So `operator U()` deduces `U` from `const A &` exactly as it does from
+	// `A`, which is what makes the conversion 13.3.1.4 gathers for a copy
+	// constructor and the one it gathers for a move constructor *one* function
+	// - and 13.3.3.2p3 can only order two sequences that hold one.
+	if (types.is_reference(pattern))
 	{
-		// 14.8.2.3p2: where A is no reference type, a P that is one is the type
-		// it refers to and neither side carries the cv-qualification a prvalue
-		// of the type would not - so `operator U()` deduces `U` from `const
-		// int` exactly as it does from `int`.
-		if (types.is_reference(pattern))
-		{
-			pattern = types.target(pattern);
-		}
-		pattern = types.strip_cv(pattern);
-		argument = types.strip_cv(argument);
+		pattern = types.target(pattern);
 	}
+	if (types.is_reference(argument))
+	{
+		argument = types.target(argument);
+	}
+	pattern = types.strip_cv(pattern);
+	argument = types.strip_cv(argument);
 	if (!match(pattern, argument, bindings))
 	{
 		return nullptr;

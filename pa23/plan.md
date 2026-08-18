@@ -44,25 +44,23 @@ Owners, in the order a use walks them:
 
 ## Current Failure Map
 
-426 tests (400 handout + 26 course), 370 passing (handout-only 344 / 400). The
-56 left, all of them handout, by the compiler behavior each wants:
+429 tests (400 handout + 29 course), 376 passing (handout-only 347 / 400). The
+53 left, all of them handout, by the compiler behavior each wants:
 
 | group | n | shape |
 | --- | --- | --- |
 | a call or name no declaration answers | 10 | the candidate a deduction or a substitution should have kept is dropped; two are `__builtin_invoke` |
 | LowIR text mismatch | 16 | the program compiles; the emitted LowIR differs |
-| 13.3 ranks a set and finds no best | 4 | `has no best declaration` - two candidates the ordering should have told apart |
 | a wrong answer survives to a false `static_assert` | 5 | the refusal a substitution should make is not made at all |
 | a value place still outside the read subset | 2 | `a template argument is written outside the PA12 subset` |
+| 13.3 ranks a set and finds no best | 1 | `compat::swap`, which is 14.5.7p1's equivalence below and not an ordering gap |
 | the rest | 19 | one-off clauses, one test each |
 
-The `::template` group is gone: only two of the five remain and neither is a
-naming gap - `500-tcc-member-constructible-pack-sfinae.t` is a divergence the
-reference alone has (below), and
-`300-nondeduced-partial-pattern-recursive-completion.t` fails at a detector's
-own overload set. The `invoke_result_impl<void,Args...>::type` pair is *not* a
-deduction gap - both tests write `__builtin_invoke`, which no layer implements
-at all.
+The `has no best declaration` group is down to that one: checkpoint 15 landed
+14.8.2.4p3's three contexts and the remaining pair is two spellings of one
+dependent value read as two readings. The `invoke_result_impl<void,Args...>::type`
+pair is *not* a deduction gap - both tests write `__builtin_invoke`, which no
+layer implements at all.
 
 Known gaps diagnosed but not landed:
 
@@ -118,6 +116,22 @@ Known gaps diagnosed but not landed:
   hard refusal here where both oracles drop the candidate.
 - **Two partial specializations reached through a non-deduced array bound are
   not ordered against each other.**
+- **14.8.2.3p4's second sentence at a reference the *reference binary* does not
+  read.** `operator T()` reaching a required result of `const holder &` deduces
+  `T = holder` here and in `g++` - the object files agree byte for byte on
+  `_ZNK5makercvT_I6holderEEv` - and `T = const holder &` in the reference, which
+  is `_ZNK5makercvT_IRK6holderEEv` and a direct binding with no temporary. No
+  handout fixture pins either reading, and a course fixture cannot hold the
+  shape at all because its `.ref` would come from the reference.
+- **An `f32` item whose value came from an integer literal is written `0f`
+  here.** The reference writes `f32 0` for a member the program initialized with
+  `0` and `f32 0.0F` for one value-initialization made, which is two spellings of
+  one value; `spell_floating` normalizes the suffix to the item's width for both.
+  It is the only diff left in
+  `spec/300-conversion-function-template-object-result-copy-init.t`.
+- **`pa24/tests/spec/100-function-template-nontype-function-pointer-specialization-call.t`
+  segfaults**, on this build and on every earlier one swept. It is a later PA's
+  input and no pa23 or earlier file crashes.
 - **8.3.4p1's bound over a place is read in a class template's member and in an
   alias and not in a function template's parameter.**
 - **8.3.5p8's function returning an array or a function is not refused**, so
@@ -145,49 +159,57 @@ Known gaps diagnosed but not landed:
 
 ## Active Checkpoint
 
-**Audit: the list a member wrote is a second fact of its name.** Complete;
-ledger row 14 is its record.
+**The types a deduction between two declarations is asked over.** Complete;
+ledger row 15 is its record.
 
-- *Owner.* `sema_declarator.cpp` owns 14.6p2's question - `stood_in_for` is
-  whether a stand-in is the one this reading made for the last component
-  written, with 14.2p4's list taken off the spelling before the names are
-  compared. `sema_constexpr.cpp` owns 7.1.5p2's - `constexpr_declared` reads the
-  flag off the declaration chain rather than off a field every specialization
-  carries, so `sema_template.cpp`'s `specialize` copies it no longer.
-- *Data flow.* Checkpoint 13 split `dependent_member` into the name and the
-  list, and the two readers that had been asking one question of it each got a
-  wrong answer: 14.6p2 compared `dependent_member` to the whole written
-  component, so a member written as a template-id stopped being refused without
-  `typename`; and 7.1.5p2, written as a field of every specialization, reached
-  14.7.3p1's - the one declaration the program wrote out for itself - so a
-  `template<>` with no `constexpr` folded. Both facts belong to the reading that
-  asks them: the comparison puts the name and the list back together, and the
-  `constexpr` question is the specialization's own flag or the template's where
-  no declaration of its own was written.
-- *Expected complexity.* One `TemplateId` construction and one string
-  comparison per qualified name whose prefix is a place - asked last of 14.6p2's
-  chain, which is also what makes it safe, because the record it reads is only
-  there for a type a dependent prefix made. `constexpr_declared` is three field
-  reads per fold that reaches a callee with no body, against one assignment per
-  specialization removed.
-- *Validation.* 24 generated cross-product shapes and 34 hand-written probes
-  against `g++`, the reference binary, the checkpoint binary and the
-  pre-checkpoint binary; every accepted one linked through `lowir2cy86` and
-  `cy86` and run to `g++`'s own value. Every course `.ref` regenerated from the
-  reference binary and unchanged, plus one new fixture. `through-pa22` at
-  2948 / 2948; corpus 1.99 s against the pre-audit binary's 2.01 s; no `rc > 1`
-  in pa23's 400 files or in the 2083 of pa10 through pa22; valgrind clean over
-  139 inputs.
+- *Owner.* `sema_template_signature.cpp` owns 14.8.2.4p3 - `ordering_parameters`
+  answers which types the pair is ordered over and `ordering_places` how many of
+  them, both keyed by one `limit` that is p3's three bullets: `kEveryPlace`,
+  a count, or `kResultPlace`. `sema_overload.cpp` is the only caller that has a
+  context to name, at its two ordering sites. `sema_deduce.cpp` owns 14.8.2.3's
+  own transformations. `sema_scope.cpp` owns 14.6.4.2p1's number, which is a
+  fact of where the *name* came into scope in a region.
+- *Data flow.* `at_least_as_specialized` compared whole parameter lists and
+  answered `false` in both directions where the two were of different lengths -
+  so a call of six over `build(G &, int, int, R &, bool = true, bool = false)`
+  beside `build(G &, int, int, R &, V, E, bool = false)` was ranked by nothing.
+  The limit is the count 13.3's own conversions were already ranked over, so it
+  arrives at `better_candidate` with no new question asked of the call; a
+  trailing run is a place of its own past it, because 14.8.2.4p8's first
+  sentence is what leaves a fixed list ahead of one that ends in a pack and it
+  has nothing to fail on if the run is cut off. 14.8.2.3's P and A each lose a
+  reference and a top-level qualification now, wherever the other one came
+  from - `operator U()` deduces `U` from `const A &` as it does from `A`, so
+  13.3.1.4's copy constructor and move constructor reach *one* conversion
+  function and 13.3.3.2p3 can order the pair at all. And a namespace binding
+  made over one the region already made keeps the first one's number, so
+  `extern int anchor;` above a pattern and `int anchor = 4;` below it are one
+  name the pattern's own reading may still find.
+- *Expected complexity.* Two `min`s and one `is_pack_expansion` per ordering,
+  on a path already walking both parameter lists; the memo is keyed by the pair
+  and the limit and holds a run of one or two entries, which is how many limits
+  one pair is ever asked under. `kResultPlace` is one one-element vector per
+  ordering of two conversion templates. The bind change is a pointer test and a
+  field read per namespace binding, and moves no work into a loop.
+- *Validation.* 24 + 12 + 6 generated shapes against `g++`, the reference binary
+  and the pre-checkpoint binary, every accepted one linked through `lowir2cy86`
+  and `cy86` and run to `g++`'s own value - 42 of 42 agreeing with `g++`,
+  including the two the reference alone refuses. The object file's
+  `_ZNK5makercvT_I6holderEEv` is byte-identical to `g++`'s. Every course `.ref`
+  regenerated from the reference binary and unchanged, plus three new fixtures.
+  `through-pa22` at 2948 / 2948; corpus 2.06 s against the pre-checkpoint
+  binary's 2.07 s; no `rc > 1` in pa23's 429 files or in the 2572 of pa10
+  through pa22; valgrind clean over 151 inputs.
 
 ## Next Substantial Checkpoint
 
-**The four `has no best declaration` sets and the five false `static_assert`s**,
-which are 13.3 and 14.5.6.2 rather than 14.8.2's naming: two candidates one
-ordering should tell apart, and a substitution whose refusal is never made.
-`300-nondeduced-partial-pattern-recursive-completion.t` is the same subject seen
-through a detector - `sfinae::test` has two declarations and the set ranks
-neither best - and `200-function-template-fixed-parameter-default-tail-partial-order.t`
-writes it plainly, a fixed parameter with a default beside a trailing pack.
+**The five false `static_assert`s and the eight `no declaration ... accepts the
+arguments of a call`**, which are 14.7.1p1's timing rather than 13.3's ranking:
+a body read where 14.7.1p1 asks for none - `300-decltype-conditional-no-body-instantiation.t`
+instantiates `declval`'s body for an operand 5.16 only reads the type of - and a
+candidate a deduction dropped where the standard keeps it. The two groups meet
+at `300-member-overload-set-survives-class-completion.t`, whose detector reads a
+trailing return type over an overload set the class had not finished declaring.
 
 ## Performance Model
 
@@ -222,27 +244,33 @@ only the two figures of a pair say anything.
 | body nesting | d class templates, each member body calling the one below | 0.00 s flat from d = 4 to d = 32, on both binaries |
 | narrowed-clause nesting | d nested braced constructions, each clause arithmetic over the one below | 0.00 s flat from d = 4 to d = 32, on both binaries |
 | declarations of one name | n function templates, one parameter list | 0.04 @400, 0.24 @1600, **0.80 s @3200 - quadratic** |
-| **narrowed-clause gate multiplicity** | n braced constructions whose clause is a constant reaching a *wider* unsigned destination - the pair the corrected gate folds for | **0.00 @32, 0.00 @128, 0.02 @512, 0.04 @1024 - and the same on the pre-audit binary, and the same again with a 64-deep `constexpr` recursion for a clause** |
-| **qualification multiplicity** | n arguments through 4.4's walk, which every candidate asks | **0.00 @32, 0.00 @128, 0.01 @512, 0.03 @1024 - and the same** |
-| **array-qualification multiplicity** | n arguments adding `const` at an array's element | **0.00 @32, 0.00 @128, 0.01 @512, 0.03 @1024 - the pre-audit binary refuses the program** |
-| **subscript multiplicity** | n subscripts, one `is_incomplete` apiece | **0.00 @32, 0.00 @128, 0.01 @512, 0.02 @1024 - and the same** |
-| **array-dimension nesting** | d dimensions under one qualification conversion | **0.00 s flat from d = 4 to d = 32** |
+| narrowed-clause gate multiplicity | n braced constructions whose clause is a constant reaching a *wider* unsigned destination - the pair the corrected gate folds for | 0.00 @32, 0.00 @128, 0.02 @512, 0.04 @1024 - and the same on the pre-audit binary, and the same again with a 64-deep `constexpr` recursion for a clause |
+| qualification multiplicity | n arguments through 4.4's walk, which every candidate asks | 0.00 @32, 0.00 @128, 0.01 @512, 0.03 @1024 - and the same |
+| array-qualification multiplicity | n arguments adding `const` at an array's element | 0.00 @32, 0.00 @128, 0.01 @512, 0.03 @1024 - the pre-audit binary refuses the program |
+| subscript multiplicity | n subscripts, one `is_incomplete` apiece | 0.00 @32, 0.00 @128, 0.01 @512, 0.02 @1024 - and the same |
+| array-dimension nesting | d dimensions under one qualification conversion | 0.00 s flat from d = 4 to d = 32 |
 | discarded-argument multiplicity | n classes x 2 detectors over `discard<typename T::pointer>`, one `mentions` walk and one re-read apiece | 0.01 @32, 0.02 @128, 0.12 @512, 0.25 @1024 - linear.  The pre-checkpoint binary refuses the program at the first assert, so its 0.04 s is no measurement |
 | discarded-run multiplicity | n calls through `first_of<true_tag, enable_if_t<Bn::ok>...>`, one expansion built per call for its refusals alone | 0.00 @32, 0.02 @128, 0.08 @512, 0.18 @1024 - linear; the pre-checkpoint binary refuses it |
 | pack-reading multiplicity | n function templates, each a value argument whose places `note_places` records | 0.00 @32, 0.02 @128, 0.10 @512, 0.20 @1024 - linear; the pre-checkpoint binary refuses it |
 | discarded-alias nesting | d nested discarding aliases, each naming the one below beside the member being detected | 0.00 s flat from d = 4 to d = 48 |
-| **collapsing-alias multiplicity** | n function templates, each declared through `discard<T>` and defined through `void` - the pair 14.5.7p1's scope restores | **0.00 @32, 0.01 @128, 0.03 @512, 0.06 @1024 - and the same on the pre-checkpoint binary, which accepts this program** |
-| **member template-id multiplicity** | n typedefs of one `Ops<P>::template box<U>` in one pattern - the interned stand-in read once per written component | **0.00 @32, 0.00 @128, 0.01 @512, 0.02 @1024 - and the same on the pre-checkpoint binary** |
-| **member template-id distinctness** | n typedefs of `Ops<P>::template box<An>`, a different argument apiece, so no two share an entry | **0.00 @32, 0.01 @128, 0.06 @512, 0.12 @1024 - against 0.00 / 0.01 / 0.05 / 0.12** |
-| **member value-argument multiplicity** | n `Ops<P>::template at<N>::value` operands, each argument read as a type first and then as an expression | **0.00 @32, 0.00 @128, 0.00 @512, 0.01 @1024 - and the same** |
-| **member value-argument nesting** | d nested `box<...>::value` under one such argument, which is where a type-then-value retry could double | **0.00 s flat from d = 4 to d = 32** |
+| collapsing-alias multiplicity | n function templates, each declared through `discard<T>` and defined through `void` - the pair 14.5.7p1's scope restores | 0.00 @32, 0.01 @128, 0.03 @512, 0.06 @1024 - and the same on the pre-checkpoint binary, which accepts this program |
+| member template-id multiplicity | n typedefs of one `Ops<P>::template box<U>` in one pattern - the interned stand-in read once per written component | 0.00 @32, 0.00 @128, 0.01 @512, 0.02 @1024 - and the same on the pre-checkpoint binary |
+| member template-id distinctness | n typedefs of `Ops<P>::template box<An>`, a different argument apiece, so no two share an entry | 0.00 @32, 0.01 @128, 0.06 @512, 0.12 @1024 - against 0.00 / 0.01 / 0.05 / 0.12 |
+| member value-argument multiplicity | n `Ops<P>::template at<N>::value` operands, each argument read as a type first and then as an expression | 0.00 @32, 0.00 @128, 0.00 @512, 0.01 @1024 - and the same |
+| member value-argument nesting | d nested `box<...>::value` under one such argument, which is where a type-then-value retry could double | 0.00 s flat from d = 4 to d = 32 |
 | unsettled-specialization multiplicity | n function templates, each a default argument folding `ok<U>()` over its own place | 0.00 @32, 0.01 @128, 0.07 @512, 0.14 @1024 - linear; the pre-checkpoint binary refuses the program |
-| **member-naming cross product** | n call sites x one member template-id substituted to a distinct argument apiece | **0.00 @32, 0.00 @128, 0.02 @512, 0.05 @1024 - and the same on the pre-audit binary** |
-| **plain-member multiplicity** | n `typename T::type` typedefs in one pattern - the path `stood_in_for` was added to | **0.00 @32, 0.00 @128, 0.01 @512, 0.01 @1024, 0.03 @2048 - and the same** |
-| **constexpr-member multiplicity** | n static data members of one pattern, each folding a member template `constexpr` stands on | **0.00 @32, 0.00 @128, 0.01 @512, 0.02 @1024 - and the same** |
-| **member-naming nesting** | d nested `T::template at<...>::value`, every level dependent | **0.00 s flat from d = 2 to d = 20, on both binaries** |
-| **member type-argument nesting** | d nested `A::box<...>::type` written as one member's argument | **0.00 s flat from d = 4 to d = 32, on both binaries** |
-| whole PA23 corpus | 400 handout and 26 course files, one process each | **1.99 s warm over three alternating passes, against the pre-audit binary's 2.01 s**; no `rc > 1` here or in the 2083 files of pa10 through pa22; valgrind clean over 139 inputs |
+| member-naming cross product | n call sites x one member template-id substituted to a distinct argument apiece | 0.00 @32, 0.00 @128, 0.02 @512, 0.05 @1024 - and the same on the pre-audit binary |
+| plain-member multiplicity | n `typename T::type` typedefs in one pattern - the path `stood_in_for` was added to | 0.00 @32, 0.00 @128, 0.01 @512, 0.01 @1024, 0.03 @2048 - and the same |
+| constexpr-member multiplicity | n static data members of one pattern, each folding a member template `constexpr` stands on | 0.00 @32, 0.00 @128, 0.01 @512, 0.02 @1024 - and the same |
+| member-naming nesting | d nested `T::template at<...>::value`, every level dependent | 0.00 s flat from d = 2 to d = 20, on both binaries |
+| member type-argument nesting | d nested `A::box<...>::type` written as one member's argument | 0.00 s flat from d = 4 to d = 32, on both binaries |
+| **ordering multiplicity** | n calls of one pair the limit is what orders - defaults on one side, deduced parameters on the other | **0.00 @32, 0.00 @128, 0.02 @512, 0.04 @1024 - linear; the pre-checkpoint binary refuses the program** |
+| **ordering distinctness** | n distinct pairs, one call each, so no two calls share a memo entry | **0.01 @32, 0.03 @128, 0.12 @512, 0.25 @1024 - linear; the pre-checkpoint binary refuses it** |
+| **overload-set width** | one call over n candidate templates that all tie on conversions, which is where the pairwise ordering walk lives | **0.01 @128, 0.01 @256, 0.03 @512 - and 0.01 / 0.01 / 0.03 on the pre-checkpoint binary, which accepts this program** |
+| **conversion-ordering multiplicity** | n classes x two conversion templates, 14.8.2.4p3's second bullet run once per initialization | **0.01 @32, 0.03 @128, 0.13 @512, 0.27 @1024 - linear; the pre-checkpoint binary refuses it** |
+| **ordering nesting** | d nested `W<...>` under the one place two templates are ordered at | **0.00 s flat from d = 4 to d = 32, on both binaries** |
+| **conversion-ordering nesting** | d pointer levels in the two conversion-type-ids being ordered | **0.00 s flat from d = 4 to d = 32, on both binaries** |
+| whole PA23 corpus | 400 handout and 29 course files, one process each | **2.06 s warm over three alternating passes, against the pre-checkpoint binary's 2.07 s**; no `rc > 1` here or in the 2572 files of pa10 through pa22; valgrind clean over 151 inputs |
 
 Why 14.6.4.2p1's bound stays flat: it is one `std::uint32_t` written where a
 definition is recorded and put back by a two-assignment scope where it is read,
@@ -297,6 +325,18 @@ reads a record the type has not got. `constexpr_declared` is three field reads
 per fold that reaches a callee with no body, against one assignment per
 specialization that no longer happens.
 
+Why 14.8.2.4p3's limit costs nothing: it is two `min`s and one
+`is_pack_expansion` on a path that already walks both parameter lists, and it
+carries no new question to the call - the count it takes is the one 13.3 ranked
+the conversions over. The memo is keyed by the pair *and* the limit and holds a
+short run rather than a nested map, because a pair is asked under the call's
+count and, at most, under the whole type. `kResultPlace` builds one one-element
+vector for a pair of conversion templates, which is the only shape that reaches
+it at all. The ordering itself is what it was: a `Deduction::match` per place,
+memoised per (pair, limit), so an overload set of n candidates asks 2n of them
+however many times the ranking compares - which is what the width sweep says,
+0.03 s at 512 candidates on this binary and on the one before it.
+
 ## Completed Checkpoints
 
 | # | checkpoint | owner | what landed | measured |
@@ -315,3 +355,4 @@ specialization that no longer happens.
 | 12 | audit: the type a naming is, and the arguments worth keeping | `sema_specialize.{h,cpp}` | 14.5.7p1 is the other half of the sentence 7.1.3p2 opens: a template-id over an alias template *is* the associated type, so the entry checkpoint 11 kept beside that type was a second type for one the program can also write out longhand - and `f(discard<T> *)` declared beside `f(void *)` defined stopped being two declarations of one template, at `TemplateSignature::of`'s canonical form, at 13.1's index of a parameter-type-list and at the return-type comparison a found pair is checked by, which is a function template, its out-of-class definition, a member of a class template, a member template of a class that is not one and a naming under another argument list. `rebuilt` is where the two halves meet: an argument that is a *place* is one 14.7.1p1 looks up, so nothing can refuse and the naming collapses to what its type-id named; an argument it *builds* - a member of a prefix, a specialization over a template place, a naming that discarded one of its own, an expression left standing, or a type derived over any of them - is what the entry is kept for, which is every argument 14.8.2p8 has something to fire on | 363 / 422 -> 364 / 423 (handout 346 / 405 unmoved); through-pa22 2948 / 2948; 40 probe programs against `g++`, the reference and the pre-checkpoint binary, each accepted one outside the recorded divergences running to `g++`'s value; every course `.ref` regenerated from the reference binary and unchanged; corpus 1.96 s against the pre-checkpoint binary's 1.92 s; no `rc > 1`; valgrind clean over 145 inputs |
 | 13 | a dependent member written as a template-id, and the specialization no list has settled | `type_model.{h,cpp}`, `sema_specialize.{h,cpp}`, `sema_deduce.{h,cpp}`, `sema_declarator.cpp`, `sema_template.cpp`, `sema_constexpr.cpp`, `sema_pack.cpp`, `lowir_abi.cpp`, `sema_analyzer.h` | 14.2p4 makes the list a member wrote part of what its name stands for, and `dependent_member_name` had kept only the prefix and the raw spelling - so `typename Ops<P>::template difference_type<In>` was looked up as a plain type name in the class the arguments made and every candidate that asked for it was dropped.  The list is read where the reading stands, each entry a type-id where the spelling is one and 5.19's expression where it is not because 14.1p4 has no head to ask, and interned beside the prefix and the name; `Substitution::member` builds it again where the arguments arrive and 14.3.3p1's two exits finish it - a member class template through `instantiate_class`, a member alias template through `alias_arguments` - while a class with no such member template is 14.8.2p8's failure.  The ABI writes the third form of `<unresolved-name>`, and `mentions`, `collect_packs` and the `dependent_` interning key each took the new edge.  The value half is the same sentence about a function template: `Substitution::unsettled` says a specialization whose template has no pattern recorded - which 14.6p8's reading of a class template's body is what leaves - or whose own list still names a place is one 14.7.1p1 instantiates nothing for, so `instantiate` leaves it and `ConstexprReading::call` stands a value in, where the old path read a body over types no argument gave and refused programs both oracles accept.  7.1.5p2 travels with the declaration, so `specialize` copies `constexpr_function` for the one reading that writes no definition to read it off | 364 / 423 -> 369 / 425 (handout 346 -> 349 / 405); through-pa22 2948 / 2948; 16 + 12 probe programs against `g++`, the reference and the pre-checkpoint binary, every accepted one linked and run to `g++`'s value with one recorded divergence; every course `.ref` regenerated from the reference binary and unchanged; corpus 2.16 s against the pre-checkpoint binary's 2.16 s; no `rc > 1`; valgrind clean over 123 inputs |
 | 14 | audit: the list a member wrote is a second fact of its name | `sema_template.cpp`, `sema_constexpr.cpp`, `sema_declarator.cpp` | checkpoint 13's rules are right - 24 cross-product shapes of the idiom agree with `g++` on all, the object file's third form of `<unresolved-name>` is byte-identical to the reference and to `g++` for the plain, the pack and the value form, and two units naming one such signature write one weak definition under one name.  What none of it carried is that splitting `dependent_member` into a name and a list left the two readers that ask one question of it wrong.  14.6p2's compared `dependent_member` to the whole written component - `box` against `box<int>` - so `T::template box<int> b;` with no `typename` stopped being refused while `T::plain` one line away still was; `stood_in_for` puts the name and the list back together, and is asked last of the chain because it reads a record only a type a dependent prefix made has.  And 7.1.5p2 was written as a field `specialize` copies onto every specialization, which is 14.7.3p1's too: `template<> int f<int>()` declared without `constexpr` beside a `constexpr` primary folded, and `char a[f<int>()]` was a program both oracles refuse and the checkpoint translated.  The copy is gone and `constexpr_declared` asks the declaration chain at the one reading that writes no definition to read the flag off, which is also what says whether the refusal is 5.19's about the program or the edge of this build | 369 / 425 -> 370 / 426 (handout 344 / 400 unmoved, the failing 56 the same file for file); through-pa22 2948 / 2948; 24 generated cross-product shapes and 34 probes against `g++`, the reference, the checkpoint binary and the pre-checkpoint binary, every accepted one linked and run to `g++`'s value; every course `.ref` regenerated from the reference binary and unchanged; corpus 1.99 s against the pre-audit binary's 2.01 s; no `rc > 1` in pa23's 400 files or the 2083 of pa10 through pa22; valgrind clean over 139 inputs |
+| 15 | the types a deduction between two declarations is asked over | `sema_template_signature.cpp`, `sema_analyzer.h`, `sema_template.h`, `sema_overload.cpp`, `sema_deduce.cpp`, `sema_scope.cpp` | 14.8.2.4p3 has three answers to which types a partial ordering is done over and this build had only implemented the third: a call was ordered over the *whole* parameter list of each declaration, so `build(G &, int, int, R &, bool = true, bool = false)` beside `build(G &, int, int, R &, V, E, bool = false)` was two lists of different lengths and the deduction failed both ways with the call ranked by nothing.  `limit` is now p3's own answer - `kEveryPlace`, the count the call wrote arguments for, or `kResultPlace` - and `ordering_parameters` and `ordering_places` are where it is read.  p3's footnote is why a default argument orders nothing, and 14.8.2.4p12 is why a *trailing run* is a place of its own past the limit: cut off, p8's first sentence has no A a pack was transformed from to fail on, and `dispatch(C &, S, T &&)` stops being more specialized than `dispatch(C &, S, T &&, R &&...)`.  p3's second bullet had no implementation at all - two conversion templates were ordered over the object parameter, which tells them apart by nothing - and `operator T**()` now beats `operator T*()` for an `int **` exactly as it does in `g++`.  14.8.2.3p2 and p4 are the same sentence one tier down: the reference and the top-level qualification come off P and A wherever the *other* one came from, so `operator U()` deduces `U` from `const A &`, 13.3.1.4's copy constructor and move constructor reach one conversion function rather than two, and 13.3.3.2p3 has a pair it can order.  The sibling probe found 14.6.4.2p1's number written on the wrong declaration: a namespace binding made over one the region already made was numbered where *it* stood, so `extern int anchor;` above a pattern and `int anchor = 4;` below it put a name the pattern could see out of its own reach - the number is the first binding's now, and 13.1's chain walk still reads each declaration's own | 370 / 426 -> 376 / 429 (handout 344 -> 347 / 400); through-pa22 2948 / 2948; 42 generated shapes against `g++`, the reference and the pre-checkpoint binary, agreeing with `g++` on all 42 and every accepted one linked and run to its value, with two the reference alone refuses; `_ZNK5makercvT_I6holderEEv` byte-identical to `g++`'s; every course `.ref` regenerated from the reference binary and unchanged, plus three new fixtures; corpus 2.06 s against the pre-checkpoint binary's 2.07 s; no `rc > 1` in pa23's 429 files or the 2572 of pa10 through pa22; valgrind clean over 151 inputs |

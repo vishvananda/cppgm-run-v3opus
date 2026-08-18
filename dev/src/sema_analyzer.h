@@ -2046,19 +2046,20 @@ private:
 	                      SemaEntity* right_template = nullptr);
 	// 14.5.6.2p2: whether every parameter type of `right` is deduced from the
 	// one `left` wrote in the same place, which is what makes `left` at least
-	// as specialized as `right`.  The answer is a fact of the two templates
-	// and is kept, because a call over a large overload set asks it of the
-	// same pair once per comparison.
-	bool at_least_as_specialized(SemaEntity& left, SemaEntity& right);
+	// as specialized as `right`.  `limit` is 14.8.2.4p3's answer to how many
+	// places that is.  The answer is a fact of the pair and the limit, and is
+	// kept, because a call over a large set asks it once per comparison.
+	bool at_least_as_specialized(SemaEntity& left, SemaEntity& right,
+	                             std::size_t limit = kEveryPlace);
 	// 14.5.6.2p4: whether `left` is more specialized than `right`, which is the
 	// one question 13.3.3p1's tie between two specializations and 13.4p1's
 	// target type both ask of the templates a deduction made them from.
-	bool more_specialized(SemaEntity& left, SemaEntity& right);
+	bool more_specialized(SemaEntity& left, SemaEntity& right,
+	                      std::size_t limit = kEveryPlace);
 	// 14.5.6.2p9: which of two templates the places both of them deduce leave
 	// ahead, which is what the references and the qualifiers 14.5.6.2p5 and p7
-	// took off the types still say.  Positive for `left`, negative for `right`,
-	// zero where the places do not agree or say nothing.
-	int reference_order(SemaEntity& left, SemaEntity& right);
+	// took off the types still say.  Positive for `left`, negative for `right`.
+	int reference_order(SemaEntity& left, SemaEntity& right, std::size_t limit);
 	// Rewrites what the dump wrote for `value` where a conversion is visible in
 	// it: a null pointer constant, a resolved function name, and the temporary
 	// a reference binds to.  Each rewrites the line the operand already wrote,
@@ -2242,9 +2243,9 @@ private:
 	// costs one split.
 	std::unordered_map<std::string, std::vector<std::string> > value_words_;
 	// 14.5.6.2p2: which of two function templates is at least as specialized as
-	// the other, keyed by the two declarations.  It is a fact of the pair, and
-	// 13.3.3p1 asks it of the same pair once for every comparison a call makes.
-	std::unordered_map<std::uint64_t, bool> specialization_order_;
+	// the other, keyed by the two declarations and by 14.8.2.4p3's limit - a
+	// pair is asked under one or two of those, so the limits are a short run.
+	std::unordered_map<std::uint64_t, OrderingAnswers> specialization_order_;
 	// 14.5.6.1p5: the stand-ins two template heads are compared through and the
 	// signature each declaration was built into, which `sema_template.h` owns
 	// beside the head they are built from.

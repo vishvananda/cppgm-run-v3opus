@@ -1,0 +1,88 @@
+global @chosen : i32 [binding=strong, object=_Z6chosen] = 0
+global @anchor : i32 [binding=strong, object=_Z6anchor] = 4
+global @one [binding=strong, object=_Z3one] = {
+  i32 3
+}
+
+function @pick(%__param0 : i64) -> void [binding=strong, object=_Z4pickl] {
+  slot $__param0 : i64
+
+  block ^entry:
+    store i64 %__param0, $__param0
+    %t1 = load i32 @chosen
+    %t2 = binary add i32 %t1, 1
+    store i32 %t2, @chosen
+    return void
+}
+function @pick__ov2(%__param0 : i32) -> void [binding=strong, object=_Z4picki] {
+  slot $__param0 : i32
+
+  block ^entry:
+    store i32 %__param0, $__param0
+    %t1 = load i32 @chosen
+    %t2 = binary add i32 %t1, 100
+    store i32 %t2, @chosen
+    return void
+}
+function @helper(%value : i32) -> i32 [binding=strong, object=_Z6helperi] {
+  slot $value : i32
+
+  block ^entry:
+    store i32 %value, $value
+    %t1 = load i32 $value
+    %t2 = binary add i32 %t1, 1
+    return i32 %t2
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $cond__1 : i32
+
+  block ^entry:
+    %t1 = call i32 @run(1)
+    %t2 = addr @one
+    %t3 = call i32 @held(%t2)
+    %t4 = binary add i32 %t1, %t3
+    %t5 = load i32 @chosen
+    %t6 = binary add i32 %t4, %t5
+    %t7 = binary add i32 1, 1
+    %t8 = binary add i32 %t7, 4
+    %t9 = binary add i32 %t8, 3
+    %t10 = binary add i32 %t9, 1
+    %t11 = cmp eq i32 %t6, %t10
+    branch %t11, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t12 = load i32 $cond__1
+    return i32 %t12
+}
+function @run(%value : i32) -> i32 [binding=weak, object=_Z3runIiEiT_] {
+  slot $value : i32
+
+  block ^entry:
+    store i32 %value, $value
+    %t1 = load i32 $value
+    %t2 = convert sext i64 i32 %t1
+    call void @pick(%t2)
+    %t3 = load i32 $value
+    %t4 = call i32 @helper(%t3)
+    %t5 = load i32 @anchor
+    %t6 = binary add i32 %t4, %t5
+    return i32 %t6
+}
+function @held(%of : ptr) -> i32 [binding=weak, object=_Z4heldI3boxEiPT_] {
+  slot $of : ptr
+
+  block ^entry:
+    store ptr %of, $of
+    %t1 = load ptr $of
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i32 %t2
+    return i32 %t3
+}

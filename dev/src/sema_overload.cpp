@@ -593,10 +593,12 @@ SemaAnalyzer::Match SemaAnalyzer::conversion_match(const Value& argument,
 			// 13.3.3p1: two specializations whose conversions are
 			// indistinguishable are told apart by 14.5.6.2's ordering of the
 			// templates they were made from, exactly as a call tells any two
-			// deduced candidates apart.
-			order = more_specialized(*from, *chosen_from)
+			// deduced candidates apart - over the types 14.8.2.4p3's second
+			// bullet names, which for a conversion function is what it hands
+			// back and not the object it is the only parameter of.
+			order = more_specialized(*from, *chosen_from, kResultPlace)
 				? 1
-				: (more_specialized(*chosen_from, *from) ? -1 : 0);
+				: (more_specialized(*chosen_from, *from, kResultPlace) ? -1 : 0);
 		}
 		if (order > 0)
 		{
@@ -1944,10 +1946,15 @@ bool SemaAnalyzer::better_candidate(const Match* left, const Match* right,
 		return true;
 	}
 	// 13.3.3p1: two specializations whose conversions are indistinguishable are
-	// told apart by 14.5.6.2's ordering of the templates they were made from,
-	// which is a question about the two patterns and not about this call.
+	// told apart by 14.5.6.2's ordering of the templates they were made from -
+	// a question about the two patterns, except for 14.8.2.4p3's one fact of
+	// this call: how many places it wrote arguments for, which is the count the
+	// conversions above were already ranked over.  A parameter no argument
+	// reached orders nothing, so `f(T &, U &, bool = true, bool = false)` and
+	// `f(T &, U &, V, W, bool = false)` are ordered over four places and not
+	// left unordered by the two lists being of different lengths.
 	return left_template != nullptr && right_template != nullptr &&
-		more_specialized(*left_template, *right_template);
+		more_specialized(*left_template, *right_template, count);
 }
 
 // 12.2p1: the storage a temporary is given is named after what asked for it,

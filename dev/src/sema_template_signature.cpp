@@ -270,8 +270,18 @@ namespace
 const std::vector<TypeId>& ordering_parameters(TypeTable& types,
                                                const SemaEntity& entity,
                                                const SemaEntity& other,
+                                               std::size_t limit,
                                                std::vector<TypeId>& adjusted)
 {
+	if (limit == kResultPlace)
+	{
+		// 14.8.2.4p3's second bullet: 12.3.2p1 wrote the conversion-type-id
+		// where a declarator writes a return type, so the one type these two
+		// are ordered over is what each hands back - their parameter lists are
+		// the object alone and tell them apart by nothing.
+		adjusted.assign(1, types.target(entity.type));
+		return adjusted;
+	}
 	const std::vector<TypeId>& written = types.parameters(entity.type);
 	if (!entity.object_member || other.object_member || written.empty())
 	{
@@ -290,6 +300,35 @@ const std::vector<TypeId>& ordering_parameters(TypeTable& types,
 	return adjusted;
 }
 
+// 14.8.2.4p3's first bullet: in the context of a function call the types used
+// are the parameter types the call wrote arguments for, and p3's footnote says
+// a default argument is no argument here - so a declaration with more places
+// than the call filled is ordered over the ones it filled and no further.
+//
+// The places both lists start at are the same, because `ordering_parameters`
+// has already put the object parameter of a non-static member either in the
+// place the other declaration wrote its first operand in or out of both lists,
+// so `limit` counts from the front of each.
+//
+// 14.8.2.4p12: a trailing run is a place of its own however few arguments it
+// took, so the limit never cuts one off.  That is the whole of what leaves
+// `dispatch(C &, S, T &&)` more specialized than `dispatch(C &, S, T &&,
+// R &&...)` for a call of three: cut off, the run's own place is never reached
+// and p8's first sentence - an A a run was transformed from against a P that is
+// not one - has nothing to fail on.
+std::size_t ordering_places(TypeTable& types,
+                            const std::vector<TypeId>& written,
+                            std::size_t limit)
+{
+	const std::size_t used = written.size() < limit ? written.size() : limit;
+	if (used < written.size() &&
+	    types.is_pack_expansion(written[written.size() - 1]))
+	{
+		return written.size();
+	}
+	return used;
+}
+
 }
 
 // 14.5.6.2p2 and p8: whether the parameter types `right` was written over are
@@ -306,29 +345,33 @@ const std::vector<TypeId>& ordering_parameters(TypeTable& types,
 // before it did not take, so each of those is a pair of its own - and a place
 // the *other* template wrote as a run is no argument for one this template
 // wrote singly, which is what leaves `f(T)` more specialized than `f(Ts...)`.
-bool SemaAnalyzer::at_least_as_specialized(SemaEntity& left, SemaEntity& right)
+bool SemaAnalyzer::at_least_as_specialized(SemaEntity& left, SemaEntity& right,
+                                           std::size_t limit)
 {
 	const std::uint64_t key =
 		(static_cast<std::uint64_t>(left.id) << 32) | right.id;
-	const std::unordered_map<std::uint64_t, bool>::const_iterator held =
-		specialization_order_.find(key);
-	if (held != specialization_order_.end())
+	OrderingAnswers& answers = specialization_order_[key];
+	for (std::size_t at = 0; at < answers.size(); ++at)
 	{
-		return held->second;
+		if (answers[at].first == limit)
+		{
+			return answers[at].second;
+		}
 	}
 	std::vector<TypeId> adjusted_left;
 	std::vector<TypeId> adjusted_right;
 	const std::vector<TypeId>& wrote =
-		ordering_parameters(types_, left, right, adjusted_left);
+		ordering_parameters(types_, left, right, limit, adjusted_left);
 	const std::vector<TypeId>& against =
-		ordering_parameters(types_, right, left, adjusted_right);
-	const bool packed = !against.empty() &&
+		ordering_parameters(types_, right, left, limit, adjusted_right);
+	const std::size_t used = ordering_places(types_, wrote, limit);
+	const std::size_t asked = ordering_places(types_, against, limit);
+	const bool packed = asked == against.size() && !against.empty() &&
 		types_.is_pack_expansion(against[against.size() - 1]);
-	const std::size_t fixed = packed ? against.size() - 1 : against.size();
-	bool answer =
-		packed ? wrote.size() >= fixed : wrote.size() == against.size();
+	const std::size_t fixed = packed ? asked - 1 : asked;
+	bool answer = packed ? used >= fixed : used == asked;
 	std::unordered_map<TypeId, TypeId> bindings;
-	for (std::size_t index = 0; answer && index < wrote.size(); ++index)
+	for (std::size_t index = 0; answer && index < used; ++index)
 	{
 		const bool run = index >= fixed;
 		TypeId pattern =
@@ -364,7 +407,7 @@ bool SemaAnalyzer::at_least_as_specialized(SemaEntity& left, SemaEntity& right)
 		answer = Deduction(*this).match(types_.strip_cv(pattern),
 		                                types_.strip_cv(argument), one);
 	}
-	specialization_order_.insert(std::make_pair(key, answer));
+	specialization_order_[key].push_back(std::make_pair(limit, answer));
 	return answer;
 }
 
@@ -376,17 +419,21 @@ bool SemaAnalyzer::at_least_as_specialized(SemaEntity& left, SemaEntity& right)
 // than a reference to a less qualified one.  14.5.6.2p10 wants one template
 // ahead at some place and behind at none, so a place answering each way leaves
 // neither.
-int SemaAnalyzer::reference_order(SemaEntity& left, SemaEntity& right)
+int SemaAnalyzer::reference_order(SemaEntity& left, SemaEntity& right,
+                                  std::size_t limit)
 {
 	std::vector<TypeId> adjusted_left;
 	std::vector<TypeId> adjusted_right;
 	const std::vector<TypeId>& wrote =
-		ordering_parameters(types_, left, right, adjusted_left);
+		ordering_parameters(types_, left, right, limit, adjusted_left);
 	const std::vector<TypeId>& against =
-		ordering_parameters(types_, right, left, adjusted_right);
+		ordering_parameters(types_, right, left, limit, adjusted_right);
+	const std::vector<TypeId>& shorter =
+		wrote.size() < against.size() ? wrote : against;
+	const std::size_t places =
+		shorter.size() < limit ? shorter.size() : limit;
 	int order = 0;
-	for (std::size_t index = 0; index < wrote.size() && index < against.size();
-	     ++index)
+	for (std::size_t index = 0; index < places; ++index)
 	{
 		if (!types_.is_reference(wrote[index]) ||
 		    !types_.is_reference(against[index]))
@@ -426,12 +473,13 @@ int SemaAnalyzer::reference_order(SemaEntity& left, SemaEntity& right)
 // `ordering_parameters`' answer, so a pair whose lists name different places -
 // a member against a non-member that wrote no operand for the object - is left
 // unordered by the deduction failing rather than by a question asked here.
-bool SemaAnalyzer::more_specialized(SemaEntity& left, SemaEntity& right)
+bool SemaAnalyzer::more_specialized(SemaEntity& left, SemaEntity& right,
+                                    std::size_t limit)
 {
-	if (&left == &right || !at_least_as_specialized(left, right))
+	if (&left == &right || !at_least_as_specialized(left, right, limit))
 	{
 		return false;
 	}
-	return !at_least_as_specialized(right, left) ||
-		reference_order(left, right) > 0;
+	return !at_least_as_specialized(right, left, limit) ||
+		reference_order(left, right, limit) > 0;
 }

@@ -1,0 +1,93 @@
+global @shared [binding=strong, object=_Z6shared] = {
+  zero 1
+}
+
+function @frozen() -> ptr [binding=strong, object=_Z6frozenv] {
+  block ^entry:
+    %t1 = addr @shared
+    return ptr %t1
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $g : obj<1x1>
+  slot $r : obj<1x1>
+  slot $cond__1 : i32
+
+  block ^entry:
+    %t1 = addr $g
+    %t2 = addr $r
+    %t3 = addr $g
+    %t4 = addr $r
+    %t5 = call i32 @build(%t3, 1, 2, %t4, 1, 1)
+    %t6 = addr $g
+    %t7 = call i32 @visit(%t6, 1, 2)
+    %t8 = binary add i32 %t5, %t7
+    %t9 = call ptr @frozen()
+    %t10 = call i32 @bind(%t9)
+    %t11 = binary add i32 %t8, %t10
+    %t12 = addr $g
+    %t13 = call i32 @bind__ov3(%t12, 0, 0)
+    %t14 = binary add i32 %t11, %t13
+    %t15 = binary add i32 1, 4
+    %t16 = binary add i32 %t15, 16
+    %t17 = binary add i32 %t16, 32
+    %t18 = cmp eq i32 %t14, %t17
+    branch %t18, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t19 = load i32 $cond__1
+    return i32 %t19
+}
+function @build(%__param0 : ptr [pass=reference], %__param1 : i32, %__param2 : i32, %__param3 : ptr [pass=reference], %__param4 : u8, %__param5 : u8) -> i32 [binding=weak, object=_Z5buildI5graph9generatorEiRT_iiRT0_bb] {
+  slot $__param0 : ptr
+  slot $__param1 : i32
+  slot $__param2 : i32
+  slot $__param3 : ptr
+  slot $__param4 : u8
+  slot $__param5 : u8
+
+  block ^entry:
+    store ptr %__param0, $__param0
+    store i32 %__param1, $__param1
+    store i32 %__param2, $__param2
+    store ptr %__param3, $__param3
+    store u8 %__param4, $__param4
+    store u8 %__param5, $__param5
+    return i32 1
+}
+function @visit(%__param0 : ptr [pass=reference], %__param1 : i32, %__param2 : i32) -> i32 [binding=weak, object=_Z5visitI5graphiEiRT_T0_i] {
+  slot $__param0 : ptr
+  slot $__param1 : i32
+  slot $__param2 : i32
+
+  block ^entry:
+    store ptr %__param0, $__param0
+    store i32 %__param1, $__param1
+    store i32 %__param2, $__param2
+    return i32 4
+}
+function @bind(%__param0 : ptr [pass=reference]) -> i32 [binding=weak, object=_Z4bindI5graphEiRKT_] {
+  slot $__param0 : ptr
+
+  block ^entry:
+    store ptr %__param0, $__param0
+    return i32 16
+}
+function @bind__ov3(%__param0 : ptr [pass=reference], %__param1 : i32, %__param2 : i32) -> i32 [binding=weak, object=_Z4bindIR5graphEiOT_ii] {
+  slot $__param0 : ptr
+  slot $__param1 : i32
+  slot $__param2 : i32
+
+  block ^entry:
+    store ptr %__param0, $__param0
+    store i32 %__param1, $__param1
+    store i32 %__param2, $__param2
+    return i32 32
+}
