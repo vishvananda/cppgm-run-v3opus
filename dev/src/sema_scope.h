@@ -378,6 +378,14 @@ struct SemaEntity
 	// declaration would, which is what the members its definition invokes
 	// allow; where one did, what it wrote is what the function says.
 	bool wrote_exception_specification;
+	// 8.3.5p2 with 14.8.2p8: whether this function's declarator wrote its
+	// return type *after* its parameter-clause.  The clause says a substitution
+	// proceeds in lexical order and stops at the first thing that fails, so
+	// which of the result type and the parameter list is built first is what
+	// says whether a hard error in one of them is reached at all when the other
+	// is what a candidate is discarded for - and that order is the declarator's
+	// and no fact of the function type the two came to.
+	bool trailing_result;
 	// 12.3.1p2: a constructor declared `explicit`, which only
 	// direct-initialization may choose.  12.3.2p2 gives a conversion function
 	// declared `explicit` the same fact, and 13.3.1.5 the same reading of it.

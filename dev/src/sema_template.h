@@ -305,6 +305,17 @@ struct TemplateInfo
 		std::uint32_t arguments;
 	};
 	std::unordered_map<std::uint32_t, Chosen> chosen;
+	// 14.7.1p1: the lists whose choice is being made right now.  Making it
+	// reads every pattern against the list, and reading one may name the very
+	// specialization the choice is for - a pattern written over
+	// `decltype(a >> b)` whose overload set holds a template constrained by
+	// that same specialization is the shape.  The choice is made once per list,
+	// so a request arriving while it is being made can only be that cycle, and
+	// a cycle has no answer to wait for: it is refused, which discards the
+	// candidate wherever a substitution asked for it and refuses the program
+	// wherever none did.  Without it the recursion is unbounded and the
+	// translation ends in a stack overflow rather than in a diagnostic.
+	std::unordered_set<std::uint32_t> choosing;
 	// 14.5.1p1 with 3.2p1: the argument lists whose reading is under way.  A
 	// class is held before its body is read, so a naming inside that body finds
 	// the declaration already made; a variable template's specialization *is*

@@ -487,6 +487,17 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 		                 // defines a declaration its region already made.
 		                 spelled.qualified(),
 		                 specializing, &redeclares);
+	// 7.1.6.4p1 and 8.3.5p2: the sequence was the one specifier `auto`, so what
+	// this declarator wrote for a return type stands after its parameter-clause
+	// - which is the order 14.8.2p8 substitutes the two in.  Any declaration of
+	// the function that wrote one is enough to say so: the order only decides
+	// which of two failures is reached first, and reaching the *later* one is
+	// what would refuse a program that a substitution failure should have
+	// discarded a candidate of.
+	if (specifiers.is_auto)
+	{
+		entity.trailing_result = true;
+	}
 	if (specializing == nullptr &&
 	    Specialization(*this).holds_written_definition(entity))
 	{
@@ -774,6 +785,48 @@ void SemaAnalyzer::require_uniform_ref_qualifiers(const SemaEntity& head,
 	}
 }
 
+// 14.1p12: a template-parameter shall not be given default arguments by two
+// different declarations in the same scope.
+//
+// The clause is about the *pair*, and which two declarations are one template
+// is 14.5.6.1p5's question - so it is asked where that comparison has just
+// answered and nowhere else.  Each head declared places of its own, and the two
+// stand for each other position by position, which is exactly the pairing the
+// comparison was made by; a head that declares fewer places than the other
+// declares no template this one, so the walk is over the shorter of the two.
+//
+// `wrote_both` is 14.6p8 and 14.7.1p1: those two readings declare the friend
+// function template a class body wrote, with the head it wrote, once for the
+// pattern and once per specialization - and a re-reading is no second
+// declaration of anything.  So the question is asked of what the source
+// declared at its own level.
+void require_one_default_per_place(
+	const std::unordered_map<std::uint32_t, const AstNode*>& defaults,
+	const SemaEntity& prior, const Scope* later, bool wrote_both,
+	const std::string& name)
+{
+	if (!wrote_both || later == nullptr ||
+	    prior.template_parameters == nullptr ||
+	    prior.template_parameters == later)
+	{
+		return;
+	}
+	const std::vector<SemaEntity*>& before =
+		prior.template_parameters->declarations;
+	const std::vector<SemaEntity*>& after = later->declarations;
+	for (std::size_t index = 0; index < before.size() && index < after.size();
+	     ++index)
+	{
+		if (defaults.find(before[index]->id) != defaults.end() &&
+		    defaults.find(after[index]->id) != defaults.end())
+		{
+			throw std::runtime_error(
+				"two declarations of " + name +
+				" give one template parameter a default argument");
+		}
+	}
+}
+
 SemaEntity& SemaAnalyzer::declare_function(const std::string& name, TypeId type,
                                            const Context& target, bool define,
                                            bool hidden, bool object_member,
@@ -889,6 +942,11 @@ SemaEntity& SemaAnalyzer::declare_function(const std::string& name, TypeId type,
 		{
 			*redeclares = true;
 		}
+		// 14.1p12 over the pair 14.5.6.1p5 has just made: two heads the program
+		// wrote for one template, each giving one of its places a default.
+		require_one_default_per_place(
+			parameter_defaults_, *prior, head_region,
+			checking_ == 0 && instantiating_class_ == 0, name);
 		if (prior->type != type && prior->template_parameters == nullptr)
 		{
 			throw std::runtime_error("two declarations of " + name +

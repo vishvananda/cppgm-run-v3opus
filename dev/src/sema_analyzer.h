@@ -2256,6 +2256,11 @@ private:
 	// list stand for, keyed by the two - so a name written twice reaches one
 	// candidate and a use that deduces the rest makes one specialization.
 	std::unordered_map<std::uint64_t, SemaEntity*> partial_templates_;
+	// 14.7.1p1: the templates and argument lists whose declaration is being
+	// built right now, keyed the same way - which is what tells a second naming
+	// from the substitution asking for itself.  `specialize` is where the cycle
+	// is read and where it says why.
+	std::unordered_set<std::uint64_t> specializing_;
 	// 14.1p9: the type-id a head wrote as one parameter's default, kept by that
 	// parameter's own declaration because 14.8.1p2 leaves a trailing argument to
 	// be deduced *or* taken from here, and a function template's pattern is

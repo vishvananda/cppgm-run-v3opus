@@ -46,6 +46,40 @@
 namespace
 {
 
+// 14.7.1p1's cycle at the function tier, held for as long as one declaration is
+// being built.
+//
+// The mark comes off however the substitution ends: a failure is 14.8.2p8's
+// candidate discarded and says nothing about the template, so a later use that
+// names the same list is entitled to build it again.
+class Building
+{
+public:
+	Building(std::unordered_set<std::uint64_t>& open, std::uint64_t key)
+		: open_(open)
+		, key_(key)
+		, entered_(open.insert(key).second)
+	{}
+
+	~Building()
+	{
+		if (entered_)
+		{
+			open_.erase(key_);
+		}
+	}
+
+	bool entered() const { return entered_; }
+
+private:
+	Building(const Building&);
+	Building& operator=(const Building&);
+
+	std::unordered_set<std::uint64_t>& open_;
+	std::uint64_t key_;
+	bool entered_;
+};
+
 }
 
 SemaEntity& SemaAnalyzer::specialize(SemaEntity& primary,
@@ -58,6 +92,22 @@ SemaEntity& SemaAnalyzer::specialize(SemaEntity& primary,
 	SemaEntity* made = model_.specialization_of(primary, list);
 	if (made == nullptr)
 	{
+		// 14.7.1p1 again, the other way round: the declaration is held once it
+		// is built, so a request arriving while it is still being built is this
+		// substitution asking for itself.  A declarator written over
+		// `decltype(f(...))` whose overload set holds the very template being
+		// specialized is that cycle, and there is nothing to wait for - the
+		// reading is told so, which discards the candidate wherever 14.8.2p8's
+		// attempt is what asked and refuses the program wherever none did.
+		const Building building(
+			specializing_,
+			(static_cast<std::uint64_t>(primary.id) << 32) | list);
+		if (!building.entered())
+		{
+			throw std::runtime_error(
+				primary.name + " names a specialization whose own declaration "
+				               "is being built for it");
+		}
 		// 14.3p1: the arguments are bound to the parameters in order, and
 		// 14.8.2 builds the declaration by substituting them into the type the
 		// template-declaration made.
@@ -79,6 +129,20 @@ SemaEntity& SemaAnalyzer::specialize(SemaEntity& primary,
 			bindings.insert(std::make_pair(parameters[index]->type, took));
 		}
 		std::unordered_map<TypeId, TypeId> memo;
+		// 14.8.2p8: the substitution proceeds in the order the declaration was
+		// written and stops at the first thing that fails, so a result type
+		// written *before* the parameter-clause is built before it - and one a
+		// trailing-return-type wrote is built after.  The order is what says
+		// whether a result type whose substitution is a hard error - a class
+		// 14.7.1p1 instantiates and whose body refuses - is reached at all when
+		// a parameter is what a candidate would be discarded for.  The walk
+		// below reads the result type last however it was written, so a leading
+		// one is asked for here first and the memo hands the same answer on.
+		if (!primary.trailing_result &&
+		    types_.kind(primary.type) == TypeKind::Function)
+		{
+			substituted(types_.target(primary.type), bindings, memo);
+		}
 		made = &model_.create(SemaKind::Function, primary.name,
 		                      substituted(primary.type, bindings, memo));
 		made->primary = &primary;

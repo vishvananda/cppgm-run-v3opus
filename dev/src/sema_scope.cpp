@@ -362,6 +362,7 @@ SemaEntity& SemaModel::create(SemaKind kind, const std::string& name, TypeId typ
 	entity.builtin = kNotBuiltin;
 	entity.nonthrowing = false;
 	entity.wrote_exception_specification = false;
+	entity.trailing_result = false;
 	entity.promotion = kNoType;
 	entity.value = 0;
 	entity.real = 0;

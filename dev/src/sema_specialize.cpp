@@ -746,6 +746,40 @@ TypeId Specialization::declared_type(const AstNode& declared,
 	return analyzer_.declarator_type(*init.children[0], base, ctx, &ignored);
 }
 
+// 14.7.1p1's cycle, held for as long as one choice is being made.
+//
+// The mark has to come off however the choice ends, because a pattern read
+// against the list may refuse - which is 14.8.2p8's candidate discarded and no
+// answer about this template at all - so a later naming of the same list is
+// entitled to make the choice again.
+class Choosing
+{
+public:
+	Choosing(TemplateInfo& info, std::uint32_t list)
+		: info_(info)
+		, list_(list)
+		, entered_(info.choosing.insert(list).second)
+	{}
+
+	~Choosing()
+	{
+		if (entered_)
+		{
+			info_.choosing.erase(list_);
+		}
+	}
+
+	bool entered() const { return entered_; }
+
+private:
+	Choosing(const Choosing&);
+	Choosing& operator=(const Choosing&);
+
+	TemplateInfo& info_;
+	std::uint32_t list_;
+	bool entered_;
+};
+
 std::size_t Specialization::chosen(SemaEntity& primary,
                                    const std::vector<TypeId>& arguments,
                                    std::vector<TypeId>& deduced)
@@ -763,6 +797,18 @@ std::size_t Specialization::chosen(SemaEntity& primary,
 	{
 		deduced = types.type_list_at(held->second.arguments);
 		return held->second.at;
+	}
+	// 14.7.1p1: the choice is made once per list, so a request for one whose
+	// choice is already being made is that choice asking for itself.  There is
+	// no answer to wait for, and the reading that asked has to be told so:
+	// 14.8.2p8 discards the candidate that named it wherever a substitution was
+	// what asked, and the program is refused wherever none was.
+	Choosing opened(info, list);
+	if (!opened.entered())
+	{
+		throw std::runtime_error(primary.name +
+		                         " names a specialization whose own patterns "
+		                         "are being read for it");
 	}
 	std::vector<std::size_t> matched;
 	std::vector<std::vector<TypeId> > took;
