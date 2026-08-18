@@ -171,12 +171,19 @@ private:
 	                    const std::vector<TypeId>& arguments);
 
 	// 7.1.3p2 with 14.8.2p8: the entry a naming of `primary` keeps where its
-	// type-id named `type` and the list held a dependent argument that type
-	// does not mention.  `kNoType` where the type-id named every argument it
-	// was given, which is every naming that discards nothing.
+	// type-id named `type` and the list held an argument a substitution builds
+	// and that type does not mention.  `kNoType` where the type-id named every
+	// argument it was given and where the ones it threw away are places a list
+	// binds rather than readings - 14.5.7p1 leaves those the type the type-id
+	// named, which is what a second declaration of the same template may write
+	// out longhand.
 	TypeId discarded_arguments(SemaEntity& primary,
 	                           const std::vector<TypeId>& arguments,
 	                           TypeId type);
+
+	// 14.7.1p1: whether a substitution builds `argument` again or looks it up,
+	// which is what says whether throwing it away can lose a refusal.
+	bool rebuilt(TypeId argument) const;
 
 	// 14.5.5.1p1 with 14.8.2p8: whether the pattern at `index` matches
 	// `arguments`, and what the places its own head declared were deduced to.

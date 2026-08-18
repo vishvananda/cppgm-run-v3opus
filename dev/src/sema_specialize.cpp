@@ -748,14 +748,63 @@ TypeId Specialization::substituted_alias(
 	return alias_arguments(alias, arguments).type;
 }
 
+// 14.7.1p1: whether a substitution *builds* this argument or looks it up.
+//
+// `substituted`'s own answer, asked ahead of it.  A place a head declared is
+// looked up: whatever list arrives binds it to a type that has already been
+// built, so the lookup cannot refuse and rebuilding the naming around it can
+// come to nothing new.  Every other dependent argument is one a reading makes
+// again - `typename T::x` looks a member up, `S<T>` instantiates, `T *` derives,
+// a decltype-specifier reads an expression a second time, a naming that
+// discarded an argument of its own builds that one - and each of those is a
+// reading 14.8.2p8 has something to fire on.  An expansion is its pattern read
+// once per element and a settled run is its elements, so both are asked of what
+// they hold.
+bool Specialization::rebuilt(TypeId argument) const
+{
+	TypeTable& types = analyzer_.types_;
+	const TypeId bare = types.strip_cv(argument);
+	if (types.is_pack_expansion(bare))
+	{
+		return rebuilt(types.target(bare));
+	}
+	if (types.is_settled_run(bare))
+	{
+		const std::vector<TypeId>& held = types.pack_elements(bare);
+		for (std::size_t index = 0; index < held.size(); ++index)
+		{
+			if (rebuilt(held[index]))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+	if (!types.is_dependent(bare))
+	{
+		// An argument every list has settled was built where it was written.
+		return false;
+	}
+	if (types.kind(bare) != TypeKind::TemplateParameter)
+	{
+		return true;
+	}
+	// The four readings a parameter-kind entry stands for, which are the four
+	// arms `substituted` takes before its own lookup.
+	return types.dependent_owner(bare) != kNoType ||
+		types.applied_template(bare) != kNoType ||
+		types.alias_named(bare) != kNoType ||
+		analyzer_.dependent_.written.count(bare) != 0;
+}
+
 // 7.1.3p2 with 14.8.2p8: an argument the type-id does not name is still an
 // argument, and building it is still what a substitution may fail at.
 //
 // The type-id is read here, wherever the naming stands, so a *settled*
 // argument has already been built by the time this is asked - `void_t<int>` is
-// `void`, and nothing about `int` is left to go wrong.  An argument no list has
-// settled is the other case: it is built where 14.7.1p1's substitution puts a
-// list behind it, and a type-id that does not mention it gives that
+// `void`, and nothing about `int` is left to go wrong.  An argument a
+// substitution builds again is the other case: it is built where 14.7.1p1 puts
+// a list behind it, and a type-id that does not mention it gives that
 // substitution nothing to build.  So the naming keeps one entry standing for
 // itself, exactly as a dependent member of a prefix does, and what the
 // substitution finds under it is the list to build before the type-id is read
@@ -763,8 +812,17 @@ TypeId Specialization::substituted_alias(
 // with no `x` is a substitution that fails and a candidate 13.3 drops, and
 // collapsing the naming to `void` where it stands leaves nothing to fail.
 //
-// What it costs is one walk of the type the type-id named per naming with a
-// dependent argument, which is the walk `substituted` would make of it anyway.
+// 14.5.7p1 is the other half and bounds it: a template-id over an alias
+// template *is* the associated type, so the entry is a second type standing for
+// one the program can also write out - and two declarations of one template,
+// one writing `void_t<T>` and one writing `void`, stop being declarations of
+// one.  So the entry is kept only where an argument is one a substitution
+// builds: `void_t<T>` and `void_t<Ts...>` name nothing that can go wrong and
+// collapse where they stand, and what is left holding an entry is the readings
+// SFINAE exists for.
+//
+// What it costs is one walk of the type the type-id named per naming with such
+// an argument, which is the walk `substituted` would make of it anyway.
 TypeId Specialization::discarded_arguments(SemaEntity& primary,
                                            const std::vector<TypeId>& arguments,
                                            TypeId type)
@@ -773,7 +831,7 @@ TypeId Specialization::discarded_arguments(SemaEntity& primary,
 	bool discards = false;
 	for (std::size_t index = 0; index < arguments.size() && !discards; ++index)
 	{
-		discards = types.is_dependent(arguments[index]) &&
+		discards = rebuilt(arguments[index]) &&
 			!types.mentions(type, arguments[index]);
 	}
 	if (!discards)

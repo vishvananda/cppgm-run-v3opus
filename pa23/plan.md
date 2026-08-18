@@ -44,7 +44,7 @@ Owners, in the order a use walks them:
 
 ## Current Failure Map
 
-422 tests (405 handout + 17 course), 363 passing (handout-only 346 / 405). The
+423 tests (405 handout + 18 course), 364 passing (handout-only 346 / 405). The
 59 left, by the compiler behavior each wants:
 
 | group | n | shape |
@@ -81,7 +81,23 @@ Known gaps diagnosed but not landed:
   whose pattern reaches a *settled* run: the type its type-id named is
   substituted rather than read again, so a reading the type-id left standing
   inside it is not remade. `SemaAnalyzer::substituted` is the path every other
-  substitution takes and does read it again.
+  substitution takes and does read it again. Both shapes reachable through it -
+  a detector under a nested class template - come out right, because what the
+  elements hold is settled by the time it runs.
+- **14.5.7p1's equivalence where the argument a naming threw away is a
+  *reading*.** `f(discard<typename T::x> *)` declared and `f(void *)` defined
+  are one template in both oracles and two here: the entry that keeps the
+  argument is what 14.8.2p8 fires on and what 14.5.6.1p5's comparison then
+  tells apart. An argument that is a place collapses, so what is left needs the
+  associated type as a *canonical* form - the naming rewritten away through the
+  classes an argument list names - which is a checkpoint of its own.
+  `300-equivalent-alias-return-template-redeclaration.t` is the same family one
+  tier down: two spellings of one dependent value are two readings here.
+- **8.3.1p4 and 8.3.3p3 at a deduction, where the oracles disagree with each
+  other.** `probe(T *)` over `T = int &` drops the candidate in `g++` and not in
+  the reference or here; a member pointer to a reference or to `void` drops it
+  here and in `g++` and not in the reference; `T C::*` over a non-class `C` is a
+  hard refusal here where both oracles drop the candidate.
 - **Two partial specializations reached through a non-deduced array bound are
   not ordered against each other.**
 - **8.3.4p1's bound over a place is read in a class template's member and in an
@@ -111,46 +127,36 @@ Known gaps diagnosed but not landed:
 
 ## Active Checkpoint
 
-**The arguments an alias template's type-id threw away.** Complete; ledger row
-11 is its record.
+**Audit: the type a naming *is*, and the arguments worth keeping.** Complete;
+ledger row 5 is its record.
 
-- *Owner.* `type_model.{h,cpp}` owns the entry a naming that discarded an
-  argument stands as - the alias, the type its type-id named, the list - and
-  `mentions`, the walk that asks whether an argument was discarded at all.
-  `sema_specialize.cpp` owns 7.1.3p2's reading itself: `alias_arguments` is the
-  half of `alias` that has a bound list, which is what a substitution has, and
-  `substituted_alias` is what 14.7.1p1 calls. `sema_deduce.cpp` unwraps such a
-  naming at both sides of a pair. `sema_pack.{h,cpp}` owns 14.5.3p5 asked of a
-  reading read *again* rather than rebuilt - `note_places` - and the walk that
-  finds a pack inside one. `sema_template_head.cpp` owns 14.5.3p4 where the
-  pattern of an expansion is not a place.
-- *Data flow.* `Specialization::alias_arguments` reads the type-id as it always
-  did and then asks `mentions` of each dependent argument; where one is named
-  nowhere in what came out, the entity it gives back is typed by an entry
-  holding all three facts instead. It is interned by them, so 14.5.7p2 leaves
-  two namings of one list one type and `TypeTable::substitute` can rebuild one
-  with no declaration to name it after. `substituted` builds the arguments
-  through `PackReading::substitute_entry` - which is how a run reaches an alias
-  at all - and reads the type-id again over what they came to; `match` reads
-  the type the type-id named, because the arguments say nothing about what an A
-  is. 14.5.3p5's places travel the same way: `note_places` records them on the
-  reading where it is interned, and a name bound to a reading of its own hands
-  on that reading's, which is what `B` is when `enable_if<B, T>` is read against
-  a region binding `B` to the reading that wrote `Bn`.
-- *Expected complexity.* `mentions` is `substituted`'s own graph walked once,
-  with the nodes already asked kept, and only for a naming that has a dependent
-  argument at all. `note_places` is one lookup per identifier the reading wrote,
-  once per interned reading. `alias_arguments` is memoised by
-  `specialization_of`, so an alias named n times with one list reads its type-id
-  once. Every one of them is per *naming* and none is per program.
-- *Validation.* 25 alias shapes through eight syntactic sites and 11
-  sibling-exit shapes against `g++` and the reference: all 36 agree with `g++`,
-  and the two the reference refuses are the nested detector and a redeclaration
-  through one, which it does not implement. Four multiplicity sweeps and one
-  nesting sweep, all linear or flat. Every course `.ref` regenerated from the
-  reference binary and unchanged. `through-pa22` at 2948 / 2948; corpus 1.93 s
-  against the pre-checkpoint binary's 1.94 s; no `rc > 1`; valgrind clean over
-  102 inputs.
+- *Owner.* `sema_specialize.{h,cpp}` owns both halves of the clause: `rebuilt`
+  is 14.7.1p1 asked ahead of itself - does a substitution build this argument or
+  look it up - and `discarded_arguments` keeps the entry only where the answer
+  is yes.
+- *Data flow.* `rebuilt` reads an argument the way `substituted` will: an
+  expansion is its pattern, a settled run is its elements, an argument no place
+  stands in is already built, and a parameter-kind entry is a place unless it is
+  one of the four readings `substituted` takes an arm for - a member of a prefix
+  no list has settled, a specialization over a template place, a naming that
+  discarded an argument of its own, or an expression the definition left
+  standing. `discarded_arguments` asks it before `mentions`, so a naming whose
+  arguments are places collapses to the type its type-id named - which is what
+  14.5.7p1 says it is, and what lets `TemplateSignature::of`, 13.1's index and
+  `declare_function`'s return-type comparison go on pairing two declarations of
+  one template.
+- *Expected complexity.* `rebuilt` is a fixed number of field reads per argument
+  and runs before the `mentions` walk it gates, so a naming over places now pays
+  *less* than it did.
+- *Validation.* 40 probe programs against `g++`, the reference binary and the
+  pre-checkpoint binary - 7 shapes of one template written twice, 8 sites of the
+  detector idiom, 6 of 14.5.3p4's pattern, 6 of a reading's own packs and
+  14.3.3p1's place, 5 of the refusals a derived argument makes, 6 of 8.3.1p4 and
+  8.3.3p3, 2 of the structural rebuild - each accepted one outside the
+  divergences recorded above running to `g++`'s value. Every course `.ref`
+  regenerated from the reference binary and unchanged. `through-pa22` at
+  2948 / 2948; corpus 1.96 s against the pre-checkpoint binary's 1.92 s; no
+  `rc > 1`; valgrind clean over 145 inputs.
 
 ## Next Substantial Checkpoint
 
@@ -202,11 +208,12 @@ build saturates the machine reads 5.8 s against 1.9 s, which is that build's.
 | **array-qualification multiplicity** | n arguments adding `const` at an array's element | **0.00 @32, 0.00 @128, 0.01 @512, 0.03 @1024 - the pre-audit binary refuses the program** |
 | **subscript multiplicity** | n subscripts, one `is_incomplete` apiece | **0.00 @32, 0.00 @128, 0.01 @512, 0.02 @1024 - and the same** |
 | **array-dimension nesting** | d dimensions under one qualification conversion | **0.00 s flat from d = 4 to d = 32** |
-| **discarded-argument multiplicity** | n classes x 2 detectors over `discard<typename T::pointer>`, one `mentions` walk and one re-read apiece | **0.01 @32, 0.02 @128, 0.12 @512, 0.28 @1024 - linear.  The pre-checkpoint binary refuses the program at the first assert, so its 0.04 s is no measurement** |
-| **discarded-run multiplicity** | n calls through `first_of<true_tag, enable_if_t<Bn::ok>...>`, one expansion built per call for its refusals alone | **0.01 @32, 0.02 @128, 0.10 @512, 0.21 @1024 - linear; the pre-checkpoint binary refuses it** |
-| **pack-reading multiplicity** | n function templates, each a value argument whose places `note_places` records | **0.00 @32, 0.02 @128, 0.10 @512, 0.20 @1024 - linear; the pre-checkpoint binary refuses it** |
-| **discarded-alias nesting** | d nested discarding aliases, each naming the one below beside the member being detected | **0.00 s flat from d = 4 to d = 32** |
-| whole PA23 corpus | 400 handout files, one process each | **1.93 s warm, and 1.94 s on the pre-checkpoint binary**; no `rc > 1`, valgrind clean over 102 inputs |
+| discarded-argument multiplicity | n classes x 2 detectors over `discard<typename T::pointer>`, one `mentions` walk and one re-read apiece | 0.01 @32, 0.02 @128, 0.12 @512, 0.25 @1024 - linear.  The pre-checkpoint binary refuses the program at the first assert, so its 0.04 s is no measurement |
+| discarded-run multiplicity | n calls through `first_of<true_tag, enable_if_t<Bn::ok>...>`, one expansion built per call for its refusals alone | 0.00 @32, 0.02 @128, 0.08 @512, 0.18 @1024 - linear; the pre-checkpoint binary refuses it |
+| pack-reading multiplicity | n function templates, each a value argument whose places `note_places` records | 0.00 @32, 0.02 @128, 0.10 @512, 0.20 @1024 - linear; the pre-checkpoint binary refuses it |
+| discarded-alias nesting | d nested discarding aliases, each naming the one below beside the member being detected | 0.00 s flat from d = 4 to d = 48 |
+| **collapsing-alias multiplicity** | n function templates, each declared through `discard<T>` and defined through `void` - the pair 14.5.7p1's scope restores | **0.00 @32, 0.01 @128, 0.03 @512, 0.06 @1024 - and the same on the pre-checkpoint binary, which accepts this program** |
+| whole PA23 corpus | 400 handout files, one process each | **1.96 s warm over three alternating passes, against the pre-checkpoint binary's 1.92 s**; no `rc > 1`, valgrind clean over 145 inputs |
 
 Why 14.6.4.2p1's bound stays flat: it is one `std::uint32_t` written where a
 definition is recorded and put back by a two-assignment scope where it is read,
@@ -228,6 +235,13 @@ found. 8.5.4p7's is the one that could have scaled, because its exception needs
 the clause folded: the fold is asked only where the bullet could fire at all,
 so an integral clause reaching an integral destination that holds every value
 of its type - which is nearly every clause a program writes - pays nothing.
+
+Why the audit's scope costs nothing: `rebuilt` is a fixed number of field reads
+per argument of a naming that has a dependent one at all, and it runs *before*
+the `mentions` walk it gates - so a naming whose arguments are places pays less
+than it did, because the walk of the type its type-id named is never made.  What
+the corpus's 0.04 s over the pre-checkpoint binary is, is `note_places` looking
+one name up per identifier of each reading a pattern leaves standing.
 
 Why this checkpoint's three readings stay flat: `mentions` is the graph
 `substituted` walks, asked once with the nodes already reached kept, and only of
@@ -266,3 +280,4 @@ a program that keeps compiling pays only for answers it needed.
 | 9 | the refusals SFINAE has nothing to fire on | `type_model.{h,cpp}`, `sema_declarator.cpp`, `sema_type_id.cpp`, `sema_template.cpp`, `sema_template_head.{h,cpp}`, `sema_virtual.cpp`, `sema_expression.cpp`, `sema_lifetime.cpp`, `sema_init_list.cpp`, `sema_overload.cpp`, `sema_analyzer.h` | four things the standard refuses and the layers below accepted, so 14.8.2p8 had no failure to drop a candidate on. 8.3.2p5's reference to void and 8.3.4p1's array of a reference, of void, of a function and of an abstract class now go through one *door* - `derived_reference` / `derived_array` / `derived_substituted_array` - that all three readers that derive a type call, while the interning entries stay open for 13.1's key and 14.8.2.1p3's stand-in, which is what the first landing of this rule broke in 24 tests. 10.4p2 became a fact of the type, settled where the vtable pass already answers it, so a substitution reaches it without a scope. 5.7p1 and 5.2.6p1 read the pointee as *completely defined*, which is `void *` and a class the unit only declared. 8.5.4p7 measures the clause a list-initialization hands a constructor, and its fourth bullet's round trip now asks whether the destination *represents* the value rather than whether the bits came back - `-1` reached `unsigned` and came back as `-1`. 14.3.3p1 is asked at `instantiate_class`, the one place every settled argument list meets its head, because `helper<T::template member>` is an argument no spelling looked up and no deduction bound. 4.10p2's `void *` reads 3.9.3p5's qualification, which an array carries on its element | 343 / 417 -> 354 / 420 (handout 331 -> 339 / 405); through-pa22 2948 / 2948; 90 + 25 + 48 + 14 sweep shapes against `g++` and the reference; corpus 1.91 s against the pre-checkpoint binary's 1.90 s; valgrind clean over 65 inputs |
 | 10 | audit: the qualifiers an array carries, and the pointee a subscript moves over | `sema_expression.cpp`, `sema_init_list.cpp`, `sema_overload.cpp`, `sema_deduce.cpp`, `type_model.{h,cpp}` | each of checkpoint 9's refusals had one exit more than it was written at, and 3.9.3p5's fact had one reader of four. 5.2.1p1's completely-defined pointee is 5.7p1's, and `subscript_expression` restated the clause above code that never asked it - `Inc *p; p[0];` is a program both oracles refuse and this build translated, and the detector over it read back the wrong answer. 8.5.4p7's fourth bullet was width and equal-width signedness, which is not "cannot represent all the values": a signed source reaching a wider unsigned has negative values at every width and `bool` holds two of them however wide its storage, and the same statement gated the fold so the constant exception was never reached for either. 3.9.3p5 landed at `pointer_convertible`'s 4.10p2 arm alone, so 4.4's own walk, 5.9p2's composite pointer type and 14.8.2.1p2's conversion each read an array node's `cv`, which is zero - and that walk asked 4.4p4's second condition of the level it had just compared, which refused `volatile int *q = p;` with no array in it at all. `object_unqualified` is the fact's other half | 354 / 420 -> 356 / 421 (handout 339 -> 340 / 405); through-pa22 2948 / 2948; 225 + 675 narrowing shapes and 20 qualification shapes through eight sites, agreeing with `g++` on all 920 and running the accepted ones to its value; every course `.ref` regenerated from the reference binary and unchanged; corpus 1.87 s against the pre-audit binary's 1.88 s; valgrind clean over 135 inputs |
 | 11 | the arguments an alias template's type-id threw away | `type_model.{h,cpp}`, `sema_specialize.{h,cpp}`, `sema_template.cpp`, `sema_deduce.cpp`, `sema_pack.{h,cpp}`, `sema_template_head.cpp` | 7.1.3p2 makes a template-id over an alias *be* the type its type-id named, so a naming holds no argument once it has been read - which is right until an argument is one no list has settled, because then it is built where 14.7.1p1 arrives and building it is what 14.8.2p8 drops a candidate for. `discard<typename T::pointer>` names `void` however it is written, and collapsing it where it stood left every `T` agreeing with the detector's partial specialization, so `detected_or_t` answered the same for a class with the member and one without. A naming whose type-id does not mention a dependent argument keeps an entry holding the alias, that type and the list, interned by the three so 14.5.7p2 leaves two namings of one list one type and a substitution can rebuild one with no declaration to name it after; `substituted` builds the arguments first and reads the type-id again, `match` unwraps both sides because 14.5.5.2p1's ordering writes one pattern as the other's argument, and `mentions` is `substituted`'s own graph read backwards. 14.3.3p1's place takes an alias as readily as a class template and `Op<Args...>` over one was instantiated as a class. Two readings the packs could not be found through: 14.5.3p5 asked of a reading read *again* rather than rebuilt - a decltype-specifier, a value argument, a head's own default are interned by their text, so `enable_if_t<bool(Bn::value)>...` named no pack at all - which `note_places` records on the entry, a name standing for a reading of its own handing on that reading's; and 14.5.3p4 where the pattern is not a place, `wrap<Args&&...>` having bound the place's name to `Args&&`, which is no pack | 356 / 421 -> 363 / 422 (handout 340 -> 346 / 405); through-pa22 2948 / 2948; 25 + 11 sweep shapes agreeing with `g++` on all 36; every course `.ref` regenerated from the reference binary and unchanged; corpus 1.93 s against the pre-checkpoint binary's 1.94 s; no `rc > 1`; valgrind clean over 102 inputs |
+| 12 | audit: the type a naming is, and the arguments worth keeping | `sema_specialize.{h,cpp}` | 14.5.7p1 is the other half of the sentence 7.1.3p2 opens: a template-id over an alias template *is* the associated type, so the entry checkpoint 11 kept beside that type was a second type for one the program can also write out longhand - and `f(discard<T> *)` declared beside `f(void *)` defined stopped being two declarations of one template, at `TemplateSignature::of`'s canonical form, at 13.1's index of a parameter-type-list and at the return-type comparison a found pair is checked by, which is a function template, its out-of-class definition, a member of a class template, a member template of a class that is not one and a naming under another argument list. `rebuilt` is where the two halves meet: an argument that is a *place* is one 14.7.1p1 looks up, so nothing can refuse and the naming collapses to what its type-id named; an argument it *builds* - a member of a prefix, a specialization over a template place, a naming that discarded one of its own, an expression left standing, or a type derived over any of them - is what the entry is kept for, which is every argument 14.8.2p8 has something to fire on | 363 / 422 -> 364 / 423 (handout 346 / 405 unmoved); through-pa22 2948 / 2948; 40 probe programs against `g++`, the reference and the pre-checkpoint binary, each accepted one outside the recorded divergences running to `g++`'s value; every course `.ref` regenerated from the reference binary and unchanged; corpus 1.96 s against the pre-checkpoint binary's 1.92 s; no `rc > 1`; valgrind clean over 145 inputs |
