@@ -2039,7 +2039,16 @@ TypeId SemaAnalyzer::dependent_member_type(TypeId owner,
                                            const std::string& member,
                                            unsigned cv, TypeId written)
 {
-	if (types_.is_dependent(owner) || !types_.is_class(types_.strip_cv(owner)))
+	// 14.5.3p1: a run standing for a pack is no one type, so a name written
+	// after it is one name per element and this reading is not where that is
+	// settled - it stands for itself, exactly as an unsettled prefix does.
+	// 14.3.3p1's template name and 14.3.2p1's value are the same: neither is a
+	// type a lookup could be made in, and neither is a prefix a program wrote.
+	const TypeKind settled = types_.kind(types_.strip_cv(owner));
+	const bool standing = types_.is_dependent(owner) ||
+		settled == TypeKind::Pack || settled == TypeKind::Value ||
+		settled == TypeKind::TemplateName;
+	if (standing)
 	{
 		// The class is still one no argument list has named, so the name stands
 		// for itself again - over the class *this* substitution made of the
@@ -2053,6 +2062,20 @@ TypeId SemaAnalyzer::dependent_member_type(TypeId owner,
 		return prefix == types_.strip_cv(owner) || prefix == kNoType
 			? written
 			: types_.qualified(dependent_member_name(owner, member).type, cv);
+	}
+	if (!types_.is_class(types_.strip_cv(owner)))
+	{
+		// 3.4.3.1p1 and 5.1p8: the arguments settled the prefix and what they
+		// settled it to is no class - an enumeration, a fundamental type, a
+		// pointer - so there is no region for the name to be looked up in and
+		// the type this substitution was building is ill formed.  Leaving it
+		// standing instead reads as "an argument list has yet to say", which
+		// 14.8.2.5p5's read-back takes for agreement: `typename T::missing`
+		// then matched a detector's partial specialization for every T that is
+		// not a class, and the trait came back `true` for all of them.
+		throw std::runtime_error(
+			types_.user_name(types_.strip_cv(written)) +
+			" is written after a name that is not a class");
 	}
 	require_complete_type(owner);
 	SemaEntity* const named = model_.type_owner(types_.strip_cv(owner));
