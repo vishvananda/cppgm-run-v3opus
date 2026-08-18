@@ -1,0 +1,81 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $one : i32
+  slot $at_one : ptr
+  slot $first : i32
+  slot $second : i64
+  slot $again : i32
+  slot $letter : i8
+  slot $total : i32
+  slot $cond__1 : i32
+  slot $cond__2 : i32
+
+  block ^entry:
+    store i32 1, $one
+    %t1 = addr $one
+    store ptr %t1, $at_one
+    store i32 2, $first
+    store i64 3, $second
+    store i32 4, $again
+    store i8 97, $letter
+    %t2 = load ptr $at_one
+    %t3 = load i32 %t2
+    %t4 = load i32 $first
+    %t5 = binary add i32 %t3, %t4
+    %t6 = load i64 $second
+    %t7 = convert trunc i32 i64 %t6
+    %t8 = binary add i32 %t5, %t7
+    %t9 = load i32 $again
+    %t10 = binary add i32 %t8, %t9
+    %t11 = load i8 $letter
+    %t12 = convert sext i32 i8 %t11
+    %t13 = binary sub i32 %t12, 97
+    %t14 = binary add i32 %t10, %t13
+    %t15 = binary add i32 %t14, 7
+    %t16 = call i32 @accepted(5)
+    %t17 = binary add i32 %t15, %t16
+    store i32 %t17, $total
+    %t18 = load i32 $total
+    %t19 = binary sub i32 %t18, 22
+    branch 1, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t20 = load i32 $cond__1
+    %t21 = binary add i32 %t19, %t20
+    branch 0, ^cond_then_4, ^cond_else_5
+
+  block ^cond_then_4:
+    store i32 1, $cond__2
+    jump ^cond_end_6
+
+  block ^cond_else_5:
+    store i32 0, $cond__2
+    jump ^cond_end_6
+
+  block ^cond_end_6:
+    %t22 = load i32 $cond__2
+    %t23 = binary add i32 %t21, %t22
+    return i32 %t23
+}
+function @accepted(%value : i32) -> i32 [binding=weak, object=_Z8acceptedI6policyiTnN9enable_ifIXsr9has_boxedIT_EE5valueEiE4typeELi0EEiT0_] {
+  slot $value : i32
+  slot $held : i32
+  slot $address : ptr
+
+  block ^entry:
+    store i32 %value, $value
+    %t1 = load i32 $value
+    store i32 %t1, $held
+    %t2 = addr $held
+    store ptr %t2, $address
+    %t3 = load ptr $address
+    %t4 = load i32 %t3
+    return i32 %t4
+}

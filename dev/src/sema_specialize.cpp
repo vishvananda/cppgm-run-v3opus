@@ -682,6 +682,60 @@ SemaEntity& Specialization::alias(SemaEntity& primary, const TemplateId& id,
 	return alias_arguments(primary, arguments);
 }
 
+// 14.2p4: one component written after a prefix no argument list has settled,
+// which the `template` keyword says is a template-id.
+//
+// The keyword is gone by the time the component reaches here - `part` strips it
+// where every reader already splits - so what says the component is a
+// template-id is the argument list it wrote, exactly as it does for a name
+// written with no prefix at all.  The list is read *where the reading stands*,
+// because that is the only region its arguments name anything in: they are the
+// enclosing template's own places, and a substitution later builds them the way
+// it builds every other argument.
+//
+// 14.1p4 has no head to ask which kind each argument is - the member template
+// is a member of a class no argument list has named - so what is left is the
+// spelling: a type-id is read as a type and anything else is 5.19's expression,
+// which is the same order `SpelledTypeId` settles 5.4p2's ambiguity in.  The
+// second reading is made only where the first ran out, and a spelling that is
+// no type-id runs out on its first word.
+SemaEntity& Specialization::member_component(TypeId prefix,
+                                             const std::string& written,
+                                             const SemaContext& ctx)
+{
+	const TemplateId id(written);
+	if (!id.valid())
+	{
+		return analyzer_.dependent_member_name(prefix, written, nullptr);
+	}
+	std::vector<TypeId> arguments;
+	arguments.reserve(id.arguments().size());
+	for (std::size_t index = 0; index < id.arguments().size(); ++index)
+	{
+		std::string pattern;
+		if (written_pack_expansion(id.arguments()[index], pattern))
+		{
+			// 14.5.3p4: a run the enclosing head bound is one argument per
+			// element here as it is in every other list.
+			PackReading(analyzer_).expand(pattern, ctx, kNoType, arguments);
+			continue;
+		}
+		TypeId built = kNoType;
+		try
+		{
+			const ReadingDepth probing(analyzer_.checking_);
+			built = analyzer_.template_argument_type(id.arguments()[index], ctx);
+		}
+		catch (const std::exception&)
+		{
+			built = analyzer_.template_argument_value(id.arguments()[index],
+			                                          kNoType, ctx);
+		}
+		arguments.push_back(built);
+	}
+	return analyzer_.dependent_member_name(prefix, id.name(), &arguments);
+}
+
 SemaEntity& Specialization::alias_arguments(
 	SemaEntity& primary, const std::vector<TypeId>& arguments)
 {

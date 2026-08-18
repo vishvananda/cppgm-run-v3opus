@@ -8,6 +8,7 @@
 #include "sema_constexpr.h"
 #include "sema_lambda.h"
 #include "sema_pack.h"
+#include "sema_specialize.h"
 
 // Specifiers, declarators and names: what a declaration says the type of the
 // thing it declares is, and what an identifier written in it denotes.
@@ -1078,7 +1079,8 @@ SemaEntity* SemaAnalyzer::resolve(const std::string& spelling, const Context& ct
 		SemaEntity* member = nullptr;
 		for (std::size_t index = unresolved; index < written.size(); ++index)
 		{
-			member = &dependent_member_name(dependent, written.part(index));
+			member = &Specialization(*this).member_component(
+				dependent, written.part(index), ctx);
 			dependent = member->type;
 		}
 		return member;
@@ -1107,7 +1109,7 @@ SemaEntity* SemaAnalyzer::resolve(const std::string& spelling, const Context& ct
 		// because which class it is only an argument list says, so the member
 		// is the same stand-in a prefix that named no region at all leaves.
 		SemaEntity* const unknown =
-			member_of_unknown_specialization(*region, written.last());
+			member_of_unknown_specialization(*region, written.last(), ctx);
 		if (unknown != nullptr)
 		{
 			return unknown;
@@ -1218,7 +1220,7 @@ Scope* SemaAnalyzer::resolve_prefix(const QualifiedName& name,
 			Access(*this).require_component_access(part, ctx, *region);
 			next = template_id_entity(part, ctx, region, LookupKind::Region);
 			if (next == nullptr && dependent != nullptr &&
-			    member_of_unknown_specialization(*region, part) != nullptr)
+			    member_of_unknown_specialization(*region, part, ctx) != nullptr)
 			{
 				// 14.6.2.1p6 at a component of the prefix rather than at the
 				// name it stands before: the class the component was looked up
@@ -1284,21 +1286,40 @@ Scope* SemaAnalyzer::resolve_prefix(const QualifiedName& name,
 // are rather than as the one spelling it is diagnosed by - which is what makes
 // `typename T::car_type` the `NT_8car_typeE` every other compiler writes rather
 // than the `T_` a parameter standing alone would be.
-SemaEntity& SemaAnalyzer::dependent_member_name(TypeId prefix,
-                                                const std::string& component)
+//
+// 14.2p4: where the component is a template-id the list it wrote is part of
+// what the name stands for - `Ops<P>::template diff<In>` and
+// `Ops<P>::template diff<Out>` are two members and not one - so the list is
+// interned beside the prefix and the name, and is kept as types because a
+// substitution hands them to the member template it finds.
+SemaEntity& SemaAnalyzer::dependent_member_name(
+	TypeId prefix, const std::string& component,
+	const std::vector<TypeId>* arguments)
 {
-	const std::string key = std::to_string(prefix) + "|" + component;
+	const std::string key = std::to_string(prefix) + "|" + component +
+		(arguments == nullptr
+		     ? std::string()
+		     : "<" + std::to_string(types_.type_list(*arguments)));
 	const std::unordered_map<std::string, SemaEntity*>::const_iterator held =
 		dependent_.names.find(key);
 	if (held != dependent_.names.end())
 	{
 		return *held->second;
 	}
-	const std::string spelling =
-		types_.user_name(prefix) + "::" + component;
+	std::string spelling = types_.user_name(prefix) + "::" + component;
+	if (arguments != nullptr)
+	{
+		spelling += "<";
+		for (std::size_t index = 0; index < arguments->size(); ++index)
+		{
+			spelling += (index == 0 ? "" : ", ") +
+				type_spelling((*arguments)[index]);
+		}
+		spelling += ">";
+	}
 	const TypeId type = types_.template_parameter_type(model_.type_entity_id(),
 	                                                   false, spelling);
-	types_.set_dependent_member(type, prefix, component);
+	types_.set_dependent_member(type, prefix, component, arguments);
 	SemaEntity& entity = model_.create(SemaKind::Typedef, component, type);
 	own_type(type, entity);
 	dependent_.names.insert(std::make_pair(key, &entity));
@@ -1319,7 +1340,7 @@ SemaEntity& SemaAnalyzer::dependent_member_name(TypeId prefix,
 // A class with no such base answers for itself, and so does every region that
 // is not a class, so both give null here and the lookup's own refusal stands.
 SemaEntity* SemaAnalyzer::member_of_unknown_specialization(
-	const Scope& region, const std::string& component)
+	const Scope& region, const std::string& component, const Context& ctx)
 {
 	if (!templating() || region.kind != ScopeKind::Class ||
 	    !region.dependent_base || region.owner == nullptr ||
@@ -1327,7 +1348,8 @@ SemaEntity* SemaAnalyzer::member_of_unknown_specialization(
 	{
 		return nullptr;
 	}
-	return &dependent_member_name(region.owner->type, component);
+	return &Specialization(*this).member_component(region.owner->type,
+	                                               component, ctx);
 }
 
 // 7.1.6.2p1: a nested-name-specifier whose first component is a
@@ -1363,7 +1385,8 @@ SemaEntity* SemaAnalyzer::qualified_in_type(TypeId head,
 		TypeId prefix = head;
 		for (std::size_t index = 1; index < written.size(); ++index)
 		{
-			member = &dependent_member_name(prefix, written.part(index));
+			member = &Specialization(*this).member_component(
+				prefix, written.part(index), ctx);
 			prefix = member->type;
 		}
 		return member;
@@ -1390,7 +1413,7 @@ SemaEntity* SemaAnalyzer::qualified_in_type(TypeId head,
 		// class this one named has a base an argument list has still to settle,
 		// so the name is a member of a class no list has named yet.
 		SemaEntity* const unknown =
-			member_of_unknown_specialization(*naming, written.last());
+			member_of_unknown_specialization(*naming, written.last(), ctx);
 		if (unknown != nullptr)
 		{
 			return unknown;

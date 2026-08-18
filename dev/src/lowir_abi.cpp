@@ -248,11 +248,25 @@ AbiType abi_type(TypeTable& types, TypeId type, LocalContexts& contexts)
 			// which the object file writes as the prefix and then the name -
 			// so `typename T::car_type` is `NT_8car_typeE` and not the `T_` a
 			// parameter standing on its own would be.
+			//
+			// 14.2p4 and `<unresolved-name>`'s third form: where the member was
+			// written as a template-id the list is part of the name, so the ABI
+			// writes the prefix, the name and then `<template-args>` - which is
+			// what makes `typename T::template rebind<U>` a name two units
+			// spell the same way.
 			AbiType out;
-			out.kind = abi_mangle::ABI_TYPE_MEMBER;
+			out.kind = types.dependent_member_is_template_id(type)
+				? abi_mangle::ABI_TYPE_MEMBER_TEMPLATE_SPECIALIZATION
+				: abi_mangle::ABI_TYPE_MEMBER;
 			out.name = types.dependent_member(type);
 			out.types.push_back(
 				abi_type(types, types.dependent_owner(type), contexts));
+			if (out.kind == abi_mangle::ABI_TYPE_MEMBER_TEMPLATE_SPECIALIZATION)
+			{
+				argument_refs(types, types.dependent_arguments(type),
+				              TypeTable::kNoPackPlace, contexts,
+				              out.argument_refs);
+			}
 			return out;
 		}
 		// 14.1p2 and `<template-param>`: a specialization's own name is

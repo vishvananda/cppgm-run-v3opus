@@ -741,6 +741,17 @@ bool TypeTable::mentions_walk(TypeId type, TypeId sought,
 				return true;
 			}
 		}
+		// 14.2p4: a member written as a template-id is built over its own list
+		// too, which stands beside the prefix rather than among the arguments
+		// a specialization was made of.
+		const std::vector<TypeId>& members = user_at(type).dependent_arguments;
+		for (std::size_t index = 0; index < members.size(); ++index)
+		{
+			if (mentions_walk(members[index], sought, seen))
+			{
+				return true;
+			}
+		}
 		// A reading read again rather than rebuilt names the places it named,
 		// and nothing else it is built over says so.
 		const std::vector<TypeId>& packs = user_at(type).named_packs;
@@ -883,11 +894,17 @@ void TypeTable::set_nested_in_dependent(TypeId type)
 }
 
 void TypeTable::set_dependent_member(TypeId type, TypeId owner,
-                                     const std::string& member)
+                                     const std::string& member,
+                                     const std::vector<TypeId>* arguments)
 {
 	UserType& record = user_types_[nodes_[type].user];
 	record.dependent_owner = owner;
 	record.dependent_member = member;
+	record.dependent_template_id = arguments != nullptr;
+	if (arguments != nullptr)
+	{
+		record.dependent_arguments = *arguments;
+	}
 }
 
 void TypeTable::set_declaration(TypeId type, const SemaEntity* declaration)

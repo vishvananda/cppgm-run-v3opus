@@ -471,8 +471,16 @@ public:
 	// prefix and then the name - which the one spelling it is diagnosed by
 	// cannot be split back into.  `kNoType` for every type no dependent prefix
 	// made.
+	//
+	// 14.2p4: the member may itself be written as a template-id - `typename
+	// T::template rebind<U>` - and then the list is a third fact of the same
+	// stand-in, kept as *types* because that is what a substitution hands the
+	// member template it finds and what the ABI's `<template-args>` writes
+	// after the name.  Null for a member written as a plain identifier, which
+	// is what tells it from the empty list `T::template f<>` writes.
 	void set_dependent_member(TypeId type, TypeId owner,
-	                          const std::string& member);
+	                          const std::string& member,
+	                          const std::vector<TypeId>* arguments);
 	TypeId dependent_owner(TypeId type) const
 	{
 		// A stand-in for a member of a class no argument list has named is a
@@ -485,6 +493,15 @@ public:
 	const std::string& dependent_member(TypeId type) const
 	{
 		return user_at(type).dependent_member;
+	}
+	const std::vector<TypeId>& dependent_arguments(TypeId type) const
+	{
+		return user_at(type).dependent_arguments;
+	}
+	bool dependent_member_is_template_id(TypeId type) const
+	{
+		return kind(type) == TypeKind::TemplateParameter &&
+			user_at(type).dependent_template_id;
 	}
 
 	// 14.6.2.1p9: a class or enumeration nested in the current instantiation is
@@ -922,6 +939,11 @@ private:
 		// type.
 		TypeId dependent_owner = kNoType;
 		std::string dependent_member;
+		// 14.2p4: the argument list that member was written with where it is a
+		// template-id, and whether it was one at all - `T::template f<>` writes
+		// an empty list and `T::f` writes none.
+		std::vector<TypeId> dependent_arguments;
+		bool dependent_template_id = false;
 		// 14.6.2p1 at a template-template place: the place a dependent
 		// template-id applied its argument list to, `kNoType` for every type
 		// that is not one.  The list itself stands in `template_arguments`,

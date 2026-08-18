@@ -99,6 +99,16 @@ public:
 	SemaEntity& alias_arguments(SemaEntity& primary,
 	                            const std::vector<TypeId>& arguments);
 
+	// 14.2p4: the stand-in one component of a name written after a prefix no
+	// argument list has settled leaves, whose own argument list - where the
+	// component is a template-id - is read here and kept beside the prefix and
+	// the name.  It is this reading's because what such a list eventually names
+	// is a specialization, and 14.1p4 has no head to ask which kind each
+	// argument is: a type-id is read as a type and anything else as 5.19's
+	// expression, which is the order every other spelled list settles.
+	SemaEntity& member_component(TypeId prefix, const std::string& written,
+	                             const SemaContext& ctx);
+
 	// 7.1.3p2 with 14.8.2p8: what 14.7.1p1's substitution makes of a naming
 	// that kept the arguments its type-id discarded.  They are built first -
 	// which is where `typename T::x` over a `T` with no `x` refuses and

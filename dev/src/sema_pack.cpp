@@ -326,6 +326,17 @@ void collect_packs(TypeTable& types, TypeId pattern,
 		// is written *over* that prefix, so a pack the prefix names is one this
 		// pattern names - which is what `typename Ts::type...` writes.
 		collect_packs(types, types.dependent_owner(pattern), runs, places, seen);
+		// 14.2p4: and over its own argument list where the member was written
+		// as a template-id, which is what `typename T::template wrap<Ts>...`
+		// names a pack through.
+		{
+			const std::vector<TypeId>& members = types.dependent_arguments(
+				pattern);
+			for (std::size_t index = 0; index < members.size(); ++index)
+			{
+				collect_packs(types, members[index], runs, places, seen);
+			}
+		}
 		if (types.alias_named(pattern) != kNoType)
 		{
 			// 7.1.3p2: a naming that kept the arguments its type-id discarded

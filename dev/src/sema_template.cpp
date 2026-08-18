@@ -184,6 +184,14 @@ SemaEntity& SemaAnalyzer::specialize(SemaEntity& primary,
 		// call of a deleted one.
 		made->explicit_function = primary.explicit_function;
 		made->deleted = primary.deleted;
+		// 7.1.5p2 is the same kind of fact: `constexpr` stands on the
+		// template's declarator and every specialization of it is a constexpr
+		// function, whatever the argument list.  An instantiation writes the
+		// flag again where it reads the definition, so the one reading that
+		// needs it here is the one that makes *no* definition - 14.6p8's, which
+		// asks 7.1.5p2 of a call it stands a value in for and read a template
+		// nothing had written the answer onto.
+		made->constexpr_function = primary.constexpr_function;
 		// 14.2: the arguments that made it, which the object file writes after
 		// the template's name and which no spelling of the declaration holds.
 		made->template_arguments = list;
@@ -446,6 +454,23 @@ void SemaAnalyzer::instantiate(SemaEntity& function)
 {
 	if (function.instantiated)
 	{
+		return;
+	}
+	if (function.primary != nullptr && templating() &&
+	    Substitution(*this).unsettled(function))
+	{
+		// 14p1 and 14.7.1p1: there is nothing here to instantiate.  A reading of
+		// a *pattern* declares nothing into the output, so a member template of
+		// the class that pattern declares has no pattern recorded on it at all -
+		// `record_function_template` is a lowering's, and this reading is not
+		// one.  And a specialization whose own argument list still names a place
+		// is a declaration no list has settled, whichever reading made it: a
+		// template head read in earnest declares places of its own, and
+		// `ok<U>()` written in a default argument over one names such a
+		// declaration while the dialect is a lowering.  Reading the pattern's
+		// body for either wrote a definition over types no argument gave, and
+		// refusing instead made an error no argument list would have made.  The
+		// naming that follows with the arguments in hand asks this again.
 		return;
 	}
 	function.instantiated = true;
@@ -2103,12 +2128,9 @@ TypeId SemaAnalyzer::substituted(
 		// the name up in the class it names.  A prefix the bindings leave
 		// dependent - a specialization over another parameter - names no class
 		// yet, and the member stands as it was for the substitution that follows.
-		const TypeId prefix = types_.dependent_owner(bare);
-		if (prefix != kNoType)
+		if (types_.dependent_owner(bare) != kNoType)
 		{
-			const TypeId owner = substituted(prefix, bindings, memo);
-			out = dependent_member_type(owner, types_.dependent_member(bare), cv,
-			                            type);
+			out = Substitution(*this).member(type, bare, cv, bindings, memo);
 			break;
 		}
 		// 7.1.6.2p4 and 14.7.1p1: a decltype-specifier the definition left
@@ -2187,8 +2209,14 @@ TypeId SemaAnalyzer::substituted(
 //
 // 3.4.3.1p1 asks the class for a definition first, because a member of a
 // specialization is only there once the instantiation has made it.
+//
+// 14.2p4: `arguments` is the list the member was written with where it is a
+// template-id and null where it is a plain name.  It is what the member
+// template the lookup finds is given, so a member that names a template and a
+// member that names a type are two different questions asked of one class.
 TypeId SemaAnalyzer::dependent_member_type(TypeId owner,
                                            const std::string& member,
+                                           const std::vector<TypeId>* arguments,
                                            unsigned cv, TypeId written)
 {
 	// 14.5.3p1: a run standing for a pack is no one type, so a name written
@@ -2211,9 +2239,16 @@ TypeId SemaAnalyzer::dependent_member_type(TypeId owner,
 		// different type under each head, which is one template declared twice.
 		const TypeId prefix = types_.strip_cv(
 			types_.dependent_owner(types_.strip_cv(written)));
-		return prefix == types_.strip_cv(owner) || prefix == kNoType
+		// 14.2p4: a member written as a template-id is built over its own list
+		// as much as over its prefix, so a list this substitution moved is a
+		// second reason to rebuild - `typename T::template rebind<U>` over a
+		// bound `U` and a `T` still standing is not the name the pattern wrote.
+		const bool moved = arguments != nullptr &&
+			*arguments != types_.dependent_arguments(types_.strip_cv(written));
+		return (prefix == types_.strip_cv(owner) || prefix == kNoType) && !moved
 			? written
-			: types_.qualified(dependent_member_name(owner, member).type, cv);
+			: types_.qualified(
+				  dependent_member_name(owner, member, arguments).type, cv);
 	}
 	if (!types_.is_class(types_.strip_cv(owner)))
 	{
@@ -2232,9 +2267,40 @@ TypeId SemaAnalyzer::dependent_member_type(TypeId owner,
 	require_complete_type(owner);
 	SemaEntity* const named = model_.type_owner(types_.strip_cv(owner));
 	Scope* const region = named == nullptr ? nullptr : model_.region_of(*named);
-	SemaEntity* const found =
+	SemaEntity* found =
 		region == nullptr ? nullptr
 		                  : model_.lookup_in(*region, member, LookupKind::Type);
+	if (arguments != nullptr)
+	{
+		// 14.6.1p1: inside a specialization the injected-class-name reaches
+		// that specialization, and a list written after it names the template
+		// it was made of - the same reading `template_id_entity` makes of a
+		// template-id written with no prefix at all.
+		if (found != nullptr && found->templated == nullptr &&
+		    found->primary != nullptr)
+		{
+			found = found->primary;
+		}
+		if (found == nullptr || found->templated == nullptr ||
+		    (found->kind != SemaKind::Class && found->kind != SemaKind::Typedef))
+		{
+			// 14.8.2p8: the class the arguments named declares no member
+			// template of this name, so the type this substitution was building
+			// is ill formed and the candidate that asked for it drops.  That is
+			// the whole of `X::template rebind<U>` as a detector writes it.
+			throw std::runtime_error(
+				"no member template " + member + " is declared in " +
+				types_.user_name(types_.strip_cv(owner)));
+		}
+		// 7.1.3p2: which of the two the name reached says how the list is read -
+		// a member alias template names the type its own type-id names, and a
+		// member class template names the specialization 14.7.1p1 makes.
+		return types_.qualified(
+			found->kind == SemaKind::Typedef
+				? Specialization(*this).alias_arguments(*found, *arguments).type
+				: instantiate_class(*found, *arguments).type,
+			cv | types_.cv(owner));
+	}
 	if (found == nullptr || !names_a_type(*found))
 	{
 		// 14.8.2p8: the class the arguments named is one this unit has, and it

@@ -66,6 +66,67 @@ SemaEntity* Substitution::specialize(SemaEntity& primary,
 	}
 }
 
+// 14p1 and 14.7.1p1: whether this specialization is one no argument list has
+// settled, which is a declaration nothing instantiates and no fold runs.
+//
+// Two shapes say so and both are the same sentence: the template it was made of
+// has no pattern recorded - which a reading of a pattern is what leaves, because
+// the pattern's own body declares nothing into the output - or its own argument
+// list still names a place, which a head's places written into a default
+// argument are what leave.
+bool Substitution::unsettled(const SemaEntity& function) const
+{
+	if (function.primary->templated == nullptr)
+	{
+		return true;
+	}
+	const std::vector<TypeId>& arguments =
+		analyzer_.types_.type_list_at(function.template_arguments);
+	for (std::size_t index = 0; index < arguments.size(); ++index)
+	{
+		if (analyzer_.types_.is_dependent(arguments[index]))
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+// 14.6.2p1 and 14.7.1p1: a name written after a prefix the definition could not
+// settle is a member of whatever class an argument list makes of that prefix, so
+// the substitution settles the prefix first and looks the name up in the class it
+// names.  A prefix the bindings leave dependent - a specialization over another
+// parameter - names no class yet, and the member stands as it was for the
+// substitution that follows.
+//
+// 14.2p4: a member written as a template-id carries its own list, which is built
+// here the way every other argument list is - each entry substituted, a run
+// standing for a pack expanded - before the member template it names is asked
+// for the specialization.
+TypeId Substitution::member(TypeId naming, TypeId bare, unsigned cv,
+                            const std::unordered_map<TypeId, TypeId>& bindings,
+                            std::unordered_map<TypeId, TypeId>& memo)
+{
+	TypeTable& types = analyzer_.types_;
+	const TypeId owner =
+		analyzer_.substituted(types.dependent_owner(bare), bindings, memo);
+	const bool listed = types.dependent_member_is_template_id(bare);
+	std::vector<TypeId> built;
+	if (listed)
+	{
+		const std::vector<TypeId>& given = types.dependent_arguments(bare);
+		built.reserve(given.size());
+		for (std::size_t index = 0; index < given.size(); ++index)
+		{
+			PackReading(analyzer_).substitute_entry(given[index], bindings, memo,
+			                                        built);
+		}
+	}
+	return analyzer_.dependent_member_type(owner, types.dependent_member(bare),
+	                                       listed ? &built : nullptr, cv,
+	                                       naming);
+}
+
 // 14.8.3p1 with 14.8.2p8: a template is a candidate through the specialization
 // a use makes of it, and no candidate at all where the use deduces none *or*
 // where substituting what it deduced builds a declaration that is ill formed.

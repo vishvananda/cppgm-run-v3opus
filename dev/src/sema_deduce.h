@@ -67,6 +67,20 @@ public:
 	                       const std::vector<TypeId>& arguments,
 	                       std::string& refused);
 
+	// 14.7.1p1: whether `function` is a specialization no argument list has
+	// settled, which is a declaration nothing instantiates and no fold runs -
+	// the template it was made of has no pattern recorded, or its own list
+	// still names a place.
+	bool unsettled(const SemaEntity& function) const;
+
+	// 14.6.2p1 with 14.2p4: what this substitution makes of a name written
+	// after a prefix no argument list had settled - the prefix built first, then
+	// the member's own list where it wrote one, and then the class the two name
+	// asked for the member.
+	TypeId member(TypeId naming, TypeId bare, unsigned cv,
+	              const std::unordered_map<TypeId, TypeId>& bindings,
+	              std::unordered_map<TypeId, TypeId>& memo);
+
 private:
 	Substitution(const Substitution&);
 	Substitution& operator=(const Substitution&);

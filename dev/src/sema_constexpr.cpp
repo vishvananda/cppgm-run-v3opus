@@ -1443,7 +1443,21 @@ bool ConstexprReading::unsettled_callee(const SemaEntity& callee) const
 	{
 		return true;
 	}
-	if (callee.primary == nullptr || callee.template_arguments == 0)
+	if (callee.primary == nullptr)
+	{
+		return false;
+	}
+	if (analyzer_.checking_ > 0 && callee.primary->templated == nullptr)
+	{
+		// The third shape, and the same sentence a third time: a member
+		// template of the class a pattern declares carries no pattern of its
+		// own while that pattern is being read, so this reading has no body for
+		// it however plainly the argument list is written - `enabled<int>()`
+		// folded inside the class template that declares `enabled`.  The
+		// instantiation records the pattern and reads the call again.
+		return true;
+	}
+	if (callee.template_arguments == 0)
 	{
 		return false;
 	}
@@ -1486,7 +1500,7 @@ SemaConstant ConstexprReading::call(SemaEntity& callee,
 	if (!callee.constexpr_function || callee.constexpr_body == nullptr ||
 	    callee.constexpr_region == nullptr)
 	{
-		if (callee.constexpr_function && analyzer_.checking_ > 0 &&
+		if (callee.constexpr_function && analyzer_.templating() &&
 		    unsettled_callee(callee))
 		{
 			// 14p1 and 14.6p8: a template declares no function until it is
@@ -1498,6 +1512,13 @@ SemaConstant ConstexprReading::call(SemaEntity& callee,
 			// reading stands one value in its place rather than calling this
 			// the program's error.  The instantiation reads the same call
 			// again with the arguments bound, which is where it is answered.
+			//
+			// A pattern's reading is not the only place such a callee is met:
+			// a template *head* read in earnest declares places of its own, and
+			// a default argument written over them - `enable_if_t<ok<U>()>` -
+			// names a specialization over a `U` no list has settled while the
+			// dialect is a lowering and `checking_` is zero.  What the call
+			// comes to there is the same arguments' to say.
 			++analyzer_.stood_in_;
 			SemaConstant stood;
 			stood.type = analyzer_.types_.fundamental(FT_INT);

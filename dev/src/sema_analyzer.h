@@ -1289,14 +1289,17 @@ private:
 	// prefix is a class an argument list has named, and the name itself where
 	// it is not one yet.
 	TypeId dependent_member_type(TypeId owner, const std::string& member,
+	                             const std::vector<TypeId>* arguments,
 	                             unsigned cv, TypeId written);
 	SemaEntity& dependent_member_name(TypeId prefix,
-	                                  const std::string& component);
+	                                  const std::string& component,
+	                                  const std::vector<TypeId>* arguments);
 	// 14.6.2.1p6: the same stand-in for a name looked up *in* a class whose
 	// definition this reading has and whose base-clause an argument list has
 	// still to settle - null where the region is no such class.
 	SemaEntity* member_of_unknown_specialization(const Scope& region,
-	                                             const std::string& component);
+	                                             const std::string& component,
+	                                             const Context& ctx);
 	// 7.1.6.2p1: the declaration a name whose nested-name-specifier begins with
 	// a decltype-specifier reaches.  The expression the parser kept beside the
 	// spelling is what says which region the rest of the name is looked up in,
