@@ -32,165 +32,198 @@ place is, and which declaration a list selects.
 
 | AA | `0454dcc9` | 5 / 5 + 4 recorded | **the body 12.8p11's boundary may not read the emptiness of, landed at the boundary and at neither end of a lifetime - and the region one lambda-expression's class is held under, which is not the reading of the body it stands in.**  Checkpoint AA made 5.1.2p3's closure class rather than reading one: `LambdaReading` builds the class-specifier the standard describes and hands it to the class reading, so the local class, its ABI name, its layout, its call operator, 9.2p2's body at the closing brace and the demand-driven definition are the machinery already there.  That is right and swept clean - 51 of 59 shapes translate, every one of the 51 runs the value `g++` gives it through `lowir2cy86` + `cy86`, and 51 agree with `pa22/cppgm++-ref` through the assignment's own comparator.  What none of it carried is which *reading* of a body a lambda-expression stands in: `closure_of` is keyed by the block the expression was written in, and one body is read **twice** - 5.1.2p4's return type in the declarator's own regions and the compound-statement at 9.2p2's closing brace - so a lambda in the returned expression declared one class per reading and every level below it doubled.  8 nested lambdas declared **255** classes and 16 of them took **11.20 s** where 8 took 0.03; the key is now the outermost region one function declarator opens, walked *through* a closure class because that class is a region this reading made and not one the program wrote, and depth 64 is 0.26 s where the reference is killed at 60 s at depth 32.  Beside it the same commit's other clause at its other exit: 12.4p8 read off a body this unit's own source wrote is what `carried_by_its_bytes` asks at 12.8p11's boundary, and `SemaAnalyzer::vacuous_destruction` - the one door every end of a lifetime asks - kept answering off the body it went looking for, so `struct hin { int x; ~hin() {} };` written in a *header* was an object the reference destroys and opens an `eh_try` for and this build did neither, at a local, a by-value parameter, a member, a base, a class template and an out-of-line definition alike.  15.2p2's region ended where a step began however much its handler owed, so `use(held(1), held(2), held(3))` ran a constructor **outside** the handler that owes the temporary standing in front of it - a region that owes nothing is the one the references move a step out of, and the one the checkpoint's own fixture needed.  5.1.2p4's walk read a `return` belonging to another function: `[]{ struct S { char c() { return 'a'; } }; return 300; }` was a closure returning `i8` that translated, linked and **ran to 1 where both oracles run 0**.  And 12.2p1's object was made once per reading while `creates_its_object` had no arm for a temporary with nothing under it, so a captureless lambda handed to a by-value parameter opened two `argobj` slots where the reference opens one.  Recorded rather than fixed: 5.1.2p4's deduced return type is read before the body's own region exists, which refuses **four of twenty** ordinary lambdas and not the one exotic shape the plan named; the reference's unused implicit copy constructor for a class held by another whose destructor a header defined; the closure's own ABI name, which pairs two identical closures by order; and 15p1's try-block, which the parse takes and the analysis refuses as outside the PA12 subset |
 
-## Current Checkpoint Review
 
-Checkpoint AA is one class made rather than read. `LambdaReading` builds the
-class-specifier 5.1.2p3 describes - a local class holding one public inline
-`operator()` whose parameter-declaration-clause, cv-qualification and
-exception-specification are the lambda-declarator's own and whose body is the
-compound-statement - and hands it to `SemaAnalyzer::class_declaration`, so the
-ABI name, the layout, the member's declaration, 9.2p2's reading of its body at
-the closing brace and the demand-driven definition are all machinery that was
-already there. `SemaModel::closure_of` keys one class per lambda-expression,
-p14's initialization is *nothing* for a lambda that captured nothing, and
-`AstKind::DeducedReturnType` is p4 read at 8.3.5p2's place. Under the one
-fixture were two clauses of its own: 12.8p11's boundary may not read the
-emptiness of a destructor defined elsewhere, and 15.2p2's region may not cover
-the step that built the object it was opened for.
+| AB | `d16c6f42` | 5 / 5 + 3 recorded | **the copy 12.8p15 says carries no byte, asked a step after the object it would have carried was already made - and the one initializer that reading still owes.**  Checkpoint AB read 12.8p15 before the initializer rather than after: `copies_no_byte` says the object is never made, the initialization writes nothing, and the initializer is never lowered, which is what the checked-in LowIR holds for `Iter<int,long> next = 1 + it;`.  The one thing that survives is 5.2.2p1's **call**, told from 13.3.1.2p2's rewritten operator by `SemaFact::written_call`, and 2.14.5p8's string object, kept by `kept_string_objects`.  62 shapes through the real comparator settled which of the four doors that initialize a declared place take the copy and which keep the call; the sweep went 18/43 to 59/62 |
 
-Making the syntax is the right shape and the reuse is real: 51 of 59 probed
-shapes translate, every one of them runs exactly the value
-`g++ -std=c++11 -pedantic-errors` gives it, and 51 are byte for byte
-`pa22/cppgm++-ref`'s through the assignment's own comparator. What none of it
-carried is that **one body is read twice**, and that each of the two new clauses
-had a sibling exit answering the old question.
+| Final | `585b415a`, `5896e299` | 3 / 3 + 4 recorded | **the whole stage read back from its sources: three rules landed at one exit each and left at the sibling the same clause is written at.**  See the sections below |
+
+## Final Audit
+
+The stage was reconstructed from `dev/src` and the README rather than from the
+ledger above: what the entity graph is keyed by, which readings recover a
+spelling, where a fact is written and where it is read, and what each sweep-worthy
+dimension actually costs. Three defects were found and fixed, four gaps were
+probed as programs and recorded, and the rest is what the review confirmed.
 
 ### Findings
 
-**1. A closure class was held under the block the expression stood in, so
-nested lambdas cost 2^depth.** `closure_of` is keyed by `(ctx.scope, node.begin)`
-- but 5.1.2p4's deduced return type is read where 8.3.5p2's trailing-return-type
-is, in the declarator's own regions, and the compound-statement is read again at
-9.2p2's closing brace in a block region under them. A lambda-expression written
-in the returned expression is reached by both readings under two different
-blocks, so it declared two classes; each of those repeated the split one level
-down:
+**1. The parse's name index answered for a name in a scope and not for the form
+a prefix's probe takes, so 10.2p2's chain was walked per miss.** `DeclaredNames`
+already keeps `declared_` — every spelling some declaration of the unit wrote —
+and its own comment says why: a name no declaration wrote is in no region for a
+using-directive or a base class to reach, "which is what keeps a miss one probe
+rather than a walk of every base and every nominated namespace". That index is
+keyed by the name as *written in a scope*. Every answer a **qualified** spelling
+has, and every probe the base walk makes, is a lookup in `qualified_`, whose keys
+are a prefix and a name — so the index answered none of them and the walk ran in
+full for every name that was going to miss:
 
 ```
-8 nested lambdas   255 closure classes declared      depth 16: 11.20 s
-                                                     depth  8:  0.03 s
+d classes over a dependent base, each naming through itself, depth 3200:
+   3.21 s, quadratic in the chain      against pa22/cppgm++-ref's 1.53 s
 ```
 
-`reading_region` is the region the class is now held under: the outermost of the
-regions one function declarator opens, walked *through* a closure class, because
-that class is a region this reading made rather than one the program wrote and
-the two readings of one body stand on either side of it. A class the program
-declared, a namespace or a template head ends the walk, which is what keeps a
-member template specialized twice at two classes. 8 nested lambdas now declare
-36 and depth 64 is **0.26 s**, where `pa22/cppgm++-ref` is killed at 60 s at
-depth 32. `SemaEntity::closure_class` is the fact the walk reads; a lambda in a
-function template, in a member function template and in a loop were probed at
-both builds and each writes the same count the reference writes.
+`perf` put 45% of that in `DeclaredNames::spelled_kind` and `reached_through`.
+`reachable_` is the index the probes actually ask for: each key of `qualified_`
+and each of its suffixes at a `::`, which is exactly the set of spellings some
+prefix put in front of one can come to. A spelling that is in none of them is
+answered `Unknown` before any prefix in force, any base and any nominated
+namespace is tried. 7.3.2p1 is the one thing that can turn one spelling into
+another, and `could_be_reached` walks the alias chain of a spelling with nothing
+in front of it, which is the only place a rewrite can reach the tail — so the
+index is exact and not a filter that guesses. Depth 3200 is **0.49 s and linear**,
+and the same index makes the unqualified reading's guard stronger than
+`declared_` was: a name declared only as a local is now one probe too.
 
-**2. 12.4p8's provenance landed at 12.8p11's boundary and at neither end of a
-lifetime.** `carried_by_its_bytes` asks whether the definition this unit read a
-destructor's emptiness off is one the boundary may read it off at all -
-`user_provided && (!own_source_definition || out_of_line_definition)`. The door
-every *end of a lifetime* asks is `SemaAnalyzer::vacuous_destruction`, and it
-kept reading the body wherever `note_definition_body` found it. So an object of
-a class whose empty-bodied destructor an included file defined was destroyed by
-nobody and stood under no handler:
+**2. 14.7.3p1's `template<>` over a member *class* fell through to the
+class-template tier.** Checkpoint X landed the clause for a member function, a
+static data member and — through the fixture — a member class *template*
+(`template<> struct A<int>::B<int> {}`). The sibling the same sentence covers is a
+member class that is no template of its own, and its last component is therefore
+no template-id: `record_explicit_specialization` returned false on it and the
+class-template tier refused the head with `a template declaration of in
+redeclares a name that is not a class template`.
 
 ```cpp
-// in a header
-struct hin { int x; ~hin() {} };
-int main() { hin a; a.x = 1; return touch(a) - 1; }   // the reference writes
-                                                      // eh_try + two calls
+template<class T> struct outer { struct in { static const int v = 1; }; };
+template<> struct outer<char>::in { static const int v = 2; };
+// g++ runs this to 0; pa22/cppgm++-ref accepts it and runs the pattern's
+// body, coming to 246; this build refused it
 ```
 
-Nine shapes diverged - a local, a by-value parameter, a member, a base, a class
-template, an out-of-line definition in a header, and two classes holding one -
-and thirteen were swept to settle the rule the reference draws: it is
-`user_provided && !own_source_definition`, propagated through bases and members,
-and an implicit destructor, `= default` and an out-of-line definition in the
-unit's *own* source are read wherever they stand. The fact is now settled once,
-in `vacuous_destruction`, and the subobject walk that was already there carries
-it; `carried_by_its_bytes` keeps only 14.7.2p10's own half. Both provenance
-facts are written at `note_definition_body`, the door that finds the body before
-the declaration writing it has been read - because a class completes before a
-member defined below it is read, and the memo holds the answer from that moment
-on.
+A member class is the one member whose definition the reading of the class
+holding it completes on the spot — a member function's body waits for the use
+that names it, which is why `supersede` can take a claim off one — so the clause
+needs the body *before* the specialization is made and not a claim taken off one
+already read. `TemplateInfo::explicit_member_classes` is that body, keyed by the
+interned argument list and the name the declarator-id wrote;
+`SemaAnalyzer::written_member_class` is the one probe `class_declaration` makes
+before it reads a body, and `read` is what says the reading found it, so a
+`template<>` naming a member no pattern declares is refused rather than dropped in
+silence. Eight sibling shapes were swept and every one agrees with `g++`: a base
+and a member function in the written body, a member of a *partial*
+specialization, a namespace-qualified owner, a class-key spelled differently from
+the pattern's, a name no pattern declares, a second definition of one member, and
+one written after the class holding it was instantiated.
 
-**3. 15.2p2's region ended where a step began however much its handler owed.**
-`close_region_at_step` moved a step's own instructions out of *every* region it
-closed. An exception out of a step does leave the object that step was building
-unbuilt - but the objects standing in front of it are exactly what the handler
-around the step owes:
-
-```
-  block ^call_unwind_end_2:
-    eh_try ^call_unwind_dispatch_3          // dispatch destroys arg__2
-    %t3 = addr $arg__3
-    call void @<fn1>(%t3, 3)                // the reference, inside
-    eh_end                                  // this build closed here and wrote
-                                            // the construction after the region
-```
-
-so `use(held(1), held(2), held(3))` ran a constructor no handler covered, and
-the pre-AA build wrote the reference's answer. The move is right for a region
-whose handler owes *nothing* - which runs nothing either way, and is the shape
-the checkpoint's own fixture needed - so `region_.live == 0` is the clause, and
-both shapes are now byte for byte the reference's.
-
-**4. 5.1.2p4's walk read a `return` belonging to another function.**
-`returned_expression` skipped a nested lambda-expression and descended into
-everything else, including a class 9.3p1 lets the body declare:
+**3. 2.9p1's preprocessing number was split into three words, by both readings
+that recover a spelling.** 14.2 writes an argument list inside a name, so a
+template argument reaches the semantic layer as text and two readings turn it
+back into terminals: `split_type_id` for 8.1p1 and `split_value_expression` for
+5.19. Both ran over *name characters*, and a number holds two characters no name
+holds — the `.` that 5.2.5p1 also writes as an operator, and the sign after an
+exponent:
 
 ```cpp
-template<class F> long run(F const& f) { return f(); }
-int main() { return run([]{ struct S { char c() { return 'a'; } }; return 300; })
-                    == 300L ? 0 : 1; }
+template<int N> struct box { static const int v = N; };
+box<(int)3.9>::v   // "a member access written as a template argument names no
+                   //  member" - the reader saw `3` `.` `9`
 ```
 
-The closure's `operator()` came out `-> i8` where the reference and `g++` both
-give `i32`, and the program translated, linked and **returned 1 where both
-oracles return 0**. 6.6.3p1's `return` belongs to the innermost function around
-it, so the walk skips a `FunctionDefinition` exactly as it already skipped a
-`LambdaExpression`.
+`(int)3.9`, `(char)3.9`, `static_cast<int>(4.2)`, `(int)3.9f`, `(bool)0.5`,
+`(int)1e+1` and `.5` written with no digit in front of it were all refused where
+both oracles fold them. `pp_number_end` is 2.9p1's run, in `sema_name.cpp` beside
+the other readings of a spelling, and both splitters ask it — the rule is written
+once rather than twice.
 
-**5. 12.2p1's object was made once per reading, and the reader that hands a
-destination down had no arm for a temporary with nothing under it.**
-`LambdaReading::expression` created a fresh object entity on every reading of
-one expression, and `creates_its_object` asks a `TemporaryObject` for a
-`ConstructorAction` under it - which 5.1.2p14 leaves a closure without. So the
-place asking for the object opened a slot of its own and copied an object of no
-bytes into it: `template<class F> int run(F f)` over `[]{ return 6; }` wrote two
-`argobj` slots and two `addr` where the reference writes one of each. The object
-is now held beside the class under the same key, and a temporary with nothing
-under it creates its object where the place asking owns storage exactly as one a
-constructor builds does.
+8.3.4p1's bound was the same clause one layer down. The type-id reading split the
+bound into words and `written_bound` hands them to the value reading **rejoined
+with spaces**, so a number split by the first is one the second can no longer put
+together — and, worse, a bound holding any operator at all made `split_type_id`
+return false: `holder<int[1 + 1]>` was `a template argument is written outside the
+PA12 subset`, which both oracles read. What the brackets hold is 5.19's and not
+the type-id reading's, so it is taken whole now: one word, which is what a bound
+of one terminal already came to.
 
 ### What the review confirmed rather than found
 
-- **The class is made and reused rather than described twice.** 51 shapes -
-  parameters, `mutable`, `noexcept`, a trailing return type, a returned class
-  object, a `return` inside an `if`, a nested lambda, two lambdas in one
-  statement, two identical ones, a lambda in a class template instantiated
-  twice, one deduced through `F const&` and one through `F` - all translate, and
-  the ABI name, the layout, 9.2p2's body reading and the demand-driven
-  definition are the class reading's own with nothing written beside them.
-- **Nothing scans and nothing retries.** The two closure memos are hash lookups
-  keyed by a region and a token position; `reading_region` walks the enclosing
-  regions, which is the block nesting; `carried_by_its_bytes` and
-  `vacuous_destruction` each read what a base or a member already settled;
-  `note_definition_body` walks the definitions collected under one name.
-  n captureless lambdas in one body is 0.01 → 0.06 s at 50 → 400 against the
-  reference's 0.60 → 1.10 s, n specializations of one body holding one lambda
-  0.01 → 0.08 s against 0.60 → 1.30 s, n temporaries with destructors in one
-  full-expression 0.00 → 0.01 s at 25 → 200, and n classes whose destructor a
-  header defined 0.02 → 0.05 s at 50 → 400.
-- **`valgrind -q --error-exitcode=9` is clean over 62 inputs**, 0 errors: the
-  59 probes, the checkpoint's own fixture and the nested-lambda sweep.
-- **The corpus is unchanged.** The 377 `.t` files one process per file are
-  3.02 s warm at the audited build against 3.11 s at the pre-AA one, measured
-  the same way; the plan's carried-forward 1.53 s was measured another way and
-  is re-stated.
-- **No gate and no skipped work.** Neither the checkpoint's diff nor this
-  audit's holds a `getenv`, a fixture name, a dialect switch keyed on anything
-  but a dialect, a timeout, an environment read or a caught exception standing
-  for a success. `own_source_definition` is 2.2p1 asked of a node, which
-  `sema_virtual.cpp` and `lowir_lower.cpp` already ask, and not a gate on a file
-  name. Earlier assignments are intact: `make test-report-through-pa21` is
-  2568 / 2568, and PA22 holds 375 / 377 with the same two the checkpoint left,
-  both the reference's own. The file audit passes with the five `bad-division`
-  warnings it already had.
+- **The entity graph is the one the README's design notes ask for.** Every fact
+  about an argument list is keyed by the interned list, which is the key the
+  specialization is already found by: `patterns`, `chosen`, `explicit_classes`,
+  `explicit_functions`, `explicit_variables`, `explicit_member_classes`,
+  `reading`. A template-template argument binds a `TemplateInfo*` and not a
+  spelling. A partial specialization is a template of its own, so 14.5.5.1p1's
+  choice compares entities and never text.
+- **The three readings that recover a spelling do not answer each other.** They
+  are asked at different places, none retries another, and the audit swept 34
+  type-id forms — function types with an ellipsis, pointers to member functions
+  with cv, arrays of function pointers, `int(*(*)(int))[3]` — through the
+  declarator reading and the spelled one, comparing them with
+  `same<A, A>`'s partial specialization and running each through `lowir2cy86` +
+  `cy86`: 34 of 34 name one type. 23 constant-expression spellings were swept the
+  same way through a value place and an array bound.
+- **The ABI is the object file's answer.** Six PA22 entity kinds — a member of a
+  specialization, a member template's specialization, a member of a member class,
+  a static data member, a member of a *partial* specialization, and a class
+  template passed as a template-template argument — write the names `g++` writes,
+  byte for byte.
+- **31 of 32 PA22-shaped programs are byte for byte the reference's** through the
+  assignment's own comparator, run one test at a time because the comparator stops
+  at the first failure. The one difference is the reference's own: for
+  `template<> template<class U> int owner<char>::m(U)` it mangles the
+  specialization `_ZN5ownerIcE1mIiEEiT_` and then gives the parameter type `i8`.
+- **Nothing is gated and no phase is skipped.** The stage's whole diff holds no
+  `getenv`, no fixture name, no timeout, no environment read, no dialect switch
+  keyed on anything but a dialect, and no caught exception standing for a success.
+  The one `semantics()` guard the stage added is live in the lowering dialect.
+  `cppgm++ --emit-lowir` runs phases 1-7, the PA10 parse, the PA11-PA22 analysis
+  and the PA15-PA22 lowering, and the LowIR the fixtures compare is what
+  `lowir2cy86` + `cy86` then run.
+- **`valgrind -q --error-exitcode=9` is clean over 78 inputs**: the 41 boundary
+  probes, the 16 member-class probes, the 25 constant-expression probes and the
+  12 scaling inputs.
+
+### Changes
+
+| Where | What |
+|-------|------|
+| `ast_names.h`, `ast_parser_name.cpp` | `reachable_` and `could_be_reached`: every spelling a prefix could reach, so a qualified miss is one probe and 10.2p2's chain is walked only where an answer could be there. |
+| `sema_template.h` | `TemplateInfo::explicit_member_classes` and `MemberClass`, with `read` as the mark that says the reading found the body. |
+| `sema_explicit.cpp` (new), `sema_template.cpp` | 14.7.2 and 14.7.3 came out as one owner - what a `template<>` says a specialization *is*, and what `template`/`extern template` say a unit owes. `record_explicit_member_class` is the new arm. 2989 → 2287 lines. |
+| `sema_analyzer.cpp`, `sema_analyzer.h` | `written_member_class`, asked once by `class_declaration` before it reads a body. |
+| `sema_name.h`, `sema_name.cpp` | `pp_number_end`, 2.9p1's run, asked by both readings that recover a spelling. |
+| `sema_value_expression.cpp` | the number is one word, and `is_literal_word` takes `.5`. |
+| `sema_type_id.cpp` | the number is one word, and what 8.3.4p1's brackets hold is handed on whole. |
+
+### Performance Evidence
+
+The dominant operations are interning a type, looking a name up in a region, and
+14.5.5.1p1's choice among the patterns — the first two O(1) probes, the third
+memoized per interned argument list. Twenty-one dimensions were measured on the
+audited build against `pa22/cppgm++-ref`; the table in `plan.md` holds them all.
+The headline is the one path that was slower than the reference:
+
+```
+d classes over a dependent base, each naming through itself
+   depth   100    400    800   1600   3200
+   before  0.01   0.07   0.23   0.79   3.21 s     quadratic
+   after   0.01   0.04   0.09   0.20   0.49 s     linear
+   ref     0.60   0.62   0.80   1.41   1.80 s
+```
+
+Every other dimension is linear in what it scales, including two cross products:
+n template-template arguments × m types is 1.01 s at 200×32 and 4.42 s at 400×64
+against the reference's 9.62 s and 120.17 s, and n specializations × m
+out-of-class members is 0.03 → 0.43 s from 50×8 to 200×32. Interleaving n partial
+specializations with n namings — which drops the selection memo n times — is
+0.01 → 0.16 s at 100 → 800. The two dimensions that are not linear are understood
+and neither is this layer's: 11.2p1's protected chain is linear in the derivation
+it walks (0.01 → 0.07 s at depth 64 → 512), and a member class template nested d
+deep with every level defined out of class writes an input that is itself O(d²) —
+d heads and a d-component declarator-id per level — where a profile shows the cost
+spread over name lookup and interning with no dominant term (0.01 s at depth 10,
+2.76 s at 60, against the reference's 0.60 s and 127.95 s). The whole 380-test
+corpus, one process per file, is **1.68 s** warm.
+
+### Validation
+
+- `perl scripts/cppgm_file_audit.pl --stage pa22 --paths dev/src` — **pass**,
+  with the five `bad-division` warnings it already had.
+- `make test-report-through-pa22` — **2948 / 2948**, 22 / 22 stages.
+- `cd pa22 && make test` — 309 / 309 and 71 / 71.
+- 32 PA22-shaped programs through the assignment's own comparator against
+  freshly generated reference LowIR: 31 byte for byte, 1 the reference's own bug.
+- 78 inputs under `valgrind -q --error-exitcode=9`: 0 errors.
+- Every probe in this audit compared against `g++ -std=c++11 -pedantic-errors`
+  and `pa22/cppgm++-ref`, and every accepted one run through `lowir2cy86` + `cy86`
+  to the value `g++` runs it to.
