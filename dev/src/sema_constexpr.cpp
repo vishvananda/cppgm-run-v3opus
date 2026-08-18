@@ -1675,6 +1675,16 @@ SemaConstant ConstexprReading::entity_constant(SemaEntity& entity,
 			stood.bits = 1;
 			return stood;
 		}
+		if (entity.kind == SemaKind::Function)
+		{
+			// 4.3p1: the name of a function is one no reading takes a *value*
+			// out of either, and every operand position it may stand at makes
+			// it the pointer to that function before looking at it - so what
+			// the name is worth is which function it is, exactly as an array's
+			// name is which object it is.  14.3.2p1 is what asks: the `&` may
+			// be omitted where the name refers to a function.
+			return held_at(designated_entity(entity, spelling));
+		}
 		if ((entity.kind == SemaKind::Variable ||
 		     entity.kind == SemaKind::Parameter) &&
 		    analyzer_.types_.kind(analyzer_.types_.strip_cv(entity.type)) ==

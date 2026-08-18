@@ -13,6 +13,7 @@
 #include "sema_lambda.h"
 #include "sema_operator.h"
 #include "sema_pack.h"
+#include "sema_template_head.h"
 #include "string_literal.h"
 
 // The PA12 expression layer: 5 over the procedural, non-class subset.
@@ -543,6 +544,16 @@ SemaAnalyzer::Value SemaAnalyzer::named_value(const AstNode& node,
 	// two part company only here.
 	SemaEntity& entity = declared_member(named);
 	Value value;
+	if (entity.kind == SemaKind::TemplateValue &&
+	    (entity.constant || entity.address != 0) &&
+	    TemplateHead(*this).address_place(entity.type))
+	{
+		// 14.3.2p1: the place took 5.19p2's address constant, which says which
+		// object the argument designated and gives the place no storage of its
+		// own - so what the name is worth is that object, written back as the
+		// expression that names it.
+		return TemplateHead(*this).address_value(entity, parent);
+	}
 	if (entity.kind == SemaKind::TemplateValue && !entity.constant)
 	{
 		// 14.1p4 and 14.6.2p2: a non-type parameter read where the pattern

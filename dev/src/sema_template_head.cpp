@@ -6,6 +6,8 @@
 #include <vector>
 
 #include "ast_model.h"
+#include "ast_tokens.h"
+#include "sema_constexpr.h"
 #include "sema_name.h"
 #include "sema_pack.h"
 #include "sema_template.h"
@@ -564,9 +566,8 @@ void TemplateHead::read(const AstNode& clause, TemplateInfo& info,
 // region its own head opened - so `template<class T, T v>` reaches the place
 // before it, and 14.6.2p1 leaves that type dependent until an argument arrives.
 //
-// 14.1p7 leaves the rest of 8.3's declarators to later milestones: a parameter
-// of pointer, reference or class type is not part of the supported subset, and
-// the place is refused where its type is neither integral nor an enumeration.
+// 14.1p4 lists what such a type may be, and `non_type_place` below is that
+// list: the place is refused where its type is none of them.
 TypeId TemplateHead::non_type_type(const AstNode& parameter,
                                    const SemaContext& ctx)
 {
@@ -586,23 +587,94 @@ TypeId TemplateHead::non_type_type(const AstNode& parameter,
 	const DeclSpecifiers specifiers =
 		analyzer_.read_specifiers(*seq, ctx, span, true, std::string());
 	TypeId type = analyzer_.specifier_type(specifiers);
-	const AstNode* const declarator =
-		first_child(parameter, AstKind::Declarator);
+	// 14.1p3 with 8.3.5: the declarator of a parameter-declaration, which is
+	// abstract where the place has no name - `template<M *>` declares a place
+	// of pointer type that nothing names, exactly as an unnamed function
+	// parameter does, and the type is read the same way either way.
+	const AstNode* declarator = first_child(parameter, AstKind::Declarator);
+	if (declarator == nullptr)
+	{
+		declarator = first_child(parameter, AstKind::AbstractDeclarator);
+	}
 	if (declarator != nullptr)
 	{
 		std::string ignored;
 		type = analyzer_.declarator_type(*declarator, type, ctx, &ignored);
 	}
-	// 14.1p4: the type shall be integral or an enumeration, or one of the forms
-	// this milestone leaves out; a dependent one is whatever the argument makes
-	// of it, so it is checked where the argument is bound.
-	if (!analyzer_.types_.is_dependent(type) && analyzer_.integral_type(type) == kNoType)
+	// 14.1p4: the type shall be one of those listed, or one of the forms this
+	// milestone leaves out; a dependent one is whatever the argument makes of
+	// it, so it is checked where the argument is bound.
+	if (analyzer_.types_.is_dependent(type))
+	{
+		return type;
+	}
+	const TypeId settled = non_type_place(type);
+	if (settled == kNoType)
 	{
 		throw std::runtime_error("a non-type template parameter of " +
 		                         analyzer_.types_.description(type) + " is outside the "
 		                         "PA20 subset");
 	}
-	return type;
+	return settled;
+}
+
+// 14.1p4 with 14.1p8: what a non-type place declares, once the adjustment that
+// clause makes is made.
+//
+// 14.1p8 writes an array of T and a function returning T as the pointer 8.3.5p5
+// would have made of a parameter of that type: an argument at either place is
+// the address 4.2p1 and 4.3p1 hand back, and no copy of the object.  What is
+// left is 14.1p4's own list - an integral or enumeration type, a pointer to an
+// object or to a function, an lvalue reference to one of those, and
+// 3.9.1p10's `std::nullptr_t`.  14.1p4's pointer to member is the one bullet
+// this milestone leaves out, because nothing lays a member pointer out yet.
+TypeId TemplateHead::non_type_place(TypeId written) const
+{
+	TypeTable& types = analyzer_.types_;
+	TypeId type = written;
+	const TypeKind kind = types.kind(types.strip_cv(type));
+	if (kind == TypeKind::Array)
+	{
+		type = types.pointer_to(types.target(types.strip_cv(type)));
+	}
+	else if (kind == TypeKind::Function)
+	{
+		type = types.pointer_to(types.strip_cv(type));
+	}
+	if (analyzer_.integral_type(type) != kNoType || address_place(type))
+	{
+		return type;
+	}
+	const TypeId bare = types.strip_cv(type);
+	return types.kind(bare) == TypeKind::Fundamental &&
+			types.fundamental_type(bare) == FT_NULLPTR_T
+		? type
+		: kNoType;
+}
+
+// 14.1p4's second and third bullets, asked of a settled type.
+//
+// A place of pointer or lvalue-reference type takes 5.19p2's address constant,
+// and what tells that reading from the arithmetic one everywhere the argument
+// travels is this one question.  8.3.2p1's rvalue reference is not one of them:
+// 14.1p4 lists the lvalue form alone.
+bool TemplateHead::address_place(TypeId place) const
+{
+	TypeTable& types = analyzer_.types_;
+	const TypeId bare = types.strip_cv(place);
+	const TypeKind kind = types.kind(bare);
+	if (kind != TypeKind::Pointer && kind != TypeKind::LValueReference)
+	{
+		return false;
+	}
+	// 3.9p8 and 14.1p4: an object type is what is left once functions,
+	// references and `void` are taken out, and the clause names a pointer or a
+	// reference to an object or to a function - so `void *` is the one form
+	// left out, there being no object of type `void` for its value to be of.
+	const TypeId reached = types.strip_cv(types.target(bare));
+	return !types.is_void(reached) &&
+		types.kind(reached) != TypeKind::LValueReference &&
+		types.kind(reached) != TypeKind::RValueReference;
 }
 
 // The source spelling of a type, which is what a specialization is named by.
@@ -682,6 +754,24 @@ std::string SemaAnalyzer::type_spelling(TypeId type) const
 			// literals of its own rather than the 0 and 1 it converts to.
 			const TypeId of = types_.target(at);
 			const unsigned long long bits = types_.value_bits(at);
+			if (TemplateHead(const_cast<SemaAnalyzer&>(*this))
+			        .address_place(of))
+			{
+				// 14.3.2p1 at an address place: the argument is which object
+				// it designates, so the name is built from that object's own
+				// qualified name and not from a number - two specializations
+				// named after two objects have to be two names, however the
+				// program spelled either address.
+				const ConstantAddress& held =
+					const_cast<SemaModel&>(model_).addresses().at(
+						static_cast<std::uint32_t>(bits));
+				out += held.object == nullptr
+					? "0"
+					: (types_.is_reference(of)
+						   ? held.object->dump_name
+						   : "&" + held.object->dump_name);
+				break;
+			}
 			if (types_.kind(of) == TypeKind::Enum)
 			{
 				out += "(" + types_.user_qualified_name(of) + ")";
@@ -1089,11 +1179,188 @@ SemaEntity& TemplateHead::bind(Scope& region, const std::string& name,
 	}
 	SemaEntity& bound = analyzer_.model_.create(SemaKind::TemplateValue, name,
 	                                  analyzer_.types_.target(argument));
+	if (address_place(bound.type))
+	{
+		// 14.3.2p1 at one of 14.1p4's address places: the bits are the object
+		// the argument designates and no value at all, so the binding says
+		// which object rather than what it is worth.  8.3.2p1's reference is
+		// the reading `entity_constant` already writes for a reference a
+		// declaration bound - the name names that object - and the pointer
+		// keeps the address as the constant it is.
+		if (analyzer_.types_.is_reference(bound.type))
+		{
+			bound.address =
+				static_cast<std::uint32_t>(analyzer_.types_.value_bits(argument));
+			analyzer_.model_.bind(region, bound.name, bound);
+			analyzer_.model_.declare_in(region, bound);
+			return bound;
+		}
+	}
 	bound.constant = true;
 	bound.value = analyzer_.types_.value_bits(argument);
 	analyzer_.model_.bind(region, bound.name, bound);
 	analyzer_.model_.declare_in(region, bound);
 	return bound;
+}
+
+// 14.3.2p5 where the place is one of 14.1p4's address places.
+//
+// The argument is a converted constant expression of the place's own type, and
+// the conversions that reach one are 4.2p1's decay, 4.3p1's function-to-pointer
+// and 4.10p1's null pointer constant - which is exactly what an initialization
+// of an object of that type reads, so the one reading answers both.  8.3.2p1's
+// reference binds to the object the operand designates and copies nothing.
+//
+// 14.3.2p1 asks for an object or function with static storage duration: one
+// this evaluation itself gave storage to is gone by the time any use of the
+// specialization runs, so the argument is refused rather than kept.
+TypeId TemplateHead::address_argument(const SemaConstant& given, TypeId place)
+{
+	ConstexprReading reading(analyzer_);
+	const TypeId bare = analyzer_.types_.strip_cv(place);
+	SemaConstant reached;
+	if (analyzer_.types_.is_reference(bare))
+	{
+		reached = reading.at_reference_place(given, bare);
+	}
+	else if (!reading.at_pointer_place(given, bare, reached))
+	{
+		throw NotConstant("a template argument is bound to a place of " +
+		                  analyzer_.types_.description(place) +
+		                  " and is no address");
+	}
+	if (!reading.static_address(reached) ||
+	    (analyzer_.types_.is_reference(bare) && reached.object != 0 &&
+	     analyzer_.model_.addresses().at(reached.object).automatic))
+	{
+		throw NotConstant("a template argument names an object 14.3.2p1 gives "
+		                  "no static storage duration");
+	}
+	if (reached.bits != 0)
+	{
+		const ConstantAddress& held =
+			analyzer_.model_.addresses().at(static_cast<std::uint32_t>(reached.bits));
+		if (held.object == nullptr)
+		{
+			// 14.3.2p2: a string literal is an object no declaration named, and
+			// is in none of 14.3.2p1's categories for that reason.
+			throw NotConstant("a template argument names an object no "
+			                  "declaration of this program named");
+		}
+		if (held.object->local_function != nullptr)
+		{
+			// 14.3.2p1 asks for an object or function with external or internal
+			// linkage, and 3.5p8 gives a name a block declares none at all -
+			// which a function-local `static` has as much as an automatic
+			// object does.
+			throw NotConstant(held.object->name + " is declared in a block and "
+			                  "14.3.2p1 gives a name with no linkage no "
+			                  "argument to be");
+		}
+		if (held.object->kind == SemaKind::Function)
+		{
+			// 3.2p3 with 14.7.1p1: the argument names the function, and a name
+			// of one is what asks this unit for its definition - so a member of
+			// a class an instantiation made is written out here exactly as a
+			// call of it or an `&` on it would have written it out.
+			analyzer_.require_definition(*held.object);
+		}
+		TypeId walked = held.object->type;
+		for (std::size_t at = 0; at < held.path.size(); ++at)
+		{
+			// 14.3.2p3: the address of an array element and the name of a
+			// non-static class member are in none of p1's categories.  4.2p1's
+			// decay of the array itself is the one path a valid argument
+			// leaves - the first element's address is the array's own - so a
+			// step of zero into an array is read back as that array and every
+			// other step is refused.
+			const TypeId bare = analyzer_.types_.strip_cv(walked);
+			if (held.path[at] != 0 ||
+			    analyzer_.types_.kind(bare) != TypeKind::Array)
+			{
+				throw NotConstant("a template argument names a subobject, "
+				                  "which 14.3.2p3 leaves out of every category "
+				                  "an argument may be in");
+			}
+			walked = analyzer_.types_.target(bare);
+		}
+	}
+	return analyzer_.types_.value_type(place, reached.bits);
+}
+
+// 14.3.2p1 read back where the name of an address place stands.
+//
+// The place binds no storage: what the name is worth is the object the argument
+// designated, which is that object's own name where the place is a reference
+// and 5.3.1p3's `&` on it where the place is a pointer.  So a use of the place
+// lowers exactly as the argument's own expression would have - `++Ref` writes
+// the object the list named, and `*P = true` writes it through its address.
+AnalyzedValue TemplateHead::address_value(SemaEntity& bound, DumpNode& parent)
+{
+	const bool reference = analyzer_.types_.is_reference(bound.type);
+	const std::uint32_t held = reference
+		? bound.address
+		: static_cast<std::uint32_t>(bound.value);
+	AnalyzedValue value;
+	if (held == 0)
+	{
+		// 4.10p1: the list wrote a null pointer constant, which designates no
+		// object at all - so the name is worth that value and names nothing.
+		value.type = value.spelled = bound.type;
+		value.category = ValueCategory::PRValue;
+		value.constant = true;
+		value.null_constant = true;
+		value.entity = &bound;
+		value.what = "literal";
+		value.payload = "0";
+		value.node = &analyzer_.model_.open_node(
+			parent, analyzer_.spell(value.what, value.category, value.type,
+			                        value.payload));
+		analyzer_.record(value);
+		return value;
+	}
+	SemaEntity& named = *analyzer_.model_.addresses().at(held).object;
+	if (named.kind == SemaKind::Function)
+	{
+		// 4.3p1 and 5.2.2p1: the argument named a function, and the name of one
+		// is an lvalue every operand position converts to the pointer - so the
+		// place is worth that name and 4.3p1 stands where it always does,
+		// rather than the pointer being made here and converted back.
+		value.node = &analyzer_.model_.open_node(parent, std::string());
+		analyzer_.name_function(value, named, "id-expression");
+		return value;
+	}
+	DumpNode* const outer =
+		reference ? nullptr : &analyzer_.model_.open_node(parent, std::string());
+	AnalyzedValue object;
+	object.type = object.spelled = named.type;
+	object.category = ValueCategory::LValue;
+	object.entity = &named;
+	object.what = "id-expression";
+	object.payload = named.dump_name.empty() ? named.name : named.dump_name;
+	object.node = &analyzer_.model_.open_node(
+		outer == nullptr ? parent : *outer,
+		analyzer_.spell(object.what, object.category, object.spelled,
+		                object.payload));
+	analyzer_.record(object);
+	if (reference)
+	{
+		// 8.3.2p1: the name of a reference names the object it is bound to, and
+		// the reference itself is no part of the expression.
+		return object;
+	}
+	// 5.3.1p3: the pointer is 4.2p1's and 4.3p1's address as much as `&`'s -
+	// the argument was converted to the place's type where it was bound, and
+	// the object under it is the storage that address is into.
+	value.type = value.spelled = bound.type;
+	value.category = ValueCategory::PRValue;
+	value.nonnull = true;
+	value.what = "unary-expression";
+	value.op = OP_AMP;
+	value.payload = std::string(ast_token_type_name(OP_AMP)) + ":&";
+	value.node = outer;
+	analyzer_.respell(value);
+	return value;
 }
 
 // 14.5.1.3p1 and 14.1p2: the region one out-of-class member definition of a

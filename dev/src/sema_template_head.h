@@ -4,8 +4,10 @@
 #include <string>
 #include <vector>
 
+#include "sema_declaration.h"
 #include "sema_scope.h"
 #include "sema_template.h"
+#include "sema_value.h"
 #include "type_model.h"
 
 struct AstNode;
@@ -83,6 +85,29 @@ public:
 	// before it, because `template<class T, T v>` names one.
 	static std::string non_type_name(const AstNode& parameter);
 	TypeId non_type_type(const AstNode& parameter, const SemaContext& ctx);
+
+	// 14.1p4 with 14.1p8: the type such a place declares once the adjustment
+	// is made - an array of T and a function returning T are each written as
+	// the pointer 8.3.5p5 would have made of a parameter of that type, because
+	// the argument at either is an address and never a copy.  `kNoType` where
+	// the type is one 14.1p4 does not list, or one this milestone leaves out.
+	TypeId non_type_place(TypeId written) const;
+	// 14.1p4's second and third bullets: whether a place of this type takes
+	// 5.19p2's address constant rather than a number.  The two are read apart
+	// everywhere the argument is - bound, spelled, mangled, and read back where
+	// the name stands - because what such an argument holds is *which object*.
+	bool address_place(TypeId place) const;
+	// 14.3.2p5 at one of those places: the argument entry, whose bits are the
+	// identifier `AddressTable` interned the object under.  4.2p1's decay,
+	// 4.3p1's function-to-pointer conversion and 8.3.2p1's binding of the
+	// reference are each the one the place asks for.
+	TypeId address_argument(const SemaConstant& given, TypeId place);
+	// 14.3.2p1 read back where the name of such a place stands: the expression
+	// that names the object the argument designates, which is that object's own
+	// name for a reference place and 5.3.1p3's `&` on it for a pointer one.  A
+	// place binds no storage of its own, so this is what a use of it lowers
+	// through - `*P = true` writes the object the argument named.
+	AnalyzedValue address_value(SemaEntity& bound, DumpNode& parent);
 
 	// 14.6.1p1: the region binding each place of `info` to something standing
 	// for itself, opened once by the first reading that needs it.

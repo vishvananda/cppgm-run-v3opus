@@ -8,6 +8,7 @@
 #include "sema_constexpr.h"
 #include "sema_pack.h"
 #include "sema_template.h"
+#include "sema_template_head.h"
 #include "token_model.h"
 
 // 5.19's constant expression, read out of the spelling 14.2 left it as.
@@ -384,12 +385,18 @@ public:
 		, ctx_(ctx)
 		, at_(0)
 		, dependent_(false)
+		, designating_(false)
 	{}
 
 	SemaConstant read(const std::vector<std::string>& words)
 	{
 		return expression(words, 0, true);
 	}
+
+	// 8.3.2p1 at 14.1p4's reference place: the argument names the object the
+	// reference binds to and no value of it, so the first name is read as
+	// storage exactly as the operand of `&` is.
+	void designate() { designating_ = true; }
 
 	// True where the words the spelling split into are all read, which is what
 	// says the spelling was one constant expression and not a prefix of one.
@@ -477,6 +484,11 @@ private:
 	const SemaContext& ctx_;
 	std::size_t at_;
 	bool dependent_;
+	// 5.3.1p3: whether the next name read stands as storage rather than as a
+	// value, which is what `&` written in front of it asks for.  It is taken by
+	// the first name that answers it and no other, so `&items[n]` designates
+	// `items` and reads `n`.
+	bool designating_;
 };
 
 // 5.19 read from the words of one spelling.
@@ -638,6 +650,28 @@ SemaConstant TemplateArgumentReader::operand(
 		                  "argument ends where an operand belongs");
 	}
 	const std::string word = words[at_];
+	if (word == "&")
+	{
+		// 5.3.1p3: the one unary operator that reads its operand as storage
+		// rather than as a value, which is how 14.3.2p1's address argument is
+		// written.  The operand is designated and not evaluated, so `&n` over a
+		// `static int n;` is a constant expression where `n` is not.
+		++at_;
+		designating_ = live;
+		const SemaConstant operand = unary(words, live);
+		designating_ = false;
+		if (!live)
+		{
+			return operand;
+		}
+		if (operand.object == 0)
+		{
+			throw NotConstant("`&` is written as a template argument on an "
+			                  "operand that designates no object");
+		}
+		return ConstexprReading(analyzer_).pointer_constant(operand.object,
+		                                                    kNoType);
+	}
 	if (word == "+" || word == "-" || word == "!" || word == "~")
 	{
 		++at_;
@@ -738,6 +772,16 @@ SemaConstant TemplateArgumentReader::operand(
 		SemaConstant out;
 		out.type = analyzer_.types_.fundamental(FT_BOOL);
 		out.bits = word == "true" ? 1 : 0;
+		return out;
+	}
+	if (word == "nullptr")
+	{
+		// 2.14.7p1 and 4.10p1: the pointer literal, whose type is
+		// `std::nullptr_t` and whose value is the null pointer value - which is
+		// what 14.3.2p1's fourth and seventh categories each accept.
+		SemaConstant out;
+		out.type = analyzer_.types_.fundamental(FT_NULLPTR_T);
+		out.bits = 0;
 		return out;
 	}
 	if (is_literal_word(word))
@@ -1256,6 +1300,23 @@ SemaConstant TemplateArgumentReader::name(const std::string& spelling,
 		throw NotConstant(spelling + " is written as a template argument and "
 		                  "names no constant");
 	}
+	const bool designating = designating_;
+	designating_ = false;
+	if (designating && !named->constant &&
+	    !analyzer_.types_.is_reference(named->type))
+	{
+		// 5.3.1p3 with 5.19p2: `&` reads its operand as 3.10p1's glvalue, which
+		// an object with no value a constant expression knows still has - so
+		// `&n` over a `static int n;` designates that object where `n` on its
+		// own is no constant at all.  8.5p11 is what says the fields beside it
+		// say nothing about what the object holds.
+		SemaConstant out;
+		out.type = named->type;
+		out.valued = false;
+		out.object =
+			ConstexprReading(analyzer_).designated_entity(*named, spelling);
+		return out;
+	}
 	if (named->constant || named->address != 0)
 	{
 		// 5.19p2 asked of a declaration a lookup reached, which is one reading
@@ -1492,6 +1553,14 @@ TypeId SemaAnalyzer::template_argument_value(const std::string& spelling,
 	}
 	const unsigned stood = stood_in_;
 	TemplateArgumentReader reader(*this, ctx);
+	if (place != kNoType && types_.is_reference(place))
+	{
+		// 8.3.2p1: an argument at a reference place names the object the
+		// reference binds to, so the name is read as storage - `A<n>` over an
+		// `int &` place designates `n` where the same spelling at an `int`
+		// place reads what it holds.
+		reader.designate();
+	}
 	Constant value;
 	try
 	{
@@ -1553,6 +1622,15 @@ TypeId SemaAnalyzer::template_argument_value(const std::string& spelling,
 		// read as a *place* - so `at<integral_constant<T, true>...>` matched an
 		// `integral_constant<bool, false>` by deducing "true" from `false`.
 		return types_.value_type(place, given.bits);
+	}
+	if (place != kNoType && TemplateHead(*this).address_place(place))
+	{
+		// 14.1p4's second and third bullets: the place takes 5.19p2's address
+		// constant, which is *which object* and no number - so what tells two
+		// arguments apart is the object each designates, and 14.3.2p5's
+		// conversion to the place's type is 4.2p1's decay and 8.3.2p1's
+		// binding rather than any arithmetic one.
+		return TemplateHead(*this).address_argument(given, place);
 	}
 	const TypeId type = place == kNoType ? given.type : place;
 	if (integral_type(type) == kNoType)

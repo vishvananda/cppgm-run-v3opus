@@ -481,6 +481,24 @@ AstNode* AstParser::parse_non_type_template_parameter()
 	}
 	const Mark named = mark();
 	AstNode* declarator = parse_declarator(DeclaratorForm::Named);
+	if (declarator == nullptr)
+	{
+		// 14.1p3: a non-type template-parameter is written as 8.3.5's
+		// parameter-declaration, whose declarator may be abstract - so
+		// `template<M *>` declares a place of pointer type that no name
+		// reaches, exactly as an unnamed function parameter does.  The named
+		// form is tried first because a declarator-id is what makes `T v` two
+		// words rather than one type-id.
+		reset(named);
+		declarator = parse_declarator(DeclaratorForm::Abstract);
+		if (declarator != nullptr && declarator->children.empty())
+		{
+			// An abstract declarator that wrote nothing is no declarator at
+			// all, and the place is of the type its specifiers named.
+			declarator = nullptr;
+			reset(named);
+		}
+	}
 	if (declarator != nullptr)
 	{
 		node->add(declarator);
