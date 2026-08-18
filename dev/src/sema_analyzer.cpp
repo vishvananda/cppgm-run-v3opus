@@ -1495,6 +1495,50 @@ SemaEntity* SemaAnalyzer::class_head_entity(const Context& ctx, ClassTag tag,
 	return entity;
 }
 
+// 14.7.3p1: the body a member class of one class-template specialization was
+// written out with, asked of the reading that is about to read the pattern's.
+//
+// It is a question about a member of the class this reading stands directly in,
+// and only about a reading 14.7.1p1 made: a class the program wrote itself holds
+// what its own body says.  A template no `template<>` was written under holds no
+// entry at all, which one probe of an empty table settles.
+const AstNode* SemaAnalyzer::written_member_class(const Context& ctx,
+                                                  const std::string& name)
+{
+	if (instantiating_class_ == 0 || name.empty() || ctx.scope == nullptr ||
+	    ctx.scope->kind != ScopeKind::Class || ctx.scope->owner == nullptr)
+	{
+		return nullptr;
+	}
+	SemaEntity& holder = *ctx.scope->owner;
+	if (holder.primary == nullptr || holder.primary->templated == nullptr)
+	{
+		return nullptr;
+	}
+	TemplateInfo& info = *holder.primary->templated;
+	if (info.explicit_member_classes.empty())
+	{
+		return nullptr;
+	}
+	const std::unordered_map<std::uint32_t,
+	                         std::unordered_map<std::string,
+	                                            TemplateInfo::MemberClass> >
+		::iterator wrote =
+			info.explicit_member_classes.find(holder.template_arguments);
+	if (wrote == info.explicit_member_classes.end())
+	{
+		return nullptr;
+	}
+	const std::unordered_map<std::string, TemplateInfo::MemberClass>::iterator
+		entry = wrote->second.find(name);
+	if (entry == wrote->second.end())
+	{
+		return nullptr;
+	}
+	entry->second.read = true;
+	return entry->second.body;
+}
+
 SemaEntity& SemaAnalyzer::class_declaration(const AstNode& node,
                                             const Context& ctx, const Span& span,
                                             bool define,
@@ -1604,10 +1648,18 @@ SemaEntity& SemaAnalyzer::class_declaration(const AstNode& node,
 			model_.bind(scope, head.name(), *entity);
 		}
 	}
+	// 14.7.3p1: a member class one argument list of its template was written out
+	// for is read from the body the program wrote and not from the pattern's.
+	// The class-head is still the pattern's - the name, the class-key and the
+	// region this member stands in are what the enclosing reading settled - and
+	// what the written body says is what the class *holds*.
+	const AstNode* const specialized =
+		as != nullptr ? nullptr : written_member_class(outer, name);
+	const AstNode& body = specialized != nullptr ? *specialized : node;
 	// 10p1: the base-clause is read before the members, because from here on
 	// the class holds what its base declares - a type the base named, a member
 	// a member declaration uses - and the members are read against that.
-	const AstNode* const bases = child_of(node, AstKind::BaseClause);
+	const AstNode* const bases = child_of(body, AstKind::BaseClause);
 	if (bases != nullptr)
 	{
 		// 3.4.1p8: a name written in the base-clause of a class defined outside
@@ -1625,9 +1677,9 @@ SemaEntity& SemaAnalyzer::class_declaration(const AstNode& node,
 	// which the class-key decides and each access-specifier changes from there.
 	unsigned char access =
 		tag == ClassTag::Class ? kPrivateAccess : kPublicAccess;
-	for (std::size_t index = 0; index < node.children.size(); ++index)
+	for (std::size_t index = 0; index < body.children.size(); ++index)
 	{
-		const AstNode& member = *node.children[index];
+		const AstNode& member = *body.children[index];
 		if (member.kind == AstKind::ClassKey)
 		{
 			continue;
@@ -1705,7 +1757,7 @@ SemaEntity& SemaAnalyzer::class_declaration(const AstNode& node,
 	// class has the members no declaration wrote.
 	note_polymorphism(*entity, scope);
 	lay_out_class(*entity, scope, tag == ClassTag::Union,
-	              requested_alignment(node, inner), packing_of(node));
+	              requested_alignment(body, inner), packing_of(body));
 	// 8.5.1p1: a class with a base class or a virtual function is not an
 	// aggregate, so a braced-init-list initializing an object of it chooses a
 	// constructor.

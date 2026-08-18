@@ -81,8 +81,19 @@ void DeclaredNames::declare_member(const std::string& name, NameKind kind)
 	declare(name, kind);
 	if (!prefix_.empty() && !name.empty())
 	{
-		NameKind& held = qualified_[prefix_ + name];
+		const std::string key = prefix_ + name;
+		NameKind& held = qualified_[key];
 		held = overloaded(held, kind);
+		// The spellings a prefix can reach this declaration by: the key itself,
+		// for a name written with the whole prefix, and every suffix of it at a
+		// `::`, for one written with only the part of the prefix the region it
+		// stands in does not already supply.
+		for (std::string::size_type at = 0; at != std::string::npos; )
+		{
+			reachable_.insert(key.substr(at));
+			const std::string::size_type colons = key.find("::", at);
+			at = colons == std::string::npos ? std::string::npos : colons + 2;
+		}
 		++version_;
 	}
 }
@@ -374,6 +385,40 @@ NameKind DeclaredNames::spelled_kind(const std::string& spelling) const
 	return NameKind::Unknown;
 }
 
+bool DeclaredNames::could_be_reached(const std::string& spelling) const
+{
+	if (reachable_.find(spelling) != reachable_.end())
+	{
+		return true;
+	}
+	// 7.3.2p1: an alias rewrites the first component of the spelling a probe is
+	// made with, so a spelling with nothing in front of it is asked in the forms
+	// its own first component names as well.  A prefix in front of one supplies
+	// that component itself, and what follows the rewrite is then this spelling
+	// whole - which the probe above has already asked.
+	std::string written = spelling;
+	for (std::size_t step = 0; step < aliases_.size(); ++step)
+	{
+		const std::string::size_type colons = written.find("::");
+		if (colons == std::string::npos)
+		{
+			return false;
+		}
+		const std::unordered_map<std::string, std::string>::const_iterator named =
+			aliases_.find(written.substr(0, colons));
+		if (named == aliases_.end())
+		{
+			return false;
+		}
+		written = named->second + written.substr(colons);
+		if (reachable_.find(written) != reachable_.end())
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
 NameKind DeclaredNames::reached_kind(const std::string& spelling) const
 {
 	std::string prefix = prefix_;
@@ -408,9 +453,18 @@ bool DeclaredNames::names_a_template(const std::string& name) const
 NameKind DeclaredNames::kind_of(const std::string& name) const
 {
 	const bool qualified = name.find(':') != std::string::npos;
+	// Whatever region a name is written in, every answer a prefix gives it is a
+	// declaration `qualified_` holds - so a spelling no prefix could reach is
+	// settled here, before any prefix in force, any base and any nominated
+	// namespace is tried.  A class derived from a chain n deep is what needs it:
+	// the walk of that chain is the answer to one name, and it is asked of every
+	// name written in the class that no declaration of the unit put behind a
+	// prefix at all.
+	const bool reachable = could_be_reached(name);
 	if (qualified)
 	{
-		const NameKind kind = reached_kind(name);
+		const NameKind kind =
+			reachable ? reached_kind(name) : NameKind::Unknown;
 		if (kind != NameKind::Unknown)
 		{
 			return kind;
@@ -432,10 +486,10 @@ NameKind DeclaredNames::kind_of(const std::string& name) const
 	// using-directives in scope reach, or one a base class declares.  That
 	// question is asked only once every scope has been asked the cheap one, so
 	// a name that is declared costs no probe of a directive however many are
-	// written - and a name no declaration of this unit wrote at all is in no
-	// region for one to reach, which one probe settles before any prefix is
+	// written - and a name no declaration of this unit put behind a prefix is in
+	// no region for one to reach, which one probe settles before any prefix is
 	// searched.
-	if (qualified || declared_.find(name) != declared_.end())
+	if (reachable)
 	{
 		for (std::size_t index = scopes_.size(); index-- > 0; )
 		{

@@ -283,6 +283,14 @@ private:
 	// What a spelling with a nested-name-specifier names, following the
 	// namespace aliases its prefix was written through.
 	NameKind spelled_kind(const std::string& spelling) const;
+	// Whether any prefix written in front of this spelling could name a
+	// declaration of this unit.  Every answer a prefix reaches comes from
+	// `qualified_`, whose keys are a prefix and the name declared under it, so a
+	// spelling that ends no key is one no prefix reaches however many are tried
+	// - which is what keeps a miss one probe rather than a walk of every base
+	// and every nominated namespace, exactly as `declared_` does for a name
+	// written in a scope.
+	bool could_be_reached(const std::string& spelling) const;
 	// 3.4.3: the same question asked from where the name is written.  A member
 	// is remembered under the whole prefix its declaration stood in, while
 	// `nnn::f` written inside `B` spells only the part of that prefix the
@@ -312,6 +320,12 @@ private:
 	// name anywhere - which is a question about the unit and not about a
 	// region.
 	std::unordered_map<std::string, unsigned> declared_;
+	// Every spelling a prefix could reach: each key of `qualified_` and each of
+	// its suffixes at a `::`, which are the only spellings a prefix put in front
+	// of one can come to.  A name enters it with the declaration that wrote it
+	// and stays, because what it answers is what some prefix *could* reach and
+	// not what one in force does.
+	std::unordered_set<std::string> reachable_;
 	// The prefix each class-head gave its members, which is what a base written
 	// against the regions around a derived class is resolved to.
 	std::unordered_set<std::string> classes_;

@@ -220,6 +220,33 @@ struct TemplateInfo
 	// because that is what a declarator-id in either definition wrote, and asked
 	// once per instantiated definition of a member of a template that has any.
 	std::unordered_set<std::string> explicit_members;
+	// 14.7.3p1 over a member *class* of one specialization: the body the program
+	// wrote out for it, which 14.7.1p1's reading of the pattern reads in place of
+	// the one the pattern holds.
+	//
+	// A member class is the one member whose definition the reading of the
+	// enclosing class makes on the spot - a function's waits for the use that
+	// names it, and 14.7.3p1's `template<>` for one of those replaces a body that
+	// has not been read - so what this clause needs at a class is the body the
+	// reading takes and not a claim taken off one already read.  It is recorded
+	// before the specialization is made, keyed by the interned argument list the
+	// enclosing specialization is already found by and by the name the
+	// declarator-id wrote, and `read` is what says the reading found it: a
+	// `template<>` naming a member no pattern declares would otherwise be a
+	// definition this unit quietly dropped.
+	struct MemberClass
+	{
+		MemberClass()
+			: body(nullptr)
+			, read(false)
+		{}
+
+		const AstNode* body;
+		bool read;
+	};
+	std::unordered_map<std::uint32_t,
+	                   std::unordered_map<std::string, MemberClass> >
+		explicit_member_classes;
 	// 14.5.5p1: a declaration of this template for a *pattern* of arguments
 	// rather than for a list of them.
 	//

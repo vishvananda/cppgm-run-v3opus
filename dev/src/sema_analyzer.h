@@ -1706,6 +1706,16 @@ private:
 	// specialization itself.  False outside the supported slice, which leaves
 	// the ordinary walk to read it as it did before.
 	bool record_explicit_specialization(const AstNode& declared, const Context& ctx);
+	// 14.7.3p1 over a member class of a class template: the body one argument
+	// list has of its own, recorded before the specialization holding it is made
+	// so that 14.7.1p1's reading takes it in place of the pattern's.
+	bool record_explicit_member_class(const AstNode& declared,
+	                                  const QualifiedName& spelled,
+	                                  const Context& ctx);
+	// 14.7.3p1 at the reading: the body this member class was written out with,
+	// or null where the pattern's own is what it is read from.
+	const AstNode* written_member_class(const Context& ctx,
+	                                    const std::string& name);
 	bool record_explicit_function(const AstNode& declared, const Context& ctx);
 	// 14.7.3p1: the declarator-id one `template<>` head stands over, whichever
 	// of the three shapes of declaration it wrote.
