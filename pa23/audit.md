@@ -14,171 +14,199 @@ means, and what a failure of that building says about the candidate that asked.
 
 | 4 | `07cb3fb3` | 3 / 3 + 3 recorded | **the refusals landed at one exit each, and the fact 3.9.3p5 made had one reader of four.**  Checkpoint 9 gave 14.8.2p8 four things to fire on: 8.3.2p5 and 8.3.4p1 through one *door* the three type-deriving readers call, 10.4p2 as a fact of the type, 5.7p1's completely-defined pointee, 8.5.4p7 at the constructor a list-initialization chooses, and 14.3.3p1 at `instantiate_class`.  Those rules are right and swept clean - the door refuses through a declarator, a flattened spelling, a pack expansion and a substitution alike, an abstract class reached by inheritance is one, 14.3.3p1 answers the same at a class template, an alias, a variable template, a function template, a pack and a naming that never instantiates, and 8.5.4p7 refuses through all seven initialization paths a constructor is reached by.  What none of it carried is that each refusal has one exit more than the checkpoint wrote.  5.2.1p1's pointee is 5.7p1's - `Inc *p; p[0];` is a program the reference and `g++` both refuse and this build translated, and its own comment restated the clause the code never asked.  8.5.4p7's fourth bullet was written as width and equal-width signedness, which is not "cannot represent all the values": signed reaching a *wider* unsigned has negative values at every width, and `bool` holds two of them however wide its storage - so `unsigned x[] = { g() }` off a `char g()` and `bool x[] = { g() }` were translated, and the same statement gated the fold, so `unsigned x[] = { (char)-1 }` never reached the constant exception either.  And 3.9.3p5 landed at `pointer_convertible`'s 4.10p2 arm alone: 4.4's own walk, 5.9p2's composite pointer type and 14.8.2.1p2's conversion each read `cv` of an array node, which is zero, so `const int (*p)[3] = &a;` was refused four ways - beside a walk that asked 4.4p4's second condition of the level it had just compared, which refused `volatile int *q = p;` with no array in it at all.  225 + 675 narrowing shapes and 20 qualification shapes now agree with `g++` on all, `200-range-array-reference-mutable-begin.t` turned, and every course `.ref` regenerated from the reference binary is unchanged.  Recorded rather than fixed: `void *p; p[0]`, which the reference accepts and `g++` and this build refuse; a subscript detector, which the reference refuses whole so no fixture can pin it; and `typedef abstract_class a[2];`, which the plan already carries |
 | 5 | `54fc10e2` | 1 / 1 + 3 recorded | **the naming the checkpoint made a second type of is the type its type-id named, so every declaration a program wrote twice stopped pairing.**  Checkpoint 11 gave 14.8.2p8 the one thing 7.1.3p2's collapse had taken from it: a naming of an alias template whose type-id threw an argument away keeps that argument, so `discard<typename T::pointer>` is built where 14.7.1p1 arrives and a `T` with no `pointer` is a candidate dropped.  That rule is right and swept clean - the detector answers the two classes apart at eight syntactic sites and runs to `g++`'s value at all of them, `held<Ts &...>` binds a pattern that is not a place through six shapes, `note_places` carries a value argument's packs through a reading read again, and 14.3.3p1's place takes an alias.  What none of it carried is 14.5.7p1, the other half of the same sentence: a template-id over an alias template *is* the associated type, so an entry standing beside that type is a second type for one the program may also write out longhand - and `template<class T> void f(discard<T> *)` declared beside `template<class T> void f(void *)` defined stopped being two declarations of one template.  Three readers ask it: `TemplateSignature::of`'s canonical form at 14.5.6.1p5's four tiers, 13.1's index of a parameter-type-list, and the return-type comparison two declarations of one function are paired by - so a function template, its out-of-class definition, a member of a class template, a member template of a class that is not one, and a naming under another argument list were five programs both oracles and the pre-checkpoint build accept and this one refused.  `rebuilt` is where the two halves meet: an argument that is a *place* is looked up by the substitution and can refuse nothing, so the naming collapses to what its type-id named exactly as 14.5.7p1 says, and an argument the substitution *builds* again - a member of a prefix, a specialization, a derived type, an expression read a second time - is what the entry is kept for.  Recorded rather than fixed: the same equivalence where the discarded argument is one of those readings, which needs the associated type as a canonical form rather than a scope; 8.3.1p4 and 8.3.3p3 at a deduction, where the two oracles disagree with each other; and `TypeTable::substitute`'s structural rebuild, which the plan already carries |
+| 6 | `e4191b39` | 2 / 2 + 3 recorded | **the list a member wrote is a second fact of its name, and the two readers that had been asking the old one question got a wrong answer each.**  Checkpoint 13 made 14.2p4's argument list part of what a dependent member's name stands for: it is read where the reading stands, interned beside the prefix and the name, built again by `Substitution::member` and finished at 14.3.3p1's two exits, with a class that declares no such member template 14.8.2p8's failure.  That rule is right and swept clean - 24 shapes of the idiom across the sites a type-specifier stands at, the member kinds a class can declare and the argument kinds a list can hold, agreeing with `g++` on all 24 and running the 21 accepted ones to its value; the ABI writes the third form of `<unresolved-name>` byte-identical to the reference and to `g++` for the plain, the pack and the value form, and two units naming one such signature write one weak definition under one name.  What none of it carried is that widening `dependent_member` from the whole written component to the bare name left 14.6p2's reader comparing the two: `require_written_type` asked whether the stand-in's member equals `written.last()`, which for `T::template box<int>` is `box<int>` against `box` - so `T::template box<int> b;` written with no `typename` stopped being refused, a program `g++` refuses and the pre-checkpoint build refused.  And the value half copied 7.1.5p2 onto every specialization `specialize` makes, which is every specialization the *program* wrote out too: `template<> int f<int>()` declared without `constexpr` beside a `constexpr` primary folded, so `char a[f<int>()]` was a program both oracles refuse and this one translated.  The copy is gone and the clause is asked where it is needed - `constexpr_declared` reads the template's flag for a specialization that is not 14.7.3p1's, which is the one reading that writes no definition to read it off, and the same answer is what says whether the refusal is 5.19's about the program or the edge of this build.  Recorded rather than fixed: a template-id component after a *decltype* prefix, which the pre-checkpoint build refuses identically and both oracles accept; 14.6p2 itself, which the reference implements at no shape at all so no fixture can pin it; and `TypeTable::substitute`'s structural rebuild, which leaves a member stand-in standing as it leaves a discarding naming and which the plan already carries |
 
 ## Current Checkpoint Review
 
-Checkpoint 11 - the arguments an alias template's type-id threw away: a naming
-whose type-id does not mention a dependent argument keeps an entry holding the
-alias, that type and the list; `substituted` builds the arguments and reads the
-type-id again; `match` unwraps both sides; 14.3.3p1's place takes an alias; and
-14.5.3p5's places travel on the reading that named them while 14.5.3p4's pattern
-may be no place at all - was reconstructed from its commit, from `dev/src` and
-from the README: which readers ask whether two types are one type, which sites a
-naming of an alias template can stand at, which arguments a substitution builds
-rather than looks up, and which packs a reading read again can name. One defect
-was found and fixed across the whole reader path it reaches, three gaps were
-probed as programs and recorded, and the rest is what the review confirmed.
+Checkpoint 13 - a dependent member written as a template-id, and the
+specialization no list has settled: `dependent_arguments` and
+`dependent_template_id` beside `dependent_owner` and `dependent_member`;
+`Specialization::member_component` reading one written component's list where
+the reading stands; `Substitution::member` building it again and
+`SemaAnalyzer::dependent_member_type` finishing it at 14.3.3p1's two exits; and
+`Substitution::unsettled` saying which specializations 14.7.1p1 instantiates
+nothing for - was reconstructed from its commit, from `dev/src` and from the
+README: which readers of a dependent member's name the new fact reaches, which
+sites such a name can stand at, what the object file calls it, and which
+declarations the value half stops making a definition of. Two defects were found
+and fixed across the reader path each reaches, three gaps were probed as programs
+and recorded, and the rest is what the review confirmed.
 
 ### Findings
 
-**1. 14.5.7p1 is the other half of the sentence 7.1.3p2 opens, and the entry the
-checkpoint made stands beside the type instead of being it.** A template-id
-naming a specialization of an alias template *is* the associated type its
-type-id named. The checkpoint needed the naming to survive as itself so that
-14.7.1p1 could build the argument the type-id threw away - which is right - but
-made it a second type for one the program can also write out longhand, and the
-readers that ask whether two declarations declare one thing all compare types:
+**1. 7.1.5p2 was copied onto every specialization `specialize` makes, and one of
+them is the specialization the program wrote out for itself.** The checkpoint
+needed the flag for the one reading that makes *no* definition - 14.6p8's, which
+stands a value in for a call it cannot fold and has no body to read `constexpr`
+off - and wrote it as a field of every specialization. 14.7.3p1's is not one of
+them: an explicit specialization is a declaration of its own, and its own
+decl-specifiers say whether a call of it is one 5.19 reads.
 
 ```cpp
-template<class T> using dis = void;
-template<class T> void f(dis<T> *p);
-template<class T> void f(void *p) { }          // two templates here, one everywhere else
-int main() { int i = 0; f<int>(&i); return 0; }
+template<class T> constexpr int f() { return 1; }
+template<> int f<int>() { return 2; }          // not constexpr, and says so
+int main() { char a[f<int>()]; return (int)sizeof(a) - 2; }
 ```
 
-Both oracles and the pre-checkpoint build accept it; this one answered `a call
-of f<int> has no best declaration`. Three readers ask the question and each has
-its own diagnostic: `TemplateSignature::of`, whose canonical form is 14.5.6.1p5
-at all four of its tiers; 13.1's index of a parameter-type-list, which is how a
-definition finds the declaration it defines; and the return-type comparison
-`declare_function` makes of a pair it has already found. So the same program
-written five other ways - a return type, an alias naming another alias, an
-out-of-class definition of a member of a class template, a member template of a
-class that is not one, and a naming standing under another argument list - was
-refused as `a definition of m matches no declaration of it` and `two
-declarations of m differ only in their return type`.
+Both oracles and the pre-checkpoint build refuse it; this one folded the call and
+sized the array. The flag cannot be corrected at the declaration either, because
+`declare_function` merges it with `||` - 7.1.5p2 says all declarations of one
+function shall write `constexpr`, so a later one can only add it - and the copy
+had already gone on before `template<>` was read.
 
-The fix is where the two halves of the clause meet rather than at the three
-readers. An argument that is a *place* is one 14.7.1p1 looks up: whatever list
-arrives has already bound it to a built type, so rebuilding the naming around it
-can come to nothing new and nothing can refuse - which leaves `dis<T>` and
-`dis<Ts...>` the `void` 14.5.7p1 says they are, wherever they are written.
-`rebuilt` is that question, and it is `substituted`'s own answer asked ahead of
-it: the four arms it takes before its lookup - a member of a prefix no list has
-settled, a specialization over a template place, a naming that discarded an
-argument of its own, and an expression a definition left standing - are the
-readings a substitution makes again, and every other dependent argument is a
-type derived over one of them. So the entry is kept for exactly the arguments
-14.8.2p8 has something to fire on, and `discard<pointer_of<A> >`,
-`enable_if_t<Bn::ok>...` and `discard<T &>` all keep theirs.
+The fix is at the reading rather than at the field. `constexpr_declared` is
+7.1.5p2 asked of the declaration chain: the specialization's own flag, or the
+template's where the specialization is not one 14.7.3p1 let the program write
+out. It is what the stand-in is gated on and what says which of the two refusals
+the failure is - 5.19's answer about the program, or the edge of what this build
+has read - so a specialization made by a naming alone folds exactly as it did and
+one the program declared answers for itself.
+
+**2. 14.6p2's reader compares the member's name to the whole component that was
+written, which the checkpoint made two facts of.** `dependent_member` held the
+component as it was spelled until this checkpoint split the list off it, and
+`require_written_type` asks whether the stand-in it is holding is the one this
+reading made for the last component - by comparing that string to
+`written.last()`. For `T::template box<int>` those are now `box` and `box<int>`:
+
+```cpp
+struct A { template<class U> struct box { U v; }; };
+template<class T> struct S { T::template box<int> b; };   // no `typename`
+int main() { S<A> s; return s.b.v; }
+```
+
+`g++` refuses it and so did the pre-checkpoint build; this one translated it,
+while `T::plain` one line away was still refused. `stood_in_for` is the question
+put back together - the name the spelling wrote before its `<`, against a
+stand-in that says whether it holds a list at all, with an operator-function-id
+spelled with `<` no template-id because `TemplateId` says so. It is asked last of
+the chain, because it reads a record only a type a dependent prefix made has:
+computing it ahead of `prefix != kNoType` reads `user_at` of a type that has no
+user record, which is a segmentation fault on three `pa12` fixtures with no
+template in them at all.
 
 ### What the review confirmed rather than found
 
-- **The detector idiom answers at every site a discarding naming stands at.**
-  Eight of them - a function parameter, a return type, a default template
-  argument, a base-clause, an argument of a class template, a pack expansion, a
-  pointer to the naming and a member typedef - each written over a class that
-  has the member and one that does not, all eight agreeing with `g++` and
-  running through `lowir2cy86` + `cy86` to the value `g++` runs them to.
-- **The refusals the entry exists for are still made, and the ones it never had
-  are still not.** `discard<T &>` over `void` and `discard<T[2]>` over `void`
-  drop the candidate; `discard<T>` over `void` does not, which is what
-  collapsing a place means and what `g++` answers.
-- **14.5.3p4's pattern that is not a place is one expansion and not two.**
-  `held<Args &...>`, `held<const Args...>`, `held<Args *...>`, an alias
-  forwarding to another, two patterns over one run, and a run written into a
-  function's parameter list all give `sizeof...` the length the list wrote and
-  run to `g++`'s value.
-- **A reading read again names its packs and no others.** A value argument, a
-  decltype-specifier and a head's own default carry the places their spelling
-  named; a `sizeof...` operand inside one, a name bound to a pack of another
-  length in an enclosing head, and a name that merely spells one do not turn
-  into an expansion of it.
-- **14.3.3p1's place takes an alias.** A template place bound to an alias
-  template names its type-id's type, one bound to a class template instantiates,
-  a member read through either is found, and a discarding alias passed through a
-  place still collapses where its arguments settle.
-- **Every course `.ref` is the reference binary's.** All 22 were regenerated
-  from `cppgm++-ref` through the harness and not one changed; the twenty-third
+- **The idiom answers at every site, member kind and argument kind crossed.**
+  24 generated shapes - a parameter, a return type, a member typedef, a
+  base-clause, a default template argument, a pointer, a local, a `sizeof`
+  operand, a `decltype` operand, a nested naming, a member call, two detectors, a
+  partial specialization's own argument, two lists after one name, one list
+  written twice, a missing member, a member that is no template, and the
+  member-kind and argument-kind axes across them - agree with `g++` on all 24,
+  and the 21 it accepts run through `lowir2cy86` + `cy86` to the value `g++` runs
+  them to.
+- **The object file's name for one is the reference's and `g++`'s.**
+  `_Z1fI1AEiPNT_3boxIiEE`, `_Z1fI1AJicEEiPNT_3boxIDpT0_EE` and
+  `_Z1hI1BLi5EEiPNT_2atIXT0_EEE` - the plain, the pack and the value form - are
+  byte-identical in all three, and two translation units that each name
+  `take<A>` write one weak definition under one name that links and runs.
+- **The interning is by the three facts the name is made of.** Two lists after
+  one name are two members and one list written twice is one, at a member class
+  template, a member alias template and a member value template alike, and a
+  prefix that is a different place is a different member again.
+- **The value half leaves nothing unemitted.** A member function template of a
+  class template called from outside and from inside the pattern, a nested one, a
+  template defined below its use, an explicit instantiation, a default argument
+  folding over its own place and a `template`-qualified call through an object
+  all link through `lowir2cy86` + `cy86` and run to `g++`'s value - so
+  `instantiate`'s early return suppresses no definition the program owes.
+- **A pattern that is a member template-id expands per element.** Three shapes of
+  `typename T::template box<Ts>...` - as a class template's argument, with a
+  member named through it, and as a function's parameter pack - give
+  `sizeof...` the length the list wrote and run to `g++`'s value.
+- **Every course `.ref` is the reference binary's.** All 25 were regenerated
+  from `cppgm++-ref` through the harness and not one changed; the twenty-sixth
   is this audit's.
-- **Nothing is gated and no phase is skipped.** The checkpoint's 548 added lines
-  and this audit's hold no `getenv`, no fixture name, no timeout, no environment
-  read, no dialect switch keyed on anything but a dialect, and no caught
-  exception standing for a success.
-- **`valgrind -q --error-exitcode=9` is clean over 145 inputs** - 67 of the
-  corpus, the 23 course fixtures and 55 probes of the paths this audit touched -
-  and no file of the 400-file corpus exits above 1.
+- **Nothing is gated and no phase is skipped.** The checkpoint's 742 added source
+  lines and this audit's 40 hold no `getenv`, no fixture name, no timeout, no
+  environment read, no dialect switch keyed on anything but a dialect, and no
+  caught exception standing for a success - the one `catch` in
+  `member_component` is 5.4p2's type-then-value order, and a spelling the access
+  clause refuses reports that refusal rather than the retry's.
+- **`valgrind -q --error-exitcode=9` is clean over 139 inputs** - 60 of the
+  corpus, the 26 course fixtures and 53 probes of the paths this audit touched -
+  and no input exits above 1: not one of pa23's 400, and not one of the 2083
+  files pa10 through pa22 run through their own dialects.
 
 ### Recorded rather than fixed
 
-- **14.5.7p1's equivalence where the argument thrown away is a reading.**
-  `f(discard<typename T::x> *)` declared and `f(void *)` defined are one
-  template in both oracles and two here, because the entry that keeps the
-  argument is what 14.8.2p8 needs and what the comparison then tells apart. The
-  two facts only meet in a *canonical* form - the associated type, computed
-  through the classes an argument list names - which is a checkpoint of its own
-  and not a scope. `300-equivalent-alias-return-template-redeclaration.t` is the
-  same family one tier down and failed identically before this checkpoint: two
-  spellings of one dependent value are two readings here.
-- **8.3.1p4 and 8.3.3p3 at a deduction, where the oracles disagree with each
-  other.** `template<class T> char probe(T *);` over `T = int &` drops the
-  candidate in `g++` and does not in the reference or here; a member pointer to
-  a reference or to `void` drops it here and in `g++` and not in the reference;
-  and `T C::*` over a non-class `C` is a hard refusal here where both oracles
-  drop the candidate. All three answer identically on the pre-checkpoint binary,
-  so none is this checkpoint's - and the first has no agreeing oracle to pin.
-- **A naming that discarded an argument is rebuilt structurally by
-  `TypeTable::substitute`**, which the plan already carries. The path is the
-  per-element expansion of a pattern that reaches a settled run, and the two
-  shapes reachable through it - a detector under a nested class template - come
-  out right, because what the elements hold is settled by then.
+- **A template-id component written after a *decltype* prefix.**
+  `typename decltype(T::make())::template box<int>` is refused here as `no
+  declaration of box<int> is in scope` and accepted by both oracles - and so is
+  `decltype(A::make())::template box<int>` with no template in the program at
+  all, which is where the gap actually is. The pre-checkpoint build refuses both
+  identically, so this is the decltype-qualified name reader and not 14.2p4's
+  list; `T::type::template box<int>` through a typedef comes out right.
+- **14.6p2 has no agreeing oracle.** The reference translates
+  `T::plain x;` and `T::template box<int> x;` alike, so neither half of finding 2
+  can be pinned by a course fixture; `g++` refuses both and so does this build,
+  and the plan already carries the clause's other direction - the readings a
+  dependent context defers, which cost a `pa20` fixture to widen.
+- **A member stand-in is left standing by `TypeTable::substitute`.** Its
+  parameter-kind arm rebuilds an alias naming and looks a place up, and a member
+  of a prefix - with or without the list this checkpoint gave it - matches
+  neither, so the per-element path of an expansion over a settled run leaves the
+  naming for `SemaAnalyzer::substituted` to build. Every shape reachable through
+  it comes out right, and the plan already carries the alias half of the same
+  gap.
 
 ### Changes
 
 | Where | What |
 |-------|------|
-| `sema_specialize.{h,cpp}` | `rebuilt`: whether 14.7.1p1 builds an argument or looks it up, which is `substituted`'s own four arms asked ahead of it. `discarded_arguments` keeps the entry only for an argument it answers yes to, so 14.5.7p1 leaves `dis<T>` and `dis<Ts...>` the type their type-id named and 14.8.2p8 keeps the readings it fires on. |
-| `course/pa23/100-an-alias-naming-is-the-type-its-type-id-named.t` | the two halves in one program: five shapes of one template written twice, and the detector and a bare place answering the way each has to. |
+| `sema_template.cpp` | the `constexpr_function` copy is gone: 7.1.5p2 is a fact of what each declaration wrote, and a specialization that never wrote one asks the template for it where it is needed rather than carrying an answer no declarator of its own gave. |
+| `sema_constexpr.cpp` | `constexpr_declared` - 7.1.5p2 read off the declaration chain, which is the specialization's own flag or the template's where 14.7.3p1 did not let the program write the specialization out. It gates 14.6p8's stand-in and says which of the two refusals a call with no body is. |
+| `sema_declarator.cpp` | `stood_in_for` - whether a stand-in is the one this reading made for the last component written, with 14.2p4's list taken off the spelling first. Asked last of 14.6p2's chain, after the test that says the record is there to read. |
+| `course/pa23/100-bad-an-explicit-specialization-says-whether-it-is-constexpr.t` | the two halves in one program: the specialization no declaration but the naming makes still folds, and the one `template<>` wrote out without `constexpr` does not. |
 
 ### Performance Evidence
 
-Measured on the audited binary against a `/tmp` worktree of `08c821a8` built the
+Measured on the audited binary against a `/tmp` worktree of `e4191b39` built the
 same way, warm cache, `/usr/bin/time` on the binary itself.
 
 | sweep | shape | result |
 | --- | --- | --- |
-| collapsing-alias multiplicity | n function templates, each declared through `discard<T>` and defined through `void` - the pair the scope restores | 0.00 s @32, 0.01 @128, 0.03 @512, 0.06 @1024 - and the same on the pre-checkpoint binary, which accepts this program |
-| discarded-argument multiplicity | n classes x 2 detectors over `discard<pointer_of<T> >`, one `mentions` walk and one re-read apiece | 0.01 @32, 0.02 @128, 0.12 @512, 0.25 @1024 - linear; the pre-checkpoint binary refuses the program |
-| discarded-run multiplicity | n calls through `first_of<int, enable_if_t<Bn::ok>...>` | 0.00 @32, 0.02 @128, 0.08 @512, 0.18 @1024 - linear; the pre-checkpoint binary refuses it |
-| discarded-alias nesting | d nested discarding aliases, each naming the one below beside the member being detected | 0.00 s flat from d = 4 to d = 48 |
-| whole PA23 corpus | 400 handout files, one process each | 1.96 s against the pre-checkpoint binary's 1.92 s, over three alternating passes; no `rc > 1`; valgrind clean |
+| member-naming multiplicity | n distinct member template-ids in one pattern, no two sharing an entry | 0.00 s @32, 0.01 @128, 0.03 @512, 0.07 @1024 - and the same on the pre-audit binary |
+| member-naming repetition | n typedefs of one `P::template box<int>`, the interned stand-in read once | 0.00 @32, 0.00 @128, 0.01 @512, 0.02 @1024 - and the same |
+| member-naming cross product | n call sites x one member template-id substituted to a distinct argument apiece | 0.00 @32, 0.00 @128, 0.02 @512, 0.05 @1024 - and the same |
+| plain-member multiplicity | n `typename T::type` typedefs in one pattern - the path `stood_in_for` was added to | 0.00 @32, 0.00 @128, 0.01 @512, 0.01 @1024, 0.03 @2048 - and the same |
+| unsettled-specialization multiplicity | n function templates, each a default argument folding `ok<T>()` over its own place | 0.00 @32, 0.01 @128, 0.07 @512, 0.14 @1024 - and the same |
+| constexpr-member multiplicity | n static data members of one pattern, each folding a member template `constexpr` stands on | 0.00 @32, 0.00 @128, 0.01 @512, 0.02 @1024 - and the same |
+| member-naming nesting | d nested `T::template at<...>::value`, every level dependent | 0.00 s flat from d = 2 to d = 20, on both binaries |
+| member value-argument nesting | d nested `A::at<...>::value` written as one member's argument - where the type-then-value retry could double | 0.00 s flat from d = 4 to d = 48, on both binaries |
+| member type-argument nesting | d nested `A::box<...>::type` written as one member's argument | 0.00 s flat from d = 4 to d = 32, on both binaries |
+| whole PA23 corpus | 400 handout and 26 course files, one process each | **1.99 s against the pre-audit binary's 2.01 s**, over three alternating passes; no `rc > 1`; valgrind clean |
 
-`rebuilt` is a fixed number of field reads per argument of a naming that has a
-dependent one at all - the same walk `mentions` was already gated by - and it
-runs before `mentions` rather than beside it, so a naming whose arguments are
-places now pays *less* than it did: the walk of the type its type-id named is
-never made. The corpus is 0.04 s over the pre-checkpoint binary on 400 files,
-which is `note_places` looking one name up per identifier of each reading a
-pattern leaves standing, and it is the checkpoint's cost rather than this
-audit's.
+`stood_in_for` is one `TemplateId` construction and one string comparison, made
+only where the name is a qualified one whose prefix is a place the enclosing head
+declared - which the four tests before it are what say - so a name written behind
+any settled prefix pays nothing it did not pay. `constexpr_declared` is three
+field reads per fold that reaches a callee with no body, and removing the copy
+takes one assignment off every specialization made. The corpus is 0.02 s under
+the pre-audit binary, which is that assignment and the walk of the type a
+collapsing naming no longer makes.
 
 ### Validation
 
-- `make test-report ACTIVE_TEST_REPORT_PAS='pa23'` - **364 / 423**, against
-  363 / 422 at the turn's start, with no test that passed then failing now: the
-  eighteenth course fixture is this audit's.
-- `make test-report-through-pa22` - **2948 / 2948**, 22 / 22 stages.
+- `make test-report ACTIVE_TEST_REPORT_PAS='pa23'` - **370 / 426** (handout
+  344 / 400, course 26 / 26), against 369 / 425 at the turn's start: the failing
+  set is the same 56 files name for name, and the twenty-sixth course fixture is
+  this audit's.
+- `make test-report-through-pa22` - **2948 / 2948**, 22 / 22 stages. The first
+  build of finding 2's fix read `user_at` of a type with no user record and
+  crashed three `pa12` fixtures; the harness reported all three as ordinary
+  `EXIT_FAILURE` mismatches, which is what the whole-corpus `rc > 1` scan below
+  is for.
 - `perl scripts/cppgm_file_audit.pl --stage pa23 --paths dev/src` - **pass**,
   with the five `bad-division` warnings it already had.
-- The failing set of the pre-checkpoint binary was taken as a whole and
-  compared: the checkpoint turned 6 tests and regressed none, and this audit
-  turns none and regresses none.
-- 40 probe programs through `g++ -std=c++11 -pedantic-errors`, the reference
-  binary and the pre-checkpoint binary: 7 shapes of one template written twice,
-  8 sites of the detector idiom, 6 of 14.5.3p4's pattern, 6 of a reading's own
-  packs and 14.3.3p1's place, 5 of the refusals a derived argument makes, 6 of
-  8.3.1p4 and 8.3.3p3, and 2 of the structural rebuild. Every one this build
-  accepts that is not one of the divergences recorded above runs through
-  `lowir2cy86` + `cy86` to the value `g++` runs it to.
-- All 400 corpus files compiled one at a time: **0 crashes**; 145 inputs under
+- The failing set of the checkpoint binary was taken as a whole and compared:
+  this audit turns one test - its own fixture - and regresses none.
+- 24 generated cross-product shapes plus 34 hand-written probes through `g++
+  -std=c++11 -pedantic-errors`, the reference binary, the checkpoint binary and
+  the pre-checkpoint binary. Every one this build accepts that is not one of the
+  divergences recorded above runs through `lowir2cy86` + `cy86` to the value
+  `g++` runs it to.
+- All 400 pa23 corpus files and all 2083 files pa10 through pa22 compiled one at
+  a time under their own dialects: **0 exits above 1**; 139 inputs under
   `valgrind -q --error-exitcode=9`: 0 errors.

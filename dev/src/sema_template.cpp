@@ -184,14 +184,6 @@ SemaEntity& SemaAnalyzer::specialize(SemaEntity& primary,
 		// call of a deleted one.
 		made->explicit_function = primary.explicit_function;
 		made->deleted = primary.deleted;
-		// 7.1.5p2 is the same kind of fact: `constexpr` stands on the
-		// template's declarator and every specialization of it is a constexpr
-		// function, whatever the argument list.  An instantiation writes the
-		// flag again where it reads the definition, so the one reading that
-		// needs it here is the one that makes *no* definition - 14.6p8's, which
-		// asks 7.1.5p2 of a call it stands a value in for and read a template
-		// nothing had written the answer onto.
-		made->constexpr_function = primary.constexpr_function;
 		// 14.2: the arguments that made it, which the object file writes after
 		// the template's name and which no spelling of the declaration holds.
 		made->template_arguments = list;

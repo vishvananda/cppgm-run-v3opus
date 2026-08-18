@@ -28,6 +28,28 @@ const AstNode* child_kind(const AstNode& node, AstKind kind)
 	return nullptr;
 }
 
+// 14.6p2 with 14.2p4: whether `stand_in` is the entry this reading made for
+// the last component written, which is the question that tells a name the
+// reading stood in for from a typedef-name that merely aliases one.
+//
+// A component written as a template-id is held as the name and the list apart,
+// so the comparison is against the name the spelling wrote before its `<`
+// rather than against the one spelling the two were written as.  An
+// operator-function-id spelled with `<` is no template-id, which `TemplateId`
+// is what answers.  The caller has already asked that the type stands for a
+// member of a prefix, so the record is there to read.
+bool stood_in_for(const TypeTable& types, TypeId stand_in,
+                  const std::string& component)
+{
+	const TemplateId spelled(component);
+	if (spelled.valid() != types.dependent_member_is_template_id(stand_in))
+	{
+		return false;
+	}
+	return types.dependent_member(stand_in) ==
+		(spelled.valid() ? spelled.name() : component);
+}
+
 // The declarator of a type-id or parameter-declaration, named or not.
 const AstNode* declarator_of(const AstNode& node)
 {
@@ -141,17 +163,20 @@ TypeId SemaAnalyzer::require_written_type(const AstNode& node,
 	// qualified name whose prefix an argument list already settled is looked
 	// up like any other.  So what is refused is a name this reading stood in
 	// for - the last component written after a prefix it could not settle.
-	const TypeId prefix = types_.strip_cv(
-		types_.dependent_owner(types_.strip_cv(type)));
+	const TypeId bare = types_.strip_cv(type);
+	const TypeId prefix = types_.strip_cv(types_.dependent_owner(bare));
 	// The prefix asked about is a *place* its head declared: a specialization
 	// over arguments an enclosing list has yet to settle names a template this
 	// unit declared, and the reading of a name in it is the ordinary one that
 	// waits for those arguments rather than 14.6p2's assumption.
+	//
+	// `stood_in_for` is asked last because it reads the record only a type a
+	// dependent prefix made has, which `prefix != kNoType` is what says.
 	if (!node.introduced && written.qualified() && prefix != kNoType &&
 	    types_.kind(prefix) == TypeKind::TemplateParameter &&
 	    types_.dependent_owner(prefix) == kNoType &&
 	    types_.applied_template(prefix) == kNoType &&
-	    types_.dependent_member(types_.strip_cv(type)) == written.last())
+	    stood_in_for(types_, bare, written.last()))
 	{
 		throw std::runtime_error(node.text + " depends on a template parameter "
 		                                     "and is written as a type without "

@@ -1497,10 +1497,20 @@ SemaConstant ConstexprReading::call(SemaEntity& callee,
 		                  " is not a function a constant expression evaluates",
 		                  false);
 	}
+	// 7.1.5p2: `constexpr` stands on the *template's* declarator and every
+	// specialization of it is a constexpr function, whatever the argument
+	// list - except 14.7.3p1's, which the program wrote out as a declaration
+	// of its own and which says what its own decl-specifiers say.  A
+	// specialization this reading made carries no definition to have read the
+	// flag off yet, so the template's is what answers for it, and an
+	// instantiation writes it again where it reads the definition.
+	const bool constexpr_declared = callee.constexpr_function ||
+		(callee.primary != nullptr && !callee.explicit_specialization &&
+		 callee.primary->constexpr_function);
 	if (!callee.constexpr_function || callee.constexpr_body == nullptr ||
 	    callee.constexpr_region == nullptr)
 	{
-		if (callee.constexpr_function && analyzer_.templating() &&
+		if (constexpr_declared && analyzer_.templating() &&
 		    unsettled_callee(callee))
 		{
 			// 14p1 and 14.6p8: a template declares no function until it is
@@ -1531,7 +1541,7 @@ SemaConstant ConstexprReading::call(SemaEntity& callee,
 		// which 14.7.1p1's queued member definition is the standing example of.
 		throw NotConstant(callee.name +
 		                  " is not a constexpr function this unit has defined",
-		                  callee.constexpr_function == false);
+		                  constexpr_declared == false);
 	}
 	const TypeId result = analyzer_.types_.target(callee.type);
 	std::vector<SemaConstant> passed;
