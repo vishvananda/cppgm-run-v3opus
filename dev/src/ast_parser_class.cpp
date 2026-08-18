@@ -147,9 +147,39 @@ AstNode* AstParser::parse_base_specifier()
 		break;
 	}
 	const Mark name = mark();
-	if (!skip_decltype_specifier() && !skip_qualified_type_name())
+	// 10p1's `class-or-decltype` writes a decltype-specifier both ways: as the
+	// whole base, and as the head of the nested-name-specifier a class name
+	// follows.  The qualified reading is tried first because it is the longer
+	// one - `decltype(e)::type` is a base whose spelling *begins* with a
+	// decltype-specifier, and stopping at that specifier would leave the `::`
+	// for the member list to choke on.
+	if (!skip_qualified_type_name() && !skip_decltype_specifier())
 	{
 		return fail(start);
+	}
+	// 7.1.6.2p1 at that base: no spelling answers what the type of an
+	// expression is - which declaration a call in it reaches is 13.3's question
+	// and not the text's - so the operand is read here and kept beside the
+	// spelling it flattens to, exactly as a decltype-specifier written among a
+	// declaration's type-specifiers or at the head of a name is.  A dependent
+	// one is the whole point: `struct conjunction : decltype(and_fn<Bn...>(0))`
+	// names a class only the arguments settle, and the reading of the pattern
+	// has nothing but this tree to come back to.
+	if (tokens_.type(name.pos) == KW_DECLTYPE)
+	{
+		const Mark after = mark();
+		reset(name);
+		pos_ += 2;
+		{
+			BracketGuard brackets(*this, false);
+			AstNode* const operand = parse_expression();
+			if (operand == nullptr || !at(OP_RPAREN))
+			{
+				return fail(start);
+			}
+			keep_decltype(name, operand);
+		}
+		reset(after);
 	}
 	node->add(make_text(AstKind::BaseName, spelled(name)));
 	if (accept(OP_DOTS))

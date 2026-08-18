@@ -156,11 +156,20 @@ private:
 	std::string spelled(const SemaEntity& primary,
 	                    const std::vector<TypeId>& arguments);
 
-	// 14.5.5.1p1: whether the pattern at `index` matches `arguments`, and what
-	// the places its own head declared were deduced to.
+	// 14.5.5.1p1 with 14.8.2p8: whether the pattern at `index` matches
+	// `arguments`, and what the places its own head declared were deduced to.
+	// A substitution the read-back of the pattern refuses discards that pattern
+	// rather than the program, which is the detector idiom.
 	bool matches(const TemplateInfo& info, std::size_t index,
 	             const std::vector<TypeId>& arguments,
 	             std::vector<TypeId>& deduced);
+
+	// 14.5.5p8.3: what the places `partial`'s own head declared were deduced
+	// to, written out flat.  A place the match left unbound is a defect of that
+	// declaration and refuses the program.
+	bool took_places(const TemplateInfo& info, std::size_t index,
+	                 const std::unordered_map<TypeId, TypeId>& bindings,
+	                 std::vector<TypeId>& deduced);
 
 	// 14.8.2.5p5: whether the pattern read back with each place standing for what
 	// it was deduced to is the argument list itself, which is what settles a

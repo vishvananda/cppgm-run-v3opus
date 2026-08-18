@@ -276,6 +276,17 @@ void Derivation::read_base_specifier(const AstNode& specifier,
 		}
 		return;
 	}
+	if (named.compare(0, 9, "decltype(") == 0)
+	{
+		// 10p1's other arm of `class-or-decltype`: the base is the class the
+		// *type* of an expression names, so there is no declaration to look up
+		// - the spelling is read as a type-id, which is what 7.1.6.2p1's reader
+		// answers off the tree the parser kept beside it.  A reading of a
+		// pattern gets a dependent type back and leaves the base standing.
+		settle_base(analyzer_.template_argument_type(named, ctx), nullptr,
+		            specifier, entity, scope, header, access, dependent);
+		return;
+	}
 	const SemaEntity& found_name = analyzer_.require(
 		analyzer_.resolve(named, ctx, LookupKind::Type), named);
 	settle_base(found_name.type, &found_name, specifier, entity, scope, header,

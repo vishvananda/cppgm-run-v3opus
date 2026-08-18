@@ -840,22 +840,60 @@ std::size_t Specialization::chosen(SemaEntity& primary,
 // 14.5.5.1p1 and 14.8.2.5p4: whether the pattern at `index` matches `arguments`,
 // and what the places its own head declared were deduced to.
 //
-// 14.5.5p8.3 makes every place of that head deducible from its own pattern, so a
-// place the match left unbound is a declaration no argument list could ever fill
-// rather than a list this pattern happens not to take.
+// 14.8.2p8 at this match.  14.5.5.1p1 answers "which pattern does this list
+// match" by 14.8.2's deduction, and 14.8.2p8's sentence about substitution
+// applies to it word for word: `void_t<typename T::iterator_category>` is a
+// pattern whose read-back names a member only some arguments' class declares,
+// and a list whose class does not is a list this pattern *does not match*
+// rather than a program to refuse.  The whole detector idiom is that sentence -
+// the primary answers, and its `value` is `false`.
+//
+// So the match is an attempt and not a query: `match_arguments` and the
+// read-back both run inside one `Substitution`, and a failure of either that
+// 14.8.2p8 leaves in the immediate context discards this pattern alone.  What
+// it costs is one try-block per pattern per argument list, which `chosen`
+// memoises, and nothing at all until a pattern actually fails.
 bool Specialization::matches(const TemplateInfo& info, std::size_t index,
                             const std::vector<TypeId>& arguments,
                             std::vector<TypeId>& deduced)
 {
 	const TemplateInfo::Partial& partial = info.partials[index];
 	std::unordered_map<TypeId, TypeId> bindings;
-	if (!Deduction(analyzer_).match_arguments(partial.pattern, arguments,
-	                                          bindings))
+	Substitution attempt(analyzer_);
+	try
 	{
+		if (!Deduction(analyzer_).match_arguments(partial.pattern, arguments,
+		                                          bindings) ||
+		    !substitution_agrees(partial.pattern, bindings, arguments))
+		{
+			return false;
+		}
+	}
+	catch (const std::runtime_error& why)
+	{
+		if (!attempt.discards(why))
+		{
+			throw;
+		}
 		return false;
 	}
+	return took_places(info, index, bindings, deduced);
+}
+
+// 14.5.5p8.3: what the places the pattern's own head declared were deduced to.
+//
+// That clause makes every one of them deducible from the pattern, so a place
+// the match left unbound is a declaration no argument list could ever fill
+// rather than a list this pattern happens not to take - which is why the walk
+// stands *outside* the attempt above.  A defect in the partial specialization's
+// own declaration is no part of the immediate context of the use that named it,
+// so it refuses the program however many candidates were waiting on the answer.
+bool Specialization::took_places(const TemplateInfo& info, std::size_t index,
+                                 const std::unordered_map<TypeId, TypeId>& bindings,
+                                 std::vector<TypeId>& deduced)
+{
 	const std::vector<TemplateInfo::Parameter>& places =
-		partial.head->parameters;
+		info.partials[index].head->parameters;
 	deduced.reserve(places.size());
 	for (std::size_t at = 0; at < places.size(); ++at)
 	{
@@ -868,10 +906,9 @@ bool Specialization::matches(const TemplateInfo& info, std::size_t index,
 			// read from and no arguments to read it against.  Answering from
 			// the primary instead would be a different program read silently,
 			// which is what the declaration being ill-formed rules out.
-			throw std::runtime_error("a partial specialization declares the "
-			                         "template parameter " + places[at].name +
-			                         ", which its argument pattern does not "
-			                         "deduce");
+			throw Instantiated("a partial specialization declares the "
+			                   "template parameter " + places[at].name +
+			                   ", which its argument pattern does not deduce");
 		}
 		if (!places[at].pack || at + 1 != places.size())
 		{
@@ -889,7 +926,7 @@ bool Specialization::matches(const TemplateInfo& info, std::size_t index,
 			analyzer_.types_.pack_elements(bound->second);
 		deduced.insert(deduced.end(), run.begin(), run.end());
 	}
-	return substitution_agrees(partial.pattern, bindings, arguments);
+	return true;
 }
 
 // 14.8.2.5p5 at 14.5.5.1p1's match: the pattern read back with each place
