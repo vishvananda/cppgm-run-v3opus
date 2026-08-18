@@ -123,8 +123,12 @@ LowValue LowirFunctionLowering::expression(const DumpNode& node,
 			// 8.5.1p2 with 12.2p1: the list initializes the elements of an
 			// object of array type, and standing where an expression does it
 			// names no destination - so the object is the function's own.
+			// 8.5.3p5 names that storage after whatever asked for it, and a
+			// discarding standing above the operators this reading descends is
+			// what asked wherever `discarded_class_object` found one.
 			return array_object_slot(node, types.strip_cv(node.fact.type),
-			                         "arraytmp");
+			                         names_a_discarded_array(node)
+			                             ? "discardarr" : "arraytmp");
 		}
 		// 8.5.4 over a scalar: the value is what its one clause says, and an
 		// empty list is the zero of the type it initializes.

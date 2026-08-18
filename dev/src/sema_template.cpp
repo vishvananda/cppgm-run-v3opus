@@ -345,7 +345,7 @@ namespace
 // unit owns.
 bool has_written_definition(const SemaEntity& function)
 {
-	if (function.instantiation_suppressed)
+	if (instantiation_is_suppressed(function))
 	{
 		// 14.7.2p10: an explicit instantiation declaration suppresses the
 		// implicit instantiation, so the definition is another unit's however
@@ -1686,14 +1686,16 @@ namespace
 // region already answers: 10.2p2's lookup reaches those through the base and
 // the base's own region is what holds them.
 //
-// 14.7.2p10 walks the same members the other way: p9's form says another unit
-// holds each of those definitions, so what p8 asks this unit for is exactly
-// what p9 takes away from it - one predicate read twice rather than two walks.
+// 14.7.2p10's form asks no walk at all: `instantiation_is_suppressed` walks the
+// classes a member stands in where a use asks for the definition, because a
+// member's own definition may be written below the declaration and a walk made
+// where the declaration stands would read a class whose members are not yet
+// defined.
 //
 // The bodies the instantiation put aside are handed back rather than asked for
 // here, because the ask is `require_definition`'s and this walk has no analyzer.
-void reach_member_definitions(SemaEntity& made, bool owed,
-                              std::vector<SemaEntity*>& demanded)
+void demand_member_definitions(SemaEntity& made,
+                               std::vector<SemaEntity*>& demanded)
 {
 	if (made.scope == nullptr)
 	{
@@ -1703,27 +1705,9 @@ void reach_member_definitions(SemaEntity& made, bool owed,
 	     ++index)
 	{
 		SemaEntity& member = *made.scope->declarations[index];
-		if (!owed && member.kind == SemaKind::Variable && !member.object_member)
-		{
-			// 9.4.2p2: a static data member's definition is what lays its
-			// storage out, and 14.7.2p10 leaves that storage to the unit the
-			// declaration names - so a use here reads an object this object
-			// file declares and does not define.  9.2p1's data member is part
-			// of an object rather than one, and no unit lays it out on its own.
-			member.instantiation_suppressed = true;
-			continue;
-		}
 		if (member.kind == SemaKind::Function && member.defined &&
 		    !member.inline_function)
 		{
-			if (!owed)
-			{
-				// 14.7.2p10: the definition is another unit's, so the body the
-				// instantiation put aside stays where it is and a use of the
-				// member writes a declaration of the symbol.
-				member.instantiation_suppressed = true;
-				continue;
-			}
 			// 14.7.2p11: the explicit instantiation is one of only those
 			// members that have been *defined* where it stands, so a member
 			// the template gives a definition to further down the unit is left
@@ -1741,7 +1725,7 @@ void reach_member_definitions(SemaEntity& made, bool owed,
 		else if (member.kind == SemaKind::Class &&
 		         member.scope != nullptr && member.scope != made.scope)
 		{
-			reach_member_definitions(member, owed, demanded);
+			demand_member_definitions(member, demanded);
 		}
 	}
 }
@@ -1956,8 +1940,10 @@ void SemaAnalyzer::explicit_instantiation_declarator(const AstNode& target,
 		// exception keeps is a body a call may be folded into rather than an
 		// out-of-line copy this unit writes.  The declarator names a function
 		// or a static data member and the answer is the same for both: a use
-		// writes the symbol and no definition of it.
-		made->instantiation_suppressed = true;
+		// writes the symbol and no definition of it.  p11 puts a definition
+		// this unit was asked for above such a declaration as much as below
+		// it, so what this unit already owes it goes on owing.
+		made->instantiation_suppressed = !made->explicitly_instantiated;
 		return;
 	}
 	// 14.7.2p11: an explicit instantiation definition below p9's declaration
@@ -2056,13 +2042,26 @@ void SemaAnalyzer::explicit_instantiation(const AstNode& node,
 		// owes for the whole class are not what this declaration asked for.
 		return;
 	}
+	if (!owed)
+	{
+		// 14.7.2p10: naming the class names each of its members, so p9's form
+		// is one fact on the specialization and no walk of what it declares -
+		// a member is asked about where a use asks for its definition, which
+		// is where the definition it may not have been given yet stands.  p11
+		// leaves a definition this unit was asked for standing, whichever side
+		// of the declaration the program wrote it on.
+		made->instantiation_suppressed = !made->explicitly_instantiated;
+		return;
+	}
+	// 14.7.2p11: this unit owes the definitions from here on, however far above
+	// this an `extern template` for the same specialization stands.
+	made->explicitly_instantiated = true;
+	made->instantiation_suppressed = false;
 	// 14.7.2p8 and 3.2p3: this declaration is the one demand with no use to
 	// point at, so a member whose definition the instantiation put aside is
-	// asked for it here exactly as a call would ask.  p10 is the same walk with
-	// the answer the other way round: what p8's form asks this unit to hold,
-	// p9's says the unit the declaration names holds instead.
+	// asked for it here exactly as a call would ask.
 	std::vector<SemaEntity*> demanded;
-	reach_member_definitions(*made, owed, demanded);
+	demand_member_definitions(*made, demanded);
 	for (std::size_t index = 0; index < demanded.size(); ++index)
 	{
 		require_definition(*demanded[index]);
@@ -2748,7 +2747,7 @@ void SemaAnalyzer::require_definition(SemaEntity& function)
 	// writes below it is still one this unit owes: 14.6.4.1p1's second point of
 	// instantiation is the end of the unit, and nothing asks again there.
 	function.definition_required = true;
-	if (held_definitions_.empty() || function.instantiation_suppressed)
+	if (held_definitions_.empty() || instantiation_is_suppressed(function))
 	{
 		// 14.7.2p10: the body an instantiation put aside is one this unit was
 		// told another holds, so the use asking for it leaves it where it is

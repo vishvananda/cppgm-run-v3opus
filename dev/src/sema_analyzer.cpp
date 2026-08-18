@@ -2002,6 +2002,7 @@ void SemaAnalyzer::declare_function_declarator(
 			function.own_source_definition = own_source(node);
 			function.out_of_class_definition =
 				holds_written_definitions(*target.scope);
+			function.out_of_line_definition = true;
 			// 8.4.2p2 and 12.8p12: the class was complete before this
 			// definition was read, so what the standard's definition of the
 			// member comes to is settled again against it.

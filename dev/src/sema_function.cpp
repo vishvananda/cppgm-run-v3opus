@@ -331,6 +331,11 @@ void SemaAnalyzer::record_definition_binding(SemaEntity& entity,
 	entity.out_of_class_definition = entity.out_of_class_definition ||
 		(spelled.qualified() && granting == nullptr &&
 		 holds_written_definitions(*target.scope));
+	// 14.7.2p10 asks the same question of a member of a class at any depth and
+	// of a definition `inline` or not, so it is the qualified declarator-id
+	// alone that answers it here.
+	entity.out_of_line_definition = entity.out_of_line_definition ||
+		(spelled.qualified() && granting == nullptr);
 }
 
 void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)

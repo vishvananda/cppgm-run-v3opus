@@ -1886,13 +1886,46 @@ void LowirFunctionLowering::expression_statement(const DumpNode& node)
 bool LowirFunctionLowering::discarded_class_object(const DumpNode& node)
 {
 	TypeTable& types = unit_.types();
-	if (node.fact.kind == FactKind::BracedInitList &&
-	    types.kind(types.strip_cv(node.fact.type)) == TypeKind::Array)
+	// 5.2.9p4 and 5.18p1: two operators hand the object on without being what
+	// made it - a cast to `void` and a comma, whose result *is* its right
+	// operand - so the object a discarding names stands under however many of
+	// them the program wrote.  This is `register_discarded_object`'s own
+	// descent, made again here because what a class temporary is named after
+	// travels on the object the analysis made and an array prvalue has none:
+	// its storage is the lowering's, so what it is named after is too.
+	const DumpNode* found = &node;
+	for (;;)
+	{
+		if (found->fact.kind == FactKind::Cast &&
+		    types.is_void(types.strip_cv(found->fact.type)) &&
+		    !found->children.empty())
+		{
+			found = found->children[0];
+			continue;
+		}
+		if (found->fact.kind == FactKind::Binary &&
+		    found->fact.op == OP_COMMA && found->children.size() == 2)
+		{
+			found = found->children[1];
+			continue;
+		}
+		break;
+	}
+	if (found->fact.kind == FactKind::BracedInitList &&
+	    types.kind(types.strip_cv(found->fact.type)) == TypeKind::Array)
 	{
 		// 5.2.3p3 over an array: the prvalue is an object of the function's
 		// however little of it anything reads, because 12.2p1 makes it one and
 		// the clauses under it run - so the discarding is what its storage is
 		// named after, exactly as a prvalue of class type's is.
+		if (found != &node)
+		{
+			// The operators above it still have to be lowered, and the reading
+			// that reaches this object is theirs - so the name is left for it
+			// to take rather than the object being made here.
+			discarded_arrays_.push_back(found);
+			return false;
+		}
 		array_object_slot(node, types.strip_cv(node.fact.type), "discardarr");
 		return true;
 	}

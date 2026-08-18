@@ -1211,6 +1211,9 @@ private:
 	// clauses standing under it initialize where they stand.
 	LowValue array_object_slot(const DumpNode& node, TypeId type,
 	                           const char* prefix);
+	// 5.18p1 and 5.2.9p4: whether the array prvalue this node writes is one a
+	// discarding of the open full-expression names.
+	bool names_a_discarded_array(const DumpNode& node) const;
 	// 5.2.2p4: one argument of a call standing where a parameter of class type
 	// is, which is the storage that parameter object occupies.
 	lowir_model::Operand class_argument(const DumpNode& node, TypeId type);
@@ -1931,6 +1934,13 @@ private:
 	// temporary created where a call is still to be made is one that call may
 	// throw past, which is what says the step that built it needs a handler.
 	unsigned full_expressions_;
+	// 5.18p1 and 5.2.9p4: the array prvalues a discarding of the open
+	// full-expression names, found by the descent `discarded_class_object`
+	// makes through the cast and the comma that hand an object on, and read
+	// where the reading that lowers one asks what 8.5.3p5 names its storage
+	// after.  A class temporary carries that name on the object the analysis
+	// made and an array prvalue has none, so this is where it stands.
+	std::vector<const DumpNode*> discarded_arrays_;
 	unsigned pending_calls_;
 	// How deep the lowering stands inside the call that opened the current
 	// step.  A call written as an operand of another belongs to the step that

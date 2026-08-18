@@ -1588,6 +1588,18 @@ LowValue LowirFunctionLowering::class_object_slot(const DumpNode& node,
 	return standing;
 }
 
+bool LowirFunctionLowering::names_a_discarded_array(const DumpNode& node) const
+{
+	for (std::size_t index = 0; index < discarded_arrays_.size(); ++index)
+	{
+		if (discarded_arrays_[index] == &node)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
 // 5.2.3p3 and 12.2p1: an array prvalue - which `T{...}` over an array type is
 // the one spelling that writes - is an object of the function's, so the function
 // gives it storage and the clauses initialize its elements there.  That is the
@@ -1598,8 +1610,11 @@ LowValue LowirFunctionLowering::array_object_slot(const DumpNode& node,
                                                    TypeId type,
                                                    const char* prefix)
 {
-	const Operand into = open_object_slot(
-		type, node.fact.spelling.empty() ? prefix : node.fact.spelling.c_str());
+	// 8.5.3p5: the storage is named after what asked for it, which the caller
+	// says.  A braced-init-list's own `spelling` is 2.14.5p1's code units where
+	// one clause is a string literal and no name at all, so it is no part of
+	// this - naming the storage from it spells the slot with the program's text.
+	const Operand into = open_object_slot(type, prefix);
 	initialize(into, type, node);
 	LowValue value;
 	value.type = node.fact.type;
@@ -2117,10 +2132,14 @@ void LowirFunctionLowering::initialize_into(const LowObject& object,
 		initialize_array(object, type, node);
 		return;
 	}
-	if (node.fact.kind == FactKind::BracedInitList)
+	if (node.fact.kind == FactKind::BracedInitList &&
+	    types.kind(types.strip_cv(node.fact.type)) != TypeKind::Array)
 	{
 		// 8.5.1p2 and 8.5p7: a scalar takes the value of its one clause, and
-		// an empty list value-initializes it.
+		// an empty list value-initializes it.  5.2.3p3's list is worth an
+		// object of *array* type rather than a clause of one, so it is left to
+		// the reading below: the object stands in storage of the function's and
+		// 4.2 is what the initialization takes from it.
 		if (node.children.empty())
 		{
 			store(zero_operand(type), object_storage(object), type);

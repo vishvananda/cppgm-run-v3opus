@@ -490,6 +490,7 @@ bool SemaAnalyzer::conversion_function_definition(const AstNode& node,
 	// outside its class like any other, so the object file holds the definition
 	// the program wrote here whether or not a conversion here names it.
 	entity.out_of_class_definition = holds_written_definitions(region);
+	entity.out_of_line_definition = true;
 	if (head != nullptr)
 	{
 		// 14.5.6.1p5 and 14p1: the definition of the conversion function
@@ -977,6 +978,7 @@ void SemaAnalyzer::special_member_definition(const AstNode& node,
 		entity->own_source_definition = own_source(node);
 		entity->out_of_class_definition =
 			holds_written_definitions(*target.scope);
+		entity->out_of_line_definition = true;
 		resettle_defaulted_member(*entity);
 		// 8.3.5p10: `= default` is a declaration of the constructor like any
 		// other, so the names its declarator wrote are the function's from here
@@ -1014,6 +1016,7 @@ void SemaAnalyzer::special_member_definition(const AstNode& node,
 		return;
 	}
 	entity->out_of_class_definition = holds_written_definitions(*target.scope);
+	entity->out_of_line_definition = true;
 	if (head != nullptr)
 	{
 		// 14.5.6.1p5 and 14p1: this is the definition of the template the class

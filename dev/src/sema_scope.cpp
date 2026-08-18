@@ -109,6 +109,46 @@ bool holds_written_definitions(const Scope& scope)
 		(scope.parent == nullptr || scope.parent->kind != ScopeKind::Class);
 }
 
+bool instantiation_is_suppressed(const SemaEntity& entity)
+{
+	if (entity.instantiation_suppressed)
+	{
+		// p9 named this entity itself, which is the declarator form.
+		return true;
+	}
+	// 9.3p2 and 9.4.2p2: what p10 leaves to the unit the declaration names is
+	// the out-of-line copy this one would otherwise write - a member function
+	// defined outside its class, and the storage a static data member's own
+	// definition lays out, which 9.4.2p2 leaves nowhere else to be written.
+	if (!entity.out_of_line_definition &&
+	    !(entity.kind == SemaKind::Variable && !entity.object_member))
+	{
+		return false;
+	}
+	if (entity.primary != nullptr &&
+	    entity.primary->template_parameters != nullptr)
+	{
+		// 14.7.2p8 leaves 14.5.2's member template out of what naming a class
+		// names: which specializations of it exist is what their own argument
+		// lists say and no declaration over the class settles, so p9 says
+		// nothing about them either.
+		return false;
+	}
+	// 14.7.2p8: naming a class specialization names each of its members, and of
+	// theirs in turn - so the walk up is the same one p8's walk down makes.
+	for (const Scope* region = entity.region;
+	     region != nullptr && region->kind == ScopeKind::Class;
+	     region = region->parent)
+	{
+		if (region->owner != nullptr &&
+		    region->owner->instantiation_suppressed)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
 bool names_a_type(const SemaEntity& entity)
 {
 	switch (entity.kind)
@@ -306,6 +346,7 @@ SemaEntity& SemaModel::create(SemaKind kind, const std::string& name, TypeId typ
 	entity.source_base_entry = false;
 	entity.implicit_declaration = false;
 	entity.out_of_class_definition = false;
+	entity.out_of_line_definition = false;
 	entity.instantiated_use = false;
 	entity.shadowed = nullptr;
 	entity.inherited = nullptr;

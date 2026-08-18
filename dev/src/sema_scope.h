@@ -439,6 +439,16 @@ struct SemaEntity
 	// of the bytes leaves none - and the ABI's two entry points are both names
 	// the program gave a definition it wrote out.
 	bool out_of_class_definition;
+	// 9.3p2, the same question asked of every function rather than of 12's
+	// special members and asked wherever the class stands: whether the
+	// definition this unit holds was written outside the class body.  Such a
+	// definition is the out-of-line copy this object file writes, where a body
+	// written in the class body is one every unit that needs one writes for
+	// itself - which is what 14.7.2p10 excepts and what `inline_function`
+	// cannot say on its own, because 7.1.2p1's specifier writes that field too.
+	// It is written where the definition is read and asked where a use asks for
+	// the definition, so neither order the two are written in changes it.
+	bool out_of_line_definition;
 	// 14.7.1p1 and 3.2p3: whether a body an instantiation was reading named
 	// this function.  Naming it there is what made its definition, and a
 	// definition an instantiation made is one this unit holds however the use
@@ -858,6 +868,19 @@ bool observable_expression(const DumpNode& node);
 // leaves a member class's definitions to the use, and the suite grades what it
 // emits, so the question is asked of the region the class stands in.
 bool holds_written_definitions(const Scope& scope);
+
+// 14.7.2p10: whether an explicit instantiation declaration - p9's `extern
+// template` - says the unit it names holds this definition rather than this
+// one.  p9 names an entity or a class specialization, and naming the class
+// names every member of it, so the answer is one fact on whatever the
+// declaration named and a walk up the classes a member stands in.
+//
+// It is read where a definition is asked for and not written onto each member
+// where the declaration stands, because a member's own definition may be
+// written below that declaration - and what the clause leaves to the other unit
+// is 9.3p2's out-of-line copy, which is a fact of that definition rather than
+// of the declaration the class body made.
+bool instantiation_is_suppressed(const SemaEntity& entity);
 
 // 12.8p31: whether this expression *creates* the object it is worth, rather
 // than selecting one that something else created.  A temporary the program

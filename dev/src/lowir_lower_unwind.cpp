@@ -147,6 +147,9 @@ void LowirFunctionLowering::close_region()
 
 void LowirFunctionLowering::open_full_expression()
 {
+	// 8.5.3p5: the storage a discarding names is named for the length of the
+	// full-expression that discards it, and nothing outside that reads it.
+	discarded_arrays_.clear();
 	++full_expressions_;
 }
 
