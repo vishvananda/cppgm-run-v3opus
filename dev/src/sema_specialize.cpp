@@ -1041,7 +1041,40 @@ SemaEntity& Specialization::variable(SemaEntity& primary,
 		// naming reads nothing again.
 		return *made;
 	}
-	static_cast<void>(ctx);
+	for (std::size_t at = 0; at < arguments.size(); ++at)
+	{
+		if (!analyzer_.types_.is_dependent(arguments[at]))
+		{
+			continue;
+		}
+		// 14.6.2p2: a template-id over a variable template whose argument list
+		// an outer head has yet to settle is a *value-dependent* expression,
+		// and there is no initializer to read: `enabled<T>` under
+		// `template<class T>` is worth whatever the arguments make of it, and
+		// folding it to the primary's own `false` is a different program read
+		// silently - `enable_if_t<enabled<T>, int>` at a non-type place then
+		// refuses where 14.8.2p8 only drops the candidate.
+		//
+		// So the naming stands for itself: the declaration it gives back holds
+		// no constant and has a type an argument list has yet to settle, which
+		// is what every reader of a name already asks - 14.6.2p2's stand-in for
+		// the *expression* is the one whichever reading wrote the naming makes,
+		// keyed by the spelling and the place it fills, and that reading is
+		// where the substitution comes back to.  Nothing is registered here, so
+		// the two never race to say which place the value is converted to.
+		//
+		// It is held against this same interned list, so a spelling written n
+		// times is one stand-in.
+		const std::string name = spelled(primary, arguments);
+		SemaEntity& stood = analyzer_.model_.create(
+			SemaKind::Variable, name,
+			analyzer_.types_.template_parameter_type(
+				analyzer_.model_.type_entity_id(), false, name));
+		stood.region = primary.templated->region;
+		stood.access = primary.access;
+		analyzer_.model_.hold_specialization(primary, list, stood);
+		return stood;
+	}
 	// 5.19p2 with 14.7.1p1: what this specialization *is* is the constant its
 	// initializer evaluates to, so there is nothing to hold until the reading is
 	// over - and a naming of this same list reached from inside that reading is
