@@ -1065,7 +1065,9 @@ bool SemaAnalyzer::better_builtin(const SemaEntity& chosen, const Value& object,
 			return false;
 		}
 	}
-	return better_candidate(builtin.data(), declared.data(), operands.size(),
+	// 13.3.1.2p4: every operand here is a place both lists wrote, and no pair of
+	// templates is ordered on this path at all.
+	return better_candidate(builtin.data(), declared.data(), operands.size(), 0,
 	                        false, false);
 }
 
@@ -1649,6 +1651,12 @@ SemaEntity* SemaAnalyzer::select_overload(
 	// candidate with no implicit object parameter, so it never decides between
 	// two candidates on its own.
 	const std::size_t implicit = object != nullptr ? 1u : 0u;
+	// 14.8.2.4p3: how many of the ranked places are 13.3.1p3's implicit object
+	// argument, which is the one a candidate need have written no parameter for.
+	// 13.3.1.2p4's first operand is not one: a non-member operator candidate
+	// wrote it as its own first parameter, so the ordering asks both lists over
+	// it exactly as it asks over the rest.
+	const std::size_t objects = operand != nullptr ? 0u : implicit;
 	// 13.3.1.2p4 and 14.8.2.1p1: a non-member operator candidate takes the
 	// first operand as its own first argument, so the list a deduction of one
 	// reads from is that operand and then the rest.  It is built once, because
@@ -1813,7 +1821,8 @@ SemaEntity* SemaAnalyzer::select_overload(
 	for (std::size_t index = 1; index < viable.size(); ++index)
 	{
 		if (better_candidate(rows + index * count, rows + best * count, count,
-		                     templated[index] == 0, templated[best] != 0,
+		                     objects, templated[index] == 0,
+		                     templated[best] != 0,
 		                     patterns[index], patterns[best]))
 		{
 			best = index;
@@ -1823,7 +1832,8 @@ SemaEntity* SemaAnalyzer::select_overload(
 	{
 		if (index != best &&
 		    !better_candidate(rows + best * count, rows + index * count, count,
-		                      templated[best] == 0, templated[index] != 0,
+		                      objects, templated[best] == 0,
+		                      templated[index] != 0,
 		                      patterns[best], patterns[index]))
 		{
 			throw std::runtime_error("a call of " + name +
@@ -1924,8 +1934,8 @@ int SemaAnalyzer::compare_matches(const Match& left, const Match& right)
 }
 
 bool SemaAnalyzer::better_candidate(const Match* left, const Match* right,
-                                    std::size_t count, bool left_written,
-                                    bool right_deduced,
+                                    std::size_t count, std::size_t objects,
+                                    bool left_written, bool right_deduced,
                                     SemaEntity* left_template,
                                     SemaEntity* right_template)
 {
@@ -1949,12 +1959,14 @@ bool SemaAnalyzer::better_candidate(const Match* left, const Match* right,
 	// told apart by 14.5.6.2's ordering of the templates they were made from -
 	// a question about the two patterns, except for 14.8.2.4p3's one fact of
 	// this call: how many places it wrote arguments for, which is the count the
-	// conversions above were already ranked over.  A parameter no argument
+	// conversions above were already ranked over less the object argument only
+	// a non-static member wrote a parameter for.  A parameter no argument
 	// reached orders nothing, so `f(T &, U &, bool = true, bool = false)` and
 	// `f(T &, U &, V, W, bool = false)` are ordered over four places and not
 	// left unordered by the two lists being of different lengths.
 	return left_template != nullptr && right_template != nullptr &&
-		more_specialized(*left_template, *right_template, count);
+		more_specialized(*left_template, *right_template, count - objects,
+		                 objects != 0);
 }
 
 // 12.2p1: the storage a temporary is given is named after what asked for it,

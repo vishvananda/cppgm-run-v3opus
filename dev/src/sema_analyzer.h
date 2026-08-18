@@ -2040,8 +2040,8 @@ private:
 	// and, where those tie, whether it is a declaration the program wrote and
 	// the other a specialization a deduction made.
 	bool better_candidate(const Match* left, const Match* right,
-	                      std::size_t count, bool left_written = false,
-	                      bool right_deduced = false,
+	                      std::size_t count, std::size_t objects = 0,
+	                      bool left_written = false, bool right_deduced = false,
 	                      SemaEntity* left_template = nullptr,
 	                      SemaEntity* right_template = nullptr);
 	// 14.5.6.2p2: whether every parameter type of `right` is deduced from the
@@ -2054,11 +2054,14 @@ private:
 	// 14.5.6.2p4: whether `left` is more specialized than `right`, which is the
 	// one question 13.3.3p1's tie between two specializations and 13.4p1's
 	// target type both ask of the templates a deduction made them from.
+	// `wrote` is how many arguments a call wrote and `object` whether 13.3.1p3's
+	// implicit object argument stood among them.
 	bool more_specialized(SemaEntity& left, SemaEntity& right,
-	                      std::size_t limit = kEveryPlace);
+	                      std::size_t wrote = kEveryPlace, bool object = false);
 	// 14.5.6.2p9: which of two templates the places both of them deduce leave
 	// ahead, which is what the references and the qualifiers 14.5.6.2p5 and p7
-	// took off the types still say.  Positive for `left`, negative for `right`.
+	// took off the types say: positive for `left`, negative for `right`, zero
+	// where the places do not agree or say nothing.
 	int reference_order(SemaEntity& left, SemaEntity& right, std::size_t limit);
 	// Rewrites what the dump wrote for `value` where a conversion is visible in
 	// it: a null pointer constant, a resolved function name, and the temporary

@@ -752,6 +752,8 @@ void SemaModel::bind(Scope& where, const std::string& name, SemaEntity& entity)
 		declarers_[name].push_back(&where);
 	}
 	Binding& binding = placed.first->second;
+	const bool is_tag =
+		entity.kind == SemaKind::Class || entity.kind == SemaKind::Enum;
 	if (where.kind == ScopeKind::Namespace && entity.declared_serial == 0)
 	{
 		// 14.6.4.2p1: where this declaration stands among the ones a second
@@ -762,22 +764,29 @@ void SemaModel::bind(Scope& where, const std::string& name, SemaEntity& entity)
 		// a class before anything looks a name up in it.
 		//
 		// 3.3.1p1: what the number is of is where the *name* came into scope in
-		// this region, so a declaration bound over one the region already made
-		// stands where that one did.  `extern T x;` above a pattern and `T x =
-		// ...;` below it are one object, and the second binding is what the
-		// lookup then reads - so numbering it here would put a name the pattern
-		// could see out of its reach.  Which of an overloaded name's
-		// declarations a second reading may reach is 13.1's walk of the chain,
-		// and that reads each declaration's own number.
-		const SemaEntity* const stood =
-			binding.ordinary != nullptr ? binding.ordinary : binding.tag;
+		// this region, so a declaration bound over another declaration of the
+		// same thing stands where that one did.  `extern T x;` above a pattern
+		// and `T x = ...;` below it are one object, and the second binding is
+		// the one the lookup then reads - so numbering it here would put a name
+		// the pattern could see out of its reach.
+		//
+		// 3.3p4 is the other kind of second binding, and it is a declaration of
+		// its own however the region already spelled the name: `struct s;` above
+		// a pattern and `int s(int);` below it bind one spelling to two
+		// entities, and the pattern that finds the class may not name the
+		// function.  So the number is taken from the slot this declaration
+		// overwrites - a tag's from the tag, everything else's from the ordinary
+		// name - and only where that slot holds a declaration of the same kind.
+		// Which of an overloaded name's declarations a second reading may reach
+		// is 13.1's walk of the chain, and that reads each declaration's own
+		// number.
+		const SemaEntity* const stood = is_tag ? binding.tag : binding.ordinary;
 		entity.declared_serial =
-			stood != nullptr && stood != &entity && stood->declared_serial != 0
+			stood != nullptr && stood != &entity &&
+			stood->kind == entity.kind && stood->declared_serial != 0
 			? stood->declared_serial
 			: ++bound_;
 	}
-	const bool is_tag =
-		entity.kind == SemaKind::Class || entity.kind == SemaKind::Enum;
 	if (is_tag)
 	{
 		binding.tag = &entity;

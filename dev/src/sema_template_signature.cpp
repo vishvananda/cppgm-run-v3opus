@@ -329,6 +329,35 @@ std::size_t ordering_places(TypeTable& types,
 	return used;
 }
 
+// 14.8.2.4p3's first bullet counted in the places the two lists actually hold.
+// 13.3.1p3 gave the call an implicit object argument whether or not a candidate
+// wrote a parameter for it, so the count `better_candidate` ranked over is one
+// more than the arguments the call wrote - and `ordering_parameters` keeps a
+// place for that argument only where one of the two declarations wrote one.  So
+// `s.f(x)` over two static members is ordered over the one place the call wrote,
+// exactly as `S::f(x)` over the same pair is, and 9.4p1's static member ordered
+// against a non-static one of its own class is too, that being the pair whose
+// object place is dropped from both lists.
+//
+// 13.3.1.2p4's first operand is no such argument: it is the first parameter a
+// non-member operator wrote, and the object parameter of the member candidate
+// beside it stands in exactly that place - so the caller counts it among the
+// arguments and this adds nothing.
+std::size_t ordering_limit(const SemaEntity& left, const SemaEntity& right,
+                           std::size_t wrote, bool object)
+{
+	if (!object)
+	{
+		return wrote;
+	}
+	const bool dropped = left.object_member != right.object_member &&
+		left.region != nullptr && left.region == right.region &&
+		left.region->kind == ScopeKind::Class;
+	const bool kept =
+		(left.object_member || right.object_member) && !dropped;
+	return kept ? wrote + 1 : wrote;
+}
+
 }
 
 // 14.5.6.2p2 and p8: whether the parameter types `right` was written over are
@@ -473,9 +502,17 @@ int SemaAnalyzer::reference_order(SemaEntity& left, SemaEntity& right,
 // `ordering_parameters`' answer, so a pair whose lists name different places -
 // a member against a non-member that wrote no operand for the object - is left
 // unordered by the deduction failing rather than by a question asked here.
+//
+// `wrote` is how many arguments the call wrote and `object` whether 13.3.1p3's
+// implicit object argument stood among them; the two together are how many
+// places of the lists 14.8.2.4p3's first bullet asks over.  The two sentinels
+// carry no call to ask it of.
 bool SemaAnalyzer::more_specialized(SemaEntity& left, SemaEntity& right,
-                                    std::size_t limit)
+                                    std::size_t wrote, bool object)
 {
+	const std::size_t limit = wrote == kEveryPlace || wrote == kResultPlace
+		? wrote
+		: ordering_limit(left, right, wrote, object);
 	if (&left == &right || !at_least_as_specialized(left, right, limit))
 	{
 		return false;
