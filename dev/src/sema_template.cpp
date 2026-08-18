@@ -485,11 +485,12 @@ void SemaAnalyzer::instantiate_body(SemaEntity& function)
 	// 14.7.3p1: the body an explicit specialization wrote is what this
 	// declaration runs, in place of the pattern's.  It was written with the
 	// arguments spelled out, so the bindings stand over it and say nothing.
-	const std::unordered_map<std::uint32_t, const AstNode*>::const_iterator
-		written = info.explicit_functions.find(function.template_arguments);
-	const AstNode* const body = written != info.explicit_functions.end()
-		? written->second
-		: info.pattern;
+	const std::unordered_map<std::uint32_t, WrittenBody>
+		::const_iterator written =
+			info.explicit_functions.find(function.template_arguments);
+	const bool wrote_out = written != info.explicit_functions.end();
+	const AstNode* const body =
+		wrote_out ? written->second.node : info.pattern;
 	Context inner;
 	inner.scope = &TemplateHead(*this).open_bindings(
 		info, types_.type_list_at(function.template_arguments));
@@ -511,14 +512,17 @@ void SemaAnalyzer::instantiate_body(SemaEntity& function)
 	// one is this unit's own source, so 3.2p3 makes it the program's one
 	// definition, and whether it is `inline` is what its own decl-specifiers
 	// say - which the reading of the definition below is what settles.
-	function.inline_function = function.inline_function ||
-		written == info.explicit_functions.end();
+	function.inline_function = function.inline_function || !wrote_out;
 	SemaEntity* const enclosing = instantiating_;
 	instantiating_ = &function;
-	// 14.6.4.1p1: as for a class body - what this definition's own names reach
-	// is settled where it was written, not where the reading that asked for it
-	// stands, so a bound that reading was made under comes off here.
-	const ReadingBound written_here(model_, 0);
+	// 14.6.4.1p1 and 14.6.4.2p1: as for a class body - what this definition's
+	// own names reach is settled where it was written and not where the reading
+	// that asked for it stands, so the bound of whatever asked comes off and
+	// the definition's own goes on.  A body `template<>` wrote out for these
+	// arguments stands where the program wrote it, which is below the pattern
+	// and reaches everything declared between the two.
+	const ReadingBound written_here(
+		model_, wrote_out ? written->second.visible : info.visible);
 	if (body->kind == AstKind::SpecialMemberDefinition ||
 	    body->kind == AstKind::SpecialMemberDeclaration)
 	{
@@ -966,6 +970,15 @@ bool SemaAnalyzer::record_template(const AstNode& node, const Context& ctx,
 		// names no template parameter stands in the way of is a fact about the
 		// definition rather than about any argument list.
 		PatternReading(*this).read_class(*entity);
+		// 14.6.4.2p1: and what the unit had declared once that reading was
+		// done, which is the bound every reading 14.7.1p1 makes of this body
+		// runs under.  It is taken *after* the body rather than before it
+		// because the body declares things of its own that its own second
+		// reading has to find - 11.3p1's friend is declared into the namespace
+		// around the class and by nothing but this body, so a bound taken at
+		// the class-head would leave the grant unreachable from the reading
+		// that made it.
+		entity->templated->visible = model_.written_bound();
 		// 14.7.1p1: a specialization the unit named before the definition
 		// arrived is an incomplete class until here, and the definition is
 		// what completes it.
@@ -1255,8 +1268,9 @@ void SemaAnalyzer::complete_specialization(SemaEntity& made)
 	// 14.7.3p1: an explicit specialization of this argument list is what the
 	// class *is*, so it is read in place of the template's pattern and against
 	// no bindings at all: the body was written with the arguments spelled out.
-	const std::unordered_map<std::uint32_t, const AstNode*>::const_iterator
-		written = info.explicit_classes.find(made.template_arguments);
+	const std::unordered_map<std::uint32_t, WrittenBody>
+		::const_iterator written =
+			info.explicit_classes.find(made.template_arguments);
 	const bool specialized =
 		!pattern && written != info.explicit_classes.end();
 	// 14.5.5.1p1: where no explicit specialization wrote this list out, the
@@ -1271,9 +1285,14 @@ void SemaAnalyzer::complete_specialization(SemaEntity& made)
 				  *made.primary, types_.type_list_at(made.template_arguments),
 				  deduced);
 	const bool matched = partial != Specialization::kNoPartial;
-	const AstNode* const body = specialized ? written->second
+	const AstNode* const body = specialized ? written->second.node
 		: (wrote != Specialization::kNoPartial ? info.partials[wrote].body
 		   : (matched ? info.partials[partial].body : info.pattern));
+	// 14.6.4.2p1: and the bound that body was written under, which is the one
+	// of the four sources above it came from.
+	const std::uint32_t visible = specialized ? written->second.visible
+		: (wrote != Specialization::kNoPartial ? info.partials[wrote].visible
+		   : (matched ? info.partials[partial].visible : info.visible));
 	if (made.defined || body == nullptr ||
 	    body->kind != AstKind::ClassSpecifier ||
 	    (!pattern && !specialized && types_.is_dependent(made.type)))
@@ -1313,12 +1332,12 @@ void SemaAnalyzer::complete_specialization(SemaEntity& made)
 		const ReadingDepth instantiating(instantiating_class_);
 		// 14.6.4.1p1 and 14.6.4.2p1: this body is a *second* definition being
 		// read, and what its own names reach is settled where it was written -
-		// which is not where whatever asked for it was.  A reading made under a
-		// bound may arrive here, so the bound comes off: a class template whose
-		// head names a trait defined further down the unit reads that trait's
-		// body against the whole unit, exactly as a naming outside any template
-		// would.
-		const ReadingBound written_here(model_, 0);
+		// which is not where whatever asked for it was.  So the bound of
+		// whatever asked comes off and this body's own goes on: a class
+		// template whose head names a trait defined further down the unit reads
+		// that trait's body against what stood at *that* definition, which is
+		// everything the trait itself could name and nothing declared after it.
+		const ReadingBound written_here(model_, visible);
 		// 14.7.3p1: the body `template<>` wrote is this unit's own source, so the
 		// definitions it holds are the program's and a second one of any of them is
 		// 3.2p1's redefinition.  Only the pattern's reading makes a definition a
@@ -1553,6 +1572,13 @@ void SemaAnalyzer::record_function_template(SemaEntity& entity,
 	info.defaults.clear();
 	info.supported = true;
 	info.pattern = pattern;
+	// 14.6.4.2p1: what the unit had declared where this definition stands,
+	// which is the bound 14.7.1p1's reading of it runs under.  It is taken
+	// again once the body has been read - `check_template_definition` is where
+	// - because the declaration this record is being made from is one the body
+	// itself has to find, and a body that names the template it defines is
+	// what recursion is.
+	info.visible = model_.written_bound();
 	info.region = &region;
 	info.reading_region = reading;
 	info.dump = template_pattern_dump_;
@@ -1748,7 +1774,7 @@ TypeId SemaAnalyzer::dependent_expression_type(const AstNode& node,
 	{
 		written.reach.push_back(at->declarations.size());
 	}
-	written.visible = model_.bound();
+	written.visible = model_.written_bound();
 	dependent_.written.insert(std::make_pair(type, written));
 	dependent_.expressions.insert(std::make_pair(key, type));
 	return type;
@@ -1796,7 +1822,7 @@ TypeId SemaAnalyzer::dependent_default(const AstNode& node, TypeId place,
 	{
 		written.reach.push_back(at->declarations.size());
 	}
-	written.visible = model_.bound();
+	written.visible = model_.written_bound();
 	dependent_.written.insert(std::make_pair(type, written));
 	dependent_.expressions.insert(std::make_pair(key, type));
 	return type;
@@ -1844,7 +1870,7 @@ TypeId SemaAnalyzer::dependent_value(const std::string& spelling, TypeId place,
 		{
 			written.reach.push_back(at->declarations.size());
 		}
-		written.visible = model_.bound();
+		written.visible = model_.written_bound();
 		dependent_.written.insert(std::make_pair(type, written));
 	}
 	dependent_.values.insert(std::make_pair(key, type));
@@ -2312,6 +2338,12 @@ void SemaAnalyzer::queue_definition(Pending& pending)
 	pending.stands_in = enclosed_by_a_head(pending.scope);
 	pending.head =
 		pending.stands_in != nullptr ? pending.stands_in->parent : nullptr;
+	// 14.6.4.2p1: and the bound the reading that wrote this body stood under,
+	// which is the definition's own wherever 14.7.1p1 made the reading.  The
+	// walk that finally reads the body is flat and stands under no bound of its
+	// own, so what this body's names may reach is a fact of the entry exactly
+	// as the region it stands in is.
+	pending.visible = model_.visible_bound();
 	// 14.6.4.1p1: a specialization named above the definition its template has
 	// by the end of the unit is instantiated there, so a definition read after
 	// the use that asked for it has nothing left to wait for.

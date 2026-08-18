@@ -57,11 +57,37 @@ private:
 // written from, beside the region it was written in - which is where the names
 // its body mentions are looked up from - and the parameters its head declared.
 // Nothing is copied and no text is replayed: an instantiation opens a region
+// 14.6.4.2p1: a definition and what 3.3.6's namespace regions had declared where
+// the program wrote it.
+//
+// 14.7.1p1 reads such a body again wherever an argument list arrives, which may
+// be anywhere below it in the unit - and by then the namespaces its names are
+// looked up in have gone on being declared into.  3.4.1's half of what the
+// reading finds is what stood at the definition, so the two travel together and
+// neither a pattern nor a body `template<>` wrote out is read under the other's
+// bound.
+struct WrittenBody
+{
+	WrittenBody()
+		: node(nullptr)
+		, visible(0)
+	{}
+
+	WrittenBody(const AstNode* wrote, std::uint32_t bound)
+		: node(wrote)
+		, visible(bound)
+	{}
+
+	const AstNode* node;
+	std::uint32_t visible;
+};
+
 // of its own for the bindings and reads the same tree the program wrote.
 struct TemplateInfo
 {
 	TemplateInfo()
 		: pattern(nullptr)
+		, visible(0)
 		, region(nullptr)
 		, reading_region(nullptr)
 		, dump(nullptr)
@@ -72,6 +98,10 @@ struct TemplateInfo
 	{}
 
 	const AstNode* pattern;
+	// 14.6.4.2p1: the bound the pattern above was written under, which is what
+	// every reading 14.7.1p1 makes of it runs under however far below it the
+	// argument list arrived.
+	std::uint32_t visible;
 	Scope* region;
 	// 14.5.1.3p1: where 14.7.1p1 opens its bindings, which parts company with
 	// `region` for a definition written outside its class.  Such a definition
@@ -181,14 +211,20 @@ struct TemplateInfo
 	// reading of it opens are spelled by.
 	struct Member
 	{
-		Member(const AstNode* wrote, const AstNode* declares, Scope* stood)
+		Member(const AstNode* wrote, const AstNode* declares, Scope* stood,
+		       std::uint32_t bound)
 			: clause(wrote)
 			, declaration(declares)
 			, carried(stood)
+			, visible(bound)
 		{}
 
 		const AstNode* clause;
 		const AstNode* declaration;
+		// 14.6.4.2p1: the bound this definition was written under, which is
+		// below the class's own body and above every specialization already
+		// made from it.
+		std::uint32_t visible;
 		// 14.5.1.3p1 and 14.1p2: the region the heads standing *outside* this
 		// definition's own bound when it was recorded - which is where the
 		// names it wrote for the enclosing classes' places stand.  A member of
@@ -207,8 +243,8 @@ struct TemplateInfo
 	// place of the pattern's.  Both are keyed by the interned argument list the
 	// specialization is already found by, so an instantiation asks one hash
 	// lookup on a number it already has and never scans them.
-	std::unordered_map<std::uint32_t, const AstNode*> explicit_classes;
-	std::unordered_map<std::uint32_t, const AstNode*> explicit_functions;
+	std::unordered_map<std::uint32_t, WrittenBody> explicit_classes;
+	std::unordered_map<std::uint32_t, WrittenBody> explicit_functions;
 	// 14.5.1p1: the same for a variable template, whose specialization is the
 	// constant one init-declarator evaluates to rather than a class or a body.
 	std::unordered_map<std::uint32_t, const AstNode*> explicit_variables;
@@ -268,6 +304,7 @@ struct TemplateInfo
 		Partial()
 			: head(nullptr)
 			, body(nullptr)
+			, visible(0)
 			, signature(0)
 			, current(nullptr)
 		{}
@@ -275,6 +312,9 @@ struct TemplateInfo
 		TemplateInfo* head;
 		std::vector<TypeId> pattern;
 		const AstNode* body;
+		// 14.6.4.2p1: the bound *this* body was written under, which a pattern
+		// written below the primary's own does not share.
+		std::uint32_t visible;
 		// 14.5.6.1p5: the pattern with each place standing for its position,
 		// which is what tells a redeclaration of one pattern from a second
 		// pattern - two heads spell one pattern over places of their own.

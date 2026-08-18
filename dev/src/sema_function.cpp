@@ -579,6 +579,17 @@ void SemaAnalyzer::function_definition(const AstNode& node, const Context& ctx)
 		// 14.6p8 still reads it: what the body says about names that depend on
 		// no template parameter is settled here, where it stands.
 		check_template_definition(node, inner, parameters, type);
+		if (entity.templated != nullptr && entity.templated->pattern == &node)
+		{
+			// 14.6.4.2p1: what the unit had declared once this definition had
+			// been read, which is the bound every reading 14.7.1p1 makes of it
+			// runs under.  It is taken after the body rather than at the
+			// declarator because the declaration this body defines is one the
+			// body itself may name - which is what recursion is - and because
+			// 11.3p1's friend of a class the body declares is declared by
+			// nothing but the body.
+			entity.templated->visible = model_.written_bound();
+		}
 		return;
 	}
 	Pending pending;

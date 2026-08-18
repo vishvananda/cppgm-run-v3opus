@@ -269,7 +269,8 @@ bool SemaAnalyzer::record_explicit_specialization(const AstNode& declared,
 		// The body is recorded before the declaration is reached, so that a
 		// specialization the unit already named is completed from *this*
 		// definition rather than from the pattern.
-		info.explicit_classes[list] = &declared;
+		info.explicit_classes[list] =
+			WrittenBody(&declared, model_.written_bound());
 	}
 	SemaEntity& made = instantiate_class(*primary, arguments);
 	if (declared.kind != AstKind::ClassSpecifier)
@@ -513,7 +514,8 @@ bool SemaAnalyzer::record_explicit_function(const AstNode& declared,
 	if (defines)
 	{
 		chosen->primary->templated
-			->explicit_functions[chosen->template_arguments] = &declared;
+			->explicit_functions[chosen->template_arguments] =
+				WrittenBody(&declared, model_.written_bound());
 	}
 	// 14.7.3p6: what the program wrote out here is this unit's own definition
 	// and no reading of the pattern, so what says whether it is `inline` is its

@@ -267,7 +267,9 @@ struct SemaEntity
 	// the definition left standing is made again where the arguments arrive -
 	// by which time the namespace has gone on being declared into, so what the
 	// second reading may find is what stood then.  Zero for every declaration
-	// no namespace region binds, which is one no such lookup reaches.
+	// no namespace region binds, and for 1.4p8's reserved names, which stand
+	// before the unit however late the use that declares one is written -
+	// neither is a declaration such a lookup has to be kept from.
 	std::uint32_t declared_serial;
 	// 13.1: the other declarations of this name in this region, in declaration
 	// order.  A name is bound to the first of them and the rest are reached
@@ -1259,6 +1261,16 @@ public:
 	// every reading but a second one of a construct a pattern left standing is
 	// made with.
 	std::uint32_t bound() const { return bound_; }
+	// 14.6.4.2p1 at a construct being *recorded*: the bound a second reading of
+	// it will be made under.  A construct the program's own walk reaches was
+	// written where the unit stands, and one a second reading is what wrote -
+	// a member template of a class an argument list made - was written where
+	// that reading was, so it inherits the bound standing rather than the whole
+	// unit.
+	std::uint32_t written_bound() const
+	{
+		return visible_ != 0 ? visible_ : bound_;
+	}
 	std::uint32_t visible_bound() const { return visible_; }
 	void set_visible_bound(std::uint32_t bound) { visible_ = bound; }
 	// 13.1 under that bound: whether this declaration is one the reading now

@@ -568,8 +568,10 @@ SemaConstant ConstexprReading::called_name(
 	argument_values(arguments, written);
 	std::vector<SemaEntity*> candidates;
 	std::size_t singles = 0;
+	std::size_t associated = 0;
 	SemaEntity* const named =
-		callee_candidates(name, callee, ctx, written, candidates, singles);
+		callee_candidates(name, callee, ctx, written, candidates, singles,
+		                  associated);
 	if (named == nullptr)
 	{
 		throw NotConstant(name +
@@ -609,7 +611,8 @@ SemaConstant ConstexprReading::called_name(
 	}
 	const AnalyzedValue self = object_value(object);
 	SemaEntity& one = selected(name, candidates, written,
-	                           bound == nullptr ? nullptr : &self, singles);
+	                           bound == nullptr ? nullptr : &self, singles,
+	                           associated);
 	if (one.object_member && bound == nullptr)
 	{
 		// A fold that has no object cannot make such a call at all, which is
@@ -691,9 +694,11 @@ AnalyzedValue ConstexprReading::object_value(const SemaConstant& object) const
 SemaEntity* ConstexprReading::callee_candidates(
 	const std::string& name, const AstNode* callee, const SemaContext& ctx,
 	const std::vector<AnalyzedValue>& written,
-	std::vector<SemaEntity*>& candidates, std::size_t& singles)
+	std::vector<SemaEntity*>& candidates, std::size_t& singles,
+	std::size_t& associated)
 {
 	SemaEntity* named = nullptr;
+	associated = 0;
 	if (callee != nullptr &&
 	    child_kind(*callee, AstKind::CarriedExpression) != nullptr)
 	{
@@ -731,6 +736,10 @@ SemaEntity* ConstexprReading::callee_candidates(
 	{
 		candidates.push_back(named);
 	}
+	// 3.4.2 appends after 3.4.1's half, so where the two meet is what the set
+	// holds before the search below runs - and 14.6.4.2p1 asks its question of
+	// the first half alone, exactly as the expression layer's own call does.
+	const std::size_t reached = candidates.size();
 	if (!QualifiedName(name).qualified() &&
 	    ArgumentLookup(analyzer_).allowed(named))
 	{
@@ -743,6 +752,7 @@ SemaEntity* ConstexprReading::callee_candidates(
 		singles = ArgumentLookup(analyzer_).candidates(name, written,
 		                                               candidates);
 	}
+	associated = candidates.size() - reached;
 	if (named == nullptr)
 	{
 		return candidates.empty() ? nullptr : candidates[0];
@@ -753,13 +763,14 @@ SemaEntity* ConstexprReading::callee_candidates(
 SemaEntity& ConstexprReading::selected(
 	const std::string& name, const std::vector<SemaEntity*>& candidates,
 	const std::vector<AnalyzedValue>& written, const AnalyzedValue* object,
-	std::size_t singles)
+	std::size_t singles, std::size_t associated)
 {
 	SemaEntity* one = nullptr;
 	try
 	{
 		one = analyzer_.select_overload(candidates, written, name, object,
-		                                false, singles);
+		                                false, singles, nullptr, nullptr,
+		                                associated);
 	}
 	catch (const NotConstant&)
 	{
@@ -922,10 +933,11 @@ bool ConstexprReading::operator_constant(unsigned token,
 	std::vector<AnalyzedValue> written;
 	argument_values(operands, written);
 	std::vector<SemaEntity*> candidates;
+	std::size_t associated = 0;
 	const std::size_t singles =
 		OperatorCall(analyzer_).candidates(token, ctx, written,
 		                                   OperatorCall::member_only(token),
-		                                   candidates);
+		                                   candidates, &associated);
 	if (candidates.empty())
 	{
 		return false;
@@ -941,7 +953,8 @@ bool ConstexprReading::operator_constant(unsigned token,
 		// handed over twice - as the object argument a member candidate binds,
 		// and as the first written argument a non-member one takes.
 		chosen = analyzer_.select_overload(candidates, rest, name, &object,
-		                                   false, singles, &written[0]);
+		                                   false, singles, &written[0], nullptr,
+		                                   associated);
 	}
 	catch (const NotConstant&)
 	{

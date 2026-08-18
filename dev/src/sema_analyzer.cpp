@@ -131,6 +131,7 @@ PendingDefinition::PendingDefinition()
 	, head(nullptr)
 	, returned_object_chain(false)
 	, from_instantiated_body(false)
+	, visible(0)
 	, held_by_class(false)
 {}
 
@@ -669,6 +670,11 @@ void SemaAnalyzer::write_definition(Pending& pending)
 	// and 14.7.1p1 leaves the body until long after the reading that made the
 	// declaration - so the link that reading held is put back here.
 	const EnclosedBy stands_in(pending.stands_in, pending.head);
+	// 14.6.4.2p1: the body is read here, at the end of the unit, and was
+	// written wherever it was written - so 3.4.1's half of what its names find
+	// is what stood there.  The walk is flat and stands under no bound of its
+	// own, which is what a body the program wrote out for itself is read under.
+	const ReadingBound written_here(model_, pending.visible);
 	DumpNode& line = open_fact(model_.unit(), "function-definition " +
 	                           function.dump_name + " " +
 	                           function_description(function.type,
@@ -1340,7 +1346,7 @@ void SemaAnalyzer::template_parameter(const AstNode& node, const Context& ctx)
 		{
 			parameter_defaults_.insert(
 				std::make_pair(entity.id,
-				               PlaceDefault(carried, model_.bound())));
+				               PlaceDefault(carried, model_.written_bound())));
 		}
 	}
 	if (id != nullptr)
@@ -1390,7 +1396,7 @@ void SemaAnalyzer::non_type_template_parameter(const AstNode& node,
 		// finds the place empty.
 		parameter_defaults_.insert(
 			std::make_pair(entity.id,
-			               PlaceDefault(written->children[0], model_.bound())));
+			               PlaceDefault(written->children[0], model_.written_bound())));
 	}
 }
 

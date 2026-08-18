@@ -549,7 +549,7 @@ void TemplateHead::read(const AstNode& clause, TemplateInfo& info,
 		{
 			// 14.6.4.2p1: and what the unit had declared where the head wrote
 			// it, because the naming that reads it may stand anywhere later.
-			fill.visible = analyzer_.model_.bound();
+			fill.visible = analyzer_.model_.written_bound();
 			// 14.1p9: a default argument may name the parameters written
 			// before it, and 14.1p2 leaves the names *this* head gave those
 			// places as the only ones it can have written - so they are kept

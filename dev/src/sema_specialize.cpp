@@ -216,12 +216,14 @@ void Specialization::hold_pattern(TemplateInfo& info, TemplateInfo& head,
 		info.partials[index].head = &head;
 		info.partials[index].pattern.swap(pattern);
 		info.partials[index].body = &declared;
+		info.partials[index].visible = analyzer_.model_.written_bound();
 		return;
 	}
 	info.partials.push_back(TemplateInfo::Partial());
 	info.partials.back().head = &head;
 	info.partials.back().pattern.swap(pattern);
 	info.partials.back().body = &declared;
+	info.partials.back().visible = analyzer_.model_.written_bound();
 	info.partials.back().signature = signature;
 	// 14.5.5.1p1: a pattern written after a list was already answered for is a
 	// pattern that list never saw, so what was answered is dropped rather than
@@ -594,6 +596,7 @@ bool Specialization::declare_variable(const AstNode& clause,
 		// 14p1: a second head over one name declares the same template, and the
 		// one that wrote an initializer is what an instantiation reads.
 		held->templated->pattern = &declared;
+		held->templated->visible = analyzer_.model_.written_bound();
 		return true;
 	}
 	analyzer_.template_patterns_.push_back(TemplateInfo());
@@ -601,6 +604,7 @@ bool Specialization::declare_variable(const AstNode& clause,
 	info.region = ctx.scope;
 	info.dump = ctx.dump;
 	info.pattern = &declared;
+	info.visible = analyzer_.model_.written_bound();
 	TemplateHead(analyzer_).read(clause, info);
 	if (!info.supported)
 	{
@@ -643,6 +647,7 @@ bool Specialization::record_alias(const AstNode& clause,
 	info.region = ctx.scope;
 	info.dump = ctx.dump;
 	info.pattern = &declared;
+	info.visible = analyzer_.model_.written_bound();
 	TemplateHead(analyzer_).read(clause, info);
 	if (!info.supported)
 	{
@@ -700,6 +705,10 @@ SemaEntity& Specialization::alias(SemaEntity& primary, const TemplateId& id,
 	TypeId type = kNoType;
 	{
 		const ReadingList held(info.reading, list);
+		// 14.6.4.2p1: the type-id is read here, wherever the naming stands, and
+		// was written where the alias was - so what its names reach is what
+		// stood there and not what stands at whichever reading arrived.
+		const ReadingBound written_here(analyzer_.model_, info.visible);
 		type = analyzer_.type_id_type(*child_of(*info.pattern, AstKind::TypeId),
 		                              inner);
 	}

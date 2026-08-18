@@ -271,6 +271,13 @@ struct PendingDefinition
 	// fact of the entry and not of where it is read.
 	bool returned_object_chain;
 	bool from_instantiated_body;
+	// 14.6.4.2p1: what 3.3.6's namespace regions had declared where this body
+	// was written.  A body 14.7.1p1's reading put aside is read at the end of
+	// the unit, by which time the namespaces its names are looked up in hold
+	// every declaration the program made - so 3.4.1's half of what it finds is
+	// this number and not what stands at the reading that drains the list.
+	// Zero for a body read where it stands, which is under no bound at all.
+	std::uint32_t visible;
 	// 14.7.1p1: whether the class's own instantiation is what made this body and
 	// put it aside, rather than the use that later asked for it.  Such a body is
 	// no *start* of 6.6.3p2's chain: the reading that returned the object is the

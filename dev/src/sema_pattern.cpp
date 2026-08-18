@@ -491,7 +491,8 @@ void PatternReading::record(SemaEntity& primary, std::size_t at,
 	std::vector<TemplateInfo::Member>& members =
 		at == Specialization::kNoPartial ? holder.members
 		                                 : holder.partials[at].members;
-	members.push_back(TemplateInfo::Member(&clause, &declared, carried));
+	members.push_back(TemplateInfo::Member(&clause, &declared, carried,
+	                                       analyzer_.model_.written_bound()));
 	// 14.6p8: the definition is read where it stands too, against the class
 	// that body's own definition declares.
 	read_member(primary, clause, declared, at, carried);
@@ -574,6 +575,10 @@ void PatternReading::instantiate(SemaEntity& made,
 	// for these arguments, which is exactly the definition a `template<>` written
 	// for them replaces.
 	const ReadingDepth reading(analyzer_.instantiating_pattern_);
+	// 14.6.4.2p1: and the definition was written where it was written, so what
+	// its names reach is what stood there - not what stands at whichever use
+	// asked for this specialization.
+	const ReadingBound written_here(analyzer_.model_, member.visible);
 	if (region == nullptr)
 	{
 		// A head 14.5.5 parameterises names no member of this template, so the

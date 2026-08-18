@@ -1902,6 +1902,13 @@ SemaEntity* SemaAnalyzer::reserved_function(const std::string& written,
 	SemaEntity& entity = declare_function(
 		name, types_.function_of(result, parameters, false), global, false);
 	entity.builtin = which;
+	// 14.6.4.2p1 with 1.4p8: the use is what declares this, so `bind` numbered
+	// it among the declarations the program's own regions made - and a use
+	// written inside a template would then have declared it *after* the pattern
+	// that wrote it, which no second reading of that pattern could find.  A
+	// name the implementation reserves stands before the unit rather than at
+	// whichever use first named it, which is what no number at all says.
+	entity.declared_serial = 0;
 	// 15.4p14 and 17.6.5.12: none of the functions the implementation provides
 	// under a reserved name propagates an exception, which is the same fact a
 	// program writing `noexcept` states of its own - so it is written on the

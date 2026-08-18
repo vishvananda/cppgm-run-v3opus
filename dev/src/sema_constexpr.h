@@ -235,10 +235,13 @@ public:
 	// `NotConstant` where the set holds nothing viable, where no candidate is
 	// best, and where the one chosen is no constexpr function this unit
 	// defined.
+	// `associated` is how many of the entries 3.4.2 contributed, which
+	// 14.6.4.2p1 asks its question of the other side of.
 	SemaEntity& selected(const std::string& name,
 	                     const std::vector<SemaEntity*>& candidates,
 	                     const std::vector<AnalyzedValue>& written,
-	                     const AnalyzedValue* object, std::size_t singles);
+	                     const AnalyzedValue* object, std::size_t singles,
+	                     std::size_t associated);
 
 	// 13.3.1.2p1: `operands` read as the call of an operator function, which is
 	// what an operator written on one of class or enumeration type is.
@@ -590,7 +593,8 @@ private:
 	                              const SemaContext& ctx,
 	                              const std::vector<AnalyzedValue>& written,
 	                              std::vector<SemaEntity*>& candidates,
-	                              std::size_t& singles);
+	                              std::size_t& singles,
+	                              std::size_t& associated);
 
 	// 6.3p1, 6.4p3 and 6.5.3p1: the region `node` opens, which is opened the
 	// first time the fold reaches it and reused afterwards.  Every object the

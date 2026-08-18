@@ -896,7 +896,7 @@ SemaConstant ConstexprReading::object_from_constructor(
 	SemaEntity* const one = &selected(analyzer_.types_.description(bare),
 	                                  std::vector<SemaEntity*>(
 		                                  1, owner.constructor),
-	                                  clauses, &self, 0);
+	                                  clauses, &self, 0, 0);
 	// 12.1p5 and 8.4.2p1: a constructor the standard defined has no body this
 	// reading walks and no ctor-initializer it wrote - what it initializes each
 	// member with is 12.6.2p8's brace-or-equal-initializer, and whether doing
@@ -1254,7 +1254,9 @@ SemaConstant ConstexprReading::member_call(
 	// static member takes no object, and 13.3.1p4 makes every other candidate
 	// none at all where there is none.
 	const AnalyzedValue self = object_value(object);
-	SemaEntity& one = selected(name, candidates, written, &self, 0);
+	// 3.4.2 contributes nothing to a member's own set, so every entry in it is
+	// one 14.6.4.2p1 asks its question of.
+	SemaEntity& one = selected(name, candidates, written, &self, 0, 0);
 	return call(one, one.object_member ? &object : nullptr, arguments);
 }
 
