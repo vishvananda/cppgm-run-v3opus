@@ -568,6 +568,14 @@ public:
 	// the copy half is `carried_by_bytes` rather than the class's own copy.
 	bool passes_indirectly(TypeId type);
 
+	// 3.9.1p8: whether any scalar subobject of `type` is of a floating type,
+	// which is what the two boundaries above ask of a class narrow enough to
+	// have been carried in registers.  An array answers for its element and a
+	// floating type for itself, so the walk that lays a class out settles it
+	// with one read of each base and member.
+	bool holds_floating_storage(TypeId type);
+	void settle_floating_storage(TypeId type, bool holds);
+
 	bool is_class(TypeId type) const { return kind(type) == TypeKind::Class; }
 	bool is_enum(TypeId type) const { return kind(type) == TypeKind::Enum; }
 	// 7.2p2: an enumeration written `enum class` or `enum struct`, whose
@@ -772,6 +780,13 @@ private:
 		// the subobject tree of the class, which is what says an end of a
 		// lifetime the *translation* writes is a call.
 		bool declared_destruction = false;
+		// 3.9.1p8 through the storage the class is laid out over: whether any
+		// scalar subobject of it is of a floating type.  5.2.2p4's boundary is
+		// what asks - the course ABI carries such an object by its address, so
+		// that no boundary of this milestone names a floating register - and
+		// the walk that lays the class out is the one pass that can answer it,
+		// because a base and a member each already carry their own answer.
+		bool floating_storage = false;
 		// 8.5p8: whether any byte of an object of the class is written by
 		// zero-initialization, which is what its bases and members hold.
 		bool zeroed_storage = true;

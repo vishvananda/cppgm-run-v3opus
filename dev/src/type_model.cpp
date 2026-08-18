@@ -787,8 +787,17 @@ bool TypeTable::returns_indirectly(TypeId type)
 	// A class whose bytes do not stand for the object is handed back through a
 	// place and never in registers, because the caller has to be able to name
 	// the object a copy or a destruction of it would run on.
+	//
+	// A class narrow enough for those registers but holding a floating scalar
+	// is handed back through a place too: the registers it would be handed back
+	// in are the floating ones, and no boundary of this milestone names those -
+	// so `struct { double v; }` crosses by address where `struct { long v; }`
+	// crosses as its bytes.  A class wider than two words is already indirect,
+	// which is why the question is asked of the whole class rather than of the
+	// eightbytes 3.9.1p8 would be classified over.
 	return !bytes_stand_for_object(bare) ||
-		object_size(bare) > kDirectReturnBytes;
+		object_size(bare) > kDirectReturnBytes ||
+		holds_floating_storage(bare);
 }
 
 bool TypeTable::passes_indirectly(TypeId type)
@@ -805,8 +814,37 @@ bool TypeTable::passes_indirectly(TypeId type)
 	// object standing in the caller's storage, which the call names by its
 	// address.  `carried_by_bytes` is the copy half as this boundary reads it,
 	// which for a derived class is 10p1's storage it is laid out over.
+	//
+	// And the floating half of `returns_indirectly`, with the width read the
+	// other way round: an object wider than two words is one the ABI already
+	// leaves in the caller's storage and names by address at the call, which
+	// LowIR writes as the bytes it occupies - so it is only a class narrow
+	// enough for registers whose floating scalars keep it out of them.
 	return !user_at(bare).carried_by_bytes ||
-		!user_at(bare).vacuous_destruction;
+		!user_at(bare).vacuous_destruction ||
+		(object_size(bare) <= kDirectReturnBytes &&
+		 holds_floating_storage(bare));
+}
+
+bool TypeTable::holds_floating_storage(TypeId type)
+{
+	TypeId bare = strip_cv(type);
+	while (kind(bare) == TypeKind::Array)
+	{
+		// 8.3.4p1: an array is the storage of its elements laid end to end, so
+		// what it holds is what one element holds.
+		bare = strip_cv(target(bare));
+	}
+	if (kind(bare) == TypeKind::Class)
+	{
+		return user_at(bare).floating_storage;
+	}
+	return is_floating(bare);
+}
+
+void TypeTable::settle_floating_storage(TypeId type, bool holds)
+{
+	user_types_[nodes_[strip_cv(type)].user].floating_storage = holds;
 }
 
 bool TypeTable::has_vacuous_destruction(TypeId type)

@@ -515,6 +515,10 @@ void SemaAnalyzer::instantiate_body(SemaEntity& function)
 		written == info.explicit_functions.end();
 	SemaEntity* const enclosing = instantiating_;
 	instantiating_ = &function;
+	// 14.6.4.1p1: as for a class body - what this definition's own names reach
+	// is settled where it was written, not where the reading that asked for it
+	// stands, so a bound that reading was made under comes off here.
+	const ReadingBound written_here(model_, 0);
 	if (body->kind == AstKind::SpecialMemberDefinition ||
 	    body->kind == AstKind::SpecialMemberDeclaration)
 	{
@@ -1307,6 +1311,14 @@ void SemaAnalyzer::complete_specialization(SemaEntity& made)
 		// naming a second specialization - is the same, which is why the fact
 		// is a depth rather than a flag.
 		const ReadingDepth instantiating(instantiating_class_);
+		// 14.6.4.1p1 and 14.6.4.2p1: this body is a *second* definition being
+		// read, and what its own names reach is settled where it was written -
+		// which is not where whatever asked for it was.  A reading made under a
+		// bound may arrive here, so the bound comes off: a class template whose
+		// head names a trait defined further down the unit reads that trait's
+		// body against the whole unit, exactly as a naming outside any template
+		// would.
+		const ReadingBound written_here(model_, 0);
 		// 14.7.3p1: the body `template<>` wrote is this unit's own source, so the
 		// definitions it holds are the program's and a second one of any of them is
 		// 3.2p1's redefinition.  Only the pattern's reading makes a definition a
@@ -1449,8 +1461,8 @@ SemaEntity& SemaAnalyzer::dependent_template_name(
 	const std::uint64_t key = (static_cast<std::uint64_t>(parameter) << 32) |
 		types_.type_list(arguments);
 	const std::unordered_map<std::uint64_t, SemaEntity*>::const_iterator held =
-		dependent_templates_.find(key);
-	if (held != dependent_templates_.end())
+		dependent_.templates.find(key);
+	if (held != dependent_.templates.end())
 	{
 		return *held->second;
 	}
@@ -1458,7 +1470,7 @@ SemaEntity& SemaAnalyzer::dependent_template_name(
 		model_.type_entity_id(), parameter, arguments, spelling);
 	SemaEntity& entity = model_.create(SemaKind::Typedef, spelling, type);
 	own_type(type, entity);
-	dependent_templates_.insert(std::make_pair(key, &entity));
+	dependent_.templates.insert(std::make_pair(key, &entity));
 	return entity;
 }
 
@@ -1719,8 +1731,8 @@ TypeId SemaAnalyzer::dependent_expression_type(const AstNode& node,
 {
 	const std::string key = dependent_expression_key(node.text, *ctx.scope);
 	const std::unordered_map<std::string, TypeId>::const_iterator held =
-		dependent_expressions_.find(key);
-	if (held != dependent_expressions_.end())
+		dependent_.expressions.find(key);
+	if (held != dependent_.expressions.end())
 	{
 		return held->second;
 	}
@@ -1736,8 +1748,57 @@ TypeId SemaAnalyzer::dependent_expression_type(const AstNode& node,
 	{
 		written.reach.push_back(at->declarations.size());
 	}
-	dependent_written_.insert(std::make_pair(type, written));
-	dependent_expressions_.insert(std::make_pair(key, type));
+	written.visible = model_.bound();
+	dependent_.written.insert(std::make_pair(type, written));
+	dependent_.expressions.insert(std::make_pair(key, type));
+	return type;
+}
+
+// 14.1p9 and 14.3p1: the argument a place takes from its head's default where
+// the list that stopped short of it left an earlier place dependent.
+//
+// 5.19 is *evaluated* where it stands, so `template<class T, bool B = t<T>::v>`
+// named as `S<A>` for a place `A` has no constant to give `B` - and giving it
+// none at all would make `S<A>` and `S<int>` lists of different lengths, which
+// are two specializations of one template rather than one named twice.  So the
+// argument is the reading itself, kept as 7.1.6.2p4's decltype-specifier is:
+// the tree the head wrote and the region binding the places before it to what
+// this list gave them.  14.7.1p1's substitution rebuilds that region over its
+// own arguments and evaluates the tree there, converted to the place - which is
+// the same second reading `X<A + 1>` gets, made over a tree rather than a text
+// because the head wrote one and 14.2 never flattened it.
+//
+// It is interned by what it reads, so a template named twice the same way is
+// one specialization: the key is the spelling under the *types* the region
+// binds, which two regions holding one argument list agree on.
+TypeId SemaAnalyzer::dependent_default(const AstNode& node, TypeId place,
+                                       const Context& ctx)
+{
+	const std::string key = "=" + std::to_string(place) + ':' +
+		dependent_expression_key(node.text, *ctx.scope);
+	const std::unordered_map<std::string, TypeId>::const_iterator held =
+		dependent_.expressions.find(key);
+	if (held != dependent_.expressions.end())
+	{
+		return held->second;
+	}
+	const TypeId type = types_.template_parameter_type(model_.type_entity_id(),
+	                                                   false, node.text);
+	DependentDecltype written;
+	written.written = &node;
+	written.region = ctx.scope;
+	written.place = place;
+	written.evaluated = true;
+	for (const Scope* at = ctx.scope;
+	     at != nullptr && (at->kind == ScopeKind::Prototype ||
+	                       at->kind == ScopeKind::TemplateParameters);
+	     at = at->parent)
+	{
+		written.reach.push_back(at->declarations.size());
+	}
+	written.visible = model_.bound();
+	dependent_.written.insert(std::make_pair(type, written));
+	dependent_.expressions.insert(std::make_pair(key, type));
 	return type;
 }
 
@@ -1763,8 +1824,8 @@ TypeId SemaAnalyzer::dependent_value(const std::string& spelling, TypeId place,
 		ctx == nullptr ? "!" + spelling
 		               : dependent_expression_key(spelling, *ctx->scope);
 	const std::unordered_map<std::string, TypeId>::const_iterator held =
-		dependent_values_.find(key);
-	if (held != dependent_values_.end())
+		dependent_.values.find(key);
+	if (held != dependent_.values.end())
 	{
 		return held->second;
 	}
@@ -1783,9 +1844,10 @@ TypeId SemaAnalyzer::dependent_value(const std::string& spelling, TypeId place,
 		{
 			written.reach.push_back(at->declarations.size());
 		}
-		dependent_written_.insert(std::make_pair(type, written));
+		written.visible = model_.bound();
+		dependent_.written.insert(std::make_pair(type, written));
 	}
-	dependent_values_.insert(std::make_pair(key, type));
+	dependent_.values.insert(std::make_pair(key, type));
 	return type;
 }
 
@@ -1996,28 +2058,58 @@ TypeId SemaAnalyzer::substituted(
 		// dependent argument list is one of these readings - so it is
 		// substituted in its turn.
 		const std::unordered_map<TypeId, DependentDecltype>::const_iterator
-			expression = dependent_written_.find(bare);
-		if (expression != dependent_written_.end())
+			expression = dependent_.written.find(bare);
+		if (expression != dependent_.written.end())
 		{
 			Context inner;
 			inner.scope = &substituted_region(*expression->second.region,
 			                                  expression->second.reach, 0,
 			                                  bindings, memo);
 			inner.dump = inner.scope->dump;
+			// 14.6.4.2p1: the reading below is 3.4.1's lookup a template
+			// definition made, so what it finds is what the definition could -
+			// a namespace has gone on being declared into since, and a name
+			// declared there after the pattern was written is one this reading
+			// may not reach.
+			const ReadingBound standing(model_, expression->second.visible);
 			// 14.3.2p1 and 14.7.1p1: a value argument the definition left
 			// standing is answered the same way - 5.19 read over the spelling
 			// again, converted to the place the substitution makes of the one
 			// it fills, because `template<class T, T v>` writes a place whose
 			// type an argument list settles too.
+			const TypeId settled =
+				expression->second.place == kNoType
+					? kNoType
+					: substituted(expression->second.place, bindings, memo);
+			if (expression->second.evaluated)
+			{
+				// 14.1p9's default, whose head wrote a tree rather than a text.
+				// This substitution may still leave what it names unsettled -
+				// an outer list's arguments over a member template's own places
+				// are one of these - and then the default stands as it was for
+				// the substitution that follows, exactly as a dependent prefix
+				// does, because 5.19 has nothing to evaluate yet.
+				out = type;
+				if (settled != kNoType && !types_.is_dependent(settled))
+				{
+					try
+					{
+						out = types_.value_type(
+							settled,
+							convert(evaluate(*expression->second.written, inner),
+							        settled).bits);
+					}
+					catch (const NotConstant&)
+					{
+					}
+				}
+				break;
+			}
 			out = expression->second.written != nullptr
 				? types_.qualified(
 					  decltype_type(*expression->second.written, inner), cv)
-				: template_argument_value(
-					  expression->second.spelling,
-					  expression->second.place == kNoType
-						  ? kNoType
-						  : substituted(expression->second.place, bindings, memo),
-					  inner);
+				: template_argument_value(expression->second.spelling, settled,
+				                          inner);
 			break;
 		}
 		// A template parameter itself, which is what the bindings name.

@@ -801,7 +801,7 @@ void SemaAnalyzer::require_uniform_ref_qualifiers(const SemaEntity& head,
 // declaration of anything.  So the question is asked of what the source
 // declared at its own level.
 void require_one_default_per_place(
-	const std::unordered_map<std::uint32_t, const AstNode*>& defaults,
+	const std::unordered_map<std::uint32_t, PlaceDefault>& defaults,
 	const SemaEntity& prior, const Scope* later, bool wrote_both,
 	const std::string& name)
 {

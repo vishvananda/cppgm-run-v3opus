@@ -861,7 +861,7 @@ bool Deduction::arguments_of(const SemaEntity& primary,
 			}
 			continue;
 		}
-		const std::unordered_map<std::uint32_t, const AstNode*>::const_iterator
+		const std::unordered_map<std::uint32_t, PlaceDefault>::const_iterator
 			written = analyzer_.parameter_defaults_.find(parameters[index]->id);
 		if (written == analyzer_.parameter_defaults_.end())
 		{
@@ -885,6 +885,10 @@ bool Deduction::arguments_of(const SemaEntity& primary,
 			primary.template_parameters->dump);
 		inner.dump = inner.scope->dump;
 		inner.node = nullptr;
+		// 14.6.4.2p1: the default is read here, at whatever call reached this
+		// place empty, and was written where its head wrote it - so what its
+		// names reach is what stood there.
+		const ReadingBound standing(analyzer_.model_, written->second.visible);
 		for (std::size_t before = 0; before < index; ++before)
 		{
 			const std::unordered_map<TypeId, TypeId>::const_iterator took =
@@ -912,13 +916,14 @@ bool Deduction::arguments_of(const SemaEntity& primary,
 			// which is neither 8.1p1's type-id nor 5.19's constant expression -
 			// the same reading the class tier's own fill gives it.
 			given = TemplateHead(analyzer_).place_default(
-				*written->second,
+				*written->second.written,
 				analyzer_.place_head(parameters[index]->type), inner);
 		}
 		else if (place == kNoType)
 		{
 			given = analyzer_.substituted(
-				analyzer_.type_id_type(*written->second, inner), filled, memo);
+				analyzer_.type_id_type(*written->second.written, inner), filled,
+				memo);
 		}
 		else if (types.is_dependent(place))
 		{
@@ -928,7 +933,8 @@ bool Deduction::arguments_of(const SemaEntity& primary,
 		{
 			given = types.value_type(
 				place,
-				analyzer_.convert(analyzer_.evaluate(*written->second, inner),
+				analyzer_.convert(analyzer_.evaluate(*written->second.written,
+				                                     inner),
 				                  place).bits);
 		}
 		filled.insert(std::make_pair(parameters[index]->type, given));

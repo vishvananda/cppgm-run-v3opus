@@ -154,6 +154,39 @@ struct AstNode;
 // declaration rather than of one class's table.
 const unsigned kNoVtableIndex = static_cast<unsigned>(-1);
 
+class SemaModel;
+
+// 14.6.4.2p1: the bound a reading is made under, held for as long as it runs.
+//
+// It comes off however the reading ends, because a reading that refused is
+// 14.8.2p8's discarded candidate and the reading after it is another one's.  A
+// reading standing inside a reading takes the inner bound and gives the outer
+// one back: what a construct could name is settled by where it was written and
+// not by which use of the enclosing one arrived at it.  Zero is no bound at
+// all, which is what 3.4.2's own lookups are made under - the clause answers
+// that half at the instantiation context too.
+class ReadingBound
+{
+public:
+	ReadingBound(SemaModel& model, std::uint32_t bound);
+	~ReadingBound();
+
+private:
+	ReadingBound(const ReadingBound&);
+	ReadingBound& operator=(const ReadingBound&);
+
+	SemaModel& model_;
+	std::uint32_t held_;
+};
+
+// 3.4.2 and 14.6.4.2p1: how many of a call's candidates were gathered from the
+// associated namespaces and classes rather than by 3.4.1, counted from the end
+// of the set because they are appended last.  Those are the ones a second
+// reading of a pattern still reaches however late they were declared, because
+// 3.4.2's half of the clause is answered at the instantiation context too.
+// This value says the gatherer did not draw the line, so no candidate is asked.
+const std::size_t kAssociatedUnknown = static_cast<std::size_t>(-1);
+
 // The ABI: the size and the alignment of the vpointer a polymorphic class puts
 // at the start of every object of it.
 const unsigned long long kVpointerBytes = 8;
@@ -228,6 +261,14 @@ struct SemaEntity
 	// program wrote does and which a place a call filled does too: the address
 	// of one of those is `&` of the declaration itself.
 	std::uint32_t address;
+	// 14.6.4.2p1: this declaration's place in the order 3.3.6's namespace
+	// regions were declared into, counted from one.  3.4.1's lookup a template
+	// definition makes is answered where the definition stands, and a reading
+	// the definition left standing is made again where the arguments arrive -
+	// by which time the namespace has gone on being declared into, so what the
+	// second reading may find is what stood then.  Zero for every declaration
+	// no namespace region binds, which is one no such lookup reaches.
+	std::uint32_t declared_serial;
 	// 13.1: the other declarations of this name in this region, in declaration
 	// order.  A name is bound to the first of them and the rest are reached
 	// from it, so collecting the candidates of a call costs one walk of the
@@ -1212,6 +1253,24 @@ public:
 	// entity that declared it.
 	std::uint32_t type_entity_id() { return ++type_entities_; }
 
+	// 14.6.4.2p1: how many declarations 3.3.6's namespace regions have bound so
+	// far, which is what a template definition's own lookup stands at, and the
+	// bound a reading made again works under.  Zero is no bound at all, which
+	// every reading but a second one of a construct a pattern left standing is
+	// made with.
+	std::uint32_t bound() const { return bound_; }
+	std::uint32_t visible_bound() const { return visible_; }
+	void set_visible_bound(std::uint32_t bound) { visible_ = bound; }
+	// 13.1 under that bound: whether this declaration is one the reading now
+	// being made may reach.  A name is bound to the first declaration of it and
+	// the rest are reached from that one, so a later *overload* is found
+	// through a binding that already stood - which is the half `find` cannot
+	// answer and the walk over the chain has to.
+	bool reachable(const SemaEntity& entity) const
+	{
+		return visible_ == 0 || entity.declared_serial <= visible_;
+	}
+
 	// The binding of `name` in `where` alone.
 	SemaEntity* find(const Scope& where, const std::string& name,
 	                 LookupKind filter) const;
@@ -1355,6 +1414,10 @@ private:
 	std::unordered_map<TypeId, TypeId> value_initialized_;
 	unsigned folding_depth_;
 	unsigned long long reach_;
+	// 14.6.4.2p1's counter and the bound the reading now being made works
+	// under, which is zero everywhere but inside a second reading.
+	std::uint32_t bound_;
+	std::uint32_t visible_;
 	// 11.3p1: the friendships granted so far, as the pair of entity
 	// identifiers in one word, so asking whether one class befriended one
 	// declaration is a probe.

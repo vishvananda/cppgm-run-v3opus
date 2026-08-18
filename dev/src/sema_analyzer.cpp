@@ -1338,7 +1338,9 @@ void SemaAnalyzer::template_parameter(const AstNode& node, const Context& ctx)
 		const AstNode* const carried = child_of(*written, AstKind::TypeId);
 		if (carried != nullptr)
 		{
-			parameter_defaults_.insert(std::make_pair(entity.id, carried));
+			parameter_defaults_.insert(
+				std::make_pair(entity.id,
+				               PlaceDefault(carried, model_.bound())));
 		}
 	}
 	if (id != nullptr)
@@ -1387,7 +1389,8 @@ void SemaAnalyzer::non_type_template_parameter(const AstNode& node,
 		// an expression rather than a type-id and is read where the deduction
 		// finds the place empty.
 		parameter_defaults_.insert(
-			std::make_pair(entity.id, written->children[0]));
+			std::make_pair(entity.id,
+			               PlaceDefault(written->children[0], model_.bound())));
 	}
 }
 

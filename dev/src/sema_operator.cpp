@@ -311,8 +311,13 @@ const std::vector<SemaEntity*>& OperatorCall::surrogates(TypeId type)
 std::size_t OperatorCall::candidates(unsigned token, const SemaContext& ctx,
                                      const std::vector<AnalyzedValue>& operands,
                                      bool member_only,
-                                     std::vector<SemaEntity*>& out)
+                                     std::vector<SemaEntity*>& out,
+                                     std::size_t* associated)
 {
+	if (associated != nullptr)
+	{
+		*associated = 0;
+	}
 	const char* const written = spelling(token);
 	if (written == nullptr || operands.empty())
 	{
@@ -320,6 +325,9 @@ std::size_t OperatorCall::candidates(unsigned token, const SemaContext& ctx,
 	}
 	const std::string name = std::string("operator") + written;
 	std::size_t singles = 0;
+	// 3.4.2 and 13.3.1.1.2p2 both append after 3.4.1's half, so where they
+	// begin is what the set holds once the two ordinary lookups have run.
+	std::size_t ordinary = 0;
 	// 13.3.1.2p3: the member candidates are what a lookup of the name in the
 	// class of the left operand finds, which 10.2 also searches its bases for.
 	SemaEntity* const owner = operands[0].type == kNoType
@@ -371,7 +379,12 @@ std::size_t OperatorCall::candidates(unsigned token, const SemaContext& ctx,
 				}
 			}
 		}
+		ordinary = out.size();
 		singles = ArgumentLookup(analyzer_).candidates(name, operands, out);
+	}
+	else
+	{
+		ordinary = out.size();
 	}
 	if (token == OP_LPAREN && owner != nullptr)
 	{
@@ -385,6 +398,10 @@ std::size_t OperatorCall::candidates(unsigned token, const SemaContext& ctx,
 			surrogates(analyzer_.types_.strip_cv(operands[0].type));
 		out.insert(out.end(), called_through.begin(), called_through.end());
 		singles += called_through.size();
+	}
+	if (associated != nullptr)
+	{
+		*associated = out.size() - ordinary;
 	}
 	return singles;
 }
@@ -457,8 +474,9 @@ bool OperatorCall::expression(unsigned token, const SemaContext& ctx,
 			? nullptr
 			: analyzer_.model_.type_owner(
 				  analyzer_.types_.strip_cv(operands[0].type));
+	std::size_t associated = 0;
 	const std::size_t singles =
-		candidates(token, ctx, operands, member_only, reached);
+		candidates(token, ctx, operands, member_only, reached, &associated);
 	if (reached.empty())
 	{
 		// 13.3.1.2p2: no operator function is a candidate, so what is left is
@@ -487,7 +505,7 @@ bool OperatorCall::expression(unsigned token, const SemaContext& ctx,
 	bool unviable = false;
 	SemaEntity* const chosen =
 		analyzer_.select_overload(reached, rest, name, &object, false, singles,
-		                &operands[0], &unviable);
+		                &operands[0], &unviable, associated);
 	if (chosen == nullptr)
 	{
 		if (listed)

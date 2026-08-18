@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -428,18 +429,27 @@ enum class TemporaryRequest
 // again against the arguments.  So `written` null with a `spelling` is that
 // second form - 5.19 over the text 14.2 left the argument as, converted to the
 // type `place` names once the arguments have settled it.
+//
+// 14.1p9's default at a value place is the third: the head wrote a tree there,
+// which the list that stops short of the place would evaluate, and a list that
+// left an earlier place dependent has nothing to evaluate it against yet.  So
+// the tree is kept as `written` and `evaluated` says 5.19 rather than 7.1.6.2p4
+// is what reads it again, converted to `place` as the spelling form is.
 struct DependentDecltype
 {
 	DependentDecltype()
 		: written(nullptr)
 		, region(nullptr)
 		, place(kNoType)
+		, evaluated(false)
+		, visible(0)
 	{}
 
 	const AstNode* written;
 	Scope* region;
 	std::string spelling;
 	TypeId place;
+	bool evaluated;
 	// 3.3.7p1: how many declarations each of those regions had made when the
 	// specifier was read, innermost first.  A place a clause declares *after* a
 	// specifier is one that specifier could not name - its potential scope
@@ -447,6 +457,62 @@ struct DependentDecltype
 	// so a second reading that rebuilt the whole region would have to know what
 	// it is about to say to say it.
 	std::vector<std::size_t> reach;
+	// 14.6.4.2p1: how many declarations the *unit* had made then, which is the
+	// same clause asked of 3.3.6's namespace regions.  A second reading is made
+	// where the arguments arrive, and the namespaces it looks names up in have
+	// gone on being declared into since - so 3.4.1's lookup from the template
+	// definition context is this number, and a declaration made after it is one
+	// the reading may not find.  The regions above are rebuilt, so they need no
+	// such bound; a namespace is reached as it stands and does.
+	std::uint32_t visible;
+};
+
+// 14.1p9's default at a place a *function* template's head declared, whose
+// places are declarations of their own rather than entries of a `TemplateInfo`.
+// The two facts are the same two the class tier keeps: what the head wrote,
+// and what 14.6.4.2p1 says its names could reach where it wrote it.
+struct PlaceDefault
+{
+	PlaceDefault()
+		: written(nullptr)
+		, visible(0)
+	{}
+
+	PlaceDefault(const AstNode* node, std::uint32_t bound)
+		: written(node)
+		, visible(bound)
+	{}
+
+	const AstNode* written;
+	std::uint32_t visible;
+};
+
+// The readings a pattern left standing, which 14.7.1p1 makes again once an
+// argument list has arrived.
+//
+// They are one owner rather than five members of the analysis because they are
+// one fact read one way: a construct a template definition could not settle is
+// interned by what it was written as and by the region it was written in, and
+// what the substitution finds under that key is the reading to make again.  A
+// pattern that writes one spelling n times leaves one entry here and names one
+// type, which is what makes a naming inside a template cost the same as a
+// naming outside one.
+struct DependentReadings
+{
+	// 14.6.2p1: the declarations made for names written through a prefix no
+	// argument list has settled, keyed by that prefix and the spelling.
+	std::unordered_map<std::string, SemaEntity*> names;
+	// 7.1.6.2p1: the same, for a decltype-specifier over an expression the
+	// reading does not type, keyed by the specifier and the region it stands
+	// in and read back by the substitution that has the arguments.
+	std::unordered_map<std::string, TypeId> expressions;
+	std::unordered_map<TypeId, DependentDecltype> written;
+	// 14.6.2p1: the declaration one `C<A…>` written over a template place
+	// stands for, keyed by the place and the interned argument list.
+	std::unordered_map<std::uint64_t, SemaEntity*> templates;
+	// 14.6.2p2's argument a spelling no argument list has settled stands for,
+	// which is a fact of the text alone.
+	std::unordered_map<std::string, TypeId> values;
 };
 
 // One object whose destruction is an action of its own declaration, and the

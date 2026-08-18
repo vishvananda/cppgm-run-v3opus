@@ -103,10 +103,16 @@ struct TemplateInfo
 	{
 		Default()
 			: written(nullptr)
+			, visible(0)
 		{}
 
 		const AstNode* written;
 		std::vector<std::string> spelled;
+		// 14.6.4.2p1: what 3.3.6's namespace regions had declared where the
+		// head wrote this default.  It is read at every naming that stops
+		// short of the place, which may stand anywhere in the unit, and what
+		// the default names is what its own head could name.
+		std::uint32_t visible;
 	};
 	// 14.1p2: the parameters the head declared, in order, and 14.1p9's default
 	// arguments beside them, empty where no declaration wrote one.  A head this

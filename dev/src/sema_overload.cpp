@@ -1331,6 +1331,12 @@ SemaEntity* SemaAnalyzer::resolve_target(const Value& value, TypeId target)
 		for (SemaEntity* at = (*value.functions)[index]; at != nullptr;
 		     at = at->next)
 		{
+			if (!model_.reachable(*at))
+			{
+				// 14.6.4.2p1 again: 13.4p1's set is the one the name found,
+				// which under a second reading's bound is what stood then.
+				continue;
+			}
 			const bool names_it = of_member
 				? member_pointer_of(types_, *at) == wanted
 				: at->type == wanted;
@@ -1595,7 +1601,7 @@ SemaEntity* SemaAnalyzer::select_overload(
 	const std::vector<SemaEntity*>& candidates,
 	const std::vector<Value>& arguments, const std::string& name,
 	const Value* object, bool converting, std::size_t singles,
-	const Value* operand, bool* unviable)
+	const Value* operand, bool* unviable, std::size_t associated)
 {
 	std::vector<SemaEntity*> viable;
 	// 3.4.2p2 lets one declaration be reached by more than one of the searches
@@ -1639,6 +1645,22 @@ SemaEntity* SemaAnalyzer::select_overload(
 	{
 		if (candidates.size() > 1 && !gathered.insert(candidate).second)
 		{
+			continue;
+		}
+		if (associated != kAssociatedUnknown &&
+		    chain + associated < candidates.size() &&
+		    !model_.reachable(*candidate))
+		{
+			// 14.6.4.2p1: 3.4.1's half of the set is found from the template
+			// definition context, so a declaration made after the pattern this
+			// reading belongs to was written is no candidate of it - and an
+			// overload added later is exactly that, standing on the chain a
+			// binding that did stand heads.  3.4.2's half is the other arm of
+			// the same clause and is answered at the instantiation context as
+			// well, so the entries the associated regions contributed are
+			// asked no such question: a hidden friend of a class defined after
+			// the pattern, and a function declared into an associated
+			// namespace after it, are both ones the call reaches.
 			continue;
 		}
 		SemaEntity* at = candidate;
@@ -1871,194 +1893,6 @@ int SemaAnalyzer::compare_matches(const Match& left, const Match& right)
 		return left.binds_rvalue_ref ? 1 : -1;
 	}
 	return 0;
-}
-
-namespace
-{
-
-// 14.5.6.2p2 and 13.3.1p4: the parameter types `entity` is ordered against
-// `other` by, which are the places its own declarator wrote wherever the two
-// declarations declare the same kind of function.
-//
-// 9.3.1p3 put a non-static member's object parameter in its type as a pointer
-// to the class, and it is the one place the two lists can part company.
-// 14.5.6.2p2 is what lines them up: where only one of the two is a non-static
-// member, that one is considered to have a first parameter of "reference to cv
-// A" - which is the place the other declaration wrote its own first operand in,
-// and is what lets 13.5p6's member operator be ordered against the non-member
-// beside it.  9.4p1's static member of the same class is the exception: 13.3.1p4
-// gives it an implicit object parameter that matches any object, so it tells the
-// two apart by nothing and the object parameter is dropped from both.
-//
-// The list the declaration wrote is what most pairs are ordered by, so
-// `adjusted` is filled only where 14.5.6.2p2 has something to change.
-const std::vector<TypeId>& ordering_parameters(TypeTable& types,
-                                               const SemaEntity& entity,
-                                               const SemaEntity& other,
-                                               std::vector<TypeId>& adjusted)
-{
-	const std::vector<TypeId>& written = types.parameters(entity.type);
-	if (!entity.object_member || other.object_member || written.empty())
-	{
-		return written;
-	}
-	adjusted.assign(written.begin(), written.end());
-	if (entity.region != nullptr && entity.region == other.region &&
-	    entity.region->kind == ScopeKind::Class)
-	{
-		adjusted.erase(adjusted.begin());
-	}
-	else
-	{
-		adjusted[0] = types.reference_to(types.target(adjusted[0]), false);
-	}
-	return adjusted;
-}
-
-}
-
-// 14.5.6.2p2 and p8: whether the parameter types `right` was written over are
-// every one of them deduced from the type `left` wrote in the same place, with
-// `left`'s own parameters standing for types of their own.
-//
-// 14.5.6.2p5 and p7 are what make `const T &` and `T` comparable at all: a
-// reference on either side is replaced by what it refers to and the top-level
-// qualifiers of both are dropped, so what is left is the shape each template
-// wrote.  One binding map runs the whole list, because a parameter that two
-// places deduce differently makes neither template the other's.
-//
-// 14.8.2.4p9 with 14.5.3p4: a trailing `P...` stands for every place the ones
-// before it did not take, so each of those is a pair of its own - and a place
-// the *other* template wrote as a run is no argument for one this template
-// wrote singly, which is what leaves `f(T)` more specialized than `f(Ts...)`.
-bool SemaAnalyzer::at_least_as_specialized(SemaEntity& left, SemaEntity& right)
-{
-	const std::uint64_t key =
-		(static_cast<std::uint64_t>(left.id) << 32) | right.id;
-	const std::unordered_map<std::uint64_t, bool>::const_iterator held =
-		specialization_order_.find(key);
-	if (held != specialization_order_.end())
-	{
-		return held->second;
-	}
-	std::vector<TypeId> adjusted_left;
-	std::vector<TypeId> adjusted_right;
-	const std::vector<TypeId>& wrote =
-		ordering_parameters(types_, left, right, adjusted_left);
-	const std::vector<TypeId>& against =
-		ordering_parameters(types_, right, left, adjusted_right);
-	const bool packed = !against.empty() &&
-		types_.is_pack_expansion(against[against.size() - 1]);
-	const std::size_t fixed = packed ? against.size() - 1 : against.size();
-	bool answer =
-		packed ? wrote.size() >= fixed : wrote.size() == against.size();
-	std::unordered_map<TypeId, TypeId> bindings;
-	for (std::size_t index = 0; answer && index < wrote.size(); ++index)
-	{
-		const bool run = index >= fixed;
-		TypeId pattern =
-			run ? types_.target(against[against.size() - 1]) : against[index];
-		TypeId argument = wrote[index];
-		if (types_.is_pack_expansion(argument))
-		{
-			if (!run)
-			{
-				answer = false;
-				break;
-			}
-			argument = types_.target(argument);
-		}
-		if (types_.is_reference(pattern))
-		{
-			pattern = types_.target(pattern);
-		}
-		if (types_.is_reference(argument))
-		{
-			argument = types_.target(argument);
-		}
-		if (!run)
-		{
-			answer = Deduction(*this).match(types_.strip_cv(pattern),
-			                                types_.strip_cv(argument), bindings);
-			continue;
-		}
-		// Each place a run stands for is a pair over bindings of its own, the
-		// way 14.8.2.1p1's run is: what the pack took at one of them says
-		// nothing about what it took at another.
-		std::unordered_map<TypeId, TypeId> one(bindings);
-		answer = Deduction(*this).match(types_.strip_cv(pattern),
-		                                types_.strip_cv(argument), one);
-	}
-	specialization_order_.insert(std::make_pair(key, answer));
-	return answer;
-}
-
-// 14.5.6.2p9: where the deduction of one place succeeded in both directions the
-// two templates wrote types that are identical once 14.5.6.2p5 and p7 have
-// taken the references and the qualifiers off them - so what is left to tell
-// them apart is what those took: an lvalue reference is more specialized than
-// what is not one, and a reference to a more qualified type is more specialized
-// than a reference to a less qualified one.  14.5.6.2p10 wants one template
-// ahead at some place and behind at none, so a place answering each way leaves
-// neither.
-int SemaAnalyzer::reference_order(SemaEntity& left, SemaEntity& right)
-{
-	std::vector<TypeId> adjusted_left;
-	std::vector<TypeId> adjusted_right;
-	const std::vector<TypeId>& wrote =
-		ordering_parameters(types_, left, right, adjusted_left);
-	const std::vector<TypeId>& against =
-		ordering_parameters(types_, right, left, adjusted_right);
-	int order = 0;
-	for (std::size_t index = 0; index < wrote.size() && index < against.size();
-	     ++index)
-	{
-		if (!types_.is_reference(wrote[index]) ||
-		    !types_.is_reference(against[index]))
-		{
-			continue;
-		}
-		const bool lvalue =
-			types_.kind(wrote[index]) == TypeKind::LValueReference;
-		const bool other =
-			types_.kind(against[index]) == TypeKind::LValueReference;
-		const unsigned held = types_.cv(types_.target(wrote[index]));
-		const unsigned theirs = types_.cv(types_.target(against[index]));
-		int here = 0;
-		if (lvalue != other)
-		{
-			here = lvalue ? 1 : -1;
-		}
-		else if (held != theirs)
-		{
-			here = (theirs & ~held) == 0 ? 1 : ((held & ~theirs) == 0 ? -1 : 0);
-		}
-		if (here == 0)
-		{
-			continue;
-		}
-		if (order != 0 && order != here)
-		{
-			return 0;
-		}
-		order = here;
-	}
-	return order;
-}
-
-// 14.5.6.2p4: `left` is more specialized than `right` when it is at least as
-// specialized and `right` is not.  Which places the two are compared at is
-// `ordering_parameters`' answer, so a pair whose lists name different places -
-// a member against a non-member that wrote no operand for the object - is left
-// unordered by the deduction failing rather than by a question asked here.
-bool SemaAnalyzer::more_specialized(SemaEntity& left, SemaEntity& right)
-{
-	if (&left == &right || !at_least_as_specialized(left, right))
-	{
-		return false;
-	}
-	return !at_least_as_specialized(right, left) ||
-		reference_order(left, right) > 0;
 }
 
 bool SemaAnalyzer::better_candidate(const Match* left, const Match* right,
@@ -2656,10 +2490,15 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
 		{
 			candidates = *target.functions;
 		}
+		// 3.4.2 appends its own candidates after 3.4.1's, so where the two
+		// halves meet is the size the set had before it ran - which is what
+		// 14.6.4.2p1 asks its question of one side of.
+		const std::size_t reached = candidates.size();
 		const std::size_t singles =
 			adl ? ArgumentLookup(*this).call_candidates(called, arguments, ctx,
 			                                            candidates)
 			    : 0;
+		const std::size_t associated = candidates.size() - reached;
 		if (candidates.empty())
 		{
 			throw std::runtime_error("no declaration of " + called +
@@ -2674,7 +2513,7 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
 		SemaEntity& selected =
 			*select_overload(candidates, arguments, called,
 			                 object.node != nullptr ? &object : nullptr, false,
-			                 singles);
+			                 singles, nullptr, nullptr, associated);
 		// 7.3.3p1: a using-declaration made the class declare what its base
 		// declared, and what the call runs is the base's function - reached
 		// through the base subobject of the object the call names, which

@@ -189,6 +189,12 @@ std::size_t ArgumentLookup::candidates(
 			               : arguments[index].type, associated);
 		}
 	}
+	// 14.6.4.2p1: 3.4.2's half of a dependent call's candidate set is answered
+	// at the instantiation context as well as at the definition one, so the
+	// searches below are made under no bound however late the reading that
+	// asked for them was written - a function declared into an associated
+	// namespace after the pattern is one the call reaches.
+	const ReadingBound unbounded(analyzer_.model_, 0);
 	const std::vector<Scope*>& spaces = associated.spaces;
 	const std::vector<Scope*>& classes = associated.classes;
 	for (std::size_t index = 0; index < spaces.size(); ++index)

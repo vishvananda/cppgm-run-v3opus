@@ -1,0 +1,508 @@
+function @take_words(%v : obj<8x8>) -> obj<8x8> [binding=strong, object=_Z10take_words5words] {
+  slot $v : obj<8x8>
+  slot $retobj__1 : obj<8x8>
+
+  block ^entry:
+    %t1 = addr $v
+    copyobj 8x8 %v, %t1
+    %t2 = addr $retobj__1
+    %t3 = addr $v
+    copyobj 8x8 %t3, %t2
+    return obj<8x8> $retobj__1
+}
+function @take_one_float(%ret : ptr [pass=indirect_result], %v : ptr [pass=by_address]) -> void [binding=strong, object=_Z14take_one_float9one_float] {
+  slot $v : obj<8x8>
+
+  block ^entry:
+    copyobj 8x8 %v, %ret
+    return void
+}
+function @take_mixed(%ret : ptr [pass=indirect_result], %v : ptr [pass=by_address]) -> void [binding=strong, object=_Z10take_mixed5mixed] {
+  slot $v : obj<8x4>
+
+  block ^entry:
+    copyobj 8x4 %v, %ret
+    return void
+}
+function @take_nested(%ret : ptr [pass=indirect_result], %v : ptr [pass=by_address]) -> void [binding=strong, object=_Z11take_nested6nested] {
+  slot $v : obj<4x4>
+
+  block ^entry:
+    copyobj 4x4 %v, %ret
+    return void
+}
+function @take_based(%ret : ptr [pass=indirect_result], %v : ptr [pass=by_address]) -> void [binding=strong, object=_Z10take_based5based] {
+  slot $v : obj<8x8>
+
+  block ^entry:
+    copyobj 8x8 %v, %ret
+    return void
+}
+function @take_wide(%ret : ptr [pass=indirect_result], %v : obj<24x8>) -> void [binding=strong, object=_Z9take_wide4wide] {
+  slot $v : obj<24x8>
+
+  block ^entry:
+    %t1 = addr $v
+    copyobj 24x8 %v, %t1
+    %t2 = addr $v
+    copyobj 24x8 %t2, %ret
+    return void
+}
+function @take_either(%ret : ptr [pass=indirect_result], %v : ptr [pass=by_address]) -> void [binding=strong, object=_Z11take_either6either] {
+  slot $v : obj<8x8>
+
+  block ^entry:
+    copyobj 8x8 %v, %ret
+    return void
+}
+function @take_integral(%v : obj<8x8>) -> obj<8x8> [binding=strong, object=_Z13take_integral8integral] {
+  slot $v : obj<8x8>
+  slot $retobj__1 : obj<8x8>
+
+  block ^entry:
+    %t1 = addr $v
+    copyobj 8x8 %v, %t1
+    %t2 = addr $retobj__1
+    %t3 = addr $v
+    copyobj 8x8 %t3, %t2
+    return obj<8x8> $retobj__1
+}
+function @take_bytes(%v : obj<16x1>) -> obj<16x1> [binding=strong, object=_Z10take_bytes5bytes] {
+  slot $v : obj<16x1>
+  slot $retobj__1 : obj<16x1>
+
+  block ^entry:
+    %t1 = addr $v
+    copyobj 16x1 %v, %t1
+    %t2 = addr $retobj__1
+    %t3 = addr $v
+    copyobj 16x1 %t3, %t2
+    return obj<16x1> $retobj__1
+}
+function @take_floats(%ret : ptr [pass=indirect_result], %v : ptr [pass=by_address]) -> void [binding=strong, object=_Z11take_floats6floats] {
+  slot $v : obj<16x8>
+
+  block ^entry:
+    copyobj 16x8 %v, %ret
+    return void
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $w : obj<8x8>
+  slot $f : obj<8x8>
+  slot $m : obj<8x4>
+  slot $n : obj<4x4>
+  slot $b : obj<8x8>
+  slot $d : obj<24x8>
+  slot $e : obj<8x8>
+  slot $i : obj<8x8>
+  slot $y : obj<16x1>
+  slot $g : obj<16x8>
+  slot $settled : i32
+  slot $cond__1 : i32
+  slot $tmpobj__2 : obj<8x8>
+  slot $argobj__3 : obj<8x8>
+  slot $cond__4 : i32
+  slot $tmpobj__5 : obj<8x8>
+  slot $arg__6 : obj<8x8>
+  slot $cond__7 : i32
+  slot $tmpobj__8 : obj<8x4>
+  slot $arg__9 : obj<8x4>
+  slot $cond__10 : i32
+  slot $tmpobj__11 : obj<4x4>
+  slot $arg__12 : obj<4x4>
+  slot $cond__13 : i32
+  slot $tmpobj__14 : obj<8x8>
+  slot $arg__15 : obj<8x8>
+  slot $cond__16 : i32
+  slot $tmpobj__17 : obj<24x8>
+  slot $argobj__18 : obj<24x8>
+  slot $cond__19 : i32
+  slot $tmpobj__20 : obj<8x8>
+  slot $arg__21 : obj<8x8>
+  slot $cond__22 : i32
+  slot $tmpobj__23 : obj<8x8>
+  slot $argobj__24 : obj<8x8>
+  slot $cond__25 : i32
+  slot $tmpobj__26 : obj<16x1>
+  slot $argobj__27 : obj<16x1>
+  slot $cond__28 : i32
+  slot $tmpobj__29 : obj<16x8>
+  slot $arg__30 : obj<16x8>
+  slot $cond__31 : i32
+  slot $tmpobj__32 : obj<8x8>
+  slot $arg__33 : obj<8x8>
+  slot $cond__34 : i32
+  slot $tmpobj__35 : obj<8x8>
+  slot $argobj__36 : obj<8x8>
+
+  block ^entry:
+    %t1 = addr $w
+    %t2 = addr $w
+    %t3 = index i8 [projection=field] %t2, 0
+    store i64 7, %t3
+    %t4 = addr $f
+    %t5 = addr $f
+    %t6 = index i8 [projection=field] %t5, 0
+    store f64 1.5, %t6
+    %t7 = addr $m
+    %t8 = addr $m
+    %t9 = index i8 [projection=field] %t8, 0
+    store i32 3, %t9
+    %t10 = addr $m
+    %t11 = index i8 [projection=field] %t10, 4
+    store f32 0.5f, %t11
+    %t12 = addr $n
+    %t13 = addr $n
+    %t14 = index i8 [projection=field] %t13, 0
+    %t15 = index i8 [projection=field] %t14, 0
+    store f32 2.5f, %t15
+    %t16 = addr $b
+    %t17 = addr $b
+    %t18 = index i8 [projection=base_subobject] %t17, 0
+    %t19 = index i8 [projection=field] %t18, 0
+    store f64 3.5, %t19
+    %t20 = addr $d
+    %t21 = addr $d
+    %t22 = index i8 [projection=field] %t21, 0
+    store f64 4.5, %t22
+    %t23 = addr $d
+    %t24 = index i8 [projection=field] %t23, 8
+    store f64 5.5, %t24
+    %t25 = addr $d
+    %t26 = index i8 [projection=field] %t25, 16
+    store i8 120, %t26
+    %t27 = addr $e
+    %t28 = addr $e
+    %t29 = index i8 [projection=field] %t28, 0
+    store f64 6.5, %t29
+    %t30 = addr $i
+    %t31 = addr $i
+    %t32 = index i8 [projection=field] %t31, 0
+    store i64 9, %t32
+    %t33 = addr $y
+    %t34 = addr $y
+    %t35 = index i8 [projection=field] %t34, 0
+    %t36 = unary decay ptr %t35
+    %t37 = index i8 [projection=array_element] %t36, 0
+    store i8 122, %t37
+    %t38 = addr $g
+    %t39 = addr $g
+    %t40 = index i8 [projection=field] %t39, 0
+    %t41 = unary decay ptr %t40
+    %t42 = index f64 [projection=array_element] %t41, 0
+    store f64 7.5, %t42
+    %t43 = addr $g
+    %t44 = index i8 [projection=field] %t43, 0
+    %t45 = unary decay ptr %t44
+    %t46 = index f64 [projection=array_element] %t45, 1
+    store f64 8.5, %t46
+    store i32 0, $settled
+    %t47 = load i32 $settled
+    %t48 = addr $tmpobj__2
+    %t49 = addr $argobj__3
+    %t50 = addr $w
+    copyobj 8x8 %t50, %t49
+    %t51 = call obj<8x8> @take_words($argobj__3)
+    copyobj 8x8 %t51, %t48
+    %t52 = index i8 [projection=field] %t48, 0
+    %t53 = load i64 %t52
+    %t54 = cmp eq i64 %t53, 7
+    branch %t54, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t55 = load i32 $cond__1
+    %t56 = binary add i32 %t47, %t55
+    store i32 %t56, $settled
+    %t57 = load i32 $settled
+    %t58 = addr $tmpobj__5
+    %t59 = addr $arg__6
+    %t60 = addr $f
+    copyobj 8x8 %t60, %t59
+    call void @take_one_float(%t58, %t59)
+    %t61 = index i8 [projection=field] %t58, 0
+    %t62 = load f64 %t61
+    %t63 = cmp eq f64 %t62, 1.5
+    branch %t63, ^cond_then_4, ^cond_else_5
+
+  block ^cond_then_4:
+    store i32 0, $cond__4
+    jump ^cond_end_6
+
+  block ^cond_else_5:
+    store i32 1, $cond__4
+    jump ^cond_end_6
+
+  block ^cond_end_6:
+    %t64 = load i32 $cond__4
+    %t65 = binary add i32 %t57, %t64
+    store i32 %t65, $settled
+    %t66 = load i32 $settled
+    %t67 = addr $tmpobj__8
+    %t68 = addr $arg__9
+    %t69 = addr $m
+    copyobj 8x4 %t69, %t68
+    call void @take_mixed(%t67, %t68)
+    %t70 = index i8 [projection=field] %t67, 4
+    %t71 = load f32 %t70
+    %t72 = cmp eq f32 %t71, 0.5f
+    branch %t72, ^cond_then_7, ^cond_else_8
+
+  block ^cond_then_7:
+    store i32 0, $cond__7
+    jump ^cond_end_9
+
+  block ^cond_else_8:
+    store i32 1, $cond__7
+    jump ^cond_end_9
+
+  block ^cond_end_9:
+    %t73 = load i32 $cond__7
+    %t74 = binary add i32 %t66, %t73
+    store i32 %t74, $settled
+    %t75 = load i32 $settled
+    %t76 = addr $tmpobj__11
+    %t77 = addr $arg__12
+    %t78 = addr $n
+    copyobj 4x4 %t78, %t77
+    call void @take_nested(%t76, %t77)
+    %t79 = index i8 [projection=field] %t76, 0
+    %t80 = index i8 [projection=field] %t79, 0
+    %t81 = load f32 %t80
+    %t82 = cmp eq f32 %t81, 2.5f
+    branch %t82, ^cond_then_10, ^cond_else_11
+
+  block ^cond_then_10:
+    store i32 0, $cond__10
+    jump ^cond_end_12
+
+  block ^cond_else_11:
+    store i32 1, $cond__10
+    jump ^cond_end_12
+
+  block ^cond_end_12:
+    %t83 = load i32 $cond__10
+    %t84 = binary add i32 %t75, %t83
+    store i32 %t84, $settled
+    %t85 = load i32 $settled
+    %t86 = addr $tmpobj__14
+    %t87 = addr $arg__15
+    %t88 = addr $b
+    copyobj 8x8 %t88, %t87
+    call void @take_based(%t86, %t87)
+    %t89 = index i8 [projection=base_subobject] %t86, 0
+    %t90 = index i8 [projection=field] %t89, 0
+    %t91 = load f64 %t90
+    %t92 = cmp eq f64 %t91, 3.5
+    branch %t92, ^cond_then_13, ^cond_else_14
+
+  block ^cond_then_13:
+    store i32 0, $cond__13
+    jump ^cond_end_15
+
+  block ^cond_else_14:
+    store i32 1, $cond__13
+    jump ^cond_end_15
+
+  block ^cond_end_15:
+    %t93 = load i32 $cond__13
+    %t94 = binary add i32 %t85, %t93
+    store i32 %t94, $settled
+    %t95 = load i32 $settled
+    %t96 = addr $tmpobj__17
+    %t97 = addr $argobj__18
+    %t98 = addr $d
+    copyobj 24x8 %t98, %t97
+    call void @take_wide(%t96, $argobj__18)
+    %t99 = index i8 [projection=field] %t96, 8
+    %t100 = load f64 %t99
+    %t101 = cmp eq f64 %t100, 5.5
+    branch %t101, ^cond_then_16, ^cond_else_17
+
+  block ^cond_then_16:
+    store i32 0, $cond__16
+    jump ^cond_end_18
+
+  block ^cond_else_17:
+    store i32 1, $cond__16
+    jump ^cond_end_18
+
+  block ^cond_end_18:
+    %t102 = load i32 $cond__16
+    %t103 = binary add i32 %t95, %t102
+    store i32 %t103, $settled
+    %t104 = load i32 $settled
+    %t105 = addr $tmpobj__20
+    %t106 = addr $arg__21
+    %t107 = addr $e
+    copyobj 8x8 %t107, %t106
+    call void @take_either(%t105, %t106)
+    %t108 = index i8 [projection=field] %t105, 0
+    %t109 = load f64 %t108
+    %t110 = cmp eq f64 %t109, 6.5
+    branch %t110, ^cond_then_19, ^cond_else_20
+
+  block ^cond_then_19:
+    store i32 0, $cond__19
+    jump ^cond_end_21
+
+  block ^cond_else_20:
+    store i32 1, $cond__19
+    jump ^cond_end_21
+
+  block ^cond_end_21:
+    %t111 = load i32 $cond__19
+    %t112 = binary add i32 %t104, %t111
+    store i32 %t112, $settled
+    %t113 = load i32 $settled
+    %t114 = addr $tmpobj__23
+    %t115 = addr $argobj__24
+    %t116 = addr $i
+    copyobj 8x8 %t116, %t115
+    %t117 = call obj<8x8> @take_integral($argobj__24)
+    copyobj 8x8 %t117, %t114
+    %t118 = index i8 [projection=field] %t114, 0
+    %t119 = load i64 %t118
+    %t120 = cmp eq i64 %t119, 9
+    branch %t120, ^cond_then_22, ^cond_else_23
+
+  block ^cond_then_22:
+    store i32 0, $cond__22
+    jump ^cond_end_24
+
+  block ^cond_else_23:
+    store i32 1, $cond__22
+    jump ^cond_end_24
+
+  block ^cond_end_24:
+    %t121 = load i32 $cond__22
+    %t122 = binary add i32 %t113, %t121
+    store i32 %t122, $settled
+    %t123 = load i32 $settled
+    %t124 = addr $tmpobj__26
+    %t125 = addr $argobj__27
+    %t126 = addr $y
+    copyobj 16x1 %t126, %t125
+    %t127 = call obj<16x1> @take_bytes($argobj__27)
+    copyobj 16x1 %t127, %t124
+    %t128 = index i8 [projection=field] %t124, 0
+    %t129 = unary decay ptr %t128
+    %t130 = index i8 [projection=array_element] %t129, 0
+    %t131 = load i8 %t130
+    %t132 = convert sext i32 i8 %t131
+    %t133 = cmp eq i32 %t132, 122
+    branch %t133, ^cond_then_25, ^cond_else_26
+
+  block ^cond_then_25:
+    store i32 0, $cond__25
+    jump ^cond_end_27
+
+  block ^cond_else_26:
+    store i32 1, $cond__25
+    jump ^cond_end_27
+
+  block ^cond_end_27:
+    %t134 = load i32 $cond__25
+    %t135 = binary add i32 %t123, %t134
+    store i32 %t135, $settled
+    %t136 = load i32 $settled
+    %t137 = addr $tmpobj__29
+    %t138 = addr $arg__30
+    %t139 = addr $g
+    copyobj 16x8 %t139, %t138
+    call void @take_floats(%t137, %t138)
+    %t140 = index i8 [projection=field] %t137, 0
+    %t141 = unary decay ptr %t140
+    %t142 = index f64 [projection=array_element] %t141, 1
+    %t143 = load f64 %t142
+    %t144 = cmp eq f64 %t143, 8.5
+    branch %t144, ^cond_then_28, ^cond_else_29
+
+  block ^cond_then_28:
+    store i32 0, $cond__28
+    jump ^cond_end_30
+
+  block ^cond_else_29:
+    store i32 1, $cond__28
+    jump ^cond_end_30
+
+  block ^cond_end_30:
+    %t145 = load i32 $cond__28
+    %t146 = binary add i32 %t136, %t145
+    store i32 %t146, $settled
+    %t147 = load i32 $settled
+    %t148 = addr $tmpobj__32
+    %t149 = addr $arg__33
+    %t150 = addr $f
+    copyobj 8x8 %t150, %t149
+    call void @round_trip(%t148, %t149)
+    %t151 = index i8 [projection=field] %t148, 0
+    %t152 = load f64 %t151
+    %t153 = cmp eq f64 %t152, 1.5
+    branch %t153, ^cond_then_31, ^cond_else_32
+
+  block ^cond_then_31:
+    store i32 0, $cond__31
+    jump ^cond_end_33
+
+  block ^cond_else_32:
+    store i32 1, $cond__31
+    jump ^cond_end_33
+
+  block ^cond_end_33:
+    %t154 = load i32 $cond__31
+    %t155 = binary add i32 %t147, %t154
+    store i32 %t155, $settled
+    %t156 = load i32 $settled
+    %t157 = addr $tmpobj__35
+    %t158 = addr $argobj__36
+    %t159 = addr $w
+    copyobj 8x8 %t159, %t158
+    %t160 = call obj<8x8> @round_trip__ov2($argobj__36)
+    copyobj 8x8 %t160, %t157
+    %t161 = index i8 [projection=field] %t157, 0
+    %t162 = load i64 %t161
+    %t163 = cmp eq i64 %t162, 7
+    branch %t163, ^cond_then_34, ^cond_else_35
+
+  block ^cond_then_34:
+    store i32 0, $cond__34
+    jump ^cond_end_36
+
+  block ^cond_else_35:
+    store i32 1, $cond__34
+    jump ^cond_end_36
+
+  block ^cond_end_36:
+    %t164 = load i32 $cond__34
+    %t165 = binary add i32 %t156, %t164
+    store i32 %t165, $settled
+    %t166 = load i32 $settled
+    return i32 %t166
+}
+function @round_trip(%ret : ptr [pass=indirect_result], %v : ptr [pass=by_address]) -> void [binding=weak, object=_Z10round_tripI9one_floatET_S1_] {
+  slot $v : obj<8x8>
+
+  block ^entry:
+    copyobj 8x8 %v, %ret
+    return void
+}
+function @round_trip__ov2(%v : obj<8x8>) -> obj<8x8> [binding=weak, object=_Z10round_tripI5wordsET_S1_] {
+  slot $v : obj<8x8>
+  slot $retobj__1 : obj<8x8>
+
+  block ^entry:
+    %t1 = addr $v
+    copyobj 8x8 %v, %t1
+    %t2 = addr $retobj__1
+    %t3 = addr $v
+    copyobj 8x8 %t3, %t2
+    return obj<8x8> $retobj__1
+}

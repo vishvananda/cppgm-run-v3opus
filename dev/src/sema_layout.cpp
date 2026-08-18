@@ -350,6 +350,11 @@ void SemaAnalyzer::lay_out_class(SemaEntity& entity, Scope& scope, bool is_union
 	// subobject of which holds nothing has no byte to write - which 1.8p5's
 	// size for it cannot say, because a size it has either way.
 	bool zeroed_storage = false;
+	// 3.9.1p8 and 5.2.2p4: whether any scalar in the storage this class is laid
+	// out over is of a floating type, which the course ABI's boundary reads.  A
+	// base and a member each carry their own answer, so this walk asks each of
+	// them once rather than walking the subobject tree again.
+	bool floating_storage = false;
 	// 9.5p2: how many members of this union wrote a brace-or-equal-initializer,
 	// which is at most one.  Zero for every class that is not a union.
 	unsigned default_initializers = 0;
@@ -388,6 +393,10 @@ void SemaAnalyzer::lay_out_class(SemaEntity& entity, Scope& scope, bool is_union
 		if (types_.has_zeroed_storage(base_type))
 		{
 			zeroed_storage = true;
+		}
+		if (types_.holds_floating_storage(base_type))
+		{
+			floating_storage = true;
 		}
 		link.offset = link.entity->empty_class ? 0 : round_up(size, base_align);
 		// The ABI again: two subobjects of the same class may not begin at the
@@ -439,6 +448,10 @@ void SemaAnalyzer::lay_out_class(SemaEntity& entity, Scope& scope, bool is_union
 		if (types_.has_zeroed_storage(member.type))
 		{
 			zeroed_storage = true;
+		}
+		if (types_.holds_floating_storage(member.type))
+		{
+			floating_storage = true;
 		}
 		if (member_align > align)
 		{
@@ -520,6 +533,7 @@ void SemaAnalyzer::lay_out_class(SemaEntity& entity, Scope& scope, bool is_union
 	}
 	// 1.8p5: a complete object has a size of at least one byte.
 	size = round_up(size, align);
+	types_.settle_floating_storage(entity.type, floating_storage);
 	types_.complete_class(entity.type, size == 0 ? 1 : size, align, empty,
 	                      trivially_copied, zeroed_storage, subobject_bytes);
 }

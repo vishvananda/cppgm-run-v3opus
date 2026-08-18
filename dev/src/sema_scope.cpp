@@ -233,6 +233,8 @@ SemaModel::SemaModel()
 	, type_entities_(0)
 	, folding_depth_(0)
 	, reach_(0)
+	, bound_(0)
+	, visible_(0)
 	, visit_(0)
 {
 	dumps_.push_back(DumpScope());
@@ -688,7 +690,29 @@ SemaEntity* SemaModel::find(const Scope& where, const std::string& name,
 	{
 		return nullptr;
 	}
-	const Binding& binding = found->second;
+	Binding binding = found->second;
+	if (visible_ != 0 && where.kind == ScopeKind::Namespace)
+	{
+		// 14.6.4.2p1: a second reading of a construct a pattern left standing
+		// finds what stood where the pattern was written.  A declaration made
+		// after that is not one this lookup may reach - it may not even hide
+		// what the pattern did find, which is what 3.4.2p1 turns on: an object
+		// declared later under the name of a hidden friend would suppress the
+		// argument-dependent lookup that finds it.
+		if (binding.ordinary != nullptr &&
+		    binding.ordinary->declared_serial > visible_)
+		{
+			binding.ordinary = nullptr;
+		}
+		if (binding.tag != nullptr && binding.tag->declared_serial > visible_)
+		{
+			binding.tag = nullptr;
+		}
+		if (binding.ordinary == nullptr && binding.tag == nullptr)
+		{
+			return nullptr;
+		}
+	}
 	switch (filter)
 	{
 	case LookupKind::Type:
@@ -721,6 +745,16 @@ SemaEntity* SemaModel::find(const Scope& where, const std::string& name,
 
 void SemaModel::bind(Scope& where, const std::string& name, SemaEntity& entity)
 {
+	if (where.kind == ScopeKind::Namespace && entity.declared_serial == 0)
+	{
+		// 14.6.4.2p1: where this declaration stands among the ones a second
+		// reading of a pattern may find.  Only a namespace region is asked,
+		// because it is the one kind of region a lookup reaches that goes on
+		// being declared into after the pattern that reads it was written -
+		// 3.3.7p1's places are rebuilt by the substitution and 9.2p2 completes
+		// a class before anything looks a name up in it.
+		entity.declared_serial = ++bound_;
+	}
 	const std::pair<std::unordered_map<std::string, Binding>::iterator, bool>
 		placed = where.names.insert(std::make_pair(name, Binding()));
 	if (placed.second)
@@ -750,8 +784,28 @@ void SemaModel::bind(Scope& where, const std::string& name, SemaEntity& entity)
 	binding.ordinary = &entity;
 }
 
+ReadingBound::ReadingBound(SemaModel& model, std::uint32_t bound)
+	: model_(model)
+	, held_(model.visible_bound())
+{
+	model_.set_visible_bound(bound);
+}
+
+ReadingBound::~ReadingBound()
+{
+	model_.set_visible_bound(held_);
+}
+
 void SemaModel::declare_in(Scope& where, SemaEntity& entity)
 {
+	if (where.kind == ScopeKind::Namespace && entity.declared_serial == 0)
+	{
+		// 14.6.4.2p1 and 13.1: the same number, taken here too because a second
+		// declaration of an overloaded name binds nothing - it joins the chain
+		// the first one heads - and it is exactly such a declaration that a
+		// pattern written before it may not name.
+		entity.declared_serial = ++bound_;
+	}
 	where.declarations.push_back(&entity);
 	if (entity.region == nullptr)
 	{

@@ -1289,8 +1289,8 @@ SemaEntity& SemaAnalyzer::dependent_member_name(TypeId prefix,
 {
 	const std::string key = std::to_string(prefix) + "|" + component;
 	const std::unordered_map<std::string, SemaEntity*>::const_iterator held =
-		dependent_names_.find(key);
-	if (held != dependent_names_.end())
+		dependent_.names.find(key);
+	if (held != dependent_.names.end())
 	{
 		return *held->second;
 	}
@@ -1301,7 +1301,7 @@ SemaEntity& SemaAnalyzer::dependent_member_name(TypeId prefix,
 	types_.set_dependent_member(type, prefix, component);
 	SemaEntity& entity = model_.create(SemaKind::Typedef, component, type);
 	own_type(type, entity);
-	dependent_names_.insert(std::make_pair(key, &entity));
+	dependent_.names.insert(std::make_pair(key, &entity));
 	return entity;
 }
 

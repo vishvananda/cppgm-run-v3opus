@@ -1338,6 +1338,10 @@ private:
 	// against a region can, which is what a declarator writes.
 	TypeId dependent_value(const std::string& spelling, TypeId place = kNoType,
 	                       const Context* ctx = nullptr);
+	// 14.1p9 at a value place the list stopped short of, over arguments that
+	// have yet to settle: the tree its head wrote, read again where they do.
+	TypeId dependent_default(const AstNode& written, TypeId place,
+	                         const Context& ctx);
 
 	// 5.3.3 and 5.3.6 over a type-id, which is the whole of what PA11 needs: one
 	// answer apiece, because neither p3's demand nor 14.6p8's stand-in is
@@ -2023,7 +2027,8 @@ private:
 	                            bool converting = false,
 	                            std::size_t singles = 0,
 	                            const Value* operand = nullptr,
-	                            bool* unviable = nullptr);
+	                            bool* unviable = nullptr,
+	                            std::size_t associated = kAssociatedUnknown);
 
 	// 13.3.3.2: which of two conversions of one argument is better, as 1, 0
 	// or -1.
@@ -2156,14 +2161,9 @@ private:
 	// reading can stand inside another, so each takes the entries above the
 	// mark it recorded on the way in.
 	std::vector<HeldTemplateBody> held_bodies_;
-	// 14.6.2p1: the declarations the readings above made for names written
-	// through a dependent prefix, keyed by that prefix and the spelling.
-	std::unordered_map<std::string, SemaEntity*> dependent_names_;
-	// 7.1.6.2p1: the same, for a decltype-specifier over an expression this
-	// reading does not type, keyed by the specifier and the region it stands in
-	// and read back by the substitution that has the arguments.
-	std::unordered_map<std::string, TypeId> dependent_expressions_;
-	std::unordered_map<TypeId, DependentDecltype> dependent_written_;
+	// 14.7.1p1: the constructs the readings above left standing, which the
+	// substitution that has the arguments makes again.
+	DependentReadings dependent_;
 	// 14.7.1p1: the member bodies a class template specialization has not been
 	// asked for, keyed by the declaration each defines.  Instantiating a class
 	// instantiates the *declarations* of its members and not their definitions,
@@ -2229,21 +2229,15 @@ private:
 	// `C<A…>` written inside the pattern has the type and not the head that
 	// declared `C`, and 14.3.3p1 is asked again wherever the list arrives.
 	std::unordered_map<TypeId, TemplateInfo*> place_heads_;
-	// 14.6.2p1: the declaration one `C<A…>` written over a template place
-	// stands for, keyed by the place and the interned argument list - so one
-	// spelling written n times in a pattern is one declaration.
-	std::unordered_map<std::uint64_t, SemaEntity*> dependent_templates_;
 	// 14.1p9: the whole argument list one list of explicit arguments makes of a
 	// template, keyed by the template and that list.  A default is an
 	// expression read in a region binding the parameters before it, so it is
 	// read once rather than at every naming of the same specialization.
 	std::unordered_map<std::uint64_t, std::vector<TypeId> > default_arguments_;
 	// 5.19 and 14.2: the terminals one template-argument spelling splits into,
-	// and 14.6.2p2's argument a spelling no argument list has settled stands
-	// for.  Both are facts of the text alone, so a template-id written n times
-	// costs one split and names one specialization.
+	// which is a fact of the text alone - so a template-id written n times
+	// costs one split.
 	std::unordered_map<std::string, std::vector<std::string> > value_words_;
-	std::unordered_map<std::string, TypeId> dependent_values_;
 	// 14.5.6.2p2: which of two function templates is at least as specialized as
 	// the other, keyed by the two declarations.  It is a fact of the pair, and
 	// 13.3.3p1 asks it of the same pair once for every comparison a call makes.
@@ -2265,7 +2259,7 @@ private:
 	// parameter's own declaration because 14.8.1p2 leaves a trailing argument to
 	// be deduced *or* taken from here, and a function template's pattern is
 	// recorded from its definition rather than from its head.
-	std::unordered_map<std::uint32_t, const AstNode*> parameter_defaults_;
+	std::unordered_map<std::uint32_t, PlaceDefault> parameter_defaults_;
 	// 14p1: the declaration the template-declaration being read parameterises,
 	// and the dump its lines stand in, while its declarators are read.  Null
 	// wherever the walk is not inside one.

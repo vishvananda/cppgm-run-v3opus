@@ -1,0 +1,59 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $settled : i32
+  slot $cond__1 : i32
+  slot $cond__2 : i32
+  slot $cond__3 : i32
+
+  block ^entry:
+    store i32 0, $settled
+    %t1 = load i32 $settled
+    %t2 = cmp eq i32 1, 1
+    branch %t2, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t3 = load i32 $cond__1
+    %t4 = binary add i32 %t1, %t3
+    store i32 %t4, $settled
+    %t5 = load i32 $settled
+    %t6 = cmp eq i32 1, 1
+    branch %t6, ^cond_then_4, ^cond_else_5
+
+  block ^cond_then_4:
+    store i32 0, $cond__2
+    jump ^cond_end_6
+
+  block ^cond_else_5:
+    store i32 1, $cond__2
+    jump ^cond_end_6
+
+  block ^cond_end_6:
+    %t7 = load i32 $cond__2
+    %t8 = binary add i32 %t5, %t7
+    store i32 %t8, $settled
+    %t9 = load i32 $settled
+    %t10 = cmp eq i32 0, 0
+    branch %t10, ^cond_then_7, ^cond_else_8
+
+  block ^cond_then_7:
+    store i32 0, $cond__3
+    jump ^cond_end_9
+
+  block ^cond_else_8:
+    store i32 1, $cond__3
+    jump ^cond_end_9
+
+  block ^cond_end_9:
+    %t11 = load i32 $cond__3
+    %t12 = binary add i32 %t9, %t11
+    store i32 %t12, $settled
+    %t13 = load i32 $settled
+    return i32 %t13
+}

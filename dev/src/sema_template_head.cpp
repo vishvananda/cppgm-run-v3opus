@@ -547,6 +547,9 @@ void TemplateHead::read(const AstNode& clause, TemplateInfo& info,
 		}
 		if (fill.written != nullptr)
 		{
+			// 14.6.4.2p1: and what the unit had declared where the head wrote
+			// it, because the naming that reads it may stand anywhere later.
+			fill.visible = analyzer_.model_.bound();
 			// 14.1p9: a default argument may name the parameters written
 			// before it, and 14.1p2 leaves the names *this* head gave those
 			// places as the only ones it can have written - so they are kept
@@ -955,6 +958,16 @@ void TemplateHead::bind_arguments(
 		out = held->second;
 		return;
 	}
+	// 14.6.2p1 over the list so far: whether any argument it gives is one an
+	// argument list has yet to settle, which is what says 5.19 has nothing to
+	// evaluate a default over.  It is carried rather than asked again per
+	// default, so a head of k places costs k reads and not k squared.
+	bool unsettled_argument = false;
+	for (std::size_t at = 0; at < out.size(); ++at)
+	{
+		unsettled_argument =
+			unsettled_argument || analyzer_.types_.is_dependent(out[at]);
+	}
 	for (std::size_t index = out.size(); index < info.parameters.size(); ++index)
 	{
 		if (index == places)
@@ -983,6 +996,9 @@ void TemplateHead::bind_arguments(
 		                           nullptr, info.dump);
 		inner.dump = info.dump;
 		inner.node = nullptr;
+		// 14.6.4.2p1: the default is read here and was written there, so what
+		// its names reach is what the head that wrote it could reach.
+		const ReadingBound standing(analyzer_.model_, fill.visible);
 		for (std::size_t before = 0;
 		     before < index && before < fill.spelled.size(); ++before)
 		{
@@ -999,27 +1015,37 @@ void TemplateHead::bind_arguments(
 		{
 			out.push_back(place_default(*fill.written,
 			                            info.parameters[index].head, inner));
+			unsettled_argument = unsettled_argument ||
+				analyzer_.types_.is_dependent(out.back());
 			continue;
 		}
 		if (!info.parameters[index].value)
 		{
 			out.push_back(analyzer_.type_id_type(*fill.written, inner));
+			unsettled_argument = unsettled_argument ||
+				analyzer_.types_.is_dependent(out.back());
 			continue;
 		}
 		// 14.1p9 at a value place: the default is an expression, read against
 		// the same region and converted to the type this place declared.
+		//
+		// 5.19 is evaluated where it stands, so a list that left any earlier
+		// place dependent has no constant for this one yet: `S<A>` over
+		// `template<class T, bool B = t<T>::v>` names `t<A>::v`, which is a
+		// class no argument list has made.  The reading itself is the argument
+		// then, and 14.7.1p1 makes it again over the arguments that settle it.
 		const TypeId place = place_type(info, index, out);
-		bool dependent = analyzer_.types_.is_dependent(place);
-		SemaConstant value;
-		if (!dependent)
+		if (unsettled_argument || analyzer_.types_.is_dependent(place))
 		{
-			value = analyzer_.evaluate(*fill.written, inner);
+			out.push_back(
+				analyzer_.dependent_default(*fill.written, place, inner));
+			unsettled_argument = true;
+			continue;
 		}
-		out.push_back(dependent
-			              ? analyzer_.dependent_value(primary.name + "#" +
-			                                std::to_string(index))
-			              : analyzer_.types_.value_type(place,
-			                                  analyzer_.convert(value, place).bits));
+		out.push_back(analyzer_.types_.value_type(
+			place,
+			analyzer_.convert(analyzer_.evaluate(*fill.written, inner),
+			                  place).bits));
 	}
 	analyzer_.default_arguments_.insert(std::make_pair(key, out));
 }

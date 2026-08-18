@@ -53,10 +53,14 @@ public:
 	// reading for an operator a class alone may declare.  Every set gathered is
 	// a local of the caller's, so an operator folded in a loop costs no vector
 	// the model keeps.
+	// `associated` takes how many of the entries 3.4.2 and 13.3.1.1.2p2
+	// contributed, which are the trailing ones and the ones 14.6.4.2p1 asks no
+	// question of.  Null where the caller does not draw that line.
 	std::size_t candidates(unsigned token, const SemaContext& ctx,
 	                       const std::vector<AnalyzedValue>& operands,
 	                       bool member_only,
-	                       std::vector<SemaEntity*>& out);
+	                       std::vector<SemaEntity*>& out,
+	                       std::size_t* associated = nullptr);
 
 	// 13.3.1.2p1: the operator expression `line` holds the operands of, read as
 	// the call of an operator function it stands for.  False - and nothing
