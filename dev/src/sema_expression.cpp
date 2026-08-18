@@ -2287,6 +2287,16 @@ SemaAnalyzer::Value SemaAnalyzer::increment_expression(const AstNode& node,
 		throw std::runtime_error("the operand of ++ or -- is neither arithmetic "
 		                         "nor a pointer");
 	}
+	// 5.2.6p1 and 5.3.2p1: a pointer operand points to a *completely-defined*
+	// object type, because what the operator adds is one of those objects and
+	// nothing says how wide one is otherwise.  `void*` and a pointer to a class
+	// only ever declared are the two the program can write.
+	if (types_.is_object_pointer(bare) &&
+	    types_.is_incomplete(types_.target(bare)))
+	{
+		throw std::runtime_error("the operand of ++ or -- points to an "
+		                         "incomplete type");
+	}
 	// 5.2.6p1 and 5.3.2p1: the operand of `--` shall not be of type bool.
 	if (node.token == OP_DEC && types_.fundamental_type(bare) == FT_BOOL &&
 	    types_.kind(bare) == TypeKind::Fundamental)
@@ -2590,9 +2600,15 @@ TypeId SemaAnalyzer::binary_result(unsigned op, const Value& left,
 	case OP_MINUS:
 	{
 		// 5.7p1: a pointer and an integral operand, or two pointers to the same
-		// object type for `-`.
-		const bool a_pointer = types_.is_object_pointer(a);
-		const bool b_pointer = types_.is_object_pointer(b);
+		// object type for `-`.  The pointee is *completely defined* both times:
+		// what the operator moves over is that many objects of it, and a `void*`
+		// or a pointer to a class only ever declared says nothing about how wide
+		// one is.  The refusal is what 14.8.2p8 drops a candidate on, which is
+		// the whole of `decltype(p + n)`-shaped SFINAE.
+		const bool a_pointer = types_.is_object_pointer(a) &&
+			!types_.is_incomplete(types_.target(a));
+		const bool b_pointer = types_.is_object_pointer(b) &&
+			!types_.is_incomplete(types_.target(b));
 		if (a_pointer && b_pointer && op == OP_MINUS)
 		{
 			if (types_.strip_cv(types_.target(a)) !=

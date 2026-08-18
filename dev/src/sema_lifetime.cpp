@@ -343,6 +343,12 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 	Value object;
 	write_constructed_object(variable, call, where, object, object_type);
 	std::vector<Value> arguments;
+	// 8.5.4p7: the clause each argument was written as, kept beside it so the
+	// conversion loop below can ask what narrowing asks - what the clause is
+	// worth, which only the tree it was written as can be folded for.  Left
+	// empty for every initializer that is not a braced-init-list, which is what
+	// says 8.5.4p7 has nothing to say about this call at all.
+	std::vector<const AstNode*> clauses;
 	if (forwarded != nullptr)
 	{
 		// 12.9p8: the arguments are this constructor's own parameters, each
@@ -363,6 +369,7 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 			list->children[0]->kind == AstKind::BracedInitList;
 		// 14.5.3p4: an argument written `pattern...` is one argument per
 		// element of the run its packs are bound to.
+		const bool braced = list->kind == AstKind::BracedInitList;
 		Clauses written(list, *this, ctx);
 		for (; !written.spent(); ++written.at)
 		{
@@ -371,6 +378,10 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 			if (sole_list && one.braced != nullptr)
 			{
 				one.listed_class = object_type;
+			}
+			if (braced)
+			{
+				clauses.push_back(&written.next());
 			}
 			arguments.push_back(one);
 		}
@@ -441,6 +452,17 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 		}
 		const Match match = match_argument(arguments[index],
 		                                   parameters[index + 1]);
+		if (index < clauses.size())
+		{
+			// 8.5.4p7 through 13.3.3.1p4: the clause reaches the parameter as an
+			// argument of the constructor 13.3.1.7 chose, and a narrowing
+			// conversion there is what makes the list-initialization ill-formed
+			// - which is the refusal `decltype(T{0.5})` drops a candidate on.
+			// It is asked after the choice, because 13.3 measures the sequence
+			// and 8.5.4p7 measures what the clause is worth.
+			require_no_narrowing(*clauses[index], arguments[index],
+			                     parameters[index + 1], ctx);
+		}
 		apply_conversion(arguments[index], parameters[index + 1], match, ctx,
 		                 Requested::Argument);
 	}

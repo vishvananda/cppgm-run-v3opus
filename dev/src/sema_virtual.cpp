@@ -433,6 +433,15 @@ void SemaAnalyzer::settle_virtual_members(SemaEntity& entity, Scope& scope)
 			break;
 		}
 	}
+	// 8.3.4p1 asks the same question of an array's element type, and the table
+	// that forms types is where all three writers of an array type meet - the
+	// declarator walk, the spelling reader and 14.3p1's substitution - so the
+	// one answer settled here travels with the type rather than with the
+	// declaration, which a substitution reaches without a scope.
+	if (entity.abstract)
+	{
+		types_.settle_abstract_class(entity.type, true);
+	}
 	settle_vtable_ownership(entity, scope);
 }
 

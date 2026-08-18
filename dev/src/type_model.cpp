@@ -407,6 +407,47 @@ TypeId TypeTable::array_of(TypeId element, bool bounded, unsigned long long size
 	return intern(key_of(node), node);
 }
 
+// 8.3.2p5: a declarator that specifies "reference to cv void" is ill-formed.
+TypeId TypeTable::derived_reference(TypeId target, bool rvalue)
+{
+	if (is_void(target))
+	{
+		throw std::runtime_error("a declarator derives a reference to void");
+	}
+	return reference_to(target, rvalue);
+}
+
+// 8.3.4p1: the element type shall not be a reference, cv void, a function type
+// or an abstract class - an array is that many objects of the element laid end
+// to end, and none of the four is an object anything can hold.  A place is none
+// of them either, so `T[N]` stands as a pattern and the question is asked again
+// of whatever an argument list makes of `T`.
+void TypeTable::require_derivable_element(TypeId element)
+{
+	if (is_reference(element) || is_void(element) ||
+	    kind(element) == TypeKind::Function || is_abstract_class(element))
+	{
+		throw std::runtime_error("a declarator derives an array of " +
+		                         description(element));
+	}
+}
+
+TypeId TypeTable::derived_array(TypeId element, bool bounded,
+                                unsigned long long bound, TypeId place)
+{
+	require_derivable_element(element);
+	return array_of(element, bounded, bound, place);
+}
+
+TypeId TypeTable::derived_substituted_array(TypeId array, TypeId element,
+                                            TypeId settled)
+{
+	// The bound is the substitution's own two facts, so the element is all this
+	// door has left to ask about.
+	require_derivable_element(element);
+	return substituted_array(array, element, settled);
+}
+
 TypeId TypeTable::substituted_array(TypeId array, TypeId element, TypeId settled)
 {
 	if (bound_place(array) == kNoType)
@@ -845,6 +886,17 @@ bool TypeTable::holds_floating_storage(TypeId type)
 void TypeTable::settle_floating_storage(TypeId type, bool holds)
 {
 	user_types_[nodes_[strip_cv(type)].user].floating_storage = holds;
+}
+
+bool TypeTable::is_abstract_class(TypeId type)
+{
+	const TypeId bare = strip_cv(type);
+	return kind(bare) == TypeKind::Class && user_at(bare).abstract;
+}
+
+void TypeTable::settle_abstract_class(TypeId type, bool abstract)
+{
+	user_types_[nodes_[strip_cv(type)].user].abstract = abstract;
 }
 
 bool TypeTable::has_vacuous_destruction(TypeId type)

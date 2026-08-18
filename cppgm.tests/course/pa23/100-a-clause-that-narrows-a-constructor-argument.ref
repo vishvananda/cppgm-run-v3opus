@@ -1,0 +1,52 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    %t1 = const i64 8
+    %t2 = const i64 8
+    %t3 = cmp ne i64 %t1, %t2
+    branch %t3, ^if_then_1, ^if_else_2
+
+  block ^if_then_1:
+    return i32 1
+
+  block ^if_else_2:
+    jump ^if_end_3
+
+  block ^if_end_3:
+    %t4 = const i64 8
+    %t5 = const i64 8
+    %t6 = cmp ne i64 %t4, %t5
+    branch %t6, ^if_then_4, ^if_else_5
+
+  block ^if_then_4:
+    return i32 2
+
+  block ^if_else_5:
+    jump ^if_end_6
+
+  block ^if_end_6:
+    %t7 = const i64 1
+    %t8 = const i64 1
+    %t9 = cmp ne i64 %t7, %t8
+    branch %t9, ^if_then_7, ^if_else_8
+
+  block ^if_then_7:
+    return i32 3
+
+  block ^if_else_8:
+    jump ^if_end_9
+
+  block ^if_end_9:
+    %t10 = const i64 1
+    %t11 = const i64 1
+    %t12 = cmp ne i64 %t10, %t11
+    branch %t12, ^if_then_10, ^if_else_11
+
+  block ^if_then_10:
+    return i32 4
+
+  block ^if_else_11:
+    jump ^if_end_12
+
+  block ^if_end_12:
+    return i32 0
+}

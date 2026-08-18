@@ -66,6 +66,11 @@ public:
 	// template-name may stand at that place.
 	bool argument_matches(const TemplateInfo& place,
 	                      const TemplateInfo& argument);
+	// 14.3.3p1 of a whole settled list: whether each template written at a
+	// template place of `head` declares places that place accepts, asked
+	// wherever the list came from rather than only where a spelling was read.
+	void require_matching_arguments(const TemplateInfo& head,
+	                                const std::vector<TypeId>& arguments);
 	// 14.5.6.1p5 with 14.1p2: whether two heads declare equivalent places, which
 	// is what every declaration of one template has to write.  It is 14.3.3p1's
 	// question with its direction taken away, and it opens 14.6.1p1's region of

@@ -1,0 +1,11 @@
+ERROR: failed class template instantiation: helper<T::member> [scope use<wrong_kind>::<here>] [arg_texts T::template member] [bindings use<wrong_kind>{types:T=struct wrong_kind,use=struct use<wrong_kind>} {types:T=struct wrong_kind,use<wrong_kind>=struct use<wrong_kind>}] [phase callsemantic] [top-level declaration 3 kind=simple-declaration ast={simple-declaration
+  decl-specifier-seq
+    decl-specifier use<wrong_kind>::type
+  init-declarator-list
+    init-declarator
+      declarator
+        identifier u
+}]
+Diagnostic context:
+collect_simple_declaration [use<wrong_kind>::type u;] at course/pa23/100-a-template-place-asks-its-clause-of-a-settled-argument.t:7:1
+  lookup_type [helper<T::template member>]

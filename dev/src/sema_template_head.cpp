@@ -339,6 +339,59 @@ bool TemplateHead::argument_matches(const TemplateInfo& place,
 	return true;
 }
 
+// 14.3.3p1: a template written at a template place shall declare places that
+// place accepts.
+//
+// The spelling reader asks it of an argument it looked up itself, and 14.8.2.5
+// asks it of one a deduction bound - but neither of those two is where an
+// argument a *substitution* settled arrives.  `helper<T::template member>` over
+// `T = A` names a template no reading of the pattern could find, so the
+// question was never asked of it and a head declaring `template<int>` stood at
+// a place written `template<class>`.  So it is asked here instead: the one
+// place every settled argument list meets the head that has to accept it,
+// whichever of the three readings settled it.
+//
+// It costs one comparison per template place of the head, and only where the
+// specialization is being made - a second naming of the same argument list is
+// the entry the caller already found.
+void TemplateHead::require_matching_arguments(
+	const TemplateInfo& head, const std::vector<TypeId>& arguments)
+{
+	for (std::size_t index = 0;
+	     index < arguments.size() && index < head.parameters.size(); ++index)
+	{
+		const TemplateInfo::Parameter& place = head.parameters[index];
+		if (place.pack)
+		{
+			// 14.5.3p1: the run takes every argument left, so the places and the
+			// arguments no longer stand one for one and each element of the run
+			// is asked about where the run itself is read.
+			break;
+		}
+		if (!place.templated || place.head == nullptr)
+		{
+			continue;
+		}
+		// 14.6.2p1: an argument a lookup found is the interned entry standing
+		// for one template, and one a substitution settled is the class the
+		// template's own pattern declared - because what stood in the pattern
+		// was a dependent name and no template-name a reading could look up.
+		// Both name the one declaration, which is what the head is read off.
+		SemaEntity* given = named_template(arguments[index]);
+		if (given == nullptr)
+		{
+			given = analyzer_.model_.type_owner(arguments[index]);
+		}
+		if (given == nullptr || given->templated == nullptr ||
+		    argument_matches(*place.head, *given->templated))
+		{
+			continue;
+		}
+		throw std::runtime_error(given->name + " declares places the template "
+		                         "parameter it is written at does not accept");
+	}
+}
+
 // 14.5.6.1p5 with 14.1p2: whether the two heads declare the same places.
 //
 // 14.3.3p1's matching is written about an argument standing at a place, so it

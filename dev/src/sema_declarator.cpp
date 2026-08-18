@@ -677,9 +677,9 @@ TypeId SemaAnalyzer::apply_pointer(const AstNode& node, TypeId type,
 	}
 	if (node.token == OP_AMP || node.token == OP_LAND)
 	{
-		// 8.3.2p5: there are no cv-qualified references, and 8.3.2p6 collapses
-		// a reference to a reference to one reference.
-		return types_.reference_to(type, node.token == OP_LAND);
+		// 8.3.2p5: there are no cv-qualified references and none to void, and
+		// 8.3.2p6 collapses a reference to a reference to one reference.
+		return types_.derived_reference(type, node.token == OP_LAND);
 	}
 	if (types_.is_reference(type))
 	{
@@ -697,12 +697,12 @@ TypeId SemaAnalyzer::apply_suffix(const AstNode& node, TypeId type,
 	{
 		if (node.children.empty())
 		{
-			return types_.array_of(type, false, 0);
+			return types_.derived_array(type, false, 0);
 		}
 		TypeId place = kNoType;
 		const unsigned long long bound = ConstexprReading(*this).array_bound(
 			*node.children[0], ctx, place);
-		return types_.array_of(type, true, bound, place);
+		return types_.derived_array(type, true, bound, place);
 	}
 	if (node.kind == AstKind::ParameterClause)
 	{

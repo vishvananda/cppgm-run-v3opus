@@ -159,7 +159,11 @@ bool SemaAnalyzer::pointer_convertible(TypeId from, TypeId to, int& rank,
 	{
 		return false;
 	}
-	if ((types_.cv(source) & ~types_.cv(target)) != 0)
+	// 3.9.3p5: a cv-qualifier written on an array attaches to its element type,
+	// and the array is considered to carry the same qualification - so the
+	// qualifiers `const X (*)[]` gives up on the way to `void *` are the
+	// element's, which the array node itself does not hold.
+	if ((types_.object_cv(source) & ~types_.cv(target)) != 0)
 	{
 		return false;
 	}

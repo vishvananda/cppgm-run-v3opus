@@ -1051,6 +1051,7 @@ SemaEntity& SemaAnalyzer::instantiate_class(SemaEntity& primary,
 		return *made;
 	}
 	const TemplateInfo& info = *primary.templated;
+	TemplateHead(*this).require_matching_arguments(info, arguments);
 	// 14.7.1p1: the spelling a specialization is named by, which the LowIR
 	// symbol for a global it declares is built from.  A comma is written the
 	// way a program writes one - with the space after it - because that
@@ -1987,7 +1988,9 @@ TypeId SemaAnalyzer::substituted(
 
 	case TypeKind::LValueReference:
 	case TypeKind::RValueReference:
-		out = types_.reference_to(
+		// 8.3.2p5: the argument may be `void`, which derives no reference at
+		// all - and 14.8.2p8 makes that a candidate that drops.
+		out = types_.derived_reference(
 			substituted(types_.target(bare), bindings, memo),
 			types_.kind(bare) == TypeKind::RValueReference);
 		break;
@@ -1995,7 +1998,7 @@ TypeId SemaAnalyzer::substituted(
 	case TypeKind::Array:
 		// 8.3.4p1: a bound that named a place is substituted the way the
 		// element type is, so `T[N]` over `T = int` and `N = 5` is `int[5]`.
-		out = types_.substituted_array(
+		out = types_.derived_substituted_array(
 			bare, substituted(types_.target(bare), bindings, memo),
 			types_.bound_place(bare) == kNoType
 				? kNoType

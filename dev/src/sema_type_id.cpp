@@ -510,7 +510,7 @@ TypeId SpelledTypeId::declarator(TypeId base,
 		TypeId inner = member
 			? analyzer_.types_.member_pointer_to(owner, base)
 			: (op == "*" ? analyzer_.types_.pointer_to(base)
-			             : analyzer_.types_.reference_to(base, op == "&&"));
+			             : analyzer_.types_.derived_reference(base, op == "&&"));
 		while (at < end && (words[at] == "const" || words[at] == "volatile"))
 		{
 			// 8.3.1p1: a cv-qualifier after a `*` qualifies the pointer.
@@ -776,7 +776,7 @@ TypeId SpelledTypeId::suffix(TypeId base,
 	const TypeId rest = suffix(base, words, at, end, spelling);
 	if (array)
 	{
-		return analyzer_.types_.array_of(rest, bounded, bound, place);
+		return analyzer_.types_.derived_array(rest, bounded, bound, place);
 	}
 	return analyzer_.types_.ref_qualified_function(
 		analyzer_.types_.qualified_function(

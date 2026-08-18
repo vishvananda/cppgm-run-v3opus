@@ -212,6 +212,28 @@ public:
 	// place the arguments settled leaves a number and no place - `T[N]` with
 	// `N` bound to 5 is `int[5]` - and one they did not is carried as it was.
 	TypeId substituted_array(TypeId array, TypeId element, TypeId settled);
+
+	// 8.3.2p5 and 8.3.4p1: the same two types, derived the way a *declarator*
+	// derives them - which is the one place the standard says what may not be
+	// derived at all.  Three readers do it and no other: the tree walk over a
+	// ptr-operator and a declarator suffix, the reader that walks a flattened
+	// spelling, and 14.3p1's substitution of an argument into a pattern.  All
+	// three go through these doors so that 14.8.2p8 gets one answer from each -
+	// a candidate that drops rather than a program that ends.
+	//
+	// The three entries above stay what they are, because the table interns
+	// synthetic types no declarator wrote: 13.1's key for a member function
+	// spells its ref-qualifier as a reference to `cv void`, and 14.8.2.1p3
+	// derives a reference to stand a deduction's argument up as an lvalue.
+	// Those are keys and stand-ins, not types a program may declare an object
+	// of, so the refusal belongs at the door and not at the table.
+	TypeId derived_reference(TypeId target, bool rvalue);
+	TypeId derived_array(TypeId element, bool bounded, unsigned long long bound,
+	                     TypeId place = kNoType);
+	TypeId derived_substituted_array(TypeId array, TypeId element,
+	                                 TypeId settled);
+	// 8.3.4p1's own half of that, for the two doors that both ask it.
+	void require_derivable_element(TypeId element);
 	// 8.3.4p1: the type of one element of an array, however many dimensions it
 	// has, and the type itself for anything else.  It is what 12.6p1's
 	// construction, 12.4p8's destruction and 5.3.4's allocation of an array all
@@ -576,6 +598,14 @@ public:
 	bool holds_floating_storage(TypeId type);
 	void settle_floating_storage(TypeId type, bool holds);
 
+	// 10.4p2: whether a final overrider of the class is a declaration the
+	// program left pure, which is what says no object of it can be created.
+	// The class walk settles it once at the closing brace and 8.3.4p1 reads it
+	// here, because forming an array of the class is forming its elements and
+	// the table that forms types is where every writer of one meets.
+	bool is_abstract_class(TypeId type);
+	void settle_abstract_class(TypeId type, bool abstract);
+
 	bool is_class(TypeId type) const { return kind(type) == TypeKind::Class; }
 	bool is_enum(TypeId type) const { return kind(type) == TypeKind::Enum; }
 	// 7.2p2: an enumeration written `enum class` or `enum struct`, whose
@@ -787,6 +817,9 @@ private:
 		// the walk that lays the class out is the one pass that can answer it,
 		// because a base and a member each already carry their own answer.
 		bool floating_storage = false;
+		// 10.4p2: whether any final overrider of the class is still pure, which
+		// the vtable pass settles once and 8.3.4p1 reads of an array's element.
+		bool abstract = false;
 		// 8.5p8: whether any byte of an object of the class is written by
 		// zero-initialization, which is what its bases and members hold.
 		bool zeroed_storage = true;

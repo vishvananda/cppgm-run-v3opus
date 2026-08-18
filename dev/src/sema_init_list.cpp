@@ -1009,13 +1009,20 @@ void SemaAnalyzer::require_no_narrowing(const AstNode& written,
 	long double real = value.real;
 	const bool from_float = types_.is_floating(from);
 	const bool to_float = types_.is_floating(to);
-	// Asking the fold costs a walk of the clause, and two of 8.5.4p7's four
-	// bullets settle without it: a floating source reaching an integer narrows
-	// however constant it is, and one reaching a floating type at least as wide
-	// narrows not at all.  So a list of n clauses pays for the folds its own
-	// bullets ask for rather than one per clause.
-	const bool asks_the_value = !from_float ||
-		(to_float && types_.object_size(to) < types_.object_size(from));
+	// Asking the fold costs a walk of the clause, so it is asked only where
+	// 8.5.4p7's exception could change the answer.  A floating source reaching
+	// an integer narrows however constant it is; one reaching a floating type
+	// at least as wide narrows not at all; and an integral source reaching an
+	// integral destination that has room for every value of its type is the
+	// same - which is `W w{ g(x) + g(y) }` and nearly every clause a program
+	// writes.  So a list of n clauses pays for the folds its own bullets ask
+	// for rather than one per clause.
+	const unsigned long long wide = types_.object_size(from);
+	const unsigned long long room = types_.object_size(to);
+	const bool asks_the_value = from_float
+		? (to_float && room < wide)
+		: (to_float || room < wide ||
+		   (room == wide && is_signed(from) != is_signed(to)));
 	if (!known && asks_the_value)
 	{
 		try
@@ -1044,8 +1051,7 @@ void SemaAnalyzer::require_no_narrowing(const AstNode& written,
 		// exception is asked of what the clause came to and not of the digits
 		// some operand of it was written with - which is what makes `float f{d}`
 		// off a `constexpr double d = 1.5;` the clause it is.
-		narrows = types_.object_size(to) < types_.object_size(from) &&
-			!(known && floating_fits(real, to));
+		narrows = room < wide && !(known && floating_fits(real, to));
 	}
 	else if (!from_float && to_float)
 	{
@@ -1056,8 +1062,6 @@ void SemaAnalyzer::require_no_narrowing(const AstNode& written,
 		// 8.5.4p7 fourth bullet: the destination has to hold every value the
 		// source type has, which needs its width and, at equal width, its
 		// signedness.
-		const unsigned long long wide = types_.object_size(from);
-		const unsigned long long room = types_.object_size(to);
 		narrows = room < wide ||
 			(room == wide && is_signed(from) != is_signed(to));
 	}
@@ -1068,7 +1072,21 @@ void SemaAnalyzer::require_no_narrowing(const AstNode& written,
 		Constant held;
 		held.type = from;
 		held.bits = bits;
-		narrows = convert(convert(held, to), from).bits != held.bits;
+		const Constant reached = convert(held, to);
+		narrows = convert(reached, from).bits != held.bits;
+		// 4.7p2 makes the round trip symmetric across a change of signedness at
+		// one width - `-1` reaches `unsigned` as its own bits and comes back as
+		// `-1` - so the bits alone say a value survived that 8.5.4p7's fourth
+		// bullet does not let it.  The question the clause asks is whether the
+		// destination *represents* the value, and the two disagree exactly
+		// where one of the two readings of those bits is negative and the other
+		// is not.
+		narrows = narrows ||
+			(is_signed(from) != is_signed(to) &&
+			 ((is_signed(from) && wide != 0 &&
+			   ((bits >> (wide * 8 - 1)) & 1ULL) != 0) ||
+			  (is_signed(to) && room != 0 &&
+			   ((reached.bits >> (room * 8 - 1)) & 1ULL) != 0)));
 	}
 	if (narrows)
 	{
