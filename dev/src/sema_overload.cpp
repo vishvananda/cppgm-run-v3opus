@@ -1347,6 +1347,103 @@ SemaEntity* SemaAnalyzer::resolve_target(const Value& value, TypeId target)
 	return deduced[best];
 }
 
+// 14.8.1p2 read at a naming no deduction follows: whether the written list left
+// this entry of `explicit_specializations`' set a place still to be filled.
+//
+// `explicit_specializations` answers for a *call*, where every place the list
+// left over is one 14.8.2 deduces from the arguments - so an entry it made a
+// candidate of is a declaration and not yet a specialization.  A naming with no
+// call and no target type has nothing to deduce from, and the one place that is
+// still a specialization's there is 14.8.2p? trailing parameter pack the list
+// reached and gave nothing: it stands for a run of none and nothing has to fill
+// it.  So `f<int>` names `template<class T, class... U> f()` and does not name
+// `template<class T, class U> f()`.
+namespace
+{
+
+bool names_specialization(const TypeTable& types, const SemaEntity& entry)
+{
+	if (entry.partial_of == nullptr)
+	{
+		return true;
+	}
+	if (entry.template_parameters == nullptr)
+	{
+		return false;
+	}
+	const std::vector<SemaEntity*>& places =
+		entry.template_parameters->declarations;
+	const std::size_t fixed = function_pack_place(types, places);
+	return fixed + 1 >= places.size() &&
+		types.type_list_at(entry.template_arguments).size() >= fixed;
+}
+
+}  // namespace
+
+// 14.2 asked of one spelling by a reading that has no overload set to hand on.
+//
+// `id_expression` asks these same two doors in this same order and hands the
+// set on: a target type or a call's arguments choose from it later, and the
+// line that names one declaration is written then.  5.19's three readings have
+// no later - `&f<int>` comes to an address where it stands - and neither has
+// 7.1.6.2p4, which asks what one id-expression *names*.  So the two differences
+// are here.  A list that fits several declarations of the name is 13.4p1's set
+// with nothing to choose from it and names none; and the one it does fit is
+// chosen, which is what 14.7.1p1 asks the template for the body with.
+//
+// 3.2p2 is what says whether that ask is made at all: a naming written in a
+// potentially-evaluated expression is a use of the specialization, and 5p8's
+// unevaluated operand is no use of anything.
+SemaEntity* SemaAnalyzer::folded_name(const std::string& spelling,
+                                      const Context& ctx, bool used)
+{
+	std::vector<SemaEntity*> found;
+	if (template_specializations(spelling, ctx, found) == nullptr)
+	{
+		return resolve(spelling, ctx, LookupKind::Any);
+	}
+	// 14.8.1p2: a declaration the written list did not fill is one a deduction
+	// still has to finish, and a naming with neither a call nor a target type
+	// makes none - so it is no member of 13.4p1's set here however it ranks in
+	// one a call builds.  `&f<int>` beside `template<class T, class U> int f()`
+	// names the one declaration the list completed.
+	SemaEntity* specialized = nullptr;
+	std::size_t names = 0;
+	for (std::size_t index = 0; index < found.size(); ++index)
+	{
+		if (!names_specialization(types_, *found[index]))
+		{
+			continue;
+		}
+		specialized = names == 0 ? found[index] : specialized;
+		++names;
+	}
+	if (names == 0)
+	{
+		throw NotConstant(spelling + " writes a template-argument-list that "
+		                  "completes no declaration of the name, and this "
+		                  "naming deduces nothing to finish one", false);
+	}
+	if (names > 1)
+	{
+		throw NotConstant(spelling + " names more than one function template "
+		                  "specialization and this naming writes no target "
+		                  "type for 13.4 to choose between them", false);
+	}
+	if (!used || checking_ != 0)
+	{
+		// 3.2p2 at an unevaluated operand, and 14.6p8 at a reading of a
+		// pattern: the first names the entity and uses nothing, and the second
+		// declares nothing into the output and names nothing the unit owes a
+		// definition of - the member template of a class template's own body
+		// has no pattern recorded there at all.  The instantiation reads that
+		// same spelling again with the arguments bound, and that naming is
+		// where 14.7.1p1's demand is made.
+		return specialized;
+	}
+	return &named_function(*specialized);
+}
+
 // 3.2p2: naming a function is a use of it, and what a use asks for is the same
 // wherever the name was written - which is what puts this beside the line that
 // spells one rather than inside it.  A fold of a constant expression names a

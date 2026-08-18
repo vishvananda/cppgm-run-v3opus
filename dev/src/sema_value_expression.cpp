@@ -411,9 +411,11 @@ private:
 	// the tree the parse kept beside that spelling and not off the words.
 	SemaConstant noexcept_operand(const std::string& word, bool live);
 	SemaConstant pack_size(const std::vector<std::string>& words);
-	SemaConstant literal_operand(const std::string& word,
-	                             const std::vector<std::string>& words,
-	                             bool live);
+	// 2.14p1's literal as an operand: the object 2.14.5p8 makes of a string
+	// literal, and the value every other one holds.  Which of the two it is is
+	// the only question this word answers - 5.2.1p1's subscript after it is
+	// `accesses`' reading, of the same object the tree reading is handed.
+	SemaConstant literal_operand(const std::string& word);
 	SemaConstant name(const std::string& spelling, bool live);
 	// 5.2.2p1, 5.2.3p2 and p3: the operands written between the bracket `at_`
 	// stands on and the one that closes it, which a call, an object of class
@@ -691,25 +693,10 @@ SemaConstant TemplateArgumentReader::operand(
 				return live ? cast(target, operand) : operand;
 			}
 		}
-		// 5.1.1p6: a parenthesized primary is that primary, which is how the
-		// tree of the same expression reaches 5.19p2's subscript of a string
-		// literal - the walk strips the parentheses before it asks what is
-		// being subscripted - so a spelling reaches it the same way.
-		std::size_t held_at = opened;
-		std::size_t held_end = close;
-		while (held_at + 1 < held_end && words[held_at] == "(" &&
-		       words[held_end - 1] == ")")
-		{
-			++held_at;
-			--held_end;
-		}
-		if (held_at + 1 == held_end && is_literal_word(words[held_at]) &&
-		    close + 1 < words.size() && words[close + 1] == "[")
-		{
-			const std::string held = words[held_at];
-			at_ = close + 1;
-			return literal_operand(held, words, live);
-		}
+		// 5.1.1p6: a parenthesized primary is that primary, and the operand it
+		// stands for is read below like any other - 2.14.5p8's literal object
+		// among them, which is why no arm here has to strip the parentheses off
+		// one before 5.2.1p1's subscript can be asked of it.
 		SemaConstant inner = expression(words, 0, live);
 		while (at_ < words.size() && words[at_] == ",")
 		{
@@ -740,7 +727,7 @@ SemaConstant TemplateArgumentReader::operand(
 	}
 	if (is_literal_word(word))
 	{
-		return literal_operand(word, words, live);
+		return literal_operand(word);
 	}
 	if (word == "sizeof...")
 	{
@@ -1165,31 +1152,22 @@ SemaConstant TemplateArgumentReader::trait_value(const std::string& op,
 	return out;
 }
 
-// 2.14 and 5.19p2: what a literal written where an operand stands comes to -
-// its own value, and for a string literal the element a subscript names, which
-// is the one object a constant expression reads out of storage and the one
-// postfix operator an argument spelling writes.  5.1.1p6's parentheses around
-// the literal change neither, so both spellings of the operand read it here.
-SemaConstant TemplateArgumentReader::literal_operand(
-	const std::string& word, const std::vector<std::string>& words, bool live)
+// 2.14 and 5.19p2: what a literal written where an operand stands comes to.
+//
+// 2.14.5p8 makes a string literal an *object* of static storage duration and no
+// value at all, which is what a name of an array is - so it is read as one here
+// exactly as the tree reading reads it, and 5.2.1p1's subscript of it is then
+// `element_at`'s reading of that object rather than a question about this word.
+// That is what leaves the operator one reading over four left operands and both
+// of 5.7p5's orders: `2["abcd"]` names the element `"abcd"[2]` does.
+SemaConstant TemplateArgumentReader::literal_operand(const std::string& word)
 {
-	if (at_ >= words.size() || words[at_] != "[" ||
-	    word.find('"') == std::string::npos)
+	SemaConstant object;
+	if (ConstexprReading(analyzer_).literal_object(word, object))
 	{
-		// 5.2.1p1's other operand order: `2[a]` writes an integer where the
-		// array belongs, and what it subscripts is the operand after it - which
-		// is the postfix walk's reading and no question about this word at all.
-		return analyzer_.literal_constant(word);
+		return object;
 	}
-	++at_;
-	const SemaConstant index = expression(words, 0, live);
-	if (at_ >= words.size() || words[at_] != "]")
-	{
-		throw NotConstant("a subscript written as a template argument does not "
-		                  "close its index");
-	}
-	++at_;
-	return analyzer_.string_element(word, valued(index).bits);
+	return analyzer_.literal_constant(word);
 }
 
 // 5.3.3p5: how many elements the run bound to the pack holds, which is the

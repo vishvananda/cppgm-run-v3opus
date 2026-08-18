@@ -740,7 +740,13 @@ TypeId SemaAnalyzer::decltype_type(const AstNode& node, const Context& ctx)
 		}
 		return value.type;
 	}
-	SemaEntity* const found = resolve(expression->text, ctx, LookupKind::Any);
+	// 7.1.6.2p4 is the fourth reading that looks one name up with nothing to
+	// hand an overload set on to, so 14.2's door stands in front of the lookup
+	// here as it does at 5.19's three: `decltype(f<int>)` is the type of the
+	// specialization the written list makes, which no declaration of the whole
+	// spelling is in scope under.  5p8 leaves the operand unevaluated, so the
+	// naming is 3.2p2's use of nothing and asks 14.7.1p1 for no body.
+	SemaEntity* const found = folded_name(expression->text, ctx, false);
 	if (found != nullptr && types_.dependent_owner(found->type) != kNoType)
 	{
 		// 14.6.2.2p1 at the other kind of operand: the id-expression is a

@@ -2102,24 +2102,10 @@ SemaConstant ConstexprReading::binary_value(unsigned token,
 SemaConstant ConstexprReading::subscript_constant(const AstNode& node,
                                                   const SemaContext& ctx)
 {
-	const AstNode* array = node.children[0];
-	while (array->kind == AstKind::ParenthesizedExpression)
-	{
-		array = array->children[0];
-	}
-	// The subscript names an element, so what it is worth is an integer and
-	// 4.9's conversion of a floating one is no part of it.
-	if (array->kind == AstKind::Literal && literal_type(array->text) != kNoType)
-	{
-		// 2.14.5p8: a string literal is an array object no declaration named,
-		// so what it holds is read out of the literal itself.  Every other
-		// literal standing here is 5.2.1p1's *index* - `2[a]` writes the
-		// addition the other way round - and is read below with the operand
-		// after it.
-		return analyzer_.string_element(
-			array->text, counted(analyzer_.evaluate(*node.children[1], ctx)));
-	}
-	return element_at(analyzer_.evaluate(*array, ctx),
+	// 2.14.5p8's literal is an array object no declaration named, and
+	// `evaluate` hands it back as that object - so the four left operands
+	// 5.2.1p1 has are one reading here and no arm of this dispatch.
+	return element_at(analyzer_.evaluate(*node.children[0], ctx),
 	                  analyzer_.evaluate(*node.children[1], ctx), ctx);
 }
 

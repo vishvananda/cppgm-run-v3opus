@@ -1680,16 +1680,23 @@ private:
 	                                     const Context& ctx,
 	                                     std::vector<SemaEntity*>& found,
 	                                     Scope* in = nullptr);
-	// 14.2 at the doors 5.19's readings look one name up: the same two doors
-	// `id_expression` asks in the same order, because a template-id denotes the
-	// specializations its list makes and ordinary lookup finds only the template
-	// it was written from.  Null where neither door reaches a declaration.
+	// 14.2 at the doors a reading that has no overload set to hand on looks one
+	// name up: the same two doors `id_expression` asks in the same order,
+	// because a template-id denotes the specializations its list makes and
+	// ordinary lookup finds only the template it was written from.  Null where
+	// neither door reaches a declaration.
 	//
-	// 13.4p1 chooses among several with a target type, which a fold has none of
-	// to defer to - `&f<int>` comes to an address where it stands - so a list
-	// that fits more than one declaration of the name names none here.  Choosing
-	// one is 14.7.1p1's own ask, so the specialization is named as a use of it.
-	SemaEntity* folded_name(const std::string& spelling, const Context& ctx);
+	// 13.4p1 chooses among several with a target type, which such a reading has
+	// none of to defer to - `&f<int>` comes to an address where it stands and
+	// 7.1.6.2p4 asks what the id-expression names - so a list that fits more
+	// than one declaration of the name names none here.
+	//
+	// `used` is 3.2p2: naming the specialization in a potentially-evaluated
+	// expression is what asks 14.7.1p1 for its body, and 5p8's unevaluated
+	// operand asks for nothing - `decltype(f<int>)` names the entity and leaves
+	// the definition to whatever else the program writes.
+	SemaEntity* folded_name(const std::string& spelling, const Context& ctx,
+	                        bool used = true);
 	// The walk itself, over the declarations `head` chains: one reading of the
 	// list per declaration, with a reading that refused handed back in
 	// `refused` rather than ending the walk.  3.4.2p3's search reaches
