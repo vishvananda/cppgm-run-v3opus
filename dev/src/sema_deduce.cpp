@@ -332,7 +332,18 @@ bool Deduction::match_bound(TypeId pattern, TypeId argument,
 		SemaAnalyzer::Constant given;
 		given.type = types.fundamental(FT_UNSIGNED_LONG_INT);
 		given.bits = types.bound(argument);
-		const TypeId declared = types.parameter_value_type(place);
+		const TypeId declared = types.strip_cv(types.parameter_value_type(place));
+		if (types.kind(declared) != TypeKind::Fundamental ||
+		    !types.is_integral(declared))
+		{
+			// 14.8.2.5p17: an argument deduced from an array bound may be of
+			// any *integral* type and of no other, so a place 3.9.1p7 does not
+			// name one of deduces nothing here.  An enumeration is the reachable
+			// one - 5.19p3 admits no conversion from the `std::size_t` the
+			// clause gives the value to it, so `T[N]` over an `E N` matches no
+			// array however the enumerators are numbered.
+			return false;
+		}
 		deduced =
 			types.value_type(declared, analyzer_.convert(given, declared).bits);
 	}

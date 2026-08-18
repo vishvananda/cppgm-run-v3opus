@@ -26,113 +26,129 @@ place is, and which declaration a list selects.
 
 | W | `feb567fd` | 1 / 1 + 6 recorded | **where 6.6.3p2's chain may begin, asked of every reading the program's own code asked for - and answered `yes` for one 14.7.1p1 had already made.**  Checkpoint W made 15.4p1 a fact of one call rather than of the step it stands in, gave 9.3.1p3's call written with no object expression 11.2p5's naming class as the object it reaches through, told 8.5.1p2's copy of an empty subobject apart from one built in place by a trivial constructor by what the constructor was handed, numbered 8.3.5p11's unnamed parameter past 6.6.3p2's storage for the returned object, and made `PendingDefinition::returned_object_chain` the chain of readings such an object's storage is the caller's along.  Four of the five are right and swept clean - 11 naming-class shapes over a second base, a declaring class above the naming class, a pointer, `this->`, 14.2p4's keyword and a class template, all 3 of which W fixed and none of which it broke; 13 empty-subobject shapes over an array element, a base subobject, two mem-initializers and a copy from another object's member; 10 unnamed-parameter shapes over a member, a static member, a constructor, a pack of two and a parameter of class type - and `note_destruction_entry`, the sibling the plan named as the fifth rule's, turned out to need nothing at all: `pa22/cppgm++-ref` writes **one** destructor entry in every shape probed, so reading the chain there would have been wrong.  What the fifth rule did not carry is *where* the chain begins.  `queued_chain_` asked only that the reading was one the program's own code asked for and that it hands back an object of class type, and a member of a class template written **in** its class body is neither: 14.7.1p1 made that body when the class was instantiated and `queue_definition` put it aside, so it stands at the end of no chain and the grant that later joins it to the list is not what asked for the object.  So `maker<int>::mk` returning a class with a base wrote **both** of the ABI's entry points for that base's constructor where the reference writes one, at every spelling of the object the call is made on - a named local, a global, a reference parameter, a member of another class, a copy temporary, a pointer, a static member, a second call and the same call one statement later - 20 programs the pre-W build answered the reference's way and this one did not.  `PendingDefinition::held_by_class` is the fact, taken at the one door that puts a body aside, with 9.3p2's out-of-class definition on the other side of it exactly as it is at `writes_base_entry`.  88 of 118 probes now match the reference through the real comparator against 74 at the checkpoint and 55 before it.  Recorded rather than fixed: 9.3.1p3's *data-member* sibling, where the reference folds the step to the naming class into the field projection and this build writes it (`d.A::v` is `index 4` there and `index 4; index 0` here, at both source orders and through a pointer, at the pre-W build too); 15.4p8's dynamic exception-specification, which the reference guards with an `eh_call_unexpected` this build writes nowhere; 15.2p2's region at an array element, which the reference opens before the element's address is computed and this build opens before its call; the handler an array's construction replays, which recomputes 4.2's decay per element there and once here; `&D::B::f`, a pointer-to-member whose qualified-id names a base, refused here; and three programs `g++` reads differently from *both* this build and the reference - 8.5.1p1's aggregate with a base class, an array of aggregates holding an empty member, and a four-parameter member returning an object, which segfaults out of the reference's own LowIR as it does out of this one |
 
+| Y | `f604a5f9` | 2 / 2 + 3 recorded | **8.3.4p1's bound as a place, asked by every walk that reads what a type is written over - and the one type 14.8.2.5p17 says a bound may deduce.**  Group Y made the bound two facts: `bound_place` beside `bound`, `kNoType` for every settled one so interning is exactly what it was, written by the tree reading and the spelled one alike and read back by `substituted_array`, `match_bound` and 14.5.5.2's ordering.  The rule is right and its rebuilds are one reading - `rebuilt_array` carries the place through cv-qualification, 13.3's bare type and `unqualified`, the two substitutions agree, and `TemplateSignature` canonicalizes it, so an out-of-class definition that renames the head's places matches where the reference cannot compile the program at all.  What the place is a *new edge* on is the type graph, and one walk of it was never told: `collect_packs` read the element type alone, so a pattern whose only pack is between the brackets named no pack, 14.8.2.5p9 deduced nothing and the partial specialization was silently not selected - a wrong value with no diagnostic.  And `match_bound` converted the bound to whatever type the place declared, where 14.8.2.5p17 admits an integral type and no other, so an enumeration place matched an array `g++` leaves to the primary |
+
 ## Current Checkpoint Review
 
-Checkpoint W is five rules about where an object's storage, its handler and its
-entry points are written: 15.4p1 read as a fact of one call rather than of the
-step it stands in, 9.3.1p3 with 11.2p5 at a call written with no object
-expression, 8.5.1p2's copy that reaches an empty subobject, 8.3.5p11's unnamed
-parameter numbered past 6.6.3p2's storage for the returned object, and 6.6.3p2's
-own chain — the readings that made a definition, back to the program's own code,
-where each of them hands an object of class type to storage its caller named.
+Checkpoint Y is one rule: 8.3.4p1's bound is a bound *and* a place. A
+constant-expression that names a non-type template parameter and nothing else
+leaves `TypeTable::Node::bound_place` beside the number, `kNoType` for every
+bound a reading settled — so a settled array interns by its number exactly as it
+did, and `T[N]` and `T[M]` are two types where the 1 both stand in with is one.
+Two readings write it, the tree's `named_place` and the spelled type-id's
+`written_bound`, and three read it back: `substituted_array` under 14.3p1,
+`match_bound` at 14.8.2.5p13, and 14.5.5.2's ordering of a place against a
+place.
 
-Four of the five are landed rules of the right shape and are right at their
-sibling exits. `note_call` records that a call was made however 15.4p1 specifies
-the callee and keeps the clause's own answer at the one place it is about —
-where nothing stands yet and a handler would end no lifetime. `Derivation::
-base_in` at the naming region is one step per class named. `built_in_place_
-trivially` reads what the constructor was handed and not what it does. And
-`add_slot` counts the parameter list the declarator wrote.
+The rule is of the right shape and its rebuilds are one reading rather than
+several. `rebuilt_array` is the single door every rebuild of an array over
+another element type goes through — cv-qualification travelling to the element,
+13.3's bare type, `unqualified`'s copy of the whole node — so no caller has to
+know the bound is two facts. The two implementations of substitution agree word
+for word. `adjust_parameter` drops the array as 8.3.5p5 says. `associate_type`
+walks past the bound, which is right: 3.4.2p2 associates the types a type is
+written over and a value is none. `object_size` still guards its own overflow.
 
-What none of it carried is **where the chain may begin.**
+What the place is, though, is a **new edge on the type graph**, and a graph has
+more walks than the checkpoint taught.
 
 ### Findings
 
-**1. 6.6.3p2's chain began at a body 14.7.1p1 had already made.**
-`queued_chain_` asked two things of the reading about to be made — that the
-program's own code asked for it (`!from_instantiated_body`) and that it hands
-back an object of class type — and a member of a class template written *in* its
-class body satisfies both while being neither:
+**1. 14.5.3p4's walk of what a pattern is written over did not walk the bound.**
+`collect_packs` had one arm for a pointer, a reference, an array and a value
+alike: follow `target` and return. The element type is only half of what an
+array is written over now, so a pattern whose *only* pack is between the
+brackets named no pack at all:
 
 ```cpp
-template<class T> struct maker { derived_t<T> mk(T x) { return derived_t<T>(x); } };
-int main() { maker<int> m; derived_t<int> d = m.mk(3); return d.v == 3 ? 0 : 1; }
+template<class... Ts> struct list { };
+template<class C> struct P { static const unsigned long w = 0; };
+template<unsigned long... Ns> struct P<list<int[Ns]...> >
+{ static const unsigned long w = sum<Ns...>::v; };
+P<list<int[2],int[3],int[4]> >::w   // 9 in g++; 0 here
 ```
 
-`queue_definition` made that body when `maker<int>` was instantiated and put it
-aside in `held_definitions_`; the grant that later joins it to the list is a use
-asking for a definition that already existed, not the reading that asked for the
-object. So the chain has no start there, and `pa22/cppgm++-ref` writes
-`base_t<int>`'s constructor **one** entry point where this build wrote both — at
-every spelling of the object the call is made on: a named local, a global, a
-reference parameter, a member of another class, a copy temporary, a pointer, a
-static member of the same class, a second call, and the same call one statement
-after a declaration of the class. 20 programs, all of which the pre-W build
-answered the reference's way.
+`Deduction::match_run` asks `packs_in` which places the pattern names and
+refuses at 14.8.2.5p9 where it names none, so the partial specialization was
+**silently not selected** and the naming folded to the primary's 0. It compiles,
+it links, it runs, and it returns the wrong number — `pa22/cppgm++-ref` returns
+the same wrong number and `g++` returns 9.
 
-`PendingDefinition::held_by_class` is that fact, taken at the one door that puts
-a body aside rather than at any of the doors that ask for one, and it bounds the
-*start* alone: a body queued while a chain already stands carries the chain it
-was queued under, which is what keeps `derived_t<T>`'s own constructor at the end
-of the one `mk` began. 9.3p2 draws the same line here it draws at the ABI — a
-definition written outside the class is this unit's own and no part of what the
-class instantiation made — so `template<class T> derived_t<T> maker<T>::mk(T x)`
-starts a chain where the in-class spelling of it does not, which is what both
-oracles write.
+The fix is the one arm: an array walks `bound_place` and then `target`, which
+`kNoType` reads as the nothing it is. That arm is what all four readers built on
+`packs_in` ask — `expand_type`, `substitute_entry`, `match_run` and 14.8.2.1p1's
+trailing pattern — so the whole family is answered once. Four shapes of it move
+from the primary's value to the specialization's, and a pack of 1600 bounds is
+0.014 s against the reference's 0.708 s.
+
+**2. 14.8.2.5p17's *integral* was not asked, so an enumeration place deduced a
+bound.** `match_bound` took the number the argument's declarator arrived at,
+gave it 14.8.2.5p13's `std::size_t` and handed it to 14.3.2p5's conversion to
+whatever type the place declared. The clause is narrower than that: an argument
+deduced from an array bound may be of any *integral* type, and 3.9.1p7 does not
+name an enumeration one — 5.19p3 admits no conversion from `std::size_t` to one
+either. So `template<class T, E N> struct P<T[N]>` selected itself for
+`P<int[3]>` where `g++` leaves the naming to the primary, and the pair invented
+an argument no expression could have written. A wrong value again, and again
+`pa22/cppgm++-ref` answers it the old way. The pair now refuses where the place
+declares anything but a fundamental integral type; `bool` stays inside the
+clause, and the narrowing round trip that already keeps `T[2]` out of a `bool`
+place is untouched, which is what `g++` answers at both.
+
+Neither finding can be pinned by a fixture: the reference writes the defective
+answer into the `.ref` in every shape of both, so a `course/pa22` or `tests/`
+fixture would carry it. Both are recorded in the plan as divergences `g++`
+settles.
 
 ### What the review confirmed rather than found
 
-- **The three sibling exits the plan named are clean, and one of them wanted
-  nothing.** `note_destruction_entry` asks 14.7.1p1's question with the same
-  words and does *not* read the chain — and that is right: `pa22/cppgm++-ref`
-  writes one destructor entry in every shape probed, including the chain's own,
-  so a reader there would have written a symbol neither oracle owes. 8.5.1p2's
-  clause is right at all four of its other readings — an array element, a base
-  subobject, a mem-initializer for a base and one for a member, and a copy from
-  another object's member — 13 of 14 shapes byte for byte the reference's, the
-  14th a definition 12.8p15 writes for a copy the elision left out. 8.3.5p11's
-  numbering is right at all 10 — a free function, a member, a static member, a
-  constructor, two unnamed parameters together, one of class type, a member of a
-  class template, and the scalar-returning twin of each.
-- **9.3.1p3's naming class is right at the calls and writes one step too many at
-  the data members.** The call exits are clean: 11 of 14 shapes match, the three
-  W fixed among them — a declaring class above the naming class, a three-level
-  chain, and the same written inside a class template. What the same clause's
-  *data-member* exit writes is one step the reference folds: `d.A::v` where `v`
-  is declared in the naming class is one `index [projection=field]` at the
-  offset within the complete object there and a base step plus a field here,
-  while `d.M::v` where `v` is declared in a base of the naming class is a base
-  step plus a field in both. It is the pre-W build's shape as much as this one's
-  and no fixture pins it, so it is recorded below rather than reshaped under an
-  audit.
-- **Nothing scans and nothing is re-read.** The chain is two bools per queued
-  definition, written where the entry is made and read where its body is. 800
-  class templates each with an in-class member returning a class, each called on
-  a named object, is 0.21 s and 53 MB against the reference's 1.49 s and byte for
-  byte the pre-W build's; 800 free function templates returning one 0.11 s
-  against 1.19 s; 800 such members of *one* class template 0.10 s against
-  1.03 s; and a chain of 200 class-returning instantiations 0.02 s against
-  0.65 s. Every dimension is linear and identical to the build before the
-  checkpoint.
-- **The corpus is unchanged.** The same 372 files one process per file is 1.65 s
-  against the pre-W build's 1.66 s over a 0.58 s loop floor — 1.07 s of compiler
-  work against 1.08 s.
-- **`valgrind -q --error-exitcode=9` is clean over 121 inputs**, 0 errors: the
-  audit's 118 probes and its three largest scaling inputs.
-- **118 probes are judged against `g++ -std=c++11 -pedantic-errors -x c++` and
-  against `pa22/cppgm++-ref` through the assignment's own comparator.** 88 match
-  the reference byte for byte, against 74 at the checkpoint and 55 at the build
-  before it. `g++` accepts 117 of the 118 and refuses one both other readings
-  accept; 114 translate and link through `lowir2cy86` + `cy86` and 112 return the
-  value `g++` gives them — the two that do not return the same wrong value out of
-  the *reference's* own LowIR.
+- **The two writers of the clause agree, and the five readers of the fact are
+  right.** `named_place` steps through 5.1p1's parentheses and takes a bare
+  identifier that resolves to an unbound value place; `written_bound` hands
+  anything but digits to the value reading and takes what comes back only where
+  it is a place. 14 spellings agree between them — a bare place, a place through
+  parentheses, a settled `const` name, `sizeof(int)`, a place of `char` read
+  through a spelled type-id, two places in one pattern, a place inside a nested
+  head, and a place of an enclosing head named from a member. `TemplateSignature`
+  carries the place through 14.5.6.1p5's canonical form, so a redeclaration, an
+  out-of-class member definition and a member returning a reference to the array
+  all match under renamed places where `pa22/cppgm++-ref` fails to build the
+  symbol at all.
+- **8.3.4p1's own refusals hold at every door the place opened.** A zero bound
+  and a negative one are refused at `A<0>`, `A<-1>`, a bare `typedef T (*p)[N]`,
+  `sizeof(T[N])` and an explicit `f<int,0>` alike — five shapes `g++` refuses and
+  the reference accepts. An array of unknown bound deduces nothing. A bound that
+  names anything else is stood in for as it was.
+- **Nothing scans, nothing is re-read, nothing retries.** The place is one word
+  on the node, written where the array is built and read where it is rebuilt;
+  `is_dependent` records its answer before the walk, so the new edge is walked
+  once per type. 32 dimensions of 32 places is 0.005 s and flat; 1600 patterns
+  over `T[N]` 0.069 s; 6400 array declarators bounded by a named constant
+  0.246 s; 3200 spelled `int[MAX]` arguments 0.210 s against a digit bound's
+  0.216 s, so the value reading the widened bound needs costs nothing measurable;
+  3200 place-bounded members 0.050 s; and 400 patterns against 400
+  instantiations — the cross product, not one feature — 0.082 s against the
+  reference's 1.385 s.
+- **The corpus is unchanged.** The same 309 files one process per file is
+  1.330 s against the checkpoint's 1.380 s and the pre-checkpoint build's
+  1.351 s.
+- **`valgrind -q --error-exitcode=9` is clean over 153 inputs**, 0 errors: the
+  audit's probes and its scaling inputs, the 6400-declarator and 3200-argument
+  ones among them.
+- **54 probes judged through the assignment's own comparator against
+  `pa22/cppgm++-ref`, and against `g++ -std=c++11 -pedantic-errors -x c++`.** 42
+  match the reference byte for byte. Of the 12 that do not, three are programs
+  the reference cannot compile, six are the two findings above, and three are a
+  narrowing conversion at a bound place where `g++` refuses two of the three
+  outright. `g++` accepts 52 of the 54; all 54 translate and link through
+  `lowir2cy86` + `cy86`, and every one of the 52 returns exactly the value `g++`
+  gives it.
 - **No gate and no skipped work.** Neither the checkpoint's diff nor this
   audit's holds a `getenv`, a fixture name, a dialect switch keyed on anything
   but a dialect, a timeout, an environment read or a caught exception standing
-  for a success; the lowering layer holds no `catch` at all, so a refusal never
-  leaves `pending_calls_` standing. Earlier assignments are intact:
-  `make test-report-through-pa21` is 2568 / 2568, and PA22 moved 366 / 371 to
-  367 / 372 — the fixture this audit adds, which pins all three tiers of the
-  chain in one program: a member held by its class's own instantiation, one
-  written outside the class, and a free function template. The file audit passes
-  with the five `bad-division` warnings it already had.
+  for a success. The one `catch` the checkpoint added, around the value reading
+  of a written bound, rethrows on every path, so it is no fallback and leaves no
+  guard standing that the refusal would not have unwound. Earlier assignments
+  are intact: `make test-report-through-pa21` is 2568 / 2568, and PA22 holds
+  369 / 373 with the same four failures the checkpoint left. The file audit
+  passes with the five `bad-division` warnings it already had.

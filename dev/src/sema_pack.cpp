@@ -382,10 +382,19 @@ void collect_packs(TypeTable& types, TypeId pattern,
 		collect_packs(types, types.target(pattern), runs, places, seen);
 		return;
 
+	case TypeKind::Array:
+		// 8.3.4p1: a bound that named a place is as much a part of what the
+		// type is written over as its element type, so a pack the brackets
+		// name is one this pattern names - `int (&...a)[Ns]` names `Ns` and
+		// nothing else.  `kNoType` for every settled bound, which the first
+		// line of this walk reads as the nothing it is.
+		collect_packs(types, types.bound_place(pattern), runs, places, seen);
+		collect_packs(types, types.target(pattern), runs, places, seen);
+		return;
+
 	case TypeKind::Pointer:
 	case TypeKind::LValueReference:
 	case TypeKind::RValueReference:
-	case TypeKind::Array:
 	case TypeKind::Value:
 		collect_packs(types, types.target(pattern), runs, places, seen);
 		return;
