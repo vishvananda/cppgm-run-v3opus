@@ -699,6 +699,18 @@ void LowirUnitLowering::collect_definitions(const DumpNode& node)
 	for (std::size_t index = 0; index < node.children.size(); ++index)
 	{
 		const DumpNode& child = *node.children[index];
+		if (child.fact.entity != nullptr &&
+		    child.fact.entity->instantiation_suppressed &&
+		    (child.fact.kind == FactKind::FunctionDefinition ||
+		     child.fact.kind == FactKind::Variable))
+		{
+			// 14.7.2p10: the reading that made this definition ran before the
+			// declaration that says another unit holds it, so the line stands
+			// in the dump and the object file writes neither it nor the symbol
+			// it defines - a use of the name writes a declaration instead.
+			deferred_[child.fact.entity->id] = &child;
+			continue;
+		}
 		if (child.fact.kind == FactKind::FunctionDefinition &&
 		    child.fact.entity != nullptr)
 		{
@@ -1414,6 +1426,14 @@ void LowirUnitLowering::demand_definition_by_id(std::uint32_t entity)
 		deferred_.find(entity);
 	if (found == deferred_.end())
 	{
+		return;
+	}
+	if (found->second->fact.entity != nullptr &&
+	    found->second->fact.entity->instantiation_suppressed)
+	{
+		// 14.7.2p10: the use asking for the definition is exactly what p9's
+		// declaration answered - another unit holds it - so the demand leaves
+		// the line where it is and the name goes out as a declaration.
 		return;
 	}
 	demanded_.push_back(found->second);

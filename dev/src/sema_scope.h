@@ -636,6 +636,16 @@ struct SemaEntity
 	// still the program's rather than this unit's, so what this changes is when
 	// the object file writes it and not how it binds.
 	bool explicitly_instantiated;
+	// 14.7.2p10: whether an explicit instantiation *declaration* - p9's `extern
+	// template` - named this specialization, which says another unit holds the
+	// definition and suppresses the implicit instantiation this unit would
+	// otherwise make of it.  So a use here writes the declaration a
+	// specialization whose template has no definition already writes, and the
+	// object file names a symbol it does not define.  p10 excepts an `inline`
+	// function, whose body every unit that calls it may still hold, and p11
+	// takes the suppression back where the same unit goes on to write an
+	// explicit instantiation *definition* below it.
+	bool instantiation_suppressed;
 	// 14.7.3p1 and p6: whether `template<>` wrote this declaration out for these
 	// arguments.  Such a declaration is not an instantiation of anything: it is
 	// a definition this unit's own source made, so 3.2p3 makes it the program's

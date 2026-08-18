@@ -2474,6 +2474,11 @@ SemaAnalyzer::Value SemaAnalyzer::binary_expression(const AstNode& node,
 		// resolve an overloaded name against.
 		require_complete_value(left);
 		require_complete_value(right);
+		// 5p11 and 12.2p1: the left operand is a discarded-value expression
+		// like 6.2p1's statement and 5.2.9p4's cast to `void`, so an object of
+		// class type it is worth stands in storage of the function's and 8.5.3p5
+		// names that storage after the discarding rather than after nothing.
+		register_discarded_object(left, line, ctx);
 		value.type = right.type;
 		value.category = right.category;
 		value.spelled = right.spelled;

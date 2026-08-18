@@ -1135,11 +1135,27 @@ void SemaAnalyzer::register_discarded_object(const Value& value, DumpNode& line,
 	{
 		return;
 	}
-	if (written->fact.kind == FactKind::Cast &&
-	    types_.is_void(types_.strip_cv(written->fact.type)) &&
-	    !written->children.empty())
+	// 5.2.9p4 and 5.18p1: two operators hand an object on without being the
+	// thing that made it - a cast to `void`, which is how a program says it is
+	// throwing a value away, and a comma, whose result *is* its right operand.
+	// So the object the discarding names stands under them, however many of
+	// them the program wrote, and the walk descends the tree it already has.
+	for (;;)
 	{
-		written = written->children[0];
+		if (written->fact.kind == FactKind::Cast &&
+		    types_.is_void(types_.strip_cv(written->fact.type)) &&
+		    !written->children.empty())
+		{
+			written = written->children[0];
+			continue;
+		}
+		if (written->fact.kind == FactKind::Binary &&
+		    written->fact.op == OP_COMMA && written->children.size() == 2)
+		{
+			written = written->children[1];
+			continue;
+		}
+		break;
 	}
 	if (written->fact.kind == FactKind::TemporaryObject)
 	{

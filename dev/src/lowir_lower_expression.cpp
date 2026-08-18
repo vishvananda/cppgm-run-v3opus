@@ -1019,8 +1019,15 @@ LowValue LowirFunctionLowering::binary_expression(const DumpNode& node)
 	}
 	if (op == OP_COMMA)
 	{
-		// 5.18p1: the left operand is evaluated and discarded.
-		expression(*node.children[0]);
+		// 5.18p1: the left operand is evaluated and its value discarded, which
+		// is 5p11's discarded-value expression as much as 6.2p1's statement and
+		// 5.2.9p4's cast to `void` are - so an object of class type it is worth
+		// stands in storage of this function's under the name a discarded one
+		// has, and its lifetime ends where the full-expression does.
+		if (!discarded_class_object(*node.children[0]))
+		{
+			expression(*node.children[0]);
+		}
 		return expression(*node.children[1]);
 	}
 	const TypeId common = node.fact.operands;
