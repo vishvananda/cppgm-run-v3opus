@@ -1779,6 +1779,20 @@ void LowirFunctionLowering::statement(const DumpNode& node)
 		const LowValue object = expression(*node.children[0]->children[1]);
 		designated_subobject_ = false;
 		const std::size_t addressed = out_.blocks[current_].instructions.size();
+		if (node.fact.subobject_step &&
+		    transfers_no_byte(*node.children[0], node.fact.type))
+		{
+			// 12.6.2 and 12.8p15: the mem-initializer reached a subobject of a
+			// class that holds nothing - 12.6.2p5's base as much as a member -
+			// and 13.3 answered its one operand with the transfer 12.8p15
+			// defines, which carries no byte out of an object of such a class.
+			// So the call is not written and the object it would have read is
+			// never made; the subobject is still named, because 12.6.2p2 and
+			// 10.2 each name it before the call.  2.14.5p8's objects stand all
+			// the same.
+			unit_.kept_string_objects(*node.children[0]->children[2]);
+			return;
+		}
 		constructor_call(rvalue(object), node);
 		if (current_ == opened &&
 		    out_.blocks[opened].instructions.size() == addressed &&
@@ -2117,6 +2131,28 @@ void LowirFunctionLowering::initialize_declared(const DumpNode& node,
 				out_.blocks[block].instructions.pop_back();
 				temps_ = counted;
 			}
+			return;
+		}
+		if (!node.children.empty() &&
+		    !node.children[0]->fact.written_call &&
+		    copies_no_byte(*node.children[0], type))
+		{
+			// 12.8p15 and 9p6: what is left for this initialization to be is
+			// the copy of an object of a class that holds nothing, which
+			// carries no byte - so nothing is written for it and the object it
+			// would have read is never made.  The storage the declaration was
+			// given is still named, because the declaration is what named it;
+			// only the copy and the value it would have copied are left out.
+			// 5.2.2p1's call is the one initializer this leaves in: the
+			// destination a block hands it is 6.6.3p2's result object, and the
+			// bytes the ABI hands back go there as a store however little they
+			// say.  3.6.2p2's startup body hands its destination to nothing and
+			// takes the copy whatever was written, which is why the two doors
+			// ask different questions of the same class.
+			// 2.14.5p8's objects are left in either way: a string literal
+			// written inside the initializer stands in the program because it
+			// was written.
+			unit_.kept_string_objects(*node.children[0]);
 			return;
 		}
 	}

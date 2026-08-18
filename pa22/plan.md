@@ -39,6 +39,12 @@ The owners PA19–PA22 left standing, extended rather than replaced:
   a closure class because `SemaEntity::closure_class` says that class is a
   region this reading made rather than one the program wrote.
 - `sema_access.h/.cpp` — 11.2's reach and 11.3's grant as one reader.
+- `sema_elision.h/.cpp` — 12.8p31's copy that is not made and 8.5p14's reading
+  of the form the initializer was written in, which decides it. `Elision` holds
+  `read_initializer`, `of_written_prvalue`, `into_destination` and 12.8p32's
+  `require_transfer`; what it leaves on the node it elided is `written_call`,
+  the one thing telling 5.2.2p1's call from 13.3.1.2p2's rewrite of an operator
+  into the same `call-expression`.
 - `sema_lifetime.cpp` with `lowir_lower_unwind.cpp` — 12.2p1's temporaries and
   15.2p2's regions. A region opens where the step that made a throwing call
   began and closes where the live set changes; `close_region_at_step` ends one
@@ -53,12 +59,8 @@ The owners PA19–PA22 left standing, extended rather than replaced:
 
 ## Current Failure Map
 
-**375 / 377** — 307 of the 309 `tests/` fixtures plus all 68 `course/pa22`
-ones. Both remaining failures are the reference's own:
-
-| # | Group | Owner | Signature |
-|---|-------|-------|-----------|
-| 2 | the reference drops an initializer this build writes | **the reference's** | `T x = a + b;` over an *empty* class and an **operator-syntax** call: the reference emits no call at all, where `T x = operator+(a, b)`, `T x = a.m()` and the same program over a class with one member are three shapes it does write. Probed at 12 spellings |
+**380 / 380 — PA22 passes.** 309 `tests/` fixtures and 71 `course/pa22` ones,
+three of the latter written by the AB checkpoint. No failure group is open.
 
 Known gaps probed and deliberately left:
 
@@ -89,10 +91,23 @@ Known gaps probed and deliberately left:
   already writes the form; what it wants is a closure fact on the type carrying
   the call operator's parameter list.
 - **An implicit copy constructor nothing calls.** Where a class holds or
-  derives from one whose empty destructor an included file defined, the
-  reference *defines* the held class's implicit copy constructor even though no
-  call names it; this build writes the calls the same way and omits the unused
+  derives from one whose empty destructor an included file defined - and where
+  `(T)(1 + a)` casts a prvalue of an empty class into a declaration - the
+  reference *defines* the class's implicit copy constructor even though no call
+  names it; this build writes the calls the same way and omits the unused
   definition. Both are weak, so no unit is short a symbol.
+- **The ABI of a class with a user-provided copy constructor.** `struct T { T();
+  T(const T&); };` returned by value: this build returns it indirectly, which is
+  what the Itanium ABI and `g++` do for a class that is not trivially copyable;
+  `pa22/cppgm++-ref` returns the byte in a register. No fixture pins it.
+- **`new T()` over an empty class.** This build zero-initializes the byte 9p6
+  gave the object and the reference does not. `g++` writes the zero.
+- **12.8p31's side effects at an empty class.** The rule AB landed is the
+  reference's: an initializer the copy never reads is never evaluated, so a
+  dropped operator call's side effects are lost. Measured through `lowir2cy86` +
+  `cy86`: a program that counts one call in the dropped initializer and one in a
+  written call runs to **1** under this build *and* under `pa22/cppgm++-ref`,
+  where `g++` runs to 2. The `.ref` files pin the reference's reading.
 - **15p1's try-block** is in `pa22.gram` and the parse takes it, and the
   analysis refuses it as `a statement is outside the PA12 subset`. It is no part
   of 15.2p2's regions, which the lowering opens for the cleanup an unwind owes.
@@ -111,24 +126,22 @@ Known gaps probed and deliberately left:
 
 ## Active Checkpoint
 
-**AA made 5.1.2's captureless lambda a class the program never wrote, and the
-AA audit gave it the reading of a body it stands in — see the ledger.** What the
-PA still holds is the 2 the reference itself drops, so the next one is **AB**: the closure's own ABI name, which is the last thing about a
-closure this build spells differently from the reference and the one that makes
-two closures of one shape pair by order.
+**AB closed the PA: 380 / 380.** The two failures the plan carried as "the
+reference's own" were a rule this build did not have — see the ledger. There is
+no open failure group, so the next checkpoint is a **PA23 hand-off audit**, not
+a fix: PA22 owes PA23 a stable specialization graph, and the four gaps above
+that are *this build's* (5.1.2p4's body-first return type, 5.1.2p1's captures,
+the closure ABI name, 15p1's try-block) are the ones a deduction/SFINAE stage
+would meet first.
 
-- Owner. `type_model.h` for the fact a closure type carries — 5.1.2p3's class is
-  no unnamed local type but a class the ABI has a name form of its own for — and
-  `lowir_abi.cpp`, which turns a type into the record `abi_mangle.cpp` encodes.
-  `sema_lambda.cpp` writes the fact where it declares the class.
-- Data flow. One fact on the class's type node: that it is a closure, and the
-  call operator's parameter type list, which `emit_closure_name` already takes.
-  `local_occurrence` stays the discriminator. Nothing else reads it.
-- Expected complexity. One entry per closure class, written once where the class
-  is declared and read once per mangling of it; no walk of the declarations.
-- Validation. The 15-shape sweep re-run through the real comparator, where the
-  two that pair two identical closures by order currently fail; the whole pa22
-  suite; and `abimangle` against `abimangle-ref` on the encoded names.
+- Owner. `pa22/plan.md` and the gap rows above, checked against what PA23's
+  README asks PA22 to leave behind.
+- Data flow. Each recorded gap is re-probed as a program rather than trusted
+  from the row, because a row names a cause nobody re-tested.
+- Expected complexity. One probe per row; no compiler state changes unless a
+  row turns out to be stale.
+- Validation. The whole pa22 suite, `make test-report-through-pa22`, and the
+  scaling sweeps below re-run against `pa22/cppgm++-ref`.
 
 ## Performance Model
 
@@ -142,8 +155,10 @@ absent; `make ref-test` needs `TEST=` spelled **relative**; a git worktree
 cannot be added under `/home/vishvananda/work`; `cppgm++ … | head` reports the
 *pipeline's* status, so a segfault reads as exit 0; the first pass over a corpus
 measures the page cache (2.62 s cold against 1.53 s warm); and `CPPGM_APP_ARGS`
-is read by the perl harness and not by the binary. Every generated input is
-checked for exit 0 before it is timed.
+is read by the perl harness and not by the binary; and `/usr/bin/time -f %e`
+put in a `$(...)` needs its stdout thrown away and its stderr kept, or the
+substitution reads the *program's* output and every row comes out as a sentinel.
+Every generated input is checked for exit 0 before it is timed.
 
 | Path | Sweep | This build | `pa22/cppgm++-ref` |
 |------|-------|-----------|-------------------|
@@ -157,7 +172,9 @@ checked for exit 0 before it is timed.
 | **B** 11.2p1's protected base chain of depth d, 200 accesses | depth 64 → 512 | 0.01 → 0.07 s | 0.55 → 0.69 s (0.97 s before the walk was one per class) |
 | **O** a member class template nested d deep, each level defined out of class | depth 4 → 40 | 0.00 → 0.09 s | 17.78 s and **7.99 GB** at 24; killed at 32 |
 | **F** a hidden friend chain of n declarations | 800 → 3200 | 0.79 s at 3200 | — (15.64 s before `Scope::hidden_index`) |
-| the whole 377-test corpus, one process per file in a shell loop | — | 3.02 s warm (3.11 s at the pre-AA build; the earlier 1.53 s was measured another way) | — |
+| **AB** n declarations `T x = i + a;` over an empty class in one body | 200 → 3200 | 0.00 → 0.08 s | 0.62 → 1.02 s |
+| **AB** one such initializer nested d deep in its own operand | depth 50 → 200 | 0.00 s flat | killed at 60 s at depth 50 |
+| the whole 380-test corpus, one process per file in a shell loop | — | 1.71 s warm, freshly measured; the 3.02 s this row carried was measured another way and is not comparable | — |
 
 ## Completed Checkpoints
 
@@ -182,3 +199,4 @@ checked for exit 0 before it is timed.
 | **Y, Y audit** | 8.3.4p1's bound as a bound *and* a place: `TypeTable::Node::bound_place`, written by both readers of the clause and read by `substituted_array`, `match_bound` and 14.5.5.2's ordering. `collect_packs` and 14.8.2.5p17 were the two walks the new edge had not reached. | 367 → **369 / 373** |
 | **Z, Z audit** | 9.5p1's anonymous aggregate as the object no name reaches: `SemaEntity::anonymous_storage` and `collect_member_targets` with `one_of`, walked by 12.6.2p8, 12.4p8 and 12.6.2p2 alike. The audit made 12.6.2p2 and 8.5.1 answer *which subobject* alike, and 8.5.1p15's `one_per_union` fixed an array of aggregates that had run to the wrong value. | 372 → **374 / 377** |
 | **AA, AA audit** 5.1.2's captureless lambda, 12.8p11's boundary and the step a region may not cover | A lambda-expression was `an expression is outside the PA12 subset`: this build had no closure type at all. 5.1.2p3's class is now *made* — `LambdaReading` builds the class-specifier the standard describes and hands it to the class reading, so the local class, its ABI name, its layout, its call operator's declaration, 9.2p2's reading of the body at the closing brace and the demand-driven definition are the machinery already there; `SemaModel::closure_of` keys one class per lambda-expression by the reading of the body it stands in and the terminals it was written from, which is what the parse now records on the node. p14's initialization is *nothing* for a lambda that captured nothing, so the temporary carries no constructor-action and `temporary_object` gives it storage and writes no call — where 5.1.2p19 leaves no default constructor for one to stand for. `AstKind::DeducedReturnType` is p4 read at 8.3.5p2's place. Under the fixture were two clauses of its own. 12.8p11's boundary asks 12.4p8 of a destructor, and this build answered from a body it had gone looking for: a destructor whose definition this unit's own source did not write is one no reading here may read the emptiness of, and one written *outside* its class is one the boundary in particular may not — `Q { int x; ~Q(){} }` written in a header is returned through a place and written in the unit's own source is returned as bytes, the reference's answer at every shape probed. And 15.2p2's region covered the step that *built* the object it was opened for: `close_region_at_step` ends it where that step began, moving the step's own instructions out, where the handler it carries owes nothing; `naming_storage_` keeps the naming of a new object's storage in front of the region, and `note_call`'s `building` keeps a nonthrowing construction of 12.2p1's own temporary from opening one. 19 shapes swept: 16 accepted (`g++ -pedantic-errors` accepts 19 and the 3 refusals are the recorded capture and return-type gaps), 14 run through `lowir2cy86` + `cy86` and every one returns exactly what `g++` returns, valgrind-clean; 15 of them compared against `pa22/cppgm++-ref` through the real comparator, 10 byte for byte and the 5 differences two recorded causes - 3 are 5.1.2p6's immediate invocation and 2 are the closure's ABI name pairing two identical closures by order.  The audit found the reading a class is held under, not the class: one body is read twice, so a lambda in the returned expression declared one class per reading and 8 nested lambdas came to **255** classes and 11.20 s at 16 - `reading_region` is the outermost region one function declarator opens, walked through a closure class, and depth 64 is now 0.26 s where the reference is killed at 60 s at 32.  Beside it three siblings the two new clauses had not reached: 12.4p8's provenance was written at 12.8p11's boundary and at no end of a lifetime, so a class whose empty destructor a *header* defined was destroyed by nobody at nine shapes the reference destroys; 15.2p2's region ended where a step began however much its handler owed, running a constructor outside the handler that owes the temporary in front of it; and 5.1.2p4's walk read a `return` written in a class 9.3p1 let the body declare, so a closure returning `int` came out `i8` and **ran to 1 where both oracles run 0**.  12.2p1's object is now held beside the class, and a temporary with nothing under it creates its object where the place asking owns storage. | 374 → **375 / 377** |
+| **AB** 12.8p15's copy that carries no byte | The 2 failures the plan called "the reference's own" were a rule this build had not written. 12.8p15's copy of a class with no non-static data member and no base subobject carries **no byte**, and `copy_object_storage` already answered that - a step too late, after the object had been made and its address computed. Asked *before* the initializer is read, `copies_no_byte` says the object is never made either: the initialization writes nothing and its initializer is never lowered, which is what `Iter<int,long> next = 1 + it;` and `basic_string<...> x = "" + s;` come to in the checked-in LowIR. The one initializer this leaves in is 5.2.2p1's **call**, and 13.3.1.2p2 is why that needed a fact: `1 + a` and `operator+(1, a)` reach the lowering as one `call-expression`, so `SemaFact::written_call` is the form the program wrote, taken from the AST where 12.8p31's elision is decided and carried on the node the elision left standing. A destination handed a call is 6.6.3p2's returned object and the ABI's hand-back is a store into it; anything else - an operator, a parenthesized call, 5.16p3's conditional, a cast, 13.3.3.1.2's conversion - is 12.8p15's copy of an object standing elsewhere. Four doors initialize a place the program declared and they do **not** agree, which one sweep of 62 shapes through the real comparator settled rather than one probe: a declaration inside a block keeps the written call, and 3.6.2p2's startup body, 8.5.1p2's aggregate member and 12.6.2's mem-initializer (10.2's base included) each take the copy whatever was written. 8.5.1p1's *element of an array* takes none of it - what fills an element is the value the ABI handed back going into the array's storage - so the member and the element are told apart by `fact.entity`. 2.14.5p8 is the one thing the dropped subtree still owes: a string literal is an array object with static storage duration because it was **written**, so `kept_string_objects` walks the unread initializer and gives each literal its object, which is what the reference's `@__strlit__1` is doing in a unit whose only use of it was dropped. Against the pre-change build the sweep went 18/43 → 59/62, with the 3 that remain all pre-existing and now recorded as gaps. Side effects in a dropped initializer are lost - this build and `pa22/cppgm++-ref` both run to 1 where `g++` runs to 2 - and the `.ref` files pin that reading. `sema_elision` came out of `sema_lifetime.cpp` and `sema_analyzer.h` under the audit's ceilings: 3010 → 2793 lines and 2403 → 2375, with `construct_object` 244 → 211. | 375 → **380 / 380** |

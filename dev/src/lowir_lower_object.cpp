@@ -152,6 +152,27 @@ void LowirFunctionLowering::add_initialization(const Operand& storage,
 		}
 		return;
 	}
+	if (types.is_class(types.strip_cv(type)) && copies_no_byte(node, type))
+	{
+		// 12.8p15 and 9p6: the same copy of a class that holds nothing a
+		// declaration inside a block comes to, asked for an object of the
+		// program image.  It carries no byte, so 3.6.2p2's body runs nothing
+		// for it and the object it would have read is never made - and the
+		// storage is still named, exactly as it is for a constructor call that
+		// wrote nothing.  5.2.2p1's call is *not* left in here: 12.8p31's
+		// elision reaches a block's declaration, whose storage the call is
+		// handed as 6.6.3p2's result object, and this body hands its
+		// destination to nothing - what it writes is the copy whatever the
+		// initializer was written as, which is what the references write at
+		// each of the two.  2.14.5p8's objects stand all the same.
+		LowValue object;
+		object.type = type;
+		object.lvalue = true;
+		object.operand = storage;
+		address_of(object);
+		unit_.kept_string_objects(node);
+		return;
+	}
 	initialize(storage, type, node);
 }
 
@@ -1759,6 +1780,43 @@ void LowirFunctionLowering::copy_class_object(const Operand& destination,
 	copy_object_storage(destination, source, type, stored);
 }
 
+// 12.8p15 and 9p6: whether the copy an initialization of an object of class
+// type comes to carries no byte at all.  The initializer is worth an object of
+// the destination's own class - a prvalue standing wherever the expression made
+// it - and the class has no non-static data member and no base subobject, so
+// there is nothing in that object to read.  `copy_object_storage` answers the
+// same question a step later, once the object has been made and its address
+// computed; asked here, before the initializer is read, it says the object is
+// never made either, which is what the checked-in LowIR writes.
+// 12.8p15 and 9p6: the same question asked of a `constructor-action` whose one
+// operand 13.3 answered with the transfer 12.8p15 defines rather than of the
+// operand alone.  The call carries a value out of an object of the class, which
+// is nothing where the class holds nothing - and what says the class was read
+// rather than built is which constructor was chosen, so the copy and the move
+// are the two this asks about and every other constructor writes its call.
+bool LowirFunctionLowering::transfers_no_byte(const DumpNode& action,
+                                              TypeId type)
+{
+	if (action.children.size() != 3 ||
+	    action.children[0]->fact.entity == nullptr)
+	{
+		return false;
+	}
+	const SemaEntity& constructor = *action.children[0]->fact.entity;
+	return (constructor.transfer == kCopyConstructorTransfer ||
+	        constructor.transfer == kMoveConstructorTransfer) &&
+		copies_no_byte(*action.children[2], type);
+}
+
+bool LowirFunctionLowering::copies_no_byte(const DumpNode& node, TypeId type)
+{
+	TypeTable& types = unit_.types();
+	const TypeId bare = types.strip_cv(type);
+	return types.is_empty_class(bare) &&
+		node.fact.category == ValueCategory::PRValue &&
+		types.strip_cv(node.fact.type) == bare;
+}
+
 // 12.8p15: the bytes of one object of class type written into the storage of
 // another, which is what a copy the standard defines comes to.  A class that
 // holds nothing has no bytes for it, and 9p6 gives its object a size only so
@@ -2467,10 +2525,10 @@ void LowirFunctionLowering::initialize_subobject(
 		// of the prvalue goes with the copy it was elided into.  The address is
 		// still named, because 8.5.1p1 reached the subobject, and the
 		// constructor the analysis chose is still a use of it, so its
-		// definition is still written.  This is the one initialization whose
-		// clause the output does not evaluate, and it is that prvalue alone:
-		// 5.2.3p2's `T()`, a braced clause 13.3.1.7 hands to a constructor, an
-		// element of an array, an argument and a mem-initializer each write
+		// definition is still written.  A clause of any other spelling that is
+		// worth a prvalue of the class comes to the same copy and is left out
+		// the same way, below; 5.2.3p2's `T()`, a braced clause 13.3.1.7 hands
+		// to a constructor, an element of an array and an argument each write
 		// their call.
 		unit_.declare_entity(
 			*node.children[0]->children[0]->children[0]->fact.entity);
@@ -2514,6 +2572,22 @@ void LowirFunctionLowering::initialize_subobject(
 			return;
 		}
 		store(zero_operand(node.fact.type), at, node.fact.type);
+		return;
+	}
+	if (node.fact.entity != nullptr &&
+	    copies_no_byte(*node.children[0], node.fact.type))
+	{
+		// 8.5.1p2: the clause reached a *member*, and what initializes it is
+		// 12.8p15's copy of the object that clause is worth - which for a class
+		// with no non-static data member and no base subobject carries no byte.
+		// So nothing is written for it and the object it would have read is
+		// never made; the member is still named, because 8.5.1p1 reached it.
+		// 8.5.1p1's element of an *array* is not one of them: what fills an
+		// element is the value the ABI handed back going into storage the array
+		// holds, which the references write however little it says - so the
+		// member the class laid out and the element the bound counts are told
+		// apart here by which of the two this subobject is.
+		unit_.kept_string_objects(*node.children[0]);
 		return;
 	}
 	initialize(at, node.fact.type, *node.children[0]);

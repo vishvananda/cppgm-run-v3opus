@@ -1,0 +1,106 @@
+function @operator_(%__param0 : i32, %__param1 : ptr [pass=reference]) -> obj<1x1> [binding=strong, object=_ZpliRK5empty] {
+  slot $__param0 : i32
+  slot $__param1 : ptr
+  slot $retobj__1 : obj<1x1>
+
+  block ^entry:
+    store i32 %__param0, $__param0
+    store ptr %__param1, $__param1
+    %t1 = addr $retobj__1
+    call void @empty__empty(%t1)
+    return obj<1x1> $retobj__1
+}
+function @operator___ov2(%__param0 : i32, %__param1 : ptr [pass=reference]) -> obj<4x4> [binding=strong, object=_ZpliRK4held] {
+  slot $__param0 : i32
+  slot $__param1 : ptr
+  slot $retobj__1 : obj<4x4>
+
+  block ^entry:
+    store i32 %__param0, $__param0
+    store ptr %__param1, $__param1
+    %t1 = addr $retobj__1
+    call void @held__held(%t1)
+    return obj<4x4> $retobj__1
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $source : obj<1x1>
+  slot $held_source : obj<4x4>
+  slot $clause : obj<1x1>
+  slot $held_clause : obj<4x4>
+  slot $elements : obj<2x1>
+  slot $initialized : obj<1x1>
+  slot $based : obj<1x1>
+
+  block ^entry:
+    %t1 = addr $source
+    %t2 = addr $held_source
+    %t3 = addr $clause
+    %t4 = addr $clause
+    %t5 = index i8 [projection=field] %t4, 0
+    %t6 = addr $held_clause
+    %t7 = addr $held_clause
+    %t8 = index i8 [projection=field] %t7, 0
+    %t9 = addr $held_source
+    %t10 = call obj<4x4> @operator___ov2(1, %t9)
+    copyobj 4x4 %t10, %t8
+    %t11 = addr $elements
+    %t12 = addr $source
+    %t13 = call obj<1x1> @operator_(1, %t12)
+    copyobj 1x1 %t13, %t11
+    %t14 = index i8 %t11, 1
+    %t15 = addr $source
+    %t16 = call obj<1x1> @operator_(1, %t15)
+    copyobj 1x1 %t16, %t14
+    %t17 = addr $initialized
+    %t18 = addr $source
+    call void @named_member__named_member(%t17, %t18)
+    %t19 = addr $based
+    %t20 = addr $source
+    call void @derived__derived(%t19, %t20)
+    %t21 = addr $clause
+    %t22 = addr $held_clause
+    %t23 = addr $elements
+    %t24 = addr $initialized
+    %t25 = addr $based
+    return i32 0
+}
+function @empty__empty(%this : ptr) -> void [unwind=no, binding=weak, object=_ZN5emptyC1Ev, trivial_lifecycle=yes] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    return void
+}
+function @held__held(%this : ptr) -> void [unwind=no, binding=weak, object=_ZN4heldC1Ev, trivial_lifecycle=yes] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    return void
+}
+function @named_member__named_member(%this : ptr, %source : ptr [pass=reference]) -> void [binding=weak, object=_ZN12named_memberC1ERK5empty] {
+  slot $this : ptr
+  slot $source : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    store ptr %source, $source
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    return void
+}
+function @derived__derived(%this : ptr, %source : ptr [pass=reference]) -> void [binding=weak, object=_ZN7derivedC1ERK5empty] {
+  slot $this : ptr
+  slot $source : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    store ptr %source, $source
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    return void
+}
+alias object _ZN5emptyC2Ev = @empty__empty
+alias object _ZN4heldC2Ev = @held__held
+alias object _ZN12named_memberC2ERK5empty = @named_member__named_member
+alias object _ZN7derivedC2ERK5empty = @derived__derived

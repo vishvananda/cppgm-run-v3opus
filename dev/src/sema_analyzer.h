@@ -107,6 +107,10 @@ private:
 	// 13.3.1.2p3: the candidate set an operator reaches, which the expression
 	// layer and a fold ask alike - `sema_operator.h`'s for that reason.
 	friend class OperatorCall;
+	// 12.8p31 and 8.5p14: the copy an initialization from a prvalue of the
+	// object's own class does not make, and the form that initializer was
+	// written in - `sema_elision.h`'s, because the one decides the other.
+	friend class Elision;
 	// 5.1.2p3: the closure class, whose class-specifier `sema_lambda.h` builds.
 	friend class LambdaReading;
 
@@ -464,9 +468,6 @@ private:
 	// 12.8p15/p28: the value-transfer member one subobject of class type is
 	// carried by, which for a move falls back on the class's copy member.
 	SemaEntity* selected_transfer(TypeId type, unsigned char kind);
-	// 12.8p32: the constructor a copy 12.8p31 elided would have called, asked
-	// for where the program wrote the initialization it elided from.
-	void require_elided_transfer(TypeId type, const Context& ctx);
 	// 8.3.6p1: whether the parameter at `index` of this function's type has a
 	// default argument, which is what lets 12.8p2 count a constructor with more
 	// parameters as a copy constructor.
@@ -938,32 +939,6 @@ private:
 	                      bool direct = false, bool into_temporary = false,
 	                      bool boundary_object = false,
 	                      SemaEntity** chosen = nullptr);
-	// 8.5p15/p16 and 5.2.3p1: which of 8.5's forms the initializer an object of
-	// class type was written with is - a list whose clauses are the
-	// constructor's arguments, one expression a converting constructor answers,
-	// or the `T(a, b)` and `T{...}` whose arguments are the object's own
-	// because 12.8p31 leaves no prvalue standing between them.
-	WrittenInitializer read_initializer(const AstNode* written,
-	                                    TypeId object_type, const Context& ctx,
-	                                    bool value_init);
-	// 12.8p31 and 12.2p3: the prvalue's object and the object being
-	// initialized are one, so the full-expression that was holding the end of
-	// the first holds it no longer.  Reached through 5.2.9p4's cast, because
-	// the object stands under it and not on it.
-	void elide_created_object(DumpNode& node);
-	// 5.2.9p4: the node the object a prvalue creates stands on, which is the
-	// one under whatever cast to the same class was written over it.
-	DumpNode& created_object_node(DumpNode& node);
-	// 12.8p31: whether the transfer 13.3 chose for this initialization is one
-	// whose argument creates the very object being initialized, which makes the
-	// two objects one and leaves the transfer unwritten.  The initializer the
-	// line then holds is the one that creates it.  `into_temporary` is what the
-	// elision asks about the *destination*: a temporary the analysis made for a
-	// prvalue is storage the enclosing initialization has not settled yet, so
-	// the transfer into one is a call the program can watch run.
-	bool elide_transfer(const SemaEntity& constructor,
-	                    std::vector<Value>& arguments, TypeId object_type,
-	                    DumpNode& line, DumpNode& action, bool into_temporary);
 	// The three lines an initialization of an object of class type leaves once
 	// 13.3 has chosen: the `constructor-action` that says the lifetime begins
 	// here, the call that runs the constructor and the callee that names it.

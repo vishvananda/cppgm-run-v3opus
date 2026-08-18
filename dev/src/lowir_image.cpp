@@ -1593,6 +1593,25 @@ void LowirUnitLowering::kept_string_object(const DumpNode& node, TypeId element)
 	}
 }
 
+// 2.14.5p8: the objects the literals written inside an expression the lowering
+// leaves unread are.  Such an object has static storage duration because the
+// program wrote the literal, and nothing about it waits on the expression being
+// evaluated - so where 12.8p15's copy of a class that holds nothing leaves the
+// initializer unread, the array the literal names still stands in the program.
+// One walk of the subtree, which is the expression's own size.
+void LowirUnitLowering::kept_string_objects(const DumpNode& node)
+{
+	if (node.fact.kind == FactKind::Literal && !node.fact.spelling.empty() &&
+	    types_.kind(types_.strip_cv(node.fact.type)) == TypeKind::Array)
+	{
+		string_literal(node.fact.spelling, node.fact.type);
+	}
+	for (std::size_t index = 0; index < node.children.size(); ++index)
+	{
+		kept_string_objects(*node.children[index]);
+	}
+}
+
 bool LowirUnitLowering::global_array_initializer(
 	lowir_model::GlobalDefinition& global, const DumpNode* node, TypeId type)
 {

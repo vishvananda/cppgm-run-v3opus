@@ -1,0 +1,76 @@
+global @__strlit__1 [binding=internal] = {
+  i8 111
+  i8 110
+  i8 101
+  i8 0
+}
+global @__strlit__2 [binding=internal] = {
+  i8 116
+  i8 119
+  i8 111
+  i8 0
+}
+
+function @operator_(%__param0 : ptr, %__param1 : ptr [pass=reference]) -> obj<1x1> [binding=strong, object=_ZplPKcRK5empty] {
+  slot $__param0 : ptr
+  slot $__param1 : ptr
+  slot $retobj__1 : obj<1x1>
+
+  block ^entry:
+    store ptr %__param0, $__param0
+    store ptr %__param1, $__param1
+    %t1 = addr $retobj__1
+    call void @empty__empty(%t1)
+    return obj<1x1> $retobj__1
+}
+function @keep(%text : ptr) -> ptr [binding=strong, object=_Z4keepPKc] {
+  slot $text : ptr
+
+  block ^entry:
+    store ptr %text, $text
+    %t1 = load ptr $text
+    return ptr %t1
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $source : obj<1x1>
+  slot $first : obj<1x1>
+  slot $second : obj<1x1>
+  slot $named : ptr
+  slot $cond__1 : i32
+
+  block ^entry:
+    %t1 = addr $source
+    %t2 = addr $first
+    %t3 = addr $second
+    %t4 = addr @__strlit__1
+    %t5 = call ptr @keep(%t4)
+    store ptr %t5, $named
+    %t6 = addr $first
+    %t7 = addr $second
+    %t8 = load ptr $named
+    %t9 = index i8 [projection=array_element] %t8, 0
+    %t10 = load i8 %t9
+    %t11 = convert sext i32 i8 %t10
+    %t12 = cmp eq i32 %t11, 111
+    branch %t12, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t13 = load i32 $cond__1
+    return i32 %t13
+}
+function @empty__empty(%this : ptr) -> void [unwind=no, binding=weak, object=_ZN5emptyC1Ev, trivial_lifecycle=yes] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    return void
+}
+alias object _ZN5emptyC2Ev = @empty__empty

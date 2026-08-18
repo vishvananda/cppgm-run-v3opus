@@ -192,6 +192,7 @@ struct SemaFact
 		, zero_initialized(false)
 		, reverse_elements(false)
 		, elided_prvalue(false)
+		, written_call(false)
 		, boundary_object(false)
 		, binds_temporary(false)
 		, base_subobject(false)
@@ -270,6 +271,23 @@ struct SemaFact
 	// asks for copies nothing and the reference elides the construction of the
 	// prvalue with it.
 	bool elided_prvalue;
+	// 5.2.2p1 and 12.8p31: whether the initializer this elided prvalue stands
+	// as was *written* as a call - a postfix-expression and its argument list.
+	// The elision hands the destination to what creates the object, and what a
+	// call creates is 6.6.3p2's returned object: the ABI hands its bytes back
+	// and putting them where the destination stands is a store however little
+	// it says.  Every other spelling of a prvalue of the class - 13.3.1.2p2's
+	// rewrite of an operator into a call, 5.16p3's conditional, a parenthesized
+	// call, 13.3.3.1.2's conversion, a cast over any of them - is worth an
+	// object standing where the expression made it, and 12.8p15's copy of that
+	// object into the destination is the copy of an object rather than a store
+	// of a value.  9p6 leaves a class with no non-static data member and no
+	// base subobject no byte for such a copy to carry, so the checked-in LowIR
+	// writes neither it nor the object it would have read.  The node is elided
+	// into one destination, so this is a fact of the one initialization it is:
+	// 13.3.1.2p2 leaves the two spellings one `call-expression`, and the
+	// lowering has nothing else to tell them apart by.
+	bool written_call;
 	// 5.2.2p4 and 6.6.3p2: whether the object this `constructor-action` builds
 	// is one a *boundary* made to carry a value across it - the parameter a
 	// call passes by value, the object a return hands back - rather than one an

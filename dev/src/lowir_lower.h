@@ -383,6 +383,12 @@ public:
 	// 2.14.5p8: that object where 8.5.2p1 copied the literal into an *element*
 	// of an array, which is the one place the copy is all that names it.
 	void kept_string_object(const DumpNode& node, TypeId element);
+	// 2.14.5p8: those objects for every literal written inside an expression
+	// the lowering does not read.  The literal has static storage duration
+	// because the program wrote it, not because anything evaluates the
+	// expression it stands in, so an initialization that comes to nothing
+	// leaves the objects standing all the same.
+	void kept_string_objects(const DumpNode& node);
 	// 3.7.2p2 and 3.6.3p3: the runtime entries an object destroyed at the end
 	// of its thread needs - the function the destruction is handed to, and the
 	// handle that says which loaded image the pair belongs to.  Each is
@@ -1318,6 +1324,15 @@ private:
 	void copy_class_object(const lowir_model::Operand& destination,
 	                       const lowir_model::Operand& source, TypeId type,
 	                       bool stored = false);
+	// 12.8p15 and 9p6: whether the copy this initializer comes to carries no
+	// byte - `node` is worth an object of the destination's own class, and the
+	// class has no non-static data member and no base subobject to read out of
+	// it.  Asked *before* the initializer is read, because what the copy would
+	// have carried is what says whether the object it reads is made at all.
+	bool copies_no_byte(const DumpNode& node, TypeId type);
+	// The same question asked of a `constructor-action` 13.3 answered with
+	// 12.8p15's own transfer, whose one operand is what the copy would read.
+	bool transfers_no_byte(const DumpNode& action, TypeId type);
 	// 12.8p15: the bytes of one object of class type written into the storage
 	// of another, which is what a copy the standard defines comes to.
 	void copy_object_storage(const lowir_model::Operand& destination,
