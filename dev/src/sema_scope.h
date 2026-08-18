@@ -597,6 +597,14 @@ struct SemaEntity
 	// not write.  9.4p1 makes a member declared `static` a member of the class
 	// and not of an object, so the region alone does not say.
 	bool object_member;
+	// 9.5p1: whether this variable is the object an anonymous aggregate
+	// declared, which no name of the program's reaches.  It is a member or a
+	// variable like any other in every reading that asks where an object is;
+	// what it says is that the members declared *in* it are the ones 9.5p2 made
+	// members of the region around it, so 12.6.2p8 leaves the object itself
+	// uninitialized and names them through it instead.  An unnamed class a
+	// declarator did name - `union { int a; } u;` - is not one of these.
+	bool anonymous_storage;
 	// 7.1.1p10: whether the declaration wrote `mutable`, which nullifies the
 	// const an object of the class carries into this member.  A member function
 	// declared `const` may write one, and 5.3.1p3 hands back a pointer to
@@ -1366,6 +1374,31 @@ private:
 // 7.3.3p1's using-declaration declares a member of a base class, which that
 // class already laid out.  None of the three is storage this class gives.
 bool declares_subobject(const SemaEntity& member, const Scope& scope);
+
+// 9.5p2 and 12.6.2p10: one subobject the constructor of a class initializes and
+// its destructor destroys, in the order the class declared them.
+//
+// A member is one of these unless 9.5p1 declared it, because the object an
+// anonymous aggregate declared is one no name reaches: 9.5p2 makes the members
+// written *in* it members of the region around it, 12.6.2p2 lets a
+// mem-initializer-id name one there, and 12.6.2p8 leaves the aggregate itself
+// alone.  So the walk descends through such an object and collects what it
+// holds, which is the same set of subobjects the layout already laid out.
+//
+// `one_of` is the union whose single storage the member stands in - the
+// constructor's own class where 9.5p1 wrote a union, and the object an
+// anonymous union declared where one stands inside a class.  Null for a member
+// that is an object of its own, which is what says 12.6.2p8 default-initializes
+// it rather than leaving it holding no member of any of them.
+struct MemberTarget
+{
+	SemaEntity* member;
+	const SemaEntity* one_of;
+};
+
+void collect_member_targets(Scope& members, const SemaEntity* one_of,
+                            const SemaModel& model, TypeTable& types,
+                            std::vector<MemberTarget>& targets);
 
 // 8.5.1p1: whether an object of the class `scope` declares is initialized from
 // a braced-init-list by initializing its members with the clauses, which is a

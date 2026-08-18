@@ -1249,8 +1249,16 @@ SemaAnalyzer::Value SemaAnalyzer::through_anonymous_storage(
 	bool arrow = wrote_arrow;
 	for (std::size_t index = chain.size(); index-- > 0;)
 	{
-		object = member_value(*chain[index], object, chain[index]->name,
-		                      model_.wrap_node(*object.node, std::string()),
+		// The step goes above the object expression, so the line the object was
+		// read into is wrapped and the object goes on naming what that line now
+		// holds.  10.2 may still put a base class subobject between the two -
+		// 9.5p1's object is declared in whichever class wrote the anonymous
+		// aggregate, which need not be the one the access named - and that
+		// conversion is written around the *operand*, so the operand has to
+		// stay the node below rather than the one this step is taking.
+		DumpNode& step = model_.wrap_node(*object.node, std::string());
+		object.node = step.children[0];
+		object = member_value(*chain[index], object, chain[index]->name, step,
 		                      checked_base, arrow);
 		arrow = false;
 	}

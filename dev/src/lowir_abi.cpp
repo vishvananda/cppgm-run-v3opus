@@ -617,7 +617,14 @@ std::vector<NameRegion> name_regions(const SemaEntity& entity, TypeTable& types,
 	{
 		NameRegion region;
 		region.owner = owners[index];
-		region.name = owners[index]->name;
+		// 9.5p1 and 9.1p2: a class the program left unnamed still stands over
+		// the members declared in it, and the object file has to write a
+		// component for it - so the name the translation gave the *type* stands
+		// where the declaration has none of its own.  It is one identifier by
+		// construction, which is what a `<source-name>` is.
+		region.name = owners[index]->name.empty()
+			? types.user_name(owners[index]->type)
+			: owners[index]->name;
 		regions.push_back(region);
 	}
 	return regions;

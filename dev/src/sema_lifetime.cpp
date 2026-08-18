@@ -1872,29 +1872,32 @@ void SemaAnalyzer::write_member_initializations(const Pending& pending,
 	// a constructor of one initializes at most one of them - the variant member
 	// a mem-initializer designated, else the one 9.5p2 let write a
 	// brace-or-equal-initializer, and no member at all where the
-	// ctor-initializer designated another.  Which of the two it is, is one probe
-	// of the class's region per mem-initializer the list held.
-	const bool is_union =
-		members.owner != nullptr && one_storage(members.owner->type);
-	bool designated_variant = false;
-	for (std::unordered_map<std::string, MemInitializer>::const_iterator at =
-	         named.begin();
-	     is_union && !designated_variant && at != named.end(); ++at)
+	// ctor-initializer designated another.  The union is the class itself where
+	// 9.5p1 wrote one, and the object an anonymous union declared where one is
+	// written in a class - so which storage a member stands in is the fact the
+	// walk carries, and `designated` holds the storages a mem-initializer named
+	// a member of.  One probe of the index per subobject settles it.
+	std::vector<MemberTarget> targets;
+	collect_member_targets(members,
+	                       members.owner != nullptr &&
+	                               one_storage(members.owner->type)
+	                           ? members.owner : nullptr,
+	                       model_, types_, targets);
+	std::unordered_set<const SemaEntity*> designated;
+	std::unordered_set<const SemaEntity*> initialized;
+	for (std::size_t index = 0; index < targets.size(); ++index)
 	{
-		const std::unordered_map<std::string, Binding>::const_iterator found =
-			members.names.find(at->first);
-		designated_variant = found != members.names.end() &&
-			found->second.ordinary != nullptr &&
-			declares_subobject(*found->second.ordinary, members);
+		if (targets[index].one_of != nullptr &&
+		    named.count(targets[index].member->name) != 0)
+		{
+			designated.insert(targets[index].one_of);
+		}
 	}
 	write_base_initialization(pending, line, named, inner);
-	for (std::size_t index = 0; index < members.declarations.size(); ++index)
+	for (std::size_t index = 0; index < targets.size(); ++index)
 	{
-		SemaEntity& member = *members.declarations[index];
-		if (!declares_subobject(member, members))
-		{
-			continue;
-		}
+		SemaEntity& member = *targets[index].member;
+		const SemaEntity* const one_of = targets[index].one_of;
 		const AstNode* written = nullptr;
 		Context where = inner;
 		const std::unordered_map<std::string, MemInitializer>::iterator
@@ -1905,7 +1908,7 @@ void SemaAnalyzer::write_member_initializations(const Pending& pending,
 			wrote->second.used = true;
 		}
 		if (written == nullptr && member.default_initializer &&
-		    !designated_variant)
+		    designated.count(one_of) == 0)
 		{
 			// 12.6.2p8 and 9.2p2: a brace-or-equal-initializer is read in the
 			// class it was written in, which is a complete-class context.  In a
@@ -1922,7 +1925,7 @@ void SemaAnalyzer::write_member_initializations(const Pending& pending,
 				where.dump = where.scope->dump;
 			}
 		}
-		if (is_union && written == nullptr)
+		if (one_of != nullptr && written == nullptr)
 		{
 			// 12.6.2p8: a variant member no mem-initializer designated and no
 			// brace-or-equal-initializer reaches is not initialized at all -
@@ -1931,6 +1934,19 @@ void SemaAnalyzer::write_member_initializations(const Pending& pending,
 			// difference: the constructor says which member stands in it, and
 			// one that says nothing leaves it holding no member of any of them.
 			continue;
+		}
+		if (one_of != nullptr && !initialized.insert(one_of).second)
+		{
+			// 12.6.2p8: an attempt to initialize more than one non-static data
+			// member of a union renders the program ill formed, because the two
+			// initializations write over one another's storage.  Each union is
+			// asked on its own, so a class holding two anonymous unions may
+			// initialize a member of each.
+			throw std::runtime_error("a constructor of " +
+			                         types_.description(pending.function->type) +
+			                         " initializes " + member.name +
+			                         " as well as another member of the union it "
+			                         "stands in");
 		}
 		where.node = nullptr;
 		const TypeId type = member.type;
@@ -2484,14 +2500,20 @@ void SemaAnalyzer::write_member_parameters(const Pending& pending,
 // storage already refuses to write the construction of.
 void SemaAnalyzer::write_member_destructions(Scope& members, DumpNode& line)
 {
-	if (members.owner != nullptr && one_storage(members.owner->type))
+	// 9.5p2: the object an anonymous aggregate declared is not a subobject any
+	// destructor of the class names either - the members written in it are the
+	// class's own, and each is destroyed here or is a variant member that is
+	// not destroyed at all.
+	std::vector<MemberTarget> targets;
+	collect_member_targets(members,
+	                       members.owner != nullptr &&
+	                               one_storage(members.owner->type)
+	                           ? members.owner : nullptr,
+	                       model_, types_, targets);
+	for (std::size_t index = targets.size(); index-- > 0;)
 	{
-		return;
-	}
-	for (std::size_t index = members.declarations.size(); index-- > 0;)
-	{
-		SemaEntity& member = *members.declarations[index];
-		if (!declares_subobject(member, members))
+		SemaEntity& member = *targets[index].member;
+		if (targets[index].one_of != nullptr)
 		{
 			continue;
 		}

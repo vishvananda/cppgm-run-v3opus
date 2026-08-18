@@ -645,6 +645,95 @@ void ConstexprReading::mem_initializers(
 	}
 }
 
+// 12.6.2p10 and 9.2p13: the entries an object of `bare` holds while a
+// constructor of it is being folded - one per subobject, in the order the class
+// laid them out, which is the order `subobjects` and `member_path` both read.
+//
+// 9.5p1's object is the one entry no mem-initializer-id can name, because the
+// program has no name for it: 9.5p2 made the members written inside it members
+// of the class around it, and 12.6.2p2 lets a mem-initializer name one there.
+// So the walk descends through that entry with the same index list the reader
+// walks down, and the mem-initializers that named its members are read against
+// its own subobjects.  The index is asked once per subobject either way, so a
+// constructor of n of them stays n readings.
+void ConstexprReading::subobject_entries(
+	TypeId bare,
+	std::unordered_map<std::string, WrittenMemInitializer>& written_for,
+	const SemaContext& inner, std::vector<TypeId>& holds)
+{
+	std::vector<Subobject> members;
+	subobjects(bare, members);
+	// 9.5p1: a union holds one of its members at a time, so a constructor of one
+	// begins the lifetime of exactly the member its ctor-initializer names -
+	// which is what tells a member this walk has no initialization to read from
+	// a member 7.1.5p4 says the constructor left uninitialized.
+	const bool one_member = analyzer_.one_storage(bare);
+	holds.reserve(members.size());
+	for (std::size_t index = 0; index < members.size(); ++index)
+	{
+		const Subobject& held = members[index];
+		if (!held.base && held.entity->anonymous_storage)
+		{
+			// 9.5p2 and 12.6.2p8: the object itself takes no initialization of
+			// its own, and what it holds is what the mem-initializers naming
+			// the members declared in it left there.
+			std::vector<TypeId> inside;
+			subobject_entries(analyzer_.types_.strip_cv(held.type), written_for,
+			                  inner, inside);
+			SemaConstant nested;
+			nested.type = analyzer_.types_.strip_cv(held.type);
+			nested.bits = analyzer_.types_.type_list(inside);
+			holds.push_back(entry_of(nested));
+			continue;
+		}
+		// 12.6.2p2: a mem-initializer-id that names a direct base is held under
+		// the whole name of that class and every other under the member's own,
+		// which is the keying `base_key` gave the index above.
+		const std::unordered_map<std::string, WrittenMemInitializer>::const_iterator
+			found = written_for.find(
+				held.base ? analyzer_.types_.user_name(held.type)
+				          : held.entity->name);
+		if (one_member && found == written_for.end() &&
+		    (held.base || !held.entity->default_initializer ||
+		     analyzer_.member_initializers_.count(held.entity->id) == 0))
+		{
+			// 9.5p1 and 12.6.2p8: no initialization named this member, so its
+			// lifetime never began and it holds nothing - which is the entry
+			// no reader may take a value out of, rather than the refusal
+			// 7.1.5p4 makes of a member of a class every one of whose members
+			// an initialization has to reach.
+			holds.push_back(kNoType);
+			continue;
+		}
+		const SemaConstant value = subobject_initialized(
+			bare, held, found == written_for.end() ? nullptr : &found->second,
+			inner);
+		if (!valued_subobject(held.type))
+		{
+			throw NotConstant("a subobject of " +
+			                  analyzer_.types_.description(bare) +
+			                  " is outside the values a constant expression "
+			                  "holds", false);
+		}
+		holds.push_back(entry_of(value));
+		if (!held.base && inner.scope->names.count(held.entity->name) == 0)
+		{
+			// 12.6.2p10: a member already initialized is one a later
+			// mem-initializer reads, and what the object holds for it is
+			// settled by that initialization rather than written again.
+			bind_constant(held.entity->name, value, inner, false);
+		}
+	}
+	while (one_member && !holds.empty() && holds.back() == kNoType)
+	{
+		// 9.5p1: the list stops at the member whose lifetime the initialization
+		// began, which is the same shape `object_of` gives a union an
+		// aggregate initializer wrote - so one reading of an entry past the end
+		// answers both.
+		holds.pop_back();
+	}
+}
+
 // 12.6.2p10 over one subobject of the class being built.
 //
 // A base class subobject and a member of class type are read the same way, and
@@ -896,64 +985,8 @@ SemaConstant ConstexprReading::object_from_constructor(
 			child_kind(*one->constexpr_body, AstKind::CtorInitializer), owner,
 			inner, written_for);
 	}
-	std::vector<Subobject> members;
-	subobjects(bare, members);
-	// 9.5p1: a union holds one of its members at a time, so a constructor of one
-	// begins the lifetime of exactly the member its ctor-initializer names -
-	// which is what tells a member this walk has no initialization to read from
-	// a member 7.1.5p4 says the constructor left uninitialized.
-	const bool one_member = analyzer_.one_storage(bare);
 	std::vector<TypeId> holds;
-	holds.reserve(members.size());
-	for (std::size_t index = 0; index < members.size(); ++index)
-	{
-		const Subobject& held = members[index];
-		// 12.6.2p2: a mem-initializer-id that names a direct base is held under
-		// the whole name of that class and every other under the member's own,
-		// which is the keying `base_key` gave the index above.
-		const std::unordered_map<std::string, WrittenMemInitializer>::const_iterator
-			found = written_for.find(
-				held.base ? analyzer_.types_.user_name(held.type)
-				          : held.entity->name);
-		if (one_member && found == written_for.end() &&
-		    (held.base || !held.entity->default_initializer ||
-		     analyzer_.member_initializers_.count(held.entity->id) == 0))
-		{
-			// 9.5p1 and 12.6.2p8: no initialization named this member, so its
-			// lifetime never began and it holds nothing - which is the entry
-			// no reader may take a value out of, rather than the refusal
-			// 7.1.5p4 makes of a member of a class every one of whose members
-			// an initialization has to reach.
-			holds.push_back(kNoType);
-			continue;
-		}
-		const SemaConstant value = subobject_initialized(
-			bare, held, found == written_for.end() ? nullptr : &found->second,
-			inner);
-		if (!valued_subobject(held.type))
-		{
-			throw NotConstant("a subobject of " +
-			                  analyzer_.types_.description(bare) +
-			                  " is outside the values a constant expression "
-			                  "holds", false);
-		}
-		holds.push_back(entry_of(value));
-		if (!held.base && inner.scope->names.count(held.entity->name) == 0)
-		{
-			// 12.6.2p10: a member already initialized is one a later
-			// mem-initializer reads, and what the object holds for it is
-			// settled by that initialization rather than written again.
-			bind_constant(held.entity->name, value, inner, false);
-		}
-	}
-	while (one_member && !holds.empty() && holds.back() == kNoType)
-	{
-		// 9.5p1: the list stops at the member whose lifetime the initialization
-		// began, which is the same shape `object_of` gives a union an
-		// aggregate initializer wrote - so one reading of an entry past the end
-		// answers both.
-		holds.pop_back();
-	}
+	subobject_entries(bare, written_for, inner, holds);
 	SemaConstant out;
 	out.type = bare;
 	out.bits = analyzer_.types_.type_list(holds);
@@ -1086,6 +1119,26 @@ bool ConstexprReading::member_path(TypeId type, SemaEntity& named,
 			path.push_back(index);
 			return true;
 		}
+	}
+	for (std::size_t index = 0; index < held.size(); ++index)
+	{
+		// 9.5p2: a member of an anonymous aggregate is a member of the class
+		// around it, and the subobject it stands in is the object 9.5p1
+		// declared - so the path to it runs through that object, which no name
+		// the program wrote reaches.  10.2's base subobject is the other step a
+		// name found in this class may need, and it is asked after, because a
+		// member of the class itself hides one a base declared.
+		if (held[index].base || held[index].entity == nullptr ||
+		    !held[index].entity->anonymous_storage)
+		{
+			continue;
+		}
+		path.push_back(index);
+		if (member_path(held[index].type, named, path))
+		{
+			return true;
+		}
+		path.pop_back();
 	}
 	for (std::size_t index = 0; index < held.size(); ++index)
 	{

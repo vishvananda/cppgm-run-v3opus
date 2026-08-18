@@ -65,6 +65,48 @@ bool declares_subobject(const SemaEntity& member, const Scope& scope)
 		member.region == &scope && member.shadowed == nullptr;
 }
 
+namespace
+{
+
+// 9.5p1: whether the class is a union, asked of the type a member was declared
+// with rather than of a region, because this walk holds no analyzer.
+bool one_storage_type(TypeId type, TypeTable& types)
+{
+	const TypeId bare = types.strip_cv(type);
+	return types.is_class(bare) && types.class_tag(bare) == ClassTag::Union;
+}
+
+}  // namespace
+
+void collect_member_targets(Scope& members, const SemaEntity* one_of,
+                            const SemaModel& model, TypeTable& types,
+                            std::vector<MemberTarget>& targets)
+{
+	for (std::size_t index = 0; index < members.declarations.size(); ++index)
+	{
+		SemaEntity& member = *members.declarations[index];
+		if (!declares_subobject(member, members))
+		{
+			continue;
+		}
+		SemaEntity* const held = member.anonymous_storage
+			? model.type_owner(types.strip_cv(member.type))
+			: nullptr;
+		if (held != nullptr && held->scope != nullptr)
+		{
+			collect_member_targets(*held->scope,
+			                       one_storage_type(member.type, types)
+			                           ? &member : one_of,
+			                       model, types, targets);
+			continue;
+		}
+		MemberTarget target;
+		target.member = &member;
+		target.one_of = one_of;
+		targets.push_back(target);
+	}
+}
+
 // 8.5.1p1: whether an object of the class `scope` declares is initialized from
 // a braced-init-list by initializing its members with the clauses.  A class
 // with a base class is no aggregate, which the caller asks before this, and the
@@ -370,6 +412,7 @@ SemaEntity& SemaModel::create(SemaKind kind, const std::string& name, TypeId typ
 	entity.empty_body = false;
 	entity.own_source_definition = false;
 	entity.object_member = false;
+	entity.anonymous_storage = false;
 	entity.mutable_member = false;
 	entity.template_parameters = nullptr;
 	entity.templated = nullptr;

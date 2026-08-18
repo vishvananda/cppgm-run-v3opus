@@ -2148,6 +2148,16 @@ bool SemaAnalyzer::trivial_default_construction(Scope& scope)
 			return false;
 		}
 	}
+	// 12.6.2p8 and 9.5p1: a variant member no mem-initializer designated is not
+	// initialized at all, and the constructor the standard defines designates
+	// none - so what default-initializing an object of a union comes to is what
+	// 9.5p2's one brace-or-equal-initializer comes to, and nothing else.  This
+	// is 12.4p8's reading of the same one storage at the other end of the
+	// lifetime, which `vacuous_destruction` and `write_member_destructions`
+	// already write, asked here so the question and the code that answers it
+	// agree: a member of class type whose own constructor does something is no
+	// object of the union's until a constructor says it stands in the storage.
+	const bool variant = scope.owner != nullptr && one_storage(scope.owner->type);
 	for (std::size_t index = 0; index < scope.declarations.size(); ++index)
 	{
 		const SemaEntity& member = *scope.declarations[index];
@@ -2158,6 +2168,10 @@ bool SemaAnalyzer::trivial_default_construction(Scope& scope)
 		if (member.default_initializer)
 		{
 			return false;
+		}
+		if (variant)
+		{
+			continue;
 		}
 		const SemaEntity* const constructor =
 			class_constructors(types_.element_of(member.type));
@@ -2382,6 +2396,9 @@ void SemaAnalyzer::inject_anonymous_members(SemaEntity* entity,
 		model_.bind(*ctx.scope, name, *storage);
 		model_.declare_in(*ctx.scope, *storage);
 		storage->object_member = ctx.scope->kind == ScopeKind::Class;
+		// 9.5p1: this is the object no name reaches, which is what tells it
+		// from an object of an unnamed class a declarator did name.
+		storage->anonymous_storage = true;
 		// 3.1p2 and 9.5p3: at namespace scope the class declared an object, and
 		// this unit is the one that defines it - with the internal linkage
 		// `static` gave it, which is what keeps two units that each write one

@@ -704,6 +704,14 @@ private:
 	void mem_initializers(
 		const AstNode* initializers, SemaEntity& owner, const SemaContext& inner,
 		std::unordered_map<std::string, WrittenMemInitializer>& out);
+	// 12.6.2p10 and 9.5p2: the entries an object of the class holds, one per
+	// subobject in layout order, taken from that index.  9.5p1's own object is
+	// the entry no mem-initializer-id names, so the walk descends through it and
+	// reads the mem-initializers that named the members declared inside it.
+	void subobject_entries(
+		TypeId bare,
+		std::unordered_map<std::string, WrittenMemInitializer>& written_for,
+		const SemaContext& inner, std::vector<TypeId>& holds);
 	// 12.6.2p10 over one entry of that walk: what the base class subobject or
 	// the non-static data member `held` is initialized with - the
 	// mem-initializer that named it, else 12.6.2p8's brace-or-equal-initializer,
