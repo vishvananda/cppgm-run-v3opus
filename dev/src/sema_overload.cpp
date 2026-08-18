@@ -312,8 +312,35 @@ SemaEntity* SemaAnalyzer::converting_constructor(const Value& argument,
 	SemaEntity* best = nullptr;
 	Match chosen;
 	bool tied = false;
-	for (SemaEntity* at = head; at != nullptr; at = at->next)
+	for (SemaEntity* declared = head; declared != nullptr;
+	     declared = declared->next)
 	{
+		SemaEntity* at = declared;
+		if (declared->template_parameters != nullptr)
+		{
+			// 13.3.1.4p1 with 14.8.3p1: a constructor *template* is one of the
+			// converting constructors this set is chosen from, and it is one
+			// through the specialization the argument deduces for it - the
+			// template itself declares a parameter of no type an argument can
+			// reach.  12.3.1p2's `explicit` is asked of the template, because
+			// the specialization inherits it and deducing first would be work
+			// spent on a declaration this set does not hold.
+			//
+			// This is the door `box<int>` reaches `const box<long>&` through:
+			// 13.3.3.1.2p1's user-defined conversion is a call of
+			// `template<class U> box(const box<U>&)`, and the deduction is one
+			// P/A pair over one argument.
+			if (declared->explicit_function || declared->deleted)
+			{
+				continue;
+			}
+			std::vector<Value> alone(1, argument);
+			at = Deduction(*this).from_call(*declared, alone);
+			if (at == nullptr)
+			{
+				continue;
+			}
+		}
 		const std::vector<TypeId>& parameters = types_.parameters(at->type);
 		// 9.3.1p3 put the object 12.1 constructs in the type, so a constructor
 		// that converts takes exactly one argument beside it.  13.3.2p2 counts
