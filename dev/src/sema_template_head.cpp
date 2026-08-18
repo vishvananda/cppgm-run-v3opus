@@ -1210,7 +1210,9 @@ void TemplateHead::open_region(TemplateInfo& info)
 		if (place.name.empty())
 		{
 			// 14.1p3: a parameter with no identifier binds nothing, and still
-			// stands for an argument.
+			// stands for an argument.  The class tier counts its places from
+			// `info.parameters` and not from this region, so an unnamed one is
+			// already one of them.
 			continue;
 		}
 		SemaEntity& bound = analyzer_.model_.create(

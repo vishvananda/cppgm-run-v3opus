@@ -422,15 +422,24 @@ enum class TemporaryRequest
 // instantiation reads it from again - the specifier as it was written, and the
 // region it was written in, whose names stand for what the arguments make of
 // them.  Nothing is substituted into the expression: it is read a second time.
+// 14.3.2p1's value argument an argument list has yet to settle is kept the same
+// way and for the same reason: `X<A + 1>` written in a function template's own
+// declarator is a type built once, and what it comes to is the expression read
+// again against the arguments.  So `written` null with a `spelling` is that
+// second form - 5.19 over the text 14.2 left the argument as, converted to the
+// type `place` names once the arguments have settled it.
 struct DependentDecltype
 {
 	DependentDecltype()
 		: written(nullptr)
 		, region(nullptr)
+		, place(kNoType)
 	{}
 
 	const AstNode* written;
 	Scope* region;
+	std::string spelling;
+	TypeId place;
 	// 3.3.7p1: how many declarations each of those regions had made when the
 	// specifier was read, innermost first.  A place a clause declares *after* a
 	// specifier is one that specifier could not name - its potential scope

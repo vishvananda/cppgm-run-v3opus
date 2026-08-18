@@ -1281,16 +1281,22 @@ void SemaAnalyzer::template_parameter(const AstNode& node, const Context& ctx)
 		// milestone.
 		return;
 	}
-	const AstNode* id = child_of(node, AstKind::Identifier);
-	if (id == nullptr)
-	{
-		return;
-	}
+	// 14.1p3: a type place its head left unnamed still takes an argument, and a
+	// function template's places are counted from this region - so it is
+	// declared here under a name nothing writes, exactly as a value place with
+	// no declarator-id is.  Leaving it undeclared made `template<typename,
+	// typename> R f(...)` a head that declared *no* place, which is a head no
+	// argument list is long enough to fit - and the second overload of every
+	// two-argument SFINAE probe is written that way.
+	const AstNode* const id = child_of(node, AstKind::Identifier);
+	const std::string spelled =
+		id == nullptr ? "#" + std::to_string(ctx.scope->declarations.size())
+		              : id->text;
 	// 14.1p2: a parameter declared with `template` names a template rather
 	// than a type; the parameters of its own clause belong to it alone.
 	const bool is_template = has_child(node, AstKind::TemplateTemplateParameter);
 	const TypeId type = types_.template_parameter_type(model_.type_entity_id(),
-	                                                   is_template, id->text);
+	                                                   is_template, spelled);
 	if (is_template)
 	{
 		// 14.1p2: the clause the place wrote is a head of its own, and what a
@@ -1314,8 +1320,12 @@ void SemaAnalyzer::template_parameter(const AstNode& node, const Context& ctx)
 	// every name written for it shall be expanded - which is a fact of the type
 	// the place declared, so a reading of an expansion finds it without the head.
 	types_.set_template_pack(type, has_child(node, AstKind::ParameterPack));
-	SemaEntity& entity = model_.create(SemaKind::TemplateType, id->text, type);
-	model_.bind(*ctx.scope, id->text, entity);
+	SemaEntity& entity = model_.create(
+		SemaKind::TemplateType, id == nullptr ? std::string() : id->text, type);
+	if (id != nullptr)
+	{
+		model_.bind(*ctx.scope, entity.name, entity);
+	}
 	model_.declare_in(*ctx.scope, entity);
 	// 14.1p9: the argument this place takes where the use wrote none and no
 	// deduction reached it.  It is the parameter's own fact - 14.1p2 lets each
@@ -1331,7 +1341,10 @@ void SemaAnalyzer::template_parameter(const AstNode& node, const Context& ctx)
 			parameter_defaults_.insert(std::make_pair(entity.id, carried));
 		}
 	}
-	write_line(*ctx.dump, "type", id->text, type);
+	if (id != nullptr)
+	{
+		write_line(*ctx.dump, "type", entity.name, type);
+	}
 }
 
 // 14.1p4: a non-type template parameter, declared into the region its head

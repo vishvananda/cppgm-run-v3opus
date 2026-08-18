@@ -1,6 +1,8 @@
 #pragma once
 
 #include <cstddef>
+#include <stdexcept>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -9,6 +11,69 @@
 class SemaAnalyzer;
 struct AnalyzedValue;
 struct SemaEntity;
+
+// 14.8.2p8's other half: a failure that happened while a *template* was being
+// instantiated rather than in the immediate context of a substitution.
+//
+// Substituting an argument list reaches for classes the arguments name, and
+// 14.7.1p1's reading of one of those is a translation of its own: what its body
+// refuses - a `static_assert` over the arguments, a member whose type is ill
+// formed - is refused wherever the instantiation was asked for.  So the error
+// carries which side of the line it came from, and a substitution attempt lets
+// this one through.
+class Instantiated : public std::runtime_error
+{
+public:
+	explicit Instantiated(const std::string& why)
+		: std::runtime_error(why)
+	{}
+};
+
+// 14.8.2p8: one attempt at building the declaration an argument list makes of a
+// template, and what a failure of it means.
+//
+// Substituting an argument list into a template's declaration builds types and
+// reads expressions that the pattern could not: `decltype(t.run())` names a
+// member of whatever class the arguments put there, `enable_if<B,T>::type` is a
+// member only some arguments' class has, and a default template argument may be
+// either.  14.8.2p8 says that when such a type or expression is ill formed the
+// program is *not* refused - the declaration is simply not one this argument
+// list makes, and 13.3 goes on without it.  Only where no candidate is left
+// does the use have nothing to name.
+//
+// So the attempt is a scope and not a query: the substitution is run, and a
+// failure inside it is caught here and turned into "this argument list makes no
+// declaration".  What it costs is one try-block per candidate a deduction
+// reaches, which is nothing until a candidate actually fails.
+//
+// 14.6p8's stand-in is the one failure that is not this: a reading of a pattern
+// that ran out on a value standing in for one an argument list has yet to
+// settle said nothing about the substitution, so it is handed back to the
+// reading that made the stand-in rather than swallowed here.
+class Substitution
+{
+public:
+	explicit Substitution(SemaAnalyzer& analyzer);
+
+	// 14.8.2p8: whether `why` is a failure of the substitution, which discards
+	// the candidate, rather than one the program has to be refused for.
+	bool discards(const std::runtime_error& why);
+
+	// 14.8.2p8 over 14.8.1p2's written list: the specialization `arguments`
+	// makes of `primary`, or null where substituting them is what failed - with
+	// the failure's own words left in `refused` for a use that ends with no
+	// candidate at all.
+	SemaEntity* specialize(SemaEntity& primary,
+	                       const std::vector<TypeId>& arguments,
+	                       std::string& refused);
+
+private:
+	Substitution(const Substitution&);
+	Substitution& operator=(const Substitution&);
+
+	SemaAnalyzer& analyzer_;
+	unsigned stood_;
+};
 
 // 14.8.2: the argument list a use of a function template deduces for it.
 //
@@ -80,6 +145,15 @@ private:
 	Deduction(const Deduction&);
 	Deduction& operator=(const Deduction&);
 
+	// The three entry points above with 14.8.2p8's attempt taken off: each
+	// deduces its pairs and substitutes what they settled, and each may refuse
+	// where the declaration that builds is ill formed.  The public door is what
+	// turns such a refusal into "this template makes no candidate".
+	SemaEntity* deduced_call(SemaEntity& primary,
+	                         const std::vector<AnalyzedValue>& arguments);
+	SemaEntity* deduced_target(SemaEntity& primary, TypeId wanted);
+	SemaEntity* deduced_conversion(SemaEntity& primary, TypeId wanted);
+
 	// 14.8.2.5p4 at a template place: `L<A…>` against a class an argument list
 	// already made, which deduces `L` from the template that class was made of
 	// and the rest from the arguments that made it.  `place` is the place `L`
@@ -121,6 +195,16 @@ private:
 	// against the type of what a call put there.
 	bool match_argument(TypeId parameter, const AnalyzedValue& argument,
 	                    std::unordered_map<TypeId, TypeId>& bindings);
+
+	// 14.8.2.1p4's second allowance: the argument type this pair is read
+	// against, where 4.4's qualification conversion is what reaches the type P
+	// is written over.  The deduction looks for a deduced A *identical* to A,
+	// and the clause lets the two differ by qualifiers a pointer's pointee
+	// gains - so `probe(const T *)` takes an `int *`, deducing `T` as `int`
+	// rather than refusing the pair.  The qualifiers are added to the argument
+	// before the pair is read, because they are the ones the conversion at the
+	// call would add and P is what says where they stand.
+	TypeId qualification_converted(TypeId pattern, TypeId argument);
 
 	// 14.8.2.1p1 over 14.5.3p4's pattern: what the one pack `expansion` names
 	// is deduced to when the pattern is matched against each of `given` in

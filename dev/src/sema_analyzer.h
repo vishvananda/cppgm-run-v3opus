@@ -80,8 +80,10 @@ private:
 	// for, which `sema_pack.h` owns because it is a reading of its own.
 	friend class PackReading;
 	// 14.8.2: the match that turns a use of a function template into the
-	// argument list it deduces, which `sema_deduce.h` owns for the same reason.
+	// argument list it deduces, and 14.8.2p8's attempt at the declaration that
+	// list builds - both `sema_deduce.h`'s, for the same reason.
 	friend class Deduction;
+	friend class Substitution;
 	friend class Derivation;
 	friend class StringInitialization;
 	// 14.5.5 and 14.5.1p1: the two declarations a template head writes that are
@@ -1214,6 +1216,9 @@ private:
 	void read_type_specifier(const AstNode& node, Specifiers& out,
 	                         const Context& ctx, const Span& span,
 	                         const std::string& named_by);
+	// 14.6p2: the type a type-specifier written as a name reaches, refused
+	// where it is a dependent qualified name no `typename` introduced.
+	TypeId require_written_type(const AstNode& node, const Context& ctx);
 	TypeId specifier_type(const Specifiers& specifiers);
 	TypeId type_id_type(const AstNode& node, const Context& ctx);
 	// 8.3: the type `node` derives from `base`, the name it declares, and - for
@@ -1328,7 +1333,11 @@ private:
 	// type is `place`, and 14.6.2p2's stand-in for one no list has settled.
 	TypeId template_argument_value(const std::string& spelling, TypeId place,
 	                               const Context& ctx);
-	TypeId dependent_value(const std::string& spelling);
+	// `ctx` null is a stand-in no substitution can settle - a default argument
+	// over a place the head itself left dependent - and one the reading of it
+	// against a region can, which is what a declarator writes.
+	TypeId dependent_value(const std::string& spelling, TypeId place = kNoType,
+	                       const Context* ctx = nullptr);
 
 	// 5.3.3 and 5.3.6 over a type-id, which is the whole of what PA11 needs: one
 	// answer apiece, because neither p3's demand nor 14.6p8's stand-in is

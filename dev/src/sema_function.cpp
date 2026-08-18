@@ -830,14 +830,23 @@ SemaEntity& SemaAnalyzer::declare_function(const std::string& name, TypeId type,
 	// their parameter type lists agree, which 8.3.5p5 has already normalised.
 	// The chain the name heads is indexed by that list, so the question is a
 	// probe rather than a walk of the declarations already made.
-	SemaEntity* prior =
-		head == nullptr ? nullptr : model_.overload_of(*head, signature);
+	// 14.5.6.1p5: what makes two *templates* one declaration is their whole
+	// signature, the return type included, and 13.1's index is keyed by the
+	// parameter-type-list alone - so a declaration written under a head is
+	// asked of `TemplateSignature::equivalent` below and never of the index.
+	// `decltype(t.run(), int())` and `decltype(t.walk(), long())` over one
+	// parameter is the shape every SFINAE overload set is written in, and the
+	// index answered that the second was a redeclaration of the first.
+	SemaEntity* prior = head == nullptr || head_region != nullptr
+		? nullptr
+		: model_.overload_of(*head, signature);
 	// 11.3p6: a friend declaration declared this function into this region
 	// without binding its name, so the chain the name heads is not the only
 	// place a declaration of it can be.
 	const std::unordered_map<std::string, SemaEntity*>::iterator concealed =
 		where.hidden.empty() ? where.hidden.end() : where.hidden.find(name);
-	if (prior == nullptr && concealed != where.hidden.end())
+	if (prior == nullptr && head_region == nullptr &&
+	    concealed != where.hidden.end())
 	{
 		prior = model_.overload_of(*where.hidden_index.find(name)->second,
 		                           signature);

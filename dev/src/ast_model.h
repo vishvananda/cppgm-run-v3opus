@@ -196,6 +196,13 @@ struct AstNode
 	// list-initializes the object the conversion makes, and the second passes
 	// that list as the one argument of a constructor of it.  Like `copied`, the
 	// PA10 dump does not spell it and the semantics cannot do without it.
+	// 14.6p2: whether a type-specifier naming a qualified type was written with
+	// `typename`.  The clause makes a dependent qualified name a type only when
+	// it was, so a type-specifier that reaches one without it is a declaration
+	// the program may not write - and the keyword is no part of the name the
+	// lookup is asked, so, like `copied` and `braced`, it is kept here and not
+	// spelled in the PA10 dump.
+	bool introduced;
 	bool braced;
 	std::string text;
 	std::vector<AstNode*> children;
@@ -207,6 +214,7 @@ struct AstNode
 		, end(0)
 		, completed(0)
 		, copied(false)
+		, introduced(false)
 		, braced(false)
 	{}
 

@@ -120,6 +120,45 @@ SemaAnalyzer::Specifiers SemaAnalyzer::read_specifiers(const AstNode& seq,
 	return out;
 }
 
+// 14.6p2: the type a type-specifier written as a name reaches.
+//
+// A name written after a prefix that depends on a template parameter is assumed
+// to name something other than a type unless the keyword `typename` was
+// written, so `T::type * p` inside a template is 5.6's product of two
+// expressions and no declaration at all.  The reading here settles the name
+// either way - what it stands for is the same stand-in - so the clause is one
+// question asked of the specifier that reached one: did the program write the
+// keyword that makes it a type?
+TypeId SemaAnalyzer::require_written_type(const AstNode& node,
+                                          const Context& ctx)
+{
+	const TypeId type =
+		require(resolve(node.text, ctx, LookupKind::Type), node.text).type;
+	const QualifiedName written(node.text);
+	// The clause is about the *name* and not about the type it reaches: a
+	// typedef-name that aliases such a member is one identifier, and a
+	// qualified name whose prefix an argument list already settled is looked
+	// up like any other.  So what is refused is a name this reading stood in
+	// for - the last component written after a prefix it could not settle.
+	const TypeId prefix = types_.strip_cv(
+		types_.dependent_owner(types_.strip_cv(type)));
+	// The prefix asked about is a *place* its head declared: a specialization
+	// over arguments an enclosing list has yet to settle names a template this
+	// unit declared, and the reading of a name in it is the ordinary one that
+	// waits for those arguments rather than 14.6p2's assumption.
+	if (!node.introduced && written.qualified() && prefix != kNoType &&
+	    types_.kind(prefix) == TypeKind::TemplateParameter &&
+	    types_.dependent_owner(prefix) == kNoType &&
+	    types_.applied_template(prefix) == kNoType &&
+	    types_.dependent_member(types_.strip_cv(type)) == written.last())
+	{
+		throw std::runtime_error(node.text + " depends on a template parameter "
+		                                     "and is written as a type without "
+		                                     "`typename`");
+	}
+	return type;
+}
+
 void SemaAnalyzer::read_type_specifier(const AstNode& node, Specifiers& out,
                                        const Context& ctx, const Span& span,
                                        const std::string& named_by)
@@ -222,8 +261,7 @@ void SemaAnalyzer::read_type_specifier(const AstNode& node, Specifiers& out,
 			return;
 		}
 		out.has_type_name = true;
-		out.type_name = require(resolve(node.text, ctx, LookupKind::Type),
-		                        node.text).type;
+		out.type_name = require_written_type(node, ctx);
 		return;
 	}
 
@@ -231,8 +269,7 @@ void SemaAnalyzer::read_type_specifier(const AstNode& node, Specifiers& out,
 	{
 	case TT_IDENTIFIER:
 		out.has_type_name = true;
-		out.type_name = require(resolve(node.text, ctx, LookupKind::Type),
-		                        node.text).type;
+		out.type_name = require_written_type(node, ctx);
 		return;
 
 	case KW_TYPEDEF:

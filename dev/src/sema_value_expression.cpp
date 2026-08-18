@@ -1507,7 +1507,7 @@ TypeId SemaAnalyzer::template_argument_value(const std::string& spelling,
 		{
 			throw;
 		}
-		return dependent_value(spelling);
+		return dependent_value(spelling, place, &ctx);
 	}
 	if (!reader.finished(words))
 	{
@@ -1516,7 +1516,7 @@ TypeId SemaAnalyzer::template_argument_value(const std::string& spelling,
 	}
 	if (reader.dependent())
 	{
-		return dependent_value(spelling);
+		return dependent_value(spelling, place, &ctx);
 	}
 	if (types_.is_void(types_.strip_cv(value.type)))
 	{
@@ -1563,19 +1563,3 @@ TypeId SemaAnalyzer::template_argument_value(const std::string& spelling,
 	return types_.value_type(type, convert(given, type).bits);
 }
 
-// 14.6.2p2: an argument an argument list has yet to settle, which is a
-// declaration of nothing and never written out.  One per spelling, so that a
-// template naming `A<N + 1>` twice names one specialization of it.
-TypeId SemaAnalyzer::dependent_value(const std::string& spelling)
-{
-	const std::unordered_map<std::string, TypeId>::const_iterator held =
-		dependent_values_.find(spelling);
-	if (held != dependent_values_.end())
-	{
-		return held->second;
-	}
-	const TypeId type = types_.template_parameter_type(model_.type_entity_id(),
-	                                                   false, spelling);
-	dependent_values_.insert(std::make_pair(spelling, type));
-	return type;
-}

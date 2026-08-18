@@ -325,7 +325,15 @@ void SemaAnalyzer::explicit_specializations(SemaEntity& head,
 		if (packed ? arguments.size() > fixed
 		           : places.size() == arguments.size())
 		{
-			found.push_back(&specialize(*at, arguments));
+			// 14.8.2p8: the list is complete, so this is where its arguments
+			// are substituted - and a declaration they build ill formed is one
+			// this list makes no candidate of rather than a program refused.
+			SemaEntity* const made =
+				Substitution(*this).specialize(*at, arguments, refused);
+			if (made != nullptr)
+			{
+				found.push_back(made);
+			}
 			continue;
 		}
 		// 14.8.1p2: the trailing arguments the list left out are the use's
@@ -1227,6 +1235,7 @@ void SemaAnalyzer::complete_specialization(SemaEntity& made)
 	// class is complete, so the bodies this reading holds are read once the
 	// class-specifier has closed rather than where each stands.
 	const std::size_t mark = held_bodies_.size();
+	try
 	{
 		// 14.7.1p1: the declarations this reading makes are the instantiation's
 		// and so is every definition it writes, so each of the latter waits for
@@ -1242,6 +1251,17 @@ void SemaAnalyzer::complete_specialization(SemaEntity& made)
 		class_declaration(*body, inner, span, true, std::string(), &made,
 		                  &spelled);
 		read_held_pattern_bodies(mark);
+	}
+	catch (const Instantiated&)
+	{
+		throw;
+	}
+	catch (const std::runtime_error& why)
+	{
+		// 14.8.2p8: this body is no part of the immediate context of whatever
+		// asked for the class, so what it refuses refuses the program rather
+		// than discarding a candidate that named it.
+		throw Instantiated(why.what());
 	}
 	// 14.5.1.3p1: what the template's members were defined as outside its
 	// class is read now that the class is complete, and a definition written
@@ -1548,7 +1568,8 @@ bool starts_a_name(char c)
 //
 // The spelling stands last, because it is the one component a separator can
 // stand inside.
-std::string dependent_expression_key(const AstNode& node, const Scope& scope)
+std::string dependent_expression_key(const std::string& text,
+                                     const Scope& scope)
 {
 	std::string key;
 	const Scope* at = &scope;
@@ -1585,22 +1606,22 @@ std::string dependent_expression_key(const AstNode& node, const Scope& scope)
 	// `decltype(U() + a)` are one specifier written by two declarations of one
 	// template.  Every other run of the spelling is copied as it stands, which
 	// is what makes a place's name and an operator part of the key.
-	for (std::string::size_type read = 0; read < node.text.size();)
+	for (std::string::size_type read = 0; read < text.size();)
 	{
-		if (!starts_a_name(node.text[read]))
+		if (!starts_a_name(text[read]))
 		{
-			key += node.text[read];
+			key += text[read];
 			++read;
 			continue;
 		}
 		const std::string::size_type start = read;
-		while (read < node.text.size() &&
-		       (starts_a_name(node.text[read]) ||
-		        (node.text[read] >= '0' && node.text[read] <= '9')))
+		while (read < text.size() &&
+		       (starts_a_name(text[read]) ||
+		        (text[read] >= '0' && text[read] <= '9')))
 		{
 			++read;
 		}
-		const std::string word = node.text.substr(start, read - start);
+		const std::string word = text.substr(start, read - start);
 		const SemaEntity* named = nullptr;
 		for (const Scope* region = &scope;
 		     named == nullptr && region != nullptr &&
@@ -1632,7 +1653,7 @@ std::string dependent_expression_key(const AstNode& node, const Scope& scope)
 TypeId SemaAnalyzer::dependent_expression_type(const AstNode& node,
                                                const Context& ctx)
 {
-	const std::string key = dependent_expression_key(node, *ctx.scope);
+	const std::string key = dependent_expression_key(node.text, *ctx.scope);
 	const std::unordered_map<std::string, TypeId>::const_iterator held =
 		dependent_expressions_.find(key);
 	if (held != dependent_expressions_.end())
@@ -1653,6 +1674,54 @@ TypeId SemaAnalyzer::dependent_expression_type(const AstNode& node,
 	}
 	dependent_written_.insert(std::make_pair(type, written));
 	dependent_expressions_.insert(std::make_pair(key, type));
+	return type;
+}
+
+// 14.6.2p2: a value argument an argument list has yet to settle, which is a
+// declaration of nothing and never written out.
+//
+// It is kept the way a dependent decltype-specifier is, and for the same
+// reason: the declarator of a function template is read once, so `X<A + 1>`
+// written in one becomes a type there and nothing reads that syntax again -
+// the substitution has to be able to answer it.  So the spelling, the place it
+// fills and the region it was written in travel with the type, and 14.7.1p1's
+// substitution reads 5.19 over them a second time.
+//
+// The key is the reading's, not the spelling's: `A<N + 1>` written twice in one
+// template names one specialization of it, and the same three characters
+// written under another head are another expression.  A caller with no region
+// to offer - 14.1p9's default over a place its own head left dependent - keeps
+// the spelling alone, because nothing can settle it.
+TypeId SemaAnalyzer::dependent_value(const std::string& spelling, TypeId place,
+                                     const Context* ctx)
+{
+	const std::string key =
+		ctx == nullptr ? "!" + spelling
+		               : dependent_expression_key(spelling, *ctx->scope);
+	const std::unordered_map<std::string, TypeId>::const_iterator held =
+		dependent_values_.find(key);
+	if (held != dependent_values_.end())
+	{
+		return held->second;
+	}
+	const TypeId type = types_.template_parameter_type(model_.type_entity_id(),
+	                                                   false, spelling);
+	if (ctx != nullptr)
+	{
+		DependentDecltype written;
+		written.region = ctx->scope;
+		written.spelling = spelling;
+		written.place = place;
+		for (const Scope* at = ctx->scope;
+		     at != nullptr && (at->kind == ScopeKind::Prototype ||
+		                       at->kind == ScopeKind::TemplateParameters);
+		     at = at->parent)
+		{
+			written.reach.push_back(at->declarations.size());
+		}
+		dependent_written_.insert(std::make_pair(type, written));
+	}
+	dependent_values_.insert(std::make_pair(key, type));
 	return type;
 }
 
@@ -1698,8 +1767,17 @@ Scope& SemaAnalyzer::substituted_region(
 			// binds nothing, and still stands for an argument.
 			continue;
 		}
-		SemaEntity& made = model_.create(
-			kind, declared.name, substituted(declared.type, bindings, memo));
+		const TypeId took = substituted(declared.type, bindings, memo);
+		if (written.kind == ScopeKind::TemplateParameters)
+		{
+			// 14.1p4 and 14.3.2p1: a value place binds the *constant* its
+			// argument holds and not a type, which is what a second reading of
+			// an expression naming it has to find - so the binding is the one
+			// every other reading against an argument list is made against.
+			TemplateHead(*this).bind(region, declared.name, took, kind);
+			continue;
+		}
+		SemaEntity& made = model_.create(kind, declared.name, took);
 		model_.bind(region, made.name, made);
 		model_.declare_in(region, made);
 	}
@@ -1862,8 +1940,20 @@ TypeId SemaAnalyzer::substituted(
 			                                  expression->second.reach, 0,
 			                                  bindings, memo);
 			inner.dump = inner.scope->dump;
-			out = types_.qualified(
-				decltype_type(*expression->second.written, inner), cv);
+			// 14.3.2p1 and 14.7.1p1: a value argument the definition left
+			// standing is answered the same way - 5.19 read over the spelling
+			// again, converted to the place the substitution makes of the one
+			// it fills, because `template<class T, T v>` writes a place whose
+			// type an argument list settles too.
+			out = expression->second.written != nullptr
+				? types_.qualified(
+					  decltype_type(*expression->second.written, inner), cv)
+				: template_argument_value(
+					  expression->second.spelling,
+					  expression->second.place == kNoType
+						  ? kNoType
+						  : substituted(expression->second.place, bindings, memo),
+					  inner);
 			break;
 		}
 		// A template parameter itself, which is what the bindings name.
@@ -1887,7 +1977,18 @@ TypeId SemaAnalyzer::dependent_member_type(TypeId owner,
 {
 	if (types_.is_dependent(owner) || !types_.is_class(types_.strip_cv(owner)))
 	{
-		return written;
+		// The class is still one no argument list has named, so the name stands
+		// for itself again - over the class *this* substitution made of the
+		// prefix and not over the one the reading wrote.  Two declarations of
+		// one template write the prefix in places of their own, and it is what
+		// each substitution makes of it that 14.5.6.1p5 compares: keeping the
+		// written stand-in left `typename enable_if<C<T>, int>::type` a
+		// different type under each head, which is one template declared twice.
+		const TypeId prefix = types_.strip_cv(
+			types_.dependent_owner(types_.strip_cv(written)));
+		return prefix == types_.strip_cv(owner) || prefix == kNoType
+			? written
+			: types_.qualified(dependent_member_name(owner, member).type, cv);
 	}
 	require_complete_type(owner);
 	SemaEntity* const named = model_.type_owner(types_.strip_cv(owner));
@@ -1895,9 +1996,17 @@ TypeId SemaAnalyzer::dependent_member_type(TypeId owner,
 	SemaEntity* const found =
 		region == nullptr ? nullptr
 		                  : model_.lookup_in(*region, member, LookupKind::Type);
-	return found == nullptr || !names_a_type(*found)
-		? written
-		: types_.qualified(found->type, cv | types_.cv(owner));
+	if (found == nullptr || !names_a_type(*found))
+	{
+		// 14.8.2p8: the class the arguments named is one this unit has, and it
+		// declares no such type - so the type this substitution was building is
+		// ill formed, which is what discards the candidate that asked for it.
+		// `enable_if<false, T>::type` is the whole of the idiom.
+		throw std::runtime_error("no declaration of " +
+		                         types_.user_name(types_.strip_cv(written)) +
+		                         " is in scope");
+	}
+	return types_.qualified(found->type, cv | types_.cv(owner));
 }
 
 // 14.6p8: the reading a template definition's body gets where it stands.

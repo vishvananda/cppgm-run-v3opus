@@ -213,6 +213,9 @@ bool AstParser::parse_name_specifier(AstNode* seq, SpecifierMode mode,
 	if (mode != SpecifierMode::Decl)
 	{
 		AstNode* named = make_text(AstKind::TypeName, text);
+		// 14.6p2: the keyword is no part of the name, and whether it was
+		// written is what says a dependent qualified one names a type at all.
+		named->introduced = introduced;
 		named->add(carried(operand));
 		seq->add(named);
 		return true;
@@ -222,6 +225,7 @@ bool AstParser::parse_name_specifier(AstNode* seq, SpecifierMode mode,
 	{
 		node->token = TT_IDENTIFIER;
 	}
+	node->introduced = introduced;
 	node->add(carried(operand));
 	seq->add(node);
 	return true;

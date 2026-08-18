@@ -17,6 +17,110 @@ Deduction::Deduction(SemaAnalyzer& analyzer)
 	: analyzer_(analyzer)
 {}
 
+Substitution::Substitution(SemaAnalyzer& analyzer)
+	: analyzer_(analyzer)
+	, stood_(analyzer.stood_in_)
+{}
+
+bool Substitution::discards(const std::runtime_error& why)
+{
+	if (dynamic_cast<const Instantiated*>(&why) != nullptr)
+	{
+		// 14.8.2p8: the reading of an instantiated template body is no part of
+		// the immediate context, so what it refused refuses the program however
+		// many substitutions were waiting on it.
+		return false;
+	}
+	if (analyzer_.checking_ != 0 && analyzer_.stood_in_ != stood_)
+	{
+		// 14.6p8: the reading ran out on a value it stood in for one an
+		// argument list has yet to settle, so it says nothing about this
+		// substitution and belongs to the reading that made the stand-in.
+		return false;
+	}
+	// The stand-ins a discarded attempt made are no part of what the reading
+	// around it stood in for.
+	analyzer_.stood_in_ = stood_;
+	return true;
+}
+
+SemaEntity* Substitution::specialize(SemaEntity& primary,
+                                     const std::vector<TypeId>& arguments,
+                                     std::string& refused)
+{
+	try
+	{
+		return &analyzer_.specialize(primary, arguments);
+	}
+	catch (const std::runtime_error& why)
+	{
+		if (!discards(why))
+		{
+			throw;
+		}
+		if (refused.empty())
+		{
+			refused = why.what();
+		}
+		return nullptr;
+	}
+}
+
+// 14.8.3p1 with 14.8.2p8: a template is a candidate through the specialization
+// a use makes of it, and no candidate at all where the use deduces none *or*
+// where substituting what it deduced builds a declaration that is ill formed.
+SemaEntity* Deduction::from_call(SemaEntity& primary,
+                                 const std::vector<AnalyzedValue>& arguments)
+{
+	Substitution attempt(analyzer_);
+	try
+	{
+		return deduced_call(primary, arguments);
+	}
+	catch (const std::runtime_error& why)
+	{
+		if (!attempt.discards(why))
+		{
+			throw;
+		}
+		return nullptr;
+	}
+}
+
+SemaEntity* Deduction::from_target(SemaEntity& primary, TypeId wanted)
+{
+	Substitution attempt(analyzer_);
+	try
+	{
+		return deduced_target(primary, wanted);
+	}
+	catch (const std::runtime_error& why)
+	{
+		if (!attempt.discards(why))
+		{
+			throw;
+		}
+		return nullptr;
+	}
+}
+
+SemaEntity* Deduction::from_conversion(SemaEntity& primary, TypeId wanted)
+{
+	Substitution attempt(analyzer_);
+	try
+	{
+		return deduced_conversion(primary, wanted);
+	}
+	catch (const std::runtime_error& why)
+	{
+		if (!attempt.discards(why))
+		{
+			throw;
+		}
+		return nullptr;
+	}
+}
+
 bool Deduction::match(TypeId pattern, TypeId argument,
                       std::unordered_map<TypeId, TypeId>& bindings,
                       bool relaxed, bool derived)
@@ -538,8 +642,8 @@ TypeId Deduction::written_part(SemaEntity& primary, SemaEntity& made_of,
 	return analyzer_.substituted(made_of.type, bindings, memo);
 }
 
-SemaEntity* Deduction::from_call(SemaEntity& primary,
-                                 const std::vector<AnalyzedValue>& arguments)
+SemaEntity* Deduction::deduced_call(SemaEntity& primary,
+                                    const std::vector<AnalyzedValue>& arguments)
 {
 	TypeTable& types = analyzer_.types_;
 	SemaEntity& made_of =
@@ -663,7 +767,32 @@ bool Deduction::match_argument(TypeId parameter, const AnalyzedValue& argument,
 	{
 		given = types.reference_to(given, false);
 	}
-	return match(expected, given, bindings, reference, true);
+	return match(expected, qualification_converted(expected, given), bindings,
+	             reference, true);
+}
+
+TypeId Deduction::qualification_converted(TypeId pattern, TypeId argument)
+{
+	TypeTable& types = analyzer_.types_;
+	const TypeId under_pattern = types.strip_cv(pattern);
+	const TypeId under_argument = types.strip_cv(argument);
+	if (types.kind(under_pattern) != TypeKind::Pointer ||
+	    types.kind(under_argument) != TypeKind::Pointer)
+	{
+		// 4.4p1 writes the conversion over a pointer's pointee, so a pair that
+		// is no longer one pointer against another is read as it stands.
+		return argument;
+	}
+	const TypeId inner_pattern = types.target(under_pattern);
+	const TypeId written = types.target(under_argument);
+	const TypeId inner = qualification_converted(inner_pattern, written);
+	const unsigned added = types.cv(inner_pattern) & ~types.cv(inner);
+	if (added == 0 && inner == written)
+	{
+		return argument;
+	}
+	return types.qualified(
+		types.pointer_to(types.qualified(inner, added)), types.cv(argument));
 }
 
 // 14.8.2p5 and 14.1p9: the argument each parameter of `primary` was deduced or,
@@ -854,7 +983,7 @@ bool Deduction::overload_set(const AnalyzedValue& argument, TypeId expected,
 	return true;
 }
 
-SemaEntity* Deduction::from_target(SemaEntity& primary, TypeId wanted)
+SemaEntity* Deduction::deduced_target(SemaEntity& primary, TypeId wanted)
 {
 	// 14.8.2.2p1: the target type is the one A the deduction is over, so the
 	// result type and every parameter type of the template are matched against
@@ -877,7 +1006,7 @@ SemaEntity* Deduction::from_target(SemaEntity& primary, TypeId wanted)
 	return made.type == wanted ? &made : nullptr;
 }
 
-SemaEntity* Deduction::from_conversion(SemaEntity& primary, TypeId wanted)
+SemaEntity* Deduction::deduced_conversion(SemaEntity& primary, TypeId wanted)
 {
 	TypeTable& types = analyzer_.types_;
 	SemaEntity& made_of =
