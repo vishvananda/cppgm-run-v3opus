@@ -96,29 +96,51 @@ bool SemaAnalyzer::qualification_convertible(TypeId from, TypeId to)
 	// Whether every level above this one is const in the target, which is what
 	// 4.4p4's second condition asks about a level whose qualifiers differ.
 	bool above_all_const = true;
+	// Whether a level below the top has been reached, which is what says the
+	// pair standing here has already been compared.  Each descent compares the
+	// level it arrives at against an `above_all_const` covering the levels
+	// strictly above it - so asking again once the walk stops would ask 4.4p4's
+	// second condition of the last level about *itself*, and `volatile int
+	// (*)[3]` off an `int (*)[3]` is the conversion that answers no.
+	bool descended = false;
 	for (;;)
 	{
 		const bool descend = types_.kind(source) == TypeKind::Pointer &&
 			types_.kind(target) == TypeKind::Pointer;
 		if (!descend)
 		{
-			return types_.strip_cv(source) == types_.strip_cv(target) &&
-				(types_.cv(source) & ~types_.cv(target)) == 0 &&
-				(types_.cv(source) == types_.cv(target) || above_all_const);
+			if (types_.object_unqualified(source) !=
+			    types_.object_unqualified(target))
+			{
+				return false;
+			}
+			return descended ||
+				((types_.object_cv(source) & ~types_.object_cv(target)) == 0 &&
+				 (types_.object_cv(source) == types_.object_cv(target) ||
+				  above_all_const));
 		}
+		descended = true;
 		source = types_.target(source);
 		target = types_.target(target);
-		if ((types_.cv(source) & ~types_.cv(target)) != 0)
+		if ((types_.object_cv(source) & ~types_.object_cv(target)) != 0)
 		{
 			return false;
 		}
-		if (types_.cv(source) != types_.cv(target) && !above_all_const)
+		if (types_.object_cv(source) != types_.object_cv(target) &&
+		    !above_all_const)
 		{
 			return false;
 		}
-		above_all_const = above_all_const && (types_.cv(target) & kCvConst) != 0;
+		above_all_const = above_all_const &&
+			(types_.object_cv(target) & kCvConst) != 0;
 	}
 }
+
+// 3.9.3p5 is why every level above reads `object_cv` rather than `cv`: a
+// qualifier written on an array is its element's, so `int (*)[3]` reaching
+// `const int (*)[3]` is 4.4's conversion and nothing the array node holds says
+// so.  The same fact tells the last comparison to be of the types with that
+// qualification off, which is what `object_unqualified` gives.
 
 // 4.10 and 4.4: whether a prvalue of pointer type `from` converts to `to`.
 bool SemaAnalyzer::pointer_convertible(TypeId from, TypeId to, int& rank,

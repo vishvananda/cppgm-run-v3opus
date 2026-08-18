@@ -12,206 +12,181 @@ means, and what a failure of that building says about the candidate that asked.
 | 2 | `a63c183b` | 4 / 4 + 6 recorded | **the name the object file gives an address argument was this unit's entry number for it, and 14.3.2p5's conversions were 8.5's.**  Checkpoints 2-5 made 14.1p4's address places, 10p1's `class-or-decltype`, 13.3.1.4p1's constructor template, 14.6.2p2's variable template and 14.6.2p1's settled prefix.  Those rules are right and swept clean - 11 base shapes, 7 converting-constructor shapes, 8 array-bound shapes, a variable-template stand-in that leaves no global behind, and `Substitution` having no destructor, so `took_places` standing lexically inside the attempt is the walk outside its `try` the comment claims.  What none of it carried is that the *bits* of an address argument are an entry of the constant-address table, numbered in the order this unit reached each address: `at<&left>` was written `_ZN2atILPi1EE4readEv` where both oracles write `_ZN2atIXadL_Z4leftEEE4readEv`, and two units of one program that each name it write one weak definition under two names, which no link can merge.  The suite could not see it, because the comparator drops `object=` from every function header before comparing - the checkpoint's own `100-an-address-argument-is-which-object-it-designates` fixture disagreed with its `.ref` on all five names and passed.  Beside it: 14.3.2p5's conversions were `at_pointer_place`/`at_reference_place`, which are 8.5's readings of the same places and take the three the clause's own note leaves out - a zero-valued integral constant, 4.10p3's derived-to-base, and any pointee at all - so `at<&d>` at a `B2 *` place over a `struct D : B1, B2` was accepted and *ran to the wrong storage*; 14.1p4's fifth place was declared by `non_type_place` and refused by every argument reader, so `template<decltype(nullptr) N>` was a head no list could fill; and 13.4p1 had no door at a function place, so `H<f>` beside two declarations of `f` took whichever the chain led with.  Recorded rather than fixed: a pointer-to-member place, which the layer below has no pointer to member at all for; a `void *` place; `(int*)0`, whose cast the spelling reader reads only integral targets of; and `char (&a)[sizeof(T)]` as a function parameter, which the pre-checkpoint build refuses identically and is PA22's |
 | 3 | `30c7c2b5` | 3 / 3 + 3 recorded | **14.6.4.2p1's bound was written for three narrow readings and set to *none* for the two largest ones, so an instantiated body reached the whole unit and chose a later overload.**  Checkpoint 7 made three things: 14.1p9's default over a list an argument has yet to settle travels as a tree and a region; 14.6.4.2p1 puts 3.4.1's half of a second reading back at the definition context, through `declared_serial` and `ReadingBound`; and 3.9.1p8's floating scalar crosses 5.2.2p4's boundary by address.  The first and the third are right and swept clean - 10 shapes of the default over a dependent prefix agreeing with the reference on all and with `g++` on 9, and 28 boundary shapes byte-identical to the reference through the real comparator and running to `g++`'s value on all 28 (the boundary sweep the checkpoint recorded was vacuous: every one of its 20 programs returned a scalar from a function declared to return the class, so both binaries refused all 20 and the comparator called it a pass).  The second landed only for the readings a *pattern* interned - the decltype-specifier, the two tiers of 14.1p9's default - and wrote `ReadingBound(model_, 0)` at `instantiate_body` and at `complete_specialization`, which is every function body and every class body 14.7.1p1 reads again.  So `template<class T> int f(T t) { return late(t); }` above `int late(int);` was a program both oracles refuse and this build translated, `pick(long)` above the template and `pick(int)` below it ran to `pick(int)` where `g++` runs to `pick(long)`, and the same held of a member body, an out-of-class definition, a partial specialization's body and an alias template's type-id.  The bound is a fact of *each* definition, so `TemplateInfo::visible`, `Partial::visible`, `Member::visible`, `WrittenBody` and `PendingDefinition::visible` carry it and each reading sets its own - taken after the first reading of the body, because 11.3p1's friend and the template's own name are declarations the body itself has to find.  `ConstexprReading::selected` passing `kAssociatedUnknown` - the gap the plan recorded as reaching no fixture - is the same clause at the fold, and `W<int>::v` over `fold(long)` above and `fold(int)` below ran to 200 here against 100 in *both* oracles.  Recorded rather than fixed: 8.3.6p9's default *function* argument, which the non-template `int g(int n = late());` refuses identically and is no reading of a template's; a static data member's dependent initializer, deferred past the class body, where the reference agrees with us against `g++`; and 8.5.4p3's narrowing at a value place, which is the plan's own `static_assert` group |
 
+| 4 | `07cb3fb3` | 3 / 3 + 3 recorded | **the refusals landed at one exit each, and the fact 3.9.3p5 made had one reader of four.**  Checkpoint 9 gave 14.8.2p8 four things to fire on: 8.3.2p5 and 8.3.4p1 through one *door* the three type-deriving readers call, 10.4p2 as a fact of the type, 5.7p1's completely-defined pointee, 8.5.4p7 at the constructor a list-initialization chooses, and 14.3.3p1 at `instantiate_class`.  Those rules are right and swept clean - the door refuses through a declarator, a flattened spelling, a pack expansion and a substitution alike, an abstract class reached by inheritance is one, 14.3.3p1 answers the same at a class template, an alias, a variable template, a function template, a pack and a naming that never instantiates, and 8.5.4p7 refuses through all seven initialization paths a constructor is reached by.  What none of it carried is that each refusal has one exit more than the checkpoint wrote.  5.2.1p1's pointee is 5.7p1's - `Inc *p; p[0];` is a program the reference and `g++` both refuse and this build translated, and its own comment restated the clause the code never asked.  8.5.4p7's fourth bullet was written as width and equal-width signedness, which is not "cannot represent all the values": signed reaching a *wider* unsigned has negative values at every width, and `bool` holds two of them however wide its storage - so `unsigned x[] = { g() }` off a `char g()` and `bool x[] = { g() }` were translated, and the same statement gated the fold, so `unsigned x[] = { (char)-1 }` never reached the constant exception either.  And 3.9.3p5 landed at `pointer_convertible`'s 4.10p2 arm alone: 4.4's own walk, 5.9p2's composite pointer type and 14.8.2.1p2's conversion each read `cv` of an array node, which is zero, so `const int (*p)[3] = &a;` was refused four ways - beside a walk that asked 4.4p4's second condition of the level it had just compared, which refused `volatile int *q = p;` with no array in it at all.  225 + 675 narrowing shapes and 20 qualification shapes now agree with `g++` on all, `200-range-array-reference-mutable-begin.t` turned, and every course `.ref` regenerated from the reference binary is unchanged.  Recorded rather than fixed: `void *p; p[0]`, which the reference accepts and `g++` and this build refuse; a subscript detector, which the reference refuses whole so no fixture can pin it; and `typedef abstract_class a[2];`, which the plan already carries |
+
 ## Current Checkpoint Review
 
-Checkpoint 7 - the second reading a substitution makes, 14.6.4.2p1's bound on
-what such a reading may name, and 3.9.1p8's floating scalar at 5.2.2p4's
-boundary - was reconstructed from its commit, from `dev/src` and from the
-README: which readings a pattern leaves behind, what each of them is read
-under, and what the boundary fact costs. Three defects were found and fixed,
-three gaps were probed as programs and recorded, and the rest is what the
-review confirmed.
+Checkpoint 9 - the refusals SFINAE had nothing to fire on: 8.3.2p5 and 8.3.4p1
+through one door, 10.4p2 as a fact of the type, 5.7p1's completely defined
+pointee, 8.5.4p7 at the constructor a list-initialization chooses, and 14.3.3p1
+at `instantiate_class` - was reconstructed from its commit, from `dev/src` and
+from the README: which readers derive a type, which expressions move a pointer,
+which paths reach a constructor with clauses, and which readers ask what an
+array is qualified by. Three defects were found and fixed, three gaps were
+probed as programs and recorded, and the rest is what the review confirmed.
 
 ### Findings
 
-**1. The bound was written for the three readings a pattern *interns* and set
-to none for the two that hold every other name a template writes.** 14.6.4.2p1
-says 3.4.1's half of a dependent call's candidate set is found from the template
-definition context. The checkpoint's `ReadingBound` says so at
-`dependent_expression_type`'s decltype-specifier and at both tiers of 14.1p9's
-default - and `instantiate_body` and `complete_specialization` each wrote
-`ReadingBound(model_, 0)`, which is *no bound at all*, for the function body and
-the class body 14.7.1p1 reads again. Those two are where a template writes
-nearly everything it writes.
+**1. 5.2.1p1's pointee is 5.7p1's, and the subscript was the exit the clause
+did not land at.** The checkpoint asked "is the pointee completely defined" of
+`+`, `-`, `++` and `--`; `+=` and `-=` inherit it through `compound_operator`.
+`subscript_expression` is the fifth, and its own comment restates the clause -
+"one operand is a pointer to a completely-defined object type" - above code
+that never asked it.
 
 ```cpp
-int pick(long) { return 1; }                                  // ran to 2 here
-template<class T> int f(T t) { return pick(t); }              // g++ runs it to 1
-int pick(int) { return 2; }
-int main() { return f(1) == 1 ? 0 : 1; }
+struct incomplete_class;
+int main() { incomplete_class *p = 0; p[0]; return 0; }   // translated here
 ```
 
-The accept/refuse half of it is as plain: `template<class T> int f(T t) { return
-late(t); }` written above `int late(int);` is a program the reference binary and
-`g++ -pedantic-errors` both refuse - `int` has no associated namespace, so
-3.4.2 reaches nothing and 3.4.1 from the definition context reaches nothing
-either - and this build translated. A member body of a class template, a
-definition written outside its class, a partial specialization's body and an
-alias template's type-id were the same in every direction.
+The reference binary and `g++ -pedantic-errors` both refuse it. `void *p;
+p[0];` was worse than accepted: it built an expression of type `void`, which
+the tier above then reported as a comparison of unrelated types. And the
+detector the checkpoint exists for read back the wrong answer - `decltype(((T
+*)0)[0])` over an incomplete class chose the candidate `g++` drops.
 
-The fix is that the bound is a fact of *each definition* and not of the
-template. `TemplateInfo::visible` is the pattern's, `Partial::visible` is the
-pattern a partial specialization wrote, `Member::visible` is an out-of-class
-member definition's, `WrittenBody` is the pair `explicit_classes` and
-`explicit_functions` now hold - a body `template<>` wrote out stands *below* the
-pattern and reaches more, not less - and `PendingDefinition::visible` carries it
-for the body a reading put aside, because the walk that drains the queue at the
-end of the unit is flat and stands under no bound of its own. Each of the five
-readings sets its own at entry, so a reading standing inside a reading takes the
-inner one: without that, the bound of a class body being instantiated leaked
-into every alias template and every trait its members named, which is the one
-regression the first cut of this fix had.
-
-Two facts about *where* the number is taken decide the whole thing.
-`SemaModel::written_bound` is the bound a construct being recorded will be read
-under - the one standing where a second reading is what is writing it, and the
-whole unit where the program's own walk is - so a member template of a class an
-argument list made does not inherit the unit. And the pattern's own number is
-taken *after* its first reading rather than at the class-head, because the body
-declares things its own second reading has to find: 11.3p1's friend is declared
-into the namespace around the class by nothing but the body, and a body that
-names the template it defines is what recursion is. Both were regressions the
-sweep caught before the suite did.
-
-**2. `ConstexprReading::selected` asked 3.4.2's question of no candidate, so a
-fold inside a second reading still reached a later overload.** The plan recorded
-this as a gap no fixture reaches. It reaches one now:
+**2. 8.5.4p7's fourth bullet was width and equal-width signedness, which is not
+"cannot represent all the values of the original type".** Two pairs escape that
+statement. A signed source reaching a *wider* unsigned destination has negative
+values the destination has at no width at all; and `bool` holds two values
+however wide its storage is, which the model spells as a signed type one byte
+wide, so neither its range nor its signedness is readable off the width.
 
 ```cpp
-constexpr int pick(long) { return 1; }
-template<class T> struct W { static const int v = pick(T(0)); };   // ran to 2
-constexpr int pick(int) { return 2; }                              // both oracles: 1
-int main() { return W<int>::v == 1 ? 0 : 1; }
+char g();
+int main() { unsigned x[] = { g() }; return (int)x[0]; }   // translated here
+int main() { bool     x[] = { g() }; return x[0] ? 1 : 0; }  // and this
 ```
 
-The expression tier draws 3.4.1's line against 3.4.2's by recording how many
-entries the argument-dependent search appended; the fold's own
-`callee_candidates` gathered the same two halves and told `select_overload`
-nothing, so it passed `kAssociatedUnknown` and every candidate was exempt. It is
-the same two lines - the size the set had before `ArgumentLookup` ran, and the
-subtraction after it - and the operator door beside it takes the count
-`OperatorCall::candidates` was already made to hand back. A member's own set has
-no 3.4.2 half at all, so the two member doors pass zero.
+The same statement was the *gate* on the fold, so those pairs never reached the
+bullet's exception either and `unsigned x[] = { (char)-1 }` was accepted as a
+constant that fits. The fix states the bullet once - whether the destination
+holds every value of the source type - and the gate is that same question, so
+the fold is still asked only where the bullet could fire and `W w{ g(x) + g(y) }`
+still pays nothing.
 
-**3. A name 1.4p8 reserves was numbered among the program's own declarations,
-so the use that declared it put it after every pattern above it.** A reserved
-function is declared by its first use. `bind` gave it a `declared_serial` there,
-and `__builtin_expect` written inside a class template's `constexpr` member was
-then a declaration that template's own second reading could not reach -
-`pa21/tests/general/300-constexpr-template-aggregate-subscript-member.t` is the
-program, and it is the only `through-pa22` test the bound broke. Such a name
-stands before the unit rather than at whichever use named it, which is what
-`declared_serial` zero already says for every declaration no namespace region
-binds.
+**3. 3.9.3p5 landed at one reader of four, and 4.4p4's walk asked its second
+condition of the level it had just compared.** The checkpoint made "an array is
+as qualified as its element" a fact and read it at `pointer_convertible`'s
+4.10p2 arm. Three more readers ask the same question of a pointee that may be
+an array: `qualification_convertible` (4.4 itself, which is that function's own
+first arm and five other callers'), `composite_pointer` (5.9p2 and 5.16p6) and
+`Deduction::qualification_converted` (14.8.2.1p2). Each read `cv` and `strip_cv`
+of the array node, which are zero and the array itself, so
+
+```cpp
+int a[3] = {1,2,3};
+const int (*p)[3] = &a;          // refused here, accepted by both oracles
+```
+
+was refused as an initializer, as an argument, as one operand of `?:` and `==`,
+and as the argument of a `const T (*)[3]` parameter. Beside it the walk itself:
+each descent compares the level it arrives at against an `above_all_const`
+covering the levels strictly *above* it, and then the terminal return compared
+that same level again, by which time its own const had been folded in - so
+`volatile int (*)[3]` off an `int (*)[3]`, and `volatile int *q = p;` with no
+array in it anywhere, were refused. `descended` says the pair standing at the
+end has already been compared. `200-range-array-reference-mutable-begin.t` is
+the handout test that turned.
 
 ### What the review confirmed rather than found
 
-- **The floating boundary is right, and the sweep that said so was vacuous.**
-  The checkpoint's 20 recorded ABI shapes each returned a scalar from a function
-  declared to return the class (`S round(S s) { return take(make()); }`), so
-  both binaries refused all 20 and `compare_results.pl` reported a pass. Rebuilt
-  as programs, 28 shapes - float, double, long double, two doubles, float
-  beside int, an array of two and of four floats, an array of a class holding
-  one, a base holding one, an empty base beside one, a union member, a nested
-  class, a `const` member, a class of three doubles, a user destructor, a user
-  copy constructor, a pointer to float, a `bool` beside a float, and the
-  no-floating controls - are identical to the reference through the real
-  comparator and run to `g++`'s own value on all 28.
-- **14.1p9's default over a list an argument has yet to settle is right.** Ten
-  shapes: a default that is not a constant expression, one naming a member the
-  class does not have, one gating a partial specialization, a default reading
-  the default before it, one in a member template, one whose *place* an earlier
-  argument types, and two namings of one list being one specialization. All ten
-  agree with the reference; nine agree with `g++` too, the tenth being 8.5.4p3's
-  narrowing at a value place, which is the plan's own `static_assert` group.
-- **The `catch (const NotConstant&)` in `substituted`'s evaluated arm stands for
-  no success.** It leaves the argument the reading it was, which is what an
-  outer list that has yet to settle needs; where the list *is* settled and the
-  tree is not a constant, the program is refused a tier down - both a
-  non-constant default and one naming nothing are refused here and by both
-  oracles.
-- **The cross-product of five readings against four kinds of later declaration
-  agrees with the reference on 23 of 23.** Six refusals - a function body, a
-  member body, a partial specialization's body, an out-of-class definition, an
-  alias template's type-id, a trailing return type - and twelve acceptances
-  including 3.4.2's later namespace function, a later hidden friend, an explicit
-  specialization written below everything, a recursive template and a friend the
-  body itself declared. `g++` agrees on 21; the two it does not are C++14's
-  variable template and the static-member gap recorded below.
-- **Nothing is gated and no phase is skipped.** The whole diff of the checkpoint
-  and of this audit holds no `getenv`, no fixture name, no timeout, no
-  environment read, no dialect switch keyed on anything but a dialect, and no
-  caught exception standing for a success.
-- **`valgrind -q --error-exitcode=9` is clean over 119 inputs**, and no file of
-  the 417-file corpus exits above 1.
+- **The three doors are the only three, and they refuse through every reader.**
+  A reference to void and an array of a reference, of void, of a function and
+  of an abstract class are refused whether the type is derived by the
+  declarator walk, by the flattened-spelling reader, by 14.3p1's substitution
+  or by a pack expansion of a pattern, and `template<class T> char probe(T
+  (*)[1]);` drops the candidate for `T = void` and keeps it for `T = int`. The
+  entries the table interns beside them - 13.1's ref-qualifier key and
+  14.8.2.1p3's stand-in - stay open, which is what the first landing of the
+  rule broke in 24 tests.
+- **10.4p2 as a fact of the type is settled everywhere a class can be
+  abstract.** A class abstract by an inherited pure virtual is one, an array of
+  it is refused, `new De[2]` is refused, and a class template's specialization
+  is complete before an array of it can be formed at all.
+- **14.3.3p1 at `instantiate_class` answers for every naming.** A class
+  template, an alias template, a variable template, a function template, a
+  head whose place is a pack, and a naming that declares a pointer and never
+  instantiates all refuse `A<W>` where `W` writes `template<int>` at a
+  `template<class>` place - and the matching argument is accepted at all six.
+- **8.5.4p7 reaches a constructor by seven paths and refuses on all seven** -
+  a variable, a temporary, a function argument, a mem-initializer, a
+  new-expression, a return statement and an NSDMI.
+- **Every course `.ref` is the reference binary's.** All 21 were regenerated
+  from `cppgm++-ref` through the harness and not one changed.
+- **Nothing is gated and no phase is skipped.** The checkpoint's diff and this
+  audit's hold no `getenv`, no fixture name, no timeout, no environment read,
+  no dialect switch keyed on anything but a dialect, and no caught exception
+  standing for a success.
+- **`valgrind -q --error-exitcode=9` is clean over 135 inputs** - 70 of the
+  corpus and 65 probes of the paths this audit touched - and no file of the
+  400-file corpus exits above 1.
 
 ### Recorded rather than fixed
 
-- **8.3.6p9's default *function* argument is read at the call and not where it
-  was declared.** `int g(int n = late());` above `int late();` is a program both
-  oracles refuse and this build translates - with no template anywhere in it, so
-  it is the declarator layer's clause and not a reading of a template's. The
-  same holds for a member's default argument and for one written in a function
-  template's head.
-- **A static data member's *dependent* initializer is read past the class
-  body.** `static const int v = late(T());` over a `late` declared below the
-  template is refused by `g++` at the point of instantiation and accepted by the
-  reference binary, which is the milestone's oracle here; a non-dependent one is
-  read in the class body and is bounded, and refusing both would be stricter
-  than the `.ref` files the suite compares against.
-- **8.5.4p3's narrowing at a value place.** `template<class T, char C =
-  t<T>::w>` over a `w` of 300 is accepted here and by the reference, and refused
-  by `g++`. The plan already carries it as one of the twelve `static_assert`
-  clauses.
+- **`void *p; p[0];` is refused here and by `g++` and accepted by the
+  reference**, which implements 5.2.1p1's completely-defined pointee for an
+  incomplete class and not for `void`. The clause reads the same for both and
+  the reference refuses `void *p; p + 1;`, so the divergence is the
+  reference's inconsistency and no fixture writes it.
+- **A subscript detector cannot be pinned by a fixture.** The reference refuses
+  `template<class T, class = decltype(((T *)0)[0])> char f(int);` outright
+  rather than dropping the candidate, so the program both this build and `g++`
+  accept has no agreeing oracle to generate a `.ref` from.
+- **8.5.4p7's fourth bullet is stricter here than in the reference.** The
+  reference implements no part of it that needs the source type's range, so
+  every shape this audit fixed is one the reference accepts. `g++` agrees with
+  this build on all 900 shapes swept; the plan already carries the same
+  divergence for `unsigned u{-1}` and `short s{40000}`.
 
 ### Changes
 
 | Where | What |
 |-------|------|
-| `sema_template.h` | `WrittenBody`, and `visible` on `TemplateInfo`, on `Partial` and on `Member`: each definition and the bound it was written under. |
-| `sema_declaration.h` | `PendingDefinition::visible`, for the body a reading put aside and the end of the unit reads. |
-| `sema_scope.h` | `SemaModel::written_bound`, the bound a construct being *recorded* will be read again under. |
-| `sema_template.cpp` | `instantiate_body` and `complete_specialization` run under the body's own bound rather than under none; `record_template` takes the class's after its first reading; `queue_definition` stamps the entry. |
-| `sema_function.cpp` | the function pattern's bound, taken once `check_template_definition` has read the body. |
-| `sema_analyzer.cpp` | `write_definition` puts the queued body's bound back where the body is finally read. |
-| `sema_pattern.cpp` | 14.5.1.3p1's out-of-class member definition carries and runs under its own. |
-| `sema_specialize.cpp` | the partial specializations' and the alias template's, and 14.5.7p1's type-id read under the alias's own. |
-| `sema_explicit.cpp` | the bodies `template<>` wrote out, which stand below the pattern. |
-| `sema_constexpr.{h,cpp}`, `sema_constexpr_object.cpp` | `callee_candidates` counts what 3.4.2 appended and `selected` hands it to `select_overload`, so a fold asks 14.6.4.2p1 of 3.4.1's half of its set. |
-| `sema_expression.cpp` | 1.4p8's reserved name stands before the unit rather than at the use that declared it. |
+| `sema_expression.cpp` | 5.2.1p1's completely-defined pointee at the subscript, the fifth exit of the clause the checkpoint landed at four; `composite_pointer` reads 3.9.3p5 past the dimensions on both operands. |
+| `sema_init_list.cpp` | 8.5.4p7's fourth bullet asked once - whether the destination holds every value of the source *type* - with `bool`'s two values and the asymmetry of a sign change named, and the fold's gate is that same question. |
+| `sema_overload.cpp` | 4.4's walk reads `object_cv` at every level and compares `object_unqualified` at the end, and `descended` keeps it from asking 4.4p4's second condition of the level it just compared. |
+| `sema_deduce.cpp` | 14.8.2.1p2's qualification conversion reads what an array level asks for off its element. |
+| `type_model.{h,cpp}` | `object_unqualified`, the other half of `object_cv`: the same type with the qualification an array carries on its element taken off, over the dimension scratch `qualified` already walks. |
+| `course/pa23/100-the-qualifiers-an-array-carries-are-its-elements.t` | the four readers of 3.9.3p5 in one program, run to the value `g++` runs it to. |
 
 ### Performance Evidence
 
-Measured on the audited binary against a worktree of `30c7c2b5` built the same
-way, warm cache, `/usr/bin/time` on the binary itself.
+Measured on the audited binary against a `/tmp` worktree of `07cb3fb3` built the
+same way, warm cache, `/usr/bin/time` on the binary itself.
 
 | sweep | shape | result |
 | --- | --- | --- |
-| instantiation multiplicity | n specializations of one template, each body read under its own bound | 0.00 s @32, 0.02 @128, 0.10 @512, 0.23 @1024 - and 0.00 / 0.02 / 0.11 / 0.22 on the pre-audit binary |
-| template multiplicity | n function templates, one body apiece | 0.00 @32, 0.01 @128, 0.04 @512, 0.10 @1024 - against 0.00 / 0.01 / 0.05 / 0.09 |
-| later-declaration multiplicity | one detector, n later declarations of the name it reads | 0.00 @32, 0.00 @128, 0.02 @512, 0.05 @1024 - against 0.00 / 0.01 / 0.02 / 0.05 |
-| fold multiplicity | n folded conversions beside one bounded candidate set | 0.00 @32, 0.01 @128, 0.07 @512, 0.14 @1024 - against 0.00 / 0.01 / 0.07 / 0.15 |
-| body nesting | d class templates, each member body calling the one below | 0.00 s flat from d = 4 to d = 32, on both |
-| whole PA23 corpus | 417 files, one process each | **2.06 s** against the pre-audit binary's 2.03 s; no `rc > 1`, valgrind clean over 119 inputs |
+| narrowed-clause multiplicity | n braced constructions whose clause is a constant reaching a wider unsigned destination - the pair the corrected gate folds for | 0.00 s @32, 0.00 @128, 0.02 @512, 0.04 @1024 - and the same on the pre-audit binary |
+| deep-fold narrowing multiplicity | the same with a 64-deep `constexpr` recursion for a clause | 0.00 / 0.00 / 0.02 / 0.04 - and the same on the pre-audit binary |
+| qualification multiplicity | n arguments through 4.4's walk, which every candidate asks | 0.00 / 0.00 / 0.01 / 0.03 - and the same |
+| array-qualification multiplicity | n arguments adding const at an array's element | 0.00 / 0.00 / 0.01 / 0.03 - the pre-audit binary refuses the program |
+| subscript multiplicity | n subscripts, one `is_incomplete` apiece | 0.00 / 0.00 / 0.01 / 0.02 - and the same |
+| array-dimension nesting | d dimensions under one qualification conversion | 0.00 s flat from d = 4 to d = 32 |
+| whole PA23 corpus | 400 handout files, one process each | **1.87 s** against the pre-audit binary's 1.88 s; no `rc > 1`; valgrind clean |
 
-A bound is one `std::uint32_t` written where a definition is recorded and put
-back by a two-assignment scope where it is read, so a body costs one of each
-however many times it is read. `find` asks one comparison per namespace lookup
-and only where a bound is set at all; the candidate walk asks one per entry on
-the 3.4.1 side of a set it already knows the size of. `written_bound` is a test
-and a load. Nothing here walks anything it did not walk before.
+`object_unqualified` is `unqualified` for everything that is not an array, which
+is what `strip_cv` already was, and `object_cv` is one `kind` test more than
+`cv` - so 4.4's walk costs what it cost. For an array it walks the dimensions
+over the scratch `qualified` already uses and interns nothing a program did not
+already write. The narrowing gate asks the fold on two pairs more than it did,
+both of which the bullet would refuse without one, so a program that keeps
+compiling pays for folds whose answers it needed.
 
 ### Validation
 
-- `make test-report ACTIVE_TEST_REPORT_PAS='pa23'` - **343 / 417**, against
-  341 / 416 at the turn's start, with no test that passed then failing now: the
-  handout set goes 330 → 331 / 405 and the twelfth course fixture is this
-  audit's.
+- `make test-report ACTIVE_TEST_REPORT_PAS='pa23'` - **356 / 421**, against
+  354 / 420 at the turn's start, with no test that passed then failing now:
+  `200-range-array-reference-mutable-begin.t` turned and the sixteenth course
+  fixture is this audit's.
 - `make test-report-through-pa22` - **2948 / 2948**, 22 / 22 stages.
 - `perl scripts/cppgm_file_audit.pl --stage pa23 --paths dev/src` - **pass**,
   with the five `bad-division` warnings it already had.
-- All 417 corpus files compiled one at a time: **0 crashes**.
-- 119 inputs under `valgrind -q --error-exitcode=9`: 0 errors.
-- 61 probe programs compared against `g++ -std=c++11 -pedantic-errors` and
-  against `pa23/cppgm++-ref`, and every accepted one run through `lowir2cy86` +
-  `cy86` to the value `g++` runs it to.
+- 900 narrowing shapes against `g++ -std=c++11 -pedantic-errors`: 225 of the
+  integral cross product with a non-constant source and 675 of five source
+  types crossed with fifteen destinations and nine values. All 900 agree.
+- 20 qualification shapes through eight syntactic sites against both oracles:
+  20 of 20 agree with `g++`, and the 15 accepted ones run through
+  `lowir2cy86` + `cy86` to the value `g++` runs them to.
+- All 400 corpus files compiled one at a time: **0 crashes**; 135 inputs under
+  `valgrind -q --error-exitcode=9`: 0 errors.

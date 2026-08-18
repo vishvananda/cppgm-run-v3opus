@@ -1019,10 +1019,26 @@ void SemaAnalyzer::require_no_narrowing(const AstNode& written,
 	// for rather than one per clause.
 	const unsigned long long wide = types_.object_size(from);
 	const unsigned long long room = types_.object_size(to);
+	// 3.9.1p6-7 under 8.5.4p7's fourth bullet: whether the destination has every
+	// value the source *type* has, which is what the bullet asks before its
+	// exception is reached at all.  Width and signedness answer it for every
+	// type but `bool` - whose two values every integral type holds, and which
+	// holds nothing but its own however wide its storage is - and the pair is
+	// not symmetric: an unsigned source needs a signed destination strictly
+	// wider to keep its top half, and a signed source has negative values no
+	// unsigned destination has at any width at all.
+	const bool from_bool = types_.kind(from) == TypeKind::Fundamental &&
+		types_.fundamental_type(from) == FT_BOOL;
+	const bool to_bool = types_.kind(to) == TypeKind::Fundamental &&
+		types_.fundamental_type(to) == FT_BOOL;
+	const bool holds_the_type = from_bool ||
+		(!to_bool && (is_signed(from) == is_signed(to)
+			              ? room >= wide
+			              : (is_signed(to) && room > wide)));
+	const bool by_type = !from_float && !to_float && !holds_the_type;
 	const bool asks_the_value = from_float
 		? (to_float && room < wide)
-		: (to_float || room < wide ||
-		   (room == wide && is_signed(from) != is_signed(to)));
+		: (to_float || by_type);
 	if (!known && asks_the_value)
 	{
 		try
@@ -1059,11 +1075,9 @@ void SemaAnalyzer::require_no_narrowing(const AstNode& written,
 	}
 	else if (!known)
 	{
-		// 8.5.4p7 fourth bullet: the destination has to hold every value the
-		// source type has, which needs its width and, at equal width, its
-		// signedness.
-		narrows = room < wide ||
-			(room == wide && is_signed(from) != is_signed(to));
+		// 8.5.4p7 fourth bullet with no constant to judge: the destination has
+		// to hold every value the source *type* has.
+		narrows = by_type;
 	}
 	else
 	{

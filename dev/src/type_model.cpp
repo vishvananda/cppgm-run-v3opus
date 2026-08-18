@@ -1267,6 +1267,35 @@ TypeId TypeTable::strip_cv(TypeId type)
 	return unqualified(type);
 }
 
+// 3.9.3p5: the same type with the qualification an array carries *on its
+// element* taken off, which is the type 4.4's last comparison is of once the
+// qualifiers of each level have been compared themselves.  The way down is a
+// loop for the reason `object_cv`'s is.
+TypeId TypeTable::object_unqualified(TypeId type)
+{
+	if (kind(type) != TypeKind::Array)
+	{
+		return unqualified(type);
+	}
+	// The way down is `qualified`'s: a scratch of the dimensions rather than a
+	// descent, because a declarator may write more of them than a machine stack
+	// has frames.
+	const std::size_t opened = dimensions_.size();
+	while (kind(type) == TypeKind::Array)
+	{
+		dimensions_.push_back(type);
+		type = target(type);
+	}
+	TypeId out = unqualified(type);
+	while (dimensions_.size() != opened)
+	{
+		const TypeId array = dimensions_.back();
+		dimensions_.pop_back();
+		out = rebuilt_array(array, out);
+	}
+	return out;
+}
+
 unsigned TypeTable::object_cv(TypeId type) const
 {
 	// A declarator may write more dimensions than a machine stack has frames,

@@ -796,7 +796,11 @@ TypeId Deduction::qualification_converted(TypeId pattern, TypeId argument)
 	const TypeId inner_pattern = types.target(under_pattern);
 	const TypeId written = types.target(under_argument);
 	const TypeId inner = qualification_converted(inner_pattern, written);
-	const unsigned added = types.cv(inner_pattern) & ~types.cv(inner);
+	// 3.9.3p5: what an array level of the pattern asks for is written on its
+	// element, so the qualifiers this level adds are read past the dimensions -
+	// and `qualified` below puts them back where they were read from.
+	const unsigned added =
+		types.object_cv(inner_pattern) & ~types.object_cv(inner);
 	if (added == 0 && inner == written)
 	{
 		return argument;

@@ -680,6 +680,10 @@ public:
 	// 3.9.3p5: the cv-qualifiers an object of `type` has, which for an array
 	// are its elements', because an array is as cv-qualified as they are.
 	unsigned object_cv(TypeId type) const;
+	// The same fact's other half: `type` with that qualification taken off, so
+	// that a reader comparing two types level by level compares each level's
+	// qualifiers with `object_cv` and the types themselves with this.
+	TypeId object_unqualified(TypeId type);
 
 	// The course ABI size and alignment of an object of `type`, in bytes.  A
 	// reference is an 8 byte pointer and a function is the 4 byte mock stub of

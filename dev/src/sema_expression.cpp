@@ -1816,6 +1816,16 @@ SemaAnalyzer::Value SemaAnalyzer::subscript_expression(const AstNode& node,
 		throw std::runtime_error("a subscript expression has no pointer and "
 		                         "integral operand");
 	}
+	// 5.2.1p1: the pointee is *completely defined*, for the reason 5.7p1 asks it
+	// of `+` - `a[b]` is `*(a + b)` and what that addition moves over is that
+	// many objects of the pointee, which `void *` and a class the unit only
+	// declared say nothing about the width of.  The refusal is what 14.8.2p8
+	// drops a candidate on, which is every `decltype(a[i])`-shaped detector.
+	if (types_.is_incomplete(types_.target(pointer)))
+	{
+		throw std::runtime_error("a subscript expression has a pointer operand "
+		                         "to an incomplete type");
+	}
 	if (!left_is_pointer && line.children.size() == 2)
 	{
 		// 5.2.1p1: `E1[E2]` is `*((E1)+(E2))`, which is the same expression
@@ -2347,8 +2357,14 @@ TypeId SemaAnalyzer::composite_pointer(const Value& left, const Value& right)
 	}
 	const TypeId left_pointee = types_.target(a);
 	const TypeId right_pointee = types_.target(b);
-	const unsigned cv = types_.cv(left_pointee) | types_.cv(right_pointee);
-	if (types_.strip_cv(left_pointee) == types_.strip_cv(right_pointee))
+	// 3.9.3p5: the qualification of an array is its element's, so both the cv
+	// the composite type carries and the pair of types it is looking for are
+	// read past the dimensions - and `qualified` puts what it took back on the
+	// element it came from.
+	const unsigned cv =
+		types_.object_cv(left_pointee) | types_.object_cv(right_pointee);
+	if (types_.object_unqualified(left_pointee) ==
+	    types_.object_unqualified(right_pointee))
 	{
 		return types_.pointer_to(types_.qualified(left_pointee, cv));
 	}
