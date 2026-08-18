@@ -264,12 +264,17 @@ void LowirFunctionLowering::begin_object_lifetime(
 		}
 	}
 	const bool covered = region_open_;
-	// The region ends where this step began, and only where that leaves it
-	// holding something: a region that would hold nothing at all is one whose
-	// own open stands where the step does, and there the code the step wrote is
-	// what it covers.
+	// The region ends where this step began, and only where the handler it
+	// carries owes nothing.  A handler that owes an object is exactly what an
+	// exception out of *this* step needs - the object it built is unbuilt, but
+	// the ones standing in front of it still have to be destroyed - so a region
+	// that owes something covers the step that ends it.  One that owes nothing
+	// runs nothing either way, and there the references end it where the step
+	// began.  A region whose own open stands where the step does is holding
+	// nothing to move out of.
 	const bool at_step = ends && step_here && region_open_ &&
-		region_.block == current_ && step > region_.at + 1;
+		region_.live == 0 && region_.block == current_ &&
+		step > region_.at + 1;
 	close_region_at_step(at_step ? step
 	                             : out_.blocks[current_].instructions.size());
 	if (ends)

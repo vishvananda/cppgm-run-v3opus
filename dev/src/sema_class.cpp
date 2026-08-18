@@ -19,16 +19,16 @@ namespace
 // class's lifetime comes to nothing *and* the definition this unit read it off
 // is one the boundary may read it off at all.
 //
-// `vacuous` is 12.4p8's own answer, read from the destructor's body.  A
-// boundary is an agreement between two units, and the body a use of the class
-// has in front of it when the class completes is the one written in the class
-// body of the source the unit itself wrote: a definition written outside the
-// class stands wherever the program put it - after the class, and after
-// anything already carrying an object of it - and a class an included file
-// defined is read for the use that asks rather than where the file was read.
-// Neither is a body this question may be answered from, so an object of a
-// class whose destructor the program provided anywhere else is carried through
-// a place the caller names rather than as its bytes.
+// `vacuous` is 12.4p8's own answer, which `SemaAnalyzer::vacuous_destruction`
+// already reads off a body this unit's own source wrote - so a destructor an
+// included file defined has ended that question before this one is asked.  What
+// this clause adds is the *place* the remaining body stands in: a boundary is
+// an agreement settled where the class completes, and a definition written
+// outside the class body stands wherever the program put it - after the class,
+// and after anything already carrying an object of it.  So a class whose
+// user-provided destructor is defined out of line is carried through a place
+// the caller names rather than as its bytes, where the end of one of its
+// lifetimes still runs nothing.
 //
 // The question is asked of the whole object: 12.4p8 destroys every base class
 // subobject and every non-static data member, so a class holding one whose
@@ -44,8 +44,7 @@ bool carried_by_its_bytes(const SemaEntity& entity, const Scope& scope,
 	}
 	const SemaEntity* const destructor = entity.destructor;
 	if (destructor != nullptr && destructor->user_provided &&
-	    (!destructor->own_source_definition ||
-	     destructor->out_of_line_definition))
+	    destructor->out_of_line_definition)
 	{
 		return false;
 	}

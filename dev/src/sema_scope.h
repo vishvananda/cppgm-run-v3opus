@@ -605,6 +605,15 @@ struct SemaEntity
 	// uninitialized and names them through it instead.  An unnamed class a
 	// declarator did name - `union { int a; } u;` - is not one of these.
 	bool anonymous_storage;
+	// 5.1.2p3: whether this class is the closure type a lambda-expression
+	// declared.  A closure class is a region the *analysis* opened around one
+	// expression rather than one the program wrote a scope for, so the two
+	// readings of one lambda body - 5.1.2p4's return type in the declarator and
+	// the compound-statement at 9.2p2's closing brace - stand on either side of
+	// it, and a question about which reading of which body a name stands in has
+	// to see through it.  False for every class a class-specifier of the
+	// program's own declared.
+	bool closure_class;
 	// 7.1.1p10: whether the declaration wrote `mutable`, which nullifies the
 	// const an object of the class carries into this member.  A member function
 	// declared `const` may write one, and 5.3.1p3 hands back a pointer to
@@ -1152,6 +1161,15 @@ public:
 	SemaEntity* closure_of(const Scope& in, std::uint32_t at) const;
 	void hold_closure(const Scope& in, std::uint32_t at, SemaEntity& entity);
 
+	// 12.2p1's object the same lambda-expression is worth, keyed the same way.
+	// One reading of an expression is asked for by 13.3 before the reading that
+	// initializes from it, and both are readings of the one prvalue - so the
+	// object is made where the class is and not once per reading, which would
+	// give the function storage for an object no later reading names.
+	SemaEntity* closure_object_of(const Scope& in, std::uint32_t at) const;
+	void hold_closure_object(const Scope& in, std::uint32_t at,
+	                         SemaEntity& entity);
+
 	// 5.19p2 with 7.1.5p2: what a call of the constexpr function `callee` came
 	// to, as the `TypeKind::Value` entry the fold interned, or `kNoType` where
 	// no fold of it has been made.  It is keyed by the declaration and the
@@ -1318,8 +1336,10 @@ private:
 	// came to.
 	std::unordered_map<std::uint64_t, TypeId> folded_calls_;
 	// 5.1.2p3's closure classes, keyed by the region one was declared in and
-	// the position the lambda-expression that declares it was written at.
+	// the position the lambda-expression that declares it was written at, and
+	// 12.2p1's objects of them under the same key.
 	std::unordered_map<std::uint64_t, SemaEntity*> closures_;
+	std::unordered_map<std::uint64_t, SemaEntity*> closure_objects_;
 	// 5.19p2's address constants met so far, whose identifiers are what a
 	// constant of pointer type carries in place of a number.
 	AddressTable addresses_;

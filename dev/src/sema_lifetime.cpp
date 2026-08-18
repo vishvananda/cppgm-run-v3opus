@@ -166,9 +166,16 @@ bool creates_its_object(const DumpNode& node, TypeTable& types)
 	{
 	case FactKind::TemporaryObject:
 		// 12.2p1: the temporary is the object the program wrote, and what
-		// creates it is the constructor standing under it.
-		return node.fact.entity != nullptr && !node.children.empty() &&
-			node.children[0]->fact.kind == FactKind::ConstructorAction;
+		// creates it is the constructor standing under it - or, where 5.1.2p14
+		// leaves a closure holding no captures no initialization at all, the
+		// storage alone.  A temporary with nothing under it is that one, and it
+		// is created where the place asking for it owns storage exactly as one
+		// a constructor builds is: given a slot of its own instead, the place
+		// asking would open a second one and copy an object of no bytes into
+		// it.
+		return node.fact.entity != nullptr &&
+			(node.children.empty() ||
+			 node.children[0]->fact.kind == FactKind::ConstructorAction);
 
 	case FactKind::Call:
 		// 6.6.3p2: the returned object is created where the call names storage
@@ -2863,6 +2870,17 @@ void SemaAnalyzer::note_definition_body(SemaEntity& member,
 			continue;
 		}
 		member.empty_body = writes_no_statement(node);
+		// 2.2p1 and 14.7.2p10: this is the body this unit holds for the member,
+		// found before the declaration that writes it was read - so which file
+		// it was read from and that its declarator-id was qualified are settled
+		// here too, from the same node and the same two questions
+		// `declare_function` will ask of it.  `vacuous_destruction` asks the
+		// first one line along and 12.8p11's boundary asks the second, and
+		// both have to be the definition's answer rather than the
+		// declaration's: a class completes before a member defined below it is
+		// read, and the answers are held from that moment on.
+		member.own_source_definition = own_source(node);
+		member.out_of_line_definition = true;
 		return;
 	}
 }
@@ -2877,6 +2895,17 @@ void SemaAnalyzer::note_definition_body(SemaEntity& member,
 // does anything.  So this is the one question the end of a lifetime asks, and
 // every action - a local going out of scope, a temporary, a subobject of a
 // destructor the standard defines - asks it here.
+//
+// The body that says so has to be one this unit may read the emptiness of.  A
+// destructor the program wrote is a definition of the *program*'s, and 3.2p3
+// puts one in this object file only where a use asks for it: the body a use has
+// in front of it is the one written in the class body of the source this unit
+// itself wrote, and a class an included file defined is read for the use that
+// asks rather than where the file was read.  So a user-provided destructor
+// whose definition is not this unit's own is one whose emptiness no end of a
+// lifetime here may be answered from, and the end runs the call - which is what
+// `carried_by_its_bytes` asks of the same destructor one clause along, at
+// 12.8p11's boundary.
 //
 // The walk is the subobject tree, and its answer is held per type: a class n
 // members deep is walked once however many objects of it a function declares.
@@ -2912,8 +2941,19 @@ bool SemaAnalyzer::vacuous_destruction(TypeId type)
 	{
 		nothing = false;
 	}
-	if (!nothing && !dispatches && !destructor->deleted &&
-	    (destructor->empty_body || destructor->defaulted))
+	// 12.4p8 read off a body this unit's own source wrote.  One it did not is a
+	// destructor whose emptiness is no fact of this translation, so the end of
+	// the lifetime runs it; 12.4p4's implicit one and 12.4p6's explicitly
+	// defaulted one are no program's body at all and are read wherever they
+	// stand.
+	const bool readable = nothing || destructor == nullptr ||
+		!destructor->user_provided || destructor->own_source_definition;
+	if (!readable)
+	{
+		nothing = false;
+	}
+	else if (!nothing && !dispatches && !destructor->deleted &&
+	         (destructor->empty_body || destructor->defaulted))
 	{
 		// 12.4p8: what a destructor comes to is its body and then the
 		// destruction of each subobject, so one whose body writes nothing - and

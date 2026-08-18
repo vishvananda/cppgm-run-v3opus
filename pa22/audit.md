@@ -30,155 +30,167 @@ place is, and which declaration a list selects.
 
 | Z | `b4362edf` | 2 / 2 + 8 recorded | **which subobject an initialization designates, answered by 9.5p1's object at 8.5.1's walk of them and folded away at 12.6.2's - and the third walk of the same subobjects, which an aggregate's parameter list is counted by.**  Checkpoint Z made the object an anonymous aggregate declares a subobject at every reading that walks a class's: `SemaEntity::anonymous_storage` is the fact, `collect_member_targets` the walk, and 12.6.2p8's construction, 12.4p8's destruction and 12.6.2p2's mem-initializer-id read one flattened list carrying `one_of`.  Those rules are right and swept clean - 12.6.2p8's refusal of two members of one union is `g++`'s where the reference writes both stores, `trivial_default_construction` and `vacuous_destruction` answer 9.5p1's storage alike, the constexpr reader folds through the object where the reference cannot fold at all, and `name_regions` is what every namespace-scope anonymous union needs, the pre-Z build having refused each of them with `abi-mangle: empty source name`.  What none of it carried is that the same clause has a *second* reader that was already right: 8.5.1's walk names 9.5p1's object as the subobject a clause reaches, and 12.6.2p2's designation folded it into the member's own offset - so a mem-initializer designating a variant member was one `index` here and two in the reference, at a base, in a class template, at a class-type member, an array member, a bit-field, a delegating constructor and a written copy constructor alike, 12 shapes none of which any fixture could pin.  Under it the walk that counts an aggregate's own constructor: `member_constructor` gave 9.5p1's object a parameter of its own, so `N cells[2] = {{1, 2}, {3, 4}}` over `struct N { int lead; union { int a; long wide; }; };` passed a union object where the clause wrote an `int`, initialized no member at all and **ran to -10 where `g++` runs it to 0** - a program the pre-Z build refused and this one translated.  8.5.1p15's `one_per_union` is that walk asked once for the parameter list, the argument list and the definition, and the place carrying a variant member is named after the object the class numbered, as the reference names it.  Recorded rather than fixed: 12.4p8's empty destructor chain, which the reference writes for a *named* union exactly as for an anonymous one and `g++` refuses both; 9.5p3's `static`, one token in at each end of the storage object's name there; 3.6.2p2 at a namespace-scope union with an initializer; the reference's layout of an anonymous struct inside a union, 4 bytes there against `g++`'s 8; and the two shapes of 9.5p1 the reference reads the other way round |
 
+| AA | `0454dcc9` | 5 / 5 + 4 recorded | **the body 12.8p11's boundary may not read the emptiness of, landed at the boundary and at neither end of a lifetime - and the region one lambda-expression's class is held under, which is not the reading of the body it stands in.**  Checkpoint AA made 5.1.2p3's closure class rather than reading one: `LambdaReading` builds the class-specifier the standard describes and hands it to the class reading, so the local class, its ABI name, its layout, its call operator, 9.2p2's body at the closing brace and the demand-driven definition are the machinery already there.  That is right and swept clean - 51 of 59 shapes translate, every one of the 51 runs the value `g++` gives it through `lowir2cy86` + `cy86`, and 51 agree with `pa22/cppgm++-ref` through the assignment's own comparator.  What none of it carried is which *reading* of a body a lambda-expression stands in: `closure_of` is keyed by the block the expression was written in, and one body is read **twice** - 5.1.2p4's return type in the declarator's own regions and the compound-statement at 9.2p2's closing brace - so a lambda in the returned expression declared one class per reading and every level below it doubled.  8 nested lambdas declared **255** classes and 16 of them took **11.20 s** where 8 took 0.03; the key is now the outermost region one function declarator opens, walked *through* a closure class because that class is a region this reading made and not one the program wrote, and depth 64 is 0.26 s where the reference is killed at 60 s at depth 32.  Beside it the same commit's other clause at its other exit: 12.4p8 read off a body this unit's own source wrote is what `carried_by_its_bytes` asks at 12.8p11's boundary, and `SemaAnalyzer::vacuous_destruction` - the one door every end of a lifetime asks - kept answering off the body it went looking for, so `struct hin { int x; ~hin() {} };` written in a *header* was an object the reference destroys and opens an `eh_try` for and this build did neither, at a local, a by-value parameter, a member, a base, a class template and an out-of-line definition alike.  15.2p2's region ended where a step began however much its handler owed, so `use(held(1), held(2), held(3))` ran a constructor **outside** the handler that owes the temporary standing in front of it - a region that owes nothing is the one the references move a step out of, and the one the checkpoint's own fixture needed.  5.1.2p4's walk read a `return` belonging to another function: `[]{ struct S { char c() { return 'a'; } }; return 300; }` was a closure returning `i8` that translated, linked and **ran to 1 where both oracles run 0**.  And 12.2p1's object was made once per reading while `creates_its_object` had no arm for a temporary with nothing under it, so a captureless lambda handed to a by-value parameter opened two `argobj` slots where the reference opens one.  Recorded rather than fixed: 5.1.2p4's deduced return type is read before the body's own region exists, which refuses **four of twenty** ordinary lambdas and not the one exotic shape the plan named; the reference's unused implicit copy constructor for a class held by another whose destructor a header defined; the closure's own ABI name, which pairs two identical closures by order; and 15p1's try-block, which the parse takes and the analysis refuses as outside the PA12 subset |
+
 ## Current Checkpoint Review
 
-Checkpoint Z is one fact and one walk: 9.5p1's anonymous aggregate declares an
-object no name reaches, and `collect_member_targets` is the flattening of a
-class's subobjects that descends through it. `SemaEntity::anonymous_storage` is
-written where `inject_anonymous_members` declares the object; the walk carries
-`one_of`, the union whose single storage each member it reaches stands in; and
-12.6.2p8's construction, 12.4p8's destruction and 12.6.2p2's mem-initializer-id
-read that one list. Beside them `trivial_default_construction` reads 9.5p1's
-storage the way `vacuous_destruction` already did, `through_anonymous_storage`
-leaves the operand below the step it takes, `ConstexprReading` walks the object
-with the index the layout gave it, and `name_regions` writes the name the
-translation gave an unnamed class where a `<source-name>` stands.
+Checkpoint AA is one class made rather than read. `LambdaReading` builds the
+class-specifier 5.1.2p3 describes - a local class holding one public inline
+`operator()` whose parameter-declaration-clause, cv-qualification and
+exception-specification are the lambda-declarator's own and whose body is the
+compound-statement - and hands it to `SemaAnalyzer::class_declaration`, so the
+ABI name, the layout, the member's declaration, 9.2p2's reading of its body at
+the closing brace and the demand-driven definition are all machinery that was
+already there. `SemaModel::closure_of` keys one class per lambda-expression,
+p14's initialization is *nothing* for a lambda that captured nothing, and
+`AstKind::DeducedReturnType` is p4 read at 8.3.5p2's place. Under the one
+fixture were two clauses of its own: 12.8p11's boundary may not read the
+emptiness of a destructor defined elsewhere, and 15.2p2's region may not cover
+the step that built the object it was opened for.
 
-The fact is of the right shape and the readers Z wrote are right. 12.6.2p8's
-refusal of a constructor initializing two members of one union is exactly what
-`g++` makes and what `pa22/cppgm++-ref` does not - the reference writes both
-stores into the one storage. `member_path` and `subobject_entries` fold a
-`constexpr` object through 9.5p1's object where the reference refuses the
-program outright and `g++` folds it. `name_regions` is no dead arm: the pre-Z
-build refuses *every* namespace-scope anonymous union with `abi-mangle: empty
-source name`, so the component it writes is what each of them needs. Nothing
-scans: the walk is one pass over the declarations a class already holds, the
-`designated`/`initialized` sets are probed once per subobject, and the
-per-constructor cost is a constant.
-
-What Z did not carry is that **which subobject an initialization designates**
-already had a second reader, and the two answer it differently.
+Making the syntax is the right shape and the reuse is real: 51 of 59 probed
+shapes translate, every one of them runs exactly the value
+`g++ -std=c++11 -pedantic-errors` gives it, and 51 are byte for byte
+`pa22/cppgm++-ref`'s through the assignment's own comparator. What none of it
+carried is that **one body is read twice**, and that each of the two new clauses
+had a sibling exit answering the old question.
 
 ### Findings
 
-**1. 12.6.2p2's designation folded 9.5p1's object away where 8.5.1's walk of the
-same subobjects names it.** `member_storage` walks `member.storage` and adds
-every anonymous object's offset into the member's own, which is right for
-5.2.5p1's access - 9.5p2 made the member a member of the class around the union,
-so a *use* reaches it in the one step the layout gives. It is not right for the
-initialization: what a mem-initializer designates is a member of the **union**,
-which holds one member at a time, and the aggregate walk in `initialize_into`
-already wrote that object's step. So one clause had two answers inside this
-build, and the reference agrees with the aggregate one:
+**1. A closure class was held under the block the expression stood in, so
+nested lambdas cost 2^depth.** `closure_of` is keyed by `(ctx.scope, node.begin)`
+- but 5.1.2p4's deduced return type is read where 8.3.5p2's trailing-return-type
+is, in the declarator's own regions, and the compound-statement is read again at
+9.2p2's closing brace in a block region under them. A lambda-expression written
+in the returned expression is reached by both readings under two different
+blocks, so it declared two classes; each of those repeated the split one level
+down:
 
 ```
-    %t1 = load ptr $this
-    %t2 = index i8 [projection=field] %t1, 8
-    %t3 = index i8 [projection=field] %t2, 0     // the reference and 8.5.1's walk
-    store i32 2, %t3                             // 12.6.2 wrote `index 8` alone
+8 nested lambdas   255 closure classes declared      depth 16: 11.20 s
+                                                     depth  8:  0.03 s
 ```
 
-12 shapes diverged - a variant member of class type, two unions in one class,
-9.5p2's brace-or-equal-initializer, an anonymous union declared in a base, one
-written inside an anonymous struct, a class with a destructor beside it, the
-implicit copy of one, a class template, the ABI name of a member function
-reading one, an access through a pointer, a local class, and a class declaring a
-static data member beside it. `member_storage` now takes 12.6.2p2's
-question as well as 5.2.5p1's: it writes the union's own `index` where the
-initialization designated the member and folds it where a name reached it, with
-the anonymous *structs* between folded either way, because only a union is a
-storage its members stand in one at a time. All 12 are byte for byte the
-reference's.
+`reading_region` is the region the class is now held under: the outermost of the
+regions one function declarator opens, walked *through* a closure class, because
+that class is a region this reading made rather than one the program wrote and
+the two readings of one body stand on either side of it. A class the program
+declared, a namespace or a template head ends the walk, which is what keeps a
+member template specialized twice at two classes. 8 nested lambdas now declare
+36 and depth 64 is **0.26 s**, where `pa22/cppgm++-ref` is killed at 60 s at
+depth 32. `SemaEntity::closure_class` is the fact the walk reads; a lambda in a
+function template, in a member function template and in a loop were probed at
+both builds and each writes the same count the reference writes.
 
-**2. 8.5.1p2's member constructor counted 9.5p1's object as a parameter of its
-own, and an array of such an aggregate initialized nothing at all.**
-`member_constructor` gave one parameter per member the class declares, which for
-`struct N { int lead; union { int a; long wide; }; };` is `lead` and *the union
-object* - where the clause walk hands out `1` and `2`. The two disagreed about
-what the parameter list is, so the argument for the union was built in a slot of
-its own and no member was ever written:
+**2. 12.4p8's provenance landed at 12.8p11's boundary and at neither end of a
+lifetime.** `carried_by_its_bytes` asks whether the definition this unit read a
+destructor's emptiness off is one the boundary may read it off at all -
+`user_provided && (!own_source_definition || out_of_line_definition)`. The door
+every *end of a lifetime* asks is `SemaAnalyzer::vacuous_destruction`, and it
+kept reading the body wherever `note_definition_body` found it. So an object of
+a class whose empty-bodied destructor an included file defined was destroyed by
+nobody and stood under no handler:
 
 ```cpp
-N cells[2] = {{1, 2}, {3, 4}};
-return cells[0].lead + cells[0].a + cells[1].lead + cells[1].a - 10;
+// in a header
+struct hin { int x; ~hin() {} };
+int main() { hin a; a.x = 1; return touch(a) - 1; }   // the reference writes
+                                                      // eh_try + two calls
 ```
 
-returned **-10 where `g++` returns 0**, and translated and linked to do it - a
-program the pre-Z build refused with `abi-mangle: empty source name` and this one
-silently miscompiled. The reference passes `(ptr, i32, i32)`. `collect_member_targets`
-now answers this walk too, with 8.5.1p15's `one_per_union` - a union is
-initialized by its first member alone, and where that member is an anonymous
-aggregate the whole of it is that first member. The parameter list, the argument
-list and the definition are counted by the one walk, so the three cannot part
-company again; and the place carrying a variant member is named after the object
-the class numbered - `__anonymous_union_storage1` - which is the name the
-reference writes, because 9.5p2 gave away the name that reaches the member and
-the class kept the object's.
+Nine shapes diverged - a local, a by-value parameter, a member, a base, a class
+template, an out-of-line definition in a header, and two classes holding one -
+and thirteen were swept to settle the rule the reference draws: it is
+`user_provided && !own_source_definition`, propagated through bases and members,
+and an implicit destructor, `= default` and an out-of-line definition in the
+unit's *own* source are read wherever they stand. The fact is now settled once,
+in `vacuous_destruction`, and the subobject walk that was already there carries
+it; `carried_by_its_bytes` keeps only 14.7.2p10's own half. Both provenance
+facts are written at `note_definition_body`, the door that finds the body before
+the declaration writing it has been read - because a class completes before a
+member defined below it is read, and the memo holds the answer from that moment
+on.
 
-Two `course/pa22` fixtures pin what the findings fixed:
-`300-anonymous-union-variant-member-designated` writes the ctor-initializer at a
-base, in a class template, at a class-type member, an array member and an
-anonymous union inside an anonymous struct, and
-`300-anonymous-union-aggregate-array-member-constructor` writes the array of
-aggregates at all three tiers - an anonymous union, one nested in an anonymous
-struct beside a second union, and a union the program named. Both are byte for
-byte the reference's and both run the value `g++` gives them; the checkpoint's
-own build differs from the reference at both, and what it writes for the second
-**segfaults** through `lowir2cy86` + `cy86`.
+**3. 15.2p2's region ended where a step began however much its handler owed.**
+`close_region_at_step` moved a step's own instructions out of *every* region it
+closed. An exception out of a step does leave the object that step was building
+unbuilt - but the objects standing in front of it are exactly what the handler
+around the step owes:
+
+```
+  block ^call_unwind_end_2:
+    eh_try ^call_unwind_dispatch_3          // dispatch destroys arg__2
+    %t3 = addr $arg__3
+    call void @<fn1>(%t3, 3)                // the reference, inside
+    eh_end                                  // this build closed here and wrote
+                                            // the construction after the region
+```
+
+so `use(held(1), held(2), held(3))` ran a constructor no handler covered, and
+the pre-AA build wrote the reference's answer. The move is right for a region
+whose handler owes *nothing* - which runs nothing either way, and is the shape
+the checkpoint's own fixture needed - so `region_.live == 0` is the clause, and
+both shapes are now byte for byte the reference's.
+
+**4. 5.1.2p4's walk read a `return` belonging to another function.**
+`returned_expression` skipped a nested lambda-expression and descended into
+everything else, including a class 9.3p1 lets the body declare:
+
+```cpp
+template<class F> long run(F const& f) { return f(); }
+int main() { return run([]{ struct S { char c() { return 'a'; } }; return 300; })
+                    == 300L ? 0 : 1; }
+```
+
+The closure's `operator()` came out `-> i8` where the reference and `g++` both
+give `i32`, and the program translated, linked and **returned 1 where both
+oracles return 0**. 6.6.3p1's `return` belongs to the innermost function around
+it, so the walk skips a `FunctionDefinition` exactly as it already skipped a
+`LambdaExpression`.
+
+**5. 12.2p1's object was made once per reading, and the reader that hands a
+destination down had no arm for a temporary with nothing under it.**
+`LambdaReading::expression` created a fresh object entity on every reading of
+one expression, and `creates_its_object` asks a `TemporaryObject` for a
+`ConstructorAction` under it - which 5.1.2p14 leaves a closure without. So the
+place asking for the object opened a slot of its own and copied an object of no
+bytes into it: `template<class F> int run(F f)` over `[]{ return 6; }` wrote two
+`argobj` slots and two `addr` where the reference writes one of each. The object
+is now held beside the class under the same key, and a temporary with nothing
+under it creates its object where the place asking owns storage exactly as one a
+constructor builds does.
 
 ### What the review confirmed rather than found
 
-- **The other readers of a class's subobjects were probed and are right where
-  they are.** `write_member_destructions` skips a variant member and destroys
-  the rest in reverse declaration order with the anonymous ones flattened in
-  place; 12.8p15's copy and copy-assignment carry the union object whole;
-  8.5.1's clause walk reaches the members through it; `subobject_declares_destruction`
-  and `destruction_nonthrowing` already read 12.4p8's union. `trivial_destruction`
-  and `default_construction_nonthrowing` are the two that do *not* ask 9.5p1's
-  question - both were probed at the shapes that would show it and neither
-  changes a line of LowIR, because a union whose member declares a destructor is
-  a program `g++` refuses and one whose member's constructor throws initializes
-  nothing.
-- **The fold and the step are the *site*'s answer and not a flag left
-  standing.** The mark is taken at entry to the one member-expression it names
-  and cleared there, so the object expression under it - and the initializer
-  beside it, which may read another member of the same union - are read as the
-  uses they are. `N(const N& o) : a(o.a + 1)` writes `a` through the union's step
-  and reads `o.a` through the fold, byte for byte the reference's.
-- **Nothing scans, nothing is re-read, nothing retries.** `collect_member_targets`
-  is one pass per constructor, per destructor and per aggregate parameter list
-  over the declarations the class already holds; `member_storage` walks a chain
-  whose length is the nesting depth and emits at most one step per union in it.
-  n anonymous unions in one class, each designated, is 0.01 → 0.06 s at 100 → 800
-  against the reference's 0.56 → 1.99 s; one union of n variant members 0.00 s
-  flat; n reads through 9.5p1's object 0.00 → 0.02 s; n classes each with one
-  0.02 → 0.17 s; an anonymous aggregate nested d deep 0.00 s flat to 64, where
-  the pre-Z build refuses every one of them; n `constexpr` objects folded through
-  the object 0.01 → 0.05 s, which the reference cannot compile; and the array of
-  aggregates the second finding rewrote 0.01 → 0.07 s at 100 → 800 against 2.03 s.
-- **The corpus is unchanged.** The same 309 files one process per file is
-  1.31 s at the audited build against 1.34 s at the checkpoint and 1.36 s at the
-  pre-Z build.
-- **`valgrind -q --error-exitcode=9` is clean over 51 inputs**, 0 errors: the 47
-  probes and the four `course/pa22` fixtures that write an anonymous union.
-- **47 probes judged through the assignment's own comparator against
-  `pa22/cppgm++-ref`, and against `g++ -std=c++11 -x c++`.** 31 match the
-  reference byte for byte. `g++` accepts 40 of the
-  47 and every one of the 40 returns exactly the value this build gives it,
-  through `lowir2cy86` + `cy86`. The 16 that differ from the reference are eight
-  readings recorded in the plan: 12.6.2p8's refusal and 5.19's fold, where `g++`
-  agrees with this build; the reference's layout of an anonymous struct inside a
-  union, 4 bytes there against `g++`'s 8; its refusal of an anonymous union
-  inside an anonymous union; 9.5p3's `static` at the storage object's name and
-  3.6.2p2 at its initializer; 12.4p8's empty destructor chain, which the
-  reference writes for a *named* union exactly as for an anonymous one, so it is
-  no part of what 9.5p1's object owns and `g++` refuses both programs; and
-  9.4.2p2's image for a static data member defined outside its class, which
-  reaches no anonymous union at all and which `g++` writes as this build does.
+- **The class is made and reused rather than described twice.** 51 shapes -
+  parameters, `mutable`, `noexcept`, a trailing return type, a returned class
+  object, a `return` inside an `if`, a nested lambda, two lambdas in one
+  statement, two identical ones, a lambda in a class template instantiated
+  twice, one deduced through `F const&` and one through `F` - all translate, and
+  the ABI name, the layout, 9.2p2's body reading and the demand-driven
+  definition are the class reading's own with nothing written beside them.
+- **Nothing scans and nothing retries.** The two closure memos are hash lookups
+  keyed by a region and a token position; `reading_region` walks the enclosing
+  regions, which is the block nesting; `carried_by_its_bytes` and
+  `vacuous_destruction` each read what a base or a member already settled;
+  `note_definition_body` walks the definitions collected under one name.
+  n captureless lambdas in one body is 0.01 → 0.06 s at 50 → 400 against the
+  reference's 0.60 → 1.10 s, n specializations of one body holding one lambda
+  0.01 → 0.08 s against 0.60 → 1.30 s, n temporaries with destructors in one
+  full-expression 0.00 → 0.01 s at 25 → 200, and n classes whose destructor a
+  header defined 0.02 → 0.05 s at 50 → 400.
+- **`valgrind -q --error-exitcode=9` is clean over 62 inputs**, 0 errors: the
+  59 probes, the checkpoint's own fixture and the nested-lambda sweep.
+- **The corpus is unchanged.** The 377 `.t` files one process per file are
+  3.02 s warm at the audited build against 3.11 s at the pre-AA one, measured
+  the same way; the plan's carried-forward 1.53 s was measured another way and
+  is re-stated.
 - **No gate and no skipped work.** Neither the checkpoint's diff nor this
   audit's holds a `getenv`, a fixture name, a dialect switch keyed on anything
   but a dialect, a timeout, an environment read or a caught exception standing
-  for a success. Earlier assignments are intact: `make test-report-through-pa21`
-  is 2568 / 2568, and PA22 holds 374 / 377 with the same three failures the
-  checkpoint left. The file audit passes with the five `bad-division` warnings it
-  already had.
+  for a success. `own_source_definition` is 2.2p1 asked of a node, which
+  `sema_virtual.cpp` and `lowir_lower.cpp` already ask, and not a gate on a file
+  name. Earlier assignments are intact: `make test-report-through-pa21` is
+  2568 / 2568, and PA22 holds 375 / 377 with the same two the checkpoint left,
+  both the reference's own. The file audit passes with the five `bad-division`
+  warnings it already had.

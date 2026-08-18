@@ -58,6 +58,46 @@ bool captures_nothing(const AstNode& introducer)
 	return true;
 }
 
+// 5.1.2p3: the reading of one body a lambda-expression stands in, which is what
+// tells one closure class from another.
+//
+// A function's body is read *twice over* here: 5.1.2p4's deduced return type is
+// read where 8.3.5p2's trailing-return-type is - in the declarator's own
+// regions, before the body - and the compound-statement is read again at
+// 9.2p2's closing brace, in a block region under them.  A lambda-expression
+// written in the returned expression is therefore reached by both readings, and
+// keyed by the block it happens to stand in it would declare a class per
+// reading: one class per lambda per level, doubled at every level below it.
+//
+// So the key is the outermost of the regions one function declarator opens -
+// the prototype region, the function's own and every block inside them - which
+// both readings stand in and which 14.7.1p1's next specialization opens a fresh
+// one of.  A closure class between them is walked through, because it is a
+// region this reading made rather than one the program wrote: the deduced
+// return type is read *in* it and the body is read in a block under it, and
+// they are one reading of the body around it.  A class the program declared, a
+// namespace or a template head ends the walk - a member template specialized
+// twice is two readings of one body and two regions, which is exactly what
+// keying on the class around it would lose.
+const Scope& reading_region(const Scope& in)
+{
+	const Scope* region = &in;
+	for (const Scope* up = &in; up != nullptr; up = up->parent)
+	{
+		const bool inside_one_reading =
+			up->kind == ScopeKind::Prototype ||
+			up->kind == ScopeKind::Function || up->kind == ScopeKind::Block ||
+			(up->kind == ScopeKind::Class && up->owner != nullptr &&
+			 up->owner->closure_class);
+		if (!inside_one_reading)
+		{
+			break;
+		}
+		region = up;
+	}
+	return *region;
+}
+
 // 6.6.3p1: a `return` with an expression, anywhere in the body the lambda
 // wrote.  5.1.2p4 gives the call operator the type of that expression, and
 // `void` where the body holds none - which is what makes the walk a question
@@ -75,10 +115,16 @@ const AstNode* returned_expression(const AstNode& body)
 			}
 			continue;
 		}
-		if (statement.kind == AstKind::LambdaExpression)
+		if (statement.kind == AstKind::LambdaExpression ||
+		    statement.kind == AstKind::FunctionDefinition)
 		{
-			// 5.1.2p4 is asked of the body this lambda wrote, and a lambda
-			// written inside it has a body - and a return type - of its own.
+			// 6.6.3p1: a `return` belongs to the innermost function around it,
+			// and those two are the only nodes that write one.  A lambda
+			// written in this body has a body - and a return type - of its
+			// own, and so does a member of a class 9.3p1 let this body
+			// declare: `[]{ struct S { char c() { return 'a'; } }; return 1; }`
+			// returns `int` and the walk has to reach past the `'a'` standing
+			// in front of it.
 			continue;
 		}
 		const AstNode* const nested = returned_expression(statement);
@@ -117,8 +163,21 @@ AnalyzedValue LambdaReading::expression(const AstNode& node,
 {
 	SemaEntity& closure = closure_class(node, ctx);
 	DumpNode& line = analyzer_.model_.open_node(parent, std::string());
-	SemaEntity& object =
-		analyzer_.model_.create(SemaKind::Variable, std::string(), closure.type);
+	// 12.2p1: one lambda-expression standing in one region is one object, for
+	// the same reason it is one class.  13.3 reads an argument before the
+	// initialization that takes it does, and every other prvalue is worth an
+	// object made where the node that produced it is first asked for one - so
+	// making one per reading here would give the function storage for an object
+	// no later reading names, and 12.2p3 an end of a lifetime to write for it.
+	const Scope& region = reading_region(*ctx.scope);
+	SemaEntity* held = analyzer_.model_.closure_object_of(region, node.begin);
+	if (held == nullptr)
+	{
+		held = &analyzer_.model_.create(SemaKind::Variable, std::string(),
+		                                closure.type);
+		analyzer_.model_.hold_closure_object(region, node.begin, *held);
+	}
+	SemaEntity& object = *held;
 	object.object_member = false;
 	analyzer_.set_fact(line, FactKind::TemporaryObject, closure.type,
 	                   ValueCategory::PRValue);
@@ -154,7 +213,8 @@ AnalyzedValue LambdaReading::expression(const AstNode& node,
 SemaEntity& LambdaReading::closure_class(const AstNode& node,
                                          const SemaContext& ctx)
 {
-	SemaEntity* const held = analyzer_.model_.closure_of(*ctx.scope, node.begin);
+	const Scope& region = reading_region(*ctx.scope);
+	SemaEntity* const held = analyzer_.model_.closure_of(region, node.begin);
 	if (held != nullptr)
 	{
 		return *held;
@@ -182,7 +242,8 @@ SemaEntity& LambdaReading::closure_class(const AstNode& node,
 	span.end = node.end;
 	SemaEntity& closure =
 		analyzer_.class_declaration(specifier, ctx, span, true, std::string());
-	analyzer_.model_.hold_closure(*ctx.scope, node.begin, closure);
+	closure.closure_class = true;
+	analyzer_.model_.hold_closure(region, node.begin, closure);
 	return closure;
 }
 

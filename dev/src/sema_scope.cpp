@@ -427,6 +427,7 @@ SemaEntity& SemaModel::create(SemaKind kind, const std::string& name, TypeId typ
 	entity.own_source_definition = false;
 	entity.object_member = false;
 	entity.anonymous_storage = false;
+	entity.closure_class = false;
 	entity.mutable_member = false;
 	entity.template_parameters = nullptr;
 	entity.templated = nullptr;
@@ -510,6 +511,21 @@ void SemaModel::hold_closure(const Scope& in, std::uint32_t at,
                              SemaEntity& entity)
 {
 	closures_.insert(
+		std::make_pair((static_cast<std::uint64_t>(in.id) << 32) | at, &entity));
+}
+
+SemaEntity* SemaModel::closure_object_of(const Scope& in,
+                                         std::uint32_t at) const
+{
+	const std::unordered_map<std::uint64_t, SemaEntity*>::const_iterator found =
+		closure_objects_.find((static_cast<std::uint64_t>(in.id) << 32) | at);
+	return found == closure_objects_.end() ? nullptr : found->second;
+}
+
+void SemaModel::hold_closure_object(const Scope& in, std::uint32_t at,
+                                    SemaEntity& entity)
+{
+	closure_objects_.insert(
 		std::make_pair((static_cast<std::uint64_t>(in.id) << 32) | at, &entity));
 }
 
