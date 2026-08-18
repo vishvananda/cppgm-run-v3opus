@@ -1013,8 +1013,7 @@ TypeId SemaAnalyzer::bare_type(TypeId type)
 	{
 		return types_.strip_cv(type);
 	}
-	return types_.array_of(bare_type(types_.target(type)), types_.bounded(type),
-	                       types_.bound(type));
+	return types_.rebuilt_array(type, bare_type(types_.target(type)));
 }
 
 // 8.5.3 and 13.3.3.1.4: binding a reference parameter to an argument.

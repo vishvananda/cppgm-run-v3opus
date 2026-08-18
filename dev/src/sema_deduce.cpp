@@ -89,8 +89,7 @@ bool Deduction::match(TypeId pattern, TypeId argument,
 		return match(types.target(pattern), types.target(argument), bindings);
 
 	case TypeKind::Array:
-		return types.bounded(pattern) == types.bounded(argument) &&
-			types.bound(pattern) == types.bound(argument) &&
+		return match_bound(pattern, argument, bindings) &&
 			match(types.target(pattern), types.target(argument), bindings);
 
 	case TypeKind::MemberPointer:
@@ -286,6 +285,61 @@ bool Deduction::match_template_id(TypeId pattern, TypeId argument, TypeId place,
 	}
 	return match_arguments(types.template_arguments(types.strip_cv(pattern)),
 	                       types.template_arguments(bare), bindings);
+}
+
+// 14.8.2.5p13: 8.3.4p1's bound as a P/A pair of its own.
+//
+// A bound the pattern wrote a place in is deduced from the number the argument
+// has, which is 5.19's value the reading of the argument's own declarator
+// already arrived at.  The clause gives that value the type `std::size_t`, and
+// 14.3.2p5 then converts it to the type the place declared - so `T[N]` over a
+// `char N` and an argument of 300 elements deduces the 300 that place holds and
+// not the 300 the array has, which is what makes the check below its own rather
+// than a comparison of the bits the argument was written with.
+//
+// 14.5.5.2p1's partial ordering asks this same question of two *patterns*, where
+// the argument's own bound is a place standing for itself.  That place is what
+// the clause synthesizes a unique value as, so the pattern's place is deduced to
+// it exactly as a type place is deduced to another type place - which is what
+// makes `const T[N]` more specialized than `T[M]` and leaves neither of two
+// bounds that both name places refusing the other.
+bool Deduction::match_bound(TypeId pattern, TypeId argument,
+                            std::unordered_map<TypeId, TypeId>& bindings)
+{
+	TypeTable& types = analyzer_.types_;
+	const TypeId place = types.bound_place(pattern);
+	if (place == kNoType)
+	{
+		// A pattern that wrote a number takes the same number and nothing else:
+		// a bound standing for a place is no 5 however it is later settled.
+		return types.bounded(pattern) == types.bounded(argument) &&
+			types.bound(pattern) == types.bound(argument) &&
+			types.bound_place(argument) == kNoType;
+	}
+	if (!types.bounded(argument))
+	{
+		// 8.3.4p1: an array of unknown bound has no value for the place to be
+		// deduced from, so the pair says nothing and the deduction fails.
+		return false;
+	}
+	TypeId deduced = types.bound_place(argument);
+	if (deduced == kNoType)
+	{
+		// 14.8.2.5p13: the value is the number the argument's own declarator
+		// arrived at, taken as `std::size_t` and then brought to the type the
+		// place declared by 14.3.2p5 - so `T[N]` over a `char N` deduces the
+		// value that place holds and not the bits the array was written with.
+		SemaAnalyzer::Constant given;
+		given.type = types.fundamental(FT_UNSIGNED_LONG_INT);
+		given.bits = types.bound(argument);
+		const TypeId declared = types.parameter_value_type(place);
+		deduced =
+			types.value_type(declared, analyzer_.convert(given, declared).bits);
+	}
+	const std::pair<std::unordered_map<TypeId, TypeId>::iterator, bool> held =
+		bindings.insert(std::make_pair(place, deduced));
+	// 14.8.2.5p2: two bounds that deduce one place differently deduce nothing.
+	return held.second || held.first->second == deduced;
 }
 
 // 14.5.3p1 with 14.8.2.5p4: two lists of entries - a template-argument-list or

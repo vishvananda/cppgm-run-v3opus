@@ -109,6 +109,14 @@ private:
 	                  std::unordered_map<TypeId, TypeId>& bindings,
 	                  bool reference);
 
+	// 14.8.2.5p13 over 8.3.4p1's bound: the pair the brackets of two array
+	// types write.  A bound the pattern named a place with is a deduced context
+	// of its own - `T[N]` against `const int[5]` binds `N` to 5 as a value of
+	// the type the place declared - and a bound both sides settled agrees
+	// exactly, which is the one reading this was before there were places.
+	bool match_bound(TypeId pattern, TypeId argument,
+	                 std::unordered_map<TypeId, TypeId>& bindings);
+
 	// 14.8.2.1p1's one pair: the parameter type `parameter` as it stands
 	// against the type of what a call put there.
 	bool match_argument(TypeId parameter, const AnalyzedValue& argument,

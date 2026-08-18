@@ -183,6 +183,92 @@ bool ConstexprReading::counted_where(const AstNode& node,
 	return analyzer_.stood_in_ == stood;
 }
 
+unsigned long long ConstexprReading::array_bound(const AstNode& node,
+                                                 const SemaContext& ctx,
+                                                 TypeId& place)
+{
+	// 14.6.2p1 over 8.3.4p1: a bound that is one place names no value until an
+	// argument list says one, so it is answered before the reading rather than
+	// after it - the reading *throws* wherever nothing else is standing in, and
+	// a function template's parameter-declaration-clause is read in exactly
+	// such a region.  What the place leaves is the array `N` counts, carried on
+	// the type until 14.3p1's substitution puts the number back; this is the
+	// same lone-identifier reading the spelled type-id's bound is given.
+	place = named_place(node, ctx);
+	if (place != kNoType)
+	{
+		return 1;
+	}
+	// 8.3.4p1: the bound is a converted constant expression of type
+	// `std::size_t`, which 5.19p3 leaves its user-defined conversions - and
+	// which counts elements, so a floating value is no bound at all.
+	SemaConstant value;
+	unsigned long long bound = 0;
+	if (!counted_where(node, ctx, value, bound))
+	{
+		// 14.6p8 over 8.3.4p1: the bound names something an argument list has
+		// yet to settle, so what the reading came out as - a value, or running
+		// out on the stand-in - is no bound at all.  `char check[sizeof(T) == 4
+		// ? 1 : -1]` is the pattern's whole point, and the arm a stood-in value
+		// chose says nothing about the specialization.  One element stands in
+		// until the instantiation reads the bound its arguments make, which is
+		// where 8.3.4p1 is asked.
+		return 1;
+	}
+	if (analyzer_.is_signed(value.type) && (bound >> 63) != 0)
+	{
+		throw std::runtime_error("an array bound is negative");
+	}
+	if (bound == 0)
+	{
+		if (analyzer_.checking_ > 0)
+		{
+			// 14.6p8 over 8.3.4p1: how many elements the array has, an argument
+			// list is what says wherever the bound was computed from a type
+			// that depends on a template parameter - `size_of` stood one value
+			// in for that type's size, so the quotient a reading arrives at is
+			// no bound at all.  The reading stands one element in its place and
+			// the specialization computes the bound its arguments make, which
+			// is where 8.3.4p1 is asked.
+			return 1;
+		}
+		// 8.3.4p1: the bound shall be greater than zero.
+		throw std::runtime_error("an array bound is zero");
+	}
+	return value.bits;
+}
+
+// 14.6.2p1 at 8.3.4p1's bound: a bound written as one identifier that names a
+// non-type template parameter, which is the one expression a substitution can
+// put the argument's own number back into.
+//
+// 5.1p1's parentheses change nothing about which name that is, so they are
+// stepped through; anything else - an operator, a call, a `sizeof` - names no
+// place and leaves the stand-in standing, because there is nowhere for a later
+// argument list to be written back to.
+TypeId ConstexprReading::named_place(const AstNode& node,
+                                     const SemaContext& ctx)
+{
+	const AstNode* at = &node;
+	while (at->kind == AstKind::ParenthesizedExpression && !at->children.empty())
+	{
+		at = at->children[0];
+	}
+	if (at->kind != AstKind::IdExpression ||
+	    at->text.find_first_of(":<") != std::string::npos)
+	{
+		return kNoType;
+	}
+	SemaEntity* const named = analyzer_.resolve(at->text, ctx, LookupKind::Any);
+	// 14.3p1: a name a region already bound to an *argument* is that argument
+	// and no place at all, which `counted_where` would have counted had the
+	// value it holds been one this reading settled.
+	return named != nullptr && !named->constant &&
+			analyzer_.types_.parameter_value_type(named->type) != kNoType
+		? named->type
+		: kNoType;
+}
+
 SemaContext ConstexprReading::block_region(const AstNode& node,
                                            const SemaContext& ctx,
                                            ConstexprFrame& frame)

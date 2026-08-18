@@ -491,6 +491,20 @@ public:
 	bool counted_where(const AstNode& node, const SemaContext& ctx,
 	                   SemaConstant& value, unsigned long long& count);
 
+	// 8.3.4p1's bound, the one of those places whose count is part of a *type*:
+	// how many elements the array has, and - through `place` - the template
+	// place the constant-expression named where an argument list has yet to
+	// settle one.  `SpelledTypeId` answers the same clause off the text 14.2
+	// left a type-id as; the two readings differ in where the expression comes
+	// from and in nothing else.
+	unsigned long long array_bound(const AstNode& node, const SemaContext& ctx,
+	                               TypeId& place);
+	// The place a bound named, `kNoType` for a bound that named anything else.
+	// 14.6.2p1 leaves a lone identifier the one expression a substitution can
+	// put a number back into, which is the same reading a value template
+	// argument written as one name already gets.
+	TypeId named_place(const AstNode& node, const SemaContext& ctx);
+
 	// 12.3.2p1 with 14.3.2p5: `value`, an object of class type, brought to the
 	// type `place` by a conversion function of its class.
 	//

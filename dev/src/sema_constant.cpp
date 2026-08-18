@@ -623,48 +623,6 @@ unsigned long long SemaAnalyzer::align_of(TypeId type)
 	return types_.object_align(type);
 }
 
-unsigned long long SemaAnalyzer::array_bound(const AstNode& node,
-                                             const Context& ctx)
-{
-	// 8.3.4p1: the bound is a converted constant expression of type
-	// `std::size_t`, which 5.19p3 leaves its user-defined conversions - and
-	// which counts elements, so a floating value is no bound at all.
-	Constant value;
-	unsigned long long bound = 0;
-	if (!ConstexprReading(*this).counted_where(node, ctx, value, bound))
-	{
-		// 14.6p8 over 8.3.4p1: the bound names something an argument list has
-		// yet to settle, so what the reading came out as - a value, or running
-		// out on the stand-in - is no bound at all.  `char check[sizeof(T) == 4
-		// ? 1 : -1]` is the pattern's whole point, and the arm a stood-in value
-		// chose says nothing about the specialization.  One element stands in
-		// until the instantiation reads the bound its arguments make, which is
-		// where 8.3.4p1 is asked.
-		return 1;
-	}
-	if (is_signed(value.type) && (bound >> 63) != 0)
-	{
-		throw std::runtime_error("an array bound is negative");
-	}
-	if (bound == 0)
-	{
-		if (checking_ > 0)
-		{
-			// 14.6p8 over 8.3.4p1: how many elements the array has, an argument
-			// list is what says wherever the bound was computed from a type
-			// that depends on a template parameter - `size_of` stood one value
-			// in for that type's size, so the quotient a reading arrives at is
-			// no bound at all.  The reading stands one element in its place and
-			// the specialization computes the bound its arguments make, which
-			// is where 8.3.4p1 is asked.
-			return 1;
-		}
-		// 8.3.4p1: the bound shall be greater than zero.
-		throw std::runtime_error("an array bound is zero");
-	}
-	return value.bits;
-}
-
 TypeId SemaAnalyzer::decltype_type(const AstNode& node, const Context& ctx)
 {
 	const AstNode* expression = node.children[0];

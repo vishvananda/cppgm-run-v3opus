@@ -244,6 +244,13 @@ std::uint32_t TypeTable::extra_of(const Node& node)
 		// already reads.
 		return node.parameters;
 
+	case TypeKind::Array:
+		// 8.3.4p1: two arrays of one element type whose bounds name two places
+		// are two types, and the number both of them stand one element in with
+		// says nothing about which.  `kNoType` for every settled bound, which
+		// is what leaves such an array interned by its number alone.
+		return node.bound_place;
+
 	default:
 		return is_user_kind(node.kind) ? kUserTypeKeyExtra : 0;
 	}
@@ -299,6 +306,7 @@ TypeTable::Node::Node()
 	, fundamental(FT_VOID)
 	, target(kNoType)
 	, bound(0)
+	, bound_place(kNoType)
 	, parameters(0)
 	, user(0)
 {}
@@ -385,14 +393,33 @@ TypeId TypeTable::reference_to(TypeId type, bool rvalue)
 	return intern(key_of(node), node);
 }
 
-TypeId TypeTable::array_of(TypeId element, bool bounded, unsigned long long size)
+TypeId TypeTable::array_of(TypeId element, bool bounded, unsigned long long size,
+                           TypeId place)
 {
 	Node node = nodes_[0];
 	node.kind = TypeKind::Array;
 	node.bounded = bounded;
 	node.target = element;
 	node.bound = bounded ? size : 0;
+	// 8.3.4p1: a bound with no number at all writes no place either - an array
+	// of unknown bound is one type however many declarations leave it so.
+	node.bound_place = bounded ? place : kNoType;
 	return intern(key_of(node), node);
+}
+
+TypeId TypeTable::substituted_array(TypeId array, TypeId element, TypeId settled)
+{
+	if (bound_place(array) == kNoType)
+	{
+		return rebuilt_array(array, element);
+	}
+	if (kind(settled) == TypeKind::Value)
+	{
+		// 14.3.2p1: the argument bound to the place is the bits it holds, which
+		// is the number 8.3.4p1 asked the constant-expression for all along.
+		return array_of(element, true, value_bits(settled));
+	}
+	return array_of(element, true, bound(array), settled);
 }
 
 // 8.3.4p1: the type one element of an array is, however many dimensions it has,
@@ -898,7 +925,7 @@ TypeId TypeTable::qualified(TypeId type, unsigned add)
 		{
 			const TypeId array = dimensions_.back();
 			dimensions_.pop_back();
-			element = array_of(element, bounded(array), bound(array));
+			element = rebuilt_array(array, element);
 		}
 		return element;
 	}
@@ -1011,8 +1038,14 @@ TypeId TypeTable::substitute(TypeId type,
 		break;
 
 	case TypeKind::Array:
-		result = array_of(substitute(target(type), bindings, memo),
-		                  bounded(type), bound(type));
+		// 8.3.4p1: the bound is substituted beside the element type, because a
+		// place written between the brackets is as much a name the arguments
+		// answer as one written before them.
+		result = substituted_array(
+			type, substitute(target(type), bindings, memo),
+			bound_place(type) == kNoType
+				? kNoType
+				: substitute(bound_place(type), bindings, memo));
 		break;
 
 	case TypeKind::MemberPointer:
@@ -1261,8 +1294,13 @@ bool TypeTable::dependent_walk(TypeId type) const
 	case TypeKind::Pointer:
 	case TypeKind::LValueReference:
 	case TypeKind::RValueReference:
-	case TypeKind::Array:
 		return is_dependent(target(type));
+
+	case TypeKind::Array:
+		// 8.3.4p1 with 14.6.2p1: an array whose bound names a place is one an
+		// argument list has yet to settle however settled its element type is.
+		return is_dependent(target(type)) ||
+			(bound_place(type) != kNoType && is_dependent(bound_place(type)));
 
 	case TypeKind::MemberPointer:
 		return is_dependent(member_class(type)) || is_dependent(target(type));

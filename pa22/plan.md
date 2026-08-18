@@ -150,14 +150,33 @@ replaced:
 
 ## Current Failure Map
 
-The W audit stands at **367 / 372** — 302 of the 309 `tests/` fixtures plus all
-63 `course/pa22` ones. The 5 that fail group by the compiler behaviour that owns
+Y stands at **369 / 373** — 305 of the 309 `tests/` fixtures plus all 64
+`course/pa22` ones. The 4 that fail group by the compiler behaviour that owns
 them, from the diagnostic each one reaches:
 
 | # | Group | Owner | Signature |
 |---|-------|-------|-----------|
 | 2 | the reference drops an initializer this build writes | none - **the reference's** | none. `T x = a + b;` over an *empty* class and an **operator-syntax** call is the whole of it: the reference emits no call at all, where `T x = operator+(a, b)`, `T x = a.m()` and the same program over a class with one member are three shapes it does write. Probed at 12 spellings; recorded below rather than reproduced |
-| 3 | one-offs | mixed | `abi-mangle: empty source name`, `an expression is outside the PA12 subset`, `PA20 does not instantiate` |
+| 2 | one-offs | mixed | `abi-mangle: empty source name`, `an expression is outside the PA12 subset` |
+
+8.3.4p1's bound is now a bound and a *place*. `types_.bound` still counts the
+elements every reader of a type already asks it for, and `types_.bound_place`
+beside it is the entry the constant-expression came to where an argument list
+has yet to settle one - `kNoType` for every settled bound, so a settled array is
+interned by its number exactly as it was before there was a place to write, and
+two patterns whose bounds name two places are two types where the 1 both stand
+in with is one. The clause has two readers and both write it: 14.2's spelled
+type-id asks `template_argument_value` for the bound it did not read as digits,
+and the declarator's own reading asks `named_place` *before* `counted_where` may
+throw - which is what a function template's parameter-declaration-clause needs,
+being read where nothing else is standing in. What comes back is one fact three
+readings then use: `TypeTable::substituted_array` puts the argument's number
+back wherever a substitution reaches the bound, `Deduction::match_bound` is
+14.8.2.5p13's pair of its own - the place deduced to the number the argument's
+declarator arrived at, converted by 14.3.2p5 to the type the place declared -
+and 14.5.5.2's ordering reads a place against a place there exactly as it reads
+a type place against a type place, which is what leaves `const T[N]` the more
+specialized of it and `T[M]`.
 
 14.7.2p10 is now asked where a use asks for the definition and nowhere else.
 `instantiation_is_suppressed` is one fact on whatever p9 named - a specialization
@@ -504,12 +523,21 @@ Known gaps probed and deliberately left:
 - `template<class U> friend class W;` inside a class that is itself a *private*
   nested class, and then `W<T>` naming that class: we refuse where `g++` accepts
   and the non-template spelling of the same program is refused by `g++` too.
-- 8.3.4p1's array bound is an `unsigned long long` on the type, and a bound the
-  reading has not settled stands in as **1** - so `template<class T, unsigned
-  long N> struct r<T[N]>` writes the pattern `T[1]` and `read_pattern` refuses
-  the head outright. Deducing `N` needs a bound that is a `TypeId`, which the
-  ABI's `ABI_ARRAY_BOUND_RAW` and every reader of `types_.bound` would move
-  with it. `spec/100-class-partial-specialization-array-size.t` is the fixture.
+- 8.3.4p1's bound written as an *expression* over a place - `T[N - 1]`,
+  `T[sizeof(U)]` - is refused by the spelled reader rather than stood in for:
+  such a bound names no place a substitution could put a number back into, and
+  standing one element in would leave the pattern silently read as `T[1]`.
+  14.8.2.5p5 makes it a non-deduced context, so what it needs is not a deduction
+  but an entry a substitution *re-reads*, which `dependent_value`'s spelling-keyed
+  stand-in is not. `pa23/tests/general/400-array-bound-expression-is-nondeduced`
+  is where the clause is next pinned; both oracles read it.
+- 8.3.4p1's bound of **zero** after substitution: `template<unsigned long N>
+  struct z { int a[N]; };` named `z<0>` is `an array bound is zero` here and in
+  `g++ -pedantic-errors` and is accepted by `pa22/cppgm++-ref`, which lays out an
+  empty array. The refusal is the instantiation's own re-reading of the member
+  declarator with the argument bound, so it is the clause read strictly and no
+  part of what a place carries; no fixture pins it, since the `.ref` would carry
+  the reference's answer.
 - 14.3.2p5's conversion of a value argument at a *dependent* place is made
   where the argument is read and not where the place settles, so the entry
   `value_type(place, bits)` holds carries the source constant's bits. What is
@@ -551,37 +579,35 @@ Known gaps probed and deliberately left:
 
 ## Active Checkpoint
 
-**The W audit bounded where 6.6.3p2's chain begins and added the fixture that
-pins its three tiers — see the ledger.** What the PA still holds is the 3
-one-offs and the 2 the reference itself drops, so the next one is **Y**:
-8.3.4p1's array bound as a `TypeId`, which is the one of the three one-offs that
-is a rule rather than a gap in an earlier milestone.
+**Y made 8.3.4p1's bound a bound and a place, and added the `course/pa22`
+fixture that pins the tiers all three readings agree on — see the ledger.** What
+the PA still holds is the 2 one-offs and the 2 the reference itself drops, so the
+next one is **Z**: `abi-mangle: empty source name`, which
+`general/300-anonymous-union-storage-constructor-noop` reaches and which is a
+rule about what a *name* an anonymous union's member is written under, not a gap
+in a template path.
 
-- Owner. `type_model.h/.cpp` for `types_.bound`, which is an `unsigned long long`
-  on the array type and has to be a `TypeId` so that 14.8.2's P/A walk can bind a
-  place to it; `sema_deduce.cpp` for the arm that matches `T[N]` against a bound
-  the reading has not settled, which stands in as **1** today and so writes the
-  pattern `T[1]`; `sema_template.cpp`'s `read_pattern`, which refuses the head
-  outright for that reason; and `lowir_abi.cpp` with `abi_mangle`'s
-  `ABI_ARRAY_BOUND_RAW`, the one reader that wants the number rather than the
-  entry. `spec/100-class-partial-specialization-array-size.t` is the fixture, and
-  its diagnostic today is `range_const_iterator is a template whose parameters
-  PA20 does not instantiate`.
-- Data flow. One field changes kind, and every reader of it is a reader of the
-  type table. What a bound *is* stays settled in one place: the entry is a value
-  of the bound's own type, so the ABI asks the constant-expression layer for its
-  bits exactly where it asks now and nothing else re-reads the declarator.
-- Expected complexity. One entry per array type where there is a number today,
-  interned like every other, and one deduction step per array place. Nothing
-  scans, and the walk that matches `T[N]` is the walk that already matches `T[3]`.
-- Validation. The fixture, plus a sweep of array-bound shapes through the real
-  comparator under a scratch `pa22/tests` directory - a fixed bound, a dependent
-  one, a bound written as a constant expression, a bound deduced from a function
-  parameter, `sizeof` of each, and the ABI name of a member of each - judged
-  against `g++ -std=c++11 -pedantic-errors -x c++` and against
-  `pa22/cppgm++-ref`, run through `lowir2cy86` + `cy86`; a valgrind sweep; and
-  the two dimensions it touches - n array types of distinct bounds, and an array
-  type nested d deep.
+- Owner. `lowir_abi.cpp` for the walk that hands `abi_mangle` a
+  `<source-name>`, and `abi_mangle.cpp` for the refusal itself; `entity_model.h`
+  for what 9.5p1's anonymous union leaves an object of it *named* - the union
+  has no name of its own and its members are members of the region around it, so
+  the storage 9.5p2 gives them belongs to a declaration the program never
+  spelled. The fixture's diagnostic today is `abi-mangle: empty source name` and
+  its shape is an anonymous union whose members a constructor leaves alone.
+- Data flow. One fact per anonymous-union object: the name the object file
+  writes it under, settled where the declaration is made and read by the ABI
+  alone - not recomputed per member and not derived from the members, because
+  9.5p1 leaves the union's own declaration the only thing that has one.
+- Expected complexity. One string per anonymous union declared, and one test on
+  a field the ABI already reads at every other name. Nothing scans and no
+  reading is repeated.
+- Validation. The fixture, plus a sweep of anonymous-union shapes through the
+  real comparator under a scratch `pa22/tests` directory - at namespace scope,
+  in a class, in a block, `static` and not, with and without a constructor, and
+  the ABI name of an enclosing member of each - judged against `g++ -std=c++11
+  -pedantic-errors -x c++` and against `pa22/cppgm++-ref`, run through
+  `lowir2cy86` + `cy86`; a valgrind sweep; and the two dimensions it touches - n
+  anonymous unions in one region, and one nested d deep in classes.
 
 ## Performance Model
 
@@ -697,7 +723,10 @@ Every generated input is checked for exit 0 before it is timed.
 | **W audit** n members of *one* class template, each returning a class, each called | 100 → 800 | 0.01 → 0.10 s, 9 → 31 MB | 0.58 → 1.03 s; the turn-start build is 0.11 s |
 | **W audit** n free function templates returning a class, each called | 100 → 800 | 0.01 → 0.11 s, 9 → 34 MB | 0.61 → 1.19 s; the turn-start build is the same 0.11 s |
 | **W audit** a chain of d class-returning instantiations, each calling the next | depth 25 → 200 | 0.00 → 0.02 s, 7 → 11 MB | 0.54 → 0.65 s; the turn-start build is the same 0.02 s |
+| **Y** n class templates, each partially specialized over `T[N]`, each named | 50 → 400 | 0.01 → 0.06 s | 0.56 → 0.73 s; the turn-start build **refuses** |
+| **Y** a pattern whose array bound is d dimensions of d places | depth 4 → 16 | 0.00 s flat | 0.53 s flat; the turn-start build **refuses** |
 | the whole 372-file corpus, one process per file | — | **1.65 s** | 1.66 s at the pre-W build; the loop's own floor is 0.58 s |
+| **Y** the whole 309-file `pa22/tests` corpus, one process per file | — | **1.35 s** | 1.34 s at the pre-Y build, which is the same measurement: `named_place` is a node-kind test at every settled bound and one scope lookup at a bound written as a name |
 | *(carried from F)* n friend declarations of one name, each revealed | 800 → 3200 | 0.19 → 0.79 s | 22.40 s at 800 |
 
 B's own cost is the walk 11.2p4 added, and it is paid once per access at a
@@ -1124,3 +1153,4 @@ is refused by `g++` and folded by the reference and by this build alike.
 | **S, S audit** 14.2 at the three readings 5.19 makes of one name and at the fourth 7.1.6.2p4 makes, and 5.2.1p1 at the reading that has words | 14.2 leaves a template-id naming the specializations its list makes and no declaration bound to the whole spelling, and `id_expression` asks the template layer before ordinary lookup for exactly that reason - but 5.19 makes *three* readings of one name and every one of them asked only the second door: `id_constant`'s value, `designated`'s object and `TemplateArgumentReader::name`'s word. So `&f<int>` was `no declaration of f<int> is in scope` in a constant expression and read one line down in a function body, at a free function template, a static member template, a member template of a class template and 14.2p4's keyword alike. `folded_name` is the one door all three now ask, and 13.4p1 is why it is a door and not a call: the tree hands its set on for a target type to choose from and a fold has no later to defer to, so a list that fits several declarations of the name names none here. Choosing one is 14.7.1p1's own ask, which `named_function` makes - except under 14.6p8's reading, where the member template of a class template's own body has no pattern recorded at all and the instantiation reads the same spelling again. Under that demand was a second defect: 14.7.3p1's `holds_written_definition` is written about a member of a class an argument list made, and it was asked of the *function* template's own instantiation too - so a specialization named from a member's initializer inside a class instantiation had its body read and then dropped, and the unit emitted a `declare function` for a symbol it owed. Beside them 5.2.1p1, which the by-spelling reading had no postfix arm for at all: the index is read by the same walk over the same words, and `element_at` is the one reading both doors share - so 13.5.5p1's `operator[]`, 5.7p5's pointer and 8.3.4p6's element are written once. And once they were one reading, 5.2.1p1's own sentence closed: `E1[E2]` is `*(E1 + E2)` and 5.7p5 writes that either way round, so `2[a]` names the element `a[2]` does - which the tree reading answered by handing the literal `2` to `string_element` and the spelling by never reaching the walk.   Then the audit: 7.1.6.2p4 is a **fourth** reading that looks one name up with nothing to hand a set on to, and it asked ordinary lookup alone - `decltype(f<int>)` was `no declaration of f<int> is in scope` at namespace scope, at a member, at 14.2p4's keyword and inside a class template's own body, four programs both oracles name the specialization for.  5p8 leaves that operand unevaluated, so `folded_name` takes `used` and the naming asks 14.7.1p1 for no body: a `decltype` nothing else reaches emits neither a definition nor a declaration, byte for byte the reference's output.  Under the door was the *size* of 13.4p1's set: `explicit_specializations` answers for a call, where every place the written list left over is one 14.8.2 deduces from the arguments, and the checkpoint counted those candidates as members - so `&f<int>` beside `template<class T, class U> f()` was `names more than one function template specialization` where both oracles name the one declaration the list completed, and a list that completed nothing would have named a candidate outright.  `names_specialization` is 14.8.1p2 at one entry, with 14.5.3p1's trailing pack the list reached the one place a candidate still is a specialization.  Beside them 5.2.1p1's fourth left operand: `literal_operand` read its own subscript out of the word, so 2.14.5p8's literal was the array only where it stood immediately left of the `[` - `2["abcd"]` and `2[("abcd")]` were two programs `g++` runs and the *tree* reading of the same words already answered.  A literal is that object at both readings now, and the operator's last two special cases - `operand`'s parenthesized-literal arm and `subscript_constant`'s `string_element` shortcut - are what one reading over four operands leaves unwritten. | **354 / 367** |
 | **L, L audit** 14.7.2p9's declaration at its three tiers, what a discarded expression is worth at the comma and the array, and when either clause may be asked | `extern template` said nothing at all here: p9's form read p2's requirement that the declaration name a specialization and then returned, so a call of the specialization it named instantiated the body p10 leaves to another unit - a function template's specialization, a member function a class template defines outside its class, and the storage 9.4.2p2's definition of a static data member lays out were three definitions this object file wrote and three the reference declares. `SemaEntity::instantiation_suppressed` is the one fact p9 writes and three readers ask: `has_written_definition`, where a use asks for the body and the answer is the position a specialization whose template defines no pattern already stands in; `require_definition`, where the body an instantiation put aside stays held; and `demand_definition_by_id`, where a line already in the dump is left undemanded so the name goes out as a declaration.  p8's own member walk turned out to be p10's too - `reach_member_definitions` is one predicate read twice - and its `!inline_function` is what keeps a member defined *in* its class, which is what the reference and `g++` both do; p10's note is why an explicitly `inline` function template is not excepted, because what the exception keeps is a body a call may be folded into and not an out-of-line copy this unit writes, which `g++ -c` agrees on symbol for symbol.  Beside it, what a *discarded* expression is worth, at the two things the door that names one had no object for.  5.18p1's left operand is a discarded-value expression exactly as 6.2p1's statement and 5.2.9p4's cast to `void` are, and only the two of those reached `register_discarded_object` - so an object of class type a comma threw away stood in storage named after nothing at all; and p1's *result* is the right operand, so the door's walk descends a comma as it already descended a cast, and `(P(), D(), 5)` discards the object `D()` made rather than the comma that handed it on.  Then 5.2.3p3's `T{...}` over an *array* type, which is the one spelling that writes an array prvalue: the lowering read a `braced-init-list` standing where an expression does as 8.5.4's scalar and took its **first clause** alone, so `(void)A3{ bump(1), bump(2), bump(4) }` ran one of the three calls the program wrote and laid out no array at all - with no template and no pack in it. 12.2p1 makes that prvalue an object, so `array_object_slot` gives it storage of the function's and `initialize` fills its elements there, which is the walk a declaration of an array and 8.3.5p5's one array parameter already had; 8.5.3p5 names the storage `discardarr` at the discarding door and `arraytmp` everywhere else, and 4.2's `unary decay` is marked because the function *named* the array - which storage nothing named leaves unmarked. Seven shapes agree with `pa22/cppgm++-ref` byte for byte: an empty list, a short one, a matrix, an array of class type, an unevaluated `sizeof` operand, an argument that decays and a subscript.  Then the audit: p10 is written about a *definition* and the checkpoint asked it of the declaration's own position - `reach_member_definitions` walked the class's members and wrote the fact onto each one `defined && !inline_function` **there**, so a member whose out-of-class definition stands below the `extern template` was a definition this object file wrote where both oracles declare it, the nested-class spelling with it; and `inline_function` carries 7.1.2p1's specifier as much as 9.3p2's body in the class, so an out-of-class `inline` definition was kept where both oracles suppress it.  p11's take-back was written at the function tier alone and asked about no order at all: `extern template struct box<int>;` with `template struct box<int>;` below it left every member declared where both oracles define them, and the two written the other way round withdrew a definition this unit had been asked for - two object files short the symbols they owe.  `instantiation_is_suppressed` is the clause read where a use asks for the definition instead: one fact on whatever p9 named, `out_of_line_definition` as 9.3p2's own question, and a walk up the classes a member stands in - and 14.5.2's member template, whose specializations no declaration over the class settles, is what the walk leaves out.  Beside them the array: 12.2p1's object was given at the two readings that ask for a value and not at `initialize`, which read the list as 8.5.4's scalar and took its first clause - the checkpoint's own defect one door along - so `const int* p = A3{1, 2, 4};` **stored a null pointer** where all three read the array and decay it.  And two namings: `array_object_slot` took the storage's name from `fact.spelling`, which on a braced-init-list is 2.14.5p1's *code units*, so `C4{"abc"}` opened a slot spelled `abc`; and 8.5.3p5's name descends the cast and the comma in `register_discarded_object` and did not in the lowering, so the operand a discarded comma hands on was `arraytmp` where the reference writes `discardarr`. | **362 / 371** |
 | **W, W audit** 15.4p1 at one call rather than at the step it stands in, the class 9.3.1p3 reaches the object through, and the entry points 6.6.3p2's chain owes - and where that chain may begin | `value.require(next_value).execute()` over an all-noexcept member function template opened no handler where the reference opens two: 15.4p1 answers whether an exception leaves *this* call and this build read it as a fact of the whole step, so a temporary with a destructor standing in a full-expression whose calls all throw nothing was left with no region around anything after it.  `note_call` now records the call and settles a region 12.2p3's temporary already asked for however the callee is specified, and `pending_calls_` counts every call an operand's temporary still stands under - with `throwing_since_mark_` and `pending_throwing_calls_` keeping the clause's own answer at the one place a handler would end no lifetime, which is what leaves 12.6.2's mem-initializer its empty region and keeps one out of `Holder holder(5, Counter())`.  The two regions a temporary's own construction may stand in turned out to be two questions - the *call*'s, which the naming of the storage stands in front of, and 12.2p1's object's, which covers the step whole - so the place before that advance is what `begin_object_lifetime` is handed.  Beside it 8.3.5p11's unnamed parameter, numbered by the LowIR parameter list where 6.6.3p2's storage for the returned object is no parameter of the function at all; 8.5.1p2's clause reaching an *empty* subobject, which names the storage it reached where one built in place by a trivial constructor names nothing - `built_in_place_trivially` tells them apart by what the constructor was handed and not by what it does; and 9.3.1p3 with 11.2p5, which reaches the object of a call written with no object expression through the class its nested-name-specifier named, so `super::insert_()` is one step per class named and not one step to the class that declared the member.  Then the entry points: a base subobject built inside an instantiation asks for the entry it names because the instantiation that wrote it owes the rest - except where 6.6.3p2's chain of readings reaches the program's own code through returned objects alone, which is storage the caller itself named, and there the object file owes both.  `PendingDefinition::returned_object_chain` is that chain, stamped where an entry joins the list - at the *grant* and not at the class instantiation that built it - because a queued body never stands inside another.  And 10p1's three conversions of a value came out of `sema_expression.cpp` into `Derivation`, which is where they belong and what freed both files' room.  Then the audit: that chain had a length and no *beginning*.  `queued_chain_` asked two things of the reading about to be made - that the program's own code asked for it and that it hands back an object of class type - and a member of a class template written **in** its class body satisfies both while being neither, because 14.7.1p1 made that body when the class was instantiated and `queue_definition` put it aside, so the grant that later joins it to the list is a use asking for a definition that already existed and not the reading that asked for the object.  `maker<int>::mk` returning a class with a base wrote **both** of the ABI's entry points for that base's constructor where the reference writes one, at every spelling of the object the call is made on - a named local, a global, a reference parameter, a member of another class, a copy temporary, a pointer, a static member, a second call and the same call one statement later - 20 programs the pre-W build answered the reference's way.  `PendingDefinition::held_by_class` bounds the start alone and leaves the length: a body queued while a chain already stands carries the chain it was queued under, and 9.3p2's out-of-class definition is on the other side of the line exactly as it is at `writes_base_entry`.  The three sibling exits the plan named came out clean, and one of them wanted nothing at all: `note_destruction_entry` asks 14.7.1p1's question with the same words and does *not* read the chain, which is right - the reference writes one destructor entry in every shape probed, so a reader there would have written a symbol neither oracle owes. | **367 / 372** |
+| **Y** 8.3.4p1's bound as a bound *and* a place | `template<class T, unsigned long N> struct r<T[N]>` was `r is a template whose parameters PA20 does not instantiate`: a bound the reading had not settled stood in as **1**, so the spelled reader refused anything but digits and the declarator's own reader let `counted_where` throw wherever nothing else was standing in - which is every function template's parameter-declaration-clause. `TypeTable::Node::bound_place` is the entry the constant-expression came to, `kNoType` for a settled bound and in `extra_of` for a dependent one, so `T[N]` and `T[M]` are two types where the stand-in is one and every settled array interns exactly as before. Both readers of the clause write it - `template_argument_value` for the text 14.2 left, `named_place` asked *before* the throw for the tree - and three readings use it: `substituted_array` puts the argument's number back, `match_bound` is 14.8.2.5p13's own pair with 14.3.2p5's conversion to the type the place declared, and 14.5.5.2's ordering reads a place against a place, which is what makes `const T[N]` more specialized than `T[M]`. 8.3.4p1 moved to `ConstexprReading` beside `counted_where`, which is where a clause that counts with a constant expression belongs and which freed the room `sema_analyzer.h` no longer had. 20 shapes swept through the real comparator against `pa22/cppgm++-ref`, `g++ -pedantic-errors` and `lowir2cy86` + `cy86`: all 20 agree. | 367 → **369 / 373** |

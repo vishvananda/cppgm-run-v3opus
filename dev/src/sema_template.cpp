@@ -2465,8 +2465,13 @@ TypeId SemaAnalyzer::substituted(
 		break;
 
 	case TypeKind::Array:
-		out = types_.array_of(substituted(types_.target(bare), bindings, memo),
-		                      types_.bounded(bare), types_.bound(bare));
+		// 8.3.4p1: a bound that named a place is substituted the way the
+		// element type is, so `T[N]` over `T = int` and `N = 5` is `int[5]`.
+		out = types_.substituted_array(
+			bare, substituted(types_.target(bare), bindings, memo),
+			types_.bound_place(bare) == kNoType
+				? kNoType
+				: substituted(types_.bound_place(bare), bindings, memo));
 		break;
 
 	case TypeKind::MemberPointer:

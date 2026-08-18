@@ -222,6 +222,13 @@ private:
 	TypeId suffix(TypeId base, const std::vector<std::string>& words,
 	              std::size_t& at, std::size_t end,
 	              const std::string& spelling);
+	// 8.3.4p1's bound, written as `words[from, to)`: how many elements the
+	// array has, and - through `place` - the template place its
+	// constant-expression named where an argument list has yet to settle one.
+	unsigned long long written_bound(const std::vector<std::string>& words,
+	                                 std::size_t from, std::size_t to,
+	                                 const std::string& spelling,
+	                                 TypeId& place);
 
 	SpelledTypeId(const SpelledTypeId&);
 	SpelledTypeId& operator=(const SpelledTypeId&);
@@ -523,6 +530,72 @@ TypeId SpelledTypeId::declarator(TypeId base,
 	return built;
 }
 
+// 8.3.4p1's bound, read out of the words the brackets hold.
+//
+// 14.2 wrote this type-id inside a name, so the bound arrives as text like
+// everything else here - and what a bound *is* is 5.19's constant expression,
+// which the value-argument reading already answers off a spelling.  So the
+// digits a bound is nearly always written as are read here, and anything else
+// is that one reading: `A<T[MAX]>` comes to the number `MAX` holds, and
+// `A<T[N]>` over a place `N` comes to the place itself, which is the fact
+// 14.8.2.5p13 deduces from and 14.3p1's substitution replaces.
+//
+// A bound naming anything else an argument list has yet to settle - `T[N + 1]`,
+// `T[sizeof(U)]` - is refused rather than stood in for: it names no place a
+// substitution could put a number back into, and standing one element in would
+// leave a pattern silently read as `T[1]`.
+unsigned long long SpelledTypeId::written_bound(
+	const std::vector<std::string>& words, std::size_t from, std::size_t to,
+	const std::string& spelling, TypeId& place)
+{
+	if (to == from + 1 &&
+	    words[from].find_first_not_of("0123456789") == std::string::npos)
+	{
+		unsigned long long bound = 0;
+		for (std::size_t index = 0; index < words[from].size(); ++index)
+		{
+			bound = bound * 10 +
+				static_cast<unsigned>(words[from][index] - '0');
+		}
+		return bound;
+	}
+	std::string written = words[from];
+	for (std::size_t index = from + 1; index < to; ++index)
+	{
+		// The split this reading made is 8.1p1's and the value reading makes
+		// its own, so what is handed on is the spelling and not the words - a
+		// space between two of them separates whatever they were separated by.
+		written += " " + words[index];
+	}
+	TypeId read = kNoType;
+	try
+	{
+		// 8.3.4p1: the bound is a converted constant expression of type
+		// `std::size_t`, which is the type a settled one is interned as.
+		read = analyzer_.template_argument_value(
+			written, analyzer_.types_.fundamental(FT_UNSIGNED_LONG_INT), ctx_);
+	}
+	catch (const std::exception&)
+	{
+		throw std::runtime_error(spelling + " writes an array bound this "
+		                         "milestone does not read");
+	}
+	if (analyzer_.types_.is_value(read))
+	{
+		return analyzer_.types_.value_bits(read);
+	}
+	if (analyzer_.types_.parameter_value_type(read) == kNoType)
+	{
+		throw std::runtime_error(spelling + " writes an array bound this "
+		                         "milestone does not read");
+	}
+	// 14.6.2p1: the place stands for itself until an argument list says what it
+	// is worth, and one element stands in for the number until then - which is
+	// the same stand-in every other unsettled bound already has.
+	place = read;
+	return 1;
+}
+
 // 8.3.4p1's array bound and 8.3.5p1's parameter-clause, folded from the
 // innermost outwards: `T[2][3]` is an array of two arrays of three.
 TypeId SpelledTypeId::suffix(TypeId base,
@@ -538,29 +611,38 @@ TypeId SpelledTypeId::suffix(TypeId base,
 	++at;
 	bool bounded = false;
 	unsigned long long bound = 0;
+	TypeId place = kNoType;
 	std::vector<TypeId> parameters;
 	bool variadic = false;
 	if (array)
 	{
-		if (at < end && words[at] != "]")
+		const std::size_t opened = at;
+		for (unsigned depth = 0; at < end; ++at)
 		{
-			const std::string& digits = words[at];
-			for (std::size_t index = 0; index < digits.size(); ++index)
+			if (words[at] == "[")
 			{
-				if (digits[index] < '0' || digits[index] > '9')
-				{
-					throw std::runtime_error(spelling + " writes an array bound "
-					                         "this milestone does not read");
-				}
-				bound = bound * 10 + static_cast<unsigned>(digits[index] - '0');
+				++depth;
+				continue;
 			}
-			bounded = true;
-			++at;
+			if (words[at] != "]")
+			{
+				continue;
+			}
+			if (depth == 0)
+			{
+				break;
+			}
+			--depth;
 		}
-		if (at >= end || words[at] != "]")
+		if (at >= end)
 		{
 			throw std::runtime_error(spelling + " is not a type-id this "
 			                         "milestone reads");
+		}
+		if (at != opened)
+		{
+			bounded = true;
+			bound = written_bound(words, opened, at, spelling, place);
 		}
 		++at;
 	}
@@ -654,7 +736,7 @@ TypeId SpelledTypeId::suffix(TypeId base,
 	const TypeId rest = suffix(base, words, at, end, spelling);
 	if (array)
 	{
-		return analyzer_.types_.array_of(rest, bounded, bound);
+		return analyzer_.types_.array_of(rest, bounded, bound, place);
 	}
 	return analyzer_.types_.ref_qualified_function(
 		analyzer_.types_.qualified_function(

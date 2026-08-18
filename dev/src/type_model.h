@@ -187,7 +187,31 @@ public:
 	// references make an rvalue reference.
 	TypeId reference_to(TypeId type, bool rvalue);
 
-	TypeId array_of(TypeId element, bool bounded, unsigned long long bound);
+	// 8.3.4p1's array, whose bound is two facts rather than one: how many
+	// elements it has, and - where an argument list has yet to say - the place
+	// the constant-expression named.  `place` is `kNoType` for every bound a
+	// reading settled, so a settled array is interned by its number exactly as
+	// it was before there was a place to write; a dependent one carries the
+	// place in the key, which is what keeps `T[N]` and `T[M]` two types where
+	// the number both stand in with is one.
+	TypeId array_of(TypeId element, bool bounded, unsigned long long bound,
+	                TypeId place = kNoType);
+	// 8.3.4p1: the place a dependent bound named, `kNoType` for a settled one.
+	TypeId bound_place(TypeId type) const { return nodes_[type].bound_place; }
+	// The same array over another element type, with the bound exactly as it
+	// was written.  Every rebuild of an array - cv-qualification travelling to
+	// the element, 13.3's bare type, a substitution of the element alone - is
+	// this one reading, so no caller has to know the bound is two facts.
+	TypeId rebuilt_array(TypeId array, TypeId element)
+	{
+		return array_of(element, bounded(array), bound(array),
+		                bound_place(array));
+	}
+	// 8.3.4p1 under 14.3p1: the same array with `element` for its element type
+	// and whatever the substitution made of its bound place for its bound.  A
+	// place the arguments settled leaves a number and no place - `T[N]` with
+	// `N` bound to 5 is `int[5]` - and one they did not is carried as it was.
+	TypeId substituted_array(TypeId array, TypeId element, TypeId settled);
 	// 8.3.4p1: the type of one element of an array, however many dimensions it
 	// has, and the type itself for anything else.  It is what 12.6p1's
 	// construction, 12.4p8's destruction and 5.3.4's allocation of an array all
@@ -683,6 +707,12 @@ private:
 		EFundamentalType fundamental;
 		TypeId target;
 		unsigned long long bound;
+		// Array: 8.3.4p1's bound where the constant-expression named a place
+		// an argument list has yet to settle.  `bound` stands one element in
+		// for it so that every reader that asks how large the array is answers
+		// as it did before; this is what says the number is a stand-in and
+		// which place a substitution replaces it from.
+		TypeId bound_place;
 		std::uint32_t parameters;
 		// Class, Enum and TemplateParameter: the record in `user_types_` that
 		// holds what the declaration said, shared by every cv-qualified form

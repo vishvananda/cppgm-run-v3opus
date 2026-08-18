@@ -1343,7 +1343,6 @@ private:
 	Constant promote(const Constant& value);
 	// 5p10: the type the usual arithmetic conversions bring two operands to.
 	TypeId common_type(TypeId left, TypeId right);
-	unsigned long long array_bound(const AstNode& node, const Context& ctx);
 	TypeId decltype_type(const AstNode& node, const Context& ctx);
 	// 5.19 read out of the spelling 14.2 left a template argument as, which
 	// `sema_value_expression.cpp` owns: a walk over text rather than over the

@@ -5,6 +5,7 @@
 #include "ast_model.h"
 #include "ast_tokens.h"
 #include "sema_access.h"
+#include "sema_constexpr.h"
 #include "sema_pack.h"
 
 // Specifiers, declarators and names: what a declaration says the type of the
@@ -650,7 +651,10 @@ TypeId SemaAnalyzer::apply_suffix(const AstNode& node, TypeId type,
 		{
 			return types_.array_of(type, false, 0);
 		}
-		return types_.array_of(type, true, array_bound(*node.children[0], ctx));
+		TypeId place = kNoType;
+		const unsigned long long bound = ConstexprReading(*this).array_bound(
+			*node.children[0], ctx, place);
+		return types_.array_of(type, true, bound, place);
 	}
 	if (node.kind == AstKind::ParameterClause)
 	{
