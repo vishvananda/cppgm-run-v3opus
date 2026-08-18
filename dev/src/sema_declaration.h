@@ -259,6 +259,17 @@ struct PendingDefinition
 	// where it stands.
 	Scope* stands_in;
 	Scope* head;
+	// 6.6.3p2 and 12.1: what the reading that made this definition was made
+	// *for*.  A specialization named inside a body that returns an object of
+	// class type is one the caller's own storage holds, and the chain of such
+	// readings back to the program's own code is what the references write both
+	// of the ABI's entry points for - so a base subobject created here asks for
+	// the whole of the function and not for the one entry it names.  The chain
+	// is carried on the entry because a queued body never stands inside
+	// another: the list is walked flat, so the provenance a reading had is a
+	// fact of the entry and not of where it is read.
+	bool returned_object_chain;
+	bool from_instantiated_body;
 };
 
 // 9.6p2: the storage unit a run of bit-fields is being placed in, which one

@@ -5,6 +5,7 @@
 #include "ast_model.h"
 #include "sema_access.h"
 #include "sema_constexpr.h"
+#include "sema_derivation.h"
 #include "sema_operator.h"
 #include "sema_string_init.h"
 
@@ -100,7 +101,7 @@ void SemaAnalyzer::write_constructed_object(SemaEntity& variable,
 		// 12.6.2p5: the base class subobject of the object this constructor is
 		// running on, whose address is what 4.10p3's conversion of `this`
 		// already is - so no address is taken around it.
-		object = base_value(this_value(call), variable, false);
+		object = Derivation(*this).base_value(this_value(call), variable, false);
 		return;
 	}
 	if (where == Placement::Delegate)
@@ -786,7 +787,7 @@ void SemaAnalyzer::demand_constructor_definition(SemaEntity& constructor)
 			}
 		}
 	}
-	pending_.push_back(pending);
+	hold_definition(pending);
 }
 
 // 12.8p15 and p28: the definition a use of a value-transfer member the standard
@@ -1391,7 +1392,7 @@ void SemaAnalyzer::destructor_action(SemaEntity& entity, DumpNode& parent,
 	{
 		// 12.4p8: the base class subobject of the object being destroyed, which
 		// 4.10p3's conversion of `this` names.
-		base_value(this_value(action), entity, false);
+		Derivation(*this).base_value(this_value(action), entity, false);
 	}
 	else if (where == Placement::Member)
 	{
@@ -2163,7 +2164,7 @@ void SemaAnalyzer::write_transfer_steps(const Pending& pending, DumpNode& line,
 		{
 			continue;
 		}
-		Value source = base_value(parameter_value(*parameter, line), base,
+		Value source = Derivation(*this).base_value(parameter_value(*parameter, line), base,
 		                          false);
 		line.children.pop_back();
 		transfer_source(source, kind);
@@ -2374,7 +2375,7 @@ void SemaAnalyzer::write_transfer_assignment(SemaEntity& subobject,
 		self.type = self.spelled = types_.target(self.type);
 		self.category = ValueCategory::LValue;
 		self.node = &held;
-		target = base_value(self, subobject, false);
+		target = Derivation(*this).base_value(self, subobject, false);
 	}
 	else
 	{

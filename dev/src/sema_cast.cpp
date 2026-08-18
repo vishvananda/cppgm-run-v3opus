@@ -107,7 +107,7 @@ SemaAnalyzer::Value SemaAnalyzer::cast_expression(const AstNode& node,
 		SemaEntity* const base = Derivation(*this).base_in(from, to);
 		if (base != nullptr)
 		{
-			source = base_value(source, *base);
+			source = Derivation(*this).base_value(source, *base);
 			lift_operand(parent, line);
 			source.type = source.spelled = target;
 			source.category = ValueCategory::PRValue;
@@ -119,7 +119,7 @@ SemaAnalyzer::Value SemaAnalyzer::cast_expression(const AstNode& node,
 		// subobject is part of, which begins where the derived class put the
 		// base rather than where the base itself stands.
 		SemaEntity* const from_base = Derivation(*this).base_in(to, from);
-		if (from_base != nullptr && derived_value(source, to, *from_base))
+		if (from_base != nullptr && Derivation(*this).derived_value(source, to, *from_base))
 		{
 			lift_operand(parent, line);
 			source.type = source.spelled = target;
@@ -220,7 +220,7 @@ SemaAnalyzer::Value SemaAnalyzer::cast_to_reference(TypeId target, Value& source
 				: nullptr;
 		if (to_base != nullptr)
 		{
-			source = base_value(source, *to_base);
+			source = Derivation(*this).base_value(source, *to_base);
 			source.category = value.category;
 			source.type = referenced;
 			source.spelled = target;
@@ -237,7 +237,7 @@ SemaAnalyzer::Value SemaAnalyzer::cast_to_reference(TypeId target, Value& source
 		SemaEntity* const from_base = Derivation(*this).base_in(referenced, source.type);
 		if (from_base != nullptr)
 		{
-			if (derived_value(source, referenced, *from_base))
+			if (Derivation(*this).derived_value(source, referenced, *from_base))
 			{
 				source.category = value.category;
 				source.type = referenced;

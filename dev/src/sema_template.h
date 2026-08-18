@@ -298,6 +298,9 @@ std::size_t pack_place(const TemplateInfo& info);
 // specialization of a function template is, and so is every member of a class a
 // template-id named, however deeply the classes it belongs to nest.
 bool instantiated_declaration(const SemaEntity& function, TypeTable& types);
+// 6.6.3p2: whether what this function hands back is an object of class type,
+// which stands in storage the caller named.
+bool returns_class_object(const SemaEntity& function, TypeTable& types);
 
 // 3.2p3 with 14.7.1p1: laying out an object of `type` is what asks this unit
 // for the storage the static data members of the classes in it stand in.

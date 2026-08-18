@@ -1286,9 +1286,7 @@ private:
 	// resolved from `ctx`.  Null when nothing of the kind is declared.  `found`,
 	// when given, takes the declarations the lookup associated with the name,
 	// which 3.4p2 lets be more than one where they are all functions.
-	// 11.2p5: `naming_region`, when given, takes the region the
-	// nested-name-specifier reached, which is the naming class of what was
-	// found there.
+	// 11.2p5: `naming_region` takes the region the prefix reached.
 	SemaEntity* resolve(const std::string& name, const Context& ctx,
 	                    LookupKind filter,
 	                    std::vector<SemaEntity*>* found = nullptr,
@@ -1523,17 +1521,6 @@ private:
 	// type, which copy-initializes the result object from that operand.
 	void transfer_arm_to_result(Value& arm, TypeId result, const Context& ctx,
 	                            std::vector<SemaEntity*>& frame);
-	// 5.9p2: an operand of a built-in binary operator whose composite pointer
-	// type is a pointer to a base of its own class.
-	void convert_operand_to_base(Value& operand, TypeId operands);
-	// 4.10p3 and 10p1: the base class subobject of the object an operand
-	// denotes, written as one node holding the operand's own line.
-	Value base_value(const Value& object, SemaEntity& base,
-	                 bool checked = true, bool wrote_arrow = false);
-	// 5.2.9p11: the same step back, which is what a cast to a class derived
-	// from the operand's names.  False where that base begins where the object
-	// does and the address is the one the operand already held.
-	bool derived_value(Value& object, TypeId derived, SemaEntity& base);
 	// 11.2: the region the expression being read was written in.
 	Scope* reading_;
 	// 10.2: the object a member found through a base class is a member of,
@@ -1832,6 +1819,9 @@ private:
 	// is what asks for it, which `require_definition` is - or, for 3.2p3's use
 	// with no call under it, `note_instantiated_transfer`.
 	void queue_definition(Pending& pending);
+	// The one door every entry the end of the unit walks goes through, which is
+	// where 6.6.3p2's chain is stamped onto it.
+	void hold_definition(Pending& pending);
 	void require_definition(SemaEntity& function);
 	void note_instantiated_transfer(SemaEntity& constructor);
 	// 10.3p10: the virtual members every table this instantiation made names.
@@ -2204,6 +2194,11 @@ private:
 	// body one made stands around it - what 3.2p3 asks of an elided use.
 	unsigned instantiating_class_;
 	unsigned instantiated_body_;
+	// 6.6.3p2: whether the chain of readings that made the body now being read
+	// reaches the program's own code through returned objects alone, and what a
+	// body queued while this one is read inherits of it.
+	bool reading_chain_;
+	bool queued_chain_;
 	// 14.7.1p1 with 14.7.3p1: how many of those readings are of a *pattern*,
 	// which is the narrower question "is the definition this reading makes one no
 	// unit wrote out".  `complete_specialization` reads two kinds of body under

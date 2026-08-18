@@ -390,7 +390,7 @@ void SemaAnalyzer::instantiate(SemaEntity& function)
 	Pending pending;
 	pending.function = &function;
 	pending.instantiation = true;
-	pending_.push_back(pending);
+	hold_definition(pending);
 }
 
 // 14.7.1p1: instantiating a template that has a definition instantiates the
@@ -2727,11 +2727,31 @@ void SemaAnalyzer::queue_definition(Pending& pending)
 	if (instantiating_class_ == 0 || pending.function == nullptr ||
 	    pending.function->definition_required)
 	{
-		pending_.push_back(pending);
+		hold_definition(pending);
 		return;
 	}
+	// 6.6.3p2: an entry put aside here joins the list only where a use asks for
+	// it, so the chain it stands at the end of is the one the *grant* was made
+	// from and not the one the class instantiation that built it was.
 	held_definitions_.insert(
 		std::make_pair(pending.function->id, pending));
+}
+
+// 6.6.3p2 and 12.1: the chain the reading that queued this body stands at the
+// end of, taken where the body is put aside rather than where it is read - the
+// walk that reads it is flat, so the provenance is a fact of the entry.
+void SemaAnalyzer::hold_definition(Pending& pending)
+{
+	pending.returned_object_chain = queued_chain_;
+	pending.from_instantiated_body = instantiated_body_ != 0;
+	pending_.push_back(pending);
+}
+
+bool returns_class_object(const SemaEntity& function, TypeTable& types)
+{
+	return function.type != kNoType &&
+		types.kind(types.strip_cv(function.type)) == TypeKind::Function &&
+		types.is_class(types.strip_cv(types.target(function.type)));
 }
 
 // 14.7.1p1 and 3.2p3: a use naming `function` asks this unit for its body.
@@ -2760,9 +2780,9 @@ void SemaAnalyzer::require_definition(SemaEntity& function)
 	{
 		return;
 	}
-	const Pending granted = held->second;
+	Pending granted = held->second;
 	held_definitions_.erase(held);
-	pending_.push_back(granted);
+	hold_definition(granted);
 }
 
 // 14.7.1p1 and 14.2: whether the definition this unit holds of the function was

@@ -25,6 +25,135 @@ Derivation::Derivation(SemaAnalyzer& analyzer)
 	, blocked_(nullptr)
 {}
 
+// 10p1 and 4.10p3: the base class subobject of the object the operand denotes.
+// The operand's line moves under the conversion, in the place it already had,
+// so the tree names the subobject and nothing below it has to be re-read.  An
+// operand of pointer type converts to a pointer to the base; an object converts
+// to the base subobject itself, which is as cv-qualified as the object it is
+// part of and is an lvalue exactly where the object was one.
+AnalyzedValue Derivation::base_value(const AnalyzedValue& object,
+                                     SemaEntity& base, bool checked,
+                                     bool wrote_arrow)
+{
+	AnalyzedValue value = object;
+	const bool through_pointer =
+		analyzer_.types_.kind(analyzer_.types_.strip_cv(object.type)) == TypeKind::Pointer;
+	const TypeId from =
+		through_pointer ? analyzer_.types_.target(object.type) : object.type;
+	if (checked)
+	{
+		require_access(analyzer_.model_.type_owner(analyzer_.types_.strip_cv(from)), base);
+	}
+	TypeId to = analyzer_.types_.qualified(base.type, analyzer_.types_.object_cv(from));
+	if (through_pointer)
+	{
+		to = analyzer_.types_.pointer_to(to);
+		value.category = ValueCategory::PRValue;
+	}
+	value.type = value.spelled = to;
+	value.entity = &base;
+	value.functions = nullptr;
+	value.addressed = nullptr;
+	value.name = nullptr;
+	value.constant = false;
+	value.null_constant = false;
+	// 10p1: where the base subobject stands inside the object, which is the sum
+	// of the places each class in the chain gave its own direct base.  Every
+	// class but the polymorphic one that added a vpointer gave its base offset
+	// zero, so the walk is the derivation the conversion already names and the
+	// sum is nearly always zero.
+	value.value = subobject_offset(from, base);
+	value.op = 0;
+	value.what = "base-conversion";
+	value.payload.clear();
+	value.node = &analyzer_.model_.wrap_node(*object.node, std::string());
+	analyzer_.respell(value);
+	// 4.10p3: a pointer the program could have written a null into converts to
+	// the null pointer value of the base's type, so what asks the question is
+	// which pointer value the step moves.  A *pointer* operand is one, and so is
+	// 5.2.5p1's `E1->E2`, whose step is on the pointer `E1` holds rather than on
+	// the object it addresses - `E1.E2` names an object, which is there.  `this`
+	// and 5.3.1p3's `&x` are addresses of objects, so a step off either is the
+	// address itself and never a branch.
+	value.node->fact.null_preserving =
+		(through_pointer || wrote_arrow) && !object.nonnull;
+	return value;
+}
+
+// 5.2.9p11 and 11.2p4: the object a base class subobject is part of, which is
+// what a cast to a class derived from the operand's names.
+//
+// It is the one step above read the other way about: the base subobject begins
+// at the place its derived class gave it, so the object begins that many bytes
+// back from where the operand stands.  A base standing at the object's own first
+// byte - which is every base of a class that declares one and the first base of
+// a class that declares several - leaves the address the operand held, so no
+// step is written at all and the access is the only thing the cast asks.
+bool Derivation::derived_value(AnalyzedValue& object, TypeId derived,
+                               SemaEntity& base)
+{
+	SemaEntity* const owner = analyzer_.model_.type_owner(analyzer_.types_.strip_cv(derived));
+	require_access(owner, base);
+	const unsigned long long offset =
+		subobject_offset(derived, base);
+	if (offset == 0 || object.node == nullptr)
+	{
+		return false;
+	}
+	AnalyzedValue value = object;
+	const bool through_pointer =
+		analyzer_.types_.kind(analyzer_.types_.strip_cv(object.type)) == TypeKind::Pointer;
+	const TypeId from =
+		through_pointer ? analyzer_.types_.target(object.type) : object.type;
+	TypeId to = analyzer_.types_.qualified(derived, analyzer_.types_.object_cv(from));
+	if (through_pointer)
+	{
+		to = analyzer_.types_.pointer_to(to);
+		value.category = ValueCategory::PRValue;
+	}
+	value.type = value.spelled = to;
+	value.entity = owner;
+	value.functions = nullptr;
+	value.addressed = nullptr;
+	value.name = nullptr;
+	value.constant = false;
+	value.null_constant = false;
+	value.value = offset;
+	value.op = 0;
+	value.what = "base-conversion";
+	value.payload.clear();
+	value.node = &analyzer_.model_.wrap_node(*object.node, std::string());
+	analyzer_.respell(value);
+	value.node->fact.downward = true;
+	// 4.10p3 the other way about: a pointer the program could have written a
+	// null into holds the null pointer value of the derived class too, so
+	// stepping back off it would name storage no object stands in.
+	value.node->fact.null_preserving = through_pointer && !object.nonnull;
+	object = value;
+	return true;
+}
+
+// 5.9p2: an operand brought to the composite pointer type of two pointers to
+// related classes is converted to point at its own base subobject.
+void Derivation::convert_operand_to_base(AnalyzedValue& operand,
+                                         TypeId operands)
+{
+	if (operands == kNoType || operand.node == nullptr ||
+	    analyzer_.types_.kind(analyzer_.types_.strip_cv(operands)) != TypeKind::Pointer ||
+	    analyzer_.types_.kind(analyzer_.types_.strip_cv(operand.type)) != TypeKind::Pointer)
+	{
+		return;
+	}
+	SemaEntity* const base =
+		base_in(analyzer_.types_.target(analyzer_.types_.strip_cv(operand.type)),
+		        analyzer_.types_.target(analyzer_.types_.strip_cv(operands)));
+	if (base != nullptr)
+	{
+		operand = base_value(operand, *base);
+	}
+}
+
+
 // 10p1: the base-clause of a class definition, which says what every object of
 // the class holds a subobject of.  Each base is recorded on the class and on
 // the region it declares, in the order the base-specifier-list wrote them, and

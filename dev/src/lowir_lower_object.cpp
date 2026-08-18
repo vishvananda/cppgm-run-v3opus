@@ -1350,13 +1350,19 @@ LowValue LowirFunctionLowering::temporary_object(const DumpNode& node,
 	// 12.6.2 names its subobject inside; and where the step had already begun -
 	// the storage of the argument this temporary is being made for, say - the
 	// region covers what began it, because that is where the step is.
+	//
+	// The two regions are two questions: one the *call* asks, which is where
+	// the advance belongs, and one 12.2p1's own object asks after the fact,
+	// which covers the step whole - so the place before the advance is what
+	// `begin_object_lifetime` is handed and the place after it is what the
+	// constructor's own call finds.
+	const UnwindMark opened = unwind_mark_;
 	if (!unwind_live_.empty() && unwind_mark_.active &&
 	    unwind_mark_.block == current_ && opens == current_ &&
 	    unwind_mark_.at == written_through)
 	{
 		unwind_mark_.at = out_.blocks[current_].instructions.size();
 	}
-	const UnwindMark opened = unwind_mark_;
 	constructor_call(at, action, true);
 	// 12.2p1 and 15.2p2: the temporary's lifetime has begun, so an exception
 	// out of anything written while it stands has to end it.

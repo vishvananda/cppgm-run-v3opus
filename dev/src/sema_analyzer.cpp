@@ -96,6 +96,8 @@ SemaAnalyzer::SemaAnalyzer(SemaDialect dialect)
 	, resettle_classes_(false)
 	, instantiating_class_(0)
 	, instantiated_body_(0)
+	, reading_chain_(false)
+	, queued_chain_(false)
 	, instantiating_pattern_(0)
 	, template_pattern_(nullptr)
 	, template_pattern_dump_(nullptr)
@@ -127,6 +129,8 @@ PendingDefinition::PendingDefinition()
 	, from_pattern(false)
 	, stands_in(nullptr)
 	, head(nullptr)
+	, returned_object_chain(false)
+	, from_instantiated_body(false)
 {}
 
 AnalyzedValue::AnalyzedValue()
@@ -543,8 +547,15 @@ void SemaAnalyzer::note_construction_entry(SemaEntity& constructor, bool base)
 	// is what asks this unit for the whole of an instantiated definition, entry
 	// points and all - one written inside another instantiation asks for the
 	// entry it names, because that instantiation owes the rest.
-	constructor.source_base_entry =
-		constructor.source_base_entry || instantiated_body_ == 0;
+	//
+	// 6.6.3p2 is the one chain of instantiations that reaches the program's own
+	// code all the same: a body read for a specialization named inside a body
+	// that returns an object of class type was read for storage the caller
+	// named, and so was every reading between it and the program - so the base
+	// subobject built here is the program's own and asks for the whole
+	// function.  `reading_chain_` is that chain, carried on the queued entry.
+	constructor.source_base_entry = constructor.source_base_entry ||
+		instantiated_body_ == 0 || reading_chain_;
 }
 
 void SemaAnalyzer::note_destruction_entry(SemaEntity& destructor, bool base)
@@ -572,7 +583,7 @@ void SemaAnalyzer::note_destruction_entry(SemaEntity& destructor, bool base)
 	pending.self =
 		&model_.create(SemaKind::Parameter, "this", this_type(destructor));
 	pending.members = destructor.region;
-	pending_.push_back(pending);
+	hold_definition(pending);
 }
 
 // 15.2p2: the destructor an exception out of a later step of the constructor
@@ -614,8 +625,20 @@ void SemaAnalyzer::write_pending_definitions()
 		// per entry rather than saved and restored around a nest.
 		instantiated_body_ =
 			instantiated_declaration(*pending_[index].function, types_) ? 1 : 0;
+		// 6.6.3p2 and 12.1: the chain of readings this one stands at the end
+		// of, which the entry carries because the walk is flat.  A reading made
+		// inside a body that returns an object of class type was made for
+		// storage the caller itself named, so the chain either reaches the
+		// program's own code through such readings alone or does not reach it.
+		reading_chain_ = pending_[index].returned_object_chain;
+		queued_chain_ = instantiated_body_ != 0 &&
+			(pending_[index].returned_object_chain ||
+			 !pending_[index].from_instantiated_body) &&
+			returns_class_object(*pending_[index].function, types_);
 		write_definition(pending_[index]);
 		instantiated_body_ = 0;
+		reading_chain_ = false;
+		queued_chain_ = false;
 	}
 }
 

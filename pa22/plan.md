@@ -150,15 +150,13 @@ replaced:
 
 ## Current Failure Map
 
-The L audit stands at **362 / 371** — 297 of the 308 `tests/` fixtures plus all
-63 `course/pa22` ones, the last four of which L and this audit wrote. The 9 that
-fail group by the compiler behaviour that owns them, from the diagnostic each one
-reaches:
+W stands at **366 / 371** — 301 of the 308 `tests/` fixtures plus all 63
+`course/pa22` ones. The 5 that fail group by the compiler behaviour that owns
+them, from the diagnostic each one reaches:
 
 | # | Group | Owner | Signature |
 |---|-------|-------|-----------|
 | 2 | the reference drops an initializer this build writes | none - **the reference's** | none. `T x = a + b;` over an *empty* class and an **operator-syntax** call is the whole of it: the reference emits no call at all, where `T x = operator+(a, b)`, `T x = a.m()` and the same program over a class with one member are three shapes it does write. Probed at 12 spellings; recorded below rather than reproduced |
-| 4 | compiles and the LowIR does not match | `lowir_*`, mixed | none. 1 writes no constructor definition the reference writes; 2 leave out an `index` step the reference takes, one of them a second base adjustment; 1 opens no `eh_try` region where the reference does and names a parameter `__param2` against its `__param1` |
 | 3 | one-offs | mixed | `abi-mangle: empty source name`, `an expression is outside the PA12 subset`, `PA20 does not instantiate` |
 
 14.7.2p10 is now asked where a use asks for the definition and nowhere else.
@@ -177,8 +175,33 @@ expression, and `initialize`, where the list stands beside a destination 4.2's
 pointer is taken from - and 8.5.3p5's name for its storage is the caller's rather
 than the list's own `spelling`, which is 2.14.5p1's code units.
 
+15.4p1 is now read as a fact of one call and not of the step it stands in.
+`note_call` records that a call was made and settles a region 12.2p3's temporary
+already asked for however the callee is specified, and only the fresh region
+*this* call would need is the clause's; `pending_calls_` counts every call an
+operand's temporary still stands under. Where no object stands yet the handler
+would end no lifetime, so `throwing_since_mark_` and `pending_throwing_calls_`
+keep 15.4p1's answer at that one place. Beside them 9.3.1p3 with 11.2p5 reaches
+the object of a call written with no object expression through the class the
+nested-name-specifier named, `built_in_place_trivially` tells 8.5.1p2's copy from
+an object standing elsewhere apart from a subobject built in place by a trivial
+constructor, and 6.6.3p2's chain - `PendingDefinition::returned_object_chain`,
+stamped where an entry joins the list rather than where it is read - is which
+instantiated definitions the object file owes both of the ABI's entry points for.
+
 Known gaps probed and deliberately left:
 
+- 12.1 and the ABI at a *throwing* twin of the shape W landed: `pa22/cppgm++-ref`
+  opens the region around a temporary's own constructor *before* the naming of
+  its storage where the region is `begin_object_lifetime`'s and *after* it where
+  the constructor's own call opened one, which is the split this checkpoint
+  wrote - but `R().execute()` with every member throwing is still the other way
+  round there. 47 of the checkpoint's 50 probes match the reference through the
+  real comparator; that one, `H h(5, C())` with a throwing temporary the
+  reference leaves inside one region where this build opens a second at the end
+  of the full-expression, and 6.8's `derived_t<T>(x);` - a *declaration* both
+  `g++` and this build refuse for want of a default constructor and the
+  reference reads as an expression - are the three.
 - 14.7.2p10 at 12's special members and at 10.3's table: `pa22/cppgm++-ref`
   **defines** a constructor written outside its class under an `extern
   template`, and defines a polymorphic class's vtable and its `_ZTI`/`_ZTS`
@@ -480,25 +503,34 @@ Known gaps probed and deliberately left:
 
 ## Active Checkpoint
 
-**The L audit made 14.7.2p10 a question asked where a use asks for the
-definition, and gave 12.2p1's array prvalue its object at the third reading that
-finds one — see the ledger.** The next one is **W**,
-the 4 fixtures that compile and whose LowIR does not match, which with the 3
-one-offs and the 2 the reference itself drops is what the PA still holds. They
-are three groups: a constructor of a class an instantiation made whose definition
-this unit never writes (`400-member-template-nontype-shadowed-global-replay`); an
-`index` step at a base subobject the reference takes twice and this build once
-(`spec/300-dependent-super-member-template-chain`, `300-local-qualified-argument-
-replay`); and 15's unwind region around a call whose operand holds an object with
-a destructor (`300-nested-member-template-prvalue-dtor-output`), which also names
-one parameter `__param2` where the reference names it `__param1`. Owner
-`lowir_lower_object.cpp` for the first two and `lowir_lower_unwind.cpp` for the
-last; data flow one lowering per link of a base path and one region per
-full-expression that holds an object; expected cost linear in the depth of the
-derivation and in the number of calls, both of which the lowering already walks;
-and validation the diffs themselves plus a sweep of the base-depth, entry-point
-and destructor shapes each group names, through the real comparator under a
-scratch `pa22/tests` directory.
+**W closed the 4 fixtures that compiled and whose LowIR did not match — see the
+ledger.** What the PA still holds is the 3 one-offs and the 2 the reference
+itself drops, so the next one is the **W audit**: the sibling exits of the four
+rules W landed, each of which was written at one door and has others.
+
+- Owner. `lowir_lower_unwind.cpp` for 15.4p1's two questions - every reader of
+  `call_since_mark_`, `pending_calls_` and the two throwing-only twins, and the
+  three other `note_call` callers (`lowir_lower_allocation.cpp`'s
+  new-expression, `constructor_call`'s own region, the destructor path);
+  `sema_expression.cpp` with `sema_derivation.cpp` for 9.3.1p3's naming class,
+  whose siblings are the member-expression callee, `.template`, the address-of
+  exit and a static member reached the same way; `lowir_lower_object.cpp` for
+  8.5.1p2's empty subobject at an array element, a base subobject and a
+  mem-initializer; and `sema_template.cpp` for 6.6.3p2's chain at a *destructor*
+  entry, where `note_destruction_entry` asks 14.7.1p1's question with the same
+  words and does not read the chain.
+- Data flow. One fact per call and per queued definition, both already written:
+  the counters are read where a lifetime begins, and `returned_object_chain` is
+  stamped where an entry joins the list and read where its body is.
+- Expected complexity. Two counters and two bools per call, one derivation walk
+  per qualified implicit-object call - which `base_in` already makes once - and
+  two stores per queued definition. Nothing scans and nothing is re-read.
+- Validation. The 50 probes this checkpoint wrote, re-run through the real
+  comparator under a scratch `pa22/tests` directory, plus one probe per sibling
+  exit named above judged against `g++ -std=c++11 -pedantic-errors -x c++` and
+  run through `lowir2cy86` + `cy86`; a valgrind sweep; and the two scaling
+  dimensions the rules touch - the depth of a derivation under a qualified call
+  and the length of a chain of class-returning instantiations.
 
 ## Performance Model
 
@@ -606,7 +638,11 @@ Every generated input is checked for exit 0 before it is timed.
 | **L audit** n array prvalues, each initializing a pointer | 200 → 1600 | 0.01 → 0.11 s, 9 → 33 MB | 0.90 s at 1600; the turn-start build is 0.08 s and **stores a null pointer** |
 | **L audit** an array prvalue nested d deep in its own call argument | depth 8 → 128 | 0.00 → 0.08 s, 6 → 8 MB | **killed at 60 s** at depth 32; the turn-start build is the same 0.08 s |
 | **L audit** commas nested d deep, each discarding an array prvalue | depth 8 → 128 | 0.00 s, 6 → 7 MB | **killed at 60 s** at depth 128; the turn-start build is the same 0.00 s |
-| the whole 371-file corpus, one process per file | — | **1.64 s** | 1.65 s at the turn-start build; the loop's own floor is 0.69 s |
+| **W** a qualified implicit-object call at a base chain of depth d, 200 calls | depth 64 → 512 | 0.01 → 0.05 s, 8 → 16 MB | 0.61 → 2.91 s; the turn-start build is the same 0.05 s |
+| **W** n classes, each with one qualified implicit-object call through its base | 100 → 800 | 0.02 → 0.19 s, 11 → 51 MB | 0.62 → 1.45 s; the turn-start build is 0.18 s |
+| **W** n full-expressions, each a temporary with a destructor under a noexcept call | 200 → 1600 | 0.01 → 0.08 s, 9 → 34 MB | 0.57 → 0.85 s; the turn-start build is 0.05 s and **writes no region** |
+| **W** a chain of d class-returning instantiations over one base subobject | depth 25 → 200 | 0.00 → 0.02 s, 7 → 11 MB | 0.55 → 0.64 s; the turn-start build is the same 0.02 s |
+| the whole 371-file corpus, one process per file | — | **1.70 s** | 1.62 s at the turn-start build; the loop's own floor is 0.61 s |
 | *(carried from F)* n friend declarations of one name, each revealed | 800 → 3200 | 0.19 → 0.79 s | 22.40 s at 800 |
 
 B's own cost is the walk 11.2p4 added, and it is paid once per access at a
@@ -773,6 +809,46 @@ and one nested 128 deep inside its own call argument 0.08 s in both, where
 `pa22/cppgm++-ref` is killed at 60 s at depth 32. The whole 371-file corpus is
 1.64 s against the turn-start build's 1.65 s over a 0.69 s loop floor - 0.95 s
 of compiler work against 0.96 s.
+
+W's own cost is four counters, one derivation walk and two stores, and none of
+them scans. 15.4p1's two questions are `call_since_mark_`/`pending_calls_` and
+`throwing_since_mark_`/`pending_throwing_calls_`, written where a call already
+was and read where a lifetime begins: 1600 temporaries with destructors under
+noexcept calls is 0.08 s and 34 MB against the turn-start build's 0.05 s, which
+is the work it was owed - it wrote no handler at all - and against the
+reference's 0.85 s. 9.3.1p3's naming class is one `Derivation::base_in` per
+qualified implicit-object call, and the region it names is the *one* walk 10p1
+already makes: a base chain of depth 512 with 200 such calls is 0.05 s, equal to
+the turn-start build, where the reference is 2.91 s, and 800 classes each with
+one such call 0.19 s against 0.18 s. `resolve` hands the naming region back
+rather than resolving the prefix a second time, so the door costs a pointer
+write. 6.6.3p2's chain is two bools stamped where an entry joins the list -
+which is where the *grant* is made and not where the class instantiation that
+built it was, because a body put aside stands at the end of the chain that asked
+for it - so a chain of 200 class-returning instantiations is 0.02 s in both
+builds. And 10p1's three conversions of a value came out of `sema_expression.cpp`
+into `Derivation`, which is what freed both files' room and which also drops two
+`Derivation` constructions per `base_value`: the whole 371-file corpus is 1.70 s
+against the turn-start build's 1.62 s over a 0.61 s loop floor - 1.09 s of
+compiler work against 1.01 s, which is the handlers, the addresses and the entry
+points the turn-start build did not write.
+
+W's run evidence: all 50 probes are judged against `g++ -std=c++11
+-pedantic-errors -x c++` and against `pa22/cppgm++-ref` through the assignment's
+own comparator under a scratch `pa22/tests` directory. All 50 agree with `g++`
+on acceptance *and*, where they translate, on the value `lowir2cy86` + `cy86`
+runs them to; 47 match the reference byte for byte after canonicalization - 14
+unwind shapes over a noexcept free function, a member returning a class with and
+without a destructor, an indirectly returned one, a discarded temporary, an
+argument temporary, a declared object and a second full-expression; 8 base-step
+shapes over `B::f()`, `this->B::f()`, `(*this).B::f()`, `c.B::f()`, `A::f()`,
+`C::g()`, a data member and a two-level chain; 4 aggregate shapes over an empty
+member reached by a clause, by a prvalue and by nothing; and 24 entry-point
+shapes over a template and a non-template derived class, a void-returning
+wrapper, a class-returning one, two constructors of one class, a static local, a
+reference return, a pointer return, a by-value parameter and both source orders
+of the first use. The 3 that differ are recorded above. `valgrind -q
+--error-exitcode=9` is clean over 54 inputs after W, 0 errors.
 
 The L audit's run evidence: 62 probes are judged against `g++ -std=c++11
 -pedantic-errors -x c++` and against `pa22/cppgm++-ref` through the assignment's
@@ -992,3 +1068,4 @@ is refused by `g++` and folded by the reference and by this build alike.
 | **N, N audit** the four calls 13.3 had to resolve before it had a set, and the index every declaration of a name passes | Four fixtures, four clauses, none of them 13.3's own ranking. 8.1p1 leaves no declarator-id inside a type-id's parentheses and this build read one, so `(dispatch<T>(ex))(f, w)` was `( type-id ) cast-expression` with `(ex)` as a *named* nested declarator - where `Recognizer` already required a ptr-abstract-declarator there and the two parsers had answered one rule two ways. 3.4.2p3's set is the ordinary lookup's *and* the argument-dependent one's, and `named_value` wrote the line for a name it found one declaration of, so 8.4.3p2 refused a deleted `adl_only::make_error_condition` before 3.4.2 had added the one the argument's own namespace declares - the naming is deferred to 13.3 now, and 14.7.1p1's demand it also carried is made on its own, because a specialization an explicit argument list made has 14.5.3p4's expansion still to come to as many parameters as the run is long. 13.3.2p2 counts a declaration whose whole parameter-declaration-clause is `...` viable for one argument, which `converting_constructor` did not - and once it does, 13.3.3.1p4 is what stops the class's copy constructor from being a second way in, a regress with no bottom that `standard_only_` held over the resolution closes. And 5.2.2p1's call on an object of class type asked its class for `operator()` and 13.3.1.1.2p2's surrogates without asking this unit for the class: a declaration of a *reference* to a specialization asks for nothing, so the call is the first use that does. Then the audit: 7.3.3p14's hiding is written about two heads' lists and this build compared the types, so `const K&` under one head and `const K&` under another were two lists - `hiding_signature` is 14.5.6.1p5's own form, held under the declaration's id - and the clause has two source orders, of which only one was read: `equivalent_template` read a brought-in declaration as one 14.5.6.1p5 makes the class's own a redeclaration of, so a using-declaration written *above* the declaration that hides it was `also is defined twice`. Under both was the same hole: a place neither declarator mentioned stands in no type at all, so `template<int N> f(int)` and `template<class T> f(int)` had one signature - the stand-ins now stand at the end of the form itself, and 14.5.6.1p5 came out of `sema_template.cpp` whole as the file's own module.  Then the audit found that form landed at 7.3.3p14's three doors and **13.1's own index left keyed by the list a declarator wrote** - the door every declaration of a name passes, probed *before* `equivalent_template` at a chain, at 11.3p6's hidden chain and at a class's constructors alike, and holding the first entry under a key - so two heads over one list were one declaration and `template<int N> int e(int)` beside `template<class T> int e(int)` was `e is defined twice` at namespace scope, in a class body and over a constructor chain, three programs both oracles accept.  `TemplateSignature` is the reader all four tiers ask, and moving it out of `sema_analyzer.h` is what freed the header's own ceiling.  Under it the naming: 14.1p4 makes what an argument *is* a fact of the declaration it is bound to, and one candidate's refusal ended the *naming* - `e<3>` was `3 does not name a type` and `e<Key>` was `Key is not a constant expression` at all five exits, in either order, where the refusal is now that candidate's and 14.6p8's stand-in count says which are still the arguments' to settle.  And 3.4.2p3's set: the search that fills it was made with the whole spelling of a template-id callee, which no namespace declares, so `reach<tag>(t)` reached nothing 3.4.2 declares and a call with one candidate from each lookup was translated where both oracles call it ambiguous - `call_candidates` searches for the name the template-id names and reads the written list against what it finds, through the same `explicit_specializations` the ordinary exit walks.  Beside them, 13.3.3.1.2p1's flag is held over three readings that refuse by throwing and was put back only where they returned, which a caught refusal leaves standing over every conversion the unit reads after: `StandardOnly` is `sema_lifetime.cpp`'s own `DirectInitialization` shape. | **349 / 364** |
 | **S, S audit** 14.2 at the three readings 5.19 makes of one name and at the fourth 7.1.6.2p4 makes, and 5.2.1p1 at the reading that has words | 14.2 leaves a template-id naming the specializations its list makes and no declaration bound to the whole spelling, and `id_expression` asks the template layer before ordinary lookup for exactly that reason - but 5.19 makes *three* readings of one name and every one of them asked only the second door: `id_constant`'s value, `designated`'s object and `TemplateArgumentReader::name`'s word. So `&f<int>` was `no declaration of f<int> is in scope` in a constant expression and read one line down in a function body, at a free function template, a static member template, a member template of a class template and 14.2p4's keyword alike. `folded_name` is the one door all three now ask, and 13.4p1 is why it is a door and not a call: the tree hands its set on for a target type to choose from and a fold has no later to defer to, so a list that fits several declarations of the name names none here. Choosing one is 14.7.1p1's own ask, which `named_function` makes - except under 14.6p8's reading, where the member template of a class template's own body has no pattern recorded at all and the instantiation reads the same spelling again. Under that demand was a second defect: 14.7.3p1's `holds_written_definition` is written about a member of a class an argument list made, and it was asked of the *function* template's own instantiation too - so a specialization named from a member's initializer inside a class instantiation had its body read and then dropped, and the unit emitted a `declare function` for a symbol it owed. Beside them 5.2.1p1, which the by-spelling reading had no postfix arm for at all: the index is read by the same walk over the same words, and `element_at` is the one reading both doors share - so 13.5.5p1's `operator[]`, 5.7p5's pointer and 8.3.4p6's element are written once. And once they were one reading, 5.2.1p1's own sentence closed: `E1[E2]` is `*(E1 + E2)` and 5.7p5 writes that either way round, so `2[a]` names the element `a[2]` does - which the tree reading answered by handing the literal `2` to `string_element` and the spelling by never reaching the walk.   Then the audit: 7.1.6.2p4 is a **fourth** reading that looks one name up with nothing to hand a set on to, and it asked ordinary lookup alone - `decltype(f<int>)` was `no declaration of f<int> is in scope` at namespace scope, at a member, at 14.2p4's keyword and inside a class template's own body, four programs both oracles name the specialization for.  5p8 leaves that operand unevaluated, so `folded_name` takes `used` and the naming asks 14.7.1p1 for no body: a `decltype` nothing else reaches emits neither a definition nor a declaration, byte for byte the reference's output.  Under the door was the *size* of 13.4p1's set: `explicit_specializations` answers for a call, where every place the written list left over is one 14.8.2 deduces from the arguments, and the checkpoint counted those candidates as members - so `&f<int>` beside `template<class T, class U> f()` was `names more than one function template specialization` where both oracles name the one declaration the list completed, and a list that completed nothing would have named a candidate outright.  `names_specialization` is 14.8.1p2 at one entry, with 14.5.3p1's trailing pack the list reached the one place a candidate still is a specialization.  Beside them 5.2.1p1's fourth left operand: `literal_operand` read its own subscript out of the word, so 2.14.5p8's literal was the array only where it stood immediately left of the `[` - `2["abcd"]` and `2[("abcd")]` were two programs `g++` runs and the *tree* reading of the same words already answered.  A literal is that object at both readings now, and the operator's last two special cases - `operand`'s parenthesized-literal arm and `subscript_constant`'s `string_element` shortcut - are what one reading over four operands leaves unwritten. | **354 / 367** |
 | **L, L audit** 14.7.2p9's declaration at its three tiers, what a discarded expression is worth at the comma and the array, and when either clause may be asked | `extern template` said nothing at all here: p9's form read p2's requirement that the declaration name a specialization and then returned, so a call of the specialization it named instantiated the body p10 leaves to another unit - a function template's specialization, a member function a class template defines outside its class, and the storage 9.4.2p2's definition of a static data member lays out were three definitions this object file wrote and three the reference declares. `SemaEntity::instantiation_suppressed` is the one fact p9 writes and three readers ask: `has_written_definition`, where a use asks for the body and the answer is the position a specialization whose template defines no pattern already stands in; `require_definition`, where the body an instantiation put aside stays held; and `demand_definition_by_id`, where a line already in the dump is left undemanded so the name goes out as a declaration.  p8's own member walk turned out to be p10's too - `reach_member_definitions` is one predicate read twice - and its `!inline_function` is what keeps a member defined *in* its class, which is what the reference and `g++` both do; p10's note is why an explicitly `inline` function template is not excepted, because what the exception keeps is a body a call may be folded into and not an out-of-line copy this unit writes, which `g++ -c` agrees on symbol for symbol.  Beside it, what a *discarded* expression is worth, at the two things the door that names one had no object for.  5.18p1's left operand is a discarded-value expression exactly as 6.2p1's statement and 5.2.9p4's cast to `void` are, and only the two of those reached `register_discarded_object` - so an object of class type a comma threw away stood in storage named after nothing at all; and p1's *result* is the right operand, so the door's walk descends a comma as it already descended a cast, and `(P(), D(), 5)` discards the object `D()` made rather than the comma that handed it on.  Then 5.2.3p3's `T{...}` over an *array* type, which is the one spelling that writes an array prvalue: the lowering read a `braced-init-list` standing where an expression does as 8.5.4's scalar and took its **first clause** alone, so `(void)A3{ bump(1), bump(2), bump(4) }` ran one of the three calls the program wrote and laid out no array at all - with no template and no pack in it. 12.2p1 makes that prvalue an object, so `array_object_slot` gives it storage of the function's and `initialize` fills its elements there, which is the walk a declaration of an array and 8.3.5p5's one array parameter already had; 8.5.3p5 names the storage `discardarr` at the discarding door and `arraytmp` everywhere else, and 4.2's `unary decay` is marked because the function *named* the array - which storage nothing named leaves unmarked. Seven shapes agree with `pa22/cppgm++-ref` byte for byte: an empty list, a short one, a matrix, an array of class type, an unevaluated `sizeof` operand, an argument that decays and a subscript.  Then the audit: p10 is written about a *definition* and the checkpoint asked it of the declaration's own position - `reach_member_definitions` walked the class's members and wrote the fact onto each one `defined && !inline_function` **there**, so a member whose out-of-class definition stands below the `extern template` was a definition this object file wrote where both oracles declare it, the nested-class spelling with it; and `inline_function` carries 7.1.2p1's specifier as much as 9.3p2's body in the class, so an out-of-class `inline` definition was kept where both oracles suppress it.  p11's take-back was written at the function tier alone and asked about no order at all: `extern template struct box<int>;` with `template struct box<int>;` below it left every member declared where both oracles define them, and the two written the other way round withdrew a definition this unit had been asked for - two object files short the symbols they owe.  `instantiation_is_suppressed` is the clause read where a use asks for the definition instead: one fact on whatever p9 named, `out_of_line_definition` as 9.3p2's own question, and a walk up the classes a member stands in - and 14.5.2's member template, whose specializations no declaration over the class settles, is what the walk leaves out.  Beside them the array: 12.2p1's object was given at the two readings that ask for a value and not at `initialize`, which read the list as 8.5.4's scalar and took its first clause - the checkpoint's own defect one door along - so `const int* p = A3{1, 2, 4};` **stored a null pointer** where all three read the array and decay it.  And two namings: `array_object_slot` took the storage's name from `fact.spelling`, which on a braced-init-list is 2.14.5p1's *code units*, so `C4{"abc"}` opened a slot spelled `abc`; and 8.5.3p5's name descends the cast and the comma in `register_discarded_object` and did not in the lowering, so the operand a discarded comma hands on was `arraytmp` where the reference writes `discardarr`. | **362 / 371** |
+| **W** 15.4p1 at one call rather than at the step it stands in, the class 9.3.1p3 reaches the object through, and the entry points 6.6.3p2's chain owes | `value.require(next_value).execute()` over an all-noexcept member function template opened no handler where the reference opens two: 15.4p1 answers whether an exception leaves *this* call and this build read it as a fact of the whole step, so a temporary with a destructor standing in a full-expression whose calls all throw nothing was left with no region around anything after it.  `note_call` now records the call and settles a region 12.2p3's temporary already asked for however the callee is specified, and `pending_calls_` counts every call an operand's temporary still stands under - with `throwing_since_mark_` and `pending_throwing_calls_` keeping the clause's own answer at the one place a handler would end no lifetime, which is what leaves 12.6.2's mem-initializer its empty region and keeps one out of `Holder holder(5, Counter())`.  The two regions a temporary's own construction may stand in turned out to be two questions - the *call*'s, which the naming of the storage stands in front of, and 12.2p1's object's, which covers the step whole - so the place before that advance is what `begin_object_lifetime` is handed.  Beside it 8.3.5p11's unnamed parameter, numbered by the LowIR parameter list where 6.6.3p2's storage for the returned object is no parameter of the function at all; 8.5.1p2's clause reaching an *empty* subobject, which names the storage it reached where one built in place by a trivial constructor names nothing - `built_in_place_trivially` tells them apart by what the constructor was handed and not by what it does; and 9.3.1p3 with 11.2p5, which reaches the object of a call written with no object expression through the class its nested-name-specifier named, so `super::insert_()` is one step per class named and not one step to the class that declared the member.  Then the entry points: a base subobject built inside an instantiation asks for the entry it names because the instantiation that wrote it owes the rest - except where 6.6.3p2's chain of readings reaches the program's own code through returned objects alone, which is storage the caller itself named, and there the object file owes both.  `PendingDefinition::returned_object_chain` is that chain, stamped where an entry joins the list - at the *grant* and not at the class instantiation that built it - because a queued body never stands inside another.  And 10p1's three conversions of a value came out of `sema_expression.cpp` into `Derivation`, which is where they belong and what freed both files' room. | **366 / 371** |

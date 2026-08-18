@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "sema_access.h"
+#include "sema_value.h"
 #include "type_model.h"
 
 class SemaAnalyzer;
@@ -76,6 +77,18 @@ public:
 	// The same question asked rather than refused, because 10.3p7's covariant
 	// return wants the answer and not the diagnosis.
 	bool accessible(const SemaEntity* derived, const SemaEntity& base);
+
+	// 4.10p3 and 10p1: the base class subobject of the object an operand
+	// denotes, written as one node holding the operand's own line.
+	AnalyzedValue base_value(const AnalyzedValue& object, SemaEntity& base,
+	                         bool checked = true, bool wrote_arrow = false);
+	// 5.2.9p11: the same step back, which is what a cast to a class derived
+	// from the operand's names.  False where that base begins where the object
+	// does and the address is the one the operand already held.
+	bool derived_value(AnalyzedValue& object, TypeId derived, SemaEntity& base);
+	// 5.9p2: an operand of a built-in binary operator whose composite pointer
+	// type is a pointer to a base of its own class.
+	void convert_operand_to_base(AnalyzedValue& operand, TypeId operands);
 
 private:
 	void read_base_specifier(const AstNode& specifier, SemaEntity& entity,
