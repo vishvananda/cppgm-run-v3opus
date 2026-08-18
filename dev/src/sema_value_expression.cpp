@@ -103,7 +103,12 @@ bool is_literal_word(const std::string& word)
 	{
 		return quote == 0 || is_encoding_prefix(word.substr(0, quote));
 	}
-	return !word.empty() && word[0] >= '0' && word[0] <= '9';
+	// 2.9p1: a preprocessing number opens with a digit or with a `.` and a
+	// digit, which is what tells `.5` from 5.2.5p1's operator.
+	return !word.empty() &&
+		((word[0] >= '0' && word[0] <= '9') ||
+		 (word[0] == '.' && word.size() > 1 && word[1] >= '0' &&
+		  word[1] <= '9'));
 }
 
 // The operators 5.19 writes, longest first, so that `<<` is never read as two
@@ -158,6 +163,16 @@ bool split_value_expression(const std::string& spelling,
 		// constant binding's name as any other.
 		const bool rooted = !is_name_char(c) &&
 			spelling.compare(at, 2, "::") == 0;
+		// 2.9p1: a number holds the `.` 5.2.5p1 also writes as an operator and
+		// the sign after an exponent, so the run it covers is asked for rather
+		// than run over as name characters.
+		const std::string::size_type number = pp_number_end(spelling, at);
+		if (number != at)
+		{
+			out.push_back(spelling.substr(at, number - at));
+			at = number;
+			continue;
+		}
 		if (is_name_char(c) || rooted)
 		{
 			const std::string::size_type start = at;

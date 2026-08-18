@@ -18,6 +18,17 @@
 // The spelling is borrowed rather than copied, and an unqualified name - which
 // is nearly every name - is recognised by the one scan the split needs anyway.
 
+// 2.9p1: the end of the preprocessing number written at `at`, or `at` itself
+// where no number is written there.
+//
+// A number holds two characters no name holds - the `.` 5.2.5p1 also writes as
+// an operator, and the sign after an exponent - so a reading that recovers the
+// terminals from a spelling by running over name characters splits `1.5` into
+// three words and `1e+5` into three.  Both readings that recover a spelling do
+// it, and it is one rule, so it is asked here rather than written twice.
+std::string::size_type pp_number_end(const std::string& spelling,
+                                     std::string::size_type at);
+
 // 14.2: whether the `<` written at `at` opens a template-argument-list.
 //
 // A list is written after a *name*, and 2.11p1 leaves no name opening with a

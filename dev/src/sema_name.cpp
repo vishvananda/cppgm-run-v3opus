@@ -297,6 +297,42 @@ std::string::size_type outside_brackets(const std::string& spelling,
 
 }
 
+// 2.9p1: a preprocessing number is a digit, or a `.` and a digit, and then any
+// run of digits, identifier characters and `.`, with a sign taken in after each
+// of the four exponent letters.  A run that opens with an identifier character
+// is a name and no number, which is what leaves `x.y` three words where `1.5`
+// is one.
+std::string::size_type pp_number_end(const std::string& spelling,
+                                     std::string::size_type at)
+{
+	const bool digit = at < spelling.size() && spelling[at] >= '0' &&
+		spelling[at] <= '9';
+	const bool dotted = at + 1 < spelling.size() && spelling[at] == '.' &&
+		spelling[at + 1] >= '0' && spelling[at + 1] <= '9';
+	if (!digit && !dotted)
+	{
+		return at;
+	}
+	std::string::size_type end = at + (dotted ? 2 : 1);
+	while (end < spelling.size())
+	{
+		const char one = spelling[end];
+		if ((one == '+' || one == '-') && end > at &&
+		    (spelling[end - 1] == 'e' || spelling[end - 1] == 'E' ||
+		     spelling[end - 1] == 'p' || spelling[end - 1] == 'P'))
+		{
+			++end;
+			continue;
+		}
+		if (one != '.' && !is_identifier_char(one))
+		{
+			break;
+		}
+		++end;
+	}
+	return end;
+}
+
 bool opens_template_arguments(const std::string& spelling,
                               std::string::size_type at)
 {

@@ -79,6 +79,17 @@ bool split_type_id(const std::string& spelling, std::vector<std::string>& out)
 			++at;
 			continue;
 		}
+		// 2.9p1: an array bound writes a number, which holds characters no name
+		// holds - and the words this reading hands the value reading on are
+		// rejoined with spaces, so a number split here is one that reading can
+		// no longer read.
+		const std::string::size_type number = pp_number_end(spelling, at);
+		if (number != at)
+		{
+			out.push_back(spelling.substr(at, number - at));
+			at = number;
+			continue;
+		}
 		// 3.4.3p1: a name written `::x` is one word too, and the empty first
 		// component is what says the global namespace - so it is read by the
 		// same scan and takes 14.2's argument list with it.
@@ -147,7 +158,30 @@ bool split_type_id(const std::string& spelling, std::vector<std::string>& out)
 			at += 2;
 			continue;
 		}
-		if (c == '*' || c == '&' || c == '(' || c == ')' || c == '[' ||
+		if (c == '[')
+		{
+			// 8.3.4p1's bound is a constant-expression, which 5.19 owns and this
+			// reading does not: it writes operators no type-id writes, and the
+			// words handed on are rejoined with spaces, so one split here is one
+			// the value reading can no longer put back together.  The whole of
+			// what the brackets hold is therefore one word - `int[1 + 1]` is
+			// `int` `[` `1 + 1` `]` - which is what a bound of one terminal
+			// already came to.
+			const std::string::size_type closed = angles.balanced_end(at);
+			if (closed == std::string::npos || closed <= at + 1)
+			{
+				return false;
+			}
+			out.push_back("[");
+			if (closed > at + 2)
+			{
+				out.push_back(spelling.substr(at + 1, closed - at - 2));
+			}
+			out.push_back("]");
+			at = closed;
+			continue;
+		}
+		if (c == '*' || c == '&' || c == '(' || c == ')' ||
 		    c == ']' || c == ',')
 		{
 			out.push_back(std::string(1, c));
