@@ -426,6 +426,16 @@ bool Deduction::match_bound(TypeId pattern, TypeId argument,
 		// deduced from, so the pair says nothing and the deduction fails.
 		return false;
 	}
+	if (types.parameter_value_type(place) == kNoType)
+	{
+		// 14.8.2.5p5: a bound whose expression only *references* a template
+		// parameter is a non-deduced context - `int[sizeof(T)]` names no place
+		// this pair could bind, and the number the argument wrote says nothing
+		// about what T is.  So the pair is walked past, exactly as a qualified
+		// name's prefix is, and 14.8.2.5p5's read-back of the whole pattern is
+		// what settles whether this argument list is one it takes.
+		return true;
+	}
 	TypeId deduced = types.bound_place(argument);
 	if (deduced == kNoType)
 	{

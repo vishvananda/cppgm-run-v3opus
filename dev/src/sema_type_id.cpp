@@ -618,14 +618,20 @@ unsigned long long SpelledTypeId::written_bound(
 	{
 		return analyzer_.types_.value_bits(read);
 	}
-	if (analyzer_.types_.parameter_value_type(read) == kNoType)
+	if (!analyzer_.types_.is_dependent(read))
 	{
 		throw std::runtime_error(spelling + " writes an array bound this "
 		                         "milestone does not read");
 	}
 	// 14.6.2p1: the place stands for itself until an argument list says what it
 	// is worth, and one element stands in for the number until then - which is
-	// the same stand-in every other unsettled bound already has.
+	// the same stand-in every other unsettled bound already has.  What the
+	// reading gives back is a place where the bound *is* one - `int[N]` - and
+	// 14.6p8's stand-in where it is an expression over one: `int[sizeof(T)]` in
+	// a partial specialization's pattern names no place of its own, and the
+	// substitution reads the spelling again rather than looking a binding up.
+	// Both are dependent and neither is a number, which is the one question
+	// this reading has to answer.
 	place = read;
 	return 1;
 }

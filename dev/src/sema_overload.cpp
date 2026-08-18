@@ -311,12 +311,17 @@ SemaEntity* SemaAnalyzer::converting_constructor(const Value& argument,
 	}
 	SemaEntity* best = nullptr;
 	Match chosen;
+	// 13.3.3p1's last tie-break: whether the candidate now held is one a
+	// template was specialized for, which is the only thing left when two
+	// candidates convert the argument equally well.
+	bool chosen_template = false;
 	bool tied = false;
 	for (SemaEntity* declared = head; declared != nullptr;
 	     declared = declared->next)
 	{
 		SemaEntity* at = declared;
-		if (declared->template_parameters != nullptr)
+		const bool from_template = declared->template_parameters != nullptr;
+		if (from_template)
 		{
 			// 13.3.1.4p1 with 14.8.3p1: a constructor *template* is one of the
 			// converting constructors this set is chosen from, and it is one
@@ -353,61 +358,66 @@ SemaEntity* SemaAnalyzer::converting_constructor(const Value& argument,
 		{
 			continue;
 		}
+		Match match;
 		if (parameters.size() < 2)
 		{
 			if (!types_.variadic(at->type) || argument.braced != nullptr)
 			{
 				continue;
 			}
-			Match through;
-			through.viable = true;
-			through.rank = kEllipsis;
-			if (best == nullptr || compare_matches(through, chosen) > 0)
-			{
-				best = at;
-				chosen = through;
-				tied = false;
-			}
-			else if (compare_matches(through, chosen) == 0)
-			{
-				tied = true;
-			}
-			continue;
+			match.viable = true;
+			match.rank = kEllipsis;
 		}
-		const TypeId wanted = parameters[1];
-		const TypeId bare = types_.strip_cv(
-			types_.is_reference(wanted) ? types_.target(wanted) : wanted);
-		if (types_.is_class(bare) && types_.strip_cv(argument.type) != bare &&
-		    Derivation(*this).base_in(argument.type, bare) == nullptr)
+		else
 		{
-			// 13.3.3.1.2p1: the argument reaches this parameter only through a
-			// second user-defined conversion, and one sequence holds one.
-			continue;
-		}
-		// 13.3.3.1.2p1: the sequence measured inside a user-defined conversion
-		// holds no user-defined conversion of its own, whichever direction the
-		// second one would run - a converting constructor of a further class or
-		// a conversion function of the argument's.  One flag says it for both,
-		// and it is set here as well as around 13.3.1.5's second sequence
-		// because a candidate parameter of built-in type is exactly where a
-		// conversion function would otherwise slip a second one in.
-		Match match;
-		{
+			const TypeId wanted = parameters[1];
+			const TypeId bare = types_.strip_cv(
+				types_.is_reference(wanted) ? types_.target(wanted) : wanted);
+			if (types_.is_class(bare) &&
+			    types_.strip_cv(argument.type) != bare &&
+			    Derivation(*this).base_in(argument.type, bare) == nullptr)
+			{
+				// 13.3.3.1.2p1: the argument reaches this parameter only
+				// through a second user-defined conversion, and one sequence
+				// holds one.
+				continue;
+			}
+			// 13.3.3.1.2p1: the sequence measured inside a user-defined
+			// conversion holds no user-defined conversion of its own, whichever
+			// direction the second one would run - a converting constructor of
+			// a further class or a conversion function of the argument's.  One
+			// flag says it for both, and it is set here as well as around
+			// 13.3.1.5's second sequence because a candidate parameter of
+			// built-in type is exactly where a conversion function would
+			// otherwise slip a second one in.
 			const StandardOnly measured(standard_only_);
 			match = match_argument(argument, wanted);
+			if (!match.viable || match.converting != nullptr)
+			{
+				continue;
+			}
 		}
-		if (!match.viable || match.converting != nullptr)
+		int order = best == nullptr ? 1 : compare_matches(match, chosen);
+		if (order == 0 && from_template != chosen_template)
 		{
-			continue;
+			// 13.3.3p1's last tie-break, and the whole reason it is asked here:
+			// a class that declares both `box(const box<int> &)` and
+			// `template<class U> box(const box<U> &)` offers two candidates
+			// whose conversion sequences are identical, and calling that
+			// ambiguous leaves the class unreachable from `box<int>`
+			// altogether.  14.5.6.2's ordering between two *specializations* is
+			// not asked: this set is chosen on one argument, so two of them
+			// that tie on it differ only in what their own heads wrote.
+			order = from_template ? -1 : 1;
 		}
-		if (best == nullptr || compare_matches(match, chosen) > 0)
+		if (order > 0)
 		{
 			best = at;
 			chosen = match;
+			chosen_template = from_template;
 			tied = false;
-			continue;
 		}
-		if (compare_matches(match, chosen) == 0)
+		else if (order == 0)
 		{
 			tied = true;
 		}

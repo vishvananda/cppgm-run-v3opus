@@ -1,0 +1,190 @@
+function @from_boxed(%value : ptr [pass=reference]) -> i64 [binding=strong, object=_Z10from_boxedRK5boxedIlE] {
+  slot $value : ptr
+
+  block ^entry:
+    store ptr %value, $value
+    %t1 = load ptr $value
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i64 %t2
+    return i64 %t3
+}
+function @from_guarded(%value : ptr [pass=reference]) -> i64 [binding=strong, object=_Z12from_guardedRK7guardedIlE] {
+  slot $value : ptr
+
+  block ^entry:
+    store ptr %value, $value
+    %t1 = load ptr $value
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i64 %t2
+    return i64 %t3
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $declared : i64
+  slot $arg__1 : obj<8x8>
+  slot $arg__2 : obj<8x8>
+  slot $deduced : i64
+  slot $arg__3 : obj<8x8>
+  slot $arg__4 : obj<8x8>
+  slot $direct : i64
+  slot $arg__5 : obj<8x8>
+  slot $arg__6 : obj<8x8>
+  slot $cond__7 : i32
+  slot $land__8 : i64
+  slot $land__9 : i64
+
+  block ^entry:
+    %t1 = addr $arg__1
+    %t2 = addr $arg__2
+    call void @boxed_int___boxed(%t2, 8)
+    call void @boxed_long_int___boxed__ov2(%t1, %t2)
+    %t3 = call i64 @from_boxed(%t1)
+    store i64 %t3, $declared
+    %t4 = addr $arg__3
+    %t5 = addr $arg__4
+    call void @boxed_char___boxed(%t5, 9)
+    call void @boxed_long_int___boxed__ov6(%t4, %t5)
+    %t6 = call i64 @from_boxed(%t4)
+    store i64 %t6, $deduced
+    %t7 = addr $arg__5
+    %t8 = addr $arg__6
+    call void @guarded_int___guarded(%t8, 7)
+    call void @guarded_long_int___guarded__ov4(%t7, %t8)
+    %t9 = call i64 @from_guarded(%t7)
+    store i64 %t9, $direct
+    %t10 = load i64 $declared
+    %t11 = cmp eq i64 %t10, 108
+    branch %t11, ^land_rhs_7, ^land_short_8
+
+  block ^land_rhs_7:
+    %t12 = load i64 $deduced
+    %t13 = cmp eq i64 %t12, 9
+    %t14 = cmp ne i64 %t13, 0
+    store i64 %t14, $land__9
+    jump ^land_end_9
+
+  block ^land_short_8:
+    store i64 0, $land__9
+    jump ^land_end_9
+
+  block ^land_end_9:
+    %t15 = load i64 $land__9
+    branch %t15, ^land_rhs_4, ^land_short_5
+
+  block ^land_rhs_4:
+    %t16 = load i64 $direct
+    %t17 = cmp eq i64 %t16, 7
+    %t18 = cmp ne i64 %t17, 0
+    store i64 %t18, $land__8
+    jump ^land_end_6
+
+  block ^land_short_5:
+    store i64 0, $land__8
+    jump ^land_end_6
+
+  block ^land_end_6:
+    %t19 = load i64 $land__8
+    branch %t19, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__7
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__7
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t20 = load i32 $cond__7
+    return i32 %t20
+}
+function @boxed_long_int___boxed__ov2(%this : ptr, %other : ptr [pass=reference]) -> void [binding=weak, object=_ZN5boxedIlEC1ERKS_IiE] {
+  slot $this : ptr
+  slot $other : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    store ptr %other, $other
+    %t1 = load ptr $other
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i64 %t2
+    %t4 = binary add i64 %t3, 100
+    %t5 = load ptr $this
+    %t6 = index i8 [projection=field] %t5, 0
+    store i64 %t4, %t6
+    return void
+}
+function @boxed_long_int___boxed__ov6(%this : ptr, %other : ptr [pass=reference]) -> void [binding=weak, object=_ZN5boxedIlEC1IcEERKS_IT_E] {
+  slot $this : ptr
+  slot $other : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    store ptr %other, $other
+    %t1 = load ptr $other
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i64 %t2
+    %t4 = load ptr $this
+    %t5 = index i8 [projection=field] %t4, 0
+    store i64 %t3, %t5
+    return void
+}
+function @guarded_long_int___guarded__ov4(%this : ptr, %other : ptr [pass=reference]) -> void [binding=weak, object=_ZN7guardedIlEC1IiEERKS_IT_E] {
+  slot $this : ptr
+  slot $other : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    store ptr %other, $other
+    %t1 = load ptr $other
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i64 %t2
+    %t4 = load ptr $this
+    %t5 = index i8 [projection=field] %t4, 0
+    store i64 %t3, %t5
+    return void
+}
+function @boxed_int___boxed(%this : ptr, %value : i64) -> void [binding=weak, object=_ZN5boxedIiEC1El] {
+  slot $this : ptr
+  slot $value : i64
+
+  block ^entry:
+    store ptr %this, $this
+    store i64 %value, $value
+    %t1 = load i64 $value
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i64 %t1, %t3
+    return void
+}
+function @boxed_char___boxed(%this : ptr, %value : i64) -> void [binding=weak, object=_ZN5boxedIcEC1El] {
+  slot $this : ptr
+  slot $value : i64
+
+  block ^entry:
+    store ptr %this, $this
+    store i64 %value, $value
+    %t1 = load i64 $value
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i64 %t1, %t3
+    return void
+}
+function @guarded_int___guarded(%this : ptr, %value : i64) -> void [binding=weak, object=_ZN7guardedIiEC1El] {
+  slot $this : ptr
+  slot $value : i64
+
+  block ^entry:
+    store ptr %this, $this
+    store i64 %value, $value
+    %t1 = load i64 $value
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i64 %t1, %t3
+    return void
+}
+alias object _ZN5boxedIlEC2ERKS_IiE = @boxed_long_int___boxed__ov2
+alias object _ZN5boxedIlEC2IcEERKS_IT_E = @boxed_long_int___boxed__ov6
+alias object _ZN7guardedIlEC2IiEERKS_IT_E = @guarded_long_int___guarded__ov4
+alias object _ZN5boxedIiEC2El = @boxed_int___boxed
+alias object _ZN5boxedIcEC2El = @boxed_char___boxed
+alias object _ZN7guardedIiEC2El = @guarded_int___guarded
