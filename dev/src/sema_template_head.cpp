@@ -1233,12 +1233,20 @@ Scope& TemplateHead::open_bindings(const TemplateInfo& info,
 SemaEntity& TemplateHead::bind(Scope& region, const std::string& name,
                                TypeId argument, SemaKind kind)
 {
-	if (analyzer_.types_.is_pack_expansion(argument))
+	if (analyzer_.types_.is_pack_expansion(argument) &&
+	    analyzer_.types_.is_template_pack(
+		    analyzer_.types_.target(argument)))
 	{
 		// 14.6.1p1: the current instantiation names a pack place by the
 		// expansion `Ts...`, and what a definition read against it binds is the
 		// place itself - the run is what an argument list settles, and until
 		// then the name stands for the pack the head declared.
+		//
+		// 14.5.3p4: an expansion whose pattern is not a place itself -
+		// `wrap<Args&&...>` gives a place a run of as many entries as `Args`
+		// holds, each `Args&&` - is bound as it stands, because the pattern is
+		// no pack and the name would then be bound to something that is not one
+		// at all.  What a definition writes for it is that same expansion.
 		argument = analyzer_.types_.target(argument);
 	}
 	SemaEntity* const templated = named_template(argument);

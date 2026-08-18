@@ -7,6 +7,7 @@
 #include <string>
 #include <utility>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "token_model.h"
@@ -286,6 +287,60 @@ public:
 		return kind(type) == TypeKind::TemplateParameter
 			? user_at(type).applied_template
 			: kNoType;
+	}
+
+	// 7.1.3p2 with 14.8.2p8: a naming of an alias template whose type-id does
+	// not name every argument the list wrote.
+	//
+	// 7.1.3p2 makes the template-id *be* the type its type-id named, so a
+	// naming of it holds no argument once it has been read - which is right
+	// until an argument is one no argument list has settled, because then the
+	// argument is built where the substitution arrives and building it may be
+	// what fails.  `void_t<typename T::x>` is the whole of the detected idiom
+	// and its type-id names `void`: dropping the argument leaves the naming
+	// agreeing with every `T` there is.
+	//
+	// So a naming that discards a dependent argument keeps one: the type the
+	// type-id named, the alias, and the list - and 14.7.1p1's substitution
+	// builds the arguments before it reads the type-id again.  `kNoType` for
+	// every type that is not one, which is every naming whose type-id already
+	// names each argument it was given.
+	// It is interned by the three facts it holds rather than by an entity,
+	// because 14.5.7p2 makes two namings of one alias with one argument list
+	// one type and because a substitution that rebuilds one has no declaration
+	// to name it after.
+	TypeId discarded_alias_type(const SemaEntity& alias, TypeId named,
+	                            const std::vector<TypeId>& arguments,
+	                            const std::string& name);
+	TypeId alias_named(TypeId type) const
+	{
+		return kind(type) == TypeKind::TemplateParameter
+			? user_at(type).alias_named
+			: kNoType;
+	}
+	const SemaEntity* alias_template(TypeId type) const
+	{
+		return user_at(type).alias_template;
+	}
+
+	// Whether `sought` is one of the types `type` is built over, itself
+	// included.  It is the question "would substituting `type` build this",
+	// which is what says whether a naming discarded an argument.
+	bool mentions(TypeId type, TypeId sought);
+
+	// 14.5.3p5 over a reading an argument list has yet to settle: which pack
+	// places its spelling or its tree named.  A decltype-specifier and a value
+	// argument are read again rather than rebuilt, so the packs they name are
+	// nowhere in what they were interned as - and 14.5.3p4's expansion of a
+	// pattern one of them stands in has to know them to be expanded at all.
+	void set_named_packs(TypeId type, const std::vector<TypeId>& places);
+	const std::vector<TypeId>& named_packs(TypeId type) const
+	{
+		// Only a parameter-kind entry ever stands for a reading, and every
+		// other kind holds no user record to read the list out of.
+		return kind(type) == TypeKind::TemplateParameter
+			? user_at(type).named_packs
+			: no_packs_;
 	}
 
 	// 14.3.2p1: the value a template-argument-list bound to a non-type place,
@@ -872,6 +927,17 @@ private:
 		// that is not one.  The list itself stands in `template_arguments`,
 		// which is the one spelling every other argument list is read as.
 		TypeId applied_template = kNoType;
+		// 7.1.3p2: the type an alias template's type-id named where the list it
+		// was given wrote a dependent argument that type-id does not mention,
+		// and the alias itself.  The list stands in `template_arguments` beside
+		// them.  `kNoType` and null for every other type.
+		TypeId alias_named = kNoType;
+		const SemaEntity* alias_template = nullptr;
+		// 14.5.3p5: the pack places a reading no argument list has settled
+		// names, which its own type is built over nowhere - the reading is a
+		// spelling or a tree and the entry stands for it.  Empty for every
+		// type that is not one such reading.
+		std::vector<TypeId> named_packs;
 	};
 
 	// What makes two types the same type.
@@ -926,7 +992,13 @@ private:
 
 	// 14.6.2p1 asked of the type itself, which is what the memo above holds.
 	bool dependent_walk(TypeId type) const;
+	// `mentions` over one type, with the types already asked about kept so a
+	// list a specialization was named twice with is walked once.
+	bool mentions_walk(TypeId type, TypeId sought,
+	                   std::unordered_set<TypeId>& seen);
 
+	// What `named_packs` answers for every type that stands for no reading.
+	std::vector<TypeId> no_packs_;
 	std::vector<Node> nodes_;
 	// A record already made never moves: `user_name`, `template_arguments` and
 	// the rest are read as references, and asking a class for its definition
@@ -947,6 +1019,10 @@ private:
 	// The unqualified type each declaration of a class, enumeration or template
 	// parameter introduced, keyed by the entity that declared it.
 	std::unordered_map<std::uint64_t, TypeId> user_ids_;
+	// 7.1.3p2: the entry each naming that discarded an argument stands as,
+	// keyed by the alias, the type its type-id named and the interned list -
+	// which is what makes two such namings of one list one type.
+	std::map<std::pair<const SemaEntity*, std::uint64_t>, TypeId> alias_ids_;
 	std::unordered_map<std::vector<TypeId>, std::uint32_t, ListHash> parameter_ids_;
 	std::vector<const std::vector<TypeId>*> parameter_lists_;
 	// 14.3.2p1: which declaration each entry of the constant-address table

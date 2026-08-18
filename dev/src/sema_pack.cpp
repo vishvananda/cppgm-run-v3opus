@@ -322,6 +322,34 @@ void collect_packs(TypeTable& types, TypeId pattern,
 			}
 			return;
 		}
+		// 14.6.2p1: a name written after a prefix no argument list has settled
+		// is written *over* that prefix, so a pack the prefix names is one this
+		// pattern names - which is what `typename Ts::type...` writes.
+		collect_packs(types, types.dependent_owner(pattern), runs, places, seen);
+		if (types.alias_named(pattern) != kNoType)
+		{
+			// 7.1.3p2: a naming that kept the arguments its type-id discarded
+			// is written over them as much as over the type it named, so a
+			// pack either names is one this pattern names.
+			collect_packs(types, types.alias_named(pattern), runs, places, seen);
+			const std::vector<TypeId>& listed =
+				types.template_arguments(pattern);
+			for (std::size_t index = 0; index < listed.size(); ++index)
+			{
+				collect_packs(types, listed[index], runs, places, seen);
+			}
+		}
+		// 14.5.3p5: a reading no argument list has settled - a
+		// decltype-specifier, a value argument, a default a head wrote - is
+		// read again rather than rebuilt, so the packs its spelling named are
+		// recorded on the entry standing for it and are nowhere else.  Without
+		// them `enable_if_t<bool(Bn::value)>...` names no pack at all and the
+		// expansion is never read per element.
+		const std::vector<TypeId>& named = types.named_packs(pattern);
+		for (std::size_t index = 0; index < named.size(); ++index)
+		{
+			collect_packs(types, named[index], runs, places, seen);
+		}
 		if (!types.is_template_pack(pattern))
 		{
 			return;
@@ -599,6 +627,76 @@ void PackReading::substitute_entry(
 	}
 }
 
+namespace
+{
+
+void note_place(std::vector<TypeId>& places, TypeId place)
+{
+	for (std::size_t index = 0; index < places.size(); ++index)
+	{
+		if (places[index] == place)
+		{
+			return;
+		}
+	}
+	places.push_back(place);
+}
+
+}
+
+// 14.5.3p5 asked of the names a reading wrote.
+//
+// A name is a pack this reading names where the declaration it found declares
+// one, which is `note_name`'s own question; and where it found a declaration
+// standing for a reading of its own, the packs *that* reading recorded are
+// named here too, because reading this one again is reading that one again.
+// Everything else a name may be bound to says nothing: an object whose type was
+// built over a pack is not a pack, and `f(t)...` over a `t` of type
+// `tuple<Ts...>` is one argument and not as many as `Ts` holds.
+void PackReading::note_places(TypeId reading, const std::vector<std::string>& names,
+                              const SemaContext& ctx) const
+{
+	TypeTable& types = analyzer_.types_;
+	std::vector<TypeId> places;
+	for (std::size_t index = 0; index < names.size(); ++index)
+	{
+		SemaEntity* found =
+			analyzer_.model_.lookup(*ctx.scope, names[index], LookupKind::Any);
+		if (found == nullptr)
+		{
+			continue;
+		}
+		if (found->pack_element_of != nullptr)
+		{
+			found = found->pack_element_of;
+		}
+		const TypeId named = found->type;
+		if (types.is_template_pack(named) || types.is_pack_expansion(named))
+		{
+			note_place(places, types.is_pack_expansion(named)
+			                       ? types.target(named) : named);
+			continue;
+		}
+		const std::vector<TypeId>& deeper = types.named_packs(named);
+		for (std::size_t at = 0; at < deeper.size(); ++at)
+		{
+			note_place(places, deeper[at]);
+		}
+	}
+	if (!places.empty())
+	{
+		types.set_named_packs(reading, places);
+	}
+}
+
+void PackReading::note_places(TypeId reading, const std::string& text,
+                              const SemaContext& ctx) const
+{
+	std::vector<std::string> names;
+	spelled_names_in(text, names);
+	note_places(reading, names, ctx);
+}
+
 void PackReading::note_name(const std::string& name, const SemaContext& ctx,
                             Run& run) const
 {
@@ -797,6 +895,14 @@ PackReading::Run PackReading::run_of_node(const AstNode& node,
 	return run;
 }
 
+void PackReading::note_places(TypeId reading, const AstNode& node,
+                              const SemaContext& ctx) const
+{
+	std::vector<std::string> names;
+	names_in(node, names);
+	note_places(reading, names, ctx);
+}
+
 Scope& PackReading::element_region(const Run& run, std::size_t element,
                                    const SemaContext& ctx)
 {
@@ -859,6 +965,18 @@ void PackReading::expand(const std::string& pattern, const SemaContext& ctx,
 		// the way it answers for an argument no pack was written into.
 		const bool writes_the_run =
 			run.packs.size() == 1 && bare_spelling(pattern) == run.packs[0]->name;
+		if (writes_the_run &&
+		    analyzer_.types_.is_pack_expansion(run.packs[0]->type))
+		{
+			// 14.5.3p4: the name is bound to an expansion already - a list that
+			// gave this place a run no argument list has settled, so what it
+			// stands for is as many entries as that run holds - and writing the
+			// name again is that same expansion rather than a second one over
+			// it.  `wrap<Args&&...>` read inside an alias whose own place is
+			// `Args` writes `Args&&...` and not `(Args&&...)...`.
+			out.push_back(run.packs[0]->type);
+			return;
+		}
 		for (std::size_t which = 0;
 		     writes_the_run && place != kNoType && which < run.packs.size();
 		     ++which)

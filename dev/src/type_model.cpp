@@ -601,6 +601,164 @@ TypeId TypeTable::dependent_template_id(std::uint32_t entity, TypeId parameter,
 	return made;
 }
 
+// 7.1.3p2: the naming an alias template's type-id left an argument out of.
+//
+// It is a parameter-kind entry because that is the one category the walks read
+// as "an argument list has yet to say", which is what this is: the type it
+// stands for is the one the type-id named, and reaching it is what building
+// every argument first has to survive.
+TypeId TypeTable::discarded_alias_type(const SemaEntity& alias, TypeId named,
+                                       const std::vector<TypeId>& arguments,
+                                       const std::string& name)
+{
+	const std::pair<const SemaEntity*, std::uint64_t> key(
+		&alias, (static_cast<std::uint64_t>(named) << 32) |
+			        type_list(arguments));
+	const std::map<std::pair<const SemaEntity*, std::uint64_t>,
+	               TypeId>::const_iterator held = alias_ids_.find(key);
+	if (held != alias_ids_.end())
+	{
+		return held->second;
+	}
+	UserType record;
+	record.name = name;
+	record.qualified = name;
+	record.tag = ClassTag::Struct;
+	record.scoped = false;
+	record.complete = false;
+	record.size = 0;
+	record.align = 1;
+	record.empty = false;
+	record.trivially_copied = true;
+	record.copy_deleted = false;
+	record.alias_named = named;
+	record.alias_template = &alias;
+	record.template_arguments = arguments;
+	Node node = nodes_[0];
+	node.kind = TypeKind::TemplateParameter;
+	node.user = static_cast<std::uint32_t>(user_types_.size());
+	user_types_.push_back(record);
+	const TypeId made = intern(key_of(node), node);
+	alias_ids_.insert(std::make_pair(key, made));
+	return made;
+}
+
+void TypeTable::set_named_packs(TypeId type, const std::vector<TypeId>& places)
+{
+	user_types_[nodes_[type].user].named_packs = places;
+}
+
+bool TypeTable::mentions(TypeId type, TypeId sought)
+{
+	std::unordered_set<TypeId> seen;
+	return mentions_walk(type, sought, seen);
+}
+
+// The graph edges `substituted` follows, asked the other way round: a type
+// `sought` is one of them exactly where rebuilding `type` has to rebuild it.
+// A type already asked is not asked again, so a specialization named with one
+// argument list n deep costs the nodes of it and not the paths through them.
+bool TypeTable::mentions_walk(TypeId type, TypeId sought,
+                              std::unordered_set<TypeId>& seen)
+{
+	if (type == kNoType || !seen.insert(type).second)
+	{
+		return false;
+	}
+	if (type == sought || strip_cv(type) == strip_cv(sought))
+	{
+		return true;
+	}
+	switch (kind(type))
+	{
+	case TypeKind::Pointer:
+	case TypeKind::LValueReference:
+	case TypeKind::RValueReference:
+		return mentions_walk(target(type), sought, seen);
+
+	case TypeKind::Array:
+		return mentions_walk(target(type), sought, seen) ||
+			mentions_walk(bound_place(type), sought, seen);
+
+	case TypeKind::MemberPointer:
+		return mentions_walk(member_class(type), sought, seen) ||
+			mentions_walk(target(type), sought, seen);
+
+	case TypeKind::Value:
+		return mentions_walk(target(type), sought, seen);
+
+	case TypeKind::Function:
+	{
+		if (mentions_walk(target(type), sought, seen))
+		{
+			return true;
+		}
+		const std::vector<TypeId>& given = parameters(type);
+		for (std::size_t index = 0; index < given.size(); ++index)
+		{
+			if (mentions_walk(given[index], sought, seen))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	case TypeKind::Pack:
+	{
+		if (is_pack_expansion(type))
+		{
+			return mentions_walk(target(type), sought, seen);
+		}
+		const std::vector<TypeId>& held = pack_elements(type);
+		for (std::size_t index = 0; index < held.size(); ++index)
+		{
+			if (mentions_walk(held[index], sought, seen))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	case TypeKind::Class:
+	case TypeKind::TemplateParameter:
+	{
+		// A specialization is written over its arguments, and so are the three
+		// namings a parameter-kind entry stands for: a dependent template-id,
+		// a member of a prefix no list has settled, and the alias naming above.
+		if (mentions_walk(applied_template(type), sought, seen) ||
+		    mentions_walk(dependent_owner(type), sought, seen) ||
+		    mentions_walk(alias_named(type), sought, seen))
+		{
+			return true;
+		}
+		const std::vector<TypeId>& arguments = user_at(type).template_arguments;
+		for (std::size_t index = 0; index < arguments.size(); ++index)
+		{
+			if (mentions_walk(arguments[index], sought, seen))
+			{
+				return true;
+			}
+		}
+		// A reading read again rather than rebuilt names the places it named,
+		// and nothing else it is built over says so.
+		const std::vector<TypeId>& packs = user_at(type).named_packs;
+		for (std::size_t index = 0; index < packs.size(); ++index)
+		{
+			if (mentions_walk(packs[index], sought, seen))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	default:
+		return false;
+	}
+}
+
 // A type has two spellings - the one a dump writes and the one PA14's encoder
 // reads - and a rename that moved only the first would leave the object file
 // naming the type the declaration was called before.  Both are written here.
@@ -1119,6 +1277,28 @@ TypeId TypeTable::substitute(TypeId type,
 	{
 	case TypeKind::TemplateParameter:
 	{
+		// 7.1.3p2: a naming that kept the arguments its type-id discarded is
+		// built over them, so a substitution rebuilds it over what they come
+		// to - and the naming stands as it was where none of them moved.
+		if (alias_named(type) != kNoType)
+		{
+			const std::vector<TypeId> listed = template_arguments(type);
+			std::vector<TypeId> built;
+			built.reserve(listed.size());
+			bool moved = false;
+			for (std::size_t index = 0; index < listed.size(); ++index)
+			{
+				built.push_back(substitute(listed[index], bindings, memo));
+				moved = moved || built[index] != listed[index];
+			}
+			const TypeId named = substitute(alias_named(type), bindings, memo);
+			result = moved || named != alias_named(type)
+				? qualified(discarded_alias_type(*alias_template(type), named,
+				                                 built, user_name(type)),
+				            qualifiers)
+				: type;
+			break;
+		}
 		// 14.3p1: an argument is bound to the parameter itself, and the
 		// qualifiers written around the parameter stay around what it names.
 		const std::unordered_map<TypeId, TypeId>::const_iterator bound =

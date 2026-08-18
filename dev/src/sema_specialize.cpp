@@ -679,6 +679,12 @@ SemaEntity& Specialization::alias(SemaEntity& primary, const TemplateId& id,
 	std::vector<TypeId> arguments;
 	TemplateHead(analyzer_).bind_arguments(primary, id.arguments(), ctx,
 	                                       arguments);
+	return alias_arguments(primary, arguments);
+}
+
+SemaEntity& Specialization::alias_arguments(
+	SemaEntity& primary, const std::vector<TypeId>& arguments)
+{
 	const std::uint32_t list = analyzer_.types_.type_list(arguments);
 	SemaEntity* const made = analyzer_.model_.specialization_of(primary, list);
 	if (made != nullptr)
@@ -712,8 +718,10 @@ SemaEntity& Specialization::alias(SemaEntity& primary, const TemplateId& id,
 		type = analyzer_.type_id_type(*child_of(*info.pattern, AstKind::TypeId),
 		                              inner);
 	}
+	const TypeId discarded = discarded_arguments(primary, arguments, type);
 	SemaEntity& entity = analyzer_.model_.create(
-		SemaKind::Typedef, spelled(primary, arguments), type);
+		SemaKind::Typedef, spelled(primary, arguments),
+		discarded == kNoType ? type : discarded);
 	entity.region = info.region;
 	// 11p1 and 14.5.7p1: the alias template is the declaration a class gave an
 	// access to, and this typedef-name is only the type one argument list makes
@@ -721,6 +729,59 @@ SemaEntity& Specialization::alias(SemaEntity& primary, const TemplateId& id,
 	entity.access = primary.access;
 	analyzer_.model_.hold_specialization(primary, list, entity);
 	return entity;
+}
+
+TypeId Specialization::substituted_alias(
+	TypeId naming, const std::unordered_map<TypeId, TypeId>& bindings,
+	std::unordered_map<TypeId, TypeId>& memo)
+{
+	TypeTable& types = analyzer_.types_;
+	SemaEntity& alias = *const_cast<SemaEntity*>(types.alias_template(naming));
+	const std::vector<TypeId> listed = types.template_arguments(naming);
+	std::vector<TypeId> arguments;
+	arguments.reserve(listed.size());
+	for (std::size_t index = 0; index < listed.size(); ++index)
+	{
+		PackReading(analyzer_).substitute_entry(listed[index], bindings, memo,
+		                                        arguments);
+	}
+	return alias_arguments(alias, arguments).type;
+}
+
+// 7.1.3p2 with 14.8.2p8: an argument the type-id does not name is still an
+// argument, and building it is still what a substitution may fail at.
+//
+// The type-id is read here, wherever the naming stands, so a *settled*
+// argument has already been built by the time this is asked - `void_t<int>` is
+// `void`, and nothing about `int` is left to go wrong.  An argument no list has
+// settled is the other case: it is built where 14.7.1p1's substitution puts a
+// list behind it, and a type-id that does not mention it gives that
+// substitution nothing to build.  So the naming keeps one entry standing for
+// itself, exactly as a dependent member of a prefix does, and what the
+// substitution finds under it is the list to build before the type-id is read
+// again.  `void_t<typename T::x>` is the whole of the detected idiom: a `T`
+// with no `x` is a substitution that fails and a candidate 13.3 drops, and
+// collapsing the naming to `void` where it stands leaves nothing to fail.
+//
+// What it costs is one walk of the type the type-id named per naming with a
+// dependent argument, which is the walk `substituted` would make of it anyway.
+TypeId Specialization::discarded_arguments(SemaEntity& primary,
+                                           const std::vector<TypeId>& arguments,
+                                           TypeId type)
+{
+	TypeTable& types = analyzer_.types_;
+	bool discards = false;
+	for (std::size_t index = 0; index < arguments.size() && !discards; ++index)
+	{
+		discards = types.is_dependent(arguments[index]) &&
+			!types.mentions(type, arguments[index]);
+	}
+	if (!discards)
+	{
+		return kNoType;
+	}
+	return types.discarded_alias_type(primary, type, arguments,
+	                                  spelled(primary, arguments));
 }
 
 std::string Specialization::spelled(const SemaEntity& primary,

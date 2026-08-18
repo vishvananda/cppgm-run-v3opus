@@ -126,6 +126,24 @@ bool Deduction::match(TypeId pattern, TypeId argument,
                       bool relaxed, bool derived)
 {
 	TypeTable& types = analyzer_.types_;
+	// 7.1.3p2: a naming that kept the arguments its type-id discarded is still
+	// the type that type-id named, so the pair is over that type - the
+	// arguments say nothing about what an A is and are what the substitution
+	// after the deduction builds.  Both sides are unwrapped, because
+	// 14.5.5.2p1's ordering writes one pattern as the other's argument.
+	if (types.alias_named(types.strip_cv(pattern)) != kNoType)
+	{
+		return match(types.qualified(types.alias_named(types.strip_cv(pattern)),
+		                             types.cv(pattern)),
+		             argument, bindings, relaxed, derived);
+	}
+	if (types.alias_named(types.strip_cv(argument)) != kNoType)
+	{
+		return match(pattern,
+		             types.qualified(types.alias_named(types.strip_cv(argument)),
+		                             types.cv(argument)),
+		             bindings, relaxed, derived);
+	}
 	if (types.dependent_owner(types.strip_cv(pattern)) != kNoType)
 	{
 		// 14.8.2.5p5: the nested-name-specifier of a type written as a

@@ -120,6 +120,23 @@ public:
 	};
 	Run run_of(const std::string& pattern, const SemaContext& ctx) const;
 
+	// 14.5.3p5: the places a reading names, recorded on the entry `reading`
+	// stands for.  A reading is read again rather than rebuilt - a
+	// decltype-specifier, a value argument, a default a head wrote - so its
+	// type is built over nothing the packs it names appear in, and 14.5.3p4's
+	// expansion of a pattern it stands in would find none.
+	//
+	// The names it wrote are what it names them by, and one of them may stand
+	// for a reading of its own: `enable_if_t<bool(Bn::value)>` is read as `B`
+	// against a region binding `B` to the reading that wrote `Bn`, so a place
+	// this one names may be a place *that* one recorded.
+	void note_places(TypeId reading, const std::string& text,
+	                 const SemaContext& ctx) const;
+	void note_places(TypeId reading, const AstNode& node,
+	                 const SemaContext& ctx) const;
+	void note_places(TypeId reading, const std::vector<std::string>& names,
+	                 const SemaContext& ctx) const;
+
 	// The same question over the tree PA10 handed on rather than over one
 	// spelling, which is what an expansion written in an expression is: the
 	// names are the ones its nodes wrote, and a function parameter pack is one

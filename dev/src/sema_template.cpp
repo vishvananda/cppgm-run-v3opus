@@ -1765,6 +1765,7 @@ TypeId SemaAnalyzer::dependent_expression_type(const AstNode& node,
 	}
 	const TypeId type = types_.template_parameter_type(model_.type_entity_id(),
 	                                                   false, node.text);
+	PackReading(*this).note_places(type, node, ctx);
 	DependentDecltype written;
 	written.written = &node;
 	written.region = ctx.scope;
@@ -1811,6 +1812,7 @@ TypeId SemaAnalyzer::dependent_default(const AstNode& node, TypeId place,
 	}
 	const TypeId type = types_.template_parameter_type(model_.type_entity_id(),
 	                                                   false, node.text);
+	PackReading(*this).note_places(type, node, ctx);
 	DependentDecltype written;
 	written.written = &node;
 	written.region = ctx.scope;
@@ -1860,6 +1862,7 @@ TypeId SemaAnalyzer::dependent_value(const std::string& spelling, TypeId place,
 	                                                   false, spelling);
 	if (ctx != nullptr)
 	{
+		PackReading(*this).note_places(type, spelling, *ctx);
 		DependentDecltype written;
 		written.region = ctx->scope;
 		written.spelling = spelling;
@@ -2037,6 +2040,19 @@ TypeId SemaAnalyzer::substituted(
 
 	default:
 	{
+		// 7.1.3p2 with 14.8.2p8: a naming of an alias template whose type-id
+		// left a dependent argument out is the one reading whose *arguments*
+		// are what the substitution has to build - the type-id names them
+		// nowhere, so nothing else here would.  They are built first, which is
+		// where `typename T::x` over a `T` with no `x` refuses and discards the
+		// candidate, and the type-id is then read again over what they came to.
+		if (types_.alias_named(bare) != kNoType)
+		{
+			out = types_.qualified(
+				Specialization(*this).substituted_alias(bare, bindings, memo),
+				cv);
+			break;
+		}
 		// 14.6.2p1 at a template place: `C<A…>` is the specialization the
 		// template bound to `C` makes of the arguments this substitution makes
 		// of the list.  Where the binding leaves `C` a place still - a template
@@ -2058,12 +2074,27 @@ TypeId SemaAnalyzer::substituted(
 			SemaEntity* const named = types_.is_template_name(bound)
 				? model_.type_owner(bound)
 				: nullptr;
-			out = named != nullptr && named->templated != nullptr
-				? types_.qualified(instantiate_class(*named, arguments).type, cv)
-				: types_.qualified(
-					  dependent_template_name(bound, arguments,
-					                          types_.user_name(bare)).type,
-					  cv);
+			if (named == nullptr || named->templated == nullptr)
+			{
+				out = types_.qualified(
+					dependent_template_name(bound, arguments,
+					                        types_.user_name(bare)).type,
+					cv);
+				break;
+			}
+			// 7.1.3p2: 14.3.3p1's place takes an alias template as readily as a
+			// class template - `Op<Args…>` over an `Op` bound to `add_pointer`
+			// names no specialization at all - so which of the two the argument
+			// named is what says how the list is read.  A detector idiom writes
+			// the place and passes an alias through it, and instantiating one
+			// as a class made a declaration of the alias-declaration's own
+			// syntax rather than reading its type-id.
+			out = types_.qualified(
+				named->kind == SemaKind::Typedef
+					? Specialization(*this).alias_arguments(*named,
+					                                        arguments).type
+					: instantiate_class(*named, arguments).type,
+				cv);
 			break;
 		}
 		// 14.6.2p1 and 14.7.1p1: a name written after a prefix the definition

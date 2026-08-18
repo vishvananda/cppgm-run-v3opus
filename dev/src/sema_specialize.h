@@ -94,6 +94,20 @@ public:
 	SemaEntity& alias(SemaEntity& primary, const TemplateId& id,
 	                  const SemaContext& ctx);
 
+	// The same over a list already bound, which is what 14.7.1p1's substitution
+	// has: the arguments a naming left standing, built again against its own.
+	SemaEntity& alias_arguments(SemaEntity& primary,
+	                            const std::vector<TypeId>& arguments);
+
+	// 7.1.3p2 with 14.8.2p8: what 14.7.1p1's substitution makes of a naming
+	// that kept the arguments its type-id discarded.  They are built first -
+	// which is where `typename T::x` over a `T` with no `x` refuses and
+	// discards the candidate - and the type-id is read again over what they
+	// came to.
+	TypeId substituted_alias(TypeId naming,
+	                         const std::unordered_map<TypeId, TypeId>& bindings,
+	                         std::unordered_map<TypeId, TypeId>& memo);
+
 	// 14.5.5.1p1: which partial specialization of `primary` the argument list
 	// `arguments` matches, and the arguments *its* own head took.  `kNoPartial`
 	// where the list matches none, which leaves the primary's own pattern.
@@ -155,6 +169,14 @@ private:
 	// what names the declaration that list made of it.
 	std::string spelled(const SemaEntity& primary,
 	                    const std::vector<TypeId>& arguments);
+
+	// 7.1.3p2 with 14.8.2p8: the entry a naming of `primary` keeps where its
+	// type-id named `type` and the list held a dependent argument that type
+	// does not mention.  `kNoType` where the type-id named every argument it
+	// was given, which is every naming that discards nothing.
+	TypeId discarded_arguments(SemaEntity& primary,
+	                           const std::vector<TypeId>& arguments,
+	                           TypeId type);
 
 	// 14.5.5.1p1 with 14.8.2p8: whether the pattern at `index` matches
 	// `arguments`, and what the places its own head declared were deduced to.
