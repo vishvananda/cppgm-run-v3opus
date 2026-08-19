@@ -1337,6 +1337,23 @@ TypeId TemplateArgumentReader::probe_type_id(const std::string& spelling)
 	}
 }
 
+// 14.4p1: the member stand-in a lookup reached, where what the name reaches is
+// the whole of which member it is - and `kNoType` for every stand-in whose
+// identity the entry `naming_value` interns could not carry.
+//
+// A place standing alone is one: it names no member at all.  A member written
+// as a *template-id* is the other: `A<T>::val<3>` and `A<T>::val<4>` name two
+// members through one prefix and one name, and the entry is the prefix, the
+// name and 14.3.2p5's place and holds no argument list - so pairing them by it
+// would make two declarations of one template into one.  Those keep the
+// spelling identity `dependent_value` interns, which tells the two apart.
+TypeId member_naming(const TypeTable& types, TypeId stands)
+{
+	return types.dependent_owner(stands) == kNoType ||
+			types.dependent_member_is_template_id(stands)
+		? kNoType : stands;
+}
+
 // 5.19p2: an id-expression naming a constant binding, which is what an
 // enumerator, a const object of integral type with a constant initializer, and
 // 14.1p4's non-type parameter each are.  14.2's own door stands in front of
@@ -1387,8 +1404,7 @@ SemaConstant TemplateArgumentReader::name(const std::string& spelling,
 		// place standing alone, *which* member it is is a fact of the lookup and
 		// not of the characters - so it is kept for the caller, whose argument
 		// is then that member and no spelling of it.
-		naming_ = analyzer_.types_.dependent_owner(named->type) == kNoType
-			? kNoType : named->type;
+		naming_ = member_naming(analyzer_.types_, named->type);
 		dependent_ = true;
 		++analyzer_.stood_in_;
 		SemaConstant out;
@@ -1425,8 +1441,7 @@ SemaConstant TemplateArgumentReader::name(const std::string& spelling,
 		// 14.6.2p2: what a name that depends on a template parameter is worth,
 		// an argument list is what says - so the argument this stands in is
 		// dependent_ and the value is never read.
-		naming_ = analyzer_.types_.dependent_owner(named->type) == kNoType
-			? kNoType : named->type;
+		naming_ = member_naming(analyzer_.types_, named->type);
 		dependent_ = true;
 		++analyzer_.stood_in_;
 		SemaConstant out;
@@ -1702,18 +1717,16 @@ TypeId SemaAnalyzer::template_argument_value(const std::string& spelling,
 			// lookup reached - a fact two declarations of one template agree on
 			// however each of them spelled the prefix.
 			const TypeId member = reader.naming();
-			const TypeId built = Substitution(*this).naming_value(
+			// 14.5.3p5 has nothing to record here.  The packs a *spelling*
+			// names are nowhere in what it was interned as, which is why a
+			// reading read again carries them - but this entry is rebuilt and
+			// not re-read, and the prefix it was interned by is where every
+			// pack it names stands.  `collect_packs` walks that prefix, so
+			// noting them again on each reading would be one scan of the
+			// spelling and one lookup per name in it for a fact already there.
+			return Substitution(*this).naming_value(
 				types_.dependent_owner(member), types_.dependent_member(member),
-				place);
-			// 14.5.3p5: which packs the naming names is the reading's own fact,
-			// asked once where the entry is made rather than at each use of it -
-			// the prefix is part of what interned it, so every spelling that
-			// reaches this entry names the same run.
-			if (types_.named_packs(built).empty())
-			{
-				PackReading(*this).note_places(built, spelling, ctx);
-			}
-			return built;
+				place, ctx.scope);
 		}
 		return dependent_value(spelling, place, &ctx);
 	}

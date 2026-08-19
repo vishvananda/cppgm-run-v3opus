@@ -10,6 +10,7 @@
 
 class SemaAnalyzer;
 struct AnalyzedValue;
+class Scope;
 struct SemaEntity;
 
 // 14.8.2p8's other half: a failure that happened while a *template* was being
@@ -92,7 +93,13 @@ public:
 	// template's own body writes a pattern over places the naming discarded.
 	// So the stand-in is interned by the prefix, the member and 14.3.2p5's
 	// place, all three of which every spelling of one name agrees on.
-	TypeId naming_value(TypeId prefix, const std::string& member, TypeId place);
+	//
+	// `written` is the region the reading stood in, which is no part of that
+	// identity and is kept beside the entry for 11.2's question alone - a
+	// substitution that settles the prefix asks the access there, where the
+	// spelling form asked it of the region it was re-read against.
+	TypeId naming_value(TypeId prefix, const std::string& member, TypeId place,
+	                    Scope* written = nullptr);
 
 	// 7.1.6.2p4, 14.1p9 and 14.6.2p2: what this substitution makes of a
 	// *reading* the definition left standing - a decltype-specifier, a value

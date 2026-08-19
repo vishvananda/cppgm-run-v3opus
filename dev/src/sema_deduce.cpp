@@ -2,6 +2,7 @@
 
 #include <utility>
 
+#include "sema_access.h"
 #include "sema_analyzer.h"
 #include "sema_constexpr.h"
 #include "sema_pack.h"
@@ -241,24 +242,39 @@ TypeId Substitution::member(TypeId naming, TypeId bare, unsigned cv,
 }
 
 TypeId Substitution::naming_value(TypeId prefix, const std::string& member,
-                                  TypeId place)
+                                  TypeId place, Scope* written)
 {
 	TypeTable& types = analyzer_.types_;
 	const std::string key = std::to_string(prefix) + "|" + member + "|" +
 		std::to_string(place);
 	const std::unordered_map<std::string, TypeId>::const_iterator held =
 		analyzer_.dependent_.member_values.find(key);
-	if (held != analyzer_.dependent_.member_values.end())
+	const TypeId made =
+		held != analyzer_.dependent_.member_values.end() ? held->second : kNoType;
+	if (made != kNoType)
 	{
-		return held->second;
+		// A substitution that rebuilt this entry over a prefix it left dependent
+		// had no region to offer, so a reading that reaches the same entry with
+		// one is where 11.2's context arrives - the insert keeps the first.
+		if (written != nullptr)
+		{
+			analyzer_.dependent_.member_value_regions.insert(
+				std::make_pair(made, written));
+		}
+		return made;
 	}
-	const TypeId made = types.template_parameter_type(
+	const TypeId built = types.template_parameter_type(
 		analyzer_.model_.type_entity_id(), false,
 		types.user_name(prefix) + "::" + member);
-	types.set_dependent_member(made, prefix, member, nullptr);
-	types.set_dependent_member_value(made, place);
-	analyzer_.dependent_.member_values.insert(std::make_pair(key, made));
-	return made;
+	types.set_dependent_member(built, prefix, member, nullptr);
+	types.set_dependent_member_value(built, place);
+	analyzer_.dependent_.member_values.insert(std::make_pair(key, built));
+	if (written != nullptr)
+	{
+		analyzer_.dependent_.member_value_regions.insert(
+			std::make_pair(built, written));
+	}
+	return built;
 }
 
 // 14.6.2p2 at the substitution, which is the value's half of what
@@ -273,6 +289,14 @@ TypeId Substitution::settled_value(
 	const TypeId place = written == kNoType
 		? kNoType
 		: analyzer_.substituted(written, bindings, memo);
+	// 11.2: the region the reading that made this entry stood in, which is the
+	// only part of that reading a rebuilt naming does not carry and is what the
+	// access below is asked of.
+	const std::unordered_map<TypeId, Scope*>::const_iterator stood =
+		analyzer_.dependent_.member_value_regions.find(bare);
+	Scope* const wrote =
+		stood == analyzer_.dependent_.member_value_regions.end()
+			? nullptr : stood->second;
 	const TypeId settled = types.strip_cv(owner);
 	const TypeKind reached = types.kind(settled);
 	if (types.is_dependent(owner) || reached == TypeKind::Pack ||
@@ -285,7 +309,7 @@ TypeId Substitution::settled_value(
 		// 14.5.6.1p5 compares.  Nothing moved leaves the entry where it was.
 		return owner == types.dependent_owner(bare) && place == written
 			? naming
-			: naming_value(owner, types.dependent_member(bare), place);
+			: naming_value(owner, types.dependent_member(bare), place, wrote);
 	}
 	if (!types.is_class(settled))
 	{
@@ -310,6 +334,15 @@ TypeId Substitution::settled_value(
 		// class an argument named does not declare.
 		throw std::runtime_error("no declaration of " + types.user_name(bare) +
 		                         " is in scope");
+	}
+	// 11.2 with 14.8.2p8: which member the name reaches is what the access its
+	// class gave it says as much as what the region declares, and the reading
+	// this replaced asked it - `folded_name` checks every name it resolves.
+	// Asking it here is what makes an inaccessible member a candidate that
+	// drops rather than a program that dies where the body is read.
+	if (wrote != nullptr)
+	{
+		Access(analyzer_).require_access(*found, wrote, region);
 	}
 	const SemaConstant value =
 		ConstexprReading(analyzer_).entity_constant(*found,

@@ -590,6 +590,14 @@ struct DependentReadings
 	// the three, which is what makes two declarations of one template that
 	// spelled the prefix differently reach one entry.
 	std::unordered_map<std::string, TypeId> member_values;
+	// 11.2 beside it: the region the first reading of such a naming stood in,
+	// which is the context 14.8.2p8 asks the access of the member in once a
+	// prefix settles.  The spelling form was *re-read* against a rebuilt region
+	// and asked it there; a naming is rebuilt instead, so the one part of that
+	// reading it still owes is kept here.  It is no part of what interns the
+	// entry - two declarations of one template are written over one head and
+	// under one class, which is the whole of what shares an entry.
+	std::unordered_map<TypeId, Scope*> member_value_regions;
 	// 14.7.1p1's member class bodies, keyed by the declaration each defines:
 	// the reading that made the declaration left the definition standing, and
 	// the demand 3.9p5 makes of the type is what reads it.  It is one probe of

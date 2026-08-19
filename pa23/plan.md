@@ -86,7 +86,7 @@ Owners, in the order a use walks them:
 
 ## Current Failure Map
 
-467 tests (400 handout + 67 course), **456 passing** (handout 389 / 400).  The 11
+468 tests (400 handout + 68 course), **457 passing** (handout 389 / 400).  The 11
 left, all handout, by the compiler behavior each wants:
 
 | group | n | shape |
@@ -99,8 +99,9 @@ left, all handout, by the compiler behavior each wants:
 
 ### Known gaps diagnosed but not landed
 
-Only the ones still live.  Every row below has been re-probed on this turn's
-binary.
+Only the ones still live.  The rows checkpoint 32's probes reached are re-probed
+on this turn's binary; the rest carry the wording of the turn that recorded
+them.
 
 - **13.3.3.1.5p1 ranks a one-element list by the element's own conversion.**
   `f({1})` over `f(int)` beside `f(double)` is `f(int)` in `g++` and no best
@@ -358,58 +359,85 @@ binary.
   return type beside an `f(...)` fallback is `a comparison has operands of
   unrelated types` here and SFINAE in both oracles - the same reading
   `300-expression-sfinae-decltype` wants and no part of checkpoint 29's probe.
+- **A member *variable template* at a value place is one argument.**
+  `box<A<T>::val<3> >` and `box<A<T>::val<4> >` both mangle `box<T_>`, one
+  definition is written for the two declarations that name them, and the program
+  runs to 44 where `g++` runs to 34.  Checkpoint 32 made 14.4p1's identity stand
+  aside for a member written as a template-id, which the entry cannot carry; the
+  collapse is in the reading above it, is the pre-checkpoint answer too, and the
+  shape is C++14's, which `g++` refuses under `-pedantic-errors`.
+- **11.2's access at a member reached through a settled dependent prefix is not
+  14.8.2p8's immediate context, at the *type* half.**  `typename T::type` over a
+  private typedef, and a member the class befriended, are translated by both
+  oracles and refused here from `instantiate_body`.  Checkpoint 32 gave the
+  *value* half the region to ask the question in; `dependent_member_type` has
+  none, and the reference asks it at neither half - `f<holder>` over a private
+  `value` beside an `f(...)` runs to the template there and to the fallback here
+  and in `g++`, so no fixture can hold either answer.
+- **14.3.2p5's converted constant expression does not refuse a narrowing
+  conversion.**  `box<-1>` at an `unsigned` place is accepted here and by the
+  reference and refused by `g++`, with a naming, through an alias template and
+  with no template in the program at all.
+- **5.19p2's restriction has no reader at a pointer place.**  A `static int *
+  const` member initialized with `&g` is read as a constant here and refused by
+  the reference and by `g++`, with and without a dependent prefix.
+- **A naming at a *reference* place writes no definition of the member.**  A
+  `static int &` defined out of class and named at an `int &` place is a global
+  plus a startup body in the reference and no symbol at all here; `g++` refuses
+  the program.
+- **A pack whose prefix a substitution moved is not deduced through.**
+  `f(list<A<X,Ts>::value ...> *, Ts ...)` deduces `Ts` in both oracles and is
+  `no declaration of f accepts the arguments of a call` here, before checkpoint
+  31 as much as after it.
 
 ## Active Checkpoint
 
-**14.4p1's identity of a value a dependent qualified-id names.**  Complete;
-ledger row 31 is its record.
+**Audit of 14.4p1's identity of a value a dependent qualified-id names.**
+Complete; ledger row 32 is its record and `audit.md`'s current review is the
+long form.
 
-14.5.6.1p5 pairs two declarations of one template by the types their declarators
-built, and a *value* written into one of those types is part of that comparison.
-Every other kind of dependent thing already had a structural identity - a member
-type is its prefix and its name, a specialization is its template and its
-arguments - and a value alone was interned by the characters that reached it,
-under a key naming the region it was written in.  So two spellings of one member
-were two arguments: `value_type` in a class and `T` outside it, and an alias
-template's own body, whose pattern is written over places the naming discarded
-and can never be spelled the way a program writes the expansion out.
+The checkpoint replaced a *reading* with a *rebuild*: a value argument that used
+to be a spelling re-read against a rebuilt region is now an entry interned by
+the prefix, the member and 14.3.2p5's place, walked structurally.  The audit
+asked two questions of that - what the identity does not carry, and what the
+reading it replaced did that the rebuild does not - and both had an answer.
 
 - *Owner and data flow.*
-  - `type_model.{h,cpp}` — `dependent_member_valued` and
-    `dependent_member_place` beside the prefix and the name the entry already
-    held, which is what tells the two readings of one qualified-id apart:
-    nothing looks a value up where a type belongs, and the constant a settled
-    prefix hands back is no type at all.
-  - `sema_value_expression.cpp` — `TemplateArgumentReader::naming` keeps the
-    stand-in the one lookup it made reached, and `template_argument_value`
-    interns by that where the whole spelling was that one name.  The same door
-    hands a *place* bound to such a value straight back, so an alias template
-    forwarding its own place into another list adds no second stand-in named
-    after the place it travelled through.
-  - `sema_deduce.{h,cpp}` — `naming_value` interns by the prefix, the member and
-    14.3.2p5's place; `settled_value` is the substitution's half, which keeps
-    the naming standing over the class *this* substitution built where the
-    prefix is still dependent, and otherwise looks the member up in it and
-    converts its constant to the place.  A prefix that settles to no class, and
-    a class declaring no such member, are 14.8.2p8's failure.
-  - `lowir_abi.cpp` / `abi_mangle.{h,cpp}` — the ABI's `<unresolved-name>` read
-    as an *expression*: `X sr <prefix> <name> E`, wrapped in `N`/`E` where the
-    prefix is more than one unresolved qualifier level.
-- *Expected complexity.*  One map probe per naming read, keyed by three
-  integers-as-text rather than by a spelling and its region; one lookup and one
-  5.19 read per naming a substitution settles, where the spelling form re-read
-  the expression against a rebuilt region; the prefix walk is the substitution's
-  own and is not made twice.
-- *Validation.*  63 probe programs across the member kinds, the place types, the
-  prefix shapes, the spelling variances and the failure shapes, judged against
-  the reference, `g++` and the pre-checkpoint binary: acceptance agrees
-  everywhere outside the rows recorded above, 52 accepted ones run to `g++`'s
-  value, and 61 are byte-identical to the reference through the real comparator
-  against 60 before.  Six mangling shapes agree with `g++` where **0 of 6** did
-  before and the reference does at 2.  pa23 **452 / 465 -> 456 / 467** (handout
-  387 -> 389 / 400); `through-pa22` 2948 / 2948; file audit clean; every handout
-  and course `.ref` regenerated with not one tracked file changed; 0 exits above
-  1 over 4110 inputs; valgrind clean over 142.
+  - `sema_value_expression.cpp` — `member_naming` is the one door the reading's
+    two exits go through: a stand-in naming no member, and one whose member was
+    written as a *template-id*, are both `kNoType`.  The entry holds no argument
+    list and `settled_value` could not substitute one, so a template-id keeps
+    the spelling identity `dependent_value` interns - which is what tells
+    `A<T>::val<3>` from `A<T>::val<4>` and stops 14.5.6.1p5 pairing two
+    declarations of one template into one.
+  - `sema_deduce.{h,cpp}` / `sema_declaration.h` — `member_value_regions`: the
+    region the reading stood in, kept beside the entry and no part of what
+    interns it, because 11.2's access is the one question `folded_name` asked of
+    the spelling that `lookup_in` asks of nothing.  `settled_value` asks it of
+    the member it found, so an inaccessible one is 14.8.2p8's failure rather
+    than a program that dies where the body is instantiated.
+  - `type_model.{h,cpp}` / `sema_pack.cpp` — `dependent_member_place` is a graph
+    edge: `mentions_walk` and `collect_packs` walk it beside the prefix, the
+    applied template and the alias naming, and the accessor is guarded on the
+    kind that holds a user record.
+  - `sema_value_expression.cpp` — and 14.5.3p5 records nothing for such an
+    entry.  The packs a naming names are the prefix's, which `collect_packs`
+    already reaches; noting them was one scan of the spelling and one lookup per
+    name in it on every read.
+  - `abimangle.cpp` — the owner flag of a `member` expression record is the
+    three answers `<unresolved-name>` has, so PA14's fixture language can write
+    the `srN…E` branch the checkpoint added and a parsed record round-trips.
+- *Expected complexity.*  One map probe per naming read and one entry per
+  distinct one; one lookup, one access question and one 5.19 read per naming a
+  substitution settles; one extra kind test where a template-id is written.  The
+  removed recording is strictly less work per read.
+- *Validation.*  69 probe programs judged through the real comparator against
+  the reference, `g++`, the pre-audit binary and the pre-checkpoint one: 57
+  byte-identical to the reference, 55 run to `g++`'s value, 8 of 8 mangling
+  shapes identical to `g++` where the reference is at 3.  pa23 **456 / 467 ->
+  457 / 468**; `through-pa22` 2948 / 2948; file audit clean; every handout and
+  course `.ref` regenerated with not one tracked file changed; 0 exits above 1
+  over 4110 inputs; valgrind clean over 203.
 
 ## Next Substantial Checkpoint
 
@@ -448,16 +476,18 @@ same way; superseded rows are dropped and the shapes that mattered are named in
 the ledger.  A shape a checkpoint *un-refuses* has no baseline on the earlier
 binary - refusing it is less work, not the same work - so it is timed against
 the nearest shape that already worked.  The whole corpus of pa10 through pa29
-and cppgm.tests - 4110 inputs, one process apiece - reads **17.54 s** on this
-binary against **17.47 s** on the pre-checkpoint one, which is the spawn floor
-of 4110 processes and no difference between the two.  What is live:
+and cppgm.tests - 4110 inputs, one process apiece - reads **17.41 / 17.35 s** on
+this binary against **17.62 / 17.48 s** on the pre-audit one over two passes,
+which is the spawn floor of 4110 processes and no difference between the two.
+What is live:
 
 | sweep | shape | result |
 | --- | --- | --- |
-| dependent-value naming multiplicity | n distinct `traitK<T>::value` namings in one template, and one naming written n times | 0.02 s @200, 0.09 @800, 0.42 @3200 distinct against 0.02 / 0.08 / 0.41 before, and 0.00 / 0.01 / 0.06 for the one written n times on both binaries - one map probe per naming read and one entry per distinct one |
-| dependent-value substitution multiplicity | n classes, one `take<kI>()` apiece over a declarator holding one such naming | 0.02 s @200, 0.11 @800, 0.50 @3200 against 0.02 / 0.10 / 0.48 before - one lookup and one 5.19 read per specialization, where the spelling form re-read the expression against a rebuilt region |
-| two spellings of one naming, multiplicity | n member templates declared with the class's typedef and defined with the parameter, against n that spelled both the same way | 0.09 s @200, 0.39 @800, 1.80 @3200 against **the same shape spelled once**: 0.09 / 0.39 / 1.78 on this binary and 0.10 / 0.45 / 2.01 on the pre-checkpoint one, which refuses the two-spelling program at every n and so has no baseline for it |
-| dependent-prefix depth | `T::inner::…::value` written d levels deep | 0.00 s @50, 0.01 @200, 0.03 @800 - identical on both binaries, so neither the interning nor the substitution recurses per level twice |
+| dependent-value naming multiplicity | n distinct `traitK<T>::value` namings in one template, and one naming written n times | 0.02 s @200, 0.11 @800, 0.58 @3200 distinct against 0.02 / 0.12 / 0.57 on the pre-audit binary, and 0.00 / 0.02 / 0.08 for the one written n times on both - one map probe per naming read and one entry per distinct one |
+| dependent-value substitution multiplicity | n classes, one `take<kI>()` apiece over a declarator holding one such naming | 0.03 s @200, 0.13 @800, 0.61 @3200 against 0.03 / 0.13 / 0.62 - one lookup, one access question and one 5.19 read per specialization, where the spelling form re-read the expression against a rebuilt region |
+| two spellings of one naming, multiplicity | n member templates declared with the class's typedef and defined with the parameter, against n that spelled both the same way | 0.03 s @200, 0.13 @800, 0.56 @3200, identical to the one-spelling shape and to the pre-audit binary; the pre-checkpoint binary refuses the two-spelling program at every n and so has no baseline for it |
+| dependent-prefix depth | `T::inner::…::value` written d levels deep | 0.00 s @50, 0.00 @200, 0.01 @800 - identical on both binaries, so neither the interning nor the substitution recurses per level twice |
+| naming-expansion width | `list<trait<Ts>::value ...>` expanded over a run of n | 0.00 s at 8, 32 and 128 on both binaries - the expansion finds its run by walking the prefix the entry was interned by, where checkpoint 31 also scanned the spelling on every read |
 | base-class deduction multiplicity | `tuple<int x n>` over the `impl<I,Head,Tail...>` chain, one `helper<i>` call per index - n calls each walking n bases | 0.00 s @8 and @16, 0.01 @32, 0.02 @48, 0.05 @96, 0.09 @128, against the reference's **1.73 s @96 and 2.77 s @128** over its own 0.56 s floor; the walk is one visit per base subobject and one bindings copy per base it attempts |
 | base-list multiplicity | one call over a class with n bases naming P's template, the last of which answers, at the named-template arm and at the template-place one | 0.01 s @200, 0.07 @800, 0.36 @3200 on both arms and identical to the pre-audit binary, so the trial map copied per naming attempted costs nothing measurable |
 | base-chain depth | a d-deep single-inheritance chain deduced through both arms at once | 0.01 s @200, 0.04 @800, 0.30 @3200 - identical on both binaries; and no diamond can make either walk 2^depth, because a class holding two subobjects of one type is refused where it is laid out |
@@ -531,7 +561,10 @@ Why the work costs what it does:
   declaration, an alias body, a substitution that left the prefix dependent -
   is one map probe and reaches the entry the first reading made.  The
   substitution's own prefix walk is what says whether the entry moved, so
-  nothing is rebuilt where nothing did.
+  nothing is rebuilt where nothing did.  A naming *is* rebuilt and not re-read,
+  which is why 14.5.3p5 records nothing on it: the packs it names are the
+  prefix's, and `collect_packs` walks the prefix already.  The region beside the
+  entry is 11.2's context and is read once per naming a substitution settles.
 - `passed_array` is one `is_reference`, one `kind` and one fact-kind test per
   argument of every call, and the object type it hands back is the one
   `list_initialize_into` had already computed.  `kZeroSpanLimit` is what keeps
@@ -573,3 +606,4 @@ Why the work costs what it does:
 | 29 | the refusals that stand between a call and the declaration answering it | `ast_parser_class`, `sema_enum`, `sema_deduce`, `sema_constant`, `sema_scope.h`, `sema_overload`, `sema_operator`, `sema_template_head`, `sema_analyzer`, `lowir_lower_body` | 438 / 456 -> 449 / 462 (handout 382 -> 387 / 400); 57 shapes across five sweeps against the reference and `g++`, 10 more byte-compared through the real LowIR comparator; base-walk 0.08 s @128 against the reference's 2.78; 4099-input crash sweep clean; valgrind clean over 47 |
 | 30 | audit: the sibling readers still asking the question five clauses moved | `sema_declarator`, `sema_template_head`, `sema_using`, `sema_overload`, `sema_deduce.{h,cpp}` | 449 / 462 -> 452 / 465 (handout 387 / 400); 121 probes through the real comparator, 44 diverging before and 13 after, 108 run to `g++`'s value; every handout and course `.ref` regenerated with not one tracked file changed; 4108-input crash sweep clean; valgrind clean over 140 |
 | 31 | 14.4p1: the value a dependent qualified-id names is the member and not the spelling | `type_model.{h,cpp}`, `sema_declaration.h`, `sema_value_expression`, `sema_deduce.{h,cpp}`, `lowir_abi`, `abi_mangle.{h,cpp}` | 452 / 465 -> 456 / 467 (handout 387 -> 389 / 400); 63 probes against the reference, `g++` and the pre-checkpoint binary, 52 run to `g++`'s value and 61 byte-identical through the real comparator against 60 before; 6 mangling shapes agreeing with `g++` where 0 did; every handout and course `.ref` regenerated with not one tracked file changed; 4110-input crash sweep clean; valgrind clean over 142 |
+| 32 | audit: what an identity does not carry, and what the reading it replaced asked | `sema_value_expression`, `sema_deduce.{h,cpp}`, `sema_declaration.h`, `type_model.{h,cpp}`, `sema_pack`, `abimangle` | 456 / 467 -> 457 / 468 (handout 389 / 400); 69 probes through the real comparator, 57 byte-identical to the reference and 55 run to `g++`'s value; 8 of 8 mangling shapes identical to `g++` where the reference is at 3; every handout and course `.ref` regenerated with not one tracked file changed; 4110-input crash sweep clean; valgrind clean over 203 |

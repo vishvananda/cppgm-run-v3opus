@@ -1,0 +1,42 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $one : i32
+  slot $two : i32
+  slot $three : i32
+  slot $four : i32
+  slot $made : obj<1x1>
+  slot $five : i32
+
+  block ^entry:
+    store i32 3, $one
+    store i32 3, $two
+    store i32 2, $three
+    store i32 8, $four
+    %t1 = addr $made
+    %t2 = addr $made
+    %t3 = call i32 @outer_int___counted(%t2)
+    store i32 %t3, $five
+    %t4 = load i32 $one
+    %t5 = load i32 $two
+    %t6 = binary add i32 %t4, %t5
+    %t7 = load i32 $three
+    %t8 = binary add i32 %t6, %t7
+    %t9 = load i32 $four
+    %t10 = binary add i32 %t8, %t9
+    %t11 = load i32 $five
+    %t12 = binary add i32 %t10, %t11
+    %t13 = binary sub i32 %t12, 3
+    %t14 = binary sub i32 %t13, 3
+    %t15 = binary sub i32 %t14, 2
+    %t16 = binary sub i32 %t15, 8
+    %t17 = binary sub i32 %t16, 2
+    return i32 %t17
+}
+function @outer_int___counted(%__param0 : ptr) -> i32 [binding=weak, object=_ZN5outerIiE7countedIJclEEEiP4listIJXspsr6pairedIiT_EE5valueEEE] {
+  slot $__param0 : ptr
+
+  block ^entry:
+    store ptr %__param0, $__param0
+    %t1 = const i64 2
+    %t2 = convert trunc i32 i64 %t1
+    return i32 %t2
+}

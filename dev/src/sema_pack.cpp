@@ -376,6 +376,11 @@ void collect_packs(TypeTable& types, TypeId pattern,
 		// is written *over* that prefix, so a pack the prefix names is one this
 		// pattern names - which is what `typename Ts::type...` writes.
 		collect_packs(types, types.dependent_owner(pattern), runs, places, seen);
+		// 14.3.2p5: and over the place a naming of a *value* is converted to,
+		// which is rebuilt beside the prefix and is the one part of such an
+		// entry the prefix does not stand for.
+		collect_packs(types, types.dependent_member_place(pattern), runs,
+		              places, seen);
 		// 14.2p4: and over its own argument list where the member was written
 		// as a template-id, which is what `typename T::template wrap<Ts>...`
 		// names a pack through.

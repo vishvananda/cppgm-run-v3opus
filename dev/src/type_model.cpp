@@ -727,9 +727,14 @@ bool TypeTable::mentions_walk(TypeId type, TypeId sought,
 		// A specialization is written over its arguments, and so are the three
 		// namings a parameter-kind entry stands for: a dependent template-id,
 		// a member of a prefix no list has settled, and the alias naming above.
+		// 14.3.2p5's place stands beside them: a naming of a *value* is rebuilt
+		// through the place its constant is converted to as much as through
+		// the prefix it was written after, so a parameter reached only there is
+		// one rebuilding this entry has to rebuild.
 		if (mentions_walk(applied_template(type), sought, seen) ||
 		    mentions_walk(dependent_owner(type), sought, seen) ||
-		    mentions_walk(alias_named(type), sought, seen))
+		    mentions_walk(alias_named(type), sought, seen) ||
+		    mentions_walk(user_at(type).dependent_member_place, sought, seen))
 		{
 			return true;
 		}

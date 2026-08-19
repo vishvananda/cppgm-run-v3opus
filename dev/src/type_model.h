@@ -519,7 +519,12 @@ public:
 	}
 	TypeId dependent_member_place(TypeId type) const
 	{
-		return user_at(type).dependent_member_place;
+		// Guarded the way the prefix above is: only a parameter-kind entry
+		// holds a user record, and a walk asking every edge of a type asks
+		// this one of the fundamentals and the derived kinds too.
+		return kind(type) == TypeKind::TemplateParameter
+			? user_at(type).dependent_member_place
+			: kNoType;
 	}
 
 	// 14.6.2.1p9: a class or enumeration nested in the current instantiation is

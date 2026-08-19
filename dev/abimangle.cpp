@@ -552,8 +552,17 @@ AbiDependentExpression parse_named_expression(const vector<string> & words,
   if(head == "member") {
     expression.kind = ABI_EXPRESSION_MEMBER;
     expression.type = parse_compact_type(word_at(words, position, "member owner"));
-    expression.close_member_owner =
-      parse_flag(word_at(words, position + 1, "member owner flag"));
+    // The owner flag is the three answers `<unresolved-name>` has, and not
+    // two: `no` for one qualifier level written bare, `nested` for more than
+    // one, which the encoder wraps in `N`/`E`, and `yes` for a written form
+    // whose owner was opened somewhere this record does not see and which
+    // therefore spells the closing `E` alone.
+    const string owner_flag = word_at(words, position + 1, "member owner flag");
+    if(owner_flag == "nested") {
+      expression.nested_member_owner = true;
+    } else {
+      expression.close_member_owner = parse_flag(owner_flag);
+    }
     expression.text = word_at(words, position + 2, "member name");
     return expression;
   }
@@ -1371,7 +1380,9 @@ vector<string> serialize_expression(const AbiDependentExpression & expression)
   case ABI_EXPRESSION_MEMBER:
     words.push_back("member");
     words.push_back(serialize_compact_type(expression.type));
-    words.push_back(expression.close_member_owner ? "yes" : "no");
+    words.push_back(expression.nested_member_owner
+                      ? "nested"
+                      : (expression.close_member_owner ? "yes" : "no"));
     words.push_back(expression.text);
     return words;
   case ABI_EXPRESSION_OBJECT_MEMBER:
