@@ -1347,8 +1347,10 @@ private:
 	                       const Context* ctx = nullptr);
 	// 14.1p9 at a value place the list stopped short of, over arguments that
 	// have yet to settle: the tree its head wrote, read again where they do.
+	// `counting` is 8.3.4p1's bound written the same way, which a substitution
+	// that settles nothing leaves standing rather than refusing.
 	TypeId dependent_default(const AstNode& written, TypeId place,
-	                         const Context& ctx);
+	                         const Context& ctx, bool counting = false);
 
 	// 5.3.3 and 5.3.6 over a type-id, which is the whole of what PA11 needs: one
 	// answer apiece, because neither p3's demand nor 14.6p8's stand-in is

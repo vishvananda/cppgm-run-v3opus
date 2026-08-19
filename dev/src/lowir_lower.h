@@ -1389,6 +1389,17 @@ private:
 	// the shorter of the two.
 	void zero_span(const lowir_model::Operand& address, unsigned long long size,
 	               unsigned long long align);
+	// 8.5p7 over the elements of an array none of which an initializer reached:
+	// each is value-initialized where it stands, named from the array it is an
+	// element of - so an element that is itself an array is that same walk one
+	// dimension in, and the addresses read as the dimensions the declarator
+	// wrote rather than as one flat run of bytes.
+	void zero_elements(const lowir_model::Operand& address, TypeId type);
+	// Whether that walk is what the zero of `type` is written as.  A scalar is
+	// one store and an array is the question asked of its own element; a class
+	// is neither - what its zero comes to is the storage it holds - so it is
+	// left to the span.
+	bool zeroed_elementwise(TypeId type);
 	// 12.4p3: the destructor call the end of an object's lifetime is.
 	void destructor_call(const DumpNode& node);
 	// One call of that destructor: on the object the action names, or on the

@@ -513,6 +513,13 @@ struct DependentDecltype
 	std::string spelling;
 	TypeId place;
 	bool evaluated;
+	// 8.3.4p1: whether the tree counts an array's elements rather than filling
+	// 14.1p9's place.  A bound is the one reading whose *own* substitution may
+	// bind a place to another place - 14.5.6.1p5's canonical signature does
+	// exactly that - so an evaluation of it that stood a value in has settled
+	// nothing and leaves the reading standing, where a default the head wrote
+	// is read against arguments and refuses on what it finds.
+	bool counting = false;
 	// 3.3.7p1: how many declarations each of those regions had made when the
 	// specifier was read, innermost first.  A place a clause declares *after* a
 	// specifier is one that specifier could not name - its potential scope

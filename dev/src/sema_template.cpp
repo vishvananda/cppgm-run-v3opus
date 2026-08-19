@@ -1878,10 +1878,10 @@ TypeId SemaAnalyzer::dependent_expression_type(const AstNode& node,
 // one specialization: the key is the spelling under the *types* the region
 // binds, which two regions holding one argument list agree on.
 TypeId SemaAnalyzer::dependent_default(const AstNode& node, TypeId place,
-                                       const Context& ctx)
+                                       const Context& ctx, bool counting)
 {
-	const std::string key = "=" + std::to_string(place) + ':' +
-		dependent_expression_key(node.text, *ctx.scope);
+	const std::string key = (counting ? "[" : "=") + std::to_string(place) +
+		':' + dependent_expression_key(node.text, *ctx.scope);
 	const std::unordered_map<std::string, TypeId>::const_iterator held =
 		dependent_.expressions.find(key);
 	if (held != dependent_.expressions.end())
@@ -1896,6 +1896,7 @@ TypeId SemaAnalyzer::dependent_default(const AstNode& node, TypeId place,
 	written.region = ctx.scope;
 	written.place = place;
 	written.evaluated = true;
+	written.counting = counting;
 	for (const Scope* at = ctx.scope;
 	     at != nullptr && (at->kind == ScopeKind::Prototype ||
 	                       at->kind == ScopeKind::TemplateParameters);

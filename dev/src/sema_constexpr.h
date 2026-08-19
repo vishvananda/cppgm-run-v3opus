@@ -507,6 +507,10 @@ public:
 	// put a number back into, which is the same reading a value template
 	// argument written as one name already gets.
 	TypeId named_place(const AstNode& node, const SemaContext& ctx);
+	// 8.3.4p1's bound where the expression is more than one place: the tree,
+	// the region and `std::size_t` kept the way 14.1p9's default is, so that
+	// 14.3p1 can evaluate it again over the arguments.
+	TypeId dependent_bound(const AstNode& node, const SemaContext& ctx);
 
 	// 12.3.2p1 with 14.3.2p5: `value`, an object of class type, brought to the
 	// type `place` by a conversion function of its class.

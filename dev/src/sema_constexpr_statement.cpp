@@ -204,6 +204,17 @@ unsigned long long ConstexprReading::array_bound(const AstNode& node,
 	// which counts elements, so a floating value is no bound at all.
 	SemaConstant value;
 	unsigned long long bound = 0;
+	// 14.6.2p1 over 8.3.4p1: a bound written where a head's places stand is a
+	// *dependent* expression wherever it names one of them, and 14.8.2.5p5 is
+	// what that costs a deduction - such a bound is a non-deduced context.  The
+	// reading is what says which bound those are: a place names no value, so
+	// the fold stands one in, exactly as it does for the size of a dependent
+	// type.  Outside such a region the reading refuses as it always did,
+	// because there is no argument list left to settle anything.
+	const unsigned settled = analyzer_.checking_;
+	const ReadingDepth probing(analyzer_.checking_,
+	                           settled == 0 &&
+	                               analyzer_.dependent_reading(*ctx.scope));
 	if (!counted_where(node, ctx, value, bound))
 	{
 		// 14.6p8 over 8.3.4p1: the bound names something an argument list has
@@ -213,6 +224,15 @@ unsigned long long ConstexprReading::array_bound(const AstNode& node,
 		// chose says nothing about the specialization.  One element stands in
 		// until the instantiation reads the bound its arguments make, which is
 		// where 8.3.4p1 is asked.
+		//
+		// A declarator read *once* has nowhere to ask it again, though: a
+		// function template's parameter-declaration-clause is read where it
+		// stands and the type is all 14.3p1 gets, so the tree and the region
+		// travel with the array the way 14.1p9's default travels with a place.
+		// `T (&)[N - 1]` beside `T (&)[N][N]` is the shape that needs it - `N`
+		// is deduced from the other parameter and the bound is then a constant
+		// expression the substitution evaluates.
+		place = dependent_bound(node, ctx);
 		return 1;
 	}
 	if (analyzer_.is_signed(value.type) && (bound >> 63) != 0)
@@ -221,7 +241,7 @@ unsigned long long ConstexprReading::array_bound(const AstNode& node,
 	}
 	if (bound == 0)
 	{
-		if (analyzer_.checking_ > 0)
+		if (settled > 0)
 		{
 			// 14.6p8 over 8.3.4p1: how many elements the array has, an argument
 			// list is what says wherever the bound was computed from a type
@@ -267,6 +287,28 @@ TypeId ConstexprReading::named_place(const AstNode& node,
 			analyzer_.types_.parameter_value_type(named->type) != kNoType
 		? named->type
 		: kNoType;
+}
+
+// 14.6.2p1 at 8.3.4p1's bound where the constant-expression is *not* one place:
+// `N - 1`, `2 * N`, `sizeof(T)`, a call of a member the pattern declares.
+//
+// The reading stood a value in for what the expression names, so there is no
+// bound yet, and there is nowhere in a declarator read once for 14.7.1p1 to
+// look for it either.  So what is carried on the array is the same three facts
+// 14.1p9's own default carries: the tree the declarator wrote, the region
+// binding the places it names, and the place 8.3.4p1 converts the value to,
+// which is `std::size_t`.  14.3p1's substitution rebuilds that region over its
+// arguments and evaluates 5.19 there, and `substituted_array` reads the number
+// out of the value it comes to - exactly as it reads the argument bound to a
+// lone place.
+//
+// It is the *same* door `dependent_default` opens, so a bound and a default
+// written alike in one region are one reading, which is what they are worth.
+TypeId ConstexprReading::dependent_bound(const AstNode& node,
+                                         const SemaContext& ctx)
+{
+	return analyzer_.dependent_default(
+		node, analyzer_.types_.fundamental(FT_UNSIGNED_LONG_INT), ctx, true);
 }
 
 SemaContext ConstexprReading::block_region(const AstNode& node,

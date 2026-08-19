@@ -142,14 +142,29 @@ TypeId Substitution::reading(TypeId naming, TypeId bare, unsigned cv,
 			TypeId out = naming;
 			if (settled != kNoType && !analyzer_.types_.is_dependent(settled))
 			{
+				// 8.3.4p1 over 14.6p8: a bound's own substitution may bind a
+				// place to another place - 14.5.6.1p5's canonical signature
+				// does exactly that - and then `sizeof(T)` and every other
+				// reading of what a place is worth stands a value in.  Nothing
+				// was settled, so the bound is still the reading it was; the
+				// depth is what makes those readings stand one in rather than
+				// refuse on a type no argument list has completed yet.
+				const unsigned stood = analyzer_.stood_in_;
+				const ReadingDepth counting(analyzer_.checking_,
+				                            expression->second.counting &&
+				                                analyzer_.checking_ == 0);
 				try
 				{
-					out = analyzer_.types_.value_type(
+					const TypeId value = analyzer_.types_.value_type(
 						settled,
 						analyzer_.convert(
 							analyzer_.evaluate(*expression->second.written,
 							                   inner),
 							settled).bits);
+					if (analyzer_.stood_in_ == stood)
+					{
+						out = value;
+					}
 				}
 				catch (const NotConstant&)
 				{
@@ -317,13 +332,21 @@ bool Deduction::match(TypeId pattern, TypeId argument,
 		// parameter names.  14.8.2.1p4 lets the top of a reference parameter
 		// write qualifiers the argument does not have, because binding the
 		// reference adds them.
-		if (!relaxed && (types.cv(pattern) & ~types.cv(argument)) != 0)
+		// 3.9.3p5: which qualifiers the argument has, and what is left of it
+		// once the parameter's own are matched, is asked of an *object* of it -
+		// an array is as cv-qualified as its elements, and `cv` answers 0 for
+		// one however its element was written.  `inner(value)` over a
+		// `M const &` holding an `int const [2][2]` is the shape: the `const`
+		// the parameter wrote is what the argument's own matches, so `M` is the
+		// array of plain `int` and not of `const int`.
+		const unsigned wrote = types.cv(pattern);
+		const unsigned given = types.object_cv(argument);
+		if (!relaxed && (wrote & ~given) != 0)
 		{
 			return false;
 		}
 		const TypeId deduced =
-			types.qualified(types.strip_cv(argument),
-			                types.cv(argument) & ~types.cv(pattern));
+			types.qualified(types.object_unqualified(argument), given & ~wrote);
 		const std::pair<std::unordered_map<TypeId, TypeId>::iterator, bool> held =
 			bindings.insert(std::make_pair(types.strip_cv(pattern), deduced));
 		// 14.8.2.5p2: two arguments that deduce one parameter differently
@@ -362,8 +385,20 @@ bool Deduction::match(TypeId pattern, TypeId argument,
 		return match(types.target(pattern), types.target(argument), bindings);
 
 	case TypeKind::Array:
+		// 3.9.3p5: the cv-qualifiers written on an array type attach to its
+		// element type, and the array is considered to carry the same
+		// qualification its elements do - so the top-level qualifiers of an
+		// array P are spelled at the element, however many dimensions stand
+		// between.  14.8.2.1p4's allowance that the top of a reference
+		// parameter writes qualifiers the argument does not have is therefore
+		// read *there* and not here, which is what makes `T const (&)[N]` take
+		// an `unsigned char[4]`; `TypeTable::cv` answers 0 for either array and
+		// says nothing about the pair.  The base-class allowance does not
+		// travel: 14.8.2.1p3 writes it over a class and over one pointer to
+		// one, and an element of an array is neither.
 		return match_bound(pattern, argument, bindings) &&
-			match(types.target(pattern), types.target(argument), bindings);
+			match(types.target(pattern), types.target(argument), bindings,
+			      relaxed, false);
 
 	case TypeKind::MemberPointer:
 		return match(types.member_class(pattern), types.member_class(argument),
@@ -425,8 +460,12 @@ bool Deduction::match(TypeId pattern, TypeId argument,
 
 	default:
 		// A fundamental type or an enumeration holds no parameter to deduce,
-		// so the two agree exactly when they are the same type.
-		return pattern == argument;
+		// so the two agree exactly when they are the same type.  The
+		// qualifiers were read above - 14.8.2.1p4 lets the top of a reference
+		// parameter write ones the argument has not, and 3.9.3p5 spells an
+		// array's at its element - so what is left to agree is the type they
+		// qualify.
+		return types.strip_cv(pattern) == types.strip_cv(argument);
 	}
 }
 
@@ -931,6 +970,43 @@ bool Deduction::match_argument(TypeId parameter, const AnalyzedValue& argument,
 	const bool reference = kind == TypeKind::LValueReference ||
 		kind == TypeKind::RValueReference;
 	const TypeId expected = reference ? types.target(parameter) : parameter;
+	if (argument.braced != nullptr)
+	{
+		// 14.8.2.1p1: a braced-init-list is no expression and has no type of its
+		// own, so what it deduces is written as two cases.  Where P, with its
+		// reference and its qualifiers taken off, is `P'[N]`, the length of the
+		// list is what N is deduced from - and where it is anything else the
+		// parameter is a *non-deduced context*, deducing nothing rather than
+		// refusing, because 13.3.3.1.5 is what asks afterwards whether the list
+		// reaches the parameter the other pairs settled.  An empty list says
+		// nothing about a bound either: `test<Hash, Flavor>(0, {})` deduces `T`
+		// from the argument beside it and reads `sizeof(T)` for the bound.
+		const TypeId listed = types.object_unqualified(types.strip_cv(expected));
+		const TypeId place = types.kind(listed) == TypeKind::Array
+			? types.bound_place(listed) : kNoType;
+		if (place == kNoType || argument.clauses == 0 ||
+		    types.parameter_value_type(place) == kNoType)
+		{
+			return true;
+		}
+		SemaAnalyzer::Constant given;
+		given.type = types.fundamental(FT_UNSIGNED_LONG_INT);
+		given.bits = argument.clauses;
+		const TypeId declared = types.strip_cv(types.parameter_value_type(place));
+		if (types.kind(declared) != TypeKind::Fundamental ||
+		    !types.is_integral(declared))
+		{
+			// 14.8.2.5p17 over the same value the clause gives a bound: an
+			// argument deduced from a length is of an integral type and of no
+			// other.
+			return false;
+		}
+		const TypeId deduced =
+			types.value_type(declared, analyzer_.convert(given, declared).bits);
+		const std::pair<std::unordered_map<TypeId, TypeId>::iterator, bool> held =
+			bindings.insert(std::make_pair(place, deduced));
+		return held.second || held.first->second == deduced;
+	}
 	if (argument.type == kNoType)
 	{
 		// 14.8.2.1p6: an argument that is an overload set has no type of its

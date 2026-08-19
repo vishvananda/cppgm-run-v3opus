@@ -546,8 +546,21 @@ SemaConstant ConstexprReading::called(const AstNode& callee,
 		// another call handed back - so what the call names is an `operator()`
 		// of that value's class, chosen over the object and the arguments as
 		// one operand list.
+		const SemaConstant target = analyzer_.evaluate(callee, ctx);
+		SemaEntity* const through = called_through(target);
+		if (through != nullptr)
+		{
+			// 5.2.2p1: what stands before the parentheses designates a
+			// function, so the call is a call of *that* declaration - which is
+			// the same sentence `called_name` reads of a pointer or a
+			// reference a name is worth, asked here of the value an expression
+			// handed back.  `forward<F>(f)(args)` over `F = int (&)()` is the
+			// shape a generic call wrapper writes and it names no function at
+			// all.
+			return call(*through, nullptr, arguments);
+		}
 		std::vector<SemaConstant> operands;
-		operands.push_back(analyzer_.evaluate(callee, ctx));
+		operands.push_back(target);
 		operands.insert(operands.end(), arguments.begin(), arguments.end());
 		SemaConstant called;
 		if (operator_constant(OP_LPAREN, operands, ctx, called))

@@ -45,6 +45,13 @@ Operand named_operand(Operand::Kind kind, const std::string& text)
 // with a bound the source only wrote a number for.
 const unsigned long long kZeroSpanLimit = 64;
 
+// The same line drawn over the *dimensions* rather than the bytes.  A bound of
+// one costs no bytes at all, so `int a[1][1]...[1]` is four of them however many
+// brackets the declarator wrote - and a walk that named each element by the
+// dimensions it stands under would be one frame per bracket.  Past this the
+// storage is the description of the zero, as it is past the byte count.
+const unsigned kZeroDimensionLimit = 8;
+
 // 12.1p5 and 12.8p15: whether this initialization builds its object where it
 // stands out of nothing, which is what a constructor handed no operand but the
 // storage does.  A copy is handed the object it copies from, so it names two
@@ -2042,6 +2049,64 @@ void LowirFunctionLowering::zero_span(const Operand& address,
 	}
 }
 
+// 8.5p7 over an array whose elements no clause reached: every element is
+// value-initialized where it stands, and where it stands is named from the array
+// it is an element of.  An element that is itself an array is that same
+// sentence one dimension in - its own elements are named from *it* - so
+// `int m[3][3] = {}` reads as the row and then the element inside it, which is
+// the description the declarator wrote and what the references write.
+void LowirFunctionLowering::zero_elements(const Operand& address, TypeId type)
+{
+	TypeTable& types = unit_.types();
+	const TypeId array = types.strip_cv(type);
+	const TypeId element = types.strip_cv(types.target(array));
+	const unsigned long long stride = types.object_size(element);
+	const unsigned long long bound = types.bound(array);
+	for (unsigned long long index = 0; index < bound; ++index)
+	{
+		Operand at = address;
+		if (index != 0)
+		{
+			Instruction step;
+			step.kind = Instruction::IK_INDEX;
+			step.type.text = "i8";
+			step.first = address;
+			step.second =
+				named_operand(Operand::OP_INTEGER, decimal(index * stride));
+			at = emit(step);
+		}
+		if (types.kind(element) == TypeKind::Array)
+		{
+			zero_elements(at, element);
+			continue;
+		}
+		store(zero_operand(element), at, element);
+	}
+}
+
+bool LowirFunctionLowering::zeroed_elementwise(TypeId type)
+{
+	TypeTable& types = unit_.types();
+	TypeId bare = types.strip_cv(type);
+	// The way down is a loop, and it stops: a declarator may write more
+	// dimensions than a machine stack has frames, and `int a[1][1]...[1] = {}`
+	// is 4 bytes however many of them it wrote - so the byte count says nothing
+	// about how deep the walk would go.  Past a handful of dimensions the
+	// storage is the description of the zero and `zero_elements` is not asked,
+	// which is the same line `kZeroSpanLimit` draws one axis over.
+	for (unsigned depth = 0; types.kind(bare) == TypeKind::Array; ++depth)
+	{
+		// 8.3.4p1: an array of unknown bound holds no elements to walk, and its
+		// storage is what the zero is about.
+		if (depth == kZeroDimensionLimit || !types.bounded(bare))
+		{
+			return false;
+		}
+		bare = types.strip_cv(types.target(bare));
+	}
+	return unit_.low_type(bare).text.compare(0, 4, "obj<") != 0;
+}
+
 void LowirFunctionLowering::add_destruction(const DumpNode& node)
 {
 	destructor_call(node);
@@ -2673,8 +2738,16 @@ void LowirFunctionLowering::initialize_array(const LowObject& object,
 		covered += run == 0 ? 1 : run;
 	}
 	const unsigned long long left = (bound - covered) * stride;
+	// 8.5p7 with 8.3.4p1: an element that is itself an array is written as the
+	// elements *it* has, so the dimensions a declarator wrote are the
+	// description of the uncovered run and not the bytes under them.  Where the
+	// array is a subobject an element is named by the walk that named it rather
+	// than by an address, and this walk has no step of its own to push - so
+	// there the span stands, as it did before.
+	const bool nested = types.kind(types.strip_cv(element)) == TypeKind::Array;
 	const bool spelled_elementwise =
-		unit_.low_type(element).text.compare(0, 4, "obj<") != 0 &&
+		(nested ? !subobject && zeroed_elementwise(element)
+		        : unit_.low_type(element).text.compare(0, 4, "obj<") != 0) &&
 		left <= kZeroSpanLimit;
 	const unsigned long long written =
 		spelled_elementwise ? bound : node.children.size();
@@ -2747,6 +2820,13 @@ void LowirFunctionLowering::initialize_array(const LowObject& object,
 				continue;
 			}
 			initialize(at, element, *node.children[index]);
+			continue;
+		}
+		if (nested)
+		{
+			// 8.5p7: the element is an array, so its own elements are what is
+			// value-initialized - one store each, named from this element.
+			zero_elements(at, element);
 			continue;
 		}
 		store(zero_operand(element),
