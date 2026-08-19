@@ -481,6 +481,11 @@ void PackReading::read_places(const AstNode& declaration,
 	SemaSpan span;
 	span.begin = declaration.begin;
 	span.end = declaration.end;
+	// 14.5.3p4: the declaration the pack's own name reaches, which each of the
+	// places after it carries back - so a pattern written past this clause that
+	// names the pack *as* a pack is read over the whole run and not over the
+	// element the name happens to stand at.
+	SemaEntity* head = nullptr;
 	for (std::size_t element = 0; element < over.length; ++element)
 	{
 		// The region is this element's alone, exactly as it is for the spelling
@@ -504,7 +509,15 @@ void PackReading::read_places(const AstNode& declaration,
 			element == 0 ? static_cast<unsigned>(over.length) : 0u;
 		if (!place.name.empty() && binds)
 		{
-			analyzer_.bind_place(reading, ctx, place);
+			SemaEntity& made = analyzer_.bind_place(reading, ctx, place);
+			if (element == 0)
+			{
+				head = &made;
+			}
+			else
+			{
+				made.pack_element_of = head;
+			}
 		}
 		out.push_back(place);
 	}

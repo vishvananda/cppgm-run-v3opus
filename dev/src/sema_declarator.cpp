@@ -817,8 +817,8 @@ std::vector<TypeId> SemaAnalyzer::parameter_types(
 // clause that binds is one region and one declaration per named place, dropped
 // with the declarator because 8.3.5p10 leaves the name out of the function's
 // type and 8.4.1p1's definition declares its own objects again.
-void SemaAnalyzer::bind_place(Context& reading, const Context& ctx,
-                              const Parameter& parameter)
+SemaEntity& SemaAnalyzer::bind_place(Context& reading, const Context& ctx,
+                                     const Parameter& parameter)
 {
 	if (reading.scope == ctx.scope)
 	{
@@ -831,8 +831,16 @@ void SemaAnalyzer::bind_place(Context& reading, const Context& ctx,
 	SemaEntity& place = model_.create(
 		SemaKind::Parameter, parameter.name,
 		semantics() ? types_.parameter_object(parameter.type) : parameter.type);
+	// 14.5.3p4: how long the run is, carried onto the declaration 8.3.5p10 gave
+	// the pack's own name - which is what the rest of the declarator reads when
+	// it expands that name, and what a clause the arguments have settled leaves
+	// for the trailing-return-type standing after it.  The declaration is the
+	// fact's only carrier here, because the type these places hold is one
+	// element's and no longer says a pack was written.
+	place.pack_run = parameter.pack_run;
 	model_.bind(*reading.scope, parameter.name, place);
 	model_.declare_in(*reading.scope, place);
+	return place;
 }
 
 // 14.5.3p4: the pack a clause declared where its run holds no elements, bound
@@ -1019,6 +1027,11 @@ void SemaAnalyzer::read_parameters(const AstNode& clause, const Context& ctx,
 					out.push_back(none);
 					continue;
 				}
+				// 14.5.3p4: the declaration the pack's own name reaches, which
+				// each of the places after it carries back, so a pattern
+				// standing past this clause that names the pack *as* a pack
+				// reads the whole run.
+				SemaEntity* head = nullptr;
 				for (std::size_t element = 0; element < run.size(); ++element)
 				{
 					Parameter one = parameter;
@@ -1029,7 +1042,15 @@ void SemaAnalyzer::read_parameters(const AstNode& clause, const Context& ctx,
 						: 0u;
 					if (!one.name.empty() && (at < places || reading != nullptr))
 					{
-						bind_place(inner, ctx, one);
+						SemaEntity& made = bind_place(inner, ctx, one);
+						if (element == 0)
+						{
+							head = &made;
+						}
+						else
+						{
+							made.pack_element_of = head;
+						}
 					}
 					out.push_back(one);
 				}

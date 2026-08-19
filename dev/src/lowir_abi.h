@@ -53,6 +53,16 @@ bool abi_instantiated(const SemaEntity& entity, TypeTable& types);
 // The same question asked of a class rather than of a declaration, which is
 // what the tables and records named after a class read.
 bool abi_instantiated_class(const SemaEntity& entity, TypeTable& types);
+// 14.2 and 3.2p4: whether a *template-id* names any class this declaration is
+// named through, whichever body 14.7.3p5 says the class has.  It is not the
+// question above and answers about the source rather than about the definition:
+// what this unit was told to write out of class is a definition the object file
+// holds where it stands, and a member of a class no declaration can name without
+// an argument list is one the program reaches through that list - so a
+// definition of it every unit may hold waits for a use however this unit's own
+// source spelled the class.
+bool abi_named_through_specialization(const SemaEntity& entity,
+                                      TypeTable& types);
 
 // 3.7.2p2: the object-file name of the wrapper function the ABI gives a
 // variable with thread storage duration.  It is named after the variable

@@ -1261,8 +1261,8 @@ private:
 	void read_parameters(const AstNode& clause, const Context& ctx,
 	                     std::vector<Parameter>& out, bool& variadic,
 	                     Context* reading);
-	void bind_place(Context& reading, const Context& ctx,
-	                const Parameter& parameter);
+	SemaEntity& bind_place(Context& reading, const Context& ctx,
+	                       const Parameter& parameter);
 	void bind_pack(Context& reading, const Context& ctx,
 	               const Parameter& parameter);
 	// The declarator-id of a declarator, which a nested declarator holds.
@@ -1735,6 +1735,8 @@ private:
 	// `written` is the declarator-id the head stands over.
 	void require_unspecialized_owner(const std::string& written,
 	                                 const Context& ctx);
+	// 14.7.3p11: a head over a name no function or object template holds.
+	void require_declared_template(const std::string& written, const Context& ctx);
 	// 14.1p2 and 14.3p1: what a head's places are, and what one written
 	// argument list makes of them, which `sema_template_head.h` owns because
 	// each is a reading of its own.

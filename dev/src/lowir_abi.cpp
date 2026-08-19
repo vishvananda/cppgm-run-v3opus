@@ -1233,6 +1233,20 @@ bool abi_instantiated(const SemaEntity& entity, TypeTable& types)
 	return false;
 }
 
+bool abi_named_through_specialization(const SemaEntity& entity,
+                                      TypeTable& types)
+{
+	const std::vector<const SemaEntity*> owners = owning_classes(entity);
+	for (std::size_t index = 0; index < owners.size(); ++index)
+	{
+		if (types.is_specialization(owners[index]->type))
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
 std::string abi_symbol_of(const SemaEntity& entity, TypeTable& types,
                           unsigned variant)
 {

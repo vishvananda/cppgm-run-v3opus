@@ -754,7 +754,10 @@ void LowirUnitLowering::collect_definitions(const DumpNode& node)
 			      child.fact.entity->internal_linkage) &&
 			    !(child.fact.entity->out_of_class_definition &&
 			      child.fact.entity->own_source_definition &&
-			      !abi_instantiated(*child.fact.entity, types_)))
+			      !abi_instantiated(*child.fact.entity, types_) &&
+			      !(child.fact.entity->special == kOrdinaryFunction &&
+			        abi_named_through_specialization(*child.fact.entity,
+			                                         types_))))
 			{
 				// 7.1.2p4: the definition is the program's rather than this
 				// unit's, and 3.2p3 puts it in the program only where a use
@@ -776,6 +779,20 @@ void LowirUnitLowering::collect_definitions(const DumpNode& node)
 			// file holds, so it waits for a use as a body written in the class
 			// does; and a specialization's is not one the program wrote at all,
 			// because 14.7.1p1 makes it the use that requires it.
+			//
+			// 14.7.3p5 answers which definition a member of a class the program
+			// wrote out with `template<>` *is* - this unit's own and no reading
+			// of a pattern - and answers nothing about which unit writes an
+			// `inline` one nobody has used.  That is 3.2p4's question about the
+			// source, and the class a template-id has to name is one the program
+			// reaches only through the argument list: an ordinary member's
+			// definition waits for the use whichever body the class was given.
+			// 12.1 and 12.4 are why a constructor or a destructor does not: the
+			// body stands under both of the ABI's entry points, so the unit
+			// writing it out of class owes both names where it stands and has
+			// no use to wait for.  A definition that is not `inline` is the
+			// program's one whatever names the class, which is what
+			// `shared_definition` has already said.
 		}
 		else if (child.fact.kind == FactKind::Variable &&
 		         child.fact.entity != nullptr &&

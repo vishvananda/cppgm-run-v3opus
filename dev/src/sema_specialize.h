@@ -64,9 +64,12 @@ public:
 	// `template<>` head wrote is a specialization of, where one written
 	// argument list fits more than one declaration of an overloaded name.  The
 	// type the declarator wrote is what tells them apart, and 14.5.6.2's
-	// ordering is what leaves one where the type fits two.  Null where nothing
-	// fits and where the pair is unordered, which is p11's "exactly one
-	// template" refused and leaves the ordinary walk to read the declaration.
+	// ordering is what leaves one where the type fits two.  A type no candidate
+	// in the set has is p11's "exactly one template" refused outright.  Null
+	// where the set holds no candidate at all and where 14.5.6.2 leaves a pair
+	// unordered - the second of which p11 also calls ill-formed and the
+	// reference binary translates, so it is left to the ordinary walk to read
+	// as it did before.
 	SemaEntity* explicit_target(const AstNode& declared,
 	                            const AstNode& declarator,
 	                            const std::string& written,

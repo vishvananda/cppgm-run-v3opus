@@ -1,0 +1,167 @@
+function @nothing() -> i32 [binding=strong, object=_Z7nothingv] {
+  block ^entry:
+    return i32 3
+}
+function @one(%a : i32) -> i32 [binding=strong, object=_Z3onei] {
+  slot $a : i32
+
+  block ^entry:
+    store i32 %a, $a
+    %t1 = load i32 $a
+    return i32 %t1
+}
+function @two(%a : i32, %b : i32) -> i32 [binding=strong, object=_Z3twoii] {
+  slot $a : i32
+  slot $b : i32
+
+  block ^entry:
+    store i32 %a, $a
+    store i32 %b, $b
+    %t1 = load i32 $a
+    %t2 = load i32 $b
+    %t3 = binary add i32 %t1, %t2
+    return i32 %t3
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $cond__1 : i32
+  slot $land__2 : i64
+  slot $land__3 : i64
+  slot $land__4 : i64
+  slot $land__5 : i64
+
+  block ^entry:
+    %t1 = addr @nothing
+    %t2 = unary decay ptr %t1
+    %t3 = call i32 @call(%t2)
+    %t4 = cmp eq i32 %t3, 3
+    branch %t4, ^land_rhs_13, ^land_short_14
+
+  block ^land_rhs_13:
+    %t5 = addr @one
+    %t6 = unary decay ptr %t5
+    %t7 = call i32 @call__ov2(%t6, 3)
+    %t8 = cmp eq i32 %t7, 3
+    %t9 = cmp ne i64 %t8, 0
+    store i64 %t9, $land__5
+    jump ^land_end_15
+
+  block ^land_short_14:
+    store i64 0, $land__5
+    jump ^land_end_15
+
+  block ^land_end_15:
+    %t10 = load i64 $land__5
+    branch %t10, ^land_rhs_10, ^land_short_11
+
+  block ^land_rhs_10:
+    %t11 = addr @two
+    %t12 = unary decay ptr %t11
+    %t13 = call i32 @call__ov3(%t12, 1, 2)
+    %t14 = cmp eq i32 %t13, 3
+    %t15 = cmp ne i64 %t14, 0
+    store i64 %t15, $land__4
+    jump ^land_end_12
+
+  block ^land_short_11:
+    store i64 0, $land__4
+    jump ^land_end_12
+
+  block ^land_end_12:
+    %t16 = load i64 $land__4
+    branch %t16, ^land_rhs_7, ^land_short_8
+
+  block ^land_rhs_7:
+    %t17 = call i64 @width()
+    %t18 = convert sext i64 i32 0
+    %t19 = cmp eq i64 %t17, %t18
+    %t20 = cmp ne i64 %t19, 0
+    store i64 %t20, $land__3
+    jump ^land_end_9
+
+  block ^land_short_8:
+    store i64 0, $land__3
+    jump ^land_end_9
+
+  block ^land_end_9:
+    %t21 = load i64 $land__3
+    branch %t21, ^land_rhs_4, ^land_short_5
+
+  block ^land_rhs_4:
+    %t22 = call i64 @width__ov2(1, 2)
+    %t23 = convert sext i64 i32 2
+    %t24 = cmp eq i64 %t22, %t23
+    %t25 = cmp ne i64 %t24, 0
+    store i64 %t25, $land__2
+    jump ^land_end_6
+
+  block ^land_short_5:
+    store i64 0, $land__2
+    jump ^land_end_6
+
+  block ^land_end_6:
+    %t26 = load i64 $land__2
+    branch %t26, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t27 = load i32 $cond__1
+    return i32 %t27
+}
+function @call(%f : ptr) -> i32 [binding=weak, object=_Z4callIPFivEJEEDTclfp_spfp0_EET_DpT0_] {
+  slot $f : ptr
+
+  block ^entry:
+    store ptr %f, $f
+    %t1 = load ptr $f
+    %t2 = call i32 %t1() as () -> i32
+    return i32 %t2
+}
+function @call__ov2(%f : ptr, %a : i32) -> i32 [binding=weak, object=_Z4callIPFiiEJiEEDTclfp_spfp0_EET_DpT0_] {
+  slot $f : ptr
+  slot $a : i32
+
+  block ^entry:
+    store ptr %f, $f
+    store i32 %a, $a
+    %t1 = load i32 $a
+    %t2 = load ptr $f
+    %t3 = call i32 %t2(%t1) as (%arg0 : i32) -> i32
+    return i32 %t3
+}
+function @call__ov3(%f : ptr, %a : i32, %a__pack2 : i32) -> i32 [binding=weak, object=_Z4callIPFiiiEJiiEEDTclfp_spfp0_EET_DpT0_] {
+  slot $f : ptr
+  slot $a : i32
+  slot $a__pack2 : i32
+
+  block ^entry:
+    store ptr %f, $f
+    store i32 %a, $a
+    store i32 %a__pack2, $a__pack2
+    %t1 = load i32 $a
+    %t2 = load i32 $a__pack2
+    %t3 = load ptr $f
+    %t4 = call i32 %t3(%t1, %t2) as (%arg0 : i32, %arg1 : i32) -> i32
+    return i32 %t4
+}
+function @width() -> i64 [binding=weak, object=_Z5widthv] {
+  block ^entry:
+    %t1 = const i64 0
+    return i64 %t1
+}
+function @width__ov2(%a : i32, %a__pack2 : i32) -> i64 [binding=weak, object=_Z5widthIJiiEEmDpT_] {
+  slot $a : i32
+  slot $a__pack2 : i32
+
+  block ^entry:
+    store i32 %a, $a
+    store i32 %a__pack2, $a__pack2
+    %t1 = const i64 2
+    return i64 %t1
+}

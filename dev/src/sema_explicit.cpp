@@ -215,6 +215,22 @@ bool SemaAnalyzer::record_explicit_specialization(const AstNode& declared,
 		// the class its declarator-id names - and a class the program wrote out
 		// for itself has none the pattern declared.
 		require_unspecialized_owner(specialized_declarator_id(declared), ctx);
+		// 14.7.3p11: the declaration shall be a specialization of exactly one
+		// template, and how many it could be one of has three answers rather
+		// than two.  A declarator whose type fits none of the templates its name
+		// does hold is the answer `explicit_target` refuses; a name that holds
+		// no function or object template at all is the same sentence with
+		// nothing to fit, and the ordinary walk would otherwise read the head as
+		// an ordinary declaration.  A name no declaration wrote, a name an
+		// ordinary function or object holds, and a *class* template's name with
+		// a function declarator written after it are three heads standing over
+		// no template.  The question is asked here, before anything is recorded,
+		// because the match below hangs a specialization off each candidate it
+		// deduces and the name is what those are found through; and it is asked
+		// of an unqualified declarator-id alone, because 14.7.3p1's head over a
+		// member of a class template specialization writes the *member's* name
+		// and specializes the class's template.
+		require_declared_template(specialized_declarator_id(declared), ctx);
 		// 14.5.1p1: what a `template<>` head wrote over an object is the
 		// specialization of a variable template, whose body is one
 		// init-declarator rather than a class body or a function body.
@@ -359,6 +375,45 @@ void SemaAnalyzer::require_unspecialized_owner(const std::string& written,
 			                         "pattern was read for");
 		}
 	}
+}
+
+// 14.7.3p11 asked of the name alone: whether any declaration it is bound to is a
+// template a function or an object declaration could be a specialization of.
+//
+// It is the count `explicit_target` refuses a written type against, asked where
+// the count is *zero* - which that match cannot say, because a head over a name
+// no template holds reaches no candidate to compare a type with and the
+// ordinary declaration walk then reads it as an ordinary one.  Only an
+// unqualified declarator-id is asked: a qualified one names a member, and which
+// template a member's head specializes is a question about the class its
+// nested-name-specifier walked through.
+void SemaAnalyzer::require_declared_template(const std::string& written,
+                                             const Context& ctx)
+{
+	const QualifiedName spelled(written);
+	if (spelled.qualified())
+	{
+		return;
+	}
+	const TemplateId over(spelled.last());
+	const std::string name = over.valid() ? over.name() : spelled.last();
+	for (const SemaEntity* at = resolve(name, ctx, LookupKind::Any);
+	     at != nullptr; at = at->next)
+	{
+		// A declaration a head parameterises carries the head's places, its own
+		// record, or both - 14.5.1p1's variable template keeps the record and
+		// 14.5.6p1's function template keeps the places - and the one kind asked
+		// about here is a *class* template, which 14.7.3p1 gives a head of its
+		// own with a class-head-name after it: a function declarator written
+		// after one names no template this head can specialize.
+		if ((at->template_parameters != nullptr || at->templated != nullptr) &&
+		    at->kind != SemaKind::Class)
+		{
+			return;
+		}
+	}
+	throw std::runtime_error("the explicit specialization " + name +
+	                         " is a specialization of no template");
 }
 
 
