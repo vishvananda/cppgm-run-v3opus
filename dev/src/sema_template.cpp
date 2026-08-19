@@ -188,6 +188,19 @@ SemaEntity& SemaAnalyzer::specialize(SemaEntity& primary,
 		// the template's name and which no spelling of the declaration holds.
 		made->template_arguments = list;
 		model_.hold_specialization(primary, list, *made);
+		if (primary.inherited != nullptr)
+		{
+			// 12.9p1 and p8: the template one argument list makes a declaration
+			// of here is the *inherited* constructor a using-declaration
+			// declared, so what this declaration does is what the standard says
+			// rather than what a pattern wrote - and the base subobject it
+			// initializes is built by the base's own declaration over this same
+			// argument list, because 12.9p1 declared the two over one head.  The
+			// definition is written where a use asks for one, as 12.1p5's is.
+			made->inherited = &specialize(*primary.inherited, arguments);
+			made->defaulted = true;
+			made->inline_function = true;
+		}
 		// 13.5p6: a parameter written over a template parameter is of no type
 		// until an argument list gives it one, so the clause is a question
 		// about this declaration and not about the template that made it.  It

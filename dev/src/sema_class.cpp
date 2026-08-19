@@ -1169,13 +1169,24 @@ void SemaAnalyzer::inherit_constructor(SemaEntity& from, const SemaEntity& base,
 	const TypeId type =
 		types_.function_of(types_.fundamental(FT_VOID), parameters,
 		                   whole && types_.variadic(from.type));
+	// 12.9p1's second sentence: where the using-declaration names a constructor
+	// *template*, what it declares here is a constructor template - the same
+	// places over the same parameter list, so a use of it deduces exactly what a
+	// use of the base's would.  The head is the base's own rather than a copy of
+	// it: 14.1p2's places are declarations, and a deduction, a substitution and
+	// 14.2's encoding each read the type against the very declarations the
+	// parameter types are written over.
+	Scope* const head = from.template_parameters;
 	// 12.9p1: a base constructor whose parameters a constructor of this class
 	// already takes is not inherited, and neither is one two members of the
 	// candidate set agree on.  13.1's index of the chain answers both in one
-	// probe, so a base with n constructors costs n.
+	// probe, so a base with n constructors costs n.  14.5.6.1p5 is what pairs
+	// two of them where either was written under a head, exactly as a
+	// constructor the class declared itself is keyed.
+	const TypeId key = TemplateSignature(*this).indexed(head, type);
 	if (derived.constructor != nullptr &&
 	    model_.overload_of(*derived.constructor,
-	                       types_.signature(type)) != nullptr)
+	                       types_.signature(key)) != nullptr)
 	{
 		return;
 	}
@@ -1184,6 +1195,7 @@ void SemaAnalyzer::inherit_constructor(SemaEntity& from, const SemaEntity& base,
 	entity.object_member = true;
 	entity.special = kConstructorFunction;
 	entity.inherited = &from;
+	entity.template_parameters = head;
 	entity.explicit_function = from.explicit_function;
 	entity.deleted = from.deleted;
 	// 12.9p6 and 7.1.2p3: the definition is one the standard gives it and this
@@ -1201,7 +1213,7 @@ void SemaAnalyzer::inherit_constructor(SemaEntity& from, const SemaEntity& base,
 		derived.constructor->tail->next = &entity;
 	}
 	derived.constructor->tail = &entity;
-	model_.hold_overload(*derived.constructor, types_.signature(type), entity);
+	model_.hold_overload(*derived.constructor, types_.signature(key), entity);
 	model_.declare_in(where, entity);
 	// 12.9p8: the definition writes the parameters, so the names the base's
 	// declaration gave them are part of what is inherited.  A parameter the

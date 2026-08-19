@@ -759,9 +759,15 @@ SemaEntity* Deduction::deduced_call(SemaEntity& primary,
 	const bool packed =
 		places > 0 && types.is_pack_expansion(pattern[pattern.size() - 1]);
 	const std::size_t fixed = packed ? places - 1 : places;
-	if (pattern.size() < implicit || types.variadic(written_type) ||
+	// 8.3.5p4 with 14.8.2.1p1: an argument the ellipsis takes is matched to no
+	// parameter, so it is one of the P/A pairs of nothing - which leaves a
+	// variadic template deducing from the arguments its declarator *did* write
+	// places for, and a call that wrote more of them still naming it.  13.3.3.1.3
+	// is what ranks those extra arguments afterwards.
+	const bool ellipsis = types.variadic(written_type);
+	if (pattern.size() < implicit ||
 	    (packed ? arguments.size() < fixed
-	            : (arguments.size() > places ||
+	            : ((arguments.size() > places && !ellipsis) ||
 	               (arguments.size() < places &&
 	                !analyzer_.accepts_arity(made_of,
 	                                         arguments.size() + implicit)))))

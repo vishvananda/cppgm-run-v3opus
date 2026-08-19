@@ -329,7 +329,7 @@ bool LowirUnitLowering::writes_base_entry(const SemaEntity& entity)
 		return true;
 	}
 	if (entity.defined && entity.base_object_entry && entity.constexpr_function &&
-	    entity.user_provided)
+	    entity.user_provided && entity.primary == nullptr)
 	{
 		// 7.1.5p2 with 3.2p2: a constructor the program declared `constexpr` is
 		// implicitly inline, and 5.19 may name it in any unit that reads its
@@ -339,6 +339,13 @@ bool LowirUnitLowering::writes_base_entry(const SemaEntity& entity)
 		// here happened to name.  A constructor the standard declared or `=
 		// default` left trivial writes nothing this unit's own code has not
 		// already asked for.
+		//
+		// 14.7.1p1 leaves a *specialization* of a constructor template out of
+		// it: a unit that names one in a constant expression instantiates the
+		// declaration and the definition for itself, so no other unit's object
+		// file is what it reads - which is the answer the arm above already
+		// gives every other instantiated definition, and repeating it here owed
+		// an entry point nothing names.
 		return true;
 	}
 	return entity.complete_object_entry && entity.base_object_entry;

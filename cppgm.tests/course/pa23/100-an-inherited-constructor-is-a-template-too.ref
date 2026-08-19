@@ -1,0 +1,127 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $a : obj<4x4>
+  slot $b : obj<4x4>
+  slot $argobj__1 : obj<1x1>
+  slot $cond__2 : i32
+  slot $land__3 : i64
+
+  block ^entry:
+    %t1 = addr $a
+    call void @kept_int___kept__ov4(%t1, 3)
+    %t2 = addr $b
+    %t3 = addr $argobj__1
+    call void @four__four(%t3)
+    call void @kept_char___kept__ov4(%t2, $argobj__1)
+    %t4 = addr $a
+    %t5 = index i8 [projection=base_subobject] %t4, 0
+    %t6 = index i8 [projection=field] %t5, 0
+    %t7 = load i32 %t6
+    %t8 = cmp eq i32 %t7, 7
+    branch %t8, ^land_rhs_4, ^land_short_5
+
+  block ^land_rhs_4:
+    %t9 = addr $b
+    %t10 = index i8 [projection=base_subobject] %t9, 0
+    %t11 = index i8 [projection=field] %t10, 0
+    %t12 = load i32 %t11
+    %t13 = cmp eq i32 %t12, 5
+    %t14 = cmp ne i64 %t13, 0
+    store i64 %t14, $land__3
+    jump ^land_end_6
+
+  block ^land_short_5:
+    store i64 0, $land__3
+    jump ^land_end_6
+
+  block ^land_end_6:
+    %t15 = load i64 $land__3
+    branch %t15, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__2
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__2
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t16 = load i32 $cond__2
+    return i32 %t16
+}
+function @kept_int___kept__ov4(%this : ptr, %u : i32) -> void [binding=weak, object=_ZN4keptIiEC1IiEET_] {
+  slot $this : ptr
+  slot $u : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %u, $u
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    %t3 = load i32 $u
+    call void @holder_int___holder__ov3__base_entry(%t2, %t3)
+    return void
+}
+function @holder_int___holder__ov3__base_entry(%this : ptr, %u : i32) -> void [binding=weak, object=_ZN6holderIiEC2IiEET_] {
+  slot $this : ptr
+  slot $u : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %u, $u
+    %t1 = load i32 $u
+    %t2 = const i64 4
+    %t3 = convert trunc i32 i64 %t2
+    %t4 = binary add i32 %t1, %t3
+    %t5 = load ptr $this
+    %t6 = index i8 [projection=field] %t5, 0
+    store i32 %t4, %t6
+    return void
+}
+function @kept_char___kept__ov4(%this : ptr, %u : obj<1x1>) -> void [binding=weak, object=_ZN4keptIcEC1I4fourEET_] {
+  slot $this : ptr
+  slot $u : obj<1x1>
+  slot $argobj__1 : obj<1x1>
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    %t3 = addr $argobj__1
+    %t4 = addr $u
+    call void @holder_char___holder__ov3__base_entry(%t2, $argobj__1)
+    return void
+}
+function @holder_char___holder__ov3__base_entry(%this : ptr, %u : obj<1x1>) -> void [binding=weak, object=_ZN6holderIcEC2I4fourEET_] {
+  slot $this : ptr
+  slot $u : obj<1x1>
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = addr $u
+    %t2 = call i32 @four__operatorint(%t1)
+    %t3 = const i64 1
+    %t4 = convert trunc i32 i64 %t3
+    %t5 = binary add i32 %t2, %t4
+    %t6 = load ptr $this
+    %t7 = index i8 [projection=field] %t6, 0
+    store i32 %t5, %t7
+    return void
+}
+function @four__four(%this : ptr) -> void [unwind=no, binding=weak, object=_ZN4fourC1Ev, trivial_lifecycle=yes] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    return void
+}
+function @four__operatorint(%this : ptr) -> i32 [binding=weak, object=_ZNK4fourcviEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    return i32 4
+}
+alias object _ZN4keptIiEC2IiEET_ = @kept_int___kept__ov4
+alias object _ZN4keptIcEC2I4fourEET_ = @kept_char___kept__ov4
+alias object _ZN4fourC2Ev = @four__four

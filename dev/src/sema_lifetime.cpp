@@ -8,6 +8,7 @@
 #include "sema_derivation.h"
 #include "sema_elision.h"
 #include "sema_operator.h"
+#include "sema_pack.h"
 #include "sema_string_init.h"
 
 namespace
@@ -19,6 +20,95 @@ namespace
 // member of it, the cast a conversion made - so the walk down to the object is
 // bounded rather than being a search of the initializer.
 const unsigned kBoundTemporaryDepth = 8;
+
+// 12.9p8 with 14.5.3p4: the places the definition of an inherited constructor
+// writes, given the parameters the base's declaration wrote and the places this
+// declaration's own type holds.
+//
+// The two lists are the same length for every constructor a using-declaration
+// inherited from a declaration that is not a template, and for a specialization
+// of an inherited constructor *template* they are not: one entry the base wrote
+// `P... p` stands for as many places as the run this argument list bound it to
+// is long, and 8.3.5p10 spells those places the way the pattern's own declarator
+// spells them.  The walk is one pass over the entries and one over the places.
+// The two refusals 13.3 makes *after* it has chosen a constructor, which are
+// questions about the declaration it picked rather than about the candidates.
+//
+// 8.5.4p3: copy-list-initialization that chooses an `explicit` constructor is
+// ill formed, which is not the same as leaving one out of the candidates - the
+// choice is made and then refused.  8.4.3p2: a program that names a deleted
+// function is ill formed, and 8.5p7 names none, because a class with no
+// user-provided constructor is value-initialized by the zero of its storage and
+// where the default constructor is trivial that zero is the whole thing.
+void require_chosen_constructor(TypeTable& types, const SemaEntity& constructor,
+                                TypeId variable, bool copy_list, bool value_init)
+{
+	if (copy_list && constructor.explicit_function)
+	{
+		throw std::runtime_error("a copy-list-initialization of " +
+		                         types.description(variable) +
+		                         " chooses a constructor declared explicit");
+	}
+	if (constructor.deleted && !(value_init && constructor.trivial))
+	{
+		throw std::runtime_error("a deleted constructor of " +
+		                         types.description(variable) +
+		                         " is what initializes an object of it");
+	}
+}
+
+// 12.9p8: one argument the forwarding call writes, which is `static_cast<P&&>(p)`
+// over the type *this* declaration wrote.
+//
+// 12.9p1 made this declaration's parameter list the base's, so a parameter of it
+// has to reach the parameter it was copied from - and an rvalue reference takes
+// no lvalue, which is what a name of a parameter is.  8.3.2p6's collapse leaves
+// an lvalue where the base wrote an lvalue reference and an xvalue everywhere
+// else, which is what makes 13.3.1.3 reach the base's rvalue-reference parameter
+// at all and what makes 12.8p15 carry a by-value one by its move constructor.
+void forward_parameter(TypeTable& types, const SemaEntity& place,
+                       AnalyzedValue& one)
+{
+	if (types.kind(place.type) == TypeKind::LValueReference)
+	{
+		return;
+	}
+	one.category = ValueCategory::XValue;
+	if (one.node != nullptr)
+	{
+		one.node->fact.category = ValueCategory::XValue;
+	}
+}
+
+void expand_inherited_parameters(TypeTable& types,
+                                 const std::vector<DeclaredParameter>& written,
+                                 const std::vector<TypeId>& places,
+                                 std::vector<DeclaredParameter>& out)
+{
+	const std::size_t taken = places.size() > 1 ? places.size() - 1 : 0;
+	std::size_t fixed = 0;
+	for (std::size_t index = 0; index < written.size(); ++index)
+	{
+		fixed += types.is_pack_expansion(written[index].type) ? 0u : 1u;
+	}
+	out.reserve(taken);
+	for (std::size_t index = 0; index < written.size() && out.size() < taken;
+	     ++index)
+	{
+		const DeclaredParameter& one = written[index];
+		const std::size_t run = types.is_pack_expansion(one.type)
+			? (taken > fixed ? taken - fixed : 0)
+			: 1;
+		for (std::size_t element = 0; element < run && out.size() < taken;
+		     ++element)
+		{
+			DeclaredParameter place = one;
+			place.type = places[out.size() + 1];
+			place.name = pack_element_name(one.name, element);
+			out.push_back(place);
+		}
+	}
+}
 
 // 13.3.1.4p1: holds the class an object is being direct-initialized of while
 // 13.3 measures its candidates, and puts back what stood before however the
@@ -352,10 +442,13 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 	if (forwarded != nullptr)
 	{
 		// 12.9p8: the arguments are this constructor's own parameters, each
-		// named as the program naming it would be, in declaration order.
+		// named as the program naming it would be, in declaration order, and
+		// each forwarded as the clause hands it to the base's own place.
 		for (std::size_t index = 0; index < forwarded->size(); ++index)
 		{
-			arguments.push_back(parameter_value(*(*forwarded)[index], call));
+			SemaEntity& place = *(*forwarded)[index];
+			arguments.push_back(parameter_value(place, call));
+			forward_parameter(types_, place, arguments.back());
 		}
 	}
 	else if (list != nullptr)
@@ -412,25 +505,8 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 	SemaEntity& constructor = *select_overload(candidates, arguments,
 	                                           head->name, &object, converting);
 	Access(*this).require_access(constructor, ctx.scope);
-	if (copy_list && constructor.explicit_function)
-	{
-		// 8.5.4p3: copy-list-initialization that chooses an `explicit`
-		// constructor is ill formed, which is not the same as leaving one out
-		// of the candidates: the choice is made and then refused.
-		throw std::runtime_error("a copy-list-initialization of " +
-		                         types_.description(variable.type) +
-		                         " chooses a constructor declared explicit");
-	}
-	if (constructor.deleted && !(value_init && constructor.trivial))
-	{
-		// 8.4.3p2: a program that names a deleted function is ill formed.
-		// 8.5p7 names none: a class with no user-provided constructor is
-		// value-initialized by the zero of its storage, and where the default
-		// constructor is trivial that zero is the whole initialization.
-		throw std::runtime_error("a deleted constructor of " +
-		                         types_.description(variable.type) +
-		                         " is what initializes an object of it");
-	}
+	require_chosen_constructor(types_, constructor, variable.type, copy_list,
+	                           value_init);
 	note_construction_entry(constructor, where == Placement::Base);
 	if (member && !constructor.trivial)
 	{
@@ -555,13 +631,18 @@ void SemaAnalyzer::construct_subobject(TypeId type, const AstNode* written,
 void SemaAnalyzer::demand_constructor_definition(SemaEntity& constructor)
 {
 	if (constructor.primary != nullptr &&
-	    constructor.primary->template_parameters != nullptr)
+	    constructor.primary->template_parameters != nullptr &&
+	    constructor.inherited == nullptr)
 	{
 		// 14.5.2p1 with 14.7.1p1: what 13.3.1.3 chose may be a specialization of
 		// a *constructor template*, which is a declaration the deduction made and
 		// no definition - so building the object is what asks the template for
 		// one, exactly as naming any other specialization does.  A constructor is
 		// reached by no name, so this is where that ask stands.
+		//
+		// 12.9p1's inherited constructor template is the one specialization with
+		// no pattern behind it: 12.9p8 is its definition however it was declared,
+		// and the walk below writes it.
 		instantiate(constructor);
 	}
 	// 14.7.1p1: building an object is a use of the constructor 13.3.1.3 chose,
@@ -592,10 +673,20 @@ void SemaAnalyzer::demand_constructor_definition(SemaEntity& constructor)
 		                             &constructor, &dump);
 		const std::unordered_map<std::uint32_t,
 		                         std::vector<Parameter> >::const_iterator named =
-			constructor_parameters_.find(constructor.id);
+			constructor_parameters_.find(
+				constructor.inherited != nullptr && constructor.primary != nullptr
+					? constructor.primary->id
+					: constructor.id);
 		if (named != constructor_parameters_.end())
 		{
-			pending.parameters = named->second;
+			// 12.9p1's inherited constructor *template* has one record, made
+			// where the using-declaration declared it, and this declaration is
+			// what one argument list made of it - so a place the base wrote as
+			// 8.3.5p10's parameter pack stands here for as many places as the
+			// run it was bound to is long, each spelled as an expansion of the
+			// pack's own declarator spells it.
+			expand_inherited_parameters(types_, named->second, parameters,
+			                            pending.parameters);
 		}
 		else
 		{

@@ -1,0 +1,128 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $one : obj<4x4>
+  slot $a : obj<4x4>
+  slot $two : obj<4x4>
+  slot $b : obj<4x4>
+  slot $cond__1 : i32
+  slot $land__2 : i64
+
+  block ^entry:
+    %t1 = addr $one
+    call void @counted__counted(%t1, 1)
+    %t2 = addr $a
+    %t3 = addr $one
+    call void @from_taken__from_taken(%t2, %t3)
+    %t4 = addr $two
+    call void @counted__counted(%t4, 2)
+    %t5 = addr $b
+    %t6 = addr $two
+    call void @from_held__from_held__ov4(%t5, %t6)
+    %t7 = addr $a
+    %t8 = index i8 [projection=base_subobject] %t7, 0
+    %t9 = index i8 [projection=field] %t8, 0
+    %t10 = load i32 %t9
+    %t11 = cmp eq i32 %t10, 1
+    branch %t11, ^land_rhs_4, ^land_short_5
+
+  block ^land_rhs_4:
+    %t12 = addr $b
+    %t13 = index i8 [projection=base_subobject] %t12, 0
+    %t14 = index i8 [projection=field] %t13, 0
+    %t15 = load i32 %t14
+    %t16 = cmp eq i32 %t15, 2
+    %t17 = cmp ne i64 %t16, 0
+    store i64 %t17, $land__2
+    jump ^land_end_6
+
+  block ^land_short_5:
+    store i64 0, $land__2
+    jump ^land_end_6
+
+  block ^land_end_6:
+    %t18 = load i64 $land__2
+    branch %t18, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t19 = load i32 $cond__1
+    return i32 %t19
+}
+function @from_held__from_held__ov4(%this : ptr, %u : ptr [pass=reference]) -> void [binding=weak, object=_ZN9from_heldC1I7countedEEOT_] {
+  slot $this : ptr
+  slot $u : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    store ptr %u, $u
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    %t3 = load ptr $u
+    call void @held__held__ov3__base_entry(%t2, %t3)
+    return void
+}
+function @held__held__ov3__base_entry(%this : ptr, %u : ptr [pass=reference]) -> void [binding=weak, object=_ZN4heldC2I7countedEEOT_] {
+  slot $this : ptr
+  slot $u : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    store ptr %u, $u
+    %t1 = load ptr $u
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i32 %t2
+    %t4 = load ptr $this
+    %t5 = index i8 [projection=field] %t4, 0
+    store i32 %t3, %t5
+    return void
+}
+function @counted__counted(%this : ptr, %x : i32) -> void [binding=weak, object=_ZN7countedC1Ei] {
+  slot $this : ptr
+  slot $x : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %x, $x
+    %t1 = load i32 $x
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 %t1, %t3
+    return void
+}
+function @from_taken__from_taken(%this : ptr, %c : ptr [pass=reference]) -> void [binding=weak, object=_ZN10from_takenC1EO7counted] {
+  slot $this : ptr
+  slot $c : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    store ptr %c, $c
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    %t3 = load ptr $c
+    call void @taken__taken__base_entry(%t2, %t3)
+    return void
+}
+function @taken__taken__base_entry(%this : ptr, %c : ptr [pass=reference]) -> void [binding=weak, object=_ZN5takenC2EO7counted] {
+  slot $this : ptr
+  slot $c : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    store ptr %c, $c
+    %t1 = load ptr $c
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i32 %t2
+    %t4 = load ptr $this
+    %t5 = index i8 [projection=field] %t4, 0
+    store i32 %t3, %t5
+    return void
+}
+alias object _ZN9from_heldC2I7countedEEOT_ = @from_held__from_held__ov4
+alias object _ZN7countedC2Ei = @counted__counted
+alias object _ZN10from_takenC2EO7counted = @from_taken__from_taken
