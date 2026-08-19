@@ -1992,6 +1992,13 @@ Scope& SemaAnalyzer::substituted_region(
 	const std::size_t stood = level < reach.size()
 		? reach[level]
 		: written.declarations.size();
+	// 14.5.3p4: the run this region already held, so that a reading standing
+	// inside another one sees the same run the first rebuilt.  A region rebuilt
+	// once holds the run as declarations of plain types, and rebuilding *it* has
+	// no expansion left to read the run out of - so the fact travels with the
+	// declaration exactly as it does from the parameter clause of a
+	// specialization to the body read against it.
+	SemaEntity* run_of = nullptr;
 	for (std::size_t index = 0; index < stood; ++index)
 	{
 		const SemaEntity& declared = *written.declarations[index];
@@ -1999,6 +2006,22 @@ Scope& SemaAnalyzer::substituted_region(
 		{
 			// 14.1p3 and 8.3.5p10: a place or a parameter with no identifier
 			// binds nothing, and still stands for an argument.
+			continue;
+		}
+		if (written.kind != ScopeKind::TemplateParameters &&
+		    types_.is_pack_expansion(declared.type))
+		{
+			// 14.5.3p4 with 8.3.5p10: the clause wrote one place standing for
+			// however many the run holds, and the reading that wrote this
+			// specifier had none - so the region it stood in declares one place
+			// and the region rebuilt over these arguments declares the run.  It
+			// is the same shape the parameter clause of a specialization
+			// declares, because an expansion written in the specifier is read
+			// through exactly the declarations that clause left: the first
+			// element keeps the pack's own name and carries how long the run is,
+			// and each of the rest is named after it and carries the first back.
+			run_of = PackReading(*this).rebuild_places(region, declared, bindings,
+			                                          memo);
 			continue;
 		}
 		const TypeId took = substituted(declared.type, bindings, memo);
@@ -2012,6 +2035,15 @@ Scope& SemaAnalyzer::substituted_region(
 			continue;
 		}
 		SemaEntity& made = model_.create(kind, declared.name, took);
+		made.pack_run = declared.pack_run;
+		if (made.pack_run != 0)
+		{
+			run_of = &made;
+		}
+		else if (declared.pack_element_of != nullptr)
+		{
+			made.pack_element_of = run_of;
+		}
 		model_.bind(region, made.name, made);
 		model_.declare_in(region, made);
 	}

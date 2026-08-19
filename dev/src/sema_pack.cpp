@@ -570,6 +570,49 @@ bool PackReading::expand_type(TypeId pattern, std::vector<TypeId>& out)
 	return true;
 }
 
+SemaEntity* PackReading::rebuild_places(
+	Scope& region, const SemaEntity& declared,
+	const std::unordered_map<TypeId, TypeId>& bindings,
+	std::unordered_map<TypeId, TypeId>& memo)
+{
+	std::vector<TypeId> run;
+	substitute_entry(declared.type, bindings, memo, run);
+	const bool settled =
+		!(run.size() == 1 && analyzer_.types_.is_pack_expansion(run[0]));
+	if (!settled || run.empty())
+	{
+		// 14.6.2p1 and 14.5.3p4: a run this substitution left unsettled is the
+		// one place the written clause declared, standing for itself again; a
+		// settled run of none declares the pack over no place at all, which is
+		// what `sizeof...` reads as zero.
+		SemaEntity& made = analyzer_.model_.create(
+			SemaKind::Parameter, declared.name,
+			settled ? analyzer_.types_.pack_type(std::vector<TypeId>()) : run[0]);
+		analyzer_.model_.bind(region, made.name, made);
+		analyzer_.model_.declare_in(region, made);
+		return nullptr;
+	}
+	SemaEntity* head = nullptr;
+	for (std::size_t element = 0; element < run.size(); ++element)
+	{
+		SemaEntity& made = analyzer_.model_.create(
+			SemaKind::Parameter, pack_element_name(declared.name, element),
+			run[element]);
+		if (element == 0)
+		{
+			made.pack_run = static_cast<unsigned>(run.size());
+			head = &made;
+		}
+		else
+		{
+			made.pack_element_of = head;
+		}
+		analyzer_.model_.bind(region, made.name, made);
+		analyzer_.model_.declare_in(region, made);
+	}
+	return head;
+}
+
 void PackReading::substitute_entry(
 	TypeId written, const std::unordered_map<TypeId, TypeId>& bindings,
 	std::unordered_map<TypeId, TypeId>& memo, std::vector<TypeId>& out)

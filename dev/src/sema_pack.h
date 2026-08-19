@@ -198,6 +198,23 @@ public:
 	void packs_in(TypeId pattern, std::vector<TypeId>& runs,
 	              std::vector<TypeId>& places) const;
 
+	// 14.5.3p4 with 8.3.5p10 inside a *region* a substitution rebuilds: the one
+	// place a written clause declared for a run no argument list had settled
+	// becomes the declarations that run holds - the first keeping the pack's own
+	// name and carrying how long it is, and each of the rest named after it and
+	// carrying the first back, which is the shape a specialization's own
+	// parameter clause leaves and the shape `element_region` reads.  A run these
+	// arguments still leave unsettled is one place that stands for itself, and a
+	// settled run of none is the pack declared over no place at all.  The region
+	// is a prototype, so what it declares is 8.3.5p10's places and nothing else.
+	// The first of the declarations it made where the run is settled and holds
+	// an element, which is the one a later rebuilding of this same region has to
+	// carry the run forward from; null otherwise.
+	SemaEntity* rebuild_places(
+		Scope& region, const SemaEntity& declared,
+		const std::unordered_map<TypeId, TypeId>& bindings,
+		std::unordered_map<TypeId, TypeId>& memo);
+
 private:
 	// One name a pattern wrote, merged into what the run so far says.
 	void note_name(const std::string& name, const SemaContext& ctx,
