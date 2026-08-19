@@ -19,6 +19,16 @@ namespace
 // walk reaches with none - which the standard leaves no way to declare.
 const unsigned long long kUnboundedElements = ~0ull;
 
+// 12.9p1 and p8: the base class the using-declaration named, which is the class
+// the constructor this one was inherited from constructs - 9.3.1p3's object
+// parameter says which, and it says so for a base the program wrote as a
+// template-id as readily as for one it wrote a name for.
+TypeId inherited_base(TypeTable& types, const SemaEntity& constructor)
+{
+	return types.strip_cv(
+		types.target(types.parameters(constructor.inherited->type)[0]));
+}
+
 const AstNode* child_kind(const AstNode& node, AstKind kind)
 {
 	for (std::size_t index = 0; index < node.children.size(); ++index)
@@ -760,6 +770,15 @@ SemaConstant ConstexprReading::subobject_initialized(
 		!held.base && analyzer_.types_.kind(type) == TypeKind::Array;
 	SemaConstant value;
 	value.type = type;
+	if (wrote != nullptr && wrote->forwarded != nullptr)
+	{
+		// 12.9p8: the base subobject is what its own class builds out of the
+		// arguments this constructor was called with, chosen among the base's
+		// constructors exactly as the initialization a program wrote would
+		// choose - which is the one reading `object_of` already is.
+		ask_for_definition(type);
+		return object_of(type, *wrote->forwarded);
+	}
 	if (wrote != nullptr)
 	{
 		SemaContext where = inner;
@@ -984,6 +1003,21 @@ SemaConstant ConstexprReading::object_from_constructor(
 		mem_initializers(
 			child_kind(*one->constexpr_body, AstKind::CtorInitializer), owner,
 			inner, written_for);
+	}
+	else if (one->inherited != nullptr)
+	{
+		// 12.9p8: the definition of an inherited constructor is the one
+		// ctor-initializer no program wrote - the base the using-declaration
+		// named, initialized from this constructor's own parameters, with every
+		// other subobject left to 12.6.2p4 and p8 exactly as the walk below
+		// leaves one no mem-initializer reaches.  The entry carries the values
+		// rather than a tree, because the arguments are the parameters
+		// themselves and no expression names them here.
+		WrittenMemInitializer forwarding;
+		forwarding.forwarded = &passed;
+		written_for.insert(std::make_pair(
+			analyzer_.types_.user_name(inherited_base(analyzer_.types_, *one)),
+			forwarding));
 	}
 	std::vector<TypeId> holds;
 	subobject_entries(bare, written_for, inner, holds);

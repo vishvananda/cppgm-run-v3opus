@@ -318,6 +318,8 @@ struct HeldTemplateBody
 	TypeId type;
 };
 
+struct SemaConstant;
+
 // 12.6.2: one mem-initializer of a ctor-initializer, indexed by the name
 // its mem-initializer-id ends in.  `used` says a member of that name was
 // reached, which 12.6.2p2 is what makes the mem-initializer-id name
@@ -326,11 +328,18 @@ struct WrittenMemInitializer
 {
 	WrittenMemInitializer()
 		: written(nullptr)
+		, forwarded(nullptr)
 		, region(nullptr)
 		, used(false)
 	{}
 
 	const AstNode* written;
+	// 12.9p8: the values 12.9p1's inherited constructor hands the base's own.
+	// Its definition is one no program wrote, so its one mem-initializer has no
+	// tree to read clauses out of and carries what they already came to - this
+	// constructor's own arguments.  Null for every mem-initializer a
+	// ctor-initializer wrote, which is where `written` is what stands instead.
+	const std::vector<SemaConstant>* forwarded;
 	// 14.5.3p4: the region this entry is read in, which for one element of an
 	// expanded mem-initializer binds the packs its pattern names to that
 	// element.  Null for every mem-initializer written without a `...`, which

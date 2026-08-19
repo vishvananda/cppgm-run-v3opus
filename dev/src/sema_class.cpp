@@ -1177,16 +1177,26 @@ void SemaAnalyzer::inherit_constructor(SemaEntity& from, const SemaEntity& base,
 	// 14.2's encoding each read the type against the very declarations the
 	// parameter types are written over.
 	Scope* const head = from.template_parameters;
-	// 12.9p1: a base constructor whose parameters a constructor of this class
-	// already takes is not inherited, and neither is one two members of the
-	// candidate set agree on.  13.1's index of the chain answers both in one
-	// probe, so a base with n constructors costs n.  14.5.6.1p5 is what pairs
-	// two of them where either was written under a head, exactly as a
-	// constructor the class declared itself is keyed.
+	// 12.9p3: a base constructor whose parameters a constructor this class
+	// declared *itself* already takes is not inherited.  13.1's index of the
+	// chain answers that in one probe, so a base with n constructors costs n,
+	// and 14.5.6.1p5 is what pairs two of them where either was written under a
+	// head - exactly as a constructor the class declared itself is keyed.
+	//
+	// A constructor another using-declaration inherited is the one declaration
+	// that probe finds and 12.9p3 does not name: 12.9p1 declares one here for
+	// each candidate of *each* base, and two of them agreeing on a
+	// parameter-type-list is what leaves 13.3 no best declaration where a use
+	// is written - which is the answer both oracles give and what standing one
+	// of the two for both silently ran to the other base's constructor.  13.1's
+	// index keeps the first, because one declaration per list is what a
+	// redeclaration is paired against.
 	const TypeId key = TemplateSignature(*this).indexed(head, type);
-	if (derived.constructor != nullptr &&
-	    model_.overload_of(*derived.constructor,
-	                       types_.signature(key)) != nullptr)
+	SemaEntity* const prior =
+		derived.constructor == nullptr
+			? nullptr
+			: model_.overload_of(*derived.constructor, types_.signature(key));
+	if (prior != nullptr && prior->inherited == nullptr)
 	{
 		return;
 	}
@@ -1197,6 +1207,12 @@ void SemaAnalyzer::inherit_constructor(SemaEntity& from, const SemaEntity& base,
 	entity.inherited = &from;
 	entity.template_parameters = head;
 	entity.explicit_function = from.explicit_function;
+	// 12.9p2: the constructor characteristics are the template-parameter-list,
+	// the parameter-type-list, `explicit` and `constexpr`, and 12.9p3 declares
+	// this one with the same four - so a base constructor the program wrote
+	// `constexpr` on leaves a class whose object 5.19 builds, and one it did
+	// not leaves the refusal 3.9p10 already makes of the class.
+	entity.constexpr_function = from.constexpr_function;
 	entity.deleted = from.deleted;
 	// 12.9p6 and 7.1.2p3: the definition is one the standard gives it and this
 	// unit generates where a use asks for one, as 12.1p5's is, so it belongs to

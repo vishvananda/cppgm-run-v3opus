@@ -47,7 +47,7 @@ Owners, in the order a use walks them:
 
 ## Current Failure Map
 
-434 tests (400 handout + 34 course), 384 passing (handout-only 350 / 400). The
+436 tests (400 handout + 36 course), 386 passing (handout-only 350 / 400). The
 50 left, all of them handout, by the compiler behavior each wants:
 
 | group | n | shape |
@@ -188,6 +188,26 @@ Known gaps diagnosed but not landed:
   the same holds for a non-template constructor and for an inherited one. `g++`
   agrees with this build, so the six sweep shapes the reference disagrees with
   are the reference's and no course fixture can hold them.
+- **7.1.5p4's "every non-static data member shall be initialized" at an
+  inherited constructor is `g++`'s later model against the standard's.**
+  `struct derived : base { int extra; using base::base; };` with `constexpr
+  derived d(3);` leaves `extra` holding nothing, which the reference and this
+  build refuse and `g++` translates - it implements the relaxation C++14 made of
+  the clause. A member with a brace-or-equal-initializer, a second base of its
+  own and a base default argument the truncated list leaves behind all three
+  agree three ways.
+- **12.9p3 where the two declarations of one parameter-type-list are not
+  templates is `g++`'s answer alone.** Two bases whose *non-template*
+  constructors agree on a list, and one base whose own two constructors reach one
+  list through their default arguments, are programs `g++` refuses for having no
+  best declaration and the reference translates - it keeps two candidates only
+  where they were written under a head. This build refuses both, which is `g++`'s
+  answer, so neither can be a course fixture.
+- **A constructor the derived class declared itself beside an inherited one is a
+  program the reference refuses.** `using base::base;` beside `derived(int)` or
+  beside `template<class U> derived(U)` is 12.9p3's own exclusion and `g++`
+  translates it, as this build does; the reference refuses both, so no fixture
+  can hold them either.
 - **12.9p8's by-value parameter is moved here and in the reference and copied by
   `g++`.** `base(counted c)` inherited carries the argument by 12.8p15's move
   constructor in both this build and the reference, which is `std::forward<P>`
@@ -198,55 +218,49 @@ Known gaps diagnosed but not landed:
 
 ## Active Checkpoint
 
-**12.9p1's inherited constructor is a template too.** Complete; ledger row 17 is
+**Audit: the characteristics an inherited constructor is declared with, and the
+declaration one probe of the index does not name.** Complete; ledger row 18 is
 its record.
 
-- *Owner.* `sema_class.cpp` owns 12.9p1's candidate set, which is where a
-  using-declaration's constructors are declared into the derived class - and the
-  one fact a template one adds is the head each was written under, which is the
-  base's own scope rather than a copy of it. `sema_template.cpp` owns what one
-  argument list makes of such a declaration: `specialize` carries 12.9's facts
-  onto the specialization and names the base's specialization over the *same*
-  list. `sema_lifetime.cpp` owns 12.9p8 - the arguments the forwarding call
-  writes, and the places a definition of one declares. `sema_deduce.cpp` owns
-  8.3.5p4's ellipsis at a deduction, and `lowir_lower.cpp` the entry points an
-  instantiated `constexpr` constructor owes.
-- *Data flow.* `inherit_constructors` walked the base's chain and built a plain
-  `Function` from each parameter list, so a base constructor written under a head
-  came out as a declaration whose parameter types name places nothing binds -
-  `derived<int> d(a)` found no declaration accepting its arguments. The
-  declaration carries `template_parameters` now, which is `from`'s head: 14.1p2's
-  places are declarations, so sharing them is what makes a deduction at the
-  derived class bind exactly what one at the base would, and what makes 14.2
-  write `OT_` for the parameter. 13.1's index keys it by
-  `TemplateSignature::indexed` for the same reason a constructor the class
-  declared itself is keyed. `specialize` then hands the specialization
-  12.9p1's three facts - `inherited`, `defaulted`, `inline_function` - and
-  resolves `inherited` to `specialize(*primary.inherited, arguments)`, so the
-  base subobject is built by the base's declaration over the same list and not by
-  a second deduction from an lvalue. `demand_constructor_definition` asks no
-  pattern for a body it has none of, and takes the places from the *template's*
-  record, where one entry the base wrote `P... p` stands for as many places as
-  this list's run is long. 12.9p8's arguments are `static_cast<P&&>(p)`, which is
-  what lets an rvalue-reference parameter take one at all - `base(arg&&)`
-  inherited was a program both other oracles translate and this build refused.
-- *Expected complexity.* One canonical form per inherited candidate, memoised by
-  `TemplateSignature`; one extra `specialize` of the base's declaration per
-  specialization of an inherited one, which is the declaration the forwarding
-  call would have built anyway; one pass over the recorded places per definition.
-  Nothing new runs per call.
-- *Validation.* 72 generated shapes - twelve base constructor templates crossed
-  with six inheriting shapes - through the pa23 comparator against the reference
-  binary, `g++` and the pre-checkpoint binary, agreeing three ways with `g++` on
-  acceptance and on the value on all 72, running the 66 accepted ones through
-  `lowir2cy86` + `cy86` to that value, every one of them a program the
-  pre-checkpoint binary refuses - all 72 of them. 60 of the 72 match the
-  reference's LowIR too; the 12 that do not are the two reference behaviors the
-  failure map above records. Every course
-  `.ref` regenerated from the reference binary and unchanged, plus four new
-  fixtures the reference and `g++` both run to zero. `through-pa22` at
-  2948 / 2948; corpus 1.94 s against the pre-checkpoint binary's 1.96 s; no
-  `rc > 1` in the 506 files swept; valgrind clean over 73 inputs.
+- *Owner.* `sema_class.cpp` owns 12.9p2's four constructor characteristics and
+  12.9p3's exclusion, which is the one probe of 13.1's index the checkpoint
+  rekeyed. `sema_template.cpp` owns which of them travel to what one argument
+  list makes of such a declaration. `sema_constexpr_object.cpp` owns 12.9p8 at a
+  *fold*: the base subobject an inherited constructor initializes, which is the
+  one mem-initializer of a definition no program wrote.
+- *Data flow.* 12.9p2 says a constructor's characteristics are the
+  template-parameter-list, the parameter-type-list, `explicit` and `constexpr`,
+  and 12.9p3 declares the inherited one with the same four. The checkpoint landed
+  the first and `inherit_constructor` already carried the second and third; the
+  fourth had no reader, so `constexpr base(int)` inherited left a class 3.9p10
+  called no literal type. It is carried now, and `specialize` hands it to the
+  specialization beside 12.9's other three - not through 14.7.3p1's chain, which
+  is what `constexpr_declared` answers for every specialization a *pattern* is
+  behind and this one is not. The fold then needs 12.9p8: `constructed_object`
+  writes one entry into the mem-initializer index for the base the
+  using-declaration named, carrying the arguments this constructor was called
+  with rather than a tree to read clauses out of, and `subobject_initialized`
+  builds that subobject with the same `object_of` a written mem-initializer
+  reaches. And 12.9p3's exclusion is of a constructor the class *declared
+  itself*: an inherited one is the other declaration the index probe finds, and
+  standing one of the two for both dropped a base's whole candidate set silently.
+- *Expected complexity.* One field read per inherited candidate; one map insert
+  and one `object_of` per fold of an inherited constructor, which is the reading
+  the non-constant path already makes of the same base; one extra declaration per
+  base whose candidate set agrees with another's, which is the candidate 13.3 has
+  to rank to find the pair unordered.
+- *Validation.* 47 probe programs against `g++`, the reference binary and the
+  pre-audit binary - the 12.9 characteristics crossed with the base kinds, the
+  argument kinds and the constant contexts, the two-base and own-constructor
+  exclusions, and 15 shapes of 8.3.5p4's ellipsis at a deduction. Every one this
+  build accepts runs through `lowir2cy86` + `cy86` to `g++`'s value except where
+  the scaffold's own ceiling stands, and every disagreement left is one of the
+  recorded reference divergences. Every course `.ref` regenerated from the
+  reference binary and unchanged, plus two new fixtures. pa23 384 / 434 ->
+  386 / 436 with the failing 50 the same file for file; `through-pa22` at
+  2948 / 2948; corpus 2.06 s against the pre-audit binary's 2.10 s; no `rc > 1`
+  in pa23's 436 files nor in the 2284 of pa10 through pa22; valgrind clean over
+  143 inputs.
 
 ## Next Substantial Checkpoint
 
@@ -269,6 +283,12 @@ build saturates the machine reads 5.8 s against 1.9 s, which is that build's.
 Carried-forward absolute times are the load of the turn that took them: the
 corpus reads 2.16 s on one turn and 2.00 s on the next from the same binary, so
 only the two figures of a pair say anything.
+
+Run evidence has a ceiling that is the scaffold's and not the compiler's: a
+function of five or more parameters - `this` among them - comes out of
+`lowir2cy86` + `cy86` as a program that returns the wrong value or crashes, and
+it does so from the *reference* binary's LowIR identically. A probe that has to
+be run to a value writes four arguments or fewer.
 
 | sweep | shape | result |
 | --- | --- | --- |
@@ -330,7 +350,10 @@ only the two figures of a pair say anything.
 | **inherited-candidate width** | one derived class inheriting n constructor templates from one base - the chain 12.9p1 keys each candidate against | **0.00 @32, 0.01 @128, 0.03 @512, 0.08 @1024 - and 0.00 / 0.01 / 0.03 / 0.07 on the pre-checkpoint binary, which refuses the call** |
 | **inherited-pack multiplicity** | one inherited constructor template over a pack, n arguments at one call - the run `expand_inherited_parameters` walks | **0.00 @32, 0.00 @128, 0.01 @512, 0.02 @1024 - linear; refused by the pre-checkpoint binary** |
 | **variadic-call multiplicity** | n calls of one variadic function template, which 14.8.2.1p1 now deduces | **0.00 @32, 0.00 @128, 0.01 @512, 0.03 @1024 - linear; refused by the pre-checkpoint binary** |
-| whole PA23 corpus | 400 handout and 34 course files, one process each | **1.94 s warm over two alternating passes, against the pre-checkpoint binary's 1.96 s**; no `rc > 1` in those 434 files nor in the 72 of the 12.9 sweep; valgrind clean over 73 inputs |
+| **constexpr-inherited multiplicity** | n classes, each inheriting one `constexpr` constructor and folding one object of it | **0.00 @32, 0.02 @128, 0.09 @512, 0.20 @1024 - linear; the pre-audit binary refuses the program at the first object** |
+| **constexpr-inherited chain nesting** | d classes, each inheriting the `constexpr` constructor the one below inherited, one fold at the bottom | **0.00 s flat from d = 4 to d = 48 and 0.01 at d = 64 - linear; refused by the pre-audit binary** |
+| **inherited-candidate agreement width** | n bases whose constructor templates all agree on one parameter-type-list, which is the run 12.9p3 no longer stands one declaration for | **0.00 @8, 0.00 @32, 0.02 @128, 0.04 @256 - and the same on the pre-audit binary, which declares one of the n** |
+| whole PA23 corpus | 400 handout and 36 course files, one process each | **2.04-2.07 s warm over three alternating passes, against the pre-audit binary's 2.09-2.11 s**; no `rc > 1` in those 436 files nor in the 2284 of pa10 through pa22; valgrind clean over 143 inputs |
 
 Why 14.6.4.2p1's bound stays flat: it is one `std::uint32_t` written where a
 definition is recorded and put back by a two-assignment scope where it is read,
@@ -376,6 +399,15 @@ on its first word rather than inside its arguments - which the two argument
 nesting sweeps are what say, one with the failure at the innermost level and one
 with it at the outermost. `Substitution::unsettled` is one walk of an argument
 list already in hand and returns on the first dependent entry.
+
+Why 12.9's own facts cost nothing: a characteristic is a field read where the
+declaration is made and a field written where a specialization of it is, and
+12.9p3's exclusion is the one index probe it already was - the only thing that
+grew is the *chain*, by one declaration per base whose candidate set agrees with
+another's, which is a candidate 13.3 has to rank to answer the use at all.
+12.9p8 at a fold is one map insert and the same `object_of` a written
+mem-initializer of that base would reach, so an inheriting chain d deep folds d
+of them and no level is read twice.
 
 Why this audit's two readers cost nothing: `stood_in_for` is one `TemplateId`
 construction and one string comparison, asked last of a chain whose four earlier
@@ -427,3 +459,4 @@ and then as a function all cost what they did before it.
 | 15 | the types a deduction between two declarations is asked over | `sema_template_signature.cpp`, `sema_analyzer.h`, `sema_template.h`, `sema_overload.cpp`, `sema_deduce.cpp`, `sema_scope.cpp` | 14.8.2.4p3 has three answers to which types a partial ordering is done over and this build had only implemented the third: a call was ordered over the *whole* parameter list of each declaration, so `build(G &, int, int, R &, bool = true, bool = false)` beside `build(G &, int, int, R &, V, E, bool = false)` was two lists of different lengths and the deduction failed both ways with the call ranked by nothing.  `limit` is now p3's own answer - `kEveryPlace`, the count the call wrote arguments for, or `kResultPlace` - and `ordering_parameters` and `ordering_places` are where it is read.  p3's footnote is why a default argument orders nothing, and 14.8.2.4p12 is why a *trailing run* is a place of its own past the limit: cut off, p8's first sentence has no A a pack was transformed from to fail on, and `dispatch(C &, S, T &&)` stops being more specialized than `dispatch(C &, S, T &&, R &&...)`.  p3's second bullet had no implementation at all - two conversion templates were ordered over the object parameter, which tells them apart by nothing - and `operator T**()` now beats `operator T*()` for an `int **` exactly as it does in `g++`.  14.8.2.3p2 and p4 are the same sentence one tier down: the reference and the top-level qualification come off P and A wherever the *other* one came from, so `operator U()` deduces `U` from `const A &`, 13.3.1.4's copy constructor and move constructor reach one conversion function rather than two, and 13.3.3.2p3 has a pair it can order.  The sibling probe found 14.6.4.2p1's number written on the wrong declaration: a namespace binding made over one the region already made was numbered where *it* stood, so `extern int anchor;` above a pattern and `int anchor = 4;` below it put a name the pattern could see out of its own reach - the number is the first binding's now, and 13.1's chain walk still reads each declaration's own | 370 / 426 -> 376 / 429 (handout 344 -> 347 / 400); through-pa22 2948 / 2948; 42 generated shapes against `g++`, the reference and the pre-checkpoint binary, agreeing with `g++` on all 42 and every accepted one linked and run to its value, with two the reference alone refuses; `_ZNK5makercvT_I6holderEEv` byte-identical to `g++`'s; every course `.ref` regenerated from the reference binary and unchanged, plus three new fixtures; corpus 2.06 s against the pre-checkpoint binary's 2.07 s; no `rc > 1` in pa23's 429 files or the 2572 of pa10 through pa22; valgrind clean over 151 inputs |
 | 16 | audit: the number a second binding stands at, and the count a call hands the ordering | `sema_scope.cpp`, `sema_template_signature.cpp`, `sema_overload.cpp`, `sema_analyzer.h` | checkpoint 15's two new facts are each read one step wide of where they were settled.  14.6.4.2p1's number was given to *every* second binding of a spelling, which is right for the object `extern int anchor;` and `int anchor = 4;` declare and wrong for 3.3p4's two declarations of one name: `struct probe;` above a pattern and `int probe(int);` below it bind one spelling to two entities, and numbering the function where the class stood put it in the pattern's reach - a program both oracles refuse and the pre-checkpoint build refused, translated here to 8.  The number is taken from the slot the declaration overwrites now, a tag's from the tag and everything else's from the ordinary name, and only where that slot holds a declaration of the same kind, so `find` goes on filtering the function out and answering with the tag beneath it.  And 14.8.2.4p3's limit was the count 13.3.1p3 ranked the conversions over, which holds a place for the implicit object argument whether or not a candidate wrote a parameter for it: `s.f(&v)` over two static member templates was ordered over two places where the call wrote one, so a trailing default was asked and answered neither way and the pair was left unordered - while `S::f(&v)`, the same pair over the same argument, came out right.  `ordering_limit` restates the count in the places the two lists hold: the object place kept where either declaration wrote one, dropped where 9.4p1's static member of the same class is what the other is ordered against, and never added for 13.3.1.2p4's first operand, which a non-member operator wrote as a parameter of its own.  Recorded rather than fixed: 13.5.2p1's arity of an operator function, which has no reader at any tier and which the checkpoint's ordering un-hid by removing the broad refusal that stood over it | 376 / 429 -> 377 / 430 (handout 347 / 400 unmoved, the failing 53 the same file for file); through-pa22 2948 / 2948; 135 generated cross-product shapes and 40 probes against `g++`, the reference, the checkpoint binary and the pre-checkpoint binary, agreeing with `g++` on all 135 and running the 124 accepted ones to its value, 111 of them programs the pre-checkpoint binary refuses; every course `.ref` regenerated from the reference binary and unchanged, plus one new fixture the reference refuses as this build does; corpus 2.08 s against the pre-audit binary's 2.12 s; no `rc > 1` in pa23's 430 files or the 2284 of pa10 through pa22; valgrind clean over 298 inputs |
 | 17 | 12.9p1's inherited constructor is a template too | `sema_class.cpp`, `sema_template.cpp`, `sema_lifetime.cpp`, `sema_deduce.cpp`, `lowir_lower.cpp` | a using-declaration that names a base's constructor *template* declared a plain function from its parameter list, whose types name places nothing binds - so `derived<int> d(a)` over `template<class U> base(U&&)` found no declaration accepting its arguments, which is the whole of three tests. The declaration carries the base's own head now, so a deduction at the derived class binds what one at the base would and 14.2 writes `OT_`; 13.1 keys it by `TemplateSignature::indexed`; and `specialize` hands the specialization 12.9's `inherited`, `defaulted` and `inline_function` and resolves the first to the base's specialization over the *same* list, so no second deduction from an lvalue picks another one. 12.9p8's arguments are `static_cast<P&&>(p)` - the base's rvalue-reference parameter took no lvalue at all, which is a program both other oracles translate - and its places come from the template's record with a pack entry expanded to the run this list bound. Two siblings the sweep un-hid: 8.3.5p4's ellipsis made `deduced_call` refuse *every* variadic function template, and 7.1.5p2's both-entry-points rule was asked of an instantiated `constexpr` constructor, which owed a symbol nothing names | 377 / 430 -> 384 / 434 (handout 347 -> 350 / 400); through-pa22 2948 / 2948; 72 generated 12.9 shapes agreeing three ways with `g++` and the reference on acceptance and value, 66 run through `lowir2cy86` + `cy86`, all 72 refused by the pre-checkpoint binary; every course `.ref` regenerated and unchanged plus four new fixtures; corpus 1.94 s against 1.96 s; valgrind clean over 73 inputs |
+| 18 | audit: the characteristics an inherited constructor is declared with, and the declaration one probe does not name | `sema_class.cpp`, `sema_template.cpp`, `sema_constexpr_object.cpp`, `sema_declaration.h` | checkpoint 17's rule is right - the head, the deduction at the derived class, the pack the base wrote, 12.9p8's forwarding and 8.3.5p4's ellipsis all answer what `g++` answers across 47 probes, and two units naming one such specialization write one weak definition under `_ZN4keptC1IiEET_`, which is the reference's own name for it.  What none of it carried is that 12.9p2 lists *four* constructor characteristics and the checkpoint landed the first: `constexpr` had no reader at all, so `constexpr base(int)` inherited left a class 3.9p10 called no literal type and `constexpr derived d(3);` was a program both oracles build and this one refused.  It travels with the declaration and to the specialization beside 12.9's other three, and 12.9p8 is what the *fold* then needs - `constructed_object` writes one mem-initializer entry for the base the using-declaration named, carrying this constructor's own arguments, and `subobject_initialized` builds it with the `object_of` a written one reaches, so a chain, a second base, a member's own initializer and a base default argument the truncated list leaves behind all fold to the value `g++` runs them to.  And 12.9p3's exclusion is of a constructor the class *declared itself*: an inherited one is the other declaration the index probe finds, and standing one of the two for both dropped a whole base's candidate set - `struct both : left, right` inheriting one parameter-type-list from each ran to `left`'s constructor where both oracles refuse the use for having no best declaration | 384 / 434 -> 386 / 436 (handout 350 / 400 unmoved, the failing 50 the same file for file); through-pa22 2948 / 2948; 47 probes against `g++`, the reference, the checkpoint binary and the pre-checkpoint binary; every course `.ref` regenerated from the reference binary and unchanged, plus two new fixtures; corpus 2.06 s against the pre-audit binary's 2.10 s; no `rc > 1` in pa23's 436 files or the 2284 of pa10 through pa22; valgrind clean over 143 inputs |

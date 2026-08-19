@@ -1,0 +1,4 @@
+ERROR: ambiguous constructor [class both] [arg_count 1] [matches both::both:function of (pointer to struct both, lvalue-reference to const struct both) returning void ranks=3; both::both:function of (pointer to struct both, rvalue-reference to struct both) returning void ranks=3; both::both:function of (pointer to struct both, int) returning void [candidate at course/pa23/100-bad-two-using-declarations-inherit-one-parameter-type-list.t:42:3] ranks=0; both::both:function of (pointer to struct both, int) returning void [candidate at course/pa23/100-bad-two-using-declarations-inherit-one-parameter-type-list.t:43:3] ranks=0] [function main] [is_method no] [body_parent_scope <here>] [body_parent_bindings ] [body_function_scope <here>] [body_function_bindings {values:one=struct both}]
+Diagnostic context:
+analyze_function_binding_output [main]
+  analyze_statement [simple-declaration] at course/pa23/100-bad-two-using-declarations-inherit-one-parameter-type-list.t:48:3

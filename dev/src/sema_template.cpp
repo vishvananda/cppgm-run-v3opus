@@ -200,6 +200,13 @@ SemaEntity& SemaAnalyzer::specialize(SemaEntity& primary,
 			made->inherited = &specialize(*primary.inherited, arguments);
 			made->defaulted = true;
 			made->inline_function = true;
+			// 12.9p2's fourth characteristic travels with the declaration and
+			// not through 14.7.3p1's chain: what this specialization is, is what
+			// 12.9p3 declared, so a base constructor template the program wrote
+			// `constexpr` on leaves one 5.19 folds here.  `constexpr_declared`
+			// asks the chain for every specialization a *pattern* is behind,
+			// which this one is not.
+			made->constexpr_function = primary.constexpr_function;
 		}
 		// 13.5p6: a parameter written over a template parameter is of no type
 		// until an argument list gives it one, so the clause is a question
