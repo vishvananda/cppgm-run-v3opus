@@ -2030,16 +2030,23 @@ SemaAnalyzer::Value SemaAnalyzer::call_conversion(const Value& object,
 		run.region != nullptr ? run.region->owner : nullptr;
 	Access(*this).require_access(chosen, ctx.scope,
 	               chosen.region != nullptr ? chosen.region : nullptr);
+	// 7.3.3p1 with 13.3.1p4's last sentence, asked before the step it is about:
+	// the base subobject below is the conversion 11.2p5 leaves the
+	// base-specifier's own access unasked about, so what says whether to ask is
+	// this conversion function's own declaration and not what the operand was
+	// reached through.  A call written on an object asks the same question of
+	// the declaration 13.3 chose, one step earlier than its own base step.
+	const bool published = named_by_using(chosen);
 	if (declared != nullptr &&
 	    types_.strip_cv(self.type) != types_.strip_cv(declared->type))
 	{
 		// 10.2p2 and 4.10p3: a conversion function a base class declared is
 		// called on the base class subobject of the object the argument named,
 		// which the tree names rather than leaving the address to be adjusted.
-		self = Derivation(*this).base_value(self, *declared, !object.through_using);
+		self = Derivation(*this).base_value(self, *declared, !published);
 	}
 	address_of_object(self, model_.wrap_node(*self.node, std::string()), false);
-	self.through_using = named_by_using(chosen);
+	self.through_using = published;
 	std::vector<Value> arguments;
 	arguments.push_back(self);
 	// The callee stands before the argument, as it does in a call the program

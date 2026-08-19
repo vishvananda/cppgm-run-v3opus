@@ -104,7 +104,28 @@ void SemaAnalyzer::using_declaration(const AstNode& node, const Context& ctx)
 		// 7.3.3p5: a using-declaration shall not name a template-id.
 		throw std::runtime_error("a using-declaration names a template-id");
 	}
-	const std::string name = written.last();
+	// 13.5p1 and 12.3.2p1: an operator-function-id and a conversion-function-id
+	// are each one name however the terminals after `operator` were spelled
+	// apart, and every region that bound one bound it under the spelling those
+	// terminals close up against the keyword - `operatorint`, `operator+`,
+	// `operatornew`.  The target of a using-declaration reaches here as the
+	// flattening of what was written, which puts a space wherever closing two
+	// terminals up would have made one word of them, so the component is spelled
+	// again the way a declarator and a member access already spell it.  A
+	// conversion-type-id is a type and not a run of words: 12.3.2p1 names the
+	// function by the type it converts to, so the words are read as a type-id
+	// and `operator size` reaches the one `operator unsigned long` declared.
+	std::string name = written.last();
+	if (name.compare(0, 9, "operator ") == 0)
+	{
+		const std::string rest = name.substr(9);
+		// 3.7.4p2: `operator new` and `operator delete` are the two
+		// operator-function-ids whose operator is spelled as a word, and no
+		// conversion-type-id begins with either keyword.
+		name = rest.compare(0, 3, "new") == 0 || rest.compare(0, 6, "delete") == 0
+			? "operator" + rest
+			: conversion_name(template_argument_type(rest, ctx));
+	}
 	// 3.4.3.1p2's second arm: in a using-declaration that is a
 	// member-declaration, a name that is the identifier - or the template-name
 	// of the simple-template-id - the last component of its
@@ -125,7 +146,7 @@ void SemaAnalyzer::using_declaration(const AstNode& node, const Context& ctx)
 		}
 	}
 	SemaEntity& entity =
-		require(resolve(spelling, ctx, LookupKind::Any), spelling);
+		require(resolve(written.prefix() + name, ctx, LookupKind::Any), spelling);
 	if (ctx.scope->kind == ScopeKind::Class && ctx.scope->owner != nullptr)
 	{
 		// 7.3.3p1 read in a class: what the using-declaration makes is a

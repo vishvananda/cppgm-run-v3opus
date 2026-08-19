@@ -258,9 +258,13 @@ void SemaAnalyzer::read_type_specifier(const AstNode& node, Specifiers& out,
 			read_type_specifier(node, out, where, span, named_by);
 			return;
 		}
-		// An enum-specifier with no enumerator-list inside a declaration is
-		// the elaborated form: 7.2p3 makes it name an enumeration that exists.
-		const bool elaborated = child_kind(node, AstKind::Enumerator) == nullptr;
+		// 7.2p1 and 7.2p3: an enum-specifier that wrote no braces inside a
+		// declaration is the elaborated form, which names an enumeration that
+		// exists.  What says the braces were written is the `}` the parse kept
+		// and not the enumerators between them, because 7.2p1 leaves the
+		// enumerator-list optional - `enum E {} e;` defines an enumeration and
+		// declares an object of it, as `enum E { x } e;` does.
+		const bool elaborated = node.completed == 0;
 		SemaEntity& entity = enum_declaration(node, ctx, elaborated, named_by);
 		out.introduced = &entity;
 		out.has_type_name = true;

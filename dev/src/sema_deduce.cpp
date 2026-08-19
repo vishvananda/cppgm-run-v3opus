@@ -471,53 +471,6 @@ bool Deduction::match(TypeId pattern, TypeId argument,
 	}
 }
 
-// 14.8.2.1p3 at a template place: the A a pair written out by the use deduces
-// may be a base of what was passed, and `L<A…>` names no one template for
-// `named_below` to look for - what it asks of a base is 14.3.3p1's question,
-// which is the same one the pair itself asks.
-//
-// `argument` itself where it already is a naming this pair can read, and the
-// first class below it that is one otherwise.  10p1 makes a base of a base a
-// base, so the whole tree is walked.
-TypeId Deduction::derived_template_id(TypeId argument, TypeId place,
-                                      bool derived) const
-{
-	TypeTable& types = analyzer_.types_;
-	if (types.applied_template(argument) != kNoType ||
-	    (types.kind(argument) == TypeKind::Class &&
-	     types.is_specialization(argument)))
-	{
-		return argument;
-	}
-	const SemaEntity* const owner = analyzer_.model_.type_owner(argument);
-	return derived && owner != nullptr ? specialization_below(*owner, place)
-	                                   : kNoType;
-}
-
-TypeId Deduction::specialization_below(const SemaEntity& at, TypeId place) const
-{
-	TemplateHead heads(analyzer_);
-	const TemplateInfo* const wanted = analyzer_.place_head(place);
-	for (std::size_t index = 0; index < at.bases.size(); ++index)
-	{
-		const SemaEntity& base = *at.bases[index].entity;
-		const TypeId type = analyzer_.types_.strip_cv(base.type);
-		if (analyzer_.types_.is_specialization(type) &&
-		    base.primary != nullptr && base.primary->templated != nullptr &&
-		    (wanted == nullptr ||
-		     heads.argument_matches(*wanted, *base.primary->templated)))
-		{
-			return type;
-		}
-		const TypeId deeper = specialization_below(base, place);
-		if (deeper != kNoType)
-		{
-			return deeper;
-		}
-	}
-	return kNoType;
-}
-
 // 14.8.2.5p4 at a template place: `L<A…>` against what an argument list was
 // already applied to.
 //
@@ -553,12 +506,70 @@ bool Deduction::match_template_id(TypeId pattern, TypeId argument, TypeId place,
 		// of this walk is given.
 		return false;
 	}
-	const TypeId bare = derived_template_id(types.strip_cv(argument), place,
-	                                        derived);
-	if (bare == kNoType)
+	// 14.8.2.1p3 read here as it is read at a named template: the naming the
+	// deduction *succeeds* from is the answer, and one it refuses says nothing
+	// about the namings below it.  The argument itself is the first one tried
+	// where it is a naming at all, and a class that is one is no answer on its
+	// own - `holder<int> : holder<char>` reaches its answer past its own head.
+	const TypeId bare = types.strip_cv(argument);
+	if (names_a_template(bare) &&
+	    match_naming(pattern, bare, place, bindings))
 	{
-		return false;
+		return true;
 	}
+	const SemaEntity* const owner = analyzer_.model_.type_owner(bare);
+	return derived && owner != nullptr &&
+		naming_below(pattern, *owner, place, bindings);
+}
+
+// Whether `bare` is a naming this pair can read at all: a class an argument list
+// already made of a template the program declared, or a place standing for
+// itself that an argument list was applied to.
+bool Deduction::names_a_template(TypeId bare) const
+{
+	TypeTable& types = analyzer_.types_;
+	return types.applied_template(bare) != kNoType ||
+		(types.kind(bare) == TypeKind::Class && types.is_specialization(bare));
+}
+
+// 14.8.2.1p3 at a template place: the first naming below `at` that the whole
+// pair deduces from, with what it deduced bound.
+//
+// 10p1 makes a base of a base a base, so the whole tree below the argument is
+// walked - one visit per class in it, the repeated subobject a diamond would
+// make being refused where the class is completed.
+bool Deduction::naming_below(TypeId pattern, const SemaEntity& at, TypeId place,
+                             std::unordered_map<TypeId, TypeId>& bindings)
+{
+	for (std::size_t index = 0; index < at.bases.size(); ++index)
+	{
+		const SemaEntity& base = *at.bases[index].entity;
+		const TypeId type = analyzer_.types_.strip_cv(base.type);
+		if (names_a_template(type) &&
+		    match_naming(pattern, type, place, bindings))
+		{
+			return true;
+		}
+		if (naming_below(pattern, base, place, bindings))
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+// 14.8.2.5p4 over one naming: which template it was applied to, which is what
+// `L` is deduced to, against 14.3.3p1's question of whether that template's head
+// fits the place - and then the rest of the pattern against the arguments the
+// naming was made with.
+//
+// Both halves are committed to `bindings` together or not at all, because the
+// walk above has more namings to try and a place bound by an attempt no
+// argument pair of it agreed with would answer the next of them wrongly.
+bool Deduction::match_naming(TypeId pattern, TypeId bare, TypeId place,
+                             std::unordered_map<TypeId, TypeId>& bindings)
+{
+	TypeTable& types = analyzer_.types_;
 	const TypeId over = types.applied_template(bare);
 	const TemplateInfo* given = nullptr;
 	TypeId named = kNoType;
@@ -589,16 +600,22 @@ bool Deduction::match_template_id(TypeId pattern, TypeId argument, TypeId place,
 	{
 		return false;
 	}
+	std::unordered_map<TypeId, TypeId> trial(bindings);
 	const std::pair<std::unordered_map<TypeId, TypeId>::iterator, bool> held =
-		bindings.insert(std::make_pair(place, named));
+		trial.insert(std::make_pair(place, named));
 	if (!held.second && held.first->second != named)
 	{
 		// 14.8.2.5p2: two arguments that deduce one place differently deduce
 		// nothing.
 		return false;
 	}
-	return match_arguments(types.template_arguments(types.strip_cv(pattern)),
-	                       types.template_arguments(bare), bindings);
+	if (!match_arguments(types.template_arguments(types.strip_cv(pattern)),
+	                     types.template_arguments(bare), trial))
+	{
+		return false;
+	}
+	bindings.swap(trial);
+	return true;
 }
 
 // 14.8.2.5p13: 8.3.4p1's bound as a P/A pair of its own.

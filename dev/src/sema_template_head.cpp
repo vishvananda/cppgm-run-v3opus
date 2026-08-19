@@ -255,15 +255,18 @@ bool TemplateHead::declares_pack(const AstNode& parameter)
 	// 8.3.5p1: the ellipsis of a parameter-declaration stands in the declarator
 	// rather than after the decl-specifier-seq wherever a ptr-operator was
 	// written, so `int & ... Rs` and `int * ...` write it there and `int ... Ns`
-	// writes it above.  8.3p1 lets a declarator hold another - `int (& ...
-	// Rs)[2]` writes the `...` inside the parentheses - so the walk goes down
-	// the declarators and down nothing else: the ellipsis of a *parameter
-	// clause* below one is 8.3.5p4's variadic function and no pack at all.
+	// writes it above.  8.3p1 lets a declarator hold another, and the ellipsis
+	// then stands in the *inner* one - `int (& ... Rs)[2]` writes it inside the
+	// parentheses - so the walk goes down the declarators, through the
+	// parentheses holding one, and down nothing else: the ellipsis of a
+	// *parameter clause* below one is 8.3.5p4's variadic function and no pack at
+	// all, which is why a clause is not a step this walk takes.
 	for (std::size_t at = 0; at < parameter.children.size(); ++at)
 	{
 		const AstNode& child = *parameter.children[at];
 		if ((child.kind == AstKind::Declarator ||
-		     child.kind == AstKind::AbstractDeclarator) &&
+		     child.kind == AstKind::AbstractDeclarator ||
+		     child.kind == AstKind::NestedDeclarator) &&
 		    declares_pack(child))
 		{
 			return true;

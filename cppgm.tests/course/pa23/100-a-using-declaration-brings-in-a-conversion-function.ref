@@ -1,0 +1,144 @@
+function @measure(%v : i32) -> i32 [binding=strong, object=_Z7measurei] {
+  slot $v : i32
+
+  block ^entry:
+    store i32 %v, $v
+    %t1 = load i32 $v
+    return i32 %t1
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $h : obj<4x4>
+  slot $cond__1 : i32
+  slot $land__2 : i64
+  slot $land__3 : i64
+  slot $land__4 : i64
+  slot $cond__5 : i32
+
+  block ^entry:
+    %t1 = addr $h
+    call void @holder__holder(%t1)
+    %t2 = addr $h
+    %t3 = index i8 [projection=base_subobject] %t2, 0
+    %t4 = call i32 @base__operatorcounted(%t3)
+    %t5 = cmp eq i32 %t4, 7
+    branch %t5, ^land_rhs_10, ^land_short_11
+
+  block ^land_rhs_10:
+    %t6 = addr $h
+    %t7 = index i8 [projection=base_subobject] %t6, 0
+    %t8 = call i32 @base__operatorcounted(%t7)
+    %t9 = call i32 @measure(%t8)
+    %t10 = cmp eq i32 %t9, 7
+    %t11 = cmp ne i64 %t10, 0
+    store i64 %t11, $land__4
+    jump ^land_end_12
+
+  block ^land_short_11:
+    store i64 0, $land__4
+    jump ^land_end_12
+
+  block ^land_end_12:
+    %t12 = load i64 $land__4
+    branch %t12, ^land_rhs_7, ^land_short_8
+
+  block ^land_rhs_7:
+    %t13 = addr $h
+    %t14 = index i8 [projection=base_subobject] %t13, 0
+    %t15 = call u8 @base__operatorbool(%t14)
+    branch %t15, ^cond_then_13, ^cond_else_14
+
+  block ^cond_then_13:
+    store i32 1, $cond__5
+    jump ^cond_end_15
+
+  block ^cond_else_14:
+    store i32 0, $cond__5
+    jump ^cond_end_15
+
+  block ^cond_end_15:
+    %t16 = load i32 $cond__5
+    %t17 = cmp eq i32 %t16, 1
+    %t18 = cmp ne i64 %t17, 0
+    store i64 %t18, $land__3
+    jump ^land_end_9
+
+  block ^land_short_8:
+    store i64 0, $land__3
+    jump ^land_end_9
+
+  block ^land_end_9:
+    %t19 = load i64 $land__3
+    branch %t19, ^land_rhs_4, ^land_short_5
+
+  block ^land_rhs_4:
+    %t20 = addr $h
+    %t21 = index i8 [projection=base_subobject] %t20, 0
+    %t22 = call ptr @base__operatorintconst_(%t21)
+    %t23 = load i32 %t22
+    %t24 = cmp eq i32 %t23, 7
+    %t25 = cmp ne i64 %t24, 0
+    store i64 %t25, $land__2
+    jump ^land_end_6
+
+  block ^land_short_5:
+    store i64 0, $land__2
+    jump ^land_end_6
+
+  block ^land_end_6:
+    %t26 = load i64 $land__2
+    branch %t26, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t27 = load i32 $cond__1
+    return i32 %t27
+}
+function @base__operatorbool(%this : ptr) -> u8 [binding=weak, object=_ZNK4basecvbEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i32 %t2
+    %t4 = cmp ne i32 %t3, 0
+    return u8 %t4
+}
+function @base__operatorcounted(%this : ptr) -> i32 [binding=weak, object=_ZNK4basecviEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = load i32 %t2
+    return i32 %t3
+}
+function @base__operatorintconst_(%this : ptr) -> ptr [binding=weak, object=_ZNK4basecvPKiEv] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    return ptr %t2
+}
+function @holder__holder(%this : ptr) -> void [binding=weak, object=_ZN6holderC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 7, %t3
+    return void
+}
+alias object _ZN6holderC2Ev = @holder__holder

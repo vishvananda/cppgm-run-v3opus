@@ -186,12 +186,16 @@ private:
 	bool match_template_id(TypeId pattern, TypeId argument, TypeId place,
 	                       std::unordered_map<TypeId, TypeId>& bindings,
 	                       bool relaxed, bool derived);
-	// 14.8.2.1p3 at a template place: `argument` itself where it is a naming
-	// this pair reads, and the first class below it that is one otherwise -
-	// which is what a place stands for rather than a named template.
-	TypeId derived_template_id(TypeId argument, TypeId place,
-	                           bool derived) const;
-	TypeId specialization_below(const SemaEntity& at, TypeId place) const;
+	// 14.8.2.1p3 at a template place, read as it is at a named template: the
+	// naming the whole pair deduces from rather than the first one written,
+	// committed to `bindings` only where both halves of it agreed.  What a
+	// naming is here is 14.3.3p1's question and not a template-name, because
+	// `L<A…>` names no one template to look for.
+	bool names_a_template(TypeId bare) const;
+	bool naming_below(TypeId pattern, const SemaEntity& at, TypeId place,
+	                  std::unordered_map<TypeId, TypeId>& bindings);
+	bool match_naming(TypeId pattern, TypeId bare, TypeId place,
+	                  std::unordered_map<TypeId, TypeId>& bindings);
 
 	// 14.8.2p5 and 14.1p9: the argument each parameter of `primary` was deduced
 	// or, where the deduction reached none, the one its head wrote a default
