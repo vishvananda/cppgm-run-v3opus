@@ -536,6 +536,7 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 			// 5.2.2p7: the constructor was declared with an ellipsis and this
 			// argument is one no parameter names, so it is passed as it stands.
 			require_complete_value(arguments[index]);
+			name_ellipsis_object(arguments[index]);
 			continue;
 		}
 		const Match match = match_argument(arguments[index],
@@ -884,6 +885,31 @@ void SemaAnalyzer::name_argument_temporary(const Value& value,
 	// temporary is has a lifetime, and the full-expression this argument stands
 	// in is what ends it.
 	register_temporary(*value.node, ctx.scope);
+}
+
+// 5.2.2p7 with 12.8p15: an argument the ellipsis matched is passed as it
+// stands, and a value of class type is storage rather than a value - so what
+// crosses the boundary is the object, exactly as it is at 5.2.2p4's by-value
+// parameter, and the storage is named after the call that asked for it.  Its
+// lifetime is not: the callee is told nothing about the type, so nothing there
+// could end it, and 12.2p3 leaves the temporary in the full-expression that
+// wrote it.
+//
+// Every door that writes a call asks this.  `finish_call` is where an ordinary
+// call and the one 13.3.1.2p1 makes of an operator both arrive; a constructor
+// has no declared parameter list a call of it is written against - 12.1p1's own
+// object parameter stands first - so `construct_object` walks its arguments
+// itself and asks here rather than there.
+void SemaAnalyzer::name_ellipsis_object(const Value& value)
+{
+	if (value.node == nullptr ||
+	    value.node->fact.kind != FactKind::TemporaryObject ||
+	    !types_.is_class(types_.strip_cv(value.type)))
+	{
+		return;
+	}
+	value.node->fact.spelling =
+		requested_prefix(Requested::Argument, true, kNoType);
 }
 
 // 12.2p3: what the end of the full-expression a temporary was created in comes

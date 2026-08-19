@@ -2654,6 +2654,20 @@ SemaAnalyzer::Value SemaAnalyzer::call_value(DumpNode& line, Value& target,
 	if (types_.kind(target.type) == TypeKind::Function)
 	{
 		function = target.type;
+		if (target.functions != nullptr && target.addressed == nullptr &&
+		    target.entity != nullptr &&
+		    target.entity->kind == SemaKind::Function)
+		{
+			// 5.2.2p1: the operand *names* a function, so the call runs that
+			// declaration - the same line a callee the program wrote as a name
+			// is written on.  4.3's pointer is what the name would be worth in
+			// an operand position that asks for a value, and a call asks for
+			// none: an operand that came to a function some other way - 5.3.1's
+			// indirection through a pointer, a reference bound to one - names
+			// no declaration and is called through what it came to.
+			name_function(target, *target.entity, "callee");
+			function = target.type;
+		}
 	}
 	else
 	{
@@ -2731,24 +2745,12 @@ SemaAnalyzer::Value SemaAnalyzer::finish_call(DumpNode& line, TypeId function,
 	{
 		if (index >= parameters.size())
 		{
-			// 5.2.2p7: an argument matched by the ellipsis is passed as it is.
+			// 5.2.2p7: an argument matched by the ellipsis is passed as it is,
+			// and 12.8p15 makes a value of class type the object rather than
+			// its bytes - which `name_ellipsis_object` is the one answer to,
+			// asked here and where a constructor's own list is walked.
 			require_complete_value(arguments[index]);
-			// 12.8p15 with 12.2p1: a value of class type is storage rather
-			// than a value, so what crosses the ellipsis is the object - and
-			// with no parameter on the other side to say how, the address is
-			// the one description both ends share.  That is the half of
-			// 5.2.2p4's answer the name `arg` says, so the storage is named
-			// here as it is there.  Its lifetime is not: a call through an
-			// ellipsis tells the function nothing about the type, so nothing
-			// there could end it and 12.2p3 leaves it where it was written.
-			DumpNode* const passed = arguments[index].node;
-			if (passed != nullptr &&
-			    passed->fact.kind == FactKind::TemporaryObject &&
-			    types_.is_class(types_.strip_cv(arguments[index].type)))
-			{
-				passed->fact.spelling =
-					requested_prefix(Requested::Argument, true, kNoType);
-			}
+			name_ellipsis_object(arguments[index]);
 			continue;
 		}
 		const Match match = match_argument(arguments[index], parameters[index]);

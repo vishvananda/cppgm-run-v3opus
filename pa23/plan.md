@@ -74,9 +74,13 @@ Owners, in the order a use walks them:
   the run, the declaration is the only carrier the fact has.
 - `lowir_abi.cpp` — 14.2's encoding of an argument list, and 14.1p4's own
   answer to which places bind an address.
-- `lowir_lower_object.cpp` — 5.2.2p4's parameter object and 5.2.2p7's argument
-  the ellipsis matched, which is the same object question asked with no
-  parameter on the other side to answer it.
+- `lowir_lower_object.cpp` / `sema_lifetime.cpp` — 5.2.2p4's parameter object and
+  5.2.2p7's argument the ellipsis matched, which is the same object question
+  asked with no parameter on the other side to answer it.  `passed_operand` is
+  the one lowering door every argument walk reaches, and `name_ellipsis_object`
+  is the one sema door the two walks that write a call ask - `finish_call`'s,
+  which an ordinary call and 13.3.1.2p1's operator call share, and the
+  constructor's own, which 12.1p1's leading object parameter keeps apart.
 - `lowir_lower.cpp` — which definitions this object file holds, which is two
   questions and not one: whose definition it is (7.1.2p4, widened by 14.7.3p5)
   and whether this unit writes one nobody used (3.2p4, asked of whether a
@@ -94,7 +98,7 @@ Owners, in the order a use walks them:
 
 ## Current Failure Map
 
-473 tests (400 handout + 73 course), **465 passing** (handout 392 / 400).  The 8
+475 tests (400 handout + 75 course), **467 passing** (handout 392 / 400).  The 8
 left, all handout, by the compiler behavior each wants:
 
 | group | n | shape |
@@ -127,31 +131,51 @@ them.
 - **A subscript of a deeply nested array recurses per dimension.**
   `a[0]...[0]` over 20000 dimensions segfaults; the declaration alone and its
   `= {}` do not, so the reader is the subscript's and no part of 8.5p7's walk.
-- **20.8.2p1's pointer-to-member arms are refused.**  The other four bullets of
-  `INVOKE` are 5.5's `(t1.*f)(t2...)` and `t1.*f`, which have no reader at any
-  tier here - `&S::m` is refused one layer down - so `__builtin_invoke` over a
-  pointer to member is 14.8.2p8's failure rather than an answer invented from
-  the pointer's type.  `pa34/tests/run/800-builtin-invoke-run.t.1` and
+- **20.8.2p1's pointer-to-member arms are refused one layer down.**  The other
+  four bullets of `INVOKE` are 5.5's `(t1.*f)(t2...)` and `t1.*f`, which have no
+  reader at any tier here.  `BuiltinReading::invoke` refuses such a callable as
+  14.8.2p8's failure, but nothing reaches that refusal: `&S::m` on its own is
+  `an expression is outside the PA15 lowering subset`, so the program dies in the
+  lowering rather than dropping a candidate, and a detector written with an
+  `f(...)` fallback is refused here and answered by the reference's data-member
+  arm.  `pa34/tests/run/800-builtin-invoke-run.t.1` and
   `800-builtin-invoke-pointer-like-member-run.t.1` pin all three arms, including
   C++17's `(*t1).*f` through a smart-pointer-like class, so they are the later
-  milestone's; the reference implements the data-member one and refuses the
-  member-function one at the shape probed.
+  milestone's.
 - **`__has_builtin` has no reader at any tier.**  It is a preprocessor question
   and `pa34/tests/run/800-builtin-invoke-run.t.1` opens with one, so a program
   that asks before writing the call is refused in phase 4.
+- **The fold has no reading of the three calls the translation answers itself.**
+  `ConstexprReading::callee_candidates` asks `BuiltinReading::reserved` and not
+  `answers`, so `__builtin_invoke`, `__builtin_constant_p` and `__builtin_abort`
+  written where 5.19 reads are `is written where a constant expression calls and
+  names no function`.  The reference refuses the same programs - `static_assert
+  unevaluated`, `unsupported constexpr variable initializer` - so no fixture can
+  pin either answer.
 - **`::__builtin_invoke` is accepted here and `unknown function` in the
   reference.**  3.4.3.2p1 is what `reserved` already reads for
   `::__builtin_strlen`, and the three calls the translation answers itself now
-  read it the same way; the reference draws the line the other way and lists
-  none of the three among the global functions it shows.
+  read it the same way; the reference draws the line the other way for
+  `__builtin_invoke` alone, and agrees with us on `::__builtin_constant_p`.
+- **`__builtin_abort` is outside the PA15 lowering subset**, written with a
+  nested-name-specifier or without one, and translated by the reference.  It is
+  PA12's own recognition with no lowering behind it and is older than the
+  template layer.
 - **A program that declares `int __builtin_invoke(int);` names its own
   declaration here and the builtin in the reference.**  17.6.4.3.2p1 makes such
   a program ill-formed with no diagnostic required, so either answer conforms;
   ours is the one every other name the implementation reserves already gets,
   which is that ordinary lookup is asked first.
-- **The reference is 2^depth on nested `__builtin_invoke`.**  `INVOKE` written
-  d deep over a forwarding `operator()` is 1.60 s there at 12, 19.13 at 16 and
-  over 200 at 20, against 0.00 s here at 128.
+- **The reference refuses a constructor's ellipsis at a second class argument
+  and at a call result.**  `C c(1, P(), Q())` and `C c(1, make())` over a
+  `C(int, ...)` are `constructor call-expression arity mismatch` there and
+  translated by `g++` and by this build, which runs them to `g++`'s value.
+- **The reference accepts `C c = C(1, P());` and writes an *empty* init body for
+  it**, so the object is never constructed there; this build constructs it and
+  runs to `g++`'s value.  The pre-checkpoint binary refuses the program.
+- **`(*f)(3)` writes one `unary decay` more than the reference**, which reads
+  5.3.1's indirection as producing the pointer.  No `INVOKE` reaches it: an
+  operand that *names* a function is written as a callee and called directly.
 - **13.5.2p1's arity of an operator function has no reader at any tier.**
   `template<class T> int operator-(tag, T, int = 0)` is a declaration `g++`
   refuses and the reference and this build accept.  The reference implements the
@@ -358,10 +382,13 @@ them.
   and in `g++`; the reference calls X's default constructor for the first and
   zeroes the second, one clause apart.  5.2.3p2 is what says `X()` is
   value-initialized.
-- **`sema_analyzer.h` stands at 2395 of its 2400 lines.**  Checkpoint 33 freed
-  the room it needed by moving 1.4p8's and 3.7.4's declarations to
-  `sema_builtin.h`, which also took 185 lines out of `sema_expression.cpp`; the
-  next declaration added there needs room freed the same way.
+- **`sema_analyzer.h` stands at 2398 of its 2400 lines**, and
+  `SemaAnalyzer::construct_object` at 239 of the audit's 240.  Checkpoint 33
+  freed the room it needed by moving 1.4p8's and 3.7.4's declarations to
+  `sema_builtin.h`, which also took 185 lines out of `sema_expression.cpp`;
+  checkpoint 34 spent three of what was left.  The next declaration added at
+  either place needs room freed the same way, by moving a group with an owner of
+  its own rather than by trimming comments.
 - **14.8.2.1p4's ambiguity at a base-class deduction has no reader, at either
   arm.**  Two bases of one argument that both match P - `D : P<int,char>,
   P<long,char>` against `P<A,char>`, and `held : one<int>, one<char>` against a
@@ -442,71 +469,65 @@ them.
 
 ## Active Checkpoint
 
-**20.8.2p1's `INVOKE`, and the object 5.2.2p7 has no parameter for.**
-Complete; ledger row 33 is its record.
+**An audit of `INVOKE` and 5.2.2p7's object.**  Complete; ledger row 16 is its
+record and `audit.md`'s Current Checkpoint Review is its reading.
 
-The two `invoke_result_impl` tests were the deduction layer waiting on a builtin
-the expression layer had no reading of, and the third failure this turn turned
-was the layer *below* a deduction that had always worked: the fallback
-`f(...)` a detector is written against could not be lowered where the argument
-was a class.
+Checkpoint 33 settled two facts and landed each at one of the two doors that ask
+it, so both fixes are the same sentence: a rule written at one exit has to be
+written where every reader of it stands.
 
 - *Owner and data flow.*
-  - `sema_builtin.{h,cpp}` — the three kinds of function the implementation
-    provides, moved out of `sema_expression.cpp` into one owner, because each
-    answers what a name no region declared denotes at a different tier: 3.7.4's
-    allocation functions bound before the unit is read, 1.4p8's reserved
-    functions declared by the first use, and the calls whose meaning is no
-    function type at all.  `BuiltinReading::invoke` is the third kind's largest
-    member: it reads the operands through the same `InitializerClauses` every
-    other call's arguments go through, so 14.5.3p4's `declval<Args>()...` is one
-    operand per element of the run, and *then* splits the callable off - which
-    is the only order that works, because what was written names no operand at
-    all until the run is bound.
-  - `sema_overload.cpp` — `call_value` is the tail of `call_expression` that has
-    nothing left to choose among: a function, a pointer to one, or an object
-    whose class declares `operator()`.  `INVOKE`'s callable is never a name, so
-    it asks this and nothing above it, and 13.5.4p1's lookup, 13.3.1.1.2p2's
-    surrogate, 5.2.2p4's conversions and 8.3.6p1's default arguments come with
-    it rather than being written a second time.
-  - `sema_overload.cpp` / `lowir_lower_object.cpp` — 5.2.2p7's argument.  12.8p15
-    makes a value of class type storage rather than a value, so what crosses an
-    ellipsis is an object; with no parameter on the other side to say how, the
-    address of the object the argument *designates* is the one description both
-    ends share.  A prvalue is the temporary the expression already made - named
-    `arg` by `finish_call` as 5.2.2p4's parameter object is - and an lvalue is
-    passed where it stands, with no copy, because there is nothing to copy into.
-    The lifetime stays 12.2p3's: a call through an ellipsis tells the function
-    nothing about the type, so nothing there could end it.
-- *Expected complexity.*  One `InitializerClauses` walk and one vector split per
-  `__builtin_invoke`, then the ordinary call.  One field test per ellipsis
-  argument, and strictly less work than before for a class one, which now copies
-  nothing.
-- *Validation.*  45 `INVOKE` probes and 16 ellipsis probes judged through the
-  real comparator against the reference, `g++` (through a hand-written
-  `f(args...)` rewriting, since `g++` has no such builtin) and this build: 58 of
-  61 agree with the reference on acceptance and 44 of 46 mutually accepted ones
-  are byte-identical; the three disagreements are a reference parse gap where
-  `g++` agrees with us, and two answers about a name the program may not use at
-  all.  Seven run to `g++`'s value through `lowir2cy86` + `cy86`, and PA34's
-  `800-builtin-invoke-dependent-alias-pack-run` with them; its
-  `800-builtin-invoke-user-defined-argument-conversion-run` segfaults from the
-  reference's own LowIR as from ours, which is the scaffold's class-by-value
-  ceiling.  pa23 **457 / 468
-  -> 465 / 473** (handout 389 -> 392 / 400); `through-pa22` 2948 / 2948; file
-  audit clean; every handout and course `.ref` regenerated with not one tracked
-  file changed; 0 exits above 1 over 4116 inputs; valgrind clean over 207.
+  - `sema_lifetime.cpp` / `sema_analyzer.h` — `name_ellipsis_object`, the one
+    answer to what an argument the ellipsis matched *is*.  12.8p15 makes a value
+    of class type storage rather than a value, so what crosses is the object,
+    named after the call that asked for it exactly as 5.2.2p4's by-value
+    parameter object is; its lifetime is not the callee's, because a call
+    through an ellipsis tells the function nothing about the type, so 12.2p3
+    leaves the temporary in the full-expression that wrote it.  Two argument
+    walks reach it: `finish_call`, where an ordinary call and the one 13.3.1.2p1
+    makes of an operator both arrive, and `construct_object`, which walks a
+    constructor's own list because 12.1p1's object parameter stands first and no
+    call of a constructor can be read through the declared parameter list.
+  - `sema_overload.cpp` — `call_value` writing the callee line where the operand
+    *names* a function.  5.2.2p1's call of a name runs that declaration; 4.3's
+    pointer is what the name would be worth in an operand position asking for a
+    value, and a call asks for none.  The gate is `functions` non-null with no
+    `&` over it, which is exactly the arm `call_expression` routes here and never
+    the one 5.3.1's indirection or a reference bound to a function takes.
+  - `lowir_lower_object.cpp` — unchanged: `passed_operand` was already the one
+    lowering door for all three argument walks, and what the two fixes move is
+    the *name* the sema layer gives the object and the *shape* of the callee
+    line, both of which it reads.
+- *Expected complexity.*  One field test per argument past the declared
+  parameters, at the door that was not already asking; two pointer tests on an
+  arm a call of a value already took.  Nothing is read twice and nothing is
+  rebuilt.
+- *Validation.*  69 probes judged through the real comparator against the
+  reference, `g++`, the pre-audit binary (`f75d95b9`) and the pre-checkpoint one
+  (`378a30f3`): **58 agree with the reference**, byte-identical wherever both
+  accept, and each of the 11 that do not is recorded above.  15 run through
+  `lowir2cy86` + `cy86` and 14 reach `g++`'s value; the fifteenth is the detector
+  `g++` cannot judge, having no `__builtin_invoke` of its own.  Two course
+  fixtures added, each failing on the pre-audit binary.  pa23 **465 / 473 ->
+  467 / 475** (handout 392 / 400); `through-pa22` 2948 / 2948; file audit clean;
+  every handout and course `.ref` regenerated with not one tracked file changed;
+  0 exits above 1 over 4155 inputs; valgrind clean over 162.
 
 ## Next Substantial Checkpoint
 
-**An audit of `INVOKE` and 5.2.2p7's object**, which is the even-numbered turn:
-the checkpoint moved three owners' worth of code and added one new one, so the
-questions to ask are what the moved reading stopped being asked and which
-sibling of `passed_operand` answers the same question about an object crossing a
-boundary.  Beside it, the group the failure map now leads with: the two LowIR
-text mismatches, and 12.6.2p8's default member initializer in the image, which
-is one fact `global_constructed` has no reader of and the largest thing left on
-that axis.
+**12.6.2p8's default member initializer in the image, and the two LowIR text
+mismatches beside it.**  `struct A { int i = 3; }; A g;` is `i32 3` in the
+reference and `zero 4` plus a startup body here, at every member type and for
+`= {}` as much as for a written value: `global_constructed` reads a
+constructor's *dump* body and a defaulted one has none, so the
+brace-or-equal-initializer is the fact it has to read instead.  It is the
+largest thing left on the image axis and the failure map's leading group is the
+two LowIR text mismatches beside it.  The one clause behind two of the three
+remaining "the rest" failures is 9.2p2's complete-class context in the *parser*:
+a member function body has to be deferred to the closing brace as the semantic
+layer already defers it, which is what
+`100-explicit-member-template-id-distinct-from-nontemplate.t` and the one
+remaining `is not a translation unit` both want.
 
 ## Performance Model
 
@@ -532,17 +553,19 @@ same way; superseded rows are dropped and the shapes that mattered are named in
 the ledger.  A shape a checkpoint *un-refuses* has no baseline on the earlier
 binary - refusing it is less work, not the same work - so it is timed against
 the nearest shape that already worked.  The whole corpus of pa10 through pa29
-and cppgm.tests - 4116 inputs, one process apiece - reads **18.01 / 17.80 s** on
-this binary against **18.16 / 18.23 s** on the pre-checkpoint one over two
-passes, which is the spawn floor of 4116 processes and no difference between the
-two.  What is live:
+and cppgm.tests - 4155 inputs, one process apiece - reads **19.68 / 19.35 s** on
+this binary against **19.46 / 19.25 s** on the pre-audit one over two passes,
+which is the spawn floor of 4155 processes and no difference between the two.
+What is live:
 
 | sweep | shape | result |
 | --- | --- | --- |
-| `__builtin_invoke` multiplicity | n distinct `INVOKE` calls over n classes, and n specializations of one `invoke_result_impl` detector | 0.01 s @200, 0.07 @800, 0.36 @3200 for the calls and 0.04 / 0.17 / 0.84 for the detector, against the reference's 0.70 / 0.90 / 2.10 and 1.00 / 2.30 / 7.71 over its own 0.60 s floor - linear on both, and one ordinary call per operand split |
-| `__builtin_invoke` operand width | one `INVOKE` over a run of n expanded operands | 0.00 s at 8, 32 and 128 and 0.01 at 512 - the run is walked once, by the `InitializerClauses` the arguments needed anyway |
-| `__builtin_invoke` nesting depth | `INVOKE(f, INVOKE(f, ...))` written d deep over a forwarding `operator()` | 0.00 s at 2, 8, 32 and 128, against the reference's 1.60 s at 12, 19.13 at 16 and over 200 at 20 - flat here and 2^depth there, because the callable is split off the settled operands rather than the reading being made again per level |
+| `__builtin_invoke` multiplicity | n distinct `INVOKE` calls over n classes | 0.05 s @200, 0.24 @800, 0.98 @3200 against 0.05 / 0.24 / 1.02 on the pre-audit binary, and the reference's 0.89 / 2.83 / **39.51** over its own 0.53 s floor - linear here and superlinear there, one ordinary call per operand split |
+| `__builtin_invoke` operand width | one `INVOKE` over a run of n expanded operands | 0.00 s at 8, 32 and 128 and 0.02 at 512 on both binaries - the run is walked once, by the `InitializerClauses` the arguments needed anyway |
+| `__builtin_invoke` nesting depth | `INVOKE(fwd(), INVOKE(fwd(), ...))` written d deep over a template `operator()` | 0.00 s at 2, 8, 32 and 128 on both binaries, against the reference's 1.00 s at 12, 8.11 at 16 and 122.68 at 20 - flat here and 2^depth there, because the callable is split off the settled operands rather than the reading being made again per level |
 | ellipsis class-argument multiplicity | n calls passing a class prvalue through `...`, n passing a named lvalue, and n passing two scalars | 0.01 s @200, 0.03 @800, 0.14 @3200 for the prvalue and 0.00 / 0.02 / 0.08 for both the lvalue and the scalar - so an lvalue crossing an ellipsis costs exactly what a scalar does, which is what making no copy means.  The pre-checkpoint binary refuses all three class shapes, so they have no baseline |
+| constructor-ellipsis multiplicity | n declarations `C c(k, P())` over a `C(int, ...)` | 0.01 s @200, 0.06 @800, 0.25 @3200 on both binaries - the object naming is one field test per argument past the declared parameters, at the walk a constructor's list gets |
+| value-callee multiplicity | n calls through n pointers to one function, and n calls of n distinct functions by name | 0.01 s @200, 0.04 @800, 0.16 @3200 through pointers and 0.01 / 0.04 / 0.20 by name, identical on both binaries - the question "does this operand name a declaration" is two pointer tests on an arm the call already took |
 | dependent-value naming multiplicity | n distinct `traitK<T>::value` namings in one template, and one naming written n times | 0.02 s @200, 0.11 @800, 0.58 @3200 distinct against 0.02 / 0.12 / 0.57 on the pre-audit binary, and 0.00 / 0.02 / 0.08 for the one written n times on both - one map probe per naming read and one entry per distinct one |
 | dependent-value substitution multiplicity | n classes, one `take<kI>()` apiece over a declarator holding one such naming | 0.03 s @200, 0.13 @800, 0.61 @3200 against 0.03 / 0.13 / 0.62 - one lookup, one access question and one 5.19 read per specialization, where the spelling form re-read the expression against a rebuilt region |
 | two spellings of one naming, multiplicity | n member templates declared with the class's typedef and defined with the parameter, against n that spelled both the same way | 0.03 s @200, 0.13 @800, 0.56 @3200, identical to the one-spelling shape and to the pre-audit binary; the pre-checkpoint binary refuses the two-spelling program at every n and so has no baseline for it |
@@ -633,7 +656,15 @@ Why the work costs what it does:
 - 5.2.2p7's class argument is one `is_class` test per argument past the declared
   parameters, and where the object already stands somewhere it is the address
   and no copy - strictly less work than the by-value parameter beside it, which
-  owes 12.8p15's copy because the parameter is a second object.
+  owes 12.8p15's copy because the parameter is a second object.  Naming that
+  object is one more field test at the same place, asked through
+  `name_ellipsis_object` by both argument walks: `finish_call`'s, which an
+  ordinary call and 13.3.1.2p1's operator call share, and `construct_object`'s,
+  which a constructor needs because 12.1p1's object parameter stands first.
+- Whether a callee that came to one value *names* a declaration is two pointer
+  tests, asked once per call on the arm `call_value` already took - so 5.2.2p1's
+  direct call of a name costs a call of a pointer nothing, and the callee line
+  it writes is the one `name_function` already builds for every other call.
 - `passed_array` is one `is_reference`, one `kind` and one fact-kind test per
   argument of every call, and the object type it hands back is the one
   `list_initialize_into` had already computed.  `kZeroSpanLimit` is what keeps
@@ -677,3 +708,4 @@ Why the work costs what it does:
 | 31 | 14.4p1: the value a dependent qualified-id names is the member and not the spelling | `type_model.{h,cpp}`, `sema_declaration.h`, `sema_value_expression`, `sema_deduce.{h,cpp}`, `lowir_abi`, `abi_mangle.{h,cpp}` | 452 / 465 -> 456 / 467 (handout 387 -> 389 / 400); 63 probes against the reference, `g++` and the pre-checkpoint binary, 52 run to `g++`'s value and 61 byte-identical through the real comparator against 60 before; 6 mangling shapes agreeing with `g++` where 0 did; every handout and course `.ref` regenerated with not one tracked file changed; 4110-input crash sweep clean; valgrind clean over 142 |
 | 32 | audit: what an identity does not carry, and what the reading it replaced asked | `sema_value_expression`, `sema_deduce.{h,cpp}`, `sema_declaration.h`, `type_model.{h,cpp}`, `sema_pack`, `abimangle` | 456 / 467 -> 457 / 468 (handout 389 / 400); 69 probes through the real comparator, 57 byte-identical to the reference and 55 run to `g++`'s value; 8 of 8 mangling shapes identical to `g++` where the reference is at 3; every handout and course `.ref` regenerated with not one tracked file changed; 4110-input crash sweep clean; valgrind clean over 203 |
 | 33 | 20.8.2p1's `INVOKE`, and the object 5.2.2p7 has no parameter for | `sema_builtin.{h,cpp}` (new), `sema_overload`, `sema_expression`, `sema_analyzer.{h,cpp}`, `sema_constexpr`, `sema_definition_names`, `lowir_lower_object` | 457 / 468 -> 465 / 473 (handout 389 -> 392 / 400); 61 probes through the real comparator, 58 of 61 agreeing with the reference on acceptance and 44 of 46 byte-identical, 7 run to `g++`'s value and a PA34 `__builtin_invoke` fixture with them; 5 course fixtures added; every handout and course `.ref` regenerated with not one tracked file changed; 4116-input crash sweep clean; valgrind clean over 207 |
+| 34 | audit: the second door each of two settled facts is asked at | `sema_lifetime`, `sema_analyzer.h`, `sema_overload` | 465 / 473 -> 467 / 475 (handout 392 / 400); 69 probes through the real comparator, 58 agreeing with the reference and every one of the 11 that do not recorded, 15 run through `lowir2cy86` + `cy86` with 14 reaching `g++`'s value; 2 course fixtures added, each failing on the pre-audit binary; every handout and course `.ref` regenerated with not one tracked file changed; 4155-input crash sweep clean; valgrind clean over 162 |

@@ -1,0 +1,107 @@
+global @declared [binding=strong, object=_Z8declared] = {
+  zero 4
+}
+global @built [binding=strong, object=_Z5built] = {
+  zero 4
+}
+global @delegated [binding=strong, object=_Z9delegated] = {
+  zero 4
+}
+
+function @through_a_cast() -> i32 [binding=strong, object=_Z14through_a_castv] {
+  slot $tmpobj__1 : obj<4x4>
+  slot $arg__2 : obj<8x4>
+
+  block ^entry:
+    %t1 = addr $tmpobj__1
+    %t2 = addr $arg__2
+    store i64 0, %t2
+    call void @pair__pair(%t2)
+    call void @holder__holder(%t1, 2, %t2)
+    %t3 = index i8 [projection=field] %t1, 0
+    %t4 = load i32 %t3
+    return i32 %t4
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    return i32 0
+}
+function @pair__pair(%this : ptr) -> void [unwind=no, binding=weak, object=_ZN4pairC1Ev, trivial_lifecycle=yes] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    return void
+}
+function @holder__holder__base_entry(%this : ptr, %n : i32) -> void [arity=variadic, binding=weak, object=_ZN6holderC2Eiz] {
+  slot $this : ptr
+  slot $n : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %n, $n
+    %t1 = load i32 $n
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 %t1, %t3
+    return void
+}
+function @holder__holder(%this : ptr, %n : i32) -> void [arity=variadic, binding=weak, object=_ZN6holderC1Eiz] {
+  slot $this : ptr
+  slot $n : i32
+
+  block ^entry:
+    store ptr %this, $this
+    store i32 %n, $n
+    %t1 = load i32 $n
+    %t2 = load ptr $this
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 %t1, %t3
+    return void
+}
+function @derived__derived(%this : ptr) -> void [binding=weak, object=_ZN7derivedC1Ev] {
+  slot $this : ptr
+  slot $arg__1 : obj<8x4>
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    %t3 = addr $arg__1
+    store i64 0, %t3
+    call void @pair__pair(%t3)
+    call void @holder__holder__base_entry(%t2, 3, %t3)
+    return void
+}
+function @holder__holder__ov2(%this : ptr) -> void [binding=weak, object=_ZN6holderC1Ev] {
+  slot $this : ptr
+  slot $arg__1 : obj<8x4>
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = addr $arg__1
+    store i64 0, %t2
+    call void @pair__pair(%t2)
+    call void @holder__holder(%t1, 4, %t2)
+    return void
+}
+function @__cppgm_init() -> void [role=init, binding=internal] {
+  slot $arg__1 : obj<8x4>
+
+  block ^entry:
+    %t1 = addr @declared
+    %t2 = addr $arg__1
+    store i64 0, %t2
+    call void @pair__pair(%t2)
+    call void @holder__holder(%t1, 1, %t2)
+    %t3 = addr @built
+    call void @derived__derived(%t3)
+    %t4 = addr @delegated
+    call void @holder__holder__ov2(%t4)
+    return void
+}
+alias object _ZN4pairC2Ev = @pair__pair
+alias object _ZN6holderC2Eiz = @holder__holder
+alias object _ZN7derivedC2Ev = @derived__derived
+alias object _ZN6holderC2Ev = @holder__holder__ov2

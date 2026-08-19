@@ -23,213 +23,190 @@ means, and what a failure of that building says about the candidate that asked.
 | 12 | `2c88e79d` | 1 / 1 + 5 recorded | **a braced-init-list is 8.5.3p5's object at the place it fills, and the fact it left behind named the reference it was bound to - so every reader below asked "is this list an array?" of a reference and got no.**  Checkpoint 25 gave 5.19 and a deduction the folds they had none of: 5.2.2p1 at a callee that is no name, so `forward<F>(f)(args)` runs the declaration a value designates; 8.3.4p1's bound where the constant-expression is more than one place, carried as `dependent_default`'s own three facts and read out of the `Value` 14.3p1 makes; 14.8.2.1p1's braced-init-list as a non-deduced context with the length deducing `N` where P is `P'[N]`; 3.9.3p5 at an array's qualifiers, which live on the element so `object_cv` and `object_unqualified` are what the deduction asks and the default arm compares the types the qualifiers qualify; 8.5.4p1, p3 and p7 as a call's operand in the fold; 14.5.3p4's expansion in a mem-initializer's expression-list through `InitializerClauses`; and 8.5p7's elementwise zero over a nested array.  Those rules are right and swept clean - 20 deduction shapes over arrays, cv and computed bounds and 12 shapes of a braced argument to a folded call agree with `g++` on acceptance at every one and run the accepted ones to its value; 18 array-zero shapes and 8 deep-and-small ones are byte-identical to the reference wherever the two limits leave the walk elementwise; the computed-bound axes are linear at 3200 and the dimension walk is flat at 20000.  What none of it carried is the sentence under all of it.  `list_initialize_into` wrote `fact.type = target`, and where the place is a reference the target *is* the reference - so the array the clauses actually reached was invisible: `expression`'s `BracedInitList` arm asked `kind(strip_cv(fact.type))`, read LValueReference, took the scalar arm and kept the *first clause alone*, which the argument path then stored into the array's whole storage.  `f({1,2,3})` at an `int const (&)[3]` came out as `convert sext obj<12x4> i32 1` - two clauses dropped and a width no conversion reaches - which `lowir2cy86` itself refuses, and `int const (&r)[3] = {1,2,3};` stood a 4-byte slot up with `r[2]` reading past it.  The class half of `initialize_from_list` had 8.5.3p5 right all along, standing a temporary up through `build_temporary`; the non-class half is what had nothing.  The checkpoint's own 14.8.2.1p1 is what made the template form reachable, so four programs it turned from refused to accepted were accepted with wrong code, and `spec/100-function-template-array-bound-braced-empty-argument.t` - the handout fixture the checkpoint was written for - was still failing on exactly this.  The fact carries the object now where `spelled` carries the place, which is the pair the `Value` beside it already hands back, and `passed_array` is the one question both call-argument doors ask: 8.3.5p5 leaves exactly one by-value parameter carrying an array, 8.5.3p5's temporary at a reference to one is that same object, and an argument that *names* an array binds it and opens no storage.  20 shapes across the doors a list has to that place are byte-identical to the reference and run to `g++`'s value, 16 of them failing on the pre-audit binary.  Recorded rather than fixed: the reference has no 8.5.4 in a fold at all - 10 of 12 braced-argument shapes are `static_assert unevaluated` there and translated by `g++` and by this build, as are `pick()(3)` through a returned function pointer and `char (&)[sizeof(T) == 4 ? 1 : 2]`, so the checkpoint's own wins can be pinned by no fixture; the reference *builds* a zero-length array where `g++` and this build refuse one, at 4 of 6 shapes; `int const (&r)[3] = {1,2,3}` and `f({0})` at an `int const &` are refused by the reference and translated by `g++` and by this build; `kZeroSpanLimit` is a deliberate divergence, because the reference writes one store per element at every size - a million-element zero is 2,000,010 lines and 16.23 s there against 0.00 s here; and an array at a *reference place in a fold* is refused here and translated by both oracles, which the pre-checkpoint binary refuses identically |
 | 14 | `08f4efd0` | 5 / 5 + 6 recorded | **each of the six clauses moved a question onto the fact that answers it, and five of them left a second reader still asking the old one.**  Checkpoint 29 made 7.2p1's braces the fact that tells a definition from an opaque declaration, 14.8.2.1p3's walk go on past a naming the pattern refuses with the bindings committed only where every pair agreed, 14.6.2.2p1 a question about the region rather than 14.6p8's ambient depth, 13.3.1p4's last sentence reach the specialization an argument list made of a member template, 8.3.5p1's ellipsis a fact of the declarator, and 5.3.1p1's `addr` unwritten over an operand that already is an address.  All six rules are right and swept clean - 20 address shapes byte-identical through the real comparator, 20 pack spellings, 18 decltype readings, 12 base deductions and 18 using-declarations - and the base walk is one visit per base subobject because a repeated subobject is refused where the class is laid out, so no diamond makes it 2^depth.  What none of them carried is the sibling that asks the same question: `sema_declarator.cpp` still counted enumerators to find 7.2p3's elaborated form, so every `enum E {} e;` was a name nothing declared; `declares_pack` stopped at 8.3p1's parentheses, so `int (& ... Rs)[2]` and four spellings like it bound no run; `call_conversion`, the third of `named_by_using`'s doors, was unreachable because a using-declaration spells a conversion-function-id with the space a flattening keeps and every region binds it closed up - and once reachable it asked the new door *after* the base step the door is about; and `match_template_id` reached its naming through `specialization_below`, which takes the first base whose head fits and commits a place before the arguments can refuse, which is the checkpoint's own defect one arm over.  One field read, one declarator level, one type-id read per using-declaration naming a conversion, one pointer test moved above the step it governs, and one trial map: 44 of 121 probes diverged from the reference before and 13 do now, all 13 the reference's own answer or a gap the plan carries, with 108 run to `g++`'s value.  pa23 449 / 462 -> **452 / 465**, through-pa22 2948 / 2948, 0 exits above 1 over 4108 inputs, valgrind clean over 140.  Recorded: 14.8.2.1p4's ambiguity now reachable at the template-place arm too, the reference deducing through a template place at no shape at all, a by-value class parameter one unused `index` apart, the reference defining one enumeration twice, refusing 5.1.1p13's third bullet at a `sizeof`, and refusing a conversion-type-id spelled with two words |
 | 15 | `03e93752` | 4 / 4 + 7 recorded | **14.4p1's identity is the prefix, the name and the place, and the one thing a naming carries that is none of those - the argument list a member written as a template-id was written with - was dropped, which made two declarations of one template into one.**  Checkpoint 31 made a dependent value naming a fact of what the name reaches rather than of the characters that reached it: `naming_value` interns the three, `settled_value` keeps the naming standing over the class *this* substitution built and otherwise looks the member up in the settled class and converts its constant to the place, and `lowir_abi.cpp` writes the ABI's `<unresolved-name>` read as an expression.  Those rules are right and swept clean - 69 probe programs judged through the real comparator, 57 byte-identical to the reference, 55 run to `g++`'s value, and **8 of 8** mangling shapes agree with `g++` where the reference agrees at 3.  What the entry could not carry is the member's own list: `set_dependent_member(made, prefix, member, nullptr)` writes none, so `A<T>::val<3>` and `A<T>::val<4>` were one argument and 14.5.6.1p5 paired the two declarations of `f` into `f is defined twice`, a program the pre-checkpoint binary and the reference translate.  Beside it the rebuild lost a question the reading it replaced asked - `folded_name` checks 11.2's access of every name it resolves and `lookup_in` checks none, so an inaccessible member stopped being 14.8.2p8's failure and became a program that dies where the *body* is instantiated - recorded a 14.5.3p5 pack fact `collect_packs` already reaches by walking the prefix, one scan of the spelling and one lookup per name in it on every read, and left `dependent_member_place` out of the two walks that ask a type for its edges.  The ABI's new `nested_member_owner` had no writer in `dev/abimangle.cpp`, so the `srN…E` branch was reachable from `lowir_abi.cpp` alone and a parsed record lost the fact.  pa23 456 / 467 -> **457 / 468**; through-pa22 2948 / 2948; 4110-input crash sweep clean; valgrind clean over 203; every handout and course `.ref` regenerated with not one tracked file changed. |
+| 16 | `f75d95b9` | 2 / 2 + 8 recorded | **the two facts the checkpoint settled each landed at one of the two doors that ask them.**  Checkpoint 33 made `sema_builtin.{h,cpp}` the owner of the three kinds of function the implementation provides, `BuiltinReading::invoke` read 20.8.2p1's operands through the `InitializerClauses` every other call's arguments go through and split the callable off afterwards, `SemaAnalyzer::call_value` became the tail of `call_expression` with nothing left to choose among, and 5.2.2p7's argument of class type crossed as the object rather than as a value.  Those rules are right and swept clean - the split is the settled run's and not the spelling's, so a whole run expanded into `__builtin_invoke(ts...)` finds its callable and an empty one drops the candidate; `call_value` brings 13.5.4p1's `operator()`, 13.3.1.1.2p2's surrogate, 5.2.2p4's conversions and 8.3.6p1's defaults with it, at a class lvalue, a class prvalue, a `const` one, an overloaded call operator, a conversion to a function pointer and a reference a call handed back; the ellipsis object is the address at an empty class, a union, a derived class, a class with floating members, a `const` lvalue, a non-trivial destructor and a non-trivial copy, and 0.01 / 0.03 / 0.14 s at 200 / 800 / 3200 calls, which is what a scalar costs.  What neither carried is the *second* door.  `finish_call` renamed the temporary an ellipsis matched and `construct_object` did not - and a constructor is written against no parameter list a call of it can be read through, 12.1p1's object parameter standing first, so it walks its arguments itself: a declaration's parenthesized initializer, `C{...}`, 5.2.3p1's cast, `new`, a mem-initializer and 12.6.2p6's delegation each wrote `$tmpobj__N` where the reference writes `$arg__N`, and a slot name is compared literally.  And `call_value` never named the function its callable *designates*, so `__builtin_invoke(f, ...)` over a name was 4.3's pointer and an indirect call where the reference and every other call in this build write a direct one - at a plain function, a using-declared one, a static member, an explicit template-id, a default argument, a reference or class result, an ellipsis callee and a class argument alike, 12 shapes of 12.  `name_ellipsis_object` is the one answer both argument walks ask; `call_value` writes the callee line where the operand names a declaration and leaves 5.3.1's indirection calling through what it came to.  69 probes, **58 agreeing with the reference** and each of the 11 that do not recorded; 2 course fixtures added, both failing on the pre-audit binary.  pa23 465 / 473 -> **467 / 475**; through-pa22 2948 / 2948; 4155-input crash sweep clean; valgrind clean over 162; every handout and course `.ref` regenerated with not one tracked file changed.  Recorded: the fold has no reading of any of the three calls the translation answers itself, which the reference refuses the same way; the reference's own constructor-ellipsis arity gap at a second class argument and at a call result; the reference accepting `C c = C(1, P())` and writing an *empty* init body for it; `::__builtin_invoke`; `__builtin_abort` outside the PA15 lowering subset here, qualified or not; `__builtin_invoke` over a pointer to member, whose refusal is the lowering's `&S::m` and so is not 14.8.2p8's immediate context; `(*f)(3)` writing one `unary decay` more than the reference; and `kZeroSpanLimit` at a large class crossing the ellipsis |
 
 ## Current Checkpoint Review
 
-Checkpoint 31 - 14.4p1's identity of the value a dependent qualified-id names:
-`dependent_member_valued` / `dependent_member_place` in `type_model.{h,cpp}`,
-`member_values` in `sema_declaration.h`, `TemplateArgumentReader::naming` and
-`template_argument_value` in `sema_value_expression.cpp`, `naming_value` /
-`settled_value` in `sema_deduce.{h,cpp}`, and the ABI's `<unresolved-name>` read
-as an expression in `lowir_abi.cpp` / `abi_mangle.{h,cpp}` - was reconstructed
-from its one commit, from `dev/src` and from the README.  The checkpoint replaces
-a *reading* with a *rebuild*: an argument that used to be a spelling re-read
-against a rebuilt region is now an entry interned by three facts and walked
-structurally.  So the review asked two questions of it - what does the identity
-not carry, and what did the reading it replaced do that the rebuild does not.
+Checkpoint 33 - 20.8.2p1's `INVOKE` and the object 5.2.2p7 has no parameter for:
+`sema_builtin.{h,cpp}` (new) holding 1.4p8's reserved functions, 3.7.4's
+allocation functions and `BuiltinReading::invoke`, `SemaAnalyzer::call_value` in
+`sema_overload.cpp`, the ellipsis arm of `finish_call`, and the class arm of
+`passed_operand` in `lowir_lower_object.cpp` - was reconstructed from its one
+commit, from `dev/src` and from the README.  The checkpoint moves three owners'
+worth of reading into a new one and opens two new doors, so the review asked two
+questions of it: what stopped being asked where the reading moved, and which
+*sibling* of each new door answers the same question about the same object.
 
-Four defects were found and fixed and seven divergences were probed as programs
+Two defects were found and fixed and eight divergences were probed as programs
 and recorded.  69 probe programs were judged through the real
 `compare_results.pl` from a scratch directory under `tests/`, against the
-reference binary, `g++`, the pre-audit binary (`03e93752`) and the
-pre-checkpoint one (`728efc77`): **57 are byte-identical to the reference** and
-the 12 that are not are each the reference's own answer or a gap recorded below;
-**55 of the 69 run to `g++`'s value** through `lowir2cy86` + `cy86`, one runs to
-a different one (recorded), and 13 are programs `g++` refuses.  Two of the 12
-changed their answer this turn, both back to the pre-checkpoint binary's.  One
-course fixture is added and pa23 goes to **457 / 468**.
+reference binary, `g++`, the pre-audit binary (`f75d95b9`) and the
+pre-checkpoint one (`378a30f3`): **58 agree with the reference** - byte-identical
+wherever both accept - and the 11 that do not are each the reference's own
+answer, a shape the checkpoint un-refuses, or a gap recorded below.  15 run
+through `lowir2cy86` + `cy86`; 14 reach `g++`'s value and the fifteenth is the
+detector `g++` cannot judge, because it has no `__builtin_invoke` and drops both
+candidates.  Two course fixtures are added, each failing on the pre-audit binary,
+and pa23 goes to **467 / 475**.
 
 ### Findings
 
-**1. The identity carries the prefix, the name and the place, and a member
-written as a template-id has a fourth.**  `naming_value` calls
-`set_dependent_member(made, prefix, member, nullptr)`, which writes no argument
-list, and interns under `prefix|member|place` - so `A<T>::val<3>` and
-`A<T>::val<4>` reach one entry.  14.5.6.1p5 pairs two declarations of one
-template by the types their declarators built, which is exactly what the
-checkpoint set out to make right, and with one entry standing for both lists it
-paired `f(box<A<T>::val<3> > *, T)` with `f(box<A<T>::val<4> > *, T)` and refused
-`f is defined twice` - a program the pre-checkpoint binary and the reference
-translate.  `member_naming` is the door the two assignments of `naming_` now go
-through: a stand-in that names no member at all, and one whose member was
-written as a template-id, are both `kNoType`, and the second keeps the spelling
-identity `dependent_value` interns, which tells the two lists apart.  The entry
-cannot hold what it cannot substitute, so the rule is scoped to the naming it
-does answer for.
+**1. 5.2.2p7's object is named at two doors and the checkpoint named it at
+one.**  `finish_call` set the temporary's spelling to `arg` where an argument
+fell past the declared parameters, which is 5.2.2p4's own name for the object a
+call is passed.  A *constructor* never reaches that function: it is written
+against no parameter list a call of it can be read through - 12.1p1's object
+parameter stands first, so `construct_object` walks the arguments itself and
+compares against `parameters[index + 1]` - and its ellipsis arm asked
+`require_complete_value` and nothing else.  So every spelling that builds an
+object wrote `$tmpobj__N` where the reference writes `$arg__N`: a declaration's
+parenthesized initializer, `C{1, P()}`, 5.2.3p1's cast, `new`, a mem-initializer
+and 12.6.2p6's delegation, five doors of five.  Only `@function` symbols are
+canonicalized before comparison, so a slot name is compared literally and each of
+the five was a diff the suite could not see, because no fixture wrote a
+constructor with an ellipsis.  `name_ellipsis_object` is that one step now, in
+`sema_lifetime.cpp` beside `name_argument_temporary` whose question it is a third
+answer to: the lifetime stays where it was written, because a call through an
+ellipsis tells the function nothing about the type and so nothing there can end
+it.
 
-**2. 11.2's access is what the reading this replaced asked and the rebuild did
-not.**  `settled_value` finds the member with `model_.lookup_in` and reads it
-with `entity_constant`, neither of which checks access; the spelling form went
-through `folded_name`, and `resolve` checks the access of every name it reaches.
-So an inaccessible member stopped being 14.8.2p8's failure: the candidate was
-kept, the call bound to it, and the access error arrived from
-`instantiate_body`, where 14.8.2p8 says a failure is *not* the immediate context
-and the program is refused.  `f<holder>` over a private `static const int value`
-beside an `f(...)` fallback runs to the fallback in `g++` and on the
-pre-checkpoint binary and was a hard error here.  The region the reading stood
-in is the one part of that reading a rebuilt naming does not carry, so it is
-kept beside the entry - `member_value_regions`, no part of what interns it - and
-the access is asked there.  A substitution that rebuilds the entry over a prefix
-it left dependent passes the region on, and a reading that reaches an entry a
-substitution made is where the region first arrives.
-
-**3. 14.5.3p5's recorded packs are a fact only a re-read spelling needs.**
-`template_argument_value` asked `note_places` of every naming whose entry named
-no pack - which is every naming outside an expansion, on *every* read of it -
-and `note_places` scans the spelling for names and looks each of them up.  What
-it records is what `collect_packs` already reaches: the parameter-kind arm walks
-`dependent_owner`, and the prefix is where every pack a naming names stands,
-because the name after the prefix can name none.  The call is gone; five pack
-shapes, including two whose entry a substitution rebuilt and which therefore
-never had places noted at all, are byte-identical to the reference.
-
-**4. `dependent_member_place` is a graph edge two walks were not told about.**
-`TypeTable::mentions_walk` and `PackReading::collect_packs` each ask a
-parameter-kind entry for the types rebuilding it has to rebuild - the applied
-template, the prefix, the alias naming, the member's own list.  `settled_value`
-substitutes the place beside the prefix, and neither walk asked for it, so a
-place reached through no other edge was one `mentions` answered "no" about and
-one `collect_packs` found no pack in.  Both now walk it, and the accessor is
-guarded on `TypeKind::TemplateParameter` the way `dependent_owner` beside it is,
-because a walk that asks every edge asks this one of the fundamentals too.
-
-**5. The ABI's new flag had no writer in the fixture language.**
-`AbiDependentExpression::nested_member_owner` is what tells `srN <type> …E
-<name>` from `sr <type> <name>`, and `dev/abimangle.cpp` - which is where PA14's
-`tests/abi` writes an expression record and reads it back - parsed a two-state
-`yes`/`no` owner flag and serialized one.  So the `N`/`E` branch was reachable
-from `lowir_abi.cpp` alone, and a record that round-tripped through the fixture
-language lost the fact.  The flag is now the three answers `<unresolved-name>`
-has, with `nested` beside the `yes`/`no` every checked-in fixture writes.
+**2. `call_value` never named the function its callable designates.**
+20.8.2p1's `f` is an operand and not a callee the parser found, so it arrives
+through `argument_expression` with `functions` and `entity` already settled by
+`named_value` - and `call_value` read only `types_.kind(target.type)`, took the
+function-type arm and wrote no callee line.  What the lowering then saw was an
+id-expression of function type standing where a call's callee stands, which is
+4.3's pointer: `%t1 = addr @f`, `%t2 = unary decay ptr %t1`, and an indirect
+`call ... %t2(...) as (...)`.  The reference writes `call i32 @f(...)`, and so
+does every other call in this build, because `call_expression`'s own overload
+path calls `name_function(target, chosen, "callee")` and `call_value` inherited
+none of it.  Twelve shapes of twelve diverged - a plain function, one a
+using-declaration named, a static member, an explicit template-id, one with a
+default argument, one returning a reference, a class or void, one declared with
+an ellipsis of its own, one taking a class by value and one taking a
+braced-init-list - and all twelve are byte-identical now.  The gate is that the
+operand *names* a declaration: `target.functions` non-null with no `&` over it,
+which is exactly the arm `call_expression` routes here and never the one 5.3.1's
+indirection or a reference bound to a function takes, so `(*f)(3)` goes on being
+called through what it came to, as it is there.
 
 ### Why the checkpoint's own rules are sound
 
-- **The ABI is right where both other compilers disagree with each other.**
-  Eight shapes of a naming written into a parameter type - a bare place prefix,
-  a specialization prefix, two- and three-level prefixes of each, two namings in
-  one signature that exercise `S_` compression, one nested inside another
-  template-id, and a pack - are **byte-identical to `g++` at 8 of 8**, where the
-  reference agrees at 3: it writes a stray `E` after a specialization prefix and
-  loses every level above the last of a nested one.
-- **The three integers are the whole of the identity for every naming that is
-  not a template-id.**  A member declared in a base, two levels of bases, a base
-  that is itself a specialization, an enumerator, a `constexpr` static, a member
-  hidden by a derived declaration and one reached through two bases were probed
-  through the settled path; each reaches the member `g++` reaches.  Two
-  spellings of one prefix, a rooted `::A<T>::value`, one naming at two different
-  places, and one naming written in two templates all intern the way the
-  checkpoint says.
-- **The place is the consumer's question and not the entry's.**  An alias
-  template whose own place is narrower than the entry's, a class template
-  forwarding a place, and the same shapes with no template in them all convert
-  where the list that *uses* the argument is read, so an entry interned at an
-  `int` place gives `boxc<char>` the same 44 the reference and `g++` give.
-- **A failure of the settled path is a candidate that drops and not a
-  refusal.**  A prefix that settles to a non-class, a class declaring no such
-  member, a member that is a type, and a member that is no constant are four
-  shapes that each pick the `f(...)` fallback here and in both oracles.
-- **The interning is one map probe and the substitution one lookup.**  A naming
-  written n times pays one entry and n probes; n distinct namings pay n of each;
-  a prefix written d levels deep is flat.  Every sweep is identical to the
-  pre-audit binary.
+- **The split is the settled run's and not the spelling's.**  `INVOKE`'s callable
+  is the first operand *after* 14.5.3p4's expansion, so a whole run written
+  `__builtin_invoke(ts...)` finds its callable and its arguments where the
+  program named neither, a run of one leaves no arguments, and an empty run is
+  the refusal 14.8.2p8 drops a candidate on - which `run()` beside an `f(...)`
+  fallback answers with the fallback in both builds.
+- **`call_value` is the whole tail and not a copy of it.**  A class lvalue, a
+  class prvalue, a `const` one, an object whose class declares two `operator()`s,
+  a class with a conversion to a function pointer, a reference a call handed
+  back, a pointer variable, a function reference and a function name each reach
+  the reading 5.2.2p1 gives them, with 5.2.2p4's conversions and 8.3.6p1's
+  defaults arriving with them: nine callable kinds, all byte-identical to the
+  reference.
+- **The object crossing an ellipsis is the address at every class shape.**  An
+  empty class, a union, a derived class, a class with floating members, a large
+  one, a `const` lvalue, one with a non-trivial destructor and one with a
+  non-trivial copy constructor all pass where the object stands, with no copy for
+  an lvalue - and the temporary's lifetime stays 12.2p3's, which is what running
+  the constructor-ellipsis fixtures to `g++`'s value shows.
+- **Nothing the reading owns is quadratic or re-read.**  n distinct `INVOKE`
+  calls are 0.05 / 0.24 / 0.98 s at 200 / 800 / 3200 against the reference's
+  0.89 / 2.83 / **39.51**; one call over a run of n operands is 0.00 s through
+  128 and 0.02 at 512; d-deep nesting is 0.00 s at 2, 8, 32 and 128 where the
+  reference is 1.00 s at 12, 8.11 at 16 and 122.68 at 20.  Every sweep is
+  identical to the pre-audit binary.
 
 ### Recorded rather than fixed
 
-- **A member *variable template* at a value place is one argument in every
-  build.**  With finding 1 landed the naming path stands aside for a
-  template-id, and the reading above it still collapses `box<A<T>::val<3> >` and
-  `box<A<T>::val<4> >` to `box<T_>`: both mangle the same, one definition is
-  written, and the program runs to 44 where `g++` runs to 34.  The
-  pre-checkpoint binary answers the same way, and the shape is C++14's, which
-  `g++` refuses under `-pedantic-errors`.
-- **11.2's access at a *type* reached through a settled dependent prefix is
-  still not the immediate context.**  `typename T::type` over a private typedef,
-  and a member the class befriended, are programs both oracles translate and
-  this build refuses from `instantiate_body`, on the pre-checkpoint binary as
-  much as on this one.  `dependent_member_type` is the value half's twin and has
-  no region to ask the question of.
-- **The reference does not treat access as a substitution failure at all.**
-  `f<holder>` over a private `value` beside an `f(...)` runs to the *template*
-  there and to the fallback here and in `g++`, so no course fixture can hold
-  finding 2.
-- **14.3.2p5's converted constant expression does not refuse a narrowing
-  conversion.**  `box<-1>` at an `unsigned` place, and the same value reached
-  through a naming or through an alias, are accepted here and by the reference
-  and refused by `g++`; there is no template in the smallest of them.
-- **5.19p2's restriction has no reader at a pointer place.**  A `static int *
-  const` member initialized with `&g` is read as a constant here and refused by
-  the reference and by `g++`, with and without a dependent prefix.
-- **A naming at a *reference* place writes no definition of the member.**
-  `static int & value;` defined out of class and named at an `int &` place is a
-  global plus a startup body in the reference and nothing at all here; `g++`
-  refuses the program.
-- **A pack whose prefix a substitution moved is not deduced through.**
-  `f(list<A<X,Ts>::value ...> *, Ts ...)` deduces `Ts` in both oracles and is
-  `no declaration of f accepts the arguments of a call` here, on the
-  pre-checkpoint binary as much as on this one.
+- **The fold has no reading of any of the three calls the translation answers
+  itself.**  `ConstexprReading::callee_candidates` asks `BuiltinReading::reserved`
+  and not `answers`, so `__builtin_invoke`, `__builtin_constant_p` and
+  `__builtin_abort` written where 5.19 reads are `is written where a constant
+  expression calls and names no function`.  The reference refuses the same
+  programs - `static_assert unevaluated` and `unsupported constexpr variable
+  initializer` - so no fixture can pin either answer.
+- **The reference refuses a constructor's ellipsis at a second class argument and
+  at a call result.**  `C c(1, P(), Q())` and `C c(1, make())` over a `C(int,
+  ...)` are `constructor call-expression arity mismatch` there and translated by
+  `g++` and by this build, which runs them to `g++`'s value.
+- **The reference accepts `C c = C(1, P());` and writes an empty init body for
+  it**, so the object is never constructed there; this build constructs it and
+  runs to `g++`'s value.  The pre-checkpoint binary refuses the program, so the
+  shape has no baseline.
+- **`::__builtin_invoke` is accepted here and refused there**, which is 3.4.3.2p1
+  read as `reserved` already reads it for `::__builtin_strlen` - and the
+  checkpoint's own `global_name` is what makes `::__builtin_constant_p` agree
+  with the reference where the pre-checkpoint binary refused it.
+- **`__builtin_abort` is outside the PA15 lowering subset here**, written with a
+  nested-name-specifier or without one, and translated by the reference.  It is
+  PA12's own recognition with no lowering behind it and is older than the
+  checkpoint.
+- **`__builtin_invoke` over a pointer to member is refused one layer down.**
+  `&S::m` is `an expression is outside the PA15 lowering subset` on its own, so
+  the refusal is the lowering's and not 14.8.2p8's immediate context: a detector
+  written with an `f(...)` fallback is refused here and answered by the
+  reference's data-member arm.  The sema arm the checkpoint wrote is right and
+  unreachable until the member-pointer layer exists.
+- **`(*f)(3)` writes one `unary decay` more than the reference**, which reads the
+  indirection as producing the pointer.  It is byte-identical to the
+  pre-checkpoint binary, and no `INVOKE` reaches it, because an operand that
+  names a function is the arm finding 2 gave the callee line to.
+- **`kZeroSpanLimit` at a class crossing the ellipsis.**  A 160-byte class prvalue
+  is one `zeroinit 160x4` here and twenty `store i64 0` there, which is the same
+  deliberate divergence the plan carries for every other zero.
 
 ### Changes
 
 | Where | What |
 |-------|------|
-| `sema_value_expression.cpp` | `member_naming`: the stand-in a lookup reached that the entry below can carry, which is no place standing alone and no member written as a template-id; and the naming path returning the entry without recording packs the prefix already stands for. |
-| `sema_deduce.{h,cpp}` | `naming_value` taking the region the reading stood in, and `settled_value` asking 11.2 of the member it looked up - so an inaccessible one is 14.8.2p8's failure and not a body that refuses. |
-| `sema_declaration.h` | `member_value_regions`: 11.2's context beside the entry, which is no part of what interns it. |
-| `type_model.{h,cpp}` | `dependent_member_place` walked by `mentions_walk`, and guarded on the kind that holds a user record. |
-| `sema_pack.cpp` | `collect_packs` walking the place a value naming is converted to, beside the prefix it is written after. |
-| `abimangle.cpp` | the owner flag of a `member` expression record read and written as the three answers `<unresolved-name>` has. |
-| `course/pa23/100-a-dependent-value-naming-is-expanded-through-its-prefix.t` | five expansions of a naming over a pack - written where the declarator stands, and rebuilt by an enclosing substitution over a prefix it moved - which is what finding 3 removed the recording of. |
+| `sema_lifetime.cpp` | `name_ellipsis_object`: 5.2.2p7's object named as 5.2.2p4's parameter object is and left in the full-expression that wrote it, asked by the constructor's own argument walk. |
+| `sema_analyzer.h` | its declaration, beside `name_argument_temporary`'s, whose third answer it is. |
+| `sema_overload.cpp` | `finish_call`'s ellipsis arm asking that one door rather than writing the spelling itself; `call_value` writing the callee line where the operand names a function, so 5.2.2p1's call of a name is direct. |
+| `course/pa23/300-a-class-argument-a-constructor-ellipsis-matched-is-an-argument-object.t` | the five spellings that reach a constructor's argument walk, each passing a class prvalue through its ellipsis. |
+| `course/pa23/300-a-builtin-invoke-of-a-named-function-is-a-direct-call.t` | five callables - a using-declared function, a static member, an explicit template-id, one with a default argument and a pointer variable - which pin the direct call and the one indirect call beside it. |
 
 ### Performance Evidence
 
-Measured on the audited binary against a `/tmp` worktree of `03e93752` (the
+Measured on the audited binary against a `/tmp` worktree of `f75d95b9` (the
 pre-audit binary) built with `make build`, warm cache, `/usr/bin/time` on the
 binary itself.
 
 | sweep | shape | result |
 | --- | --- | --- |
-| dependent-value naming multiplicity | n distinct `traitK<T>::value` namings in one template | 0.02 s @200, 0.11 @800, 0.58 @3200 against 0.02 / 0.12 / 0.57 - one entry and one map probe apiece |
-| one naming written n times | one `trait<T>::value` written into n typedefs | 0.00 s @200, 0.02 @800, 0.08 @3200 against 0.00 / 0.02 / 0.08 - the scan and the lookups finding 3 removed do not separate from the map probe at this width, and what is left is strictly less work per read |
-| dependent-value substitution multiplicity | n classes, one `take<kI>()` apiece over a declarator holding one such naming | 0.03 s @200, 0.13 @800, 0.61 @3200 against 0.03 / 0.13 / 0.62 - one lookup, one access question and one 5.19 read per specialization |
-| two spellings of one naming, multiplicity | n member templates declared with the class's typedef and defined with the parameter, against n that spelled both the same way | 0.03 / 0.13 / 0.56 s against 0.03 / 0.13 / 0.56 for one spelling, and identical on both binaries |
-| dependent-prefix depth | `T::inner::…::value` written d levels deep | 0.00 s @50, 0.00 @200, 0.01 @800 - identical on both binaries |
-| naming-expansion width | `list<trait<Ts>::value ...>` over a run of n | 0.00 s at 8, 32 and 128 on both binaries - the expansion finds its run by walking the prefix and no longer by scanning the spelling |
-| whole corpus | 4110 inputs of pa10 through pa29 and cppgm.tests, one process apiece, two passes | 17.41 / 17.35 s against 17.62 / 17.48 s, which is the spawn floor of 4110 processes and no difference between the two |
+| `__builtin_invoke` multiplicity | n distinct `INVOKE` calls over n classes | 0.05 s @200, 0.24 @800, 0.98 @3200 against 0.05 / 0.24 / 1.02 on the pre-audit binary, and the reference's 0.89 / 2.83 / **39.51** over its own 0.53 s floor |
+| `__builtin_invoke` operand width | one `INVOKE` over a run of n expanded operands | 0.00 s at 8, 32 and 128 and 0.02 at 512 on both binaries - the run is walked once |
+| `__builtin_invoke` nesting depth | `INVOKE(fwd(), INVOKE(fwd(), ...))` d deep over a template `operator()` | 0.00 s at 2, 8, 32 and 128 on both binaries, against the reference's 1.00 s at 12, 8.11 at 16 and 122.68 at 20 |
+| constructor-ellipsis multiplicity | n declarations `C c(k, P())` over a `C(int, ...)` | 0.01 s @200, 0.06 @800, 0.25 @3200 on both binaries - the naming is one field test per argument past the declared parameters |
+| call-ellipsis multiplicity | n calls passing a class prvalue through a function's `...` | 0.01 s @200, 0.03 @800, 0.14 @3200 against 0.01 / 0.03 / 0.15 |
+| value-callee multiplicity | n calls through n pointers to one function | 0.01 s @200, 0.04 @800, 0.16 @3200 on both binaries - the gate finding 2 added is two pointer tests on the arm that was already taken |
+| named-callee multiplicity | n calls of n distinct functions by name | 0.01 s @200, 0.04 @800, 0.20 @3200 on both binaries |
+| whole corpus | 4155 inputs of pa10 through pa29 and cppgm.tests, one process apiece, two passes | 19.68 / 19.35 s against 19.46 / 19.25 s, which is the spawn floor of 4155 processes and no difference between the two |
 
-Each of the four fixes is either one test more (a template-id has a list; a
-`TemplateParameter` kind guard) or strictly less work: one access question per
-*settled* naming, which is the lookup's own scope walk asked once, against one
-spelling scan and one lookup per name on every read of every naming, removed.
+Both fixes are strictly bounded: one field test per argument the ellipsis
+matched, at the one door that was not already asking, and two pointer tests on
+an arm a call of a value already took.  Neither reads anything twice.
 
 ### Validation
 
-- `make test-report ACTIVE_TEST_REPORT_PAS='pa23'` - **457 / 468** (handout
-  389 / 400, course 68 / 68), against 456 / 467 at the turn's start.
+- `make test-report ACTIVE_TEST_REPORT_PAS='pa23'` - **467 / 475** (handout
+  392 / 400, course 75 / 75), against 465 / 473 at the turn's start.
 - `make test-report-through-pa22` - **2948 / 2948**, 22 / 22 stages.
 - `perl scripts/cppgm_file_audit.pl --stage pa23 --paths dev/src` - **pass**,
   with the five `bad-division` warnings it already had.
 - 69 probe programs judged through the real `compare_results.pl` from a scratch
-  directory under `tests/`: 57 byte-identical to the reference, and the same 12
-  diverge on the pre-audit and pre-checkpoint binaries; each is recorded above
-  or already in the plan.
-- 55 of the 69 run through `lowir2cy86` + `cy86` to `g++`'s value; one runs to a
-  different one, which is the member variable template recorded above; 13 are
-  programs `g++` refuses.
-- 8 mangling shapes compared against `g++`'s own symbols: **8 of 8 identical**,
-  where the reference is identical at 3.
+  directory under `tests/`: 58 agree with the reference, and each of the 11 that
+  do not is recorded above or already in the plan.
+- 15 of the 69 run through `lowir2cy86` + `cy86`; 14 reach `g++`'s value and the
+  fifteenth is the detector `g++` cannot judge.  The rest name functions no unit
+  defines or pass a class by value, which is the scaffold's own ceiling.
+- Two course fixtures added, each **passing on the audited binary and failing on
+  the pre-audit one** through the real comparator.
 - All 400 handout tests and every course fixture regenerated through the harness
   from `cppgm++-ref`: **not one tracked file changed**.
-- All 4110 single-file inputs of pa10 through pa29 and cppgm.tests compiled one
+- All 4155 single-file inputs of pa10 through pa29 and cppgm.tests compiled one
   at a time: **0 exits above 1**.
-- `valgrind -q --error-exitcode=9`: **0 errors** over 203 inputs - the 68 course
-  fixtures, every `1xx` handout test, and all 69 probe programs.
+- `valgrind -q --error-exitcode=9`: **0 errors** over 162 inputs - the 75 course
+  fixtures, every `1xx` handout test, and twelve probe programs covering both
+  doors and every sweep shape.

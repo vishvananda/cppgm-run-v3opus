@@ -1005,6 +1005,9 @@ private:
 	// full-expression ends the lifetime of.
 	void name_argument_temporary(const Value& value, const char* prefix,
 	                             const Context& ctx, bool owned);
+	// 5.2.2p7 and 12.2p3: the object an argument no parameter matched crosses
+	// on, named as 5.2.2p4's parameter object is and left where it was written.
+	void name_ellipsis_object(const Value& value);
 	// 12.2p3: takes `value`'s object back out of the open full-expression,
 	// where the place that read the prvalue is what ends its lifetime.
 	void release_temporary(const Value& value);

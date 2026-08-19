@@ -1,0 +1,70 @@
+function @outer__taking(%n : i32) -> i32 [binding=strong, object=_ZN5outer6takingEi] {
+  slot $n : i32
+
+  block ^entry:
+    store i32 %n, $n
+    %t1 = load i32 $n
+    return i32 %t1
+}
+function @with_default(%a : i32, %b : i32) -> i32 [binding=strong, object=_Z12with_defaultii] {
+  slot $a : i32
+  slot $b : i32
+
+  block ^entry:
+    store i32 %a, $a
+    store i32 %b, $b
+    %t1 = load i32 $a
+    %t2 = load i32 $b
+    %t3 = binary add i32 %t1, %t2
+    return i32 %t3
+}
+function @through_a_pointer(%n : i32) -> i32 [binding=strong, object=_Z17through_a_pointeri] {
+  slot $n : i32
+
+  block ^entry:
+    store i32 %n, $n
+    %t1 = load i32 $n
+    %t2 = binary add i32 %t1, 2
+    return i32 %t2
+}
+function @total() -> i32 [binding=strong, object=_Z5totalv] {
+  slot $pointed : ptr
+
+  block ^entry:
+    %t1 = addr @through_a_pointer
+    %t2 = unary decay ptr %t1
+    store ptr %t2, $pointed
+    %t3 = call i32 @outer__taking(1)
+    %t4 = call i32 @held__stat(2)
+    %t5 = binary add i32 %t3, %t4
+    %t6 = call i32 @identity(3)
+    %t7 = binary add i32 %t5, %t6
+    %t8 = call i32 @with_default(4, 7)
+    %t9 = binary add i32 %t7, %t8
+    %t10 = load ptr $pointed
+    %t11 = call i32 %t10(5) as (%arg0 : i32) -> i32
+    %t12 = binary add i32 %t9, %t11
+    return i32 %t12
+}
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    %t1 = call i32 @total()
+    return i32 %t1
+}
+function @identity(%v : i32) -> i32 [binding=weak, object=_Z8identityIiET_S0_] {
+  slot $v : i32
+
+  block ^entry:
+    store i32 %v, $v
+    %t1 = load i32 $v
+    return i32 %t1
+}
+function @held__stat(%n : i32) -> i32 [binding=weak, object=_ZN4held4statEi] {
+  slot $n : i32
+
+  block ^entry:
+    store i32 %n, $n
+    %t1 = load i32 $n
+    %t2 = binary add i32 %t1, 1
+    return i32 %t2
+}
