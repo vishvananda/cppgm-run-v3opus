@@ -78,7 +78,14 @@ std::string LowirUnitLowering::spell_value(TypeId type,
 {
 	std::ostringstream text;
 	const unsigned long long value = narrowed(type, bits);
-	if (is_signed(type))
+	// `lowir.md` names no `u64`: 3.9.1p2's two eight-byte integral types are
+	// both `i64` there, and it is the *operator* that says which of them an
+	// instruction reads its operands as.  So the value is spelled at the
+	// signedness of the LowIR type that holds it rather than at the C++ type's,
+	// because those are the only digits that type can be written with -
+	// `(unsigned long)-1` is `i64 -1` and no wider spelling of the same bits.
+	const std::string& low = low_type(type).text;
+	if (!low.empty() && low[0] == 'i')
 	{
 		text << static_cast<long long>(value);
 	}
