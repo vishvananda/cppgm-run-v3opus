@@ -74,18 +74,29 @@ unsigned long long LowirUnitLowering::narrowed(TypeId type,
 }
 
 std::string LowirUnitLowering::spell_value(TypeId type,
-                                           unsigned long long bits)
+                                           unsigned long long bits,
+                                           bool stored)
 {
 	std::ostringstream text;
 	const unsigned long long value = narrowed(type, bits);
 	// `lowir.md` names no `u64`: 3.9.1p2's two eight-byte integral types are
 	// both `i64` there, and it is the *operator* that says which of them an
-	// instruction reads its operands as.  So the value is spelled at the
-	// signedness of the LowIR type that holds it rather than at the C++ type's,
-	// because those are the only digits that type can be written with -
-	// `(unsigned long)-1` is `i64 -1` and no wider spelling of the same bits.
+	// instruction reads its operands as.  So the operand naming an object's
+	// whole storage is spelled at the signedness of the LowIR type that holds
+	// it rather than at the C++ type's, because those are the only digits that
+	// type can be written with - `unsigned long g = (unsigned long)-1;` is
+	// `global @g : i64 = -1` and no wider spelling of the same bits.
+	//
+	// An *item* is the other half of 3.6.2p2 and is not that operand: it stands
+	// for one clause of the image the program wrote, and the digits it carries
+	// are that clause's - `{ (unsigned long)-1, 18446744073709551615UL }` is
+	// `i64 -1` and `i64 18446744073709551615` in the reference, two spellings of
+	// one run of bits.  This build has no reading of the written clause to spell
+	// an item from, so what it has is the type the clause was written at, which
+	// is the answer for every item but one written as a conversion of a negative
+	// value - the same half of the same sentence a floating item is spelled by.
 	const std::string& low = low_type(type).text;
-	if (!low.empty() && low[0] == 'i')
+	if (stored ? (!low.empty() && low[0] == 'i') : is_signed(type))
 	{
 		text << static_cast<long long>(value);
 	}
@@ -298,7 +309,7 @@ bool LowirUnitLowering::folded_real(const DumpNode& node, long double& value)
 // floating one is the spelling 2.14.4 gave it, because there is no integer of
 // this translation that is that value.
 bool LowirUnitLowering::image_value(const DumpNode& node, TypeId type,
-                                    std::string& text)
+                                    std::string& text, bool stored)
 {
 	if (types_.is_reference(type))
 	{
@@ -343,7 +354,7 @@ bool LowirUnitLowering::image_value(const DumpNode& node, TypeId type,
 	{
 		return false;
 	}
-	text = spell_value(type, bits);
+	text = spell_value(type, bits, stored);
 	return true;
 }
 
@@ -761,7 +772,7 @@ const DumpNode* LowirUnitLowering::global_image(
 			global.init_kind = lowir_model::GlobalDefinition::INIT_INTEGER;
 			global.init_operand.kind = lowir_model::Operand::OP_INTEGER;
 			global.init_operand.text = constant_text(
-				type, node.fact.entity->value, node.fact.entity->real);
+				type, node.fact.entity->value, node.fact.entity->real, true);
 			return nullptr;
 		}
 		// 3.6.2p2: an object whose initializer is not a constant starts as
@@ -1255,13 +1266,13 @@ bool LowirUnitLowering::global_aggregate_initializer(
 
 std::string LowirUnitLowering::constant_text(TypeId type,
                                              unsigned long long bits,
-                                             long double real)
+                                             long double real, bool stored)
 {
 	const TypeId bare = types_.strip_cv(type);
 	return types_.is_floating(bare)
 		? spell_floating(type,
 		                 spell_floating_value(types_.fundamental_type(bare), real))
-		: spell_value(type, bits);
+		: spell_value(type, bits, stored);
 }
 
 // 3.9.1p8 and 3.9.4: the types whose objects a constant of this translation
@@ -1573,7 +1584,7 @@ bool LowirUnitLowering::global_initializer(lowir_model::GlobalDefinition& global
 				      types_.fundamental_type(types_.strip_cv(type)), held));
 		return true;
 	}
-	if (!image_value(node, type, global.init_operand.text))
+	if (!image_value(node, type, global.init_operand.text, true))
 	{
 		return false;
 	}

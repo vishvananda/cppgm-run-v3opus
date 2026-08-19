@@ -488,7 +488,10 @@ public:
 	// 2.14.4's floating one is a value no integer of this translation holds, so
 	// it reaches the image as the digits the program wrote and the suffix the
 	// storage asks for.
-	bool image_value(const DumpNode& node, TypeId type, std::string& text);
+	// `stored` says the text is the operand of `global @x : T = v`, which names
+	// the whole object's storage rather than one clause of its image.
+	bool image_value(const DumpNode& node, TypeId type, std::string& text,
+	                 bool stored = false);
 	// 2.14.4 and `lowir.md`: one floating value spelled at the width of the
 	// storage that holds it.  It is one owner because a spelling that carries
 	// the suffix of another width would be a value of that width, so the
@@ -641,15 +644,18 @@ private:
 	void constant_item(lowir_model::GlobalDefinition& global, TypeId type,
 	                   unsigned long long bits, long double real);
 	std::string constant_text(TypeId type, unsigned long long bits,
-	                          long double real);
+	                          long double real, bool stored = false);
 	// Whether a constant of `type` carries the *value* an object of it holds,
 	// which is what the image can spell without reading the initializer again.
 	bool valued_type(TypeId type) const;
 	// `bytes` of zero, added to the items when there are any to add.
 	static void add_zero_item(lowir_model::GlobalDefinition& global,
 	                          unsigned long long bytes);
-	// The literal `bits` of `type` is written as, signed when the type is.
-	std::string spell_value(TypeId type, unsigned long long bits);
+	// The literal `bits` of `type` is written as, signed when the type is - and
+	// signed when the *LowIR* type is, for the one operand that names an
+	// object's whole storage rather than a clause the program wrote.
+	std::string spell_value(TypeId type, unsigned long long bits,
+	                        bool stored = false);
 	// The declaration of `entity` as a function, without a body - one per name
 	// a call of it can write, which for a constructor or a destructor both a
 	// complete object and a base subobject asked for is both of the ABI's

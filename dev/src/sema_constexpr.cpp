@@ -1507,6 +1507,22 @@ SemaConstant ConstexprReading::call(SemaEntity& callee,
 	const bool constexpr_declared = callee.constexpr_function ||
 		(callee.primary != nullptr && !callee.explicit_specialization &&
 		 callee.primary->constexpr_function);
+	// 14.7.1p1: reading what this call comes to is a context that *requires the
+	// function definition to exist*, whichever operand the naming that chose it
+	// stood in - 5p8 leaves the operand unevaluated and says nothing about the
+	// constant expressions written inside it, so `decltype(box<width<int>()>())`
+	// and `noexcept(taking<width<int>()>())` name `width<int>` where nothing is
+	// evaluated and read its value all the same.  3.2p2 is the other sentence
+	// and answers about the *symbol*: the operand odr-uses nothing, so this
+	// demand is the fold's alone and asks for no definition of the unit.
+	// 14.6p8's dialect declares nothing and asks for nothing, and `instantiate`
+	// is what says a specialization no argument list has settled has no body to
+	// read yet.
+	if (constexpr_declared && callee.constexpr_body == nullptr &&
+	    callee.primary != nullptr && analyzer_.checking_ == 0)
+	{
+		analyzer_.instantiate(callee);
+	}
 	if (!callee.constexpr_function || callee.constexpr_body == nullptr ||
 	    callee.constexpr_region == nullptr)
 	{

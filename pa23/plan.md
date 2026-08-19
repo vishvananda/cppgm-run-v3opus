@@ -45,10 +45,13 @@ Owners, in the order a use walks them:
   of this declaration's own places to the base's.
 - `lowir_abi.cpp` — 14.2's encoding of an argument list, and 14.1p4's own
   answer to which places bind an address.
+- `lowir_image.cpp` — 3.6.2p2's two spellings of one value: the operand naming a
+  scalar object's whole storage, at the LowIR type, and an item standing for one
+  clause of the image, at that clause's own signedness.
 
 ## Current Failure Map
 
-438 tests (400 handout + 38 course), 394 passing (handout-only 356 / 400).  The
+440 tests (400 handout + 40 course), 396 passing (handout-only 356 / 400).  The
 44 left, all of them handout, by the compiler behavior each wants:
 
 | group | n | shape |
@@ -140,15 +143,44 @@ Known gaps diagnosed but not landed:
   is `_ZNK5makercvT_IRK6holderEEv` and a direct binding with no temporary. No
   handout fixture pins either reading, and a course fixture cannot hold the
   shape at all because its `.ref` would come from the reference.
-- **A floating *item* is spelled with the digits the program wrote in the
-  reference and with the item's own width suffix here.** `A a = {0}` over a
-  `float` member is `f32 0` there and `f32 0f` here, `{1.5}` is `f32 1.5` and
-  `f32 1.5f`, and a value-initialization is `f32 0.0F` / `f64 0.0` there. A
-  *scalar* global is the other way and agrees: `float d = 4;` is `4f` in both,
-  `double e = 1.5f;` is `1.5` in both, which is what pa16's `.ref` pins. So the
+- **An *item* and an instruction operand are spelled with the digits the written
+  clause had in the reference, at every width and whichever type it is.**  A
+  floating item: `A a = {0}` over a `float` member is `f32 0` there and `f32 0f`
+  here, `{1.5}` is `f32 1.5` and `f32 1.5f`, and a value-initialization is
+  `f32 0.0F` / `f64 0.0` there.  An integral one is the same sentence:
+  `unsigned int c[2] = { (unsigned int)-1, 4294967295u };` is `u32 -1` and
+  `u32 4294967295` there - a negative spelling at an *unsigned* LowIR type - and
+  `long b[2] = { -1, (long)18446744073709551615UL };` is `i64 -1` and
+  `i64 18446744073709551615`; it follows through a cast and through a named
+  constant, so it is a fact of the clause and of neither type.  `cmp eq i64 -1,
+  18446744073709551615` is the same two answers in one instruction.  A *scalar*
+  global is the other way and agrees: `float d = 4;` is `4f` in both,
+  `double e = 1.5f;` is `1.5` in both, and `unsigned long g = (unsigned long)-1;`
+  is `= -1` in both, which is what pa16's and this build's `.ref` pin.  So the
   item path would have to keep the written clause apart from the one 8.5p7
   makes, and it is the only diff left in
   `spec/300-conversion-function-template-object-result-copy-init.t`.
+- **A function template's trailing return type is mangled `T_`.**
+  `template<class T> auto call(T v) -> decltype(grow(v))` is `_Z4callIiET_S0_`
+  here, `_Z4callIiEDTcl4growfp_EET_` in `g++` and `_Z4callIiEiT_` in the
+  reference, and `holder::self` returning `decltype(this)` is
+  `_ZN6holder4selfIiEET_S1_` here against `_ZN6holder4selfIiEEPS_T_` in both
+  oracles.  The two oracles agree against this build wherever a return type is
+  written as one, but `object=` is stripped before every comparison, so no
+  fixture can pin it and this build's own two units agree with each other.
+- **A decltype-specifier in a member template's declarator is read at the point
+  of instantiation and not where it stands.** 9.2p2 leaves the
+  trailing-return-type outside the complete-class contexts, so
+  `decltype(sizeof(*this))` and `decltype(sizeof(holder))` written in a member
+  *template* are programs both oracles refuse and this build translates - the
+  specifier is put aside as a dependent reading whatever it names, and the
+  substitution reads it where the class is complete.  The non-template shape is
+  refused where it stands.
+- **14p2's "a local class shall not have member templates" has no reader.** A
+  member function template and a member class template of a class declared in a
+  block are programs `g++` refuses and the reference and this build translate;
+  the reference also names such a member `_ZZ4mainEN5local3getIiEET_S0_` where
+  this build names it as a member of no function at all.
 - **8.3.4p1's bound over a place is read in a class template's member and in an
   alias and not in a function template's parameter.**
 - **8.3.5p8's function returning an array or a function is not refused**, so
@@ -248,60 +280,41 @@ Known gaps diagnosed but not landed:
 
 ## Active Checkpoint
 
-**14.7.1p1's laziness: the definitions an instantiation does not make, and the
-object 5.1.1p3 gives a member template's declarator.** Complete; ledger row 19
-is its record.
+**Audit: the demand 5p8's operand does not make, and the two questions one
+spelling function was answering.** Complete; ledger row 9 is its record.
 
-- *Owner.* `sema_pattern.cpp` owns the readings a definition gets somewhere
-  other than where it stands, which is where `hold_member_class` and
-  `complete_held_class` now live beside `PatternReading::instantiate` and
-  14.7.3p1's two member-class readers. `sema_template.cpp` owns 3.9p5's demand
-  (`require_complete_type` / `require_settled_type`), which is what reads such a
-  body. `sema_overload.cpp` owns 3.2p2 at a naming. `sema_declarator.cpp` owns
-  5.1.1p3's object; `sema_deduce.cpp` owns the reading a substitution makes
-  again, which is where that object has to stand a second time.
-  `lowir_image.cpp` owns how a value is spelled at the LowIR type holding it.
-- *Data flow.* A member class of a class an instantiation is reading is
-  declared and not defined: the class-specifier, the region the enclosing class
-  opened, 9.5p2's terminals, 14.6.4.2p1's bound and the dialect the reading
-  spoke go into `DependentReadings::classes`, keyed by the declaration, and
-  `asked_specialization` marks it with the same mark a naming that made no use
-  writes - so 3.9p5's one demand answers for both. A definition written
-  *outside* the class keeps its own reading, because `EnclosedBy` unwinds the
-  region binding its head. 14.7.3p1 is asked where the body is held as well as
-  where it is read, because that question is what says a `template<>` for the
-  member is a definition of something. 3.2p2 is the same sentence at a naming:
-  `named_function` asks for no definition inside 5p8's unevaluated operand, and
-  `Evaluated` takes that operand off at every instantiation's door, so a class
-  completed inside `decltype` still folds the constant expressions its own
-  members write. And `declarator_object` walks out through the head regions a
-  member template writes, so `this` stands from the cv-qualifier-seq to the end
-  of the declarator there as it does for a plain member - with
-  `DependentDecltype::self` carrying it into the reading 14.7.1p1 makes again.
-- *Expected complexity.* One map insert per member class an instantiation
-  declares and one map probe per demand that reaches a `declared_only` class;
-  one body read per class, once. One field read per naming for 3.2p2 and one
-  assignment per body reading for `Evaluated`. One walk of the heads the program
-  wrote per member-function declarator. One `low_type` switch per spelled value.
-- *Validation.* 68 probe programs against `g++`, the reference binary and the
-  pre-checkpoint binary - 20 member-class shapes, 12 unevaluated-operand shapes,
-  12 `this`-in-a-declarator shapes, 10 held-in-a-pattern shapes, 12 explicit
-  specialization / demand-ordering shapes and 4 address-place cross products
-  whose function symbols are byte-identical to `g++`'s - every accepted one linked through
-  `lowir2cy86` + `cy86` and run to `g++`'s value except where the scaffold's own
-  ceiling stands, and every disagreement left is one of the recorded
-  divergences. pa23 386 / 436 -> 394 / 438 (handout 350 -> 356 / 400);
-  `through-pa22` at 2948 / 2948; corpus 2.04-2.09 s against the pre-checkpoint
-  binary's 1.99-2.05 s; no `rc > 1` in the 9049 files of pa10 through pa23 -
-  which is what caught the one regression this checkpoint made, an unbounded
-  recursion on a `-bad` fixture whose exit status the harness could not tell
-  from an ordinary refusal; valgrind clean over 140 inputs; every course `.ref`
-  regenerated from the reference binary and unchanged, plus two new fixtures.
-  The re-probe of the plan's own recorded gaps closed the one crash it named:
-  `pa24/tests/spec/100-function-template-nontype-function-pointer-specialization-call.t`
-  read `N = 2` at a value place as address-table entry 2, which is the address
-  the same name wrote, so 14.2's encoding walked into itself - and the whole
-  corpus of pa10 through pa39, 14013 files, now holds no `rc > 1` at all.
+- *Owner.* `sema_constexpr.cpp` owns 5.19's fold, which is the reading that
+  needs a body and therefore the one that asks 14.7.1p1 for it;
+  `sema_overload.cpp` goes on owning 3.2p2 at the naming, which asks the *unit*
+  for a definition and is right to ask for none inside an unevaluated operand.
+  `lowir_image.cpp` owns both spellings of a value and `lowir_lower.h` carries
+  which of the two a caller wants.
+- *Data flow.* `ConstexprReading::call` reaches a specialization whose
+  `constexpr_body` is null and, outside 14.6p8's dialect, hands it to
+  `instantiate` before refusing - the same door the naming would have gone
+  through, holding `instantiated` itself, so a body is read once however many
+  folds arrive and `require_definition` is never asked, which is what leaves the
+  operand odr-using nothing. `spell_value` takes `stored` from its caller:
+  `image_value` and `constant_text` pass it on, the operand of
+  `global @x : i64 = v` sets it and every item leaves it false, so the scalar
+  object's storage is spelled at the LowIR type and a clause of the image keeps
+  its own signedness.
+- *Expected complexity.* Two field reads per fold that reaches a callee with no
+  body, made where the walk was about to refuse. One `bool` handed down two call
+  chains at the image.
+- *Validation.* 108 probe programs against `g++`, the reference binary, the
+  checkpoint binary and the pre-checkpoint binary - 41 member-class shapes, 15
+  `this`-in-a-declarator shapes, 23 unevaluated-operand and fold shapes, 15
+  value-spelling shapes, 5 address-place cross products and 9 mangling probes -
+  with every accepted one's LowIR diffed against the reference's and, where the
+  scaffold's ceiling allows, linked through `lowir2cy86` + `cy86` and run to
+  `g++`'s value; four cross products judged through the real
+  `compare_results.pl` from a scratch directory under `tests/`. pa23 394 / 438
+  -> 396 / 440 (handout 356 / 400 unmoved, the failing 44 the same file for
+  file); `through-pa22` at 2948 / 2948; corpus 2.05-2.09 s against the pre-audit
+  binary's 2.07-2.10 s; no `rc > 1` in the 4883 files of pa10 through pa39;
+  valgrind clean over 286 inputs; every course `.ref` regenerated from the
+  reference binary and unchanged, plus two new fixtures.
 
 ## Next Substantial Checkpoint
 
@@ -311,7 +324,12 @@ partial ordering or a specialization choice picking the declaration with no
 body - and the rest are a value, a slot size, an RTTI name or a member
 initialization the two spell differently. The first four share an owner
 (13.3 with 14.8.2.4) and are what to take first; the rest want the sweep that
-says which of them the reference is right about.
+says which of them the reference is right about. This audit's split of
+`spell_value` is where the *value* half of that group is owned, and the sweep it
+wants is the one that says what a written clause's digits are - the recorded gap
+above covers a floating item, an integral item and an instruction operand with
+one sentence, and closing it needs the clause kept beside the fold rather than
+either type asked about the bits.
 
 ## Performance Model
 
@@ -384,25 +402,29 @@ be run to a value writes four arguments or fewer.
 | binding multiplicity | n namespace-scope declarations of distinct names | 0.00 @32, 0.00 @128, 0.01 @512, 0.01 @1024 - and the same |
 | rebinding multiplicity | n names each declared twice, which is the slot the kind test reads | 0.00 @32, 0.00 @128, 0.01 @512, 0.02 @1024 - and the same |
 | tag-then-function multiplicity | n spellings bound as a tag and then as a function - the pair the kind test tells apart | 0.00 @32, 0.00 @128, 0.02 @512, 0.04 @1024 - and the same |
-| **inherited-constructor multiplicity** | n classes, each inheriting one constructor template and building one object of it | **0.01 @32, 0.04 @128, 0.17 @512, 0.37 @1024 - linear; the pre-checkpoint binary refuses the program at the first object** |
-| **inherited-constructor distinctness** | n derived classes over one base, a distinct argument type apiece, so no two share a specialization | **0.01 @32, 0.04 @128, 0.21 @512, 0.42 @1024 - linear; refused by the pre-checkpoint binary** |
-| **inheriting-chain nesting** | d classes, each inheriting the constructor template the one below inherited | **0.00 @32, 0.00 @64, 0.01 @128, 0.02 @256 - linear; refused by the pre-checkpoint binary** |
-| **inherited-candidate width** | one derived class inheriting n constructor templates from one base - the chain 12.9p1 keys each candidate against | **0.00 @32, 0.01 @128, 0.03 @512, 0.08 @1024 - and 0.00 / 0.01 / 0.03 / 0.07 on the pre-checkpoint binary, which refuses the call** |
-| **inherited-pack multiplicity** | one inherited constructor template over a pack, n arguments at one call - the run `expand_inherited_parameters` walks | **0.00 @32, 0.00 @128, 0.01 @512, 0.02 @1024 - linear; refused by the pre-checkpoint binary** |
-| **variadic-call multiplicity** | n calls of one variadic function template, which 14.8.2.1p1 now deduces | **0.00 @32, 0.00 @128, 0.01 @512, 0.03 @1024 - linear; refused by the pre-checkpoint binary** |
-| **constexpr-inherited multiplicity** | n classes, each inheriting one `constexpr` constructor and folding one object of it | **0.00 @32, 0.02 @128, 0.09 @512, 0.20 @1024 - linear; the pre-audit binary refuses the program at the first object** |
-| **constexpr-inherited chain nesting** | d classes, each inheriting the `constexpr` constructor the one below inherited, one fold at the bottom | **0.00 s flat from d = 4 to d = 48 and 0.01 at d = 64 - linear; refused by the pre-audit binary** |
-| **inherited-candidate agreement width** | n bases whose constructor templates all agree on one parameter-type-list, which is the run 12.9p3 no longer stands one declaration for | **0.00 @8, 0.00 @32, 0.02 @128, 0.04 @256 - and the same on the pre-audit binary, which declares one of the n** |
-| **member-class multiplicity** | n class templates, each a member class the enclosing object requires complete | **0.01 @32, 0.03 @128, 0.12 @512, 0.25 @1024 - linear, and the same on the pre-checkpoint binary** |
-| **member-class distinctness** | n specializations of one template, a distinct argument apiece, each completing its own member class | **0.01 @32, 0.03 @128, 0.11 @512, 0.25 @1024 - and the same** |
-| **held-member multiplicity** | n member classes *nothing* completes, so `declared_only_` never returns to zero | **0.00 @32, 0.02 @128, 0.09 @512, 0.20 @1024 - linear; the pre-checkpoint binary refuses the program at the first class** |
-| **member-class nesting** | d nested member classes, the innermost one required complete | **0.00 s flat from d = 4 to d = 32, on both binaries** |
-| **unevaluated multiplicity** | n `decltype(mk<T>())` namings, one specialization apiece | **0.00 @32, 0.02 @128, 0.09 @512, 0.18 @1024 - and the same** |
-| **declarator-object multiplicity** | n member templates of one class, each a `decltype(this->v)` trailing return, one call apiece | **0.00 @32, 0.00 @128, 0.02 @512, 0.03 @1024 - and the same** |
-| **declarator-object distinctness** | n class templates, each one such member template over its own argument | **0.01 @32, 0.04 @128, 0.18 @512, 0.36 @1024 - linear; the pre-checkpoint binary refuses the program at the first call** |
-| **declarator-object nesting** | d alias layers between the class and the argument its `this` carries | **0.00 s flat from d = 4 to d = 32, on both binaries** |
-| **spelled-value multiplicity** | n eight-byte unsigned globals, each spelled at the LowIR type's signedness | **0.00 @32, 0.00 @128, 0.02 @512, 0.04 @1024 - and the same** |
-| whole PA23 corpus | 400 handout and 38 course files, one process each | **2.04-2.09 s warm over five alternating passes, against the pre-checkpoint binary's 1.99-2.05 s**; no `rc > 1` in the 14013 files of pa10 through pa39, which the recorded crash was one of; valgrind clean over 140 inputs |
+| inherited-constructor multiplicity | n classes, each inheriting one constructor template and building one object of it | 0.01 @32, 0.04 @128, 0.17 @512, 0.37 @1024 - linear; the pre-checkpoint binary refuses the program at the first object |
+| inherited-constructor distinctness | n derived classes over one base, a distinct argument type apiece, so no two share a specialization | 0.01 @32, 0.04 @128, 0.21 @512, 0.42 @1024 - linear; refused by the pre-checkpoint binary |
+| inheriting-chain nesting | d classes, each inheriting the constructor template the one below inherited | 0.00 @32, 0.00 @64, 0.01 @128, 0.02 @256 - linear; refused by the pre-checkpoint binary |
+| inherited-candidate width | one derived class inheriting n constructor templates from one base - the chain 12.9p1 keys each candidate against | 0.00 @32, 0.01 @128, 0.03 @512, 0.08 @1024 - and 0.00 / 0.01 / 0.03 / 0.07 on the pre-checkpoint binary, which refuses the call |
+| inherited-pack multiplicity | one inherited constructor template over a pack, n arguments at one call - the run `expand_inherited_parameters` walks | 0.00 @32, 0.00 @128, 0.01 @512, 0.02 @1024 - linear; refused by the pre-checkpoint binary |
+| variadic-call multiplicity | n calls of one variadic function template, which 14.8.2.1p1 now deduces | 0.00 @32, 0.00 @128, 0.01 @512, 0.03 @1024 - linear; refused by the pre-checkpoint binary |
+| constexpr-inherited multiplicity | n classes, each inheriting one `constexpr` constructor and folding one object of it | 0.00 @32, 0.02 @128, 0.09 @512, 0.20 @1024 - linear; the pre-audit binary refuses the program at the first object |
+| constexpr-inherited chain nesting | d classes, each inheriting the `constexpr` constructor the one below inherited, one fold at the bottom | 0.00 s flat from d = 4 to d = 48 and 0.01 at d = 64 - linear; refused by the pre-audit binary |
+| inherited-candidate agreement width | n bases whose constructor templates all agree on one parameter-type-list, which is the run 12.9p3 no longer stands one declaration for | 0.00 @8, 0.00 @32, 0.02 @128, 0.04 @256 - and the same on the pre-audit binary, which declares one of the n |
+| member-class multiplicity | n class templates, each a member class the enclosing object requires complete | 0.01 @32, 0.03 @128, 0.12 @512, 0.25 @1024 - linear, and the same on the pre-checkpoint binary |
+| member-class distinctness | n specializations of one template, a distinct argument apiece, each completing its own member class | 0.01 @32, 0.03 @128, 0.11 @512, 0.25 @1024 - and the same |
+| held-member multiplicity | n member classes *nothing* completes, so `declared_only_` never returns to zero | 0.00 @32, 0.02 @128, 0.09 @512, 0.20 @1024 - linear; the pre-checkpoint binary refuses the program at the first class |
+| member-class nesting | d nested member classes, the innermost one required complete | 0.00 s flat from d = 4 to d = 32, on both binaries |
+| unevaluated multiplicity | n `decltype(mk<T>())` namings, one specialization apiece | 0.00 @32, 0.02 @128, 0.09 @512, 0.18 @1024 - and the same |
+| declarator-object multiplicity | n member templates of one class, each a `decltype(this->v)` trailing return, one call apiece | 0.00 @32, 0.00 @128, 0.02 @512, 0.03 @1024 - and the same |
+| declarator-object distinctness | n class templates, each one such member template over its own argument | 0.01 @32, 0.04 @128, 0.18 @512, 0.36 @1024 - linear; the pre-checkpoint binary refuses the program at the first call |
+| declarator-object nesting | d alias layers between the class and the argument its `this` carries | 0.00 s flat from d = 4 to d = 32, on both binaries |
+| spelled-value multiplicity | n eight-byte unsigned globals, each spelled at the LowIR type's signedness | 0.00 @32, 0.00 @128, 0.02 @512, 0.04 @1024 - and the same |
+| **constexpr-unevaluated multiplicity** | n constexpr function templates, each named once inside a `decltype` whose template argument folds it | **0.00 s @32, 0.02 @128, 0.07 @512, 0.14 @1024 - linear, and the same on the pre-checkpoint binary; the pre-audit binary refuses the program at the first fold** |
+| **constexpr-unevaluated nesting** | d constexpr function templates, each folding the one below, one naming inside a `decltype` | **0.00 s flat from d = 4 to d = 32** |
+| **constexpr-evaluated multiplicity** | n folds of one constexpr function template at an array bound - the path that already had a body and now asks two field reads more | **0.00 @32, 0.01 @128, 0.03 @512, 0.06 @1024 - and the same on the pre-audit binary** |
+| **item multiplicity** | n eight-byte unsigned items of one structured global - the path the caller's question was added to | **0.00 @1024, 0.02 @4096 - and the same** |
+| **whole PA23 corpus** | 400 handout and 40 course files, one process each | **2.05-2.09 s warm over three alternating passes, against the pre-audit binary's 2.07-2.10 s; no `rc > 1` in the 4883 files of pa10 through pa39; valgrind clean over 286 inputs** |
 
 Why 14.6.4.2p1's bound stays flat: it is one `std::uint32_t` written where a
 definition is recorded and put back by a two-assignment scope where it is read,
@@ -505,6 +527,14 @@ never the program; the entity a substitution makes of it is built only where the
 recorded one is *dependent*, so a member template of a class that is not one
 reuses the declarator's own.
 
+Why this audit's two readers cost nothing: the fold's demand is
+`constexpr_body == nullptr` and two field reads, made on the one path that was
+about to refuse - so a callee whose body is already read pays the two reads, a
+callee inside 14.6p8's dialect is never asked, and `instantiate` holds
+`instantiated` itself, so n folds of one specialization read one body.  The
+item's spelling is one `bool` handed down two call chains and no question anyone
+asks twice.
+
 
 ## Completed Checkpoints
 
@@ -529,3 +559,4 @@ reuses the declarator's own.
 | 17 | 12.9p1's inherited constructor is a template too | `sema_class.cpp`, `sema_template.cpp`, `sema_lifetime.cpp`, `sema_deduce.cpp`, `lowir_lower.cpp` | a using-declaration that names a base's constructor *template* declared a plain function from its parameter list, whose types name places nothing binds - so `derived<int> d(a)` over `template<class U> base(U&&)` found no declaration accepting its arguments, which is the whole of three tests. The declaration carries the base's own head now, so a deduction at the derived class binds what one at the base would and 14.2 writes `OT_`; 13.1 keys it by `TemplateSignature::indexed`; and `specialize` hands the specialization 12.9's `inherited`, `defaulted` and `inline_function` and resolves the first to the base's specialization over the *same* list, so no second deduction from an lvalue picks another one. 12.9p8's arguments are `static_cast<P&&>(p)` - the base's rvalue-reference parameter took no lvalue at all, which is a program both other oracles translate - and its places come from the template's record with a pack entry expanded to the run this list bound. Two siblings the sweep un-hid: 8.3.5p4's ellipsis made `deduced_call` refuse *every* variadic function template, and 7.1.5p2's both-entry-points rule was asked of an instantiated `constexpr` constructor, which owed a symbol nothing names | 377 / 430 -> 384 / 434 (handout 347 -> 350 / 400); through-pa22 2948 / 2948; 72 generated 12.9 shapes agreeing three ways with `g++` and the reference on acceptance and value, 66 run through `lowir2cy86` + `cy86`, all 72 refused by the pre-checkpoint binary; every course `.ref` regenerated and unchanged plus four new fixtures; corpus 1.94 s against 1.96 s; valgrind clean over 73 inputs |
 | 18 | audit: the characteristics an inherited constructor is declared with, and the declaration one probe does not name | `sema_class.cpp`, `sema_template.cpp`, `sema_constexpr_object.cpp`, `sema_declaration.h` | checkpoint 17's rule is right - the head, the deduction at the derived class, the pack the base wrote, 12.9p8's forwarding and 8.3.5p4's ellipsis all answer what `g++` answers across 47 probes, and two units naming one such specialization write one weak definition under `_ZN4keptC1IiEET_`, which is the reference's own name for it.  What none of it carried is that 12.9p2 lists *four* constructor characteristics and the checkpoint landed the first: `constexpr` had no reader at all, so `constexpr base(int)` inherited left a class 3.9p10 called no literal type and `constexpr derived d(3);` was a program both oracles build and this one refused.  It travels with the declaration and to the specialization beside 12.9's other three, and 12.9p8 is what the *fold* then needs - `constructed_object` writes one mem-initializer entry for the base the using-declaration named, carrying this constructor's own arguments, and `subobject_initialized` builds it with the `object_of` a written one reaches, so a chain, a second base, a member's own initializer and a base default argument the truncated list leaves behind all fold to the value `g++` runs them to.  And 12.9p3's exclusion is of a constructor the class *declared itself*: an inherited one is the other declaration the index probe finds, and standing one of the two for both dropped a whole base's candidate set - `struct both : left, right` inheriting one parameter-type-list from each ran to `left`'s constructor where both oracles refuse the use for having no best declaration | 384 / 434 -> 386 / 436 (handout 350 / 400 unmoved, the failing 50 the same file for file); through-pa22 2948 / 2948; 47 probes against `g++`, the reference, the checkpoint binary and the pre-checkpoint binary; every course `.ref` regenerated from the reference binary and unchanged, plus two new fixtures; corpus 2.06 s against the pre-audit binary's 2.10 s; no `rc > 1` in pa23's 436 files or the 2284 of pa10 through pa22; valgrind clean over 143 inputs |
 | 19 | 14.7.1p1's laziness, and the object 5.1.1p3 gives a member template's declarator | `sema_pattern.{h,cpp}`, `sema_template.cpp`, `sema_declaration.h`, `sema_overload.cpp`, `sema_declarator.cpp`, `sema_deduce.{h,cpp}`, `sema_function.cpp`, `sema_reading.h`, `sema_analyzer.{h,cpp}`, `sema_explicit.cpp`, `lowir_image.cpp` | 14.7.1p1's second sentence says an instantiation makes the *declarations* of its member classes and not their definitions, and this build read every one of them where the enclosing body reached it - so `outer<int>::holder` holding a `struct unused { enum { v = sizeof(typename T::missing) }; };` nothing ever names was a program all three oracles build and this one refused. The body is held now against the region the enclosing class opened, 14.6.4.2p1's bound and the dialect the reading spoke, and read where 3.9p5 first requires the class complete - which is the mark `asked_specialization` already writes, so one demand answers for a held member class and for a specialization a naming left declared. A definition written outside the class keeps its own reading, whose region `EnclosedBy` unwinds; 14.7.3p1's `template<>` for the member is asked at the hold as well as at the read, because that question is what says the body is a definition of something. 3.2p2 is the same rule at a naming: 5p8's unevaluated operand asks for no definition, and `Evaluated` takes the operand off at each instantiation's door so a class completed inside `decltype` still folds the constant expressions its own members write. And `declarator_object` asked whether the region the declarator was read in is a class, which for a member *template* is the region its own head declared its places in - so `auto start(Token) -> decltype(initiate<Token>(initiation(this)))` was a declaration no call could accept, and `DependentDecltype::self` is what carries that object into the reading the substitution makes again. `spell_value` reads the LowIR type rather than the C++ one, because `lowir.md` names no `u64`.  And 14.1p4's address table is asked only of a pointer or a reference place: a value place's bits are a number, and reading `N = 2` as address entry 2 made 14.2's encoding of `run_test<&sample<char, 2, true> >` walk into itself. The sweep found one regression of its own: skipping 14.6p8's reading of a member template's definition inside an instantiation - the first shape of the laziness rule - left an out-of-class definition of a pattern the class never declared recursing without bound, so the rule is written at the member classes alone | 386 / 436 -> 394 / 438 (handout 350 -> 356 / 400); through-pa22 2948 / 2948; 68 probe programs against `g++`, the reference and the pre-checkpoint binary, every accepted one linked and run to `g++`'s value; every course `.ref` regenerated from the reference binary and unchanged, plus two new fixtures; corpus 2.04-2.09 s against 1.99-2.05 s; no `rc > 1` in the 14013 files of pa10 through pa39, which the recorded crash was one of; valgrind clean over 140 inputs |
+| 20 | audit: the demand 5p8's operand does not make, and the two questions one spelling function was answering | `sema_constexpr.cpp`, `lowir_image.cpp`, `lowir_lower.h` | checkpoint 19's rules are right - 41 member-class shapes across the layout, the demand sites, the member kinds and the `template<>` tiers, 15 `this`-in-a-declarator shapes and five address-place cross products whose `object=` names are byte-identical to the reference's all answer what `g++` answers, and the two programs `g++` refuses and the reference translates - a `template<>` for a member no class declares, and one written after the class holding it was instantiated - are refused here.  What none of it carried is that 3.2p2 and 14.7.1p1 are two sentences about one naming.  5p8's operand odr-uses nothing, which is what the new gate in `named_function` says and is right; but a *template argument* written inside it is a constant expression, and reading what it comes to is a context that requires the definition to exist - so `decltype(box<width<int>()>())` and `noexcept(taking<width<int>()>())` were `width is not a constexpr function this unit has defined`, four programs both oracles and the pre-checkpoint build accept.  The demand belongs to the fold: `ConstexprReading::call` asks 14.7.1p1 for the body and asks the unit for no definition, so the operand still writes no symbol and the LowIR is the reference's byte for byte.  And `spell_value` had two consumers: the operand of `global @x : i64 = v` names a scalar object's whole storage and is spelled at the LowIR type, which is the checkpoint's gain, while an *item* stands for one clause of the image and keeps that clause's signedness - `{ 1UL, 18446744073709551615UL, 2UL }` is `i64 18446744073709551615` in the reference and the checkpoint made it `i64 -1`, which the real comparator fails on.  The question is the caller's now | 394 / 438 -> 396 / 440 (handout 356 / 400 unmoved, the failing 44 the same file for file); through-pa22 2948 / 2948; 108 probes against `g++`, the reference, the checkpoint binary and the pre-checkpoint binary, four cross products judged through the real `compare_results.pl`; every course `.ref` regenerated from the reference binary and unchanged, plus two new fixtures; corpus 2.05-2.09 s against the pre-audit binary's 2.07-2.10 s; no `rc > 1` in the 4883 files of pa10 through pa39; valgrind clean over 286 inputs |

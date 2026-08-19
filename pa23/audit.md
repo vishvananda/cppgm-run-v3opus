@@ -16,195 +16,230 @@ means, and what a failure of that building says about the candidate that asked.
 | 6 | `e4191b39` | 2 / 2 + 3 recorded | **the list a member wrote is a second fact of its name, and the two readers that had been asking the old one question got a wrong answer each.**  Checkpoint 13 made 14.2p4's argument list part of what a dependent member's name stands for: it is read where the reading stands, interned beside the prefix and the name, built again by `Substitution::member` and finished at 14.3.3p1's two exits, with a class that declares no such member template 14.8.2p8's failure.  That rule is right and swept clean - 24 shapes of the idiom across the sites a type-specifier stands at, the member kinds a class can declare and the argument kinds a list can hold, agreeing with `g++` on all 24 and running the 21 accepted ones to its value; the ABI writes the third form of `<unresolved-name>` byte-identical to the reference and to `g++` for the plain, the pack and the value form, and two units naming one such signature write one weak definition under one name.  What none of it carried is that widening `dependent_member` from the whole written component to the bare name left 14.6p2's reader comparing the two: `require_written_type` asked whether the stand-in's member equals `written.last()`, which for `T::template box<int>` is `box<int>` against `box` - so `T::template box<int> b;` written with no `typename` stopped being refused, a program `g++` refuses and the pre-checkpoint build refused.  And the value half copied 7.1.5p2 onto every specialization `specialize` makes, which is every specialization the *program* wrote out too: `template<> int f<int>()` declared without `constexpr` beside a `constexpr` primary folded, so `char a[f<int>()]` was a program both oracles refuse and this one translated.  The copy is gone and the clause is asked where it is needed - `constexpr_declared` reads the template's flag for a specialization that is not 14.7.3p1's, which is the one reading that writes no definition to read it off, and the same answer is what says whether the refusal is 5.19's about the program or the edge of this build.  Recorded rather than fixed: a template-id component after a *decltype* prefix, which the pre-checkpoint build refuses identically and both oracles accept; 14.6p2 itself, which the reference implements at no shape at all so no fixture can pin it; and `TypeTable::substitute`'s structural rebuild, which leaves a member stand-in standing as it leaves a discarding naming and which the plan already carries |
 | 7 | `adf23e13` | 2 / 2 + 3 recorded | **the number a second binding stands at, and the count a call hands the ordering.**  Checkpoint 15 made 14.8.2.4p3's `limit` - `kEveryPlace`, the count the call wrote arguments for, or `kResultPlace` - the answer `ordering_parameters` and `ordering_places` read, with 14.8.2.4p12's trailing run a place of its own past it; 14.8.2.3p2 and p4 taking the reference and the top-level qualification off P and A wherever the *other* one came from; and 14.6.4.2p1's number taken from the binding a second declaration stood over.  Those rules are right and swept clean - 135 generated ordering shapes across five candidate kinds (a free pair, two non-static members, two static members, a static against a non-static one, and two non-member operators) crossed with three first-parameter shapes, five trailing-default shapes and one or two written arguments, agreeing with `g++` on all 135 and running the 124 accepted ones to its value, 111 of them programs the pre-checkpoint binary refuses; ten conversion shapes agreeing with `g++` on all, including the reference and the qualification arriving from either side; and the memo answering one pair under five call arities.  What none of it carried is that both new facts are read one step wide of where they were settled.  3.3p4: the number is the first binding's only where the two declarations declare the *same kind* of name - `struct probe;` above a pattern and `int probe(int);` below it bind one spelling to two entities, and numbering the function where the class stood put it in the pattern's reach, so a program both oracles refuse and the pre-checkpoint build refused was translated to 8.  And 14.8.2.4p3's limit is 13.3.1p3's count, which holds a place for the implicit object argument whether or not a candidate wrote a parameter for it: `s.f(&v)` over two static member templates was ordered over two places where the call wrote one, so a trailing default decided the ordering and left the pair unordered - while `S::f(&v)`, the same pair over the same argument, came out right.  `ordering_limit` is that count restated in the places the two lists hold, which is the object place kept where either declaration wrote one and dropped where 9.4p1's static member of the same class is what the other is ordered against.  Recorded rather than fixed: 13.5.2p1's arity of a non-member operator function, which has no reader at any tier and which the checkpoint's own ordering un-hid - `operator-(tag, T, int = 0)` is a declaration `g++` refuses and the reference and this build accept, and before the checkpoint the *call* over it was refused for having no best declaration; the three static-member orderings this audit turns, which `g++` accepts and the reference refuses along with every other shape of p3's first bullet; and `B<int>::held` named in a pattern above the definition of `B`, which the pre-checkpoint build accepts identically |
 | 8 | `26f065b2` | 2 / 2 + 3 recorded | **12.9p2 lists four constructor characteristics and the checkpoint landed the first, and 12.9p3's exclusion was read of a declaration it does not name.**  Checkpoint 17 made a using-declaration that names a base's constructor *template* declare a constructor template here: the base's own head rather than a copy of it, `TemplateSignature::indexed` as 13.1's key, `specialize` carrying 12.9's facts and resolving `inherited` to the base's specialization over the same list, `demand_constructor_definition` taking the places from the template's record with a pack entry expanded to the run this list bound, and 12.9p8's `static_cast<P&&>(p)`.  Those rules are right and swept clean - 47 probes across the base kinds, the argument kinds, the chain, the pack, the ellipsis, the two-parameter and partial-ordering pairs and the constant contexts agree with `g++` on every one, two units naming one such specialization write one weak definition under `_ZN4keptC1IiEET_` which is the reference's own name for it, and `parameter_value` opens a dump node per call so 12.9p8's category is written on nothing shared.  What none of it carried is the other three sentences those two paragraphs are made of.  12.9p2's fourth characteristic - `constexpr` - had no reader at any tier, so a base constructor the program wrote it on left a derived class 3.9p10 calls no literal type: `constexpr derived d(3);`, `char a[derived(3).v]` and the same through a constructor template were programs both oracles build and this one refused.  It travels with the declaration and to the specialization beside 12.9's other three, and 12.9p8 is what the *fold* then needs - `constructed_object` writes one mem-initializer entry for the base the using-declaration named, carrying this constructor's own arguments rather than a tree to read clauses out of, so the base subobject is built by `object_of` exactly as a written mem-initializer's is and is not default-constructed to a silent wrong value.  And 12.9p3 excludes a base constructor whose parameters a constructor the class *declared itself* already takes: an inherited one is the other declaration that index probe finds, and standing one of the two for both dropped a whole base's candidate set - `struct both : left, right` inheriting one parameter-type-list from each ran to `left`'s constructor where both oracles refuse the use for having no best declaration.  Recorded rather than fixed: 7.1.5p4's every-member-initialized at an inherited constructor, where `g++` alone implements C++14's relaxation; 12.9p3 at a *non-template* pair and a class's own constructor beside an inherited one, two shapes the reference answers against `g++` and this build; and the run scaffold's five-parameter ceiling, which is `lowir2cy86`'s and reads the same from the reference's LowIR |
+| 9 | `30118790` | 2 / 2 + 4 recorded | **the demand 5p8's operand does not make is one a constant expression inside it still needs, and one spelling function was asked two questions.**  Checkpoint 19 made 14.7.1p1's second sentence at a member class - `hold_member_class` records the class-specifier beside the region the enclosing class opened, 14.6.4.2p1's bound and the dialect that reading spoke, and `complete_held_class` reads it at 3.9p5's first demand - beside 3.2p2 at a naming, 5.1.1p3's object at a member template's declarator with `DependentDecltype::self` carrying it into the second reading, a value spelled at the LowIR type holding it, and 14.1p4's address table asked of a pointer or a reference place alone.  Those rules are right and swept clean: 41 member-class shapes - layout, a data member of the held type, an array, a base outside, `new`/`delete`, a virtual member, a destructor, a nested member class two deep, a member class of a member template, a partial specialization's own, a `template<>` for one and one for a member no class declares, an out-of-class member definition, a friend, an enum, a typedef, a member template of it, and one nothing completes - agree with `g++` on acceptance and on the value at every one, and the mangled names of the address places are byte-identical to the reference's across five cross products.  What none of it carried is that 3.2p2 and 14.7.1p1 are two sentences about one naming with two answers: 5p8's operand odr-uses nothing, which is what `named_function`'s new gate says, and a *template argument* written inside it is a constant expression whose fold requires the definition to exist all the same - so `decltype(box<width<int>()>())` and `noexcept(taking<width<int>()>())` were `width is not a constexpr function this unit has defined`, four programs both oracles and the pre-checkpoint build accept.  The demand belongs to the fold: `ConstexprReading::call` asks 14.7.1p1 for the body where it needs one and asks the unit for no definition, so the operand still writes no symbol and our LowIR is byte-identical to the reference's.  And `spell_value` had two consumers with two answers: the operand of `global @x : i64 = v` names the whole storage of a scalar object and is spelled at the LowIR type - `= -1` and no wider spelling of the same bits, which is the reference's and what the checkpoint gained a test for - while an *item* stands for one clause of the image and carries that clause's digits, so `{ 1UL, 18446744073709551615UL, 2UL }` is `i64 18446744073709551615` there and the checkpoint made it `i64 -1`, a difference the real comparator fails on.  The question is the caller's now.  Recorded rather than fixed: the reference's item and instruction-operand digits, which are the written clause's at every width - it writes `u32 -1`, `u16 -1` and `u8 -1` - and which this build has no reading of the clause to spell from, the same half of the same sentence as the floating item the plan already carries; a function template's trailing return type mangled `T_` where `g++` and the reference both write `DT...E` or the resolved type, which `object=` canonicalization hides from every fixture; a decltype-specifier in a member template's declarator read at the point of instantiation rather than where it stands, so `decltype(sizeof(*this))` reaches a complete class where both oracles refuse it, which the pre-checkpoint build accepts identically; and 14p2's local class shall have no member templates, which the reference accepts as this build does |
 
 ## Current Checkpoint Review
 
-Checkpoint 17 - 12.9p1's inherited constructor is a template too: the base's own
-head on the declaration a using-declaration makes, `TemplateSignature::indexed`
-as 13.1's key for it, `specialize` handing the specialization 12.9's `inherited`,
-`defaulted` and `inline_function` and resolving the first to the base's
-specialization over the same argument list, `demand_constructor_definition`
-taking its places from the template's record with a pack entry expanded to the
-run this list bound, 12.9p8's `static_cast<P&&>(p)`, 8.3.5p4's ellipsis at a
-deduction and the entry points an instantiated `constexpr` constructor owes - was
-reconstructed from its commit, from `dev/src` and from the README: what 12.9
-declares into the derived class and with which characteristics, which
-declarations one probe of 13.1's index stands for, what one argument list makes
-of such a declaration, and what its definition is at a fold as against at a call.
-Two defects were found and fixed across the reader path each reaches, three gaps
-were probed as programs and recorded, and the rest is what the review confirmed.
+Checkpoint 19 - 14.7.1p1's laziness and the object 5.1.1p3 gives a member
+template's declarator: `PatternReading::hold_member_class` and
+`complete_held_class` over `DependentReadings::classes`, 14.7.3p1's `template<>`
+for a member class asked where the body is held as well as where it is read,
+3.2p2 at a naming with `Evaluated` taking 5p8's operand off at each
+instantiation's door, `declarator_object` walking out through the heads a member
+template wrote with `DependentDecltype::self` carrying that object into the
+second reading, `spell_value` reading the LowIR type, and 14.1p4's address table
+asked of a pointer or a reference place alone - was reconstructed from its four
+commits, from `dev/src` and from the README: what an instantiation declares and
+what it defines, which reading completes a held body and under which bound and
+dialect, what `this` stands for from a member template's cv-qualifier-seq to the
+end of its declarator, and which digits a value is written with at each of the
+places LowIR spells one. Two defects were found and fixed across the reader path
+each reaches, four gaps were probed as programs and recorded, and the rest is
+what the review confirmed.
 
 ### Findings
 
-**1. 12.9p2 says a constructor has four characteristics and the checkpoint
-landed the first.** The paragraph is a list - the template-parameter-list, the
-parameter-type-list, absence or presence of `explicit`, absence or presence of
-`constexpr` - and 12.9p3 declares the inherited constructor with the same four.
-`inherit_constructor` carried the parameter-type-list and `explicit_function`
-and the checkpoint added the head; `constexpr` had no reader at any tier, so the
-class the using-declaration is written in had no constexpr constructor of its own
-and 3.9p10 called it no literal type:
+**1. 3.2p2 and 14.7.1p1 are two sentences about one naming and the checkpoint
+gave them one answer.** 5p8 leaves the operand of `decltype`, `sizeof` and
+`noexcept` unevaluated, so a function named there is odr-used by nothing and the
+unit owes no definition of it - which is what the checkpoint's `used` gate in
+`named_function` says, and it is right. What it also stopped doing is
+14.7.1p1's own sentence, which is not about the symbol but about the body: a
+specialization is instantiated when it is referenced *in a context that requires
+the function definition to exist*, and a template argument written inside that
+operand is a constant expression whose value has to be read:
 
 ```cpp
-struct base { int v; constexpr base(int x) : v(x) {} };
-struct derived : base { using base::base; };
-constexpr derived d(3);          // the constexpr object d is declared with
-static_assert(d.v == 3, "");     // struct derived, which is not a literal type
+template<int N> struct box { char pad[N]; };
+template<class T> constexpr int width() { return sizeof(T) + 1; }
+template<int N> int taking() { return N; }
+typedef decltype(box<width<int>()>()) inside;          // width is not a
+bool ok = noexcept(taking<width<char>()>());           // constexpr function
+                                                       // this unit has defined
 ```
 
-Both oracles build the program; so does `char a[derived(3).v];` with no
-`constexpr` object in it at all, and so does the same shape over a constructor
-*template*. `r08` is the control: a base constructor written *without*
-`constexpr` leaves a refusal all three make.
+Both oracles and the pre-checkpoint build translate all four shapes swept - the
+free template inside `decltype` and inside `noexcept`, a member template of a
+class that is not one, and the same naming written above an evaluated one. The
+fold arrived at a declaration with no body and read the refusal `constexpr_body
+== nullptr` writes.
 
-The characteristic travels with the declaration now, and `specialize` hands it to
-the specialization beside 12.9's other three rather than through 14.7.3p1's
-chain - which is what `constexpr_declared` answers for a specialization a
-*pattern* is behind, and this one is not.
+The demand belongs to the fold, because the fold is the context: `ConstexprReading::call`
+asks 14.7.1p1 for the definition where it needs one and asks the unit for
+nothing, so the operand still odr-uses nothing and the emitted LowIR is
+byte-identical to the reference's - no `@width` definition stands in either. It
+is asked only of a specialization whose body is not yet read, outside 14.6p8's
+dialect, so a call that was already named in a potentially-evaluated expression
+and every call inside a pattern's own reading pay one field read. The sweep's
+one behavior change beside the four fixes is `decltype(box<need<T>()>())` over a
+`need<T>` whose *body* is ill-formed, which is now the hard error `g++` makes of
+it - 14.8.2p8's immediate context does not reach into an instantiated definition
+- where the reference discards the candidate.
 
-Carrying it is only half the sentence, because 12.9p8 is the definition the fold
-then has to read. A defaulted constructor with no written body reaches
-`subobject_entries`, which default-initializes every subobject no mem-initializer
-names - so an inherited constructor marked `constexpr` and left there would have
-built the base subobject out of nothing and folded to a *wrong value* rather than
-to a refusal. `constructed_object` writes one entry into the mem-initializer
-index for the base the using-declaration named, carrying what this constructor's
-own arguments came to rather than a tree to read clauses out of, and
-`subobject_initialized` builds that subobject with the same `object_of` a written
-mem-initializer reaches. A chain of three, a second base beside the named one, a
-member with a brace-or-equal-initializer of its own and a base default argument
-the truncated list leaves behind all fold to the value `g++` runs them to.
-
-**2. 12.9p3 excludes a constructor the class declared *itself*, and the probe
-that finds one finds an inherited one too.** 13.1's index answers "does a
-constructor of this class already take these parameters" in one probe, which is
-what the checkpoint rekeyed by `TemplateSignature::indexed` so that two written
-under a head pair by 14.5.6.1p5. What the probe cannot tell apart is which kind
-of declaration answered, and 12.9p1 declares one constructor here for each
-candidate of *each* base:
+**2. `spell_value` has two consumers and the checkpoint gave them one answer.**
+`lowir.md` names no `u64`, so the operand of `global @x : i64 = v` - which names
+the whole storage of a scalar object - is spelled at the LowIR type's
+signedness, and `unsigned long g = (unsigned long)-1;` is `= -1` and no wider
+spelling of the same bits. That is the reference's answer and the checkpoint's
+gain. But the same function spells the *items* of a structured global, and an
+item is not that operand: it stands for one clause of the image the program
+wrote and carries that clause's own digits.
 
 ```cpp
-struct left  { int value; left()  : value(0) {} template<class U> left(U u)  : value(int(u)) {} };
-struct right { int other; right() : other(0) {} template<class U> right(U u) : other(int(u) + 1) {} };
-struct both : left, right { using left::left; using right::right; };
-int main() { both one(1); return one.value == 1 ? 0 : 1; }   // ambiguous in both oracles
+unsigned long a[3] = { 1UL, 18446744073709551615UL, 2UL };
+// reference: i64 1 / i64 18446744073709551615 / i64 2
+// checkpoint: i64 1 / i64 -1 / i64 2
 ```
 
-The second using-declaration's whole candidate set was dropped, so the use ran to
-`left`'s constructor and the program to 0 where `g++` and the reference each
-refuse it for having no best declaration. The exclusion asks `prior->inherited`
-now: a constructor the class declared itself keeps it, and an inherited one
-leaves both declared, with 13.1's index holding the first because one declaration
-per list is what a redeclaration is paired against. A class declaring its own
-constructor beside an inherited one of that list, a class declaring its own
-*template* beside one, two bases whose lists differ, and the pair uncalled all
-answer as they did.
+The pre-checkpoint build agreed with the reference on this shape and disagreed
+on the scalar; the checkpoint traded one for the other. It is a difference the
+*real* comparator fails on, not one `object=` canonicalization hides: the same
+two files run through `compare_results.pl` from a scratch directory under
+`tests/` report `generated LowIR does not match reference`.
+
+The question is the caller's now - `image_value` and `constant_text` take
+`stored`, the two namespace-scope operands pass it, and the items ask what they
+asked before. Every shape swept agrees again: a scalar global written either
+way, an array item, a class item, a `u8`/`u16`/`u32` item, a `switch` label, an
+enum, a value place and a static member.
 
 ### What the review confirmed rather than found
 
-- **The checkpoint's own rules answer what `g++` answers.** 47 probes - a base
-  constructor template reached by two argument types and by two derived classes
-  over one base, a member template of a class template, a chain of three, a pack
-  at none, one and three arguments, an ellipsis, a two-parameter pair, a partial
-  ordering of `U` against `U *`, an rvalue-reference place taking an lvalue, a
-  default argument, `explicit` at a copy-initialization, a protected base
-  constructor, and 15 shapes of 8.3.5p4's ellipsis at a call - agree with `g++`
-  on acceptance and on the value at every one, and every disagreement left is a
-  recorded reference divergence or the scaffold's five-parameter ceiling.
-- **The head the declaration shares leaves nothing behind.** Two derived classes
-  over one base, one derived class under three argument types, and a chain of
-  three each deduce and specialize independently: the specializations are held
-  per primary, and the object file names them `_ZN4keptC1IiEET_` byte for byte as
-  the reference does. Two units naming one such specialization write one weak
-  definition under one name.
-- **12.9p8's category is written on nothing shared.** `parameter_value` opens a
-  dump node of its own per call, so `forward_parameter`'s xvalue is a fact of
-  that one argument.
+- **14.7.1p1's laziness answers what `g++` answers.** 41 member-class shapes -
+  the layout of a class holding one, a data member of the held type inside and
+  outside the template, an array of it, a base outside, `new`/`delete`, a
+  virtual member, a destructor, a nested member class two deep, a member class
+  of a member template of a class template, a partial specialization's own, a
+  `template<>` for one and one for a member no class declares, an out-of-class
+  member function and static data member, a friend, an enum, a typedef, a member
+  template of it, a completion demanded inside `decltype`, a completion inside a
+  substitution, and one nothing ever completes - agree with `g++` on acceptance
+  and on the value at every one, and the emitted LowIR is the reference's
+  wherever the two accept. `template<> struct outer<char>::nosuch { … };` and a
+  `template<>` written after the class holding it was instantiated are two
+  programs `g++` refuses, the reference translates, and this build refuses.
+- **The object 5.1.1p3 gives a member template's declarator is `g++`'s.** 15
+  shapes - a plain member template, one of a class template, one defined out of
+  class, `const`, `decltype(this)`, a member of a member class, a member of a
+  member class of a class template, a conversion template, a default argument -
+  agree with `g++` on all, and the reference refuses six of them at every shape
+  swept, which is the divergence the checkpoint recorded. A `static` member
+  template writing `this` and a namespace-scope function template writing it are
+  refused three ways.
+- **14.1p4's address table is asked of the two places that bind an address.**
+  Five cross products - a value place, a pointer place, a reference place, a
+  function place written with and without `&`, an enum, a `bool`, a `char`, an
+  `unsigned long`, two addresses beside two values, and the address of a
+  specialization whose own value argument is a small integer - write `object=`
+  names byte-identical to the reference's at every one. The LowIR entries the
+  diff shows are internal symbol names, which `lowir.md` makes a presentation
+  tie-breaker and which the real comparator canonicalizes: run through
+  `compare_results.pl`, both programs pass.
 - **Nothing is gated and no phase is skipped.** The checkpoint's changed source
   and this audit's hold no `getenv`, no fixture name, no timeout, no environment
-  read, no dialect switch keyed on anything but a dialect, and the two
-  `catch (...)` on the path each put a scope back and rethrow.
-- **Every course `.ref` is the reference binary's.** All 34 were regenerated
+  read and no dialect switch keyed on anything but a dialect; the one
+  `catch (...)` on the path puts two fields back and rethrows, and
+  `complete_held_class`'s two catches do the same before turning what the body
+  refuses into 14.8.2p8's `Instantiated`, exactly as `complete_specialization`
+  does.
+- **Every course `.ref` is the reference binary's.** All 38 were regenerated
   through the harness from `cppgm++-ref` and not one changed; the two new ones
-  are this audit's, and the reference builds one and refuses the other exactly as
-  this build does.
-- **`valgrind -q --error-exitcode=9` is clean over 143 inputs** - the 36 course
-  fixtures, 47 probes and 60 of the corpus - and no input exits above 1: not one
-  of pa23's 436, and not one of the 2284 files pa10 through pa22 run through
-  their own dialects.
+  are this audit's, and the reference builds both and writes what this build
+  writes.
+- **`valgrind -q --error-exitcode=9` is clean over 286 inputs** - the 38 course
+  fixtures, 108 probes and 140 of the corpus - and no input exits above 1 in the
+  4883 compilations of pa10 through pa39 run one at a time under their own
+  dialects.
 
 ### Recorded rather than fixed
 
-- **7.1.5p4's "every non-static data member shall be initialized" at an inherited
-  constructor is `g++`'s later model.** `struct derived : base { int extra; using
-  base::base; };` with `constexpr derived d(3);` leaves `extra` holding nothing;
-  the reference and this build refuse it and `g++` translates it, which is the
-  relaxation C++14 made of the clause. It is the one shape of the fix above where
-  the two oracles disagree, and this build is on the standard's side of it.
-- **12.9p3 where the two declarations are not templates, and a class's own
-  constructor beside an inherited one, are `g++`'s answer against the
-  reference's.** Two bases whose *non-template* constructors agree on a list, and
-  a base whose own two constructors reach one list through their default
-  arguments, are programs `g++` refuses and the reference translates; `using
-  base::base;` beside `derived(int)` or beside `template<class U> derived(U)` is
-  the mirror, which `g++` and this build translate and the reference refuses. No
-  course fixture can hold either, and this build answers `g++` at all four.
-- **Run evidence has a ceiling that is `lowir2cy86`'s.** A function of five or
-  more parameters, `this` among them, comes out of `lowir2cy86` + `cy86` as a
-  program that returns the wrong value or crashes - and it does so from the
-  *reference* binary's LowIR identically, with no template and no inheritance in
-  the program. A probe that has to be run to a value writes four arguments or
-  fewer, which is what the checkpoint's own `bottom three(5, 1, 2)` fixture does.
+- **The reference spells an item and an instruction operand with the digits the
+  written clause had, at every width.** `unsigned int c[2] = { (unsigned int)-1,
+  4294967295u };` is `u32 -1` and `u32 4294967295` there - a negative spelling at
+  an unsigned LowIR type - and `long b[2] = { -1, (long)18446744073709551615UL };`
+  is `i64 -1` and `i64 18446744073709551615`. It follows through a cast and
+  through a named constant, so it is a fact of the clause and not of either type.
+  This build has no reading of the written clause to spell an item from and
+  answers with the type the clause was written at, which is right for every item
+  but one written as a conversion of a negative value - the same half of the same
+  sentence as the floating item the plan already carries, and the same answer the
+  instruction operand of `cmp eq i64 -1, …` wants.
+- **A function template's trailing return type is mangled `T_`.**
+  `template<class T> auto call(T v) -> decltype(grow(v))` is
+  `_Z4callIiET_S0_` here, `_Z4callIiEDTcl4growfp_EET_` in `g++` and
+  `_Z4callIiEiT_` in the reference, and `holder::self` returning `decltype(this)`
+  is `_ZN6holder4selfIiEET_S1_` here against `_ZN6holder4selfIiEEPS_T_` in both
+  oracles. The two oracles agree against this build wherever the return type is
+  written as one, so it is a defect and not a judgment call - but `object=` is
+  stripped before every comparison, so no fixture can pin it, and this build's
+  own two units agree with each other. It is older than the checkpoint, which
+  reached it only by making one more such declaration acceptable.
+- **A decltype-specifier in a member template's declarator is read at the point
+  of instantiation and not where it stands.** 9.2p2 makes a member function
+  *body* a complete-class context and leaves the trailing-return-type outside
+  one, so `decltype(sizeof(*this))` and `decltype(sizeof(holder))` written in a
+  member template are programs both oracles refuse and this build translates -
+  the specifier is put aside as a dependent reading whatever it names, and by the
+  time the substitution reads it the class is complete. The non-template shape is
+  refused where it stands, and the pre-checkpoint build accepts the template one
+  identically.
+- **14p2's "a local class shall not have member templates" has no reader.** A
+  member function template and a member class template of a class declared in a
+  block are programs `g++` refuses and the reference and this build translate,
+  with no `this` and no trailing return type in them; the reference names the
+  member `_ZZ4mainEN5local3getIiEET_S0_` and this build names it as a member of no
+  function at all. It is older than the checkpoint.
 
 ### Changes
 
 | Where | What |
 |-------|------|
-| `sema_class.cpp` | 12.9p2's fourth characteristic carried onto the declaration a using-declaration makes, and 12.9p3's exclusion asked only of a constructor the class declared itself - so a second base's candidate set is declared beside the first's rather than standing behind it. |
-| `sema_template.cpp` | the same characteristic handed to what one argument list makes of such a declaration, beside 12.9's `inherited`, `defaulted` and `inline_function` and not through 14.7.3p1's chain. |
-| `sema_constexpr_object.cpp` | 12.9p8 at a fold: the one mem-initializer of a definition no program wrote, carrying this constructor's own arguments, and the base subobject built by the `object_of` a written one reaches. |
-| `sema_declaration.h` | `WrittenMemInitializer::forwarded`, which is what an entry holds where the clauses have already been read. |
-| `course/pa23/100-an-inherited-constructor-carries-the-constexpr-it-was-written-with.t` | 12.9p2's fourth characteristic and 12.9p8's fold of it, at a namespace-scope object and at an array bound. |
-| `course/pa23/100-bad-two-using-declarations-inherit-one-parameter-type-list.t` | the exclusion 12.9p3 does not make: two bases, one list, and 13.3 with no best declaration - which the reference refuses as this build does. |
+| `sema_constexpr.cpp` | 14.7.1p1 at the fold: reading what a call comes to is a context that requires the definition to exist, so the demand 5p8's operand does not make is made by the reading that needs the body - and by it alone, so the operand still asks the unit for no definition. |
+| `lowir_image.cpp` | the two questions `spell_value` was answering as one: the operand naming a scalar object's whole storage is spelled at the LowIR type, and an item of a structured global keeps the signedness of the clause it stands for. `image_value` and `constant_text` carry which is being written. |
+| `lowir_lower.h` | `stored` on the three declarations, which is the caller saying which of the two it is. |
+| `course/pa23/100-a-constant-expression-inside-an-unevaluated-operand-asks-for-a-body.t` | the argument list inside `decltype` and inside `noexcept`, and the definitions neither odr-uses. |
+| `course/pa23/100-an-item-of-a-structured-global-keeps-its-own-signedness.t` | `= -1` at the scalar operand and `i64 18446744073709551615` at the item, in one program. |
 
 ### Performance Evidence
 
-Measured on the audited binary against a `/tmp` worktree of `26f065b2` built the
+Measured on the audited binary against a `/tmp` worktree of `30118790` built the
 same way, warm cache, `/usr/bin/time` on the binary itself.
 
 | sweep | shape | result |
 | --- | --- | --- |
-| constexpr-inherited multiplicity | n classes, each inheriting one `constexpr` constructor and folding one object of it | 0.00 s @32, 0.02 @128, 0.09 @512, 0.20 @1024 - linear; the pre-audit binary refuses the program at the first object |
-| constexpr-inherited chain nesting | d classes, each inheriting the `constexpr` constructor the one below inherited | 0.00 s flat from d = 4 to d = 48, 0.01 at d = 64 - linear; refused by the pre-audit binary |
-| inherited-candidate agreement width | n bases whose constructor templates all agree on one parameter-type-list | 0.00 @8, 0.00 @32, 0.02 @128, 0.04 @256 - and the same on the pre-audit binary, which declares one of the n |
-| inherited-constructor multiplicity | n classes, each inheriting one constructor template and building one object | 0.00 @32, 0.01 @128, 0.07 @512, 0.15 @1024 - and the same |
-| inherited-pack multiplicity | one inherited constructor template over a pack, n calls | 0.00 @32, 0.00 @128, 0.02 @512, 0.03 @1024 - and the same |
-| variadic-call multiplicity | n calls of one variadic function template | 0.00 @32, 0.00 @128, 0.01 @512, 0.03 @1024 - and the same |
-| whole PA23 corpus | 400 handout and 36 course files, one process each | **2.04-2.07 s against the pre-audit binary's 2.09-2.11 s**, over three alternating passes after a warming pass of each; no `rc > 1`; valgrind clean |
+| constexpr-unevaluated multiplicity | n constexpr function templates, each named once inside a `decltype` whose template argument folds it | 0.00 s @32, 0.02 @128, 0.07 @512, 0.14 @1024 - linear, and the same on the pre-*checkpoint* binary; the pre-audit binary refuses the program at the first fold |
+| constexpr-unevaluated nesting | d constexpr function templates, each folding the one below, one naming inside a `decltype` | 0.00 s flat from d = 4 to d = 32 |
+| constexpr-evaluated multiplicity | n folds of one constexpr function template at an array bound - the path that already had a body, which now asks one field read more | 0.00 @32, 0.01 @128, 0.03 @512, 0.06 @1024 - and the same on the pre-audit binary |
+| item multiplicity | n eight-byte unsigned items of one structured global | 0.00 @1024, 0.02 @4096 - and the same |
+| member-class multiplicity | n class templates, each a member class the use requires complete | 0.00 @32, 0.02 @128, 0.07 @512, 0.16 @1024 - and the same |
+| held-member multiplicity | n member classes nothing completes, so `declared_only_` never returns to zero | 0.00 @32, 0.02 @128, 0.09 @512, 0.19 @1024 - and the same |
+| declarator-object multiplicity | n member templates of one class, each a `decltype(this->v)` trailing return, one call apiece | 0.00 @32, 0.02 @128, 0.07 @512, 0.14 @1024 - and the same |
+| whole PA23 corpus | 400 handout and 38 course files, one process each | **2.05-2.09 s against the pre-audit binary's 2.07-2.10 s**, over three alternating passes after a warming pass of each; no `rc > 1`; valgrind clean |
 
-A characteristic is one field read where the declaration is made and one field
-written where a specialization of it is. 12.9p3's exclusion is the index probe it
-already was, with one pointer test on the answer; what grew is the *chain*, by
-one declaration per base whose candidate set agrees with another's - a candidate
-13.3 has to rank to answer the use at all, and the width sweep is what says n of
-them cost what n bases cost without them. 12.9p8 at a fold is one map insert and
-the same `object_of` a written mem-initializer of that base would reach, so an
-inheriting chain d deep folds d of them and no level is read twice.
+The fold's demand is `callee.constexpr_body == nullptr` and two field reads,
+made where the walk was about to refuse - so a callee whose body is already read
+pays the two reads and a callee inside 14.6p8's dialect is never asked at all,
+which is what the evaluated-fold sweep says. `instantiate` is the same door the
+naming would have gone through and holds `instantiated` itself, so a body is read
+once however many folds arrive. The item's spelling is one `bool` handed down
+two call chains and no question anyone asks twice.
 
 ### Validation
 
-- `make test-report ACTIVE_TEST_REPORT_PAS='pa23'` - **386 / 436** (handout
-  350 / 400, course 36 / 36), against 384 / 434 at the turn's start: the failing
-  50 are the same files name for name, and the two the count moved by are this
+- `make test-report ACTIVE_TEST_REPORT_PAS='pa23'` - **396 / 440** (handout
+  356 / 400, course 40 / 40), against 394 / 438 at the turn's start: the failing
+  44 are the same files name for name, and the two the count moved by are this
   audit's own fixtures.
 - `make test-report-through-pa22` - **2948 / 2948**, 22 / 22 stages.
 - `perl scripts/cppgm_file_audit.pl --stage pa23 --paths dev/src` - **pass**,
   with the five `bad-division` warnings it already had.
-- 47 probe programs through `g++ -std=c++11 -pedantic-errors -x c++`, the
-  reference binary, the checkpoint binary and the pre-checkpoint binary. Every
-  one this build accepts that is not one of the divergences recorded above runs
-  through `lowir2cy86` + `cy86` to the value `g++` runs it to.
-- All 436 pa23 corpus files and all 2284 files pa10 through pa22 compiled one at
-  a time under their own dialects: **0 exits above 1**; 143 inputs under
-  `valgrind -q --error-exitcode=9`: 0 errors.
-
+- 108 probe programs through `g++ -std=c++11 -pedantic-errors -x c++`, the
+  reference binary, the checkpoint binary and the pre-checkpoint binary, with
+  every accepted one's LowIR diffed against the reference's and, where the
+  scaffold's ceiling allows, linked through `lowir2cy86` + `cy86` and run to
+  `g++`'s value. Four cross products were judged through the real
+  `compare_results.pl` from a scratch directory under `tests/`, which is what
+  says an internal symbol name is canonicalized and an item's digits are not.
+- All 4883 files of pa10 through pa39 compiled one at a time under their own
+  dialects: **0 exits above 1**; 286 inputs under `valgrind -q
+  --error-exitcode=9`: 0 errors.
