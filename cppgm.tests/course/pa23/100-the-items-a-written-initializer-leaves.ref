@@ -1,0 +1,94 @@
+global @written_none [binding=strong, object=_Z12written_none] = {
+  i32 0
+  i32 0
+  i32 0
+  i32 0
+}
+global @written_one [binding=strong, object=_Z11written_one] = {
+  i32 1
+  i32 0
+  i32 0
+  i32 0
+}
+global @written_all [binding=strong, object=_Z11written_all] = {
+  i32 1
+  i32 2
+}
+global @written_nothing [binding=strong, object=_Z15written_nothing] = {
+  zero 16
+}
+global @narrow_none [binding=strong, object=_Z11narrow_none] = {
+  i8 0
+  i8 0
+  i8 0
+}
+global @narrow_one [binding=strong, object=_Z10narrow_one] = {
+  i8 97
+  i8 0
+  i8 0
+}
+global @widened [binding=strong, object=_Z7widened] = {
+  i16 1
+  i16 0
+  i16 0
+  i16 0
+  i16 0
+}
+global @nested [binding=strong, object=_Z6nested] = {
+  i32 1
+  i32 0
+  i32 0
+  i32 0
+  i32 0
+  i32 0
+}
+
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    %t1 = addr @written_none
+    %t2 = unary decay ptr %t1
+    %t3 = index i32 [projection=array_element] %t2, 3
+    %t4 = load i32 %t3
+    %t5 = addr @written_one
+    %t6 = unary decay ptr %t5
+    %t7 = index i32 [projection=array_element] %t6, 3
+    %t8 = load i32 %t7
+    %t9 = binary add i32 %t4, %t8
+    %t10 = addr @written_all
+    %t11 = unary decay ptr %t10
+    %t12 = index i32 [projection=array_element] %t11, 1
+    %t13 = load i32 %t12
+    %t14 = binary add i32 %t9, %t13
+    %t15 = binary sub i32 %t14, 2
+    %t16 = addr @written_nothing
+    %t17 = unary decay ptr %t16
+    %t18 = index i32 [projection=array_element] %t17, 3
+    %t19 = load i32 %t18
+    %t20 = binary add i32 %t15, %t19
+    %t21 = addr @narrow_none
+    %t22 = unary decay ptr %t21
+    %t23 = index i8 [projection=array_element] %t22, 2
+    %t24 = load i8 %t23
+    %t25 = convert sext i32 i8 %t24
+    %t26 = binary add i32 %t20, %t25
+    %t27 = addr @narrow_one
+    %t28 = unary decay ptr %t27
+    %t29 = index i8 [projection=array_element] %t28, 2
+    %t30 = load i8 %t29
+    %t31 = convert sext i32 i8 %t30
+    %t32 = binary add i32 %t26, %t31
+    %t33 = addr @widened
+    %t34 = unary decay ptr %t33
+    %t35 = index i16 [projection=array_element] %t34, 4
+    %t36 = load i16 %t35
+    %t37 = convert sext i32 i16 %t36
+    %t38 = binary add i32 %t32, %t37
+    %t39 = addr @nested
+    %t40 = unary decay ptr %t39
+    %t41 = binary mul i64 1, 12
+    %t42 = index i8 [projection=array_element] %t40, %t41
+    %t43 = index i32 [projection=array_element] %t42, 2
+    %t44 = load i32 %t43
+    %t45 = binary add i32 %t38, %t44
+    return i32 %t45
+}

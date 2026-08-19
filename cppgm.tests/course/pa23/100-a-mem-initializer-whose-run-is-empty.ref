@@ -1,0 +1,73 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $first : obj<4x4>
+  slot $second : obj<4x4>
+  slot $third : obj<4x4>
+
+  block ^entry:
+    %t1 = addr $first
+    call void @parenthesized__parenthesized(%t1)
+    %t2 = addr $second
+    call void @braced__braced(%t2)
+    %t3 = addr $third
+    call void @of_a_base__of_a_base(%t3)
+    %t4 = addr $first
+    %t5 = index i8 [projection=field] %t4, 0
+    %t6 = index i8 [projection=field] %t5, 0
+    %t7 = load i32 %t6
+    %t8 = addr $second
+    %t9 = index i8 [projection=field] %t8, 0
+    %t10 = index i8 [projection=field] %t9, 0
+    %t11 = load i32 %t10
+    %t12 = binary add i32 %t7, %t11
+    %t13 = addr $third
+    %t14 = index i8 [projection=base_subobject] %t13, 0
+    %t15 = index i8 [projection=field] %t14, 0
+    %t16 = index i8 [projection=field] %t15, 0
+    %t17 = load i32 %t16
+    %t18 = binary add i32 %t12, %t17
+    return i32 %t18
+}
+function @parenthesized__parenthesized(%this : ptr) -> void [binding=weak, object=_ZN13parenthesizedC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    store i32 0, %t2
+    return void
+}
+function @braced__braced(%this : ptr) -> void [binding=weak, object=_ZN6bracedC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = index i8 [projection=field] %t2, 0
+    store i32 0, %t3
+    return void
+}
+function @of_a_base__of_a_base(%this : ptr) -> void [binding=weak, object=_ZN9of_a_baseC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    call void @held_base__held_base__base_entry(%t2)
+    return void
+}
+function @held_base__held_base__base_entry(%this : ptr) -> void [binding=weak, object=_ZN9held_baseC2Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    store i32 0, %t2
+    return void
+}
+alias object _ZN13parenthesizedC2Ev = @parenthesized__parenthesized
+alias object _ZN6bracedC2Ev = @braced__braced
+alias object _ZN9of_a_baseC2Ev = @of_a_base__of_a_base

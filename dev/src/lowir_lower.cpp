@@ -155,8 +155,18 @@ lowir_model::LowType LowirUnitLowering::low_type(TypeId type)
 		{
 			return low("void");
 		}
-		return low("obj<" + decimal(types_.object_size(bare)) + "x" +
+	{
+		// 1.8p5: a complete object occupies at least one byte of storage, and
+		// 8.5.1p4 leaves an array of unknown bound whose initializer-list came
+		// to no clause at all - which is what an expansion of an empty run
+		// writes - a bound of zero.  The storage LowIR names is what gives the
+		// object an address distinct from every other object's, so it is one
+		// byte here as it is for 9p6's empty class, whose own size the layout
+		// already rounded up.
+		const unsigned long long bytes = types_.object_size(bare);
+		return low("obj<" + decimal(bytes == 0 ? 1 : bytes) + "x" +
 		           decimal(types_.object_align(bare)) + ">");
+	}
 
 	default:
 		break;
@@ -302,6 +312,21 @@ bool LowirUnitLowering::writes_base_entry(const SemaEntity& entity)
 		// alone for the same reason one written outside its class is - no other
 		// unit may hold it - so the object file owes both of the ABI's names
 		// whichever of them a use here happened to write.
+		return true;
+	}
+	if (entity.defined && entity.base_object_entry &&
+	    entity.out_of_class_definition && entity.primary == nullptr)
+	{
+		// 9.3p2 with 14.7.1p1: the definition this unit holds was written
+		// outside the class body, at namespace scope, and 14.7.1p1 makes the
+		// instantiation a reading of that one definition rather than of an
+		// entry point of it - so what this unit writes is the whole function
+		// and it owes both of the ABI's names, exactly as a definition written
+		// outside a class the program itself wrote out does.
+		//
+		// 14.5.2p1 leaves a member *template* out of it: a specialization of
+		// one is made by a use naming it, so the names it owes are the names
+		// that use wrote and the arm below is what answers for it.
 		return true;
 	}
 	if (entity.defined && entity.base_object_entry &&

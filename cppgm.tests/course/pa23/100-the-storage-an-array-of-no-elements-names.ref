@@ -1,0 +1,32 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  block ^entry:
+    %t1 = call i32 @walk()
+    return i32 %t1
+}
+function @walk() -> i32 [binding=weak, object=_Z4walkv] {
+  slot $held : obj<1x4>
+  slot $narrow : obj<1x1>
+  slot $cond__1 : i32
+
+  block ^entry:
+    %t1 = addr $held
+    %t2 = addr $narrow
+    %t3 = addr $held
+    %t4 = unary decay ptr %t3
+    %t5 = addr $narrow
+    %t6 = unary decay ptr %t5
+    %t7 = cmp eq ptr %t4, %t6
+    branch %t7, ^cond_then_1, ^cond_else_2
+
+  block ^cond_then_1:
+    store i32 1, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_else_2:
+    store i32 0, $cond__1
+    jump ^cond_end_3
+
+  block ^cond_end_3:
+    %t8 = load i32 $cond__1
+    return i32 %t8
+}

@@ -19,6 +19,11 @@ namespace {
 
 using lowir_model::LowType;
 
+// 8.5.1p7: how large a run of value-initialized elements the image spells out
+// one item at a time.  Above it the storage says it holds zero, which holds the
+// same bytes for a bound no reader of the object ever writes out.
+const unsigned long long kZeroImageLimit = 4096;
+
 // 4.8p1: `value` as an object of `type` holds it, which for the narrower of
 // 3.9.1p8's floating types is a rounding of it.  A fold over a chain of
 // conversions has to round at each of them, because 4.8's conversions do not
@@ -1751,9 +1756,66 @@ bool LowirUnitLowering::global_array_initializer(
 		global.data_items.push_back(item);
 	}
 	// 8.5.1p7: the elements no clause reached are value-initialized, which for
-	// every type this milestone lays out is the zero of them.
-	add_zero_item(global, (bound - covered) * stride);
+	// every type this milestone lays out is the zero of them.  An array no
+	// initializer reached at all is 8.5p6's default-initialization instead:
+	// nothing initializes any element of it, so its storage is one run of zero
+	// rather than a value written into each element.
+	if (node == nullptr)
+	{
+		add_zero_item(global, (bound - covered) * stride);
+		return true;
+	}
+	add_zero_elements(global, element, bound - covered, stride);
 	return true;
+}
+
+// 8.5.1p7 with 3.6.2p2: the image of the elements an initializer-list did not
+// reach.  Value-initializing one of them is the zero of an *element*, so what
+// the image holds is one item per element at the element's own type - the same
+// spelling a clause that had been written for it would have left, which is what
+// tells this run of storage from the padding beside it and from an object with
+// no initializer at all, whose whole storage is one run.
+//
+// An array of arrays has no padding between its elements, so the walk down to
+// the innermost element type is a loop over the bounds and the items are the
+// scalars in the one order the storage holds them.  It costs one pass and no
+// recursion per dimension.
+//
+// `kZeroImageLimit` is where the run stops being worth spelling out: an object
+// whose written initializer reaches none of a large array holds the same bytes
+// either way, and one item per element is unbounded output for a bound the
+// program wrote as one number.  It is the line `kZeroSpanLimit` draws over a
+// local array's stores, drawn here over an image's items.
+void LowirUnitLowering::add_zero_elements(lowir_model::GlobalDefinition& global,
+                                          TypeId element,
+                                          unsigned long long count,
+                                          unsigned long long stride)
+{
+	const unsigned long long bytes = count * stride;
+	if (bytes == 0)
+	{
+		return;
+	}
+	TypeId bare = types_.strip_cv(element);
+	unsigned long long total = count;
+	while (types_.kind(bare) == TypeKind::Array && types_.bounded(bare))
+	{
+		total *= types_.bound(bare);
+		bare = types_.strip_cv(types_.target(bare));
+	}
+	if (bytes > kZeroImageLimit || types_.kind(bare) == TypeKind::Array ||
+	    types_.kind(bare) == TypeKind::Class)
+	{
+		// 9.2p13: a class element's zero is its own layout's, and the padding
+		// between its members is no item of any type - so the storage says it
+		// holds zero rather than an item naming a member nothing wrote.
+		add_zero_item(global, bytes);
+		return;
+	}
+	for (unsigned long long index = 0; index < total; ++index)
+	{
+		constant_item(global, bare, 0, 0.0L);
+	}
 }
 
 

@@ -375,9 +375,22 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 		Elision(*this).read_initializer(written, object_type, ctx,
 		                                value_init);
 	const AstNode* const list = form.list;
-	const bool elided_prvalue = form.elided_prvalue;
 	bool converting = form.converting;
-	value_init = form.value_init;
+	// 14.5.3p4 with 8.5p16: what a list *comes to* is the run its expansions
+	// are bound to and not the entries the program wrote, so `value(a...)` over
+	// an empty run is the `()` that value-initializes and not a call of a
+	// default constructor over an object nothing zeroed.  The clauses are read
+	// once here and handed to the arguments below, so asking what the list came
+	// to costs the one reading the initialization already makes.
+	Clauses passed(list, *this, ctx);
+	const bool empty_run =
+		list != nullptr && !list->children.empty() && passed.spent();
+	// 5.2.3p2: `T()` value-initializes what it makes rather than creating an
+	// object something was built into, so a `T(a...)` whose run is empty is the
+	// one spelling of the prvalue this is not.  `T{}` still creates its object.
+	const bool elided_prvalue = form.elided_prvalue &&
+		(!empty_run || list->kind == AstKind::BracedInitList);
+	value_init = form.value_init || empty_run;
 	// 5.2.2p1: which spelling the initializer was written in, which 13.3.1.2p2
 	// does not leave in the node it wrote - the call it rewrites an operator
 	// into is the same `call-expression` the program naming the operator
@@ -463,10 +476,9 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 		// 14.5.3p4: an argument written `pattern...` is one argument per
 		// element of the run its packs are bound to.
 		const bool braced = list->kind == AstKind::BracedInitList;
-		Clauses written(list, *this, ctx);
-		for (; !written.spent(); ++written.at)
+		for (; !passed.spent(); ++passed.at)
 		{
-			Value one = argument_expression(written.next(), written.in(ctx),
+			Value one = argument_expression(passed.next(), passed.in(ctx),
 			                                call);
 			if (sole_list && one.braced != nullptr)
 			{
@@ -474,7 +486,7 @@ void SemaAnalyzer::construct_object(SemaEntity& variable, DumpNode& line,
 			}
 			if (braced)
 			{
-				clauses.push_back(&written.next());
+				clauses.push_back(&passed.next());
 			}
 			arguments.push_back(one);
 		}

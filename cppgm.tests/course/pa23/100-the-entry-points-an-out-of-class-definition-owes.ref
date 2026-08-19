@@ -1,0 +1,84 @@
+function @main() -> i32 [role=entry, binding=strong, keep_alias=yes] {
+  slot $first : obj<4x4>
+  slot $second : obj<4x4>
+
+  block ^entry:
+    %t1 = addr $first
+    call void @derived_out_int___derived_out(%t1)
+    %t2 = addr $second
+    call void @derived_in_int___derived_in(%t2)
+    %t3 = addr $first
+    %t4 = index i8 [projection=base_subobject] %t3, 0
+    %t5 = index i8 [projection=field] %t4, 0
+    %t6 = unary decay ptr %t5
+    %t7 = index i32 [projection=array_element] %t6, 0
+    %t8 = load i32 %t7
+    %t9 = addr $second
+    %t10 = index i8 [projection=base_subobject] %t9, 0
+    %t11 = index i8 [projection=field] %t10, 0
+    %t12 = unary decay ptr %t11
+    %t13 = index i32 [projection=array_element] %t12, 0
+    %t14 = load i32 %t13
+    %t15 = binary add i32 %t8, %t14
+    %t16 = binary sub i32 %t15, 2
+    return i32 %t16
+}
+function @derived_out_int___derived_out(%this : ptr) -> void [binding=weak, object=_ZN11derived_outIiEC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    call void @written_out_1___written_out__base_entry(%t2)
+    return void
+}
+function @derived_in_int___derived_in(%this : ptr) -> void [binding=weak, object=_ZN10derived_inIiEC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=base_subobject] %t1, 0
+    call void @written_in_1___written_in__base_entry(%t2)
+    return void
+}
+function @written_in_1___written_in__base_entry(%this : ptr) -> void [binding=weak, object=_ZN10written_inILi1EEC2Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = unary decay ptr %t2
+    %t4 = index i32 [projection=array_element] %t3, 0
+    store i32 1, %t4
+    return void
+}
+function @written_out_1___written_out__base_entry(%this : ptr) -> void [binding=weak, object=_ZN11written_outILi1EEC2Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = unary decay ptr %t2
+    %t4 = index i32 [projection=array_element] %t3, 0
+    store i32 1, %t4
+    return void
+}
+function @written_out_1___written_out(%this : ptr) -> void [binding=weak, object=_ZN11written_outILi1EEC1Ev] {
+  slot $this : ptr
+
+  block ^entry:
+    store ptr %this, $this
+    %t1 = load ptr $this
+    %t2 = index i8 [projection=field] %t1, 0
+    %t3 = unary decay ptr %t2
+    %t4 = index i32 [projection=array_element] %t3, 0
+    store i32 1, %t4
+    return void
+}
+alias object _ZN11derived_outIiEC2Ev = @derived_out_int___derived_out
+alias object _ZN10derived_inIiEC2Ev = @derived_in_int___derived_in
+alias object _ZN11written_outILi1EEC2Ev = @written_out_1___written_out

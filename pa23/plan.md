@@ -18,7 +18,9 @@ Owners, in the order a use walks them:
   which `<` opens 14.2's list and which `>` ends one, over a spelling whose
   separators say where each token began.
 - `sema_template_head.*` — 14.1p2's places, 14.1p9's defaults, the bound each
-  was written under, and 14.3.3p1 of a whole settled argument list.
+  was written under, 14.3.3p1 of a whole settled argument list, and
+  `type_spelling`: the one name every naming of one argument list has to reach,
+  written from the type with 7.1.6.1p1's qualifier trailing at every level.
 - `sema_deduce.{h,cpp}` — 14.8.2. `Deduction` reads the P/A pairs;
   `Substitution` is the *scope* one attempt at building the declaration runs
   in, and `Instantiated` is the error that escapes it.
@@ -65,24 +67,27 @@ Owners, in the order a use walks them:
 - `lowir_lower.cpp` — which definitions this object file holds, which is two
   questions and not one: whose definition it is (7.1.2p4, widened by 14.7.3p5)
   and whether this unit writes one nobody used (3.2p4, asked of whether a
-  template-id names the class).
+  template-id names the class) - and, of a definition it does hold, which of
+  12.1's two entry points it owes, which 9.3p2 answers of where the definition
+  was written and 14.5.2p1 of whether the member is a template.
 - `lowir_image.cpp` — 3.6.2p2's two spellings of one value: the operand naming a
   scalar object's whole storage, at the LowIR type, and an item standing for one
-  clause of the image, at that clause's own signedness.
+  clause of the image, at that clause's own signedness; and 8.5.1p7's elements
+  no clause reached, which are the zero of an *element* and not a run of bytes.
 
 ## Current Failure Map
 
-448 tests (400 handout + 48 course), **424 passing** (handout 376 / 400).  The 24
+453 tests (400 handout + 53 course), **434 passing** (handout 381 / 400).  The 19
 left, all handout, by the compiler behavior each wants:
 
 | group | n | shape |
 | --- | --- | --- |
-| LowIR text mismatch | 8 | the program compiles; a value's spelling, a slot size, an aggregate's member initialization, an RTTI name or a temporary's storage differs |
 | a call or name no declaration answers | 4 | 300-explicit-template-call-transitive-base-deduction, 400-unnamed-nontype-pack-static-enable-if-default, 300-nondeduced-partial-pattern-recursive-completion, 300-equivalent-alias-return-template-redeclaration |
+| LowIR text mismatch | 3 | 500-bool-alias (the reference folds a call no clause makes constant), 500-tcc (`_TCC`'s 11), 300-conversion (an item spelled with the written clause's digits) |
 | `__builtin_invoke`, which no layer implements | 2 | `invoke_result_impl<void,Args...>::type` in both decltype-invoke tests |
-| the reference's own answer pinned by a `.ref` | 2 | 5.3.7p3 at a pseudo-destructor call, and `_TCC`'s 11 |
+| the reference's own answer pinned by a `.ref` | 1 | 5.3.7p3 at a pseudo-destructor call |
 | a feature below the template layer | 4 | a virtual base's layout, an opaque unscoped enum's underlying type, `auto` deriving 8.3.5p2's unwritten type, 12.8p15's copy of a class value read where no object holds it |
-| the rest | 4 | one clause each: a member body's forward template-id (the parser), `args` used as a value where its head declared a type, a base conversion's access, `sizeof`/`decltype` operands of unrelated types |
+| the rest | 5 | one clause each: a member body's forward template-id (the parser), `args` used as a value where its head declared a type, a base conversion's access, `sizeof`/`decltype` operands of unrelated types, a member alias in an out-of-class SFINAE body |
 
 ### Known gaps diagnosed but not landed
 
@@ -122,16 +127,20 @@ binary.
   template** is refused by `g++` and translated by the reference and by us: a
   call written where 5.19 reads asks the declaration chain, and a static data
   member's initializer does not.
-- **A global with an initializer is written per element by the reference and as
-  one `zero n` run by us.**  The collapse is PA13's and 152 earlier `.ref` lines
-  hold `zero 1`.
-- **`kZeroSpanLimit` is a deliberate divergence on the same axis.**  The
+- **A written initializer's uncovered elements of *class* type are still one
+  `zero n` run**, where the reference writes each element's own members with the
+  padding between them.  `S a[2] = {}` over `struct S { int x; char y; };` is
+  the one shape left on that axis; `global_subobjects` already writes a class
+  *object*'s members that way, so what is missing is the walk applied per
+  element.
+- **`kZeroImageLimit` and `kZeroSpanLimit` are deliberate divergences on the
+  same axis.**  The
   reference writes one store per element at *every* size - `int a[1000000] = {}`
   is 2,000,010 lines of LowIR and 16.23 s there against 12 lines and 0.00 s here
-  - so above 16 ints a local array's zero disagrees.  Raising the limit would
-  turn those diffs and make an unbounded array's zero unbounded work; the
-  written-clause axis has no such limit and needs none, because there the
-  reference does the same work 20x slower.
+  - so above 16 ints a local array's zero disagrees, and above 4096 bytes an
+  image's does.  Raising either would turn those diffs and make an unbounded
+  array's zero unbounded work; the written-clause axis has no such limit and
+  needs none, because there the reference does the same work 20x slower.
 - **The reference has no 8.5.4 in a fold at all.**  10 of 12 shapes of a
   braced-init-list argument to a `constexpr` call are `static_assert
   unevaluated` there and translated by `g++` and by this build, as are
@@ -262,48 +271,88 @@ binary.
   array of a specialization.**
 - **`sizeof` over a function name is accepted here**, where 5.3.3p1 is
   ill-formed and both oracles refuse; there is no template in the program.
+- **A constructor template whose run is empty is chosen once and refused the
+  second time.**  `parenthesized first; of_a_base second;` over one class whose
+  only constructor is `template<class... A> C(A&&...)` is `no declaration of C
+  accepts the arguments of a call` at the *second* use, and each use alone is
+  accepted; the reference takes both.  It is a memo written on the empty
+  argument list and no part of 8.5p16 - the checkpoint-27 course fixture writes
+  a class per shape to stay clear of it.
+- **`type_spelling` writes no declarator parentheses.**  `const int (&)[2]` is
+  `int const[2] &` here and `int const (&)[2]` in the reference, so a name over
+  a reference or pointer to an array or a function differs; the reference also
+  writes `(*const)` closed up inside the parentheses where it writes `* const`
+  apart at the top level.  Every other level agrees exactly, including
+  `int *[2]`.
+- **The reference writes an unused out-of-class destructor's definition.**
+  `template<int N> B<N>::~B() {}` over a base whose destruction 12.4p8 leaves
+  nothing to run is a definition (D1, with D2 aliased to it) there and no symbol
+  at all here - the same 9.3p2 question checkpoint 27 answered for a
+  constructor, asked where no entry point runs.
+- **A plain class nested in a class template gets no `out_of_class_definition`.**
+  `template<int N> O<N>::B::B() : d{0} {}` owes both entry points in the
+  reference and writes only the base entry here, where the same definition
+  directly in a class template owes both since checkpoint 27.
+- **A prvalue of an empty run at an aggregate's clause is more correct here.**
+  `Y y = { X(a...), X() }` over an empty run zero-initializes both elements here
+  and in `g++`; the reference calls X's default constructor for the first and
+  zeroes the second, one clause apart.  5.2.3p2 is what says `X()` is
+  value-initialized.
 - **`sema_analyzer.h` stands at 2398 of its 2400 lines.**  The next declaration
   added there needs room freed structurally first.
 
 ## Active Checkpoint
 
-**Audit: the object a list at a reference place initializes.**  Complete; ledger
-row 26 is its record.  One handout test, at three owners.
+**The object file a settled program owes: its entry points, its storage and its
+image.**  Complete; ledger row 27 is its record.  Five handout tests, at four
+owners, and the whole of what was the largest coherent failure group.
 
 - *Owner and data flow.*
-  - `sema_init_list.cpp` — 8.5.3p5.  A braced-init-list bound to a reference
-    initializes a temporary of the type the reference *refers to*, so
-    `list_initialize_into` writes that object on the fact and leaves the place
-    on `spelled` - the pair the `Value` beside it already hands back.  The dump
-    text is the place's, so PA11 and PA12 are untouched.
-  - `lowir_lower.h` / `lowir_lower_object.cpp` — `passed_array`, the one
-    question both call-argument doors ask: which array object this argument
-    stands storage up for.  8.3.5p5 leaves one by-value parameter carrying an
-    array and 8.5.3p5's temporary at a reference to one is that same object;
-    an argument that names an array binds it and opens nothing.
-  - `lowir_lower_expression.cpp` / `lowir_lower_object.cpp` — both doors ask it,
-    so a list at a reference to an array opens `argarr` storage and passes its
-    address rather than falling to the scalar reading, which kept the first
-    clause alone and stored it at the array's whole width.
-- *Expected complexity.*  One `is_reference`, one `kind` and one fact-kind test
-  per argument of every call; the fact the producer writes is the type it had
-  already computed.  What moves is the work now actually done - one store per
-  clause where there had been one wrong store.
-- *Validation.*  20 shapes of a list at a reference place and 12 of a braced
-  argument to a folded call, judged through the real `compare_results.pl` and
-  run through `lowir2cy86` + `cy86`: all byte-identical to the reference and all
-  at `g++`'s value, with 16 of the 20 failing on the pre-audit binary.  pa23
-  **422 / 447 -> 424 / 448**, the fixture among them; `through-pa22`
-  2948 / 2948; file audit clean; 0 exits above 1 over 13229 inputs of pa10
-  through pa29; valgrind clean over 123.
+  - `sema_lifetime.cpp` / `sema_elision.cpp` — 8.5p16 asked of what a list
+    *came to* rather than of the entries the program wrote.  `construct_object`
+    reads the `InitializerClauses` once, before it decides anything, and a list
+    whose every entry is an expansion of an empty run is 8.5p16's `()`: it
+    value-initializes and is no 5.2.3p2 elided prvalue.  The same reading is
+    then handed to the arguments, so nothing is expanded twice.
+  - `lowir_lower.cpp` — two questions of the object file.  `low_type` gives an
+    object 1.8p5's byte where 8.5.1p4 left an array of no elements, so a slot
+    is `obj<1x4>` and not `obj<0x4>`.  `writes_base_entry` reads 9.3p2 of an
+    *instantiated* member: a definition written outside its class body is one
+    this unit writes whole, so it owes both of the ABI's entry points wherever
+    a base subobject asked for either - and 14.5.2p1's member template is left
+    to the arm that follows the use, which `primary` is what says.
+  - `lowir_image.cpp` — `add_zero_elements`, 8.5.1p7's elements no clause
+    reached.  Value-initializing one is the zero of an *element*, so the image
+    holds one item at the element's own type; only padding and a null pointer
+    are runs, and an object 8.5p6 default-initialized keeps its one run.
+  - `sema_template_head.cpp` — 7.1.6.1p1's one spelling of a cv-qualifier,
+    written after the type at every level of a declarator, with ` *` and ` &`
+    apart from what they qualify.  It is what internal LowIR names flatten, so
+    `cache<const int>` and `cache<int *const>` stay two names.
+- *Expected complexity.*  One `WrittenList` per initialization where there had
+  been one, one comparison per `low_type`, two field reads per entry-point
+  question, and one pass over an image's uncovered elements bounded by
+  `kZeroImageLimit` - with the walk down a nested array's dimensions a loop, so
+  no path recurses per bracket or per element.
+- *Validation.*  101 generated shapes over the five behaviors, judged through
+  the real `compare_results.pl` against the reference: **69 diverged on the
+  pre-checkpoint binary and 9 do now**, every one of the 9 a divergence the
+  baseline had too, and all 101 run through `lowir2cy86` + `cy86` to `g++`'s
+  value.  pa23 **424 / 448 -> 434 / 453** (handout 376 -> 381 / 400) with five
+  course fixtures added; `through-pa22` 2948 / 2948; file audit clean; 0 exits
+  above 1 over 4091 inputs of pa10 through pa29 and cppgm.tests; valgrind clean
+  over 106.
 
 ## Next Substantial Checkpoint
 
-**The eight LowIR text mismatches**, which is now the largest coherent group and
-two owners': `lowir_lower_object.cpp` for an aggregate's member initialization
-and an unknown-bound array's slot size, and `lowir_image.cpp` for the digits a
-written clause is spelled with.  Behind it: the four calls no declaration
-answers, which are 14.8.2 proper and `sema_deduce.cpp`'s.
+**The four calls or names no declaration answers**, which is now the largest
+coherent group and 14.8.2 proper: `sema_deduce.cpp` for
+300-explicit-template-call-transitive-base-deduction and
+300-nondeduced-partial-pattern-recursive-completion, `sema_specialize.cpp` for
+14.5.7p1's equivalence in 300-equivalent-alias-return-template-redeclaration,
+and `sema_template_head.cpp` for the unnamed non-type pack place.  Beside it,
+cheaply: the constructor template whose empty run is chosen once and refused the
+second time, which is one memo and three of the SFINAE tests' shape.
 
 ## Performance Model
 
@@ -323,12 +372,23 @@ binary's LowIR, with both builds' LowIR byte-identical through the real
 comparator.  A probe that has to be run to a value writes four arguments or
 fewer and passes scalars, pointers or references.
 
-Every sweep through checkpoint 24 came out linear in multiplicity and flat in
-nesting, at or below the pre-checkpoint binary; the individual rows are
-superseded and the shapes that mattered are named in the ledger.  What is live:
+Every sweep through checkpoint 27 came out linear in multiplicity and flat in
+nesting, at or below the pre-checkpoint binary measured in a worktree built the
+same way; the individual rows are superseded and the shapes that mattered are
+named in the ledger.  The whole corpus of pa10 through pa29 and cppgm.tests -
+4091 inputs, one process apiece - reads **17.21 / 18.02 s** on this checkpoint's
+binary against **17.50 / 17.70 s** on the one before it, which is the spawn
+floor of 4091 processes and no difference between the two.  What is live:
 
 | sweep | shape | result |
 | --- | --- | --- |
+| empty-run initializations | n classes whose only constructor expands `v(a...)` over an empty run | 0.03 s @200, 0.16 @800, 0.72 @3200 - and 0.03 / 0.15 / 0.69 on the pre-checkpoint binary, so reading the clauses once for 8.5p16 *and* for the arguments costs what reading them once for the arguments alone did |
+| non-empty expansion multiplicity | n constructors whose `v{a...}` expands over a run of four | 0.06 s @200, 0.27 @800, 1.19 @3200 - and 0.06 / 0.27 / 1.16 before, so the hoisted reading is the same one reading |
+| out-of-class entry points | n class templates with an out-of-class constructor, each a base of one more | 0.07 s @200, 0.34 @800, 1.74 @3200 - and 0.07 / 0.36 / 1.75 before; two field reads per question |
+| cv-qualified specialization names | n specializations of one template over `int const * const * volatile[k]` | 0.02 s @200, 0.07 @800, 0.38 @3200 - and 0.02 / 0.09 / 0.54 before, so the trailing spelling is a shorter walk and not a longer one |
+| written global image multiplicity | n globals `int g[8] = {1}` | 0.00 s @200, 0.02 @800, 0.10 @3200 - and 0.00 / 0.02 / 0.08 before, which is the 7 items per global now written |
+| written global image width | one `int a[n] = {}` | 0.00 s at every n; 1043 lines of LowIR at 1024 elements and 20 at 4096, where `kZeroImageLimit` collapses it - so the axis is bounded by construction and the reference's 2,000,010 lines at a million has no counterpart here |
+| declarator depth | `int a[1][1]...[1] = {}` alone, and `C<int const *...*>` | 0.00 / 0.02 / 0.06 s @2000 / 8000 / 20000 brackets and 0.00 / 0.00 / 0.01 @200 / 800 / 3200 stars - identical to the pre-checkpoint binary, so neither `add_zero_elements` nor `type_spelling` recurses per level |
 | computed-bound multiplicity | n function templates with `T (&)[N][N], T (&)[N - 1]`, one call apiece | 0.03 s @200, 0.14 @800, 0.59 @3200 - linear, and the same over three distinct bound spellings, so a distinct spelling costs one interning and no walk |
 | braced-argument multiplicity | n folded calls whose argument is a braced-init-list | 0.00 s @200, 0.01 @800, 0.03 @3200 - linear |
 | pack mem-initializer multiplicity | n folds of one `value(args...)` constructor | 0.00 s @200, 0.01 @800, 0.04 @3200 - linear |
@@ -351,6 +411,17 @@ Why the new work costs what it does:
 - 3.9.3p5 in the deduction is two calls of `object_cv` / `object_unqualified`
   per array pair, each a loop down the dimensions, and the `relaxed` flag is a
   parameter rather than a second walk.
+- 8.5p16's emptiness is asked of the `InitializerClauses` the initialization was
+  going to build anyway: `construct_object` builds it once, before the form is
+  settled, and hands the same one to the arguments - so a list holding no
+  expansion pays one node-kind test per entry and allocates nothing, and one
+  holding an expansion opens its element regions once rather than twice.
+- 8.5.1p7's uncovered elements are one pass bounded by `kZeroImageLimit`, and
+  the walk down a nested array's dimensions is a loop that multiplies the
+  bounds: an array of arrays has no padding between its elements, so the items
+  are its scalars in storage order and no level of the declarator is a frame.
+- 7.1.6.1p1's spelling moved from a prefix to a suffix, which is the same two
+  appends at the same one place in the loop `type_spelling` already ran.
 - 8.5.4's list at a call is the same `InitializerClauses` the list needed
   anyway, built once for 13.3's length and once for the reading at the place -
   so a call with n braced arguments pays 2n walks of clauses it already had, and
@@ -395,3 +466,4 @@ Why the new work costs what it does:
 | 24 | audit: the ending delimiter read backwards | `sema_pack` | 415 -> 416 / 447; 167 probes, 123 through the real comparator |
 | 25 | the constructs 5.19 and a deduction had no fold for | `sema_constexpr`, `sema_constexpr_statement`, `sema_constexpr_object`, `sema_deduce`, `sema_declaration.h`, `sema_analyzer.h`, `sema_template`, `lowir_lower_object`, `lowir_lower.h` | 416 -> 422 / 447 (handout 369 -> 375 / 400); 31 + 36 shapes against `g++`, the reference and this build; 3918-input crash sweep clean; valgrind clean |
 | 26 | audit: the object a list at a reference place initializes | `sema_init_list`, `lowir_lower_expression`, `lowir_lower_object`, `lowir_lower.h`, `sema_constexpr`, `sema_declaration.h` | 422 / 447 -> 424 / 448 (handout 375 -> 376 / 400); 140 probes, 101 through the real comparator and 41 run to `g++`'s value; 13229-input crash sweep clean; valgrind clean over 123 |
+| 27 | the object file a settled program owes: its entry points, its storage and its image | `sema_lifetime`, `sema_elision`, `lowir_lower`, `lowir_lower.h`, `lowir_image`, `sema_template_head` | 424 / 448 -> 434 / 453 (handout 376 -> 381 / 400); 101 shapes through the real comparator, 69 diverging before and 9 after, all 101 run to `g++`'s value; 4091-input crash sweep clean; valgrind clean over 106 |

@@ -761,16 +761,23 @@ std::string SemaAnalyzer::type_spelling(TypeId type) const
 		if (kind == TypeKind::Pointer || kind == TypeKind::LValueReference ||
 		    kind == TypeKind::RValueReference)
 		{
+			// 8.3.1p1 and 7.1.6.1p1: a declarator's `*` follows the type it
+			// derives from and a cv-qualifier-seq written after one qualifies
+			// the pointer rather than the pointee, so the two stand apart and
+			// each has the space that separates it from what it was written
+			// beside.  The spelling is what internal LowIR names flatten, and
+			// `int * const` and `int const` are two types whose names have to
+			// stay two.
 			std::string mark = kind == TypeKind::Pointer
-				? "*"
-				: (kind == TypeKind::LValueReference ? "&" : "&&");
+				? " *"
+				: (kind == TypeKind::LValueReference ? " &" : " &&");
 			if ((cv & kCvConst) != 0)
 			{
-				mark += "const";
+				mark += " const";
 			}
 			if ((cv & kCvVolatile) != 0)
 			{
-				mark += "volatile";
+				mark += " volatile";
 			}
 			suffix = mark + suffix;
 			at = types_.target(at);
@@ -784,19 +791,18 @@ std::string SemaAnalyzer::type_spelling(TypeId type) const
 			at = types_.target(at);
 			continue;
 		}
+		// 7.1.6.1p1: a cv-qualifier-seq may be written on either side of the
+		// type it qualifies and `const int` and `int const` are one type, so a
+		// spelling written *from* the type has one of them to choose.  It is
+		// the trailing one, which is the only side a derived declarator has -
+		// `int * const` has no other place to put it - so one rule spells every
+		// level of a declarator and the name a specialization is known by is
+		// the same shape at each.
+		//
 		// 8.3.5p1 writes a function type's cv-qualifier-seq after its
-		// parameter-clause rather than before its result, so the Function arm
-		// below spells its own - together with 8.3.5p7's ref-qualifier, which
-		// nothing here wrote and which is what tells `R(A...) const` from
-		// `R(A...) const &`.
-		if ((cv & kCvConst) != 0 && kind != TypeKind::Function)
-		{
-			out += "const ";
-		}
-		if ((cv & kCvVolatile) != 0 && kind != TypeKind::Function)
-		{
-			out += "volatile ";
-		}
+		// parameter-clause rather than after its result, and a pointer to
+		// member carries its own on the `*` the arm below writes, so both spell
+		// theirs where they stand.
 		switch (kind)
 		{
 		case TypeKind::Class:
@@ -890,14 +896,36 @@ std::string SemaAnalyzer::type_spelling(TypeId type) const
 		}
 
 		case TypeKind::MemberPointer:
+		{
 			out += type_spelling(types_.target(at)) + " " +
 				type_spelling(types_.member_class(at)) + "::";
-			suffix = "*" + suffix;
+			std::string mark = "*";
+			if ((cv & kCvConst) != 0)
+			{
+				mark += " const";
+			}
+			if ((cv & kCvVolatile) != 0)
+			{
+				mark += " volatile";
+			}
+			suffix = mark + suffix;
 			break;
+		}
 
 		default:
 			out += fundamental_type_name(types_.fundamental_type(at));
 			break;
+		}
+		if (kind != TypeKind::Function && kind != TypeKind::MemberPointer)
+		{
+			if ((cv & kCvConst) != 0)
+			{
+				out += " const";
+			}
+			if ((cv & kCvVolatile) != 0)
+			{
+				out += " volatile";
+			}
 		}
 		break;
 	}

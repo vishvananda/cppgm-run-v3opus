@@ -651,6 +651,10 @@ private:
 	// `bytes` of zero, added to the items when there are any to add.
 	static void add_zero_item(lowir_model::GlobalDefinition& global,
 	                          unsigned long long bytes);
+	// 8.5.1p7: `count` elements of `element` that no clause reached, as the
+	// items value-initializing each of them leaves.
+	void add_zero_elements(lowir_model::GlobalDefinition& global, TypeId element,
+	                       unsigned long long count, unsigned long long stride);
 	// The literal `bits` of `type` is written as, signed when the type is - and
 	// signed when the *LowIR* type is, for the one operand that names an
 	// object's whole storage rather than a clause the program wrote.
