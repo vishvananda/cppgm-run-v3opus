@@ -9,6 +9,7 @@
 #include "sema_deduce.h"
 #include "sema_name.h"
 #include "sema_pack.h"
+#include "sema_reading.h"
 #include "sema_template.h"
 #include "sema_template_head.h"
 
@@ -386,6 +387,198 @@ bool Specialization::record_explicit(const AstNode& declared,
 	primary->templated->explicit_variables[analyzer_.types_.type_list(arguments)] =
 		&declared;
 	return true;
+}
+
+// 14.7.3p11 with 14.8.2.6: which template a `template<>` declaration is a
+// specialization of, where one written argument list fits an overload set.
+//
+// The list makes a specialization of every declaration of the name whose head
+// it fits, and 14.8.2.6p1 says the declaration's own *type* is what tells those
+// apart: this head specializes the one whose function type is the type its
+// declarator wrote.  It is the same match 14.7.2p2 asks of an explicit
+// instantiation, asked here of candidates the argument list already settled -
+// so nothing is deduced, the type is read once, and the walk is one comparison
+// per declaration of the name.
+//
+// A refusal from that reading is no answer about the head: the ordinary walk
+// reads the same declaration next and makes the same refusal where it stands,
+// so the reading is rolled back to no candidate rather than ending the program.
+SemaEntity* Specialization::explicit_target(const AstNode& declared,
+                                            const AstNode& declarator,
+                                            const std::string& written,
+                                            const SemaContext& ctx,
+                                            const std::vector<SemaEntity*>& found)
+{
+	if (declared.children.empty())
+	{
+		return nullptr;
+	}
+	const QualifiedName spelled(written);
+	SemaSpan span;
+	span.begin = declared.begin;
+	span.end = declared.end;
+	TypeId declared_type = kNoType;
+	TypeId member_type = kNoType;
+	try
+	{
+		const Naming naming(analyzer_, analyzer_.naming_context(written, ctx));
+		const DeclSpecifiers specifiers = analyzer_.read_specifiers(
+			*declared.children[0], ctx, span, true, written);
+		// 3.4.1p8: the rest of a declarator whose declarator-id is qualified is
+		// read in the region that name reaches, which for a member of a class is
+		// the class its nested-name-specifier names.
+		SemaContext reached = ctx;
+		if (spelled.qualified())
+		{
+			reached.scope = analyzer_.resolve_prefix(spelled, ctx);
+			reached.dump = reached.scope->dump;
+		}
+		std::string ignored;
+		declared_type = analyzer_.declarator_type(
+			declarator, analyzer_.specifier_type(specifiers),
+			spelled.qualified() ? reached : ctx, &ignored, nullptr,
+			declares_object_member(specifiers));
+		// 9.3.1p3: the object a member function is called on is no part of what
+		// its declarator wrote and is part of the type its declaration has, so
+		// both spellings are built here and each candidate is asked with the one
+		// it carries.
+		member_type =
+			analyzer_.types_.kind(declared_type) == TypeKind::Function
+				? analyzer_.with_object_parameter(declared_type, declarator,
+				                                  reached, specifiers.is_static,
+				                                  spelled.last(),
+				                                  spelled.qualified())
+				: declared_type;
+	}
+	catch (const std::runtime_error&)
+	{
+		return nullptr;
+	}
+	std::vector<SemaEntity*> candidates;
+	// 14.7.3p11: how many declarations of the name this head could be a
+	// specialization of at all, which is what says a type that fits none of them
+	// is a program refused rather than a declaration this clause says nothing
+	// about.
+	std::size_t fits = 0;
+	if (found.empty())
+	{
+		// 14.8.2.6p1: the head wrote no argument list, so the whole of it is what
+		// the type deduces - one declaration of the name at a time, which is
+		// 14.8.2.2's walk asked with the target the declarator wrote.
+		fits = gather_deduced(written, declared_type, member_type, ctx, spelled,
+		                      candidates);
+	}
+	else
+	{
+		// 14.8.1p2: an entry the list settled outright is a specialization whose
+		// type is all there is left to compare, and one it left a place of is a
+		// candidate 14.8.2.2 deduces the rest of - which is the same pair of arms
+		// 14.7.2p2's explicit instantiation is matched through.
+		for (std::size_t index = 0; index < found.size(); ++index)
+		{
+			SemaEntity& at = *found[index];
+			const TypeId wanted =
+				at.object_member ? member_type : declared_type;
+			if (at.partial_of == nullptr &&
+			    (at.primary == nullptr || at.primary->templated == nullptr))
+			{
+				continue;
+			}
+			++fits;
+			SemaEntity* const one =
+				at.partial_of != nullptr
+					? Deduction(analyzer_).from_target(at, wanted)
+					: (at.type == wanted ? &at : nullptr);
+			if (one != nullptr)
+			{
+				candidates.push_back(one);
+			}
+		}
+	}
+	SemaEntity* chosen = nullptr;
+	for (std::size_t index = 0; index < candidates.size(); ++index)
+	{
+		SemaEntity& one = *candidates[index];
+		if (one.primary == nullptr || one.primary->templated == nullptr ||
+		    one.type != (one.object_member ? member_type : declared_type))
+		{
+			continue;
+		}
+		if (chosen == nullptr || chosen == &one)
+		{
+			chosen = &one;
+			continue;
+		}
+		// 14.8.2.6p1: where the type fits two of them, 14.5.6.2's ordering is
+		// what leaves one, and a pair it leaves unordered is 14.7.3p11's
+		// "exactly one template" the program did not write.
+		if (analyzer_.more_specialized(one, *chosen))
+		{
+			chosen = &one;
+		}
+		else if (!analyzer_.more_specialized(*chosen, one))
+		{
+			return nullptr;
+		}
+	}
+	if (chosen == nullptr && fits > 0)
+	{
+		// 14.7.3p11: a template of this name could have been what the head
+		// specialized and the type the declarator wrote is none of theirs, so
+		// there is no template this is a specialization of - which is a program
+		// refused rather than a declaration the ordinary walk reads as anything
+		// else.
+		throw std::runtime_error(
+			"the explicit specialization " + written +
+			" writes a type no template of that name is declared with");
+	}
+	return chosen;
+}
+
+// 14.8.2.6p1 where the head wrote no argument list: the specialization each
+// declaration of the name makes of the type this declaration wrote, and how many
+// declarations of it 14.7.3p11 could have been asked about at all.
+//
+// 3.4.1p8's walk reaches the declarations the name is bound to, and each of them
+// that a head parameterises is asked for the arguments 14.8.2.2 deduces from the
+// target - which is the same door 14.7.2p2's explicit instantiation goes
+// through, and which discards a candidate whose substitution is ill formed
+// rather than refusing the program.
+std::size_t Specialization::gather_deduced(const std::string& written,
+                                           TypeId declared_type,
+                                           TypeId member_type,
+                                           const SemaContext& ctx,
+                                           const QualifiedName& spelled,
+                                           std::vector<SemaEntity*>& out)
+{
+	SemaContext reached = ctx;
+	if (spelled.qualified())
+	{
+		reached.scope = analyzer_.resolve_prefix(spelled, ctx);
+		reached.dump = reached.scope->dump;
+	}
+	SemaEntity* const first =
+		spelled.qualified()
+			? analyzer_.model_.lookup_in(*reached.scope, spelled.last(),
+			                             LookupKind::Any)
+			: analyzer_.resolve(written, ctx, LookupKind::Any);
+	std::size_t fits = 0;
+	for (SemaEntity* at = first; at != nullptr; at = at->next)
+	{
+		if (at->kind != SemaKind::Function || at->template_parameters == nullptr ||
+		    at->templated == nullptr)
+		{
+			continue;
+		}
+		++fits;
+		SemaEntity* const one = Deduction(analyzer_).from_target(
+			*at, at->object_member ? member_type : declared_type);
+		if (one != nullptr)
+		{
+			out.push_back(one);
+		}
+	}
+	return fits;
 }
 
 // 14.7.3p1 read in the source order the clause says nothing about: the program

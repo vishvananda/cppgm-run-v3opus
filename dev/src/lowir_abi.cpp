@@ -1171,16 +1171,31 @@ const std::string& LocalContexts::context_of(const SemaEntity& function)
 
 }  // namespace
 
+namespace
+{
+
+// 14.7.3p5: a class the program wrote out with `template<>` is no instantiation
+// of anything - its body is unrelated to the pattern's and its members are
+// declared and defined the way a normal class's are - so the classes a
+// declaration is named through say "an instantiation made this" only where the
+// specialization is one a *reading of the pattern* made.
+bool made_by_an_instantiation(const SemaEntity& owner, TypeTable& types)
+{
+	return types.is_specialization(owner.type) && !owner.explicit_specialization;
+}
+
+}  // namespace
+
 bool abi_instantiated_class(const SemaEntity& entity, TypeTable& types)
 {
-	if (types.is_specialization(entity.type))
+	if (made_by_an_instantiation(entity, types))
 	{
 		return true;
 	}
 	const std::vector<const SemaEntity*> owners = owning_classes(entity);
 	for (std::size_t index = 0; index < owners.size(); ++index)
 	{
-		if (types.is_specialization(owners[index]->type))
+		if (made_by_an_instantiation(*owners[index], types))
 		{
 			return true;
 		}
@@ -1203,11 +1218,14 @@ bool abi_instantiated(const SemaEntity& entity, TypeTable& types)
 		return true;
 	}
 	// 14.2: a member of a class a template-id named is made where a use asks
-	// for it, so the classes the declaration is named through are what say it.
+	// for it, so the classes the declaration is named through are what say it -
+	// and 14.7.3p5's class is what none of them is, because the program wrote
+	// its body out and this unit owes the member exactly what an ordinary
+	// class's member owes.
 	const std::vector<const SemaEntity*> owners = owning_classes(entity);
 	for (std::size_t index = 0; index < owners.size(); ++index)
 	{
-		if (types.is_specialization(owners[index]->type))
+		if (made_by_an_instantiation(*owners[index], types))
 		{
 			return true;
 		}

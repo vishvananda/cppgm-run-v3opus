@@ -274,6 +274,15 @@ bool SemaAnalyzer::record_explicit_specialization(const AstNode& declared,
 			WrittenBody(&declared, model_.written_bound());
 	}
 	SemaEntity& made = instantiate_class(*primary, arguments);
+	// 14.7.3p5: the definition of an explicitly specialized class is unrelated to
+	// the one an instantiation of the pattern would have made, and its members are
+	// defined the way a normal class's are - so what this unit owes the program
+	// for one of them is what 3.2p3 and 9.3p2 say of any member of a class the
+	// program wrote out, and not what 14.7.1p1 says of a definition an
+	// instantiation made.  The forward declaration says it as plainly as the
+	// body does: from here on no argument list of this template reaches the
+	// pattern.
+	made.explicit_specialization = true;
 	if (declared.kind != AstKind::ClassSpecifier)
 	{
 		return true;
@@ -369,34 +378,35 @@ bool SemaAnalyzer::record_explicit_function(const AstNode& declared,
 		// it; a declaration with none is what a function's may be.
 		return false;
 	}
-	const AstNode* const id = defines
-		? (declared.children.size() > 1 ? declarator_id(*declared.children[1])
-		                                : nullptr)
-		: (init->children.empty() ? nullptr
-		                          : declarator_id(*init->children[0]));
-	if (id == nullptr || !TemplateId(QualifiedName(id->text).last()).valid())
+	const AstNode* const declarator = defines
+		? (declared.children.size() > 1 ? declared.children[1] : nullptr)
+		: (init->children.empty() ? nullptr : init->children[0]);
+	const AstNode* const id =
+		declarator == nullptr ? nullptr : declarator_id(*declarator);
+	if (id == nullptr)
 	{
 		return false;
 	}
+	// 14.8.1p2 and 14.8.2.6p1: the head may write the whole argument list, a
+	// leading part of it, or none at all, and what the declaration's own *type*
+	// leaves unsettled is what the deduction is asked for.  A list this walk can
+	// settle outright is the cheap answer and is tried first.
+	const bool wrote_list = TemplateId(QualifiedName(id->text).last()).valid();
 	std::vector<SemaEntity*> found;
-	template_specializations(id->text, ctx, found);
-	SemaEntity* chosen = nullptr;
-	for (std::size_t index = 0; index < found.size(); ++index)
+	if (wrote_list)
 	{
-		if (found[index]->primary != nullptr &&
-		    found[index]->primary->templated != nullptr)
-		{
-			// 14.7.3p11: the declaration shall be a specialization of exactly
-			// one template, which one written argument list over one overload
-			// set leaves whenever the set holds one that fits it.
-			if (chosen != nullptr)
-			{
-				return false;
-			}
-			chosen = found[index];
-		}
+		template_specializations(id->text, ctx, found);
 	}
-	if (chosen == nullptr)
+	// 14.7.3p11 with 14.8.2.6: the specialization this head declares is the one
+	// whose function type is the type the declarator wrote.  The list settles
+	// which declarations of the name are candidates at all and the type settles
+	// which of those it is, so the declarator is read once here - which is also
+	// where p11's "exactly one template" is refused, both for a type no candidate
+	// has and for a pair 14.5.6.2 leaves unordered.
+	SemaEntity* const chosen = Specialization(*this).explicit_target(
+		declared, *declarator, id->text, ctx, found);
+	if (chosen == nullptr || chosen->primary == nullptr ||
+	    chosen->primary->templated == nullptr)
 	{
 		return false;
 	}

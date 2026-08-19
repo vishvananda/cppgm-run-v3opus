@@ -9,6 +9,7 @@
 #include "type_model.h"
 
 struct AstNode;
+class QualifiedName;
 class Scope;
 class SemaAnalyzer;
 struct SemaContext;
@@ -58,6 +59,26 @@ public:
 	// `template<>` head wrote for one argument list, held against that list so
 	// that the reading of a specialization finds it in place of the pattern.
 	bool record_explicit(const AstNode& declared, const SemaContext& ctx);
+
+	// 14.7.3p11 with 14.8.2.6: which of several templates the declaration a
+	// `template<>` head wrote is a specialization of, where one written
+	// argument list fits more than one declaration of an overloaded name.  The
+	// type the declarator wrote is what tells them apart, and 14.5.6.2's
+	// ordering is what leaves one where the type fits two.  Null where nothing
+	// fits and where the pair is unordered, which is p11's "exactly one
+	// template" refused and leaves the ordinary walk to read the declaration.
+	SemaEntity* explicit_target(const AstNode& declared,
+	                            const AstNode& declarator,
+	                            const std::string& written,
+	                            const SemaContext& ctx,
+	                            const std::vector<SemaEntity*>& found);
+	// 14.8.2.6p1 where the head wrote no argument list at all: the specialization
+	// each declaration of the name deduces from that type, and how many of them
+	// p11 could have been asked about.
+	std::size_t gather_deduced(const std::string& written, TypeId declared_type,
+	                           TypeId member_type, const SemaContext& ctx,
+	                           const QualifiedName& spelled,
+	                           std::vector<SemaEntity*>& out);
 
 	// 14.7.3p1 over a member of a class template specialization: which of the two
 	// definitions of it this unit holds.
