@@ -1566,7 +1566,8 @@ SemaEntity& SemaAnalyzer::class_declaration(const AstNode& node,
                                             bool define,
                                             const std::string& named_by,
                                             SemaEntity* as,
-                                            const std::string* spelled_as)
+                                            const std::string* spelled_as,
+                                            bool held)
 {
 	const ClassTag tag = tag_of(node);
 	// 7.1.3p2: a class its specifiers left unnamed is named by the first
@@ -1603,13 +1604,22 @@ SemaEntity& SemaAnalyzer::class_declaration(const AstNode& node,
 		              : class_head_entity(ctx, tag, spelled, written, define,
 		                                  outer.scope);
 
-	if (!name.empty())
+	if (!name.empty() && !held)
 	{
 		// The line is spelled as this declaration spells it, class-key and
 		// nested-name-specifier included.
 		ctx.dump->lines.push_back("type " + written + " " + tag_text(tag) + written);
 	}
 	if (!define)
+	{
+		return *entity;
+	}
+	// 14.7.1p1: instantiating a class template specialization instantiates the
+	// declarations of its member classes and not their definitions.  The
+	// declaration above is what the enclosing reading owes; the body waits for
+	// the first context 3.9p5 requires this class to be complete in, which is
+	// the same demand a specialization a name left declared answers.
+	if (!held && hold_member_class(*entity, node, outer, span, named_by))
 	{
 		return *entity;
 	}
@@ -1676,7 +1686,7 @@ SemaEntity& SemaAnalyzer::class_declaration(const AstNode& node,
 	// region this member stands in are what the enclosing reading settled - and
 	// what the written body says is what the class *holds*.
 	const AstNode* const specialized =
-		as != nullptr ? nullptr : written_member_class(outer, name);
+		as != nullptr && !held ? nullptr : written_member_class(outer, name);
 	const AstNode& body = specialized != nullptr ? *specialized : node;
 	// 10p1: the base-clause is read before the members, because from here on
 	// the class holds what its base declares - a type the base named, a member

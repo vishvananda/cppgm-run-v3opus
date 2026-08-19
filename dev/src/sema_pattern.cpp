@@ -132,6 +132,19 @@ void PatternReading::read_class(SemaEntity& primary)
 		// specialization can be generated from, so 14.6p8 has nothing to read.
 		return;
 	}
+	if (analyzer_.instantiating_class_ > 0)
+	{
+		// 14.7.1p1: instantiating a class template specialization instantiates
+		// the *declarations* of its member class templates and not their
+		// definitions, and this reading is a definition's.  14.6p8 asked it once
+		// already, where the enclosing template's own body was read and the
+		// places it writes were places; asking it again with those places bound
+		// reads a body no argument list of *this* template was given - so
+		// `static_assert(sizeof(T) == 0, ...)` written in a member template of
+		// `outer<T>` would refuse the program at `outer<int>`, which no
+		// specialization of the member was ever made from.
+		return;
+	}
 	const FunctionReading held(analyzer_, nullptr, kNoType);
 	const DialectReading dialect(analyzer_);
 	analyzer_.complete_specialization(current(primary));

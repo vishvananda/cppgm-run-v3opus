@@ -43,6 +43,12 @@ FunctionReading& operator=(const FunctionReading&);
 SemaAnalyzer& analyzer_;
 SemaEntity* self_;
 TypeId returns_;
+// 3.2p2 and 5p8: the statements of a body are potentially evaluated whatever
+// the reading that reached the body was, so the unevaluated operand standing
+// over it - a `decltype` whose expression completed a class, a `sizeof` whose
+// operand asked for an instantiation - is put aside here and given back where
+// this reading ends.
+unsigned unevaluated_;
 unsigned breakable_;
 unsigned continuable_;
 unsigned switches_;
@@ -132,6 +138,38 @@ private:
 
 	unsigned& depth_;
 	bool held_;
+};
+
+// 3.2p2 and 14.6.4.1p1: a reading that is a potentially-evaluated context of
+// its own, however it was reached.
+//
+// 5p8's unevaluated operand says nothing about what the *definitions* an
+// instantiation makes there name: a class completed inside `decltype` folds
+// the constant expressions its own members write, and the bodies it holds are
+// run wherever the program calls them - the point of instantiation is a
+// namespace-scope one and not the operand that asked for the type.  So the
+// depth is put aside at each instantiation's door and given back where it ends.
+class Evaluated
+{
+public:
+	explicit Evaluated(unsigned& depth)
+		: depth_(depth)
+		, held_(depth)
+	{
+		depth_ = 0;
+	}
+
+	~Evaluated()
+	{
+		depth_ = held_;
+	}
+
+private:
+	Evaluated(const Evaluated&);
+	Evaluated& operator=(const Evaluated&);
+
+	unsigned& depth_;
+	const unsigned held_;
 };
 
 // 14.5.1.3p1: the region standing between a class and the one around it while

@@ -43,6 +43,7 @@ FunctionReading::FunctionReading(SemaAnalyzer& analyzer,
 	: analyzer_(analyzer)
 	, self_(analyzer.self_)
 	, returns_(analyzer.returns_)
+	, unevaluated_(analyzer.unevaluated_)
 	, breakable_(analyzer.breakable_)
 	, continuable_(analyzer.continuable_)
 	, switches_(analyzer.switches_)
@@ -56,6 +57,7 @@ FunctionReading::FunctionReading(SemaAnalyzer& analyzer,
 	gotos_.swap(analyzer_.gotos_);
 	analyzer_.self_ = self;
 	analyzer_.returns_ = returns;
+	analyzer_.unevaluated_ = 0;
 	analyzer_.breakable_ = 0;
 	analyzer_.continuable_ = 0;
 	analyzer_.switches_ = 0;
@@ -66,6 +68,7 @@ FunctionReading::~FunctionReading()
 {
 	analyzer_.self_ = self_;
 	analyzer_.returns_ = returns_;
+	analyzer_.unevaluated_ = unevaluated_;
 	analyzer_.breakable_ = breakable_;
 	analyzer_.continuable_ = continuable_;
 	analyzer_.switches_ = switches_;

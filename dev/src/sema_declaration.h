@@ -214,6 +214,38 @@ struct ParameterRecord
 	std::vector<SemaEntity*> objects;
 };
 
+// 14.7.1p1: the body of a member class an instantiation declared and did not
+// define.
+//
+// Implicitly instantiating a class template specialization instantiates the
+// *declarations* of its member classes and not their definitions, so a member
+// class whose body names something no argument list can answer - a nested type
+// of a parameter, a `static_assert` over one - is a class the program has to
+// require complete before anything reads it.  What the deferred reading needs
+// is what the enclosing one had: the class-specifier, the region the enclosing
+// class opened and the dump it writes to, the terminals 9.5p2 names an unnamed
+// class from, 14.6.4.2p1's bound the definition was written under, and whether
+// 14.7.3p1's reading was the pattern's.  All of them outlive the reading that
+// recorded them, because the regions and the syntax are the model's.
+struct HeldClassBody
+{
+	HeldClassBody()
+		: node(nullptr)
+		, visible(0)
+		, from_pattern(false)
+	{
+		span.begin = 0;
+		span.end = 0;
+	}
+
+	const AstNode* node;
+	SemaContext ctx;
+	SemaSpan span;
+	std::string named_by;
+	std::uint32_t visible;
+	bool from_pattern;
+};
+
 // A definition the dump writes at the end of the translation unit.
 //
 // 12.1p5 gives a class a constructor no declaration wrote, and 9.2p2 makes

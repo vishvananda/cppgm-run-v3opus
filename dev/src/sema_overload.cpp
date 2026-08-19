@@ -1529,7 +1529,15 @@ SemaEntity& SemaAnalyzer::named_function(SemaEntity& selected)
 	// file holds - and every use reaches the declaration the base wrote, so the
 	// two part company here and nowhere below.
 	SemaEntity& function = declared_member(selected);
-	if (function.primary != nullptr)
+	// 14.7.1p1 with 3.2p2: a specialization is instantiated where it is named in
+	// a context that *requires* the definition to exist, and 5p8's unevaluated
+	// operand is not one - `decltype(declval<T>())` says what the call would be
+	// worth and runs nothing, so the body is no part of what the operand asks
+	// for.  The declaration the deduction made is the whole answer there, and it
+	// already stands; a later naming in a potentially-evaluated expression is
+	// what asks for the definition, and finds this one not yet instantiated.
+	const bool used = unevaluated_ == 0;
+	if (function.primary != nullptr && used)
 	{
 		// 14.7.1p1: choosing a specialization is what asks for it, and the
 		// declaration it stands for is written once however often it is named.
@@ -1545,6 +1553,10 @@ SemaEntity& SemaAnalyzer::named_function(SemaEntity& selected)
 	{
 		throw std::runtime_error(function.name +
 		                         " is named and is a deleted function");
+	}
+	if (!used)
+	{
+		return function;
 	}
 	// 12.8p28 and 3.2p3: naming an assignment operator the standard gave a
 	// class is what asks this unit for the definition of it.
@@ -2491,7 +2503,7 @@ SemaAnalyzer::Value SemaAnalyzer::call_expression(const AstNode& node,
 			: expression(callee, ctx, line);
 		if (adl && named != nullptr && named->primary != nullptr &&
 		    named->template_parameters == nullptr && named->next == nullptr &&
-		    found != nullptr && found->size() == 1)
+		    found != nullptr && found->size() == 1 && unevaluated_ == 0)
 		{
 			// 14.7.1p1: naming a specialization an explicit
 			// template-argument-list already made is what settles the

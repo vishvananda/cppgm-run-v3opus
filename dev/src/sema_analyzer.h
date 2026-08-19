@@ -300,11 +300,16 @@ private:
 	// in - the declaration it already made for the specialization, and the
 	// name the template-id gave it.  Both are null for every class the program
 	// declared itself, which is the one the class-head names.
+	// 14.7.1p1 again: `held` says this reading is the deferred definition of a
+	// member class the enclosing instantiation only declared, so the line the
+	// declaration already wrote is not written a second time and the entity is
+	// the one that reading made.
 	SemaEntity& class_declaration(const AstNode& node, const Context& ctx,
 	                              const Span& span, bool define,
 	                              const std::string& named_by,
 	                              SemaEntity* as = nullptr,
-	                              const std::string* spelled_as = nullptr);
+	                              const std::string* spelled_as = nullptr,
+	                              bool held = false);
 	// 9.1p2: the declaration a class-head names - one an earlier declaration in
 	// the region already made, or one this class-head makes.
 	// `declaring` is the region the class-head-name reaches, which is `ctx`'s
@@ -1880,6 +1885,21 @@ private:
 	// 10p1 and 14.6p8: a type a reading of a template definition requires to be
 	// complete where the definition stands, which no argument list can change.
 	void require_settled_type(TypeId type);
+	// 14.7.1p1: a member class of a class an instantiation is reading, whose
+	// declaration this reading makes and whose definition it does not - true
+	// where the body was put aside, and false for every class the program's own
+	// walk reaches, which is defined where it stands.
+	bool hold_member_class(SemaEntity& entity, const AstNode& node,
+	                       const Context& outer, const Span& span,
+	                       const std::string& named_by);
+	// The body that reading put aside, read where 3.9p5 first requires the
+	// class to be complete.  Nothing at all for a class no instantiation held.
+	void complete_held_class(SemaEntity& entity);
+	bool held_class(const SemaEntity& entity) const
+	{
+		return !held_classes_.empty() &&
+			held_classes_.find(entity.id) != held_classes_.end();
+	}
 	// 14.3p1 and 14.8.2: `type` with every template parameter `bindings` names
 	// replaced by the type bound to it.  The type table rebuilds every
 	// category that is only made of types; a specialization is the one that is
@@ -2178,6 +2198,11 @@ private:
 	// lets a specialization be laid out over an argument the bodies of the
 	// members nothing calls could not have been read against.
 	std::unordered_map<std::uint32_t, Pending> held_definitions_;
+	// 14.7.1p1 at the member *classes* of that same instantiation, which the
+	// same sentence leaves declared and undefined.  Keyed by the declaration
+	// each defines, so the demand 3.9p5 makes of a type is one probe of a map a
+	// unit that instantiated nothing leaves empty.
+	std::unordered_map<std::uint32_t, HeldClassBody> held_classes_;
 	// 14.7.3p1 at the object tier: the line each defined object's definition
 	// wrote, keyed by the declaration it defines.  A body 14.7.1p1's reading
 	// held is dropped from the map above where the program writes its own out
