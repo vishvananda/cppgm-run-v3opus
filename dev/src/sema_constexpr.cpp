@@ -468,6 +468,10 @@ SemaConstant ConstexprReading::initialized_value(const AstNode& wrote,
 	// `convert`, so the reading is the same whichever spelling of 8.5's
 	// initializers wrote it.
 	std::vector<SemaConstant> operands;
+	// 8.5.4p7's clause and the region it was read in, kept for the one place
+	// that clause has to be judged against: the type it initializes.
+	const AstNode* narrowed = nullptr;
+	SemaContext narrowed_in = ctx;
 	if (wrote.kind == AstKind::ParenInitializer ||
 	    wrote.kind == AstKind::BracedInitList)
 	{
@@ -484,6 +488,8 @@ SemaConstant ConstexprReading::initialized_value(const AstNode& wrote,
 			const SemaContext inner = clauses.in(ctx);
 			const AstNode& clause = clauses.next();
 			++clauses.at;
+			narrowed = &clause;
+			narrowed_in = inner;
 			operands.push_back(operand_constant(clause, inner));
 		}
 	}
@@ -493,11 +499,33 @@ SemaConstant ConstexprReading::initialized_value(const AstNode& wrote,
 	}
 	if (!built)
 	{
+		if (operands.empty() && wrote.kind == AstKind::BracedInitList &&
+		    !analyzer_.types_.is_reference(bare))
+		{
+			// 8.5.4p3: an initializer-list with no elements value-initializes
+			// the object, which 8.5p7 makes the zero of a scalar type - the same
+			// value `int()` comes to.  8.5.3p5 leaves a reference out: there is
+			// no temporary for an empty list to make of one.
+			SemaConstant zero;
+			zero.type = type;
+			return zero;
+		}
 		if (operands.size() != 1)
 		{
 			throw NotConstant("a constant expression initializes " +
 			                  analyzer_.types_.description(type) +
 			                  " from more than one value");
+		}
+		if (narrowed != nullptr && wrote.kind == AstKind::BracedInitList)
+		{
+			// 8.5.4p7: a list-initialization makes no narrowing conversion, and
+			// a clause the reading has a value for is judged by that value
+			// rather than by the range of the type it was written with.  It is
+			// the semantic layer's own walk of the clause, asked here because a
+			// call written where 5.19 reads - inside a `static_assert`, inside a
+			// template-argument-list - is a list no other reading ever analyzed.
+			analyzer_.require_no_narrowing(*narrowed, argument_value(operands[0]),
+			                               type, narrowed_in);
 		}
 		SemaConstant value = analyzer_.convert(operands[0], type);
 		value.type = type;
@@ -661,6 +689,21 @@ void ConstexprReading::argument_values(
 AnalyzedValue ConstexprReading::argument_value(const SemaConstant& value) const
 {
 	AnalyzedValue out;
+	if (value.braced != nullptr)
+	{
+		// 13.3.3.1.5p1: the argument is the braced-init-list itself, which has
+		// no type - so what it reaches a place through is a list-initialization
+		// sequence, ranked by how many clauses it wrote.  That is the one fact
+		// 13.3 needs of it, and it is the same value the expression layer builds
+		// for such an argument.
+		out.braced = value.braced;
+		SemaContext where;
+		where.scope = value.region;
+		where.dump = value.region == nullptr ? nullptr : value.region->dump;
+		out.clauses = InitializerClauses(value.braced, analyzer_, where).list.size();
+		out.category = ValueCategory::PRValue;
+		return out;
+	}
 	out.type = out.spelled = value.type;
 	// 3.10p1: an operand this reading has no value of is one it read for the
 	// object it designates alone, and that object is an lvalue - which is what
@@ -1401,6 +1444,25 @@ std::uint32_t ConstexprReading::passed_arguments(
 			where.dump = where.scope->dump;
 			given = operand_constant(*written->children[0]->children[0],
 			                         where, places[at]);
+		}
+		if (given.braced != nullptr)
+		{
+			// 8.5.4p1 with 13.3.3.1.5: the place is known now, so the list is
+			// read for it - 8.5.3p5 list-initializes a temporary of the referred
+			// type where the place is a reference and the place itself
+			// otherwise, which is the one reading a declaration of that type
+			// initialized from the same list would get.
+			SemaContext where;
+			where.scope = given.region;
+			where.dump = given.region == nullptr ? nullptr : given.region->dump;
+			const TypeId wanted = analyzer_.types_.is_reference(places[at])
+				? analyzer_.types_.target(places[at])
+				: places[at];
+			given = initialized_value(*given.braced, wanted, where);
+			given.type = wanted;
+			passed.push_back(given);
+			key.push_back(entry_of(given));
+			continue;
 		}
 		if (analyzer_.types_.is_reference(places[at]))
 		{
@@ -2409,6 +2471,21 @@ SemaConstant ConstexprReading::call_or_cast(const AstNode& node,
 		const SemaContext inner = written.in(ctx);
 		const AstNode& clause = written.next();
 		++written.at;
+		if (target == kNoType && clause.kind == AstKind::BracedInitList)
+		{
+			// 8.5.4p1: the operand is a braced-init-list, which is no
+			// expression and has no type of its own - `f({})` is 0 at an `int`
+			// place, a null pointer at a pointer one and an object at a class
+			// one - so there is nothing to arrive at until 13.3 has chosen the
+			// declaration whose place it fills.  The list travels as the
+			// operand and 8.5.4 reads it where that place is known, which is
+			// the same order 13.3.3.1.5 puts the two questions in.
+			SemaConstant listed;
+			listed.braced = &clause;
+			listed.region = inner.scope;
+			operands.push_back(listed);
+			continue;
+		}
 		// 8.3.2p1: a place this call may reach binds to the object the argument
 		// designates rather than to a value, so an argument that has no value
 		// this reading holds is still one such a place accepts.

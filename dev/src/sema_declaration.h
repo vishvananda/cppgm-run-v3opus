@@ -664,11 +664,21 @@ struct SemaConstant
 		, real(0)
 		, object(0)
 		, valued(true)
+		, braced(nullptr)
+		, region(nullptr)
 	{}
 
 	TypeId type;
 	unsigned long long bits;
 	long double real;
+	// 8.5.4p1: the braced-init-list an operand was written as, and the region it
+	// was written in.  A list is no expression and has no type of its own, so
+	// there is nothing for a fold to arrive at until the place it fills is known
+	// - `f({})` is 0 at an `int` place and an object at a class one - and the
+	// list therefore travels as the operand until 13.3 has chosen a declaration.
+	// Null for every operand the reading did arrive at a value or an object for.
+	const AstNode* braced;
+	Scope* region;
 	// 3.10p1: the object this value was read out of, where the expression that
 	// reached it designated one, and zero where it is a prvalue of its own.
 	std::uint32_t object;
